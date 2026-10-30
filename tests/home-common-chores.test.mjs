@@ -1,3 +1,4 @@
+import { plannerLightColors } from '../src/components/planner-theme.ts';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -238,6 +239,6 @@ for (const platform of ['ios', 'android']) test(`${platform} home list has a lea
     props.source = 'shared'; screen.render();
     assert.ok(icons().some(node => node.props.name.ios === 'person.3.fill' && node.props.size === 22));
     const stroke = allHosts(screen.render()).find(node => Array.isArray(node.props.style) && node.props.style.some(style => style?.borderRightWidth === 2));
-    assert.equal(stroke.props.style.find(style => style?.borderColor).borderColor, '#4AADE0');
+    assert.equal(stroke.props.style.find(style => style?.borderColor).borderColor, plannerLightColors.accent);
   } finally { h.connection.close(); }
 });

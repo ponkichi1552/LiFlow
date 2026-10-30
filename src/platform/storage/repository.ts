@@ -46,6 +46,9 @@ import type { SharedRepositoryMutation } from './shared-repository-adapter';
 import { stagePendingGoogleTaskStatus } from './google-task-link-state';
 import { commonChoreLinks, sharedMirrorEntryId, parseSharedMirrorEntryId } from '../../features/planner/common-chore-links.ts';
 import type { CommonCompletionSource } from '../../features/planner/common-chore-links';
+import { readCalendarEventRows } from './calendar-event-rows';
+import { combineCalendarAvailability, localCalendarAvailability } from '../../features/calendar/local-availability';
+import { notifyGooglePlannerChanges } from '../../features/google-sync/planner-change-events';
 
 export const LOCAL_HOUSEHOLD_ID = 'local-household';
 export const LOCAL_MEMBER_ID = 'local-member';
@@ -84,6 +87,11 @@ export function readCachedPlannerSnapshot(database: SQLiteDatabase, now = new Da
     || now.getTime() < cached.savedAt || now.getTime() > cached.expiresAt
     || snapshotVersions.get(cached.snapshot) !== (plannerVersions.get(database) ?? 0)) return null;
   return cached.snapshot;
+}
+/** Local event edits invalidate recommendations without uploading their private contents. */
+export function invalidateLocalCalendarPlan(database: SQLiteDatabase) {
+  plannerVersions.set(database, (plannerVersions.get(database) ?? 0) + 1); cachedPlannerSnapshots.delete(database);
+  notifyGooglePlannerChanges();
 }
 
 function runDatabaseOperation<T>(database: SQLiteDatabase, operation: () => Promise<T>): Promise<T> {
@@ -571,8 +579,10 @@ async function loadPlannerSnapshotImpl(
   const weatherOutcome: WeatherScheduleOutcome = settings.weatherLocation ? 'current' : 'disabled';
   const weatherAdjustmentCount = 0;
   // Availability is optional: corrupt/unavailable cache never prevents normal planning or completion.
-  const externalAvailabilityByDate = await getFreshCalendarAvailabilityDaysImpl(database, calendarNow, timeZone)
+  const googleAvailability = await getFreshCalendarAvailabilityDaysImpl(database, calendarNow, timeZone)
     .catch(() => undefined);
+  const localAvailability = await readCalendarEventRows(database).then(({ events, exceptions }) => localCalendarAvailability(events, exceptions, today, addDays(today, 180), timeZone)).catch(() => undefined);
+  const externalAvailabilityByDate = combineCalendarAvailability(googleAvailability, localAvailability);
   if (settings.setupCompleted) {
     // Repair records made by the old enable path, which left an unknown first date non-pending.
     const statesById = new Map(states.map((state) => [state.choreId, state]));
@@ -665,10 +675,10 @@ async function loadPlannerSnapshotImpl(
     externalAvailabilityByDate,
   };
   snapshotVersions.set(snapshot, plannerVersions.get(database) ?? 0);
-  const calendarState = externalAvailabilityByDate ? await loadCalendarAvailabilityStateImpl(database) : null;
+  const calendarState = googleAvailability ? await loadCalendarAvailabilityStateImpl(database) : null;
   const fetchedAt = calendarState?.lastSuccessfulSyncAt ? Date.parse(calendarState.lastSuccessfulSyncAt) : NaN;
   cachedPlannerSnapshots.set(database, { snapshot, today, timeZone,
-    savedAt: calendarNow.getTime(), expiresAt: externalAvailabilityByDate
+    savedAt: calendarNow.getTime(), expiresAt: googleAvailability
       ? Number.isFinite(fetchedAt) ? fetchedAt + CALENDAR_AVAILABILITY_MAX_AGE_MS : calendarNow.getTime()
       : Infinity });
   return snapshot;

@@ -1,3 +1,4 @@
+import { openCalendarDay } from './helpers/calendar-ui.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -39,7 +40,7 @@ test('waste appearance: only hidden weekly collection dates get grey-date inform
   assert.equal(wasteCalendarLabels(definitions, '2026-10-25', '2026-11-30').hiddenWeeklyByDate.size, 0, 'restore removes the grey-date information');
 });
 
-test('waste appearance: the real calendar distinguishes hidden weekly and active monthly collections on one date', () => {
+test('waste appearance: the real calendar distinguishes hidden weekly and active monthly collections on one date', async () => {
   const today = localDateFromDate(new Date());
   const snapshot = {
     chores: [], scheduleEntries: [], completions: [],
@@ -53,8 +54,9 @@ test('waste appearance: the real calendar distinguishes hidden weekly and active
   const date = screen.nodes().find((node) => node.type === 'Pressable' && node.props.accessibilityLabel?.includes('非表示の収集：可燃ごみ'));
   assert.ok(date?.props.accessibilityLabel.includes('粗大ごみ'), 'monthly collection remains visible when a weekly collection is hidden');
   assert.equal(date.props.accessibilityState.selected, true);
-  const plain = screen.nodes().find(node => node.type === 'Pressable' && node !== date && Array.isArray(node.props.style) && node.props.style.some(style => style?.minHeight === 36));
+  const plain = screen.nodes().find(node => node.type === 'Pressable' && node !== date && Array.isArray(node.props.style) && node.props.style.some(style => style?.flex === 1));
   const selectedStyle = Object.assign({}, ...date.props.style.filter(Boolean)); const plainStyle = Object.assign({}, ...plain.props.style.filter(Boolean));
-  assert.equal(selectedStyle.borderWidth + selectedStyle.paddingVertical, plainStyle.borderWidth + plainStyle.paddingVertical, 'the selected outline keeps the same date baseline as other days');
+  assert.equal(selectedStyle.padding, plainStyle.padding, 'the hidden outline keeps the same date baseline as other days');
+  await openCalendarDay(screen, today);
   assert.ok(screen.nodes().some((node) => node.type === 'Text' && node.children.includes('粗大ごみ')));
 });

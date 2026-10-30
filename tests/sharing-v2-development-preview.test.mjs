@@ -1,3 +1,4 @@
+import { openCalendarDay, moveCalendarMonth } from './helpers/calendar-ui.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -13,8 +14,8 @@ async function openRoute(preview, platform, file, params, navigation, readyText)
     navigate: (...args) => navigation.push(args), focusEffect: (callback) => { focus = callback; },
     transformSource: (path, source) => path.endsWith('/v2-preview-route.tsx') ? source.replaceAll('__DEV__', 'true') : source,
     mocks: { '@/platform/sharing/development-v2-preview': { developmentV2Preview: async () => preview } } });
-  const leave = focus(); for (let i = 0; i < 30 && !screen.text().includes(readyText); i++) await screen.flush();
-  assert.ok(screen.text().includes(readyText)); return { screen, leave };
+  const leave = focus(); for (let i = 0; i < 30 && !(readyText === '共有カレンダー' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(readyText)); i++) await screen.flush();
+  assert.ok((readyText === '共有カレンダー' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(readyText))); return { screen, leave };
 }
 
 test('v2 every isolated preview route denies release execution before opening the fixture', () => {
@@ -175,7 +176,7 @@ for (const platform of ['ios', 'android']) {
       assert.equal((await f.preview.readModel()).plan.occurrences.some((round) => round.choreId === chore.entityId), false);
       const navigation = []; let { screen, leave } = await openRoute(f.preview, platform, 'calendar', {}, navigation, '共有カレンダー'); cleanup = leave;
       const day = screen.nodes().find((node) => node.props.accessibilityLabel === '2026年10月12日、確認できる未完了の共有家事1件'); assert.ok(day);
-      await day.props.onPress(); await screen.flush();
+      await openCalendarDay(screen, '2026-10-12');
       await screen.press('過去の家事の説明を開く'); const target = navigation.at(-1); assert.equal(target[1].params.anchorDate, '2026-10-12');
       cleanup(); ({ screen, leave } = await openRoute(f.preview, platform, 'round', target[1].params, navigation, '実施を記録')); cleanup = leave;
       const past = screen.nodes().find((node) => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === '以前実施した');
@@ -196,7 +197,7 @@ for (const platform of ['ios', 'android']) {
       } };
       const before = (await f.preview.readModel()).pendingChanges;
       const { screen, leave } = await openRoute(preview, platform, 'calendar', {}, [], '共有カレンダー'); cleanup = leave;
-      await screen.press('次の月'); assert.ok(screen.text().includes('表示を更新できませんでした'));
+      await moveCalendarMonth(screen, 1); for (let i = 0; i < 35 && !failed; i++) { await new Promise(resolve => setTimeout(resolve, 10)); await screen.flush(); } assert.ok(screen.text().includes('表示を更新できませんでした'));
       assert.equal(screen.text().includes('端末に保存済みです'), false); assert.equal(screen.text().includes('この日の共有家事はありません'), false);
       assert.equal((await f.preview.readModel()).pendingChanges, before);
       await screen.press('この月を再読込'); assert.ok(screen.text().includes('2026年11月'));

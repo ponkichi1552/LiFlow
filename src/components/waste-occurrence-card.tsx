@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { palette, typography } from '@/components/planner-ui';
 import type { WasteCollectionOccurrence } from '@/features/waste/contracts';
 import { GroupIcon, PersonIcon } from './group-icon';
+import { WasteTypeIcon } from './waste-type-icon';
 
 /** Home uses a leading check; calendar keeps its aligned trailing check. */
 export function WasteOccurrenceCard({ occurrence, compact = false, hidden = false, busy = false, onToggle, home = false, source }: {
@@ -26,7 +27,7 @@ export function WasteOccurrenceCard({ occurrence, compact = false, hidden = fals
     <View style={[styles.row, compact && styles.compactRow, home && styles.homeRow]}>
       {home ? action : null}
       <View style={styles.copy}>
-        <Text style={[styles.name, compact && styles.compactName]}>{occurrence.label}</Text>
+        <View style={styles.nameRow}><WasteTypeIcon label={occurrence.label} size={compact ? 18 : 21} /><Text style={[styles.name, compact && styles.compactName]}>{occurrence.label}</Text></View>
         {!compact ? <View style={styles.metadata}>{source === 'shared' ? <GroupIcon size={22} /> : source === 'personal' ? <PersonIcon size={15} /> : null}<Text style={styles.caption}>ゴミ出し</Text></View> : null}
       </View>
       {!home ? action : null}
@@ -39,13 +40,14 @@ const styles = StyleSheet.create({
   compactRow: { minHeight: 56, paddingVertical: 5 },
   homeRow: { minHeight: 64, paddingVertical: 9, gap: 12 }, metadata: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   copy: { flex: 1, gap: 4 },
-  name: { ...typography.subheading, color: palette.ink, fontWeight: '600' },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  name: { ...typography.subheading, color: palette.ink, fontWeight: '600', flexShrink: 1 },
   compactName: { ...typography.body },
   caption: { ...typography.caption, color: palette.muted },
   action: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8 },
   checkboxColumn: { width: 28, alignItems: 'center' },
-  checkbox: { width: 28, height: 28, borderRadius: 8, borderWidth: 1.5, borderColor: '#C7D0E1', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  checkbox: { width: 28, height: 28, borderRadius: 8, borderWidth: 1.5, borderColor: palette.inputBorder, backgroundColor: palette.surface, alignItems: 'center', justifyContent: 'center' },
   compactCheckbox: { width: 24, height: 24, borderRadius: 7 },
   checked: { borderColor: palette.accent, backgroundColor: palette.accent },
-  checkmark: { color: '#FFFFFF', fontSize: 16, fontWeight: '800', lineHeight: 20 },
+  checkmark: { color: palette.accentInk, fontSize: 16, fontWeight: '800', lineHeight: 20 },
 });

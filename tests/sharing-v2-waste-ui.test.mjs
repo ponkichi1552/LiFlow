@@ -1,3 +1,4 @@
+import { openCalendarDay } from './helpers/calendar-ui.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -28,7 +29,7 @@ async function setup() {
     let focus; const screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen', platform,
       props: { purpose: 'workspace', view, loadSession: async () => session, onBack() {}, onConfiguration() {}, onHistory() {} }, focusEffect: callback => { focus = callback; } });
     const leave = focus(); mounted.push(leave);
-    await settle(screen, () => screen.text().includes(view === 'waste' ? '登録した収集日' : view === 'calendar' ? '共有カレンダー' : '今日の家事'));
+    await settle(screen, () => view === 'calendar' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(view === 'waste' ? '登録した収集日' : '今日の家事'));
     return screen;
   }
   return { base, owner, c, mount, failAfterNextAdd: () => { failAfterAdd = true; }, preferences: () => preferences,
@@ -68,9 +69,10 @@ for (const platform of ['ios', 'android']) {
       for (const field of ['chores', 'occurrences', 'history', 'policy', 'commonSettings']) assert.deepEqual(hidden.plan[field], before.plan[field]);
       assert.equal(hidden.waste.occurrences.filter(entry => entry.hidden).length, 1);
       assert.equal(hidden.waste.occurrences.find(entry => entry.occurrence.date === '2026-11-03').hidden, false);
-      const calendar = await f.mount(platform, 'calendar'); const checked = checkbox(calendar, true); assert.ok(checked); assert.equal(checked.props.accessibilityState.checked, true);
+      const calendar = await f.mount(platform, 'calendar');
       const date = calendar.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2026年10月27日'));
-      assert.ok(date.props.style.some(style => style?.borderColor === '#929BAA')); assert.ok(date.props.style.some(style => style?.flex === 1));
+      assert.ok(date.props.style.some(style => style?.backgroundColor)); assert.ok(date.props.style.some(style => style?.flex === 1));
+      await openCalendarDay(calendar, day); const checked = checkbox(calendar, true); assert.ok(checked); assert.equal(checked.props.accessibilityState.checked, true);
       const compact = calendar.nodes().find(node => node.type === 'View' && Array.isArray(node.props.style) && node.props.style.some(style => style?.minHeight === 56)); assert.ok(compact);
       assert.ok(calendar.nodes().some(node => node.type === 'Text' && node.children.join('') === '可燃' && node.props.style.some(style => style?.color === wasteTypeColor('可燃ごみ'))));
       await checked.props.onPress(); await settle(calendar, () => Boolean(checkbox(calendar)) && !checkbox(calendar, true));
@@ -79,23 +81,23 @@ for (const platform of ['ios', 'android']) {
     } finally { f.close(); }
   });
 
-  test(`${platform} shared calendar waste labels keep type colors and full-height selected outlines while task counts exclude collections`, async () => {
+  test(`${platform} shared calendar waste labels keep type marks and aligned grid cells while task counts exclude collections`, async () => {
     const f = await setup();
     try {
       await f.c.actions.addWasteSchedule({ label: '粗大ゴみ', recurrence: 'monthly', collectionWeekdays: [], monthlyDay: 27 });
       await f.c.actions.addWasteSchedule({ label: 'びん', recurrence: 'biweekly', collectionWeekdays: [2], anchorDate: day });
-      const screen = await f.mount(platform, 'calendar'); const list = screen.nodes().find(node => node.type === 'FlatList');
-      assert.deepEqual(list.props.data.map(entry => entry.source), ['waste', 'waste', 'shared']);
+      const screen = await f.mount(platform, 'calendar');
       const cell = screen.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2026年10月27日'));
       assert.match(cell.props.accessibilityLabel, /未完了の共有家事1件/u); assert.ok(cell.props.style.some(style => style?.flex === 1));
-      assert.ok(cell.props.style.some(style => style?.borderWidth === 2.5));
-      assert.ok(cell.props.style.some(style => style?.justifyContent === 'flex-start'), 'calendar dates must retain the same top baseline when only one day contains waste labels');
       const nextCell = screen.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2026年10月29日'));
       const selectedStyle = Object.assign({}, ...cell.props.style.filter(Boolean)); const nextStyle = Object.assign({}, ...nextCell.props.style.filter(Boolean));
-      assert.equal(selectedStyle.borderWidth + selectedStyle.paddingVertical, nextStyle.borderWidth + nextStyle.paddingVertical, 'a thicker selected outline must not lower its date');
-      const captions = screen.nodes().filter(node => node.type === 'Text' && Array.isArray(node.props.style) && node.props.style.some(style => style?.width === '100%'));
+      assert.equal(selectedStyle.padding, nextStyle.padding, 'waste labels never shift the common date baseline');
+      const captions = screen.nodes().filter(node => node.type === 'Text' && Array.isArray(node.props.style));
       assert.ok(captions.some(node => node.children.join('') === '粗大' && node.props.style.some(style => style?.color === wasteTypeColor('粗大ゴみ'))));
-      assert.ok(captions.every(node => !/[ごゴ][みミ]/u.test(node.children.join(''))));
+      assert.ok(captions.filter(node => node.children.join('') === '粗大').every(node => !/[ごゴ][みミ]/u.test(node.children.join(''))));
+      await openCalendarDay(screen, day);
+      const checks = screen.nodes().filter(node => node.props.accessibilityRole === 'checkbox');
+      assert.equal(checks.length, 3); assert.match(checks[0].props.accessibilityLabel, /ゴミ出し/u); assert.match(checks.at(-1).props.accessibilityLabel, /床を掃除/u);
       assert.equal((await f.read()).waste.schedules.find(row => row.label === '粗大ゴみ').label, '粗大ゴみ');
     } finally { f.close(); }
   });

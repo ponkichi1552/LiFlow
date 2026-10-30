@@ -597,11 +597,11 @@
     "tests": [
       {
         "file": "tests/mobile-system-appearance.test.mjs",
-        "name": "the white planner uses light native appearance on both platforms without changing identity resources"
+        "name": "the planner follows system native appearance on both platforms without changing identity resources"
       },
       {
         "file": "tests/mobile-system-appearance.test.mjs",
-        "name": "planner keeps dark status icons and only Android configures navigation buttons"
+        "name": "planner keeps readable status icons in ${colorScheme} and only Android configures navigation buttons"
       },
       {
         "file": "tests/app-branding.test.mjs",
@@ -3026,7 +3026,7 @@
     "feature": "v2-shared-waste-home-calendar-and-compact-appearance",
     "tests": [
       { "file": "tests/sharing-v2-waste-ui.test.mjs", "name": "shared home hides one waste occurrence and its compact calendar checkbox restores the same date without changing chores" },
-      { "file": "tests/sharing-v2-waste-ui.test.mjs", "name": "shared calendar waste labels keep type colors and full-height selected outlines while task counts exclude collections" }
+      { "file": "tests/sharing-v2-waste-ui.test.mjs", "name": "shared calendar waste labels keep type marks and aligned grid cells while task counts exclude collections" }
     ]
   },
   {
@@ -5936,6 +5936,126 @@
         "file": "tests/sharing-workspace-recovery.test.mjs",
         "name": "a slow first workspace cannot starve later workspaces across bounded worker runs or process restarts"
       }
+    ]
+  },
+  {
+    "feature": "personal-calendar-event-storage-recurrence-and-safe-edits",
+    "tests": [
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "local calendar validates real dates durations timezones recurrence and bounded fields without accepting ambiguous civil clocks"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "local calendar seeks long running daily and biweekly series and honors the inclusive recurrence end without duplicating instances"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "local monthly and yearly calendars skip nonexistent dates and preserve the preferred day through short months"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "local moved and cancelled recurring instances retain their anchor identity and cannot resurrect an invalid series occurrence"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "local multi-day and timezone projections preserve exact end boundaries and edit the original civil clock"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "local recurring clocks that enter a DST gap are flagged rather than silently shifted or dropping the whole month"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "local calendar SQLite CRUD CAS exceptions and drafts survive reopen while personal chores history and Google links remain independent"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "local calendar concurrent saves reject stale revisions and series rule changes require explicit exception reset"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "saving another calendar event never discards an unrelated new or existing draft"
+      },
+      { "file": "tests/local-calendar.test.mjs", "name": "birthday and ordinary event drafts remain independent when saved discarded and resumed from settings" },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "local classification colors are reused by reference and invalid or duplicate categories never overwrite a saved color"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "local calendar refuses shared DB adapters before any write and a failed UI listener cannot turn a committed event into a failed save"
+      }
+    ]
+  },
+  {
+    "feature": "native-calendar-views-editor-gestures-and-local-availability",
+    "tests": [
+      {
+        "file": "tests/native-calendar.test.mjs",
+        "name": "${platform} native calendar starts with a virtualized full month keeps hierarchy and date preference and reveals chores only on request"
+      },
+      {
+        "file": "tests/native-calendar.test.mjs",
+        "name": "${platform} native calendar uses flat direct editing with live title saving one event and no duplicate chore recurrence"
+      },
+      {
+        "file": "tests/native-calendar.test.mjs",
+        "name": "${platform} native editor retains a closed draft and reuses preset and custom RGB classification colors"
+      },
+      {
+        "file": "tests/native-calendar.test.mjs",
+        "name": "${platform} dates use OS pickers and calendar gestures reserve tab motion for screen edges"
+      },
+      {
+        "file": "tests/native-calendar.test.mjs",
+        "name": "${platform} saving an event in another month brings its actual date into the month viewport"
+      },
+      {
+        "file": "tests/native-calendar.test.mjs",
+        "name": "iOS interactive editor dismissal keeps the latest draft visible when SQLite fails and allows a safe retry"
+      },
+      {
+        "file": "tests/native-calendar.test.mjs",
+        "name": "local calendar availability unions overlaps keeps birthdays informational and does not double count Google daily aggregates"
+      }
+    ]
+  },
+  {
+    "feature": "mobile-global-dark-theme-and-waste-type-marks",
+    "tests": [
+      {
+        "file": "tests/mobile-theme-and-waste-icons.test.mjs",
+        "name": "mobile light and dark themes keep text actions warnings and controls readable"
+      },
+      {
+        "file": "tests/mobile-theme-and-waste-icons.test.mjs",
+        "name": "Android day and night resources cover every shared color and preserve alpha order"
+      },
+      {
+        "file": "tests/mobile-theme-and-waste-icons.test.mjs",
+        "name": "waste aliases retain one icon identity and bottles PET bottles and cans stay distinct"
+      },
+      {
+        "file": "tests/mobile-theme-and-waste-icons.test.mjs",
+        "name": "${platform} waste marks use different vector shapes with their original readable labels"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-custom-recurrence-and-private-draft-round-trip",
+    "tests": [
+      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "custom recurrence rejects malformed intervals units weekdays and monthly ordinals without accepting prototype names" },
+      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "custom day and multi weekday intervals seek old series and retain one stable anchor per occurrence" },
+      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "custom monthly second last and fifth weekdays and leap years never invent missing civil dates" },
+      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "ended custom series do not break later calendar windows while moved instances and final multi day spans remain visible" },
+      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "custom cadence edits require review before clearing existing exceptions and draft digests reveal no input text" },
+      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "${platform} custom repeat screen applies the latest interval weekdays and last monthly weekday and rejects incomplete input" },
+      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "${platform} choosing custom repeat saves unfinished private input before routing and keeps custom as the final option" },
+      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "returning from custom settings waits for the matching stored draft instead of reopening a stale rule" },
+      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "iOS wheel keeps native motion authoritative while capturing every intermediate choice and the final value" },
+      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "custom repeat route applies only a personal draft and returns to the original workspace with an exact content digest" },
+      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "direct custom route links cannot change birthday cadence or a single occurrence and cannot redirect outside the calendar" }
     ]
   }
 ]

@@ -15,6 +15,7 @@ export function WorkspaceNavigator() {
     <Stack.Screen name="settings/chore/[id]" options={{ headerShown: false }} />
     <Stack.Screen name="history" />
     <Stack.Screen name="help" options={{ headerShown: false }} />
+    <Stack.Screen name="calendar-repeat" options={{ headerShown: false }} />
     <Stack.Screen name="sharing" options={{ headerShown: false }} />
   </Stack>;
 }

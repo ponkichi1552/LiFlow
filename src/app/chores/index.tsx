@@ -134,7 +134,7 @@ const styles = StyleSheet.create({
   search: { ...typography.body, minHeight: 54, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, paddingHorizontal: 15, color: palette.ink },
   categories: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   choreCard: { gap: 12 },
-  applianceCard: { backgroundColor: palette.accentSoft, borderColor: '#D8E7DC' },
+  applianceCard: { backgroundColor: palette.accentSoft, borderColor: palette.border },
   savedApplianceCard: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   applianceTitle: { ...typography.subheading, color: palette.ink, fontWeight: '700' },
   choreCopy: { gap: 5 },

@@ -67,7 +67,7 @@ export function PlannerHistoryContent({ data, requestedChoreId }: {
 }
 
 const styles = StyleSheet.create({
-  summary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: palette.accentSoft, borderColor: '#D8E7DC' },
+  summary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: palette.accentSoft, borderColor: palette.border },
   summaryLabel: { ...typography.label, color: palette.accent, fontWeight: '700' },
   summaryValue: { ...typography.title, color: palette.ink, fontWeight: '800' },
   summaryUnit: { ...typography.caption, fontWeight: '600' },
@@ -80,7 +80,7 @@ const styles = StyleSheet.create({
   historyCard: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingVertical: 13, paddingHorizontal: 14 },
   checkMark: { width: 32, height: 32, borderRadius: 11, backgroundColor: palette.accentSoft, alignItems: 'center', justifyContent: 'center' },
   checkText: { color: palette.accent, fontSize: 18, fontWeight: '800' },
-  incompleteMark: { backgroundColor: '#F4E7E3' },
+  incompleteMark: { backgroundColor: palette.warningSoft },
   incompleteText: { color: palette.warning },
   copy: { flex: 1, gap: 3 },
   choreName: { ...typography.subheading, color: palette.ink, fontWeight: '700' },

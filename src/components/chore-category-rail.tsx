@@ -78,6 +78,6 @@ const styles = StyleSheet.create({
   rail: { position: 'absolute', right: 0, top: '12%', bottom: '12%', width: 40 },
   marks: { position: 'absolute', top: 8, bottom: 8, left: 0, right: 0 },
   target: { position: 'absolute', marginTop: -8, height: 16, left: 0, right: 0, alignItems: 'center', justifyContent: 'center' },
-  bar: { height: 3, width: 13, backgroundColor: '#B9C3D5', borderRadius: 2 }, short: { height: 2, width: 6 },
+  bar: { height: 3, width: 13, backgroundColor: palette.inputBorder, borderRadius: 2 }, short: { height: 2, width: 6 },
   selectedCategory: { width: 20, backgroundColor: palette.accent }, selectedChore: { width: 11, backgroundColor: palette.accent },
 });

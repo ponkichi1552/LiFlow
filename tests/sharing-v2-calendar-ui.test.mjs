@@ -1,3 +1,4 @@
+import { openCalendarDay } from './helpers/calendar-ui.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -18,6 +19,7 @@ async function setup(platform = 'ios', anchorDate = '2026-10-27', hideStatus = f
     onRound: (...args) => navigation.push(args), onSelectDate: (date) => { props.selectedDate = date; }, onMonth: () => {},
     run: async (work) => { await work(); props.model = await controller.readModel(range); } };
   const screen = screenHarness('src/features/sharing/v2-ui/calendar.tsx', { exportName: 'V2Calendar', props, platform });
+  await openCalendarDay(screen, anchorDate);
   return { ...f, d, controller, props, screen, navigation, close: () => d.connection.close() };
 }
 
@@ -111,11 +113,11 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} calendar mutations keep the visible cards and known counts while disabling another action instead of emptying the list`, async () => {
     const f = await setup(platform);
     try {
-      const list = f.screen.nodes().find((node) => node.type === 'FlatList');
+      const list = f.screen.nodes().find((node) => node.props.testID === 'calendar-chore-list');
       assert.ok(list.props.itemLayoutAnimation, 'the virtualized cells must animate their reordered positions');
       const before = list.props.data.map((entry) => entry.key);
       assert.ok(before.length > 0); f.props.busy = true; f.screen.render();
-      assert.deepEqual(f.screen.nodes().find((node) => node.type === 'FlatList').props.data.map((entry) => entry.key), before);
+      assert.deepEqual(f.screen.nodes().find((node) => node.props.testID === 'calendar-chore-list').props.data.map((entry) => entry.key), before);
       assert.ok(f.screen.nodes().some((node) => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事1件'));
       assert.equal(f.screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox').props.disabled, true);
       assert.equal(f.props.model.plan.history.length, 0);
@@ -144,7 +146,7 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} v2 unloaded calendar months show a retry state rather than falsely claiming an empty day`, async () => {
     const f = await setup(platform);
     try {
-      f.props.month = '2027-03-01'; f.props.selectedDate = '2027-03-01'; f.screen.render();
+      await openCalendarDay(f.screen, '2027-03-01');
       assert.ok(f.screen.text().includes('この月の共有予定を取得できていません'));
       assert.equal(f.screen.text().includes('この日の共有家事はありません'), false);
       assert.ok(f.screen.nodes().some((node) => node.props.accessibilityLabel === '2027年3月1日、予定は未取得'));

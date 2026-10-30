@@ -1,3 +1,4 @@
+import { openCalendarDay } from './helpers/calendar-ui.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -49,6 +50,7 @@ test('waste check hides only one occurrence on home and calendar can restore all
       assert.ok(calendar.nodes().some((node) => node.type === 'Text' && node.children.includes(shortName)), 'calendar cells must use the compact name');
     }
     assert.ok(!home.text().includes('今回だけ非表示') && !home.text().includes('今日のゴミ収集'));
+    await openCalendarDay(calendar, today);
     const originalCount = snapshot.completions.length;
     for (const schedule of schedules) {
       const hideLabel = `${schedule.label}の${today}のゴミ出しを非表示`;

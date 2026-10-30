@@ -1,13 +1,3 @@
-export const palette = {
-  background: '#FFFFFF',
-  surface: '#FFFFFF',
-  ink: '#292C3B',
-  muted: '#68718B',
-  accent: '#4AADE0',
-  accentSoft: '#E4F7FC',
-  border: '#DFE4EF',
-  warning: '#B75C55',
-  warningSoft: '#FBEDEC',
-  gold: '#B8873B',
-  goldSoft: '#F6F0E3',
-};
+// Non-Native consumers (including domain/screen tests) use the light values.
+// Metro resolves planner-colors.native.ts on the two supported mobile platforms.
+export { plannerLightColors as palette } from './planner-theme.ts';

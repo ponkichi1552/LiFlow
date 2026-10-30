@@ -19,11 +19,41 @@ function knownTypeIndex(label: string): number {
     .some((term) => normalizeWasteTypeText(term) === key));
 }
 
-export function wasteTypeColor(label: string): string {
+export function canonicalWasteType(label: string): string {
   const index = knownTypeIndex(label);
-  if (index >= 0) return typeColors[WASTE_TYPES[index].label];
+  return index < 0 ? label : WASTE_TYPES[index].label;
+}
+
+export type WasteIconKind = 'bottle' | 'petBottle' | 'can' | 'bottleCan' | 'fire' | 'paper' | 'box' | 'recycle' | 'battery' | 'appliance' | 'bulky' | 'plant' | 'food' | 'hazard' | 'oil' | 'trash';
+export function wasteTypeIcon(label: string): WasteIconKind {
+  const name = canonicalWasteType(label);
+  if (name === 'びん') return 'bottle';
+  if (name === 'ペットボトル') return 'petBottle';
+  if (name === '缶' || name === 'スプレー缶') return 'can';
+  if (name === 'びん・缶') return 'bottleCan';
+  if (name === '可燃ごみ') return 'fire';
+  if (['古紙', '新聞', '雑誌', '紙パック', '雑がみ'].includes(name)) return 'paper';
+  if (name === '段ボール') return 'box';
+  if (['資源ごみ', 'プラスチック資源', '容器包装プラスチック', '製品プラスチック'].includes(name)) return 'recycle';
+  if (name === '乾電池' || name === '充電池') return 'battery';
+  if (name === '小型家電') return 'appliance';
+  if (name === '粗大ごみ') return 'bulky';
+  if (name === '剪定枝' || name === '落ち葉・草') return 'plant';
+  if (name === '生ごみ') return 'food';
+  if (['有害ごみ', '危険ごみ', '蛍光灯'].includes(name)) return 'hazard';
+  if (name === '使用済み食用油') return 'oil';
+  return 'trash';
+}
+
+export function wasteTypeColor(label: string, appearance: 'light' | 'dark' = 'light'): string {
+  const index = knownTypeIndex(label);
+  if (index >= 0) {
+    const color = typeColors[WASTE_TYPES[index].label];
+    if (appearance === 'light') return color;
+    return '#' + color.slice(1).match(/../gu)!.map(value => Math.round(parseInt(value, 16) * 0.55 + 255 * 0.45).toString(16).padStart(2, '0')).join('');
+  }
   const hash = [...normalizeWasteTypeText(label)].reduce((value, char) => (value * 31 + char.codePointAt(0)!) >>> 0, 0);
-  return `hsl(${hash % 360}, 58%, 32%)`;
+  return `hsl(${hash % 360}, 58%, ${appearance === 'dark' ? '72%' : '32%'})`;
 }
 
 /** Compact names fit two readable lines in a seven-column mobile calendar. */

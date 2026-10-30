@@ -1,3 +1,4 @@
+import {  } from './helpers/calendar-ui.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -33,8 +34,8 @@ async function route(f, platform, file, params = {}, readyText = '送信待ち')
         readOwnCalendar: async target => { f.calendarChecks.push(structuredClone(target)); return { kind: 'conflict' }; },
       }; } },
       '../../../hooks/use-planner-data': { usePlannerData: () => ({ snapshot: { settings: { frequencyMode: 'balanced', restDays: [], heavyDailyLimit: 2, normalDailyLimit: 3 } } }) } } });
-  const leave = focus?.(); for (let n = 0; n < 30 && !screen.text().includes(readyText); n++) await screen.flush();
-  assert.ok(screen.text().includes(readyText), screen.text()); return { screen, leave, navigation };
+  const leave = focus?.(); for (let n = 0; n < 30 && !(readyText === '共有カレンダー' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(readyText)); n++) await screen.flush();
+  assert.ok((readyText === '共有カレンダー' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(readyText)), screen.text()); return { screen, leave, navigation };
 }
 for (const platform of ['ios', 'android']) {
   test(`${platform} normal v2 routes use only the authenticated private preference limits and preserve shared outbox and plan`, async () => {

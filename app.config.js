@@ -29,6 +29,10 @@ module.exports = ({ config }) => {
   }
   plugins.push(['./plugins/with-optional-apple-sign-in', { enabled: appleSharingEnabled }]);
   plugins.push('./plugins/with-sharing-private-storage');
+  plugins.push('./plugins/with-liflow-theme');
+  if (!plugins.some(plugin => (typeof plugin === 'string' ? plugin : plugin[0]) === '@react-native-community/datetimepicker')) {
+    plugins.push('@react-native-community/datetimepicker');
+  }
 
   return {
     ...config,

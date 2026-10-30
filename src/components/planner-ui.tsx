@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
   buttonPressed: { opacity: 0.75 },
   buttonText: { ...typography.control, fontWeight: '700', textAlign: 'center' },
   buttonTextCompact: { ...typography.label },
-  buttonText_primary: { color: '#FFFFFF' },
+  buttonText_primary: { color: palette.accentInk },
   buttonText_secondary: { color: palette.accent },
   buttonText_quiet: { color: palette.muted },
   buttonText_danger: { color: palette.warning },

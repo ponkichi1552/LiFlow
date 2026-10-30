@@ -143,7 +143,7 @@ const styles = StyleSheet.create({
   weekdayText: { ...typography.label, color: palette.muted, fontWeight: '700' },
   weekdaySelectedText: { color: palette.accent },
   monthlyRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  selection: { borderRadius: 13, borderWidth: 1.5, backgroundColor: '#FFFFFF', paddingHorizontal: 13, minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  selection: { borderRadius: 13, borderWidth: 1.5, backgroundColor: palette.surface, paddingHorizontal: 13, minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: 8 },
   selectionText: { ...typography.body, flex: 1, color: palette.ink, fontWeight: '700' },
   suggestions: { gap: 8 },
   candidate: { minHeight: 46, borderWidth: 1, borderColor: palette.border, borderRadius: 13, paddingHorizontal: 13, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },

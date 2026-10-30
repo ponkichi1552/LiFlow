@@ -123,7 +123,7 @@ export default function HomeScreen() {
 
   return (
     <>
-      <Tabs.Screen options={{ tabBarStyle: { ...plannerTabBarLayout(insets.bottom), backgroundColor: '#FFFFFF', borderTopColor: palette.border, borderTopWidth: 1 } }} />
+      <Tabs.Screen options={{ tabBarStyle: { ...plannerTabBarLayout(insets.bottom), backgroundColor: palette.surface, borderTopColor: palette.border, borderTopWidth: 1 } }} />
       <Page contentStyle={styles.homePage} compactWorkspace floatingFooter footerHasTabBar footer={completion.undoAvailable ? <CompletionToast onUndo={() => void completion.undoLast()} busy={completion.pending.size > 0 || completion.reading} /> : undefined}>
         {error || actionError ? <Card><Text style={styles.error}>{actionError ?? error}</Text><AppButton title="表示を再読込" variant="quiet" compact
           disabled={completion.pending.size > 0 || completion.reading} onPress={() => void completion.retryRead()} /></Card> : null}
@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
   textLink: { ...typography.label, color: palette.accent, fontWeight: '700', paddingVertical: 10 },
   weekSwitcher: { flexDirection: 'row', padding: 4, borderRadius: 14, backgroundColor: palette.accentSoft, marginTop: 2 },
   weekOption: { flex: 1, minHeight: 44, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  weekOptionSelected: { backgroundColor: '#FFFFFF' },
+  weekOptionSelected: { backgroundColor: palette.surface },
   weekOptionText: { ...typography.caption, color: palette.muted, fontWeight: '600' },
   weekOptionTextSelected: { color: palette.accent, fontWeight: '800' },
   dayGroup: { gap: 9, marginTop: 2 },

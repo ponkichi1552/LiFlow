@@ -42,8 +42,11 @@ import { HomeHeader, HomeProgress, LoadSortButton, CompletionToast } from '../..
 import { useHomeDisplay } from '../../../hooks/use-home-display';
 import { homeSummary } from '../../planner/home-summary';
 import { SettingsAudience } from '../../../components/settings-audience';
+import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
+import type { PlannerCalendarProps } from '../../calendar/planner-calendar';
 
 export interface V2GroupScreenProps {
+  localCalendar?: LocalCalendarBinding; onCalendarNavigate?: PlannerCalendarProps['onNavigate'];
   purpose: 'development' | 'workspace'; workspaceName?: string; workspaceError?: string; onManage?: () => void;
   subscribe?: (changed: () => void) => () => void;
   loadSession: () => Promise<V2GroupUiSession>; view: 'home' | 'configuration' | 'history' | 'round' | 'date' | 'requests' | 'assignment' | 'assignmentRequests' | 'calendar' | 'chores' | 'details' | 'addChore' | 'groupPolicy' | 'dateRights' | 'waste' | 'appliances' | 'appliance' | 'applianceReview'; choreId?: string; applianceId?: string;
@@ -69,7 +72,7 @@ function readOptionsForView(view: V2GroupScreenProps['view'], anchorDate?: strin
   return view === 'calendar' ? { calendarMonth: 'current', waste: true } : view === 'home' ? { waste: true } : undefined;
 }
 
-export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage, subscribe, loadSession, view, choreId, applianceId, onBack, onConfiguration, onHistory, onRequests, occurrenceId, subjectId, onRound, onDate, onAssignment, onAssignmentRequests, onCalendar, anchorDate, onManageChores, onDetails, onAddChore, onChoreCreated, onGroupPolicy, onNotifications, onGoogleTasks, onPersonalCopy, onDateRights, onWaste, onAppliances, onAppliance, onApplianceReview }: V2GroupScreenProps) {
+export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage, subscribe, loadSession, view, choreId, applianceId, onBack, onConfiguration, onHistory, onRequests, occurrenceId, subjectId, onRound, onDate, onAssignment, onAssignmentRequests, onCalendar, anchorDate, onManageChores, onDetails, onAddChore, onChoreCreated, onGroupPolicy, onNotifications, onGoogleTasks, onPersonalCopy, onDateRights, onWaste, onAppliances, onAppliance, onApplianceReview, localCalendar, onCalendarNavigate }: V2GroupScreenProps) {
   const [session, setSession] = useState<V2GroupUiSession | null>(null); const [screenModel, setModel] = useState<Awaited<ReturnType<V2GroupUiSession['readModel']>> | null>(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [expiredOpen, setExpiredOpen] = useState(false);
   const [proceduresOpen, setProceduresOpen] = useState(true);
@@ -236,15 +239,17 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
       if (!alive.current || running.current) return;
       try {
         const next = v2CalendarMonth(day); readOptions.current = { calendarMonth: next.month, waste: true }; setCalendarMonth(next.month);
-        setCalendarDay(selectedDate ?? (model.plan.range.asOfDate.slice(0, 7) === next.month.slice(0, 7) ? model.plan.range.asOfDate : next.month));
+        // Browsing another month never changes the selected day to its first day.
+        if (selectedDate) setCalendarDay(selectedDate);
         await run(async () => {});
       } catch (cause) { setError(cause instanceof Error ? cause.message : '表示する月を確認してください。'); }
     };
     return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}><V2Calendar model={model} personal={personal} privateOverlay={privateOverlay} privateSource={session.privateTasks} month={month}
-      selectedDate={calendarDay ?? model.plan.range.asOfDate} feedback={feedback} busy={busy} actions={controller.actions} run={run}
+      selectedDate={calendarDay ?? model.plan.range.asOfDate} feedback={feedback} busy={busy} actions={controller.actions} run={run} local={localCalendar} onNavigate={onCalendarNavigate} workspaceName={groupName}
       onMonth={selectMonth} onSelectDate={(day) => { if (day.slice(0, 7) === month.slice(0, 7)) setCalendarDay(day); else void selectMonth(day, day); }}
       onRound={(id, subject, anchor) => onRound?.(id, subject, anchor)}
-      header={<View style={{ gap: 16 }}>{notice}<BackButton onPress={onBack} disabled={busy} /><ScreenHeading title="共有カレンダー" /></View>} /></V2ScreenFrame>;
+      header={purpose === 'development' ? <View>{notice}{error ? <AppButton title="この月を再読込" compact variant="quiet" disabled={busy} onPress={() => void selectMonth(month)} /> : null}</View>
+        : workspaceError || error ? <View style={{ padding: 8 }}><Text accessibilityRole="alert" style={styles.error}>{workspaceError ?? error}</Text><AppButton title="この月を再読込" compact variant="quiet" disabled={busy} onPress={() => void selectMonth(month)} /></View> : undefined} /></V2ScreenFrame>;
   }
   if (view === 'assignmentRequests') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
     <V2AssignmentRequests model={model} actions={controller.actions} busy={busy} run={run}

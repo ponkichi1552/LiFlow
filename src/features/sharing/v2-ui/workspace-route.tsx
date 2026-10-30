@@ -12,6 +12,13 @@ import { sharingFailureMessage, subscribeSharingChanges } from '@/platform/shari
 import { createV2PrivateTaskSource } from './private-overlay';
 import { readPersonalPlannerOverlaySnapshot, setPersonalDateTaskCompleted, mirrorSharedChoreCompletions } from '../../../platform/storage/repository';
 import { syncGoogleTasksAfterLocalCompletion } from '@/features/google-sync/coordinator';
+import { useLocalCalendar } from '../../calendar/use-local-calendar';
+import type { SQLiteDatabase } from 'expo-sqlite';
+
+function CalendarWorkspaceScreen({ database, ...props }: V2GroupScreenProps & { database: SQLiteDatabase }) {
+  const localCalendar = useLocalCalendar(database);
+  return <V2GroupScreen {...props} localCalendar={localCalendar} />;
+}
 
 /** Only an explicitly selected, authenticated v2 workspace reaches these controls. */
 export function V2WorkspaceRoute({ view }: { view: V2GroupScreenProps['view'] }) {
@@ -74,7 +81,9 @@ export function V2WorkspaceRoute({ view }: { view: V2GroupScreenProps['view'] })
   const text = (value: unknown) => typeof value === 'string' ? value : undefined;
   const focus = text(params.anchorDate); const anchorContext = focus ? { anchorDate: focus } : {};
   const record = context.groups.find((record) => record.groupId === active.groupId);
-  return <V2GroupScreen key={`${active.userId}:${active.groupId}:${active.identity.deviceId}`} purpose="workspace" view={view} loadSession={loadSession} subscribe={subscribe}
+  const Screen = view === 'calendar' ? CalendarWorkspaceScreen : V2GroupScreen;
+  return <Screen key={`${active.userId}:${active.groupId}:${active.identity.deviceId}`} database={personalDatabase} purpose="workspace" view={view} loadSession={loadSession} subscribe={subscribe}
+    onCalendarNavigate={tab => router.replace(({ home: '/group-v2', calendar: '/group-v2/calendar', chores: '/group-v2/chores', appliances: '/group-v2/appliances' } as const)[tab])}
     workspaceName={record?.displayName} workspaceError={record?.lastErrorCode ? sharingFailureMessage({ code: record.lastErrorCode }) : undefined}
     anchorDate={focus} choreId={text(params.choreId)} occurrenceId={text(params.occurrenceId)} subjectId={text(params.subjectId)} applianceId={text(params.applianceId)}
     onManage={() => router.push({ pathname: '/sharing', params: { groupId: active.groupId } })}

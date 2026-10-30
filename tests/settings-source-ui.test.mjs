@@ -1,3 +1,4 @@
+import { plannerLightColors } from '../src/components/planner-theme.ts';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -259,8 +260,8 @@ test('early chore labels have their own blue badge and stronger background while
       chore: { name: '洗濯', category: '洗濯', estimatedMinutes: 30 }, early: true, home, completed, onOpen() {}, onToggle() {} } });
     assert.equal(screen.text().includes('推奨日前'), !completed);
     if (!completed) {
-      assert.ok(allNodes(screen.render()).some(node => node.type === 'Text' && node.props.style?.color === '#246789'));
-      assert.ok(allNodes(screen.render()).some(node => Array.isArray(node.props.style) && node.props.style.some(style => style?.backgroundColor === '#EDF1F6')));
+      assert.ok(allNodes(screen.render()).some(node => node.type === 'Text' && node.props.style?.color === plannerLightColors.early));
+      assert.ok(allNodes(screen.render()).some(node => Array.isArray(node.props.style) && node.props.style.some(style => style?.backgroundColor === plannerLightColors.earlySoft)));
       assert.match(screen.nodes().find(node => node.props.accessibilityRole === 'button').props.accessibilityHint, /推奨日前/u);
     }
   }

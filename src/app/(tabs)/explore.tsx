@@ -1,292 +1,71 @@
-import { Chevron } from '../../components/chevron';
 import { router } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-
-import { AppButton, Card, Page, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
-import { CalendarTaskCountIndicator } from '@/components/calendar-task-count-indicator';
+import { useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { LinearTransition } from 'react-native-reanimated';
+import { AppButton, Card, palette, typography } from '@/components/planner-ui';
 import { PlannerLoadState } from '@/components/planner-load-state';
 import { TaskCheckboxRow } from '@/components/task-checkbox-row';
 import { WasteOccurrenceCard } from '@/components/waste-occurrence-card';
+import { CompletionToast } from '@/components/home-ui';
 import { completionPeriod } from '@/domain/scheduling/completion-matching';
-import { orderDateTasks, selectDateTasks } from '@/domain/scheduling/date-tasks';
-import { addDays, daysBetween, formatJapaneseDate, localDateFromDate, monthDates, parseLocalDate, weekdayOf } from '@/domain/scheduling/local-date';
+import type { DateTask } from '@/domain/scheduling/date-tasks';
+import { addDays, formatJapaneseDate, localDateFromDate } from '@/domain/scheduling/local-date';
 import type { LocalDate } from '@/domain/shared/types';
 import { usePlannerData } from '@/hooks/use-planner-data';
 import { useTaskCompletion } from '@/hooks/use-task-completion';
 import { isTaskUrgent } from '@/domain/scheduling/task-priority';
-import Animated, { LinearTransition } from 'react-native-reanimated';
-import { wasteCalendarLabels } from '@/features/waste/calendar-labels';
-import { calendarWasteLabel, wasteTypeColor } from '@/features/waste/type-appearance';
 import { generateWasteCollectionDates } from '@/features/waste/weekly-scheduler';
 import { useWasteOccurrenceToggle } from '@/features/waste/use-waste-occurrence-toggle';
-
-const weekdayLabels = ['日', '月', '火', '水', '木', '金', '土'];
+import { PlannerCalendar } from '@/features/calendar/planner-calendar';
+import { useLocalCalendar } from '@/features/calendar/use-local-calendar';
+import { personalCalendarTasks } from '@/features/calendar/personal-projection';
 
 export default function CalendarScreen() {
   const { snapshot, loading, error, refresh, database, readError } = usePlannerData();
+  const local = useLocalCalendar(database);
   const today = snapshot?.today ?? localDateFromDate(new Date());
-  const [month, setMonth] = useState(() => ({ year: new Date().getFullYear(), monthIndex: new Date().getMonth() }));
-  const [selectedDate, setSelectedDate] = useState<LocalDate>(today);
-  const [periodsExpanded, setPeriodsExpanded] = useState(false);
-  const completion = useTaskCompletion(database, refresh, readError);
-  const actionError = completion.error;
-  const wasteVisibility = useWasteOccurrenceToggle(database, refresh);
-  const initializedDay = useRef(false);
-  useEffect(() => {
-    if (snapshot && !initializedDay.current) {
-      initializedDay.current = true; const [year, month] = today.split('-').map(Number);
-      setSelectedDate(today); setMonth({ year, monthIndex: month - 1 });
-    }
-  }, [snapshot, today]);
-
+  const [selectedDate, setSelectedDate] = useState<LocalDate>(today); const [periodDate, setPeriodDate] = useState<LocalDate | null>(null);
+  const completion = useTaskCompletion(database, refresh, readError); const waste = useWasteOccurrenceToggle(database, refresh);
+  const tasksFor = snapshot ? personalCalendarTasks(snapshot, today, completion.project) : () => [] as DateTask[];
   if (loading || !snapshot) return <PlannerLoadState title="カレンダー" message="予定を読み込んでいます。" error={error} retry={refresh} />;
-
-  const dates = monthDates(month.year, month.monthIndex);
-  const leadingCells = weekdayOf(dates[0]) % 7;
-  const gridStart = addDays(dates[0], -leadingCells);
-  const weekCount = Math.ceil((leadingCells + dates.length) / 7);
-  const cells = Array.from({ length: weekCount * 7 }, (_, index) => addDays(gridStart, index));
-  const { weeklyByColumn, byDate: wasteByDate, hiddenWeeklyByDate } = wasteCalendarLabels(snapshot.wasteSchedules, gridStart, cells[cells.length - 1], snapshot.hiddenWasteOccurrenceKeys);
-  const choresById = new Map(snapshot.chores.map((chore) => [chore.id, chore]));
-  const recommendedCountsByDate = completion.calendarCounts(snapshot.scheduleEntries, snapshot.completions);
-  const selectedTasks = orderDateTasks(completion.project(selectDateTasks(snapshot.scheduleEntries, snapshot.completions, selectedDate, selectedDate === today ? 3 : 0, snapshot.chores), snapshot.completions), selectedDate, snapshot.chores, today);
-  const selectedChoreIds = new Set(selectedTasks.map((task) => task.choreId));
-  const overdueTasks = selectedDate === today ? [] : orderDateTasks(completion.project(selectDateTasks(snapshot.scheduleEntries, snapshot.completions, today, 3, snapshot.chores), snapshot.completions)
-    .filter((task) => task.entry?.status === 'overdue' && !task.completed && !selectedChoreIds.has(task.choreId)), today, snapshot.chores);
-  const completedCount = selectedTasks.filter((task) => task.completed).length;
-  // Include checked occurrences here so hiding from home can always be undone on its date.
-  const selectedWaste = snapshot.wasteSchedules.flatMap((schedule) => generateWasteCollectionDates(schedule, selectedDate, selectedDate));
-  const hiddenWasteKeys = new Set(snapshot.hiddenWasteOccurrenceKeys);
-  const periodRows = selectedTasks.flatMap((task) => {
-    const chore = choresById.get(task.choreId);
-    const period = task.entry
-      ? { start: task.entry.windowStart, end: task.entry.windowEnd }
-      : completionPeriod(task.completion!);
-    if (period.start > selectedDate || period.end < selectedDate) return [];
-    return chore ? [{
-      id: task.id,
-      name: chore.name,
-      ...period,
-      completed: task.completed,
-    }] : [];
-  });
-  periodRows.sort((left, right) => left.start.localeCompare(right.start) || left.name.localeCompare(right.name));
-  const selectedWeekStart = addDays(selectedDate, -(weekdayOf(selectedDate) % 7));
-  const selectedWeekEnd = addDays(selectedWeekStart, 6);
-  const selectedWeekDates = Array.from({ length: 7 }, (_, index) => addDays(selectedWeekStart, index));
-
-  const moveMonth = (offset: number) => {
-    const next = new Date(Date.UTC(month.year, month.monthIndex + offset, 1));
-    const nextYear = next.getUTCFullYear();
-    const nextMonth = next.getUTCMonth();
-    setMonth({ year: nextYear, monthIndex: nextMonth });
+  const chores = new Map(snapshot.chores.map(chore => [chore.id, chore])); const hidden = new Set(snapshot.hiddenWasteOccurrenceKeys);
+  const counts = completion.calendarCounts(snapshot.scheduleEntries, snapshot.completions);
+  const navigate = (tab: 'home' | 'calendar' | 'chores' | 'appliances') => router.navigate(({ home: '/(tabs)', calendar: '/(tabs)/explore', chores: '/(tabs)/guide', appliances: '/(tabs)/manual' } as const)[tab]);
+  const open = (choreId: string) => router.navigate({ pathname: '/(tabs)/guide', params: { choreId, returnTo: 'calendar' } });
+  const renderTask = (task: DateTask, date: LocalDate) => {
+    const chore = chores.get(task.choreId); if (!chore) return null;
+    return <Animated.View key={`${chore.id}:${date}`} layout={LinearTransition.duration(240)}><TaskCheckboxRow chore={chore} completed={task.completed} source="personal" early={date < task.suggestedDate}
+      urgent={isTaskUrgent({ completed: task.completed, load: chore.load, recommendedDate: task.suggestedDate, windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd }, today)}
+      onOpen={() => open(chore.id)} onToggle={completion.canToggle(task) ? () => void completion.toggle(task) : undefined} /></Animated.View>;
   };
-
-  return (
-    <Page contentStyle={styles.calendarPage}>
-      <ScreenHeading title="カレンダー" />
-      {error || actionError || wasteVisibility.error ? <Card><Text style={styles.error}>{wasteVisibility.error ?? actionError ?? error}</Text>
-        {error || actionError ? <AppButton title="表示を再読込" variant="quiet" compact disabled={completion.pending.size > 0 || completion.reading}
-          onPress={() => void completion.retryRead()} /> : null}</Card> : null}
-      <Pressable accessible={false} onPress={() => setPeriodsExpanded((expanded) => !expanded)}>
-      <Card style={styles.calendarCard}>
-        <View style={styles.monthHeader}>
-          <Pressable accessibilityRole="button" accessibilityLabel="前の月" onPress={(event) => { event.stopPropagation(); moveMonth(-1); }} style={styles.monthArrow}><Chevron direction="left" /></Pressable>
-          <Text style={styles.monthTitle}>{month.year}年{month.monthIndex + 1}月</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="次の月" onPress={(event) => { event.stopPropagation(); moveMonth(1); }} style={styles.monthArrow}><Chevron /></Pressable>
-        </View>
-        {!cells.includes(selectedDate) ? <View style={styles.retainedSelectionRow}>
-          <Text style={styles.retainedSelectionText}>{formatJapaneseDate(selectedDate, { weekday: true })}の予定を表示中</Text>
-        </View> : null}
-        <View style={styles.weekRow}>
-          {weekdayLabels.map((label, index) => <View key={label} style={styles.weekdaySlot}>
-            <View accessibilityLabel={`${label}曜日${weeklyByColumn[index].length ? `、${weeklyByColumn[index].join('・')}` : ''}`}
-              style={[styles.weekdayPill, weeklyByColumn[index].length > 0 && styles.wasteOutline,
-                weeklyByColumn[index].length > 0 && { borderColor: wasteTypeColor(weeklyByColumn[index][0]) }]}>
-              <Text style={[styles.weekday, (index === 0 || index === 6) && styles.weekend]}>{label}</Text>
-              {weeklyByColumn[index].map((name) => <WasteCalendarName key={name} name={name} />)}
-            </View>
-          </View>)}
-        </View>
-        <View style={styles.grid}>
-          {Array.from({ length: weekCount }, (_, week) => <View key={cells[week * 7]} style={styles.calendarWeek}>
-          {cells.slice(week * 7, week * 7 + 7).map((date) => {
-            const recommendedCount = recommendedCountsByDate.get(date) ?? 0;
-            const wasteLabels = wasteByDate.get(date) ?? [];
-            const hiddenWeeklyLabels = hiddenWeeklyByDate.get(date) ?? [];
-            const selected = date === selectedDate;
-            const isToday = date === today;
-            const inMonth = date.slice(0, 7) === `${month.year}-${String(month.monthIndex + 1).padStart(2, '0')}`;
-            const weekDay = weekdayOf(date);
-            return (
-              <View key={date} style={styles.daySlot}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${formatJapaneseDate(date)}、推奨日の未完了の家事${recommendedCount}件${wasteLabels.length ? `、${wasteLabels.join('・')}` : ''}${hiddenWeeklyLabels.length ? `、非表示の収集：${hiddenWeeklyLabels.join('・')}` : ''}`}
-                accessibilityState={{ selected }}
-                hitSlop={{ top: 4, bottom: 4 }}
-                onPress={(event) => {
-                  event.stopPropagation();
-                  setSelectedDate(date);
-                  if (!inMonth) {
-                    const tapped = parseLocalDate(date);
-                    setMonth({ year: tapped.getUTCFullYear(), monthIndex: tapped.getUTCMonth() });
-                  }
-                }}
-                style={[styles.dayCell, selected && styles.selectedDay, isToday && !selected && styles.todayDay,
-                  wasteLabels.length > 0 && styles.wasteOutline,
-                  wasteLabels.length > 0 && { borderColor: wasteTypeColor(wasteLabels[0]) },
-                  hiddenWeeklyLabels.length > 0 && styles.hiddenWeeklyDay,
-                  selected && (wasteLabels.length > 0 || hiddenWeeklyLabels.length > 0) && styles.selectedOutlinedDay,
-                  isToday && !selected && wasteLabels.length > 0 && styles.todayDay]}>
-                <Text style={[styles.dayNumber, !inMonth && styles.outsideMonth, (weekDay === 6 || weekDay === 7) && styles.weekendNumber,
-                  selected && styles.selectedDayNumber,
-                  selected && (wasteLabels.length > 0 || hiddenWeeklyLabels.length > 0) && styles.outlinedDayNumber]}>{Number(date.slice(-2))}</Text>
-                {wasteLabels.map((name) => <WasteCalendarName key={name} name={name} />)}
-                {recommendedCount > 0 ? <CalendarTaskCountIndicator count={recommendedCount} colors={snapshot.settings.calendarCountColors} mode={snapshot.settings.calendarCountDisplayMode} selected={selected} /> : null}
-              </Pressable>
-              </View>
-            );
-          })}
-          </View>)}
-        </View>
-        {periodsExpanded ? (
-          <View style={styles.periodPanel}>
-            <View style={styles.periodPanelHeader}>
-              <Text style={styles.periodPanelTitle}>{formatJapaneseDate(selectedDate)}を含む実施期間</Text>
-              <Pressable accessibilityRole="button" onPress={(event) => { event.stopPropagation(); setPeriodsExpanded(false); }}>
-                <Text style={styles.periodPanelClose}>閉じる</Text>
-              </Pressable>
-            </View>
-            <View style={styles.periodDateRow}>
-              {selectedWeekDates.map((date) => (
-                <Text key={date} style={[styles.periodDate, date === selectedDate && styles.periodDateSelected]}>{Number(date.slice(-2))}</Text>
-              ))}
-            </View>
-            {periodRows.length ? periodRows.map((period) => {
-              const clippedStart = period.start < selectedWeekStart ? selectedWeekStart : period.start;
-              const clippedEnd = period.end > selectedWeekEnd ? selectedWeekEnd : period.end;
-              const left = daysBetween(selectedWeekStart, clippedStart) / 7 * 100;
-              const width = Math.max(0, daysBetween(clippedStart, clippedEnd) + 1) / 7 * 100;
-              const rangeLabel = period.start === period.end
-                ? formatJapaneseDate(period.start)
-                : `${formatJapaneseDate(period.start)}〜${formatJapaneseDate(period.end)}`;
-              return (
-                <View key={period.id} style={styles.periodRow} accessibilityLabel={`${period.name}、${rangeLabel}`}>
-                  <Text style={[styles.periodName, period.completed && styles.periodCompletedText]} numberOfLines={1}>{period.name}</Text>
-                  <View style={styles.periodTrack}>
-                    <View style={[styles.periodBar, period.completed && styles.periodBarCompleted, { left: `${left}%`, width: `${width}%` }]} />
-                  </View>
-                  <Text style={styles.periodRange}>{rangeLabel}</Text>
-                </View>
-              );
-            }) : (
-              <Text style={styles.noPeriods}>この日に重なる実施期間はありません。</Text>
-            )}
-          </View>
-        ) : null}
-      </Card>
-      </Pressable>
-
-      <SectionHeading title={formatJapaneseDate(selectedDate, { weekday: true })} trailing={<Text style={styles.smallCount}>{selectedTasks.length}件・{completedCount}件完了</Text>} />
-      {selectedWaste.map((item) => {
-        const key = `${item.scheduleId}:${item.date}`;
-        const hidden = hiddenWasteKeys.has(key);
-        return <WasteOccurrenceCard key={key} occurrence={item} compact hidden={hidden}
-          busy={wasteVisibility.busyKeys.has(key)} onToggle={() => void wasteVisibility.toggle(item, hidden)} />;
-      })}
-      {selectedTasks.length === 0 && selectedWaste.length === 0 ? (
-        <Card><Text style={styles.emptyTitle}>この日の予定はありません</Text><Text style={styles.emptyText}>別の日を選ぶか、家事一覧で予定を確認できます。</Text></Card>
-      ) : selectedTasks.map((task) => {
-        const chore = choresById.get(task.choreId);
-        if (!chore) return null;
-        return (
-          <Animated.View key={`${chore.id}:${selectedDate}`} layout={LinearTransition.duration(240)}><TaskCheckboxRow
-            chore={chore}
-            completed={task.completed}
-            source={snapshot.sharing ? 'shared' : 'personal'} early={selectedDate < task.suggestedDate}
-            urgent={isTaskUrgent({ completed: task.completed, load: chore.load, recommendedDate: task.suggestedDate, windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd }, today)}
-            onOpen={() => router.navigate({ pathname: '/(tabs)/guide', params: { choreId: chore.id, returnTo: 'calendar' } })}
-            onToggle={completion.canToggle(task) ? () => void completion.toggle(task) : undefined}
-          /></Animated.View>
-        );
-      })}
-
-      {overdueTasks.length ? (
-        <>
-          <SectionHeading title="期間を過ぎた家事" />
-          {overdueTasks.slice(0, 3).map((task) => {
-            const entry = task.entry!;
-            const chore = choresById.get(entry.choreId);
-            if (!chore) return null;
-            return (
-              <TaskCheckboxRow
-                key={`overdue-${entry.choreId}`}
-                chore={chore}
-                source={snapshot.sharing ? 'shared' : 'personal'} urgent
-                onToggle={completion.canToggle(task) ? () => void completion.toggle(task) : undefined}
-                onOpen={() => router.navigate({ pathname: '/(tabs)/guide', params: { choreId: chore.id, returnTo: 'calendar' } })}
-              />
-            );
-          })}
-        </>
-      ) : null}
-      <AppButton title="家事一覧へ" onPress={() => router.push('/chores')} variant="secondary" />
-    </Page>
-  );
+  return <SafeAreaView edges={['top']} style={styles.safe}>
+    <PlannerCalendar today={today} timeZone={snapshot.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} selectedDate={selectedDate} onSelectDate={setSelectedDate} local={local}
+      busy={completion.pending.size > 0} onNavigate={navigate} countColors={snapshot.settings.calendarCountColors} countMode={snapshot.settings.calendarCountDisplayMode}
+      wasteSchedules={snapshot.wasteSchedules} hiddenWasteKeys={snapshot.hiddenWasteOccurrenceKeys}
+      dayInfo={date => ({ loaded: date <= addDays(today, 180), pending: counts.get(date) ?? 0, total: tasksFor(date).length,
+        minutes: tasksFor(date).filter(task => !task.completed).reduce((sum, task) => sum + (chores.get(task.choreId)?.estimatedMinutes ?? 0), 0) })}
+      existingChores={snapshot.chores.filter(chore => chore.enabled && !chore.archived).map(chore => ({ id: chore.id, name: chore.name, minutes: chore.estimatedMinutes, onOpen: () => open(chore.id) }))}
+      notice={error || completion.error || waste.error ? <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{waste.error ?? completion.error ?? error}</Text><AppButton title="表示を再読込" variant="quiet" compact disabled={completion.pending.size > 0 || completion.reading} onPress={() => void completion.retryRead()} /></View> : null}
+      renderWaste={date => <View style={styles.waste}>{snapshot.wasteSchedules.flatMap(schedule => generateWasteCollectionDates(schedule, date, date)).map(item => {
+        const key = `${item.scheduleId}:${item.date}`; return <WasteOccurrenceCard key={key} occurrence={item} compact hidden={hidden.has(key)} busy={waste.busyKeys.has(key)} onToggle={() => void waste.toggle(item, hidden.has(key))} />;
+      })}</View>}
+      renderChores={date => {
+        const tasks = tasksFor(date); const ids = new Set(tasks.map(task => task.choreId));
+        const overdue = date === today ? [] : tasksFor(today).filter(task => task.entry?.status === 'overdue' && !task.completed && !ids.has(task.choreId));
+        return <View style={styles.tasks}>{tasks.length ? tasks.map(task => renderTask(task, date)) : <Text style={styles.caption}>{date > addDays(today, 180) ? 'この日の家事はまだ計算されていません。' : 'この日の家事はありません。'}</Text>}
+          {overdue.length ? <><Text style={styles.section}>期間を過ぎた家事</Text>{overdue.slice(0, 3).map(task => renderTask(task, today))}</> : null}
+          {tasks.length ? <AppButton title={periodDate === date ? '実施期間を閉じる' : '実施期間を確認'} compact variant="quiet" onPress={() => setPeriodDate(before => before === date ? null : date)} /> : null}
+          {periodDate === date ? <Card><Text style={styles.section}>{formatJapaneseDate(date)}を含む実施期間</Text>{tasks.map(task => {
+            const period = task.entry ? { start: task.entry.windowStart, end: task.entry.windowEnd } : completionPeriod(task.completion!);
+            return <View key={task.choreId} style={styles.period}><Text style={styles.caption}>{chores.get(task.choreId)?.name}</Text><Text style={styles.caption}>{formatJapaneseDate(period.start)}〜{formatJapaneseDate(period.end)}</Text></View>;
+          })}</Card> : null}
+        </View>;
+      }} />
+    {completion.undoAvailable ? <View style={styles.toast}><CompletionToast busy={completion.pending.size > 0} onUndo={() => void completion.undoLast()} /></View> : null}
+  </SafeAreaView>;
 }
-
-function WasteCalendarName({ name }: { name: string }) {
-  return <Text numberOfLines={2} style={[styles.wasteLabel, { color: wasteTypeColor(name) }]}>{calendarWasteLabel(name)}</Text>;
-}
-
-const styles = StyleSheet.create({
-  calendarPage: { gap: 10, paddingTop: 12 },
-  calendarCard: { paddingHorizontal: 6, paddingTop: 8, paddingBottom: 8, gap: 6 },
-  monthHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  monthArrow: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: palette.accentSoft },
-  arrowText: { color: palette.accent, fontSize: 30, lineHeight: 33, fontWeight: '500' },
-  monthTitle: { ...typography.section, color: palette.ink, fontWeight: '700' },
-  weekRow: { flexDirection: 'row' },
-  weekday: { textAlign: 'center', color: palette.muted, ...typography.label, fontWeight: '700' },
-  weekdaySlot: { flex: 1, paddingHorizontal: 1 },
-  weekdayPill: { minHeight: 32, justifyContent: 'flex-start', alignItems: 'center', borderRadius: 10, paddingHorizontal: 0, paddingVertical: 2, gap: 1, borderWidth: 1.5, borderColor: 'transparent' },
-  wasteOutline: { borderWidth: 1.5, backgroundColor: '#FFFFFF' },
-  wasteLabel: { width: '100%', ...typography.calendarLabel, fontWeight: '700', textAlign: 'center' },
-  hiddenWeeklyDay: { borderColor: '#929BAA', backgroundColor: '#F3F4F6', borderWidth: 1.5 },
-  selectedOutlinedDay: { backgroundColor: palette.accentSoft, borderWidth: 2.5, paddingVertical: 1 },
-  outlinedDayNumber: { color: '#205B79' },
-  retainedSelectionRow: { alignItems: 'center', paddingVertical: 4 },
-  retainedSelectionText: { ...typography.caption, color: palette.accent, fontWeight: '700', textAlign: 'center' },
-  weekend: { color: palette.warning },
-  grid: { gap: 0 },
-  calendarWeek: { flexDirection: 'row', alignItems: 'stretch' },
-  daySlot: { flex: 1, paddingHorizontal: 1 },
-  dayCell: { flex: 1, width: '100%', minHeight: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'flex-start', paddingVertical: 2, borderWidth: 1.5, borderColor: 'transparent', gap: 1 },
-  selectedDay: { backgroundColor: palette.accent },
-  todayDay: { backgroundColor: palette.accentSoft },
-  dayNumber: { color: palette.ink, ...typography.calendarDate, fontWeight: '600' },
-  outsideMonth: { color: '#B7BED0' },
-  weekendNumber: { color: '#78819A' },
-  selectedDayNumber: { color: '#FFFFFF' },
-  periodPanel: { gap: 9, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingTop: 11 },
-  periodPanelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  periodPanelTitle: { ...typography.label, color: palette.ink, fontWeight: '700', flex: 1 },
-  periodPanelClose: { ...typography.label, color: palette.accent, fontWeight: '700' },
-  periodDateRow: { flexDirection: 'row', paddingBottom: 1 },
-  periodDate: { ...typography.caption, width: '14.2857%', textAlign: 'center', color: palette.muted, fontWeight: '600' },
-  periodDateSelected: { color: palette.accent, fontWeight: '800' },
-  periodRow: { gap: 3 },
-  periodName: { ...typography.label, color: palette.ink, fontWeight: '700' },
-  periodCompletedText: { color: '#858B9E', textDecorationLine: 'line-through' },
-  periodTrack: { height: 8, borderRadius: 4, backgroundColor: '#EFF2F7', overflow: 'hidden' },
-  periodBar: { position: 'absolute', top: 0, bottom: 0, borderRadius: 4, backgroundColor: palette.accent },
-  periodBarCompleted: { backgroundColor: '#AAB1C1' },
-  periodRange: { ...typography.caption, color: palette.muted },
-  noPeriods: { ...typography.caption, color: palette.muted, paddingVertical: 4 },
-  smallCount: { ...typography.caption, color: palette.muted },
-  emptyTitle: { ...typography.body, color: palette.ink, fontWeight: '700' },
-  emptyText: { ...typography.caption, color: palette.muted },
-  error: { ...typography.label, color: palette.warning },
+const styles = StyleSheet.create({ safe: { flex: 1, backgroundColor: palette.background }, notice: { padding: 10, gap: 6 }, error: { ...typography.caption, color: palette.warning },
+  caption: { ...typography.caption, color: palette.muted }, section: { ...typography.label, color: palette.ink, fontWeight: '700' }, tasks: { gap: 4 }, waste: { paddingHorizontal: 6, gap: 4 }, period: { gap: 2, paddingVertical: 4 },
+  toast: { position: 'absolute', bottom: 8, left: 0, right: 0 },
 });

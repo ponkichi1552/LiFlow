@@ -23,7 +23,7 @@ export default function AppTabs() {
       headerShown: false,
       tabBarActiveTintColor: palette.accent,
       tabBarInactiveTintColor: palette.muted,
-      tabBarStyle: { ...plannerTabBarLayout(insets.bottom), backgroundColor: '#FFFFFF', borderTopColor: palette.border, borderTopWidth: 1 },
+      tabBarStyle: { ...plannerTabBarLayout(insets.bottom), backgroundColor: palette.surface, borderTopColor: palette.border, borderTopWidth: 1 },
       tabBarLabelStyle: { ...typography.tab, fontWeight: '600' },
       tabBarItemStyle: { paddingBottom: 4 },
     }}>

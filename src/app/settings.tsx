@@ -10,6 +10,7 @@ import { AppButton, BackButton, Card, ChoiceChip, Page, ScreenHeading, SectionHe
 import { ChoreSettingsSources } from '@/features/settings/chore-settings-sources';
 import { CalendarTaskCountIndicator } from '@/components/calendar-task-count-indicator';
 import { AccordionSection } from '@/components/accordion-section';
+import { BirthdaySettings } from '@/features/calendar/birthday-settings';
 import { DataCredits, LocationAttribution, WeatherAttribution } from '@/components/data-credits';
 import { CALENDAR_COUNT_COLOR_OPTIONS } from '@/domain/calendar/count-colors';
 import type { FrequencyMode } from '@/domain/chores/types';
@@ -670,10 +671,13 @@ function SettingsContent({ snapshot, loadError, refresh, database }: {
       </Card>
 
       {typeof __DEV__ !== 'undefined' && __DEV__ ? <AppButton title="開発検査" onPress={() => router.push('/development')} variant="quiet" /> : null}
-      <DataCredits />
+      <AccordionSection title="誕生日" expanded={expandedSections.has('birthdays')} onToggle={() => toggleSection('birthdays')}>
+        {expandedSections.has('birthdays') ? <BirthdaySettings /> : null}
+      </AccordionSection>
       <AccordionSection title="バックグラウンド同期の実行記録" expanded={expandedSections.has('backgroundDiagnostics')} onToggle={() => toggleSection('backgroundDiagnostics')}>
         {expandedSections.has('backgroundDiagnostics') ? <BackgroundSyncDiagnostics /> : null}
       </AccordionSection>
+      <DataCredits />
       <Text style={styles.footer}>{snapshot.sharing ? '共有グループの家事と履歴は端末に保存し、暗号化して共有先へ同期します。' : '家事データ、曜日、予定、履歴はローカルSQLiteに保存されます。'}</Text>
     </Page>
   );
@@ -746,12 +750,12 @@ const styles = StyleSheet.create({
   colorTier: { gap: 8, paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border },
   colorOptionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   colorOption: { minWidth: 60, alignItems: 'center', gap: 3 },
-  colorSwatch: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  colorSwatch: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: palette.surface, alignItems: 'center', justifyContent: 'center' },
   colorSwatchSelected: { borderColor: palette.ink },
   colorCheck: { color: '#FFFFFF', fontSize: 18, fontWeight: '900', lineHeight: 22, textShadowColor: '#333333', textShadowRadius: 2 },
   colorOptionLabel: { ...typography.caption, color: palette.muted },
   colorOptionLabelSelected: { color: palette.ink, fontWeight: '700' },
-  calendarPreview: { gap: 8, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: '#FBFCFE' },
+  calendarPreview: { gap: 8, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.elevated },
   previewRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', gap: 8 },
   previewCell: { minWidth: 76, alignItems: 'center', gap: 2 },
   previewDate: { ...typography.body, color: palette.ink, fontWeight: '700' },

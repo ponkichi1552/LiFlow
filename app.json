@@ -10,7 +10,7 @@
     "orientation": "portrait",
     "icon": "./assets/images/liflow-icon.png",
     "scheme": "houseworkplanner",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "jp.jphacks.tkb2633",
       "icon": "./assets/images/liflow-icon.png"
@@ -32,7 +32,11 @@
         {
           "backgroundColor": "#5AA2D7",
           "image": "./assets/images/liflow-icon.png",
-          "imageWidth": 76
+          "imageWidth": 76,
+          "dark": {
+            "backgroundColor": "#171C24",
+            "image": "./assets/images/liflow-icon.png"
+          }
         }
       ],
       "expo-sqlite",

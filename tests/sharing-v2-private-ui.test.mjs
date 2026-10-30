@@ -1,3 +1,4 @@
+import { openCalendarDay } from './helpers/calendar-ui.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -88,6 +89,7 @@ for (const platform of ['ios', 'android']) {
         actions: new Proxy({}, { get: () => () => { sharedActions++; throw new Error('private card used a shared action'); } }), onMonth: () => {}, onSelectDate: () => {}, onRound: () => {},
         run: async (work) => { await work(); const { privateOverlay, personal, ...next } = await f.session.readModel(readOptions); Object.assign(props, { model: next, personal, privateOverlay }); } };
       const screen = screenHarness('src/features/sharing/v2-ui/calendar.tsx', { exportName: 'V2Calendar', props, platform });
+      await openCalendarDay(screen, privateToday);
       assert.ok(screen.nodes().some((node) => node.props.accessibilityLabel?.endsWith('、個人家事1件')));
       await checkbox(screen, f.personal.chore.name).props.onPress(); await screen.flush();
       assert.ok(screen.nodes().some((node) => node.props.accessibilityLabel?.endsWith('、個人家事0件')));

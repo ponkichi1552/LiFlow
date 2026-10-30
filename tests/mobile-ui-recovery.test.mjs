@@ -4,6 +4,7 @@ import test from 'node:test';
 import { createTaskMutations } from '../src/features/planner/task-mutations.ts';
 import { addDays, localDateFromDate } from '../src/domain/scheduling/local-date.ts';
 import { screenHarness } from './helpers/screen-harness.mjs';
+import { openCalendarDay } from './helpers/calendar-ui.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 const repository = await import('../src/platform/storage/repository.ts');
 const today = localDateFromDate(new Date());
@@ -93,6 +94,7 @@ async function calendarFixture(platform, binding) {
   const snapshot = { ...base, today, chores, scheduleEntries: entries, completions: history, settings: { ...base.settings, setupCompleted: true }, wasteSchedules: [], upcomingWasteDates: [] };
   const screen = screenHarness('src/app/(tabs)/explore.tsx', { platform, database: h.database, snapshot: () => snapshot,
     mocks: { '@/hooks/use-task-completion': { useTaskCompletion: () => ({ ...binding.getSnapshot(), ...binding }) } } });
+  await openCalendarDay(screen, today);
   return { h, screen, snapshot };
 }
 for (const platform of ['ios', 'android']) {

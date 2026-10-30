@@ -1,3 +1,4 @@
+import './typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -44,10 +45,17 @@ export function screenHarness(filename, options = {}) {
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' },
     'react-native': {
       ...Object.fromEntries(['Text', 'View', 'Pressable', 'TextInput', 'Switch', 'ScrollView', 'KeyboardAvoidingView', 'ActivityIndicator', 'Modal'].map((name) => [name, name])),
-      FlatList: (props) => jsx('FlatList', { ...props, children: [props.ListHeaderComponent,
-        ...((props.data ?? []).length ? props.data.slice(0, props.initialNumToRender ?? 10).map((item, index) => props.renderItem({ item, index })) : [props.ListEmptyComponent]),
-        props.ListFooterComponent] }),
+      FlatList: (props) => {
+        const [position, setPosition] = hook(null); const first = position ?? props.initialScrollIndex ?? 0;
+        return jsx('FlatList', { ...props, onScroll: event => {
+          if (props.getItemLayout) setPosition(Math.max(0, Math.floor(event.nativeEvent.contentOffset.y / props.getItemLayout(props.data, 0).length)));
+          props.onScroll?.(event);
+        }, children: [props.ListHeaderComponent,
+          ...((props.data ?? []).length ? props.data.slice(first, first + (props.initialNumToRender ?? 10)).map((item, index) => props.renderItem({ item, index: index + first })) : [props.ListEmptyComponent]), props.ListFooterComponent] });
+      },
       Platform: { OS: options.platform ?? process.env.HOUSEWORK_TEST_PLATFORM ?? 'ios' }, StyleSheet: { create: (styles) => styles, hairlineWidth: 1, absoluteFill: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 } },
+      useColorScheme: () => options.colorScheme ?? 'light',
+      useWindowDimensions: () => ({ width: options.width ?? 390, height: options.height ?? 844, fontScale: 1, scale: 3 }),
       PanResponder: { create: callbacks => ({ panHandlers: callbacks }) },
       AppState: { addEventListener: (_event, listener) => { options.appStateListener?.(listener); return { remove() {} }; } },
       Linking: { openURL: async () => {} },
@@ -71,6 +79,9 @@ export function screenHarness(filename, options = {}) {
     'expo-sqlite': { useSQLiteContext: () => options.database },
     'expo-sqlite/kv-store': { __esModule: true, default: { getItemSync: () => null, setItemSync: () => {} } },
     'expo-symbols': { SymbolView: 'SymbolView' },
+    '@expo/ui': { Host: 'NativeUIHost', Picker: Object.assign((props) => jsx('NativePicker', props), { Item: 'NativePickerItem' }) },
+    'react-native-svg': { __esModule: true, default: 'Svg', ...Object.fromEntries(['Path', 'Rect', 'Line', 'Ellipse', 'G', 'Circle'].map(name => [name, name])) },
+    '@react-native-community/datetimepicker': { __esModule: true, default: 'DateTimePicker', DateTimePickerAndroid: { open: params => options.datePicker?.(params) } },
     'expo-linking': { openURL: async (url) => options.openURL?.(url) },
     // Native FlatList jumps are tested directly in chore-book tests. Other screen tests
     // inspect the requested virtual chapter instead of pretending all chapters are mounted.
@@ -121,7 +132,9 @@ export function screenHarness(filename, options = {}) {
       current = parent;
       return expand(output, identity);
     }
-    const children = expand(element.props.children, path + '/children');
+    // A new key on a native host (not only a function component) remounts its
+    // subtree, as React does when reopening an interactively dismissed Modal.
+    const children = expand(element.props.children, path + '/children' + (element.key == null ? '' : `/key:${element.key}`));
     return [{ ...element, children }];
   };
   const component = load(resolve(root, filename))[options.exportName ?? 'default'];

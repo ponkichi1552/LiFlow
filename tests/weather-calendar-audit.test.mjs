@@ -1,3 +1,4 @@
+import { openCalendarDay } from './helpers/calendar-ui.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -257,12 +258,7 @@ test('weather adjustment agrees between SQLite, home notice, calendar marker and
     const home = screenHarness('src/app/(tabs)/index.tsx', { database: h.database, snapshot: () => adjusted });
     assert.ok(home.text().includes('天気に合わせて洗濯予定を調整しました'));
     const calendar = screenHarness('src/app/(tabs)/explore.tsx', { database: h.database, snapshot: () => adjusted });
-    // The forecast may move the first task into the next month, outside a five-row grid.
-    const monthIndex = date => Number(date.slice(0, 4)) * 12 + Number(date.slice(5, 7));
-    const months = monthIndex(moved.suggestedDate) - monthIndex(today);
-    for (let index = 0; index < Math.abs(months); index++) await calendar.press(months > 0 ? '次の月' : '前の月');
-    const dayButton = `${formatJapaneseDate(moved.suggestedDate)}、推奨日の未完了の家事1件`;
-    await calendar.press(dayButton);
+    await openCalendarDay(calendar, moved.suggestedDate);
     const chore = adjusted.chores.find((item) => item.id === moved.choreId);
     assert.ok(calendar.nodes().some((node) => node.props.accessibilityLabel === `${chore.name}を完了`));
     const row = h.connection.prepare('SELECT suggested_date FROM chore_schedule_entries WHERE id = ?').get(moved.id);

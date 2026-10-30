@@ -2,6 +2,7 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
+import { scrollCalendarToDate, openCalendarDay } from './helpers/calendar-ui.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { localDateFromDate, formatJapaneseDate } from '../src/domain/scheduling/local-date.ts';
 
@@ -90,12 +91,12 @@ test('feature screen contract: calendar renders weekly labels in headers and mon
     assert.ok(screen.nodes().some((node) => node.props.accessibilityLabel === '火曜日、可燃ごみ'));
     assert.ok(screen.nodes().some((node) => node.type === 'Pressable' && node.props.accessibilityLabel?.includes('粗大ごみ')));
     const firstDay = `${today.slice(0, 7)}-01`;
-    const firstDayControl = screen.nodes().find((node) => node.type === 'Pressable'
-      && node.props.accessibilityLabel?.startsWith(`${formatJapaneseDate(firstDay)}、`));
-    await screen.press(firstDayControl.props.accessibilityLabel);
-    await screen.press('次の月');
-    assert.ok(screen.text().includes(`${formatJapaneseDate(firstDay, { weekday: true })}の予定を表示中`));
-    assert.ok(!screen.text().includes('を含む実施期間'), 'month arrows must not expand calendar');
+    await openCalendarDay(screen, firstDay, { chores: false }); await screen.press('月表示に戻る');
+    const nextMonth = `${Number(today.slice(0, 4)) + (today.slice(5, 7) === '12' ? 1 : 0)}-${String(Number(today.slice(5, 7)) % 12 + 1).padStart(2, '0')}-01`;
+    await scrollCalendarToDate(screen, nextMonth); await scrollCalendarToDate(screen, firstDay);
+    const retained = screen.nodes().find(node => node.props.accessibilityLabel?.startsWith(`${formatJapaneseDate(firstDay, { year: true })}、`));
+    assert.equal(retained.props.accessibilityState.selected, true);
+    assert.ok(!screen.text().includes('を含む実施期間'), 'browsing weeks does not expand chore periods');
   } finally { h.connection.close(); }
 });
 

@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 const INITIAL_SCHEMA_VERSION = 1;
-const CURRENT_SCHEMA_VERSION = 19;
+const CURRENT_SCHEMA_VERSION = 20;
 
 const runningMigrations = new WeakMap<SQLiteDatabase, Promise<void>>();
 
@@ -354,6 +354,28 @@ async function migrateSchema(database: SQLiteDatabase): Promise<void> {
     await addColumnIfMissing(database, 'google_sync_state', 'connection_active', 'INTEGER NOT NULL DEFAULT 1');
     await database.execAsync('PRAGMA user_version = 19');
     version = 19;
+  }
+  if (version < 20) {
+    // Personal calendar data has no shared outbox or Google linkage. Keep it
+    // independent of generated schedule rows, which are routinely regenerated.
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS calendar_categories (
+        id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, color TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK(revision > 0)
+      );
+      CREATE TABLE IF NOT EXISTS calendar_events (
+        id TEXT PRIMARY KEY NOT NULL, definition_json TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK(revision > 0), deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0,1))
+      );
+      CREATE TABLE IF NOT EXISTS calendar_event_exceptions (
+        event_id TEXT NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+        anchor_date TEXT NOT NULL, override_json TEXT, revision INTEGER NOT NULL CHECK(revision > 0),
+        PRIMARY KEY(event_id, anchor_date)
+      );
+      CREATE TABLE IF NOT EXISTS calendar_drafts (slot TEXT PRIMARY KEY NOT NULL, draft_json TEXT NOT NULL);
+      PRAGMA user_version = 20;
+    `);
+    version = 20;
   }
   if (startingVersion < CURRENT_SCHEMA_VERSION) {
     await database.execAsync(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);

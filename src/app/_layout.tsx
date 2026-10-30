@@ -12,6 +12,7 @@ import { NotificationWorkspaceBridge } from '@/components/notification-workspace
 import { WorkspaceProvider, ActiveWorkspaceScope, useWorkspace } from '@/hooks/use-workspace';
 import { WorkspaceNavigator } from '@/components/workspace-navigator';
 import '@/platform/notifications/configure-foreground-notifications';
+import { plannerColorsForScheme } from '@/components/planner-theme';
 
 function WidgetInteractionBridge() {
   const { database, refresh } = usePlannerData();
@@ -44,11 +45,15 @@ function WidgetInteractionBridge() {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const colors = plannerColorsForScheme(colorScheme);
+  const baseTheme = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
+  const theme = { ...baseTheme, colors: { ...baseTheme.colors, background: colors.background, card: colors.surface,
+    text: colors.ink, border: colors.border, primary: colors.accent, notification: colors.warning } };
   return (
     <SQLiteProvider databaseName="housework.db" onInit={initializeLocalDatabase}>
       <PlannerDataProvider>
         <WorkspaceProvider>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <ThemeProvider value={theme}>
           <>
             <PlannerSystemBars />
             <WidgetInteractionBridge />

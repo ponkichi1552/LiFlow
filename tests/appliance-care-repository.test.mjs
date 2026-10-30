@@ -1,30 +1,7 @@
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { registerHooks } from 'node:module';
-import { existsSync } from 'node:fs';
-import { dirname, extname, resolve as resolvePath } from 'node:path';
+import './helpers/typescript-loader.mjs';
 import test from 'node:test';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-
-const projectRoot = fileURLToPath(new URL('../', import.meta.url));
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    let target;
-    if (specifier.startsWith('@/')) {
-      target = resolvePath(projectRoot, 'src', specifier.slice(2));
-    } else if ((specifier.startsWith('./') || specifier.startsWith('../')) && context.parentURL?.startsWith('file:')) {
-      target = resolvePath(dirname(fileURLToPath(context.parentURL)), specifier);
-    }
-    if (target && !extname(target)) {
-      for (const extension of ['.ts', '.tsx', '.js', '.mjs']) {
-        if (existsSync(target + extension)) return nextResolve(pathToFileURL(target + extension).href, context);
-      }
-      const indexPath = resolvePath(target, 'index.ts');
-      if (existsSync(indexPath)) return nextResolve(pathToFileURL(indexPath).href, context);
-    }
-    return nextResolve(specifier, context);
-  },
-});
 
 const repository = await import('../src/platform/storage/repository.ts');
 const { createPlannerRefreshController } = await import('../src/features/planner/refresh-controller.ts');
