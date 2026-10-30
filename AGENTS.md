@@ -2,6 +2,8 @@ This is an Expo/React Native mobile application. Prioritize mobile-first pattern
 
 ## Canonical development source
 
+- The canonical GitHub repository is the private `ponkichi1552/LiFlow` repository: `https://github.com/ponkichi1552/LiFlow`. `origin` points there.
+- `jphacks/tkb_2633` is retained for history only. Do not push to, modify, archive, or delete that repository. The local `legacy-jphacks` remote has its push URL disabled.
 - `main` is the canonical integrated development source. Reuse the current checkout and branch for the authorized task. Create another branch or worktree only when isolation is actually needed.
 - After the authorized change passes its checks, integrate it into `main` and retire the completed branch. Do not leave completed work only on a feature branch while `main` falls behind.
 - Preserve uncommitted work and unadopted experiments in a verified, recoverable archive before retiring their refs. A historical checkout is not the current app source. See `docs/development-workflow.md`.
