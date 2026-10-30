@@ -3496,6 +3496,10 @@
       },
       {
         "file": "tests/sharing-private-calendar-cloud.integration.mjs",
+        "name": "private Calendar identical authority retry recovers when its ${olderRead} read precedes the other client's atomic commit"
+      },
+      {
+        "file": "tests/sharing-private-calendar-cloud.integration.mjs",
         "name": "private Calendar Cloud maximum device membership rotates without exceeding Rules access limits and removes every old transport key"
       },
       {

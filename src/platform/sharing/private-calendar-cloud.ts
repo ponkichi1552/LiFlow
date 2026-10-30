@@ -120,8 +120,18 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
       authorityForUser(before); next = verifyPrivateCalendarAuthorityUpdate(before, next.signed);
       const fields = privateCalendarCloudFields(next); const archive = doc(reference, 'authorities', String(next.signed.body.revision));
       const result = await recoverImmutable(() => runTransaction(firestore, async (transaction) => {
-        checkAccount(); const [currentDoc, accepted] = await Promise.all([transaction.get(reference), transaction.get(archive)]); checkAccount();
-        if (!currentDoc.exists()) throw new PrivateCalendarCloudConflict(); const current = headFromDocument(currentDoc.data(), userId);
+        checkAccount(); let [currentDoc, accepted] = await Promise.all([transaction.get(reference), transaction.get(archive)]); checkAccount();
+        if (!currentDoc.exists()) throw new PrivateCalendarCloudConflict(); let current = headFromDocument(currentDoc.data(), userId);
+        // The Web SDK verifies read versions at commit. Separate reads can straddle
+        // another client's atomic commit; throwing our own conflict first would
+        // bypass that verification and its bounded retry. Re-read the older side
+        // so the SDK detects a changed version before we judge the signed pair.
+        if (accepted.exists() && current.authorityRevision < next.signed.body.revision) {
+          currentDoc = await transaction.get(reference); checkAccount();
+          if (!currentDoc.exists()) throw new PrivateCalendarCloudConflict(); current = headFromDocument(currentDoc.data(), userId);
+        } else if (!accepted.exists() && current.authorityRevision >= next.signed.body.revision) {
+          accepted = await transaction.get(archive); checkAccount();
+        }
         if (accepted.exists()) {
           if (current.rootDigest !== before.anchor.rootDigest || canonicalJson(authorityFromDocument(accepted.data(), next.signed.body.revision)) !== fields.authorityJson
             || current.authorityRevision < next.signed.body.revision) throw new PrivateCalendarCloudConflict();

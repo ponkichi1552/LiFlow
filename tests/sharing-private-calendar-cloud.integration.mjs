@@ -23,6 +23,8 @@ import { createPrivateCalendarDeviceSession } from '../src/features/sharing/priv
 import { createPrivateCalendarSourceController, privateCalendarSourceBinding } from '../src/features/sharing/private-calendar/source-controller.ts';
 import { createPrivateCalendarSourceStorage } from '../src/platform/storage/private-calendar-source.ts';
 import { privateCalendarRuntimeFixture } from './helpers/private-calendar-runtime.mjs';
+import { loadNativeModule } from './helpers/native-module.mjs';
+import * as firestoreSdk from 'firebase/firestore';
 const { createPrivateCalendarCapture } = await import('../src/features/sharing/private-calendar/calendar-capture.ts');
 const { createCalendarQueryRange } = await import('../src/features/google-sync/calendar-availability.ts');
 
@@ -251,6 +253,43 @@ test('private Calendar concurrent retries of one signed authority update recover
   assert.ok(accepted.every(result => result.head.authorityDigest === next.digest));
   assert.equal((await h.left.cloud.authorityPage(0)).authorities.length, 2);
 });
+
+for (const olderRead of ['head', 'archive']) {
+  test(`private Calendar identical authority retry recovers when its ${olderRead} read precedes the other client's atomic commit`, async () => {
+    const h = await fixture(); const next = advancePrivateCalendarAuthority(h.root, { devices: [h.main, h.other], mainDeviceId: h.other.deviceId, keyVersion: 1 }, h.main);
+    const ready = Promise.withResolvers(); const committed = Promise.withResolvers(); let attempts = 0;
+    const filename = 'src/platform/sharing/private-calendar-cloud.ts'; const sourceUrl = new URL(`../${filename}`, import.meta.url);
+    // Keep the real SDK, Rules, signatures and cloud implementation. Only hold a
+    // read until the independent client's commit to reproduce both read orders.
+    const imports = [...new Set([...readFileSync(sourceUrl, 'utf8').matchAll(/from '([^']+)'/g)].map(match => match[1]))];
+    const mocks = Object.fromEntries(await Promise.all(imports.filter(name => name !== 'firebase/firestore')
+      .map(async name => [name, await import(new URL(name, sourceUrl))])));
+    mocks['firebase/firestore'] = { ...firestoreSdk, runTransaction: (db, work, options) => firestoreSdk.runTransaction(db, transaction => {
+      const attempt = ++attempts;
+      return work(new Proxy(transaction, { get(target, key) {
+        if (key !== 'get') { const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value; }
+        return async reference => {
+          const side = reference.path === h.ref.path ? 'head' : reference.path === `${h.ref.path}/authorities/2` ? 'archive' : null;
+          if (attempt === 1 && side && side !== olderRead) await committed.promise;
+          const snapshot = await target.get(reference);
+          if (attempt === 1 && side === olderRead) ready.resolve();
+          return snapshot;
+        };
+      } }));
+    }, options) };
+    const { createPrivateCalendarCloud: controlledCloud } = loadNativeModule(filename, mocks);
+    const cloud = controlledCloud(h.left.firestore, userId, () => userId, crypto);
+    const pending = cloud.commitAuthority(h.root, next); pending.catch(() => {});
+    let timeout;
+    try {
+      await Promise.race([ready.promise, new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('First authority read did not arrive')), 5000); })]);
+      await h.right.cloud.commitAuthority(h.root, next); committed.resolve();
+      assert.equal((await pending).head.authorityDigest, next.digest);
+      assert.ok(attempts > 1, 'The real SDK must retry its changed document version');
+      assert.equal((await h.right.cloud.authorityPage(0)).authorities.length, 2);
+    } finally { clearTimeout(timeout); committed.resolve(); await pending.catch(() => {}); }
+  });
+}
 
 test('private Calendar concurrent retries of the exact prepared key envelope recover its original bytes without replacement', async () => {
   const h = await joined(); const key = await createPrivateCalendarAccountKey(crypto);
