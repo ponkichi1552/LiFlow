@@ -13,10 +13,17 @@ function addSecurityConstraints(contents, language = 'groovy') {
   if (language !== 'groovy') throw new Error('LiFlow native security constraints require a Groovy app build.gradle');
   const body = minimumVersions.map(([coordinate, version, reason]) =>
     `        implementation('${coordinate}') {\n            version { require('${version}') }\n            because '${reason}'\n        }`).join('\n');
-  return mergeContents({
+  const dependencies = mergeContents({
     tag: 'liflow-native-security-minimums', src: contents,
     anchor: /^dependencies\s*\{/mu, offset: 1, comment: '//',
-    newSrc: `    constraints {\n${body}\n    }`,
+    newSrc: `    coreLibraryDesugaring('com.android.tools:desugar_jdk_libs_nio:2.1.5')\n    constraints {\n${body}\n    }`,
+  }).contents;
+  // Commons IO's fixed FileUtils uses File.toPath/Files (API26). Keep API24/25
+  // supported with Google's NIO backport; language-only desugaring is insufficient.
+  return mergeContents({
+    tag: 'liflow-api24-nio', src: dependencies,
+    anchor: /^android\s*\{/mu, offset: 1, comment: '//',
+    newSrc: '    compileOptions { coreLibraryDesugaringEnabled true }',
   }).contents;
 }
 

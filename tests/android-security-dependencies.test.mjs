@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url);
 const plugin = require('../plugins/with-android-security-dependencies.js');
 
 test('Android runtime security minimums survive repeated prebuilds without forcing older native versions or removing app dependencies', async () => {
-  const original = 'apply plugin: "com.android.application"\n\ndependencies {\n    implementation("com.facebook.react:react-android")\n}\n';
+  const original = 'apply plugin: "com.android.application"\nandroid {\n    defaultConfig { minSdkVersion 24 }\n}\ndependencies {\n    implementation("com.facebook.react:react-android")\n}\n';
   const once = plugin.addSecurityConstraints(original);
   assert.equal(plugin.addSecurityConstraints(once), once);
   assert.equal(once.match(/constraints \{/gu)?.length, 1);
@@ -22,4 +22,13 @@ test('Android runtime security minimums survive repeated prebuilds without forci
   const mod = plugin(config);
   const result = await mod.mods.android.appBuildGradle({ ...mod, modRequest: { platform: 'android', modName: 'appBuildGradle' }, modResults: { language: 'groovy', contents: original } });
   assert.equal(result.modResults.contents, once);
+});
+
+test('Android file library security updates retain API24 NIO support without increasing minSdk or changing the Java target', () => {
+  const source = 'android {\n    defaultConfig { minSdkVersion 24 }\n    compileOptions { sourceCompatibility JavaVersion.VERSION_17 }\n}\ndependencies {\n}\n';
+  const result = plugin.addSecurityConstraints(source);
+  assert.match(result, /coreLibraryDesugaringEnabled true/u);
+  assert.match(result, /coreLibraryDesugaring\('com\.android\.tools:desugar_jdk_libs_nio:2\.1\.5'\)/u);
+  assert.match(result, /minSdkVersion 24/u); assert.match(result, /sourceCompatibility JavaVersion\.VERSION_17/u);
+  assert.equal(plugin.addSecurityConstraints(result), result);
 });

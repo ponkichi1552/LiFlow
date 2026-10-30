@@ -1,8 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View, useColorScheme, useWindowDimensions } from 'react-native';
-import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
+import type { FlatListProps } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppButton, BackButton, palette, typography } from '../../components/planner-ui';
@@ -143,11 +143,15 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     const minute = dayList.includes(today) ? currentMinute : first ?? 9 * 60;
     scroll.current?.scrollToOffset({ offset: Math.max(0, timelineTop.current + minute / 60 * hourHeight - height / 2), animated: false });
   };
-  const scrollWeeks = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const index = Math.max(0, Math.min(weeks.length - 1, Math.floor((event.nativeEvent.contentOffset.y + height / 2) / rowHeight)));
-    const next = calendarMonth(addDays(weeks[index], 3));
-    if (next !== month) { setMonth(next); setYear(Number(next.slice(0, 4))); }
-  };
+  // Offsets can still describe the previous row height while native layout is
+  // changing (notices/rotation). Actual visible identities remain authoritative.
+  const weekViewability = useMemo(() => ({ itemVisiblePercentThreshold: 50, minimumViewTime: 60 }), []);
+  const visibleWeeksChanged = useCallback<NonNullable<FlatListProps<LocalDate>['onViewableItemsChanged']>>(({ viewableItems }) => {
+    const visible = viewableItems.filter(item => item.isViewable && item.index !== null).sort((a, b) => a.index! - b.index!);
+    if (!visible.length) return;
+    const next = calendarMonth(addDays(visible[Math.floor((visible.length - 1) / 2)].item, 3));
+    setMonth(next); setYear(Number(next.slice(0, 4)));
+  }, []);
   const positionMonth = () => {
     const key = `${anchor}:${rowHeight}:${height}`; if (monthPositioned.current === key) return;
     monthPositioned.current = key;
@@ -198,16 +202,16 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
         initialScrollIndex={Math.max(0, weekIndex(anchor, target) - bounds.from - 2)} initialNumToRender={9} maxToRenderPerBatch={8} windowSize={7}
         getItemLayout={(_data, index) => ({ length: rowHeight, offset: rowHeight * index, index })}
         onLayout={positionMonth} onContentSizeChange={positionMonth}
-        maintainVisibleContentPosition={{ minIndexForVisible: 0 }} scrollEventThrottle={32} onScroll={scrollWeeks}
+        maintainVisibleContentPosition={{ minIndexForVisible: 0 }} viewabilityConfig={weekViewability} onViewableItemsChanged={visibleWeeksChanged}
         onStartReached={() => setBounds(before => ({ ...before, from: Math.max(-20_000, before.from - 52) }))} onStartReachedThreshold={.5}
         onEndReached={() => setBounds(before => ({ ...before, through: Math.min(20_000, before.through + 52) }))} onEndReachedThreshold={.5}
         accessibilityLabel="月カレンダー" accessibilityActions={[{ name: 'increment', label: '次の月' }, { name: 'decrement', label: '前の月' }]}
         onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'increment' || event.nativeEvent.actionName === 'decrement') navigateMonth(calendarMonth(month, event.nativeEvent.actionName === 'increment' ? 1 : -1)); }}
         onScrollToIndexFailed={() => list.current?.scrollToOffset({ offset: Math.max(0, weekIndex(anchor, target) - bounds.from - 2) * rowHeight, animated: false })}
-      /> : view === 'list' ? <FlatList testID="calendar-agenda" data={Array.from({ length: Math.min(listDays, 365) }, (_, i) => addDays(date, i))} keyExtractor={day => day} initialNumToRender={7}
+      /> : view === 'list' ? <FlatList key={`agenda:${date}`} testID="calendar-agenda" data={Array.from({ length: Math.min(listDays, 365) }, (_, i) => addDays(date, i))} keyExtractor={day => day} initialNumToRender={7}
         onEndReached={() => setListDays(n => Math.min(365, n + 28))} renderItem={({ item: day }) => <View style={styles.agendaDay}>{dayHeading(day)}{props.renderWaste?.(day)}{summary(day)}
           {eventsOn(day).filter(event => !event.birthday).map(event => eventRow(event, day))}{eventsOn(day).length === 0 ? <Text style={styles.empty}>{local?.error || projection.error ? '予定を取得できていません' : '予定はありません'}</Text> : null}</View>} />
-        : <FlatList ref={scroll} testID="calendar-timeline" data={[{ key: 'top' }, { key: 'timeline' }]} keyExtractor={item => item.key} initialNumToRender={2}
+        : <FlatList key={`timeline:${view}:${date}`} ref={scroll} testID="calendar-timeline" data={[{ key: 'top' }, { key: 'timeline' }]} keyExtractor={item => item.key} initialNumToRender={2}
           onContentSizeChange={positionTime} contentContainerStyle={styles.timelineBody} renderItem={({ item: section }) => section.key === 'top' ?
           <View style={styles.dayColumns} onLayout={event => { timelineTop.current = event.nativeEvent.layout.height + 8; setTimeout(positionTime, 0); }}>{dayList.map(day => <View key={day} style={styles.dayColumn}>{dayHeading(day)}{props.renderWaste?.(day)}{summary(day)}
             {eventsOn(day).filter(event => event.allDay && !event.birthday).map(event => eventRow(event, day))}</View>)}</View>

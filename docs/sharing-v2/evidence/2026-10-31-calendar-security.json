@@ -3,11 +3,11 @@
   "scope": "development security and calendar regression review",
   "independentThirdPartyAudit": false,
   "unitTests": {
-    "passed": 2385,
+    "passed": 2390,
     "failed": 0,
     "lint": "pass",
     "typecheck": "pass",
-    "featureContracts": 371,
+    "featureContracts": 374,
     "requiredCloudReferences": 53
   },
   "firestoreEmulator": {
@@ -24,7 +24,9 @@
       "timeouts": 0,
       "partialParses": 1,
       "normalizedPrivateCopyFindings": 0,
-      "nativeDeltaFindings": 0
+      "nativeDeltaFindings": 0,
+      "calendarAndNioFollowupFindings": 0,
+      "calendarAndNioFollowupErrors": 0
     },
     "gitleaks": {
       "version": "8.30.1",
@@ -41,10 +43,11 @@
     "osv": {
       "version": "2.7.0",
       "npmPackages": 875,
-      "androidMavenPackagesAfterFix": 300,
+      "androidMavenPackagesAfterFix": 301,
       "androidMavenAdvisoriesBeforeFix": 5,
       "androidMavenAdvisoriesAfterFix": 0,
-      "cocoaPodsExtraction": "unsupported; not counted as scanned"
+      "cocoaPodsExtraction": "unsupported; not counted as scanned",
+      "androidNioBackportIncluded": true
     },
     "npmAudit": {
       "critical": 0,
@@ -69,7 +72,7 @@
     "ios": {
       "releaseBuild": "pass",
       "dataPreservingUpdate": "pass",
-      "joinedGroupCalendarFullScenario": "pass",
+      "joinedGroupCalendarFullScenario": "pass on final Release",
       "sharedQaChoresAdded": 2,
       "qaChoresLeftDisabled": true,
       "qaInitialCadenceDays": 7,
@@ -77,7 +80,15 @@
       "personalBusinessTablesUnchanged": 11,
       "sqliteIntegrity": "ok",
       "settledGroupHome": "pass",
-      "additionalRegistrationTestRun": "interrupted during later URL loading; not a whole-test pass"
+      "additionalRegistrationTestRun": "interrupted during later URL loading; not a whole-test pass",
+      "calendarMovesQaRecommendationAndDeletionRestoresIt": "pass on final Release",
+      "finalXCTestCasesPassed": 2,
+      "finalXCTestFailures": 0,
+      "finalXCTestDurationSeconds": 429.212,
+      "timelineToAgendaSelectedDay": "pass on final Release",
+      "activeQaCalendarEvents": 0,
+      "calendarDrafts": 0,
+      "finalQaCleanup": "verified in post-test SQLite copy"
     },
     "android": {
       "osMajor": 10,
@@ -87,7 +98,17 @@
       "debuggable": false,
       "externalWidgetBroadcast": "OS denied delivery to non-exported receiver",
       "freshWidgetDisplay": "pass",
-      "onlineJoinedGroupCalendarAdditionalScenario": "pending network connection"
+      "onlineJoinedGroupCalendarAdditionalScenario": "pending network connection",
+      "offlineJoinedGroupLocalCalendar": "pass",
+      "biweeklyInclusiveEndDate": "pass",
+      "singleOccurrenceMove": "pass",
+      "seriesDeletion": "pass",
+      "timelineToAgendaSelectedDay": "pass",
+      "horizontalNextDayStartsInView": "pass",
+      "testAppointmentLeftActive": false,
+      "minimumApi24Execution": "not tested on API24/25; NIO backport verified in final APK",
+      "temporaryQaWidgetRemoved": true,
+      "originalClockWidgetPreserved": true
     }
   },
   "sourceContracts": {
@@ -99,7 +120,9 @@
     "independentCalendarOracleCases": 2000,
     "concurrentRevisionWrites": 20,
     "successfulConcurrentRevisionWrites": 1,
-    "foregroundSignalsCoalesced": 50
+    "foregroundSignalsCoalesced": 50,
+    "nativeCalendarMonthHeader": "actual viewable week identities; stale offsets cannot change the header or initial event date",
+    "nativeCalendarScrollReuse": "different view and date identities prevent timeline offsets from hiding agenda rows"
   },
   "privateEvidenceSha256": {
     "check-final-security.log": "99d08767e3e9bf7a456560ed6b57e24b3ffa7f679b9c4de3d984a9b0d7ab3c75",
@@ -108,7 +131,17 @@
     "semgrep-native-final.json": "4b815e229571e196974499dad3948b9057fa985303b8c8d5038532f38b276e7b",
     "osv-android-secured.json": "54345d5194d238b6017d0f3181f392109ce35023cc6b4bdfa8c134943dcb578e",
     "android-secured-release-apfs.log": "58cb4100d06d1f86e0c2b3c24a8ed2255f338693a27060635a3f8de7af8a9636",
-    "ios-registration-preservation.json": "51b6232c718c7af48466e172d6715b7a2df4d13ca68c18528a7810aafd583e19"
+    "ios-registration-preservation.json": "51b6232c718c7af48466e172d6715b7a2df4d13ca68c18528a7810aafd583e19",
+    "check-scroll-final.log": "eeca9db4edf91fa65151865ea2c93c9fceeaecb6db2ca40bafaace4a5340d88d",
+    "semgrep-scroll-final.json": "76b0e68796f30d53b64d0fb4b99835fd9b605b1ceb943792512527afd4548aa9",
+    "osv-android-nio.json": "54345d5194d238b6017d0f3181f392109ce35023cc6b4bdfa8c134943dcb578e",
+    "android-nio-dex-proof.json": "7939c290b3b5a55e3463854841281d8de7d4cf8d9a13d4ac6f79d825efcfc39e",
+    "android-scroll-artifact-verification.json": "c48248e7c8155c59efee5aff8409441990ea383ee5cf2c2cb6817e955bad446f",
+    "android-scroll-device-result.json": "370bcf9b3ba2ddd5b1b6ada21564af6a8adf46bab77a69f0f55774e6889f3f04",
+    "android-scroll-release.log": "70a33f28b6703babc5a8e2fdf25e3cf8151f11b9657db3480f317913f6be02bf",
+    "ios-scroll-final-scenarios.log": "e292357947c962fcf40b0996dbd11b8b031200ce55cfb41ccaf1b5685b14a1e2",
+    "ios-scroll-release.log": "59afdf6194d29fff68094ca873a6403a1403ce73b4e8302dccafac42931ef40d",
+    "ios-final-preservation.json": "5acdcd480a7242e4e13817479f9dbf6f96689d15ee18501132300196ff31eaf1"
   },
   "limitations": [
     "AI API public-deployment authentication and distributed cost controls are not implemented",
@@ -116,5 +149,11 @@
     "no TLS MITM",
     "no MobSF IPA/APK scan",
     "no new Background Push or Google Calendar write permissions"
-  ]
+  ],
+  "androidNioCompatibility": {
+    "minimumApi": 24,
+    "library": "com.android.tools:desugar_jdk_libs_nio:2.1.5",
+    "packagedInReleaseDex": true,
+    "api24And25Execution": "not performed; API29 physical device only"
+  }
 }

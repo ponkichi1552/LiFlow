@@ -18,6 +18,7 @@ export function screenHarness(filename, options = {}) {
   const modules = new Map();
   let current;
   let tree = [];
+  let mounted;
   const readError = options.readError ?? (() => null);
   const jsx = (type, props, key) => ({ type, props: props ?? {}, key });
   const hook = (initial) => {
@@ -48,7 +49,8 @@ export function screenHarness(filename, options = {}) {
       FlatList: (props) => {
         const [position, setPosition] = hook(null); const first = position ?? props.initialScrollIndex ?? 0;
         return jsx('FlatList', { ...props, onScroll: event => {
-          if (props.getItemLayout) setPosition(Math.max(0, Math.floor(event.nativeEvent.contentOffset.y / props.getItemLayout(props.data, 0).length)));
+          const length = props.getItemLayout?.(props.data, 0).length ?? options.flatListItemHeight;
+          if (length) setPosition(Math.max(0, Math.floor(event.nativeEvent.contentOffset.y / length)));
           props.onScroll?.(event);
         }, children: [props.ListHeaderComponent,
           ...((props.data ?? []).length ? props.data.slice(first, first + (props.initialNumToRender ?? 10)).map((item, index) => props.renderItem({ item, index: index + first })) : [props.ListEmptyComponent]), props.ListFooterComponent] });
@@ -125,6 +127,7 @@ export function screenHarness(filename, options = {}) {
     if (typeof element !== 'object') return [String(element)];
     if (typeof element.type === 'function') {
       const identity = `${path}:${element.type.name}:${element.key ?? ''}`;
+      mounted.add(identity);
       if (!slots.has(identity)) slots.set(identity, []);
       const parent = current;
       current = { values: slots.get(identity), index: 0 };
@@ -142,7 +145,13 @@ export function screenHarness(filename, options = {}) {
   const text = (node) => typeof node === 'string' ? node : (node.children ?? []).map(text).join('');
   const nodes = (items = tree) => items.flatMap((item) => typeof item === 'string' ? [] : item.props.accessibilityElementsHidden
     ? [item] : [item, ...nodes(item.children)]);
-  const render = () => { tree = expand(jsx(component, options.props ?? {}), 'root'); return tree; };
+  const render = () => {
+    mounted = new Set(); tree = expand(jsx(component, options.props ?? {}), 'root');
+    // React drops state when a keyed component leaves the tree, including when
+    // switching back to a key seen on an earlier screen.
+    for (const identity of slots.keys()) if (!mounted.has(identity)) slots.delete(identity);
+    return tree;
+  };
   const flush = async () => { await new Promise(setImmediate); await new Promise(setImmediate); render(); };
   const button = (name) => {
     const found = nodes().find((node) => node.props.accessibilityRole === 'button'

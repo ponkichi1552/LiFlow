@@ -16,6 +16,55 @@ async function fixture(t) {
   return { ...h, local };
 }
 for (const platform of ['ios', 'android']) {
+  test(`${platform} calendar view and day changes reset native scroll offsets without changing the selected date`, async t => {
+    const h = await fixture(t);
+    // Fixed test geometry models a native list retaining an offset across React reuse.
+    const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, flatListItemHeight: 100, layoutEffect: effect => effect(), props: {
+      today, timeZone: 'Asia/Tokyo', local: h.local, dayInfo: () => ({ loaded: true, pending: 1 }), renderChores: day => `家事：${day}`,
+    } });
+    const scroll = id => {
+      const list = screen.nodes().find(node => node.props.testID === id);
+      list.props.onScroll({ nativeEvent: { contentOffset: { x: 0, y: 1200 } } }); screen.render();
+    };
+    await openCalendarDay(screen, today, { chores: false });
+    scroll('calendar-timeline'); await screen.press('リスト表示');
+    await screen.press('2026年10月30日の家事を開く');
+    assert.ok(screen.text().includes(`家事：${today}`), 'the selected day must be visible without scrolling back through inherited timeline offsets');
+    scroll('calendar-agenda'); await screen.press('2日表示');
+    assert.ok(screen.text().includes('10月30日（金）')); assert.ok(screen.text().includes('10月31日（土）'));
+    scroll('calendar-timeline'); await screen.press('1日表示');
+    assert.ok(screen.text().includes('10月30日（金）'));
+    scroll('calendar-timeline');
+    const gesture = screen.nodes().find(node => typeof node.props.onPanResponderRelease === 'function');
+    gesture.props.onPanResponderRelease({}, { x0: 200, dx: -140, dy: 0 }); screen.render();
+    assert.ok(screen.text().includes('10月31日（土）'), 'the next day starts with its own scroll state');
+    await screen.press('リスト表示'); await screen.press('2026年10月31日の家事を開く');
+    assert.ok(screen.text().includes('家事：2026-10-31'));
+  });
+  test(`${platform} calendar month header follows visible weeks when native offsets belong to an earlier row height`, async t => {
+    const h = await fixture(t);
+    const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
+      today, timeZone: 'Asia/Tokyo', local: h.local, dayInfo: () => ({ loaded: true, pending: 0 }), renderChores: () => null,
+    } });
+    let weeks = screen.nodes().find(node => node.props.testID === 'calendar-weeks');
+    // A stale native offset must not overrule the identities of the rows actually on screen.
+    weeks.props.onScroll({ nativeEvent: { contentOffset: { x: 0, y: weeks.props.data.indexOf('2026-08-30') * 100 } } });
+    screen.render(); weeks = screen.nodes().find(node => node.props.testID === 'calendar-weeks');
+    assert.equal(typeof weeks.props.onViewableItemsChanged, 'function');
+    const changed = weeks.props.onViewableItemsChanged;
+    const visible = days => changed({ viewableItems: days.map(item => ({ item, key: item, index: weeks.props.data.indexOf(item), isViewable: true })), changed: [] });
+    visible(['2026-10-11', '2026-10-18', '2026-10-25', '2026-11-01', '2026-11-08']); screen.render();
+    assert.ok(screen.text().includes('2026年10月')); assert.equal(screen.text().includes('2026年8月'), false);
+    weeks = screen.nodes().find(node => node.props.testID === 'calendar-weeks');
+    assert.equal(weeks.props.onViewableItemsChanged, changed, 'layout updates keep the native subscription stable');
+    visible(['2026-11-01', '2026-11-08', '2026-11-15', '2026-11-22', '2026-11-29']); screen.render();
+    assert.ok(screen.text().includes('2026年11月'));
+    visible(['2026-10-11', '2026-10-18', '2026-10-25', '2026-11-01', '2026-11-08']); screen.render();
+    assert.ok(screen.text().includes('2026年10月'), 'scrolling back must not be trapped in the initial callback closure');
+    visible([]); screen.render(); assert.ok(screen.text().includes('2026年10月'));
+    await screen.press('予定を追加');
+    assert.ok(screen.text().includes('2026/10/30'), 'new events start on the selected visible date rather than the stale header month');
+  });
   test(`${platform} native calendar starts with a virtualized full month keeps hierarchy and date preference and reveals chores only on request`, async t => {
     const h = await fixture(t); let opened = 0; const dates = [];
     const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
