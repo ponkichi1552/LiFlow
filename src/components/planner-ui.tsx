@@ -120,7 +120,7 @@ export function AppButton({
         pressed && !disabled && styles.buttonPressed,
       ]}>
       {title === '‹' || title === '›' ? <Chevron direction={title === '‹' ? 'left' : 'right'} />
-        : <Text style={[styles.buttonText, styles[`buttonText_${variant}`], compact && styles.buttonTextCompact]}>{title}</Text>}
+        : <Text style={[styles.buttonText, compact && styles.buttonTextCompact, styles[`buttonText_${variant}`]]}>{title}</Text>}
     </Pressable>
   );
 }

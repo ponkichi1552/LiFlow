@@ -39,7 +39,6 @@ export function ApplianceDetailContent({ context, returnTo, error }: {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={<View style={styles.listHeader}>
         <View style={styles.detailHeader}>
-          <BackButton accessibilityLabel="一覧へ戻る" onPress={goBack} />
           <Text style={styles.modelTitle}>{appliance.modelNumber}</Text>
         </View>
         {error ? <Text style={styles.invalidLink}>{error}</Text> : null}
@@ -60,6 +59,7 @@ export function ApplianceDetailContent({ context, returnTo, error }: {
           return <MaintenanceTaskCard task={task} chore={chore} manufacturer={appliance.manufacturer} index={index} />;
         }}
       />
+      <View testID="appliance-detail-back-dock" style={styles.backDock}><BackButton accessibilityLabel="一覧へ戻る" onPress={goBack} /></View>
     </SafeAreaView>
   );
 }
@@ -118,6 +118,7 @@ export function OfficialLink({ manufacturer, title, url }: { manufacturer: strin
 }
 
 const styles = StyleSheet.create({
+  backDock: { paddingHorizontal: 18, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, backgroundColor: palette.surface },
   safeArea: { flex: 1, backgroundColor: palette.background },
   listContent: { width: '100%', maxWidth: 820, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 18, paddingBottom: 36, gap: 15 },
   listHeader: { gap: 15 },

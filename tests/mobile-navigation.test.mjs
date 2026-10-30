@@ -73,7 +73,8 @@ test('mobile tab bar reserves space for labels on phones with and without a home
       const options = screen.nodes().find((node) => node.props.screenOptions).props.screenOptions;
       assert.equal(options.tabBarStyle.paddingBottom, bottom);
       assert.ok(options.tabBarStyle.height - bottom >= 60, 'icon and readable label need room above the safe area');
-      assert.deepEqual(options.tabBarLabelStyle, { ...typography.tab, fontWeight: '600' });
+      assert.deepEqual(options.tabBarLabelStyle, { fontSize: typography.tab.fontSize, lineHeight: typography.tab.lineHeight, fontWeight: '600' },
+        'shared font metrics remain intact while the navigator owns active/inactive label colors');
       const home = screenHarness('src/app/(tabs)/index.tsx', { database: h.database, snapshot: () => snapshot, mocks });
       const homeTabStyle = home.nodes().find((node) => node.props.options?.tabBarStyle).props.options.tabBarStyle;
       assert.deepEqual(homeTabStyle, options.tabBarStyle, 'home must not replace the shared tab bar with the previous short layout');

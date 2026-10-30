@@ -12,7 +12,8 @@ export type ThemedTextProps = TextProps & {
 export function ThemedText({ style, type = 'default', themeColor, ...rest }: ThemedTextProps) {
   const theme = useTheme();
 
-  return <Text style={[{ color: theme[themeColor ?? 'text'] }, styles[type], style]} {...rest} />;
+  const color = type === 'linkPrimary' ? styles.linkPrimary.color : theme[themeColor ?? 'text'];
+  return <Text style={[styles[type], { color }, style]} {...rest} />;
 }
 
 const styles = StyleSheet.create({

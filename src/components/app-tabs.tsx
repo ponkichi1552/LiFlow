@@ -24,7 +24,7 @@ export default function AppTabs() {
       tabBarActiveTintColor: palette.accent,
       tabBarInactiveTintColor: palette.muted,
       tabBarStyle: { ...plannerTabBarLayout(insets.bottom), backgroundColor: palette.surface, borderTopColor: palette.border, borderTopWidth: 1 },
-      tabBarLabelStyle: { ...typography.tab, fontWeight: '600' },
+      tabBarLabelStyle: { fontSize: typography.tab.fontSize, lineHeight: typography.tab.lineHeight, fontWeight: '600' },
       tabBarItemStyle: { paddingBottom: 4 },
     }}>
       <Tabs.Screen name="index" options={{ title: 'ホーム', tabBarIcon: tabIcon({ ios: 'house', android: 'house' }) }} />

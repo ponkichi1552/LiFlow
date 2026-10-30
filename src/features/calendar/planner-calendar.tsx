@@ -5,6 +5,7 @@ import { FlatList, Pressable, ScrollView, StyleSheet, Text, View, useColorScheme
 import type { FlatListProps } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCalendarClock } from './use-calendar-clock';
 import { AppButton, BackButton, palette, typography } from '../../components/planner-ui';
 import { Chevron } from '../../components/chevron';
 import { CalendarTaskCountIndicator } from '../../components/calendar-task-count-indicator';
@@ -57,10 +58,10 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   const closeEditor = () => { setEditor(null); if (routeParams.calendarDraft) router.setParams({ calendarDraft: undefined, calendarDraftVersion: undefined }); };
   const scroll = useRef<FlatList<{ key: string }>>(null); const timelineTop = useRef<number | null>(null); const positioned = useRef('');
   const monthPositioned = useRef(''); const [target, setTarget] = useState(date);
+  const monthDragged = useRef(false);
   const currentDate = useRef(date); useLayoutEffect(() => { currentDate.current = date; }, [date]);
   const requestedMonth = useRef<LocalDate | null>(null);
-  const [clock, setClock] = useState(() => new Date());
-  useEffect(() => { if (view !== 'day' && view !== 'two') return; const timer = setInterval(() => setClock(new Date()), 60_000); return () => clearInterval(timer); }, [view]);
+  const clock = useCalendarClock(view === 'day' || view === 'two');
   const todayTime = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(clock).split(':').map(Number);
   const currentMinute = todayTime[0] * 60 + todayTime[1];
   useEffect(() => {
@@ -85,6 +86,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     return `${formatJapaneseDate(day, { year: true })}、${info.accessibilityCountLabel ?? (info.loaded ? `推奨日の未完了の家事${info.pending ?? 0}件${info.partial ? '、個人家事は未取得' : ''}` : '家事は未取得')}${labels.length ? `、${labels.join('・')}` : ''}${hidden.length ? `、非表示の収集：${hidden.join('・')}` : ''}${events.length ? `、予定${events.length}件` : ''}`;
   };
   const navigateMonth = (next: LocalDate, day = preferred.current) => {
+    monthDragged.current = false; monthPositioned.current = '';
     const chosen = dateInMonth(next, day); setTarget(chosen); setMonth(calendarMonth(next)); setYear(Number(next.slice(0, 4)));
     setAnchor(weekStart(chosen)); setBounds({ from: -260, through: 260 }); setDate(chosen); props.onSelectDate?.(chosen); setView('month');
   };
@@ -95,7 +97,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     positioned.current = ''; timelineTop.current = null; setView(next);
   };
   const back = () => { if (view === 'year') props.onNavigate?.('home'); else if (view === 'month') { setYear(Number(month.slice(0, 4))); setView('year'); }
-    else { setTarget(date); setAnchor(weekStart(date)); setBounds({ from: -260, through: 260 }); setView('month'); } };
+    else { monthDragged.current = false; monthPositioned.current = ''; setTarget(date); setAnchor(weekStart(date)); setBounds({ from: -260, through: 260 }); setView('month'); } };
   const horizontal = useMemo(() => createCalendarGesture(), []);
   useLayoutEffect(() => { horizontal.update({ canStart: gesture => {
     const action = calendarSwipe(gesture.x0, gesture.dx, gesture.dy, width);
@@ -153,6 +155,9 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     setMonth(next); setYear(Number(next.slice(0, 4)));
   }, []);
   const positionMonth = () => {
+    // Native maintainVisibleContentPosition owns layout changes after browsing.
+    // A notice/resize must not pull the user back to the original target date.
+    if (monthDragged.current) return;
     const key = `${anchor}:${rowHeight}:${height}`; if (monthPositioned.current === key) return;
     monthPositioned.current = key;
     list.current?.scrollToOffset({ offset: Math.max(0, (weekIndex(anchor, target) - bounds.from + .5) * rowHeight - height / 2), animated: false });
@@ -202,12 +207,13 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
         initialScrollIndex={Math.max(0, weekIndex(anchor, target) - bounds.from - 2)} initialNumToRender={9} maxToRenderPerBatch={8} windowSize={7}
         getItemLayout={(_data, index) => ({ length: rowHeight, offset: rowHeight * index, index })}
         onLayout={positionMonth} onContentSizeChange={positionMonth}
+        onScrollBeginDrag={() => { monthDragged.current = true; }}
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }} viewabilityConfig={weekViewability} onViewableItemsChanged={visibleWeeksChanged}
         onStartReached={() => setBounds(before => ({ ...before, from: Math.max(-20_000, before.from - 52) }))} onStartReachedThreshold={.5}
         onEndReached={() => setBounds(before => ({ ...before, through: Math.min(20_000, before.through + 52) }))} onEndReachedThreshold={.5}
         accessibilityLabel="月カレンダー" accessibilityActions={[{ name: 'increment', label: '次の月' }, { name: 'decrement', label: '前の月' }]}
         onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'increment' || event.nativeEvent.actionName === 'decrement') navigateMonth(calendarMonth(month, event.nativeEvent.actionName === 'increment' ? 1 : -1)); }}
-        onScrollToIndexFailed={() => list.current?.scrollToOffset({ offset: Math.max(0, weekIndex(anchor, target) - bounds.from - 2) * rowHeight, animated: false })}
+        onScrollToIndexFailed={() => { if (!monthDragged.current) list.current?.scrollToOffset({ offset: Math.max(0, weekIndex(anchor, target) - bounds.from - 2) * rowHeight, animated: false }); }}
       /> : view === 'list' ? <FlatList key={`agenda:${date}`} testID="calendar-agenda" data={Array.from({ length: Math.min(listDays, 365) }, (_, i) => addDays(date, i))} keyExtractor={day => day} initialNumToRender={7}
         onEndReached={() => setListDays(n => Math.min(365, n + 28))} renderItem={({ item: day }) => <View style={styles.agendaDay}>{dayHeading(day)}{props.renderWaste?.(day)}{summary(day)}
           {eventsOn(day).filter(event => !event.birthday).map(event => eventRow(event, day))}{eventsOn(day).length === 0 ? <Text style={styles.empty}>{local?.error || projection.error ? '予定を取得できていません' : '予定はありません'}</Text> : null}</View>} />

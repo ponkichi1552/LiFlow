@@ -12,6 +12,22 @@ import { fetchOfficialManualText } from '../server/appliance-care-api/src/manual
 
 const request = i => ({ manufacturer: 'Dyson', productName: `Synthetic${i}`, modelNumber: `QA${i}` });
 
+test('API security unauthenticated development server refuses production startup before opening a listener or invoking AI', () => {
+  const source = `import {createApplianceCareHttpServer,startApplianceCareHttpServer} from ${JSON.stringify(new URL('../server/appliance-care-api/src/http-server.mjs', import.meta.url).href)};
+    for(const create of [createApplianceCareHttpServer,startApplianceCareHttpServer]) {
+      let refused=false;
+      try { const server=create({aiConfigured:false,host:'127.0.0.1',port:0,dependencies:new Proxy({}, {get(){throw new Error('dependencies must not be touched')}})});server.close(); }
+      catch(error) {if(error.code!=='DEVELOPMENT_API_ONLY')throw error;refused=true;}
+      if(!refused)throw new Error('Unauthenticated production server was created');
+    }
+    console.log('production-startup-refused');`;
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', source], {
+    env: { ...process.env, NODE_ENV: 'production', OPENAI_API_KEY: '' }, encoding: 'utf8', timeout: 5000,
+  });
+  assert.equal(result.error, undefined); assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'production-startup-refused');
+});
+
 test('API attack: hardened manual cleanup preserves visible custom elements self-closing markup and Japanese procedures', async () => {
   const html = '<nav>不要なリンク</nav><!-- 隠れた内容 --><h2>お手入れ</h2><nav-link>確認する</nav-link><svg/><p>フィルターを洗う &amp; 乾かす</p><br><script>非表示のスクリプト</script><style>非表示のスタイル</style><p>次の工程</p>';
   const result = await fetchOfficialManualText({ url: 'https://dyson.co.jp/synthetic', kind: 'web_manual' }, ['dyson.co.jp'],

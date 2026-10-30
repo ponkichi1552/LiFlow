@@ -604,14 +604,14 @@ GPT-5.5を利用した3回のE2E検証：
 
 | 検証 | 結果 |
 |---|---:|
-| 自動テスト | **2,305 tests PASS（iOS・Androidの両条件。2026-10-30）** |
+| 自動テスト | **2,404 tests PASS（iOS・Androidの両条件。2026-10-31）** |
 | lint | PASS |
 | TypeScript typecheck | PASS |
 | `npm run check` | PASS |
 | Expo Doctor | PASS |
 | GitHub Actions CI | PASS |
-| 保護対象feature contract | **355機能／必須Cloud回帰51参照（標準v2への変更をD12に記録）** |
-| Firestore Emulator | **86 tests PASS（攻撃検査はローカルのRules Emulatorで実施）** |
+| 保護対象feature contract | **378機能／必須Cloud回帰53参照（標準v2への変更をD12に記録）** |
+| Firestore Emulator | **89 tests PASS（攻撃検査はローカルのRules Emulatorで実施）** |
 | iOS Simulator + 実Google E2E | PASS |
 | Android Emulator + 実Google Tasks / Calendar Phase 3 E2E | **PASS（2026-10-26）** |
 | iPhone 12 + Release版（初期設定・自動保存・完了/取消・アイコン） | **PASS（2026-10-26）** |
@@ -632,6 +632,8 @@ GPT-5.5を利用した3回のE2E検証：
 
 詳細：
 
+- [シミュレーターの操作・表示・セキュリティ追加検査](./docs/simulator-ux-audit-2026-10-31.md)
+- [カレンダー・共有・Android依存関係の追加検査](./docs/security-calendar-audit-2026-10-31.md)
 - [`docs/input-weather-calendar-audit-2026-10-26.md`](./docs/input-weather-calendar-audit-2026-10-26.md)
 - [`docs/autosave-typography-audit-2026-10-26.md`](./docs/autosave-typography-audit-2026-10-26.md)
 - [`docs/reliability-audit-2026-10-26.md`](./docs/reliability-audit-2026-10-26.md)
@@ -1131,6 +1133,8 @@ npm run api:dev
 ```
 
 OpenAI API keyをクライアントアプリへ直接埋め込まない構成です。
+
+現在のAPIはローカル開発用です。利用者認証と分散した利用上限が未実装のため、`NODE_ENV=production` では待受を開始せず終了します。CORSとプロセス内の上限は認証の代わりにはなりません。開発用APIを公開インターネットへ直接公開しないでください。
 
 ---
 

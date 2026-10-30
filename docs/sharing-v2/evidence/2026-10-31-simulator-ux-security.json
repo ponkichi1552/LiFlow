@@ -1,0 +1,168 @@
+{
+  "date": "2026-10-31",
+  "scope": "additional simulator UX and development security regression checks",
+  "independentThirdPartyAudit": false,
+  "source": {
+    "branch": "main",
+    "expoMajor": 58,
+    "formalSharedProtocolChanged": false
+  },
+  "automatedChecks": {
+    "testsPassed": 2404,
+    "testsFailed": 0,
+    "lint": "pass",
+    "typecheck": "pass",
+    "featureContracts": 378,
+    "requiredCloudReferences": 53,
+    "priorIsolatedCloudTestsPassed": 89
+  },
+  "tools": {
+    "semgrep": {
+      "version": "1.183.0",
+      "additionalProductionFiles": 11,
+      "rules": 110,
+      "errors": 0,
+      "findings": 1,
+      "triage": "existing exact-allowlist CORS false positive; hostile origin rejection tests pass",
+      "sourceUploaded": false
+    },
+    "npmAudit": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 0,
+      "low": 8
+    },
+    "gitleaks": {
+      "version": "8.30.1",
+      "scope": "exact outgoing staged diff; fully redacted",
+      "result": "no leaks found"
+    }
+  },
+  "nativeSimulator": {
+    "runtime": "iOS 27.0",
+    "build": "Release embedded bundle; no development server",
+    "reset": false,
+    "uninstalled": false,
+    "passedCases": [
+      {
+        "case": "completionGuideSettingsHelpAppliance",
+        "result": "pass",
+        "scenarioDurationSecondsIncludingXCTestOverhead": 94.746
+      },
+      {
+        "case": "joinedGroupCalendarEditor",
+        "result": "pass",
+        "scenarioDurationSecondsIncludingXCTestOverhead": 129.014
+      },
+      {
+        "case": "calendarScrollingAndTabReturn",
+        "result": "pass",
+        "scenarioDurationSecondsIncludingXCTestOverhead": 52.121
+      },
+      {
+        "case": "responsiveLaunch",
+        "result": "pass",
+        "scenarioDurationSecondsIncludingXCTestOverhead": 28.479
+      },
+      {
+        "case": "groupWasteHistoryChoresAndCalendar",
+        "result": "pass",
+        "scenarioDurationSecondsIncludingXCTestOverhead": 37.957
+      }
+    ],
+    "responsiveLaunch": {
+      "iterationsSeconds": [
+        2.452504,
+        2.299828,
+        2.279353
+      ],
+      "averageSeconds": 2.344,
+      "metric": "ApplicationFirstFramePresentationResponsive",
+      "includesReactDataReady": false,
+      "measuresTapLatency": false
+    },
+    "scrollSignpost": {
+      "iterationsSeconds": [
+        2.466913,
+        2.466651,
+        2.466609
+      ],
+      "averageSeconds": 2.467,
+      "metric": "Scroll_DraggingAndDeceleration duration",
+      "measuresFrameHitchesOrFps": false
+    },
+    "animationHitches": "unsupported on this simulator; not counted as passed",
+    "nonPassingAttemptsRetained": [
+      "Interrupted earlier calendar run is not counted",
+      "Warm XCTest accessibility attachment failed; final cold-session scroll case passed",
+      "Animation Hitches template rejected the simulator platform"
+    ],
+    "settledProjectionScreenshotReviewed": true,
+    "applianceBackDockScreenshotReviewed": true,
+    "originalGroupRestored": true
+  },
+  "preservation": {
+    "sqliteCopiesChecked": 6,
+    "sqliteIntegrity": "all ok",
+    "personalBusinessTablesUnchanged": [
+      "households",
+      "household_members",
+      "chore_definitions",
+      "chore_assignments",
+      "chore_dependencies",
+      "weekly_waste_schedules",
+      "household_settings",
+      "chore_state",
+      "appliances",
+      "hidden_waste_occurrences",
+      "google_task_links",
+      "calendar_categories"
+    ],
+    "originalHistoryRowsPreserved": 22,
+    "completedHistoryCountBefore": 15,
+    "completedHistoryCountAfter": 15,
+    "additionalIncompleteQaUndoAuditRows": 1,
+    "originalCalendarRowsPreserved": true,
+    "activeQaCalendarEvents": 0,
+    "calendarDrafts": 0,
+    "allCopiedOutboxesEmpty": true,
+    "workspaces": [
+      {
+        "status": "active",
+        "schemaVersion": 2,
+        "migrationRecorded": true,
+        "schedulerVersion": "liflow-shared-2-draft-38",
+        "schemaSource": "latest archived signed roster"
+      }
+    ]
+  },
+  "apiBoundary": {
+    "productionStartupDeniedBeforeListening": true,
+    "publicUserAuthenticationImplemented": false,
+    "distributedCostLimitsImplemented": false,
+    "paidAnalysisCallsInUiTest": 0
+  },
+  "limitations": [
+    "Development review is not an independent human audit",
+    "No jailbreak or root key extraction, TLS MITM, or MobSF scan",
+    "Android physical online followup is separate from simulator and both-platform automated tests",
+    "No new Background Push or Google Calendar write permissions",
+    "No numeric per-tap latency or FPS guarantee"
+  ],
+  "privateEvidenceSha256": {
+    "delivery-tests-final.log": "fac0f5d26566030aa7afa6f377953c44905569d95d664ba1021ebea8e227498c",
+    "delivery-lint-final.log": "f9700c8fd9729a881b191cf25f368cec97b05fde9eed50d7af59a796e3feabef",
+    "delivery-typecheck-final.log": "6cb6a659dafff15e79c4a37d4c2735755e7b002f61d2871bc0165257bb2b6598",
+    "semgrep-verified.json": "3c31d870a7c1ef59052aaf5b4f8dd46844cb7fc6a3ffe6d765a354d83b28e861",
+    "semgrep-delivery-extra.json": "b12bbc578adb4e9d136cee2a70ea0c5ddc4dd7d1cb6bbd0e8b1dca4449d882e7",
+    "npm-audit.json": "4ee9077427401005ac52650efa6233a9de60fa83bbb364f29ac740d9f99ba8ef",
+    "native-ios-core-flow-delivery.log": "26af9aa7b933e287f97c9eedaeda31b7a8362b7f3ca30cee9df50c88eca252cc",
+    "native-ios-calendar-unique-delivery.log": "ce685fe1a34f6633876753b49c2719ac1f005fbd1c4db9f1d20a4cb34f9fc7ce",
+    "native-ios-scroll-cold-delivery.log": "504b0c9f8a44da2d6a7ec0ea327a89c3169b2114efdfecb9b7e6f3431db91486",
+    "native-ios-scroll-launch-delivery.log": "d577e7a428f2b84c6ab14f242035cfcfc286a55c29a57abaa6329d32854ad457",
+    "native-ios-group-aux-delivery.log": "f57d3488bfcc570bd279f9eed641e3543c7ee532f4b335bcd0a77591a3a240af",
+    "simulator-animation-delivery.log": "5ef34a5a1e5469c85691577517a7dd2573d1b24287f02445542ed2e6b8ff8683",
+    "simulator-after-ui/preservation-verified.json": "2cf62ff987e465d6574238334aecc0e0411cada3e5540409128e7c50c757f818",
+    "ios-simulator-delivery-build.log": "c6d93de93af2545749435d502ab7407a0b3f4a954f06b7fb3677b763808a1a21"
+  }
+}

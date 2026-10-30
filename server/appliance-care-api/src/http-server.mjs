@@ -22,6 +22,13 @@ const STATUS_BY_ERROR = {
 };
 
 export function createApplianceCareHttpServer({ dependencies, aiConfigured = true, allowedOrigins = [], analysisLimits = {} }) {
+  // Local limits and CORS do not authenticate a caller or bound distributed costs.
+  // Keep this entry point development-only until a public gateway is implemented.
+  if (process.env.NODE_ENV?.trim().toLowerCase() === 'production') {
+    const error = new Error('The appliance-care API is development-only. Public user authentication and distributed usage limits are required before production deployment.');
+    error.code = 'DEVELOPMENT_API_ONLY';
+    throw error;
+  }
   const requestsByAddress = new Map();
   const jobsById = new Map();
   const jobsByRequest = new Map();

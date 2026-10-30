@@ -170,12 +170,15 @@ test('appliance details virtualize long instructions and return by popping to th
     const list = screen.nodes().find((node) => node.type === 'FlatList');
     assert.equal(list.props.data.length, 10);
     assert.equal(list.props.initialNumToRender, 1); assert.equal(list.props.maxToRenderPerBatch, 1);
+    const dock = screen.nodes().find(node => node.props.testID === 'appliance-detail-back-dock');
+    assert.ok(dock, 'the return action must remain outside the scrolling instructions');
     assert.ok(screen.text().includes('作業0') && !screen.text().includes('作業9'), 'do not mount every long task during navigation');
     await screen.press('一覧へ戻る');
     assert.deepEqual(calls, [['dismissTo', returnTo]], 'return must pop rather than push/replace');
     const last = screenHarness('src/features/appliance-care/appliance-detail-content.tsx', { exportName: 'ApplianceDetailContent', props: { context, returnTo },
       mocks: { 'react-native': { FlatList: (props) => props.renderItem({ item: props.data.at(-1), index: 9 }), Text: 'Text', View: 'View', Pressable: 'Pressable', StyleSheet: { create: (value) => value }, Linking: {} } } });
     assert.ok(last.text().includes('作業9'), 'all items remain available when the list renders them');
+    last.button('一覧へ戻る');
     const analysis = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { params: { returnTo }, navigate: (...args) => calls.push(args), mocks: { '@/features/appliance-care/api-client': {} } });
     await analysis.press('前の画面に戻る');
     assert.deepEqual(calls.at(-1), ['dismissTo', returnTo]);

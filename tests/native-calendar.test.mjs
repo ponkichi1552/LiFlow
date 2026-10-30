@@ -16,6 +16,24 @@ async function fixture(t) {
   return { ...h, local };
 }
 for (const platform of ['ios', 'android']) {
+  test(`${platform} resizing a browsed month never recenters it on the original date while explicit navigation can center again`, () => {
+    const calls = [];
+    const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
+      today, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, pending: 0 }), renderChores: () => null,
+    } });
+    let weeks = screen.nodes().find(node => node.props.testID === 'calendar-weeks');
+    weeks.props.ref.current = { scrollToOffset: request => calls.push(request) };
+    weeks.props.onLayout(); assert.equal(calls.length, 1, 'initial entry still centers the selected day');
+    weeks.props.onScrollBeginDrag?.();
+    const viewport = screen.nodes().find(node => typeof node.props.onLayout === 'function' && node.type === 'View');
+    viewport.props.onLayout({ nativeEvent: { layout: { height: 420 } } }); screen.render();
+    weeks = screen.nodes().find(node => node.props.testID === 'calendar-weeks'); weeks.props.onContentSizeChange();
+    weeks.props.onScrollToIndexFailed();
+    assert.equal(calls.length, 1, 'native layout and retry callbacks must not send the user back to the initial day after a drag');
+    weeks.props.onAccessibilityAction({ nativeEvent: { actionName: 'increment' } }); screen.render();
+    weeks = screen.nodes().find(node => node.props.testID === 'calendar-weeks'); weeks.props.onLayout();
+    assert.equal(calls.length, 2, 'an explicit next-month command is allowed to center its target');
+  });
   test(`${platform} calendar view and day changes reset native scroll offsets without changing the selected date`, async t => {
     const h = await fixture(t);
     // Fixed test geometry models a native list retaining an offset across React reuse.
