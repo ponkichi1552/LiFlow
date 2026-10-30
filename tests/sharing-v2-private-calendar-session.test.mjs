@@ -40,3 +40,32 @@ test('v2 screen session rejects a different owner in any private Calendar bindin
     await assert.rejects(() => session.readModel(), /本人のCalendar/u);
   }
 });
+
+test('v2 screen session includes app calendar day load locally without changing shared dates or requiring Google login', async () => {
+  const f = await base(); const before = JSON.stringify(f.model.plan); let reads = 0;
+  const localCalendar = {
+    readForPlan: async (range, timeZone) => {
+      reads++; assert.equal(timeZone, 'Asia/Tokyo'); assert.ok(range.from <= '2026-10-27' && range.through >= '2026-10-28');
+      return { ownerUserId: 'a', availability: target => {
+        const busy = target.start.startsWith('2026-10-26T15:');
+        return { conflict: { kind: busy ? 'conflict' : 'clear' }, busyMinutes: busy ? 1440 : 0 };
+      } };
+    },
+    readOwnCalendar: async () => ({ kind: 'conflict' }),
+  };
+  const session = createV2ScreenSession({ ...f.input, localCalendar }); const value = await session.readModel();
+  const row = value.personal.recommendations.find(row => row.occurrenceId === f.model.plan.occurrences[0].id);
+  assert.equal(reads, 1); assert.equal(row.date, '2026-10-28'); assert.equal(JSON.stringify(value.plan), before);
+  assert.equal(JSON.stringify(value).includes('availability'), false);
+  assert.deepEqual(await session.readOwnCalendar({ precision: 'interval', start: '2026-10-27T00:00:00Z', end: '2026-10-27T01:00:00Z' }), { kind: 'conflict' });
+  await session.readModel({ management: true }); assert.equal(reads, 1);
+});
+
+test('v2 screen session refuses another account app calendar before applying its availability', async () => {
+  const f = await base(); let used = false;
+  const session = createV2ScreenSession({ ...f.input, localCalendar: {
+    readForPlan: async () => ({ ownerUserId: 'b', availability: () => { used = true; return { conflict: { kind: 'clear' }, busyMinutes: 0 }; } }),
+    readOwnCalendar: async () => ({ kind: 'clear' }),
+  } });
+  await assert.rejects(() => session.readModel(), /本人のCalendar/); assert.equal(used, false);
+});

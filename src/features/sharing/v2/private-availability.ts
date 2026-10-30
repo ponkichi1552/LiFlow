@@ -49,6 +49,48 @@ export function validatedPrivateBusyIntervals(cache: PrivateBusyCache): InstantR
 }
 /** A local, account-bound check returns only the result, never the private intervals. */
 export interface PrivateCalendarReading { conflict: CalendarConflict; busyMinutes: number | null }
+export type PrivateCalendarAvailability = ((target: DateTarget) => PrivateCalendarReading) & { ranges?: (target: DateTarget) => InstantRange[] };
+
+/** Local readers share interval and half-open boundary handling, without inventing an OAuth binding. */
+export function createIntervalCalendarAvailability(intervals: readonly InstantRange[], coverage: InstantRange): PrivateCalendarAvailability {
+  if (![coverage.start, coverage.end].every(Number.isFinite) || coverage.start >= coverage.end) throw new Error('Calendarの取得範囲が無効です。');
+  const busy = mergeInstantRanges(intervals);
+  const ranges = (target: DateTarget) => {
+    const interval = fixedInterval(target); if (!interval) return [];
+    let low = 0; let high = busy.length;
+    while (low < high) { const middle = (low + high) >>> 1; if (busy[middle].end <= interval.start) low = middle + 1; else high = middle; }
+    const result: InstantRange[] = [];
+    for (let index = low; index < busy.length && busy[index].start < interval.end; index++) {
+      result.push({ start: Math.max(busy[index].start, interval.start), end: Math.min(busy[index].end, interval.end) });
+    }
+    return result;
+  };
+  const read: PrivateCalendarAvailability = target => {
+    try {
+      const interval = fixedInterval(target);
+      if (!interval) return { conflict: { kind: 'unknown', reason: 'timeNotSpecified' }, busyMinutes: null };
+      if (coverage.start > interval.start || coverage.end < interval.end) return { conflict: { kind: 'unknown', reason: 'coverage' }, busyMinutes: null };
+      const duration = ranges(target).reduce((total, part) => total + part.end - part.start, 0);
+      return { conflict: { kind: duration > 0 ? 'conflict' : 'clear' }, busyMinutes: duration / 60_000 };
+    } catch { return { conflict: { kind: 'unknown', reason: 'invalid' }, busyMinutes: null }; }
+  };
+  read.ranges = ranges; return read;
+}
+export function combineCalendarConflicts(first: CalendarConflict, second: CalendarConflict): CalendarConflict {
+  if (first.kind === 'conflict' || second.kind === 'conflict') return { kind: 'conflict' };
+  return first.kind === 'unknown' ? first : second;
+}
+/** Union exact private ranges when present; aggregate-only inputs use the larger count to avoid duplication. */
+export function combinePrivateCalendarAvailability(first: PrivateCalendarAvailability | undefined, second: PrivateCalendarAvailability | undefined): PrivateCalendarAvailability {
+  if (!first) return second ?? (() => ({ conflict: { kind: 'unknown', reason: 'missing' }, busyMinutes: null }));
+  if (!second) return first;
+  return target => {
+    const a = first(target); const b = second(target);
+    const exact = a.busyMinutes !== null && b.busyMinutes !== null && first.ranges && second.ranges
+      ? mergeInstantRanges([...first.ranges(target), ...second.ranges(target)]).reduce((sum, part) => sum + (part.end - part.start) / 60_000, 0) : null;
+    return { conflict: combineCalendarConflicts(a.conflict, b.conflict), busyMinutes: exact ?? (a.busyMinutes === null && b.busyMinutes === null ? null : Math.max(a.busyMinutes ?? 0, b.busyMinutes ?? 0)) };
+  };
+}
 export function createPrivateCalendarAvailability(cache: PrivateBusyCache | null, expected: PrivateBusyBinding, now: number): (target: DateTarget) => PrivateCalendarReading {
   const unknown = (reason: Extract<CalendarConflict, { kind: 'unknown' }>['reason']) => () => ({ conflict: { kind: 'unknown' as const, reason }, busyMinutes: null });
   if (!cache) return unknown('missing');
@@ -60,20 +102,7 @@ export function createPrivateCalendarAvailability(cache: PrivateBusyCache | null
     if (!Number.isFinite(now) || fetchedAt > now || now - fetchedAt > CALENDAR_AVAILABILITY_MAX_AGE_MS) return unknown('stale');
     const busy = validatedPrivateBusyIntervals(cache);
     const coverage = { start: instantMilliseconds(cache.coverage.start), end: instantMilliseconds(cache.coverage.end) };
-    return (target) => {
-      try {
-        const interval = fixedInterval(target);
-        if (!interval) return unknown('timeNotSpecified')();
-        if (coverage.start > interval.start || coverage.end < interval.end) return unknown('coverage')();
-        let low = 0; let high = busy.length;
-        while (low < high) { const middle = (low + high) >>> 1; if (busy[middle].end <= interval.start) low = middle + 1; else high = middle; }
-        let duration = 0;
-        for (let index = low; index < busy.length && busy[index].start < interval.end; index++) {
-          duration += Math.max(0, Math.min(busy[index].end, interval.end) - Math.max(busy[index].start, interval.start));
-        }
-        return { conflict: { kind: duration > 0 ? 'conflict' : 'clear' }, busyMinutes: duration / 60_000 };
-      } catch { return unknown('invalid')(); }
-    };
+    return createIntervalCalendarAvailability(busy, coverage);
   } catch { return unknown('invalid'); }
 }
 export function createPrivateCalendarReader(cache: PrivateBusyCache | null, expected: PrivateBusyBinding, now: number): (target: DateTarget) => CalendarConflict {

@@ -6,8 +6,8 @@ import { sharedDateAtTime } from '../group-clock.ts';
 import { sharedDocumentDigest } from '../crypto.ts';
 import { compareOperationIds } from '../operations.ts';
 import type { V2CommonPlan, V2SubjectPlan, V2PlannedOccurrence } from './common-plan.ts';
-import type { PrivateBusyCache, PrivateBusyBinding, CalendarConflict } from './private-availability.ts';
-import { createPrivateCalendarAvailability } from './private-availability.ts';
+import type { PrivateBusyCache, PrivateBusyBinding, CalendarConflict, PrivateCalendarAvailability } from './private-availability.ts';
+import { combinePrivateCalendarAvailability, createPrivateCalendarAvailability } from './private-availability.ts';
 import { targetReferenceCivilDate } from './date-target.ts';
 
 export interface V2PersonalDayLoad { heavy: number; normal: number; total: number }
@@ -23,15 +23,17 @@ export function buildV2PersonalPlan(common: V2CommonPlan, input: {
   viewerUserId: string; settings: ScheduleSettings; now: number;
   privateLoad?: { ownerUserId: string; days: Readonly<Partial<Record<LocalDate, V2PersonalDayLoad>>> };
   calendar?: { cache: PrivateBusyCache | null; binding: PrivateBusyBinding };
+  localCalendar?: { ownerUserId: string; availability: PrivateCalendarAvailability };
 }): V2PersonalPlan {
   if (!common.members.some((member) => member.userId === input.viewerUserId && member.active)) throw new Error('本人の参加状態を確認してください。');
   if (input.privateLoad && input.privateLoad.ownerUserId !== input.viewerUserId) throw new Error('本人以外の個人予定は参照できません。');
+  if (input.localCalendar && input.localCalendar.ownerUserId !== input.viewerUserId) throw new Error('本人のCalendar情報を確認してください。');
   const limits = input.settings.loadLimits;
   if (![limits.heavyDailyLimit, limits.normalDailyLimit].every((value) => Number.isSafeInteger(value) && value >= 0 && value <= 100)
     || !input.settings.restDays.every((day) => Number.isInteger(day) && day >= 1 && day <= 7) || !Number.isFinite(input.now)) throw new Error('本人の予定設定を確認してください。');
   const unknown: CalendarConflict = { kind: 'unknown', reason: input.calendar && input.calendar.binding.ownerUserId !== input.viewerUserId ? 'binding' : 'missing' };
-  const availability = input.calendar && input.calendar.binding.ownerUserId === input.viewerUserId
-    ? createPrivateCalendarAvailability(input.calendar.cache, input.calendar.binding, input.now) : () => ({ conflict: unknown, busyMinutes: null });
+  const availability = combinePrivateCalendarAvailability(input.calendar ? input.calendar.binding.ownerUserId === input.viewerUserId
+    ? createPrivateCalendarAvailability(input.calendar.cache, input.calendar.binding, input.now) : () => ({ conflict: unknown, busyMinutes: null }) : undefined, input.localCalendar?.availability);
   const daily = new Map<LocalDate, ReturnType<typeof availability>>();
   function dayAvailability(date: LocalDate) {
     let result = daily.get(date); if (result) return result;

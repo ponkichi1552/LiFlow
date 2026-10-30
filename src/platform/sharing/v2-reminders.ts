@@ -22,7 +22,7 @@ export function createNativeV2Reminders(input: { database: SQLiteDatabase; userI
   const readModel = async (now: Date) => {
         const local = await readV2LocalPlanning(input, now);
         const session = createV2ScreenSession({ controller: input.controller, userId: input.userId, groupId: input.groupId, now: () => now,
-          readPreferences: () => local.preferences, privateTasks: local.privateTasks, calendar: local.calendar });
+          readPreferences: () => local.preferences, privateTasks: local.privateTasks, calendar: local.calendar, localCalendar: local.localCalendar });
         const model = await session.readModel({ reminders: true }); await input.assertAccess(); return model;
     };
   const loads = createNativeV2LoadNotices({ ...input, readControl: store.read, readCurrent: async () => {

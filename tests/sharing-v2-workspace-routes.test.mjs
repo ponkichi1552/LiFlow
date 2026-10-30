@@ -11,21 +11,23 @@ import { addDays } from '../src/domain/scheduling/local-date.ts';
 import { createV2ScreenSession } from '../src/features/sharing/v2-ui/screen-session.ts';
 
 async function fixture() {
-  const h = createDatabase(); let id = 0; let syncs = 0;
-  const preview = await createV2DevelopmentPreview({ development: true, crypto, makeId: () => `workspace-screen-${++id}`, now: () => new Date(),
+  const h = createDatabase(); let id = 0; let syncs = 0; let clock = () => new Date();
+  const preview = await createV2DevelopmentPreview({ development: true, crypto, makeId: () => `workspace-screen-${++id}`, now: () => clock(),
     openDatabase: async () => ({ database: h.database, close: async () => h.connection.close() }) });
   const name = (await preview.readModel({ management: true, groupPolicy: true })).groupSettings.name;
   await preview.controller.actions.editGroupOptions([{ field: 'name', value: '選択した家族', basisOperationIds: name.candidates.map(candidate => candidate.operationId) }]);
   const active = { protocol: 2, groupId: preview.groupId, userId: preview.userId, identity: { deviceId: 'native-device' }, record: async () => ({ status: 'active' }),
     session: { controller: preview.controller }, sync: async () => { syncs++; } };
   const context = { ready: true, active, userId: preview.userId, groups: [{ groupId: preview.groupId, displayName: '選択した家族' }] };
-  return { ...h, preview, context, callbacks: new Set(), calendarCallbacks: new Set(), calendarReads: 0, calendarChecks: [], sessionInputs: [], synced: () => syncs };
+  return { ...h, preview, context, callbacks: new Set(), calendarCallbacks: new Set(), localCalendarCallbacks: new Set(), appStateListeners: new Set(),
+    now: () => clock(), setNow: value => { clock = () => new Date(value); }, calendarReads: 0, calendarChecks: [], sessionInputs: [], synced: () => syncs };
 }
 async function route(f, platform, file, params = {}, readyText = '送信待ち') {
   let focus; const navigation = [];
-  const screen = screenHarness(`src/app/group-v2/${file}.tsx`, { platform, params, focusEffect: (callback) => { focus = callback; }, navigate: (...args) => navigation.push(args),
+  const screen = screenHarness(`src/app/group-v2/${file}.tsx`, { platform, params, focusEffect: (callback) => { focus = callback; },
+    appStateListener: callback => f.appStateListeners.add(callback), navigate: (...args) => navigation.push(args),
     mocks: { '../../../hooks/use-workspace': { useWorkspace: () => f.context },
-      './screen-session': { createV2ScreenSession: input => { f.sessionInputs.push(input); return createV2ScreenSession(input); } },
+      './screen-session': { createV2ScreenSession: input => { f.sessionInputs.push(input); return createV2ScreenSession({ ...input, now: f.now }); } },
       '@/platform/sharing/workspaces': { sharingFailureMessage: () => '同期を確認してください。', subscribeSharingChanges: (callback) => { f.callbacks?.add(callback); return () => f.callbacks?.delete(callback); } },
       '../../../platform/sharing/private-calendar-runtime': { openPrivateCalendarRuntime: userId => { assert.equal(userId, f.context.userId); return {
         subscribe: callback => { f.calendarCallbacks.add(callback); return () => f.calendarCallbacks.delete(callback); },
@@ -33,7 +35,11 @@ async function route(f, platform, file, params = {}, readyText = '送信待ち')
         readPlannerPreferences: async () => f.preferences ?? null,
         readOwnCalendar: async target => { f.calendarChecks.push(structuredClone(target)); return { kind: 'conflict' }; },
       }; } },
-      '../../../hooks/use-planner-data': { usePlannerData: () => ({ snapshot: { settings: { frequencyMode: 'balanced', restDays: [], heavyDailyLimit: 2, normalDailyLimit: 3 } } }) } } });
+      '../../../platform/storage/calendar-events': {
+        readLocalCalendar: async () => ({ events: f.localEvents ?? [], exceptions: [], categories: [], draft: null }),
+        subscribeLocalCalendar: (_database, changed) => { f.localCalendarCallbacks.add(changed); return () => f.localCalendarCallbacks.delete(changed); },
+      },
+      '../../../hooks/use-planner-data': { usePlannerData: () => ({ database: f.database, snapshot: { settings: { frequencyMode: 'balanced', restDays: [], heavyDailyLimit: 2, normalDailyLimit: 3 } } }) } } });
   const leave = focus?.(); for (let n = 0; n < 30 && !(readyText === '共有カレンダー' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(readyText)); n++) await screen.flush();
   assert.ok((readyText === '共有カレンダー' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(readyText)), screen.text()); return { screen, leave, navigation };
 }
@@ -146,7 +152,10 @@ for (const platform of ['ios', 'android']) {
       await new Promise((resolve) => setTimeout(resolve, 120)); await r.screen.flush(); assert.ok(r.screen.text().includes('別端末から届いた床掃除'));
       const before = f.calendarReads; for (const callback of f.calendarCallbacks) callback();
       await new Promise(resolve => setTimeout(resolve, 120)); await r.screen.flush(); assert.ok(f.calendarReads > before);
-      r.leave?.(); assert.equal(f.callbacks.size, 0); assert.equal(f.calendarCallbacks.size, 0);
+      const beforeLocal = f.calendarReads; assert.equal(f.localCalendarCallbacks.size, 1);
+      for (const callback of f.localCalendarCallbacks) callback();
+      await new Promise(resolve => setTimeout(resolve, 120)); await r.screen.flush(); assert.ok(f.calendarReads > beforeLocal);
+      r.leave?.(); assert.equal(f.callbacks.size, 0); assert.equal(f.calendarCallbacks.size, 0); assert.equal(f.localCalendarCallbacks.size, 0);
     } finally { f.connection.close(); }
   });
   test(`${platform} normal workspace date forms invoke the own local Calendar reader and keep private conflicts outside shared writes`, async () => {
@@ -158,9 +167,29 @@ for (const platform of ['ios', 'android']) {
       const fixed = r.screen.nodes().find(node => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === '固定日時に実施');
       assert.ok(fixed); fixed.props.onPress(); await r.screen.flush();
       await r.screen.change('開始時刻', '19:00'); await r.screen.change('終了時刻', '19:30');
+      for (const callback of f.appStateListeners) { callback('background'); callback('active'); }
+      await new Promise(resolve => setTimeout(resolve, 120)); await r.screen.flush();
+      assert.equal(r.screen.nodes().find(node => node.props.accessibilityLabel === '開始時刻').props.value, '19:00');
+      assert.equal(r.screen.nodes().find(node => node.props.accessibilityLabel === '終了時刻').props.value, '19:30');
       const before = await listSharingOutbox(f.database, f.preview.groupId); await r.screen.press('日時を指定・申請する');
       assert.equal(f.calendarChecks.length, 1); assert.match(r.screen.text(), /カレンダーに予定が入っています/u);
       assert.deepEqual(await listSharingOutbox(f.database, f.preview.groupId), before); r.leave?.();
+    } finally { f.connection.close(); }
+  });
+  test(`${platform} shared home resume after midnight refreshes the same focused page without changing formal dates or outbox`, async () => {
+    const f = await fixture();
+    try {
+      f.setNow('2026-10-31T14:59:00Z'); const r = await route(f, platform, 'index');
+      const before = await f.preview.readModel(); const outbox = await listSharingOutbox(f.database, f.preview.groupId);
+      assert.ok(r.screen.text().includes('10月31日')); f.setNow('2026-10-31T15:01:00Z');
+      assert.equal(f.appStateListeners.size, 1);
+      const reads = f.calendarReads;
+      for (let n = 0; n < 50; n++) for (const callback of f.appStateListeners) callback('active');
+      await new Promise(resolve => setTimeout(resolve, 120)); await r.screen.flush();
+      assert.ok(r.screen.text().includes('11月1日'), r.screen.text());
+      assert.equal(f.calendarReads, reads + 1, 'duplicate foreground signals share one refresh');
+      assert.equal(r.navigation.length, 0); assert.deepEqual(await listSharingOutbox(f.database, f.preview.groupId), outbox);
+      assert.equal((await f.preview.readModel()).plan.occurrences[0].anchorDate, before.plan.occurrences[0].anchorDate); r.leave?.();
     } finally { f.connection.close(); }
   });
 }

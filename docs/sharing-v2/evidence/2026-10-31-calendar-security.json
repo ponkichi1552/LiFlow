@@ -1,0 +1,120 @@
+{
+  "date": "2026-10-31",
+  "scope": "development security and calendar regression review",
+  "independentThirdPartyAudit": false,
+  "unitTests": {
+    "passed": 2385,
+    "failed": 0,
+    "lint": "pass",
+    "typecheck": "pass",
+    "featureContracts": 371,
+    "requiredCloudReferences": 53
+  },
+  "firestoreEmulator": {
+    "passed": 89,
+    "productionAttackRequests": 0
+  },
+  "tools": {
+    "semgrep": {
+      "version": "1.183.0",
+      "mainTargets": 558,
+      "rules": 110,
+      "findings": 1,
+      "triage": "CORS exact-allowlist false positive; rejection regressions pass",
+      "timeouts": 0,
+      "partialParses": 1,
+      "normalizedPrivateCopyFindings": 0,
+      "nativeDeltaFindings": 0
+    },
+    "gitleaks": {
+      "version": "8.30.1",
+      "scope": "all git refs with full redaction",
+      "candidates": 20,
+      "actualCredentialsFound": 0,
+      "triage": {
+        "sha256KeyProof": 15,
+        "artifactPathOrDigest": 4,
+        "syntheticTestToken": 1
+      },
+      "outgoingStagedDiff": "no leaks found"
+    },
+    "osv": {
+      "version": "2.7.0",
+      "npmPackages": 875,
+      "androidMavenPackagesAfterFix": 300,
+      "androidMavenAdvisoriesBeforeFix": 5,
+      "androidMavenAdvisoriesAfterFix": 0,
+      "cocoaPodsExtraction": "unsupported; not counted as scanned"
+    },
+    "npmAudit": {
+      "critical": 0,
+      "high": 0,
+      "moderate": 0,
+      "low": 8,
+      "remaining": "deepmerge and dependent Expo tool packages"
+    },
+    "androidLint": {
+      "errorsBeforeFix": 2,
+      "errorsAfterFix": 0,
+      "warnings": 70,
+      "securityCategoryWarnings": 0
+    }
+  },
+  "androidMinimumVersions": {
+    "commons-io:commons-io": "2.14.0",
+    "com.google.code.gson:gson": "2.8.9",
+    "com.google.guava:guava": "33.7.2-android"
+  },
+  "deviceChecks": {
+    "ios": {
+      "releaseBuild": "pass",
+      "dataPreservingUpdate": "pass",
+      "joinedGroupCalendarFullScenario": "pass",
+      "sharedQaChoresAdded": 2,
+      "qaChoresLeftDisabled": true,
+      "qaInitialCadenceDays": 7,
+      "qaWindowAfterDays": 2,
+      "personalBusinessTablesUnchanged": 11,
+      "sqliteIntegrity": "ok",
+      "settledGroupHome": "pass",
+      "additionalRegistrationTestRun": "interrupted during later URL loading; not a whole-test pass"
+    },
+    "android": {
+      "osMajor": 10,
+      "releaseBuildAndLint": "pass",
+      "sameSignerVerified": true,
+      "dataPreservingUpdate": "pass",
+      "debuggable": false,
+      "externalWidgetBroadcast": "OS denied delivery to non-exported receiver",
+      "freshWidgetDisplay": "pass",
+      "onlineJoinedGroupCalendarAdditionalScenario": "pending network connection"
+    }
+  },
+  "sourceContracts": {
+    "formalSharedVersion": "liflow-shared-2-draft-38",
+    "personalRecommendationVersion": "liflow-personal-1",
+    "existingRostersRewritten": false
+  },
+  "regressions": {
+    "independentCalendarOracleCases": 2000,
+    "concurrentRevisionWrites": 20,
+    "successfulConcurrentRevisionWrites": 1,
+    "foregroundSignalsCoalesced": 50
+  },
+  "privateEvidenceSha256": {
+    "check-final-security.log": "99d08767e3e9bf7a456560ed6b57e24b3ffa7f679b9c4de3d984a9b0d7ab3c75",
+    "firestore-attacks.log": "d0dcc79c61212a94ee0a91f131ab6f2e67da621cc0cf9b2f329b252f8cc724b4",
+    "semgrep-complete.json": "82839f0c39575a10b025bc33e7d6f621b45746473e51a119a5761ec7b9d25eb7",
+    "semgrep-native-final.json": "4b815e229571e196974499dad3948b9057fa985303b8c8d5038532f38b276e7b",
+    "osv-android-secured.json": "54345d5194d238b6017d0f3181f392109ce35023cc6b4bdfa8c134943dcb578e",
+    "android-secured-release-apfs.log": "58cb4100d06d1f86e0c2b3c24a8ed2255f338693a27060635a3f8de7af8a9636",
+    "ios-registration-preservation.json": "51b6232c718c7af48466e172d6715b7a2df4d13ca68c18528a7810aafd583e19"
+  },
+  "limitations": [
+    "AI API public-deployment authentication and distributed cost controls are not implemented",
+    "no root or jailbreak key extraction",
+    "no TLS MITM",
+    "no MobSF IPA/APK scan",
+    "no new Background Push or Google Calendar write permissions"
+  ]
+}

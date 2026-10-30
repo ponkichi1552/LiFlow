@@ -2,7 +2,7 @@ import type { createPrivateCalendarSourceStorage, PrivateCalendarSourceChoice } 
 import type { createPrivateCalendarAuthorityIntentStorage } from '../../../platform/storage/private-calendar-authority-intents.ts';
 import type { createPrivateCalendarSecretStore } from './secret-store.ts';
 import type { createPrivateCalendarAuthoritySync } from './authority-sync.ts';
-import type { VerifiedPrivateCalendarAuthority } from './authority.ts';
+import type { SignedPrivateCalendarAuthority, VerifiedPrivateCalendarAuthority } from './authority.ts';
 import { advancePrivateCalendarAuthority, samePrivateCalendarAuthorityConfiguration } from './authority.ts';
 import { sharedDocumentDigest } from '../crypto.ts';
 import { assertSharedIdentifier } from '../identifier.ts';
@@ -10,7 +10,7 @@ import { exactRecord, hexBytes } from './validation.ts';
 import { assertPrivateCalendarAuthorityAppend } from './authority-history-limits.ts';
 
 /** Source epochs are the signed transitions with unchanged device, main and key configuration. */
-function latestSourceDigest(history: readonly import('./authority').SignedPrivateCalendarAuthority[]) {
+function latestSourceDigest(history: readonly SignedPrivateCalendarAuthority[]) {
   let digest: string | null = null;
   for (let index = 1; index < history.length; index++) {
     const previous = history[index - 1].body; const next = history[index].body;

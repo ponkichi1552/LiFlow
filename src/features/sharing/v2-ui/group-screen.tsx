@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ComponentProps } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 import { AppButton, BackButton, Card, palette, ScreenHeading, SectionHeading, typography } from '../../../components/planner-ui';
 import { AccordionSection } from '../../../components/accordion-section';
@@ -109,13 +109,20 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
       if (running.current) { if (mutationRead.current) refreshQueued.current = true; return; }
       notificationTimer.current = setTimeout(() => { notificationTimer.current = undefined; if (alive.current) void refresh(); }, 80);
     });
-    void refresh(); return () => { alive.current = false; setLastUndo(null); feedbackEpoch.current++; setCompletionValues(new Map()); generation.current++; clearTimeout(notificationTimer.current); refreshQueued.current = false; unsubscribe?.(); };
+    const foreground = AppState.addEventListener('change', state => {
+      if (state !== 'active' || !alive.current) return;
+      // Navigation focus does not change when a suspended app returns after midnight.
+      if (running.current) { refreshQueued.current = true; return; }
+      clearTimeout(notificationTimer.current);
+      notificationTimer.current = setTimeout(() => { notificationTimer.current = undefined; if (alive.current) void refresh(); }, 80);
+    });
+    void refresh(); return () => { alive.current = false; setLastUndo(null); feedbackEpoch.current++; setCompletionValues(new Map()); generation.current++; clearTimeout(notificationTimer.current); refreshQueued.current = false; unsubscribe?.(); foreground.remove(); };
   }, [refresh, anchorDate, subscribe, view, choreId, applianceId]));
   useEffect(() => {
     if (!screenModel) return;
     const zones = [screenModel.plan.timeZone, ...(screenModel.privateOverlay?.status === 'ready' ? [screenModel.privateOverlay.timeZone] : [])];
     const delay = Math.min(...zones.map((zone) => millisecondsUntilNextSharedDay(new Date(), zone)));
-    const timer = setTimeout(() => { if (alive.current && !running.current) void refresh(); }, delay);
+    const timer = setTimeout(() => { if (!alive.current) return; if (running.current) refreshQueued.current = true; else void refresh(); }, delay);
     return () => clearTimeout(timer);
   }, [screenModel, refresh]);
   const perform = async (work: () => Promise<unknown>): Promise<V2MutationOutcome> => {

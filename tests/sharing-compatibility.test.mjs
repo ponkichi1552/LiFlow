@@ -11,7 +11,8 @@ import { createSharedInvitation, encodeCompactSharedInvitation, encodeSharedInvi
 import { sharingInvitationQr } from '../src/features/sharing/invitation-qr.ts';
 import { sharedDateAtTime } from '../src/features/sharing/group-clock.ts';
 import { sharedLocalDate } from '../src/features/sharing/group-clock.ts';
-import { assertSharedSchedulerVersion, verifySharedSchedulerContract, verifyV2SharedSchedulerContract, sharedSchedulerSourceDigest } from '../scripts/check-shared-scheduler-version.mjs';
+import { assertSharedSchedulerVersion, verifySharedSchedulerContract, verifyV2SharedSchedulerContract, sharedSchedulerSourceDigest,
+  assertPersonalSchedulerVersion, verifyPersonalSchedulerContract, assertPersonalPlannerIsolation } from '../scripts/check-shared-scheduler-version.mjs';
 import { sharedGoogleNamespace, sharedGoogleListTitle, sharedGoogleOccurrenceNote } from '../src/features/google-sync/workspace-policy.ts';
 const { syncDailyHouseworkDigest, createDailyHouseworkDigestRequests } = await import('../src/features/notifications/daily-housework-digest.ts');
 const { reconcileGoogleTasks } = await import('../src/features/google-sync/reconcile-google-tasks.ts');
@@ -88,6 +89,19 @@ test('v2 draft scheduler has an independent source and timezone contract without
   const files = ['src/features/sharing/v2/model.ts', 'src/features/sharing/v2/receiver-authority.ts'];
   assert.notEqual(sharedSchedulerSourceDigest(files, () => Buffer.from('original')),
     sharedSchedulerSourceDigest(files, (file) => Buffer.from(file.endsWith('receiver-authority.ts') ? 'changed' : 'original')));
+});
+
+test('personal recommendations have a separate version contract while formal shared state cannot import private calendars', () => {
+  const local = verifyPersonalSchedulerContract(); const common = verifyV2SharedSchedulerContract();
+  assertPersonalSchedulerVersion(local, local);
+  assert.throws(() => assertPersonalSchedulerVersion({ ...local, sourceSha256: 'a'.repeat(64) }, local), /without/);
+  assert.throws(() => assertPersonalSchedulerVersion({ ...local, sourceFiles: [] }, local), /Invalid/);
+  assertPersonalSchedulerVersion({ ...local, version: 'liflow-personal-2', sourceSha256: 'a'.repeat(64) }, local);
+  for (const file of local.sourceFiles) assert.equal(common.sourceFiles.includes(file), false);
+  const visited = assertPersonalPlannerIsolation(); assert.ok(visited.has('src/features/sharing/v2/common-plan.ts'));
+  for (const statement of ["import { buildV2PersonalPlan } from './personal-plan';", "export * from './private-availability';", "const x = import('../../calendar/events');"]) {
+    assert.throws(() => assertPersonalPlannerIsolation(file => file.endsWith('/common-plan.ts') ? statement : ''), /Shared formal state imports personal calendar/u);
+  }
 });
 
 test('personal and shared reminders use separate namespaces; disabling or refreshing one cannot cancel another', async () => {

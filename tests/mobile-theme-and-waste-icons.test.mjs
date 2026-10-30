@@ -10,6 +10,7 @@ import { screenHarness } from './helpers/screen-harness.mjs';
 
 const require = createRequire(import.meta.url);
 const { themeResources } = require('../plugins/with-liflow-theme.js');
+const { qualifyThemeStyles } = require('../plugins/with-android-api-styles.js');
 const values = require('../src/components/planner-color-values.js');
 function luminance(value) {
   const [r, g, b] = value.slice(1).match(/../g).map(x => parseInt(x, 16) / 255).map(x => x <= .04045 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4);
@@ -39,6 +40,22 @@ test('Android day and night resources cover every shared color and preserve alph
   const native = readFileSync(new URL('../src/components/planner-colors.native.ts', import.meta.url), 'utf8');
   assert.match(native, /DynamicColorIOS/); assert.match(native, /PlatformColor/);
   assert.match(readFileSync(new URL('../app.config.js', import.meta.url), 'utf8'), /with-liflow-theme/);
+});
+
+test('Android API24 base themes exclude newer framework attributes and qualified styles retain every inherited value', () => {
+  const item = (name, value) => ({ $: { name }, _: value });
+  const input = { resources: { style: [
+    { $: { name: 'AppTheme', parent: 'Theme.AppCompat.DayNight.NoActionBar' }, item: [item('colorPrimary', '@color/colorPrimary'), item('android:windowLightNavigationBar', 'true'), item('android:enforceNavigationBarContrast', 'false')] },
+    { $: { name: 'Theme.App.SplashScreen', parent: 'Theme.SplashScreen' }, item: [item('postSplashScreenTheme', '@style/AppTheme'), item('android:windowSplashScreenBehavior', 'icon_preferred')] },
+  ] } };
+  const before = structuredClone(input); const { base, versions } = qualifyThemeStyles(input); assert.deepEqual(input, before);
+  assert.deepEqual(base.resources.style.map(style => style.item.map(item => item.$.name)), [['colorPrimary'], ['postSplashScreenTheme']]);
+  assert.deepEqual([...versions.keys()], [27, 29, 33]);
+  assert.deepEqual(versions.get(27).resources.style[0].item.map(item => item.$.name), ['colorPrimary', 'android:windowLightNavigationBar']);
+  assert.deepEqual(versions.get(29).resources.style[0], before.resources.style[0]);
+  assert.deepEqual(versions.get(33).resources.style[0], before.resources.style[1]);
+  assert.deepEqual(qualifyThemeStyles(base).base, base); assert.equal(qualifyThemeStyles(base).versions.size, 0);
+  assert.match(readFileSync(new URL('../app.config.js', import.meta.url), 'utf8'), /with-android-api-styles/);
 });
 
 test('waste aliases retain one icon identity and bottles PET bottles and cans stay distinct', () => {

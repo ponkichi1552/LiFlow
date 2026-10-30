@@ -14,6 +14,8 @@ import { readPersonalPlannerOverlaySnapshot, setPersonalDateTaskCompleted, mirro
 import { syncGoogleTasksAfterLocalCompletion } from '@/features/google-sync/coordinator';
 import { useLocalCalendar } from '../../calendar/use-local-calendar';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { readLocalCalendar, subscribeLocalCalendar } from '../../../platform/storage/calendar-events';
+import { createLocalCalendarPlanSource } from '../../calendar/private-availability';
 
 function CalendarWorkspaceScreen({ database, ...props }: V2GroupScreenProps & { database: SQLiteDatabase }) {
   const localCalendar = useLocalCalendar(database);
@@ -47,9 +49,10 @@ export function V2WorkspaceRoute({ view }: { view: V2GroupScreenProps['view'] })
     const stopSharing = subscribeSharingChanges((scope) => {
       if (matches() && scope?.userId === active!.userId && scope.groupId === active!.groupId) changed();
     });
+    const stopLocalCalendar = personalDatabase ? subscribeLocalCalendar(personalDatabase, () => { if (matches()) changed(); }) : undefined;
     void openCalendar().then(calendar => { if (matches()) stopCalendar = calendar.subscribe(() => { if (matches()) changed(); }); }).catch(() => {});
-    return () => { stopped = true; stopSharing(); stopCalendar?.(); };
-  }, [active, openCalendar]);
+    return () => { stopped = true; stopSharing(); stopCalendar?.(); stopLocalCalendar?.(); };
+  }, [active, openCalendar, personalDatabase]);
   const loadSession = useCallback(async () => {
     if (!active || context.userId !== active.userId) throw new Error('共有グループを選択してください。');
     await active.record();
@@ -69,6 +72,7 @@ export function V2WorkspaceRoute({ view }: { view: V2GroupScreenProps['view'] })
         readForPlan: async () => { const calendar = await openCalendar(); const value = await calendar.readForPlan(); await assertWorkspaceAccess(); return value; },
         readOwnCalendar: async target => { const calendar = await openCalendar(); const value = await calendar.readOwnCalendar(target); await assertWorkspaceAccess(); return value; },
       },
+      localCalendar: createLocalCalendarPlanSource({ ownerUserId: active.userId, assertAccess: assertWorkspaceAccess, read: () => readLocalCalendar(personalDatabase) }),
       controller: { ...active.session.controller, sync: () => active.sync({ force: true }) },
       readPreferences: async () => {
         await active.record();

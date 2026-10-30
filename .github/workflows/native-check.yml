@@ -10,9 +10,9 @@ concurrency:
 on:
   push:
     branches: [main]
-    paths: ['package.json', 'package-lock.json', 'app.json', 'app.config.*', 'plugins/**', 'scripts/patch-*', '.github/workflows/native-check.yml']
+    paths: ['package.json', 'package-lock.json', 'app.json', 'app.config.*', 'plugins/**', 'scripts/patch-*', 'scripts/check-android-security.mjs', '.github/workflows/native-check.yml']
   pull_request:
-    paths: ['package.json', 'package-lock.json', 'app.json', 'app.config.*', 'plugins/**', 'scripts/patch-*', '.github/workflows/native-check.yml']
+    paths: ['package.json', 'package-lock.json', 'app.json', 'app.config.*', 'plugins/**', 'scripts/patch-*', 'scripts/check-android-security.mjs', '.github/workflows/native-check.yml']
   workflow_dispatch:
     inputs:
       compileAndroid:
@@ -33,6 +33,8 @@ jobs:
       - run: npm ci
       - run: npx --yes expo-doctor
       - run: npx expo prebuild --platform android --no-install
+      - name: Verify generated Android security boundaries
+        run: node scripts/check-android-security.mjs
       - uses: actions/setup-java@v4
         if: github.event_name == 'workflow_dispatch' && inputs.compileAndroid
         with:

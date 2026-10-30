@@ -6057,5 +6057,57 @@
       { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "custom repeat route applies only a personal draft and returns to the original workspace with an exact content digest" },
       { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "direct custom route links cannot change birthday cadence or a single occurrence and cannot redirect outside the calendar" }
     ]
-  }
+  },
+  {
+    "feature": "group-app-calendar-private-availability",
+    "tests": [
+      {
+        "file": "tests/calendar-group-availability.test.mjs",
+        "name": "group app calendar SQLite biweekly end dates moved exceptions cancellation and deletion reallocate only personal suggestions"
+      },
+      {
+        "file": "tests/calendar-group-availability.test.mjs",
+        "name": "group fixed instructions report app calendar conflict without moving formal dates or scheduling an untimed chore"
+      },
+      {
+        "file": "tests/sharing-v2-private-calendar-session.test.mjs",
+        "name": "v2 screen session refuses another account app calendar before applying its availability"
+      }
+    ]
+  },
+  {
+    "feature": "personal-recommendation-version-isolation",
+    "tests": [
+      {
+        "file": "tests/sharing-compatibility.test.mjs",
+        "name": "personal recommendations have a separate version contract while formal shared state cannot import private calendars"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-security-generated-code-regressions",
+    "tests": [
+      {
+        "file": "tests/security-calendar-attacks.test.mjs",
+        "name": "calendar security independent civil-date oracle validates 2000 seeded recurrence and end-date combinations"
+      },
+      {
+        "file": "tests/security-calendar-attacks.test.mjs",
+        "name": "calendar security hostile JSON SQL-like text and stale concurrent writes cannot alter protected data or prototype state"
+      }
+    ]
+  },
+  {
+    "feature": "shared-home-foreground-day-refresh",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "${platform} shared home resume after midnight refreshes the same focused page without changing formal dates or outbox"
+      }
+    ]
+  },
+  {"feature":"android-api-qualified-native-styles","tests":[{"file":"tests/mobile-theme-and-waste-icons.test.mjs","name":"Android API24 base themes exclude newer framework attributes and qualified styles retain every inherited value"}]},
+  {"feature":"native-group-local-calendar-plan-consistency","tests":[{"file":"tests/sharing-v2-reminder-native.test.mjs","name":"native shared Tasks and reminders include app calendar revisions and agree with screen recommendations without Google authorization"}]},
+  {"feature":"android-widget-external-broadcast-denial","tests":[{"file":"tests/widget-native-security.test.mjs","name":"Android widget completion receiver refuses external broadcasts while keeping framework update metadata and own PendingIntent interactions"}]},
+  {"feature":"android-runtime-dependency-security-minimums","tests":[{"file":"tests/android-security-dependencies.test.mjs","name":"Android runtime security minimums survive repeated prebuilds without forcing older native versions or removing app dependencies"}]}
 ]

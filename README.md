@@ -36,6 +36,8 @@ Release両実機で、OSによる自然実行中の共有家事のAndroid送信�
 
 ---
 
+最新の[追加セキュリティ・カレンダー検査](docs/security-calendar-audit-2026-10-31.md)では、無料ツールによる解析に加え、グループ参加中のローカル予定、Widgetの外部操作拒否、Androidの実行時依存関係を修正・検査しました。確認済みの範囲と残る制約を記録しています。
+
 ## 🎬 デモ動画
 
 [▶ YouTubeでデモ動画を見る（約3分22秒）](https://youtu.be/RIMiwtUhU-I)

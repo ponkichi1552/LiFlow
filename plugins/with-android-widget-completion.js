@@ -1,8 +1,17 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { AndroidConfig, withDangerousMod } = require('@expo/config-plugins');
+const { AndroidConfig, withAndroidManifest, withDangerousMod } = require('@expo/config-plugins');
+
+function protectWidgetReceiver(manifest) {
+  const receivers = manifest.manifest.application?.[0]?.receiver ?? [];
+  const receiver = receivers.find(value => ['.NextChoreWidgetProvider', 'jp.jphacks.tkb2633.NextChoreWidgetProvider'].includes(value.$['android:name']));
+  if (!receiver) throw new Error('LiFlow widget provider must exist before applying its private broadcast boundary');
+  receiver.$['android:exported'] = 'false';
+  return manifest;
+}
 
 module.exports = function withAndroidWidgetCompletion(config) {
+  config = withAndroidManifest(config, mod => { mod.modResults = protectWidgetReceiver(mod.modResults); return mod; });
   return withDangerousMod(config, [
     'android',
     async (modConfig) => {
@@ -58,3 +67,4 @@ class NextChoreWidgetProvider : ExpoWidgetsAppWidgetProvider("NextChoreWidget") 
     },
   ]);
 };
+module.exports.protectWidgetReceiver = protectWidgetReceiver;

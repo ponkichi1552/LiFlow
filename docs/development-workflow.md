@@ -18,3 +18,7 @@
 今回の整理は開発コードの統合である。GitHub Actionsの`main`更新はCIとNative configurationの検査を実行する。App Store公開、EAS公開、Firebase Rules配備を自動実行するworkflowはない。Rules配備と実端末の確認は[別の記録](sharing-v2/20-v2-default-and-live-rollout.md)に残す。
 
 ローカルの退避先はリポジトリ外の私的なチェックポイントに記録し、秘密情報や招待リンクをGitHubへ含めない。
+
+## 共有と本人の推奨計算の版
+
+正式な共有状態と本人だけの推奨計算には、それぞれソース契約を持たせる。共通ルール・権限・共通予定の互換性は `scheduler-contract.json`、本人の推奨はv2の `personal-scheduler-contract.json` で検査する。前者から後者や個人カレンダーへruntime importする変更は拒否する。ローカル推奨の改善だけで、既存グループの署名済み版やrosterを書き換えない。ソースhashの更新だけで検査を回避せず、変更した側の版と回帰を揃える。

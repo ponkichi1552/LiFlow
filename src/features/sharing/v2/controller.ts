@@ -14,6 +14,7 @@ import { readV2DateRights } from './date-rights-edit.ts';
 import { v2MembershipStart } from './membership-period.ts';
 import { buildV2WastePlan } from './waste-state.ts';
 import { buildV2ApplianceModel } from './appliance-state.ts';
+import type { LegacyCompletionRecord } from './legacy-history.ts';
 type V2ModelRange = { from: LocalDate; through: LocalDate; asOfDate: LocalDate };
 
 /** Injected transport keeps the screen independent of production, Emulator, and offline test workspaces. */
@@ -79,5 +80,5 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
 }
 export type V2GroupController = ReturnType<typeof createV2GroupController>;
 export type V2GroupScreenModel = Awaited<ReturnType<V2GroupController['readModel']>> & {
-  legacyHistory?: import('./legacy-history').LegacyCompletionRecord[];
+  legacyHistory?: LegacyCompletionRecord[];
 };

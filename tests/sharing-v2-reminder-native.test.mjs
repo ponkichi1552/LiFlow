@@ -18,10 +18,12 @@ import * as loadStores from '../src/platform/storage/sharing-v2-load-notices.ts'
 import * as loadRuntime from '../src/features/sharing/v2/load-notice-runtime.ts';
 import * as completionNotices from '../src/features/sharing/v2/completion-notices.ts';
 import * as localDate from '../src/domain/scheduling/local-date.ts';
+import * as localCalendarPlanning from '../src/features/calendar/private-availability.ts';
+import { newEventDraft } from '../src/features/calendar/events.ts';
 
 async function setup(options = {}) {
   const f = await fixture(); const d = await f.device(); await d.repository.commit(seeds());
-  const calls = []; const scheduled = new Map(); let active = true; let failPersonal = false; let completionCalls = 0;
+  const calls = []; const scheduled = new Map(); let active = true; let failPersonal = false; let completionCalls = 0; let events = [];
   const guard = () => { if (!active) throw new Error('account changed'); };
   const gateway = { maximumScheduledRequests: 60, async requestPermission() { calls.push('request-permission'); return true; }, async hasPermission() { return true; },
     async getScheduledRequests() { return [...scheduled.values()]; }, async schedule(request) { scheduled.set(request.key, request); return request.key; }, async cancel(key) { scheduled.delete(key); } };
@@ -36,6 +38,8 @@ async function setup(options = {}) {
     '../../features/sharing/v2/reminder-runtime': runtimeModule, '../../features/sharing/v2-ui/screen-session': screenModule,
     '../../features/sharing/v2-ui/private-overlay': overlayModule, '../../features/sharing/v2-ui/owner-preferences': ownerModule,
     '../../features/sharing/v2/personal-plan': personalPlan, '../../features/sharing/crypto': cryptoModule,
+    '../storage/calendar-events': { readLocalCalendar: async () => ({ events, exceptions: [] }) },
+    '../../features/calendar/private-availability': localCalendarPlanning,
     '../../features/notifications/reconcile-local-notifications': reconciliation, '../../features/sharing/v2/native-identity': identity,
     '../../features/sharing/v2/completion-notices': completionNotices, '../../features/sharing/v2/load-notice-runtime': loadRuntime,
     '../storage/sharing-v2-load-notices': loadStores, '../../domain/scheduling/local-date': localDate,
@@ -54,8 +58,26 @@ async function setup(options = {}) {
   nativeMocks['./v2-local-planning'] = loadNativeModule('src/platform/sharing/v2-local-planning.ts', nativeMocks);
   const module = loadNativeModule('src/platform/sharing/v2-reminders.ts', nativeMocks);
   const runtime = module.createNativeV2Reminders({ ...scope, database: d.database, repository: d.repository, controller, assertAccess: guard });
-  return { f, d, module, runtime, calls, scheduled, completionCalls: () => completionCalls, stopDuringPersonalRead() { failPersonal = true; }, close() { d.connection.close(); } };
+  return { f, d, module, runtime, controller, calls, scheduled, setEvents(value) { events = value; },
+    readPlanning: now => nativeMocks['./v2-local-planning'].readV2LocalPlanning({ userId: scope.userId, assertAccess: guard }, now),
+    completionCalls: () => completionCalls, stopDuringPersonalRead() { failPersonal = true; }, close() { d.connection.close(); } };
 }
+
+test('native shared Tasks and reminders include app calendar revisions and agree with screen recommendations without Google authorization', async () => {
+  const h = await setup(); try {
+    await h.d.repository.commit([{ operationId: 'heavy-local', entityType: 'chore', entityId: 'floor', operationType: 'patch', payload: { load: 'heavy' } }]);
+    const instant = new Date('2026-10-31T01:00:00Z'); const range = { from: '2026-11-01', through: '2026-11-09', asOfDate: '2026-10-31' };
+    const model = await h.controller.readModel(range); const common = JSON.stringify(model.plan);
+    const baseline = await h.readPlanning(instant); const first = baseline.personalize(model.plan).recommendations.find(row => row.date === '2026-11-03'); assert.ok(first);
+    h.setEvents([{ ...newEventDraft('2026-11-03', 'Asia/Tokyo'), title: '非公開の予定', allDay: true, id: 'native-local-event', revision: 1 }]);
+    const changed = await h.readPlanning(instant); assert.notEqual(changed.revision, baseline.revision);
+    const taskPlan = changed.personalize(model.plan); assert.notEqual(taskPlan.recommendations.find(row => row.subjectOccurrenceId === first.subjectOccurrenceId).date, first.date);
+    const session = screenModule.createV2ScreenSession({ controller: { readModel: async () => model }, userId: scope.userId, groupId: scope.groupId, now: () => instant,
+      readPreferences: () => changed.preferences, privateTasks: changed.privateTasks, calendar: changed.calendar, localCalendar: changed.localCalendar });
+    assert.deepEqual((await session.readModel()).personal, taskPlan); assert.equal(JSON.stringify(model.plan), common);
+    assert.equal(JSON.stringify(taskPlan).includes('非公開の予定'), false); assert.equal(h.scheduled.size, 0);
+  } finally { h.close(); }
+});
 
 test('native v2 reminders default off without permission, personal-data read or OAuth, then reuse owner-only planning', async () => {
   const h = await setup(); try {

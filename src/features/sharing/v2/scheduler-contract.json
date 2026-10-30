@@ -32,9 +32,7 @@
     "src/features/sharing/v2/completion-history.ts",
     "src/features/sharing/v2/configuration-timeline.ts",
     "src/features/sharing/v2/dependency-constraints.ts",
-    "src/features/sharing/v2/personal-plan.ts",
     "src/features/sharing/v2/personal-relocation.ts",
-    "src/features/sharing/v2/private-availability.ts",
     "src/features/sharing/v2/recorded-instruction.ts",
     "src/features/sharing/v2/request-review.ts",
     "src/features/sharing/v2/view-point.ts",
@@ -87,5 +85,5 @@
     "src/features/sharing/v2/recovery-witness.ts",
     "src/features/sharing/v2/owner-recovery.ts"
   ],
-  "sourceSha256": "8a9ce1808cff4b5f72fcb9a866d08405cf7c168e445510bd290c4b5cb61894b9"
+  "sourceSha256": "0a6026980c021afe1339a152d83d2317c26b91ffbc58192346947faf2b026a3d"
 }
