@@ -13,6 +13,7 @@ import { GroupManagementLinks } from '@/features/sharing/group-management-links'
 import { ChoreSettingsSources } from '@/features/settings/chore-settings-sources';
 import { AccordionSection } from '@/components/accordion-section';
 import { BirthdaySettings } from '@/features/calendar/birthday-settings';
+import { useLocalCalendar } from '@/features/calendar/use-local-calendar';
 import { DataCredits } from '@/components/data-credits';
 import type { FrequencyMode } from '@/domain/chores/types';
 import type { Weekday } from '@/domain/shared/types';
@@ -99,6 +100,7 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
 }) {
   const workspace = useContext(WorkspaceContext);
   const v2 = workspace?.active?.protocol === 2;
+  const calendar = useLocalCalendar(database);
   const [mode, setMode] = useState<FrequencyMode>(snapshot.settings.frequencyMode);
   const [restDays, setRestDays] = useState<Weekday[]>(snapshot.settings.restDays as Weekday[]);
   const [heavyLimit, setHeavyLimit] = useState(snapshot.settings.heavyDailyLimit);
@@ -116,6 +118,7 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
   const [notificationMessage, setNotificationMessage] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
   const [googleSyncState, setGoogleSyncState] = useState<GoogleSyncState | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
+  const [googleLoadStatus, setGoogleLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [calendarAvailabilityState, setCalendarAvailabilityState] = useState<CalendarAvailabilityState | null>(null);
   const [calendarAvailabilityMessage, setCalendarAvailabilityMessage] = useState<string | null>(null);
   const [googleBusy, setGoogleBusy] = useState(false);
@@ -130,6 +133,19 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
   const [googleMessage, setGoogleMessage] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
   const weatherSuggestions = useMunicipalitySuggestions(weatherRegion, weatherSearchEnabled);
   const googleOAuthConfigured = getGoogleSyncOAuthConfig().configured;
+  const rhythmSummary = `${modeOptions.find(option => option.id === mode)?.label ?? ''}・${restDays.length === 7 ? '毎日休み' : restDays.length ? `${weekdays.filter(day => restDays.includes(day.id)).map(day => day.label).join('')}休み` : '休みなし'}`;
+  const birthdayCount = calendar.snapshot.events.filter(event => event.birthday).length;
+  const birthdaySummary = calendar.error ? '確認できません' : calendar.loading ? '確認中' : birthdayCount ? `${birthdayCount}件` : '未登録';
+  const googleNeedsReconnect = googleSyncState?.status === 'authRequired' || Boolean(googleSyncState?.enabled && !googleConnected);
+  const googleSummaryError = googleLoadStatus === 'error' || googleNeedsReconnect || ['error', 'retryPending'].includes(googleSyncState?.status ?? '');
+  const googleSummary = googleBusy ? '処理中'
+    : googleLoadStatus === 'loading' ? '確認中'
+      : googleLoadStatus === 'error' ? '確認できません'
+        : googleNeedsReconnect ? '再接続が必要'
+          : googleSyncState?.status === 'error' ? '同期失敗'
+            : googleSyncState?.status === 'retryPending' ? '再試行待ち'
+              : !googleOAuthConfigured ? '設定待ち'
+                : googleConnected ? 'Tasks接続済み' : '未接続';
 
   const refreshGoogleState = useCallback(async () => {
     const [state, connected, calendarState] = await Promise.all([
@@ -140,12 +156,14 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
     setGoogleSyncState(state);
     setGoogleConnected(connected && Boolean(state) && !state?.disconnected);
     setCalendarAvailabilityState(calendarState);
+    setGoogleLoadStatus('ready');
   }, [database]);
 
   useEffect(() => {
     // SQLite state is external persisted state; hydrate the screen after mount.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshGoogleState().catch(() => {
+      setGoogleLoadStatus('error');
       setGoogleMessage({ text: 'Google同期の設定を読み込めませんでした。', kind: 'error' });
     });
   }, [refreshGoogleState]);
@@ -323,6 +341,10 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
   };
 
   const toggleSection = (section: string) => {
+    if (section === 'weather' && expandedSections.has(section)) {
+      setWeatherSearchEnabled(false);
+      setWeatherResultsDismissed(true);
+    }
     setExpandedSections((current) => {
       const next = new Set(current);
       if (next.has(section)) next.delete(section);
@@ -423,7 +445,12 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
       {loadError ? <Card><Text style={styles.error}>{loadError}</Text></Card> : null}
 
 
-      <Card><SectionHeading title="生活リズム" />
+      <Card><SectionHeading title="家事ごとの設定" />
+        <ChoreSettingsSources first="personal" />
+      </Card>
+
+      <AccordionSection title="生活リズム" summary={rhythmSummary}
+        expanded={expandedSections.has('rhythm')} onToggle={() => toggleSection('rhythm')}>
         <Text style={styles.label}>家事の頻度</Text>
         <View style={styles.modeRow}>
           {modeOptions.map((option) => (
@@ -458,91 +485,15 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
           <Counter value={normalLimit} onChange={normalDailyLimit => changeSettings({ normalDailyLimit })} maximum={20} label="普通の家事の上限" />
         </View>
 
-      </Card>
+      </AccordionSection>
 
-      <Card><SectionHeading title="通知・ウィジェット" />
-        <View style={styles.notificationRow}>
-          <View style={styles.limitCopy}>
-            <Text style={styles.featureTitle}>家事の通知を受け取る</Text>
-            <Text style={styles.hint}>{snapshot.sharing ? `所属グループの家事を、${snapshot.timeZone}の毎朝9時に通知します。` : '毎朝9時に、期間の開始日・最終日・終了翌日に未完了の家事をまとめて通知します。'}</Text>
-          </View>
-          <Switch accessibilityLabel="家事の通知を受け取る" value={snapshot.settings.notificationsEnabled} disabled={notificationUpdating} onValueChange={(value) => void toggleNotifications(value)} />
-        </View>
-        {notificationMessage ? <Text accessibilityLiveRegion="polite" style={notificationMessage.kind === 'success' ? styles.success : styles.error}>{notificationMessage.text}</Text> : null}
-        <View style={styles.divider} />
-        {v2 ? <GroupManagementLinks section="notifications" busy={notificationUpdating} onSelect={target => router.push(target)} /> : null}
-        <FeatureStatus title="今日の家事ウィジェット" status="iOS・Android" detail={snapshot.sharing ? "Widgetは個人モードの家事を表示します。共有グループの家事はアプリで確認できます。" : "最大3件を表示します。丸を押すと完了でき、完了した家事はチェック付きで残ります。"} />
-      </Card>
-
-      <Card><SectionHeading title="家事ごとの設定" />
-        <ChoreSettingsSources first="personal" />
-      </Card>
-
-      <Card style={{ paddingVertical: 4 }}><Pressable accessibilityRole="button" accessibilityLabel="ゴミ収集日を管理" onPress={() => void autosave.navigate(() => router.push(v2 ? '/group-v2/waste' : '/waste'))} style={[styles.notificationRow, { minHeight: 46 }]}>
-        <Text style={[typography.section, { color: palette.ink, fontWeight: '700', flex: 1 }]}>{v2 ? 'グループのゴミ収集日' : 'ゴミ収集日'}</Text><Chevron />
+      <Card style={{ paddingVertical: 4 }}><Pressable accessibilityRole="button" accessibilityLabel="共有グループを管理" onPress={() => void autosave.navigate(() => router.push(
+        workspace?.group && workspace.group.userId === workspace.userId && ['active', 'creating', 'joining'].includes(workspace.group.status)
+          ? { pathname: '/sharing/group/[groupId]', params: { groupId: workspace.group.groupId } } : '/sharing'))} style={[styles.notificationRow, { minHeight: 46 }]}>
+        <Text style={[typography.section, { color: palette.ink, fontWeight: '700', flex: 1 }]}>共有グループ</Text><Chevron />
       </Pressable></Card>
-
-      {!snapshot.sharing ? <Card><SectionHeading title="天気予報・洗濯" />
-        <Text style={styles.hint}>{snapshot.settings.weatherLocation
-          ? `対象地域：${snapshot.settings.weatherLocation.displayName}。予報取得時に、この地域の座標をOpen-Meteoへ送信します。`
-          : '市区町村を選ぶと、天気に合わせて洗濯予定を調整します。端末の位置情報は使いません。'}</Text>
-        <TextInput
-          value={weatherRegion}
-          editable={!weatherUpdating}
-          onChangeText={(value) => {
-            setWeatherRegion(value);
-            setWeatherSearchEnabled(true);
-            setWeatherResultsDismissed(false);
-            setWeatherCandidate(null);
-            setWeatherMessage(null);
-          }}
-          placeholder="市区町村名を入力（例：横浜市）"
-          placeholderTextColor={palette.muted}
-          style={styles.regionInput}
-          accessibilityLabel="天気予報に使う市区町村"
-          returnKeyType="done"
-        />
-        <Text style={styles.hint}>入力すると候補を検索します。候補は「市区町村、都道府県」で表示します。</Text>
-        {weatherSuggestions.status === 'searching' ? <ActivityIndicator color={palette.accent} /> : null}
-        <View style={styles.weatherActions}>
-          {snapshot.settings.weatherLocation ? (
-            <AppButton title="連動を解除" onPress={() => void disableWeather()} disabled={weatherUpdating} variant="quiet" compact />
-          ) : null}
-        </View>
-        {weatherSuggestions.candidates.length > 0 && !weatherResultsDismissed ? (
-          <View style={styles.regionResults}>
-            <Text style={styles.label}>候補を選択</Text>
-            {weatherSuggestions.candidates.map((candidate) => (
-              <Pressable
-                key={candidate.id}
-                accessibilityRole="button"
-                accessibilityLabel={`地域 ${candidate.label} を選択`}
-                accessibilityState={{ selected: weatherCandidate?.id === candidate.id }}
-                disabled={weatherUpdating}
-                onPress={() => void selectWeatherRegion(candidate)}
-                style={({ pressed }) => [styles.regionCandidate, weatherCandidate?.id === candidate.id && styles.regionCandidateSelected, pressed && styles.regionCandidatePressed]}
-              >
-                <Text style={styles.regionCandidateText}>{candidate.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-        ) : null}
-        {weatherSuggestions.status === 'empty' && !weatherResultsDismissed
-          ? <Text style={styles.hint}>市区町村が見つかりませんでした。市区町村名を変えてください。</Text>
-          : null}
-        {weatherSuggestions.status === 'error' && !weatherResultsDismissed
-          ? <Text style={styles.error}>{weatherSuggestions.error}</Text>
-          : null}
-        {weatherSuggestions.status === 'debouncing' || weatherSuggestions.status === 'searching'
-          ? <Text style={styles.hint}>市区町村を検索しています…</Text>
-          : null}
-        {weatherMessage ? (
-          <Text style={weatherMessage.kind === 'success' ? styles.success : styles.error}>{weatherMessage.text}</Text>
-        ) : null}
-      </Card> : null}
-
-      <Card><SectionHeading title="誕生日" /><BirthdaySettings /></Card>
-      <Card><SectionHeading title="Google連携" />
+      <AccordionSection title="Google連携" summary={googleSummary}
+        summaryError={googleSummaryError} expanded={expandedSections.has('google-sync')} onToggle={() => toggleSection('google-sync')}>
         <FeatureStatus
           title="Google Tasks"
           status={googleConnected ? '接続済み' : googleSyncState?.enabled ? '再認証が必要' : googleOAuthConfigured ? '未接続' : 'OAuth設定待ち'}
@@ -602,17 +553,93 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
         <Text style={styles.hint}>同期する家事名と予定日をGoogleへ送信します。接続解除時もGoogle Tasks上の既存家事は削除しません。Google Tasks権限は広い範囲に適用されるため、信頼できるGoogleアカウントで接続してください。</Text>
         {v2 ? <GroupManagementLinks section="google" busy={googleBusy} onSelect={target => router.push(target)} /> : null}
         {googleMessage ? <Text style={googleMessage.kind === 'success' ? styles.success : styles.error}>{googleMessage.text}</Text> : null}
-      </Card>
+      </AccordionSection>
 
-      <Card style={{ paddingVertical: 4 }}><Pressable accessibilityRole="button" accessibilityLabel="共有グループを管理" onPress={() => void autosave.navigate(() => router.push(
-        workspace?.group && workspace.group.userId === workspace.userId && ['active', 'creating', 'joining'].includes(workspace.group.status)
-          ? { pathname: '/sharing/group/[groupId]', params: { groupId: workspace.group.groupId } } : '/sharing'))} style={[styles.notificationRow, { minHeight: 46 }]}>
-        <Text style={[typography.section, { color: palette.ink, fontWeight: '700', flex: 1 }]}>共有グループ</Text><Chevron />
+      <Card style={{ paddingVertical: 4 }}><Pressable accessibilityRole="button" accessibilityLabel="ゴミ収集日を管理" onPress={() => void autosave.navigate(() => router.push(v2 ? '/group-v2/waste' : '/waste'))} style={[styles.notificationRow, { minHeight: 46 }]}>
+        <Text style={[typography.section, { color: palette.ink, fontWeight: '700', flex: 1 }]}>{v2 ? 'グループのゴミ収集日' : 'ゴミ収集日'}</Text><Chevron />
       </Pressable></Card>
-      {workspace?.userId ? <Card><SectionHeading title="アカウントと端末" />
+
+      <AccordionSection title="通知・ウィジェット" summary={notificationMessage?.kind === 'error' ? '設定を確認' : `通知${snapshot.settings.notificationsEnabled ? 'オン' : 'オフ'}`}
+        summaryError={notificationMessage?.kind === 'error'} expanded={expandedSections.has('notifications')} onToggle={() => toggleSection('notifications')}>
+        <View style={styles.notificationRow}>
+          <View style={styles.limitCopy}>
+            <Text style={styles.featureTitle}>家事の通知を受け取る</Text>
+            <Text style={styles.hint}>{snapshot.sharing ? `所属グループの家事を、${snapshot.timeZone}の毎朝9時に通知します。` : '毎朝9時に、期間の開始日・最終日・終了翌日に未完了の家事をまとめて通知します。'}</Text>
+          </View>
+          <Switch accessibilityLabel="家事の通知を受け取る" value={snapshot.settings.notificationsEnabled} disabled={notificationUpdating} onValueChange={(value) => void toggleNotifications(value)} />
+        </View>
+        {notificationMessage ? <Text accessibilityLiveRegion="polite" style={notificationMessage.kind === 'success' ? styles.success : styles.error}>{notificationMessage.text}</Text> : null}
+        <View style={styles.divider} />
+        {v2 ? <GroupManagementLinks section="notifications" busy={notificationUpdating} onSelect={target => router.push(target)} /> : null}
+        <FeatureStatus title="今日の家事ウィジェット" status="iOS・Android" detail={snapshot.sharing ? "Widgetは個人モードの家事を表示します。共有グループの家事はアプリで確認できます。" : "最大3件を表示します。丸を押すと完了でき、完了した家事はチェック付きで残ります。"} />
+      </AccordionSection>
+
+      {!snapshot.sharing ? <AccordionSection title="天気予報・洗濯" summary={weatherMessage?.kind === 'error' ? '保存を確認' : snapshot.settings.weatherLocation?.displayName ?? '未設定'}
+        summaryError={weatherMessage?.kind === 'error'} expanded={expandedSections.has('weather')} onToggle={() => toggleSection('weather')}>
+        <Text style={styles.hint}>{snapshot.settings.weatherLocation
+          ? `対象地域：${snapshot.settings.weatherLocation.displayName}。予報取得時に、この地域の座標をOpen-Meteoへ送信します。`
+          : '市区町村を選ぶと、天気に合わせて洗濯予定を調整します。端末の位置情報は使いません。'}</Text>
+        <TextInput
+          value={weatherRegion}
+          editable={!weatherUpdating}
+          onChangeText={(value) => {
+            setWeatherRegion(value);
+            setWeatherSearchEnabled(true);
+            setWeatherResultsDismissed(false);
+            setWeatherCandidate(null);
+            setWeatherMessage(null);
+          }}
+          placeholder="市区町村名を入力（例：横浜市）"
+          placeholderTextColor={palette.muted}
+          style={styles.regionInput}
+          accessibilityLabel="天気予報に使う市区町村"
+          returnKeyType="done"
+        />
+        <Text style={styles.hint}>入力すると候補を検索します。候補は「市区町村、都道府県」で表示します。</Text>
+        {weatherSuggestions.status === 'searching' ? <ActivityIndicator color={palette.accent} /> : null}
+        <View style={styles.weatherActions}>
+          {snapshot.settings.weatherLocation ? (
+            <AppButton title="連動を解除" onPress={() => void disableWeather()} disabled={weatherUpdating} variant="quiet" compact />
+          ) : null}
+        </View>
+        {weatherSuggestions.candidates.length > 0 && !weatherResultsDismissed ? (
+          <View style={styles.regionResults}>
+            <Text style={styles.label}>候補を選択</Text>
+            {weatherSuggestions.candidates.map((candidate) => (
+              <Pressable
+                key={candidate.id}
+                accessibilityRole="button"
+                accessibilityLabel={`地域 ${candidate.label} を選択`}
+                accessibilityState={{ selected: weatherCandidate?.id === candidate.id }}
+                disabled={weatherUpdating}
+                onPress={() => void selectWeatherRegion(candidate)}
+                style={({ pressed }) => [styles.regionCandidate, weatherCandidate?.id === candidate.id && styles.regionCandidateSelected, pressed && styles.regionCandidatePressed]}
+              >
+                <Text style={styles.regionCandidateText}>{candidate.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+        {weatherSuggestions.status === 'empty' && !weatherResultsDismissed
+          ? <Text style={styles.hint}>市区町村が見つかりませんでした。市区町村名を変えてください。</Text>
+          : null}
+        {weatherSuggestions.status === 'error' && !weatherResultsDismissed
+          ? <Text style={styles.error}>{weatherSuggestions.error}</Text>
+          : null}
+        {weatherSuggestions.status === 'debouncing' || weatherSuggestions.status === 'searching'
+          ? <Text style={styles.hint}>市区町村を検索しています…</Text>
+          : null}
+        {weatherMessage ? (
+          <Text style={weatherMessage.kind === 'success' ? styles.success : styles.error}>{weatherMessage.text}</Text>
+        ) : null}
+      </AccordionSection> : null}
+
+      <AccordionSection title="誕生日" summary={birthdaySummary}
+        summaryError={Boolean(calendar.error)} expanded={expandedSections.has('birthdays')} onToggle={() => toggleSection('birthdays')}><BirthdaySettings /></AccordionSection>
+      {workspace?.userId ? <AccordionSection title="アカウントと端末" expanded={expandedSections.has('account-devices')} onToggle={() => toggleSection('account-devices')}>
         <Pressable accessibilityRole="button" accessibilityLabel="設定の端末間同期" onPress={() => void autosave.navigate(() => router.push('/sharing/personal-preferences'))} style={[styles.notificationRow, { minHeight: 44 }]}><Text style={[styles.label, { flex: 1 }]}>設定の端末間同期</Text><Chevron /></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="同期する端末の管理" onPress={() => void autosave.navigate(() => router.push('/sharing/private-calendar'))} style={[styles.notificationRow, { minHeight: 44 }]}><Text style={[styles.label, { flex: 1 }]}>同期する端末の管理</Text><Chevron /></Pressable>
-      </Card> : null}
+      </AccordionSection> : null}
 
       <AccordionSection title="バックグラウンド同期の実行記録" expanded={expandedSections.has('backgroundDiagnostics')} onToggle={() => toggleSection('backgroundDiagnostics')}>
         {expandedSections.has('backgroundDiagnostics') ? <BackgroundSyncDiagnostics /> : null}

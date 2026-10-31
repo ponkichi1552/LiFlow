@@ -8,8 +8,10 @@ import { Card, palette, typography } from '@/components/planner-ui';
 
 const DURATION = 220;
 
-export function AccordionSection({ title, expanded, onToggle, children }: {
+export function AccordionSection({ title, summary, summaryError = false, expanded, onToggle, children }: {
   title: string;
+  summary?: string;
+  summaryError?: boolean;
   expanded: boolean;
   onToggle: () => void;
   children: ReactNode;
@@ -36,11 +38,13 @@ export function AccordionSection({ title, expanded, onToggle, children }: {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${title}を${expanded ? '閉じる' : '開く'}`}
+        accessibilityValue={summary ? { text: summary } : undefined}
         accessibilityState={{ expanded }}
         onPress={onToggle}
         style={({ pressed }) => [styles.header, pressed && styles.pressed]}
       >
-        <Text style={styles.title}>{title}</Text>
+        <Text style={[styles.title, summary && styles.titleWithSummary]}>{title}</Text>
+        {summary ? <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.summary, summaryError && styles.summaryError]}>{summary}</Text> : null}
         <Chevron direction={expanded ? 'up' : 'down'} />
       </Pressable>
       <Animated.View
@@ -64,6 +68,9 @@ const styles = StyleSheet.create({
   header: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   pressed: { opacity: 0.72 },
   title: { ...typography.section, flex: 1, color: palette.ink, fontWeight: '700' },
+  titleWithSummary: { flex: 0, maxWidth: '75%' },
+  summary: { ...typography.caption, color: palette.muted, flex: 1, minWidth: 0, textAlign: 'right' },
+  summaryError: { color: palette.warning },
   chevron: { color: palette.accent, fontSize: 23, fontWeight: '700', lineHeight: 28 },
   chevronExpanded: { transform: [{ rotate: '180deg' }] },
   clip: { overflow: 'hidden', position: 'relative' },

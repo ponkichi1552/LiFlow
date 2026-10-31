@@ -13,7 +13,7 @@ const deferred = () => { let resolve, reject; const promise = new Promise((yes, 
 const settingsMocks = {
   '@/features/google-sync/background-task': {},
   '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: false }) },
-  '@/platform/google-tasks/google-sign-in-gateway': {},
+  '@/platform/google-tasks/google-sign-in-gateway': { hasGoogleTasksSession: async () => false },
 };
 async function fixture() {
   const h = createDatabase();
@@ -23,18 +23,40 @@ async function fixture() {
   return { ...h, options: { database: h.database, snapshot: () => snapshot, refresh }, snapshot: () => snapshot };
 }
 
-for (const platform of ['ios', 'android']) test(`${platform} ordinary settings expose saved controls directly without opening a section first`, async () => {
+for (const platform of ['ios', 'android']) test(`${platform} settings keep chore categories direct and infrequent controls collapsed with current summaries`, async () => {
   const h = await fixture();
   try {
-    const screen = screenHarness('src/app/settings.tsx', { ...h.options, platform, mocks: settingsMocks });
-    for (const label of ['こまめ · 短めの周期', '月曜日', '重い家事の上限を増やす', '誕生日を追加', 'Googleと接続']) assert.ok(screen.button(label));
-    assert.ok(screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === '家事の通知を受け取る'));
-    assert.ok(screen.nodes().find(node => node.props.accessibilityLabel === '天気予報に使う市区町村'));
-    for (const title of ['家事ごとの設定', '生活リズム', '通知・ウィジェット', '天気予報・洗濯', '誕生日', 'Google連携']) {
-      assert.equal(screen.nodes().some(node => node.props.accessibilityLabel === `${title}を開く`), false);
-    }
+    await repository.updatePlannerSettings(h.database, { frequencyMode: 'balanced', restDays: [6, 7], heavyDailyLimit: 2, normalDailyLimit: 2 });
+    await repository.setNotificationsEnabled(h.database, true);
+    await repository.saveWeatherLocation(h.database, { region: 'よこはま', displayName: '横浜市、神奈川県', latitude: 35.44, longitude: 139.64 }); await h.options.refresh();
+    const screen = screenHarness('src/app/settings.tsx', { ...h.options, platform, mocks: { ...settingsMocks,
+      '@/features/calendar/use-local-calendar': { useLocalCalendar: () => ({ snapshot: { events: [{ birthday: true }, { birthday: true }, { birthday: false }] }, loading: false, error: null }) },
+    } });
+    const hasControl = label => screen.nodes().some(node => node.props.accessibilityLabel === label);
+    assert.equal(hasControl('家事ごとの設定を開く'), false);
     assert.ok(screen.button(`${h.snapshot().chores[0].category}の見出しを展開`));
+    for (const title of ['生活リズム', '通知・ウィジェット', '天気予報・洗濯', '誕生日', 'Google連携']) {
+      assert.equal(screen.button(`${title}を開く`).props.accessibilityState.expanded, false);
+    }
+    assert.equal(screen.button('生活リズムを開く').props.accessibilityValue.text, '適度・土日休み');
+    assert.equal(screen.button('通知・ウィジェットを開く').props.accessibilityValue.text, '通知オン');
+    assert.equal(screen.button('天気予報・洗濯を開く').props.accessibilityValue.text, '横浜市、神奈川県');
+    assert.equal(screen.button('誕生日を開く').props.accessibilityValue.text, '2件');
+    for (const label of ['こまめ · 短めの周期', '月曜日', '家事の通知を受け取る', '天気予報に使う市区町村', '誕生日を追加', 'Googleと接続']) assert.equal(hasControl(label), false);
+    const initial = screen.nodes();
+    for (const label of ['共有グループを管理', 'Google連携を開く']) assert.ok(initial.indexOf(screen.button(label)) < initial.indexOf(screen.button('誕生日を開く')), 'connections precede rarely edited birthdays');
     assert.ok(screen.button('クレジットを開く'), 'optional reference content stays collapsed');
+    await screen.press('生活リズムを開く');
+    assert.ok(screen.button('こまめ · 短めの周期')); assert.ok(screen.button('月曜日'));
+    await screen.press('こまめ · 短めの周期'); await screen.press('生活リズムを閉じる');
+    assert.equal(screen.button('生活リズムを開く').props.accessibilityValue.text, 'こまめ・土日休み');
+    for (let n = 0; n < 40 && h.snapshot().settings.frequencyMode !== 'frequent'; n++) { await new Promise(resolve => setTimeout(resolve, 25)); await screen.flush(); }
+    assert.equal((await repository.loadPlannerSnapshot(h.database, today)).settings.frequencyMode, 'frequent', 'collapsing does not discard or defer autosave');
+    await screen.press('生活リズムを開く'); assert.equal(screen.button('こまめ · 短めの周期').props.accessibilityState.selected, true);
+    await screen.press('通知・ウィジェットを開く'); assert.equal(hasControl('家事の通知を受け取る'), true);
+    await screen.press('天気予報・洗濯を開く'); assert.equal(hasControl('天気予報に使う市区町村'), true);
+    await screen.press('誕生日を開く'); assert.ok(screen.button('誕生日を追加'));
+    await screen.press('Google連携を開く'); assert.ok(screen.button('Googleと接続'));
   } finally { h.connection.close(); }
 });
 
@@ -78,6 +100,7 @@ for (const [section, choice, method] of [['生活リズム', 'こまめ · 短�
     try {
       const pending = deferred(); let writes = 0; const appStates = [];
       const screen = screenHarness('src/app/settings.tsx', { ...h.options, effect: callback => callback(), appStateListener: callback => { appStates.push(callback); }, mocks: { ...settingsMocks, '@/platform/storage/repository': { [method]: async () => { writes++; if (writes === 1) await pending.promise; } } } });
+      await screen.press(`${section}を開く`);
       await screen.press(choice);
       for (const listener of appStates) { listener('background'); listener('background'); } await screen.flush();
       assert.equal(writes, 1);
@@ -96,6 +119,7 @@ test('notification permission denial does not enable notifications and a later a
       '@/platform/notifications/expo-local-notification-gateway': { ExpoLocalNotificationGateway: class { async requestPermission() { requests++; return requests === 1 ? pending.promise : true; } } },
       '@/platform/storage/repository': { setNotificationsEnabled: async (db, enabled) => { saved.push(enabled); await repository.setNotificationsEnabled(db, enabled); } },
     } });
+    await screen.press('通知・ウィジェットを開く');
     const control = screen.nodes().find((node) => node.type === 'Switch' && node.props.accessibilityLabel === '家事の通知を受け取る');
     control.props.onValueChange(true); control.props.onValueChange(true); await screen.flush(); assert.equal(requests, 1);
     pending.resolve(false); await screen.flush(); assert.deepEqual(saved, []); assert.ok(screen.text().includes('通知は有効になりませんでした'));
@@ -114,6 +138,7 @@ test('Google connection cannot open duplicate authorization flows and retries af
       '@/platform/google-tasks/google-sign-in-gateway': { authorizeGoogleTasks: async () => { authorizations++; if (authorizations === 1) await pending.promise; throw Object.assign(new Error('cancelled'), { name: 'GoogleAuthorizationCancelledError' }); }, hasGoogleTasksSession: async () => false },
       '@/platform/storage/repository': { loadGoogleSyncState: async () => null, loadCalendarAvailabilityState: async () => null },
     } });
+    await screen.press('Google連携を開く');
     const connect = screen.button('Googleと接続'); connect.props.onPress(); connect.props.onPress(); await screen.flush(); assert.equal(authorizations, 1);
     pending.resolve(); await screen.flush(); assert.ok(screen.text().includes('Googleとの接続をキャンセルしました'));
     await screen.press('Googleと接続'); assert.equal(authorizations, 2);
@@ -141,6 +166,7 @@ test('connected Google settings serialize sync, pause, calendar permissions and 
     } });
     // Run mount effects, then render their completed SQLite/session hydration.
     const cleanups = effects.map((callback) => callback()); await screen.flush();
+    await screen.press('Google連携を開く');
     await screen.press('Googleと接続');
     assert.equal(syncs, 1); assert.equal(registrations, 1); assert.ok(screen.text().includes('接続し、同期しました'));
     const sync = screen.button('今すぐ同期'); const disconnect = screen.button('接続解除');
@@ -171,6 +197,7 @@ test('weather selection keeps the first pending candidate consistent and permits
       '@/features/weather/use-municipality-suggestions': { useMunicipalitySuggestions: () => ({ status: 'results', query: 'よこはま', error: null, candidates }) },
       '@/platform/storage/repository': { saveWeatherLocation: async (_db, value) => { saved.push(value); if (saved.length === 1) await pending.promise; } },
     } });
+    await screen.press('天気予報・洗濯を開く');
     await screen.change('天気予報に使う市区町村', 'よこはま');
     const first = screen.button('地域 横浜市 を選択'); const second = screen.button('地域 横浜町 を選択');
     first.props.onPress(); second.props.onPress(); await screen.flush();
@@ -179,6 +206,43 @@ test('weather selection keeps the first pending candidate consistent and permits
     assert.equal(screen.button('地域 横浜町 を選択').props.accessibilityState.selected, false);
     pending.reject(new Error('地域の保存失敗')); await screen.flush(); assert.ok(screen.text().includes('地域の保存失敗'));
     await screen.press('地域 横浜町 を選択'); assert.equal(saved.length, 2); assert.equal(saved[1].displayName, '横浜町');
+  } finally { h.connection.close(); }
+});
+
+test('closing weather stops hidden searches and reopening retains the location draft without searching again', async () => {
+  const h = await fixture(); let searching = false;
+  try {
+    const screen = screenHarness('src/app/settings.tsx', { ...h.options, mocks: { ...settingsMocks,
+      '@/features/weather/use-municipality-suggestions': { useMunicipalitySuggestions: (_query, enabled) => {
+        searching = enabled; return { status: enabled ? 'searching' : 'idle', candidates: [] };
+      } },
+    } });
+    assert.equal(searching, false);
+    await screen.press('天気予報・洗濯を開く'); await screen.change('天気予報に使う市区町村', 'よこはま'); assert.equal(searching, true);
+    await screen.press('天気予報・洗濯を閉じる'); assert.equal(searching, false);
+    await screen.press('天気予報・洗濯を開く'); assert.equal(searching, false);
+    assert.equal(screen.nodes().find(node => node.props.accessibilityLabel === '天気予報に使う市区町村').props.value, 'よこはま');
+    assert.equal(h.snapshot().settings.weatherLocation, undefined, 'an unconfirmed search must not replace the saved location');
+  } finally { h.connection.close(); }
+});
+
+test('collapsed Google settings distinguish pending hydration and failures from a disconnected account', async () => {
+  const h = await fixture();
+  try {
+    for (const [status, session, expected] of [['authRequired', true, '再接続が必要'], ['error', true, '同期失敗'], ['retryPending', true, '再試行待ち'], ['idle', false, '再接続が必要'], ['idle', true, 'Tasks接続済み'], ['read-failed', true, '確認できません']]) {
+      const effects = [];
+      const screen = screenHarness('src/app/settings.tsx', { ...h.options, effect: callback => effects.push(callback), mocks: { ...settingsMocks,
+        '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: true }) },
+        '@/platform/google-tasks/google-sign-in-gateway': { hasGoogleTasksSession: async () => session },
+        '@/platform/storage/repository': { loadGoogleSyncState: async () => { if (status === 'read-failed') throw new Error('read failed'); return { enabled: true, status }; }, loadCalendarAvailabilityState: async () => null },
+      } });
+      assert.equal(screen.button('Google連携を開く').props.accessibilityValue.text, '確認中');
+      const cleanups = effects.splice(0).map(effect => effect()); await screen.flush();
+      assert.equal(screen.button('Google連携を開く').props.accessibilityValue.text, expected);
+      assert.equal(screen.button('Google連携を開く').props.accessibilityState.expanded, false);
+      assert.equal(screen.nodes().some(node => node.props.accessibilityLabel === 'Google Tasksの自動同期'), false);
+      cleanups.forEach(cleanup => cleanup?.()); screen.unmount();
+    }
   } finally { h.connection.close(); }
 });
 

@@ -7792,11 +7792,19 @@
     ]
   },
   {
-    "feature": "personal-settings-direct-controls",
+    "feature": "personal-settings-selective-disclosure",
     "tests": [
       {
         "file": "tests/mobile-ui-audit.test.mjs",
-        "name": "${platform} ordinary settings expose saved controls directly without opening a section first"
+        "name": "${platform} settings keep chore categories direct and infrequent controls collapsed with current summaries"
+      },
+      {
+        "file": "tests/mobile-ui-audit.test.mjs",
+        "name": "closing weather stops hidden searches and reopening retains the location draft without searching again"
+      },
+      {
+        "file": "tests/mobile-ui-audit.test.mjs",
+        "name": "collapsed Google settings distinguish pending hydration and failures from a disconnected account"
       }
     ]
   },
