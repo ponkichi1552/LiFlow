@@ -22,7 +22,7 @@ function ReminderLoader({ load, onBack, reload, notice }: { load: () => Promise<
     return () => { active = false; };
   }, [load]);
   if (value) return <ReminderEditor {...value} onBack={onBack} notice={notice} />;
-  return <Page>{notice}<BackButton onPress={onBack} /><ScreenHeading title="このグループの通知" />
+  return <Page header={<BackButton onPress={onBack} />}>{notice}<ScreenHeading title="このグループの通知" />
     {failed ? <Card><Text accessibilityRole="alert" style={typography.body}>通知設定を読み込めませんでした。保存内容は保持しています。</Text>
       <AppButton title="通知設定を再読込" onPress={reload} /></Card> : <ActivityIndicator />}</Page>;
 }
@@ -50,7 +50,7 @@ function ReminderEditor({ runtime, saved, onBack, notice }: { runtime: V2Reminde
     finally { store.resumeNavigation(); working.current = false; if (alive.current) setBusy(false); }
   }
   const change = (patch: Parameters<typeof store.change>[0]) => { if (!working.current) store.change(patch); };
-  return <Page keyboardAware>{notice}<BackButton disabled={busy} onPress={() => { void navigateAfterSave(onBack); }} />
+  return <Page keyboardAware header={<BackButton disabled={busy} onPress={() => { void navigateAfterSave(onBack); }} />}>{notice}
     <ScreenHeading title="このグループの通知" description="この端末と本人だけの設定です。他のメンバーの通知設定は変わりません。" />
     <Text style={typography.caption}>{state.status.phase === 'saving' ? 'この端末に保存中…' : state.hasDraft ? '未保存の入力があります。' : state.revision > 0 ? 'この端末に保存済み' : '通知はオフです。有効な入力は自動保存します。'}</Text>
     {state.validation ? <Text accessibilityRole="alert" style={typography.caption}>{state.validation}</Text> : null}

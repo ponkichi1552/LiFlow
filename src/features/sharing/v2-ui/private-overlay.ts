@@ -123,8 +123,13 @@ export function createV2PrivateTaskSource(input: { ownerUserId: string; assertAc
       const common = new Set(commonChoreLinks(data.snapshot.chores, commonChores ?? []).map(link => link.personalChoreId));
       const value = projectV2PrivateTasks({ ...data, snapshot: { ...data.snapshot, chores: data.snapshot.chores.filter(chore => !common.has(chore.id)) } }, input.ownerUserId, range);
       await input.assertAccess();
-      if (generation === reading) selected = new Map([...value.home, ...[...value.byDate.values()].flat()].map((row) => [row.key,
-        { date: row.date, graceDays: row.graceDays, choreId: row.chore.id, revision: row.revision, completed: row.completed }]));
+      if (generation === reading) {
+        for (const row of [...value.home, ...[...value.byDate.values()].flat()]) {
+          selected.delete(row.key); selected.set(row.key, { date: row.date, graceDays: row.graceDays, choreId: row.chore.id, revision: row.revision, completed: row.completed });
+        }
+        // Cached visible months can still issue their exact, CAS-checked command after a different month is read.
+        while (selected.size > 25_000) selected.delete(selected.keys().next().value!);
+      }
       return value;
     },
     async setCompleted(key, revision, completed) {

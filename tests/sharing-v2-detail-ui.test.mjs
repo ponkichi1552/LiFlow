@@ -114,7 +114,7 @@ for (const platform of ['ios', 'android']) {
       const opened = []; const props = { model, busy: false, onDetails: (id) => opened.push(id), onConfiguration: () => { throw new Error('member cadence entry'); }, onAdd: () => {} };
       const screen = screenHarness('src/features/sharing/v2-ui/chore-list.tsx', { exportName: 'V2ChoreList', platform, props });
       await screen.press(`${model.plan.chores[0].category}、1000件`);
-      const list = screen.nodes().find((node) => node.type === 'FlatList'); assert.equal(list.props.data.length, 1000); assert.ok(list.props.initialNumToRender < 1000);
+      const list = screen.nodes().find((node) => node.type === 'FlatList'); assert.equal(list.props.data.filter(row => row.kind === 'chore').length, 1000); assert.ok(list.props.initialNumToRender < 1000);
       assert.equal(list.props.keyboardShouldPersistTaps, 'handled', 'a filtered edit action receives the first tap while the keyboard is open');
       assert.equal(list.props.keyboardDismissMode, 'on-drag', 'dragging the catalog can reveal a keyboard-covered result');
       assert.equal(list.props.automaticallyAdjustKeyboardInsets, platform === 'ios', 'Android adjustResize must not receive a second inset correction');

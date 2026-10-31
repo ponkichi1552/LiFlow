@@ -2,13 +2,14 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
+import { selectCalendarView } from './helpers/calendar-ui.mjs';
 const descendants = node => [node, ...(node.children ?? []).filter(child => typeof child === 'object').flatMap(descendants)];
 for (const platform of ['ios', 'android']) test(`${platform} timeline date and chore controls remain outside the native scrolling content in both day modes`, async () => {
   const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
     today: '2026-10-31', timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, pending: 2, total: 2, minutes: 45 }), renderChores: day => `手順:${day}`,
   } });
   for (const [mode, days] of [['1日表示', 1], ['2日表示', 2]]) {
-    await screen.press(mode);
+    await selectCalendarView(screen, mode);
     const header = screen.nodes().find(node => node.props.testID === 'calendar-fixed-day-heading'); const list = screen.nodes().find(node => node.props.testID === 'calendar-timeline');
     assert.ok(header && list); assert.equal(descendants(list).includes(header), false);
     const toggles = descendants(header).filter(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.includes('の家事を'));

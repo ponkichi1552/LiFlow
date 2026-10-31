@@ -17,6 +17,19 @@ async function fixture() {
   return { ...h, owner, record };
 }
 
+test('an unchanged workspace update performs no SQLite write while real metadata changes still persist behind identity guards', async () => {
+  const h = await fixture();
+  try {
+    await registry.saveSharingWorkspace(h.database, h.record);
+    const before = (await h.database.getFirstAsync('SELECT total_changes() AS count')).count;
+    await registry.updateSharingWorkspace(h.database, 'owner', 'group-test', row => ({ ...row }));
+    assert.equal((await h.database.getFirstAsync('SELECT total_changes() AS count')).count, before);
+    await registry.updateSharingWorkspace(h.database, 'owner', 'group-test', row => ({ ...row, displayName: '更新済み' }));
+    assert.equal((await registry.readSharingWorkspace(h.database, 'owner', 'group-test')).displayName, '更新済み');
+    await assert.rejects(registry.updateSharingWorkspace(h.database, 'owner', 'group-test', row => ({ ...row, userId: 'foreign' })), /identity/);
+  } finally { h.connection.close(); }
+});
+
 test('workspace registry isolates accounts, preserves trust pins and refuses credentials or secret keys', async () => {
   const h = await fixture();
   try {

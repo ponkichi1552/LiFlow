@@ -35,7 +35,8 @@ for (const platform of ['ios', 'android']) {
     const screen = screenHarness('src/features/sharing/v2-ui/workspace-route.tsx', { exportName: 'V2WorkspaceRoute', platform, props: { view: 'appliances' }, navigate: (...args) => navigation.push(args), mocks: {
       '../../../hooks/use-workspace': { useWorkspace: () => ({ ready: true, active, userId: 'user', group: { displayName: '家族' } }) },
       '../../../hooks/use-planner-data': { usePlannerData: options => { assert.equal(options.personal, true); return personal; } },
-      './group-screen': { V2GroupScreen: 'GroupScreen' },
+      './workspace-data': { useWorkspaceDisplay: () => ({ loadSession: async () => {}, subscribe: () => () => {}, peek: () => undefined }) },
+      './group-screen': { V2GroupScreen: 'GroupScreen', readOptionsForView: () => ({ management: true, appliances: true }) },
     } });
     const props = screen.nodes().find(node => node.type === 'GroupScreen').props;
     assert.equal(props.personalGuide.snapshot, personal.snapshot);

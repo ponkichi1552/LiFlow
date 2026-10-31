@@ -6,7 +6,8 @@ import type { SharedWorkspace } from '@/platform/sharing/workspace-types';
 import { PlannerLoadState } from '@/components/planner-load-state';
 import { createV2SettingsSession } from './group-chore-settings-source';
 import { V2GroupScreen } from '../sharing/v2-ui/group-screen';
-import type { V2GroupScreenProps } from '../sharing/v2-ui/group-screen';
+import { readOptionsForView, type V2GroupScreenProps } from '../sharing/v2-ui/group-screen';
+import { useOptionalWorkspaceDisplay } from '../sharing/v2-ui/workspace-data';
 
 export function GroupChoreSettingsScreen() {
   const context = useContext(WorkspaceContext);
@@ -18,7 +19,8 @@ export function GroupChoreSettingsScreen() {
   return <SelectedGroupChoreSettings key={`${context.userId}:${params.groupId}`} userId={context.userId} groupId={params.groupId} choreId={params.id} />;
 }
 export function SelectedGroupChoreSettings({ userId, groupId, choreId, initialView = 'details' }: { userId: string; groupId: string; choreId: string; initialView?: 'details' | 'history' }) {
-  const [workspace, setWorkspace] = useState<SharedWorkspace | null>(null);
+  const display = useOptionalWorkspaceDisplay();
+  const [workspace, setWorkspace] = useState<SharedWorkspace | null>(display?.workspace?.userId === userId && display.workspace.groupId === groupId ? display.workspace : null);
   const [error, setError] = useState<string | null>(null); const [retry, setRetry] = useState(0);
   useEffect(() => {
     let current = true;
@@ -33,14 +35,15 @@ export function SelectedGroupChoreSettings({ userId, groupId, choreId, initialVi
 }
 /** A detached editor always targets the named group, including when another workspace is open. */
 function V2GroupChoreSettings({ workspace, choreId, initialView }: { workspace: Extract<SharedWorkspace, { protocol: 2 }>; choreId: string; initialView: 'details' | 'history' }) {
+  const binding = useOptionalWorkspaceDisplay(); const display = binding?.workspace === workspace ? binding : null;
   const [view, setView] = useState<V2GroupScreenProps['view']>(initialView);
-  const loadSession = useCallback(async () => { await workspace.record(); return createV2SettingsSession(workspace); }, [workspace]);
-  const subscribe = useCallback((refresh: () => void) => subscribeSharingChanges(scope => {
+  const loadSession = useCallback(async () => { await workspace.record(); return display ? display.loadSession() : createV2SettingsSession(workspace); }, [workspace, display]);
+  const subscribe = useCallback((refresh: () => void) => display ? display.subscribe(refresh) : subscribeSharingChanges(scope => {
     if (scope?.userId === workspace.userId && scope.groupId === workspace.groupId) refresh();
-  }), [workspace]);
+  }), [workspace, display]);
   const openConfiguration = useCallback(() => setView('configuration'), []);
   const onBack = () => view === initialView ? router.back() : setView('details');
-  return <V2GroupScreen purpose="workspace" view={view} choreId={choreId} loadSession={loadSession} subscribe={subscribe}
+  return <V2GroupScreen purpose="workspace" view={view} choreId={choreId} loadSession={loadSession} subscribe={subscribe} lifecycleManaged={Boolean(display)} initialDisplay={display?.peek(readOptionsForView(view, undefined, choreId))}
     onBack={onBack} onConfiguration={openConfiguration} onHistory={() => setView('history')} onDetails={() => setView('details')}
     onGroupPolicy={() => setView('groupPolicy')} onDateRights={() => setView('dateRights')} />;
 }

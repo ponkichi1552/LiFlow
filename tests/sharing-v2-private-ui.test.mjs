@@ -109,7 +109,7 @@ for (const platform of ['ios', 'android']) {
         const context = { ready: true, active, userId: 'owner', group: null };
         const privateData = { database: f.personal.database, snapshot: (await repository.readPersonalPlannerOverlaySnapshot(f.personal.database)).snapshot,
           refresh: async () => { privateData.snapshot = (await repository.readPersonalPlannerOverlaySnapshot(f.personal.database)).snapshot; } };
-        const screen = screenHarness('src/features/sharing/v2-ui/workspace-route.tsx', { exportName: 'V2WorkspaceRoute', props: { view: 'home' }, platform, focusEffect: (fn) => { focus = fn; }, layoutEffect: (commit) => { commit(); }, mocks: {
+        const screen = screenHarness('tests/helpers/workspace-route-host.tsx', { exportName: 'WorkspaceRouteHost', props: { view: 'home' }, platform, focusEffect: (fn) => { focus = fn; }, layoutEffect: (commit) => { commit(); }, mocks: {
           '../../../hooks/use-workspace': { useWorkspace: () => context }, '../../../hooks/use-planner-data': { usePlannerData: () => privateData },
           '../../../platform/sharing/private-calendar-runtime': { openPrivateCalendarRuntime: () => ({
             readPlannerPreferences: async () => null, readForPlan: async () => null, subscribe: () => () => {},

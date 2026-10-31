@@ -27,7 +27,7 @@ function Audit() {
     catch (error) { if (alive.current) { setFailed(true); setErrorCode(failureCode(error)); } }
     finally { running.current = false; if (alive.current) setBusy(false); }
   }
-  return <Page><BackButton onPress={() => router.back()} /><ScreenHeading title="実Google Calendarの読取検査" />
+  return <Page header={<BackButton onPress={() => router.back()} />}><ScreenHeading title="実Google Calendarの読取検査" />
     <Card><Text style={typography.body}>この端末で選択中の本人の時間帯だけを読み取ります。予定・Tasksを書き換えず、時間帯をSQLite・Firebase・共有グループへ保存しません。画面には検査の件数だけを表示します。</Text>
       <AppButton title="この端末のGoogleログインを確認" disabled={busy} onPress={() => run(async audit => { const result = await audit.checkAccount(); if (alive.current) { setReady(result.ready); setChecked(true); } })} />
       {checked ? <Text testID="google-read-session" style={typography.label}>{ready ? 'Googleログインを確認済み' : 'Googleログインが見つかりません'}</Text> : null}

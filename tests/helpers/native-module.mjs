@@ -12,6 +12,10 @@ export function loadNativeModule(filename, mocks, timers = {}) {
   const module = { exports: {} };
   Function('require', 'module', 'exports', 'setTimeout', 'clearTimeout', outputText)((name) => {
     if (!(name in mocks) && name === '../google-calendar/calendar-api') return calendarApi();
+    if (!(name in mocks) && name === '@/platform/diagnostics/startup-timing') return require('../../src/platform/diagnostics/startup-timing.ts');
+    if (!(name in mocks) && name === './src/platform/diagnostics/startup-clock') return require('../../src/platform/diagnostics/startup-clock.ts');
+    if (!(name in mocks) && name === '@/features/planner/initial-display-gate') return require('../../src/features/planner/initial-display-gate.ts');
+    if (!(name in mocks) && name === '@/platform/sharing/startup-display') return { readSavedStartupDisplay: async () => undefined, startupDisplayCache: { read: async () => undefined } };
     assert.ok(name in mocks, `unmocked native import ${name}`); return mocks[name];
   }, module, module.exports, timers.setTimeout ?? globalThis.setTimeout, timers.clearTimeout ?? globalThis.clearTimeout);
   return module.exports;

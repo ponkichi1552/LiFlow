@@ -3,7 +3,7 @@ import { useWorkspace } from '../hooks/use-workspace';
 
 /** All workspaces use the same tabs; group data stays in its own repository. */
 export function WorkspaceNavigator() {
-  const { active } = useWorkspace(); const v2 = active?.protocol === 2;
+  const { active, startupDisplay } = useWorkspace(); const v2 = active?.protocol === 2 || Boolean(startupDisplay);
   return <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
     <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
     <Stack.Protected guard={!v2} redirectTo="/">

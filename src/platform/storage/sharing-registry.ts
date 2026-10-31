@@ -150,10 +150,12 @@ export function updateSharingWorkspace(database: SQLiteDatabase, userId: string,
       if (['left', 'removed'].includes(previousStatus) && next.status === 'active') throw new Error('Explicitly request group approval before rejoining');
       if (next.localGeneration !== previousGeneration && (!['left', 'removed'].includes(previousStatus) || next.status !== 'joining'
         || !next.localGeneration || !next.archivedLocalGenerations?.includes(previousGeneration ?? 'initial'))) throw new Error('Rejoining must preserve the previous local workspace');
+      const encoded = canonicalJson(next);
+      if (encoded === row.record_json) return next;
       let changed = false;
       const write = async () => {
         const result = await database.runAsync('UPDATE sharing_workspaces SET record_json = ? WHERE user_id = ? AND group_id = ? AND record_json = ?',
-          canonicalJson(next), userId, groupId, row.record_json);
+          encoded, userId, groupId, row.record_json);
         changed = result.changes === 1;
       };
       const departed = (record: SharingWorkspaceRecord) => ['left', 'removed'].includes(record.status);

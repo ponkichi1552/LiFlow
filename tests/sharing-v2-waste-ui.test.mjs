@@ -72,7 +72,7 @@ for (const platform of ['ios', 'android']) {
       assert.equal(hidden.waste.occurrences.find(entry => entry.occurrence.date === '2026-11-03').hidden, false);
       const calendar = await f.mount(platform, 'calendar');
       const date = calendar.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2026年10月27日'));
-      assert.ok(date.props.style.some(style => style?.backgroundColor)); assert.ok(date.props.style.some(style => style?.flex === 1));
+      assert.match(date.props.accessibilityLabel, /非表示の収集/u);
       await openCalendarDay(calendar, day); const checked = checkbox(calendar, true); assert.ok(checked); assert.equal(checked.props.accessibilityState.checked, true);
       const compact = calendar.nodes().find(node => node.type === 'View' && Array.isArray(node.props.style) && node.props.style.some(style => style?.minHeight === 56)); assert.ok(compact);
       assert.ok(calendar.nodes().some(node => node.type === 'Text' && node.children.join('') === '可燃' && node.props.style.some(style => style?.color === wasteTypeColor('可燃ごみ'))));
@@ -89,9 +89,10 @@ for (const platform of ['ios', 'android']) {
       await f.c.actions.addWasteSchedule({ label: 'びん', recurrence: 'biweekly', collectionWeekdays: [2], anchorDate: day });
       const screen = await f.mount(platform, 'calendar');
       const cell = screen.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2026年10月27日'));
-      assert.match(cell.props.accessibilityLabel, /未完了の共有家事1件/u); assert.ok(cell.props.style.some(style => style?.flex === 1));
+      assert.match(cell.props.accessibilityLabel, /未完了の共有家事1件/u);
       const nextCell = screen.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2026年10月29日'));
       const selectedStyle = Object.assign({}, ...cell.props.style.filter(Boolean)); const nextStyle = Object.assign({}, ...nextCell.props.style.filter(Boolean));
+      assert.equal(selectedStyle.width, nextStyle.width, 'all weekday columns use the same width');
       assert.equal(selectedStyle.padding, nextStyle.padding, 'waste labels never shift the common date baseline');
       const captions = screen.nodes().filter(node => node.type === 'Text' && Array.isArray(node.props.style));
       assert.ok(captions.some(node => node.children.join('') === '粗大' && node.props.style.some(style => style?.color === wasteTypeColor('粗大ゴみ'))));

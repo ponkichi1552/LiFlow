@@ -1,12 +1,14 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { AppButton, BackButton, Card, Page, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
-import { formatJapaneseDate, localDateFromDate, localDateFromISODateTime, monthKey } from '@/domain/scheduling/local-date';
+import { localDateFromDate, localDateFromISODateTime, monthKey } from '@/domain/scheduling/local-date';
 import { PlannerLoadState } from '@/components/planner-load-state';
 import type { usePlannerData } from '@/hooks/use-planner-data';
 import { router } from 'expo-router';
 import { parseSharedMirrorEntryId } from '@/features/planner/common-chore-links';
 import { SettingsAudience } from '@/components/settings-audience';
+import { HistoryDayHeading } from '@/components/history-day-heading';
+import { groupHistoryByDay } from './history-groups';
 
 export function PlannerHistoryContent({ data, requestedChoreId }: {
   data: Pick<ReturnType<typeof usePlannerData>, 'snapshot' | 'loading' | 'error' | 'refresh'>; requestedChoreId?: string;
@@ -23,10 +25,12 @@ export function PlannerHistoryContent({ data, requestedChoreId }: {
   const completedThisMonth = completions.filter((item) =>
     item.outcome === 'completed' && monthKey(item.completedLocalDate ?? localDateFromISODateTime(item.completedAt)) === thisMonth,
   ).length;
+  const recent = [...completions].sort((a, b) => b.completedAt.localeCompare(a.completedAt) || a.id.localeCompare(b.id)).slice(0, 100);
+  const groups = groupHistoryByDay(recent, item => ({ id: item.id, timestamp: item.completedAt, date: item.completedLocalDate ?? localDateFromISODateTime(item.completedAt) }));
 
   return (
-    <Page>
-      <BackButton onPress={() => router.back()} />
+    <Page header={<BackButton onPress={() => router.back()} />}>
+
       <SettingsAudience groupName={snapshot.sharing ? snapshot.household.name : undefined} />
       <ScreenHeading eyebrow="HISTORY" title={selectedChore ? `${selectedChore.name}の履歴` : '実施履歴'} description="完了と未完了の記録を端末内に保存します。" />
       {error ? <Card><Text style={styles.error}>{error}</Text></Card> : null}
@@ -42,9 +46,8 @@ export function PlannerHistoryContent({ data, requestedChoreId }: {
           <Text style={styles.emptyText}>{selectedChore ? `${selectedChore.name}の完了・未完了を記録すると、ここに表示されます。` : '家事の説明から「完了」または「未完了」を記録すると、日付と一緒に保存されます。'}</Text>
           <AppButton title="今日の家事を見る" onPress={() => router.push('/')} variant="secondary" />
         </Card>
-      ) : completions.slice(0, 100).map((completion) => {
+      ) : groups.map(group => <View key={group.date} style={{ gap: 10 }}><HistoryDayHeading date={group.date} showMonth={group.showMonth} />{group.records.map((completion) => {
         const chore = choresById.get(completion.choreId);
-        const date = completion.completedLocalDate ?? localDateFromISODateTime(completion.completedAt);
         const isCompleted = completion.outcome === 'completed';
         return (
           <Card key={completion.id} style={styles.historyCard}>
@@ -54,13 +57,13 @@ export function PlannerHistoryContent({ data, requestedChoreId }: {
             <View style={styles.copy}>
               <Text style={styles.choreName}>{chore?.name ?? '家事'}</Text>
               <Text style={styles.meta}>
-                {isCompleted ? '完了' : '未完了'} · {formatJapaneseDate(date, { year: true, weekday: true })}
+                {isCompleted ? '完了' : '未完了'} · {new Date(completion.completedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', ...(snapshot.timeZone ? { timeZone: snapshot.timeZone } : {}) })}
               </Text>
             </View>
             <Text style={styles.source}>{parseSharedMirrorEntryId(completion.scheduleEntryId) ? '共有' : completion.source === 'notification' ? '通知' : completion.source === 'widget' ? 'ウィジェット' : completion.source === 'googleTasks' ? 'Google Tasks' : 'アプリ'}</Text>
           </Card>
         );
-      })}
+      })}</View>)}
       {completions.length > 100 ? <Text style={styles.footnote}>最新の100件を表示しています。</Text> : null}
     </Page>
   );

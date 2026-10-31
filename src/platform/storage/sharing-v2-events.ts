@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { canonicalJson } from '../../features/sharing/operations.ts';
 import type { SharedOperation } from '../../features/sharing/operations.ts';
 import type { SharedReplica } from '../../features/sharing/replica.ts';
+import { assertVerifiedLegacyMigration, readVerifiedLegacyMigrationSnapshot } from '../../features/sharing/v2/legacy-migration-source.ts';
 import { sharedDocumentDigest, signSharedOperation, verifyAuthenticatedSharedOperation } from '../../features/sharing/crypto.ts';
 import type { DeviceSecretIdentity } from '../../features/sharing/crypto.ts';
 import { sharedAuthorIdentity, sharedRosterDigest, verifySharedRosterArchive } from '../../features/sharing/roster.ts';
@@ -86,6 +87,7 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
   }
   let checkedArchive: { digest: string; value: VerifiedSharedRoster[] } | null = null;
   const authenticated = new Map<string, string>();
+  let seededMigration: VerifiedLegacyMigration | undefined;
   function archive() {
     const input = options.archive(); const latest = input.at(-1); if (!latest) throw new SharingAccessError('共有メンバーを確認できません。');
     const digest = sharedRosterDigest(latest);
@@ -100,6 +102,20 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
     const expectedRoster = sharedRosterDigest(latest);
     if (latest.body.schemaVersion !== 2 || !isSupportedV2Scheduler(latest.body.schedulerVersion)) throw new SharingSchedulerVersionError();
     sharedAuthorIdentity(latest, options.userId, options.identity.deviceId, latest.body.keyVersion);
+    // The opaque migration checkpoint already authenticated every original proof
+    // during this process's restore. Reuse those exact proofs in the existing
+    // content-addressed cache instead of verifying all legacy signatures twice.
+    // Deserialized/forged checkpoints, a changed chain or a changed fact still fail.
+    const migration = options.migration;
+    if (migration && migration !== seededMigration) {
+      assertVerifiedLegacyMigration(migration, replica, history);
+      for (const fact of readVerifiedLegacyMigrationSnapshot(migration).facts) {
+        const operation = fact.operation; const epoch = rosterAtOperation(history, operation);
+        const identity = sharedAuthorIdentity(epoch, operation.authorUserId, operation.authorDeviceId, operation.keyVersion);
+        authenticated.set(operation.operationId, sharedDocumentDigest([operation, fact.authorSignature, identity]));
+      }
+      seededMigration = migration;
+    }
     const proofs = new Map((await readSharedFactsInsideTransaction(transaction, options.groupId)).map((fact) => [fact.operation.operationId, fact]));
     const receipts = await readV2ServerReceiptsInside(transaction, options.groupId);
     const retained = new Set(replica.operations.map((operation) => operation.operationId));

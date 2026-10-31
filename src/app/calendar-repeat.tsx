@@ -23,8 +23,8 @@ export default function CalendarRepeatRoute() {
   const back = () => { void leave(); };
   const disablePrevention = usePreventRemove(!leaving, back);
   useLayoutEffect(() => { disableNavigationGuard.current = disablePrevention; }, [disablePrevention]);
-  if (!draft) return <Page><BackButton accessibilityLabel="予定の入力に戻る" onPress={back} /><Text style={{ ...typography.body, color: palette.muted }}>{local.error ?? (local.loading ? '入力内容を読み込んでいます。' : '入力途中の予定が見つかりません。カレンダーへ戻ってください。')}</Text></Page>;
-  if (draft.value.birthday || draft.scope === 'one') return <Page><BackButton accessibilityLabel="予定の入力に戻る" onPress={back} /><Text style={{ ...typography.body, color: palette.muted }}>{draft.value.birthday ? '誕生日は毎年の繰り返しです。' : '繰り返し全体を選んでから設定してください。'}</Text></Page>;
+  if (!draft) return <Page header={<BackButton accessibilityLabel="予定の入力に戻る" onPress={back} />}><Text style={{ ...typography.body, color: palette.muted }}>{local.error ?? (local.loading ? '入力内容を読み込んでいます。' : '入力途中の予定が見つかりません。カレンダーへ戻ってください。')}</Text></Page>;
+  if (draft.value.birthday || draft.scope === 'one') return <Page header={<BackButton accessibilityLabel="予定の入力に戻る" onPress={back} />}><Text style={{ ...typography.body, color: palette.muted }}>{draft.value.birthday ? '誕生日は毎年の繰り返しです。' : '繰り返し全体を選んでから設定してください。'}</Text></Page>;
   return <CustomRecurrenceScreen key={key} date={draft.value.startDate} initial={draft.value.customRecurrence} onBack={back} onSave={async rule => {
     if (!database) throw new Error('入力内容の保存先を確認してください。'); if (saving.current) return; saving.current = true;
     const next: CalendarEditorDraft = { ...draft, value: { ...draft.value, recurrence: 'custom', customRecurrence: rule } };

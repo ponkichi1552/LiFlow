@@ -50,8 +50,8 @@ export default function ChoresScreen() {
   };
 
   return (
-    <Page>
-      <BackButton onPress={() => router.back()} />
+    <Page header={<BackButton onPress={() => router.back()} />}>
+
       <ScreenHeading eyebrow="CHORES" title="家事一覧" description={`${chores.filter((chore) => chore.enabled).length}件の家事を有効にしています。検索や設定変更ができます。`} />
       {error ? <Card><Text style={styles.error}>{error}</Text></Card> : null}
       {toggleError ? <Card><Text style={styles.error}>{toggleError}</Text></Card> : null}

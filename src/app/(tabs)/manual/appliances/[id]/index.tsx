@@ -33,8 +33,8 @@ export default function ApplianceDetailScreen() {
   }, [applianceId, database, retry]));
 
   const goBack = () => returnTo ? router.dismissTo(returnTo) : router.back();
-  if (!saved || saved.id !== applianceId) return <Page><BackButton accessibilityLabel="一覧へ戻る" onPress={goBack} /><ScreenHeading eyebrow="APPLIANCE CARE" title="家電の詳細" description="保存した公式資料とお手入れ項目を読み込んでいます。" /></Page>;
-  if (!saved.context) return <Page><BackButton accessibilityLabel="一覧へ戻る" onPress={goBack} /><ScreenHeading eyebrow="APPLIANCE CARE" title={saved.error ?? '家電が見つかりません'} />{saved.error ? <AppButton title="再読み込み" onPress={() => setRetry((value) => value + 1)} /> : null}</Page>;
+  if (!saved || saved.id !== applianceId) return <Page header={<BackButton accessibilityLabel="一覧へ戻る" onPress={goBack} />}><ScreenHeading eyebrow="APPLIANCE CARE" title="家電の詳細" description="保存した公式資料とお手入れ項目を読み込んでいます。" /></Page>;
+  if (!saved.context) return <Page header={<BackButton accessibilityLabel="一覧へ戻る" onPress={goBack} />}><ScreenHeading eyebrow="APPLIANCE CARE" title={saved.error ?? '家電が見つかりません'} />{saved.error ? <AppButton title="再読み込み" onPress={() => setRetry((value) => value + 1)} /> : null}</Page>;
 
   return <ApplianceDetailContent context={saved.context} returnTo={returnTo} error={saved.error} />;
 }

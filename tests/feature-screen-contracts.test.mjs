@@ -193,8 +193,8 @@ test('feature screen contract: chore categories, kana heading search and trivia 
     const count = h.snapshot.chores.filter((chore) => !chore.archived && chore.category === 'キッチン').length;
     await screen.press(`キッチン、${count}件`);
     assert.ok(!screen.text().includes('に分類されている家事です。'), 'redundant category copy stays removed');
-    assert.equal(screen.nodes().filter((node) => node.props.accessibilityLabel?.endsWith('の説明を開く')).length, count, 'category selection still filters the chore headings');
-    await screen.press('分類一覧に戻る');
+    assert.equal(screen.nodes().filter((node) => node.props.accessibilityLabel?.endsWith('の説明を開く')).length, count, 'expanded categories show their own chore headings inline');
+    await screen.press(`キッチン、${count}件`);
     await screen.change('家事名を検索', 'こんろ');
     const first = screen.nodes().find((node) => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.endsWith('の説明を開く'));
     assert.ok(first.props.accessibilityLabel.startsWith('コンロ'), 'kana heading matches must come first');

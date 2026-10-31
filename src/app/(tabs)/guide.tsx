@@ -1,5 +1,5 @@
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChoreLibrary } from '@/features/chores/chore-library';
+import { ChoreLibrary, useChoreLibraryState } from '@/features/chores/chore-library';
 import { ChorePlanToggle } from '@/features/chores/chore-plan-toggle';
 import { setChoresEnabled } from '@/platform/storage/repository';
 import { WorkspaceTab } from '@/components/workspace-tab';
@@ -19,11 +19,11 @@ import { PlannerLoadState } from '@/components/planner-load-state';
 import { usePlannerData } from '@/hooks/use-planner-data';
 
 export default function ChoreGuideScreen() {
-  const params = useLocalSearchParams<{ choreId?: string }>();
-  return params.choreId ? <PersonalChoreGuideScreen /> : <WorkspaceTab view="chores"><PersonalChoreGuideScreen /></WorkspaceTab>;
+  return <WorkspaceTab view="chores"><PersonalChoreGuideScreen /></WorkspaceTab>;
 }
 
 function PersonalChoreGuideScreen() {
+  const libraryState = useChoreLibraryState();
   const params = useLocalSearchParams<{ choreId?: string; returnTo?: 'home' | 'calendar'; source?: string }>();
   const personalSource = params.source === 'personal';
   const requestedId = Array.isArray(params.choreId) ? params.choreId[0] : params.choreId;
@@ -73,8 +73,8 @@ function PersonalChoreGuideScreen() {
     : triviaItems;
   if (selectedTriviaId) {
     return (
-      <Page>
-        <BackButton accessibilityLabel="豆知識一覧に戻る" onPress={returnFromTrivia} />
+      <Page header={<BackButton accessibilityLabel="豆知識一覧に戻る" onPress={returnFromTrivia} />}>
+
         {selectedTrivia ? (
           <>
             <ScreenHeading title={selectedTrivia.trivia.title} description={selectedTrivia.chore.name} />
@@ -90,8 +90,8 @@ function PersonalChoreGuideScreen() {
 
   if (isTriviaCollectionOpen && !selectedChoreId) {
     return (
-      <Page>
-        <BackButton accessibilityLabel="家事一覧に戻る" onPress={returnFromTrivia} />
+      <Page header={<BackButton accessibilityLabel="家事一覧に戻る" onPress={returnFromTrivia} />}>
+
         <ScreenHeading title="豆知識" description="家事の見出しを選ぶと、知っていると便利な情報を確認できます。" />
         <TextInput
           accessibilityLabel="豆知識の見出しを検索"
@@ -116,8 +116,8 @@ function PersonalChoreGuideScreen() {
     );
   }
 
-  if (!selectedChoreId) return <SafeAreaView style={{ flex: 1 }} edges={['top']}><ChoreLibrary chores={chores} onOpen={selectChoreFromList}
-    header={<><ScreenHeading title="家事の説明" />{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}</>}
+  if (!selectedChoreId) return <SafeAreaView style={{ flex: 1 }} edges={['top']}><ChoreLibrary chores={chores} onOpen={selectChoreFromList} state={libraryState}
+    header={<><ScreenHeading title="家事一覧" />{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}</>}
     triviaCount={triviaItems.length} onTrivia={() => { setSearchText(''); setIsTriviaCollectionOpen(true); }} /></SafeAreaView>;
 
   return <ChoreBook chores={chores} selectedId={selectedChoreId} title="家事の説明" onBack={returnFromDetail} hasTabBar

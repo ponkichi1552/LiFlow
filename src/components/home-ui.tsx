@@ -8,6 +8,7 @@ import { palette, typography } from './planner-ui';
 import { GroupIcon } from './group-icon';
 import type { homeSummary } from '../features/planner/home-summary';
 import type { HomeWeekScope } from '../features/planner/home-presentation';
+import { recordHomeFirstLayout } from '../platform/diagnostics/startup-clock';
 
 export function HomeWeekSwitcher({ scope, onChange }: { scope: HomeWeekScope; onChange: (scope: HomeWeekScope) => void }) {
   return <View style={styles.weekSwitcher}>{(['current', 'next'] as const).map(value => <Pressable key={value} accessibilityRole="button"
@@ -22,7 +23,7 @@ export function HomeUpcomingDate({ date }: { date: LocalDate }) {
 export function HomeHeader({ today, workspaceName, onGroup = () => router.push('/sharing') }: {
   today: LocalDate; workspaceName?: string; onGroup?: () => void;
 }) {
-  return <View style={styles.header}>
+  return <View style={styles.header} onLayout={recordHomeFirstLayout}>
     <View style={styles.identity}><Text style={styles.date}>{formatJapaneseDate(today, { year: true, weekday: true })}</Text>
       {workspaceName ? <Text numberOfLines={1} style={styles.workspace}>{workspaceName}</Text> : null}</View>
     <View style={styles.actions}>
@@ -35,11 +36,11 @@ export function HomeHeader({ today, workspaceName, onGroup = () => router.push('
   </View>;
 }
 export function HomeProgress({ summary, total, done }: { summary: ReturnType<typeof homeSummary>; total: number; done: number }) {
+  if (!summary.showProgress) return null;
   return <View style={styles.progress}>
-    <Text style={styles.greeting}>{summary.greeting}</Text>
-    {summary.showProgress ? <><View style={styles.progressRow}>
+    <View style={styles.progressRow}>
       <Text style={styles.count}>{total}件中{done}件が完了しました</Text>{done > 0 ? <Text style={styles.count}>{summary.percent}%</Text> : null}</View>
-      <View style={styles.track}><View style={[styles.fill, { width: `${summary.percent}%` }]} /></View></> : null}
+      <View style={styles.track}><View style={[styles.fill, { width: `${summary.percent}%` }]} /></View>
   </View>;
 }
 export function LoadSortButton({ order, onPress }: { order: LoadOrder; onPress: () => void }) {
@@ -64,7 +65,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', gap: 6, alignItems: 'center' }, identity: { flex: 1, minWidth: 0, gap: 2 },
   date: { ...typography.caption, color: palette.muted }, workspace: { ...typography.label, color: palette.ink, fontWeight: '600' },
   actions: { flexDirection: 'row', gap: 2 }, iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  progress: { gap: 5, paddingVertical: 6 }, greeting: { ...typography.label, color: palette.ink, fontWeight: '500' },
+  progress: { gap: 5, paddingVertical: 6 },
   progressRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, count: { ...typography.caption, color: palette.muted },
   track: { height: 4, borderRadius: 2, backgroundColor: palette.accentSoft, overflow: 'hidden' }, fill: { height: '100%', borderRadius: 2, backgroundColor: palette.accent },
   sort: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingLeft: 10, minHeight: 44 }, sortText: { ...typography.caption, color: palette.muted, fontWeight: '600' },

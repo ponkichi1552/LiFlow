@@ -8,9 +8,10 @@ import { v2FormStyles as styles } from './form-controls';
 import { v2CanShowCompletion } from './round-visibility';
 import { v2TargetLabel } from './target-form';
 
-export function V2CompletionHistoryCard({ model, record, actions, busy, run }: {
+export function V2CompletionHistoryCard({ model, record, actions, busy, run, grouped = false }: {
   model: V2GroupScreenModel; record: V2CompletionRecord; actions: V2GroupController['actions']; busy: boolean;
   run: (work: () => Promise<unknown>) => Promise<void>;
+  grouped?: boolean;
 }) {
   if (!v2CanShowCompletion(model, record)) return null;
   const admin = model.viewerUserId === model.adminUserId;
@@ -20,7 +21,7 @@ export function V2CompletionHistoryCard({ model, record, actions, busy, run }: {
     : record.acceptance === 'pending' ? '代行の承認待ち' : record.acceptance === 'rejected' ? '代行は非承認 · 実施記録は保持' : '実施済み';
   return <Card><SectionHeading title={model.plan.chores.find((chore) => chore.id === record.choreId)?.name ?? '以前の家事'} />
     <Text style={styles.body}>{status}</Text>
-    <Text style={styles.body}>実施：{date(record.performedAt)}</Text>
+    <Text style={styles.body}>実施：{grouped ? moment(record.performedAt).tz(model.plan.timeZone).format('HH:mm') : date(record.performedAt)}</Text>
     <Text style={styles.caption}>実施者：{nameOf(record.performerUserId)}</Text>
     <Text style={styles.caption}>本来の担当：{record.originalAssigneeIds.length ? record.originalAssigneeIds.map(nameOf).join('・') : '担当未確定'}</Text>
     <Text style={styles.caption}>登録者：{nameOf(record.recorderUserId)}</Text>

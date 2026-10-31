@@ -3,6 +3,78 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 
+for (const platform of ['ios', 'android']) test(`${platform} a device with no saved shared workspaces shows personal data before unrelated account restoration without starting workers`, async () => {
+  for (const empty of [true, false]) {
+    const effects = []; let finish; let workers = 0;
+    const authentication = new Promise(resolve => { finish = resolve; });
+    const screen = screenHarness('src/hooks/use-workspace.tsx', { platform, exportName: 'WorkspaceProvider', effect: callback => effects.push(callback), mocks: {
+      '@/components/planner-ui': {}, '@/contexts/workspace-context': { WorkspaceContext: { Provider: 'WorkspaceContextProvider' } },
+      '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => undefined, canShowPersonalStartup: async () => empty },
+      '@/platform/sharing/auth': {}, '@/platform/sharing/private-calendar-sync': { startPrivateCalendarForeground: () => { workers++; return () => {}; } },
+      '@/platform/sharing/workspaces': { readSharingSelection: async () => null, hasSharingSessionEnabled: async () => true,
+        sharingSessionUser: async () => authentication, currentSharingWorkspace: async () => null,
+        saveSharingSelection: async () => {}, subscribeSharingChanges: () => () => {} },
+    } });
+    const dispose = effects[0]();
+    try {
+      await new Promise(resolve => setTimeout(resolve, 5)); await screen.flush();
+      let value = screen.nodes().find(node => node.props.value)?.props.value;
+      assert.equal(value.ready, empty); assert.equal(value.active, null); assert.equal(value.userId, null); assert.equal(value.startupDisplay, null);
+      effects.at(-1)()?.(); assert.equal(workers, 0);
+      finish(null); await new Promise(resolve => setTimeout(resolve, 2)); await screen.flush();
+      value = screen.nodes().find(node => node.props.value)?.props.value; assert.equal(value.ready, true); assert.equal(value.active, null);
+    } finally { dispose?.(); screen.unmount(); }
+  }
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} local presentation does not wait for Firebase and cannot start network workers or authorize an old account`, async () => {
+  const effects = []; let finishAuthentication; let workers = 0;
+  const record = { userId: 'previous-owner', groupId: 'house', status: 'active' };
+  const model = { viewerUserId: 'previous-owner', plan: { groupId: 'house' } };
+  const authentication = new Promise(resolve => { finishAuthentication = resolve; });
+  const screen = screenHarness('src/hooks/use-workspace.tsx', { platform, exportName: 'WorkspaceProvider', effect: callback => effects.push(callback), mocks: {
+    '@/components/planner-ui': {}, '@/contexts/workspace-context': { WorkspaceContext: { Provider: 'WorkspaceContextProvider' } },
+    '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => ({ record, model }), startupDisplayCache: { read: async () => undefined } },
+    '@/platform/sharing/auth': {}, '@/platform/sharing/private-calendar-sync': { startPrivateCalendarForeground: () => { workers++; return () => {}; } },
+    '@/platform/sharing/workspaces': { readSharingSelection: async () => ({ userId: record.userId, groupId: record.groupId }), hasSharingSessionEnabled: async () => true,
+      sharingSessionUser: async () => authentication, currentSharingWorkspace: async () => null,
+      saveSharingSelection: async () => {}, subscribeSharingChanges: () => () => {} },
+  } });
+  const dispose = effects[0]();
+  try {
+    await screen.flush(); const value = screen.nodes().find(node => node.props.value)?.props.value;
+    assert.equal(value.ready, true); assert.equal(value.active, null); assert.deepEqual(value.startupDisplay.model, model);
+    const stop = effects.at(-1)(); assert.equal(workers, 0); stop?.();
+    finishAuthentication({ uid: 'new-owner' }); await new Promise(resolve => setTimeout(resolve, 2)); await screen.flush();
+    const current = screen.nodes().find(node => node.props.value)?.props.value;
+    assert.equal(current.userId, 'new-owner'); assert.equal(current.active, null); assert.equal(current.startupDisplay, null);
+  } finally { dispose?.(); screen.unmount(); }
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} the saved home appears before expensive workspace restoration and an account change discards the pending old session`, async () => {
+  const effects = []; let uid = 'owner'; let finish; let opened = 0;
+  const record = { userId: 'owner', groupId: 'house', status: 'active' };
+  const model = { viewerUserId: 'owner', plan: { groupId: 'house' } };
+  const screen = screenHarness('src/hooks/use-workspace.tsx', { platform, exportName: 'WorkspaceProvider', effect: callback => effects.push(callback), mocks: {
+    '@/components/planner-ui': {}, '@/contexts/workspace-context': { WorkspaceContext: { Provider: 'WorkspaceContextProvider' } },
+    '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => undefined, startupDisplayCache: { read: async () => model } },
+    '@/platform/sharing/private-calendar-sync': {}, '@/platform/sharing/auth': {},
+    '@/platform/sharing/workspaces': { readSharingSelection: async () => ({ userId: 'owner', groupId: 'house' }), hasSharingSessionEnabled: async () => true,
+      sharingSessionUser: async () => ({ uid }), currentSharingWorkspace: async () => uid === 'owner' ? record : null,
+      openSharedWorkspace: async () => { opened++; return new Promise(resolve => { finish = resolve; }); }, saveSharingSelection: async () => {}, subscribeSharingChanges: () => () => {} },
+  } });
+  const dispose = effects[0]();
+  try {
+    for (let i = 0; i < 20 && !finish; i++) { await new Promise(resolve => setTimeout(resolve, 1)); await screen.flush(); }
+    let value = screen.nodes().find(node => node.props.value)?.props.value;
+    assert.equal(value.ready, true); assert.equal(value.active, null); assert.deepEqual(value.startupDisplay.model, model); assert.equal(opened, 1);
+    uid = 'different-account'; await value.refreshSharing(); await screen.flush();
+    finish({ ...record, protocol: 2, drain: async () => {} }); await screen.flush();
+    value = screen.nodes().find(node => node.props.value)?.props.value;
+    assert.equal(value.userId, 'different-account'); assert.equal(value.active, null); assert.equal(value.startupDisplay, null);
+  } finally { dispose?.(); screen.unmount(); }
+});
+
 test('active workspace scope never injects a legacy provider and preserves the personal database context', () => {
   for (const platform of ['ios', 'android']) for (const active of [null, { protocol: 1, userId: 'owner', groupId: 'legacy', database: { legacy: true } },
     { protocol: 2, userId: 'owner', groupId: 'v2', database: { v2: true } }]) {
@@ -131,7 +203,11 @@ for (const [platform, name] of [['ios', 'ios backgrounding during the current gr
     } });
   const disposeBoot = effects[0](); let disposeForeground;
   try {
-    await screen.flush(); foreground = true; disposeForeground = effects.at(-1)(); await screen.flush();
+    await screen.flush();
+    const value = screen.nodes().find(node => node.props.value?.active)?.props.value;
+    assert.ok(value); value.completeInitialDisplay(value.active);
+    await new Promise(resolve => setTimeout(resolve, 1));
+    foreground = true; disposeForeground = effects.at(-1)(); await screen.flush();
     assert.deepEqual(opened, ['broken']);
     assert.equal(recoveries, 0, 'a failed final group must not start recovery after the app has backgrounded');
   } finally { disposeForeground?.(); disposeBoot?.(); }

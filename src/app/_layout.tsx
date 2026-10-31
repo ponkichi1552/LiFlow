@@ -13,6 +13,11 @@ import { WorkspaceProvider, ActiveWorkspaceScope } from '@/hooks/use-workspace';
 import { WorkspaceNavigator } from '@/components/workspace-navigator';
 import '@/platform/notifications/configure-foreground-notifications';
 import { plannerColorsForScheme } from '@/components/planner-theme';
+import { WorkspaceDisplayProvider } from '@/features/sharing/v2-ui/workspace-data';
+import { LocalCalendarProvider } from '@/features/calendar/use-local-calendar';
+import { traceStartup } from '@/platform/diagnostics/startup-timing';
+
+const initialize = (database: Parameters<typeof initializeLocalDatabase>[0]) => traceStartup('database.initialize', () => initializeLocalDatabase(database));
 
 function WidgetInteractionBridge() {
   const { database, refresh } = usePlannerData();
@@ -48,9 +53,11 @@ export default function RootLayout() {
   const theme = { ...baseTheme, colors: { ...baseTheme.colors, background: colors.background, card: colors.surface,
     text: colors.ink, border: colors.border, primary: colors.accent, notification: colors.warning } };
   return (
-    <SQLiteProvider databaseName="housework.db" onInit={initializeLocalDatabase}>
+    <SQLiteProvider databaseName="housework.db" onInit={initialize}>
       <PlannerDataProvider>
         <WorkspaceProvider>
+        <LocalCalendarProvider>
+        <WorkspaceDisplayProvider>
         <ThemeProvider value={theme}>
           <>
             <PlannerSystemBars />
@@ -61,6 +68,8 @@ export default function RootLayout() {
             </ActiveWorkspaceScope>
           </>
         </ThemeProvider>
+        </WorkspaceDisplayProvider>
+        </LocalCalendarProvider>
         </WorkspaceProvider>
       </PlannerDataProvider>
     </SQLiteProvider>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { CalendarCategory, CalendarEvent, CalendarException } from '../../../domain/calendar/events';
 import type { CalendarEditorDraft } from '../../../platform/storage/calendar-events';
 import { clearCalendarEditorDraft, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent, deleteCalendarEvent } from '../../../platform/storage/calendar-events';
@@ -14,12 +14,7 @@ const categoryId = (group: string, category: { id: string; name: string; color: 
 const proof = (record: SharedCalendarRecord) => JSON.stringify({ series: record.heads.map(op => op.operationId).sort(),
   exceptions: Object.fromEntries(record.exceptions.map(row => [row.anchorDate, row.heads.map(op => op.operationId).sort()])) });
 
-/** A group event is never persisted by the personal event writer, or vice versa. */
-export function useGroupCalendar(local: LocalCalendarBinding | undefined, model: V2GroupScreenModel, actions: V2GroupController['actions'],
-  perform: ((work: () => Promise<unknown>) => Promise<V2MutationOutcome>) | undefined, groupName: string): LocalCalendarBinding | undefined {
-  const [categories, setCategories] = useState<CalendarCategory[]>([]);
-  if (!local) return undefined;
-  const records = model.calendar ?? []; const groupId = model.plan.groupId;
+function projectGroupCalendar(records: readonly SharedCalendarRecord[], groupId: string) {
   const recordsById = new Map(records.map(row => [eventId(groupId, row.id), row]));
   const groupCategories = new Map<string, CalendarCategory>(); const rawCategories = new Map<string, CalendarCategory>();
   const events: CalendarEvent[] = []; const exceptions: CalendarException[] = [];
@@ -38,9 +33,29 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
         override: candidate?.value && candidate.category ? { ...candidate.value, categoryId: category(candidate.category) } : null });
     }
   }
-  const draftCategories = (local.snapshot.drafts ?? []).filter(draft => draft.audience === 'group' && draft.groupId === groupId).flatMap(draft => draft.editorCategory ? [draft.editorCategory] : []);
-  const allCategories = [...new Map([...local.snapshot.categories, ...groupCategories.values(), ...draftCategories, ...categories].map(category => [category.id, category])).values()];
-  const drafts = (local.snapshot.drafts ?? []).filter(draft => draft.audience !== 'group' || draft.groupId === groupId);
+  return { recordsById, groupCategories, rawCategories, events, exceptions };
+}
+
+/** A group event is never persisted by the personal event writer, or vice versa. */
+export function useGroupCalendar(local: LocalCalendarBinding | undefined, model: V2GroupScreenModel, actions: V2GroupController['actions'],
+  perform: ((work: () => Promise<unknown>) => Promise<V2MutationOutcome>) | undefined, groupName: string): LocalCalendarBinding | undefined {
+  const [categories, setCategories] = useState<CalendarCategory[]>([]);
+  const groupId = model.plan.groupId;
+  const projected = useMemo(() => projectGroupCalendar(model.calendar ?? [], groupId), [model.calendar, groupId]);
+  const personalSnapshot = local?.snapshot;
+  const events = useMemo(() => [...(personalSnapshot?.events ?? []), ...projected.events], [personalSnapshot?.events, projected.events]);
+  const exceptions = useMemo(() => [...(personalSnapshot?.exceptions ?? []), ...projected.exceptions], [personalSnapshot?.exceptions, projected.exceptions]);
+  const snapshot = useMemo(() => {
+    if (!personalSnapshot) return undefined;
+    const draftCategories = (personalSnapshot.drafts ?? []).filter(draft => draft.audience === 'group' && draft.groupId === groupId).flatMap(draft => draft.editorCategory ? [draft.editorCategory] : []);
+    const allCategories = [...new Map([...personalSnapshot.categories, ...projected.groupCategories.values(), ...draftCategories, ...categories].map(category => [category.id, category])).values()];
+    const drafts = (personalSnapshot.drafts ?? []).filter(draft => draft.audience !== 'group' || draft.groupId === groupId);
+    return { ...personalSnapshot, events, exceptions,
+      categories: allCategories, drafts, draft: drafts[0] ?? null };
+  }, [personalSnapshot, projected, groupId, categories, events, exceptions]);
+  if (!local || !snapshot) return undefined;
+  const { recordsById, groupCategories, rawCategories } = projected;
+  const allCategories = snapshot.categories;
   const canEdit = (id: string) => {
     const record = recordsById.get(id);
     return record ? record.creatorUserId === model.viewerUserId || model.viewerUserId === model.adminUserId : local.canEditEvent?.(id) !== false;
@@ -66,8 +81,7 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
     });
   };
   return { ...local, shared: { groupId, name: groupName, enabled: model.calendarSupported === true },
-    snapshot: { ...local.snapshot, events: [...local.snapshot.events, ...events], exceptions: [...local.snapshot.exceptions, ...exceptions],
-      categories: allCategories, drafts, draft: drafts[0] ?? null },
+    snapshot,
     canEditEvent: canEdit,
     prepareDraft(draft) {
       if (!draft.eventId || draft.audience === 'group') return draft;

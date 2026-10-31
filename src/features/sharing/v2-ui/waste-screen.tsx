@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { FlatList, KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
-import { AppButton, BackButton, Card, palette, ScreenHeading, SectionHeading, typography } from '../../../components/planner-ui';
+import { AppButton, BackButton, Card, NavigationHeader, palette, ScreenHeading, SectionHeading, typography } from '../../../components/planner-ui';
 import { AccordionSection } from '../../../components/accordion-section';
 import { WasteScheduleEditor } from '../../waste/waste-schedule-editor';
 import { normalizeWasteSchedule, wasteCollectionRule, wasteScheduleDescription } from '../../waste/schedule-policy';
@@ -61,8 +61,9 @@ export function V2WasteScreen({ model, actions, busy, perform, onBack, header }:
   const rows = waste?.rows.filter(row => !row.deleted) ?? [];
   const hasConflict = form?.row && Object.values(form.row.fields).some(field => field.kind === 'conflict');
   return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+    <NavigationHeader><BackButton onPress={onBack} disabled={busy} /></NavigationHeader>
     <FlatList data={rows} keyExtractor={row => row.id} initialNumToRender={8} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={styles.page}
-      ListHeaderComponent={<View style={{ gap: 14 }}>{header}<BackButton onPress={onBack} disabled={busy} /><ScreenHeading title="共有のゴミ収集日" />
+      ListHeaderComponent={<View style={{ gap: 14 }}>{header}<ScreenHeading title="共有のゴミ収集日" />
         <Text style={styles.caption}>追加・変更した収集日と、その回の表示・非表示はグループ全員に共有します。個人の収集日は変更しません。</Text>
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         {pendingRead ? <Card><Text style={styles.body}>端末に保存済みです。再送せず、現在の収集日を読み直してください。</Text>

@@ -23,7 +23,8 @@ function fixture(platform = 'android') {
       return { idToken: 'synthetic-google-id-token', googleUserId: 'different-native-google-uid' };
     } },
     './firebase-services.ts': { getSharingServices: () => ({ auth }) },
-    './secure-store.ts': { async loadOrCreateSharingDeviceIdentity(uid) { assert.equal(uid, user.uid); events.push(['protected-device-identity']); } },
+    './secure-store.ts': { sharingSecureVault: { async removeItem(key) { assert.equal(key, 'active-workspace'); events.push(['clear-saved-home']); } },
+      async loadOrCreateSharingDeviceIdentity(uid) { assert.equal(uid, user.uid); events.push(['protected-device-identity']); } },
   });
   return { module, events, user, fail: (value) => { rejectCredential = value; }, block: (value) => { blockedIdentity = value; } };
 }
@@ -32,7 +33,7 @@ test('Google sharing sign-in uses only a basic ID token, binds the device key to
   const h = fixture();
   const users = await Promise.all(Array.from({ length: 30 }, () => h.module.signInSharingWithGoogle()));
   assert.ok(users.every((user) => user === h.user));
-  assert.deepEqual(h.events.map(([name]) => name), ['native-basic-identity', 'credential', 'protected-device-identity']);
+  assert.deepEqual(h.events.map(([name]) => name), ['clear-saved-home', 'native-basic-identity', 'credential', 'protected-device-identity']);
 });
 
 test('a failed sharing authentication can be retried and sharing logout never revokes the existing Tasks session', async () => {
@@ -49,6 +50,7 @@ test('sharing logout waits for an in-flight sign-in, rejects overlapping new log
   await assert.rejects(h.module.signInSharingWithGoogle(), /ログアウト/);
   release(); await login; await logout;
   assert.equal(h.events.at(-1)[0], 'firebase-sign-out');
+  assert.equal(h.events.at(-2)[0], 'clear-saved-home');
   assert.equal(h.events.filter(([name]) => name === 'firebase-sign-out').length, 1);
 });
 

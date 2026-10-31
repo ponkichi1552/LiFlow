@@ -9,7 +9,9 @@ import { validateChoreToggle } from '../../domain/chores/chore-groups.ts';
 export type GroupChoreSettingsValue = { workspace: Extract<SharedWorkspace, { protocol: 2 }>; record: SharingWorkspaceRecord; protocol: 2; model: V2GroupScreenModel };
 
 /** Reads a named group without selecting it or starting another planner/Google/background worker. */
-export function createGroupChoreSettingsSource(selection: SharingSelection, open: (selection: SharingSelection) => Promise<SharedWorkspace>) {
+export function createGroupChoreSettingsSource(selection: SharingSelection, open: (selection: SharingSelection) => Promise<SharedWorkspace>, prepared?: {
+  readModel: () => Promise<V2GroupScreenModel>; invalidate: () => void;
+}) {
   let generation: string | undefined; let generationCaptured = false;
   const authorize = async () => {
     const workspace = await open(selection);
@@ -24,7 +26,7 @@ export function createGroupChoreSettingsSource(selection: SharingSelection, open
     discardSnapshotOnError: () => true,
     load: async () => {
       const { workspace, record } = await authorize();
-      const value: GroupChoreSettingsValue = { workspace, record, protocol: 2, model: await createV2SettingsSession(workspace).readModel({ management: true }) };
+      const value: GroupChoreSettingsValue = { workspace, record, protocol: 2, model: prepared ? await prepared.readModel() : await createV2SettingsSession(workspace).readModel({ management: true }) };
       await authorize();
       return { snapshot: value, canPublishWidget: false };
     },
@@ -38,6 +40,7 @@ export function createGroupChoreSettingsSource(selection: SharingSelection, open
       if (ids.length !== 1) throw new Error('共有家事は一件ずつ切り替えてください。');
       if (workspace.roster()?.body.ownerUserId !== selection.userId) throw new Error('有効・無効はグループの管理者が変更できます。');
       await workspace.session.controller.actions.patchChore(ids[0], { enabled });
+      prepared?.invalidate();
       await controller.refresh();
       return { refreshed: !controller.getSnapshot().error };
     },

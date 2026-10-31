@@ -8,8 +8,8 @@ import { HELP_SECTIONS } from '@/features/help/help-content';
 
 export default function HelpScreen() {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  return <Page>
-    <BackButton onPress={() => router.back()} />
+  return <Page header={<BackButton onPress={() => router.back()} />}>
+
     <ScreenHeading eyebrow="HELP" title="アプリの使い方" description="知りたい項目をタップして開いてください。" />
     {HELP_SECTIONS.map((section) => (
       <AccordionSection key={section.title} title={section.title} expanded={expanded.has(section.title)}

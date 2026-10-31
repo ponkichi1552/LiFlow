@@ -2,7 +2,7 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
-import { openCalendarDay, moveCalendarMonth } from './helpers/calendar-ui.mjs';
+import { selectCalendarView, openCalendarDay, moveCalendarMonth } from './helpers/calendar-ui.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { newEventDraft, projectCalendarEvents } from '../src/features/calendar/events.ts';
 import { localCalendarAvailability, combineCalendarAvailability } from '../src/features/calendar/local-availability.ts';
@@ -45,18 +45,18 @@ for (const platform of ['ios', 'android']) {
       list.props.onScroll({ nativeEvent: { contentOffset: { x: 0, y: 1200 } } }); screen.render();
     };
     await openCalendarDay(screen, today, { chores: false });
-    scroll('calendar-timeline'); await screen.press('リスト表示');
+    scroll('calendar-timeline'); await selectCalendarView(screen, 'リスト表示');
     await screen.press('2026年10月30日の家事を開く');
     assert.ok(screen.text().includes(`家事：${today}`), 'the selected day must be visible without scrolling back through inherited timeline offsets');
-    scroll('calendar-agenda'); await screen.press('2日表示');
+    scroll('calendar-agenda'); await selectCalendarView(screen, '2日表示');
     assert.ok(screen.text().includes('10月30日（金）')); assert.ok(screen.text().includes('10月31日（土）'));
-    scroll('calendar-timeline'); await screen.press('1日表示');
+    scroll('calendar-timeline'); await selectCalendarView(screen, '1日表示');
     assert.ok(screen.text().includes('10月30日（金）'));
     scroll('calendar-timeline');
     const gesture = screen.nodes().find(node => typeof node.props.onPanResponderRelease === 'function');
     gesture.props.onPanResponderRelease({}, { x0: 200, dx: -140, dy: 0 }); screen.render();
     assert.ok(screen.text().includes('10月31日（土）'), 'the next day starts with its own scroll state');
-    await screen.press('リスト表示'); await screen.press('2026年10月31日の家事を開く');
+    await selectCalendarView(screen, 'リスト表示'); await screen.press('2026年10月31日の家事を開く');
     assert.ok(screen.text().includes('家事：2026-10-31'));
   });
   test(`${platform} calendar month header follows visible weeks when native offsets belong to an earlier row height`, async t => {
@@ -66,11 +66,11 @@ for (const platform of ['ios', 'android']) {
     } });
     let weeks = screen.nodes().find(node => node.props.testID === 'calendar-weeks');
     // A stale native offset must not overrule the identities of the rows actually on screen.
-    weeks.props.onScroll({ nativeEvent: { contentOffset: { x: 0, y: weeks.props.data.indexOf('2026-08-30') * 100 } } });
+    weeks.props.onScroll({ nativeEvent: { contentOffset: { x: 0, y: weeks.props.data.findIndex(row => row.days.includes('2026-08-30')) * 100 } } });
     screen.render(); weeks = screen.nodes().find(node => node.props.testID === 'calendar-weeks');
     assert.equal(typeof weeks.props.onViewableItemsChanged, 'function');
     const changed = weeks.props.onViewableItemsChanged;
-    const visible = days => changed({ viewableItems: days.map(item => ({ item, key: item, index: weeks.props.data.indexOf(item), isViewable: true })), changed: [] });
+    const visible = days => changed({ viewableItems: days.map(day => { const index = weeks.props.data.findIndex(row => row.days.includes(day)); const item = weeks.props.data[index]; return { item, key: item.id, index, isViewable: true }; }), changed: [] });
     visible(['2026-10-11', '2026-10-18', '2026-10-25', '2026-11-01', '2026-11-08']); screen.render();
     assert.ok(screen.text().includes('2026年10月')); assert.equal(screen.text().includes('2026年8月'), false);
     weeks = screen.nodes().find(node => node.props.testID === 'calendar-weeks');
@@ -90,11 +90,11 @@ for (const platform of ['ios', 'android']) {
       renderChores: date => { opened++; dates.push(date); return '家事の詳細'; },
     } });
     assert.equal(opened, 0); assert.ok(screen.nodes().some(node => node.props.testID === 'calendar-weeks'));
-    for (const label of ['1日表示', '2日表示', 'リスト表示', '予定を追加']) screen.button(label);
+    screen.button('カレンダーの表示を選択'); screen.button('予定を追加');
     assert.equal(screen.nodes().some(node => node.props.accessibilityLabel === '月表示'), false);
     await openCalendarDay(screen, today, { chores: false }); assert.equal(opened, 0);
     await screen.press('2026年10月30日の家事を開く'); assert.ok(opened > 0); assert.equal(dates.at(-1), today);
-    await screen.press('月表示に戻る'); await moveCalendarMonth(screen, 1); await screen.press('1日表示');
+    await screen.press('月表示に戻る'); await moveCalendarMonth(screen, 1); await selectCalendarView(screen, '1日表示');
     assert.ok(screen.text().includes('11月30日')); assert.equal(screen.text().includes('11月1日（'), false);
     await screen.press('月表示に戻る'); await screen.press('年表示に戻る');
     assert.equal(screen.nodes().filter(node => node.props.accessibilityLabel?.match(/^2026年\d+月を表示$/)).length, 12);
@@ -146,7 +146,7 @@ for (const platform of ['ios', 'android']) {
     const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, layoutEffect: fn => fn(), props: {
       today, timeZone: 'Asia/Tokyo', local: h.local, onNavigate: tab => navigation.push(tab), onSelectDate: value => chosen.push(value), dayInfo: () => ({ loaded: true, pending: 0 }), renderChores: () => null,
     } });
-    await screen.press('1日表示');
+    await selectCalendarView(screen, '1日表示');
     const swipe = (x0, dx, dy = 1) => { const root = screen.nodes().find(node => node.props.onPanResponderRelease); root.props.onPanResponderRelease({}, { x0, dx, dy }); screen.render(); };
     swipe(150, -100); assert.equal(chosen.at(-1), '2026-10-31'); assert.deepEqual(navigation, []);
     swipe(10, 100); assert.deepEqual(navigation, ['home']); swipe(385, -100); assert.deepEqual(navigation, ['home', 'chores']);
@@ -160,7 +160,7 @@ for (const platform of ['ios', 'android']) {
     await screen.press('予定を保存'); for (let n = 0; n < 20 && screen.nodes().some(node => node.props.accessibilityLabel === '予定を保存'); n++) await screen.flush();
     assert.ok(screen.text().includes('2028年10月'));
     assert.ok(screen.nodes().some(node => node.props.accessibilityLabel?.startsWith('2028年10月31日、')));
-    await screen.press('1日表示'); assert.ok(screen.text().includes('10月31日'));
+    await selectCalendarView(screen, '1日表示'); assert.ok(screen.text().includes('10月31日'));
   });
 }
 test('iOS interactive editor dismissal keeps the latest draft visible when SQLite fails and allows a safe retry', async t => {

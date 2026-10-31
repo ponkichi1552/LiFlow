@@ -18,7 +18,7 @@ function Preview() {
     catch { if (live.current) setProof('完了通知の配信検査は未完了です。端末の通知許可と表示を確認してください。'); }
     finally { running.current = false; if (live.current) setBusy(false); }
   }
-  return <Page><BackButton disabled={busy} onPress={() => router.back()} /><ScreenHeading title="開発用・完了通知のOS配信検査" />
+  return <Page header={<BackButton disabled={busy} onPress={() => router.back()} />}><ScreenHeading title="開発用・完了通知のOS配信検査" />
     <Card><Text style={typography.caption}>合成1件を通常と同じOS配信経路で表示します。グループ同期・サーバー受付・背景実行の検査ではありません。実際の個人データ・Firebase・Googleは使いません。</Text>
       {([['present', '合成完了通知を表示'], ['inspect', '表示した完了通知を照合'], ['clear', '合成完了通知を片付ける']] as const).map(([step, title]) =>
         <AppButton key={step} title={title} variant="secondary" disabled={busy} onPress={() => { void run(step); }} />)}

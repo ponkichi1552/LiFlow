@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { usePlannerData } from '@/hooks/use-planner-data';
 
-import { AppButton, BackButton, Card, ChoiceChip, SectionHeading, palette, typography } from '@/components/planner-ui';
+import { AppButton, BackButton, Card, ChoiceChip, NavigationHeader, SectionHeading, palette, typography } from '@/components/planner-ui';
 import type { ChoreDefinition, FrequencyMode } from '@/domain/chores/types';
 import { addDays, formatJapaneseDate, localDateFromDate } from '@/domain/scheduling/local-date';
 import type { Weekday, WeatherLocation } from '@/domain/shared/types';
@@ -135,6 +135,7 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+      {step > 0 ? <NavigationHeader><BackButton accessibilityLabel="戻る" onPress={() => setStep(current => current - 1)} disabled={saving} /></NavigationHeader> : null}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
@@ -334,13 +335,11 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
           <>
             <AppButton title="次へ" onPress={() => setStep((current) => current + 1)} disabled={saving} />
             {step === 3 ? <AppButton title="前回の時期はスキップ" onPress={() => { setPreviousChoices({}); setStep(4); }} variant="secondary" disabled={saving} /> : null}
-            {step > 0 ? <BackButton accessibilityLabel="戻る" onPress={() => setStep((current) => current - 1)} disabled={saving} /> : null}
           </>
         ) : (
           <>
             <AppButton title={saving ? '設定中…' : '設定して始める'} onPress={() => void saveSetup(false)} disabled={saving} />
             <AppButton title="ゴミ収集日はスキップして始める" onPress={() => void saveSetup(true)} variant="secondary" disabled={saving} />
-            <BackButton accessibilityLabel="戻る" onPress={() => setStep((current) => current - 1)} disabled={saving} />
           </>
         )}
       </View>

@@ -13,7 +13,11 @@ import { Chevron } from './chevron';
 
 export { typography } from './planner-typography';
 export { palette } from './planner-colors';
+export const navigationHeaderMetrics = { paddingHorizontal: 18, paddingVertical: 6, minHeight: 60 } as const;
 
+export function NavigationHeader({ children }: PropsWithChildren) {
+  return <View style={styles.navigationHeader}>{children}</View>;
+}
 
 export function Page({ children, contentStyle, keyboardAware = false, footer, header, footerHasTabBar = false, floatingFooter = false }: PropsWithChildren<{ contentStyle?: object; keyboardAware?: boolean; footer?: ReactNode; header?: ReactNode; footerHasTabBar?: boolean; floatingFooter?: boolean }>) {
   const insets = useSafeAreaInsets();
@@ -22,7 +26,7 @@ export function Page({ children, contentStyle, keyboardAware = false, footer, he
   const issueCount = workspace?.active?.groupId === issues?.groupId ? issues?.issueCount ?? 0 : 0;
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      {header ? <View style={{ paddingHorizontal: 18, paddingVertical: 6 }}>{header}</View> : null}
+      {header ? <NavigationHeader>{header}</NavigationHeader> : null}
       <ScrollView keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets={keyboardAware}
         keyboardDismissMode={keyboardAware ? 'on-drag' : 'none'} contentContainerStyle={[styles.page, contentStyle]}>
         {workspace?.error ? <Text accessibilityRole="alert" style={styles.workspaceError}>{workspace.error}</Text> : null}
@@ -168,6 +172,7 @@ export function MutedText({ children }: PropsWithChildren) {
 }
 
 const styles = StyleSheet.create({
+  navigationHeader: { ...navigationHeaderMetrics, backgroundColor: palette.background },
   actionLabel: { flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 1 },
   actionLabelText: { flexShrink: 1 },
   workspaceError: { ...typography.caption, color: palette.warning },
@@ -188,7 +193,7 @@ const styles = StyleSheet.create({
   backButton: { alignSelf: 'flex-start', minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingRight: 16, gap: 6 },
   backIcon: { width: 20, height: 24, alignItems: 'center', justifyContent: 'center' },
   backChevron: { width: 11, height: 11, borderLeftWidth: 2.5, borderBottomWidth: 2.5, borderColor: palette.accent, transform: [{ rotate: '45deg' }] },
-  backText: { ...typography.control, color: palette.accent, fontWeight: '700' },
+  backText: { ...typography.subheading, color: palette.accent, fontWeight: '700' },
   button: { minHeight: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 10 },
   buttonCompact: { minHeight: 44, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 12 },
   button_primary: { backgroundColor: palette.accent },

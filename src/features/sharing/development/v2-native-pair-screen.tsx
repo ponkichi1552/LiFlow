@@ -55,7 +55,7 @@ function V2NativePairAudit({ load, onBack, onOpen, onEdit, onRecovery }: { load:
   };
   const action = (title: string, work: (context: DevelopmentV2NativePair) => Promise<unknown>) => <AppButton key={title} title={title} disabled={busy} variant="secondary" compact onPress={() => void perform(title, work)} />;
   const captureProof = async (context: DevelopmentV2NativePair) => { const value = await context.proof(); if (alive.current) setProof(value); };
-  return <Page><BackButton onPress={onBack} /><ScreenHeading eyebrow="開発用・異種OS総合検査" title="v2 同一グループ検査" />
+  return <Page header={<BackButton onPress={onBack} />}><ScreenHeading eyebrow="開発用・異種OS総合検査" title="v2 同一グループ検査" />
     <Card><Text style={typography.caption}>ローカルEmulatorと合成UID・独立した鍵とDBだけを使用します。本番グループ・個人DB・Googleには接続しません。通常v2と同じSession・画面・暗号化送受信を使います。招待の種だけは公開の検査値です。</Text>
       <AppButton title="通常のv2画面を開く" disabled={busy} onPress={onOpen} />
       <AppButton title="検査対象の名前・手順を開く" disabled={busy} variant="quiet" compact onPress={onEdit} />
@@ -98,7 +98,7 @@ function V2NativeRecovery({ load, onBack }: { load: () => Promise<DevelopmentV2N
     catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : '検査を完了できませんでした。'); return false; }
     finally { running.current = false; if (mounted.current) setBusy(false); }
   };
-  return <Page><BackButton onPress={onBack} /><ScreenHeading title="開発用・所有者の復旧確認" />
+  return <Page header={<BackButton onPress={onBack} />}><ScreenHeading title="開発用・所有者の復旧確認" />
     {panel ? <V2RecoveryPanel {...panel} busy={busy} run={run} initiallyExpanded /> : null}
     {error ? <Text accessibilityRole="alert" style={typography.body}>{error}</Text> : null}
   </Page>;

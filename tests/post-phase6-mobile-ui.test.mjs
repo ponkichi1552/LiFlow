@@ -15,19 +15,14 @@ const deferred = () => { let resolve; let reject; const promise = new Promise((y
 const pending = (id = 'floor') => ({ id, choreId: id, completed: false, suggestedDate: today,
   entry: { id, choreId: id, householdId: 'local-household', cycleBaseDate: today, suggestedDate: today, windowStart: today, windowEnd: today, assignedMemberIds: [], status: 'inWindow' } });
 
-test('home greeting changes at 19 only for zero chores or all completed and hides empty progress', () => {
-  for (const total of [0, 4]) for (const time of ['18:59:59', '19:00:00', '23:59:59', '00:00:00']) {
-    const summary = homeSummary(total, total, new Date(`2026-10-29T${time}+09:00`), 'Asia/Tokyo');
-    assert.equal(summary.greeting, time >= '19:00:00' ? '今日も1日お疲れ様でした' : '今日も1日頑張りましょう');
-    assert.equal(summary.showProgress, total > 0);
-  }
-  assert.equal(homeSummary(4, 3, new Date('2026-10-29T23:00:00+09:00'), 'Asia/Tokyo').greeting, '今日も1日頑張りましょう');
-  assert.equal(homeSummary(500, 499, new Date('2026-10-29T23:00:00+09:00'), 'Asia/Tokyo').percent, 99);
-  assert.equal(homeSummary(4, 4, new Date('2026-10-29T18:00:00Z'), 'America/Los_Angeles').greeting, '今日も1日頑張りましょう');
-  assert.equal(nextHomeClockDelay(new Date('2026-10-29T18:59:59+09:00'), 'Asia/Tokyo'), 1050);
+test('home progress hides empty totals and refreshes the date only at local midnight', () => {
+  assert.deepEqual(homeSummary(0, 0), { showProgress: false, percent: 0 });
+  assert.deepEqual(homeSummary(4, 0), { showProgress: true, percent: 0 });
+  assert.deepEqual(homeSummary(4, 4), { showProgress: true, percent: 100 });
+  assert.equal(homeSummary(500, 499).percent, 99);
+  assert.equal(nextHomeClockDelay(new Date('2026-10-29T18:59:59+09:00'), 'Asia/Tokyo'), 5 * 3600_000 + 1050);
   assert.equal(nextHomeClockDelay(new Date('2026-10-29T23:59:59+09:00'), 'Asia/Tokyo'), 1050);
-  // DST ending at 02:00 must not create a fixed 24-hour timer.
-  assert.equal(nextHomeClockDelay(new Date('2026-11-01T00:00:00-07:00'), 'America/Los_Angeles'), 20 * 3600_000 + 50);
+  assert.equal(nextHomeClockDelay(new Date('2026-11-01T00:00:00-07:00'), 'America/Los_Angeles'), 25 * 3600_000 + 50);
 });
 
 test('home and calendar share all nine priority tiers and stable ties across completion undo and date selection', () => {
@@ -49,12 +44,12 @@ test('home and calendar share all nine priority tiers and stable ties across com
 });
 
 for (const platform of ['ios', 'android']) test(`${platform} home progress hides percent until the first completion without hiding the chore count`, () => {
-  const props = { total: 4, done: 0, summary: homeSummary(4, 0, new Date('2026-10-31T10:00:00+09:00'), 'Asia/Tokyo') };
+  const props = { total: 4, done: 0, summary: homeSummary(4, 0) };
   const screen = screenHarness('src/components/home-ui.tsx', { exportName: 'HomeProgress', platform, props });
   assert.match(screen.text(), /4件中0件が完了しました/u); assert.equal(screen.text().includes('%'), false);
-  props.done = 1; props.summary = homeSummary(4, 1, new Date('2026-10-31T10:00:00+09:00'), 'Asia/Tokyo'); screen.render();
+  props.done = 1; props.summary = homeSummary(4, 1); screen.render();
   assert.match(screen.text(), /4件中1件が完了しました/u); assert.match(screen.text(), /25%/u);
-  props.done = 0; props.summary = homeSummary(4, 0, new Date('2026-10-31T10:00:00+09:00'), 'Asia/Tokyo'); screen.render();
+  props.done = 0; props.summary = homeSummary(4, 0); screen.render();
   assert.equal(screen.text().includes('%'), false);
 });
 
@@ -195,18 +190,20 @@ for (const platform of ['ios', 'android']) {
       await repository.initializeLocalDatabase(h.database); const seed = (await repository.loadPlannerSnapshot(h.database, today)).chores[0];
       const chores = Array.from({ length: 1000 }, (_, i) => ({ ...seed, id: `item-${i}`, category: `分類${Math.floor(i / 200)}` }));
       const effects = []; const calls = []; let backs = 0;
-      const screen = screenHarness('src/components/chore-book.tsx', { exportName: 'ChoreBook', platform, effect: callback => effects.push(callback),
+      const screen = screenHarness('src/components/chore-book.tsx', { exportName: 'ChoreBook', platform, effect: callback => effects.push(callback), layoutEffect: callback => callback(),
         props: { chores, selectedId: 'item-850', title: '家事の説明', onBack: () => { backs++; }, renderChore: chore => chore.id } });
-      const list = screen.nodes().find(node => node.type === 'FlatList'); assert.equal(list.props.data.length, 1000);
+      let list = screen.nodes().find(node => node.type === 'FlatList'); assert.equal(list.props.data[0].id, 'item-850'); assert.ok(screen.text().includes('item-850')); assert.equal(list.props.initialScrollIndex, undefined);
       for (const setting of ['initialNumToRender', 'maxToRenderPerBatch', 'windowSize']) {
         if (list.props[setting] !== undefined) assert.ok(list.props[setting] > 0 && list.props[setting] < chores.length,
           `${setting}: the native virtual list must not eagerly render the entire document`);
       }
       list.props.ref.current = { scrollToIndex: args => calls.push(['index', args.index]), scrollToOffset: args => calls.push(['offset', args.offset]) };
       const cleanup = effects.splice(0).map(callback => callback()).filter(Boolean); await delay(5);
-      assert.deepEqual(calls.at(-1), ['index', 850]);
-      list.props.onScrollToIndexFailed({ averageItemLength: 500, index: 850 }); assert.deepEqual(calls.at(-1), ['offset', 425000]);
-      await delay(135); assert.deepEqual(calls.at(-1), ['index', 850]);
+      assert.equal(calls.length, 0, 'initial placement must not scroll through earlier chapters');
+      list.props.onScrollBeginDrag(); screen.render(); list = screen.nodes().find(node => node.type === 'FlatList'); assert.equal(list.props.data.length, 1000); assert.ok(list.props.maintainVisibleContentPosition);
+      await screen.press('分類4の先頭へ移動'); assert.deepEqual(calls.at(-1), ['index', 800]);
+      list.props.onScrollToIndexFailed({ averageItemLength: 500, index: 800 }); assert.deepEqual(calls.at(-1), ['offset', 400000]);
+      await delay(135); assert.deepEqual(calls.at(-1), ['index', 800]);
       await screen.press('分類1の先頭へ移動'); assert.deepEqual(calls.at(-1), ['index', 200]);
       await screen.press('前の画面に戻る'); assert.equal(backs, 1);
       assert.equal(list.children.some(node => node.props?.accessibilityLabel === '前の画面に戻る'), false);
@@ -214,7 +211,7 @@ for (const platform of ['ios', 'android']) {
     } finally { h.connection.close(); }
   });
 
-  test(`${platform} empty home omits its progress count percentage and bar while preserving the greeting`, async () => {
+  test(`${platform} empty home omits its progress count percentage bar and greeting`, async () => {
     const h = createDatabase();
     try {
       await repository.initializeLocalDatabase(h.database);
@@ -225,7 +222,7 @@ for (const platform of ['ios', 'android']) {
         const snapshot = { ...stored, timeZone };
         const screen = screenHarness('src/app/(tabs)/index.tsx', { platform, database: h.database, snapshot: () => snapshot,
           mocks: { '@/hooks/use-home-clock': { useHomeClock: () => new Date(instant) } } });
-        assert.ok(screen.text().includes('今日も1日お疲れ様でした'), timeZone);
+        assert.equal(screen.text().includes('今日も1日'), false, timeZone);
         assert.equal(screen.text().includes('0件中'), false); assert.equal(screen.text().includes('0%'), false);
       }
     } finally { h.connection.close(); }

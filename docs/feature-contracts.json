@@ -6089,15 +6089,15 @@
     ]
   },
   {
-    "feature": "home-evening-greeting-and-empty-progress",
+    "feature": "home-compact-progress-without-greeting",
     "tests": [
       {
         "file": "tests/post-phase6-mobile-ui.test.mjs",
-        "name": "home greeting changes at 19 only for zero chores or all completed and hides empty progress"
+        "name": "home progress hides empty totals and refreshes the date only at local midnight"
       },
       {
         "file": "tests/post-phase6-mobile-ui.test.mjs",
-        "name": "${platform} empty home omits its progress count percentage and bar while preserving the greeting"
+        "name": "${platform} empty home omits its progress count percentage bar and greeting"
       }
     ]
   },
@@ -7489,6 +7489,207 @@
       {
         "file": "tests/settings-source-ui.test.mjs",
         "name": "group management settings never load or offer the personal settings source"
+      }
+    ]
+  },
+  {
+    "feature": "prepared-workspace-navigation-and-lifetime",
+    "tests": [
+      {
+        "file": "tests/workspace-display-cache.test.mjs",
+        "name": "prepared workspace shares one read across all main tabs and rechecks access without recomputing on navigation"
+      },
+      {
+        "file": "tests/workspace-display-cache.test.mjs",
+        "name": "workspace cache coalesces concurrent reads and retries an invalidated in flight result instead of publishing stale state"
+      },
+      {
+        "file": "tests/workspace-display-cache.test.mjs",
+        "name": "workspace display cache preserves loaded content on failure and cannot return or publish it after disposal"
+      },
+      {
+        "file": "tests/workspace-display-cache.test.mjs",
+        "name": "workspace display recomputes at the group midnight and keeps distinct settings authority reads"
+      },
+      {
+        "file": "tests/workspace-display-cache.test.mjs",
+        "name": "shared calendar prepares adjacent months and retains bounded coverage while browsing back and forth"
+      },
+      {
+        "file": "tests/workspace-display-cache.test.mjs",
+        "name": "a slower access check reuses data already prepared by another page rather than repeating the scheduler"
+      }
+    ]
+  },
+  {
+    "feature": "continuous-readable-month-boundaries",
+    "tests": [
+      {
+        "file": "tests/calendar-month-boundary.test.mjs",
+        "name": "continuous month boundaries split the week without duplicating dates and put the month heading in day one weekday column"
+      }
+    ]
+  },
+  {
+    "feature": "device-calendar-display-restoration",
+    "tests": [
+      {
+        "file": "tests/calendar-month-boundary.test.mjs",
+        "name": "calendar remembers the actual view and retains the last day format through month year and app restart"
+      },
+      {
+        "file": "tests/calendar-month-boundary.test.mjs",
+        "name": "calendar view save failure retains the selected format in this session and remains retryable"
+      }
+    ]
+  },
+  {
+    "feature": "explicit-guide-audience",
+    "tests": [
+      {
+        "file": "tests/guide-audience.test.mjs",
+        "name": "${platform} guide audience is explicit and scrolling cannot change the source of a planned chore"
+      }
+    ]
+  },
+  {
+    "feature": "history-month-day-sections",
+    "tests": [
+      {
+        "file": "tests/calendar-month-boundary.test.mjs",
+        "name": "history groups months and days after visibility filtering and keeps cancellation and identical timestamps"
+      }
+    ]
+  },
+  {
+    "feature": "startup-local-display-priority",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "${platform} wider calendar and settings preparation waits for idle and a superseded preparation cannot restart it"
+      },
+      {
+        "file": "tests/workspace-display-cache.test.mjs",
+        "name": "prepared displays refresh at the personal midnight without waiting for the shared household midnight"
+      },
+      {
+        "file": "tests/initial-display-priority.test.mjs",
+        "name": "automatic startup work waits for the same local display attempt while resume does not wait again"
+      },
+      {
+        "file": "tests/initial-display-priority.test.mjs",
+        "name": "backgrounding or changing workspace cancels pending startup work and an old display cannot release a new account"
+      },
+      {
+        "file": "tests/initial-display-priority.test.mjs",
+        "name": "the home does not wait for an idle calendar prefetch and prepared months remain reusable"
+      },
+      {
+        "file": "tests/sharing-registry.test.mjs",
+        "name": "an unchanged workspace update performs no SQLite write while real metadata changes still persist behind identity guards"
+      },
+      {
+        "file": "tests/sharing-secure-vault.test.mjs",
+        "name": "protected credential chunks are read concurrently after their committed manifest without skipping missing-chunk verification"
+      }
+    ]
+  },
+  {
+    "feature": "encrypted-saved-home-never-authorizes-unverified-commands",
+    "tests": [
+      {
+        "file": "tests/startup-display.test.mjs",
+        "name": "saved home expires at the personal midnight even while the shared household is still on the same date"
+      },
+      {
+        "file": "tests/startup-display-platform.test.mjs",
+        "name": "startup presentation requires the protected selection and current single membership without initializing Firebase or opening a writable workspace"
+      },
+      {
+        "file": "tests/startup-display-platform.test.mjs",
+        "name": "a logout or account switch during encrypted startup restoration discards the old presentation before it can render"
+      },
+      {
+        "file": "tests/sharing-workspace-provider.test.mjs",
+        "name": "${platform} local presentation does not wait for Firebase and cannot start network workers or authorize an old account"
+      },
+      {
+        "file": "tests/sharing-workspace-provider.test.mjs",
+        "name": "${platform} the saved home appears before expensive workspace restoration and an account change discards the pending old session"
+      },
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "${platform} a saved home is usable before restore while completion waits for current authority and commits once after restoration"
+      },
+      {
+        "file": "tests/startup-display.test.mjs",
+        "name": "a restarted home restores authenticated encrypted presentation including personal maps without storing planner plaintext"
+      },
+      {
+        "file": "tests/startup-display.test.mjs",
+        "name": "saved home rejects changed ciphertext keys account membership generation or signed roster before display"
+      },
+      {
+        "file": "tests/startup-display.test.mjs",
+        "name": "saved home falls back to a fresh authenticated read on missing keys future dates expiry midnight and incomplete data"
+      },
+      {
+        "file": "tests/startup-display.test.mjs",
+        "name": "pressing a restored card cannot edit until the current authenticated session is bound and revoked sessions reject pending actions"
+      },
+      {
+        "file": "tests/startup-display.test.mjs",
+        "name": "a failed restoration rejects queued changes and can recover through a newly verified session without fabricating a successful write"
+      }
+    ]
+  },
+  {
+    "feature": "unchanged-calendar-inputs-do-not-recalculate",
+    "tests": [
+      {
+        "file": "tests/calendar-recalculation.test.mjs",
+        "name": "${platform} background refresh keeps the saved home visible and does not reproject unchanged completion feedback"
+      },
+      {
+        "file": "tests/calendar-recalculation.test.mjs",
+        "name": "${platform} changing calendar selection or callbacks retains projected events until actual calendar inputs change"
+      },
+      {
+        "file": "tests/calendar-recalculation.test.mjs",
+        "name": "${platform} closing an unchanged calendar editor does not reread storage or recalculate the plan"
+      },
+      {
+        "file": "tests/calendar-recalculation.test.mjs",
+        "name": "SQLite draft and category notifications update observers without invalidating housework while saved events do invalidate it"
+      },
+      {
+        "file": "tests/calendar-recalculation.test.mjs",
+        "name": "draft and category observation preserves event inputs but actual edits and exception changes invalidate them"
+      },
+      {
+        "file": "tests/workspace-display-cache.test.mjs",
+        "name": "calendar month aliases and covered ranges reuse the same verified display across tabs without another plan calculation"
+      },
+      {
+        "file": "tests/workspace-display-cache.test.mjs",
+        "name": "calendar cache never treats partial coverage, invalid ranges or another civil day as a complete prepared month"
+      }
+    ]
+  },
+  {
+    "feature": "personal-startup-without-unrelated-sharing-auth-wait",
+    "tests": [
+      {
+        "file": "tests/startup-display-platform.test.mjs",
+        "name": "early personal presentation requires no protected selection and no admitted or pending shared workspace from any account"
+      },
+      {
+        "file": "tests/sharing-workspace-provider.test.mjs",
+        "name": "${platform} a device with no saved shared workspaces shows personal data before unrelated account restoration without starting workers"
+      },
+      {
+        "file": "tests/startup-display-platform.test.mjs",
+        "name": "historical memberships never delay personal startup while active pending and invalid registry rows remain guarded"
       }
     ]
   }

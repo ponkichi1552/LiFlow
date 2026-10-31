@@ -197,10 +197,10 @@ for (const platform of ['ios', 'android']) {
       } };
       const before = (await f.preview.readModel()).pendingChanges;
       const { screen, leave } = await openRoute(preview, platform, 'calendar', {}, [], '共有カレンダー'); cleanup = leave;
-      await moveCalendarMonth(screen, 1); for (let i = 0; i < 35 && !failed; i++) { await new Promise(resolve => setTimeout(resolve, 10)); await screen.flush(); } assert.ok(screen.text().includes('表示を更新できませんでした'));
+      await moveCalendarMonth(screen, 1); await moveCalendarMonth(screen, 1); for (let i = 0; i < 35 && !failed; i++) { await new Promise(resolve => setTimeout(resolve, 10)); await screen.flush(); } assert.ok(screen.text().includes('表示を更新できませんでした'));
       assert.equal(screen.text().includes('端末に保存済みです'), false); assert.equal(screen.text().includes('この日の共有家事はありません'), false);
       assert.equal((await f.preview.readModel()).pendingChanges, before);
-      await screen.press('この月を再読込'); assert.ok(screen.text().includes('2026年11月'));
+      await screen.press('この月を再読込'); assert.ok(screen.text().includes('2026年12月'));
       assert.equal(screen.text().includes('この月の共有予定を取得できていません'), false);
     } finally { cleanup?.(); f.leave(); await f.preview.close(); }
   });

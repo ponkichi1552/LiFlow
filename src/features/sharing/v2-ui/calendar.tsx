@@ -5,7 +5,8 @@ import { orderTaskRows } from './task-order';
 import { createV2RoundVisibility } from './round-visibility';
 import type { CompletionFeedback } from './completion-feedback';
 import Animated, { LinearTransition } from 'react-native-reanimated';
-import type { ReactElement } from 'react';
+import { useMemo, type ReactElement } from 'react';
+import { addDays } from '../../../domain/scheduling/local-date';
 import { Text, View } from 'react-native';
 import { AppButton, Card, palette, typography } from '../../../components/planner-ui';
 import { DEFAULT_CALENDAR_COUNT_COLORS } from '../../../domain/calendar/count-colors';
@@ -19,7 +20,7 @@ import type { V2PrivateOverlayState, V2PrivateTaskSource } from './private-overl
 import { V2PrivateTaskCard, V2PrivateTaskNotice } from './private-task-card';
 import { V2WasteOccurrence } from './waste-occurrence';
 import { PlannerCalendar } from '../../calendar/planner-calendar';
-import type { PlannerCalendarProps } from '../../calendar/planner-calendar';
+import type { CalendarDayInfo, PlannerCalendarProps } from '../../calendar/planner-calendar';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
 
 export function V2Calendar({ model, personal, privateOverlay: privateValue, privateSource, selectedDate, busy, actions, run, onMonth, onSelectDate, onRound, header, feedback, local: personalLocal, onNavigate, perform, workspaceName, onGuide,
@@ -33,13 +34,43 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
   privateOverlay?: V2PrivateOverlayState; privateSource?: V2PrivateTaskSource;
 }) {
   const local = useGroupCalendar(personalLocal, model, actions, perform, workspaceName ?? '共有グループ');
-  const projection = v2CalendarProjection(model, personal, feedback?.values);
+  // Feedback is tiny. Snapshot its contents so a cleared/reused map cannot leave
+  // cached counts behind after an optimistic completion is rolled back.
+  const completionRevision = JSON.stringify([...(feedback?.values ?? [])]);
+  const completionValues = useMemo(() => new Map<string, boolean>(JSON.parse(completionRevision)), [completionRevision]);
+  const projection = useMemo(() => v2CalendarProjection(model, personal, completionValues), [model, personal, completionValues]);
   const privateOverlay = privateOverlayForViewer(privateValue, model.viewerUserId);
-  const privateCounts = privateOverlayPendingCounts(privateOverlay?.status === 'ready' ? privateOverlay : undefined, feedback?.values);
+  const privateCounts = useMemo(() => privateOverlayPendingCounts(privateOverlay?.status === 'ready' ? privateOverlay : undefined, completionValues), [privateOverlay, completionValues]);
   const privateReady = (date: LocalDate) => privateOverlay?.status === 'ready' && privateOverlay.range.from <= date && privateOverlay.range.through >= date;
   const loaded = (date: LocalDate) => model.plan.initialized && model.plan.range.from <= date && model.plan.range.through >= date;
   const wasteLoaded = (date: LocalDate) => model.waste && model.waste.range.from <= date && model.waste.range.through >= date;
-  const visible = createV2RoundVisibility(model); const chores = new Map(model.plan.chores.map(chore => [chore.id, chore]));
+  const visible = useMemo(() => createV2RoundVisibility(model), [model]);
+  const chores = useMemo(() => new Map(model.plan.chores.map(chore => [chore.id, chore])), [model.plan.chores]);
+  const dayInfo = useMemo(() => {
+    const sharedReady = (date: LocalDate) => model.plan.initialized && model.plan.range.from <= date && date <= model.plan.range.through;
+    const personalReady = (date: LocalDate) => privateOverlay?.status === 'ready' && privateOverlay.range.from <= date && date <= privateOverlay.range.through;
+    const calculate = (date: LocalDate): CalendarDayInfo => {
+      const shared = sharedReady(date) ? projection.byDate.get(date) ?? [] : [];
+      const privateRows = personalReady(date) && privateOverlay?.status === 'ready' ? privateOverlay.byDate.get(date) ?? [] : [];
+      return { loaded: sharedReady(date), partial: Boolean(privateValue && !personalReady(date)), pending: (sharedReady(date) ? projection.counts.get(date) ?? 0 : 0) + (personalReady(date) ? privateCounts.get(date) ?? 0 : 0),
+        accessibilityCountLabel: `${sharedReady(date) ? `確認できる未完了の共有家事${projection.counts.get(date) ?? 0}件` : '予定は未取得'}${privateValue ? personalReady(date) ? `、個人家事${privateCounts.get(date) ?? 0}件` : '、個人家事は未取得' : ''}`,
+        total: shared.length + privateRows.length,
+        minutes: shared.filter(entry => entry.counted).reduce((sum, entry) => sum + (chores.get(entry.round.choreId)?.estimatedMinutes ?? 0), 0)
+          + privateRows.filter(row => !(completionValues?.get(row.key) ?? row.completed)).reduce((sum, row) => sum + (row.chore.estimatedMinutes ?? 0), 0) };
+    };
+    const summaries = new Map<LocalDate, CalendarDayInfo>();
+    for (let day = model.plan.range.from; day <= model.plan.range.through; day = addDays(day, 1)) summaries.set(day, calculate(day));
+    if (privateOverlay?.status === 'ready') for (const day of privateOverlay.byDate.keys()) if (!summaries.has(day)) summaries.set(day, calculate(day));
+    return (date: LocalDate) => summaries.get(date) ?? calculate(date);
+  }, [model.plan.initialized, model.plan.range, projection, privateValue, privateOverlay, privateCounts, chores, completionValues]);
+  const existingChores = useMemo(() => {
+    const names = new Set<string>();
+    return model.plan.occurrences.flatMap(round => round.subjects.filter(subject => subject.required).flatMap(subject => {
+      const chore = chores.get(round.choreId); const name = chore?.name ?? '共有家事';
+      if (names.has(name)) return []; names.add(name);
+      return [{ id: subject.id, name, minutes: chore?.estimatedMinutes, round }];
+    }));
+  }, [model.plan.occurrences, chores]);
   const entriesFor = (date: LocalDate) => orderTaskRows([
     ...(loaded(date) ? projection.byDate.get(date) ?? [] : []).map(entry => ({ source: 'shared' as const, key: `shared:${entry.id}`, entry })),
     ...(privateReady(date) && privateOverlay?.status === 'ready' ? privateOverlay.byDate.get(date) ?? [] : []).map(row => ({ source: 'personal' as const, key: row.key, row })),
@@ -54,17 +85,9 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
     onNavigate={onNavigate}
     notice={<View>{header}<SharedCalendarConflicts model={model} actions={actions} busy={busy} run={run} /></View>} countColors={countColors}
     wasteSchedules={model.waste?.schedules} hiddenWasteKeys={model.waste?.hiddenKeys}
-    dayInfo={date => {
-      const shared = loaded(date) ? projection.byDate.get(date) ?? [] : [];
-      const privateRows = privateReady(date) && privateOverlay?.status === 'ready' ? privateOverlay.byDate.get(date) ?? [] : [];
-      return { loaded: loaded(date), partial: Boolean(privateValue && !privateReady(date)), pending: (loaded(date) ? projection.counts.get(date) ?? 0 : 0) + (privateReady(date) ? privateCounts.get(date) ?? 0 : 0),
-        accessibilityCountLabel: `${loaded(date) ? `確認できる未完了の共有家事${projection.counts.get(date) ?? 0}件` : '予定は未取得'}${privateValue ? privateReady(date) ? `、個人家事${privateCounts.get(date) ?? 0}件` : '、個人家事は未取得' : ''}`,
-        total: shared.length + privateRows.length,
-        minutes: shared.filter(entry => entry.counted).reduce((sum, entry) => sum + (chores.get(entry.round.choreId)?.estimatedMinutes ?? 0), 0)
-          + privateRows.filter(row => !(feedback?.values.get(row.key) ?? row.completed)).reduce((sum, row) => sum + (row.chore.estimatedMinutes ?? 0), 0) };
-    }}
-    existingChores={model.plan.occurrences.flatMap(round => round.subjects.filter(subject => subject.required).map(subject => ({ id: subject.id,
-      name: chores.get(round.choreId)?.name ?? '共有家事', minutes: chores.get(round.choreId)?.estimatedMinutes, onOpen: () => onGuide ? onGuide(round.choreId, 'shared') : onRound(round.id, subject.id, round.anchorDate) }))).filter((row, i, all) => all.findIndex(other => other.name === row.name) === i)}
+    dayInfo={dayInfo}
+    existingChores={existingChores.map(({ round, ...chore }) => ({ ...chore,
+      onOpen: () => onGuide ? onGuide(round.choreId, 'shared') : onRound(round.id, chore.id, round.anchorDate) }))}
     renderWaste={date => <View style={{ paddingHorizontal: 6, gap: 4 }}>{wasteLoaded(date) ? model.waste!.occurrences.filter(entry => entry.occurrence.date === date).map(entry => <V2WasteOccurrence key={entry.key} entry={entry} compact busy={busy} actions={actions} run={run} />)
       : <Text style={caption}>この日の共有収集日は未取得です。</Text>}</View>}
     renderChores={date => <Animated.FlatList testID="calendar-chore-list" data={entriesFor(date)} scrollEnabled={false} itemLayoutAnimation={LinearTransition.duration(240)} keyExtractor={entry => entry.key} initialNumToRender={8}

@@ -34,7 +34,7 @@ function PrivatePreferenceLoader({ load, onBack, onReload, notice, footer, syncO
     return () => { current = false; };
   }, [load]);
   if (value) return <PrivatePreferenceEditor {...value} onBack={onBack} onReload={onReload} notice={notice} footer={footer} syncOnly={syncOnly} />;
-  return <Page>{notice}<BackButton onPress={onBack} /><ScreenHeading title="本人の生活リズム" />
+  return <Page header={<BackButton onPress={onBack} />}>{notice}<ScreenHeading title="本人の生活リズム" />
     {error ? <Card><Text accessibilityRole="alert" style={typography.body}>本人の保存済み設定を読み込めませんでした。データは保持しています。</Text>
       <AppButton title="本人の設定を再読込" onPress={onReload} /></Card> : <ActivityIndicator color={palette.accent} />}</Page>;
 }
@@ -63,7 +63,7 @@ function PrivatePreferenceEditor({ session, saved, onBack, onReload, notice, foo
   const raw = state.raw; const [regionSearch, setRegionSearch] = useState(''); const regions = v2RegionChoices(regionSearch, raw.timeZone);
   const change = (patch: Partial<typeof raw>) => store.change(value => ({ ...value, ...patch }));
   const back = () => { void navigateAfterSave(onBack); };
-  return <Page>{notice}<BackButton onPress={back} />
+  return <Page header={<BackButton onPress={back} />}>{notice}
     <ScreenHeading title={syncOnly ? "設定の端末間同期" : "本人の生活リズム"} description={syncOnly ? "同じアカウントの承認済み端末へ反映します。" : "本人向けの推奨に使う設定です。他のメンバーには公開されません。"} />
     <Text accessibilityLiveRegion="polite" style={typography.caption}>{state.status.phase === 'saving' ? 'この端末に保存中…' : state.status.phase === 'pending' ? '入力した変更を保存待ちです。'
       : state.hasDraft ? '未保存の入力があります。' : state.revision > 0 ? 'この端末に保存済み' : '入力した内容は自動で保存されます。'}</Text>

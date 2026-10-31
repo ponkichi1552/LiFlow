@@ -49,6 +49,19 @@ test('secure-store reads reject missing or corrupted chunks instead of silently 
   await assert.rejects(h.vault.getItem('identity'), /integrity/);
 });
 
+test('protected credential chunks are read concurrently after their committed manifest without skipping missing-chunk verification', async () => {
+  const h = fixture(); const value = 'credential'.repeat(300); await h.vault.setItem('account', value);
+  const get = h.gateway.get; const releases = [];
+  h.gateway.get = async key => {
+    if (!key.endsWith('.manifest')) await new Promise(resolve => releases.push(resolve));
+    return get(key);
+  };
+  const pending = createSecureVault(h.gateway, h.rng).getItem('account');
+  for (let i = 0; i < 10 && releases.length < 2; i++) await Promise.resolve();
+  assert.ok(releases.length > 1, 'native reads must not wait one chunk at a time');
+  releases.forEach(resolve => resolve()); assert.equal(await pending, value);
+});
+
 test('concurrent secure-store writes are serialized and account namespaces remain independent', async () => {
   const h = fixture();
   await Promise.all([h.vault.setItem('user-a', 'first'), h.vault.setItem('user-a', 'second'), h.vault.setItem('user-b', 'other')]);

@@ -50,8 +50,8 @@ function Details({ model, choreId, controller, source, onSaved, onBack, onConfig
   const panel = (key: string, title: string, children: ReactNode) => <AccordionSection title={title} expanded={expanded[key] === true}
     onToggle={() => setExpanded((value) => ({ ...value, [key]: !value[key] }))}>{children}</AccordionSection>;
   const Container = embedded ? View : V2FormScrollView;
-  return <Container {...(embedded ? { style: { gap: 14 } } : { contentContainerStyle: { padding: 16, gap: 16, paddingBottom: 40 } })}>{header}
-    {!embedded ? <><BackButton disabled={autosave.leaving} onPress={() => void autosave.navigateAfterSave(onBack)} />
+  return <Container {...(embedded ? { style: { gap: 14 } } : { contentContainerStyle: { padding: 16, gap: 16, paddingBottom: 40 }, header: <BackButton disabled={autosave.leaving} onPress={() => void autosave.navigateAfterSave(onBack)} /> })}>{header}
+    {!embedded ? <>
     <ScreenHeading title="家事名・手順の編集" /><Text style={styles.caption}>この内容はグループ全員に公開されます。</Text></> : null}
     {blocked ? <Text accessibilityRole="alert" style={styles.error}>家事の削除・復元の確認が必要です。入力は保持しています。</Text> : null}
     <Card>{field('name', '共有家事の名前')}</Card>

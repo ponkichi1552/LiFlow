@@ -28,7 +28,7 @@ export function V2AddChore({ actions, busy, run, onCreated, onBack, header }: { 
       : cause instanceof Error ? cause.message : '追加する内容を確認してください。'); }
     finally { pending.current = false; }
   };
-  return <V2FormScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }}>{header}<BackButton onPress={() => { if (!pending.current) onBack(); }} disabled={busy} />
+  return <V2FormScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }} header={<BackButton onPress={() => { if (!pending.current) onBack(); }} disabled={busy} />}>{header}
     <ScreenHeading title="共有家事を追加" /><Text style={styles.caption}>家事名と手順をグループ全員に公開します。追加後、管理者が種類・周期を設定すると予定に入ります。</Text>
     <Card><V2TextField label="追加する共有家事の名前" value={draft.name} maxLength={500} editable={!busy && !createdId} onChangeText={(name) => edit({ name })} />
       <V2TextField label="追加する手順（1行に1手順）" value={draft.steps} multiline editable={!busy && !createdId} onChangeText={(steps) => edit({ steps })} />

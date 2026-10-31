@@ -55,15 +55,15 @@ export default function SharingScreen({ detailOnly = false }: { detailOnly?: boo
       .then((workspace) => { if (current) setSelected(workspace); }).catch((cause) => { if (current) setMessage(userMessage(cause)); });
     return () => { current = false; };
   }, [canOpenSelected, context.userId, selectedId, selectedRevision]);
-  if (detailOnly) return <Page>
-    <BackButton onPress={() => router.canGoBack() ? router.back() : router.replace('/sharing')} />
+  if (detailOnly) return <Page header={<BackButton onPress={() => router.canGoBack() ? router.back() : router.replace('/sharing')} />}>
+
     {message ? <Text accessibilityRole="alert" style={styles.error}>{message}</Text> : null}
     {!context.userId ? <Card><Text style={styles.body}>グループを管理するアカウントへログインしてください。</Text><AppButton title="ログイン" onPress={() => router.replace('/sharing')} /></Card>
       : selected && selected.groupId === selectedId && selected.userId === context.userId ? <GroupDetail key={`${selected.userId}:${selected.groupId}:${selected.identity.deviceId}:${selected.protocol}`} workspace={selected} run={run} busy={busy} />
       : !selectedRecord ? <Text style={styles.body}>現在の所属グループを確認してください。</Text> : message ? null : <ActivityIndicator color={palette.accent} />}
   </Page>;
-  return <Page>
-    <BackButton onPress={() => router.canGoBack() ? router.back() : router.replace('/')} />
+  return <Page header={<BackButton onPress={() => router.canGoBack() ? router.back() : router.replace('/')} />}>
+
     <ScreenHeading title="共有グループ" description="家族や同居人と、家事の予定や完了を共有できます。" />
     <Text style={styles.caption}>個人の家事・予定も同じ画面で使えます。個人データは共有されません。</Text>
     {!isSharingConfigured() ? <Card><Text style={styles.error}>このビルドは共有先が未設定です。</Text></Card> : !context.userId ? <Card>

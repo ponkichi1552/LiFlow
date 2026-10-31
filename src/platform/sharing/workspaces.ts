@@ -260,8 +260,9 @@ function workspaceRegistryAccess(context: WorkspaceOpenContext) {
     if (!current) throw new Error('共有グループが見つかりません。'); assertGeneration(current); record = current; return record;
   };
   const update = async (change: (prior: SharingWorkspaceRecord) => SharingWorkspaceRecord) => {
+    const previous = canonicalJson(record);
     assertAccount(); record = await updateSharingWorkspace(registry, userId, groupId, (prior) => { assertAccount(); assertGeneration(prior); return change(prior); });
-    assertAccount(); changed(context.selection); return record;
+    assertAccount(); if (canonicalJson(record) !== previous) changed(context.selection); return record;
   };
   const saveArchive = async (next: VerifiedSharedRoster[]) => {
     const latest = next.at(-1); if (!latest || latest.body.groupId !== groupId) throw new SharingAccessError('共有グループが一致しません。');

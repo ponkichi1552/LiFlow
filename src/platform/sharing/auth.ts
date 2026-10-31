@@ -5,7 +5,7 @@ import { digestStringAsync, CryptoDigestAlgorithm, getRandomBytesAsync } from 'e
 import { Platform } from 'react-native';
 import { authorizeGoogleSharingIdentity } from '../google-tasks/google-sign-in-gateway';
 import { getSharingServices } from './firebase-services.ts';
-import { loadOrCreateSharingDeviceIdentity } from './secure-store.ts';
+import { loadOrCreateSharingDeviceIdentity, sharingSecureVault } from './secure-store.ts';
 
 // Binding failure never blocks ordinary sharing. Paid AI still fails closed until the backend verifies the device.
 async function bindPaidAiIdentity(uid: string) {
@@ -26,6 +26,7 @@ function oneSignIn(operation: () => Promise<User>): Promise<User> {
 
 export function signInSharingWithGoogle(): Promise<User> {
   return oneSignIn(async () => {
+    await sharingSecureVault.removeItem('active-workspace');
     const { idToken } = await authorizeGoogleSharingIdentity();
     const result = await signInWithCredential(getSharingServices().auth, GoogleAuthProvider.credential(idToken));
     await loadOrCreateSharingDeviceIdentity(result.user.uid);
@@ -42,6 +43,7 @@ export async function isSharingAppleSignInAvailable(): Promise<boolean> {
 export function signInSharingWithApple(): Promise<User> {
   return oneSignIn(async () => {
     if (!await isSharingAppleSignInAvailable()) throw new Error('このビルドではAppleログインを利用できません。');
+    await sharingSecureVault.removeItem('active-workspace');
     const random = await getRandomBytesAsync(32);
     const rawNonce = Array.from(random, (byte) => byte.toString(16).padStart(2, '0')).join('');
     const nonce = await digestStringAsync(CryptoDigestAlgorithm.SHA256, rawNonce);
@@ -58,7 +60,10 @@ export function signInSharingWithApple(): Promise<User> {
 export function signOutSharing(): Promise<void> {
   if (signingOut) return signingOut;
   // No Google revokeAccess/signOut and no deletion of personal SQLite data or device keys.
-  const pending = (signingIn ?? Promise.resolve()).catch(() => undefined).then(() => signOut(getSharingServices().auth));
+  const pending = (signingIn ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    await sharingSecureVault.removeItem('active-workspace');
+    return signOut(getSharingServices().auth);
+  });
   signingOut = pending;
   void pending.finally(() => { if (signingOut === pending) signingOut = null; }).catch(() => undefined);
   return pending;

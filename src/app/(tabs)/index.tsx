@@ -100,7 +100,7 @@ function PersonalHomeScreen() {
     selectDateTasks(scope.snapshot.scheduleEntries, scope.snapshot.completions, scope.today, 3, scope.snapshot.chores), scope.snapshot.chores, scope.source, scope.today), scope.snapshot.completions)), today, display.order);
   const todayTotal = orderedDueToday.length;
   const todayDone = orderedDueToday.filter(row => row.task.completed).length;
-  const summary = homeSummary(todayTotal, todayDone, clock, snapshot.timeZone);
+  const summary = homeSummary(todayTotal, todayDone);
   const todayWaste = sources.flatMap(scope => scope.snapshot.upcomingWasteDates.filter(occurrence => occurrence.date === scope.today)
     .map(occurrence => ({ occurrence, source: scope.source, key: `${scope.snapshot.household.id}:${occurrence.scheduleId}:${occurrence.date}`,
       visibility: combined && scope.source === 'personal' ? personalWasteVisibility : wasteVisibility })));

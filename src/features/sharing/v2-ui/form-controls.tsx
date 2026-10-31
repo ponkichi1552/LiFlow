@@ -3,12 +3,13 @@ import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SettingsSwitch as Switch } from '../../../components/settings-switch';
 import type { StyleProp, TextInputProps, ViewStyle } from 'react-native';
-import { palette, typography } from '../../../components/planner-ui';
+import { NavigationHeader, palette, typography } from '../../../components/planner-ui';
 import { v2LocalTimeChoices } from './target-form';
 
 /** Android already uses adjustResize. Avoid applying an additional keyboard-height correction there. */
-export function V2FormScrollView({ children, contentContainerStyle }: { children: ReactNode; contentContainerStyle?: StyleProp<ViewStyle> }) {
+export function V2FormScrollView({ children, contentContainerStyle, header }: { children: ReactNode; contentContainerStyle?: StyleProp<ViewStyle>; header?: ReactNode }) {
   return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+    {header ? <NavigationHeader>{header}</NavigationHeader> : null}
     <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={contentContainerStyle}>{children}</ScrollView>
   </KeyboardAvoidingView>;
 }

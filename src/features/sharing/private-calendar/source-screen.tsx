@@ -41,7 +41,7 @@ export function PrivateCalendarSourceScreen({ loadRuntime, onBack, onDevices, fo
       : result.kind === 'disabled' ? 'Google Calendarの取得はオフです。' : '端末の承認・取得元・変更の受付を確認してください。');
   }
   const approved = view?.device.phase === 'approved'; const main = approved && view.device.mainDeviceId === view.device.deviceId;
-  return <Page><BackButton onPress={onBack} />
+  return <Page header={<BackButton onPress={onBack} />}>
     <ScreenHeading title="本人用Google Calendar" description="予定名や場所は取得せず、予定がある時間帯だけを本人の推奨と重複確認に使います。" />
     {busy ? <ActivityIndicator color={palette.accent} /> : null}
     {view ? <Card><SectionHeading title={!approved ? '端末の承認が必要です' : main ? 'この端末から取得' : 'メイン端末から受信'} />

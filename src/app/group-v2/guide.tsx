@@ -1,2 +1,5 @@
-import { V2WorkspaceRoute } from '../../features/sharing/v2-ui/workspace-route';
-export default function SharedChoreGuideRoute() { return <V2WorkspaceRoute view="guide" />; }
+import { Redirect, useLocalSearchParams } from 'expo-router';
+export default function SharedChoreGuideRoute() {
+  const { choreId, source, returnTo } = useLocalSearchParams<{ choreId?: string; source?: string; returnTo?: string }>();
+  return <Redirect href={{ pathname: '/(tabs)/guide', params: { choreId, source, returnTo } }} />;
+}

@@ -1,3 +1,4 @@
+import { selectCalendarView } from './helpers/calendar-ui.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -18,10 +19,10 @@ for (const platform of ['ios', 'android']) test(`${platform} entering a calendar
   const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
     today: '2026-10-31', timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, pending: 0 }), renderChores: () => null,
   } });
-  advance('2026-10-31T06:47:30Z'); await screen.press('1日表示');
+  advance('2026-10-31T06:47:30Z'); await selectCalendarView(screen, '1日表示');
   assert.ok(screen.text().includes('現在 15:47'), 'the initial timeline layout must not use the clock captured when the month mounted');
   await screen.press('月表示に戻る'); advance('2026-10-31T10:03:00Z');
-  await screen.press('2日表示'); assert.ok(screen.text().includes('現在 19:03'));
+  await selectCalendarView(screen, '2日表示'); assert.ok(screen.text().includes('現在 19:03'));
 });
 
 for (const platform of ['ios', 'android']) test(`${platform} calendar clock aligns one timer to the next minute pauses in background and cleans up after unmount`, t => {

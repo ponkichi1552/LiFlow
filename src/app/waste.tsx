@@ -81,8 +81,8 @@ export default function WasteScreen() {
     .slice(0, 8);
 
   return (
-    <Page>
-      <BackButton onPress={() => router.back()} />
+    <Page header={<BackButton onPress={() => router.back()} />}>
+
       <ScreenHeading eyebrow="WASTE DAY" title="ゴミ収集日" description="ゴミの種類を検索して選び、曜日や周期を登録します。" />
       {loadError ? <Card><Text style={styles.error}>{loadError}</Text></Card> : null}
 

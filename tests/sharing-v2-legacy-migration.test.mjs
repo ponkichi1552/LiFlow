@@ -125,7 +125,9 @@ test('v2 SQLite staging rolls back a forged migration checkpoint and retains eve
     .map(({ name }) => [name, target.connection.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all()]);
   try {
     await initializeV2EventStore(target.database, scope); const before = dump();
-    const options = { ...scope, identity: h.owner, anchor: h.archive[0], archive: () => archive, assertWritable: () => {} };
+    let permitted = true;
+    const options = { ...scope, identity: h.owner, anchor: h.archive[0], archive: () => archive, assertWritable: () => {},
+      verifyCurrentAccess: async () => { if (!permitted) throw new Error('access revoked'); } };
     const forged = createV2EventRepository(target.database, { ...options, migration: { ...checkpoint } });
     await assert.rejects(applySharingSnapshot(target.database, h.groupId, opened, forged.project, null), { code: 'sharing/v2-migration-unverified' });
     assert.deepEqual(dump(), before); assert.equal((await readSharingCheckpoint(target.database, h.groupId)).cursor, null);
@@ -136,6 +138,16 @@ test('v2 SQLite staging rolls back a forged migration checkpoint and retains eve
     assert.deepEqual(restored.operationIndex, opened.base.operationIndex); assert.deepEqual(await listSharingOutbox(target.database, h.groupId), []);
     assert.equal(target.connection.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
     assert.equal(canonicalJson(h.input.encrypted), encryptedBefore);
+    await verified.readState();
+    const saved = target.connection.prepare('SELECT snapshot_json FROM sharing_snapshot_state WHERE group_id=?').get(h.groupId).snapshot_json;
+    const tampered = JSON.parse(saved); tampered.facts[0].authorSignature = '0'.repeat(128);
+    target.connection.prepare('UPDATE sharing_snapshot_state SET snapshot_json=? WHERE group_id=?').run(JSON.stringify(tampered), h.groupId);
+    await assert.rejects(verified.readState(), /signature authentication failed/u,
+      'reusing a verified migration proof must still authenticate a different stored signature');
+    target.connection.prepare('UPDATE sharing_snapshot_state SET snapshot_json=? WHERE group_id=?').run(saved, h.groupId);
+    await verified.readState();
+    permitted = false;
+    await assert.rejects(verified.readState(), /access revoked/u, 'a verified proof is never current membership authorization');
   } finally { target.connection.close(); }
 });
 

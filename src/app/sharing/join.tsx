@@ -23,7 +23,7 @@ export default function SharingJoinScreen() {
     } catch (cause) { setMessage(cause instanceof Error && /[ぁ-んァ-ヶ一-龯]/u.test(cause.message) ? cause.message : sharingFailureMessage(cause)); }
     finally { inFlight.current = false; setBusy(false); }
   };
-  return <Page><BackButton onPress={() => router.canGoBack() ? router.back() : router.replace('/')} />
+  return <Page header={<BackButton onPress={() => router.canGoBack() ? router.back() : router.replace('/')} />}>
     <ScreenHeading title="共有グループへの招待" description="参加を申請すると、所有者の端末で確認・承認されます。" />
     <Card><Text style={typography.body}>個人の家事や履歴はそのまま残り、同じ画面にグループの家事・予定が表示されます。</Text>
       <AppButton title={workspace.userId ? 'この招待から参加を申請' : 'Googleでログインして参加を申請'} disabled={!valid || Boolean(blocked) || busy} onPress={() => void join()} />

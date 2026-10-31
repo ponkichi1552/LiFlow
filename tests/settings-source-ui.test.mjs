@@ -224,7 +224,8 @@ test('fixed audience stays outside the virtual document and a thousand chores ke
   assert.equal(book.text().split('個人用').length - 1, 1);
   const list = book.nodes().find(node => node.type === 'FlatList'); assert.equal(allNodes([list]).some(node => node.children?.includes('個人用')), false);
   assert.ok(book.nodes().filter(node => node.props.accessibilityRole === 'button').length <= 90);
-  assert.ok(book.button('分類4の先頭へ移動')); assert.equal(list.props.data.length, 1000);
+  assert.ok(book.button('分類4の先頭へ移動')); assert.equal(list.props.data[0].id, 'c-850');
+  list.props.onScrollBeginDrag(); book.render(); assert.equal(book.nodes().find(node => node.type === 'FlatList').props.data.length, 1000);
 });
 
 test('v2 Settings keeps both chore audiences and routes waste management to its supported group screen', async () => {

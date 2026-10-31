@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BackButton, ChoiceChip, palette, typography } from '../../components/planner-ui';
+import { BackButton, ChoiceChip, navigationHeaderMetrics, palette, typography } from '../../components/planner-ui';
 import { FormTextInput } from '../../components/form-text-input';
 import { Chevron } from '../../components/chevron';
 import { parseLocalDate, weekdayOf } from '../../domain/scheduling/local-date';
@@ -53,7 +53,7 @@ export function CustomRecurrenceScreen({ date, initial, onBack, onSave }: {
   </SafeAreaView>;
 }
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: palette.background }, header: { minHeight: 56, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border }, headerSide: { width: 88, minHeight: 48, justifyContent: 'center' }, apply: { alignItems: 'flex-end' },
+  root: { flex: 1, backgroundColor: palette.background }, header: { ...navigationHeaderMetrics, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border }, headerSide: { width: 88, minHeight: 48, justifyContent: 'center' }, apply: { alignItems: 'flex-end' },
   title: { ...typography.subheading, color: palette.ink, fontWeight: '700', flex: 1, textAlign: 'center' }, action: { ...typography.body, color: palette.accent }, body: { padding: 18, gap: 22 }, field: { gap: 9 }, label: { ...typography.label, color: palette.ink, fontWeight: '600' },
   intervalRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, number: { width: 66, borderWidth: 1, borderColor: palette.inputBorder, borderRadius: 12, textAlign: 'center', fontVariant: ['tabular-nums'] }, units: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   weekdays: { flexDirection: 'row', gap: 3 }, weekday: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.inputBorder, borderRadius: 9 }, weekdayText: { ...typography.body, color: palette.muted }, selected: { backgroundColor: palette.accentSoft, borderColor: palette.accent }, selectedText: { color: palette.accent, fontWeight: '700' },

@@ -20,7 +20,7 @@ export function SharedGoogleCalendarSettings({ runtime, onBack }: { runtime: Sha
     return () => { alive.current = false; };
   }, [runtime]);
   const choose = () => void run(async () => { const next = await runtime.prepareConnection(); if (alive.current) setReview(next); });
-  return <Page><BackButton onPress={onBack} /><ScreenHeading title="共有予定をGoogleにも表示" />
+  return <Page header={<BackButton onPress={onBack} />}><ScreenHeading title="共有予定をGoogleにも表示" />
     <Card><View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
       <Text style={{ ...typography.label, color: palette.ink, flex: 1 }}>共有予定をGoogleカレンダーに追加</Text>
       <SettingsSwitch accessibilityLabel="共有予定をGoogleカレンダーに追加" value={control?.enabled === true} disabled={busy || !control}

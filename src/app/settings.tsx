@@ -420,8 +420,8 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
   };
 
   return (
-    <Page>
-      <BackButton onPress={() => void autosave.navigate(() => router.back())} />
+    <Page header={<BackButton onPress={() => void autosave.navigate(() => router.back())} />}>
+
       <ScreenHeading eyebrow="SETTINGS" title="設定" description="家事の周期やアプリの使い方を調整できます。" />
       {autosave.status.phase === 'error' ? <Card><Text accessibilityRole="alert" style={styles.error}>{autosave.status.error}</Text><AppButton title="保存を再試行" variant="quiet" compact onPress={() => void autosave.flush()} />
         {reloadRhythm ? <AppButton title="未保存の入力を破棄して設定を読み直す" variant="quiet" compact onPress={() => {

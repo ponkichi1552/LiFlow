@@ -41,12 +41,11 @@ export function createSecureVault(gateway: SecureKeyValueGateway, randomBytes: (
       return serial(key, async () => {
         const base = name(key); const info = await manifest(base);
         if (!info) return null;
-        let hex = '';
-        for (let i = 0; i < info.chunks; i++) {
-          const chunk = await gateway.get(`${base}.${info.generation}.${i}`);
+        const chunks = await Promise.all(Array.from({ length: info.chunks }, (_, i) => gateway.get(`${base}.${info.generation}.${i}`)));
+        for (const chunk of chunks) {
           if (chunk === null || !/^[0-9a-f]*$/u.test(chunk) || chunk.length > CHUNK_CHARACTERS) throw new Error('Secure storage is incomplete');
-          hex += chunk;
         }
+        const hex = chunks.join('');
         if (hex.length !== info.bytes * 2) throw new Error('Secure storage length mismatch');
         const data = hexToBytes(hex);
         if (bytesToHex(sha256(data)) !== info.digest) throw new Error('Secure storage integrity check failed');

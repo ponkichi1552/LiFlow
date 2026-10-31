@@ -26,8 +26,8 @@ const sections = [
 ] as const;
 
 export function V2GroupPolicyEditor(props: { model: V2GroupScreenModel; controller: V2GroupController; onSaved: () => Promise<void>; onBack: () => void; header?: ReactNode }) {
-  if (!props.model.groupPolicy || props.model.groupPolicy.kind === 'missing') return <V2FormScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
-    {props.header}<BackButton onPress={props.onBack} /><Text style={styles.body}>グループのルールを取得できませんでした。</Text>
+  if (!props.model.groupPolicy || props.model.groupPolicy.kind === 'missing') return <V2FormScrollView contentContainerStyle={{ padding: 16, gap: 14 }} header={<BackButton onPress={props.onBack} />}>
+    {props.header}<Text style={styles.body}>グループのルールを取得できませんでした。</Text>
     <AppButton title="グループのルールを再読込" variant="secondary" onPress={() => void props.onSaved().catch(() => undefined)} />
   </V2FormScrollView>;
   return <Editor key={`${props.model.viewerUserId}:${props.model.plan.groupId}:${props.model.adminUserId}`} {...props} source={props.model.groupPolicy} />;
@@ -52,8 +52,8 @@ function Editor({ model, source, controller, onSaved, onBack, header }: Paramete
       {section.key === 'assignment' ? <Text style={styles.caption}>完了通知は初期OFFです。ONにすると、同期で受信した完了を通知が許可された端末に表示します。過去分はまとめて通知せず、同じ家事回は1回だけ通知します。即時の受信や配信は保証されず、端末の通知上限で省略される場合もあります。完了履歴は残ります。</Text> : null}
     </AccordionSection>)}
   </View>;
-  return <V2FormScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }}>{header}
-    <BackButton disabled={autosave.leaving} onPress={() => void autosave.navigateAfterSave(onBack)} /><ScreenHeading title="グループのルール" />
+  return <V2FormScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }} header={<BackButton disabled={autosave.leaving} onPress={() => void autosave.navigateAfterSave(onBack)} />}>{header}
+    <ScreenHeading title="グループのルール" />
     <Text style={styles.caption}>{admin ? '変更は全メンバーに適用されます。種類を変えても現在の個別設定は保持します。' : 'ルールは管理者が変更します。'}</Text>
     {model.groupSettings ? <AccordionSection title="グループ名と地域" expanded={expanded.identity === true} onToggle={() => setExpanded(current => ({ ...current, identity: !current.identity }))}>
       <V2GroupSettingsFields autosave={autosave} model={model} admin={admin} />

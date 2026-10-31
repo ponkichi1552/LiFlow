@@ -1,11 +1,14 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ChoreBook } from '../../../components/chore-book';
-import { SettingsAudience } from '../../../components/settings-audience';
-import { AppButton } from '../../../components/planner-ui';
+import { GroupIcon, PersonIcon } from '../../../components/group-icon';
+import { AppButton, BackButton, palette, typography } from '../../../components/planner-ui';
 import type { PlannerSnapshot } from '../../../platform/storage/repository';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
-import { guideCatalogSelection, unifiedGuideCatalog } from '../../chores/guide-catalog';
+import { unifiedGuideCatalog } from '../../chores/guide-catalog';
+import { normalizeChoreName } from '../../chores/chore-library';
+import type { ChoreDefinition } from '../../../domain/chores/types';
 import { ChoreGuide } from '../../chores/chore-guide';
 import { ChorePlanToggle } from '../../chores/chore-plan-toggle';
 import { setChoresEnabled } from '../../../platform/storage/repository';
@@ -18,22 +21,33 @@ export function v2GuideChores(model: V2GroupScreenModel, personal?: PersonalGuid
   return unifiedGuideCatalog(shared, personal?.snapshot.chores ?? []);
 }
 
-/** One document and one renderer; source IDs are namespaced only for presentation. */
-export function V2ChoreBook({ model, personal, selectedId, source = 'shared', onBack, onRound, onConfiguration, groupName, actions, perform }: {
+/** The audience is an explicit selection, never a side effect of scrolling. */
+export function V2ChoreBook({ model, personal, selectedId, source = 'shared', onBack, onRound, onConfiguration, actions, perform, hasTabBar = false }: {
   actions: V2GroupController['actions']; perform: (work: () => Promise<unknown>) => Promise<V2MutationOutcome>;
   model: V2GroupScreenModel; personal?: PersonalGuideSource; selectedId?: string; source?: 'shared' | 'personal';
   onBack: () => void; onRound?: (occurrenceId: string, subjectId: string, anchorDate?: string) => void;
-  onConfiguration: (choreId: string) => void; groupName: string;
+  onConfiguration: (choreId: string) => void; groupName: string; hasTabBar?: boolean;
 }) {
-  const chores = v2GuideChores(model, personal);
-  const original = (source === 'personal' ? personal?.snapshot.chores : model.plan.chores)?.find(chore => chore.id === selectedId);
-  const selected = guideCatalogSelection(chores, source, original);
-  return <ChoreBook title="家事の説明" chores={chores} selectedId={selected} onBack={onBack}
-    titleAccessory={chore => <SettingsAudience groupName={chore?.id.startsWith('personal:') ? undefined : groupName} />}
+  const [selection, setSelection] = useState({ source, id: selectedId });
+  const shared = useMemo(() => model.plan.chores.filter(chore => !chore.archived).map(chore => ({ ...chore, householdId: model.plan.groupId })), [model.plan.chores, model.plan.groupId]);
+  const individuals = personal?.snapshot.chores ?? [];
+  const isPersonal = selection.source === 'personal'; const chores = isPersonal ? individuals : shared;
+  const picker = (visible?: ChoreDefinition) => <View style={styles.destination}><Text style={styles.destinationLabel}>予定先</Text><View style={styles.audiences} accessibilityRole="radiogroup" accessibilityLabel="予定先">
+    {(['personal', 'shared'] as const).map(audience => <Pressable key={audience} accessibilityRole="radio" accessibilityLabel={audience === 'personal' ? '個人用の家事説明' : 'グループ用の家事説明'} accessibilityState={{ checked: selection.source === audience }}
+      onPress={() => {
+        if (selection.source === audience) return;
+        const candidates = audience === 'personal' ? individuals : shared;
+        const matching = visible ? candidates.filter(chore => normalizeChoreName(chore.name) === normalizeChoreName(visible.name)) : [];
+        setSelection({ source: audience, id: matching.length === 1 ? matching[0].id : candidates.find(chore => chore.category === visible?.category)?.id ?? candidates[0]?.id });
+      }} style={styles.audience}>
+      <View aria-hidden style={[styles.audienceIcon, selection.source === audience && styles.selected]}>{audience === 'personal' ? <PersonIcon size={16} /> : <GroupIcon size={20} />}</View>
+    </Pressable>)}
+  </View></View>;
+  if (isPersonal && !personal) return <View style={{ flex: 1, backgroundColor: palette.background }}><View style={{ paddingHorizontal: 18 }}><BackButton onPress={onBack} />{picker()}</View><Text style={styles.unavailable}>個人家事を読み込んでいます。</Text></View>;
+  return <ChoreBook key={selection.source} title="家事の説明" chores={chores} selectedId={selection.id} onBack={onBack} hasTabBar={hasTabBar}
+    titleAccessory={picker}
     renderChore={chore => {
-      const isPersonal = chore.id.startsWith('personal:'); const id = chore.id.slice(chore.id.indexOf(':') + 1);
-      const original = isPersonal ? personal?.snapshot.chores.find(row => row.id === id) : model.plan.chores.find(row => row.id === id);
-      if (!original) return null;
+      const id = chore.id;
       const configuration = model.configurations.find(row => row.choreId === id)?.configuration;
       const display = { ...chore, ...(isPersonal || !configuration ? {} : { userIntervalDays: configuration.intervalDays, requiresCycleSelection: false }) };
       const round = model.plan.occurrences.find(row => row.choreId === id && row.subjects.some(subject => subject.subjectUserId === null || subject.subjectUserId === model.viewerUserId));
@@ -50,3 +64,11 @@ export function V2ChoreBook({ model, personal, selectedId, source = 'shared', on
       </View>;
     }} />;
 }
+const styles = StyleSheet.create({
+  destination: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 4 }, destinationLabel: { ...typography.caption, color: palette.muted },
+  audiences: { flexDirection: 'row' },
+  audience: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 7 },
+  audienceIcon: { width: 28, height: 28, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+  selected: { backgroundColor: palette.accentSoft },
+  unavailable: { ...typography.body, color: palette.muted, padding: 18 },
+});

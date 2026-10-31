@@ -17,7 +17,8 @@ export function calendarDraftKey(draft: CalendarEditorDraft) { const prefix = dr
 export function calendarDraftVersion(draft: CalendarEditorDraft) { return bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(parseEditorDraft(draft))))); }
 export interface LocalCalendarSnapshot { events: CalendarEvent[]; categories: CalendarCategory[]; exceptions: CalendarException[]; draft: CalendarEditorDraft | null; drafts?: CalendarEditorDraft[]; draftError?: string }
 export const EMPTY_LOCAL_CALENDAR: LocalCalendarSnapshot = { events: [], categories: [...INITIAL_CATEGORIES], exceptions: [], draft: null };
-const listeners = new WeakMap<SQLiteDatabase, Set<() => void>>();
+export type LocalCalendarChange = 'events' | 'categories' | 'drafts';
+const listeners = new WeakMap<SQLiteDatabase, Set<(change: LocalCalendarChange) => void>>();
 let idSequence = 0;
 function newId(prefix: string) { return `${prefix}.${Date.now().toString(36)}.${(++idSequence).toString(36)}.${Math.random().toString(36).slice(2, 12)}`; }
 const conflict = () => new Error('予定が別の画面で変更されました。再読込してから編集してください。');
@@ -26,8 +27,8 @@ async function personal(database: SQLiteDatabase) {
   if (sharedRepositoryAdapter(database)) throw new Error('個人のカレンダーは個人の保存先で開いてください。');
   if (!await database.getFirstAsync("SELECT id FROM households WHERE id = 'local-household'")) throw new Error('個人の保存先を確認できません。');
 }
-function changed(database: SQLiteDatabase) { for (const fn of listeners.get(database) ?? []) { try { fn(); } catch { /* A view failure cannot change a committed SQLite result. */ } } }
-export function subscribeLocalCalendar(database: SQLiteDatabase, callback: () => void) {
+function changed(database: SQLiteDatabase, change: LocalCalendarChange = 'events') { for (const fn of listeners.get(database) ?? []) { try { fn(change); } catch { /* A view failure cannot change a committed SQLite result. */ } } }
+export function subscribeLocalCalendar(database: SQLiteDatabase, callback: (change: LocalCalendarChange) => void) {
   let set = listeners.get(database); if (!set) { set = new Set(); listeners.set(database, set); } set.add(callback);
   return () => { set!.delete(callback); };
 }
@@ -83,7 +84,7 @@ export async function saveCalendarDraft(database: SQLiteDatabase, input: Calenda
       const slot = calendarDraftKey(draft);
       await tx.runAsync('INSERT INTO calendar_drafts(slot,draft_json) VALUES(?,?)', slot, JSON.stringify(draft));
     });
-  });
+  }); changed(database, 'drafts');
 }
 export async function saveCalendarEvent(database: SQLiteDatabase, input: {
   id?: string; expectedRevision: number; value: EventDraft; anchorDate?: LocalDate; expectedExceptionRevision?: number; scope?: 'one' | 'series'; resetExceptions?: boolean;
@@ -138,10 +139,10 @@ export async function saveCalendarCategory(database: SQLiteDatabase, value: { id
     if ((before?.revision ?? 0) !== value.expectedRevision) throw conflict();
     if (await tx.getFirstAsync('SELECT id FROM calendar_categories WHERE name=? COLLATE NOCASE AND id<>?', value.name.trim(), id)) throw new Error('同じ名前の分類があります。既存の分類を選んでください。');
     await tx.runAsync('INSERT INTO calendar_categories(id,name,color,revision) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,color=excluded.color,revision=excluded.revision', id, value.name.trim(), value.color.toUpperCase(), value.expectedRevision + 1);
-  }); }); changed(database); return id;
+  }); }); changed(database, 'categories'); return id;
 }
 
 /** Clear only the submitted scope; a group draft can never clear a private one. */
 export async function clearCalendarEditorDraft(database: SQLiteDatabase, draft: CalendarEditorDraft) {
-  await withPlannerDatabaseOperation(database, async () => { await personal(database); await database.runAsync('DELETE FROM calendar_drafts WHERE slot=?', calendarDraftKey(draft)); });
+  await withPlannerDatabaseOperation(database, async () => { await personal(database); await database.runAsync('DELETE FROM calendar_drafts WHERE slot=?', calendarDraftKey(draft)); }); changed(database, 'drafts');
 }

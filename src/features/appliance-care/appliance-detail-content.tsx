@@ -4,7 +4,7 @@ import { FlatList, Linking, Pressable, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ProcedureStep } from '../../components/procedure-step';
-import { AppButton, BackButton, Card, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
+import { AppButton, BackButton, Card, NavigationHeader, navigationHeaderMetrics, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
 import type { ChoreDefinition } from '@/domain/chores/types';
 import { applianceCategoryLabel } from '@/features/appliance-care/categories';
 import { isOfficialApplianceUrl } from '@/features/appliance-care/official-url';
@@ -21,7 +21,7 @@ export function ApplianceDetailContent({ context, returnTo, error }: {
   const goBack = () => returnTo ? router.dismissTo(returnTo) : router.back();
   const reanalyze = () => router.push({ pathname: '/manual/appliance-care', params: { applianceId: appliance.id, returnTo: returnTo ?? '/manual' } });
   if (!isRenderableApplianceAnalysis(appliance.analysis)) return <SafeAreaView style={styles.safeArea} edges={['top']}>
-    <View style={styles.listContent}><BackButton accessibilityLabel="一覧へ戻る" onPress={goBack} /><ScreenHeading title="お手入れ方法" />
+    <NavigationHeader><BackButton accessibilityLabel="一覧へ戻る" onPress={goBack} /></NavigationHeader><View style={styles.listContent}><ScreenHeading title="お手入れ方法" />
       {error ? <Text style={styles.invalidLink}>{error}</Text> : null}
       <Card><Text accessibilityRole="alert" style={styles.body}>解析結果に確認が必要な項目があります。保存された内容は保持しています。再解析して内容を確認してください。</Text>
         <AppButton title="この家電を再解析" variant="secondary" onPress={reanalyze} /></Card>
@@ -117,7 +117,7 @@ export function OfficialLink({ manufacturer, title, url }: { manufacturer: strin
 }
 
 const styles = StyleSheet.create({
-  backHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border, backgroundColor: palette.surface },
+  backHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, ...navigationHeaderMetrics, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border, backgroundColor: palette.background },
   safeArea: { flex: 1, backgroundColor: palette.background },
   listContent: { width: '100%', maxWidth: 820, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 18, paddingBottom: 36, gap: 15 },
   listHeader: { gap: 15 },

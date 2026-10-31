@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppButton, BackButton, Card, palette, ScreenHeading, SectionHeading, typography } from '../../../components/planner-ui';
+import { AppButton, BackButton, Card, NavigationHeader, palette, ScreenHeading, SectionHeading, typography } from '../../../components/planner-ui';
 import type { Appliance } from '../../appliance-care/contracts';
 import type { UploadedManualInput, ApplianceCareApiRequest, ProductVerifiedResponse } from '../../appliance-care/api-contracts';
 import { ManualUploadInput } from '../../appliance-care/manual-upload-input';
@@ -88,7 +88,7 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   };
   const pending = pendingRead ? <Card><Text style={body}>端末に保存済みです。再送せず、現在の家電を読み直してください。</Text>
     <AppButton title="保存済みの家電を再読込" disabled={busy} onPress={() => void executeRead()} /></Card> : null;
-  const intro = <View style={{ gap: 14 }}>{header}<BackButton disabled={busy} onPress={() => { request.current?.abort(); onBack(); }} />
+  const intro = <View style={{ gap: 14 }}>{header}
     <ScreenHeading title={mode === 'applianceReview' ? '家電の解析・共有' : '共有家電のお手入れ'} />
     {error ? <Text accessibilityRole="alert" style={warning}>{error}</Text> : null}{pending}
     {saved ? <Card><Text style={body}>家電の確認内容を端末に保存しました。新しい家事{saved.createdChoreIds.length}件は無効で追加しています。既存の家事は保持しています。</Text>
@@ -107,7 +107,7 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
     onPress={() => check(!reviewedRef.current)} style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
     <View style={{ width: 24, height: 24, borderRadius: 5, borderWidth: 2, borderColor: palette.accent, backgroundColor: reviewed ? palette.accent : 'transparent' }} />
     <Text style={[body, { flex: 1 }]}>メーカー・型番・手順・注意事項を確認した</Text></Pressable>;
-  return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}><FlatList
+  return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}><NavigationHeader><BackButton disabled={busy} onPress={() => { request.current?.abort(); onBack(); }} /></NavigationHeader><FlatList
     contentContainerStyle={pageStyle} data={analysis?.tasks ?? []} keyExtractor={(task, index) => `${index}:${task.name}`} initialNumToRender={1} maxToRenderPerBatch={1} windowSize={3} removeClippedSubviews={false}
     keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" extraData={{ chosen, reviewed, locked }}
     ListHeaderComponent={<View style={{ gap: 14 }}>{intro}

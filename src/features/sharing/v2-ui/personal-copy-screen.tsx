@@ -34,7 +34,7 @@ function CopyLoader({ load, onBack, notice, retry }: { load(): Promise<V2Persona
       .catch(() => { if (alive) setFailed(true); }); return () => { alive = false; };
   }, [load]);
   if (loaded) return <CopyForm {...loaded} onBack={onBack} notice={notice} />;
-  return <Page>{notice}<BackButton onPress={onBack} /><ScreenHeading title="個人設定から共有家事を追加" />
+  return <Page header={<BackButton onPress={onBack} />}>{notice}<ScreenHeading title="個人設定から共有家事を追加" />
     {failed ? <Card><Text accessibilityRole="alert" style={typography.body}>コピー内容を読み込めませんでした。元の家事と確認内容は保持しています。</Text>
       <AppButton title="コピー内容を再読込" onPress={retry} /></Card> : <ActivityIndicator />}</Page>;
 }
@@ -49,7 +49,7 @@ function CopyForm({ runtime, initial, onBack, notice }: { runtime: V2PersonalCop
     finally { running.current = false; if (alive.current) setBusy(false); }
   }
   const control = state.control; const review = control.review; const administrator = state.context?.administratorUserId === state.context?.userId && state.context !== null;
-  return <Page>{notice}<BackButton disabled={busy} onPress={onBack} /><ScreenHeading title="個人設定から共有家事を追加"
+  return <Page header={<BackButton disabled={busy} onPress={onBack} />}>{notice}<ScreenHeading title="個人設定から共有家事を追加"
     description="選んだ家事を新しい共有家事として追加します。個人の家事・予定・過去の履歴はそのまま残ります。" />
     <Text style={typography.caption}>共有するのは、この後に確認する設定と説明だけです。過去の完了・Googleの対応情報・個人用の予定は共有しません。</Text>
     {review ? <>

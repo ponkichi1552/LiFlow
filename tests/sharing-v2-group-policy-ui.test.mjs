@@ -6,6 +6,7 @@ import { fixture, seeds, now, groupId, receiptsFor } from './helpers/sharing-v2-
 import { sharingTestCrypto } from './helpers/sharing-crypto.mjs';
 import { createDeviceIdentity } from '../src/features/sharing/crypto.ts';
 import { approveSharedDevice } from '../src/features/sharing/roster.ts';
+import { createV2ScreenSession } from '../src/features/sharing/v2-ui/screen-session.ts';
 import { createV2GroupController } from '../src/features/sharing/v2/controller.ts';
 import { applyReceivedSharedFacts, listSharingOutbox, loadSharedFacts, readSharingCheckpoint } from '../src/platform/storage/sharing-ledger.ts';
 
@@ -49,7 +50,7 @@ for (const platform of ['ios', 'android']) {
     try {
       const original = await f.c.readModel(range, { groupPolicy: true }); await f.c.actions.editGroupOptions([{ field: 'name', value: '端末に保存した新しい名前', basisOperationIds: ids(original.groupSettings.name) }]);
       let focus; const screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen', platform,
-        props: { purpose: 'workspace', view: 'home', workspaceName: '古いキャッシュ名', loadSession: async () => ({ controller: f.c, readModel: () => f.c.readModel(range) }),
+        props: { purpose: 'workspace', view: 'home', workspaceName: '古いキャッシュ名', loadSession: async () => createV2ScreenSession({ controller: f.c, groupId, userId: 'owner', now, readPreferences: () => ({ ownerUserId: 'owner', settings: { frequencyMode: 'balanced', restDays: [], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 3 } } }) }),
           onBack() {}, onHistory() {}, onConfiguration() {} }, focusEffect: callback => { focus = callback; } });
       leave = focus(); for (let n = 0; n < 25 && !screen.text().includes('端末に保存した新しい名前'); n++) await screen.flush();
       assert.ok(screen.text().includes('端末に保存した新しい名前')); assert.ok(!screen.text().includes('古いキャッシュ名'));

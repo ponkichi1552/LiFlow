@@ -48,7 +48,7 @@ export function ChoreSettingsBook({ choreId, data }: { choreId: string; data: Pi
   };
   const disablePrevention = usePreventRemove(true, ({ repeat }) => { void leaveAfterSave(repeat); });
   if (loading || !snapshot) return <PlannerLoadState title="家事ごとの設定" message="設定を読み込んでいます。" error={error} retry={refresh} />;
-  if (!chore) return <Page><BackButton onPress={() => void leaveAfterSave(() => router.back())} /><ScreenHeading title="家事が見つかりません" /></Page>;
+  if (!chore) return <Page header={<BackButton onPress={() => void leaveAfterSave(() => router.back())} />}><ScreenHeading title="家事が見つかりません" /></Page>;
   const rows = snapshot.chores.filter(item => !item.archived);
   const back = () => leaveAfterSave(() => router.back());
   return <ChoreBook chores={rows} selectedId={choreId} title="家事ごとの設定" onBack={() => void back()}

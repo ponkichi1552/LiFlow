@@ -18,7 +18,7 @@ function Loader({ load, onBack, notice, retry }: { load(): Promise<V2GoogleTaskU
       .catch(() => { if (active) setFailed(true); }); return () => { active = false; };
   }, [load]);
   if (value) return <Connection {...value} onBack={onBack} notice={notice} />;
-  return <Page>{notice}<BackButton onPress={onBack} /><ScreenHeading title="共有家事とGoogle Tasks" />
+  return <Page header={<BackButton onPress={onBack} />}>{notice}<ScreenHeading title="共有家事とGoogle Tasks" />
     {failed ? <Card><Text accessibilityRole="alert" style={typography.body}>接続状態を読み込めませんでした。保存内容は保持しています。</Text>
       <AppButton title="Google連携を再読込" onPress={retry} /></Card> : <ActivityIndicator />}</Page>;
 }
@@ -45,7 +45,7 @@ function Connection({ runtime, control: initial, onBack, notice }: { runtime: V2
   }
   const state = control.state; const connected = state?.enabled === true && !state.disconnected;
   const when = (value?: string) => value ? new Date(value).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '未実施';
-  return <Page>{notice}<BackButton disabled={busy !== null && busy !== 'sync'} onPress={onBack} />
+  return <Page header={<BackButton disabled={busy !== null && busy !== 'sync'} onPress={onBack} />}>{notice}
     <ScreenHeading title="共有家事とGoogle Tasks" description="共有家事を自分のGoogle Tasksへ同期します。個人の家事の連携設定は別に保存されます。" />
     <Card><SectionHeading title={connected ? '連携中' : state?.disconnected ? '接続を解除済み' : state ? '一時停止中' : '未接続'} />
       {control.label ? <Text style={typography.body}>{control.label}</Text> : null}

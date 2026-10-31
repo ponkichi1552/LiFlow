@@ -58,8 +58,12 @@ export function screenHarness(filename, options = {}) {
       FlatList: (props) => {
         const [position, setPosition] = hook(null); const first = position ?? props.initialScrollIndex ?? 0;
         return jsx('FlatList', { ...props, onScroll: event => {
-          const length = props.getItemLayout?.(props.data, 0).length ?? options.flatListItemHeight;
-          if (length) setPosition(Math.max(0, Math.floor(event.nativeEvent.contentOffset.y / length)));
+          const offset = event.nativeEvent.contentOffset.y;
+          if (props.getItemLayout && props.data?.length) {
+            let low = 0; let high = props.data.length - 1;
+            while (low < high) { const middle = Math.ceil((low + high) / 2); if (props.getItemLayout(props.data, middle).offset <= offset) low = middle; else high = middle - 1; }
+            setPosition(low);
+          } else if (options.flatListItemHeight) setPosition(Math.max(0, Math.floor(offset / options.flatListItemHeight)));
           props.onScroll?.(event);
         }, children: [props.ListHeaderComponent,
           ...((props.data ?? []).length ? props.data.slice(first, first + (props.initialNumToRender ?? 10)).map((item, index) => props.renderItem({ item, index: index + first })) : [props.ListEmptyComponent]), props.ListFooterComponent] });
@@ -68,7 +72,7 @@ export function screenHarness(filename, options = {}) {
       useColorScheme: () => options.colorScheme ?? 'light',
       useWindowDimensions: () => ({ width: options.width ?? 390, height: options.height ?? 844, fontScale: 1, scale: 3 }),
       PanResponder: { create: callbacks => ({ panHandlers: callbacks }) },
-      AppState: { addEventListener: (_event, listener) => { options.appStateListener?.(listener); return { remove() {} }; } },
+      AppState: { currentState: 'active', addEventListener: (_event, listener) => { options.appStateListener?.(listener); return { remove() {} }; } },
       Linking: { openURL: async () => {} },
       Alert: { alert: (...args) => options.alert?.(...args) },
     },
@@ -96,6 +100,7 @@ export function screenHarness(filename, options = {}) {
     'expo-linking': { openURL: async (url) => options.openURL?.(url) },
     // Native FlatList jumps are tested directly in chore-book tests. Other screen tests
     // inspect the requested virtual chapter instead of pretending all chapters are mounted.
+    '../sharing/v2-ui/workspace-data': { useOptionalWorkspaceDisplay: () => null },
     '@/components/chore-book': { ChoreBook: (props) => jsx('ChoreBook', { ...props, children: [props.titleAccessory, props.header,
       props.renderChore(props.chores.find(row => row.id === props.selectedId) ?? props.chores[0]),
       jsx(load(resolve(root, 'src/components/planner-ui.tsx')).BackButton, { onPress: props.onBack })] }) },
@@ -114,6 +119,8 @@ export function screenHarness(filename, options = {}) {
     // The real API client imports Native Platform. Screen tests inject responses explicitly; never start a paid API job implicitly.
     '../../appliance-care/api-client': { analyzeApplianceCareRequest: async () => { throw new Error('Appliance API transport was not injected by this screen test'); } },
     '@/platform/sharing/workspaces': { hasOtherGoogleWorkspaceConnections: async () => false },
+    '../../../platform/sharing/startup-display': { startupDisplayCache: { read: async () => undefined, write: async () => {} } },
+    '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => undefined, canShowPersonalStartup: async () => false, startupDisplayCache: { read: async () => undefined, write: async () => {} } },
     ...options.mocks,
   };
 
