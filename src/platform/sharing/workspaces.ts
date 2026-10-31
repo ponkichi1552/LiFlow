@@ -33,6 +33,7 @@ import { initializeSharedProjection } from '../storage/sharing-projection.ts';
 import { drainSharingLedger, initializeSharingLedger, loadSharedReplica, readSharingCheckpoint } from '../storage/sharing-ledger.ts';
 import { sharedRepositoryAdapter } from '../storage/shared-repository-adapter.ts';
 import { drainPlannerDatabaseOperations, loadGoogleSyncState, LOCAL_HOUSEHOLD_ID, withPlannerDatabaseOperation } from '../storage/repository.ts';
+import { createNativeApplianceRetention } from './appliance-retention';
 
 export type { SharingSelection } from '../../features/sharing/workspace-selection.ts';
 export type { SharedWorkspace } from './workspace-types.ts';
@@ -367,7 +368,14 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
           void sync(remaining === undefined ? {} : { budgetMs: remaining }).catch(() => undefined);
         }, 350);
       } });
-    const session = { ...openedSession, controller: guardV2GroupController(openedSession.controller, openedSession.assertCurrentAccess) };
+    const retention = createNativeApplianceRetention({ database, repository: openedSession.repository, assertAccess: () => openedSession.assertCurrentAccess(false) });
+    const baseController = openedSession.controller;
+    const session = { ...openedSession, controller: guardV2GroupController({ ...baseController, actions: { ...baseController.actions,
+      reviewAppliance: async input => {
+        const result = await baseController.actions.reviewAppliance(input);
+        await retention.refresh(); return result;
+      },
+    } }, openedSession.assertCurrentAccess) };
     let reminderPromise: Promise<import('../../features/sharing/v2/reminder-runtime').V2ReminderRuntime> | undefined;
     let taskPromise: Promise<import('../../features/sharing/v2/google-tasks-runtime').V2GoogleTaskRuntime> | undefined;
     const assertNativeAccess = async () => {
@@ -397,6 +405,7 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
       return calendarPromise;
     };
     refreshIntegrations = localChange => {
+      void retention.refresh().catch(() => undefined);
       void reminders().then(runtime => runtime.synchronize()).catch(() => undefined);
       void googleTasks().then(runtime => runtime.synchronize({ localChange })).catch(() => undefined);
       void googleCalendar().then(runtime => runtime.synchronize()).catch(() => undefined);
@@ -460,6 +469,7 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
             await access.update((prior) => ({ ...prior, status: 'active', displayName: typeof name === 'string' ? name : prior.displayName,
               lastSuccessfulSyncAt: Date.now(), lastErrorCode: null }));
           }
+          if (!result.waitingForApproval && result.complete) await retention.refresh();
           return result;
         } catch (error) {
           const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : 'sharing/failed';

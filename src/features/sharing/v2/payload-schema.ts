@@ -7,14 +7,16 @@ import type { DateTarget } from './model.ts';
 import type { JsonValue } from '../operations.ts';
 import type { LocalDate } from '../../../domain/shared/types.ts';
 import { isSharedTimeZone } from '../group-clock.ts';
+import { validateManualChunk, validateManualDocument } from '../../appliance-care/manual-document.ts';
 
 export const V2_ENTITY_TYPES = ['groupPolicy', 'chorePolicy', 'datePermission', 'assignmentRule', 'claim', 'claimRelease',
-  'claimResolution', 'assignmentRequest', 'assignmentDecision', 'assignmentCancel', 'designation', 'designationCancel', 'changeRequest', 'requestDecision', 'completionApproval', 'migration', 'calendarEvent'] as const;
+  'claimResolution', 'assignmentRequest', 'assignmentDecision', 'assignmentCancel', 'designation', 'designationCancel', 'changeRequest', 'requestDecision', 'completionApproval', 'migration', 'calendarEvent', 'manualChunk', 'manualDocument'] as const;
 export type V2EntityType = typeof V2_ENTITY_TYPES[number];
 export const V2_SCHEMA_VERSION = 2;
-export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-41';
+export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-42';
 /** Signed 38/39 histories keep their original epochs until the owner approves an upgrade. */
-export const isSupportedV2Scheduler = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-40' || version === 'liflow-shared-2-draft-39' || version === 'liflow-shared-2-draft-38';
+export const isSupportedV2Scheduler = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-41' || version === 'liflow-shared-2-draft-40' || version === 'liflow-shared-2-draft-39' || version === 'liflow-shared-2-draft-38';
+export const supportsSharedCalendar = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-41';
 type RecordValue = Record<string, JsonValue>;
 
 function record(value: unknown, allowed: readonly string[], required: readonly string[] = allowed): RecordValue {
@@ -73,6 +75,8 @@ export function validateV2EntityPayload(entityType: V2EntityType, payload: Recor
   operationId: string; entityId: string; authorUserId: string; operationType: string;
 }): void {
   if (binding.operationType !== 'patch') throw new Error('V2 facts and policy history cannot be deleted or restored');
+  if (entityType === 'manualChunk') { validateManualChunk(payload, binding.entityId); return; }
+  if (entityType === 'manualDocument') { validateManualDocument(payload, binding.entityId); return; }
   if (entityType === 'groupPolicy' || entityType === 'chorePolicy') {
     record(payload, ['configuration']);
     if (entityType === 'groupPolicy') { if (binding.entityId !== 'policy') throw new Error('Invalid group policy ID'); groupPolicy(payload.configuration); }

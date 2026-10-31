@@ -33,6 +33,8 @@ import { GoogleAccountMismatchError } from '@/features/google-sync/account-bindi
 import { generateWeeklyCollectionDates } from '@/features/waste/weekly-scheduler';
 import { splitWasteOccurrencesByVisibility } from '@/features/waste/occurrence-visibility';
 import type { Appliance, ApplianceCareAnalysisDraft } from '@/features/appliance-care/contracts';
+import type { UploadedManualInput } from '@/features/appliance-care/api-contracts';
+import { storeApplianceManualInside } from './appliance-manual-storage';
 import { applianceDisplayName } from '@/features/appliance-care/display-name';
 import type { ApprovedApplianceCareTask, ApplianceCareProductIdentity } from '@/features/appliance-care/to-chore-definition';
 import { planReviewedApplianceSave } from '@/features/appliance-care/persistence-policy';
@@ -88,6 +90,20 @@ export function readCachedPlannerSnapshot(database: SQLiteDatabase, now = new Da
     || now.getTime() < cached.savedAt || now.getTime() > cached.expiresAt
     || snapshotVersions.get(cached.snapshot) !== (plannerVersions.get(database) ?? 0)) return null;
   return cached.snapshot;
+}
+/** Refresh only appliance metadata; saved schedules, weather assessment and periods stay reusable. */
+export function refreshCachedApplianceLibrary(database: SQLiteDatabase): Promise<void> {
+  return withPlannerDatabaseOperation(database, async () => {
+    if (!readCachedPlannerSnapshot(database)) return;
+    const rows = await database.getAllAsync<ApplianceRow>('SELECT * FROM appliances WHERE household_id=? ORDER BY display_name', LOCAL_HOUSEHOLD_ID);
+    const cached = cachedPlannerSnapshots.get(database); if (!cached || !readCachedPlannerSnapshot(database)) return;
+    const appliances = rows.map(applianceFromRow);
+    if (JSON.stringify(appliances) === JSON.stringify(cached.snapshot.appliances)) return;
+    const snapshot = { ...cached.snapshot, appliances };
+    snapshotVersions.set(snapshot, snapshotVersions.get(cached.snapshot) ?? 0);
+    const weather = weatherAssessments.get(cached.snapshot); if (weather) weatherAssessments.set(snapshot, weather);
+    cachedPlannerSnapshots.set(database, { ...cached, snapshot });
+  });
 }
 /** Local event edits invalidate recommendations without uploading their private contents. */
 export function invalidateLocalCalendarPlan(database: SQLiteDatabase) {
@@ -391,6 +407,21 @@ async function ensureLocalHouseholdImpl(database: SQLiteDatabase): Promise<void>
   initializedHouseholds.add(database);
 }
 
+function applianceFromRow(row: ApplianceRow): Appliance { return {
+    id: row.id,
+    householdId: row.household_id,
+    manufacturer: row.manufacturer,
+    productName: row.product_name,
+    modelNumber: row.model_number,
+    ...(row.category ? { category: row.category } : {}),
+    displayName: applianceDisplayName({ manufacturer: row.manufacturer, productName: row.product_name, modelNumber: row.model_number }, row.display_name),
+    ...(row.official_product_url ? { officialProductUrl: row.official_product_url } : {}),
+    officialManualUrl: row.official_manual_url,
+    analysis: JSON.parse(row.analysis_json) as ApplianceCareAnalysisDraft,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }; }
+
 async function loadApplianceCareReviewContextImpl(
   database: SQLiteDatabase,
   applianceId: EntityId,
@@ -561,20 +592,7 @@ async function loadPlannerSnapshotImpl(
     anchorDate: (row.anchor_date ?? undefined) as LocalDate | undefined,
     monthlyDay: row.monthly_day ?? undefined,
   }));
-  const appliances = applianceRows.map((row): Appliance => ({
-    id: row.id,
-    householdId: row.household_id,
-    manufacturer: row.manufacturer,
-    productName: row.product_name,
-    modelNumber: row.model_number,
-    ...(row.category ? { category: row.category } : {}),
-    displayName: applianceDisplayName({ manufacturer: row.manufacturer, productName: row.product_name, modelNumber: row.model_number }, row.display_name),
-    ...(row.official_product_url ? { officialProductUrl: row.official_product_url } : {}),
-    officialManualUrl: row.official_manual_url,
-    analysis: JSON.parse(row.analysis_json) as ApplianceCareAnalysisDraft,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+  const appliances = applianceRows.map(applianceFromRow);
 
   let scheduleEntries: ChoreScheduleEntry[] = [];
   const weatherOutcome: WeatherScheduleOutcome = settings.weatherLocation ? 'current' : 'disabled';
@@ -1041,6 +1059,7 @@ async function saveReviewedApplianceCareImpl(
   product: Omit<ApplianceCareProductIdentity, 'applianceId'> & { applianceId?: EntityId },
   analysis: ApplianceCareAnalysisDraft,
   approvedTasks: readonly ApprovedApplianceCareTask[],
+  manual?: UploadedManualInput,
 ): Promise<SaveReviewedApplianceResult> {
   await ensureLocalHouseholdImpl(database);
   const applianceId = product.applianceId ?? createId('appliance');
@@ -1052,6 +1071,10 @@ async function saveReviewedApplianceCareImpl(
     allChores: rows.map((row) => ({ ...JSON.parse(row.definition_json) as ChoreDefinition, id: row.id, enabled: Boolean(row.enabled) })),
     newChoreId: () => createId('appliance-care') });
   await database.withTransactionAsync(async () => {
+    if (manual) {
+      if (manual.rightsConfirmed !== true || !analysis.manualSource) throw new Error('解析したPDFの保存を確認してください。');
+      await storeApplianceManualInside(database, manual.base64, analysis.manualSource.sha256);
+    }
     const appliance = plan.appliance;
     await database.runAsync(`INSERT INTO appliances (id, household_id, manufacturer, product_name, model_number, category, display_name,
       official_product_url, official_manual_url, analysis_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

@@ -30,6 +30,7 @@ for (const [platform, snapshot, name] of [
         } },
         '@/platform/notifications/expo-local-notification-gateway': { expoLocalNotificationGateway: gateway },
         '@/features/google-sync/planner-change-events': { subscribeToGooglePlannerChanges: () => () => {} },
+        '@/features/appliance-care/library-changes': { subscribeApplianceLibraryChanges: () => () => {} },
         '@/features/google-sync/background-task': {}, '@/features/google-sync/coordinator': {},
         '@/features/planner/refresh-controller': { createPlannerRefreshController: () => controller },
         '@/platform/storage/shared-repository-adapter': { sharedRepositoryAdapter: () => shared },

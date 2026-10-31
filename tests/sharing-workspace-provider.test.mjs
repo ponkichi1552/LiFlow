@@ -90,6 +90,36 @@ test('active workspace scope never injects a legacy provider and preserves the p
   }
 });
 
+for (const platform of ['ios', 'android']) test(`${platform} the same restored account keeps its saved tab hierarchy visible while membership is still loading`, async () => {
+  const effects = []; let finishAuthentication; let finishMembership; let finishCache;
+  const record = { userId: 'owner', groupId: 'house', status: 'active' }; const model = { viewerUserId: 'owner', plan: { groupId: 'house' } };
+  const authentication = new Promise(resolve => { finishAuthentication = resolve; });
+  const membership = new Promise(resolve => { finishMembership = resolve; });
+  const screen = screenHarness('src/hooks/use-workspace.tsx', { platform, exportName: 'WorkspaceProvider', effectDependencies: true,
+    effect: callback => effects.push(callback), mocks: {
+      '@/components/planner-ui': {}, '@/contexts/workspace-context': { WorkspaceContext: { Provider: 'WorkspaceContextProvider' } },
+      '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => ({ record, model }), startupDisplayCache: { read: () => new Promise(resolve => { finishCache = resolve; }) } },
+      '@/platform/sharing/auth': {}, '@/platform/sharing/private-calendar-sync': {},
+      '@/platform/sharing/workspaces': { readSharingSelection: async () => ({ userId: 'owner', groupId: 'house' }), hasSharingSessionEnabled: async () => true,
+        sharingSessionUser: () => authentication, currentSharingWorkspace: () => membership,
+        openSharedWorkspace: async () => ({ protocol: 2, userId: 'owner', groupId: 'house', drain: async () => {} }),
+        saveSharingSelection: async () => {}, subscribeSharingChanges: () => () => {} },
+    } });
+  const cleanup = effects[0]();
+  try {
+    await screen.flush(); const current = () => screen.nodes().find(node => node.props.value)?.props.value;
+    assert.deepEqual(current().startupDisplay.model, model);
+    finishAuthentication({ uid: 'owner' }); await screen.flush();
+    assert.deepEqual(current().startupDisplay.model, model, 'authentication must not tear down the same account route hierarchy');
+    finishMembership(record);
+    for (let i = 0; i < 8 && !finishCache; i++) await screen.flush();
+    assert.ok(finishCache); assert.deepEqual(current().startupDisplay?.model, model);
+    finishCache(model);
+    for (let i = 0; i < 12; i++) { await new Promise(resolve => setTimeout(resolve, 1)); await screen.flush(); }
+    assert.equal(current().active?.groupId, 'house');
+  } finally { cleanup?.(); screen.unmount(); }
+});
+
 for (const platform of ['ios', 'android']) for (const registryBroken of [false, true]) {
   test(`${platform} foreground uses one timer for shared and private Calendar work and stops both after backgrounding even with registry failure=${registryBroken}`, async t => {
     const effects = []; const ticks = []; let stateListener; let privateStarts = 0; let privateStops = 0; let privateSyncs = 0; let sharedSyncs = 0;

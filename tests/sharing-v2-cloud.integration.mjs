@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails } from '@firebase/rules-unit-testing';
 import { doc, getDocFromServer, setDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp, writeBatch } from 'firebase/firestore';
 import { createSharingCloud } from '../src/platform/sharing/firestore-cloud.ts';
-import { createDeviceIdentity, signSharedDocument, encryptSharedOperation, signSharedOperation, wrapGroupKey } from '../src/features/sharing/crypto.ts';
+import { createDeviceIdentity, signSharedDocument, encryptSharedOperation, decryptAuthenticatedSharedOperation, signSharedOperation, wrapGroupKey } from '../src/features/sharing/crypto.ts';
 import { createSharedRoster, upgradeSharedRoster, sharedAuthorIdentity } from '../src/features/sharing/roster.ts';
 import { v2AuthorProofDigest, bindV2ServerReceipt } from '../src/features/sharing/v2/server-receipts.ts';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
@@ -28,7 +28,9 @@ import { createV2WorkspaceSession } from '../src/features/sharing/v2/workspace-s
 import { createV2NativePair, V2_PAIR_PROJECT } from '../src/features/sharing/development/v2-native-pair.ts';
 import { readCloudWorkspaceArchive } from '../src/features/sharing/workspace-protocol.ts';
 import { workspaceHarness } from './helpers/sharing-workspaces-harness.mjs';
-import { applianceResult } from './helpers/sharing-v2-appliance.mjs';
+import { applianceResult, uploadedApplianceResult } from './helpers/sharing-v2-appliance.mjs';
+import { readV2ManualDocument } from '../src/features/sharing/v2/manual-documents.ts';
+import { applyReceivedSharedFacts } from '../src/platform/storage/sharing-ledger.ts';
 import { v2ReadPoint } from '../src/features/sharing/v2/view-point.ts';
 import { createSharedJoinRequest } from '../src/features/sharing/invitations.ts';
 import { createV2PersonalCopyStore } from '../src/platform/storage/sharing-v2-personal-copy.ts';
@@ -637,10 +639,48 @@ test('draft38 owner upgrades through a real atomic cloud snapshot and a fresh SQ
     const before = await loadSharedFacts(h.database, groupId); const head = (await f.cloud.readGroup(groupId)).group.headSequence;
     await owner.manager.upgradeScheduler();
     const current = await f.cloud.readGroup(groupId); assert.equal(current.group.keyVersion, 2); assert.equal(current.group.headSequence, head);
-    assert.equal(archive[0].body.schedulerVersion, 'liflow-shared-2-draft-38'); assert.equal(archive.at(-1).body.schedulerVersion, 'liflow-shared-2-draft-41');
+    assert.equal(archive[0].body.schedulerVersion, 'liflow-shared-2-draft-38'); assert.equal(archive.at(-1).body.schedulerVersion, 'liflow-shared-2-draft-42');
     const cold = await createV2WorkspaceSession(deps(restored.database)); await cold.synchronizer.sync({ force: true });
     assert.deepEqual(await loadSharedFacts(restored.database, groupId), before);
     assert.deepEqual(await listSharingOutbox(restored.database, groupId), []);
     assert.equal((await loadSharedReplica(restored.database, groupId)).operations.length, before.length);
   } finally { h.connection.close(); restored.connection.close(); }
+});
+
+test('real Firestore stores only encrypted PDF chunks denies outsiders and restores one appliance after a lost upload response', async () => {
+  const f = await fixture(); const owner = createDatabase(); const restarted = createDatabase(); let n = 0;
+  const scope = { groupId, userId: 'owner', householdId: 'v2-pdf-only' };
+  const repositoryFor = async database => {
+    await initializeV2EventStore(database, scope);
+    return createV2EventRepository(database, { ...scope, identity: f.identity, anchor: f.roster, archive: () => [f.roster], assertWritable() {} });
+  };
+  try {
+    const repository = await repositoryFor(owner.database); const input = uploadedApplianceResult();
+    const controller = createV2GroupController(repository, { makeId: () => `cloud-pdf-${++n}`, now: () => new Date(), sync: async () => {} });
+    const saved = await controller.actions.reviewAppliance({ reviewed: true, ...input, addTaskNames: [] });
+    const facts = await loadSharedFacts(owner.database, groupId); let lastSequence = 0;
+    for (const fact of [...facts].sort((a, b) => a.operation.deviceSequence - b.operation.deviceSequence)) {
+      const envelope = await encryptSharedOperation(crypto, fact.operation, f.key, f.identity);
+      const proof = { authorProofDigest: v2AuthorProofDigest(fact) };
+      const event = await f.cloud.upload(envelope, proof); const retry = await f.cloud.upload(envelope, proof);
+      assert.equal(retry.uploadSequence, event.uploadSequence); lastSequence = event.uploadSequence;
+      const raw = (await getDocFromServer(doc(f.store, 'sharingGroups', groupId, 'events', fact.operation.operationId))).data();
+      assert.equal(JSON.stringify(raw).includes(input.manual.base64), false);
+      assert.equal(JSON.stringify(raw).includes('%PDF-'), false);
+      for (const context of [environment.unauthenticatedContext(), environment.authenticatedContext('outsider')]) {
+        await assertFails(getDocFromServer(doc(context.firestore(), 'sharingGroups', groupId, 'events', fact.operation.operationId)));
+      }
+    }
+    assert.equal(lastSequence, saved.operations.length);
+    const pulled = await f.cloud.pull(groupId, 0); const original = [];
+    for (const event of pulled.events) original.push(await decryptAuthenticatedSharedOperation(crypto, event.envelope, f.key, f.identity, groupId, 1));
+    const cold = await repositoryFor(restarted.database);
+    const receipts = pulled.events.map(event => event.serverReceipt);
+    await applyReceivedSharedFacts(restarted.database, groupId, original.reverse(), String(lastSequence), cold.project, null, Date.now(), cold.evidenceForServerReceipts(receipts));
+    const state = await cold.readState(); const at = v2ReadPoint(state.assessment.view, state.archive.at(-1));
+    assert.equal(state.assessment.rejected.length, 0, state.assessment.rejected.map(item => item.error.message).join('; '));
+    assert.equal(readV2ManualDocument(state.assessment.view, at, input.result.analysis.manualSource.sha256), input.manual.base64);
+    assert.equal(state.assessment.view.ofType('appliance').length, 1);
+    assert.deepEqual(await listSharingOutbox(restarted.database, groupId), []);
+  } finally { owner.connection.close(); restarted.connection.close(); }
 });

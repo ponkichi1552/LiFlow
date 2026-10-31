@@ -6,7 +6,8 @@ import { AppState } from 'react-native';
 
 import { millisecondsUntilNextLocalDay } from '@/domain/scheduling/local-date';
 import type { PlannerSnapshot } from '@/platform/storage/repository';
-import { applyWeatherToPlannerSnapshot, loadGoogleSyncState, loadPlannerSnapshot, LOCAL_HOUSEHOLD_ID } from '@/platform/storage/repository';
+import { applyWeatherToPlannerSnapshot, loadGoogleSyncState, loadPlannerSnapshot, LOCAL_HOUSEHOLD_ID, refreshCachedApplianceLibrary } from '@/platform/storage/repository';
+import { subscribeApplianceLibraryChanges } from '@/features/appliance-care/library-changes';
 import { refreshPlannerFromWidget } from '@/platform/widgets/refresh-planner-from-widget';
 import { publishTodayWidgetSnapshot } from '@/features/widgets/publish-today-widget-snapshot';
 import { syncDailyHouseworkDigest } from '@/features/notifications/daily-housework-digest';
@@ -89,6 +90,9 @@ export function PlannerDataProvider({ children, databaseOverride }: { children: 
       return true;
     };
     const unsubscribe = subscribeToGooglePlannerChanges(refresh, shared ? sharedPlannerChangeScope(shared.userId, shared.groupId) : 'personal');
+    const unsubscribeAppliances = shared ? () => {} : subscribeApplianceLibraryChanges(() => {
+      void refreshCachedApplianceLibrary(database).then(() => { if (live) refresh(); }).catch(() => { if (live) void controller.refresh({ force: true }); });
+    });
     const unsubscribeSharing = shared ? subscribeSharingChanges((scope) => {
       if (scope?.userId === shared.userId && scope.groupId === shared.groupId) refresh();
     }) : () => {};
@@ -109,6 +113,7 @@ export function PlannerDataProvider({ children, databaseOverride }: { children: 
       live = false;
       unsubscribeClock();
       unsubscribe();
+      unsubscribeAppliances();
       unsubscribeSharing();
       subscription.remove();
       clearTimeout(midnightTimer);

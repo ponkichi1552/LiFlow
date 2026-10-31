@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { SQLiteDatabase } from 'expo-sqlite';
 import type { ReactNode } from 'react';
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,6 +15,7 @@ import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { V2ApplianceReview, V2ApplianceReviewResult } from '../v2/appliance-actions';
 import type { V2MutationOutcome } from './mutation-outcome';
 import { V2TextField } from './form-controls';
+import { readApplianceManual } from '../../../platform/storage/appliance-manuals';
 
 export type V2ApplianceMode = 'appliance' | 'applianceReview';
 const responseFor = (appliance: Appliance): ProductVerifiedResponse => ({ status: 'verified', product: { manufacturer: appliance.manufacturer,
@@ -25,10 +27,11 @@ const caption = { ...typography.caption, color: palette.muted };
 const warning = { ...typography.caption, color: palette.warning };
 
 /** Review is explicit. No API completion, navigation or refresh can silently replace shared chores. */
-export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, perform, onBack, onOpen, onReview, onConfiguration, onDetails, header, initialProductName }: {
+export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, perform, onBack, onOpen, onReview, onConfiguration, onDetails, header, initialProductName, personalDatabase }: {
   model: V2GroupScreenModel; mode: V2ApplianceMode; applianceId?: string; actions: V2GroupController['actions']; busy: boolean;
   perform: (work: () => Promise<unknown>) => Promise<V2MutationOutcome>; onBack: () => void; onOpen?: (id: string) => void;
   initialProductName?: string; onReview?: (id?: string) => void; onConfiguration: (id: string) => void; onDetails?: (id: string) => void; header?: ReactNode;
+  personalDatabase?: SQLiteDatabase;
 }) {
   const insets = useSafeAreaInsets();
   const pageStyle = { ...page, paddingBottom: Math.max(page.paddingBottom, insets.bottom + 24) };
@@ -39,6 +42,17 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   const [input, setInput] = useState<ApplianceCareApiRequest>(() => ({ manufacturer: starting?.manufacturer ?? '', productName: starting?.productName ?? initialProductName ?? '', modelNumber: starting?.modelNumber ?? '', ...(starting?.category ? { category: starting.category } : {}) }));
   const [canAnalyze, setCanAnalyze] = useState(false);
   const [manual, setManual] = useState<UploadedManualInput>();
+  const [retainedManual, setRetainedManual] = useState<UploadedManualInput>();
+  const manualTouched = useRef(false);
+  useEffect(() => {
+    const digest = starting?.analysis.manualSource?.sha256;
+    if (!digest || !personalDatabase || mode !== 'applianceReview') return;
+    let current = true;
+    void readApplianceManual(personalDatabase, digest).then(base64 => {
+      if (base64 && current && !manualTouched.current) { const input: UploadedManualInput = { base64, rightsConfirmed: true }; setRetainedManual(input); setManual(input); }
+    }).catch(() => { /* A legacy or unreadable PDF can be selected again without changing its saved analysis. */ });
+    return () => { current = false; };
+  }, [starting, personalDatabase, mode]);
   const draft = useRef(input); const [response, setResponse] = useState<ProductVerifiedResponse | null>(null);
   const [chosen, setChosen] = useState<string[]>([]); const chosenRef = useRef(chosen);
   const [reviewed, setReviewed] = useState(false); const reviewedRef = useRef(false);
@@ -55,6 +69,7 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   };
   const analyze = async (override?: ApplianceCareApiRequest) => {
     if (working.current || locked) return;
+    if (model.manualStorageSupported === false) { setError('解析前に、グループ管理で互換更新を行ってください。'); return; }
     if (!canAnalyze) { setError('ログインと正規端末の確認が済むまで家電AIは利用できません。'); return; }
     if (!manual) { setError('取扱説明書PDFを選び、送信の確認をしてください。'); return; }
     working.current = true; const controller = beginRequest(() => { working.current = false; setAnalyzing(false); });
@@ -79,7 +94,7 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   };
   const save = (review: V2ApplianceReview) => execute(async () => {
     if (!reviewedRef.current) throw new Error('メーカー・型番・手順・注意事項を確認してください。');
-    const result = await actions.reviewAppliance(review); setSaved(result);
+    const result = await actions.reviewAppliance({ ...review, ...(review.result.analysis.manualSource && manual ? { manual } : {}) }); setSaved(result);
   });
   const executeRead = async () => {
     if (working.current || busy) return; working.current = true;
@@ -112,7 +127,8 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
     keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" extraData={{ chosen, reviewed, locked }}
     ListHeaderComponent={<View style={{ gap: 14 }}>{intro}
       {mode === 'applianceReview' ? <>
-        <Text style={caption}>解析を実行すると、メーカー・製品名・型番と、選択した説明書PDFを解析APIとAI提供元へ送信します。PDF原本は共有しません。結果は確認して保存するまで、他のメンバーへ共有されません。既存家事の周期・有効状態・手順は上書きしません。</Text>
+        {model.manualStorageSupported === false ? <Text accessibilityRole="alert" style={warning}>PDFを共有保存するには、管理者によるグループの互換更新が必要です。更新前は解析を実行しません。</Text> : null}
+        <Text style={caption}>説明書PDFを解析APIとAI提供元へ送信します。確認して保存すると、PDFと説明を個人・グループに保存します。共有や再送で解析回数は増えません。</Text>
         {basis?.source.kind === 'conflict' ? <Text style={warning}>確認して共有すると、表示開始時にあった解析の競合を新しい内容で解決します。元の履歴は保持します。</Text> : null}
         {basis?.row.deleted || basis?.alive.kind === 'conflict' ? <Text style={warning}>確認して共有すると、この家電をグループ全員の一覧へ復元します。既存家事の削除状態は変更しません。</Text> : null}
         {applianceId && !detail ? <Text style={warning}>対象の共有家電を読み込めません。家電一覧から開き直してください。</Text> : null}
@@ -121,8 +137,8 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
         <V2TextField label="型番" value={input.modelNumber} onChangeText={value => change('modelNumber', value)} editable={!locked && !saved && !starting} maxLength={120} />
         <Text style={caption}>月5回まで（再解析を含む）。毎月1日9時（日本時間）に更新。受付後の中止・結果検証の失敗は1回に数えます。OpenAIから結果を得られないとサーバーで確認した障害は消費しません。端末とアカウントの少ない残回数を適用します。</Text>
         <ApplianceAiAccount disabled={locked} onReady={setCanAnalyze} />
-        <ManualUploadInput disabled={locked || Boolean(saved)} onChange={setManual} />
-        <AppButton title="選択したPDFを解析する" disabled={!canAnalyze || !manual || locked || Boolean(saved) || Boolean(applianceId && !detail)} onPress={() => void analyze()} />
+        <ManualUploadInput retained={retainedManual} disabled={locked || Boolean(saved)} onChange={value => { manualTouched.current = true; setManual(value); setResponse(null); check(false); }} />
+        <AppButton title="選択したPDFを解析する" disabled={model.manualStorageSupported === false || !canAnalyze || !manual || locked || Boolean(saved) || Boolean(applianceId && !detail)} onPress={() => void analyze()} />
         {analyzing ? <><ActivityIndicator color={palette.accent} /><Text style={caption}>{stage}</Text><AppButton title="解析を中止" variant="quiet" onPress={() => request.current?.abort()} /></> : null}
       </> : !detail ? <Text style={warning}>対象の共有家電を表示できません。一覧から開き直してください。</Text> : <>
         {detail.row.needsReview ? <Card><Text style={warning}>{detail.row.deleted ? 'この家電は削除されています。' : detail.alive.kind === 'conflict' ? '削除と編集が重なっています。' : '解析内容の確認が必要です。'}署名付きの履歴は保持しています。</Text>

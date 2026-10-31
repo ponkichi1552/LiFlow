@@ -1,3 +1,4 @@
+import { withUploadedManual } from './helpers/sharing-v2-appliance.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -157,6 +158,7 @@ test('weather selection keeps the first pending candidate consistent and permits
       '@/features/weather/use-municipality-suggestions': { useMunicipalitySuggestions: () => ({ status: 'results', query: 'よこはま', error: null, candidates }) },
       '@/platform/storage/repository': { saveWeatherLocation: async (_db, value) => { saved.push(value); if (saved.length === 1) await pending.promise; } },
     } });
+    await screen.press('天気予報・洗濯を開く');
     await screen.change('天気予報に使う市区町村', 'よこはま');
     const first = screen.button('地域 横浜市 を選択'); const second = screen.button('地域 横浜町 を選択');
     first.props.onPress(); second.props.onPress(); await screen.flush();
@@ -202,7 +204,7 @@ async function verifyApplianceAbortOnLeave(leave) {
     } });
     const cleanups = effects.map((callback) => callback());
     await screen.change('メーカー名', 'Dyson'); await screen.change('製品名', 'V12'); await screen.change('型番', 'SV20');
-    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用でき、解析APIへの送信を確認した');
+    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用・解析・共有できることを確認した');
     await screen.press('選択したPDFを解析'); assert.equal(signal.aborted, false);
     if (leave === 'back') await screen.press('前の画面に戻る');
     else if (leave === 'blur') { assert.equal(typeof blur, 'function', 'a retained stack screen needs a native blur listener'); blur(); }
@@ -230,13 +232,13 @@ test('leaving a personal appliance during its committed save preserves the save 
     screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { ...f.options,
       effect: callback => { const cleanup = callback(); if (cleanup) cleanups.push(cleanup); },
       navigationListener: (event, listener) => { if (event === 'blur') blur = listener; }, mocks: {
-        '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async (_request, _base, _timeout, _stage, inputSignal) => { requests++; signal = inputSignal; return applianceResult(); } },
+        '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async (_request, _base, _timeout, _stage, inputSignal) => { requests++; signal = inputSignal; return withUploadedManual(applianceResult(), _request.manual); } },
         '@/platform/storage/repository': { ...repository, saveReviewedApplianceCare: async (...args) => {
           saves++; await gate.promise; try { return await repository.saveReviewedApplianceCare(...args); } finally { done.resolve(); }
         } },
       } });
     await screen.change('メーカー名', 'Dyson'); await screen.change('製品名', 'V12'); await screen.change('型番', 'SV20');
-    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用でき、解析APIへの送信を確認した');
+    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用・解析・共有できることを確認した');
     const originalStart = screen.button('選択したPDFを解析'); originalStart.props.onPress();
     for (let n = 0; n < 30 && saves === 0; n++) await screen.flush(); assert.equal(saves, 1); assert.equal(requests, 1);
     assert.equal(typeof blur, 'function'); blur(); await screen.flush();

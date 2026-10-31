@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { Text } from 'react-native';
 
-import { AppButton, Card, Page, ScreenHeading, palette } from '@/components/planner-ui';
+import { AppButton, BackButton, Card, Page, ScreenHeading, palette } from '@/components/planner-ui';
 
-export function PlannerLoadState({ title, message, error, retry }: {
+export function PlannerLoadState({ title, message, error, retry, onBack }: {
   title: string;
   message: string;
   error: string | null;
   retry: () => Promise<void>;
+  onBack?: () => void;
 }) {
   const [retrying, setRetrying] = useState(false);
   const retryLoad = async () => {
@@ -15,7 +16,7 @@ export function PlannerLoadState({ title, message, error, retry }: {
     try { await retry(); } finally { setRetrying(false); }
   };
   return (
-    <Page startupReady={Boolean(error)}>
+    <Page startupReady={Boolean(error)} header={onBack ? <BackButton onPress={onBack} /> : undefined}>
       <ScreenHeading title={title} description={error ? 'データを読み込めませんでした。' : message} />
       {error ? (
         <Card>

@@ -47,7 +47,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     try {
       const record = user ? await traceStartup('workspace.membership', currentSharingWorkspace) : null;
       if (!await check()) return;
-      if (activeRef.current?.userId !== user?.uid) { activeRef.current = null; setActive(null); setStartupDisplay(null); }
+      if (activeRef.current?.userId !== user?.uid) {
+        activeRef.current = null; setActive(null);
+        // A verified cache for this same account remains visible while its live
+        // workspace restores. Do not briefly remove the tab/route hierarchy.
+        setStartupDisplay(previous => previous?.record.userId === user?.uid ? previous : null);
+      }
       setGroup(record); setUserId(user?.uid ?? null);
       const eligible = record && ['active', 'creating'].includes(record.status);
       let next = eligible ? activeRef.current : null;

@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 const INITIAL_SCHEMA_VERSION = 1;
-const CURRENT_SCHEMA_VERSION = 20;
+const CURRENT_SCHEMA_VERSION = 21;
 
 const runningMigrations = new WeakMap<SQLiteDatabase, Promise<void>>();
 
@@ -376,6 +376,20 @@ async function migrateSchema(database: SQLiteDatabase): Promise<void> {
       PRAGMA user_version = 20;
     `);
     version = 20;
+  }
+  if (version < 21) {
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS appliance_manual_documents (
+        sha256 TEXT PRIMARY KEY NOT NULL, byte_length INTEGER NOT NULL CHECK(byte_length BETWEEN 32 AND 6291456),
+        content_base64 TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS appliance_shared_copies (
+        group_id TEXT NOT NULL, shared_id TEXT NOT NULL, personal_id TEXT NOT NULL, source_digest TEXT NOT NULL,
+        PRIMARY KEY(group_id, shared_id)
+      );
+      PRAGMA user_version = 21;
+    `);
+    version = 21;
   }
   if (startingVersion < CURRENT_SCHEMA_VERSION) {
     await database.execAsync(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);

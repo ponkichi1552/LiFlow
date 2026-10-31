@@ -15,19 +15,16 @@ for (const platform of ['ios', 'android']) {
     assert.deepEqual(calls, [['personal', 'same-id'], ['shared', 'same-id']]);
     const list = screen.nodes().find(node => node.type === 'FlatList'); assert.equal(new Set(list.props.data.map(list.props.keyExtractor)).size, 2);
   });
-  test(`${platform} adding an appliance defaults to personal and shares only after choosing the group`, async () => {
+  test(`${platform} adding a joined appliance uses one registration flow without an audience choice or duplicate taps`, async () => {
     const calls = []; const screen = screenHarness('src/features/appliance-care/appliance-library.tsx', { exportName: 'ApplianceLibrary', platform, props: {
-      joined: true, items: [], addSources: ['personal', 'shared'], onOpen() {}, onAdd: (...args) => calls.push(args),
+      joined: true, items: [], onOpen() {}, onAdd: (...args) => calls.push(args),
     } });
-    const radio = label => { const node = screen.nodes().find(node => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === label); assert.ok(node); return node; };
-    await screen.press('家電を追加'); assert.equal(radio('個人用に追加').props.accessibilityState.checked, true);
+    await screen.press('家電を追加'); assert.equal(screen.nodes().some(node => node.props.accessibilityRole === 'radio'), false);
     await screen.press('次へ'); assert.match(screen.text(), /製品名を入力/u); assert.deepEqual(calls, []);
-    await screen.change('家電の製品名', '自分の掃除機'); await screen.press('次へ'); assert.deepEqual(calls, [['personal', '自分の掃除機']]);
-    await screen.press('家電を追加'); await radio('グループ共通に追加').props.onPress(); await screen.flush(); await screen.change('家電の製品名', '共有の洗濯機');
+    await screen.change('家電の製品名', '掃除機');
     const next = screen.button('次へ'); next.props.onPress(); next.props.onPress(); await screen.flush();
-    assert.deepEqual(calls.at(-1), ['shared', '共有の洗濯機']); assert.equal(calls.length, 2);
-    await screen.press('家電を追加'); assert.equal(radio('個人用に追加').props.accessibilityState.checked, true);
-    await screen.press('キャンセル'); assert.equal(calls.length, 2);
+    assert.deepEqual(calls, [['shared', '掃除機']]);
+    await screen.press('家電を追加'); await screen.press('キャンセル'); assert.equal(calls.length, 1);
   });
   test(`${platform} joined appliance navigation retains personal storage and passes a new shared product name into review`, async () => {
     const navigation = []; const personal = { database: {}, snapshot: { appliances: [{ id: 'private', displayName: '自分の家電' }] }, refresh() {} };
@@ -41,7 +38,7 @@ for (const platform of ['ios', 'android']) {
     const props = screen.nodes().find(node => node.type === 'GroupScreen').props;
     assert.equal(props.personalGuide.snapshot, personal.snapshot);
     props.onPersonalAppliance('private'); assert.deepEqual(navigation.at(-1), ['push', { pathname: '/manual/appliances/[id]', params: { id: 'private', returnTo: '/manual' } }]);
-    props.onAddPersonalAppliance('自分の掃除機'); assert.deepEqual(navigation.at(-1), ['push', { pathname: '/manual/appliance-care', params: { productName: '自分の掃除機', returnTo: '/manual' } }]);
+    assert.equal(props.onAddPersonalAppliance, undefined, 'a joined group has no second registration destination');
     props.onApplianceReview(undefined, '共有の洗濯機'); assert.deepEqual(navigation.at(-1), ['push', { pathname: '/group-v2/appliance-review', params: { productName: '共有の洗濯機' } }]);
   });
   test(`${platform} personal appliance detail and analysis always request the private planner while joined`, () => {

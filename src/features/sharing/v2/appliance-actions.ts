@@ -1,5 +1,5 @@
 import { V2_SCHEDULER_VERSION } from './payload-schema.ts';
-import type { ProductVerifiedResponse } from '../../appliance-care/api-contracts';
+import type { ProductVerifiedResponse, UploadedManualInput } from '../../appliance-care/api-contracts';
 import type { ApplianceCareAnalysisDraft } from '../../appliance-care/contracts';
 import { isAnalysisRecord } from '../../appliance-care/analysis-validation.ts';
 import { applianceDisplayName } from '../../appliance-care/display-name.ts';
@@ -15,9 +15,11 @@ import { normalizeV2ReviewedAppliance, normalizedApplianceModel, readV2Appliance
 import type { V2ApplianceSelection } from './appliance-state';
 import { readV2EditableField } from './field-edit.ts';
 import { V2StaleSettingsError } from './configuration-edit.ts';
+import { prepareManualDocument } from '../../appliance-care/manual-document.ts';
+import { manualDocumentDrafts } from './manual-documents.ts';
 
 export interface V2ApplianceReview { reviewed: true; result: ProductVerifiedResponse; addTaskNames: readonly string[];
-  selection?: V2ApplianceSelection; resolveOperationIds?: readonly string[]; restorePresence?: boolean; reviewedDisplayName?: string }
+  manual?: UploadedManualInput; selection?: V2ApplianceSelection; resolveOperationIds?: readonly string[]; restorePresence?: boolean; reviewedDisplayName?: string }
 export interface V2ApplianceReviewResult { operations: SharedOperation[]; applianceId: string; createdChoreIds: string[]; preservedTaskNames: string[] }
 export class V2ApplianceAlreadyExistsError extends Error {
   readonly code = 'sharing/v2-appliance-exists';
@@ -40,11 +42,14 @@ export function createV2ApplianceActions(repository: ReturnType<typeof createV2E
     }),
     async reviewAppliance(input: V2ApplianceReview): Promise<V2ApplianceReviewResult> {
       const instant = options.now().toISOString(); let saved: Omit<V2ApplianceReviewResult, 'operations'> | undefined;
+      const manual = input.manual ? prepareManualDocument(input.manual.base64, input.result.analysis.manualSource?.sha256) : undefined;
+      if (input.manual && (input.manual.rightsConfirmed !== true || input.result.analysis.manualSource?.sha256 !== manual?.document.sha256)) throw new Error('解析したPDFの保存を確認してください。');
       const operations = await repository.commitCurrent(async state => {
         if (!input || input.reviewed !== true || !isAnalysisRecord(input.result) || input.result.status !== 'verified'
           || !isAnalysisRecord(input.result.product) || !isAnalysisRecord(input.result.officialSources)) throw new Error('解析結果を確認してから共有してください。');
         const result = input.result; const product = result.product;
-        if (result.analysis.manualSource && ![V2_SCHEDULER_VERSION, 'liflow-shared-2-draft-40', 'liflow-shared-2-draft-39'].includes(state.archive.at(-1)!.body.schedulerVersion)) throw new Error('共有グループの所有者が共有画面から互換更新を行ってください。既存データは保持されます。');
+        if (result.analysis.manualSource && ![V2_SCHEDULER_VERSION, 'liflow-shared-2-draft-41', 'liflow-shared-2-draft-40', 'liflow-shared-2-draft-39'].includes(state.archive.at(-1)!.body.schedulerVersion)) throw new Error('共有グループの所有者が共有画面から互換更新を行ってください。既存データは保持されます。');
+        if (manual && state.archive.at(-1)!.body.schedulerVersion !== V2_SCHEDULER_VERSION) throw new Error('PDFの共有保存にはグループの互換更新が必要です。解析結果は再解析せず保存できます。');
         if (![product.manufacturer, product.productName, product.modelNumber].every(value => typeof value === 'string' && value.trim())) throw new Error('メーカー・製品名・型番を確認してください。');
         const groupId = repository.scope.groupId; const selection = input.selection;
         if (selection && selection.groupId !== groupId) throw new V2StaleSettingsError();
@@ -92,6 +97,7 @@ export function createV2ApplianceActions(repository: ReturnType<typeof createV2E
         if (creating || !equal || input.restorePresence) drafts.unshift(draft('appliance', id, { ...content,
           createdAt: prior?.createdAt ?? (oldCreated.kind === 'value' && typeof oldCreated.value === 'string' && Number.isFinite(Date.parse(oldCreated.value)) ? oldCreated.value : instant),
           updatedAt: instant }, input.restorePresence ? 'restore' : 'patch'));
+        if (manual) drafts.unshift(...manualDocumentDrafts(view, manual, options.makeId));
         saved = { applianceId: id, createdChoreIds, preservedTaskNames }; return drafts;
       });
       if (!saved) throw new V2StaleSettingsError(); return { ...saved, operations };

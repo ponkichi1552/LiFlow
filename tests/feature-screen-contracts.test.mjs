@@ -1,3 +1,4 @@
+import { withUploadedManual } from './helpers/sharing-v2-appliance.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -141,11 +142,11 @@ test('feature screen contract: verified appliance analysis auto-saves maker inte
       analysis: { manufacturer: 'Dyson', model: 'SV20', analyzedAt: new Date().toISOString(), requiresUserReview: true, tasks } };
     let sent;
     const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { database: h.database,
-      mocks: { '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async (request) => { sent = request; return verified; } } },
+      mocks: { '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async (request) => { sent = request; return withUploadedManual(verified, request.manual); } } },
     });
     await screen.change('メーカー名', 'Dyson'); await screen.change('製品名', 'V12'); await screen.change('型番', 'SV20');
     await screen.change('カテゴリ（任意）', 'そうじ'); await screen.press('掃除機を選択');
-    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用でき、解析APIへの送信を確認した');
+    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用・解析・共有できることを確認した');
     await screen.press('選択したPDFを解析');
     assert.equal(sent.category, 'vacuum_cleaner');
     const saved = await repository.loadPlannerSnapshot(h.database, today);

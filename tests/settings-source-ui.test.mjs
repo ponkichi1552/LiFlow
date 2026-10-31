@@ -235,6 +235,7 @@ test('v2 Settings keeps both chore audiences and routes waste management to its 
     const screen = screenHarness('src/app/settings.tsx', { effect: callback => effects.push(callback), database: f.personal.database, snapshot: () => f.personalData.snapshot,
       personalData: () => f.personalData, navigate: (...args) => navigation.push(args), mocks: {
         '@/platform/sharing/private-calendar-secrets': { nativePrivatePlannerPreferences: () => ({ read: async () => null }) },
+        '@/platform/sharing/workspaces': { sharingSessionUser: async () => ({ uid: f.scope.userId }), hasOtherGoogleWorkspaceConnections: async () => false },
         '@/features/google-sync/background-task': {},
         '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: false }) },
         '@/platform/google-tasks/google-sign-in-gateway': {},
@@ -246,6 +247,37 @@ test('v2 Settings keeps both chore audiences and routes waste management to its 
     await screen.press('家事ごとの設定を開く'); assert.ok(screen.text().indexOf('個人用') < screen.text().indexOf('グループ用 · 家族'));
     await screen.press('ゴミ収集日を管理'); assert.deepEqual(navigation.at(-1), ['push', '/group-v2/waste']);
   } finally { await f.close(); }
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} ordinary settings waits for the restored account before reading protected rhythm and rejects a changed identity`, async () => {
+  const h = createDatabase();
+  try {
+    await repository.initializeLocalDatabase(h.database); const snapshot = await repository.loadPlannerSnapshot(h.database);
+    for (const uid of ['owner', 'another-account']) {
+      const effects = []; let finish; let reads = 0;
+      const authentication = new Promise(resolve => { finish = resolve; });
+      const screen = screenHarness('src/app/settings.tsx', { platform, database: h.database, snapshot: () => snapshot,
+        effect: callback => effects.push(callback), effectDependencies: true, mocks: {
+          '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { userId: 'owner', active: null } } },
+          '@/platform/sharing/workspaces': { sharingSessionUser: () => authentication, hasOtherGoogleWorkspaceConnections: async () => false },
+          '@/features/google-sync/background-task': {},
+          '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: false }) },
+          '@/platform/google-tasks/google-sign-in-gateway': {},
+          '@/platform/sharing/private-calendar-secrets': { nativePrivatePlannerPreferences: () => {
+            reads++; return { read: async () => null };
+          } },
+        } });
+      const cleanup = effects.splice(0).map(effect => effect()); await screen.flush();
+      assert.equal(reads, 0); assert.equal(screen.text().includes('本人の生活リズムを読み込めませんでした'), false);
+      assert.ok(screen.button('前の画面に戻る'), 'loading must retain a way back');
+      finish({ uid }); for (let n = 0; n < 8; n++) await screen.flush();
+      assert.equal(reads, uid === 'owner' ? 1 : 0);
+      assert.equal(screen.text().includes('家事ごとの設定'), uid === 'owner');
+      assert.equal(screen.text().includes('本人の生活リズムを読み込めませんでした'), uid !== 'owner');
+      assert.ok(screen.button('前の画面に戻る'), 'failed authentication must retain a way back');
+      cleanup.forEach(dispose => dispose?.()); screen.unmount();
+    }
+  } finally { h.connection.close(); }
 });
 
 test('v2 detached settings use management-only reads and existing single-chore authority without private services or category partial writes', async () => {

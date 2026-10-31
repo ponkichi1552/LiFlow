@@ -2,7 +2,7 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fixture, seeds, now, groupId, receiptsFor, draft } from './helpers/sharing-v2-repository-fixture.mjs';
-import { applianceResult, manualUrl } from './helpers/sharing-v2-appliance.mjs';
+import { applianceResult, manualUrl, uploadedApplianceResult } from './helpers/sharing-v2-appliance.mjs';
 import { createV2GroupController } from '../src/features/sharing/v2/controller.ts';
 import { v2ApplianceId } from '../src/features/sharing/v2/appliance-actions.ts';
 import { applyReceivedSharedFacts, listSharingOutbox, loadSharedFacts, readSharingCheckpoint } from '../src/platform/storage/sharing-ledger.ts';
@@ -199,16 +199,13 @@ test('v2 legacy partial appliance edits use their causal source and malformed st
   } finally { f.close(); }
 });
 
-test('v2 uploaded manual review shares digest provenance and reviewed tasks but never uploads the original PDF', async () => {
+test('v2 uploaded manual review retains its exact PDF as signed chunks with the reviewed tasks', async () => {
   const f = await setup();
   try {
-    const result = applianceResult(); const reference = 'liflow-manual://sha256/' + 'b'.repeat(64);
-    result.officialSources = { manualUrl: reference };
-    result.analysis.manualSource = { kind: 'user_upload', sha256: 'b'.repeat(64) };
-    for (const task of result.analysis.tasks) task.evidence = [{ url: reference, pageOrSection: '3ページ' }];
-    const saved = await f.save({ result }); const value = await detail(f.c, saved.applianceId);
-    assert.equal(value.row.needsReview, false); assert.deepEqual(value.appliance.analysis, result.analysis);
-    assert.equal(JSON.stringify(saved.operations).includes('base64'), false);
+    const input = uploadedApplianceResult(); const saved = await f.save(input); const value = await detail(f.c, saved.applianceId);
+    assert.equal(value.row.needsReview, false); assert.deepEqual(value.appliance.analysis, input.result.analysis);
+    assert.equal(saved.operations.filter(op => op.entityType === 'manualDocument').length, 1);
+    assert.equal(saved.operations.find(op => op.entityType === 'manualChunk').payload.content, input.manual.base64);
     assert.equal(JSON.stringify(saved.operations).includes('file_data'), false);
     assert.equal((await f.device.repository.readState()).assessment.rejected.length, 0);
   } finally { f.close(); }

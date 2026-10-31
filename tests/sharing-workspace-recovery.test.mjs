@@ -13,6 +13,7 @@ function fixture(options = {}) {
       members: [{ userId: 'member', devices: [{ identity: { deviceId: 'this-device' } }] }] } } }));
   const registry = { closeAsync: async () => { events.push('registry-close'); } };
   const api = loadNativeModule('src/platform/sharing/workspaces.ts', {
+    './appliance-retention': { createNativeApplianceRetention: () => ({ refresh: async () => {} }) },
     'expo-crypto': { randomUUID: () => 'test-operation' },
     'expo-sqlite': { openDatabaseAsync: async () => registry },
     './firebase-services.ts': { isSharingConfigured: () => true,

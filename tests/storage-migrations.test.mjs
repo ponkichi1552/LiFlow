@@ -26,7 +26,7 @@ test('schema migration creates the latest local planner and Google sync schema',
   const { connection, database } = sqliteAdapter();
   try {
     await migrateLocalDatabase(database);
-    assert.equal(connection.prepare('PRAGMA user_version').get().user_version, 20);
+    assert.equal(connection.prepare('PRAGMA user_version').get().user_version, 21);
     const settingsColumns = connection.prepare('PRAGMA table_info(household_settings)').all().map((column) => column.name);
     assert.equal(settingsColumns.includes('notifications_enabled'), true);
     assert.equal(settingsColumns.includes('built_in_chore_catalog_version'), true);
@@ -121,7 +121,7 @@ test('version 6 migration tolerates a notification preference column already pre
 
     await migrateLocalDatabase(database);
 
-    assert.equal(connection.prepare('PRAGMA user_version').get().user_version, 20);
+    assert.equal(connection.prepare('PRAGMA user_version').get().user_version, 21);
     const settingsColumns = connection.prepare('PRAGMA table_info(household_settings)').all();
     assert.equal(settingsColumns.filter((column) => column.name === 'notifications_enabled').length, 1);
     assert.equal(connection.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'appliances'").get().name, 'appliances');
@@ -171,7 +171,7 @@ test('failure during an old schema upgrade rolls back its DDL and version and ca
     assert.equal(connection.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'table'").get().n, 0);
     database.execAsync = exec;
     await migrateLocalDatabase(database);
-    assert.equal(connection.prepare('PRAGMA user_version').get().user_version, 20);
+    assert.equal(connection.prepare('PRAGMA user_version').get().user_version, 21);
   } finally { connection.close(); }
 });
 
@@ -179,7 +179,7 @@ test('concurrent migrations on one connection join the same transaction', async 
   const { connection, database } = sqliteAdapter();
   try {
     await Promise.all([migrateLocalDatabase(database), migrateLocalDatabase(database), migrateLocalDatabase(database)]);
-    assert.equal(connection.prepare('PRAGMA user_version').get().user_version, 20);
+    assert.equal(connection.prepare('PRAGMA user_version').get().user_version, 21);
   } finally { connection.close(); }
 });
 
@@ -202,7 +202,7 @@ test('a failed v16 status-column migration leaves no partially added columns', a
     assert.ok(!connection.prepare('PRAGMA table_info(google_task_links)').all().some((column) => column.name === 'last_synced_status'));
     database.execAsync = exec;
     await migrateLocalDatabase(database);
-    assert.equal(connection.prepare('PRAGMA user_version').get().user_version, 20);
+    assert.equal(connection.prepare('PRAGMA user_version').get().user_version, 21);
   } finally { connection.close(); }
 });
 
@@ -215,7 +215,7 @@ test('a transient SQLite busy error retries the complete migration', async () =>
       return exec(sql);
     };
     await migrateLocalDatabase(database);
-    assert.equal(connection.prepare('PRAGMA user_version').get().user_version, 20);
+    assert.equal(connection.prepare('PRAGMA user_version').get().user_version, 21);
     assert.equal(failures, 2);
   } finally { connection.close(); }
 });

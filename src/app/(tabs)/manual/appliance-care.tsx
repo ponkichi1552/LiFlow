@@ -1,6 +1,6 @@
 import { FormTextInput as TextInput } from '../../../components/form-text-input';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ActionLabel, AppButton, BackButton, Card, Page, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
@@ -18,6 +18,10 @@ import { applianceDisplayName } from '@/features/appliance-care/display-name';
 import { usePlannerData } from '@/hooks/use-planner-data';
 import { loadApplianceCareReviewContext, saveReviewedApplianceCare } from '@/platform/storage/repository';
 import type { ApplianceCareReviewContext } from '@/platform/storage/repository';
+import { readApplianceManual } from '@/platform/storage/appliance-manuals';
+import { WorkspaceContext } from '@/contexts/workspace-context';
+import type { V2SharedWorkspace } from '@/platform/sharing/workspace-types';
+import { V2_SCHEDULER_VERSION } from '@/features/sharing/v2/payload-schema';
 
 export default function ApplianceCareScreen() {
   const params = useLocalSearchParams<{ applianceId?: string; productName?: string; returnTo?: string }>();
@@ -26,8 +30,13 @@ export default function ApplianceCareScreen() {
   const returnToParam = Array.isArray(params.returnTo) ? params.returnTo[0] : params.returnTo;
   const returnTo = returnToParam === '/chores' ? '/chores' : returnToParam === '/manual' ? '/manual' : undefined;
   const { database, refresh, snapshot } = usePlannerData({ personal: true });
+  const workspace = useContext(WorkspaceContext); const workspaceRef = useRef(workspace);
+  useEffect(() => { workspaceRef.current = workspace; }, [workspace]);
+  const analysisTarget = useRef<V2SharedWorkspace | null>(null);
   const [canAnalyze, setCanAnalyze] = useState(false);
   const [manual, setManual] = useState<UploadedManualInput>();
+  const [retainedManual, setRetainedManual] = useState<UploadedManualInput>();
+  const manualTouched = useRef(false);
   const [manufacturer, setManufacturer] = useState('');
   const [productName, setProductName] = useState(requestedProductName ?? '');
   const [modelNumber, setModelNumber] = useState('');
@@ -49,7 +58,7 @@ export default function ApplianceCareScreen() {
   useEffect(() => {
     if (!applianceId) return;
     let cancelled = false;
-    void loadApplianceCareReviewContext(database, applianceId).then((context) => {
+    void loadApplianceCareReviewContext(database, applianceId).then(async (context) => {
       if (cancelled) return;
       setSavedContext(context);
       if (!context) {
@@ -57,6 +66,12 @@ export default function ApplianceCareScreen() {
         return;
       }
       setManufacturer(context.appliance.manufacturer);
+      const digest = context.appliance.analysis.manualSource?.sha256;
+      if (digest) {
+        const base64 = await readApplianceManual(database, digest).catch(() => null);
+        if (cancelled) return;
+        if (base64 && !manualTouched.current) { const retained: UploadedManualInput = { base64, rightsConfirmed: true }; setRetainedManual(retained); setManual(retained); }
+      }
       setProductName(context.appliance.productName);
       setModelNumber(context.appliance.modelNumber);
       setCategory(context.appliance.category ?? '');
@@ -72,6 +87,12 @@ export default function ApplianceCareScreen() {
   const analyze = async () => {
     if (savingRef.current) return;
     if (!canAnalyze) { setMessage('ログインと正規端末の確認が済むまで家電AIは利用できません。'); return; }
+    const context = workspaceRef.current;
+    if (context?.group && !context.active) { setMessage('グループの確認後に解析できます。'); return; }
+    analysisTarget.current = context?.active?.protocol === 2 ? context.active : null;
+    if (analysisTarget.current && analysisTarget.current.roster()?.body.schedulerVersion !== V2_SCHEDULER_VERSION) {
+      setMessage('解析前に、グループ管理で互換更新を行ってください。'); return;
+    }
     const request = { manufacturer, productName, modelNumber, category, manual, ...(savedContext ? { forceReanalysis: true } : {}) };
     if (!request.manual) { setMessage('取扱説明書PDFを選び、送信の確認をしてください。'); return; }
     if (!request.modelNumber.trim()) {
@@ -129,8 +150,14 @@ export default function ApplianceCareScreen() {
       category: verifiedResult.product.category ?? category,
       officialProductUrl: verifiedResult.officialSources.productUrl,
       manualUrl: verifiedResult.officialSources.manualUrl,
-    }, verifiedResult.analysis, approvedTasks);
+    }, verifiedResult.analysis, approvedTasks, manual);
     savedApplianceId.current = saved.applianceId;
+    const target = analysisTarget.current;
+    if (target) {
+      if (workspaceRef.current?.active !== target || workspaceRef.current.userId !== target.userId) throw new Error('共有先が変わりました。保存した家電は保持しています。');
+      await target.session.controller.actions.reviewAppliance({ reviewed: true, result: verifiedResult, manual,
+        addTaskNames: verifiedResult.analysis.tasks.map(task => task.name) });
+    }
     setAnalysisSaved(true);
     const context = await loadApplianceCareReviewContext(database, saved.applianceId);
     setSavedContext(context);
@@ -176,7 +203,7 @@ export default function ApplianceCareScreen() {
         {category ? <Text style={styles.note}>選択中：{applianceCategoryLabel(category)}</Text> : null}
         {savedContext ? <Text style={styles.note}>再解析では家電の識別情報を固定します。別の製品は家事一覧から新しく登録してください。</Text> : null}
         <ApplianceAiAccount disabled={working} onReady={setCanAnalyze} />
-        <ManualUploadInput disabled={working} onChange={setManual} />
+        <ManualUploadInput retained={retainedManual} disabled={working} onChange={value => { manualTouched.current = true; setManual(value); setResult(null); }} />
         <Text style={styles.note}>解析時に製品情報と選択したPDFを解析APIとAI提供元へ送信します。APIキーはサーバーだけで管理します。</Text>
         <Text style={styles.note}>端末とアカウントを照合して月5回まで（再解析を含む）。毎月1日9時（日本時間）に更新。受付後の中止・結果検証の失敗は1回に数えます。OpenAIから結果を得られないとサーバーで確認した障害は消費しません。
           {result?.usage ? ` 今月の残り${result.usage.remaining}回。` : ''}</Text>

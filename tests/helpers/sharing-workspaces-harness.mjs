@@ -44,6 +44,7 @@ export async function workspaceHarness({ pending = false, version = 2, cloud: ov
     watch: () => () => {}, ...overrides };
   const api = loadNativeModule('src/platform/sharing/workspaces.ts', {
     'expo-crypto': { randomUUID: () => `native-${++ordinal}` }, 'expo-sqlite': { openDatabaseAsync: async () => index.database },
+    './appliance-retention': { createNativeApplianceRetention: () => ({ refresh: async () => {} }) },
     './firebase-services.ts': { isSharingConfigured: () => true, getSharingServices: () => ({ firestore: {}, auth: {
       authStateReady: async () => {}, get currentUser() { return auth.uid ? { uid: auth.uid, displayName: '自分' } : null; } } }) },
     './native-crypto.ts': { nativeSharingCrypto: crypto },

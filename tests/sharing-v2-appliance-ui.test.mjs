@@ -33,7 +33,7 @@ async function setup() {
         'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView', useSafeAreaInsets: () => ({ top: 0, right: 0, left: 0, bottom: bottomInset }) } } });
     let leave = focus(); mounts.push(() => { leave(); effects.forEach(cleanup => cleanup()); });
     await settle(screen, () => screen.text().includes('対象の共有家電を表示できません') || screen.text().includes(view === 'appliances' ? '登録した家電' : view === 'appliance' ? '共有家電のお手入れ' : '選択したPDFを解析する'));
-    if (view === 'applianceReview' && screen.text().includes('取扱説明書PDFを選ぶ')) { await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用でき、解析APIへの送信を確認した'); }
+    if (view === 'applianceReview' && screen.text().includes('取扱説明書PDFを選ぶ')) { await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用・解析・共有できることを確認した'); }
     return { screen, navigation, blur: () => { assert.ok(blurListeners.size > 0, 'the retained shared review must handle blur'); for (const listener of blurListeners) listener(); },
       refresh: async () => { leave(); leave = focus(); await screen.flush(); }, leave: () => { leave(); effects.forEach(cleanup => cleanup()); } };
   }
@@ -224,7 +224,7 @@ for (const platform of ['ios', 'android']) test(`${platform} the joined applianc
   const f = await setup(); const personalCalls = [];
   try {
     const saved = await f.seed(); const model = await f.read(saved.applianceId);
-    const privateAppliance = { ...model.appliances.detail.appliance, id: saved.applianceId, householdId: 'local-household', displayName: '本人だけの家電' };
+    const privateAppliance = { ...model.appliances.detail.appliance, id: saved.applianceId, householdId: 'local-household', modelNumber: 'PRIVATE-MODEL', displayName: '本人だけの家電' };
     const before = await listSharingOutbox(f.device.database, groupId);
     const { screen, navigation } = await f.mount(platform, 'appliances', undefined, 0, {
       personalGuide: { snapshot: { appliances: [privateAppliance] } }, onPersonalAppliance: id => personalCalls.push(id), onAddPersonalAppliance() {},

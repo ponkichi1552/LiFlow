@@ -58,7 +58,7 @@ test('schema 18 adds a nullable local Google subject without replacing task mapp
     const { account_subject, ...after } = h.connection.prepare('SELECT * FROM google_sync_state').get();
     assert.equal(account_subject, null); assert.deepEqual(after, { ...before });
     assert.deepEqual(h.connection.prepare('SELECT * FROM household_settings').all(), settings);
-    assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 20);
+    assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 21);
   } finally { h.connection.close(); }
 });
 

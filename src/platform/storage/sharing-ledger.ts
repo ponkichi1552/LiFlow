@@ -51,6 +51,7 @@ export function initializeSharingLedger(db: SQLiteDatabase): Promise<void> {
       UNIQUE(group_id, author_device_id, device_sequence)
     );
     CREATE INDEX IF NOT EXISTS sharing_operations_group ON sharing_operations(group_id);
+    CREATE INDEX IF NOT EXISTS sharing_operations_entity ON sharing_operations(group_id, CASE WHEN json_valid(operation_json) THEN json_extract(operation_json, '$.entityType') ELSE NULL END, operation_id);
     CREATE TABLE IF NOT EXISTS sharing_outbox (
       operation_id TEXT PRIMARY KEY NOT NULL REFERENCES sharing_operations(operation_id),
       encrypted_envelope TEXT,

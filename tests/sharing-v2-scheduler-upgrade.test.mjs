@@ -2,7 +2,7 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fixture, seeds, now } from './helpers/sharing-v2-repository-fixture.mjs';
-import { applianceResult } from './helpers/sharing-v2-appliance.mjs';
+import { applianceResult, uploadedApplianceResult } from './helpers/sharing-v2-appliance.mjs';
 import { createV2GroupController } from '../src/features/sharing/v2/controller.ts';
 import { upgradeSharedScheduler, verifySharedRosterTransition, sharedRosterDigest } from '../src/features/sharing/roster.ts';
 import { signSharedDocument } from '../src/features/sharing/crypto.ts';
@@ -21,10 +21,7 @@ test('draft38 groups retain settings chores completions and legacy analysis unti
     await c.actions.complete({ choreId: point.choreId, anchorDate: point.anchorDate, ruleVersion: point.ruleVersion, subjectUserId: null }, { performedAt: now().toISOString() });
     const completed = await c.readModel(range, { appliances: true, applianceId: legacy.applianceId });
     assert.ok(completed.plan.history.length); assert.equal(completed.plan.algorithm, 'liflow-shared-2-draft-38');
-    const uploaded = applianceResult(); uploaded.product.modelNumber = 'UPLOADED'; uploaded.analysis.model = 'UPLOADED';
-    uploaded.officialSources = { manualUrl: 'liflow-manual://sha256/' + 'a'.repeat(64) };
-    uploaded.analysis.manualSource = { kind: 'user_upload', sha256: 'a'.repeat(64) };
-    for (const task of uploaded.analysis.tasks) task.evidence = [{ url: uploaded.officialSources.manualUrl, pageOrSection: '2ページ' }];
+    const { result: uploaded, manual } = uploadedApplianceResult(); uploaded.product.modelNumber = 'UPLOADED'; uploaded.analysis.model = 'UPLOADED';
     await assert.rejects(c.actions.reviewAppliance({ reviewed: true, result: uploaded, addTaskNames: [] }), /互換更新/);
     const countBeforeForgery = (await device.repository.readState()).assessment.view.ready.length;
     await assert.rejects(device.repository.commit([{ operationId: 'forged-pre-upgrade-upload', entityType: 'appliance', entityId: 'forged-manual', operationType: 'patch',
@@ -40,7 +37,7 @@ test('draft38 groups retain settings chores completions and legacy analysis unti
     const after = await c.readModel(range, { appliances: true, applianceId: legacy.applianceId });
     assert.deepEqual(after.plan.occurrences, completed.plan.occurrences); assert.deepEqual(after.plan.history, completed.plan.history);
     assert.deepEqual(after.appliances, completed.appliances); assert.deepEqual(after.configurations, completed.configurations);
-    assert.ok((await c.actions.reviewAppliance({ reviewed: true, result: uploaded, addTaskNames: [] })).applianceId);
+    assert.ok((await c.actions.reviewAppliance({ reviewed: true, result: uploaded, manual, addTaskNames: [] })).applianceId);
     const body = { ...next.body, revision: next.body.revision + 1, keyVersion: next.body.keyVersion + 1,
       previousDigest: sharedRosterDigest(next), schedulerVersion: previous.body.schedulerVersion };
     const rollback = { body, signer: next.signer, signature: signSharedDocument({ domain: 'liflow-shared-roster-v1', body }, base.owner) };

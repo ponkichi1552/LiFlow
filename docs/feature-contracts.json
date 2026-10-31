@@ -7151,7 +7151,7 @@
       },
       {
         "file": "tests/sharing-v2-appliance.test.mjs",
-        "name": "v2 uploaded manual review shares digest provenance and reviewed tasks but never uploads the original PDF"
+        "name": "v2 uploaded manual review retains its exact PDF as signed chunks with the reviewed tasks"
       }
     ]
   },
@@ -7359,7 +7359,7 @@
       },
       {
         "file": "tests/appliance-library.test.mjs",
-        "name": "${platform} adding an appliance defaults to personal and shares only after choosing the group"
+        "name": "${platform} adding a joined appliance uses one registration flow without an audience choice or duplicate taps"
       },
       {
         "file": "tests/appliance-library.test.mjs",
@@ -7775,6 +7775,62 @@
       {
         "file": "tests/tab-entry-reset.test.mjs",
         "name": "${platform} month dates reopen the remembered day format and year overview distinguishes this month and today"
+      }
+    ]
+  },
+  {
+    "feature": "startup-saved-navigation-and-authenticated-personal-settings",
+    "tests": [
+      {
+        "file": "tests/settings-source-ui.test.mjs",
+        "name": "${platform} ordinary settings waits for the restored account before reading protected rhythm and rejects a changed identity"
+      },
+      {
+        "file": "tests/sharing-workspace-provider.test.mjs",
+        "name": "${platform} the same restored account keeps its saved tab hierarchy visible while membership is still loading"
+      }
+    ]
+  },
+  {
+    "feature": "unified-appliance-pdf-retention-without-reanalysis",
+    "tests": [
+      {
+        "file": "tests/appliance-shared-manual-retention.test.mjs",
+        "name": "saved PDFs validate canonical bytes bounded chunks the full digest and missing or tampered pieces before reuse"
+      },
+      {
+        "file": "tests/appliance-shared-manual-retention.test.mjs",
+        "name": "one appliance review atomically retains its PDF in the encrypted outbox and two devices restore the same result without another analysis"
+      },
+      {
+        "file": "tests/appliance-shared-manual-retention.test.mjs",
+        "name": "missing wrong or unconsented PDFs roll back the complete shared review while original private uploads survive a failed save"
+      },
+      {
+        "file": "tests/appliance-shared-manual-retention.test.mjs",
+        "name": "a changed account or a foreign group cannot retain shared PDFs or overwrite personal schedules and historical settings"
+      },
+      {
+        "file": "tests/appliance-shared-manual-retention.test.mjs",
+        "name": "retained appliance metadata refreshes the cached library without recalculating schedules or altering custom personal names"
+      },
+      {
+        "file": "tests/appliance-shared-manual-retention.test.mjs",
+        "name": "native appliance retention coalesces copies skips ordinary chore changes and rejects another account without opening private storage"
+      },
+      {
+        "file": "tests/appliance-shared-manual-retention.test.mjs",
+        "name": "a PDF received after unchanged appliance metadata is retained without duplicating the product or private chores"
+      },
+      {
+        "file": "tests/appliance-shared-manual-retention.test.mjs",
+        "name": "a new device retains the appliance and PDF from a verified snapshot without requiring another event or analysis"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-v2-cloud.integration.mjs",
+        "name": "real Firestore stores only encrypted PDF chunks denies outsiders and restores one appliance after a lost upload response"
       }
     ]
   }

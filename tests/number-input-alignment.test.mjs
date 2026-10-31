@@ -1,3 +1,4 @@
+import { withUploadedManual } from './helpers/sharing-v2-appliance.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -33,8 +34,8 @@ test('appliance analysis cycle edits update the saved appliance', async () => {
     const verified = { status: 'verified', product: { manufacturer: 'Dyson', productName: 'V12', modelNumber: 'SV20' }, officialSources: { manualUrl: 'https://www.dyson.co.jp/support' },
       analysis: { manufacturer: 'Dyson', model: 'SV20', analyzedAt: new Date().toISOString(), requiresUserReview: true, tasks: [task] } };
     const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { database: h.database,
-      mocks: { '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async () => verified } } });
-    await screen.change('メーカー名', 'Dyson'); await screen.change('製品名', 'V12'); await screen.change('型番', 'SV20'); await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用でき、解析APIへの送信を確認した'); await screen.press('選択したPDFを解析');
+      mocks: { '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async request => withUploadedManual(verified, request.manual) } } });
+    await screen.change('メーカー名', 'Dyson'); await screen.change('製品名', 'V12'); await screen.change('型番', 'SV20'); await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用・解析・共有できることを確認した'); await screen.press('選択したPDFを解析');
     await screen.change('フィルターを洗うの周期', '17'); await screen.press('周期の変更を保存');
     const snapshot = await repository.loadPlannerSnapshot(h.database);
     assert.equal(snapshot.chores.find((chore) => chore.applianceId).userIntervalDays, 17);

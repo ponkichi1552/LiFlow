@@ -67,7 +67,7 @@ export interface V2GroupScreenProps {
   onDateRights?: (choreId: string) => void;
   onWaste?: () => void;
   onAppliances?: () => void; onAppliance?: (id: string) => void; onApplianceReview?: (id?: string, productName?: string) => void;
-  onPersonalAppliance?: (id: string) => void; onAddPersonalAppliance?: (productName: string) => void; initialProductName?: string;
+  onPersonalAppliance?: (id: string) => void; initialProductName?: string;
 }
 
 export function readOptionsForView(view: V2GroupScreenProps['view'], anchorDate?: string, choreId?: string, applianceId?: string): Parameters<V2GroupUiSession['readModel']>[0] {
@@ -81,7 +81,7 @@ export function readOptionsForView(view: V2GroupScreenProps['view'], anchorDate?
   return view === 'calendar' ? { calendarMonth: 'current', waste: true } : view === 'home' ? { waste: true } : undefined;
 }
 
-export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage, subscribe, loadSession, view, choreId, applianceId, onBack, onConfiguration, onHistory, onRequests, occurrenceId, subjectId, onRound, onDate, onAssignment, onAssignmentRequests, onCalendar, anchorDate, onManageChores, onDetails, onAddChore, onChoreCreated, onGroupPolicy, onNotifications, onGoogleTasks, onPersonalCopy, onDateRights, onWaste, onAppliances, onAppliance, onApplianceReview, localCalendar, onCalendarNavigate, onGuide, personalGuide, guideSource, onPersonalAppliance, onAddPersonalAppliance, initialProductName, initialDisplay, lifecycleManaged = false }: V2GroupScreenProps) {
+export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage, subscribe, loadSession, view, choreId, applianceId, onBack, onConfiguration, onHistory, onRequests, occurrenceId, subjectId, onRound, onDate, onAssignment, onAssignmentRequests, onCalendar, anchorDate, onManageChores, onDetails, onAddChore, onChoreCreated, onGroupPolicy, onNotifications, onGoogleTasks, onPersonalCopy, onDateRights, onWaste, onAppliances, onAppliance, onApplianceReview, localCalendar, onCalendarNavigate, onGuide, personalGuide, guideSource, onPersonalAppliance, initialProductName, initialDisplay, lifecycleManaged = false }: V2GroupScreenProps) {
   const libraryState = useChoreLibraryState();
   const [session, setSession] = useState<V2GroupUiSession | null>(initialDisplay?.session ?? null); const [screenModel, setModel] = useState<Awaited<ReturnType<V2GroupUiSession['readModel']>> | null>(initialDisplay?.model ?? null);
   const composition = useMemo(() => {
@@ -200,11 +200,11 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   if (view === 'appliances') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
     <V2ApplianceLibrary model={model} personal={personalGuide?.snapshot.appliances} busy={busy}
       header={notice}
-      onOpen={onAppliance} onReview={onApplianceReview} onPersonal={onPersonalAppliance} onAddPersonal={onAddPersonalAppliance} />
+      onOpen={onAppliance} onReview={onApplianceReview} onPersonal={onPersonalAppliance} />
   </V2ScreenFrame>;
   if (view === 'appliance' || view === 'applianceReview') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
     <V2ApplianceScreen key={`${view}:${applianceId ?? initialProductName ?? 'new'}`} initialProductName={initialProductName} model={model} mode={view} applianceId={applianceId} actions={controller.actions} busy={busy} perform={perform}
-      header={notice} onBack={onBack} onOpen={onAppliance} onReview={onApplianceReview} onConfiguration={onConfiguration} onDetails={onDetails} />
+      header={notice} personalDatabase={personalGuide?.database} onBack={onBack} onOpen={onAppliance} onReview={onApplianceReview} onConfiguration={onConfiguration} onDetails={onDetails} />
   </V2ScreenFrame>;
   if (view === 'waste') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
     <V2WasteScreen model={model} actions={controller.actions} busy={busy} perform={perform} header={notice} onBack={onBack} />
