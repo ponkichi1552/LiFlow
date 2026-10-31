@@ -1263,7 +1263,7 @@
       },
       {
         "file": "tests/dependency-security.test.mjs",
-        "name": "Expo SDK 58 plugin and CLI output schemas preserve valid data and reject invalid data with Zod 4"
+        "name": "Expo SDK 58 plugin and CLI output schemas preserve valid data and reject invalid data with the current validator"
       },
       {
         "file": "tests/dependency-security.test.mjs",
@@ -7535,7 +7535,7 @@
     "tests": [
       {
         "file": "tests/calendar-month-boundary.test.mjs",
-        "name": "calendar remembers the actual view and retains the last day format through month year and app restart"
+        "name": "calendar starts with its month overview and retains the last day format through month year and app restart"
       },
       {
         "file": "tests/calendar-month-boundary.test.mjs",
@@ -7762,6 +7762,19 @@
       {
         "file": "tests/group-settings-navigation.test.mjs",
         "name": "${platform} group settings show load and held-change failures outside collapsed sections and allow a safe read retry"
+      }
+    ]
+  },
+  {
+    "feature": "main-tab-entry-overview-and-detail-format",
+    "tests": [
+      {
+        "file": "tests/tab-entry-reset.test.mjs",
+        "name": "${platform} leaving either workspace resets calendar overview and guide route without treating a settings overlay as another tab"
+      },
+      {
+        "file": "tests/tab-entry-reset.test.mjs",
+        "name": "${platform} month dates reopen the remembered day format and year overview distinguishes this month and today"
       }
     ]
   }

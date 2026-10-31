@@ -216,7 +216,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     const info = props.dayInfo(day); const dailyEvents = eventsOn(day); const labels = waste.byDate.get(day) ?? []; const hidden = waste.hiddenWeeklyByDate.get(day) ?? [];
     const slots = Math.max(1, Math.min(3, Math.floor((rowHeight - 36 - ((info.pending ?? 0) > 0 ? 25 : 0) - (labels.length ? 17 : 0)) / 18))); const shown = dailyEvents.slice(0, slots);
     return <Pressable key={day} accessibilityRole="button" accessibilityLabel={dateLabel(day)}
-      accessibilityState={{ selected: day === date }} onPress={() => { chooseDate(day); positioned.current = ''; timelineTop.current = null; setView('day'); }}
+      accessibilityState={{ selected: day === date }} onPress={() => { chooseDate(day); positioned.current = ''; timelineTop.current = null; setView(display.detail); }}
       style={[styles.monthColumn, styles.dayCell, (column === 0 || item.days[column - 1] === null) && styles.firstDayCell, hidden.length > 0 && styles.hiddenDay]}>
       {hidden.length > 0 ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.hiddenOutline]} /> : null}
       <View style={styles.dayNumberRow}><Text style={[styles.dayNumber,
@@ -233,10 +233,12 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     <AppButton title="›" accessibilityLabel="次の年" compact variant="quiet" disabled={year >= 2199} onPress={() => setYear(v => v + 1)} /></View>
     <View style={styles.yearGrid}>{Array.from({ length: 12 }, (_, m) => {
       const dates = monthDates(year, m); const start = parseLocalDate(dates[0]).getUTCDay();
-      return <Pressable key={m} accessibilityRole="button" accessibilityLabel={`${year}年${m + 1}月を表示`} onPress={() => navigateMonth(dates[0])} style={styles.miniMonth}
+      const currentMonth = dates[0].slice(0, 7) === today.slice(0, 7);
+      return <Pressable key={m} accessibilityRole="button" accessibilityLabel={`${year}年${m + 1}月を表示`} accessibilityHint={currentMonth ? '今月。丸印は今日です。' : undefined}
+        onPress={() => navigateMonth(dates[0])} style={[styles.miniMonth, currentMonth && styles.currentMiniMonth]}
         onLayout={event => { yearPositions.current.set(`${year}-${String(m + 1).padStart(2, '0')}`, event.nativeEvent.layout); positionYear(); }}>
-        <Text style={styles.miniTitle}>{m + 1}月</Text><View style={styles.miniDays}>{weekdays.map(day => <Text key={day} style={styles.miniWeekday}>{day}</Text>)}{Array.from({ length: start }, (_, i) => <View key={`empty${i}`} style={styles.miniDateSlot} />)}
-          {dates.map(day => <Text key={day} style={[styles.miniDateSlot, styles.miniDate, day === today && { color: palette.accent, fontWeight: '800' }]}>{Number(day.slice(-2))}</Text>)}</View>
+        <Text style={[styles.miniTitle, currentMonth && { color: palette.accent }]}>{m + 1}月</Text><View style={styles.miniDays}>{weekdays.map(day => <Text key={day} style={styles.miniWeekday}>{day}</Text>)}{Array.from({ length: start }, (_, i) => <View key={`empty${i}`} style={styles.miniDateSlot} />)}
+          {dates.map(day => <Text key={day} style={[styles.miniDateSlot, styles.miniDate, day === today && styles.miniToday]}>{Number(day.slice(-2))}</Text>)}</View>
       </Pressable>;
     })}</View>
   </ScrollView>;
@@ -248,7 +250,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
           <Text style={styles.modeText}>{CALENDAR_DETAIL_LABELS[display.detail]}</Text><Chevron direction="down" />
         </Pressable>
       </View>
-      <Pressable accessibilityRole="button" accessibilityLabel="予定を追加" disabled={!local?.database} onPress={() => openEvent()} style={[styles.add, !local?.database && { opacity: .35 }]}><SymbolView name={{ ios: 'plus', android: 'add' }} size={23} tintColor={palette.accent} /></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="予定を追加" disabled={!local?.database} onPress={() => openEvent()} style={[styles.add, { minWidth: width < 360 ? 48 : 58 }, !local?.database && { opacity: .35 }]}><SymbolView name={{ ios: 'plus', android: 'add' }} size={23} tintColor={palette.accent} /></Pressable>
     </View>
     {props.notice}
     {display.error ? <Text accessibilityRole="alert" style={styles.error}>{display.error}</Text> : null}
@@ -308,7 +310,7 @@ export function CalendarFooter({ onNavigate }: { onNavigate: NonNullable<Planner
     <SymbolView name={icon} size={21} tintColor={tab === 'calendar' ? palette.accent : palette.muted} /><Text style={[styles.footerLabel, tab === 'calendar' && { color: palette.accent }]}>{label}</Text></Pressable>)}</View>;
 }
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: palette.background }, header: { ...navigationHeaderMetrics, gap: 12, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
+  root: { flex: 1, backgroundColor: palette.background }, header: { ...navigationHeaderMetrics, gap: 8, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
   headerBack: { alignSelf: 'center' },
   titleBlock: { flex: 1, minHeight: 44, justifyContent: 'center' }, title: { fontSize: 20, lineHeight: 28, fontWeight: '700', color: palette.ink },
   viewChoice: { minHeight: 44, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 2, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.elevated, borderRadius: 10 }, modeText: { ...typography.caption, color: palette.accent },
@@ -339,7 +341,8 @@ const styles = StyleSheet.create({
   timelineColumns: { marginLeft: timeGutter, flexDirection: 'row', height: '100%', borderLeftWidth: 1, borderColor: palette.border }, timelineColumn: { flex: 1, minWidth: 0, borderRightWidth: 1, borderColor: palette.border },
   timedEvent: { position: 'absolute', borderLeftWidth: 3, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, overflow: 'hidden' }, timedTitle: { ...typography.label, color: palette.ink, fontWeight: '600' },
   now: { position: 'absolute', left: 0, right: 0, borderTopWidth: 1.5, borderColor: palette.accent, height: 1 }, nowDot: { position: 'absolute', left: -4, top: -4, width: 7, height: 7, borderRadius: 4, backgroundColor: palette.accent }, nowLabel: { position: 'absolute', right: 3, bottom: 3, paddingHorizontal: 3, fontSize: 11, lineHeight: 15, color: palette.accent, backgroundColor: palette.background },
-  yearBody: { padding: 12, gap: 12 }, yearControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, yearGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: '3%' }, miniMonth: { width: '31.3%', marginBottom: 18, gap: 4, minHeight: 124 }, miniTitle: { ...typography.label, color: palette.ink, fontWeight: '700' },
+  yearBody: { padding: 12, gap: 12 }, yearControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, yearGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: '3%' }, miniMonth: { width: '31.3%', marginBottom: 18, gap: 4, minHeight: 132, borderWidth: 1, borderColor: 'transparent', borderRadius: 8, padding: 4 }, miniTitle: { ...typography.label, color: palette.ink, fontWeight: '700' },
+  currentMiniMonth: { borderColor: palette.accent, backgroundColor: palette.accentSoft }, miniToday: { backgroundColor: palette.accent, color: palette.accentInk, borderRadius: 8, overflow: 'hidden', fontWeight: '800' },
   miniDays: { flexDirection: 'row', flexWrap: 'wrap' }, miniWeekday: { fontSize: 9, color: palette.muted, textAlign: 'center', width: `${100 / 7}%` }, miniDateSlot: { width: `${100 / 7}%`, minHeight: 14 }, miniDate: { fontSize: 9, color: palette.ink, textAlign: 'center' },
   footer: { minHeight: 62, flexDirection: 'row', borderTopWidth: 1, borderColor: palette.border, backgroundColor: palette.surface }, footerTab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3, minHeight: 56 }, footerLabel: { ...typography.tab, color: palette.muted },
 });

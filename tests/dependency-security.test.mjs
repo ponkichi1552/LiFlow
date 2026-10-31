@@ -12,8 +12,9 @@ const certificateRequire = createRequire(cliRequire.resolve('@expo/code-signing-
 const forge = cliRequire('node-forge');
 const z = cliRequire('zod').z;
 const cliRoot = dirname(expoRequire.resolve('@expo/cli/package.json'));
-const { PluginSchema, DevToolsPluginOutputSchema } = require(join(cliRoot, 'build/src/start/server/DevToolsPlugin.schema.js'));
-const { createMCPDevToolsExtensionSchema } = require(join(cliRoot, 'build/src/start/server/createMCPDevToolsExtensionSchema.js'));
+const { PluginSchema, DevToolsPluginOutputSchema } = require(join(cliRoot, 'build/src/start/server/devtools/DevToolsPlugin.schema.js'));
+const { validate: validateCliSchema } = cliRequire('@expo/schema-utils');
+const { createMCPDevToolsExtensionSchema } = require(join(cliRoot, 'build/src/start/server/mcp/createMCPDevToolsExtensionSchema.js'));
 
 // Ephemeral test keys only; no signing credentials are read from the host.
 const pem = generateKeyPairSync('rsa', { modulusLength: 2048, publicExponent: 65537,
@@ -61,21 +62,21 @@ const plugin = { packageName: 'liflow-test-plugin', packageRoot: '/test/plugin',
   cliExtensions: { description: 'test tools', entryPoint: 'cli.js', commands: [{ name: 'inspect', title: 'Inspect',
     environments: ['cli', 'mcp'], parameters: [{ name: 'text', type: 'text' }, { name: 'count', type: 'number' }, { name: 'enabled', type: 'confirm' }] }] } };
 
-test('Expo SDK 58 plugin and CLI output schemas preserve valid data and reject invalid data with Zod 4', () => {
-  const result = PluginSchema.safeParse({ ...plugin, ignored: 'stripped' });
-  assert.equal(result.success, true);
-  assert.deepEqual(result.data, plugin);
-  assert.equal(Object.isFrozen(result.data.cliExtensions.commands[0].environments), true);
-  assert.equal(PluginSchema.safeParse({ ...plugin, packageName: '' }).success, false);
-  assert.equal(PluginSchema.safeParse({ ...plugin, cliExtensions: { ...plugin.cliExtensions, commands: [] } }).success, false);
+test('Expo SDK 58 plugin and CLI output schemas preserve valid data and reject invalid data with the current validator', () => {
+  // SDK 58.0.22 moved these internal schemas from Zod to schema-utils JSON Schema.
+  // Exercise the installed validator used by the CLI instead of recreating its old API.
+  const input = { ...plugin, ignored: 'retained by the current JSON Schema' }; const before = JSON.stringify(input);
+  assert.doesNotThrow(() => validateCliSchema(PluginSchema, input)); assert.equal(JSON.stringify(input), before);
+  assert.throws(() => validateCliSchema(PluginSchema, { ...plugin, packageName: '' }));
+  assert.throws(() => validateCliSchema(PluginSchema, { ...plugin, cliExtensions: { ...plugin.cliExtensions, commands: [] } }));
   const output = [{ type: 'text', text: 'ready', level: 'info' }, { type: 'image', url: 'https://example.com/test.png' }, { type: 'audio', url: 'https://example.com/test.wav' }];
-  assert.deepEqual(DevToolsPluginOutputSchema.parse(output), output);
-  assert.equal(DevToolsPluginOutputSchema.safeParse([{ type: 'text', text: 'invalid', level: 'invalid' }]).success, false);
-  assert.equal(DevToolsPluginOutputSchema.safeParse([{ type: 'image', url: 'invalid' }]).success, false);
+  assert.doesNotThrow(() => validateCliSchema(DevToolsPluginOutputSchema, output));
+  assert.throws(() => validateCliSchema(DevToolsPluginOutputSchema, [{ type: 'text', text: 'invalid', level: 'invalid' }]));
+  assert.throws(() => validateCliSchema(DevToolsPluginOutputSchema, [{ type: 'image', url: 'invalid' }]));
 });
 
 test('Expo SDK 58 MCP command schemas keep typed arguments, strict unknown-key rejection and JSON Schema conversion', () => {
-  const schema = createMCPDevToolsExtensionSchema(plugin);
+  const schema = createMCPDevToolsExtensionSchema(plugin, z);
   const parameters = { command: 'inspect', text: 'test', count: 2, enabled: true };
   assert.deepEqual(schema.parse(parameters), parameters);
   for (const input of [{ ...parameters, command: 'other' }, { ...parameters, count: '2' }, { ...parameters, enabled: 'yes' }, { ...parameters, unknown: 1 }]) {

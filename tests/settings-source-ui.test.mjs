@@ -242,6 +242,7 @@ test('v2 Settings keeps both chore audiences and routes waste management to its 
         './use-group-chore-settings': { useGroupChoreSettings: () => ({ ...f.source.getSnapshot(), source: f.source }) },
       } });
     effects.splice(0).forEach(callback => callback()); for (let n = 0; n < 8; n++) await screen.flush();
+    await screen.press('共有グループを管理'); assert.deepEqual(navigation.at(-1), ['push', { pathname: '/sharing/group/[groupId]', params: { groupId: f.record.groupId } }]);
     await screen.press('家事ごとの設定を開く'); assert.ok(screen.text().indexOf('個人用') < screen.text().indexOf('グループ用 · 家族'));
     await screen.press('ゴミ収集日を管理'); assert.deepEqual(navigation.at(-1), ['push', '/group-v2/waste']);
   } finally { await f.close(); }

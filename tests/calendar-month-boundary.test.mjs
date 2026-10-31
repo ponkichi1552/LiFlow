@@ -24,13 +24,13 @@ test('continuous month boundaries split the week without duplicating dates and p
   assert.deepEqual(september.days, ['2026-09-27', '2026-09-28', '2026-09-29', '2026-09-30', null, null, null]);
   assert.deepEqual(october.days, [null, null, null, null, '2026-10-01', '2026-10-02', '2026-10-03']); assert.equal(october.monthStartColumn, 4);
 });
-test('calendar remembers the actual view and retains the last day format through month year and app restart', () => {
+test('calendar starts with its month overview and retains the last day format through month year and app restart', () => {
   const values = new Map(); const storage = { getItemSync: key => values.get(key) ?? null, setItemSync: (key, value) => values.set(key, value) };
   for (const mode of ['day', 'two', 'list']) {
     const store = createCalendarDisplayStore(storage); store.select(mode);
-    assert.equal(createCalendarDisplayStore(storage).getSnapshot().view, mode);
+    assert.equal(createCalendarDisplayStore(storage).getSnapshot().view, 'month');
     store.select('month'); assert.equal(store.getSnapshot().detail, mode); store.select('year');
-    assert.deepEqual(createCalendarDisplayStore(storage).getSnapshot(), { view: 'year', detail: mode, error: null });
+    assert.deepEqual(createCalendarDisplayStore(storage).getSnapshot(), { view: 'month', detail: mode, error: null });
   }
   values.set(CALENDAR_DISPLAY_KEY, JSON.stringify({ version: 1, view: 'invalid', detail: 'list' }));
   assert.equal(createCalendarDisplayStore(storage).getSnapshot().view, 'month');

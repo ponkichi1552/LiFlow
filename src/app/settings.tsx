@@ -418,12 +418,14 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
           reloadRhythm();
         }} /> : null}</Card> : autosave.status.phase === 'saving' || autosave.status.phase === 'pending' ? <Text style={styles.hint}>自動保存中…</Text> : null}
       {loadError ? <Card><Text style={styles.error}>{loadError}</Text></Card> : null}
-      <Card><Pressable accessibilityRole="button" accessibilityLabel="共有グループを管理" onPress={() => router.push('/sharing')} style={styles.notificationRow}>
-        <Text style={styles.featureTitle}>共有グループ</Text><Chevron />
+      <Card><Pressable accessibilityRole="button" accessibilityLabel="共有グループを管理" onPress={() => void autosave.navigate(() => router.push(
+        workspace?.group && workspace.group.userId === workspace.userId && ['active', 'creating', 'joining'].includes(workspace.group.status)
+          ? { pathname: '/sharing/group/[groupId]', params: { groupId: workspace.group.groupId } } : '/sharing'))} style={[styles.notificationRow, { minHeight: 44 }]}>
+        <Text style={[styles.featureTitle, { flex: 1 }]}>共有グループ</Text><Chevron />
       </Pressable></Card>
       {workspace?.userId ? <AccordionSection title="アカウントと端末" expanded={expandedSections.has('account-devices')} onToggle={() => toggleSection('account-devices')}>
-        <Pressable accessibilityRole="button" accessibilityLabel="設定の端末間同期" onPress={() => void autosave.navigate(() => router.push('/sharing/personal-preferences'))} style={styles.notificationRow}><Text style={styles.label}>設定の端末間同期</Text><Chevron /></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="同期する端末の管理" onPress={() => void autosave.navigate(() => router.push('/sharing/private-calendar'))} style={styles.notificationRow}><Text style={styles.label}>同期する端末の管理</Text><Chevron /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="設定の端末間同期" onPress={() => void autosave.navigate(() => router.push('/sharing/personal-preferences'))} style={[styles.notificationRow, { minHeight: 44 }]}><Text style={[styles.label, { flex: 1 }]}>設定の端末間同期</Text><Chevron /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="同期する端末の管理" onPress={() => void autosave.navigate(() => router.push('/sharing/private-calendar'))} style={[styles.notificationRow, { minHeight: 44 }]}><Text style={[styles.label, { flex: 1 }]}>同期する端末の管理</Text><Chevron /></Pressable>
       </AccordionSection> : null}
 
       <AccordionSection title="生活リズム" expanded={expandedSections.has('life-rhythm')} onToggle={() => toggleSection('life-rhythm')}>

@@ -9,7 +9,7 @@ export function createCalendarDisplayStore(storage: { getItemSync(key: string): 
   let state: { view: CalendarView; detail: CalendarDetailView; error: string | null } = { view: 'month', detail: 'day', error: null };
   try {
     const raw = storage.getItemSync(CALENDAR_DISPLAY_KEY); const saved = raw ? JSON.parse(raw) : null;
-    if (saved?.version === 1 && views.includes(saved.view) && details.includes(saved.detail)) state = { view: saved.view, detail: details.includes(saved.view) ? saved.view : saved.detail, error: null };
+    if (saved?.version === 1 && views.includes(saved.view) && details.includes(saved.detail)) state = { view: 'month', detail: details.includes(saved.view) ? saved.view : saved.detail, error: null };
   } catch { state.error = 'カレンダーの表示設定を読み込めませんでした。'; }
   const listeners = new Set<() => void>();
   return {
