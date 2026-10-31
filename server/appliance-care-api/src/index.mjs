@@ -1,27 +1,52 @@
 import { startApplianceCareHttpServer } from './http-server.mjs';
 import { OpenAIResponsesClient } from './openai-responses-client.mjs';
-import { createDefaultDependencies } from './service.mjs';
+import { createPublicAnalysisDependencies } from './public-analysis.mjs';
 
-const ai = new OpenAIResponsesClient();
-const server = startApplianceCareHttpServer({
-  dependencies: createDefaultDependencies({ ai }),
-  aiConfigured: ai.isConfigured,
-});
+async function main() {
+  const ai = new OpenAIResponsesClient({ maxOutputTokens: 16_384, maxToolCalls: 1 });
+  const publicMode = process.env.APPLIANCE_CARE_MODE === 'public';
+  // Keep the server-only Admin SDK out of the mobile dependency graph and local-only development path.
+  const publicAccess = publicMode ? (await import('./firebase-public-runtime.mjs')).createFirebasePublicRuntime() : undefined;
+  if (publicAccess) {
+    if (!publicAccess.securityReady) throw new Error('Paid AI device protection is not configured');
+    if (!ai.isConfigured) throw new Error('The public AI service is not configured');
+    // Refuse the public listener if credentials, the project or quota-store permissions are not ready.
+    await publicAccess.store.ready();
+    void publicAccess.store.prune().catch(() => undefined);
+  }
+  const server = startApplianceCareHttpServer({
+    dependencies: { analyzeUploaded: request => ai.createStructured(request) },
+    manualUploadsOnly: true,
+    aiConfigured: ai.isConfigured,
+    publicAccess,
+    ...(publicMode ? { createJobDependencies: signal => createPublicAnalysisDependencies(signal) } : {}),
+  });
 
-const port = Number(process.env.PORT ?? 8787);
-const host = process.env.HOST ?? '0.0.0.0';
-server.on('listening', () => {
-  process.stdout.write('Appliance-care API listening on ' + host + ':' + port
-    + ' (OpenAI configured: ' + String(ai.isConfigured) + ')\n');
-});
-server.on('error', () => {
-  process.stderr.write('Appliance-care API failed to start. Check HOST and PORT.\n');
-  process.exitCode = 1;
-});
+  const port = Number(process.env.PORT ?? 8787);
+  const host = process.env.HOST ?? '127.0.0.1';
+  server.on('listening', () => {
+    process.stdout.write('Appliance-care API listening on ' + host + ':' + port
+      + ' (OpenAI configured: ' + String(ai.isConfigured) + ')\n');
+  });
+  server.on('error', () => {
+    process.stderr.write('Appliance-care API failed to start. Check HOST and PORT.\n');
+    process.exitCode = 1;
+  });
 
-function shutdown() {
-  server.close(() => process.exit(0));
+  function shutdown() {
+    server.close(() => process.exit(0));
+  }
+
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+  if (publicAccess) {
+    const cleanup = setInterval(() => { void publicAccess.store.prune().catch(() => undefined); }, 60 * 60_000);
+    cleanup.unref();
+    server.on('close', () => clearInterval(cleanup));
+  }
 }
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+void main().catch(() => {
+  process.stderr.write('Appliance-care API startup refused. Check AI configuration, Firebase project, server credentials and quota-store permissions.\n');
+  process.exitCode = 1;
+});

@@ -1,9 +1,10 @@
+import { SharingSchedulerVersionError } from './cloud-contract.ts';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { assertJsonRecord, assertSharedIdentifier, canonicalJson, compareOperationIds, SHARED_SCHEDULER_VERSION } from './operations.ts';
 import { signSharedDocument, validateDevicePublicIdentity, verifySharedDocument } from './crypto.ts';
 import type { DevicePublicIdentity, DeviceSecretIdentity } from './crypto.ts';
-import { V2_SCHEDULER_VERSION } from './v2/payload-schema.ts';
+import { V2_SCHEDULER_VERSION, isSupportedV2Scheduler } from './v2/payload-schema.ts';
 
 export interface SharedDeviceMembership { identity: DevicePublicIdentity; joinedKeyVersion: number }
 export interface SharedGroupMember { userId: string; joinedKeyVersion: number; devices: SharedDeviceMembership[] }
@@ -115,7 +116,7 @@ export function verifySharedRosterTransition(previousInput: VerifiedSharedRoster
   }
   if (next.body.schemaVersion < previous.body.schemaVersion) throw new Error('Shared protocol cannot be downgraded');
   if (next.body.schemaVersion !== previous.body.schemaVersion && (next.body.schemaVersion !== 2
-    || next.body.schedulerVersion !== V2_SCHEDULER_VERSION || next.body.closed
+    || !isSupportedV2Scheduler(next.body.schedulerVersion) || next.body.closed
     || next.body.ownerUserId !== previous.body.ownerUserId || next.body.ownerDeviceId !== previous.body.ownerDeviceId
     || canonicalJson(next.body.members) !== canonicalJson(previous.body.members))) {
     throw new Error('A protocol upgrade must preserve the owner and every approved member device');
@@ -124,6 +125,13 @@ export function verifySharedRosterTransition(previousInput: VerifiedSharedRoster
     && !next.body.members.some((member) => member.userId === previous.body.ownerUserId
       && member.devices.some((device) => device.identity.deviceId === previous.body.ownerDeviceId))) {
     throw new Error('Transfer ownership before removing the old owner; the successor must generate the future key');
+  }
+  if (previous.body.schemaVersion === 2 && next.body.schemaVersion === 2 && previous.body.schedulerVersion !== next.body.schedulerVersion) {
+    const draft = (version: string) => Number(version.match(/^liflow-shared-2-draft-(\d+)$/u)?.[1] ?? NaN);
+    if (!isSupportedV2Scheduler(next.body.schedulerVersion)) throw new SharingSchedulerVersionError();
+    if (!(draft(next.body.schedulerVersion) > draft(previous.body.schedulerVersion))
+      || next.body.ownerUserId !== previous.body.ownerUserId || next.body.ownerDeviceId !== previous.body.ownerDeviceId
+      || canonicalJson(next.body.members) !== canonicalJson(previous.body.members) || next.body.closed) throw new Error('A scheduler upgrade must preserve membership and move forward');
   }
   // Surviving devices keep their original approval epoch, and cannot silently change accounts.
   for (const oldMember of previous.body.members) {
@@ -159,6 +167,13 @@ function updateRoster(previous: VerifiedSharedRoster, owner: DeviceSecretIdentit
 export function upgradeSharedRoster(previous: VerifiedSharedRoster, owner: DeviceSecretIdentity): VerifiedSharedRoster {
   if (previous.body.schemaVersion !== 1) throw new Error('Only a v1 group can prepare a v2 upgrade');
   return updateRoster(previous, owner, (body) => { body.schemaVersion = 2; body.schedulerVersion = V2_SCHEDULER_VERSION; });
+}
+
+/** Only the owner can change this signed contract. Existing facts and keys stay in the archive. */
+export function upgradeSharedScheduler(previous: VerifiedSharedRoster, owner: DeviceSecretIdentity): VerifiedSharedRoster {
+  if (previous.body.schemaVersion !== 2 || !isSupportedV2Scheduler(previous.body.schedulerVersion)) throw new Error('Unsupported scheduler upgrade');
+  if (previous.body.schedulerVersion === V2_SCHEDULER_VERSION) return previous;
+  return updateRoster(previous, owner, body => { body.schedulerVersion = V2_SCHEDULER_VERSION; });
 }
 
 export function approveSharedDevice(previous: VerifiedSharedRoster, owner: DeviceSecretIdentity, userId: string, publicIdentity: DevicePublicIdentity): VerifiedSharedRoster {

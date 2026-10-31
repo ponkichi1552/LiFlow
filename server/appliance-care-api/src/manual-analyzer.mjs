@@ -1,7 +1,7 @@
 import { isAllowedOfficialUrl } from './official-domains.mjs';
 import { fetchOfficialManualText } from './manual-resolver.mjs';
 
-const ANALYSIS_SCHEMA = {
+export const ANALYSIS_SCHEMA = {
   type: 'object',
   properties: {
     tasks: {
@@ -41,7 +41,7 @@ const ANALYSIS_SCHEMA = {
   additionalProperties: false,
 };
 
-const MANUAL_ANALYZER_INSTRUCTIONS = [
+export const MANUAL_ANALYZER_INSTRUCTIONS = [
   'あなたは家電メーカーの公式取扱説明書から、清掃・メンテナンス作業だけを抽出する構造化システムです。',
   '入力された公式資料だけを根拠とし、記載されていない周期、道具、所要時間、安全事項を推測・創作しないでください。',
   '「少なくとも1か月に1回」など月単位の明記は30日へ変換できます。条件型の記述はrecommendedConditionsへ原意を保って記録し、周期を設定しないでください。',
@@ -115,9 +115,9 @@ export async function analyzeOfficialManual(product, manual, { ai, fetchImpl = f
   };
 }
 
-export function validateAndDeduplicateTasks(value, manualUrl, allowedDomains) {
+export function validateAndDeduplicateTasks(value, manualUrl, allowedDomains, sourceAllowed = url => isAllowedOfficialUrl(url, allowedDomains)) {
   if (!Array.isArray(value) || value.length === 0 || value.length > 40) throw new InvalidAiOutputError();
-  const normalizedTasks = value.map((task) => validateTask(task, manualUrl, allowedDomains));
+  const normalizedTasks = value.map((task) => validateTask(task, manualUrl, sourceAllowed));
   const merged = new Map();
 
   for (const task of normalizedTasks) {
@@ -149,7 +149,7 @@ export function validateAndDeduplicateTasks(value, manualUrl, allowedDomains) {
   return result;
 }
 
-function validateTask(task, manualUrl, allowedDomains) {
+function validateTask(task, manualUrl, sourceAllowed) {
   if (!task || typeof task.name !== 'string' || task.name.trim().length === 0 || task.name.length > 200) {
     throw new InvalidAiOutputError();
   }
@@ -173,7 +173,7 @@ function validateTask(task, manualUrl, allowedDomains) {
 
   const evidence = task.evidence.map((item) => {
     if (!item || typeof item.url !== 'string' || item.url.length > 2048
-      || !isAllowedOfficialUrl(item.url, allowedDomains) || sameUrl(item.url, manualUrl) !== true) {
+      || !sourceAllowed(item.url) || (item.url !== manualUrl && sameUrl(item.url, manualUrl) !== true)) {
       throw new InvalidAiOutputError('Evidence URL is not the verified official manual');
     }
     if (item.pageOrSection !== null && item.pageOrSection !== undefined

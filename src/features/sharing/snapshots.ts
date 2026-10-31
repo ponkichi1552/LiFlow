@@ -7,7 +7,7 @@ import { MAX_SHARED_SNAPSHOT_CHUNK_BYTES, openSharedSnapshotChunk, sealSharedSna
 import type { AuthenticatedSharedOperation, DevicePublicIdentity, DeviceSecretIdentity, EncryptedSharedSnapshotChunk, SharingCryptoGateway } from './crypto.ts';
 import { sharedRosterDigest } from './roster.ts';
 import type { VerifiedSharedRoster } from './roster.ts';
-import { V2_SCHEDULER_VERSION } from './v2/payload-schema.ts';
+import { isSupportedV2Scheduler } from './v2/payload-schema.ts';
 import type { SignedLegacyMigrationWitness } from './v2/legacy-migration-witness.ts';
 import { validateLegacyMigrationWitness } from './v2/legacy-migration-witness.ts';
 import { validateV2RecoveryWitness } from './v2/recovery-witness.ts';
@@ -103,7 +103,8 @@ export function verifySharedSnapshotManifest(input: SignedSharedSnapshotManifest
   if (Object.keys(body).sort().join(',') !== fields.sort().join(',')
     || body.schemaVersion !== roster.body.schemaVersion || body.groupId !== roster.body.groupId
     || body.keyVersion !== roster.body.keyVersion || body.rosterDigest !== sharedRosterDigest(roster)
-    || body.schedulerVersion !== (roster.body.schemaVersion === 2 ? V2_SCHEDULER_VERSION : SHARED_SCHEDULER_VERSION)
+    || body.schedulerVersion !== roster.body.schedulerVersion
+    || (roster.body.schemaVersion === 2 ? !isSupportedV2Scheduler(body.schedulerVersion) : body.schedulerVersion !== SHARED_SCHEDULER_VERSION)
     || !Array.isArray(body.chunks) || body.chunks.length > 512) throw new Error('Untrusted snapshot manifest');
   assertSharedIdentifier(body.snapshotId);
   for (const value of [body.throughSequence, body.logicalClock, body.receiptCount, body.factCount]) {

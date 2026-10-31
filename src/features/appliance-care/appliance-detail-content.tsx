@@ -9,6 +9,7 @@ import type { ChoreDefinition } from '@/domain/chores/types';
 import { applianceCategoryLabel } from '@/features/appliance-care/categories';
 import { isOfficialApplianceUrl } from '@/features/appliance-care/official-url';
 import type { ApplianceCareReviewContext } from '@/platform/storage/repository';
+import { isUploadedManualReference } from './manual-source';
 import { isRenderableApplianceAnalysis } from './analysis-validation';
 
 export function ApplianceDetailContent({ context, returnTo, error }: {
@@ -42,7 +43,7 @@ export function ApplianceDetailContent({ context, returnTo, error }: {
           <Text style={styles.modelTitle}>{appliance.modelNumber}</Text>
         </View>
         {error ? <Text style={styles.invalidLink}>{error}</Text> : null}
-        <ScreenHeading eyebrow={appliance.manufacturer} title="お手入れ方法" description={`${appliance.displayName}の公式資料から確認した内容です。`} />
+        <ScreenHeading eyebrow={appliance.manufacturer} title="お手入れ方法" description={`${appliance.displayName}の${appliance.analysis.manualSource ? '選択した説明書を解析した' : '公式資料から確認した'}内容です。`} />
         <Card style={styles.productCard}>
           <Text style={styles.productMeta}>メーカー {appliance.manufacturer} · 型番 {appliance.modelNumber}</Text>
           {appliance.category ? <Text style={styles.body}>カテゴリ：{applianceCategoryLabel(appliance.category)}</Text> : null}
@@ -112,6 +113,7 @@ export function MaintenanceTaskCard({ task, chore, manufacturer, index, schedule
 }
 
 export function OfficialLink({ manufacturer, title, url }: { manufacturer: string; title: string; url: string }) {
+  if (isUploadedManualReference(url)) return <Text style={styles.note}>選択した説明書PDF{title.includes(' · ') ? ` · ${title.split(' · ')[1].replace(' ↗', '')}` : ''}（PDF原本は保存していません）</Text>;
   const valid = isOfficialApplianceUrl(url, manufacturer);
   if (!valid) return <Text style={styles.invalidLink}>公式URLを検証できないため開けません</Text>;
   return <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(url).catch(() => undefined)}><Text style={styles.link}>{title}</Text></Pressable>;

@@ -222,15 +222,16 @@ async function verifyApplianceAbortOnLeave(leave) {
     } });
     const cleanups = effects.map((callback) => callback());
     await screen.change('メーカー名', 'Dyson'); await screen.change('製品名', 'V12'); await screen.change('型番', 'SV20');
-    await screen.press('公式資料を検索して解析'); assert.equal(signal.aborted, false);
+    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用でき、解析APIへの送信を確認した');
+    await screen.press('選択したPDFを解析'); assert.equal(signal.aborted, false);
     if (leave === 'back') await screen.press('前の画面に戻る');
     else if (leave === 'blur') { assert.equal(typeof blur, 'function', 'a retained stack screen needs a native blur listener'); blur(); }
     else for (const cleanup of cleanups) cleanup?.();
     assert.equal(signal.aborted, true);
     if (leave === 'blur') {
       await screen.flush();
-      assert.equal(screen.button('公式資料を検索して解析').props.accessibilityState.disabled, false, 'an aborted retained screen must allow another request');
-      await screen.press('公式資料を検索して解析'); assert.equal(requests, 2); assert.equal(saved, 0);
+      assert.equal(screen.button('選択したPDFを解析').props.accessibilityState.disabled, false, 'an aborted retained screen must allow another request');
+      await screen.press('選択したPDFを解析'); assert.equal(requests, 2); assert.equal(saved, 0);
       pending.resolve({ status: 'verified' }); await screen.flush();
       assert.equal(screen.button('解析しています…').props.accessibilityState.disabled, true, 'an old attempt cannot unlock a newer pending request');
       retry.resolve({ status: 'not_found', message: '入力を確認してください。' }); await screen.flush();
@@ -255,7 +256,8 @@ test('leaving a personal appliance during its committed save preserves the save 
         } },
       } });
     await screen.change('メーカー名', 'Dyson'); await screen.change('製品名', 'V12'); await screen.change('型番', 'SV20');
-    const originalStart = screen.button('公式資料を検索して解析'); originalStart.props.onPress();
+    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用でき、解析APIへの送信を確認した');
+    const originalStart = screen.button('選択したPDFを解析'); originalStart.props.onPress();
     for (let n = 0; n < 30 && saves === 0; n++) await screen.flush(); assert.equal(saves, 1); assert.equal(requests, 1);
     assert.equal(typeof blur, 'function'); blur(); await screen.flush();
     assert.equal(signal.aborted, false, 'a completed network request is detached before the local save begins');

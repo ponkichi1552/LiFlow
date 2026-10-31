@@ -1,3 +1,4 @@
+import { V2_SCHEDULER_VERSION } from './payload-schema.ts';
 import { canonicalJson, causallyPrecedes, compareOperationIds } from '../operations.ts';
 import type { SharedOperation } from '../operations.ts';
 import type { SharedReplica } from '../replica.ts';
@@ -241,6 +242,10 @@ function authorizeV2Operation(view: V2HistoryView, archive: readonly VerifiedSha
   if (op.schemaVersion === 1) {
     requireAuthority(migration && op.deviceSequence <= (migration.frontier[op.authorDeviceId] ?? 0), 'Legacy operation is outside the verified migration checkpoint');
     return;
+  }
+  if (op.entityType === 'appliance' && op.payload.analysis && typeof op.payload.analysis === 'object'
+    && !Array.isArray(op.payload.analysis) && op.payload.analysis.manualSource != null) {
+    requireAuthority(originalEpoch.body.schedulerVersion === V2_SCHEDULER_VERSION, 'Uploaded manuals require an owner-approved scheduler upgrade');
   }
   const memberIds = epoch.body.members.map((member) => member.userId);
   const member = (id: string) => requireAuthority(memberIds.includes(id), 'Target is not an approved member');

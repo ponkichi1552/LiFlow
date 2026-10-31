@@ -430,6 +430,8 @@ service cloud.firestore {
         }
       }
     }
+    // AI jobs, quota counters and worker leases are exclusively accessed through the authenticated server.
+    match /applianceApi/{document=**} { allow read, write: if false; }
     match /{document=**} { allow read, write: if false; }
   }
 }

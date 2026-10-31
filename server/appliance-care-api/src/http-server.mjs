@@ -1,7 +1,9 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { validateApplianceCareRequest } from './service.mjs';
+import { analyzeApplianceCare, validateApplianceCareRequest } from './service.mjs';
 import { analysisRequestKey, createAnalysisRunner } from './analysis-runner.mjs';
+import { analyzeUploadedManual, decodeUploadedManual, inspectUploadedManual, MAX_MANUAL_BYTES } from './uploaded-manual.mjs';
+import { PublicApiError } from './public-access.mjs';
 
 const MAX_BODY_BYTES = 8 * 1024;
 const RATE_WINDOW_MS = 60_000;
@@ -21,31 +23,51 @@ const STATUS_BY_ERROR = {
   RATE_LIMITED: 429,
 };
 
-export function createApplianceCareHttpServer({ dependencies, aiConfigured = true, allowedOrigins = [], analysisLimits = {} }) {
-  // Local limits and CORS do not authenticate a caller or bound distributed costs.
-  // Keep this entry point development-only until a public gateway is implemented.
-  if (process.env.NODE_ENV?.trim().toLowerCase() === 'production') {
-    const error = new Error('The appliance-care API is development-only. Public user authentication and distributed usage limits are required before production deployment.');
+export function createApplianceCareHttpServer({ dependencies, aiConfigured = true, allowedOrigins = [], analysisLimits = {},
+  publicAccess, createJobDependencies, manualUploadsOnly = Boolean(publicAccess) }) {
+  if (publicAccess && !manualUploadsOnly) throw new Error('Public AI requires uploaded manuals');
+  if (process.env.NODE_ENV?.trim().toLowerCase() === 'production' && publicAccess?.mode !== 'firebase-firestore') {
+    const error = new Error('Public user authentication and distributed usage limits are required before production deployment.');
     error.code = 'DEVELOPMENT_API_ONLY';
     throw error;
   }
+  if (process.env.NODE_ENV?.trim().toLowerCase() === 'production' && !publicAccess?.securityReady) {
+    const error = new Error('Verified native app, device continuity and reinstall protection are required for paid AI.');
+    error.code = 'DEVICE_SECURITY_NOT_CONFIGURED'; throw error;
+  }
   const requestsByAddress = new Map();
+  const publicRequestsByAddress = new Map();
+  const publicRequestsByUser = new Map();
   const jobsById = new Map();
   const jobsByRequest = new Map();
-  const runner = createAnalysisRunner({ dependencies, ...analysisLimits });
-  return createServer({ requestTimeout: 30_000, headersTimeout: 15_000 }, async (request, response) => {
+  const analyze = manualUploadsOnly ? analyzeUploadedManual : analyzeApplianceCare;
+  const runner = createAnalysisRunner({ dependencies, analyze, ...analysisLimits });
+  return createServer({ requestTimeout: 30_000, headersTimeout: 15_000 }, (request, response) => {
+    return handle(request, response).catch(error => {
+      if (response.destroyed || response.writableEnded) return;
+      if (response.headersSent) { response.destroy(); return; }
+      const expected = error instanceof PublicApiError;
+      if (expected && error.status === 401) response.setHeader('www-authenticate', 'Bearer');
+      rejectRequest(request, response, expected ? error.status : 503, { status: 'error',
+        code: expected ? error.code : 'TEMPORARY_NETWORK_ERROR',
+        message: expected ? error.message : '家電AIの受付を確認できませんでした。時間をおいてお試しください。',
+        ...(expected ? error.details : {}) });
+    });
+  });
+  async function handle(request, response) {
     setSecurityHeaders(response);
     const origin = request.headers.origin;
-    if (origin && !allowedOrigins.includes(origin)) {
+    const allowedOrigin = allowedOrigins.find(value => value === origin);
+    if (origin && !allowedOrigin) {
       rejectRequest(request, response, 403, { error: { code: 'ORIGIN_NOT_ALLOWED', message: 'この接続元は許可されていません。' } });
       return;
     }
-    if (origin) response.setHeader('access-control-allow-origin', origin);
+    if (allowedOrigin) response.setHeader('access-control-allow-origin', allowedOrigin);
 
     if (request.method === 'OPTIONS') {
       response.writeHead(204, {
         'access-control-allow-methods': 'GET, POST, OPTIONS',
-        'access-control-allow-headers': 'content-type',
+        'access-control-allow-headers': publicAccess ? 'content-type, authorization, x-idempotency-key' : 'content-type',
         'access-control-max-age': '600',
       });
       response.end();
@@ -60,13 +82,28 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
       return;
     }
     if (request.method === 'GET' && url.pathname === '/health') {
-      sendJson(response, 200, { status: 'ok', aiConfigured });
+      sendJson(response, 200, publicAccess ? { status: 'ok' } : { status: 'ok', aiConfigured });
       return;
     }
+    if (publicAccess && !consumeRateLimit(request.socket.remoteAddress ?? 'unknown', publicRequestsByAddress, Date.now(), 300)) {
+      throw new PublicApiError(429, 'RATE_LIMITED', 'リクエストが多すぎます。少し待って再試行してください。');
+    }
+    const principal = publicAccess ? await publicAccess.authenticate(request) : null;
+    if (principal && !consumeRateLimit(principal.uid, publicRequestsByUser, Date.now(), 90)) {
+      throw new PublicApiError(429, 'RATE_LIMITED', 'リクエストが多すぎます。少し待って再試行してください。');
+    }
+    if (publicAccess && request.method === 'GET' && url.pathname === '/api/appliance-care/usage') {
+      sendJson(response, 200, { usage: await publicAccess.store.usage(principal) }); return;
+    }
     const jobStatusMatch = request.method === 'GET'
-      ? url.pathname.match(/^\/api\/appliance-care\/jobs\/([0-9a-f-]{36})$/iu)
+      ? url.pathname.match(/^\/api\/appliance-care\/jobs\/([0-9a-f-]{36}|[0-9a-f]{64})$/iu)
       : null;
     if (jobStatusMatch) {
+      if (publicAccess) {
+        const job = await publicAccess.store.read(principal, jobStatusMatch[1]);
+        sendJson(response, job ? 200 : 404, job ?? { status: 'error', code: 'JOB_NOT_FOUND', message: 'この解析結果を確認できません。もう一度検索してください。' });
+        return;
+      }
       pruneJobs(jobsById);
       const job = jobsById.get(jobStatusMatch[1]);
       if (!job) {
@@ -83,6 +120,9 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
     }
     const isAnalyzeRequest = request.method === 'POST' && url.pathname === '/api/appliance-care/analyze';
     const isJobRequest = request.method === 'POST' && url.pathname === '/api/appliance-care/jobs';
+    if (publicAccess && isAnalyzeRequest) {
+      sendJson(response, 405, { status: 'error', code: 'INVALID_REQUEST', message: '家電AIは解析ジョブとして開始してください。' }); return;
+    }
     if (!isAnalyzeRequest && !isJobRequest) {
       sendJson(response, 404, { error: { code: 'NOT_FOUND', message: 'API endpointが見つかりません。' } });
       return;
@@ -99,7 +139,7 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
 
     let body;
     try {
-      body = await readJsonBody(request);
+      body = await readJsonBody(request, manualUploadsOnly ? Math.ceil(MAX_MANUAL_BYTES / 3) * 4 + 4096 : MAX_BODY_BYTES);
     } catch (error) {
       const tooLarge = error?.code === 'BODY_TOO_LARGE';
       rejectRequest(request, response, tooLarge ? 413 : 400, {
@@ -118,12 +158,38 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
       return;
     }
 
+    let manual;
+    if (manualUploadsOnly) {
+      manual = decodeUploadedManual(body.manual);
+      await inspectUploadedManual(manual.bytes);
+    }
     const analysisRequest = {
       manufacturer: body.manufacturer.trim(),
       productName: body.productName.trim(),
       modelNumber: body.modelNumber.trim(),
       ...(typeof body.category === 'string' ? { category: body.category.trim() } : {}),
+      ...(manual ? { manual } : {}),
     };
+    if (publicAccess) {
+      const admission = await publicAccess.store.admit({ principal, requestKey: analysisRequestKey(analysisRequest),
+        forceReanalysis: body.forceReanalysis === true, idempotencyKey: request.headers['x-idempotency-key'] });
+      if (admission.created) {
+        // Work starts only after the durable quota/job transaction commits. Duplicate sends never start another worker.
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), Math.max(1, admission.deadlineAt - Date.now()));
+        timeout.unref();
+        let progress = Promise.resolve();
+        void Promise.resolve().then(() => analyze(analysisRequest,
+          createJobDependencies ? createJobDependencies(controller.signal) : dependencies, stage => {
+            progress = progress.then(() => publicAccess.store.progress?.(admission, stage)).catch(() => undefined);
+          }))
+          .catch(() => ({ status: 'error', code: 'ANALYSIS_FAILED', message: '解析を完了できませんでした。時間をおいてお試しください。' }))
+          .then(async result => { await progress; await publicAccess.store.finish(admission, result); })
+          // A failed final write leaves the reservation intact. Never repeat the paid work to repair persistence.
+          .catch(() => undefined).finally(() => clearTimeout(timeout));
+      }
+      sendJson(response, 202, { jobId: admission.jobId, usage: admission.usage }); return;
+    }
     if (isJobRequest) {
       pruneJobs(jobsById);
       const key = analysisRequestKey(analysisRequest);
@@ -160,7 +226,7 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
     } catch {
       sendJson(response, 502, { status: 'error', code: 'ANALYSIS_FAILED', message: '解析を完了できませんでした。時間をおいて再試行してください。' });
     }
-  });
+  }
 }
 
 function pruneJobs(jobsById, now = Date.now()) {
@@ -172,7 +238,7 @@ function pruneJobs(jobsById, now = Date.now()) {
 export function startApplianceCareHttpServer({
   dependencies,
   aiConfigured = true,
-  host = process.env.HOST ?? '0.0.0.0',
+  host = process.env.HOST ?? '127.0.0.1',
   port = Number(process.env.PORT ?? 8787),
   allowedOrigins = (process.env.APPLIANCE_CARE_ALLOWED_ORIGINS ?? 'http://localhost:8081,http://127.0.0.1:8081,http://localhost:19006')
     .split(',').map((origin) => origin.trim()).filter(Boolean),
@@ -180,20 +246,27 @@ export function startApplianceCareHttpServer({
     maxConcurrent: serverLimit(process.env.APPLIANCE_CARE_MAX_CONCURRENT, 3, 10),
     maxPerHour: serverLimit(process.env.APPLIANCE_CARE_MAX_PER_HOUR, 20, 1000),
   },
+  publicAccess,
+  createJobDependencies,
+  manualUploadsOnly,
 } = {}) {
-  const server = createApplianceCareHttpServer({ dependencies, aiConfigured, allowedOrigins, analysisLimits });
+  if (!publicAccess && !['127.0.0.1', '::1', 'localhost'].includes(host)) {
+    const error = new Error('Unauthenticated development APIs must bind to loopback only.');
+    error.code = 'DEVELOPMENT_API_LOCALHOST_ONLY'; throw error;
+  }
+  const server = createApplianceCareHttpServer({ dependencies, aiConfigured, allowedOrigins, analysisLimits, publicAccess, createJobDependencies, manualUploadsOnly });
   server.listen(port, host);
   return server;
 }
 
-async function readJsonBody(request) {
+async function readJsonBody(request, maxBytes = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let length = 0;
     let tooLarge = false;
     request.on('data', (chunk) => {
       length += chunk.length;
-      if (length > MAX_BODY_BYTES) {
+      if (length > maxBytes) {
         if (tooLarge) return;
         tooLarge = true;
         chunks.length = 0;
@@ -218,7 +291,7 @@ async function readJsonBody(request) {
   });
 }
 
-function consumeRateLimit(address, requestsByAddress, now = Date.now()) {
+function consumeRateLimit(address, requestsByAddress, now = Date.now(), limit = RATE_LIMIT) {
   const oldest = requestsByAddress.values().next().value;
   if (oldest && now - oldest.startedAt >= RATE_WINDOW_MS) {
     for (const [key, value] of requestsByAddress) { if (now - value.startedAt >= RATE_WINDOW_MS) requestsByAddress.delete(key); }
@@ -229,7 +302,7 @@ function consumeRateLimit(address, requestsByAddress, now = Date.now()) {
     requestsByAddress.set(address, { startedAt: now, count: 1 });
     return true;
   }
-  if (existing.count >= RATE_LIMIT) return false;
+  if (existing.count >= limit) return false;
   existing.count += 1;
   return true;
 }

@@ -198,3 +198,18 @@ test('v2 legacy partial appliance edits use their causal source and malformed st
     assert.equal(current.appliance.displayName, '私たちの掃除機'); assert.equal(current.appliance.createdAt, priorCreatedAt);
   } finally { f.close(); }
 });
+
+test('v2 uploaded manual review shares digest provenance and reviewed tasks but never uploads the original PDF', async () => {
+  const f = await setup();
+  try {
+    const result = applianceResult(); const reference = 'liflow-manual://sha256/' + 'b'.repeat(64);
+    result.officialSources = { manualUrl: reference };
+    result.analysis.manualSource = { kind: 'user_upload', sha256: 'b'.repeat(64) };
+    for (const task of result.analysis.tasks) task.evidence = [{ url: reference, pageOrSection: '3ページ' }];
+    const saved = await f.save({ result }); const value = await detail(f.c, saved.applianceId);
+    assert.equal(value.row.needsReview, false); assert.deepEqual(value.appliance.analysis, result.analysis);
+    assert.equal(JSON.stringify(saved.operations).includes('base64'), false);
+    assert.equal(JSON.stringify(saved.operations).includes('file_data'), false);
+    assert.equal((await f.device.repository.readState()).assessment.rejected.length, 0);
+  } finally { f.close(); }
+});

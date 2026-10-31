@@ -11,7 +11,9 @@ export const V2_ENTITY_TYPES = ['groupPolicy', 'chorePolicy', 'datePermission', 
   'claimResolution', 'assignmentRequest', 'assignmentDecision', 'assignmentCancel', 'designation', 'designationCancel', 'changeRequest', 'requestDecision', 'completionApproval', 'migration'] as const;
 export type V2EntityType = typeof V2_ENTITY_TYPES[number];
 export const V2_SCHEMA_VERSION = 2;
-export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-38';
+export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-39';
+/** Draft 38 keeps its signed version and existing scheduling semantics until the owner upgrades. */
+export const isSupportedV2Scheduler = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-38';
 type RecordValue = Record<string, JsonValue>;
 
 function record(value: unknown, allowed: readonly string[], required: readonly string[] = allowed): RecordValue {
@@ -165,7 +167,7 @@ export function validateV2EntityPayload(entityType: V2EntityType, payload: Recor
     const frontier = record(payload.legacyFrontier, Object.keys(payload.legacyFrontier as object));
     if (Object.keys(frontier).length > 256) throw new Error('Invalid migration frontier');
     for (const [device, count] of Object.entries(frontier)) { assertSharedIdentifier(device); integer(count); }
-    if (typeof payload.sourceSnapshotDigest !== 'string' || !/^[a-f0-9]{64}$/u.test(payload.sourceSnapshotDigest) || payload.schedulerVersion !== V2_SCHEDULER_VERSION) throw new Error('Invalid migration proof');
+    if (typeof payload.sourceSnapshotDigest !== 'string' || !/^[a-f0-9]{64}$/u.test(payload.sourceSnapshotDigest) || (typeof payload.schedulerVersion !== 'string' || !isSupportedV2Scheduler(payload.schedulerVersion))) throw new Error('Invalid migration proof');
     choice(payload.groupKind, ['family', 'roommates']); return;
   }
   throw new Error('Unknown v2 entity');

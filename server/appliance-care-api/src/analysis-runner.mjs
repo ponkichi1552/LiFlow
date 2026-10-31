@@ -1,7 +1,7 @@
 import { analyzeApplianceCare } from './service.mjs';
 
 export function analysisRequestKey(request) {
-  return JSON.stringify(['official-manual-v1', ...['manufacturer', 'productName', 'modelNumber', 'category']
+  return JSON.stringify([request.manual?.reference ?? 'official-manual-v1', ...['manufacturer', 'productName', 'modelNumber', 'category']
     .map((field) => (request[field] ?? '').normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase('en-US'))]);
 }
 

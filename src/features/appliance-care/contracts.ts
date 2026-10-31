@@ -30,6 +30,7 @@ export interface ApplianceCareAnalysisDraft {
   tasks: ApplianceCareTaskDraft[];
   analyzedAt: ISODateTime;
   requiresUserReview: true;
+  manualSource?: { kind: 'user_upload'; sha256: string };
 }
 
 /** A locally saved appliance and the latest user-reviewed manufacturer analysis. */

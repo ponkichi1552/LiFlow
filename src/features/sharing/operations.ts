@@ -86,7 +86,7 @@ function integer(value: unknown, minimum = 0, maximum = Number.MAX_SAFE_INTEGER)
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum && value <= maximum;
 }
 
-function validatePatchValues(entityType: LegacySharedEntityType, patch: Record<string, JsonValue>): void {
+function validatePatchValues(entityType: LegacySharedEntityType, patch: Record<string, JsonValue>, schemaVersion: number): void {
   const booleans = new Set(['enabled', 'requiresCycleSelection', 'holidayPriority', 'everyday', 'archived',
     'lastCompletedEstimated', 'initialPending', 'hidden', 'reviewed', 'estimatedDate']);
   const cycles = new Set(['recommendedCycleDays', 'userIntervalDays', 'manufacturerRecommendedIntervalDays']);
@@ -145,7 +145,9 @@ function validatePatchValues(entityType: LegacySharedEntityType, patch: Record<s
     });
     else if (field === 'analysis') {
       assertJsonRecord(value);
-      valid = Object.keys(value).every((key) => ['manufacturer', 'model', 'tasks', 'analyzedAt', 'requiresUserReview'].includes(key))
+      valid = Object.keys(value).every((key) => ['manufacturer', 'model', 'tasks', 'analyzedAt', 'requiresUserReview', ...(schemaVersion === 2 ? ['manualSource'] : [])].includes(key))
+        && (value.manualSource === undefined || schemaVersion === 2 && value.manualSource !== null && typeof value.manualSource === 'object' && !Array.isArray(value.manualSource)
+          && Object.keys(value.manualSource).sort().join(',') === 'kind,sha256' && value.manualSource.kind === 'user_upload' && typeof value.manualSource.sha256 === 'string' && /^[a-f0-9]{64}$/u.test(value.manualSource.sha256))
         && typeof value.manufacturer === 'string' && typeof value.model === 'string' && value.requiresUserReview === true
         && typeof value.analyzedAt === 'string' && Number.isFinite(Date.parse(value.analyzedAt)) && Array.isArray(value.tasks)
         && value.tasks.every((item) => {
@@ -210,7 +212,7 @@ export function validateSharedOperation(value: unknown, expectedGroupId?: string
   else if (value.schemaVersion === 2 && entityType === 'completion') validateV2CompletionPayload(value.payload, value.operationType as string, value.recordedAt as string);
   else {
     if (fields.some((field) => !FIELDS[entityType as LegacySharedEntityType].has(field))) throw new Error('Field is not shared');
-    validatePatchValues(entityType as LegacySharedEntityType, value.payload);
+    validatePatchValues(entityType as LegacySharedEntityType, value.payload, value.schemaVersion as number);
   }
   if (entityType === 'completion') {
     if (value.operationType === 'complete') {

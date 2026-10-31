@@ -9,7 +9,7 @@ import type { VerifiedSharedRoster } from '../../features/sharing/roster.ts';
 import { assessV2BusinessHistory } from '../../features/sharing/v2/receiver-authority.ts';
 import type { VerifiedLegacyMigration } from '../../features/sharing/v2/receiver-authority.ts';
 import { rosterAtOperation } from '../../features/sharing/v2/authority-context.ts';
-import { V2_SCHEDULER_VERSION } from '../../features/sharing/v2/payload-schema.ts';
+import { isSupportedV2Scheduler } from '../../features/sharing/v2/payload-schema.ts';
 import { SharingAccessError, SharingSchedulerVersionError } from '../../features/sharing/cloud-contract.ts';
 import { assertSharedProjectionCanInitialize, initializeSharedProjection } from './sharing-projection.ts';
 import { createLocalSharedOperations, initializeSharingLedger, readSharedFactsInsideTransaction, readSharedReplicaInsideTransaction, withSharingLedgerTransaction } from './sharing-ledger.ts';
@@ -98,7 +98,7 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
     if (replica.groupId !== options.groupId) throw new SharingAccessError('共有グループが一致しません。');
     const history = archive(); const latest = history.at(-1)!;
     const expectedRoster = sharedRosterDigest(latest);
-    if (latest.body.schemaVersion !== 2 || latest.body.schedulerVersion !== V2_SCHEDULER_VERSION) throw new SharingSchedulerVersionError();
+    if (latest.body.schemaVersion !== 2 || !isSupportedV2Scheduler(latest.body.schedulerVersion)) throw new SharingSchedulerVersionError();
     sharedAuthorIdentity(latest, options.userId, options.identity.deviceId, latest.body.keyVersion);
     const proofs = new Map((await readSharedFactsInsideTransaction(transaction, options.groupId)).map((fact) => [fact.operation.operationId, fact]));
     const receipts = await readV2ServerReceiptsInside(transaction, options.groupId);
@@ -127,7 +127,7 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
     const requestStates = assessment.requestStates;
     options.assertWritable();
     if (sharedRosterDigest(archive().at(-1)!) !== expectedRoster) throw new SharingAccessError('処理中に共有権限が変わりました。');
-    const factHash = sharedDocumentDigest({ protocol: 2, projection: 'v2-authority-5', algorithm: V2_SCHEDULER_VERSION,
+    const factHash = sharedDocumentDigest({ protocol: 2, projection: 'v2-authority-5', algorithm: latest.body.schedulerVersion,
       sources: digestPages(replica.operations.map((operation) => sharedDocumentDigest(operation))),
       receipts: digestPages([...receipts.values()].map((receipt) => sharedDocumentDigest(receipt))),
       accepted: digestPages(accepted), rejected: digestPages(rejected), provisional: digestPages(assessment.provisionalOperationIds),
@@ -159,7 +159,7 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
   async function commit(input: readonly SharedOperationDraft[] | ((replica: SharedReplica) => Promise<readonly SharedOperationDraft[]>) | { build: CurrentBuilder }): Promise<SharedOperation[]> {
     options.assertWritable(); const latest = archive().at(-1)!; const localIds = new Set<string>();
     const capturedInput = typeof input === 'function' ? input : 'build' in input ? { build: input.build } : captureV2Input(input);
-    if (latest.body.schemaVersion !== 2 || latest.body.schedulerVersion !== V2_SCHEDULER_VERSION) throw new SharingSchedulerVersionError();
+    if (latest.body.schemaVersion !== 2 || !isSupportedV2Scheduler(latest.body.schedulerVersion)) throw new SharingSchedulerVersionError();
     const operationTime = clock();
     const author = { groupId: options.groupId, userId: options.userId, deviceId: options.identity.deviceId,
       keyVersion: latest.body.keyVersion, schemaVersion: 2 as const, now: () => operationTime, receiptContext: {} };

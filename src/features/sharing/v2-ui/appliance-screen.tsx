@@ -4,7 +4,9 @@ import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable,
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppButton, BackButton, Card, palette, ScreenHeading, SectionHeading, typography } from '../../../components/planner-ui';
 import type { Appliance } from '../../appliance-care/contracts';
-import type { ApplianceCareApiRequest, ProductVerifiedResponse } from '../../appliance-care/api-contracts';
+import type { UploadedManualInput, ApplianceCareApiRequest, ProductVerifiedResponse } from '../../appliance-care/api-contracts';
+import { ManualUploadInput } from '../../appliance-care/manual-upload-input';
+import { ApplianceAiAccount } from '../../appliance-care/ai-account';
 import { analyzeApplianceCareRequest } from '../../appliance-care/api-client';
 import { MaintenanceTaskCard, OfficialLink } from '../../appliance-care/appliance-detail-content';
 import { useAbortApplianceRequestOnLeave } from '../../appliance-care/use-abort-on-leave';
@@ -36,6 +38,8 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   // Retain the displayed basis throughout an API request and review. A remote refresh cannot bless an old draft.
   const [basis] = useState(() => detail); const starting = basis?.appliance;
   const [input, setInput] = useState<ApplianceCareApiRequest>(() => ({ manufacturer: starting?.manufacturer ?? '', productName: starting?.productName ?? '', modelNumber: starting?.modelNumber ?? '', ...(starting?.category ? { category: starting.category } : {}) }));
+  const [canAnalyze, setCanAnalyze] = useState(false);
+  const [manual, setManual] = useState<UploadedManualInput>();
   const draft = useRef(input); const [response, setResponse] = useState<ProductVerifiedResponse | null>(null);
   const [chosen, setChosen] = useState<string[]>([]); const chosenRef = useRef(chosen);
   const [reviewed, setReviewed] = useState(false); const reviewedRef = useRef(false);
@@ -53,11 +57,13 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   };
   const analyze = async (override?: ApplianceCareApiRequest) => {
     if (working.current || locked) return;
+    if (!canAnalyze) { setError('ログインと正規端末の確認が済むまで家電AIは利用できません。'); return; }
+    if (!manual) { setError('取扱説明書PDFを選び、送信の確認をしてください。'); return; }
     working.current = true; const controller = beginRequest(() => { working.current = false; setAnalyzing(false); });
     setAnalyzing(true); setResponse(null); check(false); setError(null); setSaved(null);
     try {
-      const result = await analyzeApplianceCareRequest({ ...(override ?? draft.current), ...(applianceId ? { forceReanalysis: true } : {}) }, undefined, undefined,
-        value => { if (request.current === controller && !controller.signal.aborted) setStage(value === 'product_verification' ? '製品を確認しています' : '公式取扱説明書を解析しています'); }, controller.signal);
+      const result = await analyzeApplianceCareRequest({ ...(override ?? draft.current), manual, ...(applianceId ? { forceReanalysis: true } : {}) }, undefined, undefined,
+        value => { if (request.current === controller && !controller.signal.aborted) setStage(value === 'product_verification' ? 'PDFを確認しています' : '説明書PDFを解析しています'); }, controller.signal);
       if (request.current !== controller || controller.signal.aborted) return;
       if (result.status === 'verified') { setResponse(result); chosenRef.current = []; setChosen([]); }
       else setError(result.status === 'ambiguous' ? '製品を特定できませんでした。製品名・型番を詳しく入力し直してください。' : result.message);
@@ -118,14 +124,17 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
     keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" extraData={{ chosen, reviewed, locked }}
     ListHeaderComponent={<View style={{ gap: 14 }}>{intro}
       {mode === 'applianceReview' ? <>
-        <Text style={caption}>解析を実行すると、メーカー・製品名・型番を解析APIへ送信します。結果は確認して保存するまで、他のメンバーへ共有されません。既存家事の周期・有効状態・手順は上書きしません。</Text>
+        <Text style={caption}>解析を実行すると、メーカー・製品名・型番と、選択した説明書PDFを解析APIとAI提供元へ送信します。PDF原本は共有しません。結果は確認して保存するまで、他のメンバーへ共有されません。既存家事の周期・有効状態・手順は上書きしません。</Text>
         {basis?.source.kind === 'conflict' ? <Text style={warning}>確認して共有すると、表示開始時にあった解析の競合を新しい内容で解決します。元の履歴は保持します。</Text> : null}
         {basis?.row.deleted || basis?.alive.kind === 'conflict' ? <Text style={warning}>確認して共有すると、この家電をグループ全員の一覧へ復元します。既存家事の削除状態は変更しません。</Text> : null}
         {applianceId && !detail ? <Text style={warning}>対象の共有家電を読み込めません。家電一覧から開き直してください。</Text> : null}
         <V2TextField label="メーカー" value={input.manufacturer} onChangeText={value => change('manufacturer', value)} editable={!locked && !saved && !starting} maxLength={120} />
         <V2TextField label="製品名" value={input.productName} onChangeText={value => change('productName', value)} editable={!locked && !saved} maxLength={120} />
         <V2TextField label="型番" value={input.modelNumber} onChangeText={value => change('modelNumber', value)} editable={!locked && !saved && !starting} maxLength={120} />
-        <AppButton title="公式資料から解析する" disabled={locked || Boolean(saved) || Boolean(applianceId && !detail)} onPress={() => void analyze()} />
+        <Text style={caption}>月5回まで（再解析を含む）。毎月1日9時（日本時間）に更新。受付後の中止・結果検証の失敗は1回に数えます。OpenAIから結果を得られないとサーバーで確認した障害は消費しません。端末とアカウントの少ない残回数を適用します。</Text>
+        <ApplianceAiAccount disabled={locked} onReady={setCanAnalyze} />
+        <ManualUploadInput disabled={locked || Boolean(saved)} onChange={setManual} />
+        <AppButton title="選択したPDFを解析する" disabled={!canAnalyze || !manual || locked || Boolean(saved) || Boolean(applianceId && !detail)} onPress={() => void analyze()} />
         {analyzing ? <><ActivityIndicator color={palette.accent} /><Text style={caption}>{stage}</Text><AppButton title="解析を中止" variant="quiet" onPress={() => request.current?.abort()} /></> : null}
       </> : !detail ? <Text style={warning}>対象の共有家電を表示できません。一覧から開き直してください。</Text> : <>
         {detail.row.needsReview ? <Card><Text style={warning}>{detail.row.deleted ? 'この家電は削除されています。' : detail.alive.kind === 'conflict' ? '削除と編集が重なっています。' : '解析内容の確認が必要です。'}署名付きの履歴は保持しています。</Text>

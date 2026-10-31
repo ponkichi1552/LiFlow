@@ -1,3 +1,4 @@
+import { matchesUploadedManual } from '../../appliance-care/manual-source.ts';
 import type { Appliance } from '../../appliance-care/contracts';
 import { isAnalysisRecord, isVerifiedApplianceAnalysis } from '../../appliance-care/analysis-validation.ts';
 import { applianceManufacturerIdentity, isOfficialApplianceUrl } from '../../appliance-care/official-url.ts';
@@ -26,11 +27,11 @@ export function normalizeV2ReviewedAppliance(value: unknown): Record<string, Jso
   const data = value;
   if (!['manufacturer', 'productName', 'modelNumber', 'displayName', 'officialManualUrl'].every(field => text(data[field])) || data.reviewed !== true
     || !isVerifiedApplianceAnalysis(data.analysis, data.manufacturer as string)
-    || !isOfficialApplianceUrl(data.officialManualUrl as string, data.manufacturer as string)
+    || !(isOfficialApplianceUrl(data.officialManualUrl as string, data.manufacturer as string) || matchesUploadedManual(data.officialManualUrl, data.analysis))
     || data.officialProductUrl != null && (typeof data.officialProductUrl !== 'string' || !isOfficialApplianceUrl(data.officialProductUrl, data.manufacturer as string))
     || data.category != null && typeof data.category !== 'string') return null;
   if (normalizedApplianceModel(data.analysis.model) !== normalizedApplianceModel(data.modelNumber as string)
-    || applianceManufacturerIdentity(data.analysis.manufacturer) !== applianceManufacturerIdentity(data.manufacturer as string)) return null;
+    || (applianceManufacturerIdentity(data.analysis.manufacturer) ?? normalizedApplianceModel(data.analysis.manufacturer)) !== (applianceManufacturerIdentity(data.manufacturer as string) ?? normalizedApplianceModel(data.manufacturer as string))) return null;
   return JSON.parse(canonicalJson(Object.fromEntries(contentFields.map(field => [field, data[field] ?? (field === 'category' ? '' : null)]))));
 }
 

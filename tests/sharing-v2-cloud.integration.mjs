@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails } from '@firebase/rules-unit-testing';
 import { doc, getDocFromServer, setDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp, writeBatch } from 'firebase/firestore';
 import { createSharingCloud } from '../src/platform/sharing/firestore-cloud.ts';
-import { createDeviceIdentity, encryptSharedOperation, signSharedOperation, wrapGroupKey } from '../src/features/sharing/crypto.ts';
+import { createDeviceIdentity, signSharedDocument, encryptSharedOperation, signSharedOperation, wrapGroupKey } from '../src/features/sharing/crypto.ts';
 import { createSharedRoster, upgradeSharedRoster, sharedAuthorIdentity } from '../src/features/sharing/roster.ts';
 import { v2AuthorProofDigest, bindV2ServerReceipt } from '../src/features/sharing/v2/server-receipts.ts';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
@@ -43,11 +43,12 @@ before(async () => { environment = await initializeTestEnvironment({ projectId: 
 beforeEach(async () => { await environment.clearFirestore(); });
 after(async () => { await environment?.cleanup(); });
 const groupId = 'v2-cloud-group';
-async function fixture(schemaVersion = 2) {
+async function fixture(schemaVersion = 2, schedulerVersion) {
   const identity = await createDeviceIdentity(crypto); const key = await crypto.randomBytes(32);
   const store = environment.authenticatedContext('owner').firestore(); let active = 'owner';
   const cloud = createSharingCloud(store, 'owner', () => active);
   const roster = createSharedRoster(groupId, 'owner', identity, { schemaVersion });
+  if (schedulerVersion) { roster.body.schedulerVersion = schedulerVersion; roster.signature = signSharedDocument({ domain: 'liflow-shared-roster-v1', body: roster.body }, identity); }
   const wrapped = await wrapGroupKey(crypto, groupId, 1, key, identity, identity, 'owner');
   await cloud.createGroup(roster, wrapped);
   const make = async (sequence, patch = {}) => {
@@ -617,4 +618,28 @@ test('native pair harness uses real encrypted v2 sessions with approval cold res
     await assert.rejects((await member.pair.ui()).controller.actions.addChore('除名後の編集'), /利用状態|編集|利用でき/u);
     owner.pair.close(); member.pair.close();
   } finally { for (const openedDatabase of opened) openedDatabase.connection.close(); }
+});
+
+
+test('draft38 owner upgrades through a real atomic cloud snapshot and a fresh SQLite session restores unchanged shared settings and facts', async () => {
+  const f = await fixture(2, 'liflow-shared-2-draft-38'); const h = createDatabase(); const restored = createDatabase();
+  let archive = [f.roster]; const keys = new Map([[1, f.key]]); let ordinal = 0;
+  let record = { userId: 'owner', groupId, status: 'creating', displayName: '互換更新検査', anchor: f.roster, rosterArchive: archive,
+    creation: { timeZone: 'Asia/Tokyo', anchorDate: sharedLocalDate(new Date(), 'Asia/Tokyo'), ownerDisplayName: '所有者', wrappedKey: {} } };
+  const deps = database => ({ database, householdId: 'upgrade-local', userId: 'owner', groupId, identity: f.identity, cloud: f.cloud, crypto,
+    readRecord: async () => ({ ...record, rosterArchive: archive }), saveArchive: async value => { archive = value; }, archive: () => archive,
+    readKey: async version => keys.get(version)?.slice() ?? null, saveKey: async (version, value) => { keys.set(version, value.slice()); },
+    serialized: async work => work(), changed() {}, assertCurrentAccount() {}, assertWritable() {}, makeId: () => `scheduler-upgrade-${++ordinal}`, markLeft: async () => {} });
+  try {
+    const owner = await createV2WorkspaceSession({ ...deps(h.database), creationKind: 'family' }); await owner.synchronizer.sync({ force: true });
+    record = { ...record, status: 'active' };
+    const before = await loadSharedFacts(h.database, groupId); const head = (await f.cloud.readGroup(groupId)).group.headSequence;
+    await owner.manager.upgradeScheduler();
+    const current = await f.cloud.readGroup(groupId); assert.equal(current.group.keyVersion, 2); assert.equal(current.group.headSequence, head);
+    assert.equal(archive[0].body.schedulerVersion, 'liflow-shared-2-draft-38'); assert.equal(archive.at(-1).body.schedulerVersion, 'liflow-shared-2-draft-39');
+    const cold = await createV2WorkspaceSession(deps(restored.database)); await cold.synchronizer.sync({ force: true });
+    assert.deepEqual(await loadSharedFacts(restored.database, groupId), before);
+    assert.deepEqual(await listSharingOutbox(restored.database, groupId), []);
+    assert.equal((await loadSharedReplica(restored.database, groupId)).operations.length, before.length);
+  } finally { h.connection.close(); restored.connection.close(); }
 });

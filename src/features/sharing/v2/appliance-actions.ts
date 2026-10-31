@@ -1,3 +1,4 @@
+import { V2_SCHEDULER_VERSION } from './payload-schema.ts';
 import type { ProductVerifiedResponse } from '../../appliance-care/api-contracts';
 import type { ApplianceCareAnalysisDraft } from '../../appliance-care/contracts';
 import { isAnalysisRecord } from '../../appliance-care/analysis-validation.ts';
@@ -43,6 +44,7 @@ export function createV2ApplianceActions(repository: ReturnType<typeof createV2E
         if (!input || input.reviewed !== true || !isAnalysisRecord(input.result) || input.result.status !== 'verified'
           || !isAnalysisRecord(input.result.product) || !isAnalysisRecord(input.result.officialSources)) throw new Error('解析結果を確認してから共有してください。');
         const result = input.result; const product = result.product;
+        if (result.analysis.manualSource && state.archive.at(-1)!.body.schedulerVersion !== V2_SCHEDULER_VERSION) throw new Error('共有グループの所有者が共有画面から互換更新を行ってください。既存データは保持されます。');
         if (![product.manufacturer, product.productName, product.modelNumber].every(value => typeof value === 'string' && value.trim())) throw new Error('メーカー・製品名・型番を確認してください。');
         const groupId = repository.scope.groupId; const selection = input.selection;
         if (selection && selection.groupId !== groupId) throw new V2StaleSettingsError();
@@ -53,7 +55,7 @@ export function createV2ApplianceActions(repository: ReturnType<typeof createV2E
         if (current.source.kind === 'conflict' && (!selection || !input.resolveOperationIds || !sameIds(input.resolveOperationIds, current.source.candidates.map(candidate => candidate.operationId)))) throw new V2StaleSettingsError();
         if (input.resolveOperationIds && current.source.kind !== 'conflict') throw new V2StaleSettingsError();
         const creating = current.alive.kind === 'missing';
-        const matches = (maker: string, model: string) => applianceManufacturerIdentity(maker) === applianceManufacturerIdentity(product.manufacturer)
+        const matches = (maker: string, model: string) => (applianceManufacturerIdentity(maker) ?? normalizedApplianceModel(maker)) === (applianceManufacturerIdentity(product.manufacturer) ?? normalizedApplianceModel(product.manufacturer))
           && normalizedApplianceModel(model) === normalizedApplianceModel(product.modelNumber);
         const prior = current.appliance ?? current.candidates.find(candidate => candidate.appliance && matches(candidate.appliance.manufacturer, candidate.appliance.modelNumber))?.appliance;
         const makerField = readV2EditableField(view, at, 'appliance', id, 'manufacturer'); const modelField = readV2EditableField(view, at, 'appliance', id, 'modelNumber');

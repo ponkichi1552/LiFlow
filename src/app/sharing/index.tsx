@@ -1,3 +1,4 @@
+import { V2_SCHEDULER_VERSION } from '@/features/sharing/v2/payload-schema';
 import { FormTextInput as TextInput } from '../../components/form-text-input';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
@@ -162,6 +163,12 @@ function GroupDetail({ workspace, run, busy }: { workspace: SharedWorkspace; run
       {snapshot ? <Text style={styles.caption}>共通の時刻：{snapshot.timeZone}</Text> : null}
       {snapshot?.recoverySummary?.heldChanges ? <Text style={styles.error}>同期の復旧で確認待ちになった変更が{snapshot.recoverySummary.heldChanges}件あります。元の内容と証拠は保持されています。所有者と内容を確認してください。</Text> : null}
     </Card>
+    {workspace.protocol === 2 && roster?.body.schedulerVersion !== V2_SCHEDULER_VERSION ? <Card>
+      <Text style={styles.body}>説明書PDFの共有に対応する互換更新があります。家事・設定・履歴を保持して、所有者が更新できます。全メンバーのアプリを先に更新してください。</Text>
+      {isOwner && manager ? <AppButton title="共有グループを互換更新" disabled={busy} onPress={() => Alert.alert('共有グループを更新しますか？',
+        '全メンバーのアプリ更新後に進めてください。旧版のアプリは更新後のグループを同期できません。保存済みデータは保持します。',
+        [{ text: 'キャンセル', style: 'cancel' }, { text: '更新する', onPress: () => void run(async () => { await manager.upgradeScheduler(); await refresh(); }) }])} /> : null}
+    </Card> : null}
     {workspace.protocol === 2 && record.status === 'active' ? <V2RecoveryPanel groupId={workspace.groupId} recovery={workspace.session.recovery}
       isOwner={isOwner} busy={busy} run={run} devices={roster?.body.members.flatMap(member => member.devices.map(device => ({ deviceId: device.identity.deviceId,
         displayName: snapshot?.members.find(item => item.id === member.userId)?.displayName ?? 'メンバー' }))) ?? []} /> : null}

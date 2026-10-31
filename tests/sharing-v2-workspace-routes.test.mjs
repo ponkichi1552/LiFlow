@@ -64,7 +64,7 @@ for (const platform of ['ios', 'android']) {
       const params = { occurrenceId: round.id, subjectId: subject.id, anchorDate: round.anchorDate };
       for (const [file, ready] of [['calendar', '共有カレンダー'], ['history', '実施履歴'], ['requests', '日時の変更申請'], ['assignment-requests', '担当の変更申請'],
         ['round', '共通の設定を開く'], ['date', '日時の指定'], ['assignment', '担当変更の適用範囲'], ['chores', '共有家事の一覧'],
-        ['add-chore', 'この内容を共有家事に追加'], ['details', '家事名・手順の編集'], ['group-rules', 'グループの種類'], ['date-rights', '日時変更の権限'], ['waste', '登録した収集日'], ['appliances', '登録した共有家電'], ['appliance', '共有家電のお手入れ'], ['appliance-review', '公式資料から解析する']]) {
+        ['add-chore', 'この内容を共有家事に追加'], ['details', '家事名・手順の編集'], ['group-rules', 'グループの種類'], ['date-rights', '日時変更の権限'], ['waste', '登録した収集日'], ['appliances', '登録した共有家電'], ['appliance', '共有家電のお手入れ'], ['appliance-review', '選択したPDFを解析する']]) {
         const r = await route(f, platform, file, ['details', 'date-rights'].includes(file) ? { choreId: round.choreId } : params, ready); assert.ok(r.screen.text().includes('選択した家族'));
         assert.equal(r.screen.text().includes('クラウドへ送信しません'), false); r.leave?.();
       }

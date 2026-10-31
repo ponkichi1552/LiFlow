@@ -10,7 +10,7 @@ import { sharedLocalDate } from '../group-clock.ts';
 import type { assessV2BusinessHistory } from './receiver-authority.ts';
 import type { DateTarget, DesignationMode, GroupPolicy, ManualRuleFact, SharedOccurrence, SharedChoreConfiguration } from './model.ts';
 import type { V2ServerReceipt } from './server-receipts.ts';
-import { V2_SCHEDULER_VERSION } from './payload-schema.ts';
+import { isSupportedV2Scheduler } from './payload-schema.ts';
 import { v2ReadPoint } from './view-point.ts';
 import { commonFrame, commonFrames } from './common-frames.ts';
 import { frameAtOperation } from './authority-context.ts';
@@ -74,7 +74,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
   [range.from, range.through, range.asOfDate].forEach(parseLocalDate);
   if (range.through < range.from || daysBetween(range.from, range.through) > 3650) throw new Error('Invalid common plan range');
   const assessment = input.assessment; const view = assessment.view; const roster = input.archive.at(-1);
-  if (!roster || roster.body.schedulerVersion !== V2_SCHEDULER_VERSION) throw new Error('Unsupported common planner version');
+  if (!roster || !isSupportedV2Scheduler(roster.body.schedulerVersion)) throw new Error('Unsupported common planner version');
   const at = v2ReadPoint(view, roster); const issues: V2PlanIssue[] = [];
   const assignmentProjection = view.assignmentsAt(at);
   const confirmedAssignmentAnswers = new Set((assignmentProjection?.requests ?? [])
@@ -450,10 +450,10 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
     slot.subject.subjectUserId, [slot.ruleId, witness.ruleId]);
   occurrences.sort((a, b) => compareOperationIds(a.anchorDate, b.anchorDate) || compareOperationIds(a.choreId, b.choreId));
   issues.sort((a, b) => compareOperationIds(canonicalJson(a), canonicalJson(b)));
-  const sourceHash = sharedDocumentDigest({ algorithm: V2_SCHEDULER_VERSION, roster: sharedRosterDigest(roster),
+  const sourceHash = sharedDocumentDigest({ algorithm: roster.body.schedulerVersion, roster: sharedRosterDigest(roster),
     operations: fingerprints(view.ready), receipts: fingerprints([...input.receipts.values()].sort((a, b) => a.uploadSequence - b.uploadSequence)) });
   const planHash = sharedDocumentDigest({ sourceHash, range, policy, commonSettings,
     chores: fingerprints(chores), members: fingerprints(members), dependencies: fingerprints(dependencies), occurrences: fingerprints(occurrences), history: fingerprints(history), issues: digestPages(issues) });
-  return { groupId: view.groupId, algorithm: V2_SCHEDULER_VERSION, timeZone, initialized, range: { ...range }, policy, commonSettings,
+  return { groupId: view.groupId, algorithm: roster.body.schedulerVersion, timeZone, initialized, range: { ...range }, policy, commonSettings,
     chores, members, dependencies, occurrences, history, issues, sourceHash, planHash };
 }

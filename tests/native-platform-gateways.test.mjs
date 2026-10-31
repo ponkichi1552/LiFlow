@@ -1,3 +1,5 @@
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 import { createBackgroundAudit } from '../src/features/google-sync/background-audit.ts';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -54,7 +56,8 @@ for (const platform of ['ios', 'android']) {
       const { applianceCareApiBaseUrl } = load('src/features/appliance-care/api-client.ts', {
         'react-native': { Platform: { OS: platform } },
         '@/features/appliance-care/official-url': {}, './polling': {},
-        './analysis-validation': applianceAnalysisValidation,
+        './analysis-validation': applianceAnalysisValidation, './manual-source': {},
+        '@noble/hashes/sha2.js': { sha256 }, '@noble/hashes/utils.js': { bytesToHex, utf8ToBytes },
       });
       assert.equal(applianceCareApiBaseUrl(), platform === 'android' ? 'http://10.0.2.2:8787' : 'http://localhost:8787');
       process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL = ' https://api.example.test/// ';

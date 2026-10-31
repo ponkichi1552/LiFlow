@@ -1,3 +1,4 @@
+import { matchesUploadedManual } from './manual-source.ts';
 import type { ApplianceCareAnalysisDraft } from './contracts';
 import { isOfficialApplianceUrl } from './official-url.ts';
 
@@ -10,6 +11,7 @@ function analysisShape(value: unknown, verified: boolean, manufacturer?: string)
   if (!isAnalysisRecord(value) || typeof value.analyzedAt !== 'string' || !Array.isArray(value.tasks)) return false;
   if (verified && (!nonemptyAnalysisString(value.manufacturer) || !nonemptyAnalysisString(value.model)
     || !Number.isFinite(Date.parse(value.analyzedAt)) || value.requiresUserReview !== true || value.tasks.length < 1 || value.tasks.length > 40)) return false;
+  if (verified && value.manualSource !== undefined && (!isAnalysisRecord(value.manualSource) || value.manualSource.kind !== 'user_upload' || typeof value.manualSource.sha256 !== 'string' || !/^[a-f0-9]{64}$/u.test(value.manualSource.sha256))) return false;
   return value.tasks.every(task => isAnalysisRecord(task) && (verified ? nonemptyAnalysisString(task.name) : typeof task.name === 'string')
     && strings(task.steps, verified) && (!verified || task.steps.length > 0) && strings(task.tools, verified) && strings(task.safetyCautions, verified)
     && (task.recommendedConditions === undefined || strings(task.recommendedConditions, verified))
@@ -19,7 +21,7 @@ function analysisShape(value: unknown, verified: boolean, manufacturer?: string)
     && Array.isArray(task.evidence) && (!verified || task.evidence.length > 0) && task.evidence.every(source => isAnalysisRecord(source)
       && (verified ? nonemptyAnalysisString(source.url) : typeof source.url === 'string')
       && (source.pageOrSection === undefined || typeof source.pageOrSection === 'string')
-      && (!verified || isOfficialApplianceUrl(source.url as string, manufacturer!))));
+      && (!verified || (value.manualSource === undefined ? isOfficialApplianceUrl(source.url as string, manufacturer!) : matchesUploadedManual(source.url, value)))));
 }
 
 /** Legacy stored data may lack review metadata or have no tasks. Do not reinterpret it as a newly verified response. */

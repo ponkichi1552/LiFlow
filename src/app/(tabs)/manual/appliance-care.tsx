@@ -1,18 +1,20 @@
 import { FormTextInput as TextInput } from '../../../components/form-text-input';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ActionLabel, AppButton, BackButton, Card, Page, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
 import { NumberInputField } from '@/components/number-input-field';
-import type { ApplianceCareAnalysisStage, ApplianceCareApiResponse, ProductAnalysisErrorResponse, ProductVerifiedResponse } from '@/features/appliance-care/api-contracts';
+import type { UploadedManualInput, ApplianceCareAnalysisStage, ApplianceCareApiResponse, ProductAnalysisErrorResponse, ProductVerifiedResponse } from '@/features/appliance-care/api-contracts';
+import { ManualUploadInput } from '@/features/appliance-care/manual-upload-input';
+import { ApplianceAiAccount } from '@/features/appliance-care/ai-account';
+import { OfficialLink } from '@/features/appliance-care/appliance-detail-content';
 import { analyzeApplianceCareRequest } from '@/features/appliance-care/api-client';
 import { useAbortApplianceRequestOnLeave } from '@/features/appliance-care/use-abort-on-leave';
 import type { ApplianceCareTaskDraft } from '@/features/appliance-care/contracts';
 import { automaticApplianceTasks, defaultApplianceCycles } from '@/features/appliance-care/auto-save-policy';
 import { applianceCategoryLabel, searchApplianceCategories } from '@/features/appliance-care/categories';
 import { applianceDisplayName } from '@/features/appliance-care/display-name';
-import { isOfficialApplianceUrl } from '@/features/appliance-care/official-url';
 import { usePlannerData } from '@/hooks/use-planner-data';
 import { loadApplianceCareReviewContext, saveReviewedApplianceCare } from '@/platform/storage/repository';
 import type { ApplianceCareReviewContext } from '@/platform/storage/repository';
@@ -24,6 +26,8 @@ export default function ApplianceCareScreen() {
   const returnToParam = Array.isArray(params.returnTo) ? params.returnTo[0] : params.returnTo;
   const returnTo = returnToParam === '/chores' ? '/chores' : returnToParam === '/manual' ? '/manual' : undefined;
   const { database, refresh, snapshot } = usePlannerData();
+  const [canAnalyze, setCanAnalyze] = useState(false);
+  const [manual, setManual] = useState<UploadedManualInput>();
   const [manufacturer, setManufacturer] = useState('');
   const [productName, setProductName] = useState(requestedProductName ?? '');
   const [modelNumber, setModelNumber] = useState('');
@@ -67,7 +71,9 @@ export default function ApplianceCareScreen() {
 
   const analyze = async () => {
     if (savingRef.current) return;
-    const request = { manufacturer, productName, modelNumber, category, ...(savedContext ? { forceReanalysis: true } : {}) };
+    if (!canAnalyze) { setMessage('ログインと正規端末の確認が済むまで家電AIは利用できません。'); return; }
+    const request = { manufacturer, productName, modelNumber, category, manual, ...(savedContext ? { forceReanalysis: true } : {}) };
+    if (!request.manual) { setMessage('取扱説明書PDFを選び、送信の確認をしてください。'); return; }
     if (!request.modelNumber.trim()) {
       setMessage('型番を確認してください。型番を確認してから解析できます。');
       return;
@@ -151,9 +157,9 @@ export default function ApplianceCareScreen() {
   return (
     <Page keyboardAware footerHasTabBar footer={<BackButton onPress={() => { analysisRequest.current?.abort(); if (returnTo) router.dismissTo(returnTo); else router.back(); }} />}>
       <ScreenHeading
-        eyebrow="OFFICIAL MANUAL"
-        title={applianceId ? '公式資料を再解析' : '家電を追加'}
-        description="メーカー名・製品名・型番から公式製品と取扱説明書を確認します。解析結果は自動保存され、メーカー周期があるお手入れは予定へ登録されます。"
+        eyebrow="MANUAL PDF"
+        title={applianceId ? '説明書PDFを再解析' : '家電を追加'}
+        description="お手持ちの取扱説明書PDFを選んで、お手入れ方法を解析します。PDFと製品が一致することを確認してください。"
       />
 
       <Card>
@@ -169,11 +175,15 @@ export default function ApplianceCareScreen() {
         </View> : null}
         {category ? <Text style={styles.note}>選択中：{applianceCategoryLabel(category)}</Text> : null}
         {savedContext ? <Text style={styles.note}>再解析では家電の識別情報を固定します。別の製品は家事一覧から新しく登録してください。</Text> : null}
-        <Text style={styles.note}>検索を実行すると入力した製品情報と公式資料が外部サービスへ送られます。APIキーはアプリに保存せず、接続先サーバーだけで使用します。</Text>
+        <ApplianceAiAccount disabled={working} onReady={setCanAnalyze} />
+        <ManualUploadInput disabled={working} onChange={setManual} />
+        <Text style={styles.note}>解析時に製品情報と選択したPDFを解析APIとAI提供元へ送信します。APIキーはサーバーだけで管理します。</Text>
+        <Text style={styles.note}>端末とアカウントを照合して月5回まで（再解析を含む）。毎月1日9時（日本時間）に更新。受付後の中止・結果検証の失敗は1回に数えます。OpenAIから結果を得られないとサーバーで確認した障害は消費しません。
+          {result?.usage ? ` 今月の残り${result.usage.remaining}回。` : ''}</Text>
         <AppButton
-          title={loadingAppliance ? '家電を読み込んでいます…' : working ? '解析しています…' : savedContext ? '公式資料を再解析' : '公式資料を検索して解析'}
+          title={loadingAppliance ? '家電を読み込んでいます…' : working ? '解析しています…' : savedContext ? '選択したPDFを再解析' : '選択したPDFを解析'}
           onPress={() => void analyze()}
-          disabled={working || loadingAppliance || (Boolean(applianceId) && !savedContext)}
+          disabled={!canAnalyze || !manual || working || loadingAppliance || (Boolean(applianceId) && !savedContext)}
         />
       </Card>
 
@@ -181,7 +191,7 @@ export default function ApplianceCareScreen() {
         <Card style={styles.progressCard}>
           <ActivityIndicator color={palette.accent} />
           <View style={styles.progressCopy}>
-            <Text style={styles.resultTitle}>{stage === 'product_verification' ? '製品を確認しています' : '公式説明書を解析しています'}</Text>
+            <Text style={styles.resultTitle}>{stage === 'product_verification' ? 'PDFを確認しています' : '説明書PDFを解析しています'}</Text>
             <Text style={styles.note}>完了率は表示せず、処理段階だけを表示します。</Text>
           </View>
         </Card>
@@ -223,10 +233,10 @@ export default function ApplianceCareScreen() {
             {analysisSaved ? <ActionLabel label="保存したお手入れ内容を見る" style={styles.link} /> : <Text style={styles.link}>解析結果は未保存です。下の保存ボタンから再試行できます。</Text>}
           </Pressable>
           <Card style={styles.verifiedCard}>
-            <Text style={styles.verifiedLabel}>メーカー公式情報で確認済み</Text>
+            <Text style={styles.verifiedLabel}>選択した説明書の解析結果・内容を確認してください</Text>
             {verified.product.category ? <Text style={styles.body}>カテゴリ：{applianceCategoryLabel(verified.product.category)}</Text> : null}
             {verified.officialSources.productUrl ? <ExternalLink title="公式製品情報を開く ↗" url={verified.officialSources.productUrl} manufacturer={verified.product.manufacturer} /> : null}
-            <ExternalLink title="公式取扱説明書を開く ↗" url={verified.officialSources.manualUrl} manufacturer={verified.product.manufacturer} />
+            <OfficialLink title="公式取扱説明書を開く ↗" url={verified.officialSources.manualUrl} manufacturer={verified.product.manufacturer} />
             <Text style={styles.note}>解析日時：{verified.analysis.analyzedAt} · {analysisSaved ? '解析結果を保存済みです。内容をご確認ください' : '未保存です'}</Text>
           </Card>
           <SectionHeading title="お手入れ項目・周期の変更" />
@@ -309,8 +319,7 @@ function TaskReviewCard({ task, index, working, cycleValue, onChangeCycle, manuf
 }
 
 function ExternalLink({ title, url, manufacturer }: { title: string; url: string; manufacturer: string }) {
-  if (!isOfficialApplianceUrl(url, manufacturer)) return <Text style={styles.invalidLink}>公式URLを検証できないため開けません。</Text>;
-  return <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(url).catch(() => undefined)}><Text style={styles.link}>{title}</Text></Pressable>;
+  return <OfficialLink title={title} url={url} manufacturer={manufacturer} />;
 }
 
 function getOfficialSupportUrl(manufacturer: string): string | undefined {
@@ -325,6 +334,15 @@ function getOfficialSupportUrl(manufacturer: string): string | undefined {
 }
 
 function errorTitle(error: ProductAnalysisErrorResponse): string {
+  if (error.code === 'AI_SERVICE_NO_RESULT') return 'AIサービスの応答を取得できませんでした';
+  if (error.code === 'REINSTALL_ACCOUNT_LOCKED') return '当月のアカウント制限';
+  if (error.code === 'DEVICE_VERIFICATION_REQUIRED' || error.code === 'DEVICE_VERIFICATION_UNAVAILABLE') return '安全な端末確認が必要です';
+  if (error.code === 'INVALID_MANUAL') return '説明書PDFを確認してください';
+  if (error.code === 'MONTHLY_LIMIT_REACHED') return '今月の利用上限';
+  if (error.code === 'SERVICE_LIMIT_REACHED') return '本日の受付上限';
+  if (error.code === 'AUTHENTICATION_REQUIRED' || error.code === 'ACCESS_DENIED') return '利用者認証を確認してください';
+  if (error.code === 'ANALYSIS_INTERRUPTED') return '解析が中断されました';
+  if (error.code === 'JOB_NOT_FOUND' || error.code === 'REQUEST_CONFLICT') return '解析の受付を確認してください';
   if (error.code === 'MANUAL_NOT_FOUND') return '説明書なし';
   if (error.code === 'ANALYSIS_FAILED' || error.code === 'AI_ANALYSIS_FAILED' || error.code === 'INVALID_AI_OUTPUT') return '解析失敗';
   if (error.code === 'PRODUCT_NOT_FOUND') return '製品不明';

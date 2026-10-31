@@ -1,0 +1,16 @@
+{
+  "name": "liflow-appliance-care-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.5.0",
+    "pdfjs-dist": "^6.4.299"
+  }
+}

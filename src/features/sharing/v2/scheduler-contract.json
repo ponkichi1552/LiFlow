@@ -1,5 +1,5 @@
 {
-  "version": "liflow-shared-2-draft-38",
+  "version": "liflow-shared-2-draft-39",
   "timeZoneVersion": "2026e",
   "sourceFiles": [
     "src/features/sharing/v2/model.ts",
@@ -83,7 +83,8 @@
     "src/features/sharing/v2/recovery-evidence.ts",
     "src/features/sharing/v2/recovery-lock.ts",
     "src/features/sharing/v2/recovery-witness.ts",
-    "src/features/sharing/v2/owner-recovery.ts"
+    "src/features/sharing/v2/owner-recovery.ts",
+    "src/features/appliance-care/manual-source.ts"
   ],
-  "sourceSha256": "0a6026980c021afe1339a152d83d2317c26b91ffbc58192346947faf2b026a3d"
+  "sourceSha256": "55dc738233e6e7fc786bb933fb39094aeb214c11a0bc54a001e99b8c2bbc8a7c"
 }

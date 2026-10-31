@@ -7,7 +7,7 @@ import type { SharedOperationDraft } from '../../../platform/storage/sharing-led
 import type { GroupPolicy, SharedChoreConfiguration } from './model.ts';
 import { readVerifiedLegacyMigrationSnapshot, readVerifiedLegacyMigrationSource, verifiedLegacyMigrationPin } from './legacy-migration-source.ts';
 import type { VerifiedLegacyMigration } from './legacy-migration-source.ts';
-import { V2_SCHEDULER_VERSION } from './payload-schema.ts';
+import { V2_SCHEDULER_VERSION, isSupportedV2Scheduler } from './payload-schema.ts';
 
 type ConfigurationChoice = Pick<SharedChoreConfiguration, 'policy' | 'anchorDate' | 'intervalDays' | 'windowBeforeDays' | 'windowAfterDays'> & { active: boolean };
 export type LegacyMigrationChoreChoice = { choreId: string; kind: 'keepDisabled' }
@@ -31,6 +31,9 @@ function digest(plan: Omit<LegacyMigrationPlan, 'digest'>) {
 export function prepareLegacyMigrationPlan(checkpoint: VerifiedLegacyMigration, input: {
   id: string; userId: string; groupPolicy: GroupPolicy; choices: readonly LegacyMigrationChoreChoice[]; now: Date;
 }): LegacyMigrationPlan {
+  return prepareAtVersion(checkpoint, input, V2_SCHEDULER_VERSION);
+}
+function prepareAtVersion(checkpoint: VerifiedLegacyMigration, input: Parameters<typeof prepareLegacyMigrationPlan>[1], schedulerVersion: string): LegacyMigrationPlan {
   assertSharedIdentifier(input.id); assertSharedIdentifier(input.userId);
   const source = readVerifiedLegacyMigrationSource(checkpoint); const original = readVerifiedLegacyMigrationSnapshot(checkpoint);
   const witness = original.base.legacyMigrationWitness;
@@ -62,7 +65,7 @@ export function prepareLegacyMigrationPlan(checkpoint: VerifiedLegacyMigration, 
     configuration.policy.assignment.memberIds.sort(compareOperationIds);
     return { choreId: chore.entityId, configuration, disableExisting: false };
   });
-  const body: Omit<LegacyMigrationPlan, 'digest'> = { schemaVersion: 1, schedulerVersion: V2_SCHEDULER_VERSION, id: input.id,
+  const body: Omit<LegacyMigrationPlan, 'digest'> = { schemaVersion: 1, schedulerVersion, id: input.id,
     userId: input.userId, groupId: source.replica.groupId, createdAt: input.now.toISOString(), effectiveFrom,
     sourcePin: verifiedLegacyMigrationPin(checkpoint), targetRosterDigest: witness.body.targetRosterDigest, groupPolicy: clone(input.groupPolicy), records };
   const plan = { ...body, digest: digest(body) };
@@ -88,14 +91,14 @@ export function legacyMigrationDrafts(plan: LegacyMigrationPlan, checkpoint: Ver
   });
   operations.push({ operationId: `${plan.id}.finish`, entityType: 'migration', entityId: `${plan.id}.finish`, operationType: 'patch', payload: {
     legacyFrontier: clone(checkpoint.frontier) as JsonValue, sourceSnapshotDigest: checkpoint.sourceSnapshotDigest,
-    groupKind: plan.groupPolicy.kind, schedulerVersion: V2_SCHEDULER_VERSION } });
+    groupKind: plan.groupPolicy.kind, schedulerVersion: plan.schedulerVersion } });
   return operations;
 }
 
 export function validateLegacyMigrationPlan(value: LegacyMigrationPlan, checkpoint: VerifiedLegacyMigration, now?: Date): LegacyMigrationPlan {
   const plan = clone(value);
   exact(plan, ['schemaVersion', 'schedulerVersion', 'id', 'userId', 'groupId', 'createdAt', 'effectiveFrom', 'sourcePin', 'targetRosterDigest', 'groupPolicy', 'records', 'digest']);
-  if (plan.schemaVersion !== 1 || plan.schedulerVersion !== V2_SCHEDULER_VERSION || !Array.isArray(plan.records) || plan.records.length > 4096) throw new Error('移行の確認をやり直してください。');
+  if (plan.schemaVersion !== 1 || !isSupportedV2Scheduler(plan.schedulerVersion) || !Array.isArray(plan.records) || plan.records.length > 4096) throw new Error('移行の確認をやり直してください。');
   const choices: LegacyMigrationChoreChoice[] = plan.records.map(record => {
     exact(record, ['choreId', 'configuration', 'disableExisting']);
     if (!record.configuration) return { choreId: record.choreId, kind: 'keepDisabled' };
@@ -103,7 +106,7 @@ export function validateLegacyMigrationPlan(value: LegacyMigrationPlan, checkpoi
     if (typeof active !== 'boolean') throw new Error('移行後の有効・無効を確認してください。');
     return { choreId: record.choreId, kind: 'configure', configuration: { policy, anchorDate, intervalDays, windowBeforeDays, windowAfterDays, active } };
   });
-  const rebuilt = prepareLegacyMigrationPlan(checkpoint, { id: plan.id, userId: plan.userId, groupPolicy: plan.groupPolicy, choices, now: new Date(plan.createdAt) });
+  const rebuilt = prepareAtVersion(checkpoint, { id: plan.id, userId: plan.userId, groupPolicy: plan.groupPolicy, choices, now: new Date(plan.createdAt) }, plan.schedulerVersion);
   if (canonicalJson(plan) !== canonicalJson(rebuilt)) throw new Error('確認した移行内容が変更されています。');
   if (now) {
     const source = readVerifiedLegacyMigrationSource(checkpoint); const settings = source.replica.entities.find(entity => entity.entityType === 'settings' && entity.entityId === 'settings');

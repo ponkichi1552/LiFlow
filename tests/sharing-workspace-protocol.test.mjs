@@ -73,3 +73,12 @@ test('cloud protocol discovery fetches bounded missing public epochs and refuses
   const excessive = { body, signer: f.initial.signer, signature: signSharedDocument({ domain: 'liflow-shared-roster-v1', body }, f.owner) };
   await assert.rejects(readCloudWorkspaceArchive(waiting, excessive, noFetch), /history limit/u);
 });
+
+test('a previously signed v1 to draft38 migration stays readable without silently replacing its trusted roster version', async () => {
+  const f = await fixture(); const next = upgradeSharedRoster(f.initial, f.owner);
+  const body = { ...next.body, schedulerVersion: 'liflow-shared-2-draft-38' };
+  const historical = { body, signer: next.signer, signature: signSharedDocument({ domain: 'liflow-shared-roster-v1', body }, f.owner) };
+  const stored = record(f.initial, [f.initial, historical]); const before = JSON.stringify(stored);
+  assert.equal(sharedWorkspaceProtocol(verifyWorkspaceArchive(stored).at(-1)), 2);
+  assert.equal(JSON.stringify(stored), before);
+});

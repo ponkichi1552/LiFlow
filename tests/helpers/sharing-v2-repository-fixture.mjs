@@ -1,7 +1,7 @@
 import { createDatabase } from './sqlite.mjs';
 import { sharingTestCrypto as crypto } from './sharing-crypto.mjs';
 import { initializeV2EventStore, createV2EventRepository } from '../../src/platform/storage/sharing-v2-events.ts';
-import { createDeviceIdentity } from '../../src/features/sharing/crypto.ts';
+import { createDeviceIdentity, signSharedDocument } from '../../src/features/sharing/crypto.ts';
 import { createSharedRoster, approveSharedDevice } from '../../src/features/sharing/roster.ts';
 import { v2AuthorProofDigest } from '../../src/features/sharing/v2/server-receipts.ts';
 import { createGroupPolicy, chorePolicyFromPreset } from '../../src/features/sharing/v2/model.ts';
@@ -20,9 +20,11 @@ export const seeds = () => [
   draft('configuration', 'chorePolicy', 'floor', { configuration: { policy: chorePolicyFromPreset('common'), anchorDate: '2026-10-27',
     intervalDays: 7, windowBeforeDays: 2, windowAfterDays: 2, ruleVersion: 1 } }),
 ];
-export async function fixture({ clock = now } = {}) {
+export async function fixture({ clock = now, schedulerVersion } = {}) {
   const owner = await createDeviceIdentity(crypto); const member = await createDeviceIdentity(crypto);
-  const archive = [createSharedRoster(groupId, 'owner', owner, { schemaVersion: 2 })]; archive.push(approveSharedDevice(archive[0], owner, 'member', member));
+  const initial = createSharedRoster(groupId, 'owner', owner, { schemaVersion: 2 });
+  if (schedulerVersion) { initial.body.schedulerVersion = schedulerVersion; initial.signature = signSharedDocument({ domain: 'liflow-shared-roster-v1', body: initial.body }, owner); }
+  const archive = [initial]; archive.push(approveSharedDevice(archive[0], owner, 'member', member));
   async function device(userId = 'owner', identity = owner) {
     const h = createDatabase(); await initializeV2EventStore(h.database, { ...scope, userId });
     let writable = true;

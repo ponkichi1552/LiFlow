@@ -11,7 +11,7 @@ import { sharedAuthorIdentity, sharedRosterDigest, verifySharedRosterTransition 
 import type { SignedSharedRoster, VerifiedSharedRoster } from './roster.ts';
 import { openEncryptedSharedSnapshot } from './snapshots.ts';
 import type { VerifiedSharedSnapshot } from './snapshots.ts';
-import { V2_SCHEDULER_VERSION } from './v2/payload-schema.ts';
+import { V2_SCHEDULER_VERSION, isSupportedV2Scheduler } from './v2/payload-schema.ts';
 import { readCloudWorkspaceArchive } from './workspace-protocol.ts';
 import { v2AuthorProofDigest } from './v2/server-receipts.ts';
 import type { SharedLedgerEvidence } from '../../platform/storage/sharing-ledger.ts';
@@ -37,7 +37,7 @@ export interface SharedSyncDependencies {
 const verifiedArchives = new WeakMap<SharedSyncDependencies, { pin: string; archive: VerifiedSharedRoster[] }>();
 function assertSupportedProtocol(deps: SharedSyncDependencies, roster: VerifiedSharedRoster): void {
   if (roster.body.schemaVersion !== (deps.v2 ? 2 : 1)
-    || roster.body.schedulerVersion !== (deps.v2 ? V2_SCHEDULER_VERSION : SHARED_SCHEDULER_VERSION)
+    || (deps.v2 ? !isSupportedV2Scheduler(roster.body.schedulerVersion) : roster.body.schedulerVersion !== SHARED_SCHEDULER_VERSION)
     || deps.v2 && (deps.v2.schedulerVersion !== V2_SCHEDULER_VERSION
       || typeof deps.v2.eventEvidence !== 'function' || typeof deps.v2.snapshotEvidence !== 'function')) throw new SharingSchedulerVersionError();
 }

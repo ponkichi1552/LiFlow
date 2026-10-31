@@ -145,7 +145,8 @@ test('feature screen contract: verified appliance analysis auto-saves maker inte
     });
     await screen.change('メーカー名', 'Dyson'); await screen.change('製品名', 'V12'); await screen.change('型番', 'SV20');
     await screen.change('カテゴリ（任意）', 'そうじ'); await screen.press('掃除機を選択');
-    await screen.press('公式資料を検索して解析');
+    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用でき、解析APIへの送信を確認した');
+    await screen.press('選択したPDFを解析');
     assert.equal(sent.category, 'vacuum_cleaner');
     const saved = await repository.loadPlannerSnapshot(h.database, today);
     assert.equal(saved.appliances.length, 1, 'analysis must save without an additional button press');

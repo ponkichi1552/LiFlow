@@ -1,6 +1,6 @@
 import type { SharedSyncDependencies, SharingSyncResult } from './synchronizer.ts';
 import { verifyCloudMembership } from './synchronizer.ts';
-import { approveSharedDevice, removeSharedDevice, removeSharedMembers, transferSharedOwnership, sharedAuthorIdentity, sharedRosterDigest } from './roster.ts';
+import { upgradeSharedScheduler, approveSharedDevice, removeSharedDevice, removeSharedMembers, transferSharedOwnership, sharedAuthorIdentity, sharedRosterDigest } from './roster.ts';
 import type { SignedSharedRoster, VerifiedSharedRoster } from './roster.ts';
 import { createEncryptedSharedSnapshot } from './snapshots.ts';
 import { createSharedInvitation, encodeCompactSharedInvitation, verifySharedJoinRequest } from './invitations.ts';
@@ -57,6 +57,10 @@ export function createSharedGroupManager(deps: SharedSyncDependencies & {
     } finally { key.fill(0); }
   }
   return {
+    upgradeScheduler: () => serial(() => rotate((previous, revoked) => {
+      if (revoked.length) throw new SharingKeyVersionError('退出したメンバーの鍵を更新してから互換更新してください。');
+      return upgradeSharedScheduler(previous, deps.identity);
+    })),
     createInvitation: () => serial(async () => {
       await deps.sync({ force: true }); const { roster, group } = await current();
       if (group.rotationRequired) throw new SharingKeyVersionError('共有鍵を更新してから招待してください。');

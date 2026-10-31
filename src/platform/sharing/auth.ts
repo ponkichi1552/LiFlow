@@ -7,6 +7,13 @@ import { authorizeGoogleSharingIdentity } from '../google-tasks/google-sign-in-g
 import { getSharingServices } from './firebase-services.ts';
 import { loadOrCreateSharingDeviceIdentity } from './secure-store.ts';
 
+// Binding failure never blocks ordinary sharing. Paid AI still fails closed until the backend verifies the device.
+async function bindPaidAiIdentity(uid: string) {
+  if (!process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL?.trim()) return;
+  try { const { bindApplianceAccount } = await import('../appliance-care/auth'); await bindApplianceAccount(uid); }
+  catch { /* The AI screen shows unresolved bindings; no quota or identity is fabricated locally. */ }
+}
+
 let signingIn: Promise<User> | null = null;
 let signingOut: Promise<void> | null = null;
 function oneSignIn(operation: () => Promise<User>): Promise<User> {
@@ -22,6 +29,7 @@ export function signInSharingWithGoogle(): Promise<User> {
     const { idToken } = await authorizeGoogleSharingIdentity();
     const result = await signInWithCredential(getSharingServices().auth, GoogleAuthProvider.credential(idToken));
     await loadOrCreateSharingDeviceIdentity(result.user.uid);
+    void bindPaidAiIdentity(result.user.uid);
     return result.user;
   });
 }
@@ -42,6 +50,7 @@ export function signInSharingWithApple(): Promise<User> {
     const credential = new OAuthProvider('apple.com').credential({ idToken: apple.identityToken, rawNonce });
     const result = await signInWithCredential(getSharingServices().auth, credential);
     await loadOrCreateSharingDeviceIdentity(result.user.uid);
+    void bindPaidAiIdentity(result.user.uid);
     return result.user;
   });
 }

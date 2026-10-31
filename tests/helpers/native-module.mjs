@@ -4,7 +4,7 @@ import ts from 'typescript';
 
 export function loadNativeModule(filename, mocks, timers = {}) {
   const { outputText } = ts.transpileModule(readFileSync(new URL(`../../${filename}`, import.meta.url), 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+    fileName: filename, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   });
   const module = { exports: {} };
   Function('require', 'module', 'exports', 'setTimeout', 'clearTimeout', outputText)((name) => {

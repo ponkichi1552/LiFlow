@@ -8,7 +8,7 @@
 
 Google Tasksとも連携し、Plannerが決めた予定を普段使うGoogle側で確認・完了できます。完了結果はPlannerへ戻り、**実際に家事を行った日から次回予定を自動計算**します。
 
-家電については、メーカー名・製品名・型番から**メーカー公式情報・公式説明書を確認し、AIでお手入れ方法を構造化**します。
+家電については、**利用者が選んだ取扱説明書PDFだけをAIで解析**し、お手入れ方法を構造化します。AIの実行はGoogle／Appleログインが必須で、通常の家事管理・保存済み説明の閲覧にはログインは不要です。正規端末・再インストール継続性の本番検証は未接続のため、公開AIは起動を停止しています。
 
 通常の家事管理・Scheduler・履歴は端末内のExpo SQLiteで動作し、外部APIが利用できない場合でも基本機能を継続できます。
 
@@ -375,18 +375,18 @@ Scheduler再計算
 
 ---
 
-## 7. 型番からメーカー公式説明書をAI解析
+## 7. 選択した取扱説明書PDFをAI解析
 
 家電のお手入れでは、一般的なAI知識だけを使って回答させません。
 
 ```text
-メーカー名・製品名・型番
+メーカー名・製品名・型番を入力
         ↓
-メーカー公式情報から製品を確認
+利用者が取扱説明書PDFを選択・送信を確認
         ↓
-対象型番の公式説明書を特定
+容量・ページ数・本人・正規端末・利用上限を検証
         ↓
-公式PDF / 公式資料をAIで解析
+選択したPDFだけをAIで解析（外部検索なし）
         ↓
 お手入れ項目
 手順
@@ -402,7 +402,7 @@ Scheduler再計算
 周期がある項目だけSchedulerへ登録
 ```
 
-製品同定と説明書検索ではメーカー公式情報を優先します。
+説明書の自動検索・取得は通常の解析／再解析で行いません。選択したPDFと製品が一致することは利用者が確認します。以下の従来画像・実API検証は旧方式での記録です。
 
 ### AIに存在しない周期を作らせない
 
@@ -832,26 +832,15 @@ Calendarの内容を家事Plannerが読む必要はありません。
 
 ---
 
-## 5. メーカー公式資料を基準にした家電AI
+## 5. 利用者が選んだ説明書PDFを基準にした家電AI
 
-家電AIは、
-
-```text
-Product Resolver
-↓
-Manual Resolver
-↓
-Manual Analyzer
-```
-
-へ処理を分離しています。
+PDF構造の隔離検査後、Web検索や外部ツールを使わず、お手入れ作業だけを抽出します。出典はPDFのSHA-256参照とページ・節名で保持し、メーカーの承認・公式URLと誤表示しません。原本PDFは共有しません。旧Product Resolver／Manual Resolverは過去の検査用に残し、通常の起動経路から外しています。
 
 主要コード：
 
-- [`server/appliance-care-api/src/product-resolver.mjs`](./server/appliance-care-api/src/product-resolver.mjs)
-- [`server/appliance-care-api/src/manual-resolver.mjs`](./server/appliance-care-api/src/manual-resolver.mjs)
-- [`server/appliance-care-api/src/manual-analyzer.mjs`](./server/appliance-care-api/src/manual-analyzer.mjs)
-- [`server/appliance-care-api/src/official-domains.mjs`](./server/appliance-care-api/src/official-domains.mjs)
+- [`uploaded-manual.mjs`](./server/appliance-care-api/src/uploaded-manual.mjs)
+- [`firestore-usage-store.mjs`](./server/appliance-care-api/src/firestore-usage-store.mjs)
+- [`公開受付の保護と未完の端末検証`](./docs/appliance-public-api-2026-10-31.md)
 
 ---
 
@@ -934,7 +923,7 @@ FreeBusyのみを利用し、Event内容を取得しません。
 
 ## 家電AI
 
-メーカー公式情報・公式説明書を基準にし、出典を保持します。
+利用者が選んだ取扱説明書PDFだけを基準にし、内容hashとページ・節名の出典を保持します。
 
 ## Planner
 
@@ -1015,7 +1004,7 @@ iPhone 12のRelease版で基本操作を確認済みです。Google Tasks / Cale
 
 ### 家電AIのRelease接続
 
-Android実機の家電AIは、開発ビルドからUSB経由の実APIで解析・保存を確認しました。端末単体のRelease版で新規解析・再解析を使うには、到達可能なHTTPS APIを`EXPO_PUBLIC_APPLIANCE_CARE_API_URL`へ設定する必要があります。保存済みのお手入れ内容はRelease版でも読めます。
+Android実機の家電AIは、開発ビルドからUSB経由の実APIで解析・保存を確認しました。現行の新規解析・再解析はPDF選択方式です。Release版の利用には、HTTPS API・Google／Apple認証・正規端末と再インストール継続性の検証が必要です。最後の端末検証は未接続のため、公開APIは現在停止します。保存済みのお手入れ内容はRelease版でも読めます。
 
 ### BackgroundTask
 
@@ -1134,7 +1123,9 @@ npm run api:dev
 
 OpenAI API keyをクライアントアプリへ直接埋め込まない構成です。
 
-現在のAPIはローカル開発用です。利用者認証と分散した利用上限が未実装のため、`NODE_ENV=production` では待受を開始せず終了します。CORSとプロセス内の上限は認証の代わりにはなりません。開発用APIを公開インターネットへ直接公開しないでください。
+家電AIには[アカウント認証・回数制限・PDFアップロード受付](docs/appliance-public-api-2026-10-31.md)を実装しています。Google／Appleのログインを必須とし、端末とアカウントの残回数の少ない方を適用します。月5回・毎月1日9時（日本時間）更新、再解析も1回です。OpenAIから結果を取得できなかったとサーバーで確認・記録した場合だけ月の枠を戻します。全体の受付試行は1日20回。再インストール後の当月中は、その端末で今月最初に紐づいたアカウントだけを許可します。解析0回でも、端末確認済みの紐付けは保持します。
+
+**本番の正規アプリ・端末継続性検証アダプターは未接続のため、公開APIは起動を拒否します。** 認証・カウンタだけで再インストール対策が完成したとは扱いません。Apple／Google側の資格・設定・ネイティブ証明の接続と実サービス検査が残っています。公開への配置・課金変更はしていません。サーバー専用依存は`npm run api:install`、開発APIはloopback限定のアップロード方式です。APIキーをクライアントへ埋め込みません。
 
 ---
 

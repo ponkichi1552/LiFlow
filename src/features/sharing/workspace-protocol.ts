@@ -3,14 +3,14 @@ import { SHARED_SCHEDULER_VERSION } from './operations.ts';
 import { SharingSchedulerVersionError } from './cloud-contract.ts';
 import { sharedRosterDigest, validateSharedRoster, verifyPinnedSharedRoster, verifySharedRosterArchive } from './roster.ts';
 import type { SignedSharedRoster, VerifiedSharedRoster } from './roster.ts';
-import { V2_SCHEDULER_VERSION } from './v2/payload-schema.ts';
+import { isSupportedV2Scheduler } from './v2/payload-schema.ts';
 
 export type SharedWorkspaceProtocol = 1 | 2;
 
 /** The protocol is authoritative only after the locally pinned signature chain has been verified. */
 export function sharedWorkspaceProtocol(roster: VerifiedSharedRoster): SharedWorkspaceProtocol {
   if (roster.body.schemaVersion === 1 && roster.body.schedulerVersion === SHARED_SCHEDULER_VERSION) return 1;
-  if (roster.body.schemaVersion === 2 && roster.body.schedulerVersion === V2_SCHEDULER_VERSION) return 2;
+  if (roster.body.schemaVersion === 2 && isSupportedV2Scheduler(roster.body.schedulerVersion)) return 2;
   throw new SharingSchedulerVersionError();
 }
 
