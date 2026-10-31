@@ -7416,6 +7416,10 @@
       {
         "file": "tests/shared-settings-book.test.mjs",
         "name": "connected shared settings read one authenticated snapshot and scrolling never rebuilds the same repository state for each chapter"
+      },
+      {
+        "file": "tests/shared-settings-book.test.mjs",
+        "name": "${platform} an unfinished initial shared configuration can be explicitly reset before leaving without enabling the chore or writing an operation"
       }
     ]
   },

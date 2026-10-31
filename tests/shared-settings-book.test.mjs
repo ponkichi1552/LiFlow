@@ -64,3 +64,18 @@ test('connected shared settings read one authenticated snapshot and scrolling ne
   assert.deepEqual(model.choreDateRights.find(row => row.choreId === 'floor'), single.dateRights);
   await assert.rejects(session.readModel({ choreSettings: true }), /編集画面/u);
 });
+
+for (const platform of ['ios', 'android']) test(`${platform} an unfinished initial shared configuration can be explicitly reset before leaving without enabling the chore or writing an operation`, async t => {
+  const f = await fixture(); const d = await f.device(); t.after(() => d.connection.close());
+  await d.repository.commit(seeds().filter(row => row.operationId !== 'configuration'));
+  const controller = createV2GroupController(d.repository, { makeId: () => 'must-not-write', now, sync: async () => {} });
+  const session = createV2ScreenSession({ controller, groupId, userId: 'owner', now, readPreferences: () => { throw new Error('private read'); } });
+  const model = await session.readModel({ management: true, choreSettings: true }); const before = d.state(); let backs = 0;
+  const screen = screenHarness('src/features/sharing/v2-ui/chore-settings-book.tsx', { exportName: 'V2ChoreSettingsBook', platform,
+    props: { model, session, choreId: 'floor', groupName: '家族', onBack: () => backs++, onSaved: async () => {} }, layoutEffect: callback => callback() });
+  await screen.change('初回の周期', '12'); await screen.press('前の画面に戻る'); assert.equal(backs, 0);
+  await screen.press('入力を戻す');
+  assert.equal(screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '初回の周期').props.value, '');
+  await screen.press('前の画面に戻る'); assert.equal(backs, 1);
+  assert.deepEqual(d.state(), before); assert.equal((await controller.readModel(range)).configurations[0].configuration, null);
+});
