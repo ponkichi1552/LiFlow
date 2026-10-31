@@ -36,7 +36,7 @@ async function seed(schemaVersion) {
       for (const uid of [owner, member]) {
         batch.set(doc(ref, 'keyEnvelopes', `1_${uid}-device`), { userId: uid, deviceId: `${uid}-device`, keyVersion: 1, wrappedKeyJson: 'synthetic-wrapped-key', createdAt: time });
         batch.set(doc(ref, 'acknowledgements', `${uid}-device`), { userId: uid, sequence: 1, updatedAt: time });
-        batch.set(doc(store, 'sharingUsers', uid, 'memberships', group), { groupId: group, createdAt: time });
+        batch.set(doc(store, 'sharingUsers', uid, 'memberships', 'current'), { groupId: group, invitationId: null, createdAt: time });
       }
     }
     await batch.commit();
@@ -58,7 +58,7 @@ for (const schemaVersion of [1, 2]) {
       }
       await assertFails(getDocsFromServer(collection(store, 'sharingGroups')));
       if (!allowed) await assertFails(getDocsFromServer(collection(root(store), 'events')));
-      const membership = getDocFromServer(doc(store, 'sharingUsers', 'owner-b', 'memberships', 'other'));
+      const membership = getDocFromServer(doc(store, 'sharingUsers', 'owner-b', 'memberships', 'current'));
       if (uid === 'owner-b') assert.equal((await assertSucceeds(membership)).exists(), true);
       else await assertFails(membership);
     }
@@ -98,3 +98,19 @@ for (const schemaVersion of [1, 2]) {
     assert.equal((await getDocFromServer(root(db('owner-a')))).data().headSequence, 1);
   });
 }
+
+for (const schemaVersion of [1, 2]) test(`single membership Rules v${schemaVersion}: another owner cannot claim an already joined user by changing or omitting the singleton pointer`, async () => {
+  await seed(schemaVersion); const store = db('owner-b'); const ref = root(store, 'other');
+  for (const changePointer of [false, true]) {
+    const batch = writeBatch(store); const snapshotId = `claim-${changePointer}`;
+    batch.update(ref, { memberIds: ['owner-b', 'member-b', 'member-a'],
+      deviceOwners: { 'owner-b-device': 'owner-b', 'member-b-device': 'member-b', 'member-a-device': 'member-a' },
+      keyVersion: 2, rosterRevision: 2, rosterJson: 'owner-signed-attempt', snapshotId, snapshotThroughSequence: 1, updatedAt: serverTimestamp() });
+    batch.set(doc(ref, 'rosters', '2'), { rosterJson: 'owner-signed-attempt', createdAt: serverTimestamp() });
+    batch.set(doc(ref, 'snapshots', snapshotId), { keyVersion: 2, throughSequence: 1, manifestJson: 'owner-signed-snapshot', createdAt: serverTimestamp() });
+    if (changePointer) batch.set(doc(store, 'sharingUsers', 'member-a', 'memberships', 'current'), { groupId: 'other', invitationId: null, createdAt: serverTimestamp() });
+    await assertFails(batch.commit());
+    assert.equal((await getDocFromServer(ref)).data().keyVersion, 1);
+    assert.equal((await getDocFromServer(doc(db('member-a'), 'sharingUsers', 'member-a', 'memberships', 'current'))).data().groupId, 'target');
+  }
+});

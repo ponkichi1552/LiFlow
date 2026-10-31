@@ -50,7 +50,7 @@ for (const broken of ['personal', 'private', 'sharing']) {
       '@/platform/storage/repository': { initializeLocalDatabase: async () => {}, loadGoogleSyncState: async () => ({ enabled: true }), LOCAL_HOUSEHOLD_ID: 'local' },
       './coordinator': { syncGoogleTasks: async () => { calls.push('personal'); if (broken === 'personal') throw new Error('synthetic personal failure'); return { kind: 'success' }; } },
       '@/platform/sharing/private-calendar-sync': { syncKnownPrivateCalendar: async budget => { assert.equal(budget, 15000); calls.push('private'); if (broken === 'private') throw new Error('synthetic private failure'); } },
-      '@/platform/sharing/workspaces': { syncKnownSharingWorkspaces: async budget => { assert.equal(budget, 30000); calls.push('sharing'); if (broken === 'sharing') throw new Error('synthetic sharing failure'); } },
+      '@/platform/sharing/workspaces': { syncSharingWorkspace: async budget => { assert.equal(budget, 30000); calls.push('sharing'); if (broken === 'sharing') throw new Error('synthetic sharing failure'); } },
     });
     assert.equal(definitions, 1); assert.deepEqual(calls, []); await module.registerGoogleSyncBackgroundTask(); await module.registerGoogleSyncBackgroundTask(); assert.equal(registrations, 1);
     assert.equal(await callback({}), 'failed'); assert.deepEqual(calls, ['personal', 'close', 'private', 'sharing', 'close']); assert.equal(definitions, 1);

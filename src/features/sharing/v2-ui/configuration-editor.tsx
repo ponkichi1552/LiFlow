@@ -45,7 +45,7 @@ function Editor({ configuration, earliestFrom, today, choreId, controller, onSav
   const [from, setFrom] = useState<LocalDate>(today > earliestFrom ? today : earliestFrom); const [fromError, setFromError] = useState<string | null>(null);
   const [fromBasis, setFromBasis] = useState(earliestFrom);
   const autosave = useV2ConfigurationAutosave({ configuration, effectiveFrom: from,
-    save: (edits, date) => { if (blocked) return Promise.reject(new V2StaleSettingsError()); return controller.actions.patchChoreConfigurationFields(choreId, edits, date); }, onSaved });
+    save: (edits, date) => { if (blocked) return Promise.reject(new V2StaleSettingsError()); return controller.actions.patchChoreConfigurationFields(choreId, edits, date); }, onSaved }, `configuration:${choreId}`);
   const saving = autosave.status.phase === 'pending' || autosave.status.phase === 'saving';
   if (fromBasis !== earliestFrom && !autosave.hasDraft() && !saving) {
     setFromBasis(earliestFrom); if (!fromError && from < earliestFrom) setFrom(earliestFrom);

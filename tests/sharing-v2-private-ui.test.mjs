@@ -61,7 +61,6 @@ for (const platform of ['ios', 'android']) {
         onBack: () => {}, onConfiguration: () => {}, onHistory: () => {} };
       const screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen', platform, props, focusEffect: (fn) => { focus = fn; } });
       const leave = focus(); await ready(screen, f.personal.chore.name);
-      assert.match(screen.text(), /個人家事：本人のみ/u);
       assert.ok(screen.text().includes(`約${f.personal.chore.estimatedMinutes}分`));
       assert.match(screen.button(`${f.personal.chore.name}の説明を開く`).props.accessibilityHint, /個人の家事/u);
       await screen.press(`${f.personal.chore.name}の説明を開く`);
@@ -107,10 +106,10 @@ for (const platform of ['ios', 'android']) {
       try {
         const active = { protocol: 2, groupId, userId: 'owner', identity: { deviceId: 'native' }, record: async () => ({ status: 'active' }),
           session: { controller: f.controller }, sync: async () => {} };
-        const context = { ready: true, active, userId: 'owner', groups: [] };
+        const context = { ready: true, active, userId: 'owner', group: null };
         const privateData = { database: f.personal.database, snapshot: (await repository.readPersonalPlannerOverlaySnapshot(f.personal.database)).snapshot,
           refresh: async () => { privateData.snapshot = (await repository.readPersonalPlannerOverlaySnapshot(f.personal.database)).snapshot; } };
-        const screen = screenHarness('src/app/group-v2/index.tsx', { platform, focusEffect: (fn) => { focus = fn; }, layoutEffect: (commit) => { commit(); }, mocks: {
+        const screen = screenHarness('src/features/sharing/v2-ui/workspace-route.tsx', { exportName: 'V2WorkspaceRoute', props: { view: 'home' }, platform, focusEffect: (fn) => { focus = fn; }, layoutEffect: (commit) => { commit(); }, mocks: {
           '../../../hooks/use-workspace': { useWorkspace: () => context }, '../../../hooks/use-planner-data': { usePlannerData: () => privateData },
           '../../../platform/sharing/private-calendar-runtime': { openPrivateCalendarRuntime: () => ({
             readPlannerPreferences: async () => null, readForPlan: async () => null, subscribe: () => () => {},

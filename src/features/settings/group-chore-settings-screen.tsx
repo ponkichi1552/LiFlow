@@ -12,8 +12,8 @@ export function GroupChoreSettingsScreen() {
   const context = useContext(WorkspaceContext);
   const params = useLocalSearchParams<{ id: string; groupId: string }>();
   if (!context?.userId || typeof params.groupId !== 'string' || typeof params.id !== 'string'
-    || !context.groups.some(row => row.userId === context.userId && row.groupId === params.groupId && ['active', 'creating'].includes(row.status))) {
-    return <PlannerLoadState title="グループの家事設定" message="参加しているグループを選択してください。" error="このグループは現在編集できません。" retry={async () => router.back()} />;
+    || !(context.group?.userId === context.userId && context.group.groupId === params.groupId && ['active', 'creating'].includes(context.group.status))) {
+    return <PlannerLoadState title="グループの家事設定" message="所属グループを確認してください。" error="このグループは現在編集できません。" retry={async () => router.back()} />;
   }
   return <SelectedGroupChoreSettings key={`${context.userId}:${params.groupId}`} userId={context.userId} groupId={params.groupId} choreId={params.id} />;
 }

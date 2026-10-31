@@ -8,8 +8,6 @@ import type { V2PersonalPlan } from '../v2/personal-plan';
 import { v2CalendarMonth } from './calendar-projection.ts';
 import type { V2PrivateOverlayState, V2PrivateTaskSource } from './private-overlay';
 import type { PrivateCalendarRuntime } from '../private-calendar/runtime';
-import { assessV2UntimedDailyLoad } from '../v2/daily-load.ts';
-import type { V2DailyLoadAssessment } from '../v2/daily-load';
 import { v2CommonCompletionSource } from './common-chore-history.ts';
 import { combineCalendarConflicts } from '../v2/private-availability.ts';
 import type { PrivateCalendarAvailability } from '../v2/private-availability.ts';
@@ -18,7 +16,7 @@ export interface V2GroupUiSession {
   controller: V2GroupController; groupId: string; userId: string;
   privateTasks?: V2PrivateTaskSource;
   readOwnCalendar?: PrivateCalendarRuntime['readOwnCalendar'];
-  readModel: (options?: { calendarMonth?: string; focusDate?: string; detailChoreId?: string; management?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; appliances?: boolean; applianceId?: string; reminders?: boolean }) => Promise<V2GroupScreenModel & { personal?: V2PersonalPlan; privateOverlay?: V2PrivateOverlayState; dailyLoad?: V2DailyLoadAssessment }>;
+  readModel: (options?: { calendarMonth?: string; focusDate?: string; detailChoreId?: string; choreSettings?: boolean; management?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; appliances?: boolean; applianceId?: string; reminders?: boolean }) => Promise<V2GroupScreenModel & { personal?: V2PersonalPlan; privateOverlay?: V2PrivateOverlayState }>;
 }
 
 /** The UI computes its range and personal suggestions from one authenticated group clock. */
@@ -38,6 +36,7 @@ export function createV2ScreenSession(input: { controller: V2GroupController; gr
       return input.calendar ? combineCalendarConflicts(local, await input.calendar.readOwnCalendar(target)) : local;
     } : input.calendar?.readOwnCalendar,
     async readModel(options) {
+      if (options?.choreSettings && !options.management) throw new Error('連続した家事設定は編集画面から読み込んでください。');
       if (options?.reminders && (options.management || options.calendarMonth || options.focusDate)) throw new Error('通知用と画面用の予定範囲を同時に指定できません。');
       if (options?.calendarMonth && options.focusDate) throw new Error('月表示と家事回の表示を同時に指定できません。');
       if (options?.management && (options.calendarMonth || options.focusDate)) throw new Error('編集画面と月・家事回の表示を同時に指定できません。');
@@ -50,7 +49,7 @@ export function createV2ScreenSession(input: { controller: V2GroupController; gr
         if (focus) parseLocalDate(focus);
         const calendar = options?.calendarMonth ? v2CalendarMonth(options.calendarMonth === 'current' ? date : options.calendarMonth as LocalDate) : null;
         return { from: addDays(calendar?.from ?? focus ?? date, -14), through: addDays(calendar?.through ?? focus ?? date, 14), asOfDate: date };
-      }, { detailChoreId: options?.detailChoreId, groupPolicy: options?.groupPolicy, permissionsChoreId: options?.permissionsChoreId, waste: options?.waste, appliances: options?.appliances, applianceId: options?.applianceId });
+      }, { detailChoreId: options?.detailChoreId, choreSettings: options?.choreSettings, groupPolicy: options?.groupPolicy, permissionsChoreId: options?.permissionsChoreId, waste: options?.waste, appliances: options?.appliances, applianceId: options?.applianceId });
       if (model.viewerUserId !== input.userId || model.plan.groupId !== input.groupId) throw new Error('表示する共有アカウント・グループが変わりました。');
       planTimeZone = model.plan.timeZone;
       if (!preferences) return model;
@@ -67,13 +66,11 @@ export function createV2ScreenSession(input: { controller: V2GroupController; gr
         await input.privateTasks.mirrorShared?.(v2CommonCompletionSource(model));
         privateOverlay = await input.privateTasks.read(model.plan.range, instant, model.plan.chores);
         if (privateOverlay.ownerUserId !== input.userId) throw new Error('本人の個人家事を確認してください。');
-      } catch { privateOverlay = { status: 'unavailable', message: '個人家事を取得できませんでした。個人モードの状態を確認し、再読込してください。' }; }
+      } catch { privateOverlay = { status: 'unavailable', message: '個人家事を取得できませんでした。個人の状態を確認し、再読込してください。' }; }
       const privateLoad = privateOverlay?.status === 'ready' && privateOverlay.timeZone === model.plan.timeZone
         ? { ownerUserId: input.userId, days: privateOverlay.dailyLoad } : undefined;
       const personal = buildV2PersonalPlan(model.plan, { viewerUserId: input.userId, now: instant.getTime(), settings: preferences.settings, privateLoad, localCalendar,
         ...(calendar ? { calendar: { cache: calendar.cache, binding: calendar.binding } } : {}) });
-      const dailyLoad = model.plan.initialized && model.plan.policy && model.plan.range.from <= model.plan.range.asOfDate && model.plan.range.through >= model.plan.range.asOfDate
-        ? assessV2UntimedDailyLoad({ model, userId: input.userId, personal, privateOverlay, limits: preferences.settings.loadLimits }) : undefined;
-      return { ...model, personal, ...(privateOverlay ? { privateOverlay } : {}), ...(dailyLoad ? { dailyLoad } : {}) };
+      return { ...model, personal, ...(privateOverlay ? { privateOverlay } : {}) };
     } };
 }

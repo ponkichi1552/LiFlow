@@ -9,7 +9,7 @@ import type { LocalDate } from '../../domain/shared/types';
 export interface V2ImmediateNotice { key: string; title: string; body: string; count: number; date?: LocalDate }
 /** The same native queue and capacity boundary is used for all immediate v2 notices. */
 export function createV2ImmediateNoticePresenter(scope: { userId: string; groupId: string }, config: {
-  prefix: string; kind: 'v2-housework-completed' | 'v2-housework-load'; channelId: string; channelName: string;
+  prefix: string; kind: 'v2-housework-completed'; channelId: string; channelName: string;
 }) {
   const namespace = v2NativeWorkspaceNamespace(scope.userId, scope.groupId);
   return async (notice: V2ImmediateNotice, assertCurrent: () => Promise<void>, beforePresent?: () => Promise<boolean>) => {

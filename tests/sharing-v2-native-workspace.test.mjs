@@ -229,7 +229,7 @@ test('loading the v2 Tasks runtime consumes the original worker budget before an
     workspace.sync = async () => ({}); workspace.maintainHistory = async () => {};
     workspace.reminders = async () => ({ synchronize: async () => {} });
     workspace.googleTasks = async () => { now += 30_000; return { synchronize: async () => { syncs++; } }; };
-    await h.api.syncKnownSharingWorkspaces(20_000); assert.equal(syncs, 0);
+    await h.api.syncSharingWorkspace(20_000); assert.equal(syncs, 0);
   } finally { Date.now = previous; await h.close(); }
 });
 
@@ -247,8 +247,8 @@ for (const failure of ['shared', 'reminders', 'google-throw', 'retry', 'authRequ
         calls.push('google'); if (failure === 'google-throw') throw new Error('synthetic Google failure');
         return { kind: ['retry', 'authRequired', 'error'].includes(failure) ? failure : 'success', code: 'synthetic', skipped: failure === 'success' };
       } });
-      if (failure === 'success') await h.api.syncKnownSharingWorkspaces();
-      else await assert.rejects(h.api.syncKnownSharingWorkspaces());
+      if (failure === 'success') await h.api.syncSharingWorkspace();
+      else await assert.rejects(h.api.syncSharingWorkspace());
       assert.deepEqual(calls, ['shared', 'history', 'reminders', 'google']);
     } finally { await h.close(); }
   });
@@ -282,4 +282,35 @@ test('a removed native workspace preserves its history and requests a fresh gene
     assert.equal('v2Migration' in stored, false); assert.deepEqual(stored.anchor, h.record.anchor);
     assert.equal(h.calls.includes('legacy-open'), false); assert.equal(h.calls.some(call => Array.isArray(call) && call[0] === 'v2-open'), false);
   } finally { await h.close(); }
+});
+
+test('a rejected cross-device creation releases its local membership slot without deleting unsent edits', async () => {
+  const h = await workspaceHarness({ deferWorkspaceTimers: true, cloud: {
+    createGroup: async () => { throw Object.assign(new Error('held elsewhere'), { code: 'permission-denied' }); },
+    readMembership: async () => 'other-device-house',
+  } });
+  try {
+    const workspace = await h.api.openSharedWorkspace(h.record); const before = await workspace.checkpoint();
+    await assert.rejects(workspace.sync({ force: true, budgetMs: 20_000 }), /別の端末/);
+    assert.equal(await h.api.currentSharingWorkspace(), null);
+    assert.equal((await readSharingWorkspace(h.index.database, h.record.userId, h.record.groupId)).status, 'removed');
+    const after = await h.index.database.getAllAsync('SELECT record_json FROM sharing_workspaces');
+    assert.equal(after.length, 1); assert.ok(before.pendingCount > 0);
+    await assert.rejects(h.api.openSharedWorkspace(h.record), /現在所属/);
+  } finally { await h.close(); }
+});
+
+for (const creating of [false, true]) test(`membership ${creating ? 'creation' : 'adoption'} consumes the original worker budget and cannot start a fresh synchronization interval`, async () => {
+  const originalNow = Date.now; let now = originalNow(); Date.now = () => now;
+  const h = await workspaceHarness({ deferWorkspaceTimers: true, cloud: {
+    bindMembership: async () => { now += 30_000; }, createGroup: async () => { now += 30_000; },
+  } });
+  try {
+    if (!creating) await updateSharingWorkspace(h.index.database, h.record.userId, h.record.groupId, row => ({ ...row, status: 'active' }));
+    const workspace = await h.api.openSharedWorkspace(h.record); let syncs = 0;
+    const before = await workspace.checkpoint();
+    workspace.session.synchronizer.sync = async () => { syncs++; return { complete: true }; };
+    await assert.rejects(workspace.sync({ force: true, budgetMs: 20_000 }), /同期時間を使い切り/);
+    assert.equal(syncs, 0); assert.equal((await workspace.checkpoint()).pendingCount, before.pendingCount);
+  } finally { await h.close(); Date.now = originalNow; }
 });

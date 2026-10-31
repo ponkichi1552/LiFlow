@@ -80,7 +80,7 @@ test('native entry defines background work before Router can mount any screens',
     'expo-sqlite': { openDatabaseAsync: async (_name, options) => { assert.equal(options.useNewConnection, true); return { closeAsync: async () => { events.push('close'); } }; } },
     './coordinator': { syncGoogleTasks: async () => { events.push('sync'); return { kind: 'success' }; } },
     '@/platform/sharing/private-calendar-sync': { syncKnownPrivateCalendar: async budget => { assert.equal(budget, 15000); events.push('private-calendar'); } },
-    '@/platform/sharing/workspaces': { syncKnownSharingWorkspaces: async (budget) => { assert.equal(budget, 30000); events.push('sharing'); } },
+    '@/platform/sharing/workspaces': { syncSharingWorkspace: async (budget) => { assert.equal(budget, 30000); events.push('sharing'); } },
     '@/platform/storage/repository': { LOCAL_HOUSEHOLD_ID: 'home', initializeLocalDatabase: async () => { events.push('initialize'); },
       loadGoogleSyncState: async () => ({ enabled: true }) },
   };
@@ -105,7 +105,7 @@ test('background tasks close their SQLite connection after a sync failure withou
     'expo-sqlite': { openDatabaseAsync: async () => ({ closeAsync: async () => { closed++; } }) },
     './coordinator': { syncGoogleTasks: async () => { throw new Error('SQLite busy'); } },
     '@/platform/sharing/private-calendar-sync': { syncKnownPrivateCalendar: async () => {} },
-    '@/platform/sharing/workspaces': { syncKnownSharingWorkspaces: async () => {} },
+    '@/platform/sharing/workspaces': { syncSharingWorkspace: async () => {} },
     '@/platform/storage/repository': { LOCAL_HOUSEHOLD_ID: 'home', initializeLocalDatabase: async () => {}, loadGoogleSyncState: async () => ({ enabled: true }) },
   });
   assert.equal(await callback({}), 'failed'); assert.equal(closed, 2);

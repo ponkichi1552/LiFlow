@@ -44,7 +44,7 @@ export function createV2ApplianceActions(repository: ReturnType<typeof createV2E
         if (!input || input.reviewed !== true || !isAnalysisRecord(input.result) || input.result.status !== 'verified'
           || !isAnalysisRecord(input.result.product) || !isAnalysisRecord(input.result.officialSources)) throw new Error('解析結果を確認してから共有してください。');
         const result = input.result; const product = result.product;
-        if (result.analysis.manualSource && state.archive.at(-1)!.body.schedulerVersion !== V2_SCHEDULER_VERSION) throw new Error('共有グループの所有者が共有画面から互換更新を行ってください。既存データは保持されます。');
+        if (result.analysis.manualSource && ![V2_SCHEDULER_VERSION, 'liflow-shared-2-draft-39'].includes(state.archive.at(-1)!.body.schedulerVersion)) throw new Error('共有グループの所有者が共有画面から互換更新を行ってください。既存データは保持されます。');
         if (![product.manufacturer, product.productName, product.modelNumber].every(value => typeof value === 'string' && value.trim())) throw new Error('メーカー・製品名・型番を確認してください。');
         const groupId = repository.scope.groupId; const selection = input.selection;
         if (selection && selection.groupId !== groupId) throw new V2StaleSettingsError();

@@ -1,6 +1,5 @@
-import { FormTextInput as TextInput } from '../../../components/form-text-input';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { AppButton, BackButton, Card, ChoiceChip, Page, ScreenHeading, SectionHeading, palette, typography } from '../../../components/planner-ui';
 import { NumberInputField } from '../../../components/number-input-field';
 import type { Weekday } from '../../../domain/shared/types';
@@ -17,11 +16,11 @@ import type { PrivatePreferenceSync } from './preference-sync';
 type Session = { store: PrivatePlannerPreferenceStore; defaults: PrivatePlannerPreferences;
   sync?: { engine: PrivatePreferenceSync; synchronize(): Promise<unknown>; onConfigure(): void } };
 const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
-export function PrivatePreferenceScreen({ load, onBack, notice, footer }: { load(): Promise<Session>; onBack(): void; notice?: ReactNode; footer?: ReactNode }) {
+export function PrivatePreferenceScreen({ load, onBack, notice, footer, syncOnly = false }: { load(): Promise<Session>; onBack(): void; notice?: ReactNode; footer?: ReactNode; syncOnly?: boolean }) {
   const [attempt, setAttempt] = useState(0);
-  return <PrivatePreferenceLoader key={attempt} load={load} onBack={onBack} onReload={() => setAttempt(n => n + 1)} notice={notice} footer={footer} />;
+  return <PrivatePreferenceLoader key={attempt} load={load} onBack={onBack} onReload={() => setAttempt(n => n + 1)} notice={notice} footer={footer} syncOnly={syncOnly} />;
 }
-function PrivatePreferenceLoader({ load, onBack, onReload, notice, footer }: { load(): Promise<Session>; onBack(): void; onReload(): void; notice?: ReactNode; footer?: ReactNode }) {
+function PrivatePreferenceLoader({ load, onBack, onReload, notice, footer, syncOnly }: { load(): Promise<Session>; onBack(): void; onReload(): void; notice?: ReactNode; footer?: ReactNode; syncOnly?: boolean }) {
   const [value, setValue] = useState<{ session: Session; saved: SavedPrivatePlannerPreferences | null } | null>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
@@ -34,13 +33,13 @@ function PrivatePreferenceLoader({ load, onBack, onReload, notice, footer }: { l
       .catch(() => { if (current) setError(true); });
     return () => { current = false; };
   }, [load]);
-  if (value) return <PrivatePreferenceEditor {...value} onBack={onBack} onReload={onReload} notice={notice} footer={footer} />;
-  return <Page>{notice}<BackButton onPress={onBack} /><ScreenHeading title="本人の実施可能時間帯" />
+  if (value) return <PrivatePreferenceEditor {...value} onBack={onBack} onReload={onReload} notice={notice} footer={footer} syncOnly={syncOnly} />;
+  return <Page>{notice}<BackButton onPress={onBack} /><ScreenHeading title="本人の生活リズム" />
     {error ? <Card><Text accessibilityRole="alert" style={typography.body}>本人の保存済み設定を読み込めませんでした。データは保持しています。</Text>
       <AppButton title="本人の設定を再読込" onPress={onReload} /></Card> : <ActivityIndicator color={palette.accent} />}</Page>;
 }
 
-function PrivatePreferenceEditor({ session, saved, onBack, onReload, notice, footer }: { session: Session; saved: SavedPrivatePlannerPreferences | null; onBack(): void; onReload(): void; notice?: ReactNode; footer?: ReactNode }) {
+function PrivatePreferenceEditor({ session, saved, onBack, onReload, notice, footer, syncOnly }: { session: Session; saved: SavedPrivatePlannerPreferences | null; onBack(): void; onReload(): void; notice?: ReactNode; footer?: ReactNode; syncOnly?: boolean }) {
   const [store] = useState(() => createPrivatePreferenceEditor({ store: session.store, saved, defaults: session.defaults }));
   const { snapshot: state, navigateAfterSave } = useV2DraftLifecycle(store); const [reloadReview, setReloadReview] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false); const [syncError, setSyncError] = useState(false);
@@ -63,12 +62,11 @@ function PrivatePreferenceEditor({ session, saved, onBack, onReload, notice, foo
   };
   const raw = state.raw; const [regionSearch, setRegionSearch] = useState(''); const regions = v2RegionChoices(regionSearch, raw.timeZone);
   const change = (patch: Partial<typeof raw>) => store.change(value => ({ ...value, ...patch }));
-  const changeBand = (id: number, field: 'start' | 'end', text: string) => store.change(value => ({ ...value, bands: value.bands.map(band => band.id === id ? { ...band, [field]: text } : band) }));
   const back = () => { void navigateAfterSave(onBack); };
   return <Page>{notice}<BackButton onPress={back} />
-    <ScreenHeading title="本人の実施可能時間帯" description="本人向けの推奨に使う設定です。他のメンバーには公開されません。" />
+    <ScreenHeading title={syncOnly ? "設定の端末間同期" : "本人の生活リズム"} description={syncOnly ? "同じアカウントの承認済み端末へ反映します。" : "本人向けの推奨に使う設定です。他のメンバーには公開されません。"} />
     <Text accessibilityLiveRegion="polite" style={typography.caption}>{state.status.phase === 'saving' ? 'この端末に保存中…' : state.status.phase === 'pending' ? '入力した変更を保存待ちです。'
-      : state.hasDraft ? '未保存の入力があります。' : state.revision > 0 ? 'この端末に保存済み' : '時間帯は未設定です。入力した内容は自動で保存されます。'}</Text>
+      : state.hasDraft ? '未保存の入力があります。' : state.revision > 0 ? 'この端末に保存済み' : '入力した内容は自動で保存されます。'}</Text>
     {state.validation ? <Text accessibilityRole="alert" style={styles.error}>{state.validation}</Text> : null}
     {state.status.error ? <Card><Text accessibilityRole="alert" style={styles.error}>{state.status.error}</Text>
       <AppButton title="保存を再試行" onPress={() => { void store.flush(); }} /></Card> : null}
@@ -78,7 +76,7 @@ function PrivatePreferenceEditor({ session, saved, onBack, onReload, notice, foo
       <Text accessibilityLiveRegion="polite" style={typography.body}>{!syncStatus ? '同期状態を確認しています。' : syncStatus.kind === 'conflict' ? '別の本人端末と設定が異なります。両方を保持しています。'
         : syncStatus.kind === 'synchronized' ? '本人端末へ反映できる状態です。各端末の受信には通信が必要です。'
           : syncStatus.kind === 'pending' ? 'この端末に保存済み・本人端末への反映待ちです。' : '本人端末へ反映する設定はまだありません。'}</Text>
-      {syncStatus && !syncStatus.configured ? <><Text style={typography.caption}>別の端末へ反映する前に、本人端末の承認と鍵を確認してください。Googleとの接続は不要です。</Text>
+      {syncStatus && !syncStatus.configured ? <><Text style={typography.caption}>別の端末へ暗号化した設定を送るには、その端末の確認が必要です。通常の家事管理には不要です。</Text>
         <AppButton title="本人端末を確認する" variant="secondary" disabled={syncBusy} onPress={() => { void navigateAfterSave(session.sync!.onConfigure); }} /></> : null}
       {syncError ? <Text accessibilityRole="alert" style={styles.error}>同期を確認できませんでした。保存済みの設定と送信待ちは保持しています。</Text> : null}
       {syncStatus?.nextRetryAt ? <Text accessibilityRole="alert" style={styles.error}>前回の同期を確認できませんでした。保存済みの設定を保ち、再試行します。</Text> : null}
@@ -90,7 +88,7 @@ function PrivatePreferenceEditor({ session, saved, onBack, onReload, notice, foo
       </> : <AppButton title={syncBusy ? '本人設定を同期中…' : '本人設定を今すぐ同期'} variant="secondary" disabled={syncBusy || !syncStatus?.configured}
         onPress={() => { void syncAction(session.sync!.synchronize); }} />}
     </Card> : null}
-    <Card><SectionHeading title="本人の地域" />
+    {!syncOnly ? <Card><SectionHeading title="本人の地域" />
       <Text style={typography.body}>現在の地域：{raw.timeZone}</Text>
       <V2TextField label="本人の地域を検索" value={regionSearch} onChangeText={setRegionSearch} placeholder="東京、ニューヨーク" editable={!syncBusy} />
       <V2Choices label="本人の地域" choices={regions.choices} value={raw.timeZone} onChange={timeZone => change({ timeZone })} disabled={syncBusy} />
@@ -107,23 +105,7 @@ function PrivatePreferenceEditor({ session, saved, onBack, onReload, notice, foo
         onChangeText={text => change({ heavy: text })} onBlur={() => { void store.flush(); }} maxLength={2} editable={!syncBusy} /></View>
       <View style={styles.limits}><Text style={typography.label}>普通の家事</Text><NumberInputField accessibilityLabel="本人の普通の家事の上限" suffix="件" value={raw.normal}
         onChangeText={text => change({ normal: text })} onBlur={() => { void store.flush(); }} maxLength={2} editable={!syncBusy} /></View>
-    </Card>
-    <SectionHeading title="自動移動を許可する時間帯" />
-    <Text style={typography.caption}>未設定の曜日は自動移動しません。開始・終了を入力してください。日をまたぐ場合は日ごとに分けます。</Text>
-    {weekdays.map((label, index) => { const day = index + 1 as Weekday; const bands = raw.bands.filter(band => band.weekday === day);
-      return <Card key={day}><SectionHeading title={`${label}曜日`} level="subsection" />
-        {bands.map((band, position) => <View key={band.id} style={styles.band}>
-          <View style={styles.times}><TextInput accessibilityLabel={`${label}曜日${position + 1}の開始`} placeholder="HH:mm" value={band.start} maxLength={5}
-            keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'default'} autoCorrect={false} autoComplete="off" editable={!syncBusy} onChangeText={text => changeBand(band.id, 'start', text)}
-            onBlur={() => { void store.flush(); }} style={[styles.input, styles.time]} underlineColorAndroid="transparent" />
-          <Text style={typography.body}>〜</Text><TextInput accessibilityLabel={`${label}曜日${position + 1}の終了`} placeholder="HH:mm" value={band.end} maxLength={5}
-            keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'default'} autoCorrect={false} autoComplete="off" editable={!syncBusy} onChangeText={text => changeBand(band.id, 'end', text)}
-            onBlur={() => { void store.flush(); }} style={[styles.input, styles.time]} underlineColorAndroid="transparent" /></View>
-          <AppButton title={`${label}曜日${position + 1}の時間帯を削除`} variant="quiet" compact disabled={syncBusy} onPress={() => store.change(value => ({ ...value, bands: value.bands.filter(row => row.id !== band.id) }))} />
-        </View>)}
-        <AppButton title={`${label}曜日の時間帯を追加`} variant="secondary" compact disabled={syncBusy || raw.bands.length >= 56} onPress={() => store.addBand(day)} />
-      </Card>;
-    })}
+    </Card> : null}
     <AppButton title="保存済みの本人設定を再読込" variant="quiet" disabled={syncBusy} onPress={() => state.hasDraft ? setReloadReview(true) : onReload()} />
     {reloadReview ? <Card><Text style={typography.body}>未保存の入力を破棄して、保存済みの設定を読み込みますか？</Text>
       <AppButton title="未保存の入力を破棄して再読込" onPress={() => { store.discardDraft(); void store.flush().then(success => { if (success) onReload(); }); }} />
@@ -132,16 +114,11 @@ function PrivatePreferenceEditor({ session, saved, onBack, onReload, notice, foo
   </Page>;
 }
 function PreferenceSummary({ title, value }: { title: string; value: PrivatePlannerPreferences }) {
-  const time = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
   return <View style={{ gap: 3 }}><Text style={typography.label}>{title}</Text>
     <Text style={typography.caption}>{value.timeZone} · 休日：{value.restDays.map(day => weekdays[day - 1]).join('・') || 'なし'} · 重い{value.loadLimits.heavyDailyLimit}件／普通{value.loadLimits.normalDailyLimit}件</Text>
-    <Text style={typography.caption}>{value.allowedBands.length ? value.allowedBands.map(band => `${weekdays[band.weekday - 1]} ${time(band.startMinute)}〜${time(band.endMinute)}`).join('\n') : '自動移動の許可時間帯なし'}</Text>
   </View>;
 }
 const styles = StyleSheet.create({
-  input: { fontSize: typography.control.fontSize, color: palette.ink, borderWidth: 1, borderColor: palette.border,
-    borderRadius: 11, minHeight: 46, paddingHorizontal: 12, paddingVertical: 9, includeFontPadding: false, backgroundColor: palette.background },
   error: { ...typography.caption, color: palette.warning }, choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   limits: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  band: { gap: 4 }, times: { flexDirection: 'row', alignItems: 'center', gap: 8 }, time: { flex: 1, textAlign: 'center' },
 });

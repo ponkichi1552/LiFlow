@@ -79,11 +79,11 @@ test('v2 reminder preferences reject coercion, extra fields, malformed times and
 test('v2 notification routing rejects missing/foreign/departed bindings and keeps personal and v1 routes intact', () => {
   const groups = [{ userId: 'a', groupId, status: 'active' }, { userId: 'b', groupId, status: 'active' }];
   const data = { kind: 'v2-housework-digest', workspace: v2NativeWorkspaceNamespace('a', groupId) };
-  assert.deepEqual(notificationWorkspace(data, 'a', groups), { userId: 'a', groupId });
-  assert.equal(notificationWorkspace(data, 'b', groups), undefined);
-  assert.equal(notificationWorkspace(data, null, groups), undefined);
-  assert.equal(notificationWorkspace(data, 'a', [{ ...groups[0], status: 'removed' }]), undefined);
-  assert.equal(notificationWorkspace({ kind: data.kind }, 'a', groups), undefined);
-  assert.equal(notificationWorkspace({ kind: 'daily-housework-digest' }, 'a', groups), null);
-  assert.deepEqual(notificationWorkspace({ kind: 'daily-housework-digest', workspace: sharedGoogleNamespace('a', groupId) }, 'a', groups), { userId: 'a', groupId });
+  assert.deepEqual(notificationWorkspace(data, 'a', groups[0]), { userId: 'a', groupId });
+  assert.equal(notificationWorkspace(data, 'b', groups[0]), undefined);
+  assert.equal(notificationWorkspace(data, null, groups[0]), undefined);
+  assert.equal(notificationWorkspace(data, 'a', { ...groups[0], status: 'removed' }), undefined);
+  assert.equal(notificationWorkspace({ kind: data.kind }, 'a', groups[0]), undefined);
+  assert.equal(notificationWorkspace({ kind: 'daily-housework-digest' }, 'a', groups[0]), null);
+  assert.deepEqual(notificationWorkspace({ kind: 'daily-housework-digest', workspace: sharedGoogleNamespace('a', groupId) }, 'a', groups[0]), { userId: 'a', groupId });
 });

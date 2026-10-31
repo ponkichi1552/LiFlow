@@ -50,7 +50,7 @@ function CopyForm({ runtime, initial, onBack, notice }: { runtime: V2PersonalCop
   }
   const control = state.control; const review = control.review; const administrator = state.context?.administratorUserId === state.context?.userId && state.context !== null;
   return <Page>{notice}<BackButton disabled={busy} onPress={onBack} /><ScreenHeading title="個人設定から共有家事を追加"
-    description="選んだ家事を新しい共有家事として追加します。個人モードの家事・予定・過去の履歴はそのまま残ります。" />
+    description="選んだ家事を新しい共有家事として追加します。個人の家事・予定・過去の履歴はそのまま残ります。" />
     <Text style={typography.caption}>共有するのは、この後に確認する設定と説明だけです。過去の完了・Googleの対応情報・個人用の予定は共有しません。</Text>
     {review ? <>
       <Card><SectionHeading title={control.status === 'committed' ? '端末に追加済み' : '共有する内容を確認'} />

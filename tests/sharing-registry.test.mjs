@@ -68,3 +68,38 @@ test('foreground and background registry connections retry a CAS race without lo
     assert.equal((await registry.readSharingWorkspace(a.database, 'owner', 'group-test')).lastSuccessfulSyncAt, 2);
   } finally { a.connection.close(); b.connection.close(); base.connection.close(); rmSync(path, { recursive: true }); }
 });
+
+for (const status of ['creating', 'joining', 'active']) test(`one ${status} membership blocks a second intent; departure preserves history and releases the slot`, async () => {
+  const h = await fixture();
+  try {
+    const a = { ...h.record, status };
+    const anchor = createSharedRoster('group-next', 'owner', h.owner);
+    const b = { ...h.record, groupId: 'group-next', anchor, rosterArchive: [anchor], status: 'creating' };
+    const results = await Promise.allSettled([registry.saveSharingWorkspace(h.database, a), registry.saveSharingWorkspace(h.database, b)]);
+    assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+    assert.match(results.find(result => result.status === 'rejected').reason.message, /一つ/);
+    assert.equal((await registry.readCurrentSharingWorkspace(h.database, 'owner')).groupId, a.groupId);
+    assert.equal(await registry.readSharingWorkspace(h.database, 'owner', b.groupId), null);
+    await registry.updateSharingWorkspace(h.database, 'owner', a.groupId, row => ({ ...row, status: 'left' }));
+    assert.equal(await registry.readCurrentSharingWorkspace(h.database, 'owner'), null);
+    await registry.saveSharingWorkspace(h.database, b);
+    assert.equal((await registry.readCurrentSharingWorkspace(h.database, 'owner')).groupId, b.groupId);
+    assert.equal((await registry.readSharingWorkspace(h.database, 'owner', a.groupId)).status, 'left');
+  } finally { h.connection.close(); }
+});
+
+test('adopting the previously displayed group preserves old QA rows without reopening them after departure', async () => {
+  const h = await fixture();
+  try {
+    const other = createSharedRoster('historical-group', 'owner', h.owner);
+    for (const record of [h.record, { ...h.record, groupId: 'historical-group', anchor: other, rosterArchive: [other] }]) {
+      await h.database.runAsync('INSERT INTO sharing_workspaces (user_id, group_id, record_json) VALUES (?, ?, ?)', record.userId, record.groupId, JSON.stringify(record));
+    }
+    await assert.rejects(registry.readCurrentSharingWorkspace(h.database, 'owner'), /保存データは保持/);
+    assert.equal((await registry.readCurrentSharingWorkspace(h.database, 'owner', h.record.groupId)).groupId, h.record.groupId);
+    await registry.updateSharingWorkspace(h.database, 'owner', h.record.groupId, row => ({ ...row, status: 'left' }));
+    assert.equal(await registry.readCurrentSharingWorkspace(h.database, 'owner'), null);
+    assert.equal((await registry.listSharingWorkspaces(h.database, 'owner')).length, 2);
+    assert.equal((await registry.readSharingWorkspace(h.database, 'owner', 'historical-group')).status, 'active');
+  } finally { h.connection.close(); }
+});

@@ -26,12 +26,12 @@ for (const platform of ['ios', 'android']) {
     const f = await fixture(); const d = await f.device();
     try {
       await d.repository.commit(seeds()); const { screen, props } = await card(d, platform);
-      await screen.press('引き受ける'); assert.deepEqual(props.round.assigneeIds, ['owner']);
+      await screen.press('担う'); assert.deepEqual(props.round.assigneeIds, ['owner']);
       const checkbox = () => screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox');
       await checkbox().props.onPress(); await screen.flush(); assert.equal(props.subject.completed, true); assert.equal(checkbox().props.accessibilityState.checked, true);
       assert.ok(screen.text().includes('実施者：'));
       await checkbox().props.onPress(); await screen.flush(); assert.equal(props.subject.completed, false); assert.equal(props.model.plan.history.length, 1); assert.equal(props.model.plan.history[0].active, false);
-      await screen.press('引き受けを解除'); assert.deepEqual(props.round.assigneeIds, []);
+      await screen.press('担当を外す'); assert.deepEqual(props.round.assigneeIds, []);
       assert.equal(props.model.pendingChanges, 8);
     } finally { d.connection.close(); }
   });
@@ -42,7 +42,7 @@ for (const platform of ['ios', 'android']) {
       const facts = await loadSharedFacts(owner.database, groupId);
       await applyReceivedSharedFacts(member.database, groupId, facts, '5', member.repository.project, null, now().getTime(), member.repository.evidenceForServerReceipts(receiptsFor(facts)));
       let substitution = 0; const { screen } = await card(member, platform, { onPast: () => { substitution++; } });
-      assert.throws(() => screen.button('引き受ける'), /missing button/);
+      assert.throws(() => screen.button('担う'), /missing button/);
       const checkbox = screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox'); assert.equal(checkbox.props.disabled, true);
       await screen.press('代行を記録'); assert.equal(substitution, 1); assert.equal((await member.repository.readState()).assessment.view.ofType('completion').length, 0);
     } finally { owner.connection.close(); member.connection.close(); }
@@ -189,3 +189,17 @@ for (const platform of ['ios', 'android']) {
     } finally { d.connection.close(); }
   });
 }
+
+for (const platform of ['ios', 'android']) test(`${platform} compact shared rows omit redundant assignment and suggested-date text while claim stays independent from opening procedures`, async () => {
+  const f = await fixture(); const d = await f.device(); let opened = 0;
+  try {
+    await d.repository.commit(seeds()); const { screen, props } = await card(d, platform, { showActions: false, home: true, onOpen: () => { opened++; } });
+    assert.equal(screen.text().includes('全員共通'), false); assert.equal(screen.text().includes('担当未確定'), false);
+    assert.equal(/(?:推奨日|基準日)：/u.test(screen.text()), false); assert.equal(screen.text().includes('引き受ける'), false);
+    assert.equal(screen.button(`${props.model.plan.chores[0].name}の説明を開く`).props.accessibilityState, undefined);
+    await screen.press('担う'); assert.deepEqual(props.round.assigneeIds, ['owner']); assert.equal(opened, 0);
+    const pending = props.model.pendingChanges; await screen.press(`${props.model.plan.chores[0].name}の説明を開く`);
+    assert.equal(opened, 1); assert.equal(props.model.pendingChanges, pending);
+    assert.equal(props.subject.completed, false);
+  } finally { d.connection.close(); }
+});

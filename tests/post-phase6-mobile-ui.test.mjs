@@ -48,6 +48,16 @@ test('home and calendar share all nine priority tiers and stable ties across com
   assert.equal(orderDateTasks([rows.find(row => row.id === 'pending-heavy'), overdue], today, [...chores, { id: 'old', load: 'light' }])[0].id, 'old');
 });
 
+for (const platform of ['ios', 'android']) test(`${platform} home progress hides percent until the first completion without hiding the chore count`, () => {
+  const props = { total: 4, done: 0, summary: homeSummary(4, 0, new Date('2026-10-31T10:00:00+09:00'), 'Asia/Tokyo') };
+  const screen = screenHarness('src/components/home-ui.tsx', { exportName: 'HomeProgress', platform, props });
+  assert.match(screen.text(), /4件中0件が完了しました/u); assert.equal(screen.text().includes('%'), false);
+  props.done = 1; props.summary = homeSummary(4, 1, new Date('2026-10-31T10:00:00+09:00'), 'Asia/Tokyo'); screen.render();
+  assert.match(screen.text(), /4件中1件が完了しました/u); assert.match(screen.text(), /25%/u);
+  props.done = 0; props.summary = homeSummary(4, 0, new Date('2026-10-31T10:00:00+09:00'), 'Asia/Tokyo'); screen.render();
+  assert.equal(screen.text().includes('%'), false);
+});
+
 test('completion responds before slow storage and rejects same-frame duplicate taps without changing another occurrence', async () => {
   const write = deferred(); const read = deferred(); let writes = 0; let reads = 0;
   const task = pending(); const controller = createTaskMutations({ isCurrent: () => true, write: async () => { writes++; await write.promise; }, refresh: async () => { reads++; await read.promise; } });
@@ -144,7 +154,7 @@ test('connected settings retain invalid drafts and failed saves after virtual ro
   } finally { h.connection.close(); }
 });
 
-test('category switches reject double taps roll back failed writes and retain saved values across a failed reread', async () => {
+test('individual chore switches reject double taps roll back failed writes and retain saved values across a failed reread', async () => {
   const h = createDatabase();
   try {
     await repository.initializeLocalDatabase(h.database); const rows = (await repository.loadPlannerSnapshot(h.database, today)).chores.filter(row => !row.archived).slice(0, 2).map(row => ({ ...row, enabled: false, category: '検査' }));
@@ -154,7 +164,7 @@ test('category switches reject double taps roll back failed writes and retain sa
     const screen = screenHarness('src/features/settings/chore-toggle-list.tsx', { exportName: 'ChoreToggleList', props });
     await screen.press('検査の見出しを折りたたむ'); await screen.flush(); assert.equal(expanded.has('検査'), false);
     await screen.press('検査の見出しを展開'); await screen.flush(); assert.equal(expanded.has('検査'), true);
-    const toggle = () => screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === '検査の家事をすべて有効にする');
+    const toggle = () => screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === `${rows[0].name}を有効にする`);
     toggle().props.onValueChange(true); toggle().props.onValueChange(true); await screen.flush(); assert.equal(writes, 1); assert.equal(toggle().props.value, true);
     held.resolve(); await screen.flush(); assert.equal(toggle().props.value, false); assert.ok(screen.text().includes('保存失敗'));
     phase = 'readFailure'; toggle().props.onValueChange(true); await screen.flush(); assert.equal(toggle().props.value, true); assert.equal(toggle().props.disabled, true); assert.match(screen.text(), /保存済み/u);
@@ -179,7 +189,7 @@ test('hardware back preserves invalid connected settings until corrected and the
 });
 
 for (const platform of ['ios', 'android']) {
-  test(`${platform} connected chore book virtualizes long chapters keeps its back dock outside the list and jumps by stable identity`, async () => {
+  test(`${platform} connected chore book virtualizes long chapters keeps its fixed back header outside the list and jumps by stable identity`, async () => {
     const h = createDatabase();
     try {
       await repository.initializeLocalDatabase(h.database); const seed = (await repository.loadPlannerSnapshot(h.database, today)).chores[0];

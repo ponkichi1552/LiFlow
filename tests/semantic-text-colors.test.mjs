@@ -44,21 +44,6 @@ test('shared text roles include native semantic foregrounds so uncolored notices
   }
 });
 
-for (const platform of ['ios', 'android']) test(`${platform} shared daily load warning keeps every native paragraph readable in both themes`, () => {
-  for (const palette of [plannerLightColors, plannerDarkColors]) {
-    const { typography } = loadNativeModule('src/components/planner-typography.native.ts', { './planner-colors': { palette }, './planner-text-roles.ts': { createTypography } });
-    const screen = screenHarness('src/features/sharing/v2-ui/daily-load-notice.tsx', { exportName: 'V2DailyLoadNotice', platform, props: {
-      assessment: { privateStatus: 'unavailable', limits: { heavyDailyLimit: 1, normalDailyLimit: 2 }, scopes: [
-        { source: 'shared', date: '2026-10-31', timeZone: 'Asia/Tokyo', load: { heavy: 1, normal: 0, total: 1 }, reached: ['heavy'] },
-      ] },
-    }, mocks: { '../../../components/planner-ui': { Card: 'Card', palette, typography } } });
-    const paragraphs = screen.nodes().filter(node => node.type === 'Text');
-    assert.ok(paragraphs.length > 0);
-    for (const row of paragraphs) assert.ok(contrastRatio(flatten(row.props.style).color, palette.surface) >= 4.5,
-      'notices remain readable after native theme changes');
-  }
-});
-
 test('ThemedText keeps explicit theme and caller color precedence when text roles supply default foregrounds', () => {
   for (const [type, themeColor, style, expected] of [
     ['default', undefined, undefined, '#EEEEEE'], ['small', 'secondary', undefined, '#AACCFF'],

@@ -8,16 +8,21 @@ import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import { chorePolicyFromPreset } from '../v2/model';
 import { v2MemberLabels } from './member-labels';
 import { V2Choices, V2Flag, V2TextField, v2FormStyles as styles } from './form-controls';
+import { useRetainedV2Draft } from './settings-draft-cache';
 
 /** First activation requires a complete explicit kind/cadence; later field changes use the autosave editor. */
 export function V2InitialConfiguration({ model, choreId, controller, onSaved, onBack }: { model: V2GroupScreenModel; choreId: string;
   controller: V2GroupController; onSaved: () => Promise<void>; onBack?: () => void }) {
-  const [draft, setDraft] = useState({ preset: '' as '' | 'common' | 'eachMember' | 'assigned', memberIds: [] as string[],
-    anchor: model.plan.range.asOfDate as string, interval: '', before: '0', after: '0' });
+  const retained = useRetainedV2Draft(`initial:${choreId}`, () => {
+    let draft = { preset: '' as '' | 'common' | 'eachMember' | 'assigned', memberIds: [] as string[], anchor: model.plan.range.asOfDate as string, interval: '', before: '0', after: '0' }; let dirty = false;
+    return { read: () => draft, change: (value: typeof draft) => { draft = value; dirty = true; }, accepted: () => { dirty = false; },
+      flush: async () => !dirty, getSnapshot: () => ({ hasDraft: dirty, status: { phase: 'idle' } }) };
+  });
+  const [draft, setDraft] = useState(retained.read);
   const input = useRef(draft); const pending = useRef(false); const alive = useRef(true);
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  const edit = (patch: Partial<typeof draft>) => { if (pending.current) return; input.current = { ...input.current, ...patch }; setDraft(input.current); setError(null); };
+  const edit = (patch: Partial<typeof draft>) => { if (pending.current) return; input.current = { ...input.current, ...patch }; retained.change(input.current); setDraft(input.current); setError(null); };
   const members = model.plan.members.filter((member) => member.active); const nameOf = v2MemberLabels(members);
   const enable = async () => {
     if (pending.current) return; pending.current = true; setBusy(true); setError(null);
@@ -33,7 +38,7 @@ export function V2InitialConfiguration({ model, choreId, controller, onSaved, on
         intervalDays: number(value.interval, 1, 3650, '周期'), windowBeforeDays: number(value.before, 0, 14, '基準日より前'), windowAfterDays: number(value.after, 0, 14, '基準日より後'),
         effectiveFrom: value.anchor > model.plan.range.asOfDate ? value.anchor as LocalDate : model.plan.range.asOfDate, active: true,
         ...(value.preset === 'eachMember' ? { targetMemberIds: members.map((member) => member.userId) } : {}) }, { expectedRuleVersion: 0 });
-      await onSaved();
+      retained.accepted(); await onSaved();
     } catch (cause) { if (alive.current) setError(cause instanceof Error ? cause.message : '設定を保存できませんでした。'); }
     finally { pending.current = false; if (alive.current) setBusy(false); }
   };

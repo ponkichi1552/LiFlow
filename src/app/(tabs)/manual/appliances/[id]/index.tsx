@@ -12,7 +12,7 @@ export default function ApplianceDetailScreen() {
   const applianceId = Array.isArray(params.id) ? params.id[0] : params.id;
   const returnToParam = Array.isArray(params.returnTo) ? params.returnTo[0] : params.returnTo;
   const returnTo = returnToParam === '/chores' ? '/chores' : returnToParam === '/manual' ? '/manual' : undefined;
-  const { database } = usePlannerData();
+  const { database } = usePlannerData({ personal: true });
   const [saved, setSaved] = useState<{ id: string; context: ApplianceCareReviewContext | null; error?: string } | null>(null);
   const [retry, setRetry] = useState(0);
 

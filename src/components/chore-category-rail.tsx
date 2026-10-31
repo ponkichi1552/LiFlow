@@ -1,23 +1,26 @@
-import { useCallback, useLayoutEffect, useMemo } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import type { ComponentRef } from 'react';
-import { PanResponder, Pressable, StyleSheet, View } from 'react-native';
+import { PanResponder, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import type { AccessibilityActionEvent, LayoutChangeEvent } from 'react-native';
-import { palette } from './planner-ui';
+import { palette, typography } from './planner-ui';
 
 type RailTarget = { key: string; name: string; id: string; category: string; kind: 'category' | 'chore' };
+type RailPreview = { target: RailTarget; progress: number } | null;
 
 /** A single native gesture surface avoids overlapping tiny touch targets between dense chapter ticks. */
 function createRailControl() {
   let element: ComponentRef<typeof View> | null = null;
   let targets: readonly RailTarget[] = [], selectedId = '', height = 0, top: number | null = null, active = false, pageY = 0, lastId = '';
   let onSelect = (_id: string) => {}, onScrubChange = (_active: boolean) => {};
+  let onPreview = (_value: RailPreview) => {};
   const select = () => {
     if (!active || top === null || height <= 0 || !targets.length) return;
     const progress = Math.max(0, Math.min(1, (pageY - top - 8) / Math.max(1, height - 16)));
     const target = targets[Math.round(progress * (targets.length - 1))];
+    onPreview({ target, progress });
     if (target.id !== lastId) { lastId = target.id; onSelect(target.id); }
   };
-  const end = () => { active = false; lastId = ''; onScrubChange(false); };
+  const end = () => { active = false; lastId = ''; onPreview(null); onScrubChange(false); };
   const pan = PanResponder.create({
     onStartShouldSetPanResponder: (_event, state) => state.numberActiveTouches === 1,
     onMoveShouldSetPanResponderCapture: (_event, state) => state.numberActiveTouches === 1 && Math.abs(state.dy) > 3,
@@ -30,9 +33,10 @@ function createRailControl() {
     onPanResponderRelease: end, onPanResponderTerminate: end, onPanResponderTerminationRequest: () => true,
   });
   return { panHandlers: pan.panHandlers,
-    attach: (value: ComponentRef<typeof View> | null) => { element = value; if (!value) { active = false; top = null; } },
-    update: (value: { targets: readonly RailTarget[]; selectedId: string; onSelect(id: string): void; onScrubChange(active: boolean): void }) => {
+    attach: (value: ComponentRef<typeof View> | null) => { element = value; if (!value) { end(); top = null; } },
+    update: (value: { targets: readonly RailTarget[]; selectedId: string; onSelect(id: string): void; onScrubChange(active: boolean): void; onPreview(value: RailPreview): void }) => {
       targets = value.targets; selectedId = value.selectedId; onSelect = value.onSelect; onScrubChange = value.onScrubChange;
+      onPreview = value.onPreview;
     },
     layout: (event: LayoutChangeEvent) => { height = event.nativeEvent.layout.height; top = null; },
     accessibilityAction: (event: AccessibilityActionEvent) => {
@@ -48,13 +52,14 @@ export function ChoreCategoryRail({ groups, category, selectedId, onSelect, onSc
   groups: readonly { name: string; chores: readonly { id: string; name: string }[] }[];
   category: string; selectedId?: string; onSelect(id: string): void; onScrubChange(active: boolean): void;
 }) {
+  const [preview, setPreview] = useState<RailPreview>(null); const { width } = useWindowDimensions();
   const targets = useMemo(() => groups.flatMap(group => [
     ...(group.chores.length ? [{ key: `category:${group.name}`, name: group.name, id: group.chores[0].id, category: group.name, kind: 'category' as const }] : []),
     ...group.chores.map(chore => ({ key: `chore:${chore.id}`, ...chore, category: group.name, kind: 'chore' as const })),
   ]), [groups]);
   const control = useMemo(() => createRailControl(), []);
   const attach = useCallback((value: ComponentRef<typeof View> | null) => control.attach(value), [control]);
-  useLayoutEffect(() => { control.update({ targets, selectedId: selectedId ?? '', onSelect, onScrubChange }); }, [control, targets, selectedId, onSelect, onScrubChange]);
+  useLayoutEffect(() => { control.update({ targets, selectedId: selectedId ?? '', onSelect, onScrubChange, onPreview: setPreview }); }, [control, targets, selectedId, onSelect, onScrubChange]);
   // Bound native marker work for very large custom catalogs. Scrubbing still addresses every chore.
   const visible = targets.map((target, index) => ({ ...target, index })).filter(target => target.kind === 'category' || targets.length <= 80 || target.index % Math.ceil(targets.length / 75) === 0 || target.index === targets.length - 1);
   return <View ref={attach} onLayout={control.layout} style={styles.rail} {...control.panHandlers}
@@ -72,6 +77,10 @@ export function ChoreCategoryRail({ groups, category, selectedId, onSelect, onSc
           target.kind === 'chore' && selectedId === target.id && styles.selectedChore]} />
       </Pressable>)}
     </View>
+    {preview ? <View pointerEvents="none" accessible={false} style={[styles.preview, { width: Math.min(252, width - 72), top: `${preview.progress * 100}%` }]}>
+      {preview.target.kind === 'chore' ? <Text numberOfLines={1} style={styles.previewCategory}>{preview.target.category}</Text> : null}
+      <Text numberOfLines={2} style={styles.previewName}>{preview.target.name}</Text>
+    </View> : null}
   </View>;
 }
 const styles = StyleSheet.create({
@@ -80,4 +89,7 @@ const styles = StyleSheet.create({
   target: { position: 'absolute', marginTop: -8, height: 16, left: 0, right: 0, alignItems: 'center', justifyContent: 'center' },
   bar: { height: 3, width: 13, backgroundColor: palette.inputBorder, borderRadius: 2 }, short: { height: 2, width: 6 },
   selectedCategory: { width: 20, backgroundColor: palette.accent }, selectedChore: { width: 11, backgroundColor: palette.accent },
+  preview: { position: 'absolute', right: 42, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12,
+    backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, transform: [{ translateY: -24 }] },
+  previewCategory: { ...typography.caption, color: palette.muted }, previewName: { ...typography.label, color: palette.ink, fontWeight: '600' },
 });

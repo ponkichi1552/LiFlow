@@ -2,13 +2,19 @@ import type { ChoreCompletion, ChoreDefinition, ChoreScheduleEntry } from '../..
 import type { LocalDate } from '../../domain/shared/types';
 import type { DateTask } from '../../domain/scheduling/date-tasks';
 import { completionMatchesEntry } from '../../domain/scheduling/completion-matching.ts';
-import { localDateFromISODateTime } from '../../domain/scheduling/local-date.ts';
+import { addDays, localDateFromISODateTime, weekdayOf } from '../../domain/scheduling/local-date.ts';
 import { scopedDateTaskKey } from './task-mutations.ts';
 import { orderTaskRows } from '../../domain/scheduling/task-row-order.ts';
 import type { LoadOrder } from '../../domain/scheduling/task-priority';
 
 export interface HomeTaskRow {
   key: string; source: 'personal' | 'shared'; task: DateTask; chore: ChoreDefinition; today: LocalDate;
+}
+export type HomeWeekScope = 'current' | 'next';
+export function homeUpcomingRange(today: LocalDate, scope: HomeWeekScope) {
+  const end = addDays(today, 7 - weekdayOf(today));
+  return scope === 'current' ? { from: addDays(today, 1), through: end }
+    : { from: addDays(end, 1), through: addDays(end, 7) };
 }
 
 /** Never merge definitions by chore ID: built-in IDs can be equal in separate databases. */

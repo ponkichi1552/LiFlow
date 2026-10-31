@@ -31,7 +31,7 @@ test('only the OS worker callback creates release evidence and one domain failur
       './coordinator': { syncGoogleTasks: async () => { calls.push('personal'); throw new Error('transient transport failure'); } },
       '@/platform/storage/repository': { LOCAL_HOUSEHOLD_ID: 'local', initializeLocalDatabase: async () => {}, loadGoogleSyncState: async () => ({ enabled: true }) },
       '@/platform/sharing/private-calendar-sync': { syncKnownPrivateCalendar: async () => { calls.push('private'); } },
-      '@/platform/sharing/workspaces': { syncKnownSharingWorkspaces: async () => { calls.push('sharing'); } },
+      '@/platform/sharing/workspaces': { syncSharingWorkspace: async () => { calls.push('sharing'); } },
     });
     assert.equal(h.connection.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name='background_sync_runs'").get().n, 0);
     assert.equal(await callback({}), 'failed'); assert.deepEqual(calls, ['personal', 'private', 'sharing']);
@@ -53,7 +53,7 @@ for (const kind of ['retry', 'authRequired', 'error', 'success']) {
         './coordinator': { syncGoogleTasks: async () => { calls.push('personal'); return { kind, code: 'synthetic', skipped: kind === 'success' }; } },
         '@/platform/storage/repository': { LOCAL_HOUSEHOLD_ID: 'local', initializeLocalDatabase: async () => {}, loadGoogleSyncState: async () => ({ enabled: true }) },
         '@/platform/sharing/private-calendar-sync': { syncKnownPrivateCalendar: async () => { calls.push('private'); } },
-        '@/platform/sharing/workspaces': { syncKnownSharingWorkspaces: async () => { calls.push('sharing'); } },
+        '@/platform/sharing/workspaces': { syncSharingWorkspace: async () => { calls.push('sharing'); } },
       });
       const expected = kind === 'success' ? 'success' : 'failed';
       assert.equal(await callback({}), expected);

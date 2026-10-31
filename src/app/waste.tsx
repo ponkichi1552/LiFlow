@@ -6,7 +6,7 @@ import { AppButton, BackButton, Card, Page, ScreenHeading, SectionHeading, palet
 import { AccordionSection } from '@/components/accordion-section';
 import { WasteScheduleEditor } from '@/features/waste/waste-schedule-editor';
 import { wasteScheduleDescription } from '@/features/waste/schedule-policy';
-import { wasteTypeColor } from '@/features/waste/type-appearance';
+import { useWasteTypeColor } from '@/features/waste/use-waste-type-color';
 import type { WasteScheduleInput } from '@/features/waste/contracts';
 import { formatJapaneseDate, localDateFromDate } from '@/domain/scheduling/local-date';
 import { PlannerLoadState } from '@/components/planner-load-state';
@@ -14,7 +14,9 @@ import { usePlannerData } from '@/hooks/use-planner-data';
 import { deleteWeeklyWasteSchedule, saveWeeklyWasteSchedule, setWasteOccurrenceHidden } from '@/platform/storage/repository';
 
 export default function WasteScreen() {
-  const { snapshot, loading, error: loadError, refresh, database } = usePlannerData();
+  const wasteTypeColor = useWasteTypeColor();
+
+  const { snapshot, error: loadError, refresh, database } = usePlannerData();
   const [editing, setEditing] = useState<WasteScheduleInput | undefined>();
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -23,7 +25,7 @@ export default function WasteScreen() {
   const mutationInFlight = useRef(false);
   const busy = saving || updatingOccurrence;
 
-  if (loading || !snapshot) return <PlannerLoadState title="ゴミ収集日" message="曜日設定を読み込んでいます。" error={loadError} retry={refresh} />;
+  if (!snapshot) return <PlannerLoadState title="ゴミ収集日" message="曜日設定を読み込んでいます。" error={loadError} retry={refresh} />;
 
   const save = async (schedule: WasteScheduleInput) => {
     if (mutationInFlight.current) throw new Error('別の変更を保存しています。完了後にもう一度お試しください。');

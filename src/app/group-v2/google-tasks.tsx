@@ -10,7 +10,7 @@ export default function GroupGoogleTasksRoute() {
   const context = useWorkspace(); const router = useRouter(); const active = context.active?.protocol === 2 ? context.active : null;
   const latest = useRef(active); useLayoutEffect(() => { latest.current = active; return () => { latest.current = null; }; }, [active]);
   const load = useCallback(async (): Promise<V2GoogleTaskUiRuntime> => {
-    const guard = () => { if (!active || latest.current !== active) throw new Error('共有グループが切り替わりました。'); }; guard();
+    const guard = () => { if (!active || latest.current !== active) throw new Error('共有グループの参加状態が変わりました。'); }; guard();
     const runtime = await active!.googleTasks(); guard();
     const wrap = <Args extends unknown[], Value>(work: (...args: Args) => Promise<Value>) => async (...args: Args) => { guard(); const value = await work(...args); guard(); return value; };
     return { readControl: wrap(runtime.readControl), reviewConnection: wrap(runtime.reviewConnection), connect: wrap(runtime.connect), pause: wrap(runtime.pause), synchronize: wrap(runtime.synchronize) };

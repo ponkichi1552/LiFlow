@@ -7,7 +7,7 @@ for (const [platform, name] of [
   ['ios', 'ios planner pages show a shared issue warning with a working resolution link only for the active group'],
   ['android', 'android planner pages show a shared issue warning with a working resolution link only for the active group'],
 ]) test(name, async () => {
-  const workspace = { active: { groupId: 'group-test' }, groups: [], error: null };
+  const workspace = { active: { groupId: 'group-test' }, group: null, error: null };
   const issues = { groupId: 'group-test', issueCount: 1 };
   const visits = [];
   const screen = screenHarness('src/components/planner-ui.tsx', { platform, exportName: 'Page', navigate: (...args) => visits.push(args), mocks: {

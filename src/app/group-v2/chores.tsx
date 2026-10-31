@@ -1,2 +1,3 @@
-import { V2WorkspaceRoute } from '../../features/sharing/v2-ui/workspace-route';
-export default function SharedChoreListRoute() { return <V2WorkspaceRoute view="chores" />; }
+import { Redirect, useLocalSearchParams } from 'expo-router';
+
+export default function SharedChoreListRoute() { const params = useLocalSearchParams(); return <Redirect href={{ pathname: '/(tabs)/guide', params }} />; }

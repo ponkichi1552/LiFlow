@@ -2,6 +2,8 @@ import { addDays, monthDates, parseLocalDate, weekdayOf } from '../../../domain/
 import type { LocalDate } from '../../../domain/shared/types.ts';
 import type { V2GroupScreenModel } from '../v2/controller.ts';
 import type { V2PersonalPlan } from '../v2/personal-plan.ts';
+import { compareDateOccurrence } from '../../../domain/scheduling/date-tasks.ts';
+import { sharedLocalDate } from '../group-clock.ts';
 import { createV2RoundVisibility } from './round-visibility.ts';
 
 export function v2CalendarMonth(day: LocalDate, offset = 0) {
@@ -21,17 +23,38 @@ export function v2CalendarProjection(model: V2GroupScreenModel, personal?: V2Per
   }
   const recommendations = new Map(personal?.recommendations.map((entry) => [entry.subjectOccurrenceId, entry]) ?? []);
   const visibility = createV2RoundVisibility(model);
-  const entries = model.plan.occurrences.flatMap((round) => round.subjects.filter((subject) => subject.required || subject.completed || subject.pendingCompletionIds.length > 0).map((subject) => {
+  const entries = model.plan.occurrences.flatMap((round) => round.subjects.filter((subject) => (subject.subjectUserId === null || subject.subjectUserId === model.viewerUserId) && (subject.required || subject.completed || subject.pendingCompletionIds.length > 0)).map((subject) => {
     const visible = visibility(round, subject);
     const candidate = recommendations.get(subject.id); const recommendation = candidate && visible.owns ? candidate : undefined;
+    const completion = visible.relatedWork.find(record => record.active && record.outcome === 'completed' && record.acceptance === 'accepted');
     return { id: subject.id, round, subject, recommendation, date: recommendation?.date ?? subject.suggestedDate,
+      completedDate: completion ? sharedLocalDate(new Date(completion.performedAt), model.plan.timeZone) : undefined,
+      windowStart: completion?.schedule?.windowStart ?? subject.executionWindowStart, windowEnd: completion?.schedule?.windowEnd ?? subject.executionWindowEnd,
       counted: visible.showStatus && subject.required && !(completionValues?.get(`shared:${subject.id}`) ?? subject.completed) };
   }));
   const byDate = new Map<LocalDate, typeof entries>(); const counts = new Map<LocalDate, number>();
   for (const entry of entries) {
-    const list = byDate.get(entry.date) ?? []; list.push(entry); byDate.set(entry.date, list);
-    if (entry.counted) counts.set(entry.date, (counts.get(entry.date) ?? 0) + 1);
+    const from = entry.windowStart > model.plan.range.from ? entry.windowStart : model.plan.range.from;
+    const through = entry.windowEnd < model.plan.range.through ? entry.windowEnd : model.plan.range.through;
+    for (let date = from; date <= through; date = addDays(date, 1)) {
+      const list = byDate.get(date) ?? []; list.push(entry); byDate.set(date, list);
+    }
+    if (entry.completedDate && entry.completedDate >= model.plan.range.from && entry.completedDate <= model.plan.range.through
+      && (entry.completedDate < from || entry.completedDate > through)) {
+      const list = byDate.get(entry.completedDate) ?? []; list.push(entry); byDate.set(entry.completedDate, list);
+    }
   }
-  for (const list of byDate.values()) list.sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  for (const [date, list] of byDate) {
+    const selected = new Map<string, typeof entries[number]>();
+    const choice = (entry: typeof entries[number]) => ({ id: entry.id, suggestedDate: entry.date,
+      completed: completionValues?.get(`shared:${entry.id}`) ?? entry.subject.completed,
+      completedOnDate: entry.completedDate === date, inWindow: entry.windowStart <= date && date <= entry.windowEnd });
+    for (const entry of list) {
+      const key = JSON.stringify([entry.round.choreId, entry.subject.subjectUserId]); const previous = selected.get(key);
+      if (!previous || compareDateOccurrence(choice(entry), choice(previous), date) < 0) selected.set(key, entry);
+    }
+    const rows = [...selected.values()].sort((a, b) => a.id.localeCompare(b.id)); byDate.set(date, rows);
+    counts.set(date, rows.filter(entry => entry.counted).length);
+  }
   return { byDate, counts };
 }

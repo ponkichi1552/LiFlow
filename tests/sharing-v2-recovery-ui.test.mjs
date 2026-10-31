@@ -59,7 +59,7 @@ for (const platform of ['ios', 'android']) {
   });
 }
 test('owner recovery is wired to the explicitly selected v2 group while retained-history notices remain readable to members', () => {
-  const source = readFileSync(new URL('../src/app/sharing/index.tsx', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../src/features/sharing/sharing-manager-screen.tsx', import.meta.url), 'utf8');
   assert.match(source, /workspace\.protocol === 2.*record\.status === 'active'/);
   assert.match(source, /groupId=\{workspace\.groupId\} recovery=\{workspace\.session\.recovery\}/);
   assert.match(source, /snapshot\?\.recoverySummary\?\.heldChanges/);

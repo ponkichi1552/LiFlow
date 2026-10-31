@@ -10,7 +10,7 @@ import type { CalendarEditorDraft } from '@/platform/storage/calendar-events';
 
 export default function CalendarRepeatRoute() {
   const params = useLocalSearchParams<{ draft?: string; returnTo?: string }>();
-  const { database } = usePlannerData({ personal: true }); const local = useLocalCalendar(database);
+  const { database } = usePlannerData({ personal: true }); const local = useLocalCalendar(database, true);
   const key = typeof params.draft === 'string' && params.draft.length <= 240 ? params.draft : undefined;
   const draft = (local.snapshot.drafts ?? (local.snapshot.draft ? [local.snapshot.draft] : [])).find(row => calendarDraftKey(row) === key);
   const [leaving, setLeaving] = useState(false); const leaveLock = useRef(false); const saving = useRef(false);
@@ -18,7 +18,7 @@ export default function CalendarRepeatRoute() {
   const leave = async (returned = draft) => {
     if (leaveLock.current || saving.current) return; leaveLock.current = true;
     await local.refresh(); setLeaving(true); disableNavigationGuard.current();
-    router.navigate({ pathname: params.returnTo === 'group' ? '/group-v2/calendar' : '/(tabs)/explore', params: returned ? { calendarDraft: calendarDraftKey(returned), calendarDraftVersion: calendarDraftVersion(returned) } : {} });
+    router.navigate({ pathname: '/(tabs)/explore', params: returned ? { calendarDraft: calendarDraftKey(returned), calendarDraftVersion: calendarDraftVersion(returned) } : {} });
   };
   const back = () => { void leave(); };
   const disablePrevention = usePreventRemove(!leaving, back);

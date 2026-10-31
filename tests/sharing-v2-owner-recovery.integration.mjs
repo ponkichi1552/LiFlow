@@ -237,9 +237,9 @@ test('maximum 256-event recovery obeys Rules access limits and protected origina
   assert.equal((await getDocsFromServer(collection(f.root, 'events'))).size, 256);
 });
 
-test('the default-disabled recovery capability preserves ordinary v2 sync membership and compaction against the preceding deployed Rules', async t => {
+test('disabled owner recovery preserves ordinary single-group v2 sync membership and compaction', async t => {
   const legacy = await initializeTestEnvironment({ projectId: 'demo-liflow-owner-recovery-legacy',
-    firestore: { rules: readFileSync(new URL('./fixtures/sharing-before-owner-recovery.rules', import.meta.url), 'utf8') } });
+    firestore: { rules: readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8') } });
   try {
     await legacy.clearFirestore(); const f = await fixture(t, { recoveryEnabled: false, env: legacy });
     assert.equal(f.cloud.ownerRecoveryEnabled, false);

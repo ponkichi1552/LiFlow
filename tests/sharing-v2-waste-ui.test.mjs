@@ -63,7 +63,8 @@ for (const platform of ['ios', 'android']) {
     const f = await setup();
     try {
       await f.c.actions.addWasteSchedule(weekly); const before = await f.read(); const home = await f.mount(platform, 'home');
-      const list = home.nodes().find(node => node.type === 'FlatList'); assert.equal(list.props.data[0].source, 'waste'); assert.equal(list.props.data[1].source, 'shared');
+      const list = home.nodes().find(node => node.type === 'FlatList'); const todayRows = list.props.data.filter(row => row.kind === 'today').map(row => row.item);
+      assert.equal(todayRows[0].source, 'waste'); assert.equal(todayRows[1].source, 'shared');
       assert.ok(checkbox(home)); await checkbox(home).props.onPress(); await settle(home, () => !checkbox(home));
       const hidden = await f.read();
       for (const field of ['chores', 'occurrences', 'history', 'policy', 'commonSettings']) assert.deepEqual(hidden.plan[field], before.plan[field]);

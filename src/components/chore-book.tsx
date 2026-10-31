@@ -8,12 +8,13 @@ import { groupChores } from '../domain/chores/chore-groups';
 import { BackButton, palette, typography } from './planner-ui';
 import { ChoreCategoryRail } from './chore-category-rail';
 
-/** A continuous, virtualized document. The dock and category rail never scroll away. */
-export function ChoreBook({ chores, selectedId, renderChore, onBack, header, title, titleAccessory, hasTabBar = false }: {
+/** A continuous, virtualized document. The header and category rail never scroll away. */
+export function ChoreBook({ chores, selectedId, renderChore, onBack, header, title, titleAccessory, hasTabBar = false, banner }: {
   chores: readonly ChoreDefinition[]; selectedId?: string; title: string; header?: ReactNode;
-  titleAccessory?: ReactNode;
+  titleAccessory?: ReactNode | ((chore: ChoreDefinition | undefined) => ReactNode);
   renderChore(chore: ChoreDefinition): ReactNode; onBack(): void;
   hasTabBar?: boolean;
+  banner?: ReactNode;
 }) {
   const groups = useMemo(() => groupChores(chores), [chores]);
   const ordered = useMemo(() => groups.flatMap(([, rows]) => rows), [groups]);
@@ -43,11 +44,15 @@ export function ChoreBook({ chores, selectedId, renderChore, onBack, header, tit
     const first = viewableItems.find(item => item.isViewable)?.item; if (first && !scrubbing.current) { setCategory(first.category); setVisibleId(first.id); }
   }, []);
   return <SafeAreaView style={styles.safe} edges={['top']}>
-    <View style={styles.captionBar}><View style={styles.captionCopy}><Text style={styles.captionTitle}>{title}</Text><Text style={styles.caption}>{category}</Text></View>{titleAccessory}</View>
+    {banner}
+    <View style={styles.captionBar}>
+      <View style={styles.captionTop}><BackButton onPress={onBack} /><Text numberOfLines={1} style={styles.captionTitle}>{title}</Text></View>
+      <View style={styles.captionBottom}><Text numberOfLines={1} style={styles.caption}>{category}</Text>{typeof titleAccessory === 'function' ? titleAccessory(ordered.find(chore => chore.id === visibleId)) : titleAccessory}</View>
+    </View>
     <View style={styles.document}>
       <FlatList ref={list} data={ordered} keyExtractor={chore => chore.id} initialNumToRender={2} maxToRenderPerBatch={2} windowSize={5}
         removeClippedSubviews={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
-        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'} contentContainerStyle={styles.content} ListHeaderComponent={<>{header}</>}
+        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'} contentContainerStyle={[styles.content, { paddingBottom: hasTabBar ? 20 : Math.max(20, insets.bottom) }]} ListHeaderComponent={<>{header}</>}
         onViewableItemsChanged={visible} viewabilityConfig={{ itemVisiblePercentThreshold: 1 }}
         onScrollBeginDrag={() => { target.current = null; clearTimeout(timer.current); }}
         onScrollToIndexFailed={info => {
@@ -64,17 +69,14 @@ export function ChoreBook({ chores, selectedId, renderChore, onBack, header, tit
         </View>} />
       <ChoreCategoryRail groups={groups.map(([name, chores]) => ({ name, chores }))} category={category} selectedId={visibleId} onSelect={jump} onScrubChange={onScrubChange} />
     </View>
-    <View style={[styles.dock, { paddingBottom: hasTabBar ? 8 : Math.max(8, insets.bottom) }]}><BackButton onPress={onBack} /></View>
   </SafeAreaView>;
 }
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: palette.background }, document: { flex: 1 },
-  captionBar: { paddingVertical: 8, paddingHorizontal: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  captionCopy: { gap: 2, flexShrink: 0 },
-  captionTitle: { ...typography.body, color: palette.ink, fontWeight: '700' }, caption: { ...typography.caption, color: palette.muted },
+  captionBar: { paddingVertical: 6, paddingHorizontal: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border, gap: 2 },
+  captionTop: { flexDirection: 'row', alignItems: 'center', gap: 12 }, captionBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  captionTitle: { ...typography.body, color: palette.ink, fontWeight: '700', flex: 1 }, caption: { ...typography.caption, color: palette.muted, flex: 1 },
   content: { paddingLeft: 16, paddingRight: 42, paddingTop: 8, paddingBottom: 20, gap: 24, maxWidth: 820, width: '100%', alignSelf: 'center' },
   chapter: { gap: 12, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: palette.border },
   category: { ...typography.caption, color: palette.accent, fontWeight: '700', marginTop: 6 },
-  dock: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingHorizontal: 18, backgroundColor: palette.surface },
 });

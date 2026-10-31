@@ -14,14 +14,12 @@ import * as identity from '../src/features/sharing/v2/native-identity.ts';
 import * as personalPlan from '../src/features/sharing/v2/personal-plan.ts';
 import * as cryptoModule from '../src/features/sharing/crypto.ts';
 import { sharedLocalDate } from '../src/features/sharing/group-clock.ts';
-import * as loadStores from '../src/platform/storage/sharing-v2-load-notices.ts';
-import * as loadRuntime from '../src/features/sharing/v2/load-notice-runtime.ts';
 import * as completionNotices from '../src/features/sharing/v2/completion-notices.ts';
 import * as localDate from '../src/domain/scheduling/local-date.ts';
 import * as localCalendarPlanning from '../src/features/calendar/private-availability.ts';
 import { newEventDraft } from '../src/features/calendar/events.ts';
 
-async function setup(options = {}) {
+async function setup() {
   const f = await fixture(); const d = await f.device(); await d.repository.commit(seeds());
   const calls = []; const scheduled = new Map(); let active = true; let failPersonal = false; let completionCalls = 0; let events = [];
   const guard = () => { if (!active) throw new Error('account changed'); };
@@ -41,8 +39,7 @@ async function setup(options = {}) {
     '../storage/calendar-events': { readLocalCalendar: async () => ({ events, exceptions: [] }) },
     '../../features/calendar/private-availability': localCalendarPlanning,
     '../../features/notifications/reconcile-local-notifications': reconciliation, '../../features/sharing/v2/native-identity': identity,
-    '../../features/sharing/v2/completion-notices': completionNotices, '../../features/sharing/v2/load-notice-runtime': loadRuntime,
-    '../storage/sharing-v2-load-notices': loadStores, '../../domain/scheduling/local-date': localDate,
+    '../../features/sharing/v2/completion-notices': completionNotices, '../../domain/scheduling/local-date': localDate,
     'react-native': { Platform: { OS: process.env.HOUSEWORK_TEST_PLATFORM ?? 'ios' } },
     'expo-notifications': { AndroidImportance: { DEFAULT: 3 }, setNotificationChannelAsync: async () => {},
       scheduleNotificationAsync: async request => { calls.push(['immediate', request]); return request.identifier; },
@@ -53,8 +50,6 @@ async function setup(options = {}) {
       clearInactiveV2CompletionNotices: async () => {}, clearV2CompletionNoticesForScope: async () => {} },
   };
   nativeMocks['./v2-immediate-notices'] = loadNativeModule('src/platform/sharing/v2-immediate-notices.ts', nativeMocks);
-  nativeMocks['./v2-load-notices'] = loadNativeModule('src/platform/sharing/v2-load-notices.ts', nativeMocks);
-  if (options.failLoad) nativeMocks['./v2-load-notices'] = { createNativeV2LoadNotices: () => ({ synchronize: async () => { throw new Error('load notice failed'); } }) };
   nativeMocks['./v2-local-planning'] = loadNativeModule('src/platform/sharing/v2-local-planning.ts', nativeMocks);
   const module = loadNativeModule('src/platform/sharing/v2-reminders.ts', nativeMocks);
   const runtime = module.createNativeV2Reminders({ ...scope, database: d.database, repository: d.repository, controller, assertAccess: guard });
@@ -107,8 +102,13 @@ test('native v2 cleanup retains valid current-account scopes and never cancels p
   } finally { h.close(); }
 });
 
-test('a failed untimed-load alert does not suppress received-completion delivery within the same shared worker budget', async () => {
-  const h = await setup({ failLoad: true }); try {
-    await assert.rejects(h.runtime.synchronize(), /load notice failed/u); assert.equal(h.completionCalls(), 1);
+test('shared worker retains completion delivery without producing load alerts or reading private planning twice', async () => {
+  const h = await setup(); try {
+    await h.runtime.store.save(0, { enabled: true, hour: 10, minute: 0 });
+    await h.runtime.synchronize();
+    assert.equal(h.completionCalls(), 1);
+    assert.equal(h.calls.filter(call => call === 'personal-read').length, 1);
+    assert.equal(h.calls.filter(call => Array.isArray(call) && call[0] === 'immediate').length, 0);
+    assert.ok([...h.scheduled.values()].every(row => row.key.startsWith(identity.v2NotificationPrefix(scope.userId, scope.groupId))));
   } finally { h.close(); }
 });

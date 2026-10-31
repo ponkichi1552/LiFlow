@@ -25,7 +25,7 @@ export default function ApplianceCareScreen() {
   const requestedProductName = Array.isArray(params.productName) ? params.productName[0] : params.productName;
   const returnToParam = Array.isArray(params.returnTo) ? params.returnTo[0] : params.returnTo;
   const returnTo = returnToParam === '/chores' ? '/chores' : returnToParam === '/manual' ? '/manual' : undefined;
-  const { database, refresh, snapshot } = usePlannerData();
+  const { database, refresh, snapshot } = usePlannerData({ personal: true });
   const [canAnalyze, setCanAnalyze] = useState(false);
   const [manual, setManual] = useState<UploadedManualInput>();
   const [manufacturer, setManufacturer] = useState('');
@@ -155,7 +155,7 @@ export default function ApplianceCareScreen() {
   };
 
   return (
-    <Page keyboardAware footerHasTabBar footer={<BackButton onPress={() => { analysisRequest.current?.abort(); if (returnTo) router.dismissTo(returnTo); else router.back(); }} />}>
+    <Page keyboardAware header={<BackButton onPress={() => { analysisRequest.current?.abort(); if (returnTo) router.dismissTo(returnTo); else router.back(); }} />}>
       <ScreenHeading
         eyebrow="MANUAL PDF"
         title={applianceId ? '説明書PDFを再解析' : '家電を追加'}

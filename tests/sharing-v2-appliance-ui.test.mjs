@@ -20,11 +20,11 @@ async function setup() {
   const decorated = { ...c, actions: { ...c.actions, reviewAppliance: async input => { const value = await c.actions.reviewAppliance(input); if (failAfterSave) { failAfterSave = false; failRead = true; } return value; } } };
   const source = createV2ScreenSession({ controller: decorated, groupId, userId: 'owner', now, readPreferences: () => { preferences++; throw new Error('No private planning in asset management'); } });
   const session = { ...source, readModel: options => { if (failRead) { failRead = false; throw new Error('injected view failure'); } return source.readModel(options); } };
-  async function mount(platform, view = 'applianceReview', applianceId, bottomInset = 0) {
+  async function mount(platform, view = 'applianceReview', applianceId, bottomInset = 0, screenProps = {}) {
     let focus; const navigation = []; const effects = []; const blurListeners = new Set();
     const screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { platform, exportName: 'V2GroupScreen',
       props: { purpose: 'workspace', view, applianceId, loadSession: async () => session, onBack: () => navigation.push(['back']), onConfiguration: id => navigation.push(['configuration', id]), onHistory() {},
-        onAppliance: id => navigation.push(['appliance', id]), onApplianceReview: id => navigation.push(['review', id]) },
+        onAppliance: id => navigation.push(['appliance', id]), onApplianceReview: id => navigation.push(['review', id]), ...screenProps },
       focusEffect: callback => { focus = callback; },
       navigationListener: (event, listener) => { if (event === 'blur') blurListeners.add(listener); },
       navigationUnsubscribe: (event, listener) => { if (event === 'blur') blurListeners.delete(listener); },
@@ -32,7 +32,7 @@ async function setup() {
       mocks: { '../../appliance-care/api-client': { analyzeApplianceCareRequest: async (...args) => { requests.push(args[0]); return implementation(...args); } },
         'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView', useSafeAreaInsets: () => ({ top: 0, right: 0, left: 0, bottom: bottomInset }) } } });
     let leave = focus(); mounts.push(() => { leave(); effects.forEach(cleanup => cleanup()); });
-    await settle(screen, () => screen.text().includes('対象の共有家電を表示できません') || screen.text().includes(view === 'appliances' ? '登録した共有家電' : view === 'appliance' ? '共有家電のお手入れ' : '選択したPDFを解析する'));
+    await settle(screen, () => screen.text().includes('対象の共有家電を表示できません') || screen.text().includes(view === 'appliances' ? '登録した家電' : view === 'appliance' ? '共有家電のお手入れ' : '選択したPDFを解析する'));
     if (view === 'applianceReview' && screen.text().includes('取扱説明書PDFを選ぶ')) { await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用でき、解析APIへの送信を確認した'); }
     return { screen, navigation, blur: () => { assert.ok(blurListeners.size > 0, 'the retained shared review must handle blur'); for (const listener of blurListeners) listener(); },
       refresh: async () => { leave(); leave = focus(); await screen.flush(); }, leave: () => { leave(); effects.forEach(cleanup => cleanup()); } };
@@ -218,4 +218,20 @@ test('shared and personal appliance task cards reuse source guarded instructions
     props: { task, manufacturer: 'Dyson', index: 1, schedule: '共有の設定は未構成' } });
   assert.match(screen.text(), /汚れが付いたとき/u); assert.match(screen.text(), /十分に乾燥させる/u); assert.equal(screen.text().includes('予定周期：'), false);
   assert.ok(screen.nodes().some(node => node.props.accessibilityRole === 'link'));
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} the joined appliance tab composes private and shared rows without a mode switch or a shared write`, async () => {
+  const f = await setup(); const personalCalls = [];
+  try {
+    const saved = await f.seed(); const model = await f.read(saved.applianceId);
+    const privateAppliance = { ...model.appliances.detail.appliance, id: saved.applianceId, householdId: 'local-household', displayName: '本人だけの家電' };
+    const before = await listSharingOutbox(f.device.database, groupId);
+    const { screen, navigation } = await f.mount(platform, 'appliances', undefined, 0, {
+      personalGuide: { snapshot: { appliances: [privateAppliance] } }, onPersonalAppliance: id => personalCalls.push(id), onAddPersonalAppliance() {},
+    });
+    assert.match(screen.text(), /2台/u); assert.equal(screen.text().includes('個人モード'), false);
+    await screen.press('本人だけの家電のお手入れを開く（個人）'); assert.deepEqual(personalCalls, [saved.applianceId]); assert.equal(navigation.length, 0);
+    await screen.press(`${model.appliances.rows[0].displayName}のお手入れを開く（グループ）`); assert.deepEqual(navigation.at(-1), ['appliance', saved.applianceId]);
+    assert.deepEqual(await listSharingOutbox(f.device.database, groupId), before); assert.equal(f.requests().length, 0);
+  } finally { f.close(); }
 });

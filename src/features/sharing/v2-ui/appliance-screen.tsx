@@ -14,9 +14,8 @@ import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { V2ApplianceReview, V2ApplianceReviewResult } from '../v2/appliance-actions';
 import type { V2MutationOutcome } from './mutation-outcome';
 import { V2TextField } from './form-controls';
-import { AccordionSection } from '../../../components/accordion-section';
 
-export type V2ApplianceMode = 'appliances' | 'appliance' | 'applianceReview';
+export type V2ApplianceMode = 'appliance' | 'applianceReview';
 const responseFor = (appliance: Appliance): ProductVerifiedResponse => ({ status: 'verified', product: { manufacturer: appliance.manufacturer,
   productName: appliance.productName, modelNumber: appliance.modelNumber, ...(appliance.category ? { category: appliance.category } : {}) },
 officialSources: { manualUrl: appliance.officialManualUrl, ...(appliance.officialProductUrl ? { productUrl: appliance.officialProductUrl } : {}) }, analysis: appliance.analysis });
@@ -26,10 +25,10 @@ const caption = { ...typography.caption, color: palette.muted };
 const warning = { ...typography.caption, color: palette.warning };
 
 /** Review is explicit. No API completion, navigation or refresh can silently replace shared chores. */
-export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, perform, onBack, onOpen, onReview, onConfiguration, onDetails, header }: {
+export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, perform, onBack, onOpen, onReview, onConfiguration, onDetails, header, initialProductName }: {
   model: V2GroupScreenModel; mode: V2ApplianceMode; applianceId?: string; actions: V2GroupController['actions']; busy: boolean;
   perform: (work: () => Promise<unknown>) => Promise<V2MutationOutcome>; onBack: () => void; onOpen?: (id: string) => void;
-  onReview?: (id?: string) => void; onConfiguration: (id: string) => void; onDetails?: (id: string) => void; header?: ReactNode;
+  initialProductName?: string; onReview?: (id?: string) => void; onConfiguration: (id: string) => void; onDetails?: (id: string) => void; header?: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   const pageStyle = { ...page, paddingBottom: Math.max(page.paddingBottom, insets.bottom + 24) };
@@ -37,14 +36,13 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   const detail = loadedDetail?.row.id === applianceId ? loadedDetail : undefined;
   // Retain the displayed basis throughout an API request and review. A remote refresh cannot bless an old draft.
   const [basis] = useState(() => detail); const starting = basis?.appliance;
-  const [input, setInput] = useState<ApplianceCareApiRequest>(() => ({ manufacturer: starting?.manufacturer ?? '', productName: starting?.productName ?? '', modelNumber: starting?.modelNumber ?? '', ...(starting?.category ? { category: starting.category } : {}) }));
+  const [input, setInput] = useState<ApplianceCareApiRequest>(() => ({ manufacturer: starting?.manufacturer ?? '', productName: starting?.productName ?? initialProductName ?? '', modelNumber: starting?.modelNumber ?? '', ...(starting?.category ? { category: starting.category } : {}) }));
   const [canAnalyze, setCanAnalyze] = useState(false);
   const [manual, setManual] = useState<UploadedManualInput>();
   const draft = useRef(input); const [response, setResponse] = useState<ProductVerifiedResponse | null>(null);
   const [chosen, setChosen] = useState<string[]>([]); const chosenRef = useRef(chosen);
   const [reviewed, setReviewed] = useState(false); const reviewedRef = useRef(false);
   const [candidateId, setCandidateId] = useState<string | null>(null); const [deleting, setDeleting] = useState(false);
-  const [deletedOpen, setDeletedOpen] = useState(false);
   const [error, setError] = useState<string | null>(null); const [pendingRead, setPendingRead] = useState(false);
   const [saved, setSaved] = useState<V2ApplianceReviewResult | null>(null); const [analyzing, setAnalyzing] = useState(false); const [stage, setStage] = useState('公式資料を確認しています');
   const working = useRef(false); const request = useRef<AbortController | null>(null);
@@ -91,23 +89,13 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   const pending = pendingRead ? <Card><Text style={body}>端末に保存済みです。再送せず、現在の家電を読み直してください。</Text>
     <AppButton title="保存済みの家電を再読込" disabled={busy} onPress={() => void executeRead()} /></Card> : null;
   const intro = <View style={{ gap: 14 }}>{header}<BackButton disabled={busy} onPress={() => { request.current?.abort(); onBack(); }} />
-    <ScreenHeading title={mode === 'appliances' ? '共有の家電' : mode === 'applianceReview' ? '家電の解析・共有' : '共有家電のお手入れ'} />
+    <ScreenHeading title={mode === 'applianceReview' ? '家電の解析・共有' : '共有家電のお手入れ'} />
     {error ? <Text accessibilityRole="alert" style={warning}>{error}</Text> : null}{pending}
     {saved ? <Card><Text style={body}>家電の確認内容を端末に保存しました。新しい家事{saved.createdChoreIds.length}件は無効で追加しています。既存の家事は保持しています。</Text>
       <Text style={caption}>他メンバーへの反映は同期後です。周期・負荷・有効状態は管理者が設定します。</Text>
       {onOpen ? <AppButton title="保存した共有家電を開く" disabled={locked} onPress={() => onOpen(saved.applianceId)} /> : null}
       {saved.createdChoreIds.map(id => <AppButton key={id} title={`「${model.plan.chores.find(chore => chore.id === id)?.name ?? '追加した家事'}」の共通設定`} disabled={locked} variant="quiet" onPress={() => onConfiguration(id)} />)}</Card> : null}
   </View>;
-  if (mode === 'appliances') return <FlatList contentContainerStyle={pageStyle} data={model.appliances?.rows.filter(row => !row.deleted) ?? []} keyExtractor={row => row.id} initialNumToRender={8}
-    ListHeaderComponent={<View style={{ gap: 14 }}>{intro}<Text style={caption}>登録情報と確認済み解析結果をグループ全員に共有します。APIキーや説明書PDFは共有しません。</Text>
-      {onReview ? <AppButton title="共有家電を追加" disabled={locked} onPress={() => onReview()} /> : null}<SectionHeading title="登録した共有家電" /></View>}
-    ListEmptyComponent={<Card><Text style={body}>共有家電はまだありません。</Text></Card>}
-    renderItem={({ item }) => <Card><Text style={typography.subheading}>{item.displayName}</Text><Text style={caption}>{item.needsReview ? '競合または解析内容の確認が必要です。' : `${item.manufacturer} · ${item.modelNumber}`}</Text>
-      {onOpen ? <AppButton title={`「${item.displayName}」を開く`} variant="quiet" disabled={locked} onPress={() => onOpen(item.id)} /> : null}</Card>}
-    ListFooterComponent={model.appliances?.rows.some(row => row.deleted) ? <AccordionSection title="削除した共有家電" expanded={deletedOpen} onToggle={() => setDeletedOpen(value => !value)}>
-      {model.appliances.rows.filter(row => row.deleted).map(row => <View key={row.id}><Text style={caption}>{row.displayName}</Text>
-        {onOpen ? <AppButton title={`「${row.displayName}」の復元内容を確認`} variant="quiet" disabled={locked} onPress={() => onOpen(row.id)} /> : null}</View>)}
-    </AccordionSection> : undefined} />;
   const currentCandidate = detail?.candidates.find(candidate => candidate.operationId === candidateId);
   const appliance = mode === 'applianceReview' ? null : detail?.appliance ?? currentCandidate?.appliance;
   const analysis = mode === 'applianceReview' ? response?.analysis : appliance?.analysis;

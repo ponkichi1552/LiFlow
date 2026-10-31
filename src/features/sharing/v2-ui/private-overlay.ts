@@ -13,7 +13,7 @@ import type { CommonCompletionSource } from '../../planner/common-chore-links';
 
 export interface V2PrivateTaskRow {
   source: 'personal'; key: string; revision: string; ownerUserId: string; householdId: string;
-  date: LocalDate; graceDays: 0 | 3; chore: ChoreDefinition; completed: boolean; suggestedDate: LocalDate; windowEnd?: LocalDate;
+  date: LocalDate; graceDays: 0 | 3; chore: ChoreDefinition; completed: boolean; suggestedDate: LocalDate; windowStart?: LocalDate; windowEnd?: LocalDate;
 }
 export interface V2PrivateOverlay {
   status: 'ready'; ownerUserId: string; householdId: string; timeZone: string; today: LocalDate; setupCompleted: boolean;
@@ -69,15 +69,14 @@ export function projectV2PrivateTasks(input: PrivatePlannerInput, ownerUserId: s
     const rows = (date: LocalDate, graceDays: 0 | 3) => selectDateTasks(entries, relevant, date, graceDays, [chore]).map((task): V2PrivateTaskRow => ({
       source: 'personal', key: `personal:${JSON.stringify([ownerUserId, snapshot.household.id, date, graceDays, chore.id])}`,
       revision: dateTaskRevision(task), ownerUserId, householdId: snapshot.household.id, date, graceDays, chore,
-      completed: task.completed, suggestedDate: task.suggestedDate, windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd,
+      completed: task.completed, suggestedDate: task.suggestedDate, windowStart: task.entry?.windowStart ?? task.completion?.scheduledWindowStart, windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd,
     }));
     home.push(...rows(today, 3));
     for (let date = range.from; date <= range.through; date = addDays(date, 1)) {
-      const selected = rows(date, 0); if (selected.length) byDate.set(date, [...(byDate.get(date) ?? []), ...selected]);
+      const selected = rows(date, date === today ? 3 : 0); if (selected.length) byDate.set(date, [...(byDate.get(date) ?? []), ...selected]);
     }
     for (const [date, count] of calendarPendingCountsByDate(entries, relevant)) {
       if (date < range.from || date > range.through) continue;
-      counts.set(date, (counts.get(date) ?? 0) + count);
       const day = dailyLoad[date] ?? { heavy: 0, normal: 0, total: 0 }; day.total += count;
       if (chore.load !== 'light') day[chore.load] += count; dailyLoad[date] = day;
     }
@@ -87,20 +86,15 @@ export function projectV2PrivateTasks(input: PrivatePlannerInput, ownerUserId: s
     return orderDateTasks(rows.map((row) => ({ id: row.key, choreId: row.chore.id, suggestedDate: row.suggestedDate, completed: row.completed })), date, chores)
       .map((task) => byChore.get(task.choreId)!);
   };
-  for (const [date, rows] of byDate) byDate.set(date, order(rows, date));
+  for (const [date, rows] of byDate) { byDate.set(date, order(rows, date)); counts.set(date, rows.filter(row => !row.completed).length); }
   return { status: 'ready', ownerUserId, householdId: snapshot.household.id, today, timeZone, range: { ...range },
     generatedThrough: addDays(today, 180), setupCompleted: snapshot.settings.setupCompleted, home: order(home, today), byDate, counts, dailyLoad };
 }
 
-/** Count the same recommended day as the saved model, including an early completion on another visible day. */
+/** Display counts use the same execution-period rows as home and the selected day. */
 export function privateOverlayPendingCounts(overlay: V2PrivateOverlay | undefined, values?: ReadonlyMap<string, boolean>) {
-  const counts = new Map(overlay?.counts);
-  if (overlay && values?.size) for (const rows of overlay.byDate.values()) for (const row of rows) {
-    const next = values.get(row.key);
-    if (next !== undefined && next !== row.completed) {
-      counts.set(row.suggestedDate, Math.max(0, (counts.get(row.suggestedDate) ?? 0) + Number(row.completed) - Number(next)));
-    }
-  }
+  const counts = new Map<LocalDate, number>();
+  if (overlay) for (const [date, rows] of overlay.byDate) counts.set(date, rows.filter(row => !(values?.get(row.key) ?? row.completed)).length);
   return counts;
 }
 

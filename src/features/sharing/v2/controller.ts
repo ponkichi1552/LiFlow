@@ -1,3 +1,5 @@
+import { V2_SCHEDULER_VERSION } from './payload-schema.ts';
+import { readSharedCalendar } from './calendar-state.ts';
 import type { LocalDate } from '../../../domain/shared/types.ts';
 import type { createV2EventRepository } from '../../../platform/storage/sharing-v2-events.ts';
 import { createV2PlannerActions } from './actions.ts';
@@ -24,7 +26,7 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
   const actions = createV2PlannerActions(repository, options);
   return {
     actions, sync: options.sync,
-    async readModel(inputRange: V2ModelRange | ((context: { timeZone: string }) => V2ModelRange), readOptions: { detailChoreId?: string; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; appliances?: boolean; applianceId?: string } = {}) {
+    async readModel(inputRange: V2ModelRange | ((context: { timeZone: string }) => V2ModelRange), readOptions: { detailChoreId?: string; choreSettings?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; appliances?: boolean; applianceId?: string } = {}) {
       const state = await repository.readState();
       const at = v2ReadPoint(state.assessment.view, state.archive.at(-1)!);
       let range: V2ModelRange;
@@ -50,24 +52,25 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
           candidates: candidates.map((op) => ({ operationId: op.operationId, authorUserId: op.authorUserId, recordedAt: op.recordedAt!, configuration: normalizeV2Configuration(op.payload.configuration as unknown as SharedChoreConfiguration) })) };
       });
       const reviews = v2DecisionReviews(state, repository.scope.userId);
-      const choreDetails = plan.chores.filter((chore) => chore.id === readOptions.detailChoreId).map((chore) => ({ choreId: chore.id, alive: readV2EditableField(state.assessment.view, at, 'chore', chore.id, '$alive'),
+      const choreDetails = plan.chores.filter((chore) => readOptions.choreSettings || chore.id === readOptions.detailChoreId).map((chore) => ({ choreId: chore.id, alive: readV2EditableField(state.assessment.view, at, 'chore', chore.id, '$alive'),
         fields: Object.fromEntries(V2_CHORE_DETAIL_FIELDS.map((field) => [field, readV2EditableField(state.assessment.view, at, 'chore', chore.id, field)])) as Record<V2ChoreDetailField, V2EditableField> }));
-      const groupPolicy = readOptions.groupPolicy || readOptions.permissionsChoreId ? readV2EditableField(state.assessment.view, at, 'groupPolicy', 'policy', 'configuration') : undefined;
+      const groupPolicy = readOptions.groupPolicy || readOptions.permissionsChoreId || readOptions.choreSettings ? readV2EditableField(state.assessment.view, at, 'groupPolicy', 'policy', 'configuration') : undefined;
       const groupSettings = readOptions.groupPolicy ? Object.fromEntries(['name', 'timeZone'].map(field =>
         [field, readV2EditableField(state.assessment.view, at, 'settings', 'settings', field)])) : undefined;
-      const permissionChore = readOptions.permissionsChoreId ? plan.chores.find(chore => chore.id === readOptions.permissionsChoreId) : undefined;
-      const permissionMembers = permissionChore ? plan.members.filter(member => member.active && member.userId !== state.archive.at(-1)!.body.ownerUserId)
+      const permissionChores = plan.chores.filter(chore => readOptions.choreSettings || chore.id === readOptions.permissionsChoreId);
+      const permissionMembers = permissionChores.length ? plan.members.filter(member => member.active && member.userId !== state.archive.at(-1)!.body.ownerUserId)
         .map(member => {
           const start = v2MembershipStart(state.archive, member.userId, at.keyVersion);
           if (start === null) throw new Error('メンバーの参加状態を確認してください。'); return { userId: member.userId, start };
         }) : [];
-      const dateRights = permissionChore ? { choreId: permissionChore.id, alive: readV2EditableField(state.assessment.view, at, 'chore', permissionChore.id, '$alive'),
+      const choreDateRights = permissionChores.map(chore => ({ choreId: chore.id, alive: readV2EditableField(state.assessment.view, at, 'chore', chore.id, '$alive'),
         membershipStarts: Object.fromEntries(permissionMembers.map(member => [member.userId, member.start])),
-        fields: Object.fromEntries(permissionMembers.map(member => [member.userId, readV2DateRights(state.assessment.view, at, permissionChore.id, member.userId, member.start)])) } : undefined;
+        fields: Object.fromEntries(permissionMembers.map(member => [member.userId, readV2DateRights(state.assessment.view, at, chore.id, member.userId, member.start)])) }));
+      const dateRights = choreDateRights.find(chore => chore.choreId === readOptions.permissionsChoreId);
       const waste = readOptions.waste ? buildV2WastePlan(state.assessment.view, at, range) : undefined;
       const appliances = readOptions.appliances ? buildV2ApplianceModel(state.assessment.view, at, readOptions.applianceId) : undefined;
       const recoveryHistory = state.replica.recoveryWitnesses ?? [];
-      return { plan, configurations, choreDetails, ...(groupPolicy ? { groupPolicy } : {}), ...(groupSettings ? { groupSettings } : {}), ...(dateRights ? { dateRights } : {}), ...(waste ? { waste } : {}), ...(appliances ? { appliances } : {}), viewerUserId: repository.scope.userId, adminUserId: state.archive.at(-1)!.body.ownerUserId,
+      return { calendar: readSharedCalendar(state.assessment.view, at), calendarSupported: state.archive.at(-1)!.body.schedulerVersion === V2_SCHEDULER_VERSION, plan, configurations, choreDetails, ...(readOptions.choreSettings ? { choreDateRights } : {}), ...(groupPolicy ? { groupPolicy } : {}), ...(groupSettings ? { groupSettings } : {}), ...(dateRights ? { dateRights } : {}), ...(waste ? { waste } : {}), ...(appliances ? { appliances } : {}), viewerUserId: repository.scope.userId, adminUserId: state.archive.at(-1)!.body.ownerUserId,
         ...(recoveryHistory.length ? { recoverySummary: { heldChanges: recoveryHistory.reduce((sum, witness) => sum
           + witness.body.entries.filter(entry => entry.classification === 'blockedCausality').length, 0), recoveries: recoveryHistory.length } } : {}),
         requests: state.assessment.requestStates, requestReviews: reviews.date, assignmentReviews: reviews.assignment,

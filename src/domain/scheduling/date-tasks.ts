@@ -62,9 +62,16 @@ function compareOccurrence(left: DateTask, right: DateTask, date: LocalDate): nu
   const inWindow = (task: DateTask) => task.entry
     ? task.entry.windowStart <= date && date <= task.entry.windowEnd
     : Boolean(task.completion && completionIncludesDate(task.completion, date));
-  return Number(completedOnDate(right)) - Number(completedOnDate(left))
+  return compareDateOccurrence({ ...left, completedOnDate: completedOnDate(left), inWindow: inWindow(left) },
+    { ...right, completedOnDate: completedOnDate(right), inWindow: inWindow(right) }, date);
+}
+
+/** Shared and personal presentation select the same occurrence when periods overlap. */
+export function compareDateOccurrence(left: { id: string; suggestedDate: LocalDate; completed: boolean; completedOnDate: boolean; inWindow: boolean },
+  right: typeof left, date: LocalDate): number {
+  return Number(right.completedOnDate) - Number(left.completedOnDate)
     || Number(right.suggestedDate === date) - Number(left.suggestedDate === date)
-    || Number(inWindow(right)) - Number(inWindow(left))
+    || Number(right.inWindow) - Number(left.inWindow)
     || Math.abs(daysBetween(date, left.suggestedDate)) - Math.abs(daysBetween(date, right.suggestedDate))
     || right.suggestedDate.localeCompare(left.suggestedDate)
     || Number(right.completed) - Number(left.completed)

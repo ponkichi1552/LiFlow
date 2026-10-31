@@ -27,15 +27,24 @@ export function screenHarness(filename, options = {}) {
     if (!(index in values)) values[index] = typeof initial === 'function' ? initial() : initial;
     return [values[index], (value) => { values[index] = typeof value === 'function' ? value(values[index]) : value; }];
   };
+  const effect = (callback, deps, schedule) => {
+    if (!options.effectDependencies) { schedule?.(callback); return; }
+    const [value] = hook(() => ({ harnessEffect: true, mounted: false, deps: undefined, cleanup: undefined }));
+    if (!value.mounted || !deps || !value.deps || deps.some((part, index) => !Object.is(part, value.deps[index]))) {
+      value.mounted = true; value.deps = deps;
+      schedule?.(() => { value.cleanup?.(); value.cleanup = callback(); return () => { value.cleanup?.(); value.cleanup = undefined; }; });
+    }
+  };
   const react = {
+    createContext: value => { const context = { _currentValue: value }; context.Provider = { harnessContext: context }; return context; },
     useState: hook,
     useRef: (value) => hook(() => ({ current: value }))[0],
     useMemo: (fn, deps) => {
       const [memo] = hook(() => ({ deps, value: fn() }));
       if (!deps || !memo.deps || deps.length !== memo.deps.length || deps.some((value, i) => !Object.is(value, memo.deps[i]))) { memo.deps = deps; memo.value = fn(); }
       return memo.value;
-    }, useCallback: (fn, deps) => react.useMemo(() => fn, deps), useEffect: (callback) => options.effect?.(callback),
-    useLayoutEffect: (callback) => options.layoutEffect?.(callback),
+    }, useCallback: (fn, deps) => react.useMemo(() => fn, deps), useEffect: (callback, deps) => effect(callback, deps, options.effect),
+    useLayoutEffect: (callback, deps) => effect(callback, deps, options.layoutEffect),
     useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
     useContext: (context) => context._currentValue ?? null,
     createElement: (type, props, ...children) => jsx(type, { ...props, children }),
@@ -90,6 +99,8 @@ export function screenHarness(filename, options = {}) {
     '@/components/chore-book': { ChoreBook: (props) => jsx('ChoreBook', { ...props, children: [props.titleAccessory, props.header,
       props.renderChore(props.chores.find(row => row.id === props.selectedId) ?? props.chores[0]),
       jsx(load(resolve(root, 'src/components/planner-ui.tsx')).BackButton, { onPress: props.onBack })] }) },
+    // Personal-screen tests isolate the separately tested group controller and native identity runtime.
+    '@/features/sharing/v2-ui/workspace-route': { V2WorkspaceRoute: props => jsx('V2WorkspaceRoute', props) },
     '@/hooks/use-planner-data': { usePlannerData: (scope) => scope?.personal && options.personalData ? options.personalData() : ({ loading: false, error: null, refresh: options.refresh ?? (async () => {}), database: options.database, snapshot: options.snapshot?.(), readSnapshot: options.snapshot ?? (() => null), readError }) },
     '@/features/weather/use-municipality-suggestions': { useMunicipalitySuggestions: () => ({ status: 'idle', candidates: [] }) },
     '@/platform/notifications/expo-local-notification-gateway': { ExpoLocalNotificationGateway: class { async requestPermission() { return false; } } },
@@ -131,6 +142,11 @@ export function screenHarness(filename, options = {}) {
     if (element === null || element === undefined || typeof element === 'boolean') return [];
     if (Array.isArray(element)) return element.flatMap((child, index) => expand(child, `${path}/${child?.key ?? index}`));
     if (typeof element !== 'object') return [String(element)];
+    if (element.type?.harnessContext) {
+      const context = element.type.harnessContext, previous = context._currentValue;
+      context._currentValue = element.props.value;
+      try { return expand(element.props.children, `${path}/provider`); } finally { context._currentValue = previous; }
+    }
     if (typeof element.type === 'function') {
       const identity = `${path}:${element.type.name}:${element.key ?? ''}`;
       mounted.add(identity);
@@ -155,7 +171,10 @@ export function screenHarness(filename, options = {}) {
     mounted = new Set(); tree = expand(jsx(component, options.props ?? {}), 'root');
     // React drops state when a keyed component leaves the tree, including when
     // switching back to a key seen on an earlier screen.
-    for (const identity of slots.keys()) if (!mounted.has(identity)) slots.delete(identity);
+    for (const identity of slots.keys()) if (!mounted.has(identity)) {
+      for (const value of slots.get(identity)) if (value?.harnessEffect) value.cleanup?.();
+      slots.delete(identity);
+    }
     return tree;
   };
   const flush = async () => { await new Promise(setImmediate); await new Promise(setImmediate); render(); };
@@ -168,6 +187,7 @@ export function screenHarness(filename, options = {}) {
   render();
   return {
     render, nodes, text: () => tree.map(text).join(''), button, flush,
+    unmount() { for (const values of slots.values()) for (const value of values) if (value?.harnessEffect) { value.cleanup?.(); value.cleanup = undefined; } slots.clear(); tree = []; },
     async press(name) {
       const node = button(name);
       assert.ok(!node.props.disabled && !node.props.accessibilityState?.disabled, `disabled button: ${name}`);

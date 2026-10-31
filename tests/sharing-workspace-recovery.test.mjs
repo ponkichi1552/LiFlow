@@ -57,7 +57,7 @@ function fixture(options = {}) {
     '../storage/sharing-registry.ts': {
       initializeSharingRegistry: async () => { if (options.failRegistry) throw new Error('registry initialization failed'); },
       readSharingWorkspace: async (_db, _user, groupId) => records.find((record) => record.groupId === groupId),
-      listSharingWorkspaces: async () => records,
+      readCurrentSharingWorkspace: async (_db, _user, previous) => records.find(record => record.groupId === previous) ?? records[0],
       updateSharingWorkspace: async (_db, _user, groupId, change) => {
         const index = records.findIndex((record) => record.groupId === groupId);
         const next = change(records[index]); records[index] = next; return next;
@@ -107,30 +107,30 @@ for (const [status, name] of [
   assert.equal(h.events.includes('resolve-plan'), false); assert.equal(h.events.includes('resolve-project'), false);
 });
 
-test('one unavailable migration database does not prevent later migration groups from catching up', async () => {
-  const h = fixture({ failOpen: 'broken', selection: { userId: 'member', groupId: 'healthy' } });
-  await assert.rejects(h.api.syncKnownSharingWorkspaces(), /open failed:broken/);
-  assert.ok(h.events.includes('sync:healthy'), 'a healthy group must not depend on an unrelated database opening');
+test('an unavailable current migration database never starts synchronization for historical groups', async () => {
+  const h = fixture({ failOpen: 'broken' });
+  await assert.rejects(h.api.syncSharingWorkspace(), /open failed:broken/);
+  assert.equal(h.events.includes('sync:healthy'), false, 'historical groups must never be opened by fallback');
   assert.equal(h.events.includes('notify:healthy'), false);
 });
 
 test('v2 notification cleanup failure remains observable after migration catch-up without legacy reminders', async () => {
   const h = fixture({ groups: ['healthy'], failReminderCleanup: true, selection: { userId: 'member', groupId: 'healthy' } });
-  await assert.rejects(h.api.syncKnownSharingWorkspaces(), /v2 reminder cleanup failed/u);
+  await assert.rejects(h.api.syncSharingWorkspace(), /v2 reminder cleanup failed/u);
   assert.ok(h.events.includes('sync:healthy')); assert.equal(h.events.includes('notify:healthy'), false);
 });
 
 test('migration workers never read retired group Google state or run legacy Google synchronization', async () => {
-  const h = fixture({ failGoogleState: 'broken' });
-  await h.api.syncKnownSharingWorkspaces();
+  const h = fixture({ groups: ['healthy'], failGoogleState: 'healthy' });
+  await h.api.syncSharingWorkspace();
   assert.equal(h.events.some(event => event.startsWith('google-state:') || event.startsWith('google-sync:')), false);
   assert.ok(h.events.includes('sync:healthy'));
 });
 
-test('a durably reported shared sync failure reaches the worker after other groups have been attempted', async () => {
+test('a durably reported shared sync failure reaches the worker without attempting other groups', async () => {
   const h = fixture({ failSync: 'broken' });
-  await assert.rejects(h.api.syncKnownSharingWorkspaces(), /sync failed:broken/u);
-  assert.ok(h.events.includes('sync:healthy'));
+  await assert.rejects(h.api.syncSharingWorkspace(), /sync failed:broken/u);
+  assert.equal(h.events.includes('sync:healthy'), false);
 });
 
 test('a shared worker does not start another Google phase after its time budget has already expired', async () => {
@@ -138,7 +138,7 @@ test('a shared worker does not start another Google phase after its time budget 
   Date.now = () => now;
   try {
     const h = fixture({ googleEnabled: true, afterSync: () => { now += 30000; } });
-    await h.api.syncKnownSharingWorkspaces(20000);
+    await h.api.syncSharingWorkspace(20000);
     assert.deepEqual(h.events.filter((event) => event.startsWith('sync:')), ['sync:broken']);
     assert.equal(h.events.some((event) => event.startsWith('google-state:')), false);
     assert.equal(h.events.some((event) => event.startsWith('google-sync:')), false);
@@ -150,7 +150,7 @@ test('opening a shared database consumes the same worker budget instead of grant
   Date.now = () => now;
   try {
     const h = fixture({ groups: ['healthy'], afterOpen: () => { now += 7000; } });
-    await h.api.syncKnownSharingWorkspaces(20000);
+    await h.api.syncSharingWorkspace(20000);
     assert.deepEqual(h.syncBudgets, [13000]);
   } finally { Date.now = originalNow; }
 });
@@ -160,24 +160,25 @@ test('a database that finishes opening after the worker deadline does not start 
   Date.now = () => now;
   try {
     const h = fixture({ groups: ['healthy'], afterOpen: () => { now += 30000; } });
-    await h.api.syncKnownSharingWorkspaces(20000);
+    await h.api.syncSharingWorkspace(20000);
     assert.deepEqual(h.syncBudgets, []);
     assert.equal(h.events.some((event) => event.startsWith('google-state:')), false);
   } finally { Date.now = originalNow; }
 });
 
-test('a slow first workspace cannot starve later workspaces across bounded worker runs or process restarts', async () => {
+test('bounded worker runs and process restarts never rotate into archived group scopes', async () => {
   const previous = Date.now; let now = 1000; Date.now = () => now;
   try {
     const vault = new Map();
     const first = fixture({ vault, afterSync: () => { now += 30_000; } });
-    await first.api.syncKnownSharingWorkspaces(20_000);
+    await first.api.syncSharingWorkspace(20_000);
     assert.deepEqual(first.events.filter(event => event.startsWith('sync:')), ['sync:broken']);
     const restarted = fixture({ vault, afterSync: () => { now += 30_000; } });
-    await restarted.api.syncKnownSharingWorkspaces(20_000);
-    assert.deepEqual(restarted.events.filter(event => event.startsWith('sync:')), ['sync:healthy']);
+    await restarted.api.syncSharingWorkspace(20_000);
+    assert.deepEqual(restarted.events.filter(event => event.startsWith('sync:')), ['sync:broken']);
+    assert.equal([...vault.keys()].some(key => key.startsWith('sharing-worker-cursor:')), false);
     const third = fixture({ vault, afterSync: () => { now += 30_000; } });
-    await third.api.syncKnownSharingWorkspaces(20_000);
+    await third.api.syncSharingWorkspace(20_000);
     assert.deepEqual(third.events.filter(event => event.startsWith('sync:')), ['sync:broken']);
   } finally { Date.now = previous; }
 });

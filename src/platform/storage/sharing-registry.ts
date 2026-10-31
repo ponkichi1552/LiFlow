@@ -64,7 +64,41 @@ export function initializeSharingRegistry(database: SQLiteDatabase): Promise<voi
       record_json TEXT NOT NULL,
       PRIMARY KEY(user_id, group_id)
     );
+    CREATE TABLE IF NOT EXISTS sharing_current_workspace (
+      user_id TEXT PRIMARY KEY NOT NULL,
+      group_id TEXT
+    );
   `));
+}
+
+/** Historical rows are retained, but only this one membership may be opened or synchronized. */
+export function readCurrentSharingWorkspace(database: SQLiteDatabase, userId: string, previousGroupId?: string): Promise<SharingWorkspaceRecord | null> {
+  assertSharedIdentifier(userId);
+  return serial(database, async () => {
+    let current = await database.getFirstAsync<{ group_id: string | null }>('SELECT group_id FROM sharing_current_workspace WHERE user_id = ?', userId);
+    if (!current) {
+      const rows = await database.getAllAsync<{ record_json: string }>('SELECT record_json FROM sharing_workspaces WHERE user_id = ?', userId);
+      const eligible = rows.map(row => validate(JSON.parse(row.record_json))).filter(row => !['left', 'removed'].includes(row.status));
+      const prior = eligible.find(row => row.groupId === previousGroupId);
+      if (!prior && eligible.length > 1) throw new Error('以前の検査用グループの表示情報を確認できません。保存データは保持しています。');
+      const groupId = prior?.groupId ?? eligible[0]?.groupId ?? null;
+      await database.runAsync('INSERT OR IGNORE INTO sharing_current_workspace (user_id, group_id) VALUES (?, ?)', userId, groupId);
+      current = await database.getFirstAsync<{ group_id: string | null }>('SELECT group_id FROM sharing_current_workspace WHERE user_id = ?', userId);
+    }
+    if (!current?.group_id) return null;
+    const stored = await database.getFirstAsync<{ record_json: string }>('SELECT record_json FROM sharing_workspaces WHERE user_id = ? AND group_id = ?', userId, current.group_id);
+    if (!stored) throw new Error('所属グループの保存情報を読み込めません。');
+    const record = validate(JSON.parse(stored.record_json));
+    if (record.userId !== userId || record.groupId !== current.group_id) throw new Error('Stored workspace identity mismatch');
+    return ['left', 'removed'].includes(record.status) ? null : record;
+  });
+}
+
+async function claimCurrentWorkspace(database: SQLiteDatabase, record: SharingWorkspaceRecord) {
+  if (['left', 'removed'].includes(record.status)) return;
+  await database.runAsync('INSERT OR IGNORE INTO sharing_current_workspace (user_id, group_id) VALUES (?, NULL)', record.userId);
+  const result = await database.runAsync('UPDATE sharing_current_workspace SET group_id = ? WHERE user_id = ? AND (group_id IS NULL OR group_id = ?)', record.groupId, record.userId, record.groupId);
+  if (!result.changes) throw new Error('参加または申請できるグループは一つです。現在のグループから退出するか、申請を取り消してください。');
 }
 
 export function listSharingWorkspaces(database: SQLiteDatabase, userId: string): Promise<SharingWorkspaceRecord[]> {
@@ -91,10 +125,13 @@ export function readSharingWorkspace(database: SQLiteDatabase, userId: string, g
 export function saveSharingWorkspace(database: SQLiteDatabase, input: SharingWorkspaceRecord): Promise<void> {
   const record = validate(input);
   return serial(database, async () => {
+    await database.withTransactionAsync(async () => {
+    await claimCurrentWorkspace(database, record);
     await database.runAsync('INSERT OR IGNORE INTO sharing_workspaces (user_id, group_id, record_json) VALUES (?, ?, ?)', record.userId, record.groupId, canonicalJson(record));
     const row = await database.getFirstAsync<{ record_json: string }>('SELECT record_json FROM sharing_workspaces WHERE user_id = ? AND group_id = ?', record.userId, record.groupId);
     const stored = row ? validate(JSON.parse(row.record_json)) : null;
     if (!stored || anchorDigest(stored.anchor) !== anchorDigest(record.anchor)) throw new Error('A cloud response cannot replace a locally trusted group pin');
+    });
   });
 }
 
@@ -113,9 +150,19 @@ export function updateSharingWorkspace(database: SQLiteDatabase, userId: string,
       if (['left', 'removed'].includes(previousStatus) && next.status === 'active') throw new Error('Explicitly request group approval before rejoining');
       if (next.localGeneration !== previousGeneration && (!['left', 'removed'].includes(previousStatus) || next.status !== 'joining'
         || !next.localGeneration || !next.archivedLocalGenerations?.includes(previousGeneration ?? 'initial'))) throw new Error('Rejoining must preserve the previous local workspace');
-      const result = await database.runAsync('UPDATE sharing_workspaces SET record_json = ? WHERE user_id = ? AND group_id = ? AND record_json = ?',
-        canonicalJson(next), userId, groupId, row.record_json);
-      if (result.changes === 1) return next;
+      let changed = false;
+      const write = async () => {
+        const result = await database.runAsync('UPDATE sharing_workspaces SET record_json = ? WHERE user_id = ? AND group_id = ? AND record_json = ?',
+          canonicalJson(next), userId, groupId, row.record_json);
+        changed = result.changes === 1;
+      };
+      const departed = (record: SharingWorkspaceRecord) => ['left', 'removed'].includes(record.status);
+      if (departed(old) === departed(next)) await write();
+      else await database.withTransactionAsync(async () => {
+        await claimCurrentWorkspace(database, next); await write();
+        if (changed && departed(next)) await database.runAsync('UPDATE sharing_current_workspace SET group_id = NULL WHERE user_id = ? AND group_id = ?', userId, groupId);
+      });
+      if (changed) return next;
     }
     throw new Error('共有状態の更新が重なりました。もう一度お試しください。');
   });

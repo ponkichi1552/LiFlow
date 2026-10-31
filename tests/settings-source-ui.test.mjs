@@ -1,4 +1,3 @@
-import { plannerLightColors } from '../src/components/planner-theme.ts';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -42,11 +41,23 @@ const definitions = h => h.connection.prepare("SELECT 1 FROM sqlite_master WHERE
   : h.connection.prepare('SELECT id,enabled,definition_json FROM chore_definitions ORDER BY id').all();
 const allNodes = tree => tree.flatMap(node => typeof node === 'string' ? [] : [node, ...allNodes(node.children ?? [])]);
 
+test('group management settings never load or offer the personal settings source', async () => {
+  const f = await legacyFixture();
+  try {
+    const screen = screenHarness('src/features/settings/chore-settings-sources.tsx', { exportName: 'ChoreSettingsSources', props: { first: 'group', group: f.record },
+      personalData: () => { throw new Error('group management must not read personal settings'); }, mocks: {
+        '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { userId: f.scope.userId, group: f.record } } },
+        './use-group-chore-settings': { useGroupChoreSettings: () => ({ ...f.source.getSnapshot(), source: f.source }) },
+      } });
+    assert.equal(screen.text().includes('個人用'), false); screen.button(`${f.source.getSnapshot().snapshot.model.plan.chores[0].category}の見出しを展開`);
+  } finally { await f.close(); }
+});
+
 for (const platform of ['ios', 'android']) {
   test(`${platform} chore settings order personal first in Settings and group first in Group with independent saves`, async () => {
     const f = await legacyFixture(); const navigation = [];
     try {
-      const context = { userId: f.scope.userId, active: f.workspace, groups: [f.record, { ...f.record, groupId: 'left-group', status: 'left' }] };
+      const context = { userId: f.scope.userId, active: f.workspace, group: f.record };
       for (const first of ['personal', 'group']) {
         const screen = screenHarness('src/features/settings/chore-settings-sources.tsx', { exportName: 'ChoreSettingsSources', platform, props: { first },
           personalData: () => f.personalData, navigate: (...args) => navigation.push(args), mocks: {
@@ -81,7 +92,8 @@ for (const platform of ['ios', 'android']) {
     try {
       const chore = f.personalData.snapshot.chores[0], before = definitions(f.shared);
       const screen = screenHarness('src/app/settings/chore/[id].tsx', { platform, params: { id: chore.id, source: 'personal' },
-        database: f.shared.database, snapshot: () => f.source.getSnapshot().snapshot.model.plan, personalData: () => f.personalData });
+        database: f.shared.database, snapshot: () => f.source.getSnapshot().snapshot.model.plan, personalData: () => f.personalData,
+        mocks: { '../contexts/workspace-context': { WorkspaceContext: { _currentValue: { userId: f.scope.userId, group: f.record } } } } });
       assert.equal(screen.text().split('個人用').length - 1, 1); assert.equal(screen.text().includes('グループ用'), false);
       await screen.change('家事周期の日数', '17'); await screen.endEditing('家事周期の日数'); for (let i = 0; i < 4; i++) await screen.flush();
       assert.equal(f.personalData.snapshot.chores.find(row => row.id === chore.id).recommendedCycleDays, 17);
@@ -94,18 +106,18 @@ for (const platform of ['ios', 'android']) {
     } finally { await f.close(); }
   });
 
-  test(`${platform} settings switches have a centered native frame without a second iOS background and matching control columns`, async () => {
+  test(`${platform} individual switches remain accessible while categories show only the enabled count and expansion`, async () => {
     const props = { value: false, accessibilityLabel: '切り替え', onValueChange() {} };
     const screen = screenHarness('src/components/settings-switch.tsx', { exportName: 'SettingsSwitch', platform, props });
-    const toggle = screen.nodes().find(node => node.type === 'Switch'); const slot = screen.nodes().find(node => node.type === 'View');
-    assert.equal(slot.props.style.height, 44); assert.equal(slot.props.style.alignItems, 'center');
+    const toggle = screen.nodes().find(node => node.type === 'Switch');
     assert.equal(toggle.props.ios_backgroundColor, undefined); assert.equal(toggle.props.style[0].width, undefined); assert.equal(toggle.props.style[0].height, undefined);
-    assert.notEqual(toggle.props.trackColor.true, '#34C759'); assert.equal(toggle.props.thumbColor, platform === 'android' ? '#FFFFFF' : undefined);
+    if (platform === 'ios') assert.equal(toggle.props.thumbColor, undefined);
     const rows = [{ id: 'a', name: '家事', category: '分類', enabled: false }];
     const list = screenHarness('src/features/settings/chore-toggle-list.tsx', { exportName: 'ChoreToggleList', platform, props: {
       chores: rows, expanded: new Set(['分類']), setExpanded() {}, onOpen() {}, save: async () => {} } });
-    const slots = list.nodes().filter(node => node.type === 'View' && node.props.style?.width === 56); assert.equal(slots.length, 2);
-    const counts = list.nodes().filter(node => node.props.style?.minWidth === 32 || node.props.style?.width === 32); assert.equal(counts.length, 2);
+    assert.equal(list.nodes().filter(node => node.type === 'Switch').length, 1);
+    for (const label of ['分類の家事をすべて無効にする', '分類の有効な家事を個別に選ぶ', '分類の家事をすべて有効にする']) assert.throws(() => list.button(label), /missing button/u);
+    assert.ok(list.text().includes('0/1')); list.button('分類の見出しを折りたたむ');
   });
 
   test(`${platform} category rail scrubs by measured position clamps the ends and preserves accessible taps`, async () => {
@@ -144,11 +156,11 @@ test('named group settings reject account and membership changes or a different 
   } finally { await f.close(); }
 });
 
-test('detached group editor targets its named workspace without switching away from another group', async () => {
+test('group editor targets the current membership while keeping personal settings independent', async () => {
   const f = await legacyFixture(); const effects = []; let selected = 0, props;
   try {
     const chore = f.source.getSnapshot().snapshot.model.plan.chores[0], before = definitions(f.personal);
-    const context = { userId: f.scope.userId, active: { groupId: 'another-group' }, groups: [f.record], switchTo: () => { selected++; } };
+    const context = { userId: f.scope.userId, active: f.workspace, group: f.record, switchTo: () => { selected++; } };
     const screen = screenHarness('src/app/sharing/chore-settings/[id].tsx', { params: { id: chore.id, groupId: f.scope.groupId }, effect: callback => effects.push(callback), mocks: {
       '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: context } },
       '@/platform/sharing/workspaces': { openSharedWorkspace: async selection => { assert.equal(selection.groupId, f.scope.groupId); return f.workspace; } },
@@ -165,7 +177,7 @@ test('detached group editor targets its named workspace without switching away f
   } finally { await f.close(); }
 });
 
-test('settings history links preserve the explicit personal or named group source even while another group is selected', async () => {
+test('settings history links preserve the explicit personal or current group source', async () => {
   const f = await legacyFixture(); const navigation = []; let historyProps;
   try {
     const personal = f.personalData.snapshot.chores[0], shared = f.source.getSnapshot().snapshot.model.plan.chores[0];
@@ -176,7 +188,7 @@ test('settings history links preserve the explicit personal or named group sourc
     f.personalData.snapshot = { ...f.personalData.snapshot, chores: [{ ...personal, id: shared.id, name: '別領域にある同じIDの個人家事' }] };
     const history = screenHarness('src/app/sharing/history.tsx', { params: { groupId: f.scope.groupId, choreId: shared.id }, personalData: () => f.personalData,
       snapshot: () => f.personalData.snapshot, mocks: {
-        '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { userId: f.scope.userId, active: { groupId: 'another' }, groups: [f.record] } } },
+        '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { userId: f.scope.userId, active: f.workspace, group: f.record } } },
         './group-chore-settings-screen': { SelectedGroupChoreSettings: props => { historyProps = props; return 'named-v2-history'; } },
       } });
     assert.equal(historyProps.groupId, f.scope.groupId); assert.equal(historyProps.choreId, shared.id); assert.equal(historyProps.initialView, 'history');
@@ -185,7 +197,7 @@ test('settings history links preserve the explicit personal or named group sourc
 });
 
 test('removed memberships never mount a group editor and v2 members cannot use administrator activation controls', async () => {
-  const context = { userId: 'member', groups: [{ userId: 'member', groupId: 'family', displayName: '家族', status: 'removed' }] };
+  const context = { userId: 'member', group: { userId: 'member', groupId: 'family', displayName: '家族', status: 'removed' } };
   let reads = 0;
   const removed = screenHarness('src/app/sharing/chore-settings/[id].tsx', { params: { id: 'chore', groupId: 'family' }, mocks: {
     '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: context } },
@@ -193,7 +205,7 @@ test('removed memberships never mount a group editor and v2 members cannot use a
     './use-group-chore-settings': { useGroupChoreSettings: () => { reads++; throw new Error('must not load'); } },
   } });
   assert.equal(reads, 0); assert.ok(removed.text().includes('このグループは現在編集できません'));
-  context.groups[0].status = 'active'; const navigation = [];
+  context.group.status = 'active'; const navigation = [];
   const member = screenHarness('src/features/settings/chore-settings-sources.tsx', { exportName: 'ChoreSettingsSources', props: { first: 'group' }, navigate: (...args) => navigation.push(args), mocks: {
     '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: context } },
     './use-group-chore-settings': { useGroupChoreSettings: () => ({ snapshot: { protocol: 2, model: { viewerUserId: 'member', adminUserId: 'owner',
@@ -218,14 +230,17 @@ test('fixed audience stays outside the virtual document and a thousand chores ke
 test('v2 Settings keeps both chore audiences and routes waste management to its supported group screen', async () => {
   const f = await legacyFixture(); const navigation = [];
   try {
-    const screen = screenHarness('src/app/settings.tsx', { database: f.personal.database, snapshot: () => f.personalData.snapshot,
+    const effects = [];
+    const screen = screenHarness('src/app/settings.tsx', { effect: callback => effects.push(callback), database: f.personal.database, snapshot: () => f.personalData.snapshot,
       personalData: () => f.personalData, navigate: (...args) => navigation.push(args), mocks: {
+        '@/platform/sharing/private-calendar-secrets': { nativePrivatePlannerPreferences: () => ({ read: async () => null }) },
         '@/features/google-sync/background-task': {},
         '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: false }) },
         '@/platform/google-tasks/google-sign-in-gateway': {},
-        '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { active: { protocol: 2 }, userId: f.scope.userId, groups: [f.record] } } },
+        '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { active: { protocol: 2 }, userId: f.scope.userId, group: f.record } } },
         './use-group-chore-settings': { useGroupChoreSettings: () => ({ ...f.source.getSnapshot(), source: f.source }) },
       } });
+    effects.splice(0).forEach(callback => callback()); for (let n = 0; n < 8; n++) await screen.flush();
     await screen.press('家事ごとの設定を開く'); assert.ok(screen.text().indexOf('個人用') < screen.text().indexOf('グループ用 · 家族'));
     await screen.press('ゴミ収集日を管理'); assert.deepEqual(navigation.at(-1), ['push', '/group-v2/waste']);
   } finally { await f.close(); }
@@ -254,15 +269,11 @@ test('v2 detached settings use management-only reads and existing single-chore a
   } finally { await await f.close(); }
 });
 
-test('early chore labels have their own blue badge and stronger background while completed chores lose the early label', () => {
+test('chore rows show their execution period without an early badge or source-specific timing label', () => {
   for (const home of [true, false]) for (const completed of [false, true]) {
     const screen = screenHarness('src/components/task-checkbox-row.tsx', { exportName: 'TaskCheckboxRow', props: {
-      chore: { name: '洗濯', category: '洗濯', estimatedMinutes: 30 }, early: true, home, completed, onOpen() {}, onToggle() {} } });
-    assert.equal(screen.text().includes('推奨日前'), !completed);
-    if (!completed) {
-      assert.ok(allNodes(screen.render()).some(node => node.type === 'Text' && node.props.style?.color === plannerLightColors.early));
-      assert.ok(allNodes(screen.render()).some(node => Array.isArray(node.props.style) && node.props.style.some(style => style?.backgroundColor === plannerLightColors.earlySoft)));
-      assert.match(screen.nodes().find(node => node.props.accessibilityRole === 'button').props.accessibilityHint, /推奨日前/u);
-    }
+      chore: { name: '洗濯', category: '洗濯', estimatedMinutes: 30 }, executionWindow: { start: '2026-10-28', end: '2026-11-01' }, home, completed, onOpen() {}, onToggle() {} } });
+    assert.equal(screen.text().includes('推奨日前'), false); assert.match(screen.text(), /10月28日.*11月1日/u);
+    assert.equal(Boolean(screen.nodes().find(node => node.props.accessibilityRole === 'button').props.accessibilityHint?.includes('推奨日前')), false);
   }
 });

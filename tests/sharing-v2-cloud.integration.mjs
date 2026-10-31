@@ -252,7 +252,8 @@ test('v2 workspace sessions restore real encrypted bootstrap and offline edits a
 });
 
 test('normal v2 workspace creation uses the real gateway and Rules and a no-change sync cannot enqueue another local edit', async () => {
-  const f = await fixture(); const h = await workspaceHarness({ cloud: f.cloud, deferWorkspaceTimers: true });
+  const f = { cloud: createSharingCloud(environment.authenticatedContext('owner').firestore(), 'owner', () => 'owner') };
+  const h = await workspaceHarness({ cloud: f.cloud, deferWorkspaceTimers: true, initiallyEmpty: true });
   try {
     const workspace = await h.api.createV2SharingWorkspace('新しい家族', 'family', 'Asia/Tokyo');
     const result = await workspace.sync({ force: true, budgetMs: 120_000 }); assert.equal(result.complete, true); assert.equal(result.pending, 0);
@@ -636,7 +637,7 @@ test('draft38 owner upgrades through a real atomic cloud snapshot and a fresh SQ
     const before = await loadSharedFacts(h.database, groupId); const head = (await f.cloud.readGroup(groupId)).group.headSequence;
     await owner.manager.upgradeScheduler();
     const current = await f.cloud.readGroup(groupId); assert.equal(current.group.keyVersion, 2); assert.equal(current.group.headSequence, head);
-    assert.equal(archive[0].body.schedulerVersion, 'liflow-shared-2-draft-38'); assert.equal(archive.at(-1).body.schedulerVersion, 'liflow-shared-2-draft-39');
+    assert.equal(archive[0].body.schedulerVersion, 'liflow-shared-2-draft-38'); assert.equal(archive.at(-1).body.schedulerVersion, 'liflow-shared-2-draft-40');
     const cold = await createV2WorkspaceSession(deps(restored.database)); await cold.synchronizer.sync({ force: true });
     assert.deepEqual(await loadSharedFacts(restored.database, groupId), before);
     assert.deepEqual(await listSharingOutbox(restored.database, groupId), []);

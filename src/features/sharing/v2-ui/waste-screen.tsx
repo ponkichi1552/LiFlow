@@ -5,7 +5,7 @@ import { AppButton, BackButton, Card, palette, ScreenHeading, SectionHeading, ty
 import { AccordionSection } from '../../../components/accordion-section';
 import { WasteScheduleEditor } from '../../waste/waste-schedule-editor';
 import { normalizeWasteSchedule, wasteCollectionRule, wasteScheduleDescription } from '../../waste/schedule-policy';
-import { wasteTypeColor } from '../../waste/type-appearance';
+import { useWasteTypeColor } from '../../waste/use-waste-type-color';
 import type { WasteScheduleInput } from '../../waste/contracts';
 import { canonicalJson } from '../operations';
 import type { JsonValue } from '../operations';
@@ -39,6 +39,8 @@ export function V2WasteScreen({ model, actions, busy, perform, onBack, header }:
   model: V2GroupScreenModel; actions: V2GroupController['actions']; busy: boolean; onBack: () => void; header?: ReactNode;
   perform: (work: () => Promise<unknown>) => Promise<V2MutationOutcome>;
 }) {
+  const wasteTypeColor = useWasteTypeColor();
+
   const [form, setForm] = useState<{ row?: V2WasteRow; key: number } | null>(null);
   const nextKey = useRef(0); const working = useRef(false);
   const [pendingRead, setPendingRead] = useState(false); const [error, setError] = useState<string | null>(null);
@@ -61,7 +63,7 @@ export function V2WasteScreen({ model, actions, busy, perform, onBack, header }:
   return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
     <FlatList data={rows} keyExtractor={row => row.id} initialNumToRender={8} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={styles.page}
       ListHeaderComponent={<View style={{ gap: 14 }}>{header}<BackButton onPress={onBack} disabled={busy} /><ScreenHeading title="共有のゴミ収集日" />
-        <Text style={styles.caption}>追加・変更した収集日と、その回の表示・非表示はグループ全員に共有します。個人モードの収集日は変更しません。</Text>
+        <Text style={styles.caption}>追加・変更した収集日と、その回の表示・非表示はグループ全員に共有します。個人の収集日は変更しません。</Text>
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         {pendingRead ? <Card><Text style={styles.body}>端末に保存済みです。再送せず、現在の収集日を読み直してください。</Text>
           <AppButton title="保存済みの収集日を再読込" disabled={busy} onPress={() => {

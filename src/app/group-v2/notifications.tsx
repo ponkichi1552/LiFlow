@@ -11,7 +11,7 @@ export default function GroupNotificationsRoute() {
   const load = useCallback(async () => {
     if (!active || latest.current !== active) throw new Error('共有グループを選び直してください。');
     const runtime = await active.reminders();
-    const guard = () => { if (latest.current !== active) throw new Error('共有グループが切り替わりました。'); }; guard();
+    const guard = () => { if (latest.current !== active) throw new Error('共有グループの参加状態が変わりました。'); }; guard();
     return { ...runtime, store: { ...runtime.store,
       read: async () => { guard(); const value = await runtime.store.read(); guard(); return value; },
       save: async (...args: Parameters<typeof runtime.store.save>) => { guard(); const value = await runtime.store.save(...args); guard(); return value; } } };

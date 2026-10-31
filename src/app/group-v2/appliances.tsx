@@ -1,2 +1,3 @@
-import { V2WorkspaceRoute } from '../../features/sharing/v2-ui/workspace-route';
-export default function AppliancesRoute() { return <V2WorkspaceRoute view="appliances" />; }
+import { Redirect, useLocalSearchParams } from 'expo-router';
+
+export default function AppliancesRoute() { const params = useLocalSearchParams(); return <Redirect href={{ pathname: '/(tabs)/manual', params }} />; }

@@ -165,6 +165,10 @@
       {
         "file": "tests/calendar-marker-contracts.test.mjs",
         "name": "completing a future occurrence changes only that date and retains periods"
+      },
+      {
+        "file": "tests/calendar-marker-contracts.test.mjs",
+        "name": "legacy bar preferences read as dots without changing saved colors or rewriting personal data"
       }
     ]
   },
@@ -453,133 +457,319 @@
   {
     "feature": "dependency-cycle-date-matching",
     "tests": [
-      { "file": "tests/scheduling-dependency-dates.test.mjs", "name": "a daily successor of a monthly predecessor retains every due date after their last completion" },
-      { "file": "tests/scheduling-dependency-dates.test.mjs", "name": "dependency date matching retains all occurrences for 25 different cycle pairs" },
-      { "file": "tests/scheduling-dependency-dates.test.mjs", "name": "weather constrains a predecessor only against successors bound to its cycle" }
+      {
+        "file": "tests/scheduling-dependency-dates.test.mjs",
+        "name": "a daily successor of a monthly predecessor retains every due date after their last completion"
+      },
+      {
+        "file": "tests/scheduling-dependency-dates.test.mjs",
+        "name": "dependency date matching retains all occurrences for 25 different cycle pairs"
+      },
+      {
+        "file": "tests/scheduling-dependency-dates.test.mjs",
+        "name": "weather constrains a predecessor only against successors bound to its cycle"
+      }
     ]
   },
   {
     "feature": "google-completion-and-native-widget-recovery",
     "tests": [
-      { "file": "tests/google-sync-completion-recovery.test.mjs", "name": "completion-triggered sync recovers a fresh interrupted marker and updates the same task without forcing Calendar" },
-      { "file": "tests/google-sync-completion-recovery.test.mjs", "name": "startup recovers durable widget changes from" },
-      { "file": "tests/google-sync-completion-recovery.test.mjs", "name": "foreground recovery retains retry backoff and permanent failures with pending local changes" },
-      { "file": "tests/google-sync-completion-recovery.test.mjs", "name": "Android native completion SQL keeps a revision so an older network response cannot acknowledge a new action" },
-      { "file": "tests/google-sync-completion-recovery.test.mjs", "name": "widget completion written before the v16 migration survives upgrade and syncs by its timestamp" },
-      { "file": "tests/google-sync-completion-recovery.test.mjs", "name": "Android native completion ignores a stale widget entry after its chore was disabled" }
+      {
+        "file": "tests/google-sync-completion-recovery.test.mjs",
+        "name": "completion-triggered sync recovers a fresh interrupted marker and updates the same task without forcing Calendar"
+      },
+      {
+        "file": "tests/google-sync-completion-recovery.test.mjs",
+        "name": "startup recovers durable widget changes from"
+      },
+      {
+        "file": "tests/google-sync-completion-recovery.test.mjs",
+        "name": "foreground recovery retains retry backoff and permanent failures with pending local changes"
+      },
+      {
+        "file": "tests/google-sync-completion-recovery.test.mjs",
+        "name": "Android native completion SQL keeps a revision so an older network response cannot acknowledge a new action"
+      },
+      {
+        "file": "tests/google-sync-completion-recovery.test.mjs",
+        "name": "widget completion written before the v16 migration survives upgrade and syncs by its timestamp"
+      },
+      {
+        "file": "tests/google-sync-completion-recovery.test.mjs",
+        "name": "Android native completion ignores a stale widget entry after its chore was disabled"
+      }
     ]
   },
   {
     "feature": "native-gateway-platform-parity",
     "tests": [
-      { "file": "tests/native-platform-gateways.test.mjs", "name": "notification gateway coalesces permission requests and creates Android channels before asking" },
-      { "file": "tests/native-platform-gateways.test.mjs", "name": "notification schedule round trip retains date, identity, subtitle and metadata without duplicates" },
-      { "file": "tests/native-platform-gateways.test.mjs", "name": "appliance API uses the reachable emulator host while preserving an explicit deployment URL" },
-      { "file": "tests/native-platform-gateways.test.mjs", "name": "native entry defines background work before Router can mount any screens" },
-      { "file": "tests/native-platform-gateways.test.mjs", "name": "background tasks close their SQLite connection after a sync failure without mounting UI" },
-      { "file": "tests/weather.test.mjs", "name": "romanized municipality queries do not acquire a Japanese suffix on an English Android keyboard" }
+      {
+        "file": "tests/native-platform-gateways.test.mjs",
+        "name": "notification gateway coalesces permission requests and creates Android channels before asking"
+      },
+      {
+        "file": "tests/native-platform-gateways.test.mjs",
+        "name": "notification schedule round trip retains date, identity, subtitle and metadata without duplicates"
+      },
+      {
+        "file": "tests/native-platform-gateways.test.mjs",
+        "name": "appliance API uses the reachable emulator host while preserving an explicit deployment URL"
+      },
+      {
+        "file": "tests/native-platform-gateways.test.mjs",
+        "name": "native entry defines background work before Router can mount any screens"
+      },
+      {
+        "file": "tests/native-platform-gateways.test.mjs",
+        "name": "background tasks close their SQLite connection after a sync failure without mounting UI"
+      },
+      {
+        "file": "tests/weather.test.mjs",
+        "name": "romanized municipality queries do not acquire a Japanese suffix on an English Android keyboard"
+      }
     ]
   },
   {
     "feature": "calendar-freebusy-volume-and-response-validation",
     "tests": [
-      { "file": "tests/google-calendar-stress.test.mjs", "name": "FreeBusy retains 150000 intervals without exceeding the JavaScript argument stack" },
-      { "file": "tests/google-calendar-stress.test.mjs", "name": "100000 disjoint Calendar intervals retain exact daily totals over 181 days" },
-      { "file": "tests/google-calendar-stress.test.mjs", "name": "calendar aggregation agrees with an independent minute-union oracle" },
-      { "file": "tests/google-calendar-stress.test.mjs", "name": "keeps retry timing instead of permanently stopping Calendar" },
-      { "file": "tests/google-calendar-stress.test.mjs", "name": "to an empty free calendar" }
+      {
+        "file": "tests/google-calendar-stress.test.mjs",
+        "name": "FreeBusy retains 150000 intervals without exceeding the JavaScript argument stack"
+      },
+      {
+        "file": "tests/google-calendar-stress.test.mjs",
+        "name": "100000 disjoint Calendar intervals retain exact daily totals over 181 days"
+      },
+      {
+        "file": "tests/google-calendar-stress.test.mjs",
+        "name": "calendar aggregation agrees with an independent minute-union oracle"
+      },
+      {
+        "file": "tests/google-calendar-stress.test.mjs",
+        "name": "keeps retry timing instead of permanently stopping Calendar"
+      },
+      {
+        "file": "tests/google-calendar-stress.test.mjs",
+        "name": "to an empty free calendar"
+      }
     ]
   },
   {
     "feature": "calendar-cache-coverage-and-atomic-refresh",
     "tests": [
-      { "file": "tests/google-calendar-storage-stress.test.mjs", "name": "real SQLite Calendar coverage refreshes after" },
-      { "file": "tests/google-calendar-storage-stress.test.mjs", "name": "a failed Calendar row insert rolls back the entire 181-day replacement and success timestamp" },
-      { "file": "tests/google-calendar-storage-stress.test.mjs", "name": "Calendar OFF queued behind a slow refresh clears the cache and cannot be overwritten by a late response" },
-      { "file": "tests/google-calendar-resilience.test.mjs", "name": "Retry-After malformed and huge values always produce a serializable finite retry time" }
+      {
+        "file": "tests/google-calendar-storage-stress.test.mjs",
+        "name": "real SQLite Calendar coverage refreshes after"
+      },
+      {
+        "file": "tests/google-calendar-storage-stress.test.mjs",
+        "name": "a failed Calendar row insert rolls back the entire 181-day replacement and success timestamp"
+      },
+      {
+        "file": "tests/google-calendar-storage-stress.test.mjs",
+        "name": "Calendar OFF queued behind a slow refresh clears the cache and cannot be overwritten by a late response"
+      },
+      {
+        "file": "tests/google-calendar-resilience.test.mjs",
+        "name": "Retry-After malformed and huge values always produce a serializable finite retry time"
+      }
     ]
   },
   {
     "feature": "calendar-native-auth-and-concurrent-sync",
     "tests": [
-      { "file": "tests/google-calendar-native-auth.test.mjs", "name": "100 concurrent session checks configure the native SDK once" },
-      { "file": "tests/google-calendar-native-auth.test.mjs", "name": "iOS cold session restores Keychain once for 100 concurrent Calendar checks" },
-      { "file": "tests/google-calendar-native-auth.test.mjs", "name": "Android missing saved session never attempts the potentially interactive signIn fallback" },
-      { "file": "tests/google-calendar-storage-stress.test.mjs", "name": "100 concurrent Google sync requests share one Calendar fetch sequence and one Tasks reconciliation" }
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "100 concurrent session checks configure the native SDK once"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "iOS cold session restores Keychain once for 100 concurrent Calendar checks"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "Android missing saved session never attempts the potentially interactive signIn fallback"
+      },
+      {
+        "file": "tests/google-calendar-storage-stress.test.mjs",
+        "name": "100 concurrent Google sync requests share one Calendar fetch sequence and one Tasks reconciliation"
+      }
     ]
   },
   {
     "feature": "calendar-large-planner-and-failure-matrix",
     "tests": [
-      { "file": "tests/google-calendar-planner-stress.test.mjs", "name": "Calendar preserves 21-chore 181-day plans" },
-      { "file": "tests/google-calendar-resilience.test.mjs", "name": "never commits partial 181-day coverage" },
-      { "file": "tests/google-calendar-resilience.test.mjs", "name": "is transient and preserves granted permission" }
+      {
+        "file": "tests/google-calendar-planner-stress.test.mjs",
+        "name": "Calendar preserves 21-chore 181-day plans"
+      },
+      {
+        "file": "tests/google-calendar-resilience.test.mjs",
+        "name": "never commits partial 181-day coverage"
+      },
+      {
+        "file": "tests/google-calendar-resilience.test.mjs",
+        "name": "is transient and preserves granted permission"
+      }
     ]
   },
   {
     "feature": "api-request-and-manual-stream-recovery",
     "tests": [
-      { "file": "tests/reliability-server.test.mjs", "name": "HTTP handler rejects malformed request target without an unhandled rejection" },
-      { "file": "tests/reliability-server.test.mjs", "name": "a malformed raw HTTP request does not prevent later health requests" },
-      { "file": "tests/reliability-server.test.mjs", "name": "HTML manual stops reading at its byte limit" },
-      { "file": "tests/reliability-server.test.mjs", "name": "HEAD-to-GET manual inspection cancels invalid bodies" },
-      { "file": "tests/reliability-server.test.mjs", "name": "HTML manual accepts the exact limit and preserves Japanese text and HTML cleanup" },
-      { "file": "tests/openai-client-reliability.test.mjs", "name": "releases the error body without exposing it or repeating a paid request" },
-      { "file": "tests/openai-client-reliability.test.mjs", "name": "OpenAI client rejects" }
+      {
+        "file": "tests/reliability-server.test.mjs",
+        "name": "HTTP handler rejects malformed request target without an unhandled rejection"
+      },
+      {
+        "file": "tests/reliability-server.test.mjs",
+        "name": "a malformed raw HTTP request does not prevent later health requests"
+      },
+      {
+        "file": "tests/reliability-server.test.mjs",
+        "name": "HTML manual stops reading at its byte limit"
+      },
+      {
+        "file": "tests/reliability-server.test.mjs",
+        "name": "HEAD-to-GET manual inspection cancels invalid bodies"
+      },
+      {
+        "file": "tests/reliability-server.test.mjs",
+        "name": "HTML manual accepts the exact limit and preserves Japanese text and HTML cleanup"
+      },
+      {
+        "file": "tests/openai-client-reliability.test.mjs",
+        "name": "releases the error body without exposing it or repeating a paid request"
+      },
+      {
+        "file": "tests/openai-client-reliability.test.mjs",
+        "name": "OpenAI client rejects"
+      }
     ]
   },
   {
     "feature": "autosave-lifecycle-and-reentrant-writes",
     "tests": [
-      { "file": "tests/settings-autosave.test.mjs", "name": "autosave restores a cleared cycle when leaving through" },
-      { "file": "tests/settings-autosave.test.mjs", "name": "autosave clears an appliance override with manufacturer cycle" },
-      { "file": "tests/settings-autosave.test.mjs", "name": "autosave publishes its running writer before notifying reentrant subscribers" },
-      { "file": "tests/settings-autosave.test.mjs", "name": "autosave drains edits enqueued synchronously by a saved-state observer" }
+      {
+        "file": "tests/settings-autosave.test.mjs",
+        "name": "autosave restores a cleared cycle when leaving through"
+      },
+      {
+        "file": "tests/settings-autosave.test.mjs",
+        "name": "autosave clears an appliance override with manufacturer cycle"
+      },
+      {
+        "file": "tests/settings-autosave.test.mjs",
+        "name": "autosave publishes its running writer before notifying reentrant subscribers"
+      },
+      {
+        "file": "tests/settings-autosave.test.mjs",
+        "name": "autosave drains edits enqueued synchronously by a saved-state observer"
+      }
     ]
   },
   {
     "feature": "notification-partial-failure-reconciliation",
     "tests": [
-      { "file": "tests/daily-housework-digest.test.mjs", "name": "a scheduling failure does not remove all existing reminders" },
-      { "file": "tests/daily-housework-digest.test.mjs", "name": "a failed new reminder still reconciles other dates and cancels obsolete reminders" },
-      { "file": "tests/daily-housework-digest.test.mjs", "name": "one cancellation failure does not retain every obsolete reminder or poison the next sync" }
+      {
+        "file": "tests/daily-housework-digest.test.mjs",
+        "name": "a scheduling failure does not remove all existing reminders"
+      },
+      {
+        "file": "tests/daily-housework-digest.test.mjs",
+        "name": "a failed new reminder still reconciles other dates and cancels obsolete reminders"
+      },
+      {
+        "file": "tests/daily-housework-digest.test.mjs",
+        "name": "one cancellation failure does not retain every obsolete reminder or poison the next sync"
+      }
     ]
   },
   {
     "feature": "widget-acknowledgment-with-unchanged-content",
     "tests": [
-      { "file": "tests/widget-gateway.test.mjs", "name": "iOS acknowledges a pending widget tap even when the planner content was already published" },
-      { "file": "tests/widget-gateway.test.mjs", "name": "widget retries failed publishing and deduplicates successful unchanged content" }
+      {
+        "file": "tests/widget-gateway.test.mjs",
+        "name": "iOS acknowledges a pending widget tap even when the planner content was already published"
+      },
+      {
+        "file": "tests/widget-gateway.test.mjs",
+        "name": "widget retries failed publishing and deduplicates successful unchanged content"
+      }
     ]
   },
   {
     "feature": "storage-legacy-and-failed-mutation-preservation",
     "tests": [
-      { "file": "tests/storage-reliability.test.mjs", "name": "a stale guide cannot record an incomplete attempt or reopen Google Tasks after its chore was disabled" },
-      { "file": "tests/storage-reliability.test.mjs", "name": "the guide submits an incomplete action once per tap sequence and allows retry after failure" },
-      { "file": "tests/storage-reliability.test.mjs", "name": "household assignments deduplicate members, reject missing members atomically, and support clearing" },
-      { "file": "tests/storage-reliability.test.mjs", "name": "dependency replacement preserves the old graph after cycles, self edges, or foreign-key failure" },
-      { "file": "tests/storage-reliability.test.mjs", "name": "completion undo restores a compatible state for" },
-      { "file": "tests/storage-reliability.test.mjs", "name": "old future-completion repair follows saved history" }
+      {
+        "file": "tests/storage-reliability.test.mjs",
+        "name": "a stale guide cannot record an incomplete attempt or reopen Google Tasks after its chore was disabled"
+      },
+      {
+        "file": "tests/storage-reliability.test.mjs",
+        "name": "the guide submits an incomplete action once per tap sequence and allows retry after failure"
+      },
+      {
+        "file": "tests/storage-reliability.test.mjs",
+        "name": "household assignments deduplicate members, reject missing members atomically, and support clearing"
+      },
+      {
+        "file": "tests/storage-reliability.test.mjs",
+        "name": "dependency replacement preserves the old graph after cycles, self edges, or foreign-key failure"
+      },
+      {
+        "file": "tests/storage-reliability.test.mjs",
+        "name": "completion undo restores a compatible state for"
+      },
+      {
+        "file": "tests/storage-reliability.test.mjs",
+        "name": "old future-completion repair follows saved history"
+      }
     ]
   },
   {
     "feature": "forecast-cache-freshness-and-concurrent-retry",
     "tests": [
-      { "file": "tests/municipality-search-recovery.test.mjs", "name": "municipality search presents a Japanese recovery message" },
-      { "file": "tests/municipality-search-recovery.test.mjs", "name": "municipality search recovers after editing an offline query and ignores an obsolete in-flight result" },
-      { "file": "tests/weather-provider-reliability.test.mjs", "name": "forecast caching expires at the boundary and invalidates data from a clock rollback" },
-      { "file": "tests/weather-provider-reliability.test.mjs", "name": "changing locations discards expired forecast keys instead of retaining every past search" },
-      { "file": "tests/weather-provider-reliability.test.mjs", "name": "simultaneous forecast requests share failure and retry without sharing mutable results" },
-      { "file": "tests/weather-provider-reliability.test.mjs", "name": "municipality kana conversion retains" }
+      {
+        "file": "tests/municipality-search-recovery.test.mjs",
+        "name": "municipality search presents a Japanese recovery message"
+      },
+      {
+        "file": "tests/municipality-search-recovery.test.mjs",
+        "name": "municipality search recovers after editing an offline query and ignores an obsolete in-flight result"
+      },
+      {
+        "file": "tests/weather-provider-reliability.test.mjs",
+        "name": "forecast caching expires at the boundary and invalidates data from a clock rollback"
+      },
+      {
+        "file": "tests/weather-provider-reliability.test.mjs",
+        "name": "changing locations discards expired forecast keys instead of retaining every past search"
+      },
+      {
+        "file": "tests/weather-provider-reliability.test.mjs",
+        "name": "simultaneous forecast requests share failure and retry without sharing mutable results"
+      },
+      {
+        "file": "tests/weather-provider-reliability.test.mjs",
+        "name": "municipality kana conversion retains"
+      }
     ]
   },
   {
     "feature": "appliance-display-name-and-source-preservation",
     "tests": [
-      { "file": "tests/appliance-display-name.test.mjs", "name": "official brand prefix" },
-      { "file": "tests/appliance-display-name.test.mjs", "name": "only automatically generated saved names are reformatted" },
-      { "file": "tests/appliance-care-repository.test.mjs", "name": "appliance display names avoid a repeated manufacturer and preserve stored source data and custom names" }
+      {
+        "file": "tests/appliance-display-name.test.mjs",
+        "name": "official brand prefix"
+      },
+      {
+        "file": "tests/appliance-display-name.test.mjs",
+        "name": "only automatically generated saved names are reformatted"
+      },
+      {
+        "file": "tests/appliance-care-repository.test.mjs",
+        "name": "appliance display names avoid a repeated manufacturer and preserve stored source data and custom names"
+      }
     ]
   },
   {
@@ -800,7 +990,7 @@
     "tests": [
       {
         "file": "tests/sharing-screens.test.mjs",
-        "name": "sharing screen preserves anonymous personal mode, explicit Google login, collapsed creation and separate group switching"
+        "name": "sharing screen keeps login optional and exposes only the current group without switching or a second join"
       }
     ]
   },
@@ -976,7 +1166,7 @@
     "tests": [
       {
         "file": "tests/sharing-workspace-recovery.test.mjs",
-        "name": "one unavailable migration database does not prevent later migration groups from catching up"
+        "name": "an unavailable current migration database never starts synchronization for historical groups"
       },
       {
         "file": "tests/sharing-workspace-recovery.test.mjs",
@@ -988,11 +1178,11 @@
       },
       {
         "file": "tests/sharing-workspace-provider.test.mjs",
-        "name": "ios one unreadable group does not disable healthy foreground listeners or periodic recovery"
+        "name": "ios historical groups are not watched while the current group retains periodic recovery"
       },
       {
         "file": "tests/sharing-workspace-provider.test.mjs",
-        "name": "android one unreadable group does not disable healthy foreground listeners or periodic recovery"
+        "name": "android historical groups are not watched while the current group retains periodic recovery"
       },
       {
         "file": "tests/sharing-workspace-recovery.test.mjs",
@@ -1004,19 +1194,11 @@
       },
       {
         "file": "tests/sharing-workspace-provider.test.mjs",
-        "name": "ios backgrounding during a failed listener setup never opens subsequent workspaces"
+        "name": "ios backgrounding during the current group listener setup never starts periodic recovery"
       },
       {
         "file": "tests/sharing-workspace-provider.test.mjs",
-        "name": "android backgrounding during a failed listener setup never opens subsequent workspaces"
-      },
-      {
-        "file": "tests/sharing-workspace-provider.test.mjs",
-        "name": "ios backgrounding during the last failed listener setup never starts periodic recovery"
-      },
-      {
-        "file": "tests/sharing-workspace-provider.test.mjs",
-        "name": "android backgrounding during the last failed listener setup never starts periodic recovery"
+        "name": "android backgrounding during the current group listener setup never starts periodic recovery"
       }
     ]
   },
@@ -1346,105 +1528,237 @@
   {
     "feature": "sharing-v2-versioned-storage",
     "tests": [
-      { "file": "tests/sharing-v2-storage.test.mjs", "name": "v2 event allowlists retain explicit versions and original times while schema1 rejects all v2 fields and entities" },
-      { "file": "tests/sharing-v2-storage.test.mjs", "name": "v2 events refuse private information, impersonated claims, rewritten facts and unknown policy extensions" },
-      { "file": "tests/sharing-v2-storage.test.mjs", "name": "v2 policy, date rule, request and completion payloads validate their dependent fields together" },
-      { "file": "tests/sharing-v2-storage.test.mjs", "name": "v2 encryption authenticates the business schema and preserves original signatures and operation time" },
-      { "file": "tests/sharing-v2-storage.test.mjs", "name": "v2 SQLite operations allocate clocks, original times, signatures and outbox atomically and survive snapshot compaction" },
-      { "file": "tests/sharing-v2-storage.test.mjs", "name": "v2 failed projection rolls back its operations and outbox without consuming the next device sequence" }
+      {
+        "file": "tests/sharing-v2-storage.test.mjs",
+        "name": "v2 event allowlists retain explicit versions and original times while schema1 rejects all v2 fields and entities"
+      },
+      {
+        "file": "tests/sharing-v2-storage.test.mjs",
+        "name": "v2 events refuse private information, impersonated claims, rewritten facts and unknown policy extensions"
+      },
+      {
+        "file": "tests/sharing-v2-storage.test.mjs",
+        "name": "v2 policy, date rule, request and completion payloads validate their dependent fields together"
+      },
+      {
+        "file": "tests/sharing-v2-storage.test.mjs",
+        "name": "v2 encryption authenticates the business schema and preserves original signatures and operation time"
+      },
+      {
+        "file": "tests/sharing-v2-storage.test.mjs",
+        "name": "v2 SQLite operations allocate clocks, original times, signatures and outbox atomically and survive snapshot compaction"
+      },
+      {
+        "file": "tests/sharing-v2-storage.test.mjs",
+        "name": "v2 failed projection rolls back its operations and outbox without consuming the next device sequence"
+      }
     ]
   },
   {
     "feature": "sharing-v2-explicit-protocol-boundary",
     "tests": [
-      { "file": "tests/sharing-v2-storage.test.mjs", "name": "v1 projection refuses schema2 before writing derived state and leaves its original SQLite and outbox intact" },
-      { "file": "tests/sharing-v2-storage.test.mjs", "name": "v2 signed roster upgrades preserve every approved device, rotate epochs and cannot downgrade or hide behind schema1 metadata" },
-      { "file": "tests/sharing-v2-storage.test.mjs", "name": "v1 synchronization stops before saving or processing a correctly signed schema2 roster" },
-      { "file": "tests/sharing-v2-storage.test.mjs", "name": "v2 compaction retains superseded policies and permissions needed to audit authority at the original causal cut" },
-      { "file": "tests/sharing-v2-storage.test.mjs", "name": "v2 occurrence identities bind group, chore and anchor while subjects remain independent of recommendation and rule revisions" }
+      {
+        "file": "tests/sharing-v2-storage.test.mjs",
+        "name": "v1 projection refuses schema2 before writing derived state and leaves its original SQLite and outbox intact"
+      },
+      {
+        "file": "tests/sharing-v2-storage.test.mjs",
+        "name": "v2 signed roster upgrades preserve every approved device, rotate epochs and cannot downgrade or hide behind schema1 metadata"
+      },
+      {
+        "file": "tests/sharing-v2-storage.test.mjs",
+        "name": "v1 synchronization stops before saving or processing a correctly signed schema2 roster"
+      },
+      {
+        "file": "tests/sharing-v2-storage.test.mjs",
+        "name": "v2 compaction retains superseded policies and permissions needed to audit authority at the original causal cut"
+      },
+      {
+        "file": "tests/sharing-v2-storage.test.mjs",
+        "name": "v2 occurrence identities bind group, chore and anchor while subjects remain independent of recommendation and rule revisions"
+      }
     ]
   },
   {
     "feature": "sharing-v2-receiver-business-authority",
     "tests": [
-      { "file": "tests/sharing-v2-authority.test.mjs", "name": "v2 receiver allows member names and procedures but denies common cadence, activation, deletion and administrator policy changes" },
-      { "file": "tests/sharing-v2-authority.test.mjs", "name": "v2 receiver binds scoped grants to the actual chore and user and does not grant rights from the delegation toggle alone" },
-      { "file": "tests/sharing-v2-authority.test.mjs", "name": "v2 receiver authenticates membership epochs and requires canonical occurrence IDs rather than client-supplied labels" },
-      { "file": "tests/sharing-v2-authority.test.mjs", "name": "v2 authority history survives compaction including superseded grants and original completion reports" },
-      { "file": "tests/sharing-v2-authority.test.mjs", "name": "v2 invalid received grants cannot authorize descendants and quarantine does not block unrelated edits or actual work" }
+      {
+        "file": "tests/sharing-v2-authority.test.mjs",
+        "name": "v2 receiver allows member names and procedures but denies common cadence, activation, deletion and administrator policy changes"
+      },
+      {
+        "file": "tests/sharing-v2-authority.test.mjs",
+        "name": "v2 receiver binds scoped grants to the actual chore and user and does not grant rights from the delegation toggle alone"
+      },
+      {
+        "file": "tests/sharing-v2-authority.test.mjs",
+        "name": "v2 receiver authenticates membership epochs and requires canonical occurrence IDs rather than client-supplied labels"
+      },
+      {
+        "file": "tests/sharing-v2-authority.test.mjs",
+        "name": "v2 authority history survives compaction including superseded grants and original completion reports"
+      },
+      {
+        "file": "tests/sharing-v2-authority.test.mjs",
+        "name": "v2 invalid received grants cannot authorize descendants and quarantine does not block unrelated edits or actual work"
+      }
     ]
   },
   {
     "feature": "sharing-v2-receiver-participation-and-consent",
     "tests": [
-      { "file": "tests/sharing-v2-authority.test.mjs", "name": "v2 receiver retains simultaneous claims as provisional and refuses a later claim that observed another assignee" },
-      { "file": "tests/sharing-v2-authority.test.mjs", "name": "v2 receiver checks release targets and administrator resolution without deleting the provisional work history" },
-      { "file": "tests/sharing-v2-authority.test.mjs", "name": "v2 receiver requires locked date changes to be requests and prevents another member from approving an administrator-only change" },
-      { "file": "tests/sharing-v2-authority.test.mjs", "name": "v2 receiver preserves roommate assignee consent and requires the affected member to accept an administrator counteroffer" },
-      { "file": "tests/sharing-v2-authority.test.mjs", "name": "v2 receiver targets undo to the observed completion and recorder or historical administrator" },
-      { "file": "tests/sharing-v2-authority.test.mjs", "name": "v2 receiver keeps each-member identities separate and rejects forged subjects, performers and original assignments" }
+      {
+        "file": "tests/sharing-v2-authority.test.mjs",
+        "name": "v2 receiver retains simultaneous claims as provisional and refuses a later claim that observed another assignee"
+      },
+      {
+        "file": "tests/sharing-v2-authority.test.mjs",
+        "name": "v2 receiver checks release targets and administrator resolution without deleting the provisional work history"
+      },
+      {
+        "file": "tests/sharing-v2-authority.test.mjs",
+        "name": "v2 receiver requires locked date changes to be requests and prevents another member from approving an administrator-only change"
+      },
+      {
+        "file": "tests/sharing-v2-authority.test.mjs",
+        "name": "v2 receiver preserves roommate assignee consent and requires the affected member to accept an administrator counteroffer"
+      },
+      {
+        "file": "tests/sharing-v2-authority.test.mjs",
+        "name": "v2 receiver targets undo to the observed completion and recorder or historical administrator"
+      },
+      {
+        "file": "tests/sharing-v2-authority.test.mjs",
+        "name": "v2 receiver keeps each-member identities separate and rejects forged subjects, performers and original assignments"
+      }
     ]
   },
   {
     "feature": "sharing-v2-common-frame-and-manual-targets",
     "tests": [
-      { "file": "tests/sharing-v2-authority.test.mjs", "name": "v2 receiver refuses same-assignee fixed overlaps while allowing adjacent time slots, different assignees and date-only plans" },
-      { "file": "tests/sharing-v2-authority.test.mjs", "name": "v2 common frames retain anchors and stable identities across horizons without personal inputs or virtual completion events" },
-      { "file": "tests/sharing-v2-authority.test.mjs", "name": "v2 repeated designations keep the civil-day offset and wall clock across DST and retain one-off targets after a cycle revision" }
+      {
+        "file": "tests/sharing-v2-authority.test.mjs",
+        "name": "v2 receiver refuses same-assignee fixed overlaps while allowing adjacent time slots, different assignees and date-only plans"
+      },
+      {
+        "file": "tests/sharing-v2-authority.test.mjs",
+        "name": "v2 common frames retain anchors and stable identities across horizons without personal inputs or virtual completion events"
+      },
+      {
+        "file": "tests/sharing-v2-authority.test.mjs",
+        "name": "v2 repeated designations keep the civil-day offset and wall clock across DST and retain one-off targets after a cycle revision"
+      }
     ]
   },
   {
     "feature": "sharing-v2-isolated-event-repository",
     "tests": [
-      { "file": "tests/sharing-v2-repository.test.mjs", "name": "v2 repository binds a fresh database and preserves every personal table and v1 workspace without in-place conversion" },
-      { "file": "tests/sharing-v2-repository.test.mjs", "name": "v2 local repository atomically signs operations and outbox, retains original times on retry and resumes after restart" },
-      { "file": "tests/sharing-v2-repository.test.mjs", "name": "v2 receive quarantines signed unauthorized edits and their forged privileges but commits independent changes and receive position" },
-      { "file": "tests/sharing-v2-repository.test.mjs", "name": "v2 projection rejects missing or altered original author proofs before changing derived state or cursor" },
-      { "file": "tests/sharing-v2-repository.test.mjs", "name": "v2 encrypted snapshots retain original proofs, restore authority state and refuse manifest protocol tampering" }
+      {
+        "file": "tests/sharing-v2-repository.test.mjs",
+        "name": "v2 repository binds a fresh database and preserves every personal table and v1 workspace without in-place conversion"
+      },
+      {
+        "file": "tests/sharing-v2-repository.test.mjs",
+        "name": "v2 local repository atomically signs operations and outbox, retains original times on retry and resumes after restart"
+      },
+      {
+        "file": "tests/sharing-v2-repository.test.mjs",
+        "name": "v2 receive quarantines signed unauthorized edits and their forged privileges but commits independent changes and receive position"
+      },
+      {
+        "file": "tests/sharing-v2-repository.test.mjs",
+        "name": "v2 projection rejects missing or altered original author proofs before changing derived state or cursor"
+      },
+      {
+        "file": "tests/sharing-v2-repository.test.mjs",
+        "name": "v2 encrypted snapshots retain original proofs, restore authority state and refuse manifest protocol tampering"
+      }
     ]
   },
   {
     "feature": "sharing-v2-server-receipt-proof",
     "tests": [
-      { "file": "tests/sharing-v2-receipts.test.mjs", "name": "v2 receipts require a committed Firestore timestamp and bind hidden author proof rather than device clock or a plaintext hash" },
-      { "file": "tests/sharing-v2-receipts.test.mjs", "name": "v2 receipts cannot change group, operation, author, proof digest or original membership generation" },
-      { "file": "tests/sharing-v2-receipts.test.mjs", "name": "v2 receipt storage is idempotent, immutable and transaction-local with rollback on any conflicting evidence" },
-      { "file": "tests/sharing-v2-receipts.test.mjs", "name": "v2 server delivery checks ownership at original operation and receipt while preserving previously accepted historical authority" }
+      {
+        "file": "tests/sharing-v2-receipts.test.mjs",
+        "name": "v2 receipts require a committed Firestore timestamp and bind hidden author proof rather than device clock or a plaintext hash"
+      },
+      {
+        "file": "tests/sharing-v2-receipts.test.mjs",
+        "name": "v2 receipts cannot change group, operation, author, proof digest or original membership generation"
+      },
+      {
+        "file": "tests/sharing-v2-receipts.test.mjs",
+        "name": "v2 receipt storage is idempotent, immutable and transaction-local with rollback on any conflicting evidence"
+      },
+      {
+        "file": "tests/sharing-v2-receipts.test.mjs",
+        "name": "v2 server delivery checks ownership at original operation and receipt while preserving previously accepted historical authority"
+      }
     ]
   },
   {
     "feature": "sharing-v2-confirmed-snapshot-outbox",
     "tests": [
-      { "file": "tests/sharing-v2-repository.test.mjs", "name": "v2 snapshots without independent server receipts remain unconfirmed and cannot acknowledge the original offline outbox" },
-      { "file": "tests/sharing-v2-repository.test.mjs", "name": "v2 delayed former-administrator edits lose privileged effects at server delivery without erasing original facts or ordinary member edits" }
+      {
+        "file": "tests/sharing-v2-repository.test.mjs",
+        "name": "v2 snapshots without independent server receipts remain unconfirmed and cannot acknowledge the original offline outbox"
+      },
+      {
+        "file": "tests/sharing-v2-repository.test.mjs",
+        "name": "v2 delayed former-administrator edits lose privileged effects at server delivery without erasing original facts or ordinary member edits"
+      }
     ]
   },
   {
     "feature": "sharing-v2-receipt-cloud-security-regression",
     "tests": [
-      { "file": "tests/sharing-v2-receipts.test.mjs", "name": "v2 immutable receipt security cases remain wired into the CI Firestore emulator command alongside all v1 cases" }
+      {
+        "file": "tests/sharing-v2-receipts.test.mjs",
+        "name": "v2 immutable receipt security cases remain wired into the CI Firestore emulator command alongside all v1 cases"
+      }
     ]
   },
   {
     "feature": "sharing-v2-explicit-receipt-synchronizer",
     "tests": [
-      { "file": "tests/sharing-v2-synchronizer.test.mjs", "name": "v2 coordinator delivers signed facts and independent receipts between two isolated users and converges without changing v1 defaults" },
-      { "file": "tests/sharing-v2-synchronizer.test.mjs", "name": "v2 lost upload response retains its outbox and the retry adopts the same immutable server receipt" },
-      { "file": "tests/sharing-v2-synchronizer.test.mjs", "name": "v2 coordinator refuses event receipt gaps and account changes without advancing the receive cursor" }
+      {
+        "file": "tests/sharing-v2-synchronizer.test.mjs",
+        "name": "v2 coordinator delivers signed facts and independent receipts between two isolated users and converges without changing v1 defaults"
+      },
+      {
+        "file": "tests/sharing-v2-synchronizer.test.mjs",
+        "name": "v2 lost upload response retains its outbox and the retry adopts the same immutable server receipt"
+      },
+      {
+        "file": "tests/sharing-v2-synchronizer.test.mjs",
+        "name": "v2 coordinator refuses event receipt gaps and account changes without advancing the receive cursor"
+      }
     ]
   },
   {
     "feature": "sharing-v2-recovery-account-binding",
     "tests": [
-      { "file": "tests/sharing-v2-synchronizer.test.mjs", "name": "v2 coordinator rejects a repository bound to another account or device before opening its synchronization path" },
-      { "file": "tests/sharing-v2-repository.test.mjs", "name": "v2 receipt recovery refuses another user database before any partial progress write" }
+      {
+        "file": "tests/sharing-v2-synchronizer.test.mjs",
+        "name": "v2 coordinator rejects a repository bound to another account or device before opening its synchronization path"
+      },
+      {
+        "file": "tests/sharing-v2-repository.test.mjs",
+        "name": "v2 receipt recovery refuses another user database before any partial progress write"
+      }
     ]
   },
   {
     "feature": "sharing-v2-bounded-recovery-and-confirmation",
     "tests": [
-      { "file": "tests/sharing-v2-synchronizer.test.mjs", "name": "v2 backlog confirmations coalesce projection and observer updates while preserving all 205 original receipts and 100-event pages" },
-      { "file": "tests/sharing-v2-synchronizer.test.mjs", "name": "v2 snapshot receipt recovery checkpoints bounded progress across restarts without applying an incomplete snapshot" }
+      {
+        "file": "tests/sharing-v2-synchronizer.test.mjs",
+        "name": "v2 backlog confirmations coalesce projection and observer updates while preserving all 205 original receipts and 100-event pages"
+      },
+      {
+        "file": "tests/sharing-v2-synchronizer.test.mjs",
+        "name": "v2 snapshot receipt recovery checkpoints bounded progress across restarts without applying an incomplete snapshot"
+      }
     ]
   },
   {
@@ -2738,412 +3052,850 @@
   {
     "feature": "workspace-protocol-requires-pinned-membership-before-database-selection",
     "tests": [
-      { "file": "tests/sharing-workspace-protocol.test.mjs", "name": "a pin-only invitation leaves its database format unknown until its full signed archive is available" },
-      { "file": "tests/sharing-workspace-protocol.test.mjs", "name": "workspace protocol verification refuses forged membership, foreign groups and a missing pinned epoch" },
-      { "file": "tests/sharing-workspace-protocol.test.mjs", "name": "cloud protocol discovery fetches bounded missing public epochs and refuses same-revision replacement or rollback" }
+      {
+        "file": "tests/sharing-workspace-protocol.test.mjs",
+        "name": "a pin-only invitation leaves its database format unknown until its full signed archive is available"
+      },
+      {
+        "file": "tests/sharing-workspace-protocol.test.mjs",
+        "name": "workspace protocol verification refuses forged membership, foreign groups and a missing pinned epoch"
+      },
+      {
+        "file": "tests/sharing-workspace-protocol.test.mjs",
+        "name": "cloud protocol discovery fetches bounded missing public epochs and refuses same-revision replacement or rollback"
+      }
     ]
   },
   {
     "feature": "v2-workspace-database-paths-preserve-every-legacy-generation",
     "tests": [
-      { "file": "tests/sharing-database-location.test.mjs", "name": "v2 database paths cannot collide with legacy paths for any local generation and retain account isolation" },
-      { "file": "tests/sharing-database-location.test.mjs", "name": "v2 databases fail closed when native backup exclusion has not been confirmed" }
+      {
+        "file": "tests/sharing-database-location.test.mjs",
+        "name": "v2 database paths cannot collide with legacy paths for any local generation and retain account isolation"
+      },
+      {
+        "file": "tests/sharing-database-location.test.mjs",
+        "name": "v2 databases fail closed when native backup exclusion has not been confirmed"
+      }
     ]
   },
   {
     "feature": "v2-workspace-session-nondestructive-bootstrap-and-account-guards",
     "tests": [
-      { "file": "tests/sharing-v2-workspace-session.test.mjs", "name": "v2 workspace creation restores one disabled catalog and explicit family or roommate policy without duplicate bootstrap writes" },
-      { "file": "tests/sharing-v2-workspace-session.test.mjs", "name": "a signed v1 to v2 membership transition cannot initialize a database without verified business migration evidence" },
-      { "file": "tests/sharing-v2-workspace-session.test.mjs", "name": "v2 workspace reads and edits stop after an account change while committed events and outbox remain intact" },
-      { "file": "tests/sharing-v2-workspace-session.test.mjs", "name": "a mistakenly supplied personal database is rejected without changing any existing table or row" }
+      {
+        "file": "tests/sharing-v2-workspace-session.test.mjs",
+        "name": "v2 workspace creation restores one disabled catalog and explicit family or roommate policy without duplicate bootstrap writes"
+      },
+      {
+        "file": "tests/sharing-v2-workspace-session.test.mjs",
+        "name": "a signed v1 to v2 membership transition cannot initialize a database without verified business migration evidence"
+      },
+      {
+        "file": "tests/sharing-v2-workspace-session.test.mjs",
+        "name": "v2 workspace reads and edits stop after an account change while committed events and outbox remain intact"
+      },
+      {
+        "file": "tests/sharing-v2-workspace-session.test.mjs",
+        "name": "a mistakenly supplied personal database is rejected without changing any existing table or row"
+      }
     ]
   },
   {
     "feature": "v2-native-workspace-approval-protocol-and-live-access",
     "tests": [
-      { "file": "tests/sharing-v2-native-workspace.test.mjs", "name": "native v2 workspace factory chooses its isolated session and never registers a legacy planner adapter" },
-      { "file": "tests/sharing-v2-native-workspace.test.mjs", "name": "a pending signed invitation never opens a guessed database or reads a group key before approval" },
-      { "file": "tests/sharing-v2-native-workspace.test.mjs", "name": "a verified pending approval opens v2 only after discovery and does not activate an empty uninitialized group" },
-      { "file": "tests/sharing-v2-native-workspace.test.mjs", "name": "v2 UI commands recheck a stored version or access failure while cached data remains readable and retry does not invent edits" }
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "native v2 workspace factory chooses its isolated session and never registers a legacy planner adapter"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a pending signed invitation never opens a guessed database or reads a group key before approval"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a verified pending approval opens v2 only after discovery and does not activate an empty uninitialized group"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "v2 UI commands recheck a stored version or access failure while cached data remains readable and retry does not invent edits"
+      }
     ]
   },
   {
     "feature": "v2-workspace-navigation-preserves-personal-and-v1-scopes",
     "tests": [
-      { "file": "tests/sharing-v2-workspace-routes.test.mjs", "name": "workspace navigation permits legacy screens only for personal or v1 scopes and redirects v2 to its dedicated stack" },
-      { "file": "tests/sharing-workspace-provider.test.mjs", "name": "active workspace scope never injects a legacy provider and preserves the personal database context" },
-      { "file": "tests/sharing-v2-workspace-routes.test.mjs", "name": "unselected or mismatched v2 workspace routes never load shared controllers or expose edit controls" },
-      { "file": "tests/sharing-v2-workspace-routes.test.mjs", "name": "foreground shared changes refresh only the selected user and group and unsubscribe when leaving" }
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "workspace navigation keeps the same main tabs for personal and v2 while protecting group detail routes"
+      },
+      {
+        "file": "tests/sharing-workspace-provider.test.mjs",
+        "name": "active workspace scope never injects a legacy provider and preserves the personal database context"
+      },
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "unselected or mismatched v2 workspace routes never load shared controllers or expose edit controls"
+      },
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "foreground shared changes refresh only the selected user and group and unsubscribe when leaving"
+      }
     ]
   },
   {
     "feature": "v2-first-chore-activation-requires-explicit-valid-conditions",
     "tests": [
-      { "file": "tests/sharing-v2-workspace-routes.test.mjs", "name": "an unconfigured shared chore stays disabled until explicit valid initial settings and then enters the autosave editor" }
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "an unconfigured shared chore stays disabled until explicit valid initial settings and then enters the autosave editor"
+      }
     ]
   },
   {
     "feature": "empty-v2-commits-do-not-trigger-more-sync",
     "tests": [
-      { "file": "tests/sharing-v2-workspace-session.test.mjs", "name": "an empty authenticated commit does not announce another local edit or schedule an endless synchronization loop" }
+      {
+        "file": "tests/sharing-v2-workspace-session.test.mjs",
+        "name": "an empty authenticated commit does not announce another local edit or schedule an endless synchronization loop"
+      }
     ]
   },
   {
     "feature": "typecheck-excludes-frozen-handoff-snapshots",
     "tests": [
-      { "file": "tests/typescript-project-scope.test.mjs", "name": "typechecking includes the live app and v2 routes while excluding immutable handoff source snapshots" }
+      {
+        "file": "tests/typescript-project-scope.test.mjs",
+        "name": "typechecking includes the live app and v2 routes while excluding immutable handoff source snapshots"
+      }
     ]
   },
   {
     "feature": "v2-private-overlay-preserves-personal-selection-and-privacy",
     "tests": [
-      { "file": "tests/sharing-v2-private-overlay.test.mjs", "name": "private overlay follows the existing personal selectors including legacy completions, grace days and hidden chores" },
-      { "file": "tests/sharing-v2-private-overlay.test.mjs", "name": "private overlay indexes large unrelated completion history once rather than rescanning it for every calendar cell" },
-      { "file": "tests/sharing-v2-private-overlay.test.mjs", "name": "private overlay rejects other users and shared snapshots and never shifts a civil date into the group timezone" }
+      {
+        "file": "tests/sharing-v2-private-overlay.test.mjs",
+        "name": "private overlay follows the existing personal selectors including legacy completions, grace days and hidden chores"
+      },
+      {
+        "file": "tests/sharing-v2-private-overlay.test.mjs",
+        "name": "private overlay indexes large unrelated completion history once rather than rescanning it for every calendar cell"
+      },
+      {
+        "file": "tests/sharing-v2-private-overlay.test.mjs",
+        "name": "private overlay rejects other users and shared snapshots and never shifts a civil date into the group timezone"
+      }
     ]
   },
   {
     "feature": "v2-private-checkboxes-use-guarded-personal-transactions-and-existing-google-queue",
     "tests": [
-      { "file": "tests/sharing-v2-private-overlay.test.mjs", "name": "personal completion and undo from a composite view persist only in the personal database and its existing Google queue" },
-      { "file": "tests/sharing-v2-private-overlay.test.mjs", "name": "private overlay stale selections, repeated taps and changed access cannot undo a newer completion or invoke shared mutations" },
-      { "file": "tests/sharing-v2-private-overlay.test.mjs", "name": "the personal queue validates a displayed checkbox after concurrent edits and rolls back if access changes before saving" },
-      { "file": "tests/sharing-v2-private-overlay.test.mjs", "name": "personal overlay readers and writers reject v1 and v2 connections before any initialization or adapter mutation" }
+      {
+        "file": "tests/sharing-v2-private-overlay.test.mjs",
+        "name": "personal completion and undo from a composite view persist only in the personal database and its existing Google queue"
+      },
+      {
+        "file": "tests/sharing-v2-private-overlay.test.mjs",
+        "name": "private overlay stale selections, repeated taps and changed access cannot undo a newer completion or invoke shared mutations"
+      },
+      {
+        "file": "tests/sharing-v2-private-overlay.test.mjs",
+        "name": "the personal queue validates a displayed checkbox after concurrent edits and rolls back if access changes before saving"
+      },
+      {
+        "file": "tests/sharing-v2-private-overlay.test.mjs",
+        "name": "personal overlay readers and writers reject v1 and v2 connections before any initialization or adapter mutation"
+      }
     ]
   },
   {
     "feature": "v2-composite-mobile-home-calendar-and-account-switch-guards",
     "tests": [
-      { "file": "tests/sharing-v2-private-ui.test.mjs", "name": "shared home overlays private chores and routes completion and undo to their original personal source" },
-      { "file": "tests/sharing-v2-private-ui.test.mjs", "name": "composite calendar counts personal recommendations and shared tasks without sending private rows to shared actions" },
-      { "file": "tests/sharing-v2-private-ui.test.mjs", "name": "an old private checkbox cannot save or synchronize after changing the selected account or group" }
+      {
+        "file": "tests/sharing-v2-private-ui.test.mjs",
+        "name": "shared home overlays private chores and routes completion and undo to their original personal source"
+      },
+      {
+        "file": "tests/sharing-v2-private-ui.test.mjs",
+        "name": "composite calendar counts personal recommendations and shared tasks without sending private rows to shared actions"
+      },
+      {
+        "file": "tests/sharing-v2-private-ui.test.mjs",
+        "name": "an old private checkbox cannot save or synchronize after changing the selected account or group"
+      }
     ]
   },
   {
     "feature": "v2-calendar-mutations-preserve-list-position-and-known-counts",
     "tests": [
-      { "file": "tests/sharing-v2-calendar-ui.test.mjs", "name": "calendar mutations keep the visible cards and known counts while disabling another action instead of emptying the list" }
+      {
+        "file": "tests/sharing-v2-calendar-ui.test.mjs",
+        "name": "calendar mutations keep the visible cards and known counts while disabling another action instead of emptying the list"
+      }
     ]
   },
   {
     "feature": "v2-private-load-affects-only-personal-recommendations",
     "tests": [
-      { "file": "tests/sharing-v2-private-overlay.test.mjs", "name": "same-zone private load changes only the personal recommendation and cannot enter a shared plan or outbox" }
+      {
+        "file": "tests/sharing-v2-private-overlay.test.mjs",
+        "name": "same-zone private load changes only the personal recommendation and cannot enter a shared plan or outbox"
+      }
     ]
   },
   {
     "feature": "v2-private-overlay-native-fixture-never-seeds-existing-data",
     "tests": [
-      { "file": "tests/sharing-v2-development-preview.test.mjs", "name": "optional development personal overlays use a separate empty synthetic database without cloud or Google changes" },
-      { "file": "tests/sharing-v2-development-preview.test.mjs", "name": "development personal-overlay seeding refuses any existing database before modifying its contents" }
+      {
+        "file": "tests/sharing-v2-development-preview.test.mjs",
+        "name": "optional development personal overlays use a separate empty synthetic database without cloud or Google changes"
+      },
+      {
+        "file": "tests/sharing-v2-development-preview.test.mjs",
+        "name": "development personal-overlay seeding refuses any existing database before modifying its contents"
+      }
     ]
   },
   {
     "feature": "v2-detail-field-edits-validate-displayed-causal-sources",
     "tests": [
-      { "file": "tests/sharing-v2-field-edit.test.mjs", "name": "v2 detail edits merge unrelated fields and reject a stale overwrite while acknowledging an unchanged current value" },
-      { "file": "tests/sharing-v2-field-edit.test.mjs", "name": "v2 detail bases must belong to their authenticated field and cannot reactivate or resurrect a chore" },
-      { "file": "tests/sharing-v2-field-edit.test.mjs", "name": "v2 members can edit shared descriptions and grouped procedures while cadence and enabled rights remain administrator-only" },
-      { "file": "tests/sharing-v2-field-edit.test.mjs", "name": "v2 offline detail conflicts retain both candidates and require a current explicit resolution without stopping another chore" }
+      {
+        "file": "tests/sharing-v2-field-edit.test.mjs",
+        "name": "v2 detail edits merge unrelated fields and reject a stale overwrite while acknowledging an unchanged current value"
+      },
+      {
+        "file": "tests/sharing-v2-field-edit.test.mjs",
+        "name": "v2 detail bases must belong to their authenticated field and cannot reactivate or resurrect a chore"
+      },
+      {
+        "file": "tests/sharing-v2-field-edit.test.mjs",
+        "name": "v2 members can edit shared descriptions and grouped procedures while cadence and enabled rights remain administrator-only"
+      },
+      {
+        "file": "tests/sharing-v2-field-edit.test.mjs",
+        "name": "v2 offline detail conflicts retain both candidates and require a current explicit resolution without stopping another chore"
+      }
     ]
   },
   {
     "feature": "v2-editable-source-evidence-is-requested-separately-from-common-planning",
     "tests": [
-      { "file": "tests/sharing-v2-field-edit.test.mjs", "name": "v2 editable source evidence is loaded only for the requested chore and cannot change its common plan" }
+      {
+        "file": "tests/sharing-v2-field-edit.test.mjs",
+        "name": "v2 editable source evidence is loaded only for the requested chore and cannot change its common plan"
+      }
     ]
   },
   {
     "feature": "v2-text-choice-autosave-preserves-input-and-per-field-bases",
     "tests": [
-      { "file": "tests/sharing-v2-field-autosave.test.mjs", "name": "v2 field autosave preserves raw newlines and advances its own causal base when typing continues during a save" },
-      { "file": "tests/sharing-v2-field-autosave.test.mjs", "name": "v2 field autosave keeps a queued field base after another field saved and refuses a concurrent remote overwrite" },
-      { "file": "tests/sharing-v2-field-autosave.test.mjs", "name": "v2 field autosave ignores older refreshes and does not replay durable edits after a view refresh fails" },
-      { "file": "tests/sharing-v2-field-autosave.test.mjs", "name": "v2 field autosave uses the acknowledged current source even when the requested value was already saved by another view" },
-      { "file": "tests/sharing-v2-field-autosave.test.mjs", "name": "v2 field input binds the value actually rendered when a remote store update arrives before the next paint" },
-      { "file": "tests/sharing-v2-field-autosave.test.mjs", "name": "v2 field autosave keeps invalid input out of SQLite and prevents leaving until correction or explicit discard" }
+      {
+        "file": "tests/sharing-v2-field-autosave.test.mjs",
+        "name": "v2 field autosave preserves raw newlines and advances its own causal base when typing continues during a save"
+      },
+      {
+        "file": "tests/sharing-v2-field-autosave.test.mjs",
+        "name": "v2 field autosave keeps a queued field base after another field saved and refuses a concurrent remote overwrite"
+      },
+      {
+        "file": "tests/sharing-v2-field-autosave.test.mjs",
+        "name": "v2 field autosave ignores older refreshes and does not replay durable edits after a view refresh fails"
+      },
+      {
+        "file": "tests/sharing-v2-field-autosave.test.mjs",
+        "name": "v2 field autosave uses the acknowledged current source even when the requested value was already saved by another view"
+      },
+      {
+        "file": "tests/sharing-v2-field-autosave.test.mjs",
+        "name": "v2 field input binds the value actually rendered when a remote store update arrives before the next paint"
+      },
+      {
+        "file": "tests/sharing-v2-field-autosave.test.mjs",
+        "name": "v2 field autosave keeps invalid input out of SQLite and prevents leaving until correction or explicit discard"
+      }
     ]
   },
   {
     "feature": "v2-shared-detail-forms-preserve-rendered-causal-input",
     "tests": [
-      { "file": "tests/sharing-v2-detail-ui.test.mjs", "name": "shared detail forms autosave member edits and preserve grouped procedures during multiple inputs before a repaint" },
-      { "file": "tests/sharing-v2-detail-ui.test.mjs", "name": "shared detail input cannot overwrite an authenticated edit received after render and before the input event" },
-      { "file": "tests/sharing-v2-detail-ui.test.mjs", "name": "shared detail conflicts require opening a candidate and explicitly resolving its currently displayed sources" }
+      {
+        "file": "tests/sharing-v2-detail-ui.test.mjs",
+        "name": "shared detail forms autosave member edits and preserve grouped procedures during multiple inputs before a repaint"
+      },
+      {
+        "file": "tests/sharing-v2-detail-ui.test.mjs",
+        "name": "shared detail input cannot overwrite an authenticated edit received after render and before the input event"
+      },
+      {
+        "file": "tests/sharing-v2-detail-ui.test.mjs",
+        "name": "shared detail conflicts require opening a candidate and explicitly resolving its currently displayed sources"
+      }
     ]
   },
   {
     "feature": "v2-shared-creation-discloses-audience-and-keeps-durable-identity",
     "tests": [
-      { "file": "tests/sharing-v2-detail-ui.test.mjs", "name": "shared chore creation discloses its audience and saves the latest input once without activating a schedule" },
-      { "file": "tests/sharing-v2-detail-ui.test.mjs", "name": "a saved shared chore is opened again after navigation fails without creating a duplicate" }
+      {
+        "file": "tests/sharing-v2-detail-ui.test.mjs",
+        "name": "shared chore creation discloses its audience and saves the latest input once without activating a schedule"
+      },
+      {
+        "file": "tests/sharing-v2-detail-ui.test.mjs",
+        "name": "a saved shared chore is opened again after navigation fails without creating a duplicate"
+      }
     ]
   },
   {
     "feature": "v2-shared-catalog-is-virtualized-and-separates-edit-rights",
     "tests": [
-      { "file": "tests/sharing-v2-detail-ui.test.mjs", "name": "shared chore catalogs virtualize a thousand rows and keep ordinary members out of cadence controls" }
+      {
+        "file": "tests/sharing-v2-detail-ui.test.mjs",
+        "name": "shared chore catalogs virtualize a thousand rows and keep ordinary members out of cadence controls"
+      }
     ]
   },
   {
     "feature": "v2-shared-round-instructions-retain-source-and-edit-routing",
     "tests": [
-      { "file": "tests/sharing-v2-detail-ui.test.mjs", "name": "shared round guides retain grouped steps tools cautions and source links and edit the same shared chore" }
+      {
+        "file": "tests/sharing-v2-detail-ui.test.mjs",
+        "name": "shared round guides retain grouped steps tools cautions and source links and edit the same shared chore"
+      }
     ]
   },
   {
     "feature": "v2-initial-activation-supports-a-future-anchor",
     "tests": [
-      { "file": "tests/sharing-v2-workspace-routes.test.mjs", "name": "an initial shared chore can start on a future anchor without invalidating its effective date or creating past work" },
-      { "file": "tests/sharing-v2-workspace-routes.test.mjs", "name": "normal shared creation replaces the add screen and opens its new disabled chore in the same workspace" }
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "an initial shared chore can start on a future anchor without invalidating its effective date or creating past work"
+      },
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "normal shared creation replaces the add screen and opens its new disabled chore in the same workspace"
+      }
     ]
   },
   {
     "feature": "v2-shared-management-is-independent-of-private-planning-reads",
     "tests": [
-      { "file": "tests/sharing-v2-detail-ui.test.mjs", "name": "v2 management reads do not depend on personal preferences, private chores or a recommendation calculation" }
+      {
+        "file": "tests/sharing-v2-detail-ui.test.mjs",
+        "name": "v2 management reads do not depend on personal preferences, private chores or a recommendation calculation"
+      }
     ]
   },
   {
     "feature": "v2-resolution-keeps-the-exact-authenticated-candidate",
     "tests": [
-      { "file": "tests/sharing-v2-field-autosave.test.mjs", "name": "v2 field resolution preserves the exact authenticated procedureSections candidate instead of parsing its display text" },
-      { "file": "tests/sharing-v2-field-autosave.test.mjs", "name": "v2 field resolution preserves the exact authenticated instructions candidate instead of parsing its display text" }
+      {
+        "file": "tests/sharing-v2-field-autosave.test.mjs",
+        "name": "v2 field resolution preserves the exact authenticated procedureSections candidate instead of parsing its display text"
+      },
+      {
+        "file": "tests/sharing-v2-field-autosave.test.mjs",
+        "name": "v2 field resolution preserves the exact authenticated instructions candidate instead of parsing its display text"
+      }
     ]
   },
   {
     "feature": "v2-detail-batches-respect-operation-limits-with-atomic-retry",
     "tests": [
-      { "file": "tests/sharing-v2-field-edit.test.mjs", "name": "v2 detail autosave splits a large multi-field batch into individually bounded facts in one atomic transaction" },
-      { "file": "tests/sharing-v2-field-edit.test.mjs", "name": "v2 an oversized individual detail rolls back every field and outbox entry without consuming the next device sequence" },
-      { "file": "tests/sharing-v2-field-edit.test.mjs", "name": "v2 large-batch retries revalidate displayed sources after a concurrent save instead of overwriting it" }
+      {
+        "file": "tests/sharing-v2-field-edit.test.mjs",
+        "name": "v2 detail autosave splits a large multi-field batch into individually bounded facts in one atomic transaction"
+      },
+      {
+        "file": "tests/sharing-v2-field-edit.test.mjs",
+        "name": "v2 an oversized individual detail rolls back every field and outbox entry without consuming the next device sequence"
+      },
+      {
+        "file": "tests/sharing-v2-field-edit.test.mjs",
+        "name": "v2 large-batch retries revalidate displayed sources after a concurrent save instead of overwriting it"
+      }
     ]
   },
   {
     "feature": "v2-common-configuration-conflicts-have-reviewed-mobile-resolution",
     "tests": [
-      { "file": "tests/sharing-v2-configuration-conflict-ui.test.mjs", "name": "shared configuration conflicts show explicit candidates and resolve the current selection without rewriting completed history" },
-      { "file": "tests/sharing-v2-configuration-conflict-ui.test.mjs", "name": "an old configuration-resolution button cannot replace a newer resolution received before repaint" },
-      { "file": "tests/sharing-v2-configuration-conflict-ui.test.mjs", "name": "ordinary members can return from conflicting common settings without receiving resolution controls" }
+      {
+        "file": "tests/sharing-v2-configuration-conflict-ui.test.mjs",
+        "name": "shared configuration conflicts show explicit candidates and resolve the current selection without rewriting completed history"
+      },
+      {
+        "file": "tests/sharing-v2-configuration-conflict-ui.test.mjs",
+        "name": "an old configuration-resolution button cannot replace a newer resolution received before repaint"
+      },
+      {
+        "file": "tests/sharing-v2-configuration-conflict-ui.test.mjs",
+        "name": "ordinary members can return from conflicting common settings without receiving resolution controls"
+      }
     ]
   },
   {
     "feature": "v2-group-policy-autosave-preserves-customizations-and-requires-current-admin-sources",
     "tests": [
-      { "file": "tests/sharing-v2-group-policy-ui.test.mjs", "name": "group kind and rule changes autosave together without resetting customized flags or granting anyone rights" },
-      { "file": "tests/sharing-v2-group-policy-ui.test.mjs", "name": "group rule edits reject an unseen concurrent change and retain the draft until it is discarded" },
-      { "file": "tests/sharing-v2-group-policy-ui.test.mjs", "name": "group rule conflicts retain authenticated candidates and need an explicit current resolution" },
-      { "file": "tests/sharing-v2-group-policy-ui.test.mjs", "name": "ordinary members can read group rules but cannot mutate them through UI or the command API" }
+      {
+        "file": "tests/sharing-v2-group-policy-ui.test.mjs",
+        "name": "group kind and rule changes autosave together without resetting customized flags or granting anyone rights"
+      },
+      {
+        "file": "tests/sharing-v2-group-policy-ui.test.mjs",
+        "name": "group rule edits reject an unseen concurrent change and retain the draft until it is discarded"
+      },
+      {
+        "file": "tests/sharing-v2-group-policy-ui.test.mjs",
+        "name": "group rule conflicts retain authenticated candidates and need an explicit current resolution"
+      },
+      {
+        "file": "tests/sharing-v2-group-policy-ui.test.mjs",
+        "name": "ordinary members can read group rules but cannot mutate them through UI or the command API"
+      }
     ]
   },
   {
     "feature": "v2-completion-display-preference-also-controls-history",
     "tests": [
-      { "file": "tests/sharing-v2-completion-visibility-ui.test.mjs", "name": "disabling completion status also hides unrelated history while preserving the administrator and original records" }
+      {
+        "file": "tests/sharing-v2-completion-visibility-ui.test.mjs",
+        "name": "disabling completion status also hides unrelated history while preserving the administrator and original records"
+      }
     ]
   },
   {
     "feature": "v2-per-chore-permission-bundles-have-atomic-causal-edits",
     "tests": [
-      { "file": "tests/sharing-v2-date-rights-edit.test.mjs", "name": "v2 per-chore rights keep their original signed bundle and acknowledge only explicitly saved members" },
-      { "file": "tests/sharing-v2-date-rights-edit.test.mjs", "name": "v2 per-chore rights reject changed group rules foreign bases and invalid batches without partial outbox writes" },
-      { "file": "tests/sharing-v2-date-rights-edit.test.mjs", "name": "v2 disabled delegation blocks new grants while allowing explicit revocation without silently restoring it later" },
-      { "file": "tests/sharing-v2-date-rights-edit.test.mjs", "name": "v2 concurrent permission and revocation bundles cannot be combined and require an explicit current resolution" },
-      { "file": "tests/sharing-v2-date-rights-edit.test.mjs", "name": "v2 ordinary members cannot use the checked permission editor to grant themselves rights" }
+      {
+        "file": "tests/sharing-v2-date-rights-edit.test.mjs",
+        "name": "v2 per-chore rights keep their original signed bundle and acknowledge only explicitly saved members"
+      },
+      {
+        "file": "tests/sharing-v2-date-rights-edit.test.mjs",
+        "name": "v2 per-chore rights reject changed group rules foreign bases and invalid batches without partial outbox writes"
+      },
+      {
+        "file": "tests/sharing-v2-date-rights-edit.test.mjs",
+        "name": "v2 disabled delegation blocks new grants while allowing explicit revocation without silently restoring it later"
+      },
+      {
+        "file": "tests/sharing-v2-date-rights-edit.test.mjs",
+        "name": "v2 concurrent permission and revocation bundles cannot be combined and require an explicit current resolution"
+      },
+      {
+        "file": "tests/sharing-v2-date-rights-edit.test.mjs",
+        "name": "v2 ordinary members cannot use the checked permission editor to grant themselves rights"
+      }
     ]
   },
   {
     "feature": "v2-mobile-per-chore-rights-bind-displayed-rules-and-membership",
     "tests": [
-      { "file": "tests/sharing-v2-date-rights-ui.test.mjs", "name": "per-chore rights are collapsed and explicitly autosave only that member and chore" },
-      { "file": "tests/sharing-v2-date-rights-ui.test.mjs", "name": "disabled group delegation blocks new grants but still permits a member's explicit revocation" },
-      { "file": "tests/sharing-v2-date-rights-ui.test.mjs", "name": "a permission event from before repaint keeps its displayed group-rule basis instead of using an unseen update" },
-      { "file": "tests/sharing-v2-date-rights-ui.test.mjs", "name": "a removed member's in-flight permission draft remains inspectable and discardable without granting rights" },
-      { "file": "tests/sharing-v2-date-rights-ui.test.mjs", "name": "a newly approved member can be edited while another member saves without replacing the first draft" },
-      { "file": "tests/sharing-v2-date-rights-ui.test.mjs", "name": "conflicting grants and revocations require opening and explicitly selecting an authenticated rights bundle" },
-      { "file": "tests/sharing-v2-date-rights-ui.test.mjs", "name": "a non-administrator permission route exposes a return action and no editing controls" }
+      {
+        "file": "tests/sharing-v2-date-rights-ui.test.mjs",
+        "name": "per-chore rights are collapsed and explicitly autosave only that member and chore"
+      },
+      {
+        "file": "tests/sharing-v2-date-rights-ui.test.mjs",
+        "name": "disabled group delegation blocks new grants but still permits a member's explicit revocation"
+      },
+      {
+        "file": "tests/sharing-v2-date-rights-ui.test.mjs",
+        "name": "a permission event from before repaint keeps its displayed group-rule basis instead of using an unseen update"
+      },
+      {
+        "file": "tests/sharing-v2-date-rights-ui.test.mjs",
+        "name": "a removed member's in-flight permission draft remains inspectable and discardable without granting rights"
+      },
+      {
+        "file": "tests/sharing-v2-date-rights-ui.test.mjs",
+        "name": "a newly approved member can be edited while another member saves without replacing the first draft"
+      },
+      {
+        "file": "tests/sharing-v2-date-rights-ui.test.mjs",
+        "name": "conflicting grants and revocations require opening and explicitly selecting an authenticated rights bundle"
+      },
+      {
+        "file": "tests/sharing-v2-date-rights-ui.test.mjs",
+        "name": "a non-administrator permission route exposes a return action and no editing controls"
+      }
     ]
   },
   {
     "feature": "v2-dynamic-editor-fields-keep-drafts-and-retired-codecs",
     "tests": [
-      { "file": "tests/sharing-v2-field-autosave.test.mjs", "name": "v2 a newly available editor field can save without losing another draft and a retired field keeps its discard codec" }
+      {
+        "file": "tests/sharing-v2-field-autosave.test.mjs",
+        "name": "v2 a newly available editor field can save without losing another draft and a retired field keeps its discard codec"
+      }
     ]
   },
   {
     "feature": "v2-rejoining-requires-new-delegation-with-continuous-device-rights-preserved",
     "tests": [
-      { "file": "tests/sharing-v2-membership-rights.test.mjs", "name": "v2 membership periods preserve continuous users across device changes and invalidate an appended removal and rejoin" },
-      { "file": "tests/sharing-v2-membership-rights.test.mjs", "name": "v2 rejoining does not resurrect old delegated rights and a new grant preserves the formerly authorized shared instruction" },
-      { "file": "tests/sharing-v2-membership-rights.test.mjs", "name": "v2 another device and another member do not revoke an uninterrupted user delegation" },
-      { "file": "tests/sharing-v2-membership-rights.test.mjs", "name": "v2 a permission editor from a former membership cannot grant even with an empty field base and unchanged group policy" }
+      {
+        "file": "tests/sharing-v2-membership-rights.test.mjs",
+        "name": "v2 membership periods preserve continuous users across device changes and invalidate an appended removal and rejoin"
+      },
+      {
+        "file": "tests/sharing-v2-membership-rights.test.mjs",
+        "name": "v2 rejoining does not resurrect old delegated rights and a new grant preserves the formerly authorized shared instruction"
+      },
+      {
+        "file": "tests/sharing-v2-membership-rights.test.mjs",
+        "name": "v2 another device and another member do not revoke an uninterrupted user delegation"
+      },
+      {
+        "file": "tests/sharing-v2-membership-rights.test.mjs",
+        "name": "v2 a permission editor from a former membership cannot grant even with an empty field base and unchanged group policy"
+      }
     ]
   },
   {
     "feature": "v2-former-membership-ui-drafts-cannot-become-new-grants",
     "tests": [
-      { "file": "tests/sharing-v2-date-rights-ui.test.mjs", "name": "a rejoined member receives a fresh editor while the former membership draft stays separate and cannot save" }
+      {
+        "file": "tests/sharing-v2-date-rights-ui.test.mjs",
+        "name": "a rejoined member receives a fresh editor while the former membership draft stays separate and cannot save"
+      }
     ]
   },
   {
     "feature": "v2-shared-waste-recurrence-has-an-isolated-bounded-projection",
     "tests": [
-      { "file": "tests/sharing-v2-waste.test.mjs", "name": "v2 shared waste uses the existing weekly biweekly and monthly calculations without private adapters" },
-      { "file": "tests/sharing-v2-waste.test.mjs", "name": "v2 waste previews stay within a historical month and stop safely at the supported end date" },
-      { "file": "tests/sharing-v2-waste.test.mjs", "name": "v2 waste projections keep a valid edit after a quarantined operation and never rebuild a replica with its causal hole removed" }
+      {
+        "file": "tests/sharing-v2-waste.test.mjs",
+        "name": "v2 shared waste uses the existing weekly biweekly and monthly calculations without private adapters"
+      },
+      {
+        "file": "tests/sharing-v2-waste.test.mjs",
+        "name": "v2 waste previews stay within a historical month and stop safely at the supported end date"
+      },
+      {
+        "file": "tests/sharing-v2-waste.test.mjs",
+        "name": "v2 waste projections keep a valid edit after a quarantined operation and never rebuild a replica with its causal hole removed"
+      }
     ]
   },
   {
     "feature": "v2-shared-waste-edits-bind-displayed-sources-and-whole-rules",
     "tests": [
-      { "file": "tests/sharing-v2-waste.test.mjs", "name": "v2 waste edits merge an unrelated name but keep a changed collection rule atomic and reject stale sources" },
-      { "file": "tests/sharing-v2-waste.test.mjs", "name": "v2 concurrent shared collection rules remain whole candidates and an explicit resolution converges independently of other chores" },
-      { "file": "tests/sharing-v2-waste.test.mjs", "name": "v2 legacy partial collection edits are reconstructed at their original causal cuts rather than producing a mixed rule" },
-      { "file": "tests/sharing-v2-waste-ui.test.mjs", "name": "an open shared waste form changes only edited values and refuses a newer same-field overwrite" },
-      { "file": "tests/sharing-v2-waste-ui.test.mjs", "name": "shared waste conflicts reveal whole candidates only on request and reject an obsolete resolution button" }
+      {
+        "file": "tests/sharing-v2-waste.test.mjs",
+        "name": "v2 waste edits merge an unrelated name but keep a changed collection rule atomic and reject stale sources"
+      },
+      {
+        "file": "tests/sharing-v2-waste.test.mjs",
+        "name": "v2 concurrent shared collection rules remain whole candidates and an explicit resolution converges independently of other chores"
+      },
+      {
+        "file": "tests/sharing-v2-waste.test.mjs",
+        "name": "v2 legacy partial collection edits are reconstructed at their original causal cuts rather than producing a mixed rule"
+      },
+      {
+        "file": "tests/sharing-v2-waste-ui.test.mjs",
+        "name": "an open shared waste form changes only edited values and refuses a newer same-field overwrite"
+      },
+      {
+        "file": "tests/sharing-v2-waste-ui.test.mjs",
+        "name": "shared waste conflicts reveal whole candidates only on request and reject an obsolete resolution button"
+      }
     ]
   },
   {
     "feature": "v2-shared-waste-visibility-requires-the-current-occurrence-and-explicit-conflict-choice",
     "tests": [
-      { "file": "tests/sharing-v2-waste.test.mjs", "name": "v2 waste hide and restore bind their displayed schedule and visibility without replaying identical requests" },
-      { "file": "tests/sharing-v2-waste.test.mjs", "name": "v2 conflicting visibility is unresolved until the current occurrence is explicitly reviewed and tombstones remain reversible" },
-      { "file": "tests/sharing-v2-waste-ui.test.mjs", "name": "an unresolved shared waste hide decision keeps its checkbox disabled until an explicit current choice" }
+      {
+        "file": "tests/sharing-v2-waste.test.mjs",
+        "name": "v2 waste hide and restore bind their displayed schedule and visibility without replaying identical requests"
+      },
+      {
+        "file": "tests/sharing-v2-waste.test.mjs",
+        "name": "v2 conflicting visibility is unresolved until the current occurrence is explicitly reviewed and tombstones remain reversible"
+      },
+      {
+        "file": "tests/sharing-v2-waste-ui.test.mjs",
+        "name": "an unresolved shared waste hide decision keeps its checkbox disabled until an explicit current choice"
+      }
     ]
   },
   {
     "feature": "v2-shared-waste-home-calendar-and-compact-appearance",
     "tests": [
-      { "file": "tests/sharing-v2-waste-ui.test.mjs", "name": "shared home hides one waste occurrence and its compact calendar checkbox restores the same date without changing chores" },
-      { "file": "tests/sharing-v2-waste-ui.test.mjs", "name": "shared calendar waste labels keep type marks and aligned grid cells while task counts exclude collections" }
+      {
+        "file": "tests/sharing-v2-waste-ui.test.mjs",
+        "name": "shared home hides one waste occurrence and its compact calendar checkbox restores the same date without changing chores"
+      },
+      {
+        "file": "tests/sharing-v2-waste-ui.test.mjs",
+        "name": "shared calendar waste labels keep type marks and aligned grid cells while task counts exclude collections"
+      }
     ]
   },
   {
     "feature": "v2-shared-waste-creation-keeps-its-durable-result-after-a-read-failure",
     "tests": [
-      { "file": "tests/sharing-v2-waste-ui.test.mjs", "name": "shared waste management registers all recurrence modes with the group date and never reads private planning" },
-      { "file": "tests/sharing-v2-waste-ui.test.mjs", "name": "a durable shared waste addition survives a failed refresh and retries only its read without creating another schedule" }
+      {
+        "file": "tests/sharing-v2-waste-ui.test.mjs",
+        "name": "shared waste management registers all recurrence modes with the group date and never reads private planning"
+      },
+      {
+        "file": "tests/sharing-v2-waste-ui.test.mjs",
+        "name": "a durable shared waste addition survives a failed refresh and retries only its read without creating another schedule"
+      }
     ]
   },
   {
     "feature": "v2-shared-waste-delete-conflicts-need-reviewed-restoration",
     "tests": [
-      { "file": "tests/sharing-v2-waste.test.mjs", "name": "v2 a concurrent waste deletion requires a current explicit choice and restoring it binds the reviewed complete rule" },
-      { "file": "tests/sharing-v2-waste-ui.test.mjs", "name": "a shared deletion conflict needs a reviewed restoration form and removing the schedule still keeps its signed history" }
+      {
+        "file": "tests/sharing-v2-waste.test.mjs",
+        "name": "v2 a concurrent waste deletion requires a current explicit choice and restoring it binds the reviewed complete rule"
+      },
+      {
+        "file": "tests/sharing-v2-waste-ui.test.mjs",
+        "name": "a shared deletion conflict needs a reviewed restoration form and removing the schedule still keeps its signed history"
+      }
     ]
   },
   {
     "feature": "waste-save-reads-the-latest-input-before-repaint-in-all-workspaces",
     "tests": [
-      { "file": "tests/sharing-v2-waste-ui.test.mjs", "name": "shared waste editing saves the latest numeric input even when its enabled save handler ran before another paint" },
-      { "file": "tests/waste-search-and-storage.test.mjs", "name": "personal waste editing persists the latest numeric input before another paint" }
+      {
+        "file": "tests/sharing-v2-waste-ui.test.mjs",
+        "name": "shared waste editing saves the latest numeric input even when its enabled save handler ran before another paint"
+      },
+      {
+        "file": "tests/waste-search-and-storage.test.mjs",
+        "name": "personal waste editing persists the latest numeric input before another paint"
+      }
     ]
   },
   {
     "feature": "v2-mutation-refreshes-coalesce-without-losing-during-read-changes",
     "tests": [
-      { "file": "tests/sharing-v2-refresh-coalescing.test.mjs", "name": "a mutation that throws a non-Error value remains failed and cannot be displayed as a successful completion" },
-      { "file": "tests/sharing-v2-refresh-coalescing.test.mjs", "name": "mutation reads coalesce their own change notifications instead of rereading the same committed state" },
-      { "file": "tests/sharing-v2-refresh-coalescing.test.mjs", "name": "a change arriving during a mutation read is refreshed once afterward instead of being silently dropped" }
+      {
+        "file": "tests/sharing-v2-refresh-coalescing.test.mjs",
+        "name": "a mutation that throws a non-Error value remains failed and cannot be displayed as a successful completion"
+      },
+      {
+        "file": "tests/sharing-v2-refresh-coalescing.test.mjs",
+        "name": "mutation reads coalesce their own change notifications instead of rereading the same committed state"
+      },
+      {
+        "file": "tests/sharing-v2-refresh-coalescing.test.mjs",
+        "name": "a change arriving during a mutation read is refreshed once afterward instead of being silently dropped"
+      }
     ]
   },
   {
     "feature": "v2-shared-waste-routes-retain-workspace-and-release-guards",
     "tests": [
-      { "file": "tests/sharing-v2-workspace-routes.test.mjs", "name": "selected v2 workspace routes reuse authenticated forms and preserve historical round parameters" },
-      { "file": "tests/sharing-v2-workspace-routes.test.mjs", "name": "unselected or mismatched v2 workspace routes never load shared controllers or expose edit controls" },
-      { "file": "tests/sharing-v2-development-preview.test.mjs", "name": "v2 every isolated preview route denies release execution before opening the fixture" }
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "selected v2 workspace routes reuse authenticated forms and preserve historical round parameters"
+      },
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "unselected or mismatched v2 workspace routes never load shared controllers or expose edit controls"
+      },
+      {
+        "file": "tests/sharing-v2-development-preview.test.mjs",
+        "name": "v2 every isolated preview route denies release execution before opening the fixture"
+      }
     ]
   },
   {
     "feature": "restored-appliance-analysis-has-a-nondestructive-render-boundary",
     "tests": [
-      { "file": "tests/appliance-restored-analysis-ui.test.mjs", "name": "restored appliance details retain unsafe nested analysis values for repair instead of crashing" },
-      { "file": "tests/appliance-restored-analysis-ui.test.mjs", "name": "a signed legacy appliance shape that passed its original wire validator can be read safely without rewriting that history" }
+      {
+        "file": "tests/appliance-restored-analysis-ui.test.mjs",
+        "name": "restored appliance details retain unsafe nested analysis values for repair instead of crashing"
+      },
+      {
+        "file": "tests/appliance-restored-analysis-ui.test.mjs",
+        "name": "a signed legacy appliance shape that passed its original wire validator can be read safely without rewriting that history"
+      }
     ]
   },
   {
     "feature": "stored-appliance-compatibility-does-not-weaken-new-api-review",
     "tests": [
-      { "file": "tests/appliance-restored-analysis-ui.test.mjs", "name": "existing readable appliance analyses keep condition-only tasks empty histories and untrusted-link warnings available" },
-      { "file": "tests/appliance-care-client.test.mjs", "name": "stored analysis compatibility never weakens the review and source requirements for newly received API results" },
-      { "file": "tests/appliance-care-client.test.mjs", "name": "valid verified analysis still reaches the screen" }
+      {
+        "file": "tests/appliance-restored-analysis-ui.test.mjs",
+        "name": "existing readable appliance analyses keep condition-only tasks empty histories and untrusted-link warnings available"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "stored analysis compatibility never weakens the review and source requirements for newly received API results"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "valid verified analysis still reaches the screen"
+      }
     ]
   },
   {
     "feature": "v2-reviewed-appliances-create-only-selected-disabled-chores",
     "tests": [
-      { "file": "tests/sharing-v2-appliance.test.mjs", "name": "v2 a member explicitly shares reviewed appliance content and only new disabled chores without claiming administrator cadence" },
-      { "file": "tests/sharing-v2-appliance-ui.test.mjs", "name": "shared appliance analysis waits for an explicit review and selected new tasks stay disabled with separate shared cadence" }
+      {
+        "file": "tests/sharing-v2-appliance.test.mjs",
+        "name": "v2 a member explicitly shares reviewed appliance content and only new disabled chores without claiming administrator cadence"
+      },
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "shared appliance analysis waits for an explicit review and selected new tasks stay disabled with separate shared cadence"
+      }
     ]
   },
   {
     "feature": "v2-appliance-reanalysis-preserves-user-chores-cadence-and-history",
     "tests": [
-      { "file": "tests/sharing-v2-appliance.test.mjs", "name": "v2 appliance reanalysis preserves user edited chores their common cadence completion and tombstones" },
-      { "file": "tests/sharing-v2-appliance-ui.test.mjs", "name": "shared appliance details distinguish current AI instructions from an already edited chore and retain guarded product links" },
-      { "file": "tests/sharing-v2-appliance.test.mjs", "name": "v2 repairing a malformed analysis at a later time retains the custom appliance name and original registration instant" }
+      {
+        "file": "tests/sharing-v2-appliance.test.mjs",
+        "name": "v2 appliance reanalysis preserves user edited chores their common cadence completion and tombstones"
+      },
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "shared appliance details distinguish current AI instructions from an already edited chore and retain guarded product links"
+      },
+      {
+        "file": "tests/sharing-v2-appliance.test.mjs",
+        "name": "v2 repairing a malformed analysis at a later time retains the custom appliance name and original registration instant"
+      }
     ]
   },
   {
     "feature": "v2-shared-appliances-use-whole-reviewed-conflict-bundles",
     "tests": [
-      { "file": "tests/sharing-v2-appliance.test.mjs", "name": "v2 concurrent appliance reviews expose complete original bundles and an explicit current resolution converges out of order" },
-      { "file": "tests/sharing-v2-appliance-ui.test.mjs", "name": "reanalysis keeps its originally displayed basis when another member changes the same appliance during review" },
-      { "file": "tests/sharing-v2-appliance-ui.test.mjs", "name": "shared appliance conflicts expose a whole candidate before an explicit choice and never mix two analyses" }
+      {
+        "file": "tests/sharing-v2-appliance.test.mjs",
+        "name": "v2 concurrent appliance reviews expose complete original bundles and an explicit current resolution converges out of order"
+      },
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "reanalysis keeps its originally displayed basis when another member changes the same appliance during review"
+      },
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "shared appliance conflicts expose a whole candidate before an explicit choice and never mix two analyses"
+      }
     ]
   },
   {
     "feature": "v2-appliance-identities-and-retries-do-not-duplicate-shared-work",
     "tests": [
-      { "file": "tests/sharing-v2-appliance.test.mjs", "name": "v2 appliance retries serialize to one identity including supported Japanese manufacturer aliases and never duplicate chores" },
-      { "file": "tests/sharing-v2-appliance.test.mjs", "name": "v2 concurrent registration on separate devices shares stable appliance and chore identities without duplicate schedules" },
-      { "file": "tests/sharing-v2-appliance.test.mjs", "name": "v2 identical appliance content at different operation times does not manufacture an analysis conflict" }
+      {
+        "file": "tests/sharing-v2-appliance.test.mjs",
+        "name": "v2 appliance retries serialize to one identity including supported Japanese manufacturer aliases and never duplicate chores"
+      },
+      {
+        "file": "tests/sharing-v2-appliance.test.mjs",
+        "name": "v2 concurrent registration on separate devices shares stable appliance and chore identities without duplicate schedules"
+      },
+      {
+        "file": "tests/sharing-v2-appliance.test.mjs",
+        "name": "v2 identical appliance content at different operation times does not manufacture an analysis conflict"
+      }
     ]
   },
   {
     "feature": "v2-appliance-review-validates-identity-sources-and-atomic-size-limits",
     "tests": [
-      { "file": "tests/sharing-v2-appliance.test.mjs", "name": "v2 new appliance review rejects malformed metadata mismatched identities sources and unreviewed results atomically" },
-      { "file": "tests/sharing-v2-appliance.test.mjs", "name": "v2 an oversized reviewed appliance rolls back its analysis and new chores together rather than leaving partial outbox entries" },
-      { "file": "tests/sharing-v2-appliance.test.mjs", "name": "v2 legacy partial appliance edits use their causal source and malformed stored analysis stays visible for explicit repair" }
+      {
+        "file": "tests/sharing-v2-appliance.test.mjs",
+        "name": "v2 new appliance review rejects malformed metadata mismatched identities sources and unreviewed results atomically"
+      },
+      {
+        "file": "tests/sharing-v2-appliance.test.mjs",
+        "name": "v2 an oversized reviewed appliance rolls back its analysis and new chores together rather than leaving partial outbox entries"
+      },
+      {
+        "file": "tests/sharing-v2-appliance.test.mjs",
+        "name": "v2 legacy partial appliance edits use their causal source and malformed stored analysis stays visible for explicit repair"
+      }
     ]
   },
   {
     "feature": "v2-appliance-deletion-and-reviewed-restore-never-cascade-to-chores",
     "tests": [
-      { "file": "tests/sharing-v2-appliance.test.mjs", "name": "v2 appliance deletion preserves linked chores and restoration requires a current reviewed bundle without resurrecting deleted chores" },
-      { "file": "tests/sharing-v2-appliance-ui.test.mjs", "name": "shared appliance deletion is confirmed separately and keeps linked chores while an explicit reviewed restore remains available" },
-      { "file": "tests/sharing-v2-appliance-ui.test.mjs", "name": "deleted shared appliances remain reachable behind a collapsed section without restoring anything on open" }
+      {
+        "file": "tests/sharing-v2-appliance.test.mjs",
+        "name": "v2 appliance deletion preserves linked chores and restoration requires a current reviewed bundle without resurrecting deleted chores"
+      },
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "shared appliance deletion is confirmed separately and keeps linked chores while an explicit reviewed restore remains available"
+      },
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "deleted shared appliances remain reachable behind a collapsed section without restoring anything on open"
+      }
     ]
   },
   {
     "feature": "v2-appliance-drafts-cancel-and-retry-without-unreviewed-writes",
     "tests": [
-      { "file": "tests/sharing-v2-appliance-ui.test.mjs", "name": "a durable shared appliance review retries only its read after a failed refresh and preserves the saved identity" },
-      { "file": "tests/sharing-v2-appliance-ui.test.mjs", "name": "a reviewed shared appliance saves the latest input and cancels without sharing partial or late analysis" },
-      { "file": "tests/sharing-v2-appliance-ui.test.mjs", "name": "shared appliance review clearing an input invalidates an already enabled save handler before the next paint" }
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "a durable shared appliance review retries only its read after a failed refresh and preserves the saved identity"
+      },
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "a reviewed shared appliance saves the latest input and cancels without sharing partial or late analysis"
+      },
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "shared appliance review clearing an input invalidates an already enabled save handler before the next paint"
+      }
     ]
   },
   {
     "feature": "v2-appliance-screens-retain-workspace-guards-and-maker-conditions",
     "tests": [
-      { "file": "tests/sharing-v2-appliance-ui.test.mjs", "name": "shared appliance review leaves its final confirmation above the device bottom inset" },
-      { "file": "tests/sharing-v2-appliance-ui.test.mjs", "name": "appliance input for a different route never binds another previously loaded appliance" },
-      { "file": "tests/sharing-v2-appliance-ui.test.mjs", "name": "shared and personal appliance task cards reuse source guarded instructions while a shared cadence slot still shows condition-only guidance" },
-      { "file": "tests/sharing-v2-workspace-routes.test.mjs", "name": "unselected or mismatched v2 workspace routes never load shared controllers or expose edit controls" },
-      { "file": "tests/sharing-v2-development-preview.test.mjs", "name": "v2 every isolated preview route denies release execution before opening the fixture" }
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "shared appliance review leaves its final confirmation above the device bottom inset"
+      },
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "appliance input for a different route never binds another previously loaded appliance"
+      },
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "shared and personal appliance task cards reuse source guarded instructions while a shared cadence slot still shows condition-only guidance"
+      },
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "unselected or mismatched v2 workspace routes never load shared controllers or expose edit controls"
+      },
+      {
+        "file": "tests/sharing-v2-development-preview.test.mjs",
+        "name": "v2 every isolated preview route denies release execution before opening the fixture"
+      }
     ]
   },
   {
     "feature": "appliance-client-polling-stops-on-retained-route-blur-and-can-retry",
     "tests": [
-      { "file": "tests/mobile-ui-audit.test.mjs", "name": "leaving a personal appliance during its committed save preserves the save lock until SQLite finishes" },
-      { "file": "tests/mobile-ui-audit.test.mjs", "name": "appliance analysis aborts when a retained screen blurs and permits another request" },
-      { "file": "tests/sharing-v2-appliance-ui.test.mjs", "name": "leaving a retained shared appliance review aborts polling and ignores a late result without preventing a fresh attempt" },
-      { "file": "tests/mobile-ui-audit.test.mjs", "name": "appliance analysis aborts on" },
-      { "file": "tests/appliance-care-client.test.mjs", "name": "cancelled appliance requests make no network call and abort an in-flight request" }
+      {
+        "file": "tests/mobile-ui-audit.test.mjs",
+        "name": "leaving a personal appliance during its committed save preserves the save lock until SQLite finishes"
+      },
+      {
+        "file": "tests/mobile-ui-audit.test.mjs",
+        "name": "appliance analysis aborts when a retained screen blurs and permits another request"
+      },
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "leaving a retained shared appliance review aborts polling and ignores a late result without preventing a fresh attempt"
+      },
+      {
+        "file": "tests/mobile-ui-audit.test.mjs",
+        "name": "appliance analysis aborts on"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "cancelled appliance requests make no network call and abort an in-flight request"
+      }
     ]
   },
   {
@@ -5266,119 +6018,32 @@
     ]
   },
   {
-    "feature": "v2-untimed-work-is-load-only",
+    "feature": "untimed-capacity-without-passive-load-alerts",
     "tests": [
       {
         "file": "tests/sharing-v2-untimed-load.test.mjs",
-        "name": "untimed daily load warns at the configured limit without inventing a time conflict or moving any chore"
+        "name": "date-only manual work stays on its assigned day without becoming a time conflict or asking for a time"
       },
       {
         "file": "tests/sharing-v2-untimed-load.test.mjs",
-        "name": "untimed load counts only this member’s pending work and removes completed disabled or differently assigned chores"
+        "name": "removing load alerts preserves automatic placement capacity and leaves the shared formal plan unchanged"
       },
       {
         "file": "tests/sharing-v2-untimed-load.test.mjs",
-        "name": "untimed load combines matching civil days but preserves personal dates and separate loads across timezones"
+        "name": "private overdue work keeps its existing selector and completion semantics after load warnings are retired"
       },
-      {
-        "file": "tests/sharing-v2-untimed-load.test.mjs",
-        "name": "untimed load accepts shared tzdb regions even when an older Native Intl cannot format that timezone"
-      },
-      {
-        "file": "tests/sharing-v2-untimed-load.test.mjs",
-        "name": "date-only manual work checks load even when Calendar is missing without becoming an interval or requesting a time"
-      },
-      {
-        "file": "tests/sharing-v2-untimed-load.test.mjs",
-        "name": "untimed load includes overdue cards still displayed today and removes completed cards using the existing private selector"
-      },
-      {
-        "file": "tests/sharing-v2-untimed-load.test.mjs",
-        "name": "${platform} untimed daily-load UI shows counts without a time picker or move confirmation"
-      }
-    ]
-  },
-  {
-    "feature": "v2-untimed-load-private-once-daily-marker",
-    "tests": [
-      {
-        "file": "tests/sharing-v2-load-notice-runtime.test.mjs",
-        "name": "untimed load notifications coalesce one hundred requests and retain one private daily marker across runtime restart"
-      },
-      {
-        "file": "tests/sharing-v2-load-notice-runtime.test.mjs",
-        "name": "load alerts stay opt-in and denied permission or below-limit work creates no durable marker"
-      },
-      {
-        "file": "tests/sharing-v2-load-notice-runtime.test.mjs",
-        "name": "real SQLite daily load claims are exclusive across callers and reject obsolete preference or group revisions"
-      },
-      {
-        "file": "tests/sharing-v2-load-notice-runtime.test.mjs",
-        "name": "daily load marker transaction rolls back if authority disappears after insertion and never initializes a personal database"
-      },
-      {
-        "file": "tests/sharing-v2-load-notice-runtime.test.mjs",
-        "name": "uncertain OS delivery retains its private claim to avoid duplicate alerts while a new civil day may alert once"
-      },
-      {
-        "file": "tests/sharing-v2-load-notice-runtime.test.mjs",
-        "name": "a private cache becoming available in another timezone cannot deliver a second load alert on the same group day"
-      }
-    ]
-  },
-  {
-    "feature": "v2-untimed-load-current-scope-and-budget",
-    "tests": [
-      {
-        "file": "tests/sharing-v2-load-notice-runtime.test.mjs",
-        "name": "load notifications revalidate changed private counts limits and settings before reserving the one daily alert"
-      },
-      {
-        "file": "tests/sharing-v2-load-notice-runtime.test.mjs",
-        "name": "load notification rejects a stale civil day changed account foreign owner and exhausted worker budget without a native write"
-      },
-      {
-        "file": "tests/sharing-v2-load-notice-runtime.test.mjs",
-        "name": "a shorter shared-worker budget fences an already queued load notification and cannot start another worker"
-      },
-      {
-        "file": "tests/sharing-v2-load-notice-runtime.test.mjs",
-        "name": "queued load notification captures its displayed assessment and preferences before an asynchronous boundary"
-      }
-    ]
-  },
-  {
-    "feature": "v2-untimed-load-native-queue-capacity-and-routing",
-    "tests": [
-      {
-        "file": "tests/sharing-v2-load-notice-native.test.mjs",
-        "name": "${platform} untimed load Native delivery is owner-scoped opt-in immediate and contains neither chore names nor times"
-      },
-      {
-        "file": "tests/sharing-v2-load-notice-native.test.mjs",
-        "name": "${platform} untimed alert waits for the app-wide queue and rechecks a changed account before claiming or writing"
-      },
-      {
-        "file": "tests/sharing-v2-load-notice-native.test.mjs",
-        "name": "${platform} immediate notice cleanup preserves current personal v1 completion and QA scopes when a load group is removed"
-      },
-      {
-        "file": "tests/sharing-v2-load-notice-native.test.mjs",
-        "name": "Android disabling notifications while a load channel is created prevents both the private marker and OS delivery"
-      },
-      {
-        "file": "tests/sharing-v2-load-notice-native.test.mjs",
-        "name": "iOS a full native reservation refuses a load alert before claiming the date and preserves all sixty existing reminders"
-      }
-    ]
-  },
-  {
-    "feature": "v2-untimed-load-preserves-completion-notices",
-    "tests": [
       {
         "file": "tests/sharing-v2-reminder-native.test.mjs",
-        "name": "a failed untimed-load alert does not suppress received-completion delivery within the same shared worker budget"
+        "name": "shared worker retains completion delivery without producing load alerts or reading private planning twice"
+      }
+    ]
+  },
+  {
+    "feature": "home-progress-after-first-completion",
+    "tests": [
+      {
+        "file": "tests/post-phase6-mobile-ui.test.mjs",
+        "name": "${platform} home progress hides percent until the first completion without hiding the chore count"
       }
     ]
   },
@@ -5394,9 +6059,18 @@
   {
     "feature": "native-notification-snapshot-preserves-values-without-order-noise",
     "tests": [
-      { "file": "tests/sharing-v2-notice-preview-snapshot.test.mjs", "name": "Native notification snapshots preserve all JSON values while ignoring dictionary and request ordering" },
-      { "file": "tests/sharing-v2-notice-preview-snapshot.test.mjs", "name": "completion OS QA treats Native dictionary and request ordering changes as unchanged notifications" },
-      { "file": "tests/sharing-v2-notice-preview-snapshot.test.mjs", "name": "completion OS QA still rejects a changed or removed non-QA notification" }
+      {
+        "file": "tests/sharing-v2-notice-preview-snapshot.test.mjs",
+        "name": "Native notification snapshots preserve all JSON values while ignoring dictionary and request ordering"
+      },
+      {
+        "file": "tests/sharing-v2-notice-preview-snapshot.test.mjs",
+        "name": "completion OS QA treats Native dictionary and request ordering changes as unchanged notifications"
+      },
+      {
+        "file": "tests/sharing-v2-notice-preview-snapshot.test.mjs",
+        "name": "completion OS QA still rejects a changed or removed non-QA notification"
+      }
     ]
   },
   {
@@ -5469,7 +6143,7 @@
     "tests": [
       {
         "file": "tests/post-phase6-mobile-ui.test.mjs",
-        "name": "${platform} connected chore book virtualizes long chapters keeps its back dock outside the list and jumps by stable identity"
+        "name": "${platform} connected chore book virtualizes long chapters keeps its fixed back header outside the list and jumps by stable identity"
       },
       {
         "file": "tests/post-phase6-mobile-ui.test.mjs",
@@ -5490,7 +6164,7 @@
       },
       {
         "file": "tests/post-phase6-mobile-ui.test.mjs",
-        "name": "category switches reject double taps roll back failed writes and retain saved values across a failed reread"
+        "name": "individual chore switches reject double taps roll back failed writes and retain saved values across a failed reread"
       },
       {
         "file": "tests/sharing-planning.test.mjs",
@@ -5501,81 +6175,99 @@
   {
     "feature": "calendar-today-includes-overdue-work-in-priority-order",
     "tests": [
-      { "file": "tests/mobile-ui-recovery.test.mjs", "name": "${platform} todays calendar puts all overdue tiers first and keeps a just-checked overdue card below pending work" }
+      {
+        "file": "tests/mobile-ui-recovery.test.mjs",
+        "name": "${platform} todays calendar puts all overdue tiers first and keeps a just-checked overdue card below pending work"
+      }
     ]
   },
   {
     "feature": "calendar-immediate-counts-retain-occurrence-and-chore-identity",
     "tests": [
-      { "file": "tests/mobile-ui-recovery.test.mjs", "name": "calendar pending markers follow an in-flight completion and undo without changing entries or completion history" },
-      { "file": "tests/mobile-ui-recovery.test.mjs", "name": "calendar feedback keeps deduplicated chore counts and restores a recorded occurrence whose schedule row was regenerated" }
+      {
+        "file": "tests/mobile-ui-recovery.test.mjs",
+        "name": "calendar pending markers follow an in-flight completion and undo without changing entries or completion history"
+      },
+      {
+        "file": "tests/mobile-ui-recovery.test.mjs",
+        "name": "calendar feedback keeps deduplicated chore counts and restores a recorded occurrence whose schedule row was regenerated"
+      }
     ]
   },
   {
     "feature": "saved-completion-read-only-recovery-keeps-its-only-recovery-path",
     "tests": [
-      { "file": "tests/mobile-ui-recovery.test.mjs", "name": "saved completion read failure keeps its warning and blocks another mutation until a successful read-only recovery" },
-      { "file": "tests/mobile-ui-recovery.test.mjs", "name": "a late failed write cannot hide another saved completion and one hundred recovery taps share one read" },
-      { "file": "tests/mobile-ui-recovery.test.mjs", "name": "${platform} calendar supplies a read-only recovery button and disables stale completion actions after a saved read failure" }
+      {
+        "file": "tests/mobile-ui-recovery.test.mjs",
+        "name": "saved completion read failure keeps its warning and blocks another mutation until a successful read-only recovery"
+      },
+      {
+        "file": "tests/mobile-ui-recovery.test.mjs",
+        "name": "a late failed write cannot hide another saved completion and one hundred recovery taps share one read"
+      },
+      {
+        "file": "tests/mobile-ui-recovery.test.mjs",
+        "name": "${platform} calendar supplies a read-only recovery button and disables stale completion actions after a saved read failure"
+      }
     ]
   },
-{
-  "feature": "home-device-only-one-tap-load-order",
-  "tests": [
-    {
-      "file": "tests/home-ux.test.mjs",
-      "name": "home load preference survives a cold store and never writes a household setting"
-    },
-    {
-      "file": "tests/home-ux.test.mjs",
-      "name": "home load reversal retains urgent and completed tiers for personal and mixed shared rows"
-    },
-    {
-      "file": "tests/home-ux.test.mjs",
-      "name": "home duration ties follow the chosen direction without treating unknown times as quick work"
-    }
-  ]
-},
-{
-  "feature": "home-upcoming-one-card-per-occurrence",
-  "tests": [
-    {
-      "file": "tests/home-ux.test.mjs",
-      "name": "upcoming home shows each occurrence once on its recommendation and preserves distinct cycles and recorded completion"
-    }
-  ]
-},
-{
-  "feature": "home-compact-heading-group-entry-and-time",
-  "tests": [
-    {
-      "file": "tests/home-ux.test.mjs",
-      "name": "${platform} home has one heading a group icon duration and a persistent one-tap load control"
-    }
-  ]
-},
-{
-  "feature": "home-quiet-targeted-completion-undo",
-  "tests": [
-    {
-      "file": "tests/home-ux.test.mjs",
-      "name": "home Undo receipt is atomic idempotent and cannot undo a later replacement record"
-    },
-    {
-      "file": "tests/home-ux.test.mjs",
-      "name": "shared home Undo targets only its own captured fact after another member completes the same occurrence"
-    },
-    {
-      "file": "tests/home-ux.test.mjs",
-      "name": "completion Undo is one-shot and an old closure cannot run after a workspace deactivates"
-    },
-    {
-      "file": "tests/home-ux.test.mjs",
-      "name": "${platform} home exposes the saved completion Undo without finding the moved card"
-    }
-  ]
-},
-{
+  {
+    "feature": "home-device-only-one-tap-load-order",
+    "tests": [
+      {
+        "file": "tests/home-ux.test.mjs",
+        "name": "home load preference survives a cold store and never writes a household setting"
+      },
+      {
+        "file": "tests/home-ux.test.mjs",
+        "name": "home load reversal retains urgent and completed tiers for personal and mixed shared rows"
+      },
+      {
+        "file": "tests/home-ux.test.mjs",
+        "name": "home duration ties follow the chosen direction without treating unknown times as quick work"
+      }
+    ]
+  },
+  {
+    "feature": "home-upcoming-one-card-per-occurrence",
+    "tests": [
+      {
+        "file": "tests/home-ux.test.mjs",
+        "name": "upcoming home shows each occurrence once on its recommendation and preserves distinct cycles and recorded completion"
+      }
+    ]
+  },
+  {
+    "feature": "home-compact-heading-group-entry-and-time",
+    "tests": [
+      {
+        "file": "tests/home-ux.test.mjs",
+        "name": "${platform} home has one heading a group icon duration and a persistent one-tap load control"
+      }
+    ]
+  },
+  {
+    "feature": "home-quiet-targeted-completion-undo",
+    "tests": [
+      {
+        "file": "tests/home-ux.test.mjs",
+        "name": "home Undo receipt is atomic idempotent and cannot undo a later replacement record"
+      },
+      {
+        "file": "tests/home-ux.test.mjs",
+        "name": "shared home Undo targets only its own captured fact after another member completes the same occurrence"
+      },
+      {
+        "file": "tests/home-ux.test.mjs",
+        "name": "completion Undo is one-shot and an old closure cannot run after a workspace deactivates"
+      },
+      {
+        "file": "tests/home-ux.test.mjs",
+        "name": "${platform} home exposes the saved completion Undo without finding the moved card"
+      }
+    ]
+  },
+  {
     "feature": "home-leading-check-full-row-opener-and-source-icons",
     "tests": [
       {
@@ -5648,11 +6340,11 @@
       },
       {
         "file": "tests/settings-source-ui.test.mjs",
-        "name": "detached group editor targets its named workspace without switching away from another group"
+        "name": "group editor targets the current membership while keeping personal settings independent"
       },
       {
         "file": "tests/settings-source-ui.test.mjs",
-        "name": "settings history links preserve the explicit personal or named group source even while another group is selected"
+        "name": "settings history links preserve the explicit personal or current group source"
       }
     ]
   },
@@ -5691,7 +6383,7 @@
     "tests": [
       {
         "file": "tests/settings-source-ui.test.mjs",
-        "name": "${platform} settings switches have a centered native frame without a second iOS background and matching control columns"
+        "name": "${platform} individual switches remain accessible while categories show only the enabled count and expansion"
       }
     ]
   },
@@ -5705,48 +6397,105 @@
     ]
   },
   {
-    "feature": "early-chore-visible-status-badge",
+    "feature": "chore-execution-period-without-early-badge",
     "tests": [
       {
         "file": "tests/settings-source-ui.test.mjs",
-        "name": "early chore labels have their own blue badge and stronger background while completed chores lose the early label"
+        "name": "chore rows show their execution period without an early badge or source-specific timing label"
       }
     ]
   },
   {
     "feature": "security-appliance-manufacturer-own-property-allowlist",
     "tests": [
-      { "file": "tests/security-api-attacks.test.mjs", "name": "API attack: prototype property manufacturers cannot escape the official-domain allowlist or start an AI request" },
-      { "file": "tests/security-sharing-attacks.test.mjs", "name": "security attack: inherited manufacturer names fail closed in the mobile official-link validator without crashing the screen" }
+      {
+        "file": "tests/security-api-attacks.test.mjs",
+        "name": "API attack: prototype property manufacturers cannot escape the official-domain allowlist or start an AI request"
+      },
+      {
+        "file": "tests/security-sharing-attacks.test.mjs",
+        "name": "security attack: inherited manufacturer names fail closed in the mobile official-link validator without crashing the screen"
+      }
     ]
   },
   {
     "feature": "security-api-bounded-uploads-and-retained-results",
     "tests": [
-      { "file": "tests/security-api-attacks.test.mjs", "name": "API attack: bounded malformed official HTML cannot trap the process in repeated unclosed-tag or comment scans" },
-      { "file": "tests/security-api-attacks.test.mjs", "name": "API attack: hardened manual cleanup preserves visible custom elements self-closing markup and Japanese procedures" },
-      { "file": "tests/security-api-attacks.test.mjs", "name": "API attack: an oversized unfinished upload is rejected before the attacker ends the body and releases its connection" },
-      { "file": "tests/security-api-attacks.test.mjs", "name": "API attack: many distinct jobs cannot evict a retained result before its promised lifetime and capacity recovers after expiry" },
-      { "file": "tests/security-api-attacks.test.mjs", "name": "API attack: JSON-like media types are rejected while parameterized JSON remains compatible" },
-      { "file": "tests/security-api-attacks.test.mjs", "name": "API attack: spoofed forwarding addresses do not bypass admission limits and CORS only reflects a configured exact origin" },
-      { "file": "tests/security-api-attacks.test.mjs", "name": "API attack: ambiguous content-length and transfer-encoding is rejected by the strict HTTP parser before analysis" }
+      {
+        "file": "tests/security-api-attacks.test.mjs",
+        "name": "API attack: bounded malformed official HTML cannot trap the process in repeated unclosed-tag or comment scans"
+      },
+      {
+        "file": "tests/security-api-attacks.test.mjs",
+        "name": "API attack: hardened manual cleanup preserves visible custom elements self-closing markup and Japanese procedures"
+      },
+      {
+        "file": "tests/security-api-attacks.test.mjs",
+        "name": "API attack: an oversized unfinished upload is rejected before the attacker ends the body and releases its connection"
+      },
+      {
+        "file": "tests/security-api-attacks.test.mjs",
+        "name": "API attack: many distinct jobs cannot evict a retained result before its promised lifetime and capacity recovers after expiry"
+      },
+      {
+        "file": "tests/security-api-attacks.test.mjs",
+        "name": "API attack: JSON-like media types are rejected while parameterized JSON remains compatible"
+      },
+      {
+        "file": "tests/security-api-attacks.test.mjs",
+        "name": "API attack: spoofed forwarding addresses do not bypass admission limits and CORS only reflects a configured exact origin"
+      },
+      {
+        "file": "tests/security-api-attacks.test.mjs",
+        "name": "API attack: ambiguous content-length and transfer-encoding is rejected by the strict HTTP parser before analysis"
+      }
     ]
   },
   {
     "feature": "security-resigned-ciphertext-and-business-authority-attacks",
     "tests": [
-      { "file": "tests/security-sharing-attacks.test.mjs", "name": "security compatibility: the hardened v2 protocol refuses an older draft without mutating its signed data and leaves v1 usable" },
-      { "file": "tests/security-sharing-attacks.test.mjs", "name": "security attack: 320 correctly re-signed ciphertext, salt and nonce mutations fail AEAD without returning plaintext" },
-      { "file": "tests/security-sharing-attacks.test.mjs", "name": "security attack: correctly signed snapshot and recipient-key mutations cannot bypass their independent AEAD or context bindings" },
-      { "file": "tests/security-sharing-attacks.test.mjs", "name": "security attack: signed member updates cannot change administrator fields across group types and chore presets" },
-      { "file": "tests/security-sharing-attacks.test.mjs", "name": "security attack: a signed forged grant and its descendants cannot escalate privilege while independent members continue editing" },
-      { "file": "tests/security-sharing-attacks.test.mjs", "name": "security attack: concurrent completion, replay and targeted undo converge without deleting another members work" },
-      { "file": "tests/sharing-synchronizer.test.mjs", "name": "security attack: correctly signed corrupt transport stalls safely without acknowledging it or losing independent offline edits" }
+      {
+        "file": "tests/security-sharing-attacks.test.mjs",
+        "name": "security compatibility: the hardened v2 protocol refuses an older draft without mutating its signed data and leaves v1 usable"
+      },
+      {
+        "file": "tests/security-sharing-attacks.test.mjs",
+        "name": "security attack: 320 correctly re-signed ciphertext, salt and nonce mutations fail AEAD without returning plaintext"
+      },
+      {
+        "file": "tests/security-sharing-attacks.test.mjs",
+        "name": "security attack: correctly signed snapshot and recipient-key mutations cannot bypass their independent AEAD or context bindings"
+      },
+      {
+        "file": "tests/security-sharing-attacks.test.mjs",
+        "name": "security attack: signed member updates cannot change administrator fields across group types and chore presets"
+      },
+      {
+        "file": "tests/security-sharing-attacks.test.mjs",
+        "name": "security attack: a signed forged grant and its descendants cannot escalate privilege while independent members continue editing"
+      },
+      {
+        "file": "tests/security-sharing-attacks.test.mjs",
+        "name": "security attack: concurrent completion, replay and targeted undo converge without deleting another members work"
+      },
+      {
+        "file": "tests/sharing-synchronizer.test.mjs",
+        "name": "security attack: correctly signed corrupt transport stalls safely without acknowledging it or losing independent offline edits"
+      }
     ],
     "cloudTests": [
-      { "file": "tests/security-cloud-attacks.integration.mjs", "name": "another groups owner, members and unauthenticated clients cannot enumerate or read any protected path" },
-      { "file": "tests/security-cloud-attacks.integration.mjs", "name": "a legitimate member cannot rewrite roles, device ownership, keys or another users acknowledgement" },
-      { "file": "tests/security-cloud-attacks.integration.mjs", "name": "revocation immediately rejects every protected read, queued write and stale access attempt" }
+      {
+        "file": "tests/security-cloud-attacks.integration.mjs",
+        "name": "another groups owner, members and unauthenticated clients cannot enumerate or read any protected path"
+      },
+      {
+        "file": "tests/security-cloud-attacks.integration.mjs",
+        "name": "a legitimate member cannot rewrite roles, device ownership, keys or another users acknowledgement"
+      },
+      {
+        "file": "tests/security-cloud-attacks.integration.mjs",
+        "name": "revocation immediately rejects every protected read, queued write and stale access attempt"
+      }
     ]
   },
   {
@@ -5854,7 +6603,7 @@
       },
       {
         "file": "tests/sharing-v2-owner-recovery.integration.mjs",
-        "name": "the default-disabled recovery capability preserves ordinary v2 sync membership and compaction against the preceding deployed Rules"
+        "name": "disabled owner recovery preserves ordinary single-group v2 sync membership and compaction"
       }
     ]
   },
@@ -5915,7 +6664,7 @@
       },
       {
         "file": "tests/sharing-workspace-recovery.test.mjs",
-        "name": "a durably reported shared sync failure reaches the worker after other groups have been attempted"
+        "name": "a durably reported shared sync failure reaches the worker without attempting other groups"
       }
     ]
   },
@@ -5924,7 +6673,7 @@
     "tests": [
       {
         "file": "tests/sharing-workspace-recovery.test.mjs",
-        "name": "a slow first workspace cannot starve later workspaces across bounded worker runs or process restarts"
+        "name": "bounded worker runs and process restarts never rotate into archived group scopes"
       }
     ]
   },
@@ -5967,7 +6716,10 @@
         "file": "tests/local-calendar.test.mjs",
         "name": "saving another calendar event never discards an unrelated new or existing draft"
       },
-      { "file": "tests/local-calendar.test.mjs", "name": "birthday and ordinary event drafts remain independent when saved discarded and resumed from settings" },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "birthday and ordinary event drafts remain independent when saved discarded and resumed from settings"
+      },
       {
         "file": "tests/local-calendar.test.mjs",
         "name": "local classification colors are reused by reference and invalid or duplicate categories never overwrite a saved color"
@@ -6033,17 +6785,50 @@
   {
     "feature": "calendar-custom-recurrence-and-private-draft-round-trip",
     "tests": [
-      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "custom recurrence rejects malformed intervals units weekdays and monthly ordinals without accepting prototype names" },
-      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "custom day and multi weekday intervals seek old series and retain one stable anchor per occurrence" },
-      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "custom monthly second last and fifth weekdays and leap years never invent missing civil dates" },
-      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "ended custom series do not break later calendar windows while moved instances and final multi day spans remain visible" },
-      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "custom cadence edits require review before clearing existing exceptions and draft digests reveal no input text" },
-      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "${platform} custom repeat screen applies the latest interval weekdays and last monthly weekday and rejects incomplete input" },
-      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "${platform} choosing custom repeat saves unfinished private input before routing and keeps custom as the final option" },
-      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "returning from custom settings waits for the matching stored draft instead of reopening a stale rule" },
-      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "iOS wheel keeps native motion authoritative while capturing every intermediate choice and the final value" },
-      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "custom repeat route applies only a personal draft and returns to the original workspace with an exact content digest" },
-      { "file": "tests/calendar-custom-recurrence.test.mjs", "name": "direct custom route links cannot change birthday cadence or a single occurrence and cannot redirect outside the calendar" }
+      {
+        "file": "tests/calendar-custom-recurrence.test.mjs",
+        "name": "custom recurrence rejects malformed intervals units weekdays and monthly ordinals without accepting prototype names"
+      },
+      {
+        "file": "tests/calendar-custom-recurrence.test.mjs",
+        "name": "custom day and multi weekday intervals seek old series and retain one stable anchor per occurrence"
+      },
+      {
+        "file": "tests/calendar-custom-recurrence.test.mjs",
+        "name": "custom monthly second last and fifth weekdays and leap years never invent missing civil dates"
+      },
+      {
+        "file": "tests/calendar-custom-recurrence.test.mjs",
+        "name": "ended custom series do not break later calendar windows while moved instances and final multi day spans remain visible"
+      },
+      {
+        "file": "tests/calendar-custom-recurrence.test.mjs",
+        "name": "custom cadence edits require review before clearing existing exceptions and draft digests reveal no input text"
+      },
+      {
+        "file": "tests/calendar-custom-recurrence.test.mjs",
+        "name": "${platform} custom repeat screen applies the latest interval weekdays and last monthly weekday and rejects incomplete input"
+      },
+      {
+        "file": "tests/calendar-custom-recurrence.test.mjs",
+        "name": "${platform} choosing custom repeat saves unfinished private input before routing and keeps custom as the final option"
+      },
+      {
+        "file": "tests/calendar-custom-recurrence.test.mjs",
+        "name": "returning from custom settings waits for the matching stored draft instead of reopening a stale rule"
+      },
+      {
+        "file": "tests/calendar-custom-recurrence.test.mjs",
+        "name": "iOS wheel keeps native motion authoritative while capturing every intermediate choice and the final value"
+      },
+      {
+        "file": "tests/calendar-custom-recurrence.test.mjs",
+        "name": "custom repeat route applies only a personal draft and returns to the original workspace with an exact content digest"
+      },
+      {
+        "file": "tests/calendar-custom-recurrence.test.mjs",
+        "name": "direct custom route links cannot change birthday cadence or a single occurrence and cannot redirect outside the calendar"
+      }
     ]
   },
   {
@@ -6094,15 +6879,91 @@
       }
     ]
   },
-  {"feature":"android-api-qualified-native-styles","tests":[{"file":"tests/mobile-theme-and-waste-icons.test.mjs","name":"Android API24 base themes exclude newer framework attributes and qualified styles retain every inherited value"}]},
-  {"feature":"native-group-local-calendar-plan-consistency","tests":[{"file":"tests/sharing-v2-reminder-native.test.mjs","name":"native shared Tasks and reminders include app calendar revisions and agree with screen recommendations without Google authorization"}]},
-  {"feature":"android-widget-external-broadcast-denial","tests":[{"file":"tests/widget-native-security.test.mjs","name":"Android widget completion receiver refuses external broadcasts while keeping framework update metadata and own PendingIntent interactions"}]},
-  {"feature":"android-runtime-dependency-security-minimums","tests":[{"file":"tests/android-security-dependencies.test.mjs","name":"Android runtime security minimums survive repeated prebuilds without forcing older native versions or removing app dependencies"}]},
-  {"feature":"calendar-visible-month-layout-stability","tests":[{"file":"tests/native-calendar.test.mjs","name":"${platform} calendar month header follows visible weeks when native offsets belong to an earlier row height"}]},
-  {"feature":"android-api24-file-io-runtime-compatibility","tests":[{"file":"tests/android-security-dependencies.test.mjs","name":"Android file library security updates retain API24 NIO support without increasing minSdk or changing the Java target"}]},
-  {"feature":"calendar-view-scroll-state-isolation","tests":[{"file":"tests/native-calendar.test.mjs","name":"${platform} calendar view and day changes reset native scroll offsets without changing the selected date"}]},
-  {"feature":"calendar-live-minute-and-resume-clock","tests":[{"file":"tests/calendar-live-clock.test.mjs","name":"${platform} entering a calendar timeline uses the current minute after spending hours in month view"},{"file":"tests/calendar-live-clock.test.mjs","name":"${platform} calendar clock aligns one timer to the next minute pauses in background and cleans up after unmount"}]},
-  {"feature":"appliance-api-development-only-production-guard","tests":[{"file":"tests/security-api-attacks.test.mjs","name":"API security unauthenticated development server refuses production startup before opening a listener or invoking AI"}]},
+  {
+    "feature": "android-api-qualified-native-styles",
+    "tests": [
+      {
+        "file": "tests/mobile-theme-and-waste-icons.test.mjs",
+        "name": "Android API24 base themes exclude newer framework attributes and qualified styles retain every inherited value"
+      }
+    ]
+  },
+  {
+    "feature": "native-group-local-calendar-plan-consistency",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-reminder-native.test.mjs",
+        "name": "native shared Tasks and reminders include app calendar revisions and agree with screen recommendations without Google authorization"
+      }
+    ]
+  },
+  {
+    "feature": "android-widget-external-broadcast-denial",
+    "tests": [
+      {
+        "file": "tests/widget-native-security.test.mjs",
+        "name": "Android widget completion receiver refuses external broadcasts while keeping framework update metadata and own PendingIntent interactions"
+      }
+    ]
+  },
+  {
+    "feature": "android-runtime-dependency-security-minimums",
+    "tests": [
+      {
+        "file": "tests/android-security-dependencies.test.mjs",
+        "name": "Android runtime security minimums survive repeated prebuilds without forcing older native versions or removing app dependencies"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-visible-month-layout-stability",
+    "tests": [
+      {
+        "file": "tests/native-calendar.test.mjs",
+        "name": "${platform} calendar month header follows visible weeks when native offsets belong to an earlier row height"
+      }
+    ]
+  },
+  {
+    "feature": "android-api24-file-io-runtime-compatibility",
+    "tests": [
+      {
+        "file": "tests/android-security-dependencies.test.mjs",
+        "name": "Android file library security updates retain API24 NIO support without increasing minSdk or changing the Java target"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-view-scroll-state-isolation",
+    "tests": [
+      {
+        "file": "tests/native-calendar.test.mjs",
+        "name": "${platform} calendar view and day changes reset native scroll offsets without changing the selected date"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-live-minute-and-resume-clock",
+    "tests": [
+      {
+        "file": "tests/calendar-live-clock.test.mjs",
+        "name": "${platform} entering a calendar timeline uses the current minute after spending hours in month view"
+      },
+      {
+        "file": "tests/calendar-live-clock.test.mjs",
+        "name": "${platform} calendar clock aligns one timer to the next minute pauses in background and cleans up after unmount"
+      }
+    ]
+  },
+  {
+    "feature": "appliance-api-development-only-production-guard",
+    "tests": [
+      {
+        "file": "tests/security-api-attacks.test.mjs",
+        "name": "API security unauthenticated development server refuses production startup before opening a listener or invoking AI"
+      }
+    ]
+  },
   {
     "feature": "semantic-text-defaults-in-light-and-dark-modes",
     "tests": [
@@ -6124,22 +6985,507 @@
       },
       {
         "file": "tests/semantic-text-colors.test.mjs",
-        "name": "${platform} shared daily load warning keeps every native paragraph readable in both themes"
-      },
-      {
-        "file": "tests/semantic-text-colors.test.mjs",
         "name": "ThemedText keeps explicit theme and caller color precedence when text roles supply default foregrounds"
       }
     ],
     "manualReview": "docs/testing-strategy.md"
   },
-  {"feature":"calendar-user-scroll-survives-viewport-resize","tests":[{"file":"tests/native-calendar.test.mjs","name":"${platform} resizing a browsed month never recenters it on the original date while explicit navigation can center again"}]},
-  {"feature":"appliance-public-auth-and-owner-only-results","tests":[{"file":"tests/appliance-public-api.test.mjs","name":"public HTTP API rejects anonymous unauthenticated requests before paid work and keeps results owner-only with no sync-endpoint bypass"},{"file":"tests/appliance-public-auth.test.mjs","name":"public appliance API never obtains or sends a token to HTTP credential-bearing or an unconfigured foreign host"},{"file":"tests/appliance-public-auth.test.mjs","name":"${platform} public appliance AI requires an existing nonanonymous account and never signs in a guest"}],"cloudTests":[{"file":"tests/appliance-public-cloud.integration.mjs","name":"real Firebase Admin authentication accepts an emulator Google user and rejects anonymous identity, rejects disabled users and never reveals other users jobs over HTTP"},{"file":"tests/appliance-public-cloud.integration.mjs","name":"real Firestore quotas and private job results cannot be read or rewritten directly by guests account owners or other users"}]},
-  {"feature":"appliance-monthly-five-server-reset-and-global-cost-cap","tests":[{"file":"tests/appliance-public-api.test.mjs","name":"public API monthly boundary is every first day at 09:00 Japan time including leap years and year rollover"},{"file":"tests/appliance-public-api.test.mjs","name":"public API allows exactly five monthly admissions counts reanalysis and preserves the counter across store restart"},{"file":"tests/appliance-public-api.test.mjs","name":"public API global daily quota survives account churn and resets only at the server boundary"}],"cloudTests":[{"file":"tests/appliance-public-cloud.integration.mjs","name":"real Firestore enforces monthly five, reanalysis, cold restart, and the exact Japan 09:00 monthly reset"},{"file":"tests/appliance-public-cloud.integration.mjs","name":"real Firestore cannot exceed global daily twenty by generating more accounts or racing server reservations"}]},
-  {"feature":"appliance-public-idempotency-and-interrupted-cost-preservation","tests":[{"file":"tests/appliance-public-api.test.mjs","name":"public API concurrent resends start one job and charge once while other identities never reuse or read that result"},{"file":"tests/appliance-public-api.test.mjs","name":"public API admission rolls back busy requests and never refunds or repeats a possibly charged interrupted analysis"},{"file":"tests/appliance-care-client.test.mjs","name":"appliance API retries retain a lost paid admission ID but a later explicit reanalysis gets a fresh ID"}],"cloudTests":[{"file":"tests/appliance-public-cloud.integration.mjs","name":"real Firestore transactions collapse forty concurrent identical admissions across two server instances to one charge and one worker"},{"file":"tests/appliance-public-cloud.integration.mjs","name":"public production configuration refuses emulator authentication and the official Admin verifier rejects an unsigned token outside emulator mode"}]},
-  {"feature":"appliance-public-worker-bounds-and-authentication-cancellation","tests":[{"file":"tests/appliance-public-analysis.test.mjs","name":"public analysis bounds AI call count and stops all later work after the shared job signal is aborted"},{"file":"tests/appliance-public-analysis.test.mjs","name":"public OpenAI requests retain the model and schema while enforcing output tool and abort limits without retries"},{"file":"tests/appliance-care-client.test.mjs","name":"appliance cancellation and timeout finish promptly while authentication is stalled and never send a late paid request"}],"cloudTests":[{"file":"tests/appliance-public-cloud.integration.mjs","name":"expired API records prune without resetting monthly usage or deleting a concurrently renewed cache pointer or group data"},{"file":"tests/appliance-public-cloud.integration.mjs","name":"revoked Firebase refresh tokens cannot poll or start further API work even while the original ID token has not expired"}]},
-  {"feature":"appliance-device-account-minimum-and-first-monthly-account","tests":[{"file":"tests/appliance-public-api.test.mjs","name":"device and account usage synchronize to the smaller allowance on login without spending another analysis"},{"file":"tests/appliance-public-api.test.mjs","name":"reinstall locks a device to its first monthly account, even after switching accounts, denied retries and a cold server restart"},{"file":"tests/appliance-public-api.test.mjs","name":"different accounts racing on one verified device share five admissions and cannot run paid work concurrently"},{"file":"tests/appliance-public-api.test.mjs","name":"missing native verification, forged continuity and corrupted server counts stop analysis instead of resetting allowance"}],"cloudTests":[{"file":"tests/appliance-public-cloud.integration.mjs","name":"real Firestore synchronizes device and account minimum quotas and retains a first-account reinstall lock across denied requests and server restart"}]},
-  {"feature":"appliance-upload-only-manual-and-no-original-pdf-sharing","tests":[{"file":"tests/appliance-manual-upload.test.mjs","name":"manual upload rejects URLs paths missing consent forged hashes oversized malformed and password-like documents before paid analysis"},{"file":"tests/appliance-manual-upload.test.mjs","name":"uploaded analysis sends only submitted bytes with no search or URL fetch and validates exact digest-only provenance"},{"file":"tests/appliance-manual-upload.test.mjs","name":"public paid analysis cannot enable search external file URLs or a second upstream call"},{"file":"tests/sharing-v2-appliance.test.mjs","name":"v2 uploaded manual review shares digest provenance and reviewed tasks but never uploads the original PDF"}]},
-  {"feature":"appliance-upload-owner-approved-contract-upgrade","tests":[{"file":"tests/sharing-v2-scheduler-upgrade.test.mjs","name":"draft38 groups retain settings chores completions and legacy analysis until an owner-signed forward upgrade, then accept uploaded manuals"},{"file":"tests/sharing-workspace-protocol.test.mjs","name":"a previously signed v1 to draft38 migration stays readable without silently replacing its trusted roster version"}],"cloudTests":[{"file":"tests/sharing-v2-cloud.integration.mjs","name":"draft38 owner upgrades through a real atomic cloud snapshot and a fresh SQLite session restores unchanged shared settings and facts"}]},
-  {"feature":"appliance-upstream-no-result-refund-and-zero-use-binding","tests":[{"file":"tests/appliance-public-analysis.test.mjs","name":"only server-observed OpenAI unavailability or no response is refundable while refused or malformed returned analysis stays charged"},{"file":"tests/appliance-ai-account-ui.test.mjs","name":"${platform} appliance AI never becomes ready from login alone or a stale account binding response"},{"file":"tests/appliance-public-api.test.mjs","name":"a server-confirmed OpenAI no-result failure releases the same monthly slot on every copied account and device without multiplying refunds"},{"file":"tests/appliance-public-api.test.mjs","name":"minimum-allowance merging preserves independent successful usage while refunding all failed alternatives and retaining the daily cost cap"},{"file":"tests/appliance-public-api.test.mjs","name":"a verified first account with no analyses keeps all five attempts after reinstall while another account remains blocked that month"},{"file":"tests/appliance-public-api.test.mjs","name":"quota provenance matches the max-then-charge specification through randomized account switches late refunds and overlapping device histories"},{"file":"tests/appliance-manual-upload.test.mjs","name":"only an internal OpenAI no-result classification returns a non-consuming analysis error"}],"cloudTests":[{"file":"tests/appliance-public-cloud.integration.mjs","name":"real Firestore refunds a confirmed OpenAI no-result failure through copied quotas while retaining zero-use first-account bindings and the daily attempt count"}]}
+  {
+    "feature": "calendar-user-scroll-survives-viewport-resize",
+    "tests": [
+      {
+        "file": "tests/native-calendar.test.mjs",
+        "name": "${platform} resizing a browsed month never recenters it on the original date while explicit navigation can center again"
+      }
+    ]
+  },
+  {
+    "feature": "appliance-public-auth-and-owner-only-results",
+    "tests": [
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "public HTTP API rejects anonymous unauthenticated requests before paid work and keeps results owner-only with no sync-endpoint bypass"
+      },
+      {
+        "file": "tests/appliance-public-auth.test.mjs",
+        "name": "public appliance API never obtains or sends a token to HTTP credential-bearing or an unconfigured foreign host"
+      },
+      {
+        "file": "tests/appliance-public-auth.test.mjs",
+        "name": "${platform} public appliance AI requires an existing nonanonymous account and never signs in a guest"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "real Firebase Admin authentication accepts an emulator Google user and rejects anonymous identity, rejects disabled users and never reveals other users jobs over HTTP"
+      },
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "real Firestore quotas and private job results cannot be read or rewritten directly by guests account owners or other users"
+      }
+    ]
+  },
+  {
+    "feature": "appliance-monthly-five-server-reset-and-global-cost-cap",
+    "tests": [
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "public API monthly boundary is every first day at 09:00 Japan time including leap years and year rollover"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "public API allows exactly five monthly admissions counts reanalysis and preserves the counter across store restart"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "public API global daily quota survives account churn and resets only at the server boundary"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "real Firestore enforces monthly five, reanalysis, cold restart, and the exact Japan 09:00 monthly reset"
+      },
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "real Firestore cannot exceed global daily twenty by generating more accounts or racing server reservations"
+      }
+    ]
+  },
+  {
+    "feature": "appliance-public-idempotency-and-interrupted-cost-preservation",
+    "tests": [
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "public API concurrent resends start one job and charge once while other identities never reuse or read that result"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "public API admission rolls back busy requests and never refunds or repeats a possibly charged interrupted analysis"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "appliance API retries retain a lost paid admission ID but a later explicit reanalysis gets a fresh ID"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "real Firestore transactions collapse forty concurrent identical admissions across two server instances to one charge and one worker"
+      },
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "public production configuration refuses emulator authentication and the official Admin verifier rejects an unsigned token outside emulator mode"
+      }
+    ]
+  },
+  {
+    "feature": "appliance-public-worker-bounds-and-authentication-cancellation",
+    "tests": [
+      {
+        "file": "tests/appliance-public-analysis.test.mjs",
+        "name": "public analysis bounds AI call count and stops all later work after the shared job signal is aborted"
+      },
+      {
+        "file": "tests/appliance-public-analysis.test.mjs",
+        "name": "public OpenAI requests retain the model and schema while enforcing output tool and abort limits without retries"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "appliance cancellation and timeout finish promptly while authentication is stalled and never send a late paid request"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "expired API records prune without resetting monthly usage or deleting a concurrently renewed cache pointer or group data"
+      },
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "revoked Firebase refresh tokens cannot poll or start further API work even while the original ID token has not expired"
+      }
+    ]
+  },
+  {
+    "feature": "appliance-device-account-minimum-and-first-monthly-account",
+    "tests": [
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "device and account usage synchronize to the smaller allowance on login without spending another analysis"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "reinstall locks a device to its first monthly account, even after switching accounts, denied retries and a cold server restart"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "different accounts racing on one verified device share five admissions and cannot run paid work concurrently"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "missing native verification, forged continuity and corrupted server counts stop analysis instead of resetting allowance"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "real Firestore synchronizes device and account minimum quotas and retains a first-account reinstall lock across denied requests and server restart"
+      }
+    ]
+  },
+  {
+    "feature": "appliance-upload-only-manual-and-no-original-pdf-sharing",
+    "tests": [
+      {
+        "file": "tests/appliance-manual-upload.test.mjs",
+        "name": "manual upload rejects URLs paths missing consent forged hashes oversized malformed and password-like documents before paid analysis"
+      },
+      {
+        "file": "tests/appliance-manual-upload.test.mjs",
+        "name": "uploaded analysis sends only submitted bytes with no search or URL fetch and validates exact digest-only provenance"
+      },
+      {
+        "file": "tests/appliance-manual-upload.test.mjs",
+        "name": "public paid analysis cannot enable search external file URLs or a second upstream call"
+      },
+      {
+        "file": "tests/sharing-v2-appliance.test.mjs",
+        "name": "v2 uploaded manual review shares digest provenance and reviewed tasks but never uploads the original PDF"
+      }
+    ]
+  },
+  {
+    "feature": "appliance-upload-owner-approved-contract-upgrade",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-scheduler-upgrade.test.mjs",
+        "name": "draft38 groups retain settings chores completions and legacy analysis until an owner-signed forward upgrade, then accept uploaded manuals"
+      },
+      {
+        "file": "tests/sharing-workspace-protocol.test.mjs",
+        "name": "a previously signed v1 to draft38 migration stays readable without silently replacing its trusted roster version"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-v2-cloud.integration.mjs",
+        "name": "draft38 owner upgrades through a real atomic cloud snapshot and a fresh SQLite session restores unchanged shared settings and facts"
+      }
+    ]
+  },
+  {
+    "feature": "appliance-upstream-no-result-refund-and-zero-use-binding",
+    "tests": [
+      {
+        "file": "tests/appliance-public-analysis.test.mjs",
+        "name": "only server-observed OpenAI unavailability or no response is refundable while refused or malformed returned analysis stays charged"
+      },
+      {
+        "file": "tests/appliance-ai-account-ui.test.mjs",
+        "name": "${platform} appliance AI never becomes ready from login alone or a stale account binding response"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "a server-confirmed OpenAI no-result failure releases the same monthly slot on every copied account and device without multiplying refunds"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "minimum-allowance merging preserves independent successful usage while refunding all failed alternatives and retaining the daily cost cap"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "a verified first account with no analyses keeps all five attempts after reinstall while another account remains blocked that month"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "quota provenance matches the max-then-charge specification through randomized account switches late refunds and overlapping device histories"
+      },
+      {
+        "file": "tests/appliance-manual-upload.test.mjs",
+        "name": "only an internal OpenAI no-result classification returns a non-consuming analysis error"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "real Firestore refunds a confirmed OpenAI no-result failure through copied quotas while retaining zero-use first-account bindings and the daily attempt count"
+      }
+    ]
+  },
+  {
+    "feature": "single-sharing-membership",
+    "tests": [
+      {
+        "file": "tests/sharing-registry.test.mjs",
+        "name": "membership blocks a second intent; departure preserves history and releases the slot"
+      },
+      {
+        "file": "tests/sharing-registry.test.mjs",
+        "name": "adopting the previously displayed group preserves old QA rows without reopening them after departure"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a rejected cross-device creation releases its local membership slot without deleting unsent edits"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "consumes the original worker budget and cannot start a fresh synchronization interval"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-cloud.integration.mjs",
+        "name": "simultaneous group creation from two devices commits exactly one account membership"
+      },
+      {
+        "file": "tests/sharing-cloud.integration.mjs",
+        "name": "pending membership blocks another invitation and creation until its request is cancelled"
+      },
+      {
+        "file": "tests/sharing-cloud.integration.mjs",
+        "name": "an existing displayed group adopts the singleton index without changing its roster or event history"
+      },
+      {
+        "file": "tests/security-cloud-attacks.integration.mjs",
+        "name": "another owner cannot claim an already joined user by changing or omitting the singleton pointer"
+      }
+    ]
+  },
+  {
+    "feature": "shared-calendar-creator-admin-authority-and-visible-conflicts",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-calendar-events.test.mjs",
+        "name": "shared general events allow member creation and creator or administrator edits but reject another member"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-events.test.mjs",
+        "name": "shared event concurrent edits converge as a visible conflict until all observed alternatives are reviewed"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-events.test.mjs",
+        "name": "shared recurring exceptions bind a real occurrence and structural resets explicitly identify the observed exceptions"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-events.test.mjs",
+        "name": "shared event payload rejects provider IDs and additional private fields rather than forwarding a personal record"
+      }
+    ]
+  },
+  {
+    "feature": "shared-calendar-outward-google-export-off-by-default",
+    "tests": [
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "shared Google export starts OFF and disabled synchronization performs no OAuth or Google operations"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "shared Google export keeps links across OFF ON and sends at most 100 records in one pass"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "shared Google export retries a lost insert reply using the same ID and cannot duplicate the event"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "Google edits cannot update the shared source and an etag conflict retains the unsent group update"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "shared Google export rejects a changed native account and an altered calendar choice"
+      },
+      {
+        "file": "tests/shared-google-calendar-store.test.mjs",
+        "name": "shared export settings and Google IDs stay private and OFF preserves the same account target links"
+      },
+      {
+        "file": "tests/shared-google-calendar-store.test.mjs",
+        "name": "shared export sends only server-receipted group events and cannot export unsent or unrelated personal state"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-start-preserves-duration",
+    "tests": [
+      {
+        "file": "tests/calendar-start-duration.test.mjs",
+        "name": "moving a calendar start retains duration across same-day midnight multi-day and all-day changes"
+      },
+      {
+        "file": "tests/calendar-start-duration.test.mjs",
+        "name": "moving a start preserves elapsed time through DST and does not hide ambiguous or invalid input"
+      }
+    ]
+  },
+  {
+    "feature": "unified-workspace-tab-navigation",
+    "tests": [
+      {
+        "file": "tests/workspace-unified-navigation.test.mjs",
+        "name": "personal and joined workspaces keep identical tab identities and group aliases retain date parameters"
+      }
+    ]
+  },
+  {
+    "feature": "scope-labels-only-when-there-is-a-group",
+    "tests": [
+      {
+        "file": "tests/home-scope-presentation.test.mjs",
+        "name": "${platform} unjoined home and settings omit personal scope labels while joined settings retain the distinction"
+      }
+    ]
+  },
+  {
+    "feature": "unified-chore-opening-and-compact-claim",
+    "tests": [
+      {
+        "file": "tests/home-scope-presentation.test.mjs",
+        "name": "${platform} a private chore with a guide callback navigates without toggling inline details or completing the chore"
+      },
+      {
+        "file": "tests/sharing-v2-screen.test.mjs",
+        "name": "${platform} compact shared rows omit redundant assignment and suggested-date text while claim stays independent from opening procedures"
+      }
+    ]
+  },
+  {
+    "feature": "one-appliance-library-with-private-and-shared-storage",
+    "tests": [
+      {
+        "file": "tests/appliance-library.test.mjs",
+        "name": "${platform} one appliance library opens personal and group items by scope even when their IDs match"
+      },
+      {
+        "file": "tests/appliance-library.test.mjs",
+        "name": "${platform} adding an appliance defaults to personal and shares only after choosing the group"
+      },
+      {
+        "file": "tests/appliance-library.test.mjs",
+        "name": "${platform} joined appliance navigation retains personal storage and passes a new shared product name into review"
+      },
+      {
+        "file": "tests/appliance-library.test.mjs",
+        "name": "${platform} personal appliance detail and analysis always request the private planner while joined"
+      }
+    ]
+  },
+  {
+    "feature": "joined-appliance-composition-keeps-private-storage",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "${platform} the joined appliance tab composes private and shared rows without a mode switch or a shared write"
+      }
+    ]
+  },
+  {
+    "feature": "joined-home-preserves-both-upcoming-weeks",
+    "tests": [
+      {
+        "file": "tests/unified-home-upcoming.test.mjs",
+        "name": "joined upcoming lists each shared or personal occurrence once on its recommendation and rejects another owners overlay"
+      },
+      {
+        "file": "tests/unified-home-upcoming.test.mjs",
+        "name": "${platform} joined home exposes this and next week and sends a future private completion only to the private source"
+      }
+    ]
+  },
+  {
+    "feature": "fixed-calendar-day-heading-and-summary",
+    "tests": [
+      {
+        "file": "tests/calendar-fixed-heading.test.mjs",
+        "name": "${platform} timeline date and chore controls remain outside the native scrolling content in both day modes"
+      }
+    ]
+  },
+  {
+    "feature": "shared-connected-settings-retain-unmounted-drafts",
+    "tests": [
+      {
+        "file": "tests/shared-settings-book.test.mjs",
+        "name": "${platform} shared settings can return immediately while loading without flashing a separate synchronization panel"
+      },
+      {
+        "file": "tests/shared-settings-book.test.mjs",
+        "name": "${platform} shared settings use one fixed-audience document and retain invalid cadence input after virtual chapters unmount"
+      },
+      {
+        "file": "tests/shared-settings-book.test.mjs",
+        "name": "connected shared settings read one authenticated snapshot and scrolling never rebuilds the same repository state for each chapter"
+      }
+    ]
+  },
+  {
+    "feature": "single-owner-rhythm-settings-source",
+    "tests": [
+      {
+        "file": "tests/owner-rhythm-settings.test.mjs",
+        "name": "ordinary settings and shared recommendations use the same saved private rhythm while preserving region and legacy bands"
+      },
+      {
+        "file": "tests/owner-rhythm-settings.test.mjs",
+        "name": "ordinary settings retries a partial durable save without consuming another protected revision"
+      },
+      {
+        "file": "tests/owner-rhythm-settings.test.mjs",
+        "name": "ordinary settings cannot overwrite a concurrent private edit or a different authenticated account"
+      },
+      {
+        "file": "tests/owner-rhythm-settings.test.mjs",
+        "name": "opening ordinary settings does not create a private profile or any permitted time bands"
+      },
+      {
+        "file": "tests/owner-rhythm-settings.test.mjs",
+        "name": "a newer rhythm edit after a partial save uses the accepted protected revision and retains the SQLite baseline"
+      }
+    ]
+  },
+  {
+    "feature": "category-count-without-three-state-buttons",
+    "tests": [
+      {
+        "file": "tests/category-enablement.test.mjs",
+        "name": "${platform} category rows report partial enablement without redundant bulk buttons"
+      }
+    ]
+  },
+  {
+    "feature": "inactive-relocation-controls-are-not-user-settings",
+    "tests": [
+      {
+        "file": "tests/sharing-private-planner-ui.test.mjs",
+        "name": "${platform} private preference UI autosaves daily limits without exposing inactive time relocation controls"
+      },
+      {
+        "file": "tests/sharing-private-planner-ui.test.mjs",
+        "name": "${platform} account synchronization does not repeat daily planning inputs or require device setup for local edits"
+      }
+    ]
+  },
+  {
+    "feature": "unified-guide-common-source-and-personal-fallback",
+    "tests": [
+      {
+        "file": "tests/unified-chore-catalog.test.mjs",
+        "name": "unified guides show one common chore, restore the original personal source when shared work is inactive, and never rewrite either source"
+      },
+      {
+        "file": "tests/unified-chore-catalog.test.mjs",
+        "name": "unified guides preserve ambiguous definitions and namespace IDs while matching the same normalized name"
+      }
+    ]
+  },
+  {
+    "feature": "group-management-has-group-settings-only",
+    "tests": [
+      {
+        "file": "tests/settings-source-ui.test.mjs",
+        "name": "group management settings never load or offer the personal settings source"
+      }
+    ]
+  }
 ]

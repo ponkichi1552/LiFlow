@@ -1,3 +1,6 @@
+import { SharedCalendarConflicts } from './calendar-conflicts';
+import { useGroupCalendar } from './use-group-calendar';
+import type { V2MutationOutcome } from './mutation-outcome';
 import { orderTaskRows } from './task-order';
 import { createV2RoundVisibility } from './round-visibility';
 import type { CompletionFeedback } from './completion-feedback';
@@ -6,7 +9,7 @@ import type { ReactElement } from 'react';
 import { Text, View } from 'react-native';
 import { AppButton, Card, palette, typography } from '../../../components/planner-ui';
 import { DEFAULT_CALENDAR_COUNT_COLORS } from '../../../domain/calendar/count-colors';
-import type { CalendarCountColors, CalendarCountDisplayMode, LocalDate } from '../../../domain/shared/types';
+import type { CalendarCountColors, LocalDate } from '../../../domain/shared/types';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { V2PersonalPlan } from '../v2/personal-plan';
 import { v2CalendarMonth, v2CalendarProjection } from './calendar-projection';
@@ -15,20 +18,21 @@ import { privateOverlayForViewer, privateOverlayPendingCounts } from './private-
 import type { V2PrivateOverlayState, V2PrivateTaskSource } from './private-overlay';
 import { V2PrivateTaskCard, V2PrivateTaskNotice } from './private-task-card';
 import { V2WasteOccurrence } from './waste-occurrence';
-import { CalendarFooter, PlannerCalendar } from '../../calendar/planner-calendar';
+import { PlannerCalendar } from '../../calendar/planner-calendar';
 import type { PlannerCalendarProps } from '../../calendar/planner-calendar';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
 
-export function V2Calendar({ model, personal, privateOverlay: privateValue, privateSource, selectedDate, busy, actions, run, onMonth, onSelectDate, onRound, header, feedback, local, onNavigate, workspaceName,
-  countColors = DEFAULT_CALENDAR_COUNT_COLORS, countMode = 'bar' }: {
-  feedback?: CompletionFeedback; local?: LocalCalendarBinding; onNavigate?: PlannerCalendarProps['onNavigate']; workspaceName?: string;
+export function V2Calendar({ model, personal, privateOverlay: privateValue, privateSource, selectedDate, busy, actions, run, onMonth, onSelectDate, onRound, header, feedback, local: personalLocal, onNavigate, perform, workspaceName, onGuide,
+  countColors = DEFAULT_CALENDAR_COUNT_COLORS }: {
+  perform?: (work: () => Promise<unknown>) => Promise<V2MutationOutcome>; onGuide?: (choreId: string, source: 'shared' | 'personal') => void; feedback?: CompletionFeedback; local?: LocalCalendarBinding; onNavigate?: PlannerCalendarProps['onNavigate']; workspaceName?: string;
   model: V2GroupScreenModel; personal?: V2PersonalPlan; month: LocalDate; selectedDate: LocalDate; busy: boolean;
   actions: V2GroupController['actions']; run: (work: () => Promise<unknown>) => Promise<void>;
   onMonth: (month: LocalDate) => void; onSelectDate: (date: LocalDate) => void;
   onRound: (occurrenceId: string, subjectId: string, anchorDate: LocalDate) => void; header?: ReactElement;
-  countColors?: CalendarCountColors; countMode?: CalendarCountDisplayMode;
+  countColors?: CalendarCountColors;
   privateOverlay?: V2PrivateOverlayState; privateSource?: V2PrivateTaskSource;
 }) {
+  const local = useGroupCalendar(personalLocal, model, actions, perform, workspaceName ?? '共有グループ');
   const projection = v2CalendarProjection(model, personal, feedback?.values);
   const privateOverlay = privateOverlayForViewer(privateValue, model.viewerUserId);
   const privateCounts = privateOverlayPendingCounts(privateOverlay?.status === 'ready' ? privateOverlay : undefined, feedback?.values);
@@ -47,8 +51,8 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
   return <PlannerCalendar today={model.plan.range.asOfDate} timeZone={model.plan.timeZone} selectedDate={selectedDate} local={local} busy={busy} workspaceName={workspaceName}
     repeatReturnTo="group" onSelectDate={onSelectDate} onMonth={onMonth} monthLoaded={target => { const grid = v2CalendarMonth(target); return loaded(grid.from) && loaded(grid.through) && Boolean(wasteLoaded(grid.from) && wasteLoaded(grid.through))
       && (privateOverlay?.status !== 'ready' || Boolean(privateReady(grid.from) && privateReady(grid.through))); }}
-    onNavigate={onNavigate} footer={onNavigate ? <CalendarFooter onNavigate={onNavigate} /> : undefined}
-    notice={header} countColors={countColors} countMode={countMode}
+    onNavigate={onNavigate}
+    notice={<View>{header}<SharedCalendarConflicts model={model} actions={actions} busy={busy} run={run} /></View>} countColors={countColors}
     wasteSchedules={model.waste?.schedules} hiddenWasteKeys={model.waste?.hiddenKeys}
     dayInfo={date => {
       const shared = loaded(date) ? projection.byDate.get(date) ?? [] : [];
@@ -60,7 +64,7 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
           + privateRows.filter(row => !(feedback?.values.get(row.key) ?? row.completed)).reduce((sum, row) => sum + (row.chore.estimatedMinutes ?? 0), 0) };
     }}
     existingChores={model.plan.occurrences.flatMap(round => round.subjects.filter(subject => subject.required).map(subject => ({ id: subject.id,
-      name: chores.get(round.choreId)?.name ?? '共有家事', minutes: chores.get(round.choreId)?.estimatedMinutes, onOpen: () => onRound(round.id, subject.id, round.anchorDate) }))).filter((row, i, all) => all.findIndex(other => other.name === row.name) === i)}
+      name: chores.get(round.choreId)?.name ?? '共有家事', minutes: chores.get(round.choreId)?.estimatedMinutes, onOpen: () => onGuide ? onGuide(round.choreId, 'shared') : onRound(round.id, subject.id, round.anchorDate) }))).filter((row, i, all) => all.findIndex(other => other.name === row.name) === i)}
     renderWaste={date => <View style={{ paddingHorizontal: 6, gap: 4 }}>{wasteLoaded(date) ? model.waste!.occurrences.filter(entry => entry.occurrence.date === date).map(entry => <V2WasteOccurrence key={entry.key} entry={entry} compact busy={busy} actions={actions} run={run} />)
       : <Text style={caption}>この日の共有収集日は未取得です。</Text>}</View>}
     renderChores={date => <Animated.FlatList testID="calendar-chore-list" data={entriesFor(date)} scrollEnabled={false} itemLayoutAnimation={LinearTransition.duration(240)} keyExtractor={entry => entry.key} initialNumToRender={8}
@@ -71,8 +75,9 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
         {model.waste?.rows.some(row => !row.deleted && row.needsReview) ? <Text style={caption}>確認が必要な収集ルールは共有のゴミ収集日で確認できます。</Text> : null}
       </View>}
       ListEmptyComponent={loaded(date) && !busy ? <Card><Text style={caption}>この日の共有家事はありません。</Text></Card> : undefined}
-      renderItem={({ item }) => item.source === 'personal' ? <V2PrivateTaskCard row={item.row} today={privateOverlay?.status === 'ready' ? privateOverlay.today : undefined} source={privateSource} busy={busy} run={run} feedback={feedback} />
-        : <V2RoundCard model={model} round={item.entry.round} subject={item.entry.subject} recommendation={item.entry.recommendation} actions={actions} busy={busy} run={run} feedback={feedback} displayDate={date}
-          onOpen={() => onRound(item.entry.round.id, item.entry.subject.id, item.entry.round.anchorDate)} />} />}
+      renderItem={({ item }) => item.source === 'personal' ? <V2PrivateTaskCard row={item.row} today={privateOverlay?.status === 'ready' ? privateOverlay.today : undefined} source={privateSource} busy={busy} run={run} feedback={feedback} mixedSources
+        onOpen={onGuide ? () => onGuide(item.row.chore.id, 'personal') : undefined} />
+        : <V2RoundCard model={model} round={item.entry.round} subject={item.entry.subject} recommendation={item.entry.recommendation} actions={actions} busy={busy} run={run} feedback={feedback}
+          onOpen={() => onGuide ? onGuide(item.entry.round.choreId, 'shared') : onRound(item.entry.round.id, item.entry.subject.id, item.entry.round.anchorDate)} />} />}
   />;
 }

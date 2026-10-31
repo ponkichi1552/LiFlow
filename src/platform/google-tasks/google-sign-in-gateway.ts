@@ -5,6 +5,7 @@ import { GOOGLE_TASKS_SCOPE } from './google-tasks-api';
 import { CalendarPermissionRequiredError, GOOGLE_CALENDAR_FREEBUSY_SCOPE } from '@/features/google-sync/calendar-availability';
 import { authorizeCalendarAvailability } from '@/features/google-sync/calendar-authorization';
 import { GoogleAccountMismatchError } from '@/features/google-sync/account-binding';
+import { GOOGLE_CALENDAR_EVENT_SCOPES } from '../google-calendar/calendar-api';
 
 export class GoogleOAuthConfigurationError extends Error {
   constructor() {
@@ -237,6 +238,36 @@ async function authorizeSelectedCalendarAccount(requireTasks: boolean, expectedS
   });
   if ((await getCurrentGoogleUser(module))?.user.id !== current.user.id) throw new GoogleAccountMismatchError();
 }
+
+/** Explicit Calendar event consent reuses the selected native Google identity. */
+export async function authorizeGoogleCalendarEvents(expectedSubject?: string): Promise<{ subject: string; label: string }> {
+  if (AppState.currentState !== 'active') throw new CalendarPermissionRequiredError();
+  let module = await loadGoogleSignIn(); let user = await getCurrentGoogleUser(module);
+  if (!user) { module = await signInForUserAction(); user = await getCurrentGoogleUser(module); }
+  if (!user) throw new GoogleSignInRequiredError();
+  if (expectedSubject && user.user.id !== expectedSubject) throw new GoogleAccountMismatchError();
+  const subject = user.user.id;
+  if (GOOGLE_CALENDAR_EVENT_SCOPES.some(scope => !user!.scopes.includes(scope))) {
+    await authStep('request-calendar-events', () => module.GoogleOneTapSignIn.requestScopes([...GOOGLE_CALENDAR_EVENT_SCOPES]));
+  }
+  const after = await getCurrentGoogleUser(module);
+  if (after?.user.id !== subject) throw new GoogleAccountMismatchError();
+  if (GOOGLE_CALENDAR_EVENT_SCOPES.some(scope => !after.scopes.includes(scope))) throw new CalendarPermissionRequiredError();
+  return { subject, label: after.user.email || after.user.name || 'Googleアカウント' };
+}
+
+/** Background-safe. It never presents sign-in or requests an additional scope. */
+export async function getGoogleCalendarEventsAccessToken(expectedSubject: string): Promise<string> {
+  const module = await loadGoogleSignIn(); const user = await getCurrentGoogleUser(module);
+  if (!user || !expectedSubject || user.user.id !== expectedSubject) throw new GoogleAccountMismatchError();
+  if (GOOGLE_CALENDAR_EVENT_SCOPES.some(scope => !user.scopes.includes(scope))) throw new CalendarPermissionRequiredError();
+  const token = await authStep('get-calendar-events-token', () => module.GoogleOneTapSignIn.getTokens());
+  const after = await getCurrentGoogleUser(module);
+  if (after?.user.id !== expectedSubject) throw new GoogleAccountMismatchError();
+  if (GOOGLE_CALENDAR_EVENT_SCOPES.some(scope => !after.scopes.includes(scope))) throw new CalendarPermissionRequiredError();
+  return token.accessToken;
+}
+
 
 /** Non-interactive: no requestScopes/createAccount/presentExplicitSignIn fallback. */
 export async function getGoogleCalendarAccessToken(expectedSubject?: string): Promise<string> {

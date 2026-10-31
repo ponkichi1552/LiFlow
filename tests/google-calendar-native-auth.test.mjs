@@ -8,7 +8,7 @@ const accountBinding = await import('../src/features/google-sync/account-binding
 const tasksScope = 'https://www.googleapis.com/auth/tasks';
 const calendarScope = availability.GOOGLE_CALENDAR_FREEBUSY_SCOPE;
 
-function harness(platform, { scopes = [tasksScope, calendarScope], cold = false, state = 'active', deny = false } = {}) {
+function harness(platform, { scopes = [tasksScope, calendarScope], cold = false, state = 'active', deny = false, expectedScopes = [calendarScope] } = {}) {
   const freshToken = `synthetic.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url')}.synthetic`;
   const events = []; let user = cold ? null : { scopes: [...scopes], user: { id: 'fixture-user' }, idToken: freshToken };
   const sdk = {
@@ -17,7 +17,7 @@ function harness(platform, { scopes = [tasksScope, calendarScope], cold = false,
     signIn: async () => { events.push('restore'); user = { scopes: [...scopes], user: { id: 'fixture-user' }, idToken: freshToken }; return { type: 'success', data: user }; },
     getTokens: async () => { events.push('tokens'); return { accessToken: 'fixture-access-token' }; },
     requestScopes: async (requested) => {
-      events.push('consent'); assert.deepEqual(requested, [calendarScope]);
+      events.push('consent'); assert.deepEqual(requested, expectedScopes);
       if (deny) return {};
       user = { ...user, scopes: [...new Set([...user.scopes, ...requested])] };
       return { accessToken: 'fixture-access-token' };
@@ -194,3 +194,26 @@ test('Android missing saved session never attempts the potentially interactive s
   assert.equal(h.events.includes('restore'), false);
   assert.equal(h.events.includes('consent'), false);
 });
+
+for (const platform of ['ios', 'android']) {
+  const eventScopes = ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'];
+  test(`${platform} Calendar event consent reuses the selected identity and background tokens never request new scopes`, async () => {
+    const f = harness(platform, { scopes: [], expectedScopes: eventScopes });
+    assert.equal((await f.gateway.authorizeGoogleCalendarEvents('fixture-user')).subject, 'fixture-user');
+    assert.equal(f.events.filter(event => event === 'consent').length, 1);
+    f.appState.currentState = 'background'; const before = f.events.filter(event => event === 'consent').length;
+    assert.equal(await f.gateway.getGoogleCalendarEventsAccessToken('fixture-user'), 'fixture-access-token');
+    f.setScopes([tasksScope]); await assert.rejects(f.gateway.getGoogleCalendarEventsAccessToken('fixture-user'));
+    assert.equal(f.events.filter(event => event === 'consent').length, before);
+    await assert.rejects(f.gateway.authorizeGoogleCalendarEvents('fixture-user'));
+  });
+  test(`${platform} Calendar event token rejects account or permission substitution during native refresh`, async () => {
+    const f = harness(platform, { scopes: eventScopes });
+    f.sdk.getTokens = async () => { f.changeAccount('substituted'); return { accessToken: 'wrong-account-token' }; };
+    await assert.rejects(f.gateway.getGoogleCalendarEventsAccessToken('fixture-user'));
+    const revoked = harness(platform, { scopes: eventScopes });
+    revoked.sdk.getTokens = async () => { revoked.setScopes([]); return { accessToken: 'missing-calendar-token' }; };
+    await assert.rejects(revoked.gateway.getGoogleCalendarEventsAccessToken('fixture-user'));
+    assert.equal(revoked.events.includes('consent'), false);
+  });
+}

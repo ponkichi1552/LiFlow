@@ -9,6 +9,37 @@ service cloud.firestore {
       return signedIn() && request.auth.uid in g.memberIds && !(request.auth.uid in g.revokedUserIds) && !g.closed;
     }
     function ownerOf(g) { return memberOf(g) && request.auth.uid == g.ownerUserId; }
+    function membershipPath(userId) { return /databases/$(database)/documents/sharingUsers/$(userId)/memberships/current; }
+    function liveMember(groupId, userId) {
+      let g = group(groupId);
+      return userId in g.memberIds && !(userId in g.revokedUserIds) && !g.closed;
+    }
+    function liveMemberAfter(groupId, userId) {
+      let g = afterGroup(groupId);
+      return userId in g.memberIds && !(userId in g.revokedUserIds) && !g.closed;
+    }
+    function heldMembership(m, userId) {
+      return liveMember(m.groupId, userId) || m.invitationId != null
+        && exists(/databases/$(database)/documents/sharingInvites/$(m.invitationId))
+        && get(/databases/$(database)/documents/sharingInvites/$(m.invitationId)).data.status == 'open'
+        && get(/databases/$(database)/documents/sharingInvites/$(m.invitationId)).data.expiresAt > request.time
+        && exists(/databases/$(database)/documents/sharingInvites/$(m.invitationId)/requests/$(userId));
+    }
+    function heldMembershipAfter(m, userId) {
+      return liveMemberAfter(m.groupId, userId) || m.invitationId != null
+        && existsAfter(/databases/$(database)/documents/sharingInvites/$(m.invitationId))
+        && getAfter(/databases/$(database)/documents/sharingInvites/$(m.invitationId)).data.status == 'open'
+        && getAfter(/databases/$(database)/documents/sharingInvites/$(m.invitationId)).data.expiresAt > request.time
+        && existsAfter(/databases/$(database)/documents/sharingInvites/$(m.invitationId)/requests/$(userId));
+    }
+    function membershipMatches(groupId, userId) {
+      let m = getAfter(membershipPath(userId)).data;
+      return m.groupId == groupId && m.invitationId == null;
+    }
+    function singleAddedMembership(groupId, old, next) {
+      let added = next.memberIds.removeAll(old.memberIds);
+      return added.size() == 0 || added.size() == 1 && membershipMatches(groupId, added[0]);
+    }
     function safeId(id) { return id is string && id.matches('^[A-Za-z0-9_.:@-]{1,200}$'); }
     function validRoot(g) {
       return g.keys().hasOnly(['schemaVersion', 'ownerUserId', 'ownerDeviceId', 'memberIds', 'deviceOwners',
@@ -70,6 +101,7 @@ service cloud.firestore {
       allow create: if signedIn() && safeId(groupId) && validRoot(request.resource.data)
         && request.resource.data.ownerUserId == request.auth.uid
         && request.resource.data.memberIds == [request.auth.uid]
+        && membershipMatches(groupId, request.auth.uid)
         && request.resource.data.deviceOwners.size() == 1
         && request.resource.data.keyVersion == 1 && request.resource.data.headSequence == 0
         && request.resource.data.lastOperationId == null && request.resource.data.snapshotId == null
@@ -78,16 +110,17 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time && rosterWritten(groupId, request.resource.data);
       allow update: if validRoot(request.resource.data) && (
         // Each event and its consecutive delivery position commit together. No cursor holes.
-        (memberOf(resource.data) && !resource.data.rotationRequired && !recoveryActive(groupId, resource.data)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['headSequence', 'lastOperationId', 'updatedAt'])
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['headSequence', 'lastOperationId', 'updatedAt'])
+          && memberOf(resource.data) && !resource.data.rotationRequired && !recoveryActive(groupId, resource.data)
           && request.resource.data.headSequence == resource.data.headSequence + 1
           && getAfter(/databases/$(database)/documents/sharingGroups/$(groupId)/events/$(request.resource.data.lastOperationId)).data.uploadSequence == request.resource.data.headSequence
           && getAfter(/databases/$(database)/documents/sharingGroups/$(groupId)/events/$(request.resource.data.lastOperationId)).data.authorUserId == request.auth.uid)
-        || (ownerOf(resource.data) && (!recoveryActive(groupId, resource.data) || validRecoveryCommit(groupId, resource.data, request.resource.data))
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['schemaVersion', 'ownerUserId', 'ownerDeviceId', 'memberIds',
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['schemaVersion', 'ownerUserId', 'ownerDeviceId', 'memberIds',
             'deviceOwners', 'keyVersion', 'rosterRevision', 'rosterJson', 'revokedUserIds', 'rotationRequired', 'closed',
             'snapshotId', 'snapshotThroughSequence', 'updatedAt'])
+          && ownerOf(resource.data) && (!recoveryActive(groupId, resource.data) || validRecoveryCommit(groupId, resource.data, request.resource.data))
           && request.resource.data.keyVersion == resource.data.keyVersion + 1
+          && singleAddedMembership(groupId, resource.data, request.resource.data)
           && request.resource.data.revokedUserIds == [] && !request.resource.data.rotationRequired
           && rosterWritten(groupId, request.resource.data)
           && (request.resource.data.schemaVersion == resource.data.schemaVersion
@@ -104,12 +137,12 @@ service cloud.firestore {
           && (request.resource.data.deviceOwners.keys().toSet().difference(resource.data.deviceOwners.keys().toSet()).size() == 0
             || getAfter(/databases/$(database)/documents/sharingGroups/$(groupId)/snapshots/$(request.resource.data.snapshotId)).data.keyVersion == request.resource.data.keyVersion))
         // A non-owner can immediately revoke their own cloud access. Sending freezes until rekeyed.
-        || (memberOf(resource.data) && request.auth.uid != resource.data.ownerUserId
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revokedUserIds', 'rotationRequired', 'updatedAt'])
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revokedUserIds', 'rotationRequired', 'updatedAt'])
+          && memberOf(resource.data) && request.auth.uid != resource.data.ownerUserId
           && request.resource.data.revokedUserIds.toSet() == resource.data.revokedUserIds.toSet().union([request.auth.uid].toSet())
           && request.resource.data.rotationRequired)
-        || (ownerOf(resource.data) && !recoveryActive(groupId, resource.data)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['snapshotId', 'snapshotThroughSequence', 'updatedAt'])
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['snapshotId', 'snapshotThroughSequence', 'updatedAt'])
+          && ownerOf(resource.data) && !recoveryActive(groupId, resource.data)
           && request.resource.data.snapshotThroughSequence >= resource.data.snapshotThroughSequence
           && getAfter(/databases/$(database)/documents/sharingGroups/$(groupId)/snapshots/$(request.resource.data.snapshotId)).data.throughSequence == request.resource.data.snapshotThroughSequence)
       );
@@ -269,13 +302,26 @@ service cloud.firestore {
         allow delete: if ownerOf(group(groupId)) && resource.data.snapshotId != group(groupId).snapshotId;
       }
     }
-    match /sharingUsers/{userId}/memberships/{groupId} {
-      allow read: if signedIn() && request.auth.uid == userId;
-      allow create, update: if signedIn() && (ownerForWrite(groupId) || request.auth.uid == userId && memberOf(afterGroup(groupId)))
-        && userId in afterGroup(groupId).memberIds
-        && request.resource.data.keys().hasOnly(['groupId', 'createdAt']) && request.resource.data.groupId == groupId
-        && request.resource.data.createdAt == request.time;
-      allow delete: if signedIn() && (request.auth.uid == userId || ownerOf(group(groupId)));
+    match /sharingUsers/{userId}/memberships/current {
+      function validMembership(m) {
+        return m.keys().hasOnly(['groupId', 'invitationId', 'createdAt']) && safeId(m.groupId)
+          && m.createdAt == request.time
+          && (m.invitationId == null && liveMemberAfter(m.groupId, userId)
+            || safeId(m.invitationId)
+              && getAfter(/databases/$(database)/documents/sharingInvites/$(m.invitationId)).data.groupId == m.groupId
+              && getAfter(/databases/$(database)/documents/sharingInvites/$(m.invitationId)).data.status == 'open'
+              && getAfter(/databases/$(database)/documents/sharingInvites/$(m.invitationId)).data.expiresAt > request.time
+              && getAfter(/databases/$(database)/documents/sharingInvites/$(m.invitationId)/requests/$(userId)).data.userId == userId);
+      }
+      allow get: if signedIn() && (request.auth.uid == userId || ownerOf(group(resource.data.groupId)));
+      allow list: if false;
+      allow create: if signedIn() && validMembership(request.resource.data)
+        && request.auth.uid == userId;
+      allow update: if signedIn() && validMembership(request.resource.data)
+        && (request.auth.uid == userId && (resource.data.groupId == request.resource.data.groupId || !heldMembership(resource.data, userId))
+          || resource.data.groupId == request.resource.data.groupId && ownerOf(group(resource.data.groupId)));
+      allow delete: if signedIn() && !heldMembershipAfter(resource.data, userId)
+        && (request.auth.uid == userId || ownerOf(group(resource.data.groupId)));
     }
     match /sharingInvites/{inviteId} {
       allow get: if signedIn();
@@ -301,6 +347,7 @@ service cloud.firestore {
         allow create: if signedIn() && request.auth.uid == userId && invitation().status == 'open'
           && invitation().expiresAt > request.time && !group(invitation().groupId).rotationRequired
           && request.resource.data.keys().hasOnly(['userId', 'deviceId', 'requestJson', 'createdAt'])
+          && getAfter(membershipPath(userId)).data.groupId == invitation().groupId
           && request.resource.data.userId == userId && safeId(request.resource.data.deviceId)
           && request.resource.data.requestJson is string && request.resource.data.requestJson.size() <= 15000
           && request.resource.data.createdAt == request.time;

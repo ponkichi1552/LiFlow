@@ -11,7 +11,7 @@ import type { Weekday } from '../../domain/shared/types';
 import { openPrivateCalendarRuntime } from '../../platform/sharing/private-calendar-runtime';
 
 export default function PersonalPreferencesRoute() {
-  const { ready, userId } = useWorkspace(); const { snapshot } = usePlannerData(); const router = useRouter(); const latest = useRef(snapshot?.settings);
+  const { ready, userId } = useWorkspace(); const { snapshot } = usePlannerData({ personal: true }); const router = useRouter(); const latest = useRef(snapshot?.settings);
   useLayoutEffect(() => { latest.current = snapshot?.settings; }, [snapshot]);
   const load = useCallback(async () => {
     if (!userId) throw new Error('本人用アカウントを確認してください。'); const settings = latest.current;
@@ -24,5 +24,5 @@ export default function PersonalPreferencesRoute() {
   }, [userId, router]);
   if (!ready || !userId) return <Page><Card><Text style={typography.body}>共有用アカウントでログインして、本人の設定を開けます。</Text>
     <AppButton title="共有用アカウントへ" onPress={() => router.replace('/sharing')} /></Card></Page>;
-  return <PrivatePreferenceScreen key={userId} load={load} onBack={() => router.canGoBack() ? router.back() : router.replace('/sharing')} />;
+  return <PrivatePreferenceScreen syncOnly key={userId} load={load} onBack={() => router.canGoBack() ? router.back() : router.replace('/settings')} />;
 }

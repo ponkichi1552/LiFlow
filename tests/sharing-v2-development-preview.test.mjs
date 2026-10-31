@@ -132,7 +132,7 @@ for (const platform of ['ios', 'android']) {
       const round = after.plan.occurrences.find((entry) => entry.choreId === floor.id && entry.anchorDate === '2026-10-27');
       assert.equal(round.subjects[0].suggestedDate, '2026-10-27');
       assert.equal(after.personal.recommendations.find((entry) => entry.occurrenceId === round.id).date, '2026-10-28');
-      assert.ok(f.screen.text().includes('フローリングを掃除する')); assert.ok(f.screen.text().includes('推奨日：10月28日'));
+      assert.ok(f.screen.text().includes('フローリングを掃除する')); assert.equal(f.screen.text().includes('推奨日：'), false);
       assert.equal(after.pendingChanges, before.pendingChanges); leave();
     } finally { f.leave(); await f.preview.close(); }
   });
@@ -144,7 +144,7 @@ for (const platform of ['ios', 'android']) {
       assert.equal(f.screen.nodes().filter((node) => node.props.accessibilityRole === 'checkbox').length, 2);
       await f.screen.press('期限を過ぎた家事（1件）を開く'); assert.equal(f.screen.nodes().filter((node) => node.props.accessibilityRole === 'checkbox').length, 3);
       await f.screen.press('期限を過ぎた家事（1件）を閉じる'); assert.equal(f.screen.nodes().filter((node) => node.props.accessibilityRole === 'checkbox').length, 2);
-      await f.screen.press('引き受ける');
+      await f.screen.press('担う');
       let model = await f.preview.readModel(); const today = model.plan.range.asOfDate;
       const round = model.plan.occurrences.find((entry) => entry.anchorDate === today && entry.configuration.policy.completion === 'one');
       assert.deepEqual(round.assigneeIds, [f.preview.userId]);

@@ -47,8 +47,8 @@ TaskManager.defineTask(GOOGLE_SYNC_BACKGROUND_TASK, async ({ error }) => {
   } catch { failed = true; domainFailed = true; }
   await record('privateCalendar', domainFailed); domainFailed = false;
   try {
-    const { syncKnownSharingWorkspaces } = await import('@/platform/sharing/workspaces');
-    await syncKnownSharingWorkspaces(30_000);
+    const { syncSharingWorkspace } = await import('@/platform/sharing/workspaces');
+    await syncSharingWorkspace(30_000);
   } catch { failed = true; domainFailed = true; }
   await record('sharing', domainFailed);
   if (runId !== undefined) await audit!.finish(runId, Date.now(), failed).catch(() => undefined);

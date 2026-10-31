@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
-import { collection, doc, getDocFromServer, getDocsFromServer, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDocFromServer, getDocsFromServer, serverTimestamp, setDoc, writeBatch } from 'firebase/firestore';
 import { createSharingCloud } from '../src/platform/sharing/firestore-cloud.ts';
 import { createDeviceIdentity, decryptAuthenticatedSharedOperation, encryptSharedOperation, signSharedOperation,
   unwrapGroupKey, wrapGroupKey } from '../src/features/sharing/crypto.ts';
@@ -39,21 +39,19 @@ function operation(identity, sequence = 1, overrides = {}) {
 }
 const refs = (store) => doc(store.firestore, 'sharingGroups', 'group-test');
 
-test('membership discovery paginates beyond 100 groups and removal checks read the exact group rather than a truncated list', async () => {
-  const h = await fixture(); const ids = Array.from({ length: 250 }, (_, i) => `group-${String(i).padStart(3, '0')}`);
-  await env.withSecurityRulesDisabled(async (context) => {
-    await Promise.all(ids.map((id) => setDoc(doc(context.firestore(), 'sharingUsers', 'owner', 'memberships', id), { groupId: id, createdAt: serverTimestamp() })));
-  });
-  assert.deepEqual(await h.store.cloud.listMemberships(), [...ids, 'group-test']);
-  assert.equal(await h.store.cloud.hasMembership('group-249'), true);
-  assert.equal(await h.store.cloud.hasMembership('absent-group'), false);
-  assert.equal(await client('other-user').cloud.hasMembership('group-249'), false);
+test('membership discovery reads one group and never enumerates historical group indexes', async () => {
+  const h = await fixture();
+  await env.withSecurityRulesDisabled(async context => setDoc(doc(context.firestore(), 'sharingUsers', 'owner', 'memberships', 'historical'), { groupId: 'historical', createdAt: serverTimestamp() }));
+  assert.equal(await h.store.cloud.readMembership(), 'group-test');
+  assert.equal(await h.store.cloud.hasMembership('group-test'), true);
+  assert.equal(await h.store.cloud.hasMembership('historical'), false);
+  assert.equal(await client('other-user').cloud.hasMembership('group-test'), false);
   h.store.switch('other-user'); await assert.rejects(h.store.cloud.hasMembership('group-test'), /切り替わり/);
 });
 
 test('cloud transport bounds 250 encrypted edits into 100/100/50 pages and retries a create or lost upload response without duplicates', async () => {
   const h = await fixture(); await h.store.cloud.createGroup(h.roster, h.wrapped);
-  assert.deepEqual(await h.store.cloud.listMemberships(), ['group-test']);
+  assert.equal(await h.store.cloud.readMembership(), 'group-test');
   for (let index = 1; index <= 250; index++) {
     const envelope = await encryptSharedOperation(crypto, operation(h.owner, index), h.key, h.owner);
     const first = await h.store.cloud.upload(envelope); assert.equal(first.uploadSequence, index);
@@ -97,7 +95,7 @@ async function approvedFixture() {
 test('a new device is explicitly approved with a fresh key and restores existing encrypted data from the same atomic membership snapshot', async () => {
   const h = await approvedFixture(); const group = await h.memberStore.cloud.readGroup('group-test');
   assert.equal(group.group.keyVersion, 2); assert.equal(group.group.snapshotId, 'join-snapshot');
-  assert.deepEqual(await h.memberStore.cloud.listMemberships(), ['group-test']);
+  assert.equal(await h.memberStore.cloud.readMembership(), 'group-test');
   const pin = verifyPinnedSharedRoster(await h.memberStore.cloud.readRoster('group-test', 1), h.link.invitation.body.pin);
   const archive = verifySharedRosterArchive(pin, [pin, await h.memberStore.cloud.readRoster('group-test', 2)]);
   assert.equal(sharedRosterDigest(archive.at(-1)), sharedRosterDigest(h.next));
@@ -156,8 +154,10 @@ test('a malformed join request is quarantined instead of preventing a valid fami
   const h = await fixture(); const link = await createSharedInvitation(crypto, h.roster, h.owner, 'invite-test', Date.now());
   await h.store.cloud.createInvitation(link.invitation);
   const bad = client('malformed');
-  await setDoc(doc(bad.firestore, 'sharingInvites', 'invite-test', 'requests', 'malformed'),
-    { userId: 'malformed', deviceId: 'not-a-real-public-key', requestJson: '{broken', createdAt: serverTimestamp() });
+  const malformed = writeBatch(bad.firestore);
+  malformed.set(doc(bad.firestore, 'sharingUsers', 'malformed', 'memberships', 'current'), { groupId: 'group-test', invitationId: 'invite-test', createdAt: serverTimestamp() });
+  malformed.set(doc(bad.firestore, 'sharingInvites', 'invite-test', 'requests', 'malformed'), { userId: 'malformed', deviceId: 'not-a-real-public-key', requestJson: '{broken', createdAt: serverTimestamp() });
+  await malformed.commit();
   const member = await createDeviceIdentity(crypto); const good = client('member');
   await good.cloud.submitJoinRequest(link.invitation, createSharedJoinRequest(link, 'member', member, Date.now()));
   const requests = await h.store.cloud.listJoinRequests(link.invitation);
@@ -168,4 +168,50 @@ test('a malformed join request is quarantined instead of preventing a valid fami
   assert.equal((await h.store.cloud.readInvitation('invite-test')).status, 'revoked');
   await assert.rejects(good.cloud.submitJoinRequest(link.invitation, requests.requests[0]), /取り消され/);
   assert.equal((await getDocFromServer(refs(h.store))).data().keyVersion, 1);
+});
+
+test('simultaneous group creation from two devices commits exactly one account membership', async () => {
+  const first = client('owner'), second = client('owner');
+  const a = await createDeviceIdentity(crypto), b = await createDeviceIdentity(crypto); const key = await crypto.randomBytes(32);
+  const inputs = await Promise.all([[first, a, 'house-a'], [second, b, 'house-b']].map(async ([store, identity, groupId]) => ({ store,
+    roster: createSharedRoster(groupId, 'owner', identity), key: await wrapGroupKey(crypto, groupId, 1, key, identity, identity, 'owner') })));
+  const results = await Promise.allSettled(inputs.map(input => input.store.cloud.createGroup(input.roster, input.key)));
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  const winner = inputs[results.findIndex(result => result.status === 'fulfilled')].roster.body.groupId;
+  assert.equal(await first.cloud.readMembership(), winner);
+  await env.withSecurityRulesDisabled(async context => {
+    const groups = await getDocsFromServer(collection(context.firestore(), 'sharingGroups')); assert.equal(groups.size, 1);
+  });
+});
+
+test('pending membership blocks another invitation and creation until its request is cancelled', async () => {
+  const h = await fixture();
+  const anotherOwner = await createDeviceIdentity(crypto), key = await crypto.randomBytes(32), store = client('other-owner');
+  const roster = createSharedRoster('other-house', 'other-owner', anotherOwner);
+  await store.cloud.createGroup(roster, await wrapGroupKey(crypto, 'other-house', 1, key, anotherOwner, anotherOwner, 'other-owner'));
+  const linkA = await createSharedInvitation(crypto, h.roster, h.owner, 'single-a', Date.now());
+  const linkB = await createSharedInvitation(crypto, roster, anotherOwner, 'single-b', Date.now());
+  await h.store.cloud.createInvitation(linkA.invitation); await store.cloud.createInvitation(linkB.invitation);
+  const member = await createDeviceIdentity(crypto), memberStore = client('member');
+  const a = createSharedJoinRequest(linkA, 'member', member, Date.now()), b = createSharedJoinRequest(linkB, 'member', member, Date.now());
+  const results = await Promise.allSettled([memberStore.cloud.submitJoinRequest(linkA.invitation, a), memberStore.cloud.submitJoinRequest(linkB.invitation, b)]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  const accepted = results[0].status === 'fulfilled' ? [linkA, a, linkB, b] : [linkB, b, linkA, a];
+  const own = createSharedRoster('member-created-house', 'member', member);
+  await assert.rejects(memberStore.cloud.createGroup(own, await wrapGroupKey(crypto, own.body.groupId, 1, key, member, member, 'member')));
+  assert.equal(await memberStore.cloud.cancelOwnJoinRequest(accepted[0].invitation, accepted[1]), true);
+  assert.equal(await memberStore.cloud.readMembership(), null);
+  await memberStore.cloud.submitJoinRequest(accepted[2].invitation, accepted[3]);
+  assert.equal(await memberStore.cloud.readMembership(), accepted[2].invitation.body.groupId);
+});
+
+test('an existing displayed group adopts the singleton index without changing its roster or event history', async () => {
+  const h = await fixture(); const before = await h.store.cloud.readGroup('group-test');
+  await env.withSecurityRulesDisabled(context => deleteDoc(doc(context.firestore(), 'sharingUsers', 'owner', 'memberships', 'current')));
+  assert.equal(await h.store.cloud.readMembership(), null);
+  assert.equal(await h.store.cloud.hasMembership('group-test'), true, 'a missing old index cannot prove removal');
+  await h.store.cloud.bindMembership('group-test'); await h.store.cloud.bindMembership('group-test');
+  assert.equal(await h.store.cloud.readMembership(), 'group-test');
+  assert.deepEqual(await h.store.cloud.readGroup('group-test'), before);
+  await assert.rejects(h.store.cloud.bindMembership('unrelated-group'));
 });

@@ -24,7 +24,7 @@ import { createV2ReminderRuntime } from '../../src/features/sharing/v2/reminder-
 import { addDays } from '../../src/domain/scheduling/local-date.ts';
 
 /** Real signatures, event repository and SQLite; only native handles/account storage/cloud I/O are injected. */
-export async function workspaceHarness({ pending = false, version = 2, cloud: overrides = {}, deferWorkspaceTimers = false, privateCalendarNeeded = false } = {}) {
+export async function workspaceHarness({ pending = false, version = 2, cloud: overrides = {}, deferWorkspaceTimers = false, privateCalendarNeeded = false, initiallyEmpty = false } = {}) {
   const handles = []; const calls = []; const cloudOptions = []; const reminderCalls = []; const taskCalls = []; const taskControl = { revision: 0, label: null, state: null }; let ordinal = 0;
   const create = () => { const h = createDatabase(); let closed = false;
     h.database.closeAsync = async () => { if (!closed) { closed = true; h.connection.close(); } }; handles.push(h); return h; };
@@ -37,9 +37,9 @@ export async function workspaceHarness({ pending = false, version = 2, cloud: ov
   const record = { userId, groupId: initial.body.groupId, displayName: '登録した共有グループ', status: pending ? 'joining' : 'creating',
     anchor: link?.invitation.body.pin ?? initial, rosterArchive: pending ? [] : [initial], createdAt: new Date().toISOString(), lastSuccessfulSyncAt: null, lastErrorCode: null,
     ...(pending ? { join: { invitation: link.invitation, request } } : { creation: { wrappedKey: {}, kind: 'roommates', timeZone: 'Asia/Tokyo', anchorDate: '2026-10-28', ownerDisplayName: '自分' } }) };
-  await registry.saveSharingWorkspace(index.database, record);
+  if (!initiallyEmpty) await registry.saveSharingWorkspace(index.database, record);
   const cloud = { submitJoinRequest: async () => { calls.push('join'); }, readInvitation: async () => ({ status: 'open' }),
-    readGroup: async () => { throw Object.assign(new Error('waiting for approval'), { code: 'permission-denied' }); },
+    readMembership: async () => null, bindMembership: async () => {}, readGroup: async () => { throw Object.assign(new Error('waiting for approval'), { code: 'permission-denied' }); },
     createGroup: async () => { calls.push('create-cloud'); }, readRoster: async () => initial,
     watch: () => () => {}, ...overrides };
   const api = loadNativeModule('src/platform/sharing/workspaces.ts', {
@@ -53,7 +53,7 @@ export async function workspaceHarness({ pending = false, version = 2, cloud: ov
       sharingSecureVault: { getItem: async (key) => vault.get(key) ?? null, setItem: async (key, value) => vault.set(key, value), removeItem: async (key) => vault.delete(key) } },
     './database-location.ts': { sharingDatabaseDirectory: async () => '/protected', openSharingDatabase: async () => { calls.push('legacy-open'); throw new Error('v2 must not open a legacy database'); },
       openSharingV2Database: async (...scope) => { calls.push(['v2-open', ...scope]); return create().database; } },
-    './firestore-cloud.ts': { createSharingCloud: (_store, _uid, _guard, options) => { cloudOptions.push(options); cloud.ownerRecoveryEnabled = options.ownerRecoveryEnabled; return cloud; } }, '../../features/sharing/roster.ts': rosters,
+    './firestore-cloud.ts': { createSharingCloud: (_store, _uid, _guard, options) => { cloudOptions.push(options); cloud.ownerRecoveryEnabled = options?.ownerRecoveryEnabled ?? false; return cloud; } }, '../../features/sharing/roster.ts': rosters,
     '../../features/sharing/rollout.ts': rollout,
     '../../features/sharing/v2/live-legacy-migration.ts': liveMigration,
     '../../features/sharing/operations.ts': operations, '../../features/sharing/crypto.ts': keys,
@@ -84,6 +84,7 @@ export async function workspaceHarness({ pending = false, version = 2, cloud: ov
       async clearInactiveV2Reminders(_allowed, guard = () => {}) { await guard(); reminderCalls.push('clear-inactive'); },
       async clearV2RemindersForScope() { reminderCalls.push('clear-scope'); },
     },
+    './v2-google-calendar': { createNativeV2GoogleCalendar: () => ({ synchronize: async () => ({ kind: 'skipped', sent: 0 }) }) },
     './v2-google-tasks': { createNativeV2GoogleTasks(input) {
       taskCalls.push('factory');
       return { async readControl() { await input.assertAccess(); return structuredClone(taskControl); },

@@ -1,3 +1,8 @@
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { ChoreLibrary } from '@/features/chores/chore-library';
+import { ChorePlanToggle } from '@/features/chores/chore-plan-toggle';
+import { setChoresEnabled } from '@/platform/storage/repository';
+import { WorkspaceTab } from '@/components/workspace-tab';
 import { Chevron } from '../../components/chevron';
 import { FormTextInput as TextInput } from '../../components/form-text-input';
 import { router, useLocalSearchParams, useNavigation } from 'expo-router';
@@ -6,16 +11,19 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { GuideChapterActions } from '@/features/chores/guide-chapter-actions';
 import { ChoreBook } from '@/components/chore-book';
-import { ChoreMeta } from '@/components/chore-meta';
-import { ProcedureStep } from '@/components/procedure-step';
+import { ChoreGuide } from '@/features/chores/chore-guide';
 import { groupChores } from '@/domain/chores/chore-groups';
 import { BackButton, Card, Page, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
-import { ChoreSourceLinks } from '@/components/chore-source-links';
 import type { ChoreDefinition } from '@/domain/chores/types';
 import { PlannerLoadState } from '@/components/planner-load-state';
 import { usePlannerData } from '@/hooks/use-planner-data';
 
 export default function ChoreGuideScreen() {
+  const params = useLocalSearchParams<{ choreId?: string }>();
+  return params.choreId ? <PersonalChoreGuideScreen /> : <WorkspaceTab view="chores"><PersonalChoreGuideScreen /></WorkspaceTab>;
+}
+
+function PersonalChoreGuideScreen() {
   const params = useLocalSearchParams<{ choreId?: string; returnTo?: 'home' | 'calendar'; source?: string }>();
   const personalSource = params.source === 'personal';
   const requestedId = Array.isArray(params.choreId) ? params.choreId[0] : params.choreId;
@@ -25,14 +33,12 @@ export default function ChoreGuideScreen() {
     addListener(event: 'tabPress', callback: () => void): () => void;
     setParams(params: { choreId?: string | undefined; returnTo?: 'home' | 'calendar' | undefined; source?: string | undefined }): void;
   };
-  const { snapshot, loading, error, refresh, database } = usePlannerData({ personal: personalSource });
+  const { snapshot, loading, error, refresh, database, readError } = usePlannerData({ personal: personalSource });
   const [searchText, setSearchText] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isTriviaCollectionOpen, setIsTriviaCollectionOpen] = useState(false);
   const [selectedTriviaId, setSelectedTriviaId] = useState<string | null>(null);
   useEffect(() => navigation.addListener('tabPress', () => {
     navigation.setParams({ choreId: undefined, returnTo: undefined, ...(personalSource ? { source: undefined } : {}) });
-    setSelectedCategory(null);
     setIsTriviaCollectionOpen(false);
     setSelectedTriviaId(null);
     setSearchText('');
@@ -52,32 +58,10 @@ export default function ChoreGuideScreen() {
   };
   const selectedChoreId = requestedId;
   const chores = useMemo(() => groupChores(snapshot?.chores ?? []).flatMap(([, rows]) => rows), [snapshot]);
-  const categories = useMemo(() => [...new Set(chores.map((chore) => chore.category))], [chores]);
   const triviaItems = useMemo(() => chores.flatMap((chore) =>
     (chore.trivia ?? []).map((trivia, index) => ({ id: `${chore.id}:${trivia.id || index}`, chore, trivia })),
   ), [chores]);
   const query = normalizeChoreSearchText(searchText.trim());
-  const { matchingChores, otherChores } = useMemo(() => {
-    const visibleChores = selectedCategory
-      ? chores.filter((chore) => chore.category === selectedCategory)
-      : chores;
-    if (!query) return { matchingChores: visibleChores, otherChores: [] as ChoreDefinition[] };
-
-    const ranked = visibleChores.map((chore, index) => {
-      const name = normalizeChoreSearchText(chore.name);
-      const matchIndex = name.indexOf(query);
-      return { chore, index, matchIndex };
-    });
-    const matching = ranked
-      .filter((item) => item.matchIndex >= 0)
-      .sort((left, right) => left.matchIndex - right.matchIndex || left.index - right.index)
-      .map((item) => item.chore);
-    const matchedIds = new Set(matching.map((chore) => chore.id));
-    return {
-      matchingChores: matching,
-      otherChores: visibleChores.filter((chore) => !matchedIds.has(chore.id)),
-    };
-  }, [chores, query, selectedCategory]);
 
   if (loading || !snapshot) {
     return <PlannerLoadState title="家事の説明" message="家事を読み込んでいます。" error={error} retry={refresh} />;
@@ -132,97 +116,14 @@ export default function ChoreGuideScreen() {
     );
   }
 
-  if (!selectedChoreId) {
-    return (
-      <Page>
-        {selectedCategory ? <BackButton accessibilityLabel="分類一覧に戻る" onPress={() => setSelectedCategory(null)} /> : null}
-        <ScreenHeading
-          title="家事の説明"
-          description={selectedCategory
-            ? undefined
-            : '分類を選ぶか、見出しから家事を検索してください。'}
-        />
-        {error ? <Card><Text style={styles.error}>{error}</Text></Card> : null}
-        <TextInput
-          accessibilityLabel="家事名を検索"
-          autoCapitalize="none"
-          clearButtonMode="while-editing"
-          onChangeText={setSearchText}
-          placeholder="家事の見出しで検索"
-          placeholderTextColor={palette.muted}
-          returnKeyType="search"
-          style={styles.searchInput}
-          value={searchText}
-        />
-        {chores.length > 0 ? (
-          <>
-            {!query && !selectedCategory ? (
-              <>
-                <SectionHeading title="分類を選ぶ" trailing={<Text style={styles.resultCount}>{categories.length}分類</Text>} />
-                <View style={styles.choreList}>
-                  {categories.map((category) => (
-                    <GuideCategoryRow
-                      key={category}
-                      category={category}
-                      count={chores.filter((chore) => chore.category === category).length}
-                      onPress={() => setSelectedCategory(category)}
-                    />
-                  ))}
-                </View>
-                <GuideCategoryRow
-                  category="豆知識"
-                  count={triviaItems.length}
-                  countLabel="件の豆知識"
-                  onPress={() => {
-                    setSelectedCategory(null);
-                    setSearchText('');
-                    setIsTriviaCollectionOpen(true);
-                  }}
-                />
-              </>
-            ) : (
-              <>
-                {query ? (
-                  <SectionHeading
-                    title="検索結果"
-                    trailing={<Text style={styles.resultCount}>{matchingChores.length}件</Text>}
-                  />
-                ) : (
-                  <SectionHeading
-                    title={selectedCategory ?? '家事一覧'}
-                    trailing={<Text style={styles.resultCount}>{matchingChores.length}件</Text>}
-                  />
-                )}
-                {query && matchingChores.length === 0
-                  ? <Card><Text style={styles.body}>見出しに一致する家事はありません。</Text></Card>
-                  : null}
-                <View style={styles.choreList}>
-                  {matchingChores.map((chore) => (
-                    <ChoreListRow key={chore.id} chore={chore} onPress={() => selectChoreFromList(chore.id)} />
-                  ))}
-                </View>
-                {query && otherChores.length > 0 ? (
-                  <>
-                    <SectionHeading title="ほかの家事" />
-                    <View style={styles.choreList}>
-                      {otherChores.map((chore) => (
-                        <ChoreListRow key={chore.id} chore={chore} onPress={() => selectChoreFromList(chore.id)} />
-                      ))}
-                    </View>
-                  </>
-                ) : null}
-              </>
-            )}
-          </>
-        ) : <Card><Text style={styles.body}>家事がまだ登録されていません。</Text></Card>}
-      </Page>
-    );
-  }
+  if (!selectedChoreId) return <SafeAreaView style={{ flex: 1 }} edges={['top']}><ChoreLibrary chores={chores} onOpen={selectChoreFromList}
+    header={<><ScreenHeading title="家事の説明" />{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}</>}
+    triviaCount={triviaItems.length} onTrivia={() => { setSearchText(''); setIsTriviaCollectionOpen(true); }} /></SafeAreaView>;
 
   return <ChoreBook chores={chores} selectedId={selectedChoreId} title="家事の説明" onBack={returnFromDetail} hasTabBar
     header={error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : undefined}
     renderChore={chore => <View style={{ gap: 12 }}>
-      <ChoreGuide chore={chore} mode={snapshot.settings.frequencyMode} />
+      <ChoreGuide chore={chore} mode={snapshot.settings.frequencyMode} procedureAction={<ChorePlanToggle name={chore.name} enabled={chore.enabled} retryRead={async () => { await refresh(); return !readError(); }} save={async enabled => { await setChoresEnabled(database, [chore.id], enabled); await refresh(); return { refreshed: !readError() }; }} />} />
       <GuideChapterActions choreId={chore.id} snapshot={snapshot} database={database} refresh={refresh} personalSource={personalSource} />
     </View>} />;
 
@@ -234,48 +135,6 @@ function normalizeChoreSearchText(value: string): string {
     .toLocaleLowerCase()
     .replace(/[\u30a1-\u30f6]/g, (character) =>
       String.fromCharCode(character.charCodeAt(0) - 0x60));
-}
-
-function ChoreListRow({ chore, onPress }: { chore: ChoreDefinition; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${chore.name}、${chore.category}`}
-      onPress={onPress}
-      style={({ pressed }) => [styles.choreListRow, pressed && styles.choreListRowPressed]}>
-      <View style={styles.choreListCopy}>
-        <Text style={styles.choreListName}>{chore.name}</Text>
-        <Text style={styles.choreListCategory}>{chore.category}</Text>
-      </View>
-      <Chevron />
-    </Pressable>
-  );
-}
-
-function GuideCategoryRow({
-  category,
-  count,
-  countLabel = '件の家事',
-  onPress,
-}: {
-  category: string;
-  count: number;
-  countLabel?: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${category}、${count}件`}
-      onPress={onPress}
-      style={({ pressed }) => [styles.choreListRow, pressed && styles.choreListRowPressed]}>
-      <View style={styles.choreListCopy}>
-        <Text style={styles.choreListName}>{category}</Text>
-        <Text style={styles.choreListCategory}>{count}{countLabel}</Text>
-      </View>
-      <Chevron />
-    </Pressable>
-  );
 }
 
 function TriviaListRow({ item, onPress }: {
@@ -297,50 +156,6 @@ function TriviaListRow({ item, onPress }: {
   );
 }
 
-function ChoreGuide({ chore, mode }: { chore: ChoreDefinition; mode: import('@/domain/chores/types').FrequencyMode }) {
-  return (
-    <>
-      <ScreenHeading title={chore.name} />
-      <ChoreMeta chore={chore} mode={mode} />
-      {chore.description ? <Text style={styles.body}>{chore.description}</Text> : null}
-      <Card>
-        <SectionHeading title="家事の手順" />
-        {chore.procedureSections?.length ? chore.procedureSections.map((section) => (
-          <View key={section.title} style={styles.procedureSection}>
-            <Text style={styles.procedureTitle}>{section.title}</Text>
-            {section.steps.map((step, index) => <ProcedureStep key={`${index}-${step}`} step={step} index={index} />)}
-          </View>
-        )) : chore.instructions.length > 0 ? chore.instructions.map((step, index) => (
-          <ProcedureStep key={`${index}-${step}`} step={step} index={index} />
-        )) : <Text style={styles.body}>手順はまだ登録されていません。</Text>}
-        <ChoreSourceLinks key={chore.id} sources={chore.sourceNotes} />
-      </Card>
-      <Card>
-        <SectionHeading title="必要な道具" />
-        {chore.tools.length > 0
-          ? <View style={styles.toolList}>{chore.tools.map((tool) => <Text key={tool} style={styles.toolText}>・{tool}</Text>)}</View>
-          : <Text style={styles.body}>道具は特にありません。</Text>}
-      </Card>
-      <Card style={styles.cautionCard}>
-        <Text style={styles.cautionHeading}>注意事項</Text>
-        {chore.cautions.length > 0
-          ? chore.cautions.map((caution) => <Text key={caution} style={styles.cautionText}>・{caution}</Text>)
-          : <Text style={styles.body}>注意事項はありません。</Text>}
-      </Card>
-      {chore.trivia?.length ? (
-        <Card style={styles.triviaCard}>
-          <Text style={styles.triviaHeading}>豆知識</Text>
-          {chore.trivia.map((trivia) => (
-            <View key={trivia.id} style={styles.triviaItem}>
-              <Text style={styles.triviaTitle}>{trivia.title}</Text>
-              <Text style={styles.triviaBody}>{trivia.body}</Text>
-            </View>
-          ))}
-        </Card>
-      ) : null}
-    </>
-  );
-}
 
 const styles = StyleSheet.create({
   choreList: { gap: 10 },

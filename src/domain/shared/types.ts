@@ -19,6 +19,7 @@ export interface CalendarCountColors {
   high: string;
 }
 
+/** Legacy stored values remain readable; current screens render dots only. */
 export type CalendarCountDisplayMode = 'bar' | 'dots';
 
 /** Monday = 1 through Sunday = 7, independent of the device locale. */

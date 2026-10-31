@@ -1,6 +1,6 @@
 import { collection, doc, documentId, getDocFromServer, getDocsFromServer, limit, onSnapshot, orderBy, query,
   runTransaction, serverTimestamp, startAfter, where, writeBatch } from 'firebase/firestore';
-import type { Firestore, QueryDocumentSnapshot } from 'firebase/firestore';
+import type { Firestore } from 'firebase/firestore';
 import { assertSharedIdentifier, canonicalJson } from '../../features/sharing/operations.ts';
 import { assertSharedCloudAccess, parseSharedCloudEvent, parseSharedCloudGroup, rosterCloudFields,
   SharingAccessError, SharingKeyVersionError, SharingSchedulerVersionError, SharingSnapshotRequiredError } from '../../features/sharing/cloud-contract.ts';
@@ -31,21 +31,34 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
     ...createSharingRecovery({ firestore, userId, checkAccount, reference, readGroup, recoveryEnabled }),
     ownerRecoveryEnabled: recoveryEnabled,
     readGroup,
-    async listMemberships(): Promise<string[]> {
-      const memberships: string[] = []; let cursor: QueryDocumentSnapshot | undefined;
-      do {
-        checkAccount(); const page = await getDocsFromServer(query(collection(firestore, 'sharingUsers', userId, 'memberships'),
-          orderBy(documentId()), limit(100), ...(cursor ? [startAfter(cursor)] : [])));
-        checkAccount(); memberships.push(...page.docs.map((item) => { assertSharedIdentifier(item.id); return item.id; }));
-        if (page.size < 100) return memberships;
-        cursor = page.docs.at(-1);
-      } while (cursor);
-      return memberships;
+    async readMembership(): Promise<string | null> {
+      checkAccount(); const result = await getDocFromServer(doc(firestore, 'sharingUsers', userId, 'memberships', 'current')); checkAccount();
+      if (!result.exists()) return null;
+      const value = result.data(); const groupId = value.groupId; assertSharedIdentifier(groupId);
+      if (value.invitationId !== null) {
+        assertSharedIdentifier(value.invitationId);
+        const invitation = await getDocFromServer(doc(firestore, 'sharingInvites', value.invitationId)); checkAccount();
+        if (invitation.data()?.status === 'open' && invitation.data()?.expiresAt?.toMillis() > Date.now()) return groupId;
+      }
+      try { await readGroup(groupId); return groupId; }
+      catch (error) { if ((error as { code?: string }).code === 'permission-denied') return null; throw error; }
     },
     async hasMembership(groupId: string): Promise<boolean> {
       assertSharedIdentifier(groupId); checkAccount();
-      const result = await getDocFromServer(doc(firestore, 'sharingUsers', userId, 'memberships', groupId));
-      checkAccount(); return result.exists();
+      try { await readGroup(groupId); return true; }
+      catch (error) { if ((error as { code?: string }).code === 'permission-denied') return false; throw error; }
+    },
+    /** Adopt the already displayed pre-index membership without rejoining or replacing any group data. */
+    async bindMembership(groupId: string): Promise<void> {
+      assertSharedIdentifier(groupId); checkAccount();
+      await runTransaction(firestore, async transaction => {
+        checkAccount(); const membershipRef = doc(firestore, 'sharingUsers', userId, 'memberships', 'current');
+        const old = await transaction.get(membershipRef);
+        if (old.exists() && old.data().groupId !== groupId) throw new SharingAccessError('別のグループへの所属が確定しています。参加状態を確認してください。');
+        if (old.exists() && old.data().invitationId === null) return;
+        const { group } = parseSharedCloudGroup((await transaction.get(reference(groupId))).data(), groupId); assertSharedCloudAccess(group, userId);
+        transaction.set(membershipRef, { groupId, invitationId: null, createdAt: serverTimestamp() });
+      }); checkAccount();
     },
     async createGroup(roster: VerifiedSharedRoster, wrapped: WrappedGroupKey): Promise<void> {
       checkAccount();
@@ -60,8 +73,8 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
       batch.set(doc(ref, 'rosters', '1'), { rosterJson: canonicalJson(roster), createdAt: serverTimestamp() });
       batch.set(doc(ref, 'keyEnvelopes', `1_${wrapped.recipientDeviceId}`), { userId, deviceId: wrapped.recipientDeviceId,
         keyVersion: 1, wrappedKeyJson: canonicalJson(wrapped), createdAt: serverTimestamp() });
-      batch.set(doc(firestore, 'sharingUsers', userId, 'memberships', roster.body.groupId),
-        { groupId: roster.body.groupId, createdAt: serverTimestamp() });
+      batch.set(doc(firestore, 'sharingUsers', userId, 'memberships', 'current'),
+        { groupId: roster.body.groupId, invitationId: null, createdAt: serverTimestamp() });
       try { await batch.commit(); }
       catch (error) {
         // Retrying an uncertain create must recover its exact prepared key, never replace it.

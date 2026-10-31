@@ -14,18 +14,18 @@ import { v2MemberLabels } from './member-labels';
 import { V2AutosaveFeedback } from './autosave-feedback';
 
 export function V2ChoreDetailsEditor(props: { model: V2GroupScreenModel; choreId: string; controller: V2GroupController;
-  onSaved: () => Promise<void>; onBack: () => void; onConfiguration?: () => void; onDateRights?: () => void; header?: ReactNode }) {
+  onSaved: () => Promise<void>; onBack: () => void; onConfiguration?: () => void; onDateRights?: () => void; header?: ReactNode; embedded?: boolean }) {
   const source = props.model.choreDetails.find((row) => row.choreId === props.choreId);
   if (!source) return <V2FormScrollView><View style={{ padding: 16, gap: 14 }}>{props.header}<BackButton onPress={props.onBack} />
     <Text style={styles.body}>この家事の編集情報を取得できませんでした。</Text><AppButton title="編集情報を再読込" variant="secondary" onPress={() => void props.onSaved().catch(() => undefined)} /></View></V2FormScrollView>;
   return <Details key={`${props.model.viewerUserId}:${props.model.plan.groupId}:${props.choreId}`} {...props} source={source} />;
 }
 
-function Details({ model, choreId, controller, source, onSaved, onBack, onConfiguration, onDateRights, header }: Parameters<typeof V2ChoreDetailsEditor>[0] & {
+function Details({ model, choreId, controller, source, onSaved, onBack, onConfiguration, onDateRights, header, embedded }: Parameters<typeof V2ChoreDetailsEditor>[0] & {
   source: V2GroupScreenModel['choreDetails'][number];
 }) {
   const autosave = useV2FieldAutosave({ fields: source.fields, codecs: v2ChoreDetailCodecs,
-    save: (edits) => controller.actions.patchChoreDetails(choreId, edits), onSaved });
+    save: (edits) => controller.actions.patchChoreDetails(choreId, edits), onSaved }, `details:${choreId}`);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const blocked = source.alive.kind !== 'value' || source.alive.value !== true;
   const disabled = blocked || autosave.leaving; const nameOf = v2MemberLabels(model.plan.members);
@@ -49,10 +49,10 @@ function Details({ model, choreId, controller, source, onSaved, onBack, onConfig
     .map((section, position) => position === index ? { ...section, ...patch } : section) as unknown as JsonValue);
   const panel = (key: string, title: string, children: ReactNode) => <AccordionSection title={title} expanded={expanded[key] === true}
     onToggle={() => setExpanded((value) => ({ ...value, [key]: !value[key] }))}>{children}</AccordionSection>;
-  return <V2FormScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }}>{header}
-    <BackButton disabled={autosave.leaving} onPress={() => void autosave.navigateAfterSave(onBack)} />
-    <ScreenHeading title="家事名・手順の編集" />
-    <Text style={styles.caption}>この内容はグループ全員に公開されます。</Text>
+  const Container = embedded ? View : V2FormScrollView;
+  return <Container {...(embedded ? { style: { gap: 14 } } : { contentContainerStyle: { padding: 16, gap: 16, paddingBottom: 40 } })}>{header}
+    {!embedded ? <><BackButton disabled={autosave.leaving} onPress={() => void autosave.navigateAfterSave(onBack)} />
+    <ScreenHeading title="家事名・手順の編集" /><Text style={styles.caption}>この内容はグループ全員に公開されます。</Text></> : null}
     {blocked ? <Text accessibilityRole="alert" style={styles.error}>家事の削除・復元の確認が必要です。入力は保持しています。</Text> : null}
     <Card>{field('name', '共有家事の名前')}</Card>
     {panel('description', '説明', field('description', '共有家事の説明', true))}
@@ -82,5 +82,5 @@ function Details({ model, choreId, controller, source, onSaved, onBack, onConfig
       onPress={() => void autosave.navigateAfterSave(onConfiguration)} /> : null}
     {onDateRights && model.viewerUserId === model.adminUserId ? <AppButton title="日時変更の権限へ" variant="secondary" disabled={disabled}
       onPress={() => void autosave.navigateAfterSave(onDateRights)} /> : null}
-  </V2FormScrollView>;
+  </Container>;
 }

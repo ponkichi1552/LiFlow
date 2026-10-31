@@ -9,16 +9,15 @@ import type { V2PlannedOccurrence, V2SubjectPlan } from '../v2/common-plan';
 import type { V2RoundReference } from '../v2/actions';
 import type { V2Recommendation } from '../v2/personal-plan';
 import { v2TargetLabel } from './target-form';
-import type { LocalDate } from '../../../domain/shared/types';
 import { isTaskUrgent } from '../../../domain/scheduling/task-priority';
 import type { CompletionFeedback } from './completion-feedback';
 
-export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen, onDate, onAssignment, onPast, onAssignmentRequest, showActions = false, recommendation, displayDate, feedback, home = false }: {
+export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen, onDate, onAssignment, onPast, onAssignmentRequest, showActions = false, recommendation, feedback, home = false }: {
   model: V2GroupScreenModel; round: V2PlannedOccurrence; subject: V2SubjectPlan; actions: V2GroupController['actions']; busy: boolean;
   run: (work: () => Promise<unknown>) => Promise<void>; onOpen: () => void; onDate?: () => void; onAssignment?: () => void;
   onPast?: () => void; onAssignmentRequest?: () => void; showActions?: boolean;
   recommendation?: V2Recommendation;
-  displayDate?: LocalDate; feedback?: CompletionFeedback;
+  feedback?: CompletionFeedback;
   home?: boolean;
 }) {
   const chore = model.plan.chores.find((entry) => entry.id === round.choreId); if (!chore) return null;
@@ -38,8 +37,8 @@ export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen,
     } : undefined;
   const onToggle = busy || feedback?.values.has(key) || !work ? undefined : () => feedback
     ? feedback.run(key, subject.completed ? undo.length < subject.completionOperationIds.length : true, work) : run(work);
-  const category = subject.subjectUserId ? `各人が実施 · ${nameOf(subject.subjectUserId)}` : round.assigneeIds.length
-    ? `${round.claimState === 'provisional' ? '暫定担当' : '担当'}：${round.assigneeIds.map(nameOf).join('・')}` : '全員共通 · 担当未確定';
+  const category = subject.subjectUserId ? nameOf(subject.subjectUserId) : round.assigneeIds.length
+    ? `${round.claimState === 'provisional' ? '暫定：' : ''}${round.assigneeIds.map(nameOf).join('・')}` : '';
   const formal = subject.formalDate;
   const schedules = relatedWork.filter((record) => record.active && record.schedule).map((record) => record.schedule!);
   const recordedWindow = subject.completed && schedules.length && schedules.every((schedule) => schedule.windowStart === schedules[0].windowStart && schedule.windowEnd === schedules[0].windowEnd) ? schedules[0] : null;
@@ -47,15 +46,18 @@ export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen,
   const recommendedDate = recommendation?.date ?? subject.suggestedDate;
   const assignmentPending = model.assignmentRequests.some((request) => !request.cancelled && request.proposal.occurrenceId === round.id && request.proposal.requesterUserId === viewer
     && ['pendingDelivery', 'awaiting'].includes(request.kind));
-  return <View style={styles.card}>
-    <TaskCheckboxRow chore={{ ...chore, householdId: '', category }} completed={displayCompleted} home={home} detail={home ? category : undefined}
-      source={formal.kind === 'manual' ? 'instructed' : 'shared'} early={formal.kind === 'automatic' && (displayDate ?? model.plan.range.asOfDate) < recommendedDate}
-      urgent={isTaskUrgent({ completed: displayCompleted, load: chore.load, recommendedDate, windowEnd: subject.executionWindowEnd }, model.plan.range.asOfDate)}
-      deemphasized={subject.cooldownSuppressed || subject.virtuallyConsumed} onOpen={onOpen} onToggle={onToggle} />
+  const canClaim = round.configuration.policy.completion === 'one' && !round.assigneeIds.length && !subject.completed && !round.assignmentConflictIds.length;
+  const needsAttention = round.claimState === 'provisional' || round.assignmentConflictIds.length > 0
+    || formal.kind === 'conflict' || formal.kind === 'review' || subject.requestReviewIds.length > 0
+    || subject.dependencyAwaitingCompletion || showStatus && (subject.cooldownSuppressed || subject.virtuallyConsumed
+      || subject.pendingCompletionIds.length > 0 || subject.strictInstructionUnfulfilled);
+  const showManualDate = formal.kind === 'manual' && !home;
+  const showSourceRegion = formal.kind === 'manual' && formal.timeZone !== model.plan.timeZone;
+  const footer = showActions || needsAttention || showManualDate || showSourceRegion ?
     <View style={styles.details}>
-      <Text style={styles.date}>{formal.kind === 'manual' ? `${formal.mode === 'fixed' ? '固定日時' : formal.mode === 'deadline' ? '期限' : '実施日'}：${v2TargetLabel(formal.target, formal.timeZone)}`
-        : `${recommendation ? '推奨日' : '基準日'}：${formatJapaneseDate(recommendation?.date ?? subject.suggestedDate, { weekday: true })}`}</Text>
-      {formal.kind === 'manual' && formal.timeZone !== model.plan.timeZone ? <Text style={styles.caption}>指定時の地域：{formal.timeZone}。カレンダーの時刻付き予定は現在の地域で表示します。</Text> : null}
+      {showActions || showManualDate ? <Text style={styles.date}>{formal.kind === 'manual' ? `${formal.mode === 'fixed' ? '固定日時' : formal.mode === 'deadline' ? '期限' : '実施日'}：${v2TargetLabel(formal.target, formal.timeZone)}`
+        : `${recommendation ? '推奨日' : '基準日'}：${formatJapaneseDate(recommendation?.date ?? subject.suggestedDate, { weekday: true })}`}</Text> : null}
+      {showSourceRegion && formal.kind === 'manual' ? <Text style={styles.caption}>指定時の地域：{formal.timeZone}。カレンダーの時刻付き予定は現在の地域で表示します。</Text> : null}
       {showActions && (!displayCompleted || recordedWindow) ? <Text style={styles.caption}>{displayCompleted ? '実施時点の期間' : '実施できる期間'}：
         {formatJapaneseDate(displayCompleted && recordedWindow ? recordedWindow.windowStart : subject.executionWindowStart)}〜{formatJapaneseDate(displayCompleted && recordedWindow ? recordedWindow.windowEnd : subject.executionWindowEnd)}</Text> : null}
       {round.claimState === 'provisional' ? <Text style={styles.notice}>引き受けが重なっています。暫定担当のまま実施でき、管理者が正式な担当を決めます。</Text> : null}
@@ -67,26 +69,30 @@ export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen,
       {showStatus && subject.virtuallyConsumed && !subject.completed ? <Text style={styles.caption}>この回は未完了のまま残り、次の周期へ進みます。</Text> : null}
       {showStatus && subject.pendingCompletionIds.length ? <Text style={styles.notice}>実施記録の確認・承認待ち</Text> : null}
       {showStatus && subject.strictInstructionUnfulfilled ? <Text style={styles.notice}>実施済み · 指定日時の条件は未達成です。</Text> : null}
-      {showStatus && subject.completed ? <Text style={styles.caption}>実施者：{[...new Set(relatedWork.filter((record) => record.active).map((record) => nameOf(record.performerUserId)))].join('・')}</Text> : null}
-      {showStatus && subject.completed && undo.length < subject.completionOperationIds.length ? <Text style={styles.caption}>ほかの人が登録した完了は、その登録者か管理者が取り消せます。</Text> : null}
+      {showActions && showStatus && subject.completed ? <Text style={styles.caption}>実施者：{[...new Set(relatedWork.filter((record) => record.active).map((record) => nameOf(record.performerUserId)))].join('・')}</Text> : null}
+      {showActions && showStatus && subject.completed && undo.length < subject.completionOperationIds.length ? <Text style={styles.caption}>ほかの人が登録した完了は、その登録者か管理者が取り消せます。</Text> : null}
       <View style={styles.buttons}>
         {showActions && onDate ? <AppButton title="日時を変更" compact variant="secondary" disabled={busy || !round.activeInPeriod || Boolean(round.assignmentConflictIds.length)} onPress={onDate} /> : null}
         {showActions && onPast && !subject.completed ? <AppButton title={owns ? '以前の実施を記録' : model.plan.policy?.allowSubstitution ? '代行を記録' : '代行を記録（承認が必要）'} compact variant="quiet" disabled={busy || Boolean(round.assignmentConflictIds.length)} onPress={onPast} /> : null}
         {showActions && onAssignment && admin ? <AppButton title={round.assignmentConflictIds.length ? '担当の競合を解決' : round.claimState === 'provisional' ? '暫定担当を確認' : '担当を変更'} compact variant="quiet" disabled={busy} onPress={onAssignment} /> : null}
-        {round.configuration.policy.completion === 'one' && !round.assigneeIds.length && !subject.completed && !round.assignmentConflictIds.length
-          ? <AppButton title="引き受ける" compact disabled={busy} onPress={() => run(() => actions.claim(ref))} /> : null}
         {showActions && !subject.completed && round.claimantUserIds.includes(viewer) && !round.assignmentFixed
-          ? <AppButton title="引き受けを解除" compact variant="quiet" disabled={busy} onPress={() => run(() => actions.releaseClaim(ref))} /> : null}
+          ? <AppButton title="担当を外す" compact variant="quiet" disabled={busy} onPress={() => run(() => actions.releaseClaim(ref))} /> : null}
         {showActions && !admin && round.assignmentFixed && owns && !subject.completed ? <AppButton title={assignmentPending ? '担当変更を申請中' : onAssignmentRequest ? '担当の変更を申請' : '自分の担当解除を申請'} compact variant="quiet" disabled={busy || assignmentPending}
           onPress={onAssignmentRequest ?? (() => run(() => { const remaining = round.assigneeIds.filter((uid) => uid !== viewer); return actions.requestAssignment(ref,
             { memberIds: remaining, start: 'this', scope: 'once', fixed: remaining.length > 0 && round.assignmentFixed,
               expectedAssignmentIds: round.assignmentOperationIds, expectedConflictIds: round.assignmentConflictIds }); }))} /> : null}
       </View>
-    </View>
-  </View>;
+    </View> : undefined;
+  return <TaskCheckboxRow chore={{ ...chore, householdId: '', category }} completed={displayCompleted} home={home} detail={home ? [category, formal.kind === 'manual' ? v2TargetLabel(formal.target, formal.timeZone) : ''].filter(Boolean).join(' · ') : undefined}
+      sourceIcon={subject.subjectUserId === null ? 'person' : 'group'} footer={footer}
+      action={canClaim ? <AppButton title="担う" compact variant="quiet" disabled={busy} onPress={() => run(() => actions.claim(ref))} /> : undefined}
+      source={formal.kind === 'manual' ? 'instructed' : 'shared'}
+      executionWindow={{ start: recordedWindow?.windowStart ?? subject.executionWindowStart, end: recordedWindow?.windowEnd ?? subject.executionWindowEnd }}
+      urgent={isTaskUrgent({ completed: displayCompleted, load: chore.load, recommendedDate, windowEnd: subject.executionWindowEnd }, model.plan.range.asOfDate)}
+      deemphasized={subject.cooldownSuppressed || subject.virtuallyConsumed} onOpen={onOpen} onToggle={onToggle} />;
 }
 const styles = StyleSheet.create({
-  card: { gap: 6 }, details: { paddingHorizontal: 12, gap: 5 },
+  details: { gap: 5 },
   date: { ...typography.label, color: palette.ink, fontWeight: '600' }, caption: { ...typography.caption, color: palette.muted },
   notice: { ...typography.caption, color: palette.warning }, buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 });

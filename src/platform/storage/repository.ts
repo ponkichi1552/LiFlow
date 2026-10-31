@@ -506,7 +506,7 @@ async function loadPlannerSnapshotImpl(
     notificationsEnabled: Boolean(settingsRow.notifications_enabled),
     setupCompleted: Boolean(settingsRow.setup_completed),
     calendarCountColors: parseCalendarCountColors(settingsRow.calendar_count_colors_json),
-    calendarCountDisplayMode: settingsRow.calendar_count_display_mode === 'dots' ? 'dots' : 'bar',
+    calendarCountDisplayMode: 'dots',
     weatherLocation: settingsRow.weather_region !== null
       && settingsRow.weather_region_name !== null
       && settingsRow.weather_latitude !== null
@@ -914,7 +914,7 @@ async function updateCalendarCountDisplayImpl(
   if (validColors.some((color) => !/^#[0-9a-f]{6}$/i.test(color))) {
     throw new RangeError('カレンダーの色を選び直してください。');
   }
-  if (settings.displayMode !== 'bar' && settings.displayMode !== 'dots') {
+  if (settings.displayMode !== 'dots') {
     throw new RangeError('カレンダーの表示方法を選び直してください。');
   }
   await database.runAsync(
@@ -1774,10 +1774,39 @@ async function setWasteOccurrenceHiddenImpl(
   }
 }
 
-async function deleteWeeklyWasteScheduleImpl(database: SQLiteDatabase, scheduleId: EntityId): Promise<void> {
-  await database.runAsync(
-    'DELETE FROM weekly_waste_schedules WHERE id = ? AND household_id = ?', scheduleId, LOCAL_HOUSEHOLD_ID,
-  );
+export interface WasteDeletionReceipt { token: string; label: string }
+async function initializeWasteTrash(database: SQLiteDatabase) {
+  if (sharedRepositoryAdapter(database)) throw new Error('個人のゴミ収集日は個人の保存先で操作してください。');
+  await database.execAsync('CREATE TABLE IF NOT EXISTS deleted_waste_schedules(token TEXT PRIMARY KEY, household_id TEXT NOT NULL, schedule_id TEXT NOT NULL, label TEXT NOT NULL, value_json TEXT NOT NULL, hidden_json TEXT NOT NULL, deleted_at TEXT NOT NULL)');
+}
+async function deleteWeeklyWasteScheduleImpl(database: SQLiteDatabase, scheduleId: EntityId): Promise<WasteDeletionReceipt | null> {
+  await initializeWasteTrash(database); let receipt: WasteDeletionReceipt | null = null;
+  await database.withTransactionAsync(async () => {
+    const row = await database.getFirstAsync<{ id: string; household_id: string; label: string; weekdays_json: string; recurrence: string; anchor_date: string | null; monthly_day: number | null }>('SELECT * FROM weekly_waste_schedules WHERE id=? AND household_id=?', scheduleId, LOCAL_HOUSEHOLD_ID);
+    if (!row) return;
+    const hidden = await database.getAllAsync<{ occurrence_date: LocalDate }>('SELECT occurrence_date FROM hidden_waste_occurrences WHERE schedule_id=?', scheduleId);
+    const token = createId('waste-delete');
+    await database.runAsync('INSERT INTO deleted_waste_schedules VALUES(?,?,?,?,?,?,?)', token, LOCAL_HOUSEHOLD_ID, scheduleId, row.label, JSON.stringify(row), JSON.stringify(hidden.map(item => item.occurrence_date)), new Date().toISOString());
+    await database.runAsync('DELETE FROM weekly_waste_schedules WHERE id=? AND household_id=?', scheduleId, LOCAL_HOUSEHOLD_ID);
+    receipt = { token, label: row.label };
+  }); return receipt;
+}
+async function restoreDeletedWasteScheduleImpl(database: SQLiteDatabase, token: string): Promise<void> {
+  await initializeWasteTrash(database);
+  await database.withTransactionAsync(async () => {
+    const saved = await database.getFirstAsync<{ schedule_id: string; value_json: string; hidden_json: string }>('SELECT * FROM deleted_waste_schedules WHERE token=? AND household_id=?', token, LOCAL_HOUSEHOLD_ID);
+    if (!saved) throw new Error('復元する収集日が見つかりません。');
+    if (await database.getFirstAsync('SELECT id FROM weekly_waste_schedules WHERE id=?', saved.schedule_id)) throw new Error('同じ収集日が既にあります。現在の内容を保持しています。');
+    const row = JSON.parse(saved.value_json);
+    const value = normalizeWasteSchedule({ label: row.label, collectionWeekdays: JSON.parse(row.weekdays_json), recurrence: row.recurrence, ...(row.anchor_date ? { anchorDate: row.anchor_date } : {}), ...(row.monthly_day ? { monthlyDay: row.monthly_day } : {}) });
+    if (row.id !== saved.schedule_id || row.household_id !== LOCAL_HOUSEHOLD_ID) throw new Error('復元する保存先が一致しません。');
+    await database.runAsync('INSERT INTO weekly_waste_schedules(id,household_id,label,weekdays_json,recurrence,anchor_date,monthly_day) VALUES(?,?,?,?,?,?,?)', saved.schedule_id, LOCAL_HOUSEHOLD_ID, value.label, JSON.stringify(value.collectionWeekdays), value.recurrence, value.anchorDate ?? null, value.monthlyDay ?? null);
+    for (const date of JSON.parse(saved.hidden_json)) { parseLocalDate(date); await database.runAsync('INSERT INTO hidden_waste_occurrences(schedule_id,occurrence_date) VALUES(?,?)', saved.schedule_id, date); }
+    await database.runAsync('DELETE FROM deleted_waste_schedules WHERE token=? AND household_id=?', token, LOCAL_HOUSEHOLD_ID);
+  });
+}
+async function listDeletedWasteSchedulesImpl(database: SQLiteDatabase): Promise<WasteDeletionReceipt[]> {
+  await initializeWasteTrash(database); return database.getAllAsync<WasteDeletionReceipt>('SELECT token,label FROM deleted_waste_schedules WHERE household_id=? ORDER BY deleted_at DESC LIMIT 100', LOCAL_HOUSEHOLD_ID);
 }
 
 async function loadGoogleSyncStateImpl(
@@ -2194,6 +2223,8 @@ export const replaceChoreDependencies = serializePlannerOperation(replaceChoreDe
 export const saveWeeklyWasteSchedule = serializePlannerOperation(saveWeeklyWasteScheduleImpl, 'saveWeeklyWasteSchedule');
 export const setWasteOccurrenceHidden = serializePlannerOperation(setWasteOccurrenceHiddenImpl, 'setWasteOccurrenceHidden');
 export const deleteWeeklyWasteSchedule = serializePlannerOperation(deleteWeeklyWasteScheduleImpl, 'deleteWeeklyWasteSchedule');
+export const restoreDeletedWasteSchedule = serializePlannerOperation(restoreDeletedWasteScheduleImpl);
+export const listDeletedWasteSchedules = serializeDatabaseOperation(listDeletedWasteSchedulesImpl);
 export const loadGoogleSyncState = serializeDatabaseOperation(loadGoogleSyncStateImpl);
 export const hasPendingGoogleTaskChanges = serializeDatabaseOperation(hasPendingGoogleTaskChangesImpl);
 export const saveGoogleSyncState = serializeDatabaseOperation(saveGoogleSyncStateImpl);

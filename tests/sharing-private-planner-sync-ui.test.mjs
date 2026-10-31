@@ -46,9 +46,9 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} private preference synchronization UI never starts a network action or discards incomplete new input`, async t => {
     const h = await privatePlannerSyncFixture(t); await h.left.store.save(0, input()); let started = 0;
     const ui = await open(h, platform, { synchronize: async () => started++ }); t.after(ui.close);
-    await ui.screen.press('火曜日の時間帯を追加'); const field = ui.screen.nodes().find(n => n.type === 'TextInput' && n.props.accessibilityLabel === '火曜日1の開始');
-    field.props.onChangeText('18:'); await ui.screen.flush(); await ui.screen.press('本人設定を今すぐ同期'); for (let i = 0; i < 8; i++) await ui.screen.flush();
+    const field = ui.screen.nodes().find(n => n.type === 'TextInput' && n.props.accessibilityLabel === '本人の重い家事の上限');
+    field.props.onChangeText(''); await ui.screen.flush(); await ui.screen.press('本人設定を今すぐ同期'); for (let i = 0; i < 8; i++) await ui.screen.flush();
     assert.equal(started, 0); assert.match(ui.screen.text(), /未保存の入力を修正/u); assert.deepEqual((await h.left.store.read()).allowedBands, input().allowedBands);
-    assert.equal(ui.screen.nodes().find(n => n.type === 'TextInput' && n.props.accessibilityLabel === '火曜日1の開始').props.value, '18:');
+    assert.equal(ui.screen.nodes().find(n => n.type === 'TextInput' && n.props.accessibilityLabel === '本人の重い家事の上限').props.value, '');
   });
 }

@@ -8,11 +8,11 @@ import { Chevron } from '../../components/chevron';
 import { AppButton, palette, typography } from '../../components/planner-ui';
 
 type ToggleChore = Pick<ChoreDefinition, 'id' | 'name' | 'category' | 'archived' | 'enabled'>;
-export function ChoreToggleList({ chores, expanded, setExpanded, save, onOpen, retryRead, readOnly = false, bulk = true }: {
+export function ChoreToggleList({ chores, expanded, setExpanded, save, onOpen, retryRead, readOnly = false }: {
   chores: readonly ToggleChore[]; expanded: Set<string>; setExpanded: Dispatch<SetStateAction<Set<string>>>;
   save(ids: string[], enabled: boolean): Promise<void | { refreshed: boolean }>; onOpen(id: string): void;
   retryRead?: () => Promise<boolean>;
-  readOnly?: boolean; bulk?: boolean;
+  readOnly?: boolean;
 }) {
   const running = useRef(false); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
   const [values, setValues] = useState(new Map<string, boolean>());
@@ -40,8 +40,6 @@ export function ChoreToggleList({ chores, expanded, setExpanded, save, onOpen, r
           onPress={toggleCategory} style={styles.copy}>
           <Text style={styles.title}>{category}</Text>
         </Pressable>
-        {bulk ? <Switch accessibilityLabel={`${category}の家事をすべて有効にする`} accessibilityValue={{ text: `${enabledCount}/${rows.length}件が有効` }} value={enabledCount === rows.length} disabled={readOnly || busy || values.size > 0}
-          onValueChange={value => void toggle(rows, value)} /> : <View style={styles.switchSpacer} />}
         <Text style={styles.count}>{enabledCount}/{rows.length}</Text><Pressable accessibilityRole="button" accessibilityLabel={`${category}の見出しを${open ? '折りたたむ' : '展開'}`}
           style={styles.arrowTarget} onPress={toggleCategory}><Chevron direction={open ? 'up' : 'down'} /></Pressable>
       </View>
@@ -64,6 +62,6 @@ const styles = StyleSheet.create({
   count: { ...typography.caption, color: palette.muted, minWidth: 32, textAlign: 'right', fontVariant: ['tabular-nums'] },
   arrowTarget: { minHeight: 44, minWidth: 28, alignItems: 'center', justifyContent: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 7, minHeight: 56, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingLeft: 8 },
-  countSpacer: { width: 32 }, switchSpacer: { width: 56 },
+  countSpacer: { width: 32 },
   error: { ...typography.caption, color: palette.warning },
 });

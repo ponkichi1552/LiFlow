@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, documentId, getDocFromServer, getDocsFromServer, limit, orderBy, query, runTransaction, serverTimestamp,
+import { collection, doc, documentId, getDocFromServer, getDocsFromServer, limit, orderBy, query, runTransaction, serverTimestamp,
   setDoc, startAfter, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 import type { DocumentReference } from 'firebase/firestore';
 import { assertSharedIdentifier, canonicalJson } from '../../features/sharing/operations.ts';
@@ -60,13 +60,18 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
       checkAccount(); const actual = await readInvitation(invitation.body.inviteId);
       if (canonicalJson(actual.invitation) !== canonicalJson(invitation) || actual.status !== 'open') throw new Error('この招待リンクは使用済み、または取り消されています。');
       verifySharedJoinRequest(request, invitation, userId, Date.now());
-      const ref = doc(inviteRef(invitation.body.inviteId), 'requests', userId); const old = await getDocFromServer(ref);
-      if (old.exists()) {
-        if (old.data().requestJson !== canonicalJson(request)) throw new Error('このアカウントには別の端末の参加要求があります。');
-        return;
-      }
-      checkAccount(); await setDoc(ref, { userId, deviceId: request.body.identity.deviceId,
-        requestJson: canonicalJson(request), createdAt: serverTimestamp() }); checkAccount();
+      await runTransaction(firestore, async transaction => {
+        checkAccount();
+        const ref = doc(inviteRef(invitation.body.inviteId), 'requests', userId);
+        const membershipRef = doc(firestore, 'sharingUsers', userId, 'memberships', 'current');
+        const membership = await transaction.get(membershipRef); const old = await transaction.get(ref);
+        if (old.exists()) {
+          if (old.data().requestJson !== canonicalJson(request)) throw new Error('このアカウントには別の端末の参加要求があります。');
+          return;
+        }
+        if (!membership.exists() || membership.data().groupId !== invitation.body.groupId) transaction.set(membershipRef, { groupId: invitation.body.groupId, invitationId: invitation.body.inviteId, createdAt: serverTimestamp() });
+        transaction.set(ref, { userId, deviceId: request.body.identity.deviceId, requestJson: canonicalJson(request), createdAt: serverTimestamp() });
+      }); checkAccount();
     },
     async listInvitations(groupId: string) {
       checkAccount(); const result = await getDocsFromServer(query(collection(firestore, 'sharingInvites'), where('groupId', '==', groupId), limit(100)));
@@ -88,7 +93,12 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
     },
     async withdrawOrRejectJoinRequest(inviteId: string, requestUserId: string): Promise<void> {
       assertSharedIdentifier(requestUserId); checkAccount();
-      await deleteDoc(doc(inviteRef(inviteId), 'requests', requestUserId)); checkAccount();
+      await runTransaction(firestore, async transaction => {
+        checkAccount(); const membershipRef = doc(firestore, 'sharingUsers', requestUserId, 'memberships', 'current');
+        const membership = await transaction.get(membershipRef);
+        transaction.delete(doc(inviteRef(inviteId), 'requests', requestUserId));
+        if (membership.data()?.invitationId === inviteId) transaction.delete(membershipRef);
+      }); checkAccount();
     },
     async cancelOwnJoinRequest(invitation: SignedSharedInvitation, request: SharedJoinRequest): Promise<boolean> {
       if (request.body.userId !== userId || request.body.inviteId !== invitation.body.inviteId) throw new Error('Invalid request cancellation');
@@ -99,7 +109,11 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
         const requestRef = doc(ref, 'requests', userId); const stored = await transaction.get(requestRef);
         if (actual.status === 'used' && actual.usedBy === userId) return false;
         if (stored.exists() && stored.data().requestJson !== canonicalJson(request)) throw new Error('Join request changed during cancellation');
-        if (stored.exists()) transaction.delete(requestRef); return true;
+        const membershipRef = doc(firestore, 'sharingUsers', userId, 'memberships', 'current');
+        const membership = await transaction.get(membershipRef);
+        if (stored.exists()) transaction.delete(requestRef);
+        if (membership.data()?.invitationId === invitation.body.inviteId) transaction.delete(membershipRef);
+        return true;
       }); checkAccount(); return cancelled;
     },
     async revokeInvitation(inviteId: string): Promise<void> {
@@ -187,8 +201,7 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
         for (const key of keys) transaction.set(doc(ref, 'keyEnvelopes', `${key.keyVersion}_${key.recipientDeviceId}`), {
           userId: key.recipientUserId, deviceId: key.recipientDeviceId, keyVersion: key.keyVersion, wrappedKeyJson: canonicalJson(key), createdAt: serverTimestamp(),
         });
-        for (const uid of fields.memberIds.filter((uid) => !current.group.memberIds.includes(uid))) transaction.set(doc(firestore, 'sharingUsers', uid, 'memberships', groupId), { groupId, createdAt: serverTimestamp() });
-        for (const uid of current.group.memberIds.filter((uid) => !fields.memberIds.includes(uid))) transaction.delete(doc(firestore, 'sharingUsers', uid, 'memberships', groupId));
+        for (const uid of fields.memberIds.filter((uid) => !current.group.memberIds.includes(uid))) transaction.set(doc(firestore, 'sharingUsers', uid, 'memberships', 'current'), { groupId, invitationId: null, createdAt: serverTimestamp() });
         if (manifest) transaction.set(doc(ref, 'snapshots', manifest.body.snapshotId), snapshotFields(manifest));
         transaction.update(ref, { ...fields, ...(manifest ? { snapshotId: manifest.body.snapshotId, snapshotThroughSequence: manifest.body.throughSequence } : {}), updatedAt: serverTimestamp() });
         if (recovery) transaction.delete(lockRef);
@@ -203,8 +216,9 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
       await runTransaction(firestore, async (transaction) => {
         checkAccount(); const ref = reference(groupId); const { group } = parseSharedCloudGroup((await transaction.get(ref)).data(), groupId);
         if (group.ownerUserId === userId) throw new Error('退出する前に所有者を引き継いでください。');
+        const membershipRef = doc(firestore, 'sharingUsers', userId, 'memberships', 'current'); const membership = await transaction.get(membershipRef);
         transaction.update(ref, { revokedUserIds: [...new Set([...group.revokedUserIds, userId])], rotationRequired: true, updatedAt: serverTimestamp() });
-        transaction.delete(doc(firestore, 'sharingUsers', userId, 'memberships', groupId));
+        if (membership.data()?.groupId === groupId) transaction.delete(membershipRef);
       }); checkAccount();
     },
     async acknowledge(groupId: string, deviceId: string, sequence: number): Promise<void> {

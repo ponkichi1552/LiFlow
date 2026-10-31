@@ -29,6 +29,7 @@ export function ApplianceDetailContent({ context, returnTo, error }: {
   </SafeAreaView>;
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <View testID="appliance-detail-header" style={styles.backHeader}><BackButton accessibilityLabel="一覧へ戻る" onPress={goBack} /><Text style={styles.modelTitle}>{appliance.modelNumber}</Text></View>
       <FlatList
         data={appliance.analysis.tasks}
         keyExtractor={(task, index) => `${index}-${task.name}`}
@@ -39,9 +40,6 @@ export function ApplianceDetailContent({ context, returnTo, error }: {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={<View style={styles.listHeader}>
-        <View style={styles.detailHeader}>
-          <Text style={styles.modelTitle}>{appliance.modelNumber}</Text>
-        </View>
         {error ? <Text style={styles.invalidLink}>{error}</Text> : null}
         <ScreenHeading eyebrow={appliance.manufacturer} title="お手入れ方法" description={`${appliance.displayName}の${appliance.analysis.manualSource ? '選択した説明書を解析した' : '公式資料から確認した'}内容です。`} />
         <Card style={styles.productCard}>
@@ -60,7 +58,6 @@ export function ApplianceDetailContent({ context, returnTo, error }: {
           return <MaintenanceTaskCard task={task} chore={chore} manufacturer={appliance.manufacturer} index={index} />;
         }}
       />
-      <View testID="appliance-detail-back-dock" style={styles.backDock}><BackButton accessibilityLabel="一覧へ戻る" onPress={goBack} /></View>
     </SafeAreaView>
   );
 }
@@ -120,11 +117,10 @@ export function OfficialLink({ manufacturer, title, url }: { manufacturer: strin
 }
 
 const styles = StyleSheet.create({
-  backDock: { paddingHorizontal: 18, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, backgroundColor: palette.surface },
+  backHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border, backgroundColor: palette.surface },
   safeArea: { flex: 1, backgroundColor: palette.background },
   listContent: { width: '100%', maxWidth: 820, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 18, paddingBottom: 36, gap: 15 },
   listHeader: { gap: 15 },
-  detailHeader: { minHeight: 36, flexDirection: 'row', alignItems: 'center', gap: 12 },
   modelTitle: { ...typography.subheading, color: palette.ink, fontWeight: '700' },
   productCard: { backgroundColor: palette.accentSoft, borderColor: palette.border },
   productMeta: { ...typography.label, color: palette.ink, fontWeight: '700' },

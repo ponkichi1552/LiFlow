@@ -9,24 +9,22 @@ import { PlannerDataProvider, usePlannerData } from '@/hooks/use-planner-data';
 import { addWidgetUserInteractionListener } from '../platform/widgets/widget-interaction-listener';
 import { PlannerSystemBars } from '@/components/planner-system-bars';
 import { NotificationWorkspaceBridge } from '@/components/notification-workspace-bridge';
-import { WorkspaceProvider, ActiveWorkspaceScope, useWorkspace } from '@/hooks/use-workspace';
+import { WorkspaceProvider, ActiveWorkspaceScope } from '@/hooks/use-workspace';
 import { WorkspaceNavigator } from '@/components/workspace-navigator';
 import '@/platform/notifications/configure-foreground-notifications';
 import { plannerColorsForScheme } from '@/components/planner-theme';
 
 function WidgetInteractionBridge() {
   const { database, refresh } = usePlannerData();
-  const { switchTo, active } = useWorkspace();
 
   const processCompletion = useCallback(async (scheduleEntryId: string) => {
     try {
       await refresh({ widgetCompletionIds: [scheduleEntryId] });
-      if (active) await switchTo(null);
       syncGoogleTasksAfterLocalCompletion(database);
     } catch {
       // Widget actions should not interrupt the app if local data cannot be refreshed.
     }
-  }, [database, refresh, switchTo, active]);
+  }, [database, refresh]);
 
   useEffect(() => {
     const interactionSubscription = addWidgetUserInteractionListener((event) => {

@@ -18,15 +18,21 @@ async function fixture() {
   await preview.controller.actions.editGroupOptions([{ field: 'name', value: '選択した家族', basisOperationIds: name.candidates.map(candidate => candidate.operationId) }]);
   const active = { protocol: 2, groupId: preview.groupId, userId: preview.userId, identity: { deviceId: 'native-device' }, record: async () => ({ status: 'active' }),
     session: { controller: preview.controller }, sync: async () => { syncs++; } };
-  const context = { ready: true, active, userId: preview.userId, groups: [{ groupId: preview.groupId, displayName: '選択した家族' }] };
+  const context = { ready: true, active, userId: preview.userId, group: { groupId: preview.groupId, displayName: '選択した家族' } };
   return { ...h, preview, context, callbacks: new Set(), calendarCallbacks: new Set(), localCalendarCallbacks: new Set(), appStateListeners: new Set(),
     now: () => clock(), setNow: value => { clock = () => new Date(value); }, calendarReads: 0, calendarChecks: [], sessionInputs: [], synced: () => syncs };
 }
-async function route(f, platform, file, params = {}, readyText = '送信待ち') {
+async function route(f, platform, file, params = {}, readyText = '今日の家事') {
   let focus; const navigation = [];
-  const screen = screenHarness(`src/app/group-v2/${file}.tsx`, { platform, params, focusEffect: (callback) => { focus = callback; },
+  const view = ({ index: 'home', 'add-chore': 'addChore', 'assignment-requests': 'assignmentRequests', 'date-rights': 'dateRights', 'group-rules': 'groupPolicy', 'appliance-review': 'applianceReview' })[file] ?? file;
+  const screen = screenHarness('src/features/sharing/v2-ui/workspace-route.tsx', { effectDependencies: ['details', 'configuration'].includes(view), effect: ['details', 'configuration'].includes(view) ? callback => callback() : undefined, exportName: 'V2WorkspaceRoute', props: { view }, platform, params, focusEffect: (callback) => { focus = callback; },
     appStateListener: callback => f.appStateListeners.add(callback), navigate: (...args) => navigation.push(args),
-    mocks: { '../../../hooks/use-workspace': { useWorkspace: () => f.context },
+    mocks: {
+      // The native document is tested separately with actual virtual unmounts. Route tests
+      // exercise the requested chapter, as the native jump makes it the visible editor.
+      '../../../components/chore-book': { ChoreBook: props => ({ type: 'ChoreBook', props: { ...props, children: [props.title, props.titleAccessory, props.header,
+        props.renderChore(props.chores.find(row => row.id === props.selectedId) ?? props.chores[0])] } }) },
+      '../../../hooks/use-workspace': { useWorkspace: () => f.context },
       './screen-session': { createV2ScreenSession: input => { f.sessionInputs.push(input); return createV2ScreenSession({ ...input, now: f.now }); } },
       '@/platform/sharing/workspaces': { sharingFailureMessage: () => '同期を確認してください。', subscribeSharingChanges: (callback) => { f.callbacks?.add(callback); return () => f.callbacks?.delete(callback); } },
       '../../../platform/sharing/private-calendar-runtime': { openPrivateCalendarRuntime: userId => { assert.equal(userId, f.context.userId); return {
@@ -40,7 +46,7 @@ async function route(f, platform, file, params = {}, readyText = '送信待ち')
         subscribeLocalCalendar: (_database, changed) => { f.localCalendarCallbacks.add(changed); return () => f.localCalendarCallbacks.delete(changed); },
       },
       '../../../hooks/use-planner-data': { usePlannerData: () => ({ database: f.database, snapshot: { settings: { frequencyMode: 'balanced', restDays: [], heavyDailyLimit: 2, normalDailyLimit: 3 } } }) } } });
-  const leave = focus?.(); for (let n = 0; n < 30 && !(readyText === '共有カレンダー' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(readyText)); n++) await screen.flush();
+  const leaveFocus = focus?.(); const leave = () => { leaveFocus?.(); screen.unmount(); }; for (let n = 0; n < 30 && !(readyText === '共有カレンダー' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(readyText)); n++) await screen.flush();
   assert.ok((readyText === '共有カレンダー' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(readyText)), screen.text()); return { screen, leave, navigation };
 }
 for (const platform of ['ios', 'android']) {
@@ -49,7 +55,7 @@ for (const platform of ['ios', 'android']) {
     try {
       const before = await f.preview.readModel(); const outbox = await listSharingOutbox(f.database, f.context.active.groupId);
       f.preferences = { ownerUserId: f.context.userId, restDays: [1], loadLimits: { heavyDailyLimit: 1, normalDailyLimit: 7 } };
-      const ui = await route(f, platform, 'index', {}, '送信待ち');
+      const ui = await route(f, platform, 'index', {}, '今日の家事');
       const own = await f.sessionInputs.at(-1).readPreferences(); assert.deepEqual(own.settings.restDays, [1]); assert.deepEqual(own.settings.loadLimits, f.preferences.loadLimits);
       assert.equal((await f.preview.readModel()).plan.planHash, before.plan.planHash); assert.deepEqual(await listSharingOutbox(f.database, f.context.active.groupId), outbox); ui.leave?.();
       f.preferences = { ...f.preferences, ownerUserId: 'foreign-owner' };
@@ -63,25 +69,22 @@ for (const platform of ['ios', 'android']) {
       const model = await f.preview.readModel(); const round = model.plan.occurrences.find((item) => item.activeInPeriod); const subject = round.subjects[0];
       const params = { occurrenceId: round.id, subjectId: subject.id, anchorDate: round.anchorDate };
       for (const [file, ready] of [['calendar', '共有カレンダー'], ['history', '実施履歴'], ['requests', '日時の変更申請'], ['assignment-requests', '担当の変更申請'],
-        ['round', '共通の設定を開く'], ['date', '日時の指定'], ['assignment', '担当変更の適用範囲'], ['chores', '共有家事の一覧'],
-        ['add-chore', 'この内容を共有家事に追加'], ['details', '家事名・手順の編集'], ['group-rules', 'グループの種類'], ['date-rights', '日時変更の権限'], ['waste', '登録した収集日'], ['appliances', '登録した共有家電'], ['appliance', '共有家電のお手入れ'], ['appliance-review', '選択したPDFを解析する']]) {
-        const r = await route(f, platform, file, ['details', 'date-rights'].includes(file) ? { choreId: round.choreId } : params, ready); assert.ok(r.screen.text().includes('選択した家族'));
-        assert.equal(r.screen.text().includes('クラウドへ送信しません'), false); r.leave?.();
+        ['round', '共通の設定を開く'], ['date', '日時の指定'], ['assignment', '担当変更の適用範囲'], ['chores', '分類を選ぶ'],
+        ['add-chore', 'この内容を共有家事に追加'], ['details', '共有家事の名前'], ['group-rules', 'グループの種類'], ['date-rights', '日時変更の権限'], ['waste', '登録した収集日'], ['appliances', '登録した家電'], ['appliance', '共有家電のお手入れ'], ['appliance-review', '選択したPDFを解析する']]) {
+        const r = await route(f, platform, file, ['details', 'date-rights'].includes(file) ? { choreId: round.choreId } : params, ready);
+        try {
+          assert.ok(r.screen.text().includes('選択した家族') || r.screen.nodes().some(node => node.props.accessibilityLabel === 'グループ用 · 選択した家族'));
+          assert.equal(r.screen.text().includes('クラウドへ送信しません'), false);
+        } finally { r.leave?.(); }
       }
-      const home = await route(f, platform, 'index'); await home.screen.press('今すぐ同期'); assert.equal(f.synced(), 1);
-      await home.screen.press('共有カレンダー'); assert.deepEqual(home.navigation.at(-1), ['push', '/group-v2/calendar']);
-      await home.screen.press('共有家事の一覧・編集'); assert.deepEqual(home.navigation.at(-1), ['push', '/group-v2/chores']);
-      await home.screen.press('グループのルール'); assert.deepEqual(home.navigation.at(-1), ['push', '/group-v2/group-rules']);
-      await home.screen.press('この端末の共有通知'); assert.deepEqual(home.navigation.at(-1), ['push', '/group-v2/notifications']);
-      await home.screen.press('共有家事とGoogle Tasks'); assert.deepEqual(home.navigation.at(-1), ['push', '/group-v2/google-tasks']);
-      await home.screen.press('共有のゴミ収集日'); assert.deepEqual(home.navigation.at(-1), ['push', '/group-v2/waste']);
-      await home.screen.press('共有の家電'); assert.deepEqual(home.navigation.at(-1), ['push', '/group-v2/appliances']);
+      const home = await route(f, platform, 'index');
+      assert.equal(home.screen.text().includes('今すぐ同期'), false);
       assert.equal(home.screen.text().includes('設定を検査'), false);
-      await home.screen.press('グループの管理・切り替え'); assert.deepEqual(home.navigation.at(-1), ['push', { pathname: '/sharing', params: { groupId: f.preview.groupId } }]); home.leave?.();
+      await home.screen.press('グループを開く'); assert.deepEqual(home.navigation.at(-1), ['push', { pathname: '/sharing/group/[groupId]', params: { groupId: f.preview.groupId } }]); home.leave?.();
       const detail = await route(f, platform, 'round', params, '共通の設定を開く'); await detail.screen.press('日時を変更');
       assert.deepEqual(detail.navigation.at(-1), ['push', { pathname: '/group-v2/date', params }]); detail.leave?.();
-      const editor = await route(f, platform, 'details', { choreId: round.choreId }, '日時変更の権限へ'); await editor.screen.press('日時変更の権限へ');
-      assert.deepEqual(editor.navigation.at(-1), ['push', { pathname: '/group-v2/date-rights', params: { choreId: round.choreId } }]); editor.leave?.();
+      const editor = await route(f, platform, 'details', { choreId: round.choreId }, '共有家事の名前'); await editor.screen.press('日時変更の権限を開く');
+      assert.ok(editor.screen.text().includes('この家事だけに適用')); assert.equal(editor.navigation.length, 0); editor.leave?.();
     } finally { f.connection.close(); }
   });
   test(`${platform} unselected or mismatched v2 workspace routes never load shared controllers or expose edit controls`, () => {
@@ -89,9 +92,10 @@ for (const platform of ['ios', 'android']) {
       let focused = 0;
       const context = { ready: true, active, userId: 'owner' };
       for (const file of ['index', 'round', 'date', 'assignment', 'configuration', 'requests', 'assignment-requests', 'history', 'calendar', 'chores', 'details', 'add-chore', 'group-rules', 'date-rights', 'waste', 'appliances', 'appliance', 'appliance-review']) {
-        const screen = screenHarness(`src/app/group-v2/${file}.tsx`, { platform, params: {}, focusEffect: () => { focused++; }, mocks: {
+        const view = ({ index: 'home', 'add-chore': 'addChore', 'assignment-requests': 'assignmentRequests', 'date-rights': 'dateRights', 'group-rules': 'groupPolicy', 'appliance-review': 'applianceReview' })[file] ?? file;
+        const screen = screenHarness('src/features/sharing/v2-ui/workspace-route.tsx', { exportName: 'V2WorkspaceRoute', props: { view }, platform, params: {}, focusEffect: () => { focused++; }, mocks: {
           '../../../hooks/use-workspace': { useWorkspace: () => context }, '../../../hooks/use-planner-data': { usePlannerData: () => ({}) } } });
-        assert.match(screen.text(), /共有グループを選択/u); assert.equal(screen.nodes().some((node) => node.type === 'TextInput'), false);
+        assert.match(screen.text(), /所属グループを確認/u); assert.equal(screen.nodes().some((node) => node.type === 'TextInput'), false);
       }
       assert.equal(focused, 0);
     }
@@ -194,7 +198,7 @@ for (const platform of ['ios', 'android']) {
   });
 }
 
-test('workspace navigation permits legacy screens only for personal or v1 scopes and redirects v2 to its dedicated stack', () => {
+test('workspace navigation keeps the same main tabs for personal and v2 while protecting group detail routes', () => {
   for (const active of [null, { protocol: 1 }, { protocol: 2 }]) {
     const guards = []; const Stack = ({ children }) => children; Stack.Screen = 'StackScreen';
     Stack.Protected = ({ guard, redirectTo, children }) => { guards.push({ guard, redirectTo }); return guard ? children : null; };
@@ -202,7 +206,7 @@ test('workspace navigation permits legacy screens only for personal or v1 scopes
       'expo-router': { Stack }, '../hooks/use-workspace': { useWorkspace: () => ({ active }) } } });
     const names = screen.nodes().filter((node) => node.type === 'StackScreen').map((node) => node.props.name);
     assert.ok(names.includes('sharing')); assert.ok(names.includes('help'));
-    assert.equal(names.includes('group-v2'), active?.protocol === 2); assert.equal(names.includes('(tabs)'), active?.protocol !== 2);
-    assert.deepEqual(guards.map((guard) => guard.redirectTo), ['/group-v2', '/sharing']);
+    assert.equal(names.includes('group-v2'), active?.protocol === 2); assert.equal(names.includes('(tabs)'), true);
+    assert.deepEqual(guards.map((guard) => guard.redirectTo), ['/', '/sharing']);
   }
 });

@@ -34,7 +34,7 @@ for (const platform of ['ios', 'android']) {
     } });
     effects.shift()(); const session = await load(); await session.store.read();
     context.active = { ...active, groupId: 'group-b' }; screen.render(); effects.at(-1)();
-    await assert.rejects(session.store.save(0, { enabled: true, hour: 10, minute: 0 }), /切り替わり/u); assert.equal(h.writes.length, 0);
+    await assert.rejects(session.store.save(0, { enabled: true, hour: 10, minute: 0 }), /参加状態が変わり/u); assert.equal(h.writes.length, 0);
   });
   test(`${platform} normal notification route does not open settings for personal v1 or foreign-account scopes`, () => {
     for (const active of [null, { protocol: 1 }, { protocol: 2, userId: 'foreign', identity: { deviceId: 'other' } }]) {

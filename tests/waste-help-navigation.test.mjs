@@ -143,7 +143,7 @@ test('appliance details virtualize long instructions and return by popping to th
     const list = screen.nodes().find((node) => node.type === 'FlatList');
     assert.equal(list.props.data.length, 10);
     assert.equal(list.props.initialNumToRender, 1); assert.equal(list.props.maxToRenderPerBatch, 1);
-    const dock = screen.nodes().find(node => node.props.testID === 'appliance-detail-back-dock');
+    const dock = screen.nodes().find(node => node.props.testID === 'appliance-detail-header');
     assert.ok(dock, 'the return action must remain outside the scrolling instructions');
     assert.ok(screen.text().includes('作業0') && !screen.text().includes('作業9'), 'do not mount every long task during navigation');
     await screen.press('一覧へ戻る');

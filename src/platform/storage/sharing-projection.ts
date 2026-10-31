@@ -40,7 +40,7 @@ export async function readSharedPrivateSettings(database: SQLiteDatabase, househ
     calendar_count_colors_json: string | null; calendar_count_display_mode: string }>(`SELECT notification_hour, notification_minute, notifications_enabled,
       calendar_count_colors_json, calendar_count_display_mode FROM household_settings WHERE household_id = ?`, householdId);
   return row ? { notificationHour: row.notification_hour, notificationMinute: row.notification_minute, notificationsEnabled: Boolean(row.notifications_enabled),
-    calendarCountColors: parseCalendarCountColors(row.calendar_count_colors_json), calendarCountDisplayMode: row.calendar_count_display_mode === 'dots' ? 'dots' : 'bar' } : {};
+    calendarCountColors: parseCalendarCountColors(row.calendar_count_colors_json), calendarCountDisplayMode: 'dots' } : {};
 }
 
 export function sharedProjectionToken(replica: SharedReplica, snapshot: PlannerSnapshot): string {

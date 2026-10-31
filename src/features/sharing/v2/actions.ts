@@ -1,3 +1,4 @@
+import { createV2CalendarActions } from './calendar-actions.ts';
 import type { LocalDate } from '../../../domain/shared/types.ts';
 import { addDays } from '../../../domain/scheduling/local-date.ts';
 import type { createV2EventRepository } from '../../../platform/storage/sharing-v2-events.ts';
@@ -153,6 +154,7 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
   }
   return {
     ...createV2WasteActions(repository, options.makeId),
+    ...createV2CalendarActions(repository, options.makeId),
     ...createV2ApplianceActions(repository, options),
     readPlan: async (range: Parameters<typeof buildV2CommonPlan>[1]) => buildV2CommonPlan(await repository.readState(), range),
     addChore: (name: string, instructions: string[] = []) => {

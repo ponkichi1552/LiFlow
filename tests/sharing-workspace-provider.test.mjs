@@ -29,9 +29,9 @@ for (const platform of ['ios', 'android']) for (const registryBroken of [false, 
       './use-planner-data': { usePlannerData: () => ({ database: {} }) }, '@/platform/storage/repository': { drainPlannerDatabaseOperations: async () => {} },
       '@/platform/sharing/auth': { observeSharingUser: () => () => {} }, 'react-native': { AppState: appState },
       '@/platform/sharing/private-calendar-sync': { startPrivateCalendarForeground: userId => { assert.equal(userId, 'owner'); privateStarts++; return () => { privateStops++; }; }, syncKnownPrivateCalendar: async () => { privateSyncs++; } },
-      '@/platform/sharing/workspaces': { readSharingSelection: async () => null, hasSharingSessionEnabled: async () => true, sharingSessionUser: async () => ({ uid: 'owner' }),
-        knownSharingWorkspaces: async () => { if (registryBroken) throw new Error('synthetic registry failure'); return []; },
-        subscribeSharingChanges: () => () => {}, syncKnownSharingWorkspaces: async () => { sharedSyncs++; } },
+      '@/platform/sharing/workspaces': { saveSharingSelection: async () => {}, readSharingSelection: async () => null, hasSharingSessionEnabled: async () => true, sharingSessionUser: async () => ({ uid: 'owner' }),
+        currentSharingWorkspace: async () => { if (registryBroken) throw new Error('synthetic registry failure'); return null; },
+        subscribeSharingChanges: () => () => {}, syncSharingWorkspace: async () => { sharedSyncs++; } },
     } });
     const disposeBoot = effects[0](); let disposeForeground;
     try {
@@ -55,11 +55,11 @@ for (const platform of ['ios', 'android']) {
       '@/components/planner-ui': {}, '@/contexts/workspace-context': { WorkspaceContext: { Provider: 'WorkspaceContextProvider' } },
       './use-planner-data': { usePlannerData: () => ({ database: {} }) }, '@/platform/storage/repository': {},
       '@/platform/sharing/auth': { observeSharingUser: () => () => {} }, '@/platform/sharing/private-calendar-sync': {},
-      '@/platform/sharing/workspaces': { readSharingSelection: async () => null, hasSharingSessionEnabled: async () => true,
-        sharingSessionUser: async () => ({ uid: currentUser }), knownSharingWorkspaces: async () => { currentUser = 'new-owner'; return [group]; }, subscribeSharingChanges: () => () => {} },
+      '@/platform/sharing/workspaces': { saveSharingSelection: async () => {}, readSharingSelection: async () => null, hasSharingSessionEnabled: async () => true,
+        sharingSessionUser: async () => ({ uid: currentUser }), currentSharingWorkspace: async () => { currentUser = 'new-owner'; return group; }, openSharedWorkspace: async () => ({ ...group, protocol: 2, drain: async () => {} }), subscribeSharingChanges: () => () => {} },
     } });
     const dispose = effects[0](); try { await screen.flush(); const value = screen.nodes().find(node => node.props.value?.ready === true)?.props.value;
-      assert.ok(value); assert.equal(value.userId, 'new-owner'); assert.deepEqual(value.groups, [group]);
+      assert.ok(value); assert.equal(value.userId, 'new-owner'); assert.deepEqual(value.group, group);
     } finally { dispose?.(); }
   });
 }
@@ -85,8 +85,8 @@ for (const [platform, name] of [
       'react-native': { AppState: appState },
       '@/platform/sharing/workspaces': {
         readSharingSelection: async () => ({ userId: group.userId, groupId: group.groupId }), hasSharingSessionEnabled: async () => true,
-        sharingSessionUser: async () => ({ uid: 'owner' }), knownSharingWorkspaces: async () => [group],
-        openSharedWorkspace: async () => workspace, subscribeSharingChanges: () => () => {}, syncKnownSharingWorkspaces: async () => {},
+        sharingSessionUser: async () => ({ uid: 'owner' }), currentSharingWorkspace: async () => group,
+        openSharedWorkspace: async () => workspace, subscribeSharingChanges: () => () => {}, syncSharingWorkspace: async () => {},
       },
     } });
   const disposeBoot = effects[0](); let disposeForeground;
@@ -106,14 +106,9 @@ for (const [platform, name] of [
   assert.equal(unsubscribed, 1);
 });
 
-for (const [platform, groupIds, name] of [
-  ['ios', ['broken', 'healthy'], 'ios backgrounding during a failed listener setup never opens subsequent workspaces'],
-  ['android', ['broken', 'healthy'], 'android backgrounding during a failed listener setup never opens subsequent workspaces'],
-  ['ios', ['broken'], 'ios backgrounding during the last failed listener setup never starts periodic recovery'],
-  ['android', ['broken'], 'android backgrounding during the last failed listener setup never starts periodic recovery'],
-]) test(name, async () => {
-  const effects = [], opened = []; let appStateListener, recoveries = 0;
-  const groups = groupIds.map((groupId) => ({ userId: 'owner', groupId, status: 'active' }));
+for (const [platform, name] of [['ios', 'ios backgrounding during the current group listener setup never starts periodic recovery'], ['android', 'android backgrounding during the current group listener setup never starts periodic recovery']]) test(name, async () => {
+  const effects = [], opened = []; let appStateListener, recoveries = 0, foreground = false;
+  const group = { userId: 'owner', groupId: 'broken', status: 'active' };
   const appState = { currentState: 'active', addEventListener: (_event, listener) => { appStateListener = listener; return { remove() {} }; } };
   const screen = screenHarness('src/hooks/use-workspace.tsx', { platform, exportName: 'WorkspaceProvider', effect: (callback) => effects.push(callback),
     mocks: {
@@ -123,27 +118,28 @@ for (const [platform, groupIds, name] of [
       '@/platform/sharing/private-calendar-sync': { startPrivateCalendarForeground: () => () => {}, syncKnownPrivateCalendar: async () => {} },
       '@/platform/sharing/auth': { observeSharingUser: () => () => {} }, 'react-native': { AppState: appState },
       '@/platform/sharing/workspaces': {
-        readSharingSelection: async () => null, hasSharingSessionEnabled: async () => true,
-        sharingSessionUser: async () => ({ uid: 'owner' }), knownSharingWorkspaces: async () => groups,
+        saveSharingSelection: async () => {}, readSharingSelection: async () => null, hasSharingSessionEnabled: async () => true,
+        sharingSessionUser: async () => ({ uid: 'owner' }), currentSharingWorkspace: async () => group,
         openSharedWorkspace: async (group) => {
+          if (!foreground) return { ...group, protocol: 2, drain: async () => {} };
           opened.push(group.groupId);
           if (group.groupId === 'broken') { appState.currentState = 'background'; appStateListener('background'); throw new Error('DB open interrupted'); }
           return { watch: () => () => {} };
         },
-        subscribeSharingChanges: () => () => {}, syncKnownSharingWorkspaces: async () => { recoveries++; },
+        subscribeSharingChanges: () => () => {}, syncSharingWorkspace: async () => { recoveries++; },
       },
     } });
   const disposeBoot = effects[0](); let disposeForeground;
   try {
-    await screen.flush(); disposeForeground = effects.at(-1)(); await screen.flush();
+    await screen.flush(); foreground = true; disposeForeground = effects.at(-1)(); await screen.flush();
     assert.deepEqual(opened, ['broken']);
     assert.equal(recoveries, 0, 'a failed final group must not start recovery after the app has backgrounded');
   } finally { disposeForeground?.(); disposeBoot?.(); }
 });
 
 for (const [platform, name] of [
-  ['ios', 'ios one unreadable group does not disable healthy foreground listeners or periodic recovery'],
-  ['android', 'android one unreadable group does not disable healthy foreground listeners or periodic recovery'],
+  ['ios', 'ios historical groups are not watched while the current group retains periodic recovery'],
+  ['android', 'android historical groups are not watched while the current group retains periodic recovery'],
 ]) test(name, async () => {
   const effects = [], watches = []; let unsubscribed = 0, recoveries = 0;
   const groups = ['broken', 'healthy'].map((groupId) => ({ userId: 'owner', groupId, status: 'active' }));
@@ -157,13 +153,13 @@ for (const [platform, name] of [
       '@/platform/sharing/auth': { observeSharingUser: () => () => {} },
       'react-native': { AppState: appState },
       '@/platform/sharing/workspaces': {
-        readSharingSelection: async () => null, hasSharingSessionEnabled: async () => true,
-        sharingSessionUser: async () => ({ uid: 'owner' }), knownSharingWorkspaces: async () => groups,
+        saveSharingSelection: async () => {}, readSharingSelection: async () => null, hasSharingSessionEnabled: async () => true,
+        sharingSessionUser: async () => ({ uid: 'owner' }), currentSharingWorkspace: async () => groups.find(group => group.groupId === 'healthy') ?? null,
         openSharedWorkspace: async (group) => {
           if (group.groupId === 'broken') throw new Error('protected database cannot open');
           return { watch: () => { watches.push(group.groupId); return () => { unsubscribed++; }; } };
         },
-        subscribeSharingChanges: () => () => {}, syncKnownSharingWorkspaces: async () => { recoveries++; },
+        subscribeSharingChanges: () => () => {}, syncSharingWorkspace: async () => { recoveries++; },
       },
     } });
   const disposeBoot = effects[0](); let disposeForeground;

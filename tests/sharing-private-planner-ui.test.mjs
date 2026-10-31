@@ -16,29 +16,31 @@ async function open(t, platform, options = {}) {
     effect: callback => effects.push(callback), preventRemove: (enabled, callback) => { prevent = { enabled, callback }; },
     props: { load: async () => ({ store, defaults }), onBack: () => back++, ...options } });
   const cleanup = effects.shift()(); t.after(cleanup);
-  for (let n = 0; n < 15 && !screen.text().includes('自動移動を許可する時間帯'); n++) await screen.flush();
+  for (let n = 0; n < 15 && !screen.text().includes('本人の地域'); n++) await screen.flush();
   const field = name => { const node = screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === name); assert.ok(node, name); return node; };
   const fill = async (name, text) => { field(name).props.onChangeText(text); await screen.flush(); };
   const blur = async name => { field(name).props.onBlur(); for (let n = 0; n < 8; n++) await screen.flush(); };
   return { f, actual, store, screen, field, fill, blur, effects, saves: () => saves, back: () => back, prevent: () => prevent };
 }
 for (const platform of ['ios', 'android']) {
-  test(`${platform} private preference UI autosaves explicit bands and reloads protected values without a save button`, async t => {
+  test(`${platform} account synchronization does not repeat daily planning inputs or require device setup for local edits`, async t => {
+    const ui = await open(t, platform, { syncOnly: true });
+    assert.match(ui.screen.text(), /設定の端末間同期/u); assert.equal(ui.screen.nodes().some(node => node.type === 'TextInput'), false);
+    assert.equal(ui.saves(), 0); assert.equal(await ui.actual.read(), null);
+  });
+  test(`${platform} private preference UI autosaves daily limits without exposing inactive time relocation controls`, async t => {
     const ui = await open(t, platform); assert.equal(ui.saves(), 0); assert.equal(await ui.actual.read(), null);
-    assert.match(ui.screen.text(), /本人向けの推奨/u); assert.match(ui.screen.text(), /他のメンバーには公開されません/u); assert.equal(ui.screen.nodes().some(n => n.props.accessibilityLabel === '保存'), false);
-    await ui.screen.press('月曜日の時間帯を追加'); await ui.fill('月曜日1の開始', '19:13'); await ui.blur('月曜日1の開始');
-    assert.equal(ui.saves(), 0); assert.match(ui.screen.text(), /HH:mm/u);
-    await ui.fill('月曜日1の終了', '20:07'); await ui.blur('月曜日1の終了');
-    assert.deepEqual((await ui.actual.read()).allowedBands, [{ weekday: 1, startMinute: 1153, endMinute: 1207 }]); assert.match(ui.screen.text(), /この端末に保存済み/u);
-    assert.equal(ui.field('月曜日1の開始').props.keyboardType, platform === 'ios' ? 'numbers-and-punctuation' : 'default');
+    assert.match(ui.screen.text(), /本人向けの推奨/u); assert.match(ui.screen.text(), /他のメンバーには公開されません/u);
+    assert.equal(ui.screen.text().includes('自動移動'), false); assert.equal(ui.screen.nodes().some(n => n.props.accessibilityLabel?.includes('時間帯を追加')), false);
+    await ui.fill('本人の重い家事の上限', '3'); await ui.blur('本人の重い家事の上限');
+    assert.equal((await ui.actual.read()).loadLimits.heavyDailyLimit, 3); assert.deepEqual((await ui.actual.read()).allowedBands, []);
     await ui.screen.press('保存済みの本人設定を再読込'); const closeReload = ui.effects.at(-1)(); t.after(closeReload);
     for (let n = 0; n < 8; n++) await ui.screen.flush();
-    assert.equal(ui.field('月曜日1の開始').props.value, '19:13'); assert.equal(ui.field('月曜日1の終了').props.value, '20:07');
-    assert.equal((await ui.actual.read()).revision, 1);
+    assert.equal(ui.field('本人の重い家事の上限').props.value, '3'); assert.equal((await ui.actual.read()).revision, 1);
   });
 
   test(`${platform} private preference UI blocks hardware and visible back for incomplete input until explicit discard`, async t => {
-    const ui = await open(t, platform); await ui.screen.press('火曜日の時間帯を追加'); await ui.fill('火曜日1の開始', '18:');
+    const ui = await open(t, platform); await ui.fill('本人の重い家事の上限', '');
     assert.equal(ui.prevent().enabled, true); let repeated = 0; ui.prevent().callback({ repeat: () => repeated++ });
     for (let n = 0; n < 6; n++) await ui.screen.flush(); assert.equal(repeated, 0);
     await ui.screen.press('前の画面に戻る'); assert.equal(ui.back(), 0); assert.match(ui.screen.text(), /未保存の入力を修正/u);

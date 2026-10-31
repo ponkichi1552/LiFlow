@@ -75,7 +75,7 @@ for (const [platform, name] of [
   ['android', "android normal sharing screen forwards explicit v2 kind and ignores a previous account's late creation"],
 ]) test(name, async () => {
   const calls = []; let resolve;
-  const context = { active: null, userId: 'owner', groups: [], ready: true, refreshSharing: async () => { calls.push(['refresh']); } };
+  const context = { active: null, userId: 'owner', group: null, ready: true, refreshSharing: async () => { calls.push(['refresh']); } };
   const ui = screenHarness('src/app/sharing/index.tsx', { platform, layoutEffect: callback => callback(), mocks: {
     '@/hooks/use-workspace': { useWorkspace: () => context }, 'expo-image': { Image: 'Image' },
     '@/features/sharing/rollout': { sharingCreationProtocol: () => 2 },
@@ -105,7 +105,7 @@ test('retired legacy creation input cannot bypass the explicit v2 group kind', a
 
 test('a saved group creation remains successful when refreshing the group list fails afterward', async () => {
   let create; let count = 0;
-  const context = { active: null, userId: 'owner', groups: [], ready: true, refreshSharing: async () => { throw new Error('list unavailable'); } };
+  const context = { active: null, userId: 'owner', group: null, ready: true, refreshSharing: async () => { throw new Error('list unavailable'); } };
   const ui = screenHarness('src/app/sharing/index.tsx', { mocks: {
     '@/hooks/use-workspace': { useWorkspace: () => context }, 'expo-image': { Image: 'Image' },
     '@/features/sharing/rollout': { sharingCreationProtocol: () => 2 },

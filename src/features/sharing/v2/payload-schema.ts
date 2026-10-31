@@ -1,3 +1,4 @@
+import { validateSharedCalendarPayload } from './calendar-state.ts';
 import { assertSharedIdentifier } from '../identifier.ts';
 import { parseLocalDate } from '../../../domain/scheduling/local-date.ts';
 import { instantMilliseconds, normalizeDateTarget, validateDesignationTarget } from './date-target.ts';
@@ -8,12 +9,12 @@ import type { LocalDate } from '../../../domain/shared/types.ts';
 import { isSharedTimeZone } from '../group-clock.ts';
 
 export const V2_ENTITY_TYPES = ['groupPolicy', 'chorePolicy', 'datePermission', 'assignmentRule', 'claim', 'claimRelease',
-  'claimResolution', 'assignmentRequest', 'assignmentDecision', 'assignmentCancel', 'designation', 'designationCancel', 'changeRequest', 'requestDecision', 'completionApproval', 'migration'] as const;
+  'claimResolution', 'assignmentRequest', 'assignmentDecision', 'assignmentCancel', 'designation', 'designationCancel', 'changeRequest', 'requestDecision', 'completionApproval', 'migration', 'calendarEvent'] as const;
 export type V2EntityType = typeof V2_ENTITY_TYPES[number];
 export const V2_SCHEMA_VERSION = 2;
-export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-39';
-/** Draft 38 keeps its signed version and existing scheduling semantics until the owner upgrades. */
-export const isSupportedV2Scheduler = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-38';
+export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-40';
+/** Signed 38/39 histories keep their original epochs until the owner approves an upgrade. */
+export const isSupportedV2Scheduler = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-39' || version === 'liflow-shared-2-draft-38';
 type RecordValue = Record<string, JsonValue>;
 
 function record(value: unknown, allowed: readonly string[], required: readonly string[] = allowed): RecordValue {
@@ -86,6 +87,7 @@ export function validateV2EntityPayload(entityType: V2EntityType, payload: Recor
   }
   // Each append-only business fact has its own identity. A patch cannot rewrite an older fact entity.
   if (binding.entityId !== binding.operationId) throw new Error('V2 fact identity must equal its operation ID');
+  if (entityType === 'calendarEvent') { validateSharedCalendarPayload(payload, binding.operationId); return; }
   if (entityType === 'assignmentRule') {
     const required = ['choreId', 'memberIds', 'fromOccurrenceId', 'fromAnchorDate', 'scope', 'fixed', 'ruleVersion'];
     record(payload, [...required, 'basisRuleIds', 'reviewedAssignmentRequestIds'], required);

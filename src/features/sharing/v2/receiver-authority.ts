@@ -1,3 +1,4 @@
+import { authorizeSharedCalendarOperation } from './calendar-state.ts';
 import { V2_SCHEDULER_VERSION } from './payload-schema.ts';
 import { canonicalJson, causallyPrecedes, compareOperationIds } from '../operations.ts';
 import type { SharedOperation } from '../operations.ts';
@@ -245,7 +246,11 @@ function authorizeV2Operation(view: V2HistoryView, archive: readonly VerifiedSha
   }
   if (op.entityType === 'appliance' && op.payload.analysis && typeof op.payload.analysis === 'object'
     && !Array.isArray(op.payload.analysis) && op.payload.analysis.manualSource != null) {
-    requireAuthority(originalEpoch.body.schedulerVersion === V2_SCHEDULER_VERSION, 'Uploaded manuals require an owner-approved scheduler upgrade');
+    requireAuthority([V2_SCHEDULER_VERSION, 'liflow-shared-2-draft-39'].includes(originalEpoch.body.schedulerVersion), 'Uploaded manuals require an owner-approved scheduler upgrade');
+  }
+  if (op.entityType === 'calendarEvent') {
+    requireAuthority(originalEpoch.body.schedulerVersion === V2_SCHEDULER_VERSION, 'Shared calendar requires an owner-approved compatibility update');
+    authorizeSharedCalendarOperation(view, op, admin); return;
   }
   const memberIds = epoch.body.members.map((member) => member.userId);
   const member = (id: string) => requireAuthority(memberIds.includes(id), 'Target is not an approved member');

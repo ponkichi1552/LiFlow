@@ -75,7 +75,7 @@ for (const platform of ['ios', 'android']) {
     } });
     effects.shift()(); const session = await load(); await session.readControl();
     context.active = { ...active, groupId: 'group-b' }; screen.render(); effects.at(-1)();
-    await assert.rejects(session.reviewConnection(), /切り替わり/u); await assert.rejects(session.connect({ subject: 'subject', label: 'Google', connectionRevision: 0 }), /切り替わり/u);
+    await assert.rejects(session.reviewConnection(), /参加状態が変わり/u); await assert.rejects(session.connect({ subject: 'subject', label: 'Google', connectionRevision: 0 }), /参加状態が変わり/u);
     assert.deepEqual(h.calls, []);
   });
 }

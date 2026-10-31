@@ -46,7 +46,7 @@ function Connection({ runtime, control: initial, onBack, notice }: { runtime: V2
   const state = control.state; const connected = state?.enabled === true && !state.disconnected;
   const when = (value?: string) => value ? new Date(value).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '未実施';
   return <Page>{notice}<BackButton disabled={busy !== null && busy !== 'sync'} onPress={onBack} />
-    <ScreenHeading title="共有家事とGoogle Tasks" description="このグループと本人専用の連携です。個人モードや別グループの接続は変わりません。" />
+    <ScreenHeading title="共有家事とGoogle Tasks" description="共有家事を自分のGoogle Tasksへ同期します。個人の家事の連携設定は別に保存されます。" />
     <Card><SectionHeading title={connected ? '連携中' : state?.disconnected ? '接続を解除済み' : state ? '一時停止中' : '未接続'} />
       {control.label ? <Text style={typography.body}>{control.label}</Text> : null}
       <Text style={typography.caption}>本人の家事名・推奨日・完了状態を、確認したGoogleアカウントの専用リストへ送ります。グループへGoogleの識別子やトークンは共有しません。</Text>

@@ -20,10 +20,10 @@ export function NotificationWorkspaceBridge() {
         const id = `${response.notification.request.identifier}:${response.actionIdentifier}`;
         if (handled.current.has(id)) return;
         const current = latest.current; const data = response.notification.request.content.data;
-        const selection = notificationWorkspace(data, current.userId, current.groups);
+        const selection = notificationWorkspace(data, current.userId, current.group);
         if (!isPlannerNotification(data)) return;
         if (selection === undefined) router.replace('/sharing');
-        else { await current.switchTo(selection); if (live) router.replace('/'); }
+        else if (selection === null || selection.groupId === current.active?.groupId) { if (live) router.replace('/'); } else return;
         handled.current.add(id);
         const saved = getLastNotificationResponse();
         if (saved?.notification.request.identifier === response.notification.request.identifier && saved.actionIdentifier === response.actionIdentifier) clearLastNotificationResponse();

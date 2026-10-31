@@ -7,13 +7,24 @@ import type { LocalDate } from '../domain/shared/types';
 import { palette, typography } from './planner-ui';
 import { GroupIcon } from './group-icon';
 import type { homeSummary } from '../features/planner/home-summary';
+import type { HomeWeekScope } from '../features/planner/home-presentation';
 
-export function HomeHeader({ today, workspaceName = '個人', onGroup = () => router.push('/sharing') }: {
+export function HomeWeekSwitcher({ scope, onChange }: { scope: HomeWeekScope; onChange: (scope: HomeWeekScope) => void }) {
+  return <View style={styles.weekSwitcher}>{(['current', 'next'] as const).map(value => <Pressable key={value} accessibilityRole="button"
+    accessibilityState={{ selected: scope === value }} onPress={() => onChange(value)} style={[styles.weekOption, scope === value && styles.weekSelected]}>
+    <Text style={[styles.weekText, scope === value && styles.weekSelectedText]}>{value === 'current' ? '今週' : '来週'}</Text>
+  </Pressable>)}</View>;
+}
+export function HomeUpcomingDate({ date }: { date: LocalDate }) {
+  return <Text style={styles.upcomingDate}>{formatJapaneseDate(date, { weekday: true }).replace(/^\d+月/, '')}のおすすめ</Text>;
+}
+
+export function HomeHeader({ today, workspaceName, onGroup = () => router.push('/sharing') }: {
   today: LocalDate; workspaceName?: string; onGroup?: () => void;
 }) {
   return <View style={styles.header}>
     <View style={styles.identity}><Text style={styles.date}>{formatJapaneseDate(today, { year: true, weekday: true })}</Text>
-      <Text numberOfLines={1} style={styles.workspace}>{workspaceName}</Text></View>
+      {workspaceName ? <Text numberOfLines={1} style={styles.workspace}>{workspaceName}</Text> : null}</View>
     <View style={styles.actions}>
       <Pressable accessibilityRole="button" accessibilityLabel="ヘルプを開く" onPress={() => router.push('/help')} style={styles.iconButton}>
         <SymbolView name={{ ios: 'questionmark.circle', android: 'help_outline' }} size={23} tintColor={palette.muted} /></Pressable>
@@ -27,7 +38,7 @@ export function HomeProgress({ summary, total, done }: { summary: ReturnType<typ
   return <View style={styles.progress}>
     <Text style={styles.greeting}>{summary.greeting}</Text>
     {summary.showProgress ? <><View style={styles.progressRow}>
-      <Text style={styles.count}>{total}件中{done}件が完了しました</Text><Text style={styles.count}>{summary.percent}%</Text></View>
+      <Text style={styles.count}>{total}件中{done}件が完了しました</Text>{done > 0 ? <Text style={styles.count}>{summary.percent}%</Text> : null}</View>
       <View style={styles.track}><View style={[styles.fill, { width: `${summary.percent}%` }]} /></View></> : null}
   </View>;
 }
@@ -38,14 +49,18 @@ export function LoadSortButton({ order, onPress }: { order: LoadOrder; onPress: 
     <SymbolView name={{ ios: 'arrow.up.arrow.down', android: 'swap_vert' }} size={17} tintColor={palette.muted} />
   </Pressable>;
 }
-export function CompletionToast({ onUndo, busy = false }: { onUndo: () => void; busy?: boolean }) {
+export function CompletionToast({ onUndo, busy = false, message = '完了しました', accessibilityLabel = '直前の完了を元に戻す' }: { onUndo: () => void; busy?: boolean; message?: string; accessibilityLabel?: string }) {
   return <View style={styles.toast} accessibilityLiveRegion="polite">
-    <Text style={styles.toastText}>完了しました</Text>
-    <Pressable accessibilityRole="button" accessibilityLabel="直前の完了を元に戻す" disabled={busy} onPress={onUndo} style={styles.undo}>
+    <Text style={styles.toastText}>{message}</Text>
+    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} disabled={busy} onPress={onUndo} style={styles.undo}>
       <Text style={[styles.undoText, busy && styles.muted]}>元に戻す</Text></Pressable>
   </View>;
 }
 const styles = StyleSheet.create({
+  weekSwitcher: { flexDirection: 'row', padding: 4, borderRadius: 14, backgroundColor: palette.accentSoft, marginTop: 2 },
+  weekOption: { flex: 1, minHeight: 44, borderRadius: 11, alignItems: 'center', justifyContent: 'center' }, weekSelected: { backgroundColor: palette.surface },
+  weekText: { ...typography.caption, color: palette.muted, fontWeight: '600' }, weekSelectedText: { color: palette.accent, fontWeight: '800' },
+  upcomingDate: { ...typography.caption, color: palette.muted, fontWeight: '600', marginTop: 8 },
   header: { flexDirection: 'row', gap: 6, alignItems: 'center' }, identity: { flex: 1, minWidth: 0, gap: 2 },
   date: { ...typography.caption, color: palette.muted }, workspace: { ...typography.label, color: palette.ink, fontWeight: '600' },
   actions: { flexDirection: 'row', gap: 2 }, iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },

@@ -135,7 +135,7 @@ test('custom repeat route applies only a personal draft and returns to the origi
   for (let n = 0; n < 20 && !navigation.length; n++) await screen.flush();
   const saved = (await readLocalCalendar(h.database)).draft;
   assert.equal(saved.value.title, '端末だけの予定'); assert.deepEqual(saved.value.customRecurrence, { unit: 'week', interval: 3, weekdays: [1, 4] });
-  assert.equal(navigation[0][1].pathname, '/group-v2/calendar'); assert.equal(navigation[0][1].params.calendarDraftVersion, calendarDraftVersion(saved));
+  assert.equal(navigation[0][1].pathname, '/(tabs)/explore'); assert.equal(navigation[0][1].params.calendarDraftVersion, calendarDraftVersion(saved));
   assert.equal(JSON.stringify(navigation).includes('端末だけの予定'), false); assert.equal(disabled, 1);
   assert.equal((await readLocalCalendar(h.database)).events.length, 0, 'the custom page never creates a second event');
 });

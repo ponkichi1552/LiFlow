@@ -56,17 +56,17 @@ test('waste deletion and occurrence changes cannot overlap and unlock after a fa
   } finally { h.connection.close(); }
 });
 
-for (const [section, button, method] of [['生活リズム', '設定を保存', 'updatePlannerSettings'], ['カレンダーの家事数表示', '表示設定を保存', 'updateCalendarCountDisplay']]) {
+for (const [section, choice, method] of [['生活リズム', 'こまめ · 短めの周期', 'updatePlannerSettings'], ['カレンダーの家事数表示', '1〜5件の色を赤にする', 'updateCalendarCountDisplay']]) {
   test(`settings ${section} saves once per interaction and can retry after a failed write`, async () => {
     const h = await fixture();
     try {
-      const pending = deferred(); let writes = 0;
-      const screen = screenHarness('src/app/settings.tsx', { ...h.options, mocks: { ...settingsMocks, '@/platform/storage/repository': { [method]: async () => { writes++; if (writes === 1) await pending.promise; } } } });
+      const pending = deferred(); let writes = 0; let appState;
+      const screen = screenHarness('src/app/settings.tsx', { ...h.options, effect: callback => callback(), appStateListener: callback => { appState = callback; }, mocks: { ...settingsMocks, '@/platform/storage/repository': { [method]: async () => { writes++; if (writes === 1) await pending.promise; } } } });
       await screen.press(`${section}を開く`);
-      const control = screen.button(button); control.props.onPress(); control.props.onPress(); await screen.flush();
+      await screen.press(choice); appState('background'); appState('background'); await screen.flush();
       assert.equal(writes, 1);
       pending.reject(new Error('保存失敗')); await screen.flush(); assert.ok(screen.text().includes('保存失敗'));
-      await screen.press(button); assert.equal(writes, 2);
+      await screen.press('保存を再試行'); assert.equal(writes, 2);
     } finally { h.connection.close(); }
   });
 }

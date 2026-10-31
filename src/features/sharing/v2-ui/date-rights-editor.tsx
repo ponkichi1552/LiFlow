@@ -24,7 +24,7 @@ function targetOf(key: string): { userId: string; expectedMembershipStart: numbe
 }
 
 export function V2DateRightsEditor(props: { model: V2GroupScreenModel; choreId: string; controller: V2GroupController;
-  onSaved: () => Promise<void>; onBack: () => void; onGroupPolicy?: () => void; header?: ReactNode }) {
+  onSaved: () => Promise<void>; onBack: () => void; onGroupPolicy?: () => void; header?: ReactNode; embedded?: boolean }) {
   const { model, choreId, onBack, header } = props;
   if (model.viewerUserId !== model.adminUserId) return <V2FormScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>{header}<BackButton onPress={onBack} />
     <ScreenHeading title="日時変更の権限" /><Text style={styles.caption}>メンバーへの権限は管理者が設定します。</Text></V2FormScrollView>;
@@ -34,7 +34,7 @@ export function V2DateRightsEditor(props: { model: V2GroupScreenModel; choreId: 
   return <Editor key={`${model.viewerUserId}:${model.plan.groupId}:${choreId}`} {...props} source={source} />;
 }
 
-function Editor({ model, source, choreId, controller, onSaved, onBack, onGroupPolicy, header }: Parameters<typeof V2DateRightsEditor>[0] & { source: NonNullable<V2GroupScreenModel['dateRights']> }) {
+function Editor({ model, source, choreId, controller, onSaved, onBack, onGroupPolicy, header, embedded }: Parameters<typeof V2DateRightsEditor>[0] & { source: NonNullable<V2GroupScreenModel['dateRights']> }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({}); const nameOf = v2MemberLabels(model.plan.members);
   const policy = model.groupPolicy; const delegation = model.plan.policy?.delegationEnabled === true;
   const displayedPolicy = useRef<readonly string[] | null>(null);
@@ -44,7 +44,7 @@ function Editor({ model, source, choreId, controller, onSaved, onBack, onGroupPo
     save: async edits => {
       const result = await controller.actions.editDateRights(choreId, edits.map(edit => ({ ...edit, ...targetOf(edit.field) })), displayedPolicy.current ?? []);
       return { operations: result.operations, fields: Object.fromEntries(edits.map(edit => [edit.field, result.fields[targetOf(edit.field).userId]])) };
-    }, onSaved });
+    }, onSaved }, `rights:${choreId}`);
   const targets = [...Object.keys(fields), ...Object.keys(autosave.fields).filter(key => !Object.hasOwn(fields, key) && autosave.isDirty(key))];
   const bindPolicy = () => { if (!autosave.hasDraft()) displayedPolicy.current = policy?.candidates.map(candidate => candidate.operationId) ?? []; };
   const change = (userId: string, patch: (value: V2DateRightsValue) => V2DateRightsValue) => {
@@ -52,9 +52,10 @@ function Editor({ model, source, choreId, controller, onSaved, onBack, onGroupPo
   };
   const resolve = (userId: string, value: JsonValue) => { bindPolicy(); autosave.resolve(userId, value); };
   const chore = model.plan.chores.find(value => value.id === choreId);
-  return <V2FormScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }}>{header}
-    <BackButton disabled={autosave.leaving} onPress={() => void autosave.navigateAfterSave(onBack)} /><ScreenHeading title="日時変更の権限" />
-    <Text style={styles.body}>{chore?.name}</Text><Text style={styles.caption}>この家事だけに適用します。日時厳守・固定・本人承認などの条件は引き続き適用されます。</Text>
+  const Container = embedded ? View : V2FormScrollView;
+  return <Container {...(embedded ? { style: { gap: 14 } } : { contentContainerStyle: { padding: 16, gap: 16, paddingBottom: 40 } })}>{header}
+    {!embedded ? <><BackButton disabled={autosave.leaving} onPress={() => void autosave.navigateAfterSave(onBack)} /><ScreenHeading title="日時変更の権限" />
+    <Text style={styles.body}>{chore?.name}</Text></> : null}<Text style={styles.caption}>この家事だけに適用します。日時厳守・固定・本人承認などの条件は引き続き適用されます。</Text>
     {blocked ? <Text accessibilityRole="alert" style={styles.error}>家事またはグループのルールの確認が必要です。入力は保持しています。</Text> : null}
     {!delegation ? <Text style={styles.caption}>グループの委譲機能はOFFです。保存済みの権限は適用されません。個別の権限を解除することはできます。</Text> : null}
     {targets.length === 0 ? <Card><Text style={styles.body}>権限を設定するメンバーはいません。</Text></Card> : null}
@@ -92,5 +93,5 @@ function Editor({ model, source, choreId, controller, onSaved, onBack, onGroupPo
       discard={autosave.discard} discardTitle="入力を最新の権限に戻す" disabled={autosave.leaving} />
     {onGroupPolicy ? <AppButton title="グループのルールへ" variant="secondary" disabled={autosave.leaving}
       onPress={() => void autosave.navigateAfterSave(onGroupPolicy)} /> : null}
-  </V2FormScrollView>;
+  </Container>;
 }

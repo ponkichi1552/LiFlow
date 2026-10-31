@@ -1,12 +1,12 @@
 import { Stack } from 'expo-router';
 import { useWorkspace } from '../hooks/use-workspace';
 
-/** v2 never enters a legacy planner; settings choose their personal/group destination explicitly. */
+/** All workspaces use the same tabs; group data stays in its own repository. */
 export function WorkspaceNavigator() {
   const { active } = useWorkspace(); const v2 = active?.protocol === 2;
   return <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
-    <Stack.Protected guard={!v2} redirectTo="/group-v2">
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+    <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+    <Stack.Protected guard={!v2} redirectTo="/">
       <Stack.Screen name="chores" options={{ headerShown: false, animationTypeForReplace: 'pop' }} />
       <Stack.Screen name="waste" options={{ headerShown: false }} />
     </Stack.Protected>

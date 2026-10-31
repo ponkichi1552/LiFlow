@@ -60,7 +60,9 @@ test('v2 calendar never applies the viewers private recommendation to another as
     candidate.date = '2026-10-28'; const before = JSON.stringify(model.plan);
     const projection = v2CalendarProjection(model, personal);
     assert.ok(projection.byDate.get('2026-10-27')?.some((entry) => entry.id === candidate.subjectOccurrenceId));
-    assert.equal(projection.byDate.get('2026-10-28')?.some((entry) => entry.id === candidate.subjectOccurrenceId) ?? false, false);
+    const inPeriod = projection.byDate.get('2026-10-28')?.find(entry => entry.id === candidate.subjectOccurrenceId);
+    assert.ok(inPeriod, 'calendar counts every day inside the execution period');
+    assert.equal(inPeriod.recommendation, undefined); assert.equal(inPeriod.date, '2026-10-27');
     assert.equal(JSON.stringify(model.plan), before);
   } finally { f.close(); }
 });

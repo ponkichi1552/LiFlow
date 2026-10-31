@@ -21,7 +21,7 @@ async function createGroup(store, group = 'group-a') {
     revokedUserIds: [], rotationRequired: false, closed: false, headSequence: 0, lastOperationId: null,
     snapshotId: null, snapshotThroughSequence: 0, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   batch.set(doc(ref, 'rosters', '1'), { rosterJson: 'signed-public-roster-1', createdAt: serverTimestamp() });
-  batch.set(doc(store, 'sharingUsers', 'owner', 'memberships', group), { groupId: group, createdAt: serverTimestamp() });
+  batch.set(doc(store, 'sharingUsers', 'owner', 'memberships', 'current'), { groupId: group, invitationId: null, createdAt: serverTimestamp() });
   await batch.commit();
 }
 
@@ -35,8 +35,9 @@ async function approve(store, members = ['owner', 'member'], group = 'group-a') 
   batch.set(doc(ref, 'rosters', String(version)), { rosterJson, createdAt: serverTimestamp() });
   batch.set(doc(ref, 'snapshots', snapshotId), { keyVersion: version, throughSequence: old.headSequence,
     manifestJson: 'authenticated-snapshot-manifest', createdAt: serverTimestamp() });
+  for (const uid of members.filter(uid => !old.memberIds.includes(uid))) await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'sharingUsers', uid, 'memberships', 'current'), { groupId: group, invitationId: 'fixture-approval', createdAt: serverTimestamp() }));
   for (const uid of members) {
-    if (!old.memberIds.includes(uid)) batch.set(doc(store, 'sharingUsers', uid, 'memberships', group), { groupId: group, createdAt: serverTimestamp() });
+    if (!old.memberIds.includes(uid)) batch.set(doc(store, 'sharingUsers', uid, 'memberships', 'current'), { groupId: group, invitationId: null, createdAt: serverTimestamp() });
     batch.set(doc(ref, 'keyEnvelopes', `${version}_${uid}-device`), { userId: uid, deviceId: `${uid}-device`, keyVersion: version,
       wrappedKeyJson: 'authenticated-encrypted-key', createdAt: serverTimestamp() });
   }
@@ -88,8 +89,8 @@ test('Rules: only the owner approves membership and each change rotates the key 
   await assertFails(updateDoc(root(owner), { keyVersion: 3, rosterRevision: 3, rosterJson: 'unsigned', updatedAt: serverTimestamp() }));
   await assertSucceeds(approve(owner, ['owner', 'member', 'third']));
   assert.equal((await getDoc(root(db('third')))).data().keyVersion, 3);
-  const memberships = await getDocs(collection(db('third'), 'sharingUsers', 'third', 'memberships'));
-  assert.equal(memberships.size, 1);
+  const membership = await getDoc(doc(db('third'), 'sharingUsers', 'third', 'memberships', 'current'));
+  assert.equal(membership.data().groupId, 'group-a');
   await assertFails(getDocs(collection(db('third'), 'sharingUsers', 'owner', 'memberships')));
 });
 
@@ -110,7 +111,7 @@ test('Rules: member removal blocks old ciphertexts and key envelopes; recipients
   assert.equal((await getDocs(query(collection(root(member), 'keyEnvelopes'), where('userId', '==', 'member')))).size, 1);
   await approve(owner, ['owner']);
   await assertFails(getDoc(doc(root(member), 'keyEnvelopes', '2_member-device')));
-  await createGroup(owner, 'group-b');
+  await assertFails(createGroup(owner, 'group-b'));
   await assertFails(send(member, 'member', 'cross-group', 'group-b'));
   await assertFails(setDoc(doc(root(owner), 'keyEnvelopes', '3_stranger-device'), { userId: 'outsider', deviceId: 'stranger-device',
     keyVersion: 3, wrappedKeyJson: 'key', createdAt: serverTimestamp() }));
@@ -124,7 +125,10 @@ test('Rules: invites expire, require explicit owner approval and cannot be consu
   await assertFails(setDoc(doc(owner, 'sharingInvites', 'too-long'), { ...invitation, expiresAt: Timestamp.fromMillis(Date.now() + 25 * 3600_000) }));
   await assertFails(getDoc(doc(db(), 'sharingInvites', 'invite-a')));
   const applicant = db('member'); const requestRef = doc(applicant, 'sharingInvites', 'invite-a', 'requests', 'member');
-  await assertSucceeds(setDoc(requestRef, { userId: 'member', deviceId: 'member-device', requestJson: 'signed-invitation-proof', createdAt: serverTimestamp() }));
+  const join = writeBatch(applicant);
+  join.set(doc(applicant, 'sharingUsers', 'member', 'memberships', 'current'), { groupId: 'group-a', invitationId: 'invite-a', createdAt: serverTimestamp() });
+  join.set(requestRef, { userId: 'member', deviceId: 'member-device', requestJson: 'signed-invitation-proof', createdAt: serverTimestamp() });
+  await assertSucceeds(join.commit());
   await assertFails(getDoc(root(applicant))); await assertFails(updateDoc(doc(applicant, 'sharingInvites', 'invite-a'), { status: 'used', usedBy: 'member' }));
   await assertFails(setDoc(doc(applicant, 'sharingInvites', 'invite-a', 'requests', 'owner'), { userId: 'owner', deviceId: 'member-device', requestJson: 'impersonation', createdAt: serverTimestamp() }));
   await assertFails(getDoc(doc(db('outsider'), 'sharingInvites', 'invite-a', 'requests', 'member')));

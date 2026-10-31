@@ -15,17 +15,16 @@ export { typography } from './planner-typography';
 export { palette } from './planner-colors';
 
 
-export function Page({ children, contentStyle, keyboardAware = false, footer, footerHasTabBar = false, compactWorkspace = false, floatingFooter = false }: PropsWithChildren<{ contentStyle?: object; keyboardAware?: boolean; footer?: ReactNode; footerHasTabBar?: boolean; compactWorkspace?: boolean; floatingFooter?: boolean }>) {
+export function Page({ children, contentStyle, keyboardAware = false, footer, header, footerHasTabBar = false, floatingFooter = false }: PropsWithChildren<{ contentStyle?: object; keyboardAware?: boolean; footer?: ReactNode; header?: ReactNode; footerHasTabBar?: boolean; floatingFooter?: boolean }>) {
   const insets = useSafeAreaInsets();
   const workspace = useContext(WorkspaceContext);
   const issues = useContext(PlannerIssuesContext);
   const issueCount = workspace?.active?.groupId === issues?.groupId ? issues?.issueCount ?? 0 : 0;
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
+      {header ? <View style={{ paddingHorizontal: 18, paddingVertical: 6 }}>{header}</View> : null}
       <ScrollView keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets={keyboardAware}
         keyboardDismissMode={keyboardAware ? 'on-drag' : 'none'} contentContainerStyle={[styles.page, contentStyle]}>
-        {workspace?.active && !compactWorkspace ? <Pressable accessibilityRole="button" accessibilityLabel="共有グループを切り替える" onPress={() => router.push('/sharing')}
-          style={styles.workspaceBanner}><Text style={styles.workspaceName}>共有 · {workspace.groups.find((group) => group.groupId === workspace.active!.groupId)?.displayName ?? '共有グループ'}</Text><ActionLabel label="切り替え" style={styles.workspaceSwitch} color={palette.muted} /></Pressable> : null}
         {workspace?.error ? <Text accessibilityRole="alert" style={styles.workspaceError}>{workspace.error}</Text> : null}
         {issueCount > 0 ? <Pressable accessibilityRole="button" accessibilityLabel="共有データを確認する"
           onPress={() => router.push('/sharing')} style={styles.planningNotice}>
@@ -171,9 +170,6 @@ export function MutedText({ children }: PropsWithChildren) {
 const styles = StyleSheet.create({
   actionLabel: { flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 1 },
   actionLabelText: { flexShrink: 1 },
-  workspaceBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 12, backgroundColor: palette.accentSoft },
-  workspaceName: { ...typography.label, color: palette.ink, fontWeight: '700', flex: 1 },
-  workspaceSwitch: { ...typography.caption, color: palette.muted },
   workspaceError: { ...typography.caption, color: palette.warning },
   planningNotice: { padding: 12, gap: 4, borderRadius: 12, backgroundColor: palette.goldSoft, minHeight: 48 },
   planningNoticeText: { ...typography.label, color: palette.ink },

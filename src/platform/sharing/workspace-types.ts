@@ -33,6 +33,7 @@ export interface V2SharedWorkspace extends SharedWorkspaceBase {
   manager: ReturnType<typeof createSharedGroupManager>;
   reminders: () => Promise<V2ReminderRuntime>;
   googleTasks: () => Promise<V2GoogleTaskRuntime>;
+  googleCalendar: () => Promise<import('../../features/calendar/shared-google-export').SharedGoogleCalendarExport>;
 }
 export interface PendingSharedWorkspace extends SharedWorkspaceBase {
   protocol: null; database: null; manager: null;

@@ -1,5 +1,5 @@
 {
-  "version": "liflow-shared-2-draft-39",
+  "version": "liflow-shared-2-draft-40",
   "timeZoneVersion": "2026e",
   "sourceFiles": [
     "src/features/sharing/v2/model.ts",
@@ -84,7 +84,11 @@
     "src/features/sharing/v2/recovery-lock.ts",
     "src/features/sharing/v2/recovery-witness.ts",
     "src/features/sharing/v2/owner-recovery.ts",
-    "src/features/appliance-care/manual-source.ts"
+    "src/features/appliance-care/manual-source.ts",
+    "src/features/sharing/v2/calendar-state.ts",
+    "src/features/sharing/v2/calendar-actions.ts",
+    "src/domain/calendar/events.ts",
+    "src/domain/calendar/recurrence.ts"
   ],
-  "sourceSha256": "55dc738233e6e7fc786bb933fb39094aeb214c11a0bc54a001e99b8c2bbc8a7c"
+  "sourceSha256": "723c90a15a26a35c17daa303a37ff368f96730a012fbe546d506d6a21718b248"
 }

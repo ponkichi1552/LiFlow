@@ -65,8 +65,8 @@ for (const platform of ['ios', 'android']) {
       assert.deepEqual(request.trigger, platform === 'android' ? { channelId: 'housework-completions' } : null);
       assert.equal(h.calls.filter(call => call[0] === 'channel').length, platform === 'android' ? 1 : 0);
       assert.deepEqual(Object.keys(request.content.data).sort(), ['count', 'kind', 'workspace']); assert.equal(request.content.data.kind, 'v2-housework-completed');
-      assert.deepEqual(notificationWorkspace(request.content.data, 'owner', [{ userId: 'owner', groupId, status: 'active' }]), { userId: 'owner', groupId });
-      assert.equal(notificationWorkspace(request.content.data, 'member', [{ userId: 'owner', groupId, status: 'active' }]), undefined);
+      assert.deepEqual(notificationWorkspace(request.content.data, 'owner', { userId: 'owner', groupId, status: 'active' }), { userId: 'owner', groupId });
+      assert.equal(notificationWorkspace(request.content.data, 'member', { userId: 'owner', groupId, status: 'active' }), undefined);
       await h.module.createNativeV2CompletionNotices(h.scope).synchronize(); assert.equal(h.calls.filter(call => call[0] === 'present').length, 1);
     } finally { h.close(); }
   });
@@ -148,6 +148,6 @@ test('Android rechecks the completion setting after creating a channel before an
 test('notification metadata has one shared kind recognizer for completion and reminders without changing personal or v1 routing', () => {
   for (const kind of ['v2-housework-completed', 'v2-housework-digest', 'daily-housework-digest']) assert.equal(isPlannerNotification({ kind }), true);
   for (const value of [null, {}, { kind: 'message' }]) assert.equal(isPlannerNotification(value), false);
-  assert.equal(notificationWorkspace({ kind: 'v2-housework-completed' }, 'owner', []), undefined);
-  assert.equal(notificationWorkspace({ kind: 'daily-housework-digest' }, 'owner', []), null);
+  assert.equal(notificationWorkspace({ kind: 'v2-housework-completed' }, 'owner', null), undefined);
+  assert.equal(notificationWorkspace({ kind: 'daily-housework-digest' }, 'owner', null), null);
 });

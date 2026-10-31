@@ -10,7 +10,7 @@ import type { LocalDate, Weekday } from '@/domain/shared/types';
 import type { WasteRecurrence, WasteScheduleInput } from './contracts';
 import { nextWasteWeekday, normalizeWasteSchedule, wasteWeekdays } from './schedule-policy';
 import { searchWasteTypes } from './waste-types';
-import { wasteTypeColor } from './type-appearance';
+import { useWasteTypeColor } from './use-waste-type-color';
 
 /** The same editor is used in first-run setup and settings so the supported modes cannot drift. */
 export function WasteScheduleEditor({ initial, onSubmit, onCancel, disabled = false, referenceDate }: {
@@ -20,6 +20,8 @@ export function WasteScheduleEditor({ initial, onSubmit, onCancel, disabled = fa
   disabled?: boolean;
   referenceDate?: LocalDate;
 }) {
+  const wasteTypeColor = useWasteTypeColor();
+
   const today = referenceDate ?? localDateFromDate(new Date());
   const [form, setForm] = useState(() => ({ query: initial?.label ?? '', label: initial?.label ?? null as string | null,
     recurrence: initial?.recurrence ?? 'weekly' as WasteRecurrence, weekdays: [...(initial?.collectionWeekdays ?? [])] as Weekday[],

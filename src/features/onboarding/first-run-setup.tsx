@@ -19,7 +19,7 @@ import type { WasteScheduleInput } from '@/features/waste/contracts';
 import { WasteScheduleEditor } from '@/features/waste/waste-schedule-editor';
 import { wasteScheduleDescription } from '@/features/waste/schedule-policy';
 import { generateWasteCollectionDates } from '@/features/waste/weekly-scheduler';
-import { wasteTypeColor } from '@/features/waste/type-appearance';
+import { useWasteTypeColor } from '@/features/waste/use-waste-type-color';
 
 const modeOptions: { id: FrequencyMode; title: string }[] = [
   { id: 'frequent', title: 'こまめ' },
@@ -37,6 +37,8 @@ const setupStepCount = 6;
 type PreviousChoice = 'today' | 'week' | 'month' | 'unknown';
 
 export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: PlannerSnapshot; onComplete: () => Promise<void>; loadError?: string | null }) {
+  const wasteTypeColor = useWasteTypeColor();
+
   const { database } = usePlannerData();
   const availableChores = snapshot.chores.filter((chore) => !chore.archived);
   const [step, setStep] = useState(0);

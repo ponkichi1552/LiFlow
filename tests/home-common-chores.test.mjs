@@ -181,7 +181,7 @@ for (const platform of ['ios', 'android']) test(`${platform} common home uses on
     const personalData = { database: h.database, readSnapshot: () => personalSnapshot, snapshot: personalSnapshot, loading: false, error: null,
       readError: () => null, refresh: async () => { personalSnapshot = await repository.loadPlannerSnapshot(h.database, today); personalData.snapshot = personalSnapshot; } };
     const active = { protocol: 1, ...shared.scope, database: shared.database, record: async () => ({ status: 'active' }) };
-    const context = { active, userId: 'owner', groups: [{ ...shared.scope, displayName: '家族' }] };
+    const context = { active, userId: 'owner', group: { ...shared.scope, displayName: '家族' } };
     const screen = screenHarness('src/app/(tabs)/index.tsx', { platform, database: shared.database, snapshot: () => snapshot,
       refresh: async () => { snapshot = await shared.read(); }, personalData: () => personalData, navigate: (...args) => navigation.push(args), mocks: {
         '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: context } },
@@ -189,7 +189,7 @@ for (const platform of ['ios', 'android']) test(`${platform} common home uses on
         '../features/google-sync/coordinator': { syncGoogleTasksAfterLocalCompletion: db => google.push(db) },
       } });
     const boxes = () => screen.nodes().filter(node => node.props.accessibilityRole === 'checkbox');
-    assert.ok(screen.text().includes('2件中0件が完了しました')); assert.ok(screen.text().includes('個人 ＋ 家族'));
+    assert.ok(screen.text().includes('2件中0件が完了しました')); assert.ok(screen.text().includes('家族'));
     const commonLabel = `${h.personal.name}（家族）`;
     const privateLabel = '本人だけの家事（個人）';
     assert.ok(boxes().some(node => node.props.accessibilityLabel === `${commonLabel}を完了`));
@@ -228,16 +228,16 @@ for (const platform of ['ios', 'android']) test(`${platform} home list has a lea
   try {
     const props = { chore: h.personal, home: true, mixedSources: true, source: 'personal', onOpen: () => opened++, onToggle: () => checked++ };
     const screen = screenHarness('src/components/task-checkbox-row.tsx', { exportName: 'TaskCheckboxRow', platform, props });
-    const root = screen.render()[0];
-    assert.equal(root.children[0].props.accessibilityRole, 'button'); assert.equal(root.children[1].props.accessibilityRole, 'checkbox');
-    assert.equal(allHosts(root.children[0].children).some(node => node.props.accessibilityRole === 'checkbox'), false);
-    await root.children[1].props.onPress(); assert.equal(checked, 1); assert.equal(opened, 0);
+    const opener = screen.button(`${h.personal.name}の説明を開く`);
+    const check = screen.nodes().find(node => node.props.accessibilityRole === 'checkbox'); assert.ok(check);
+    assert.equal(allHosts(opener.children).some(node => node.props.accessibilityRole === 'checkbox'), false);
+    await check.props.onPress(); assert.equal(checked, 1); assert.equal(opened, 0);
     await screen.press(`${h.personal.name}の説明を開く`); assert.equal(opened, 1); assert.equal(checked, 1);
     assert.equal(screen.text().includes('手順を見る'), false); assert.equal(screen.text().includes('個人'), false);
     const icons = () => allHosts(screen.render()).filter(node => node.type === 'SymbolView');
-    assert.ok(icons().some(node => node.props.name.ios === 'person.fill' && node.props.size === 15));
+    assert.ok(icons().some(node => node.props.name.ios === 'person.fill'));
     props.source = 'shared'; screen.render();
-    assert.ok(icons().some(node => node.props.name.ios === 'person.3.fill' && node.props.size === 22));
+    assert.ok(icons().some(node => node.props.name.ios === 'person.3.fill'));
     const stroke = allHosts(screen.render()).find(node => Array.isArray(node.props.style) && node.props.style.some(style => style?.borderRightWidth === 2));
     assert.equal(stroke.props.style.find(style => style?.borderColor).borderColor, plannerLightColors.accent);
   } finally { h.connection.close(); }
