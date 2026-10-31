@@ -7792,8 +7792,21 @@
     ]
   },
   {
+    "feature": "personal-settings-direct-controls",
+    "tests": [
+      {
+        "file": "tests/mobile-ui-audit.test.mjs",
+        "name": "${platform} ordinary settings expose saved controls directly without opening a section first"
+      }
+    ]
+  },
+  {
     "feature": "unified-appliance-pdf-retention-without-reanalysis",
     "tests": [
+      {
+        "file": "tests/appliance-shared-manual-retention.test.mjs",
+        "name": "PDF binary encoding works on native runtimes without browser atob or btoa globals"
+      },
       {
         "file": "tests/appliance-shared-manual-retention.test.mjs",
         "name": "saved PDFs validate canonical bytes bounded chunks the full digest and missing or tampered pieces before reuse"

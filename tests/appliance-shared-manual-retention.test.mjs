@@ -33,6 +33,17 @@ async function receive(device, facts) {
   await applyReceivedSharedFacts(device.database, groupId, facts, String(facts.length), device.repository.project, checkpoint.cursor, now().getTime(), device.repository.evidenceForServerReceipts(receiptsFor(facts)));
 }
 
+test('PDF binary encoding works on native runtimes without browser atob or btoa globals', () => {
+  const before = { atob: Object.getOwnPropertyDescriptor(globalThis, 'atob'), btoa: Object.getOwnPropertyDescriptor(globalThis, 'btoa') };
+  try {
+    delete globalThis.atob; delete globalThis.btoa;
+    const bytes = Buffer.concat([syntheticPdf(), Buffer.from(Array.from({ length: 256 }, (_, value) => value))]);
+    const source = bytes.toString('base64'); const saved = prepareManualDocument(source);
+    assert.deepEqual(decodeManualBytes(source), Uint8Array.from(bytes));
+    assert.equal(restoreManualDocument(saved.document, digest => saved.chunks.find(chunk => chunk.sha256 === digest)), source);
+  } finally { for (const name of ['atob', 'btoa']) if (before[name]) Object.defineProperty(globalThis, name, before[name]); }
+});
+
 test('saved PDFs validate canonical bytes bounded chunks the full digest and missing or tampered pieces before reuse', () => {
   const bytes = Buffer.concat([syntheticPdf(), Buffer.alloc(MANUAL_CHUNK_BYTES * 2, 0x5a)]); const { manual } = uploadedResult(bytes);
   const saved = prepareManualDocument(manual.base64); assert.equal(saved.chunks.length, 3);
@@ -51,12 +62,13 @@ test('saved PDFs validate canonical bytes bounded chunks the full digest and mis
 });
 
 test('one appliance review atomically retains its PDF in the encrypted outbox and two devices restore the same result without another analysis', async () => {
-  const base = await fixture(); const a = await base.device(); const b = await base.device('member', base.member);
+  const base = await fixture({ schedulerVersion: 'liflow-shared-2-draft-42' }); const a = await base.device(); const b = await base.device('member', base.member);
   const personal = createDatabase(); const c = controller(a);
   try {
     await a.repository.commit(seeds());
     const bytes = Buffer.concat([syntheticPdf(), Buffer.alloc(MANUAL_CHUNK_BYTES + 100, 0x5a)]);
     const input = uploadedResult(bytes); const before = await c.readModel(range);
+    assert.equal(before.manualStorageSupported, true); assert.equal(before.calendarSupported, true);
     const saved = await c.actions.reviewAppliance({ reviewed: true, ...input, addTaskNames: input.result.analysis.tasks.map(task => task.name) });
     assert.equal(saved.operations.filter(op => op.entityType === 'appliance').length, 1);
     assert.equal(saved.operations.filter(op => op.entityType === 'manualDocument').length, 1);

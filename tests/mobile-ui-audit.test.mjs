@@ -23,6 +23,21 @@ async function fixture() {
   return { ...h, options: { database: h.database, snapshot: () => snapshot, refresh }, snapshot: () => snapshot };
 }
 
+for (const platform of ['ios', 'android']) test(`${platform} ordinary settings expose saved controls directly without opening a section first`, async () => {
+  const h = await fixture();
+  try {
+    const screen = screenHarness('src/app/settings.tsx', { ...h.options, platform, mocks: settingsMocks });
+    for (const label of ['こまめ · 短めの周期', '月曜日', '重い家事の上限を増やす', '誕生日を追加', 'Googleと接続']) assert.ok(screen.button(label));
+    assert.ok(screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === '家事の通知を受け取る'));
+    assert.ok(screen.nodes().find(node => node.props.accessibilityLabel === '天気予報に使う市区町村'));
+    for (const title of ['家事ごとの設定', '生活リズム', '通知・ウィジェット', '天気予報・洗濯', '誕生日', 'Google連携']) {
+      assert.equal(screen.nodes().some(node => node.props.accessibilityLabel === `${title}を開く`), false);
+    }
+    assert.ok(screen.button(`${h.snapshot().chores[0].category}の見出しを展開`));
+    assert.ok(screen.button('クレジットを開く'), 'optional reference content stays collapsed');
+  } finally { h.connection.close(); }
+});
+
 test('waste editor rejects same-frame duplicate saves and keeps the draft available after failure', async () => {
   const pending = deferred(); const saved = [];
   const screen = screenHarness('src/features/waste/waste-schedule-editor.tsx', { exportName: 'WasteScheduleEditor', props: { onSubmit: async (value) => { saved.push(value); if (saved.length === 1) await pending.promise; } } });
@@ -61,10 +76,10 @@ for (const [section, choice, method] of [['生活リズム', 'こまめ · 短�
   test(`settings ${section} saves once per interaction and can retry after a failed write`, async () => {
     const h = await fixture();
     try {
-      const pending = deferred(); let writes = 0; let appState;
-      const screen = screenHarness('src/app/settings.tsx', { ...h.options, effect: callback => callback(), appStateListener: callback => { appState = callback; }, mocks: { ...settingsMocks, '@/platform/storage/repository': { [method]: async () => { writes++; if (writes === 1) await pending.promise; } } } });
-      await screen.press(`${section}を開く`);
-      await screen.press(choice); appState('background'); appState('background'); await screen.flush();
+      const pending = deferred(); let writes = 0; const appStates = [];
+      const screen = screenHarness('src/app/settings.tsx', { ...h.options, effect: callback => callback(), appStateListener: callback => { appStates.push(callback); }, mocks: { ...settingsMocks, '@/platform/storage/repository': { [method]: async () => { writes++; if (writes === 1) await pending.promise; } } } });
+      await screen.press(choice);
+      for (const listener of appStates) { listener('background'); listener('background'); } await screen.flush();
       assert.equal(writes, 1);
       pending.reject(new Error('保存失敗')); await screen.flush(); assert.ok(screen.text().includes('保存失敗'));
       await screen.press('保存を再試行'); assert.equal(writes, 2);
@@ -81,7 +96,6 @@ test('notification permission denial does not enable notifications and a later a
       '@/platform/notifications/expo-local-notification-gateway': { ExpoLocalNotificationGateway: class { async requestPermission() { requests++; return requests === 1 ? pending.promise : true; } } },
       '@/platform/storage/repository': { setNotificationsEnabled: async (db, enabled) => { saved.push(enabled); await repository.setNotificationsEnabled(db, enabled); } },
     } });
-    await screen.press('通知・ウィジェットを開く');
     const control = screen.nodes().find((node) => node.type === 'Switch' && node.props.accessibilityLabel === '家事の通知を受け取る');
     control.props.onValueChange(true); control.props.onValueChange(true); await screen.flush(); assert.equal(requests, 1);
     pending.resolve(false); await screen.flush(); assert.deepEqual(saved, []); assert.ok(screen.text().includes('通知は有効になりませんでした'));
@@ -100,7 +114,6 @@ test('Google connection cannot open duplicate authorization flows and retries af
       '@/platform/google-tasks/google-sign-in-gateway': { authorizeGoogleTasks: async () => { authorizations++; if (authorizations === 1) await pending.promise; throw Object.assign(new Error('cancelled'), { name: 'GoogleAuthorizationCancelledError' }); }, hasGoogleTasksSession: async () => false },
       '@/platform/storage/repository': { loadGoogleSyncState: async () => null, loadCalendarAvailabilityState: async () => null },
     } });
-    await screen.press('Google連携を開く');
     const connect = screen.button('Googleと接続'); connect.props.onPress(); connect.props.onPress(); await screen.flush(); assert.equal(authorizations, 1);
     pending.resolve(); await screen.flush(); assert.ok(screen.text().includes('Googleとの接続をキャンセルしました'));
     await screen.press('Googleと接続'); assert.equal(authorizations, 2);
@@ -128,7 +141,7 @@ test('connected Google settings serialize sync, pause, calendar permissions and 
     } });
     // Run mount effects, then render their completed SQLite/session hydration.
     const cleanups = effects.map((callback) => callback()); await screen.flush();
-    await screen.press('Google連携を開く'); await screen.press('Googleと接続');
+    await screen.press('Googleと接続');
     assert.equal(syncs, 1); assert.equal(registrations, 1); assert.ok(screen.text().includes('接続し、同期しました'));
     const sync = screen.button('今すぐ同期'); const disconnect = screen.button('接続解除');
     sync.props.onPress(); sync.props.onPress(); disconnect.props.onPress(); await screen.flush();
@@ -158,7 +171,6 @@ test('weather selection keeps the first pending candidate consistent and permits
       '@/features/weather/use-municipality-suggestions': { useMunicipalitySuggestions: () => ({ status: 'results', query: 'よこはま', error: null, candidates }) },
       '@/platform/storage/repository': { saveWeatherLocation: async (_db, value) => { saved.push(value); if (saved.length === 1) await pending.promise; } },
     } });
-    await screen.press('天気予報・洗濯を開く');
     await screen.change('天気予報に使う市区町村', 'よこはま');
     const first = screen.button('地域 横浜市 を選択'); const second = screen.button('地域 横浜町 を選択');
     first.props.onPress(); second.props.onPress(); await screen.flush();

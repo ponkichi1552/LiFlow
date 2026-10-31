@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { screenHarness } from './helpers/screen-harness.mjs';
+import { plannerColorsForScheme } from '../src/components/planner-theme.ts';
 import { workspaceHarness } from './helpers/sharing-workspaces-harness.mjs';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
 import { createDeviceIdentity, signSharedOperation } from '../src/features/sharing/crypto.ts';
@@ -112,6 +113,21 @@ for (const platform of ['ios', 'android']) {
     const toggle = screen.nodes().find(node => node.type === 'Switch');
     assert.equal(toggle.props.ios_backgroundColor, undefined); assert.equal(toggle.props.style[0].width, undefined); assert.equal(toggle.props.style[0].height, undefined);
     if (platform === 'ios') assert.equal(toggle.props.thumbColor, undefined);
+    if (platform === 'android') {
+      const palette = plannerColorsForScheme('dark');
+      const dark = screenHarness('src/components/settings-switch.tsx', { exportName: 'SettingsSwitch', platform, props,
+        mocks: { './planner-colors': { palette } } });
+      const grip = dark.nodes().find(node => node.type === 'Switch');
+      const luminance = color => {
+        const values = color.slice(1).match(/../gu).map(value => parseInt(value, 16) / 255)
+          .map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+        return values[0] * 0.2126 + values[1] * 0.7152 + values[2] * 0.0722;
+      };
+      const a = luminance(grip.props.thumbColor), b = luminance(palette.surface);
+      assert.ok((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) >= 3, 'Android switch grip must remain visible against the dark surface');
+      assert.equal(grip.props.onValueChange, props.onValueChange);
+      assert.equal(grip.props.value, props.value);
+    }
     const rows = [{ id: 'a', name: '家事', category: '分類', enabled: false }];
     const list = screenHarness('src/features/settings/chore-toggle-list.tsx', { exportName: 'ChoreToggleList', platform, props: {
       chores: rows, expanded: new Set(['分類']), setExpanded() {}, onOpen() {}, save: async () => {} } });
@@ -244,7 +260,8 @@ test('v2 Settings keeps both chore audiences and routes waste management to its 
       } });
     effects.splice(0).forEach(callback => callback()); for (let n = 0; n < 8; n++) await screen.flush();
     await screen.press('共有グループを管理'); assert.deepEqual(navigation.at(-1), ['push', { pathname: '/sharing/group/[groupId]', params: { groupId: f.record.groupId } }]);
-    await screen.press('家事ごとの設定を開く'); assert.ok(screen.text().indexOf('個人用') < screen.text().indexOf('グループ用 · 家族'));
+    assert.ok(screen.text().indexOf('個人用') < screen.text().indexOf('グループ用 · 家族'));
+    assert.equal(screen.nodes().some(node => node.props.accessibilityLabel === '家事ごとの設定を開く'), false);
     await screen.press('ゴミ収集日を管理'); assert.deepEqual(navigation.at(-1), ['push', '/group-v2/waste']);
   } finally { await f.close(); }
 });

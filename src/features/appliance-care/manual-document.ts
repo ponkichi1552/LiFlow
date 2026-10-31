@@ -1,5 +1,6 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { fromByteArray, toByteArray } from 'base64-js';
 
 export const MAX_MANUAL_BYTES = 6 * 1024 * 1024;
 export const MANUAL_CHUNK_BYTES = 96 * 1024;
@@ -17,14 +18,12 @@ const CACHE_CHAR_LIMIT = 12 * 1024 * 1024;
 export function decodeManualBytes(value: unknown, maxBytes = MAX_MANUAL_BYTES): Uint8Array {
   if (typeof value !== 'string' || !value.length || value.length > Math.ceil(maxBytes / 3) * 4
     || value.length % 4 || /[^A-Za-z0-9+/=]/u.test(value)) throw new Error('説明書PDFのデータを確認できません。');
-  const binary = atob(value);
-  if (binary.length > maxBytes || btoa(binary) !== value) throw new Error('説明書PDFのデータを確認できません。');
-  return Uint8Array.from(binary, char => char.charCodeAt(0));
+  const bytes = toByteArray(value);
+  if (bytes.length > maxBytes || fromByteArray(bytes) !== value) throw new Error('説明書PDFのデータを確認できません。');
+  return bytes;
 }
 export function encodeManualBytes(bytes: Uint8Array): string {
-  let text = '';
-  for (let start = 0; start < bytes.length; start += 8192) text += String.fromCharCode(...bytes.subarray(start, start + 8192));
-  return btoa(text);
+  return fromByteArray(bytes);
 }
 export function validateManualChunk(value: unknown, entityId?: string): asserts value is ManualChunk {
   const data = value as ManualChunk;

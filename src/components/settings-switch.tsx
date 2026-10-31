@@ -6,7 +6,7 @@ import { palette } from './planner-colors';
 export function SettingsSwitch({ style, ...props }: SwitchProps) {
   return <View pointerEvents="box-none" style={styles.slot}>
     <Switch trackColor={{ false: palette.inputBorder, true: palette.accent }}
-      thumbColor={Platform.OS === 'android' ? palette.surface : undefined} hitSlop={10} {...props} style={[styles.control, style]} />
+      thumbColor={Platform.OS === 'android' ? '#FFFFFF' : undefined} hitSlop={10} {...props} style={[styles.control, style]} />
   </View>;
 }
 const styles = StyleSheet.create({

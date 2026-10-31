@@ -108,8 +108,6 @@ export default function ChoresScreen() {
                 value={chore.enabled}
                 disabled={workingId === chore.id || (!chore.enabled && Boolean(chore.requiresCycleSelection))}
                 onValueChange={(value) => void toggle(chore, value)}
-                trackColor={{ false: '#D5DAD4', true: '#A8C5AF' }}
-                thumbColor={chore.enabled ? palette.accent : '#FFFFFF'}
               />
             </View>
           </View>

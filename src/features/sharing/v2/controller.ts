@@ -1,4 +1,4 @@
-import { V2_SCHEDULER_VERSION, supportsSharedCalendar } from './payload-schema.ts';
+import { supportsRetainedManuals, supportsSharedCalendar } from './payload-schema.ts';
 import { readSharedCalendar } from './calendar-state.ts';
 import type { LocalDate } from '../../../domain/shared/types.ts';
 import type { createV2EventRepository } from '../../../platform/storage/sharing-v2-events.ts';
@@ -70,7 +70,7 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
       const waste = readOptions.waste ? buildV2WastePlan(state.assessment.view, at, range) : undefined;
       const appliances = readOptions.appliances ? buildV2ApplianceModel(state.assessment.view, at, readOptions.applianceId) : undefined;
       const recoveryHistory = state.replica.recoveryWitnesses ?? [];
-      const manualStorageSupported = state.archive.at(-1)!.body.schedulerVersion === V2_SCHEDULER_VERSION;
+      const manualStorageSupported = supportsRetainedManuals(state.archive.at(-1)!.body.schedulerVersion);
       return { manualStorageSupported, calendar: readSharedCalendar(state.assessment.view, at), calendarSupported: supportsSharedCalendar(state.archive.at(-1)!.body.schedulerVersion), plan, configurations, choreDetails, ...(readOptions.choreSettings ? { choreDateRights } : {}), ...(groupPolicy ? { groupPolicy } : {}), ...(groupSettings ? { groupSettings } : {}), ...(dateRights ? { dateRights } : {}), ...(waste ? { waste } : {}), ...(appliances ? { appliances } : {}), viewerUserId: repository.scope.userId, adminUserId: state.archive.at(-1)!.body.ownerUserId,
         ...(recoveryHistory.length ? { recoverySummary: { heldChanges: recoveryHistory.reduce((sum, witness) => sum
           + witness.body.entries.filter(entry => entry.classification === 'blockedCausality').length, 0), recoveries: recoveryHistory.length } } : {}),

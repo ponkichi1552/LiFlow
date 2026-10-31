@@ -639,7 +639,7 @@ test('draft38 owner upgrades through a real atomic cloud snapshot and a fresh SQ
     const before = await loadSharedFacts(h.database, groupId); const head = (await f.cloud.readGroup(groupId)).group.headSequence;
     await owner.manager.upgradeScheduler();
     const current = await f.cloud.readGroup(groupId); assert.equal(current.group.keyVersion, 2); assert.equal(current.group.headSequence, head);
-    assert.equal(archive[0].body.schedulerVersion, 'liflow-shared-2-draft-38'); assert.equal(archive.at(-1).body.schedulerVersion, 'liflow-shared-2-draft-42');
+    assert.equal(archive[0].body.schedulerVersion, 'liflow-shared-2-draft-38'); assert.equal(archive.at(-1).body.schedulerVersion, 'liflow-shared-2-draft-43');
     const cold = await createV2WorkspaceSession(deps(restored.database)); await cold.synchronizer.sync({ force: true });
     assert.deepEqual(await loadSharedFacts(restored.database, groupId), before);
     assert.deepEqual(await listSharingOutbox(restored.database, groupId), []);

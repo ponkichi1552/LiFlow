@@ -21,7 +21,7 @@ import type { ApplianceCareReviewContext } from '@/platform/storage/repository';
 import { readApplianceManual } from '@/platform/storage/appliance-manuals';
 import { WorkspaceContext } from '@/contexts/workspace-context';
 import type { V2SharedWorkspace } from '@/platform/sharing/workspace-types';
-import { V2_SCHEDULER_VERSION } from '@/features/sharing/v2/payload-schema';
+import { supportsRetainedManuals } from '@/features/sharing/v2/payload-schema';
 
 export default function ApplianceCareScreen() {
   const params = useLocalSearchParams<{ applianceId?: string; productName?: string; returnTo?: string }>();
@@ -90,7 +90,7 @@ export default function ApplianceCareScreen() {
     const context = workspaceRef.current;
     if (context?.group && !context.active) { setMessage('グループの確認後に解析できます。'); return; }
     analysisTarget.current = context?.active?.protocol === 2 ? context.active : null;
-    if (analysisTarget.current && analysisTarget.current.roster()?.body.schedulerVersion !== V2_SCHEDULER_VERSION) {
+    if (analysisTarget.current && !supportsRetainedManuals(analysisTarget.current.roster()?.body.schedulerVersion ?? '')) {
       setMessage('解析前に、グループ管理で互換更新を行ってください。'); return;
     }
     const request = { manufacturer, productName, modelNumber, category, manual, ...(savedContext ? { forceReanalysis: true } : {}) };

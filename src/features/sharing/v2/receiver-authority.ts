@@ -1,5 +1,5 @@
 import { authorizeSharedCalendarOperation } from './calendar-state.ts';
-import { V2_SCHEDULER_VERSION, supportsSharedCalendar } from './payload-schema.ts';
+import { supportsRetainedManuals, supportsUploadedManuals, supportsSharedCalendar } from './payload-schema.ts';
 import { readV2ManualDocument } from './manual-documents.ts';
 import { restoreManualDocument } from '../../appliance-care/manual-document.ts';
 import type { ManualDocument, ManualChunk } from '../../appliance-care/manual-document';
@@ -249,19 +249,19 @@ function authorizeV2Operation(view: V2HistoryView, archive: readonly VerifiedSha
   }
   if (op.entityType === 'appliance' && op.payload.analysis && typeof op.payload.analysis === 'object'
     && !Array.isArray(op.payload.analysis) && op.payload.analysis.manualSource != null) {
-    requireAuthority([V2_SCHEDULER_VERSION, 'liflow-shared-2-draft-41', 'liflow-shared-2-draft-40', 'liflow-shared-2-draft-39'].includes(originalEpoch.body.schedulerVersion), 'Uploaded manuals require an owner-approved scheduler upgrade');
-    if (originalEpoch.body.schedulerVersion === V2_SCHEDULER_VERSION) {
+    requireAuthority(supportsUploadedManuals(originalEpoch.body.schedulerVersion), 'Uploaded manuals require an owner-approved scheduler upgrade');
+    if (supportsRetainedManuals(originalEpoch.body.schedulerVersion)) {
       const digest = (op.payload.analysis.manualSource as { sha256?: string }).sha256;
       const historical = view.observed(view.topic('appliance', op.entityId), op).some(previous => {
         const analysis = previous.payload.analysis;
-        return rosterAtOperation(archive, previous).body.schedulerVersion !== V2_SCHEDULER_VERSION && analysis && typeof analysis === 'object' && !Array.isArray(analysis)
+        return !supportsRetainedManuals(rosterAtOperation(archive, previous).body.schedulerVersion) && analysis && typeof analysis === 'object' && !Array.isArray(analysis)
           && analysis.manualSource && typeof analysis.manualSource === 'object' && !Array.isArray(analysis.manualSource) && analysis.manualSource.sha256 === digest;
       });
       requireAuthority(typeof digest === 'string' && (historical || readV2ManualDocument(view, op, digest) !== null), 'The analyzed PDF must be retained before its appliance is shared');
     }
   }
   if (op.entityType === 'manualChunk' || op.entityType === 'manualDocument') {
-    requireAuthority(originalEpoch.body.schedulerVersion === V2_SCHEDULER_VERSION, 'PDF retention requires a compatible group');
+    requireAuthority(supportsRetainedManuals(originalEpoch.body.schedulerVersion), 'PDF retention requires a compatible group');
     if (op.entityType === 'manualDocument') requireAuthority(restoreManualDocument(op.payload as unknown as ManualDocument, digest =>
       view.observed(view.topic('manualChunk', `manual-chunk.${digest}`), op)[0]?.payload as unknown as ManualChunk | undefined) !== null, 'A PDF cannot reference missing or unrelated chunks');
     return;

@@ -8,7 +8,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SettingsSwitch as Switch } from '@/components/settings-switch';
 
-import { AppButton, BackButton, Card, ChoiceChip, Page, ScreenHeading, palette, typography } from '@/components/planner-ui';
+import { AppButton, BackButton, Card, ChoiceChip, Page, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
 import { GroupManagementLinks } from '@/features/sharing/group-management-links';
 import { ChoreSettingsSources } from '@/features/settings/chore-settings-sources';
 import { AccordionSection } from '@/components/accordion-section';
@@ -421,11 +421,9 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
           reloadRhythm();
         }} /> : null}</Card> : autosave.status.phase === 'saving' || autosave.status.phase === 'pending' ? <Text style={styles.hint}>自動保存中…</Text> : null}
       {loadError ? <Card><Text style={styles.error}>{loadError}</Text></Card> : null}
-      <AccordionSection title="家事ごとの設定" expanded={expandedSections.has('chore-settings')} onToggle={() => toggleSection('chore-settings')}>
-        <ChoreSettingsSources first="personal" />
-      </AccordionSection>
 
-      <AccordionSection title="生活リズム" expanded={expandedSections.has('life-rhythm')} onToggle={() => toggleSection('life-rhythm')}>
+
+      <Card><SectionHeading title="生活リズム" />
         <Text style={styles.label}>家事の頻度</Text>
         <View style={styles.modeRow}>
           {modeOptions.map((option) => (
@@ -460,9 +458,9 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
           <Counter value={normalLimit} onChange={normalDailyLimit => changeSettings({ normalDailyLimit })} maximum={20} label="普通の家事の上限" />
         </View>
 
-      </AccordionSection>
+      </Card>
 
-      <AccordionSection title="通知・ウィジェット" expanded={expandedSections.has('notifications')} onToggle={() => toggleSection('notifications')}>
+      <Card><SectionHeading title="通知・ウィジェット" />
         <View style={styles.notificationRow}>
           <View style={styles.limitCopy}>
             <Text style={styles.featureTitle}>家事の通知を受け取る</Text>
@@ -474,13 +472,17 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
         <View style={styles.divider} />
         {v2 ? <GroupManagementLinks section="notifications" busy={notificationUpdating} onSelect={target => router.push(target)} /> : null}
         <FeatureStatus title="今日の家事ウィジェット" status="iOS・Android" detail={snapshot.sharing ? "Widgetは個人モードの家事を表示します。共有グループの家事はアプリで確認できます。" : "最大3件を表示します。丸を押すと完了でき、完了した家事はチェック付きで残ります。"} />
-      </AccordionSection>
+      </Card>
+
+      <Card><SectionHeading title="家事ごとの設定" />
+        <ChoreSettingsSources first="personal" />
+      </Card>
 
       <Card style={{ paddingVertical: 4 }}><Pressable accessibilityRole="button" accessibilityLabel="ゴミ収集日を管理" onPress={() => void autosave.navigate(() => router.push(v2 ? '/group-v2/waste' : '/waste'))} style={[styles.notificationRow, { minHeight: 46 }]}>
         <Text style={[typography.section, { color: palette.ink, fontWeight: '700', flex: 1 }]}>{v2 ? 'グループのゴミ収集日' : 'ゴミ収集日'}</Text><Chevron />
       </Pressable></Card>
 
-      {!snapshot.sharing ? <AccordionSection title="天気予報・洗濯" expanded={expandedSections.has('weather')} onToggle={() => toggleSection('weather')}>
+      {!snapshot.sharing ? <Card><SectionHeading title="天気予報・洗濯" />
         <Text style={styles.hint}>{snapshot.settings.weatherLocation
           ? `対象地域：${snapshot.settings.weatherLocation.displayName}。予報取得時に、この地域の座標をOpen-Meteoへ送信します。`
           : '市区町村を選ぶと、天気に合わせて洗濯予定を調整します。端末の位置情報は使いません。'}</Text>
@@ -537,12 +539,10 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
         {weatherMessage ? (
           <Text style={weatherMessage.kind === 'success' ? styles.success : styles.error}>{weatherMessage.text}</Text>
         ) : null}
-      </AccordionSection> : null}
+      </Card> : null}
 
-      <AccordionSection title="誕生日" expanded={expandedSections.has('birthdays')} onToggle={() => toggleSection('birthdays')}>
-        {expandedSections.has('birthdays') ? <BirthdaySettings /> : null}
-      </AccordionSection>
-      <AccordionSection title="Google連携" expanded={expandedSections.has('google-sync')} onToggle={() => toggleSection('google-sync')}>
+      <Card><SectionHeading title="誕生日" /><BirthdaySettings /></Card>
+      <Card><SectionHeading title="Google連携" />
         <FeatureStatus
           title="Google Tasks"
           status={googleConnected ? '接続済み' : googleSyncState?.enabled ? '再認証が必要' : googleOAuthConfigured ? '未接続' : 'OAuth設定待ち'}
@@ -602,17 +602,17 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
         <Text style={styles.hint}>同期する家事名と予定日をGoogleへ送信します。接続解除時もGoogle Tasks上の既存家事は削除しません。Google Tasks権限は広い範囲に適用されるため、信頼できるGoogleアカウントで接続してください。</Text>
         {v2 ? <GroupManagementLinks section="google" busy={googleBusy} onSelect={target => router.push(target)} /> : null}
         {googleMessage ? <Text style={googleMessage.kind === 'success' ? styles.success : styles.error}>{googleMessage.text}</Text> : null}
-      </AccordionSection>
+      </Card>
 
       <Card style={{ paddingVertical: 4 }}><Pressable accessibilityRole="button" accessibilityLabel="共有グループを管理" onPress={() => void autosave.navigate(() => router.push(
         workspace?.group && workspace.group.userId === workspace.userId && ['active', 'creating', 'joining'].includes(workspace.group.status)
           ? { pathname: '/sharing/group/[groupId]', params: { groupId: workspace.group.groupId } } : '/sharing'))} style={[styles.notificationRow, { minHeight: 46 }]}>
         <Text style={[typography.section, { color: palette.ink, fontWeight: '700', flex: 1 }]}>共有グループ</Text><Chevron />
       </Pressable></Card>
-      {workspace?.userId ? <AccordionSection title="アカウントと端末" expanded={expandedSections.has('account-devices')} onToggle={() => toggleSection('account-devices')}>
+      {workspace?.userId ? <Card><SectionHeading title="アカウントと端末" />
         <Pressable accessibilityRole="button" accessibilityLabel="設定の端末間同期" onPress={() => void autosave.navigate(() => router.push('/sharing/personal-preferences'))} style={[styles.notificationRow, { minHeight: 44 }]}><Text style={[styles.label, { flex: 1 }]}>設定の端末間同期</Text><Chevron /></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="同期する端末の管理" onPress={() => void autosave.navigate(() => router.push('/sharing/private-calendar'))} style={[styles.notificationRow, { minHeight: 44 }]}><Text style={[styles.label, { flex: 1 }]}>同期する端末の管理</Text><Chevron /></Pressable>
-      </AccordionSection> : null}
+      </Card> : null}
 
       <AccordionSection title="バックグラウンド同期の実行記録" expanded={expandedSections.has('backgroundDiagnostics')} onToggle={() => toggleSection('backgroundDiagnostics')}>
         {expandedSections.has('backgroundDiagnostics') ? <BackgroundSyncDiagnostics /> : null}
