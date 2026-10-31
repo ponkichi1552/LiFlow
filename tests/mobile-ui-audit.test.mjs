@@ -56,7 +56,7 @@ test('waste deletion and occurrence changes cannot overlap and unlock after a fa
   } finally { h.connection.close(); }
 });
 
-for (const [section, choice, method] of [['生活リズム', 'こまめ · 短めの周期', 'updatePlannerSettings'], ['カレンダーの家事数表示', '1〜5件の色を赤にする', 'updateCalendarCountDisplay']]) {
+for (const [section, choice, method] of [['生活リズム', 'こまめ · 短めの周期', 'updatePlannerSettings']]) {
   test(`settings ${section} saves once per interaction and can retry after a failed write`, async () => {
     const h = await fixture();
     try {
@@ -99,7 +99,7 @@ test('Google connection cannot open duplicate authorization flows and retries af
       '@/platform/google-tasks/google-sign-in-gateway': { authorizeGoogleTasks: async () => { authorizations++; if (authorizations === 1) await pending.promise; throw Object.assign(new Error('cancelled'), { name: 'GoogleAuthorizationCancelledError' }); }, hasGoogleTasksSession: async () => false },
       '@/platform/storage/repository': { loadGoogleSyncState: async () => null, loadCalendarAvailabilityState: async () => null },
     } });
-    await screen.press('Google Tasks同期を開く');
+    await screen.press('Google連携を開く');
     const connect = screen.button('Googleと接続'); connect.props.onPress(); connect.props.onPress(); await screen.flush(); assert.equal(authorizations, 1);
     pending.resolve(); await screen.flush(); assert.ok(screen.text().includes('Googleとの接続をキャンセルしました'));
     await screen.press('Googleと接続'); assert.equal(authorizations, 2);
@@ -127,7 +127,7 @@ test('connected Google settings serialize sync, pause, calendar permissions and 
     } });
     // Run mount effects, then render their completed SQLite/session hydration.
     const cleanups = effects.map((callback) => callback()); await screen.flush();
-    await screen.press('Google Tasks同期を開く'); await screen.press('Googleと接続');
+    await screen.press('Google連携を開く'); await screen.press('Googleと接続');
     assert.equal(syncs, 1); assert.equal(registrations, 1); assert.ok(screen.text().includes('接続し、同期しました'));
     const sync = screen.button('今すぐ同期'); const disconnect = screen.button('接続解除');
     sync.props.onPress(); sync.props.onPress(); disconnect.props.onPress(); await screen.flush();

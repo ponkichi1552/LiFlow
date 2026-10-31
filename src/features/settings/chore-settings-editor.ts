@@ -29,6 +29,14 @@ export function createChoreSettingsEditor(chore: ChoreDefinition, mode: Frequenc
     getSnapshot: () => state,
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     flush, resetCycle,
+    resetSchedule() {
+      const reset = applyChoreSettingsPatch(displayedBase, { resetSchedule: true }); emptyCyclePending = false;
+      for (const field of ['cycleDays', 'windowRadiusDays', 'load', 'holidayPriority', 'laundryDryingPreference'] as const) queue.remove(field);
+      update({ cycleText: reset.requiresCycleSelection ? '' : String(reset.userIntervalDays ?? reset.recommendedCycleDays ?? reset.manufacturerRecommendedIntervalDays ?? reset.frequencyDaysByMode[mode]),
+        radiusText: String(reset.windowRadiusDays), load: reset.load, holidayPriority: reset.holidayPriority, dryingPreference: reset.laundryDryingPreference ?? 'either' });
+      queue.enqueue({ resetSchedule: true }, true);
+      return queue.flush();
+    },
     changeCycle(text: string) {
       emptyCyclePending = !text.trim(); const value = parseSettingInteger(text, 1, 3650);
       const autoEnable = value !== undefined && chore.requiresCycleSelection && !enabledTouched;

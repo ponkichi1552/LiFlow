@@ -94,6 +94,7 @@ export function screenHarness(filename, options = {}) {
     'expo-sqlite': { useSQLiteContext: () => options.database },
     'expo-sqlite/kv-store': { __esModule: true, default: { getItemSync: () => null, setItemSync: () => {} } },
     'expo-symbols': { SymbolView: 'SymbolView' },
+    'expo-splash-screen': { preventAutoHideAsync: async () => {}, hideAsync: async () => {} },
     '@expo/ui': { Host: 'NativeUIHost', Picker: Object.assign((props) => jsx('NativePicker', props), { Item: 'NativePickerItem' }) },
     'react-native-svg': { __esModule: true, default: 'Svg', ...Object.fromEntries(['Path', 'Rect', 'Line', 'Ellipse', 'G', 'Circle'].map(name => [name, name])) },
     '@react-native-community/datetimepicker': { __esModule: true, default: 'DateTimePicker', DateTimePickerAndroid: { open: params => options.datePicker?.(params) } },

@@ -61,7 +61,7 @@ for (const platform of ['ios', 'android']) {
     const f = await setup(); const ui = await open(f.c, platform);
     try {
       const before = await listSharingOutbox(f.d.database, groupId); assert.equal((await f.c.readModel(range)).groupSettings, undefined);
-      await ui.screen.press('グループ名と地域を開く'); await ui.screen.change('地域を検索', 'ニューヨーク');
+      await ui.screen.press('地域を開く'); await ui.screen.change('地域を検索', 'ニューヨーク');
       assert.deepEqual(await listSharingOutbox(f.d.database, groupId), before);
       await ui.screen.change('グループ名', '  家族の家事  ');
       const choice = ui.screen.nodes().find(node => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === 'ニューヨーク（America/New_York）');
@@ -76,7 +76,7 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} invalid group names keep the settings draft and prevent navigation without silently saving an empty name`, async () => {
     const f = await setup(); const ui = await open(f.c, platform);
     try {
-      const before = await listSharingOutbox(f.d.database, groupId); await ui.screen.press('グループ名と地域を開く'); await ui.screen.change('グループ名', '   ');
+      const before = await listSharingOutbox(f.d.database, groupId);  await ui.screen.change('グループ名', '   ');
       await ui.screen.press('戻る'); await ui.settle(() => ui.screen.text().includes('グループ名は1〜500文字'));
       assert.equal(ui.backs(), 0); assert.deepEqual(await listSharingOutbox(f.d.database, groupId), before);
       await ui.screen.press('入力を最新のルールに戻す'); await ui.settle(); await ui.screen.press('戻る'); assert.equal(ui.backs(), 1);
@@ -95,7 +95,7 @@ for (const platform of ['ios', 'android']) {
       const repair = await f.c.readModel(({ timeZone }) => { assert.equal(timeZone, 'UTC'); return range; }, { groupPolicy: true });
       assert.equal(repair.plan.initialized, false); assert.equal(repair.groupSettings.timeZone.kind, 'conflict');
       await assert.rejects(f.c.readModel(() => range), { code: 'sharing/v2-history-conflict' });
-      ui = await open(f.c, platform); await ui.screen.press('グループ名と地域を開く');
+      ui = await open(f.c, platform);
       assert.ok(ui.screen.text().includes('地域が競合しています')); assert.equal(ui.screen.nodes().some(node => node.props.accessibilityLabel === '地域を検索'), false);
       const sources = repair.groupSettings.timeZone; const before = await listSharingOutbox(f.d.database, groupId);
       await assert.rejects(f.c.actions.editGroupOptions([{ field: 'timeZone', value: sources.candidates[0].value,

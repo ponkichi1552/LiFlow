@@ -1,5 +1,5 @@
 {
-  "version": "liflow-shared-2-draft-40",
+  "version": "liflow-shared-2-draft-41",
   "timeZoneVersion": "2026e",
   "sourceFiles": [
     "src/features/sharing/v2/model.ts",
@@ -88,7 +88,9 @@
     "src/features/sharing/v2/calendar-state.ts",
     "src/features/sharing/v2/calendar-actions.ts",
     "src/domain/calendar/events.ts",
-    "src/domain/calendar/recurrence.ts"
+    "src/domain/calendar/recurrence.ts",
+    "src/domain/chores/schedule-defaults.ts",
+    "src/domain/chores/catalog.ts"
   ],
-  "sourceSha256": "723c90a15a26a35c17daa303a37ff368f96730a012fbe546d506d6a21718b248"
+  "sourceSha256": "0cf1a05aebff477f9ac6299f058e09914db028fb524ef34aea175d8c1b061b20"
 }

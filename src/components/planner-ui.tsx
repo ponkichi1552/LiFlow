@@ -1,5 +1,5 @@
 import type { PropsWithChildren, ReactNode } from 'react';
-import { useContext } from 'react';
+import { useContext, useLayoutEffect } from 'react';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { StyleProp, TextStyle } from 'react-native';
@@ -10,6 +10,7 @@ import { PlannerIssuesContext } from '../contexts/planner-issues-context';
 
 import { palette } from './planner-colors';
 import { Chevron } from './chevron';
+import { finishStartupDisplay } from '../platform/diagnostics/startup-splash';
 
 export { typography } from './planner-typography';
 export { palette } from './planner-colors';
@@ -19,13 +20,14 @@ export function NavigationHeader({ children }: PropsWithChildren) {
   return <View style={styles.navigationHeader}>{children}</View>;
 }
 
-export function Page({ children, contentStyle, keyboardAware = false, footer, header, footerHasTabBar = false, floatingFooter = false }: PropsWithChildren<{ contentStyle?: object; keyboardAware?: boolean; footer?: ReactNode; header?: ReactNode; footerHasTabBar?: boolean; floatingFooter?: boolean }>) {
+export function Page({ children, contentStyle, keyboardAware = false, footer, header, footerHasTabBar = false, floatingFooter = false, startupReady = true }: PropsWithChildren<{ contentStyle?: object; keyboardAware?: boolean; footer?: ReactNode; header?: ReactNode; footerHasTabBar?: boolean; floatingFooter?: boolean; startupReady?: boolean }>) {
   const insets = useSafeAreaInsets();
   const workspace = useContext(WorkspaceContext);
   const issues = useContext(PlannerIssuesContext);
+  useLayoutEffect(() => { if (startupReady) finishStartupDisplay(); }, [startupReady]);
   const issueCount = workspace?.active?.groupId === issues?.groupId ? issues?.issueCount ?? 0 : 0;
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top']}>
+    <SafeAreaView style={styles.safeArea} edges={['top']} onLayout={startupReady ? finishStartupDisplay : undefined}>
       {header ? <NavigationHeader>{header}</NavigationHeader> : null}
       <ScrollView keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets={keyboardAware}
         keyboardDismissMode={keyboardAware ? 'on-drag' : 'none'} contentContainerStyle={[styles.page, contentStyle]}>

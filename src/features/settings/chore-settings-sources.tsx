@@ -4,7 +4,8 @@ import type { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { WorkspaceContext } from '@/contexts/workspace-context';
 import { usePlannerData } from '@/hooks/use-planner-data';
-import { setChoresEnabled } from '@/platform/storage/repository';
+import { resetAllChoreSchedules, setChoresEnabled } from '@/platform/storage/repository';
+import { ScheduleResetAction } from '@/components/schedule-reset-action';
 import type { SharingSelection } from '../sharing/workspace-selection';
 import { AppButton, palette, typography } from '@/components/planner-ui';
 import { Chevron } from '@/components/chevron';
@@ -50,6 +51,7 @@ function PersonalChoreSettings({ shared = false }: { shared?: boolean }) {
       save={async (ids, enabled) => { await setChoresEnabled(data.database, ids, enabled); await data.refresh(); return { refreshed: !data.readError() }; }}
       retryRead={async () => { await data.refresh(); return !data.readError(); }}
       onOpen={id => router.push({ pathname: '/settings/chore/[id]', params: { id, source: 'personal' } })} />
+    <ScheduleResetAction all onReset={async () => { await resetAllChoreSchedules(data.database); await data.refresh(); if (data.readError()) throw new Error(data.readError()!); }} />
   </View>;
 }
 
@@ -66,6 +68,7 @@ function GroupChoreSettings({ selection }: { selection: SharingSelection }) {
       expanded={expanded} setExpanded={setExpanded} readOnly={readOnly}
       save={data.source.saveEnabled} retryRead={async () => { await data.source.refresh(); return !data.source.getSnapshot().error; }}
       onOpen={id => router.push({ pathname: '/sharing/chore-settings/[id]', params: { id, groupId: selection.groupId } })} />
+    {!readOnly ? <ScheduleResetAction all onReset={data.source.resetSchedules} /> : null}
   </View>;
 }
 const styles = StyleSheet.create({

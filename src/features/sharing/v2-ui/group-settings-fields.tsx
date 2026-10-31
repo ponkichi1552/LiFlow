@@ -2,6 +2,7 @@ import { useState } from 'react';
 import moment from 'moment-timezone';
 import { Text, View } from 'react-native';
 import { AppButton } from '../../../components/planner-ui';
+import { AccordionSection } from '../../../components/accordion-section';
 import { isSharedTimeZone } from '../group-clock';
 import type { V2GroupScreenModel } from '../v2/controller';
 import type { useV2FieldAutosave } from './use-field-autosave';
@@ -32,6 +33,7 @@ export function V2GroupSettingsFields({ autosave, model, admin }: {
   autosave: ReturnType<typeof useV2FieldAutosave>; model: V2GroupScreenModel; admin: boolean;
 }) {
   const [search, setSearch] = useState(''); const current = String(autosave.raw.timeZone ?? ''); const found = v2RegionChoices(search, current);
+  const [regionOpen, setRegionOpen] = useState(false);
   return <View style={styles.group}>
     {(['name', 'timeZone'] as const).map(field => {
       const source = autosave.fields[field]; const title = field === 'name' ? 'グループ名' : '地域';
@@ -46,7 +48,7 @@ export function V2GroupSettingsFields({ autosave, model, admin }: {
       if (field === 'name') return admin ? <V2TextField key={field} label="グループ名" value={String(autosave.raw.name ?? '')}
         editable={!autosave.leaving} onChangeText={raw => autosave.change('name', raw)} />
         : <Text key={field} style={styles.body}>グループ名：{String(source.kind === 'value' ? source.value : '未設定')}</Text>;
-      return <View key={field} style={styles.group}>
+      return <AccordionSection key={field} title="地域" expanded={regionOpen} onToggle={() => setRegionOpen(value => !value)}>
         <Text style={styles.body}>保存済みの地域：{source.kind === 'value' ? String(source.value) : '未設定'}</Text>
         <Text style={styles.caption}>既存の指定・申請は元の地域を維持します。新しく指定する日時から変更後の地域を使います。</Text>
         {admin ? <><V2TextField label="地域を検索" value={search} onChangeText={setSearch} editable={!autosave.leaving} placeholder="東京、ニューヨーク、Asia/Tokyo" />
@@ -54,7 +56,7 @@ export function V2GroupSettingsFields({ autosave, model, admin }: {
           {!found.total ? <Text style={styles.caption}>一致する地域がありません。都市名または地域IDで検索してください。</Text>
             : found.total > 8 ? <Text style={styles.caption}>{found.total}件のうち8件を表示しています。入力を追加すると絞り込めます。</Text> : null}
         </> : null}
-      </View>;
+      </AccordionSection>;
     })}
     {Object.entries(autosave.errors).filter(([field]) => field !== 'configuration').map(([field, error]) => <Text key={field} accessibilityRole="alert" style={styles.error}>{error}</Text>)}
     {!model.plan.initialized ? <Text style={styles.caption}>地域またはルールの競合を解決するまで、日時の指定・承認は停止しています。</Text> : null}

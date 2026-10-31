@@ -19,10 +19,21 @@ for (const platform of ['ios', 'android']) {
       assert.deepEqual(alias.nodes().find(node => node.type === 'Redirect').props.href, { pathname: target, params });
     }
   });
-  test(`${platform} group management keeps requests rules notifications history and Google export reachable outside the home list`, async () => {
-    const selected = []; const screen = screenHarness('src/features/sharing/group-management-links.tsx', { platform, exportName: 'GroupManagementLinks', props: { busy: false, onSelect: target => selected.push(target) } });
-    const actions = [['日時の変更申請', '/group-v2/requests'], ['担当の変更申請', '/group-v2/assignment-requests'], ['グループのルール', '/group-v2/group-rules'], ['この端末の共有通知', '/group-v2/notifications'], ['共有家事とGoogle Tasks', '/group-v2/google-tasks'], ['共有予定をGoogleにも表示', '/group-v2/google-calendar'], ['個人家事から追加', '/group-v2/personal-copy'], ['ゴミ収集日', '/group-v2/waste'], ['実施履歴', '/group-v2/history']];
-    for (const [title] of actions) await screen.press(title);
-    assert.deepEqual(selected, actions.map(([, target]) => target));
+  test(`${platform} settings separate group controls from personal integrations while preserving every destination`, async () => {
+    const selected = [];
+    const sections = {
+      common: [['グループ名・ルール', '/group-v2/group-rules']],
+      requests: [['日時変更の申請', '/group-v2/requests'], ['担当変更の申請', '/group-v2/assignment-requests']],
+      chores: [['個人家事から追加', '/group-v2/personal-copy'], ['ゴミ収集日', '/group-v2/waste']],
+      google: [['共有家事のGoogle Tasks連携', '/group-v2/google-tasks'], ['共有予定のGoogle表示', '/group-v2/google-calendar']],
+      notifications: [['共有家事の通知', '/group-v2/notifications']],
+    };
+    for (const [section, actions] of Object.entries(sections)) {
+      const screen = screenHarness('src/features/sharing/group-management-links.tsx', { platform, exportName: 'GroupManagementLinks', props: { section, busy: false, onSelect: target => selected.push(target) } });
+      for (const [title] of actions) await screen.press(title);
+      if (['common', 'requests', 'chores'].includes(section)) assert.ok(!screen.text().includes('Google'), 'account integrations do not appear in group-wide settings');
+    }
+    assert.deepEqual(selected, Object.values(sections).flat().map(([, target]) => target));
+
   });
 }

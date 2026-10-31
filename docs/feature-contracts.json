@@ -156,11 +156,11 @@
     ]
   },
   {
-    "feature": "calendar-markers-and-future-completion",
+    "feature": "calendar-numeric-counts-and-future-completion",
     "tests": [
       {
         "file": "tests/calendar-marker-contracts.test.mjs",
-        "name": "zero hides the marker; bands are 1-5, 6-9, 10+ with at most five dots"
+        "name": "calendar count contract: numeric counts replace dots and bars even with legacy marker preferences"
       },
       {
         "file": "tests/calendar-marker-contracts.test.mjs",
@@ -2234,7 +2234,7 @@
       },
       {
         "file": "tests/sharing-v2-development-preview.test.mjs",
-        "name": "v2 isolated native preview connects home, collapsed expired rounds, configuration navigation and targeted history undo to actual SQLite"
+        "name": "v2 isolated native preview connects home, always-visible expired rounds, configuration navigation and targeted history undo to actual SQLite"
       },
       {
         "file": "tests/sharing-v2-development-preview.test.mjs",
@@ -6126,7 +6126,7 @@
       },
       {
         "file": "tests/sharing-v2-development-preview.test.mjs",
-        "name": "${platform} v2 isolated native preview connects home, collapsed expired rounds, configuration navigation and targeted history undo to actual SQLite"
+        "name": "${platform} v2 isolated native preview connects home, always-visible expired rounds, configuration navigation and targeted history undo to actual SQLite"
       },
       {
         "file": "tests/sharing-v2-calendar-ui.test.mjs",
@@ -7690,6 +7690,78 @@
       {
         "file": "tests/startup-display-platform.test.mjs",
         "name": "historical memberships never delay personal startup while active pending and invalid registry rows remain guarded"
+      }
+    ]
+  },
+  {
+    "feature": "schedule-reset-keeps-history-and-authority",
+    "tests": [
+      {
+        "file": "tests/schedule-reset-and-home-revision.test.mjs",
+        "name": "schedule reset restores catalog defaults by stable ID while preserving enabled state names procedures and provenance"
+      },
+      {
+        "file": "tests/schedule-reset-and-home-revision.test.mjs",
+        "name": "condition-based appliance reset never disables a chore or invents a manufacturer cycle"
+      },
+      {
+        "file": "tests/schedule-reset-and-home-revision.test.mjs",
+        "name": "reset replaces unsaved scheduling drafts without dropping a separately queued enabled toggle"
+      },
+      {
+        "file": "tests/schedule-reset-and-home-revision.test.mjs",
+        "name": "personal all-chore reset is atomic and preserves all enabled flags completion history assignment state and names"
+      },
+      {
+        "file": "tests/schedule-reset-and-home-revision.test.mjs",
+        "name": "shared reset keeps configuration assignment policy activation and history and rejects stale or ordinary-member requests"
+      },
+      {
+        "file": "tests/schedule-reset-and-home-revision.test.mjs",
+        "name": "deadline attention is restricted to still-open windows and startup hides its native surface once without a loading card"
+      },
+      {
+        "file": "tests/schedule-reset-and-home-revision.test.mjs",
+        "name": "a compatible shared reset retains fixed future assignees and draft-40 groups need no forced upgrade"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-year-month-jump-and-split-grid",
+    "tests": [
+      {
+        "file": "tests/calendar-month-jump-ui.test.mjs",
+        "name": "${platform} month title opens a bounded year-month picker and jumping preserves detail mode and clamps the preferred day"
+      },
+      {
+        "file": "tests/calendar-month-jump-ui.test.mjs",
+        "name": "${platform} a split-month first day keeps its left edge and every month starts with a horizontal grid line"
+      }
+    ]
+  },
+  {
+    "feature": "android-symbol-centered-with-system-font-scale",
+    "tests": [
+      {
+        "file": "tests/android-symbol-alignment.test.mjs",
+        "name": "Android Material icons ignore text scaling and font padding so their complete glyph stays centered in a fixed square"
+      }
+    ]
+  },
+  {
+    "feature": "group-settings-purpose-and-owner-boundaries",
+    "tests": [
+      {
+        "file": "tests/group-settings-navigation.test.mjs",
+        "name": "${platform} group settings open shared controls directly without synchronizing or exposing private integrations"
+      },
+      {
+        "file": "tests/group-settings-navigation.test.mjs",
+        "name": "${platform} member and invitation controls preserve owner-device authority and removal confirmation"
+      },
+      {
+        "file": "tests/group-settings-navigation.test.mjs",
+        "name": "${platform} group settings show load and held-change failures outside collapsed sections and allow a safe read retry"
       }
     ]
   }

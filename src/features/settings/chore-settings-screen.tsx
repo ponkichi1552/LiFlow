@@ -19,6 +19,8 @@ import type { PlannerSnapshot } from '@/platform/storage/repository';
 import { useChoreSettingsAutosave } from '@/features/settings/use-chore-settings-autosave';
 import type { ChoreSettingsPatch } from '@/domain/chores/settings-patch';
 import { parseSettingInteger } from '@/domain/chores/settings-patch';
+import { choreScheduleDefaults } from '@/domain/chores/schedule-defaults';
+import { ScheduleResetAction } from '@/components/schedule-reset-action';
 
 const loadOptions: { id: ChoreLoad; label: string }[] = [
   { id: 'light', label: '軽い' }, { id: 'normal', label: '普通' }, { id: 'heavy', label: '重い' },
@@ -153,6 +155,8 @@ function ChoreSettingsContent({
             </View>
           </View>
         ) : null}
+
+        {choreScheduleDefaults(chore) ? <ScheduleResetAction onReset={async () => { if (!await autosave.resetSchedule()) throw new Error('初期値を保存できませんでした。再試行してください。'); }} /> : null}
 
         <SectionHeading title="前回の実施" level="subsection" />
         {latestCompletion

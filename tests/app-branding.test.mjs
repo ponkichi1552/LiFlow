@@ -10,7 +10,8 @@ const config = JSON.parse(readFileSync(new URL('../app.json', import.meta.url)))
 test('LiFlow uses the same app name and icon artwork on iOS and Android without changing app identity', () => {
   assert.equal(config.name, 'LiFlow');
   assert.equal(config.icon, './assets/images/liflow-icon.png');
-  assert.equal(config.ios.icon, config.icon);
+  assert.equal(config.ios.icon.light, config.icon);
+  assert.equal(config.ios.icon.dark, './assets/images/liflow-icon-dark.png');
   assert.equal(config.android.icon, config.icon);
   assert.equal(config.android.adaptiveIcon.foregroundImage, config.icon);
   assert.equal(config.android.adaptiveIcon.backgroundImage, undefined);
@@ -55,7 +56,21 @@ test('LiFlow managed icon plugin generates inset adaptive resources and keeps ma
   assert.equal(result.manifest.application[0].$['android:name'], '.MainApplication');
   assert.equal(result.manifest.application[0].$['android:allowBackup'], 'false');
   const xml = plugin.adaptiveIconXml();
-  for (const side of ['Left', 'Top', 'Right', 'Bottom']) assert.ok(xml.includes(`android:inset${side}="16.666667%"`));
+  const inset = side => Number(new RegExp(`android:inset${side}="([0-9.]+)%"`).exec(xml)[1]) / 100;
+  assert.ok(Math.abs(inset('Left') + inset('Right') - 1/3) < 1e-6);
+  assert.ok(Math.abs(inset('Top') + inset('Bottom') - 1/3) < 1e-6);
+  const png = PNG.sync.read(readFileSync(new URL('../assets/images/liflow-icon.png', import.meta.url)));
+  let count=0, xSum=0, ySum=0, maxRadius=0;
+  for (let y=0;y<png.height;y++) for(let x=0;x<png.width;x++) {
+    const i=(y*png.width+x)*4;
+    if (Math.min(...png.data.subarray(i,i+3)) > 235) {
+      count++; xSum+=x; ySum+=y;
+      maxRadius=Math.max(maxRadius,Math.hypot(inset('Left')+2/3*x/png.width-.5,inset('Top')+2/3*y/png.height-.5)*108);
+    }
+  }
+  assert.ok(Math.abs(inset('Left')+2/3*xSum/count/png.width-.5)<.005, 'white visual mass is centered horizontally');
+  assert.ok(Math.abs(inset('Top')+2/3*ySum/count/png.height-.5)<.005, 'white visual mass is centered vertically');
+  assert.ok(maxRadius<33, 'all white tips remain in the Android safe circle');
   assert.ok(xml.includes('@mipmap/ic_launcher_foreground'));
   assert.ok(xml.includes('@color/iconBackground'));
   assert.ok(!xml.includes('ic_launcher_monochrome'));

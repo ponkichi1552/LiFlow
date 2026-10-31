@@ -1,4 +1,6 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import { prepareStartupDisplay } from '@/platform/diagnostics/startup-splash';
 import { SQLiteProvider } from 'expo-sqlite';
 import { useCallback, useEffect } from 'react';
 import { useColorScheme } from 'react-native';
@@ -18,6 +20,7 @@ import { LocalCalendarProvider } from '@/features/calendar/use-local-calendar';
 import { traceStartup } from '@/platform/diagnostics/startup-timing';
 
 const initialize = (database: Parameters<typeof initializeLocalDatabase>[0]) => traceStartup('database.initialize', () => initializeLocalDatabase(database));
+prepareStartupDisplay(SplashScreen);
 
 function WidgetInteractionBridge() {
   const { database, refresh } = usePlannerData();

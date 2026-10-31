@@ -49,7 +49,7 @@ export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen,
   const canClaim = round.configuration.policy.completion === 'one' && !round.assigneeIds.length && !subject.completed && !round.assignmentConflictIds.length;
   const needsAttention = round.claimState === 'provisional' || round.assignmentConflictIds.length > 0
     || formal.kind === 'conflict' || formal.kind === 'review' || subject.requestReviewIds.length > 0
-    || subject.dependencyAwaitingCompletion || showStatus && (subject.cooldownSuppressed || subject.virtuallyConsumed
+    || subject.dependencyAwaitingCompletion || showStatus && (subject.cooldownSuppressed
       || subject.pendingCompletionIds.length > 0 || subject.strictInstructionUnfulfilled);
   const showManualDate = formal.kind === 'manual' && !home;
   const showSourceRegion = formal.kind === 'manual' && formal.timeZone !== model.plan.timeZone;
@@ -66,7 +66,6 @@ export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen,
       {formal.kind === 'conflict' || formal.kind === 'review' || subject.requestReviewIds.length ? <Text style={styles.notice}>日時の確認が必要です。実施した記録は保持されます。</Text> : null}
       {subject.dependencyAwaitingCompletion ? <Text style={styles.notice}>先に必要な家事の完了を待っています。</Text> : null}
       {showStatus && subject.cooldownSuppressed ? <Text style={styles.caption}>最近実施済み · {subject.minimumNextExecutionDay ? formatJapaneseDate(subject.minimumNextExecutionDay) : ''}以降に再実施できます。</Text> : null}
-      {showStatus && subject.virtuallyConsumed && !subject.completed ? <Text style={styles.caption}>この回は未完了のまま残り、次の周期へ進みます。</Text> : null}
       {showStatus && subject.pendingCompletionIds.length ? <Text style={styles.notice}>実施記録の確認・承認待ち</Text> : null}
       {showStatus && subject.strictInstructionUnfulfilled ? <Text style={styles.notice}>実施済み · 指定日時の条件は未達成です。</Text> : null}
       {showActions && showStatus && subject.completed ? <Text style={styles.caption}>実施者：{[...new Set(relatedWork.filter((record) => record.active).map((record) => nameOf(record.performerUserId)))].join('・')}</Text> : null}
@@ -85,13 +84,14 @@ export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen,
     </View> : undefined;
   return <TaskCheckboxRow chore={{ ...chore, householdId: '', category }} completed={displayCompleted} home={home} detail={home ? [category, formal.kind === 'manual' ? v2TargetLabel(formal.target, formal.timeZone) : ''].filter(Boolean).join(' · ') : undefined}
       sourceIcon={subject.subjectUserId === null ? 'person' : 'group'} footer={footer}
-      action={canClaim ? <AppButton title="担う" compact variant="quiet" disabled={busy} onPress={() => run(() => actions.claim(ref))} /> : undefined}
+      action={canClaim ? <View style={styles.claim}><AppButton title="担う" compact variant="quiet" disabled={busy} onPress={() => run(() => actions.claim(ref))} /></View> : undefined}
       source={formal.kind === 'manual' ? 'instructed' : 'shared'}
       executionWindow={{ start: recordedWindow?.windowStart ?? subject.executionWindowStart, end: recordedWindow?.windowEnd ?? subject.executionWindowEnd }}
       urgent={isTaskUrgent({ completed: displayCompleted, load: chore.load, recommendedDate, windowEnd: subject.executionWindowEnd }, model.plan.range.asOfDate)}
       deemphasized={subject.cooldownSuppressed || subject.virtuallyConsumed} onOpen={onOpen} onToggle={onToggle} />;
 }
 const styles = StyleSheet.create({
+  claim: { borderWidth: 1, borderColor: palette.border, borderRadius: 10, minWidth: 48 },
   details: { gap: 5 },
   date: { ...typography.label, color: palette.ink, fontWeight: '600' }, caption: { ...typography.caption, color: palette.muted },
   notice: { ...typography.caption, color: palette.warning }, buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

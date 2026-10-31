@@ -53,11 +53,11 @@ function Editor({ model, source, controller, onSaved, onBack, header }: Paramete
     </AccordionSection>)}
   </View>;
   return <V2FormScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }} header={<BackButton disabled={autosave.leaving} onPress={() => void autosave.navigateAfterSave(onBack)} />}>{header}
-    <ScreenHeading title="グループのルール" />
+    <ScreenHeading title="グループ名・ルール" />
     <Text style={styles.caption}>{admin ? '変更は全メンバーに適用されます。種類を変えても現在の個別設定は保持します。' : 'ルールは管理者が変更します。'}</Text>
-    {model.groupSettings ? <AccordionSection title="グループ名と地域" expanded={expanded.identity === true} onToggle={() => setExpanded(current => ({ ...current, identity: !current.identity }))}>
+    {model.groupSettings ? <View>
       <V2GroupSettingsFields autosave={autosave} model={model} admin={admin} />
-    </AccordionSection> : null}
+    </View> : null}
     {policy ? details(policy, admin) : <Card><Text style={styles.error}>ルールが競合しています。候補を開いて内容を確認してください。</Text>
       {autosave.fields.configuration.candidates.map((candidate, index) => <AccordionSection key={candidate.operationId} title={`ルール候補${index + 1} · ${nameOf(candidate.authorUserId)}`}
         expanded={expanded[candidate.operationId] === true} onToggle={() => setExpanded(current => ({ ...current, [candidate.operationId]: !current[candidate.operationId] }))}>

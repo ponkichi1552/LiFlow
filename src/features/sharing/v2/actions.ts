@@ -36,6 +36,8 @@ import { v2DateDecisionReview, v2AssignmentDecisionReview } from './decision-rev
 import type { V2DateDecisionEdit, V2DecisionEdit } from './decision-review.ts';
 import { v2AssignmentRequestReference, approvedV2AssignmentId, observedV2AssignmentCancellations } from './assignment-state.ts';
 import type { DateTarget, DesignationMode, DesignationOptions, GroupKind, GroupPolicy, RuleSelector, SharedChoreConfiguration } from './model.ts';
+import { choreScheduleDefaults } from '../../../domain/chores/schedule-defaults.ts';
+import type { FrequencyMode } from '../../../domain/chores/types';
 
 export interface V2RoundReference { choreId: string; anchorDate: LocalDate; ruleVersion: number; subjectUserId: string | null;
   /** The displayed configuration frontier is an optimistic edit guard, never part of a signed business payload. */
@@ -208,6 +210,39 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
     patchChoreConfiguration: (choreId: string, baseRuleVersion: number, patch: V2ConfigurationPatch, effectiveFrom: LocalDate) => configureFields(choreId,
       Object.entries(patch).map(([field, value]) => ({ field, value, baseRuleVersion }) as NonNullable<V2ConfigurationFieldEdit>), effectiveFrom),
     patchChoreConfigurationFields: configureFields,
+    resetChoreSchedules: (choreIds: readonly string[], expectedRuleVersions: Readonly<Record<string, number | undefined>>, effectiveFrom?: LocalDate) => repository.commitCurrent(async state => {
+      if (scope.userId !== state.archive.at(-1)!.body.ownerUserId) throw new Error('初期値への復元はグループの管理者が行えます。');
+      if (!choreIds.length || choreIds.length > 256 || new Set(choreIds).size !== choreIds.length) throw new Error('対象の家事を確認してください。');
+      const view = state.assessment.view; const at = point(state); const zone = view.field('settings', 'settings', 'timeZone', at)?.value;
+      if (typeof zone !== 'string') throw new V2StaleSettingsError();
+      const mode = (view.field('settings', 'settings', 'frequencyMode', at)?.value ?? 'balanced') as FrequencyMode;
+      const from = effectiveFrom ?? sharedLocalDate(options.now(), zone); const result: SharedOperationDraft[] = [];
+      for (const choreId of choreIds) {
+        if (view.field('chore', choreId, '$alive', at)?.value !== true || view.field('chore', choreId, 'archived', at)?.value === true) throw new V2StaleSettingsError();
+        const current = view.field('chorePolicy', choreId, 'configuration', at)?.value as unknown as SharedChoreConfiguration | undefined;
+        if (current?.ruleVersion !== expectedRuleVersions[choreId]) throw new V2StaleSettingsError();
+        const facts = view.observed(view.topic('chore', choreId), at);
+        const defaults = choreScheduleDefaults({ id: choreId, applianceId: facts.find(op => typeof op.payload.applianceId === 'string')?.payload.applianceId as string | undefined, manufacturerRecommendedIntervalDays: facts.find(op => typeof op.payload.manufacturerRecommendedIntervalDays === 'number')?.payload.manufacturerRecommendedIntervalDays as number | undefined });
+        const initial = view.observed(view.topic('chorePolicy', choreId), at).map(op => op.payload.configuration as unknown as SharedChoreConfiguration)
+          .filter(Boolean).sort((a, b) => a.ruleVersion - b.ruleVersion)[0];
+        // A custom chore uses its first authenticated configuration, never another chore's name or policy.
+        if (current && (defaults || initial)) {
+          const appliance = facts.some(op => typeof op.payload.applianceId === 'string');
+          const cycle = appliance && initial ? initial.intervalDays : defaults?.frequencyDaysByMode[mode] ?? initial!.intervalDays;
+          const before = defaults?.windowRadiusDays ?? initial!.windowBeforeDays;
+          const after = defaults?.windowRadiusDays ?? initial!.windowAfterDays;
+          result.push(...configurationFieldDrafts(state, choreId, [
+            { field: 'intervalDays', value: cycle, baseRuleVersion: current.ruleVersion },
+            { field: 'windowBeforeDays', value: before, baseRuleVersion: current.ruleVersion },
+            { field: 'windowAfterDays', value: after, baseRuleVersion: current.ruleVersion },
+          ], from));
+        }
+        const first = facts[0]?.payload;
+        const scheduling = defaults ?? { load: first?.load ?? 'normal', holidayPriority: first?.holidayPriority ?? false, maxShiftDays: first?.maxShiftDays ?? 4, everyday: first?.everyday ?? false };
+        result.push(draft('chore', choreId, { load: scheduling.load, holidayPriority: scheduling.holidayPriority, maxShiftDays: scheduling.maxShiftDays, everyday: scheduling.everyday }));
+      }
+      return result;
+    }),
     changeGroupKind: (kind: GroupKind) => repository.commitCurrent(async (state) => {
       const current = state.assessment.view.field('groupPolicy', 'policy', 'configuration', point(state));
       if (!current) throw new Error('グループ設定を同期してください。');

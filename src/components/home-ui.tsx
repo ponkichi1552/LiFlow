@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LoadOrder } from '../domain/scheduling/task-priority';
 import { formatJapaneseDate } from '../domain/scheduling/local-date';
 import type { LocalDate } from '../domain/shared/types';
-import { palette, typography } from './planner-ui';
+import { ActionLabel, palette, typography } from './planner-ui';
 import { GroupIcon } from './group-icon';
 import type { homeSummary } from '../features/planner/home-summary';
 import type { HomeWeekScope } from '../features/planner/home-presentation';
@@ -35,6 +35,13 @@ export function HomeHeader({ today, workspaceName, onGroup = () => router.push('
     </View>
   </View>;
 }
+/** The same compact destinations on both platforms and in either workspace. */
+export function HomeLinks({ onHistory, onWaste }: { onHistory: () => void; onWaste?: () => void }) {
+  return <View style={styles.links}>
+    <Pressable accessibilityRole="button" accessibilityLabel="実施履歴を見る" onPress={onHistory} style={styles.link}><ActionLabel label="実施履歴" style={styles.linkText} /></Pressable>
+    {onWaste ? <Pressable accessibilityRole="button" accessibilityLabel="ゴミ収集日を管理" onPress={onWaste} style={styles.link}><ActionLabel label="ゴミ収集日" style={styles.linkText} /></Pressable> : null}
+  </View>;
+}
 export function HomeProgress({ summary, total, done }: { summary: ReturnType<typeof homeSummary>; total: number; done: number }) {
   if (!summary.showProgress) return null;
   return <View style={styles.progress}>
@@ -58,6 +65,9 @@ export function CompletionToast({ onUndo, busy = false, message = '完了しま�
   </View>;
 }
 const styles = StyleSheet.create({
+  links: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingTop: 4 },
+  link: { minHeight: 44, justifyContent: 'center', flexShrink: 1 },
+  linkText: { ...typography.label, color: palette.accent, fontWeight: '600' },
   weekSwitcher: { flexDirection: 'row', padding: 4, borderRadius: 14, backgroundColor: palette.accentSoft, marginTop: 2 },
   weekOption: { flex: 1, minHeight: 44, borderRadius: 11, alignItems: 'center', justifyContent: 'center' }, weekSelected: { backgroundColor: palette.surface },
   weekText: { ...typography.caption, color: palette.muted, fontWeight: '600' }, weekSelectedText: { color: palette.accent, fontWeight: '800' },

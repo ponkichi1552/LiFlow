@@ -45,7 +45,7 @@ function PersonalCalendarScreen() {
   };
   return <SafeAreaView edges={['top']} style={styles.safe}>
     <PlannerCalendar today={today} timeZone={snapshot.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} selectedDate={selectedDate} onSelectDate={setSelectedDate} local={local}
-      busy={completion.pending.size > 0} onNavigate={navigate} countColors={snapshot.settings.calendarCountColors}
+      busy={completion.pending.size > 0} onNavigate={navigate}
       wasteSchedules={snapshot.wasteSchedules} hiddenWasteKeys={snapshot.hiddenWasteOccurrenceKeys}
       dayInfo={date => ({ loaded: date <= addDays(today, 180), pending: tasksFor(date).filter(task => !task.completed).length, total: tasksFor(date).length,
         minutes: tasksFor(date).filter(task => !task.completed).reduce((sum, task) => sum + (chores.get(task.choreId)?.estimatedMinutes ?? 0), 0) })}

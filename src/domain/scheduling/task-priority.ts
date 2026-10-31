@@ -22,11 +22,14 @@ export const compareTaskKeys = (left: string, right: string) => left < right ? -
 /** Presentation only. The shared Scheduler's dates and occurrence identities stay unchanged. */
 export function isTaskUrgent(task: TaskPriority, today: LocalDate): boolean {
   return !task.completed && task.recommendedDate < today && task.windowEnd !== undefined
+    && task.windowEnd >= today
     && daysBetween(today, task.windowEnd) <= 2;
 }
 
 export function taskPriority(task: TaskPriority, today: LocalDate, order: LoadOrder = 'heavy'): number {
-  const tier = task.completed ? 2 : isTaskUrgent(task, today) ? 0 : 1;
+  // Past-due work keeps its established ordering, without receiving the still-in-window attention label.
+  const pastDue = task.recommendedDate < today && task.windowEnd !== undefined && task.windowEnd < today;
+  const tier = task.completed ? 2 : isTaskUrgent(task, today) || pastDue ? 0 : 1;
   const load = task.load === 'heavy' ? 0 : task.load === 'normal' ? 1 : 2;
   return tier * 3 + (order === 'light' ? 2 - load : load);
 }

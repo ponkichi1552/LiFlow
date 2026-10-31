@@ -14,6 +14,7 @@ import { V2StaleSettingsError } from '../v2/configuration-edit';
 import { V2InitialConfiguration } from './initial-configuration';
 import { V2ConfigurationConflict } from './configuration-conflict';
 import { V2AutosaveFeedback } from './autosave-feedback';
+import { ScheduleResetAction } from '../../../components/schedule-reset-action';
 
 /** Only an authenticated administrator receives the editor; receiver authority remains the final check. */
 export function V2ConfigurationEditor(props: { model: V2GroupScreenModel; choreId: string;
@@ -80,6 +81,10 @@ function Editor({ configuration, earliestFrom, today, choreId, controller, onSav
     })}
     <V2AutosaveFeedback status={autosave.status} refreshError={autosave.refreshError} hasDraft={autosave.hasDraft()} flush={autosave.flush}
       discard={autosave.discard} discardTitle="入力を最新の設定に戻す" disabled={autosave.leaving} />
+    <ScheduleResetAction disabled={blocked || Boolean(fromError) || saving || autosave.hasDraft()} onReset={async () => {
+      if (!await autosave.flush()) throw new Error('入力内容を確認してください。');
+      await controller.actions.resetChoreSchedules([choreId], { [choreId]: configuration.ruleVersion }, from); await onSaved();
+    }} />
     </Card>
   </View>;
 }

@@ -21,7 +21,7 @@ import { WeatherAttribution } from '@/components/data-credits';
 import { useTaskCompletion } from '@/hooks/use-task-completion';
 import { useHomeClock } from '@/hooks/use-home-clock';
 import { homeSummary } from '@/features/planner/home-summary';
-import { HomeHeader, HomeProgress, HomeWeekSwitcher, HomeUpcomingDate, LoadSortButton, CompletionToast } from '@/components/home-ui';
+import { HomeHeader, HomeLinks, HomeProgress, HomeWeekSwitcher, HomeUpcomingDate, LoadSortButton, CompletionToast } from '@/components/home-ui';
 import { useHomeDisplay } from '@/hooks/use-home-display';
 import { WorkspaceContext } from '@/contexts/workspace-context';
 import { homeUpcomingTasks, homeUpcomingRange, homeTaskRows, orderHomeTaskRows, type HomeTaskRow, type HomeWeekScope } from '@/features/planner/home-presentation';
@@ -121,11 +121,10 @@ function PersonalHomeScreen() {
   return (
     <>
       <Tabs.Screen options={{ tabBarStyle: { ...plannerTabBarLayout(insets.bottom), backgroundColor: palette.surface, borderTopColor: palette.border, borderTopWidth: 1 } }} />
-      <Page contentStyle={styles.homePage} floatingFooter footerHasTabBar footer={completion.undoAvailable ? <CompletionToast onUndo={() => void completion.undoLast()} busy={completion.pending.size > 0 || completion.reading} /> : undefined}>
+      <Page header={<HomeHeader today={today} workspaceName={snapshot.sharing ? groupName : undefined} />} contentStyle={styles.homePage} floatingFooter footerHasTabBar footer={completion.undoAvailable ? <CompletionToast onUndo={() => void completion.undoLast()} busy={completion.pending.size > 0 || completion.reading} /> : undefined}>
         {error || actionError ? <Card><Text style={styles.error}>{actionError ?? error}</Text><AppButton title="表示を再読込" variant="quiet" compact
           disabled={completion.pending.size > 0 || completion.reading} onPress={() => void completion.retryRead()} /></Card> : null}
 
-      <HomeHeader today={today} workspaceName={snapshot.sharing ? groupName : undefined} />
       <HomeProgress summary={summary} total={todayTotal} done={todayDone} />
       {combined && personalToday !== today ? <Text style={styles.noticeBody}>個人の今日：{formatJapaneseDate(personalToday, { weekday: true })} · {personal.snapshot?.timeZone}</Text> : null}
       {combined && (personal.loading || personal.error || !personal.snapshot) ? <Card><Text style={styles.noticeBody}>{personal.error ? '個人の家事を読み込めませんでした。保存したデータは保持しています。' : '個人の家事を読み込んでいます。'}</Text>
@@ -173,14 +172,11 @@ function PersonalHomeScreen() {
         </View>
       )) : (
         <Card style={styles.emptyCard}>
-          <Text style={styles.emptyBody}>{weekScope === 'current' ? '今週のこれからの予定はありません。' : '来週の予定はまだありません。'}</Text>
+          <Text style={styles.emptyBody}>{weekScope === 'current' ? '今週の予定はありません。' : '来週の予定はありません。'}</Text>
         </Card>
       )}
 
-      <View style={styles.quickLinks}>
-        <Pressable accessibilityRole="button" accessibilityLabel="実施履歴を見る" onPress={() => router.push('/history')}><ActionLabel label="実施履歴を見る" style={styles.textLink} /></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="ゴミ曜日を管理" onPress={() => router.push('/waste')}><ActionLabel label="ゴミ曜日を管理" style={styles.textLink} /></Pressable>
-      </View>
+      <HomeLinks onHistory={() => router.push('/history')} onWaste={() => router.push('/waste')} />
       </Page>
     </>
   );
@@ -197,6 +193,5 @@ const styles = StyleSheet.create({
   emptyBody: { ...typography.body, color: palette.muted },
   textLink: { ...typography.label, color: palette.accent, fontWeight: '700', paddingVertical: 10 },
   dayGroup: { gap: 9, marginTop: 2 },
-  quickLinks: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', columnGap: 16, paddingTop: 4 },
   error: { ...typography.label, color: palette.warning },
 });

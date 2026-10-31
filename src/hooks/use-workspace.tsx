@@ -1,7 +1,7 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ActivityIndicator, AppState, Text } from 'react-native';
-import { Card, Page, palette, typography } from '@/components/planner-ui';
+import { AppState, View } from 'react-native';
+import { palette } from '@/components/planner-ui';
 import { currentSharingWorkspace, hasSharingSessionEnabled, openSharedWorkspace, readSharingSelection,
   saveSharingSelection, sharingSessionUser, subscribeSharingChanges, syncSharingWorkspace } from '@/platform/sharing/workspaces';
 import type { SharedWorkspace } from '@/platform/sharing/workspaces';
@@ -153,7 +153,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
 export function ActiveWorkspaceScope({ children }: { children: ReactNode }) {
   const context = useWorkspace();
-  if (!context.ready) return <Page><Card><ActivityIndicator color={palette.accent} /><Text style={typography.body}>データを読み込んでいます。</Text></Card></Page>;
+  if (!context.ready) return <View style={{ flex: 1, backgroundColor: palette.background }} />;
   return children;
 }
 export function useWorkspace(): WorkspaceContextValue {

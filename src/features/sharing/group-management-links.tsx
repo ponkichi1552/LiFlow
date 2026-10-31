@@ -2,14 +2,18 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { palette, typography } from '../../components/planner-ui';
 import { Chevron } from '../../components/chevron';
 
-export const GROUP_MANAGEMENT_DESTINATIONS = [
-  ['日時の変更申請', '/group-v2/requests'], ['担当の変更申請', '/group-v2/assignment-requests'],
-  ['グループのルール', '/group-v2/group-rules'], ['この端末の共有通知', '/group-v2/notifications'],
-  ['共有家事とGoogle Tasks', '/group-v2/google-tasks'], ['共有予定をGoogleにも表示', '/group-v2/google-calendar'],
-  ['個人家事から追加', '/group-v2/personal-copy'], ['ゴミ収集日', '/group-v2/waste'], ['実施履歴', '/group-v2/history'],
-] as const;
-export function GroupManagementLinks({ busy, onSelect }: { busy: boolean; onSelect: (target: typeof GROUP_MANAGEMENT_DESTINATIONS[number][1]) => void }) {
-  return <View>{GROUP_MANAGEMENT_DESTINATIONS.map(([title, target]) => <Pressable key={target} accessibilityRole="button" accessibilityLabel={title} disabled={busy} onPress={() => onSelect(target)} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
+/** Group-wide controls and this user's integrations have separate entry points. */
+export const GROUP_MANAGEMENT_SECTIONS = {
+  common: [['グループ名・ルール', '/group-v2/group-rules']],
+  requests: [['日時変更の申請', '/group-v2/requests'], ['担当変更の申請', '/group-v2/assignment-requests']],
+  chores: [['個人家事から追加', '/group-v2/personal-copy'], ['ゴミ収集日', '/group-v2/waste']],
+  google: [['共有家事のGoogle Tasks連携', '/group-v2/google-tasks'], ['共有予定のGoogle表示', '/group-v2/google-calendar']],
+  notifications: [['共有家事の通知', '/group-v2/notifications']],
+} as const;
+type Section = keyof typeof GROUP_MANAGEMENT_SECTIONS;
+type Target = typeof GROUP_MANAGEMENT_SECTIONS[Section][number][1];
+export function GroupManagementLinks({ section, busy, onSelect }: { section: Section; busy: boolean; onSelect: (target: Target) => void }) {
+  return <View>{GROUP_MANAGEMENT_SECTIONS[section].map(([title, target]) => <Pressable key={target} accessibilityRole="button" accessibilityLabel={title} disabled={busy} onPress={() => onSelect(target)} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
     <Text style={styles.label}>{title}</Text><Chevron />
   </Pressable>)}</View>;
 }

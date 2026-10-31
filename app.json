@@ -13,7 +13,10 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "jp.jphacks.tkb2633",
-      "icon": "./assets/images/liflow-icon.png"
+      "icon": {
+        "light": "./assets/images/liflow-icon.png",
+        "dark": "./assets/images/liflow-icon-dark.png"
+      }
     },
     "android": {
       "package": "jp.jphacks.tkb2633",
@@ -35,7 +38,7 @@
           "imageWidth": 76,
           "dark": {
             "backgroundColor": "#171C24",
-            "image": "./assets/images/liflow-icon.png"
+            "image": "./assets/images/liflow-icon-dark.png"
           }
         }
       ],

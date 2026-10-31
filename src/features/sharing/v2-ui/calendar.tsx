@@ -9,8 +9,7 @@ import { useMemo, type ReactElement } from 'react';
 import { addDays } from '../../../domain/scheduling/local-date';
 import { Text, View } from 'react-native';
 import { AppButton, Card, palette, typography } from '../../../components/planner-ui';
-import { DEFAULT_CALENDAR_COUNT_COLORS } from '../../../domain/calendar/count-colors';
-import type { CalendarCountColors, LocalDate } from '../../../domain/shared/types';
+import type { LocalDate } from '../../../domain/shared/types';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { V2PersonalPlan } from '../v2/personal-plan';
 import { v2CalendarMonth, v2CalendarProjection } from './calendar-projection';
@@ -23,14 +22,12 @@ import { PlannerCalendar } from '../../calendar/planner-calendar';
 import type { CalendarDayInfo, PlannerCalendarProps } from '../../calendar/planner-calendar';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
 
-export function V2Calendar({ model, personal, privateOverlay: privateValue, privateSource, selectedDate, busy, actions, run, onMonth, onSelectDate, onRound, header, feedback, local: personalLocal, onNavigate, perform, workspaceName, onGuide,
-  countColors = DEFAULT_CALENDAR_COUNT_COLORS }: {
+export function V2Calendar({ model, personal, privateOverlay: privateValue, privateSource, selectedDate, busy, actions, run, onMonth, onSelectDate, onRound, header, feedback, local: personalLocal, onNavigate, perform, workspaceName, onGuide }: {
   perform?: (work: () => Promise<unknown>) => Promise<V2MutationOutcome>; onGuide?: (choreId: string, source: 'shared' | 'personal') => void; feedback?: CompletionFeedback; local?: LocalCalendarBinding; onNavigate?: PlannerCalendarProps['onNavigate']; workspaceName?: string;
   model: V2GroupScreenModel; personal?: V2PersonalPlan; month: LocalDate; selectedDate: LocalDate; busy: boolean;
   actions: V2GroupController['actions']; run: (work: () => Promise<unknown>) => Promise<void>;
   onMonth: (month: LocalDate) => void; onSelectDate: (date: LocalDate) => void;
   onRound: (occurrenceId: string, subjectId: string, anchorDate: LocalDate) => void; header?: ReactElement;
-  countColors?: CalendarCountColors;
   privateOverlay?: V2PrivateOverlayState; privateSource?: V2PrivateTaskSource;
 }) {
   const local = useGroupCalendar(personalLocal, model, actions, perform, workspaceName ?? '共有グループ');
@@ -83,7 +80,7 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
     repeatReturnTo="group" onSelectDate={onSelectDate} onMonth={onMonth} monthLoaded={target => { const grid = v2CalendarMonth(target); return loaded(grid.from) && loaded(grid.through) && Boolean(wasteLoaded(grid.from) && wasteLoaded(grid.through))
       && (privateOverlay?.status !== 'ready' || Boolean(privateReady(grid.from) && privateReady(grid.through))); }}
     onNavigate={onNavigate}
-    notice={<View>{header}<SharedCalendarConflicts model={model} actions={actions} busy={busy} run={run} /></View>} countColors={countColors}
+    notice={<View>{header}<SharedCalendarConflicts model={model} actions={actions} busy={busy} run={run} /></View>}
     wasteSchedules={model.waste?.schedules} hiddenWasteKeys={model.waste?.hiddenKeys}
     dayInfo={dayInfo}
     existingChores={existingChores.map(({ round, ...chore }) => ({ ...chore,

@@ -1,7 +1,9 @@
 import type { ChoreDefinition, ChoreLoad, LaundryDryingPreference } from './types';
+import { resetChoreSchedule } from './schedule-defaults.ts';
 
 /** Only fields edited on the individual settings page. Null explicitly resets a cycle. */
 export interface ChoreSettingsPatch {
+  resetSchedule?: true;
   enabled?: boolean;
   cycleDays?: number | null;
   windowRadiusDays?: number;
@@ -19,7 +21,7 @@ export function parseSettingInteger(text: string, min: number, max: number): num
 
 /** Apply to the current DB definition, so a delayed save cannot replace unrelated fresh data. */
 export function applyChoreSettingsPatch(chore: ChoreDefinition, patch: ChoreSettingsPatch): ChoreDefinition {
-  const next = { ...chore };
+  const next = patch.resetSchedule ? resetChoreSchedule(chore) : { ...chore };
   if (patch.cycleDays !== undefined) {
     if (patch.cycleDays !== null && (!Number.isInteger(patch.cycleDays) || patch.cycleDays < 1 || patch.cycleDays > 3650)) {
       throw new RangeError('周期は1〜3650日の整数で入力してください。');

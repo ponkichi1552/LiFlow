@@ -198,12 +198,12 @@ for (const platform of ['ios', 'android']) {
       for (const callback of f.callbacks) callback({ userId: f.preview.userId, groupId: f.preview.groupId });
       await new Promise((resolve) => setTimeout(resolve, 120)); await r.screen.flush(); assert.ok(r.screen.text().includes('別端末から届いた床掃除'));
       const before = f.calendarReads; for (const callback of f.calendarCallbacks) callback();
-      for (let n = 0; n < 50 && !r.screen.text().includes('11月1日'); n++) { await new Promise(resolve => setTimeout(resolve, 20)); await r.screen.flush(); } assert.ok(f.calendarReads > before);
+      for (let n = 0; n < 50 && f.calendarReads === before; n++) { await new Promise(resolve => setTimeout(resolve, 20)); await r.screen.flush(); } assert.ok(f.calendarReads > before);
       const beforeLocal = f.calendarReads; assert.equal(f.localCalendarCallbacks.size, 1);
       for (const callback of f.localCalendarCallbacks) { callback('drafts'); callback('categories'); }
       await new Promise(resolve => setTimeout(resolve, 120)); await r.screen.flush(); assert.equal(f.calendarReads, beforeLocal, 'drafts and colors do not change housework allocation');
       for (const callback of f.localCalendarCallbacks) callback();
-      for (let n = 0; n < 50 && !r.screen.text().includes('11月1日'); n++) { await new Promise(resolve => setTimeout(resolve, 20)); await r.screen.flush(); } assert.ok(f.calendarReads > beforeLocal);
+      for (let n = 0; n < 50 && f.calendarReads === beforeLocal; n++) { await new Promise(resolve => setTimeout(resolve, 20)); await r.screen.flush(); } assert.ok(f.calendarReads > beforeLocal);
       r.leave?.(); assert.equal(f.callbacks.size, 0); assert.equal(f.calendarCallbacks.size, 0); assert.equal(f.localCalendarCallbacks.size, 0);
     } finally { f.dispose(); }
   });
@@ -216,8 +216,9 @@ for (const platform of ['ios', 'android']) {
       const fixed = r.screen.nodes().find(node => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === '固定日時に実施');
       assert.ok(fixed); fixed.props.onPress(); await r.screen.flush();
       await r.screen.change('開始時刻', '19:00'); await r.screen.change('終了時刻', '19:30');
+      const readsBeforeResume = f.calendarReads;
       for (const callback of f.appStateListeners) { callback('background'); callback('active'); }
-      for (let n = 0; n < 50 && !r.screen.text().includes('11月1日'); n++) { await new Promise(resolve => setTimeout(resolve, 20)); await r.screen.flush(); }
+      for (let n = 0; n < 50 && f.calendarReads === readsBeforeResume; n++) { await new Promise(resolve => setTimeout(resolve, 20)); await r.screen.flush(); }
       assert.equal(r.screen.nodes().find(node => node.props.accessibilityLabel === '開始時刻').props.value, '19:00');
       assert.equal(r.screen.nodes().find(node => node.props.accessibilityLabel === '終了時刻').props.value, '19:30');
       const before = await listSharingOutbox(f.database, f.preview.groupId); await r.screen.press('日時を指定・申請する');
@@ -234,8 +235,8 @@ for (const platform of ['ios', 'android']) {
       assert.ok(f.appStateListeners.size > 0);
       const reads = f.calendarReads;
       for (let n = 0; n < 50; n++) for (const callback of f.appStateListeners) callback('active');
-      for (let n = 0; n < 50 && !r.screen.text().includes('11月1日'); n++) { await new Promise(resolve => setTimeout(resolve, 20)); await r.screen.flush(); }
-      assert.ok(r.screen.text().includes('11月1日'), r.screen.text());
+      for (let n = 0; n < 50 && !r.screen.text().includes('2026年11月1日'); n++) { await new Promise(resolve => setTimeout(resolve, 20)); await r.screen.flush(); }
+      assert.ok(r.screen.text().includes('2026年11月1日'), r.screen.text());
       assert.equal(f.calendarReads, reads + 1, 'duplicate foreground signals share one refresh');
       assert.equal(r.navigation.length, 0); assert.deepEqual(await listSharingOutbox(f.database, f.preview.groupId), outbox);
       assert.equal((await f.preview.readModel()).plan.occurrences[0].anchorDate, before.plan.occurrences[0].anchorDate); r.leave?.();

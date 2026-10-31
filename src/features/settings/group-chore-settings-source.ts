@@ -33,6 +33,15 @@ export function createGroupChoreSettingsSource(selection: SharingSelection, open
     weather: async () => null, publish: () => {},
   });
   return { ...controller,
+    async resetSchedules() {
+      const { workspace } = await authorize();
+      const session = createV2SettingsSession(workspace); const model = await session.readModel({ choreSettings: true });
+      const chores = model.plan.chores.filter(chore => !chore.archived);
+      await workspace.session.controller.actions.resetChoreSchedules(chores.map(chore => chore.id),
+        Object.fromEntries(chores.map(chore => [chore.id, model.configurations.find(row => row.choreId === chore.id)?.configuration?.ruleVersion])));
+      prepared?.invalidate(); await controller.refresh();
+      if (controller.getSnapshot().error) throw new Error('端末に保存済みですが、表示を更新できませんでした。開き直して確認してください。');
+    },
     async saveEnabled(ids: string[], enabled: boolean) {
       validateChoreToggle(ids, enabled);
       const { workspace } = await authorize();

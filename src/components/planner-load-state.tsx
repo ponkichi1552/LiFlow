@@ -15,7 +15,7 @@ export function PlannerLoadState({ title, message, error, retry }: {
     try { await retry(); } finally { setRetrying(false); }
   };
   return (
-    <Page>
+    <Page startupReady={Boolean(error)}>
       <ScreenHeading title={title} description={error ? 'データを読み込めませんでした。' : message} />
       {error ? (
         <Card>

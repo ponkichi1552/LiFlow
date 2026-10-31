@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { createHouseholdChoreDefinitions } from '@/domain/chores/catalog';
+import { choreScheduleDefaults, resetChoreSchedule } from '@/domain/chores/schedule-defaults';
 import { upgradeBuiltInScheduleDefaults } from '@/domain/chores/catalog-upgrade';
 import { validateChoreToggle } from '@/domain/chores/chore-groups';
 import { applyChoreSettingsPatch } from '@/domain/chores/settings-patch';
@@ -973,6 +974,23 @@ async function updateChoreSettingsImpl(database: SQLiteDatabase, choreId: Entity
   await updateChoreDefinitionImpl(database, updated);
   plannerVersions.set(database, (plannerVersions.get(database) ?? 0) + 1);
   return true;
+}
+
+async function resetAllChoreSchedulesImpl(database: SQLiteDatabase): Promise<void> {
+  // Personal settings never mutate a shared adapter or another household.
+  if (sharedRepositoryAdapter(database) || await database.getFirstAsync("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sharing_workspace_metadata'")) throw new Error('個人用の設定を開いてください。');
+  await database.withTransactionAsync(async () => {
+    const rows = await database.getAllAsync<{ id: string; enabled: number; definition_json: string }>('SELECT id, enabled, definition_json FROM chore_definitions WHERE household_id = ?', LOCAL_HOUSEHOLD_ID);
+    for (const row of rows) {
+      const current = { ...JSON.parse(row.definition_json) as ChoreDefinition, enabled: Boolean(row.enabled) };
+      if (current.archived || !choreScheduleDefaults(current)) continue;
+      const next = resetChoreSchedule(current);
+      if (choreScheduleSignature(current) === choreScheduleSignature(next)) continue;
+      await database.runAsync('UPDATE chore_definitions SET definition_json = ? WHERE id = ? AND household_id = ?', JSON.stringify(next), row.id, LOCAL_HOUSEHOLD_ID);
+      await database.runAsync('DELETE FROM chore_schedule_entries WHERE chore_id = ? AND household_id = ?', row.id, LOCAL_HOUSEHOLD_ID);
+    }
+  });
+  plannerVersions.set(database, (plannerVersions.get(database) ?? 0) + 1);
 }
 
 async function updateChoreDefinitionImpl(
@@ -2203,6 +2221,7 @@ export const saveWeatherLocation = serializePlannerOperation(saveWeatherLocation
 export const clearWeatherLocation = serializePlannerOperation(clearWeatherLocationImpl);
 export const updateChoreDefinition = serializePlannerOperation(updateChoreDefinitionImpl, 'updateChoreDefinition');
 export const updateChoreSettings = serializeDatabaseOperation(updateChoreSettingsImpl, 'updateChoreSettings');
+export const resetAllChoreSchedules = serializeDatabaseOperation(resetAllChoreSchedulesImpl);
 export const saveReviewedApplianceCare = serializePlannerOperation(saveReviewedApplianceCareImpl, 'saveReviewedApplianceCare');
 export const setChoreEnabled = serializePlannerOperation(setChoreEnabledImpl, 'setChoreEnabled');
 export const setChoresEnabled = serializePlannerOperation(setChoresEnabledImpl, 'setChoresEnabled');

@@ -136,14 +136,14 @@ for (const platform of ['ios', 'android']) {
       assert.equal(after.pendingChanges, before.pendingChanges); leave();
     } finally { f.leave(); await f.preview.close(); }
   });
-  test(`${platform} v2 isolated native preview connects home, collapsed expired rounds, configuration navigation and targeted history undo to actual SQLite`, async () => {
+  test(`${platform} v2 isolated native preview connects home, always-visible expired rounds, configuration navigation and targeted history undo to actual SQLite`, async () => {
     const f = await screenFixture(platform);
     try {
       assert.ok(f.screen.text().includes('今日の家事')); assert.ok(f.screen.text().includes('フローリングを掃除する'));
       assert.ok(f.screen.nodes().find((node) => node.type === 'FlatList').props.itemLayoutAnimation, 'shared Home must animate the virtualized cells');
-      assert.equal(f.screen.nodes().filter((node) => node.props.accessibilityRole === 'checkbox').length, 2);
-      await f.screen.press('期限を過ぎた家事（1件）を開く'); assert.equal(f.screen.nodes().filter((node) => node.props.accessibilityRole === 'checkbox').length, 3);
-      await f.screen.press('期限を過ぎた家事（1件）を閉じる'); assert.equal(f.screen.nodes().filter((node) => node.props.accessibilityRole === 'checkbox').length, 2);
+      assert.equal(f.screen.nodes().filter((node) => node.props.accessibilityRole === 'checkbox').length, 3);
+      assert.ok(f.screen.text().indexOf('期限を過ぎた家事') < f.screen.text().indexOf('今週'));
+      assert.ok(!f.screen.nodes().some(node => node.props.accessibilityLabel === '期限を過ぎた家事（1件）を開く'));
       await f.screen.press('担う');
       let model = await f.preview.readModel(); const today = model.plan.range.asOfDate;
       const round = model.plan.occurrences.find((entry) => entry.anchorDate === today && entry.configuration.policy.completion === 'one');

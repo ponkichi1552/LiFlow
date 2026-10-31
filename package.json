@@ -60,7 +60,7 @@
     "zod": "4.6.7"
   },
   "scripts": {
-    "postinstall": "node ./scripts/patch-hermes-podspec-encoding.cjs && node ./scripts/patch-expo-widget-open-app.cjs && node ./scripts/patch-google-signin-silent-tokens.cjs && node ./scripts/patch-expo-task-manager-headless.cjs",
+    "postinstall": "node ./scripts/patch-hermes-podspec-encoding.cjs && node ./scripts/patch-expo-widget-open-app.cjs && node ./scripts/patch-google-signin-silent-tokens.cjs && node ./scripts/patch-expo-task-manager-headless.cjs && node ./scripts/patch-expo-symbols-android-alignment.cjs",
     "start": "expo start --dev-client",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",

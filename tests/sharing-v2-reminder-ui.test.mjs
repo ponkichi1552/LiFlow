@@ -20,7 +20,7 @@ async function open(h, platform, load = async () => h.runtime) {
   const effects = []; const layoutEffects = []; let backs = 0;
   const screen = screenHarness('src/features/sharing/v2-ui/reminder-screen.tsx', { exportName: 'V2ReminderScreen', platform,
     props: { load, onBack() { backs++; } }, effect: callback => effects.push(callback), layoutEffect: callback => layoutEffects.push(callback) });
-  const close = effects.shift()(); for (let i = 0; i < 10; i++) await screen.flush(); layoutEffects.at(-1)?.();
+  const close = effects.shift()(); for (let i = 0; i < 10; i++) await screen.flush(); for (const apply of layoutEffects) apply();
   return { screen, effects, close, backs: () => backs };
 }
 const flush = async screen => { for (let i = 0; i < 10; i++) await screen.flush(); };

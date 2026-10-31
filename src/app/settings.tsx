@@ -9,12 +9,11 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { SettingsSwitch as Switch } from '@/components/settings-switch';
 
 import { AppButton, BackButton, Card, ChoiceChip, Page, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
+import { GroupManagementLinks } from '@/features/sharing/group-management-links';
 import { ChoreSettingsSources } from '@/features/settings/chore-settings-sources';
-import { CalendarTaskCountIndicator } from '@/components/calendar-task-count-indicator';
 import { AccordionSection } from '@/components/accordion-section';
 import { BirthdaySettings } from '@/features/calendar/birthday-settings';
 import { DataCredits } from '@/components/data-credits';
-import { CALENDAR_COUNT_COLOR_OPTIONS } from '@/domain/calendar/count-colors';
 import type { FrequencyMode } from '@/domain/chores/types';
 import type { Weekday } from '@/domain/shared/types';
 import { PlannerLoadState } from '@/components/planner-load-state';
@@ -30,7 +29,6 @@ import {
   saveGoogleSyncState,
   saveWeatherLocation,
   setNotificationsEnabled,
-  updateCalendarCountDisplay,
   updatePlannerSettings,
 } from '@/platform/storage/repository';
 import type { PlannerSnapshot } from '@/platform/storage/repository';
@@ -104,7 +102,6 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
   const [normalLimit, setNormalLimit] = useState(snapshot.settings.normalDailyLimit);
   const plannerDraftBase = useRef({ frequencyMode: snapshot.settings.frequencyMode, restDays: snapshot.settings.restDays,
     heavyDailyLimit: snapshot.settings.heavyDailyLimit, normalDailyLimit: snapshot.settings.normalDailyLimit });
-  const [calendarCountColors, setCalendarCountColors] = useState(snapshot.settings.calendarCountColors);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [weatherUpdating, setWeatherUpdating] = useState(false);
   const [weatherRegion, setWeatherRegion] = useState(snapshot.settings.weatherLocation?.region ?? '');
@@ -332,29 +329,21 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
   };
 
   type Rhythm = typeof plannerDraftBase.current;
-  type Display = { colors: typeof calendarCountColors };
-  const displayBase = useRef<Display>({ colors: snapshot.settings.calendarCountColors });
-  const currentDraft = useRef<Rhythm & Display>({ frequencyMode: mode, restDays, heavyDailyLimit: heavyLimit, normalDailyLimit: normalLimit,
-    colors: calendarCountColors });
-  const autosave = useSettingsAutosave<Partial<Rhythm & Display>>(async patch => {
-    const rhythm = { ...plannerDraftBase.current, ...Object.fromEntries(Object.entries(patch).filter(([key]) => key in plannerDraftBase.current)) };
+  const currentDraft = useRef<Rhythm>({ frequencyMode: mode, restDays, heavyDailyLimit: heavyLimit, normalDailyLimit: normalLimit });
+  const autosave = useSettingsAutosave<Partial<Rhythm>>(async patch => {
+    const rhythm = { ...plannerDraftBase.current, ...patch };
     if (JSON.stringify(rhythm) !== JSON.stringify(plannerDraftBase.current)) {
       if (saveRhythm) await saveRhythm(rhythm);
       else await updatePlannerSettings(database, rhythm, plannerDraftBase.current);
       plannerDraftBase.current = rhythm;
     }
-    const display = { ...displayBase.current, ...('colors' in patch ? { colors: patch.colors! } : {}) };
-    if (JSON.stringify(display) !== JSON.stringify(displayBase.current)) {
-      await updateCalendarCountDisplay(database, { ...display, displayMode: 'dots' }); displayBase.current = display;
-    }
     await refresh();
   });
   useLayoutEffect(() => { onDraftChange?.(!['idle', 'saved'].includes(autosave.status.phase)); }, [onDraftChange, autosave.status.phase]);
-  const changeSettings = (patch: Partial<Rhythm & Display>) => {
+  const changeSettings = (patch: Partial<Rhythm>) => {
     currentDraft.current = { ...currentDraft.current, ...patch };
     const value = currentDraft.current;
     setMode(value.frequencyMode); setRestDays(value.restDays as Weekday[]); setHeavyLimit(value.heavyDailyLimit); setNormalLimit(value.normalDailyLimit);
-    setCalendarCountColors(value.colors);
     autosave.enqueue(patch);
   };
 
@@ -474,58 +463,7 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
 
       </AccordionSection>
 
-      <AccordionSection title="カレンダーの家事数表示" expanded={expandedSections.has('calendar-count')} onToggle={() => toggleSection('calendar-count')}>
-        <Text style={styles.hint}>1〜5件はその件数分、6〜9件は中間色の1〜4個、10〜14件は多件数色の1〜5個で表示します。15件以上は多件数色の5個で固定します。0件の日は表示しません。</Text>
-        <Text style={styles.label}>件数帯ごとの色</Text>
-        {([
-          { key: 'low', title: '1〜5件' },
-          { key: 'medium', title: '6〜9件' },
-          { key: 'high', title: '10件以上' },
-        ] as const).map(({ key, title }) => (
-          <View key={key} style={styles.colorTier}>
-            <Text style={styles.label}>{title}</Text>
-            <View style={styles.colorOptionRow}>
-              {CALENDAR_COUNT_COLOR_OPTIONS.map(({ value: color, name }) => {
-                const selected = calendarCountColors[key] === color;
-                return (
-                  <Pressable
-                    key={color}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${title}の色を${name}にする`}
-                    accessibilityState={{ selected }}
-                    onPress={() => changeSettings({ colors: { ...currentDraft.current.colors, [key]: color } })}
-                    style={styles.colorOption}
-                  >
-                    <View style={[styles.colorSwatch, { backgroundColor: color }, selected && styles.colorSwatchSelected]}>
-                      {selected ? <Text style={styles.colorCheck}>✓</Text> : null}
-                    </View>
-                    <Text style={[styles.colorOptionLabel, selected && styles.colorOptionLabelSelected]}>{name}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        ))}
-        <View style={styles.calendarPreview}>
-          <Text style={styles.label}>表示プレビュー</Text>
-          <View style={styles.previewRow}>
-            {[
-              { count: 5, label: '1〜5件' },
-              { count: 9, label: '6〜9件' },
-              { count: 15, label: '10件以上' },
-            ].map(({ count, label }) => (
-              <View key={label} style={styles.previewCell}>
-                <Text style={styles.previewDate}>24</Text>
-                <CalendarTaskCountIndicator count={count} colors={calendarCountColors} />
-                <Text style={styles.previewCount}>{count}件</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-
-      </AccordionSection>
-
-      <AccordionSection title="Google Tasks同期" expanded={expandedSections.has('google-sync')} onToggle={() => toggleSection('google-sync')}>
+      <AccordionSection title="Google連携" expanded={expandedSections.has('google-sync')} onToggle={() => toggleSection('google-sync')}>
         <FeatureStatus
           title="Google Tasks"
           status={googleConnected ? '接続済み' : googleSyncState?.enabled ? '再認証が必要' : googleOAuthConfigured ? '未接続' : 'OAuth設定待ち'}
@@ -583,6 +521,7 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
           <AppButton title={googleBusy ? '接続中…' : 'Googleと接続'} onPress={() => void connectGoogle()} disabled={googleBusy || !googleOAuthConfigured} />
         )}
         <Text style={styles.hint}>同期する家事名と予定日をGoogleへ送信します。接続解除時もGoogle Tasks上の既存家事は削除しません。Google Tasks権限は広い範囲に適用されるため、信頼できるGoogleアカウントで接続してください。</Text>
+        {v2 ? <GroupManagementLinks section="google" busy={googleBusy} onSelect={target => router.push(target)} /> : null}
         {googleMessage ? <Text style={googleMessage.kind === 'success' ? styles.success : styles.error}>{googleMessage.text}</Text> : null}
       </AccordionSection>
 
@@ -606,6 +545,7 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
         </View>
         {notificationMessage ? <Text accessibilityLiveRegion="polite" style={notificationMessage.kind === 'success' ? styles.success : styles.error}>{notificationMessage.text}</Text> : null}
         <View style={styles.divider} />
+        {v2 ? <GroupManagementLinks section="notifications" busy={notificationUpdating} onSelect={target => router.push(target)} /> : null}
         <FeatureStatus title="今日の家事ウィジェット" status="iOS・Android" detail={snapshot.sharing ? "Widgetは個人モードの家事を表示します。共有グループの家事はアプリで確認できます。" : "最大3件を表示します。丸を押すと完了でき、完了した家事はチェック付きで残ります。"} />
       </AccordionSection>
 
@@ -748,19 +688,7 @@ const styles = StyleSheet.create({
   hint: { ...typography.caption, color: palette.muted },
   limitRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border },
   limitCopy: { flex: 1, gap: 3 },
-  colorTier: { gap: 8, paddingVertical: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border },
-  colorOptionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  colorOption: { minWidth: 60, alignItems: 'center', gap: 3 },
-  colorSwatch: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: palette.surface, alignItems: 'center', justifyContent: 'center' },
-  colorSwatchSelected: { borderColor: palette.ink },
-  colorCheck: { color: '#FFFFFF', fontSize: 18, fontWeight: '900', lineHeight: 22, textShadowColor: '#333333', textShadowRadius: 2 },
-  colorOptionLabel: { ...typography.caption, color: palette.muted },
-  colorOptionLabelSelected: { color: palette.ink, fontWeight: '700' },
-  calendarPreview: { gap: 8, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.elevated },
-  previewRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', gap: 8 },
-  previewCell: { minWidth: 76, alignItems: 'center', gap: 2 },
-  previewDate: { ...typography.body, color: palette.ink, fontWeight: '700' },
-  previewCount: { ...typography.caption, color: palette.muted },
+
   counter: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: palette.background, borderRadius: 12 },
   counterButton: { ...typography.section, minWidth: 40, lineHeight: 44, color: palette.accent, fontWeight: '700', textAlign: 'center' },
   counterValue: { ...typography.label, minWidth: 18, color: palette.ink, textAlign: 'center', fontWeight: '700' },

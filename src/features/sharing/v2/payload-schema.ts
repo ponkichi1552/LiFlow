@@ -12,9 +12,9 @@ export const V2_ENTITY_TYPES = ['groupPolicy', 'chorePolicy', 'datePermission', 
   'claimResolution', 'assignmentRequest', 'assignmentDecision', 'assignmentCancel', 'designation', 'designationCancel', 'changeRequest', 'requestDecision', 'completionApproval', 'migration', 'calendarEvent'] as const;
 export type V2EntityType = typeof V2_ENTITY_TYPES[number];
 export const V2_SCHEMA_VERSION = 2;
-export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-40';
+export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-41';
 /** Signed 38/39 histories keep their original epochs until the owner approves an upgrade. */
-export const isSupportedV2Scheduler = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-39' || version === 'liflow-shared-2-draft-38';
+export const isSupportedV2Scheduler = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-40' || version === 'liflow-shared-2-draft-39' || version === 'liflow-shared-2-draft-38';
 type RecordValue = Record<string, JsonValue>;
 
 function record(value: unknown, allowed: readonly string[], required: readonly string[] = allowed): RecordValue {

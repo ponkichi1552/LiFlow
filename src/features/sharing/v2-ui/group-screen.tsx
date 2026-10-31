@@ -2,7 +2,7 @@ import { V2ChoreSettingsBook } from './chore-settings-book';
 import { useChoreLibraryState } from '../../chores/chore-library';
 import { v2HomeUpcomingRows, type V2HomeUpcomingRow } from './home-upcoming';
 import { homeUpcomingRange, type HomeWeekScope } from '../../planner/home-presentation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentProps } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { ActivityIndicator, AppState, FlatList, StyleSheet, Text, View } from 'react-native';
@@ -42,7 +42,8 @@ import { V2ChoreBook, type PersonalGuideSource } from './chore-book';
 import { orderTaskRows } from './task-order';
 import type { CompletionFeedback } from './completion-feedback';
 import Animated, { LinearTransition } from 'react-native-reanimated';
-import { HomeHeader, HomeProgress, HomeWeekSwitcher, HomeUpcomingDate, LoadSortButton, CompletionToast } from '../../../components/home-ui';
+import { HomeHeader, HomeLinks, HomeProgress, HomeWeekSwitcher, HomeUpcomingDate, LoadSortButton, CompletionToast } from '../../../components/home-ui';
+import { finishStartupDisplay } from '../../../platform/diagnostics/startup-splash';
 import { useHomeDisplay } from '../../../hooks/use-home-display';
 import { homeSummary } from '../../planner/home-summary';
 import { groupHistoryByDay } from '../../planner/history-groups';
@@ -87,7 +88,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     if (!screenModel) return null;
     const { personal, privateOverlay: privateValue, ...model } = screenModel; return { personal, privateValue, model };
   }, [screenModel]);
-  const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [expiredOpen, setExpiredOpen] = useState(false); const [weekScope, setWeekScope] = useState<HomeWeekScope>('current');
+  const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [weekScope, setWeekScope] = useState<HomeWeekScope>('current');
   const [proceduresOpen, setProceduresOpen] = useState(true);
   const [completionValues, setCompletionValues] = useState(new Map<string, boolean>());
   const homeProjection = useMemo(() => view === 'home' && composition
@@ -181,12 +182,12 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     {workspaceError ? <Text accessibilityRole="alert" style={styles.error}>{workspaceError}</Text> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
   </View> : null;
-  if ((!screenModel || !session) && (view === 'details' || view === 'configuration')) return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
+  if ((!screenModel || !session) && (view === 'details' || view === 'configuration')) return <V2ScreenFrame purpose={purpose} startupReady={Boolean(error)} style={styles.safe} edges={['top']}>
     <NavigationHeader><View style={styles.settingsHeader}><BackButton onPress={onBack} /><Text style={styles.settingsHeaderTitle}>家事ごとの設定</Text></View></NavigationHeader>
     <View style={styles.page}>{error ? <><Text accessibilityRole="alert" style={styles.error}>{error}</Text>
       <AppButton title="読み込みを再試行" variant="quiet" onPress={() => void refresh()} /></> : <ActivityIndicator color={palette.accent} />}</View>
   </V2ScreenFrame>;
-  if (!screenModel || !session) return <V2ScreenFrame purpose={purpose} style={styles.safe}>{notice}<ActivityIndicator color={palette.accent} />
+  if (!screenModel || !session) return <V2ScreenFrame purpose={purpose} startupReady={Boolean(error)} style={styles.safe}>{notice}<ActivityIndicator color={palette.accent} />
     <AppButton title="読み込みを再試行" variant="quiet" onPress={() => void refresh()} /></V2ScreenFrame>;
   // Strip local composition before passing the common model to shared forms and actions.
   const { personal, privateValue, model } = composition!;
@@ -324,10 +325,13 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         load: choreById.get(item.round.choreId)?.load ?? 'light', estimatedMinutes: choreById.get(item.round.choreId)?.estimatedMinutes, recommendedDate: recommendations.get(item.subject.id)?.date ?? item.subject.suggestedDate, windowEnd: item.subject.executionWindowEnd }
         : { completed: false, load: 'light', recommendedDate: model.plan.range.asOfDate }, display.order);
   const upcoming = v2HomeUpcomingRows(model, projection, privateOverlay, homeUpcomingRange(model.plan.range.asOfDate, weekScope), display.order, completionValues);
+  const expired = entries.filter(({ subject }) => subject.showExpiredOnHome);
   type HomeListItem = { kind: 'today'; key: string; item: typeof homeRows[number] } | { kind: 'upcoming'; key: string; item: V2HomeUpcomingRow }
-    | { kind: 'weeks' | 'emptyToday' | 'emptyWeek'; key: string } | { kind: 'upcomingDate'; key: string; date: LocalDate };
+    | { kind: 'weeks' | 'emptyToday' | 'emptyWeek' | 'expiredHeading'; key: string } | { kind: 'upcomingDate'; key: string; date: LocalDate }
+    | { kind: 'expired'; key: string; round: V2PlannedOccurrence; subject: V2SubjectPlan };
   const listRows: HomeListItem[] = [
     ...(homeRows.length ? homeRows.map(item => ({ kind: 'today' as const, key: `today:${item.key}`, item })) : [{ kind: 'emptyToday' as const, key: 'emptyToday' }]),
+    ...(expired.length ? [{ kind: 'expiredHeading' as const, key: 'expiredHeading' }, ...expired.map(item => ({ ...item, kind: 'expired' as const, key: `expired:${item.subject.id}` }))] : []),
     { kind: 'weeks', key: 'weeks' },
     ...upcoming.flatMap(({ date, rows }): HomeListItem[] => [{ kind: 'upcomingDate', key: `date:${date}`, date }, ...rows.map(item => ({ kind: 'upcoming' as const, key: `upcoming:${item.key}`, item }))]),
     ...(!upcoming.length ? [{ kind: 'emptyWeek' as const, key: 'emptyWeek' }] : []),
@@ -336,11 +340,10 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   const done = homeRows.filter(item => item.source === 'personal' ? completionValues.get(item.key) ?? item.row.completed
     : item.source === 'shared' && visibility(item.round, item.subject).showStatus && (completionValues.get(item.key) ?? item.subject.completed)).length;
   const summary = homeSummary(total, done);
-  const expired = entries.filter(({ subject }) => subject.showExpiredOnHome);
   return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
+    <View style={styles.homeHeader}><HomeHeader today={model.plan.range.asOfDate} workspaceName={typeof model.plan.commonSettings.name === 'string' ? model.plan.commonSettings.name : workspaceName ?? '共有グループ'} onGroup={onManage ?? onBack} /></View>
     <Animated.FlatList data={listRows} itemLayoutAnimation={LinearTransition.duration(240)} keyExtractor={(entry) => entry.key} contentContainerStyle={styles.page} initialNumToRender={8}
       ListHeaderComponent={<>
-        <HomeHeader today={model.plan.range.asOfDate} workspaceName={typeof model.plan.commonSettings.name === 'string' ? model.plan.commonSettings.name : workspaceName ?? '共有グループ'} onGroup={onManage ?? onBack} />
         <HomeProgress summary={summary} total={total} done={done} />
         {workspaceError || error || display.error ? <Text accessibilityRole="alert" style={styles.error}>{workspaceError ?? error ?? display.error}</Text> : null}
         <SectionHeading title="今日の家事" trailing={<LoadSortButton order={display.order} onPress={display.toggle} />} />
@@ -349,10 +352,12 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         {model.waste?.rows.some(row => !row.deleted && row.needsReview) ? <Text style={styles.error}>確認が必要なゴミ収集日があります。共有のゴミ収集日で候補を確認してください。</Text> : null}
 </>}
       renderItem={({ item }) => {
+        if (item.kind === 'expiredHeading') return <Text accessibilityRole="header" style={styles.expiredHeading}>期限を過ぎた家事（{expired.length}件）</Text>;
+        if (item.kind === 'expired') return card(item.round, item.subject);
         if (item.kind === 'weeks') return <HomeWeekSwitcher scope={weekScope} onChange={setWeekScope} />;
         if (item.kind === 'upcomingDate') return <HomeUpcomingDate date={item.date} />;
         if (item.kind === 'emptyToday') return <Card><Text style={styles.body}>{privateOverlay?.status === 'unavailable' ? '今日の共有家事はありません。個人家事は未取得です。' : '今日の家事はありません。'}</Text></Card>;
-        if (item.kind === 'emptyWeek') return <Card><Text style={styles.body}>{privateOverlay?.status === 'unavailable' ? '共有家事の予定はありません。個人家事は未取得です。' : weekScope === 'current' ? '今週のこれからの予定はありません。' : '来週の予定はまだありません。'}</Text></Card>;
+        if (item.kind === 'emptyWeek') return <Card><Text style={styles.body}>{privateOverlay?.status === 'unavailable' ? '共有家事の予定はありません。個人家事は未取得です。' : weekScope === 'current' ? '今週の予定はありません。' : '来週の予定はありません。'}</Text></Card>;
         if (item.kind !== 'today' && item.kind !== 'upcoming') return null;
         const row = item.item;
         return row.source === 'waste' ? <V2WasteOccurrence entry={row.entry} actions={controller.actions} busy={busy} run={run} />
@@ -360,11 +365,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
       }}
       ListFooterComponent={<View style={styles.footer}>
         {purpose === 'development' ? notice : null}
-        {expired.length ? <AccordionSection title={`期限を過ぎた家事（${expired.length}件）`} expanded={expiredOpen} onToggle={() => setExpiredOpen((value) => !value)}>
-          {expired.map(({ round, subject }) => <View key={subject.id}>{card(round, subject)}</View>)}
-        </AccordionSection> : null}
-        <AppButton title="実施履歴" variant="secondary" disabled={busy} onPress={onHistory} />
-        {onWaste ? <AppButton title="共有のゴミ収集日" variant="secondary" disabled={busy} onPress={onWaste} /> : null}
+        <HomeLinks onHistory={onHistory} onWaste={onWaste} />
         {purpose === 'development' ? <View style={{ gap: 8 }}>{onRequests ? <AppButton title="日時の変更申請" onPress={onRequests} /> : null}{onAssignmentRequests ? <AppButton title="担当の変更申請" onPress={onAssignmentRequests} /> : null}</View> : null}
         {purpose === 'development' ? <Card><SectionHeading title="設定を検査" />{model.configurations.map((entry) =>
           <AppButton key={entry.choreId} title={`「${model.plan.chores.find((chore) => chore.id === entry.choreId)?.name ?? '家事'}」の設定`} variant="quiet" disabled={busy} onPress={() => onConfiguration(entry.choreId)} />)}</Card> : null}
@@ -375,10 +376,13 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   </V2ScreenFrame>;
 }
 /** A visible, fixed QA banner also lets native automation fail closed after scrolling long instructions. */
-function V2ScreenFrame({ purpose, children, ...props }: ComponentProps<typeof SafeAreaView> & { purpose: V2GroupScreenProps['purpose'] }) {
-  return <SafeAreaView {...props}>{purpose === 'development' ? <Text style={styles.qaScope}>開発用・端末内プレビュー</Text> : null}{children}</SafeAreaView>;
+function V2ScreenFrame({ purpose, children, startupReady = true, ...props }: ComponentProps<typeof SafeAreaView> & { purpose: V2GroupScreenProps['purpose']; startupReady?: boolean }) {
+  useLayoutEffect(() => { if (startupReady) finishStartupDisplay(); }, [startupReady]);
+  return <SafeAreaView {...props} onLayout={startupReady ? finishStartupDisplay : undefined}>{purpose === 'development' ? <Text style={styles.qaScope}>開発用・端末内プレビュー</Text> : null}{children}</SafeAreaView>;
 }
 const styles = StyleSheet.create({ safe: { flex: 1, backgroundColor: palette.background }, page: { padding: 16, gap: 10, paddingBottom: 40 },
+  homeHeader: { paddingHorizontal: 18, paddingVertical: 6, minHeight: 60, justifyContent: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
+  expiredHeading: { ...typography.label, color: palette.muted, fontWeight: '600', marginTop: 12 },
   settingsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   settingsHeaderTitle: { ...typography.body, color: palette.ink, fontWeight: '700', flex: 1 },
   qaScope: { ...typography.caption, color: palette.warning, paddingHorizontal: 16, paddingVertical: 4 },
