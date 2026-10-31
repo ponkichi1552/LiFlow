@@ -35,7 +35,9 @@ test('only server-observed OpenAI unavailability or no response is refundable wh
     const client = new OpenAIResponsesClient({ apiKey: 'synthetic', fetchImpl: async () => new Response('', { status }) });
     await assert.rejects(client.createStructured({ input: [], name: 'synthetic', schema: {} }), e => e.providerNoResult === true);
   }
-  for (const payload of [{}, { output: [] }, { output: {} }, { output: [{ type: 'message', content: {} }] }]) {
+  for (const payload of [{}, { output: [] }, { output: {} }, { output_text: ' \n\t ' },
+    { output: [{ type: 'message', content: [{ type: 'output_text', text: ' \t ' }] }] },
+    { output: [{ type: 'message', content: {} }] }]) {
     const client = new OpenAIResponsesClient({ apiKey: 'synthetic', fetchImpl: async () => Response.json(payload) });
     await assert.rejects(client.createStructured({ input: [], name: 'synthetic', schema: {} }), e => e.providerNoResult === true);
   }

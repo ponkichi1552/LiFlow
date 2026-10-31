@@ -86,11 +86,11 @@ function temporaryNetworkError(providerNoResult = false) {
 }
 
 function getOutputText(payload) {
-  if (typeof payload?.output_text === 'string' && payload.output_text.length > 0) return payload.output_text;
+  if (typeof payload?.output_text === 'string' && payload.output_text.trim().length > 0) return payload.output_text;
   for (const item of Array.isArray(payload?.output) ? payload.output : []) {
     if (item?.type !== 'message') continue;
     for (const content of Array.isArray(item.content) ? item.content : []) {
-      if (content?.type === 'output_text' && typeof content.text === 'string') return content.text;
+      if (content?.type === 'output_text' && typeof content.text === 'string' && content.text.trim().length > 0) return content.text;
     }
   }
   return undefined;
