@@ -173,9 +173,10 @@
     "tests": [
       {
         "file": "tests/feature-screen-contracts.test.mjs",
-        "name": "accordion clips an anchored body and hides collapsed controls"
+        "name": "accordion exposes its expanded state and toggles in both directions"
       }
-    ]
+    ],
+    "manualReview": "docs/testing-strategy.md"
   },
   {
     "feature": "calendar-waste-appearance",
@@ -192,7 +193,8 @@
         "file": "tests/waste-calendar-appearance.test.mjs",
         "name": "the real calendar distinguishes hidden weekly and active monthly collections on one date"
       }
-    ]
+    ],
+    "manualReview": "docs/testing-strategy.md"
   },
   {
     "feature": "mobile-only-app",
@@ -208,17 +210,14 @@
     "tests": [
       {
         "file": "tests/mobile-navigation.test.mjs",
-        "name": "mobile back controls share a readable label and touch area while preserving route callbacks"
+        "name": "mobile back controls return to the previous route across screens"
       },
       {
         "file": "tests/mobile-navigation.test.mjs",
         "name": "mobile onboarding back control retains selections when moving backward and forward"
-      },
-      {
-        "file": "tests/mobile-navigation.test.mjs",
-        "name": "mobile tab bar reserves space for labels on phones with and without a home indicator"
       }
-    ]
+    ],
+    "manualReview": "docs/testing-strategy.md"
   },
   {
     "feature": "waste-occurrence-checkboxes",
@@ -233,13 +232,10 @@
       },
       {
         "file": "tests/waste-help-navigation.test.mjs",
-        "name": "compact waste checkbox has the same trailing center as chore checkbox and smaller readable text"
-      },
-      {
-        "file": "tests/waste-help-navigation.test.mjs",
         "name": "waste checks reject duplicate taps and remain visible after a failed save"
       }
-    ]
+    ],
+    "manualReview": "docs/testing-strategy.md"
   },
   {
     "feature": "help-and-weather-attribution",
@@ -250,7 +246,7 @@
       },
       {
         "file": "tests/waste-help-navigation.test.mjs",
-        "name": "settings end with working weather and location attribution and omit redundant chore copy"
+        "name": "settings retain working weather and location attribution"
       }
     ]
   },
@@ -301,13 +297,10 @@
     "tests": [
       {
         "file": "tests/mobile-ui-audit.test.mjs",
-        "name": "shared mobile typography preserves title, section, task, body and caption hierarchy"
-      },
-      {
-        "file": "tests/mobile-ui-audit.test.mjs",
-        "name": "credits open and close while keeping the local-storage footer below the collapsed heading"
+        "name": "credits links remain accessible when expanded and hidden when collapsed"
       }
-    ]
+    ],
+    "manualReview": "docs/testing-strategy.md"
   },
   {
     "feature": "mobile-mutation-and-cancellation-guards",
@@ -347,17 +340,14 @@
     "tests": [
       {
         "file": "tests/number-input-alignment.test.mjs",
-        "name": "numeric field centers native digits and equal unit slots on"
+        "name": "individual settings and monthly waste persist the entered cycle window and collection day"
       },
       {
         "file": "tests/number-input-alignment.test.mjs",
-        "name": "individual settings and monthly waste use the shared aligned numeric control and keep save handlers"
-      },
-      {
-        "file": "tests/number-input-alignment.test.mjs",
-        "name": "appliance analysis cycle fields use the shared aligned control and still update the saved appliance"
+        "name": "appliance analysis cycle edits update the saved appliance"
       }
-    ]
+    ],
+    "manualReview": "docs/testing-strategy.md"
   },
   {
     "feature": "weather-calendar-consistent-planning",
@@ -5997,7 +5987,7 @@
       },
       {
         "file": "tests/native-calendar.test.mjs",
-        "name": "${platform} native calendar uses flat direct editing with live title saving one event and no duplicate chore recurrence"
+        "name": "${platform} native calendar saves the latest edited title once without creating a chore recurrence"
       },
       {
         "file": "tests/native-calendar.test.mjs",
@@ -6019,7 +6009,8 @@
         "file": "tests/native-calendar.test.mjs",
         "name": "local calendar availability unions overlaps keeps birthdays informational and does not double count Google daily aggregates"
       }
-    ]
+    ],
+    "manualReview": "docs/testing-strategy.md"
   },
   {
     "feature": "mobile-global-dark-theme-and-waste-type-marks",
@@ -6035,12 +6026,9 @@
       {
         "file": "tests/mobile-theme-and-waste-icons.test.mjs",
         "name": "waste aliases retain one icon identity and bottles PET bottles and cans stay distinct"
-      },
-      {
-        "file": "tests/mobile-theme-and-waste-icons.test.mjs",
-        "name": "${platform} waste marks use different vector shapes with their original readable labels"
       }
-    ]
+    ],
+    "manualReview": "docs/testing-strategy.md"
   },
   {
     "feature": "calendar-custom-recurrence-and-private-draft-round-trip",
@@ -6115,7 +6103,36 @@
   {"feature":"calendar-view-scroll-state-isolation","tests":[{"file":"tests/native-calendar.test.mjs","name":"${platform} calendar view and day changes reset native scroll offsets without changing the selected date"}]},
   {"feature":"calendar-live-minute-and-resume-clock","tests":[{"file":"tests/calendar-live-clock.test.mjs","name":"${platform} entering a calendar timeline uses the current minute after spending hours in month view"},{"file":"tests/calendar-live-clock.test.mjs","name":"${platform} calendar clock aligns one timer to the next minute pauses in background and cleans up after unmount"}]},
   {"feature":"appliance-api-development-only-production-guard","tests":[{"file":"tests/security-api-attacks.test.mjs","name":"API security unauthenticated development server refuses production startup before opening a listener or invoking AI"}]},
-  {"feature":"semantic-text-defaults-in-light-and-dark-modes","tests":[{"file":"tests/semantic-text-colors.test.mjs","name":"native tab labels keep navigator controlled active and inactive tint rather than a typography foreground override"},{"file":"tests/semantic-text-colors.test.mjs","name":"compact button typography preserves primary secondary quiet and destructive foreground meanings in both themes"},{"file":"tests/semantic-text-colors.test.mjs","name":"Metro resolves native semantic typography on both mobile platforms while sharing one text scale"},{"file":"tests/semantic-text-colors.test.mjs","name":"shared text roles include native semantic foregrounds so uncolored notices remain readable in both themes"},{"file":"tests/semantic-text-colors.test.mjs","name":"${platform} shared daily load warning gives every native paragraph a theme foreground without changing its text or logic"},{"file":"tests/semantic-text-colors.test.mjs","name":"ThemedText keeps explicit theme and caller color precedence when text roles supply default foregrounds"}]},
+  {
+    "feature": "semantic-text-defaults-in-light-and-dark-modes",
+    "tests": [
+      {
+        "file": "tests/semantic-text-colors.test.mjs",
+        "name": "native tab labels keep navigator controlled active and inactive tint rather than a typography foreground override"
+      },
+      {
+        "file": "tests/semantic-text-colors.test.mjs",
+        "name": "compact button typography preserves primary secondary quiet and destructive foreground meanings in both themes"
+      },
+      {
+        "file": "tests/semantic-text-colors.test.mjs",
+        "name": "Metro resolves native semantic typography on both mobile platforms while sharing one text scale"
+      },
+      {
+        "file": "tests/semantic-text-colors.test.mjs",
+        "name": "shared text roles include native semantic foregrounds so uncolored notices remain readable in both themes"
+      },
+      {
+        "file": "tests/semantic-text-colors.test.mjs",
+        "name": "${platform} shared daily load warning keeps every native paragraph readable in both themes"
+      },
+      {
+        "file": "tests/semantic-text-colors.test.mjs",
+        "name": "ThemedText keeps explicit theme and caller color precedence when text roles supply default foregrounds"
+      }
+    ],
+    "manualReview": "docs/testing-strategy.md"
+  },
   {"feature":"calendar-user-scroll-survives-viewport-resize","tests":[{"file":"tests/native-calendar.test.mjs","name":"${platform} resizing a browsed month never recenters it on the original date while explicit navigation can center again"}]},
   {"feature":"appliance-public-auth-and-owner-only-results","tests":[{"file":"tests/appliance-public-api.test.mjs","name":"public HTTP API rejects anonymous unauthenticated requests before paid work and keeps results owner-only with no sync-endpoint bypass"},{"file":"tests/appliance-public-auth.test.mjs","name":"public appliance API never obtains or sends a token to HTTP credential-bearing or an unconfigured foreign host"},{"file":"tests/appliance-public-auth.test.mjs","name":"${platform} public appliance AI requires an existing nonanonymous account and never signs in a guest"}],"cloudTests":[{"file":"tests/appliance-public-cloud.integration.mjs","name":"real Firebase Admin authentication accepts an emulator Google user and rejects anonymous identity, rejects disabled users and never reveals other users jobs over HTTP"},{"file":"tests/appliance-public-cloud.integration.mjs","name":"real Firestore quotas and private job results cannot be read or rewritten directly by guests account owners or other users"}]},
   {"feature":"appliance-monthly-five-server-reset-and-global-cost-cap","tests":[{"file":"tests/appliance-public-api.test.mjs","name":"public API monthly boundary is every first day at 09:00 Japan time including leap years and year rollover"},{"file":"tests/appliance-public-api.test.mjs","name":"public API allows exactly five monthly admissions counts reanalysis and preserves the counter across store restart"},{"file":"tests/appliance-public-api.test.mjs","name":"public API global daily quota survives account churn and resets only at the server boundary"}],"cloudTests":[{"file":"tests/appliance-public-cloud.integration.mjs","name":"real Firestore enforces monthly five, reanalysis, cold restart, and the exact Japan 09:00 monthly reset"},{"file":"tests/appliance-public-cloud.integration.mjs","name":"real Firestore cannot exceed global daily twenty by generating more accounts or racing server reservations"}]},

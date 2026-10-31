@@ -54,3 +54,10 @@ Docs: https://docs.expo.dev/eas/index.md
 - Keep the required behavior tests and screen wiring tests. Do not delete or relax a feature contract just to make a failing change pass. Change a contract only when the user's requested behavior changes, and explain it in the change report.
 - `npm test` checks that required tests still exist and then executes them. CI independently checks the registry too. Restored or newly added behavior needs a regression test that fails when the behavior is removed.
 - Compare the current main with the relevant feature branch before integration. A successful test suite without coverage for a missing feature is not proof that the integration preserved it.
+
+## Test scope during UI redesign
+
+- Follow `docs/testing-strategy.md`. The user authorized removing brittle presentation checks on 2026-10-31.
+- Preserve behavior, data integrity, authority, synchronization, input/save flows, navigation callbacks, accessibility and native compatibility checks even when their filenames contain `ui`, `screen` or `layout`.
+- Do not pin font sizes, spacing, exact product colors, internal view counts or positions in required tests. Verify visual hierarchy, alignment, gestures and animation smoothness on actual screens during the final UI review.
+- Keep feature contracts and Cloud security regressions registered. A `manualReview` reference records visual acceptance work; it is not an automated pass.

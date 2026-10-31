@@ -223,15 +223,12 @@ for (const [returnTo, expected] of [['home', '/'], ['calendar', '/(tabs)/explore
   });
 }
 
-test('feature screen contract: accordion clips an anchored body and hides collapsed controls', async () => {
+test('feature screen contract: accordion exposes its expanded state and toggles in both directions', async () => {
   const props = { title: '生活リズム', expanded: true, onToggle: () => { props.expanded = !props.expanded; }, children: '本文' };
   const screen = screenHarness('src/components/accordion-section.tsx', { exportName: 'AccordionSection', props });
-  const body = screen.nodes().find((node) => node.type === 'View' && node.props.onLayout);
-  assert.deepEqual([body.props.style.position, body.props.style.top, body.props.style.left, body.props.style.right], ['absolute', 0, 0, 0]);
-  body.props.onLayout({ nativeEvent: { layout: { height: 120 } } }); screen.render();
-  const clip = () => screen.nodes().find((node) => node.type === 'AnimatedView');
-  assert.equal(clip().props.style[0].overflow, 'hidden'); assert.equal(clip().props.style[1].height, 120);
+  assert.equal(screen.button('生活リズムを閉じる').props.accessibilityState.expanded, true);
   await screen.press('生活リズムを閉じる');
-  assert.equal(clip().props.style[1].height, 0); assert.equal(clip().props.pointerEvents, 'none');
-  assert.equal(clip().props.accessibilityElementsHidden, true);
+  assert.equal(screen.button('生活リズムを開く').props.accessibilityState.expanded, false);
+  await screen.press('生活リズムを開く');
+  assert.equal(screen.button('生活リズムを閉じる').props.accessibilityState.expanded, true);
 });

@@ -66,11 +66,8 @@ for (const platform of ['android', 'ios']) {
     });
     const rendered = nodes(tree);
     const text = rendered.filter((node) => node.type === 'Text').map((node) => node.props.children);
-    assert.ok(text.includes('今日の家事'));
     assert.ok(text.includes('エアコンのフィルターを掃除する'));
     assert.ok(text.includes('洗濯をする'));
-    assert.ok(text.includes('○'));
-    assert.ok(text.includes('✓'));
     const buttons = rendered.filter((node) => node.type === 'Button');
     assert.equal(buttons.length, 1);
     assert.equal(buttons[0].props.target, 'complete:pending');

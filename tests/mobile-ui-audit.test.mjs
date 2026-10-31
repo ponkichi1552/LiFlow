@@ -4,14 +4,11 @@ import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { localDateFromDate, weekdayOf } from '../src/domain/scheduling/local-date.ts';
-import { typography } from '../src/components/planner-typography.ts';
 import { applianceResult } from './helpers/sharing-v2-appliance.mjs';
 
 const repository = await import('../src/platform/storage/repository.ts');
 const today = localDateFromDate(new Date());
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
-const style = (value) => Array.isArray(value) ? Object.assign({}, ...value.filter(Boolean).map(style)) : value ?? {};
-const textNode = (screen, text) => screen.nodes().find((node) => node.type === 'Text' && node.children.join('') === text);
 const settingsMocks = {
   '@/features/google-sync/background-task': {},
   '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: false }) },
@@ -25,24 +22,9 @@ async function fixture() {
   return { ...h, options: { database: h.database, snapshot: () => snapshot, refresh }, snapshot: () => snapshot };
 }
 
-test('shared mobile typography preserves title, section, task, body and caption hierarchy', () => {
-  assert.deepEqual(['title', 'section', 'subheading', 'body', 'caption'].map((key) => typography[key].fontSize), [28, 22, 19, 17, 14]);
-  const context = { appliance: { id: 'saved', manufacturer: 'Dyson', displayName: 'V12', modelNumber: 'SV20', officialManualUrl: 'https://www.dyson.co.jp/support', analysis: {
-    tasks: [{ name: '回転ブラシのお手入れ', recommendedConditions: ['汚れが目立った場合'], steps: ['ブラシを拭く'], tools: [], safetyCautions: [], evidence: [] }], analyzedAt: '2026-10-26T00:00:00Z',
-  } }, chores: [] };
-  const screen = screenHarness('src/features/appliance-care/appliance-detail-content.tsx', { exportName: 'ApplianceDetailContent', props: { context } });
-  for (const [text, role] of [['お手入れ方法', 'title'], ['お手入れ項目', 'section'], ['回転ブラシのお手入れ', 'subheading'], ['定期予定なし', 'label'], ['メーカー指定：「汚れが目立った場合」', 'body'], ['お手入れ 01', 'caption']]) {
-    assert.equal(style(textNode(screen, text)?.props.style).fontSize, typography[role].fontSize, text);
-  }
-  const heading = screenHarness('src/components/planner-ui.tsx', { exportName: 'SectionHeading', props: { title: '小見出し', level: 'subsection' } });
-  assert.equal(style(textNode(heading, '小見出し').props.style).fontSize, typography.control.fontSize);
-});
-
 test('waste editor rejects same-frame duplicate saves and keeps the draft available after failure', async () => {
   const pending = deferred(); const saved = [];
   const screen = screenHarness('src/features/waste/waste-schedule-editor.tsx', { exportName: 'WasteScheduleEditor', props: { onSubmit: async (value) => { saved.push(value); if (saved.length === 1) await pending.promise; } } });
-  const query = screen.nodes().find((node) => node.type === 'TextInput');
-  assert.equal(query.props.placeholder, 'ゴミの種類（例：可燃ゴミ）');
   await screen.change('ゴミの種類', 'かん'); await screen.press('缶を選択'); await screen.press('月');
   const save = screen.button('収集日を追加'); save.props.onPress(); save.props.onPress(); await screen.flush();
   assert.equal(saved.length, 1);
@@ -186,7 +168,7 @@ test('weather selection keeps the first pending candidate consistent and permits
   } finally { h.connection.close(); }
 });
 
-test('credits open and close while keeping the local-storage footer below the collapsed heading', async () => {
+test('credits links remain accessible when expanded and hidden when collapsed', async () => {
   const h = await fixture();
   try {
     const screen = screenHarness('src/app/settings.tsx', { ...h.options, mocks: settingsMocks });
@@ -194,8 +176,6 @@ test('credits open and close while keeping the local-storage footer below the co
     assert.equal(creditLinks().length, 0);
     await screen.press('クレジットを開く'); assert.equal(creditLinks().length, 1);
     await screen.press('クレジットを閉じる'); assert.equal(creditLinks().length, 0);
-    const visible = screen.nodes().filter((node) => node.type === 'Text').map((node) => node.children.join('')).join('');
-    assert.ok(visible.endsWith('家事データ、曜日、予定、履歴はローカルSQLiteに保存されます。'));
   } finally { h.connection.close(); }
 });
 
