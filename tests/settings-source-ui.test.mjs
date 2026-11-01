@@ -14,6 +14,7 @@ import { initializeSharedProjection } from '../src/platform/storage/sharing-proj
 import { createSharedPlannerRepository } from '../src/platform/storage/shared-planner-repository.ts';
 import { registerSharedRepositoryAdapter } from '../src/platform/storage/shared-repository-adapter.ts';
 import { chorePolicyFromPreset } from '../src/features/sharing/v2/model.ts';
+import { CHORE_CATALOG } from '../src/domain/chores/catalog.ts';
 const repository = await import('../src/platform/storage/repository.ts');
 const { createGroupChoreSettingsSource } = await import('../src/features/settings/group-chore-settings-source.ts');
 const today = new Date().toISOString().slice(0, 10);
@@ -93,21 +94,22 @@ for (const platform of ['ios', 'android']) {
     } finally { await f.close(); }
   });
 
-  test(`${platform} connected editors show one fixed audience and personal edits keep the current group untouched`, async () => {
+  test(`${platform} connected editors show explicit audience controls and personal edits keep the current group untouched`, async () => {
     const f = await legacyFixture();
     try {
       const chore = f.personalData.snapshot.chores[0], before = definitions(f.shared);
       const screen = screenHarness('src/app/settings/chore/[id].tsx', { platform, params: { id: chore.id, source: 'personal' },
         database: f.shared.database, snapshot: () => f.source.getSnapshot().snapshot.model.plan, personalData: () => f.personalData,
         mocks: { '../contexts/workspace-context': { WorkspaceContext: { _currentValue: { userId: f.scope.userId, group: f.record } } } } });
-      assert.equal(screen.text().split('個人用').length - 1, 1); assert.equal(screen.text().includes('グループ用'), false);
+      assert.equal(screen.nodes().find(node => node.props.accessibilityLabel === '個人用の家事設定').props.accessibilityState.checked, true);
+      assert.equal(screen.nodes().find(node => node.props.accessibilityLabel === 'グループ用の家事設定').props.accessibilityState.checked, false);
       await screen.change('家事周期の日数', '17'); await screen.endEditing('家事周期の日数'); for (let i = 0; i < 4; i++) await screen.flush();
       assert.equal(f.personalData.snapshot.chores.find(row => row.id === chore.id).recommendedCycleDays, 17);
       assert.deepEqual(definitions(f.shared), before);
       const value = f.source.getSnapshot().snapshot;
       assert.equal(value.protocol, 2); assert.equal(value.record.displayName, '家族');
       assert.equal(value.workspace.adapter, undefined);
-      assert.equal(value.model.plan.chores.length, 46);
+      assert.equal(value.model.plan.chores.length, CHORE_CATALOG.length);
 
     } finally { await f.close(); }
   });

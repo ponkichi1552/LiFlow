@@ -1,13 +1,13 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { ChoreBook } from '../../../components/chore-book';
-import { GroupIcon, PersonIcon } from '../../../components/group-icon';
+import { ChoreAudiencePicker } from '../../../components/chore-audience-picker';
 import { AppButton, BackButton, palette, typography } from '../../../components/planner-ui';
 import type { PlannerSnapshot } from '../../../platform/storage/repository';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import { unifiedGuideCatalog } from '../../chores/guide-catalog';
-import { canonicalBuiltInChoreName } from '../../../domain/chores/catalog';
+import { choreInAudience } from '../../chores/audience-selection';
 import type { ChoreDefinition } from '../../../domain/chores/types';
 import { ChoreGuide } from '../../chores/chore-guide';
 import { ChorePlanToggle } from '../../chores/chore-plan-toggle';
@@ -33,17 +33,9 @@ export function V2ChoreBook({ model, personal, selectedId, source = 'shared', on
   const shared = useMemo(() => model.plan.chores.filter(chore => !chore.archived).map(chore => ({ ...chore, householdId: model.plan.groupId })), [model.plan.chores, model.plan.groupId]);
   const individuals = personal?.snapshot.chores ?? [];
   const isPersonal = selection.source === 'personal'; const chores = isPersonal ? individuals : shared;
-  const picker = (visible?: ChoreDefinition) => <View style={styles.destination}><Text style={styles.destinationLabel}>予定先</Text><View style={styles.audiences} accessibilityRole="radiogroup" accessibilityLabel="予定先">
-    {(['personal', 'shared'] as const).map(audience => <Pressable key={audience} accessibilityRole="radio" accessibilityLabel={audience === 'personal' ? '個人用の家事説明' : 'グループ用の家事説明'} accessibilityState={{ checked: selection.source === audience }}
-      onPress={() => {
-        if (selection.source === audience) return;
-        const candidates = audience === 'personal' ? individuals : shared;
-        const matching = visible ? candidates.filter(chore => canonicalBuiltInChoreName(chore.name) === canonicalBuiltInChoreName(visible.name)) : [];
-        setSelection({ source: audience, id: matching.length === 1 ? matching[0].id : candidates.find(chore => chore.category === visible?.category)?.id ?? candidates[0]?.id });
-      }} style={styles.audience}>
-      <View aria-hidden style={[styles.audienceIcon, selection.source === audience && styles.selected]}>{audience === 'personal' ? <PersonIcon size={16} /> : <GroupIcon size={20} />}</View>
-    </Pressable>)}
-  </View></View>;
+  const picker = (visible?: ChoreDefinition) => <ChoreAudiencePicker value={selection.source} purpose="guide" onChange={audience => {
+    setSelection({ source: audience, id: choreInAudience(audience === 'personal' ? individuals : shared, visible) });
+  }} />;
   if (isPersonal && !personal) return <View style={{ flex: 1, backgroundColor: palette.background }}><View style={{ paddingHorizontal: 18 }}><BackButton onPress={onBack} />{picker()}</View><Text style={styles.unavailable}>個人家事を読み込んでいます。</Text></View>;
   return <ChoreBook key={selection.source} title="家事の説明" chores={chores} selectedId={selection.id} onBack={onBack} hasTabBar={hasTabBar}
     titleAccessory={picker}
@@ -68,10 +60,5 @@ export function V2ChoreBook({ model, personal, selectedId, source = 'shared', on
     }} />;
 }
 const styles = StyleSheet.create({
-  destination: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 4 }, destinationLabel: { ...typography.caption, color: palette.muted },
-  audiences: { flexDirection: 'row' },
-  audience: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 7 },
-  audienceIcon: { width: 28, height: 28, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
-  selected: { backgroundColor: palette.accentSoft },
   unavailable: { ...typography.body, color: palette.muted, padding: 18 },
 });

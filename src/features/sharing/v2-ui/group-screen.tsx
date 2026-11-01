@@ -50,8 +50,10 @@ import { groupHistoryByDay } from '../../planner/history-groups';
 import { HistoryDayHeading } from '../../../components/history-day-heading';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
 import type { PlannerCalendarProps } from '../../calendar/planner-calendar';
+import type { ChoreAudienceSelection } from '../../chores/audience-selection';
 
 export interface V2GroupScreenProps {
+  settingsSelection?: ChoreAudienceSelection;
   initialDisplay?: WorkspaceDisplayValue;
   lifecycleManaged?: boolean;
   localCalendar?: LocalCalendarBinding; onCalendarNavigate?: PlannerCalendarProps['onNavigate'];
@@ -82,7 +84,7 @@ export function readOptionsForView(view: V2GroupScreenProps['view'], anchorDate?
   return view === 'calendar' ? { calendarMonth: 'current', waste: true } : view === 'home' ? { waste: true } : undefined;
 }
 
-export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage, subscribe, loadSession, view, choreId, applianceId, onBack, onConfiguration, onHistory, onRequests, occurrenceId, subjectId, onRound, onDate, onAssignment, onAssignmentRequests, onCalendar, anchorDate, onManageChores, onDetails, onAddChore, onChoreCreated, onGroupPolicy, onNotifications, onGoogleTasks, onPersonalCopy, onDateRights, onWaste, onAppliances, onAppliance, onApplianceReview, localCalendar, onCalendarNavigate, onGuide, personalGuide, guideSource, onPersonalAppliance, initialProductName, initialDisplay, lifecycleManaged = false }: V2GroupScreenProps) {
+export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage, subscribe, loadSession, view, choreId, settingsSelection, applianceId, onBack, onConfiguration, onHistory, onRequests, occurrenceId, subjectId, onRound, onDate, onAssignment, onAssignmentRequests, onCalendar, anchorDate, onManageChores, onDetails, onAddChore, onChoreCreated, onGroupPolicy, onNotifications, onGoogleTasks, onPersonalCopy, onDateRights, onWaste, onAppliances, onAppliance, onApplianceReview, localCalendar, onCalendarNavigate, onGuide, personalGuide, guideSource, onPersonalAppliance, initialProductName, initialDisplay, lifecycleManaged = false }: V2GroupScreenProps) {
   const libraryState = useChoreLibraryState();
   const [session, setSession] = useState<V2GroupUiSession | null>(initialDisplay?.session ?? null); const [screenModel, setModel] = useState<Awaited<ReturnType<V2GroupUiSession['readModel']>> | null>(initialDisplay?.model ?? null);
   const composition = useMemo(() => {
@@ -228,7 +230,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     <V2AddChore actions={controller.actions} busy={busy} run={run} header={notice} onBack={onBack} onCreated={onChoreCreated ?? onDetails ?? onConfiguration} />
   </V2ScreenFrame>;
   if (view === 'details' || view === 'configuration') return <V2ChoreSettingsBook key={`${model.viewerUserId}:${model.plan.groupId}`}
-    model={model} session={session} choreId={choreId} groupName={groupName} onBack={onBack} development={purpose === 'development'}
+    model={model} session={session} choreId={choreId} selection={settingsSelection} groupName={groupName} onBack={onBack} development={purpose === 'development'}
     onSaved={async () => { session.invalidate?.(); if (!await refresh()) throw new Error('保存済みです。表示を更新するため再読込してください。'); }} />;
   if (view === 'history') {
     const historyRows = [

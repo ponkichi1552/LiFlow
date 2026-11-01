@@ -6370,7 +6370,7 @@
     "tests": [
       {
         "file": "tests/settings-source-ui.test.mjs",
-        "name": "${platform} connected editors show one fixed audience and personal edits keep the current group untouched"
+        "name": "${platform} connected editors show explicit audience controls and personal edits keep the current group untouched"
       },
       {
         "file": "tests/settings-source-ui.test.mjs",
@@ -7549,6 +7549,27 @@
       {
         "file": "tests/guide-audience.test.mjs",
         "name": "${platform} guide audience is explicit and scrolling cannot change the source of a planned chore"
+      }
+    ]
+  },
+  {
+    "feature": "explicit-settings-audience-with-save-before-switch",
+    "tests": [
+      {
+        "file": "tests/settings-audience-switch.test.mjs",
+        "name": "${platform} detailed settings switch audiences only after saving and open the matching independent chore"
+      },
+      {
+        "file": "tests/settings-audience-switch.test.mjs",
+        "name": "${platform} invalid personal drafts and changed memberships block a detailed settings audience switch"
+      },
+      {
+        "file": "tests/settings-audience-switch.test.mjs",
+        "name": "${platform} shared detailed settings retain invalid drafts and save only the group before switching to personal"
+      },
+      {
+        "file": "tests/settings-audience-switch.test.mjs",
+        "name": "${platform} unjoined detailed settings do not offer a personal group switch"
       }
     ]
   },

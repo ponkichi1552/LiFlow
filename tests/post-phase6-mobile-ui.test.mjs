@@ -173,6 +173,7 @@ test('hardware back preserves invalid connected settings until corrected and the
     await repository.initializeLocalDatabase(h.database); let snapshot = await repository.loadPlannerSnapshot(h.database, today); const chore = snapshot.chores[0];
     const screen = screenHarness('src/app/chores/[id].tsx', { database: h.database, snapshot: () => snapshot, params: { id: chore.id },
       refresh: async () => { snapshot = await repository.loadPlannerSnapshot(h.database, today); },
+      layoutEffect: callback => callback(),
       preventRemove: (prevent, callback) => { if (prevent) beforeRemove = callback; }, disablePrevention: () => { disabled++; } });
     await screen.change('実施期間の日数幅', '999');
     beforeRemove({ repeat: () => { navigated++; } }); await screen.flush();

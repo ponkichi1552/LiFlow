@@ -11,30 +11,34 @@ import { V2SettingsDraftCache, type RetainedV2Draft } from './settings-draft-cac
 import { V2ConfigurationEditor } from './configuration-editor';
 import { V2ChoreDetailsEditor } from './chore-details-editor';
 import { V2DateRightsEditor } from './date-rights-editor';
+import { choreInAudience, type ChoreAudienceSelection } from '../../chores/audience-selection';
 
 /** The same continuous document as personal settings, with shared authority enforced by each editor. */
-export function V2ChoreSettingsBook({ model, session, choreId, groupName, onBack, onSaved, development = false }: {
+export function V2ChoreSettingsBook({ model, session, choreId, selection, groupName, onBack, onSaved, development = false }: {
   model: V2GroupScreenModel; session: V2GroupUiSession; choreId?: string; groupName: string; onBack(): void; onSaved(): Promise<void>;
-  development?: boolean;
+  development?: boolean; selection?: ChoreAudienceSelection;
 }) {
   const drafts = useMemo(() => new Map<string, RetainedV2Draft>(), []); const leaving = useRef(false);
   const allowRemoval = useRef(() => {});
   const [invalidId, setInvalidId] = useState<string>(); const [error, setError] = useState<string | null>(null);
-  const leave = async (navigate: () => void) => {
+  const leave = async (navigate: () => void, canNavigate = () => true) => {
     if (leaving.current) return; leaving.current = true; setError(null);
     try {
       for (const [key, draft] of drafts) if (!await draft.flush()) {
         setInvalidId(key.slice(key.indexOf(':') + 1)); setError('保存できていない入力があります。表示中の家事を確認してください。'); return;
       }
+      if (!canNavigate()) { setError('所属グループが変わりました。設定画面を開き直してください。'); return; }
       allowRemoval.current(); navigate();
     } catch { setError('入力を保存できませんでした。内容を保持しています。もう一度お試しください。');
     } finally { leaving.current = false; }
   };
   const disablePrevention = usePreventRemove(true, ({ repeat }) => { void leave(repeat); });
   useLayoutEffect(() => { allowRemoval.current = disablePrevention; }, [disablePrevention]);
-  return <V2SettingsDraftCache.Provider value={drafts}><ChoreBook title="家事ごとの設定" chores={model.plan.chores.filter(row => !row.archived).map(row => ({ ...row, householdId: model.plan.groupId }))}
+  const chores = model.plan.chores.filter(row => !row.archived).map(row => ({ ...row, householdId: model.plan.groupId }));
+  const selectedId = selection ? choreInAudience(chores, selection) : choreId;
+  return <V2SettingsDraftCache.Provider value={drafts}><ChoreBook title="家事ごとの設定" chores={chores}
     banner={development ? <Text style={[typography.caption, { color: palette.warning }]}>開発用・端末内プレビュー</Text> : undefined}
-    selectedId={invalidId ?? choreId} titleAccessory={<SettingsAudience groupName={groupName} />} onBack={() => void leave(onBack)}
+    selectedId={invalidId ?? selectedId} titleAccessory={visible => <SettingsAudience groupName={groupName} chore={visible} navigate={leave} />} onBack={() => void leave(onBack)}
     header={error ? <Text accessibilityRole="alert" style={[typography.caption, { color: palette.warning }]}>{error}</Text> : undefined}
     renderChore={chore => <SettingsChapter key={chore.id} choreId={chore.id} model={model} controller={session.controller} onSaved={onSaved} />} />
   </V2SettingsDraftCache.Provider>;

@@ -198,6 +198,29 @@ import XCUIAutomation
     XCTAssertTrue(app.buttons["予定を追加"].waitForExistence(timeout: 20)); shot(app, "17-calendar")
   }
 
+  func testChoreSettingsAudienceSwitch() throws {
+    let app = XCUIApplication(bundleIdentifier: "jp.jphacks.tkb2633")
+    app.launch()
+    app.open(URL(string: "houseworkplanner://settings/chore/builtin-chore-01?source=personal")!)
+    let personalCycle = app.textFields["家事周期の日数"].firstMatch
+    XCTAssertTrue(personalCycle.waitForExistence(timeout: 30))
+    let initialCycle = personalCycle.value as? String
+    func audience(_ label: String) -> XCUIElement {
+      app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+    }
+    let shared = audience("グループ用の家事設定")
+    XCTAssertTrue(shared.waitForExistence(timeout: 15)); XCTAssertTrue(shared.isHittable)
+    shot(app, "settings-audience-personal")
+    shared.tap()
+    XCTAssertTrue(app.textFields["共有家事の名前"].firstMatch.waitForExistence(timeout: 30))
+    shot(app, "settings-audience-shared")
+    let personal = audience("個人用の家事設定")
+    XCTAssertTrue(personal.waitForExistence(timeout: 10)); XCTAssertTrue(personal.isHittable)
+    personal.tap()
+    XCTAssertTrue(personalCycle.waitForExistence(timeout: 30)); XCTAssertEqual(personalCycle.value as? String, initialCycle)
+    shot(app, "settings-audience-personal-restored")
+  }
+
   func testSavingTodayPreservesDateAcrossViewSwitch() throws {
     let app = XCUIApplication(bundleIdentifier: "jp.jphacks.tkb2633")
     app.terminate(); app.launch()

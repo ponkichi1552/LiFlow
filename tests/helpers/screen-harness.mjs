@@ -103,7 +103,7 @@ export function screenHarness(filename, options = {}) {
     // Native FlatList jumps are tested directly in chore-book tests. Other screen tests
     // inspect the requested virtual chapter instead of pretending all chapters are mounted.
     '../sharing/v2-ui/workspace-data': { useOptionalWorkspaceDisplay: () => null },
-    '@/components/chore-book': { ChoreBook: (props) => jsx('ChoreBook', { ...props, children: [props.titleAccessory, props.header,
+    '@/components/chore-book': { ChoreBook: (props) => jsx('ChoreBook', { ...props, children: [typeof props.titleAccessory === 'function' ? props.titleAccessory(props.chores.find(row => row.id === props.selectedId) ?? props.chores[0]) : props.titleAccessory, props.header,
       props.renderChore(props.chores.find(row => row.id === props.selectedId) ?? props.chores[0]),
       jsx(load(resolve(root, 'src/components/planner-ui.tsx')).BackButton, { onPress: props.onBack })] }) },
     // Personal-screen tests isolate the separately tested group controller and native identity runtime.
