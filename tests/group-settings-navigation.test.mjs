@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { screenHarness } from './helpers/screen-harness.mjs';
 
-async function openGroup(platform, { owner = true, recordFailures = 0, requestFailures = 0, lastErrorCode = null, heldChanges = 0 } = {}) {
-  let syncs = 0; let refreshes = 0; let recordReads = 0; let invitationReads = 0; const commands = []; const routes = []; const alerts = [];
+async function openGroup(platform, { owner = true, recordFailures = 0, requestFailures = 0, lastErrorCode = null, heldChanges = 0, overview } = {}) {
+  let changed; let syncs = 0; let refreshes = 0; let recordReads = 0; let invitationReads = 0; const commands = []; const routes = []; const alerts = [];
   const roster = { body: { ownerUserId: 'owner', ownerDeviceId: 'owner-device', schedulerVersion: 'liflow-shared-2-draft-41', members: [
     { userId: 'owner', devices: [{ identity: { deviceId: 'owner-device' } }] },
     { userId: 'member', devices: [{ identity: { deviceId: 'member-device' } }] },
@@ -12,9 +12,9 @@ async function openGroup(platform, { owner = true, recordFailures = 0, requestFa
     identity: { deviceId: owner ? 'owner-device' : 'member-device' }, roster: () => roster,
     record: async () => { if (recordReads++ < recordFailures) throw new Error('端末の設定を読み込めません。');
       return { status: 'active', displayName: '検査用グループ', lastErrorCode, lastSuccessfulSyncAt: null }; },
-    checkpoint: async () => ({ pendingCount: 2 }), readOverview: async () => ({ timeZone: 'Asia/Tokyo', members: [
+    checkpoint: async () => ({ pendingCount: 2 }), readOverview: overview ?? (async () => ({ timeZone: 'Asia/Tokyo', members: [
       { id: 'owner', displayName: '所有者' }, { id: 'member', displayName: '参加者' },
-    ], recoverySummary: { heldChanges } }),
+    ], recoverySummary: { heldChanges } })),
     cloud: { listInvitations: async () => { if (invitationReads++ < requestFailures) throw new Error('参加申請を取得できません。'); return []; }, listJoinRequests: async () => ({ requests: [] }) },
     session: { recovery: { enabled: true } }, sync: async options => { assert.equal(options.force, true); syncs++; },
     manager: { transferOwnership: async target => commands.push(['transfer', target]),
@@ -28,7 +28,7 @@ async function openGroup(platform, { owner = true, recordFailures = 0, requestFa
     mocks: {
       'expo-image': { Image: 'Image' },
       '@/hooks/use-workspace': { useWorkspace: () => ({ userId: workspace.userId, refreshSharing: async () => { refreshes++; } }) },
-      '@/platform/sharing/workspaces': { subscribeSharingChanges: () => () => {}, sharingFailureMessage: () => '共有の同期に失敗しました。' },
+      '@/platform/sharing/workspaces': { subscribeSharingChanges: callback => { changed = callback; return () => { changed = undefined; }; }, sharingFailureMessage: () => '共有の同期に失敗しました。' },
       '@/platform/sharing/firebase-services': { isSharingConfigured: () => false },
       '@/platform/sharing/auth': {},
       '@/features/settings/chore-settings-sources': { ChoreSettingsSources: props => ({ type: 'Text', props: { children: `settings-scope:${props.first}` } }) },
@@ -38,7 +38,7 @@ async function openGroup(platform, { owner = true, recordFailures = 0, requestFa
     },
   });
   for (let n = 0; n < 10 && !screen.text().includes(recordFailures ? 'もう一度読み込む' : 'グループ設定'); n++) await screen.flush();
-  return { screen, workspace, routes, alerts, commands, syncs: () => syncs, refreshes: () => refreshes, invitationReads: () => invitationReads };
+  return { screen, workspace, routes, alerts, commands, notify: () => changed?.({ userId: workspace.userId, groupId: workspace.groupId }), syncs: () => syncs, refreshes: () => refreshes, invitationReads: () => invitationReads };
 }
 
 for (const platform of ['ios', 'android']) {
@@ -105,3 +105,23 @@ for (const platform of ['ios', 'android']) {
     } finally { screen.unmount(); }
   });
 }
+
+for (const platform of ['ios', 'android']) test(`${platform} group detail coalesces changes during a read and publishes the fresh final overview`, async () => {
+  let active = 0; let maximum = 0; let reads = 0; const gates = [];
+  const ui = await openGroup(platform, { overview: async () => {
+    reads++; active++; maximum = Math.max(maximum, active);
+    await new Promise(resolve => gates.push(resolve)); active--;
+    return { timeZone: 'Asia/Tokyo', members: [{ id: 'owner', displayName: `確認済み${reads}` }] };
+  } });
+  try {
+    for (let i = 0; i < 10; i++) ui.notify();
+    await new Promise(resolve => setTimeout(resolve, 100)); await ui.screen.flush();
+    assert.equal(reads, 1); gates.shift()();
+    for (let i = 0; i < 5; i++) await ui.screen.flush();
+    assert.equal(reads, 2); assert.equal(maximum, 1);
+    assert.match(ui.screen.text(), /グループ設定/, 'first successful data is visible while the next coalesced read finishes');
+    gates.shift()(); await ui.screen.flush();
+    await ui.screen.press('メンバー・招待（2人）を開く');
+    assert.match(ui.screen.text(), /確認済み2/);
+  } finally { gates.forEach(resolve => resolve()); ui.screen.unmount(); }
+});

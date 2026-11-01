@@ -89,7 +89,10 @@ export default function SharingScreen({ detailOnly = false }: { detailOnly?: boo
         <TextInput style={[styles.input, styles.multiline]} multiline value={link} onChangeText={setLink} autoCapitalize="none" autoCorrect={false}
           placeholder="LiFlowの招待リンクを貼り付け" accessibilityLabel="招待リンク" editable={!busy} />
         <Text style={styles.caption}>申請後、所有者の端末で承認されると参加できます。</Text>
-        <AppButton title="参加を申請" disabled={busy || !link.trim()} onPress={() => void run(async () => { const workspace = await requestSharingWorkspace(link); setLink(''); setExpanded(null); router.push({ pathname: '/sharing/group/[groupId]', params: { groupId: workspace.groupId } }); })} />
+        <AppButton title="参加を申請" disabled={busy || !link.trim()} onPress={() => void run(async () => {
+          const owner = context.userId; const workspace = await requestSharingWorkspace(link);
+          if (alive.current && currentUserId.current === owner) { setLink(''); setExpanded(null); router.push({ pathname: '/sharing/group/[groupId]', params: { groupId: workspace.groupId } }); }
+        })} />
       </AccordionSection>
       </>}
       <AppButton title="共有用アカウントからログアウト" variant="quiet" disabled={busy} onPress={() => void run(async () => { if (context.active) await context.active.drain(); await signOutSharing(); await context.refreshSharing(); })} />
@@ -99,7 +102,7 @@ export default function SharingScreen({ detailOnly = false }: { detailOnly?: boo
     <AccordionSection title="共有について" expanded={expanded === 'help'} onToggle={() => setExpanded(expanded === 'help' ? null : 'help')}>
       <Text style={styles.body}>同時に参加できるグループは一つです。変更するときは退出してから次のグループへ参加します。</Text>
       <Text style={styles.body}>家事・履歴・ゴミ収集日・確認済みの家電情報を端末で暗号化して同期します。共有先へ平文の家事内容や秘密鍵を送信しません。</Text>
-      <Text style={styles.body}>Google Tasksの紐付け、個人のCalendar予定、通知設定、Widget、APIキー、説明書PDFは共有しません。</Text>
+      <Text style={styles.body}>確認済みの家電の説明と添付PDFも暗号化して共有します。Google Tasksの紐付け、個人のCalendar予定、通知設定、Widget、APIキーは共有しません。</Text>
       <Text style={styles.body}>通信できない間も編集できます。送信待ちの操作は保持し、接続後に再送します。同じ設定を同時に編集したときは、内容を確認して選びます。</Text>
       <Text style={styles.body}>バックグラウンドの実行時刻はOSが決めるため、即時の反映を保証しません。必要なときは「今すぐ同期」を使ってください。</Text>
       <Text style={styles.body}>端末の鍵を失ったときは、参加中の別の端末から新しい端末を招待・承認してください。すべての端末の鍵を失うと、保管先の暗号文だけから内容を復元できません。</Text>
@@ -124,14 +127,30 @@ export function GroupDetail({ workspace, run, busy }: { workspace: SharedWorkspa
   const [clock, setClock] = useState(() => Date.now());
   const [choreSettingsOpen, setChoreSettingsOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false); const [syncOpen, setSyncOpen] = useState(false); const [maintenanceOpen, setMaintenanceOpen] = useState(false);
-  const load = useCallback(async () => {
-    const record = await workspace.record(); const checkpoint = await workspace.checkpoint();
-    let snapshot: SharedWorkspaceOverview | null = null; let openError: string | null = null;
-    try { if (['active', 'creating'].includes(record.status)) snapshot = await workspace.readOverview(); }
-    catch (cause) { openError = userMessage(cause); }
-    return { record, snapshot, pending: checkpoint.pendingCount, openError };
+  const currentWorkspace = useRef<SharedWorkspace | null>(workspace);
+  useEffect(() => { currentWorkspace.current = workspace; return () => { currentWorkspace.current = null; }; }, [workspace]);
+  const loadState = useRef<{ workspace: SharedWorkspace; pending: Promise<NonNullable<typeof detail>> | null; again: boolean }>({ workspace, pending: null, again: false });
+  const load = useCallback((): Promise<NonNullable<typeof detail>> => {
+    const state = loadState.current.workspace === workspace ? loadState.current : (loadState.current = { workspace, pending: null, again: false });
+    if (state.pending) { state.again = true; return state.pending; }
+    const read = async () => {
+      let next: NonNullable<typeof detail>;
+      do {
+        state.again = false;
+        const record = await workspace.record(); const checkpoint = await workspace.checkpoint();
+        let snapshot: SharedWorkspaceOverview | null = null; let openError: string | null = null;
+        try { if (['active', 'creating'].includes(record.status)) snapshot = await workspace.readOverview(); }
+        catch (cause) { openError = userMessage(cause); }
+        next = { record, snapshot, pending: checkpoint.pendingCount, openError };
+        if (state.again && currentWorkspace.current === workspace) setDetail(next);
+      } while (state.again && currentWorkspace.current === workspace);
+      return next;
+    };
+    const task = read(); state.pending = task;
+    void task.finally(() => { if (state.pending === task) state.pending = null; }).catch(() => undefined);
+    return task;
   }, [workspace]);
-  const refresh = useCallback(async () => { setDetail(await load()); }, [load]);
+  const refresh = useCallback(async () => { const next = await load(); if (currentWorkspace.current === workspace) setDetail(next); }, [load, workspace]);
   useEffect(() => {
     let current = true; let timer: ReturnType<typeof setTimeout> | undefined;
     const read = () => { void load().then((next) => { if (current) { setDetail(next); setLoadError(null); } })
@@ -147,10 +166,14 @@ export function GroupDetail({ workspace, run, busy }: { workspace: SharedWorkspa
   const roster = workspace.roster(); const isOwner = roster?.body.ownerDeviceId === workspace.identity.deviceId;
   const readRequests = useCallback(async () => {
     if (!isOwner) return [];
-    const invitations = await workspace.cloud.listInvitations(workspace.groupId); const next = [];
-    for (const item of invitations.filter((entry) => entry.status === 'open' && entry.invitation.body.expiresAt > Date.now())) {
-      const result = await workspace.cloud.listJoinRequests(item.invitation);
-      next.push(...result.requests.map((request) => ({ invitation: item.invitation, request })));
+    const invitations = (await workspace.cloud.listInvitations(workspace.groupId)).filter(entry => entry.status === 'open' && entry.invitation.body.expiresAt > Date.now());
+    const next: { invitation: SignedSharedInvitation; request: SharedJoinRequest }[] = [];
+    for (let offset = 0; offset < invitations.length; offset += 4) {
+      const pages = await Promise.all(invitations.slice(offset, offset + 4).map(async item => {
+        const result = await workspace.cloud.listJoinRequests(item.invitation);
+        return result.requests.map(request => ({ invitation: item.invitation, request }));
+      }));
+      next.push(...pages.flat());
     }
     return next;
   }, [isOwner, workspace]);
@@ -220,7 +243,7 @@ export function GroupDetail({ workspace, run, busy }: { workspace: SharedWorkspa
       </Card>)}
     </View> : null}
     </AccordionSection> : null}
-    {workspace.protocol === 2 && ['active', 'creating'].includes(record.status) ? <Card><GroupManagementLinks section="common" busy={busy} onSelect={target => router.push(target)} /></Card> : null}
+    {workspace.protocol === 2 && ['active', 'creating'].includes(record.status) ? <GroupManagementLinks section="common" busy={busy} onSelect={target => router.push(target)} /> : null}
     <AccordionSection title={detail.pending ? `同期（未送信${detail.pending}件）` : '同期（未送信なし）'} expanded={syncOpen} onToggle={() => setSyncOpen(value => !value)}>
       <Text style={styles.caption}>最終同期：{record.lastSuccessfulSyncAt ? new Date(record.lastSuccessfulSyncAt).toLocaleString('ja-JP') : '未実施'}</Text>
       <Text style={styles.caption}>相手の端末への反映は、その端末が同期したときに行われます。</Text>

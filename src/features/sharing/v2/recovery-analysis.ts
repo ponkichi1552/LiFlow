@@ -1,4 +1,5 @@
 import { buildSharedReplica, compactSharedReplica } from '../replica.ts';
+import { recoveryArrayDigest } from './recovery-content.ts';
 import type { SharedReplica } from '../replica.ts';
 import { decryptAuthenticatedSharedOperation, sharedDocumentDigest, verifyAuthenticatedSharedOperation } from '../crypto.ts';
 import type { AuthenticatedSharedOperation, SharingCryptoGateway } from '../crypto.ts';
@@ -106,7 +107,7 @@ export async function analyzeV2Recovery(input: {
   const retained = buildSharedReplica(baseline.groupId, readyFacts.map(fact => fact.operation), base);
   const retainedBase = compactSharedReplica(retained);
   return { entries: ordered, preservedFacts: [...preserved.values()].sort((a, b) => a.receipt.uploadSequence - b.receipt.uploadSequence), readyFacts, retainedBase,
-    baselineIndexDigest: sharedDocumentDigest(base.operationIndex), retainedIndexDigest: sharedDocumentDigest(retainedBase.operationIndex),
+    baselineIndexDigest: recoveryArrayDigest(base.operationIndex), retainedIndexDigest: recoveryArrayDigest(retainedBase.operationIndex),
     removeDeviceIds: [...new Set(ordered.filter(entry => entry.classification !== 'restoredOriginal').map(entry => entry.authorDeviceId))].sort(),
     unreadableChanges: ordered.filter(entry => !['blockedCausality', 'restoredOriginal'].includes(entry.classification)).length,
     heldChanges: ordered.filter(entry => entry.classification === 'blockedCausality').length,

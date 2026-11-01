@@ -144,6 +144,7 @@ service cloud.firestore {
         || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['snapshotId', 'snapshotThroughSequence', 'updatedAt'])
           && ownerOf(resource.data) && !recoveryActive(groupId, resource.data)
           && request.resource.data.snapshotThroughSequence >= resource.data.snapshotThroughSequence
+          && getAfter(/databases/$(database)/documents/sharingGroups/$(groupId)/snapshots/$(request.resource.data.snapshotId)).data.keyVersion == resource.data.keyVersion
           && getAfter(/databases/$(database)/documents/sharingGroups/$(groupId)/snapshots/$(request.resource.data.snapshotId)).data.throughSequence == request.resource.data.snapshotThroughSequence)
       );
       allow delete: if false;

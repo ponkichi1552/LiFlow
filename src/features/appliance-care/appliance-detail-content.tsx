@@ -110,7 +110,7 @@ export function MaintenanceTaskCard({ task, chore, manufacturer, index, schedule
 }
 
 export function OfficialLink({ manufacturer, title, url }: { manufacturer: string; title: string; url: string }) {
-  if (isUploadedManualReference(url)) return <Text style={styles.note}>選択した説明書PDF{title.includes(' · ') ? ` · ${title.split(' · ')[1].replace(' ↗', '')}` : ''}（PDF原本は保存していません）</Text>;
+  if (isUploadedManualReference(url)) return <Text style={styles.note}>選択した説明書PDF{title.includes(' · ') ? ` · ${title.split(' · ')[1].replace(' ↗', '')}` : ''}</Text>;
   const valid = isOfficialApplianceUrl(url, manufacturer);
   if (!valid) return <Text style={styles.invalidLink}>公式URLを検証できないため開けません</Text>;
   return <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(url).catch(() => undefined)}><Text style={styles.link}>{title}</Text></Pressable>;

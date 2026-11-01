@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
-import { collection, deleteDoc, doc, getDocFromServer, getDocsFromServer, serverTimestamp, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDocFromServer, getDocsFromServer, serverTimestamp, setDoc, writeBatch, Timestamp } from 'firebase/firestore';
 import { createSharingCloud } from '../src/platform/sharing/firestore-cloud.ts';
 import { createDeviceIdentity, decryptAuthenticatedSharedOperation, encryptSharedOperation, signSharedOperation,
   unwrapGroupKey, wrapGroupKey } from '../src/features/sharing/crypto.ts';
@@ -47,6 +47,22 @@ test('membership discovery reads one group and never enumerates historical group
   assert.equal(await h.store.cloud.hasMembership('historical'), false);
   assert.equal(await client('other-user').cloud.hasMembership('group-test'), false);
   h.store.switch('other-user'); await assert.rejects(h.store.cloud.hasMembership('group-test'), /切り替わり/);
+});
+
+test('invitation management finds a current invitation after more than one page of retained revoked invitations', async () => {
+  const h = await fixture();
+  await env.withSecurityRulesDisabled(async context => {
+    const firestore = context.firestore(); const batch = writeBatch(firestore);
+    for (let n = 0; n < 105; n++) {
+      const { invitation } = await createSharedInvitation(crypto, h.roster, h.owner, `archived-${String(n).padStart(3, '0')}`, Date.now());
+      batch.set(doc(firestore, 'sharingInvites', invitation.body.inviteId), { groupId: 'group-test', ownerUserId: 'owner', invitationPublicKey: invitation.body.invitationPublicKey,
+        pinJson: JSON.stringify(invitation), expiresAt: Timestamp.fromMillis(invitation.body.expiresAt), status: 'revoked', usedBy: null, createdAt: serverTimestamp() });
+    }
+    await batch.commit();
+  });
+  const current = await createSharedInvitation(crypto, h.roster, h.owner, 'z-current', Date.now()); await h.store.cloud.createInvitation(current.invitation);
+  const listed = await h.store.cloud.listInvitations('group-test');
+  assert.equal(listed.length, 106); assert.equal(listed.find(item => item.id === 'z-current').status, 'open');
 });
 
 test('cloud transport bounds 250 encrypted edits into 100/100/50 pages and retries a create or lost upload response without duplicates', async () => {
@@ -103,7 +119,7 @@ test('a new device is explicitly approved with a fresh key and restores existing
   const key = await unwrapGroupKey(crypto, keyEnvelope, h.member, 'member', h.owner, 'group-test', 2);
   assert.deepEqual(key, h.nextKey);
   await assert.rejects(h.memberStore.cloud.pull('group-test', 0), { code: 'sharing/snapshot-required' });
-  const received = await h.memberStore.cloud.readSnapshot('group-test', 'join-snapshot');
+  const received = await h.memberStore.cloud.readSnapshot('group-test', 'join-snapshot', archive);
   const restored = await openEncryptedSharedSnapshot(crypto, received, key, h.next, h.author);
   assert.equal(buildSharedReplica('group-test', [], restored.base).entities[0].fields.name, '秘密の掃除 1');
   assert.equal((await h.store.cloud.readInvitation('invite-test')).status, 'used');
@@ -130,7 +146,7 @@ test('voluntary departure stops all sending and a retained device rotates future
     [await wrapGroupKey(crypto, 'group-test', 3, key, h.owner, h.owner, 'owner')], 2, snapshot.manifest);
   assert.equal((await h.store.cloud.readGroup('group-test')).group.rotationRequired, false);
   await assert.rejects(h.memberStore.cloud.readGroupKey('group-test', 2, h.member.deviceId));
-  const received = await h.store.cloud.readSnapshot('group-test', 'removed-snapshot');
+  const received = await h.store.cloud.readSnapshot('group-test', 'removed-snapshot', [h.roster, h.next, removed]);
   const restored = await openEncryptedSharedSnapshot(crypto, received, key, removed, author);
   assert.equal(buildSharedReplica('group-test', [], restored.base).completions.length, 1);
   await h.store.cloud.upload(await encryptSharedOperation(crypto, operation(h.owner, 2, { logicalClock: 3,

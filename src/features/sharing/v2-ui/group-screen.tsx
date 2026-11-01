@@ -112,7 +112,8 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
       if (alive.current && generation.current === revision) {
         setSession(preview); setModel(value); setError(null);
         setCompletionValues(values => values.size ? new Map() : values);
-      } return true;
+        return true;
+      } return false;
     } catch (cause) { if (alive.current && generation.current === revision) setError(cause instanceof Error ? cause.message : '共有データを読み込めませんでした。'); return false; }
   }, [loadSession]);
   useFocusEffect(useCallback(() => {

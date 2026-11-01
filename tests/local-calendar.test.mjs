@@ -140,3 +140,18 @@ test('calendar gesture boundaries separate interior date motion from edge naviga
   const first = projectCalendarEvents([event(), { ...event({ startMinute: 570, endMinute: 660 }), id: 'other' }, { ...event({ startMinute: 700, endMinute: 730 }), id: 'after' }], [], '2026-10-30', '2026-10-30');
   const layout = timelineEvents(first, '2026-10-30'); assert.equal(layout[0].lanes, 2); assert.equal(layout[1].lanes, 2); assert.equal(layout[2].lanes, 1);
 });
+
+test('unchanged local Calendar reads perform no category writes and still restore missing defaults', async () => {
+  const h = createDatabase();
+  try {
+    await initializeLocalDatabase(h.database);
+    const initial = await readLocalCalendar(h.database);
+    let writes = 0; const run = h.database.runAsync;
+    h.database.runAsync = async (...args) => { writes++; return run(...args); };
+    for (let i = 0; i < 10; i++) assert.deepEqual((await readLocalCalendar(h.database)).categories, initial.categories);
+    assert.equal(writes, 0);
+    h.connection.prepare('DELETE FROM calendar_categories WHERE id=?').run(initial.categories[0].id);
+    const repaired = await readLocalCalendar(h.database);
+    assert.equal(writes, 1); assert.equal(repaired.categories.length, initial.categories.length);
+  } finally { h.connection.close(); }
+});

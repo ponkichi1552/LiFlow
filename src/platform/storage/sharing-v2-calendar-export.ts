@@ -32,8 +32,8 @@ export function createSharedCalendarExportStore(repository: ReturnType<typeof cr
   }
   const write = (tx: SQLiteDatabase, value: SharedCalendarExportControl) => tx.runAsync('INSERT INTO sharing_v2_calendar_export_control VALUES(1,?) ON CONFLICT(singleton) DO UPDATE SET value_json=excluded.value_json', JSON.stringify(value));
   return {
-    readControl: () => repository.readCurrent((_state, tx) => control(tx)),
-    configure: (patch: Pick<SharedCalendarExportControl, 'enabled'> & Partial<Pick<SharedCalendarExportControl, 'subject' | 'accountLabel' | 'calendarId' | 'calendarLabel'>>, revision: number) => repository.readCurrent(async (_state, tx) => {
+    readControl: () => repository.withPrivateStorage(tx => control(tx)),
+    configure: (patch: Pick<SharedCalendarExportControl, 'enabled'> & Partial<Pick<SharedCalendarExportControl, 'subject' | 'accountLabel' | 'calendarId' | 'calendarLabel'>>, revision: number) => repository.withPrivateStorage(async tx => {
       if (!patch || typeof patch !== 'object' || Object.keys(patch).some(key => !['enabled', 'subject', 'accountLabel', 'calendarId', 'calendarLabel'].includes(key))) throw new Error('Google接続の保存項目が無効です。');
       const old = await control(tx); if (old.revision !== revision) throw new Error('接続設定が変わりました。読み直してください。');
       const value = { ...old, ...patch, revision: old.revision + 1, error: null, retryAt: null, retryCount: 0 };
@@ -41,19 +41,19 @@ export function createSharedCalendarExportStore(repository: ReturnType<typeof cr
         || [value.accountLabel, value.calendarLabel].some(label => label !== null && !text(label, 320))) throw new Error('Googleアカウントと追加先カレンダーを選んでください。');
       await write(tx, value); return value;
     }),
-    saveStatus: (revision: number, patch: Pick<SharedCalendarExportControl, 'error' | 'retryAt' | 'retryCount'> & { lastSyncAt?: number; pending?: boolean }) => repository.readCurrent(async (_state, tx) => {
+    saveStatus: (revision: number, patch: Pick<SharedCalendarExportControl, 'error' | 'retryAt' | 'retryCount'> & { lastSyncAt?: number; pending?: boolean }) => repository.withPrivateStorage(async tx => {
       if (Object.keys(patch).some(key => !['error', 'retryAt', 'retryCount', 'lastSyncAt', 'pending'].includes(key)) || patch.error !== null && !text(patch.error, 1000)
         || patch.pending !== undefined && typeof patch.pending !== 'boolean'
         || !Number.isSafeInteger(patch.retryCount) || patch.retryCount < 0 || [patch.retryAt, patch.lastSyncAt].some(value => value != null && (!Number.isSafeInteger(value) || value < 0))) throw new Error('Google同期状態が無効です。');
       const old = await control(tx); if (old.revision === revision) await write(tx, { ...old, ...patch });
     }),
-    readLinks: (subject: string, calendarId: string) => repository.readCurrent(async (_state, tx) => {
+    readLinks: (subject: string, calendarId: string) => repository.withPrivateStorage(async tx => {
       await initialize(tx); const rows = await tx.getAllAsync<{ value_json: string }>('SELECT value_json FROM sharing_v2_calendar_export_links WHERE subject=? AND calendar_id=?', subject, calendarId);
       return rows.map(row => JSON.parse(row.value_json) as SharedCalendarExportLink);
     }),
     // Retain a just-finished HTTP receipt even if OFF was tapped in flight. It
     // belongs to the captured account/target, never the replacement connection.
-    saveLink: (subject: string, calendarId: string, link: SharedCalendarExportLink) => repository.readCurrent(async (_state, tx) => {
+    saveLink: (subject: string, calendarId: string, link: SharedCalendarExportLink) => repository.withPrivateStorage(async tx => {
       if (!text(subject) || !text(calendarId) || Object.keys(link).sort().join(',') !== 'deleted,etag,googleId,revision,sourceId' || !text(link.sourceId, 512)
         || typeof link.deleted !== 'boolean' || typeof link.googleId !== 'string' || link.googleId.length > 1024 || typeof link.etag !== 'string' || link.etag.length > 1024
         || !text(link.revision, 128) || !link.deleted && (!link.etag || !link.googleId)) throw new Error('Google予定の紐付けが無効です。');

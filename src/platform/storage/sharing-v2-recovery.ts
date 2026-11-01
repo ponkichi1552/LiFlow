@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { createV2EventRepository } from './sharing-v2-events';
 import { assertJsonRecord, assertSharedIdentifier, canonicalJson, validateSharedOperation } from '../../features/sharing/operations.ts';
 import { sharedDocumentDigest } from '../../features/sharing/crypto.ts';
+import { recoveryArrayDigest } from '../../features/sharing/v2/recovery-content.ts';
 import { validateSharedSnapshotBase } from '../../features/sharing/replica.ts';
 import { validateV2ServerReceipt } from '../../features/sharing/v2/server-receipts.ts';
 import { MAX_V2_RECOVERY_SCAN_EVENTS, validateRawV2RecoveryEvent, V2RecoveryStaleError } from '../../features/sharing/v2/recovery-contract.ts';
@@ -21,6 +22,7 @@ function capture(draft: V2RecoveryDraft, groupId: string): V2RecoveryDraft {
     || !/^[a-f0-9]{64}$/u.test(draft.review.previousRosterDigest) || !/^[a-f0-9]{64}$/u.test(draft.baselineIndexDigest)
     || !Number.isSafeInteger(draft.createdAtMs) || draft.createdAtMs < 0
     || !Array.isArray(draft.receipts) || !Array.isArray(draft.preservedFacts) || !Array.isArray(draft.readyFacts)
+    || draft.receipts.length > MAX_V2_RECOVERY_SCAN_EVENTS || draft.readyFacts.length > MAX_V2_RECOVERY_SCAN_EVENTS || draft.preservedFacts.length > 256
     || !Array.isArray(draft.review.removeDeviceIds) || !Array.isArray(draft.review.removeUserIds) || !Array.isArray(draft.review.entries)
     || draft.review.entries.length > 256 || draft.review.removeDeviceIds.length > 64 || draft.review.removeUserIds.length > 16
     || ![draft.review.baselineSequence, draft.review.throughSequence, draft.review.retainedChanges, draft.review.unreadableChanges, draft.review.heldChanges, draft.review.restoredOriginals]
@@ -48,8 +50,17 @@ function capture(draft: V2RecoveryDraft, groupId: string): V2RecoveryDraft {
   }
   validateSharedSnapshotBase(groupId, draft.retainedBase);
   validateSharedSnapshotBase(groupId, draft.baselineBase);
-  if (sharedDocumentDigest(draft.baselineBase.operationIndex) !== draft.baselineIndexDigest) throw new Error('Recovery baseline changed');
-  const json = canonicalJson(draft);
+  if (recoveryArrayDigest(draft.baselineBase.operationIndex) !== draft.baselineIndexDigest) throw new Error('Recovery baseline changed');
+  // Every record was validated separately above. This is private storage, not a
+  // signed event: its bounded history arrays may legitimately exceed 4096 items.
+  const { baselineBase, retainedBase, rawEvents, receipts, preservedFacts, readyFacts, ...header } = draft;
+  canonicalJson(header);
+  for (const base of [baselineBase, retainedBase]) {
+    const { operations, operationIndex, ...metadata } = base;
+    canonicalJson(metadata); operations.forEach(value => canonicalJson(value)); operationIndex.forEach(value => canonicalJson(value));
+  }
+  for (const values of [rawEvents, receipts, preservedFacts, readyFacts]) values.forEach(value => canonicalJson(value));
+  const json = JSON.stringify(draft);
   if (new TextEncoder().encode(json).length > 96 * 1024 * 1024) throw new Error('Private recovery draft exceeds the supported storage limit');
   return JSON.parse(json);
 }
@@ -95,7 +106,7 @@ export function createV2RecoveryStore(repository: Repository) {
         const stored = { ...content, rawReferences: rawEvents.map(raw => ({ operationId: raw.operationId, digest: sharedDocumentDigest(raw) })) };
         await database.runAsync(`INSERT INTO sharing_v2_recovery_review (singleton, review_id, review_digest, draft_json, status, snapshot_id, confirmed, cancelled) VALUES (1, ?, ?, ?, 'review', NULL, 0, 0)
           ON CONFLICT(singleton) DO UPDATE SET review_id=excluded.review_id, review_digest=excluded.review_digest,
-          draft_json=excluded.draft_json, status='review', snapshot_id=NULL, confirmed=0, cancelled=0`, saved.review.id, saved.review.reviewDigest, canonicalJson(stored));
+          draft_json=excluded.draft_json, status='review', snapshot_id=NULL, confirmed=0, cancelled=0`, saved.review.id, saved.review.reviewDigest, JSON.stringify(stored));
       }, true);
     },
     async read() {

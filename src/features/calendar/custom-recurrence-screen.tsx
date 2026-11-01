@@ -4,10 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { BackButton, ChoiceChip, navigationHeaderMetrics, palette, typography } from '../../components/planner-ui';
 import { FormTextInput } from '../../components/form-text-input';
 import { Chevron } from '../../components/chevron';
-import { parseLocalDate, weekdayOf } from '../../domain/scheduling/local-date';
+import { parseLocalDate } from '../../domain/scheduling/local-date';
 import type { LocalDate } from '../../domain/shared/types';
 import { CalendarOptionPicker } from './calendar-option-picker';
-import { customRecurrenceLabel, defaultCustomRecurrence, RECURRENCE_UNITS, validateCustomRecurrence, WEEKDAY_NAMES } from './recurrence';
+import { calendarWeekday, customRecurrenceLabel, defaultCustomRecurrence, RECURRENCE_UNITS, validateCustomRecurrence, WEEKDAY_NAMES } from './recurrence';
 import type { CustomRecurrence } from './recurrence';
 
 export function CustomRecurrenceScreen({ date, initial, onBack, onSave }: {
@@ -40,7 +40,7 @@ export function CustomRecurrenceScreen({ date, initial, onBack, onSave }: {
         onPress={() => { const current = latest.current.rule; if (current.unit === 'week') update({ ...current, weekdays: current.weekdays.includes(index) ? current.weekdays.filter(day => day !== index) : [...current.weekdays, index].sort() }); }} style={[styles.weekday, rule.weekdays.includes(index) && styles.selected]}><Text style={[styles.weekdayText, rule.weekdays.includes(index) && styles.selectedText]}>{name}</Text></Pressable>)}</View></View> : null}
       {rule.unit === 'month' ? <View style={styles.field}><Text style={styles.label}>毎月の指定</Text><View style={styles.units}>
         <ChoiceChip label={`${parseLocalDate(date).getUTCDate()}日`} selected={rule.on === 'date'} disabled={busy} onPress={() => update({ unit: 'month', interval: rule.interval, on: 'date' })} />
-        <ChoiceChip label="第N曜日" selected={rule.on === 'weekday'} disabled={busy} onPress={() => update({ unit: 'month', interval: rule.interval, on: 'weekday', ordinal: Math.ceil(parseLocalDate(date).getUTCDate() / 7) as 1 | 2 | 3 | 4 | 5, weekday: weekdayOf(date) })} />
+        <ChoiceChip label="第N曜日" selected={rule.on === 'weekday'} disabled={busy} onPress={() => update({ unit: 'month', interval: rule.interval, on: 'weekday', ordinal: Math.ceil(parseLocalDate(date).getUTCDate() / 7) as 1 | 2 | 3 | 4 | 5, weekday: calendarWeekday(date) })} />
       </View>{rule.on === 'weekday' ? <View style={styles.intervalRow}>
         <Pressable accessibilityRole="button" accessibilityLabel="月の週を選択" disabled={busy} onPress={() => setPicker('ordinal')} style={styles.select}><Text style={styles.value}>{rule.ordinal === -1 ? '最後' : `第${rule.ordinal}`}</Text><Chevron direction="down" /></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="月の曜日を選択" disabled={busy} onPress={() => setPicker('weekday')} style={styles.select}><Text style={styles.value}>{WEEKDAY_NAMES[rule.weekday]}曜日</Text><Chevron direction="down" /></Pressable>

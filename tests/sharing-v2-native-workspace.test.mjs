@@ -5,7 +5,7 @@ import { workspaceHarness } from './helpers/sharing-workspaces-harness.mjs';
 
 import { withSharingLedgerTransaction } from '../src/platform/storage/sharing-ledger.ts';
 import { readSharingWorkspace, updateSharingWorkspace } from '../src/platform/storage/sharing-registry.ts';
-import { approveSharedDevice, upgradeSharedRoster } from '../src/features/sharing/roster.ts';
+import { approveSharedDevice, upgradeSharedRoster, createSharedRoster } from '../src/features/sharing/roster.ts';
 import { rosterCloudFields } from '../src/features/sharing/cloud-contract.ts';
 import { encodeSharedInvitation } from '../src/features/sharing/invitations.ts';
 import { signSharedDocument } from '../src/features/sharing/crypto.ts';
@@ -249,7 +249,7 @@ for (const failure of ['shared', 'reminders', 'google-throw', 'retry', 'authRequ
       } });
       if (failure === 'success') await h.api.syncSharingWorkspace();
       else await assert.rejects(h.api.syncSharingWorkspace());
-      assert.deepEqual(calls, ['shared', 'history', 'reminders', 'google']);
+      assert.deepEqual(calls, ['shared', 'reminders', 'google', 'history'], 'deliver changes before optional history maintenance');
     } finally { await h.close(); }
   });
 }
@@ -313,4 +313,61 @@ for (const creating of [false, true]) test(`membership ${creating ? 'creation' :
     await assert.rejects(workspace.sync({ force: true, budgetMs: 20_000 }), /同期時間を使い切り/);
     assert.equal(syncs, 0); assert.equal((await workspace.checkpoint()).pendingCount, before.pendingCount);
   } finally { await h.close(); Date.now = originalNow; }
+});
+
+test('a member-profile upload reuses only the original worker time left and preserves its committed outbox entry', async () => {
+  const previous = Date.now; let now = previous(); Date.now = () => now;
+  const h = await workspaceHarness({ deferWorkspaceTimers: true });
+  try {
+    const workspace = await h.api.openSharedWorkspace(h.record); const budgets = [];
+    workspace.session.synchronizer.sync = async options => { budgets.push(options.budgetMs); if (budgets.length === 1) now += 16_000; return { complete: true }; };
+    const repository = workspace.session.repository;
+    repository.commitCurrent = async () => { now += 3000; return repository.commit([{ operationId: 'member-profile-budget', entityType: 'member', entityId: h.record.userId,
+      operationType: 'patch', payload: { userId: h.record.userId, displayName: '同期時間の検査' } }]); };
+    const before = await workspace.checkpoint(); await workspace.sync({ budgetMs: 20_000 });
+    assert.deepEqual(budgets, [20_000, 1000]);
+    assert.equal((await workspace.checkpoint()).pendingCount, before.pendingCount + 1, 'terminal cloud timing never discards a durable edit');
+  } finally { Date.now = previous; await h.close(); }
+});
+
+test('loading the shared Calendar runtime cannot restart the exhausted OS-worker budget', async () => {
+  const previous = Date.now; let now = previous(); Date.now = () => now;
+  const h = await workspaceHarness({ deferWorkspaceTimers: true });
+  try {
+    const workspace = await h.api.openSharedWorkspace(h.record);
+    await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, value => ({ ...value, status: 'active' })); await workspace.record();
+    h.vault.set('sharing-enabled', 'true'); let syncs = 0; let history = 0;
+    workspace.sync = async () => ({}); workspace.maintainHistory = async () => { history++; };
+    workspace.reminders = async () => ({ synchronize: async () => {} });
+    workspace.googleTasks = async () => ({ synchronize: async () => ({ kind: 'success' }) });
+    workspace.googleCalendar = async () => { now += 30_000; return { synchronize: async () => { syncs++; } }; };
+    await h.api.syncSharingWorkspace(20_000); assert.equal(syncs, 0); assert.equal(history, 0);
+  } finally { Date.now = previous; await h.close(); }
+});
+
+for (const mode of ['known', 'unknown', 'departed', 'account-switch', 'offline']) test(`ambiguous legacy group recovery ${mode} keeps archived rows and trusts only the current same-account membership`, async () => {
+  const h = await workspaceHarness({ deferWorkspaceTimers: true }); let remoteReads = 0;
+  try {
+    const otherRoster = createSharedRoster('old-qa-group', 'owner', h.owner, { schemaVersion: 2 });
+    const other = { ...h.record, groupId: 'old-qa-group', status: 'active', anchor: otherRoster, rosterArchive: [otherRoster] };
+    const departedRoster = createSharedRoster('departed-qa-group', 'owner', h.owner, { schemaVersion: 2 });
+    const departed = { ...h.record, groupId: 'departed-qa-group', status: 'left', anchor: departedRoster, rosterArchive: [departedRoster] };
+    for (const row of [other, departed]) await h.index.database.runAsync('INSERT INTO sharing_workspaces(user_id,group_id,record_json) VALUES (?,?,?)', row.userId, row.groupId, JSON.stringify(row));
+    await h.index.database.runAsync('DELETE FROM sharing_current_workspace');
+    const before = JSON.stringify(h.index.connection.prepare('SELECT record_json FROM sharing_workspaces ORDER BY group_id').all());
+    h.cloud.readMembership = async () => {
+      remoteReads++; if (mode === 'offline') throw Object.assign(new Error('offline'), { code: 'unavailable' });
+      if (mode === 'account-switch') h.auth.uid = 'other';
+      return mode === 'unknown' ? 'unrecognized-group' : mode === 'departed' ? departed.groupId : h.record.groupId;
+    };
+    if (mode === 'known') {
+      assert.equal((await h.api.currentSharingWorkspace()).groupId, h.record.groupId);
+      assert.equal((await h.api.currentSharingWorkspace()).groupId, h.record.groupId);
+      assert.equal(remoteReads, 1, 'normal reads after adoption need no Cloud request');
+    } else {
+      await assert.rejects(h.api.currentSharingWorkspace(), mode === 'account-switch' ? /変わりました/ : mode === 'offline' ? /offline/ : /保存データは保持/);
+      assert.equal(h.index.connection.prepare('SELECT count(*) AS n FROM sharing_current_workspace').get().n, 0);
+    }
+    assert.equal(JSON.stringify(h.index.connection.prepare('SELECT record_json FROM sharing_workspaces ORDER BY group_id').all()), before);
+  } finally { await h.close(); }
 });

@@ -219,3 +219,17 @@ test('a transient SQLite busy error retries the complete migration', async () =>
     assert.equal(failures, 2);
   } finally { connection.close(); }
 });
+
+test('current-schema reads avoid write transactions but a restored older version still migrates on the same handle', async () => {
+  const { connection, database } = sqliteAdapter();
+  try {
+    await migrateLocalDatabase(database); let writes = 0; const transact = database.withTransactionAsync;
+    database.withTransactionAsync = async work => { writes++; return transact(work); };
+    for (let i = 0; i < 10; i++) await migrateLocalDatabase(database);
+    assert.equal(writes, 0);
+    connection.exec('PRAGMA user_version = 20');
+    await migrateLocalDatabase(database); assert.equal(writes, 1);
+    assert.equal(connection.prepare('PRAGMA user_version').get().user_version, 21);
+    assert.equal(connection.prepare('PRAGMA foreign_keys').get().foreign_keys, 1);
+  } finally { connection.close(); }
+});

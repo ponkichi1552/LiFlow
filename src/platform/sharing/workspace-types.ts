@@ -21,7 +21,7 @@ interface SharedWorkspaceBase extends SharingSelection {
   sync: (options?: { force?: boolean; budgetMs?: number }) => Promise<SharingSyncResult>;
   checkpoint: () => ReturnType<typeof readSharingCheckpoint>;
   watch: (callback: () => void, failed: (error: unknown) => void) => () => void;
-  cancelJoinRequest: () => Promise<void>; maintainHistory: () => Promise<void>;
+  cancelJoinRequest: () => Promise<void>; maintainHistory: (budgetMs?: number) => Promise<void>;
   readOverview: () => Promise<SharedWorkspaceOverview>; drain: () => Promise<void>;
 }
 export interface LegacyMigrationWorkspace extends SharedWorkspaceBase {

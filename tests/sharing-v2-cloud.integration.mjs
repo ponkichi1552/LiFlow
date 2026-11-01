@@ -16,6 +16,7 @@ import { initializeV2EventStore, createV2EventRepository } from '../src/platform
 import { createV2Synchronizer } from '../src/features/sharing/v2/synchronizer.ts';
 import { loadSharedFacts, loadSharedReplica, listSharingOutbox } from '../src/platform/storage/sharing-ledger.ts';
 import { createGroupPolicy, chorePolicyFromPreset } from '../src/features/sharing/v2/model.ts';
+import { V2_SCHEDULER_VERSION } from '../src/features/sharing/v2/payload-schema.ts';
 import { v2OccurrenceId } from '../src/features/sharing/v2/occurrence-id.ts';
 import { sharedLocalDate } from '../src/features/sharing/group-clock.ts';
 import { addDays as addLocalDays } from '../src/domain/scheduling/local-date.ts';
@@ -624,8 +625,8 @@ test('native pair harness uses real encrypted v2 sessions with approval cold res
 });
 
 
-test('draft38 owner upgrades through a real atomic cloud snapshot and a fresh SQLite session restores unchanged shared settings and facts', async () => {
-  const f = await fixture(2, 'liflow-shared-2-draft-38'); const h = createDatabase(); const restored = createDatabase();
+async function verifyOldSchedulerUpgrade(oldVersion) {
+  const f = await fixture(2, oldVersion); const h = createDatabase(); const restored = createDatabase();
   let archive = [f.roster]; const keys = new Map([[1, f.key]]); let ordinal = 0;
   let record = { userId: 'owner', groupId, status: 'creating', displayName: '互換更新検査', anchor: f.roster, rosterArchive: archive,
     creation: { timeZone: 'Asia/Tokyo', anchorDate: sharedLocalDate(new Date(), 'Asia/Tokyo'), ownerDisplayName: '所有者', wrappedKey: {} } };
@@ -639,13 +640,15 @@ test('draft38 owner upgrades through a real atomic cloud snapshot and a fresh SQ
     const before = await loadSharedFacts(h.database, groupId); const head = (await f.cloud.readGroup(groupId)).group.headSequence;
     await owner.manager.upgradeScheduler();
     const current = await f.cloud.readGroup(groupId); assert.equal(current.group.keyVersion, 2); assert.equal(current.group.headSequence, head);
-    assert.equal(archive[0].body.schedulerVersion, 'liflow-shared-2-draft-38'); assert.equal(archive.at(-1).body.schedulerVersion, 'liflow-shared-2-draft-43');
+    assert.equal(archive[0].body.schedulerVersion, oldVersion); assert.equal(archive.at(-1).body.schedulerVersion, V2_SCHEDULER_VERSION);
     const cold = await createV2WorkspaceSession(deps(restored.database)); await cold.synchronizer.sync({ force: true });
     assert.deepEqual(await loadSharedFacts(restored.database, groupId), before);
     assert.deepEqual(await listSharingOutbox(restored.database, groupId), []);
     assert.equal((await loadSharedReplica(restored.database, groupId)).operations.length, before.length);
   } finally { h.connection.close(); restored.connection.close(); }
-});
+}
+test('draft38 owner upgrades through a real atomic cloud snapshot and a fresh SQLite session restores unchanged shared settings and facts', () => verifyOldSchedulerUpgrade('liflow-shared-2-draft-38'));
+test('draft43 owner upgrades through a real atomic cloud snapshot and a fresh SQLite session restores unchanged shared settings and facts', () => verifyOldSchedulerUpgrade('liflow-shared-2-draft-43'));
 
 test('real Firestore stores only encrypted PDF chunks denies outsiders and restores one appliance after a lost upload response', async () => {
   const f = await fixture(); const owner = createDatabase(); const restarted = createDatabase(); let n = 0;

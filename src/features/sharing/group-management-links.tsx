@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { palette, typography } from '../../components/planner-ui';
 import { Chevron } from '../../components/chevron';
+import { SettingsNavigationLink } from '../../components/accordion-section';
 
 /** Group-wide controls and this user's integrations have separate entry points. */
 export const GROUP_MANAGEMENT_SECTIONS = {
@@ -13,6 +14,7 @@ export const GROUP_MANAGEMENT_SECTIONS = {
 type Section = keyof typeof GROUP_MANAGEMENT_SECTIONS;
 type Target = typeof GROUP_MANAGEMENT_SECTIONS[Section][number][1];
 export function GroupManagementLinks({ section, busy, onSelect }: { section: Section; busy: boolean; onSelect: (target: Target) => void }) {
+  if (section === 'common') return <SettingsNavigationLink title={GROUP_MANAGEMENT_SECTIONS.common[0][0]} disabled={busy} onPress={() => onSelect(GROUP_MANAGEMENT_SECTIONS.common[0][1])} />;
   return <View>{GROUP_MANAGEMENT_SECTIONS[section].map(([title, target]) => <Pressable key={target} accessibilityRole="button" accessibilityLabel={title} disabled={busy} onPress={() => onSelect(target)} style={({ pressed }) => [styles.row, pressed && styles.pressed]}>
     <Text style={styles.label}>{title}</Text><Chevron />
   </Pressable>)}</View>;

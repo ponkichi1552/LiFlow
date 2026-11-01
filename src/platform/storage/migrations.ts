@@ -19,6 +19,10 @@ async function runMigration(database: SQLiteDatabase): Promise<void> {
   for (let attempt = 0; ; attempt += 1) {
     try {
       await database.execAsync('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+      // Recheck the real version on every call, including after restore/reset. A
+      // current schema needs no write transaction or repeat migration work.
+      const version = await database.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+      if (version && version.user_version >= CURRENT_SCHEMA_VERSION) return;
       await database.withTransactionAsync(() => migrateSchema(database));
       return;
     } catch (error) {

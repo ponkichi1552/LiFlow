@@ -1,10 +1,10 @@
 import { router } from 'expo-router';
 import { useLinkingURL } from 'expo-linking';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Text } from 'react-native';
 import { AppButton, BackButton, Card, Page, ScreenHeading, typography } from '@/components/planner-ui';
 import { parseSharedInvitation } from '@/features/sharing/invitations';
-import { requestSharingWorkspace, enableSharingSession, sharingFailureMessage } from '@/platform/sharing/workspaces';
+import { requestSharingWorkspace, enableSharingSession, sharingFailureMessage, sharingSessionUser } from '@/platform/sharing/workspaces';
 import { signInSharingWithGoogle } from '@/platform/sharing/auth';
 import { useWorkspace } from '@/hooks/use-workspace';
 
@@ -12,16 +12,24 @@ import { useWorkspace } from '@/hooks/use-workspace';
 export default function SharingJoinScreen() {
   const url = useLinkingURL(); const workspace = useWorkspace(); const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false); const inFlight = useRef(false); const [openedAt] = useState(() => Date.now());
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const valid = useMemo(() => { try { if (!url) return null; return parseSharedInvitation(url, openedAt).invitation.body.groupId; } catch { return null; } }, [openedAt, url]);
   const blocked = workspace.group && workspace.group.groupId !== valid;
   const join = async () => {
     if (!url || inFlight.current) return; inFlight.current = true; setBusy(true); setMessage(null);
     try {
-      await enableSharingSession(); if (!workspace.userId) await signInSharingWithGoogle();
-      const group = await requestSharingWorkspace(url); await workspace.refreshSharing();
+      await enableSharingSession();
+      const owner = workspace.userId ?? (await signInSharingWithGoogle()).uid;
+      const current = async () => alive.current && (await sharingSessionUser())?.uid === owner;
+      if (!await current()) return;
+      const group = await requestSharingWorkspace(url);
+      if (!await current()) return;
+      await workspace.refreshSharing();
+      if (!await current()) return;
       router.replace({ pathname: '/sharing/group/[groupId]', params: { groupId: group.groupId } });
-    } catch (cause) { setMessage(cause instanceof Error && /[ぁ-んァ-ヶ一-龯]/u.test(cause.message) ? cause.message : sharingFailureMessage(cause)); }
-    finally { inFlight.current = false; setBusy(false); }
+    } catch (cause) { if (alive.current) setMessage(cause instanceof Error && /[ぁ-んァ-ヶ一-龯]/u.test(cause.message) ? cause.message : sharingFailureMessage(cause)); }
+    finally { inFlight.current = false; if (alive.current) setBusy(false); }
   };
   return <Page header={<BackButton onPress={() => router.canGoBack() ? router.back() : router.replace('/')} />}>
     <ScreenHeading title="共有グループへの招待" description="参加を申請すると、所有者の端末で確認・承認されます。" />

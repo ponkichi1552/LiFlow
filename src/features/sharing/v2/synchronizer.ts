@@ -12,7 +12,7 @@ import { V2AwaitingReceiptError } from './receiver-authority.ts';
 import { V2_SCHEDULER_VERSION } from './payload-schema.ts';
 import { verifyV2RecoveryWitnesses } from './recovery-witness.ts';
 import { canonicalJson } from '../operations.ts';
-import { sharedDocumentDigest } from '../crypto.ts';
+import { recoveryArrayDigest } from './recovery-content.ts';
 import { sharedRosterDigest } from '../roster.ts';
 import { readV2RecoveryEvidence } from './recovery-evidence.ts';
 import { preserveV2RecoveryOriginalsInside } from '../../../platform/storage/sharing-v2-recovery.ts';
@@ -54,7 +54,7 @@ export function createV2Synchronizer(dependencies: Omit<SharedSyncDependencies, 
     const index = new Map(snapshot.base.operationIndex.map(item => [item.operationId, item]));
     for (const recovery of recoveries) {
       if (recovery.body.throughSequence === snapshot.throughSequence && sharedRosterDigest(archive.at(-1)!) === recovery.body.nextRosterDigest
-        && recovery.body.retainedIndexDigest !== sharedDocumentDigest(snapshot.base.operationIndex)) throw new Error('Recovery snapshot changed its reviewed retained history');
+        && recovery.body.retainedIndexDigest !== recoveryArrayDigest(snapshot.base.operationIndex)) throw new Error('Recovery snapshot changed its reviewed retained history');
       for (const entry of recovery.body.entries) {
         if (entry.classification === 'restoredOriginal' ? !index.has(entry.operationId) : index.has(entry.operationId)) throw new Error('Quarantine and active history overlap');
       }

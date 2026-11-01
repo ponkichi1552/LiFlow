@@ -98,18 +98,26 @@ export function createSharedGroupManager(deps: SharedSyncDependencies & {
       } else await deps.cloud.leaveGroup(deps.groupId);
       await deps.markLeft(); deps.changed();
     }),
-    publishSnapshot: () => serial(async () => {
-      await deps.sync({ force: true, budgetMs: 120_000 }); const { roster, group, archive } = await current();
+    publishSnapshot: (budgetMs = 120_000) => {
+      const deadline = Date.now() + budgetMs;
+      const remaining = () => {
+        const budgetMs = deadline - Date.now();
+        if (budgetMs < 1000) throw new Error('Snapshotの処理時間を使い切りました。保存済みの変更は次回同期します。');
+        return budgetMs;
+      };
+      return serial(async () => {
+      await deps.sync({ force: true, budgetMs: remaining() }); remaining(); const { roster, group, archive } = await current(); remaining();
       const checkpoint = await readSharingCheckpoint(deps.database, deps.groupId);
       if (checkpoint.sequence !== group.headSequence) throw new SharingCloudChangedError('最新の共有データを受信してください。');
-      const key = await deps.readKey(roster.body.keyVersion); if (!key) throw new Error('共有鍵が見つかりません。');
+      remaining(); const key = await deps.readKey(roster.body.keyVersion); if (!key) throw new Error('共有鍵が見つかりません。');
       try {
-        const snapshot = await createEncryptedSharedSnapshot(deps.crypto, await loadPublishedSharedReplica(deps.database, deps.groupId),
+        remaining(); const snapshot = await createEncryptedSharedSnapshot(deps.crypto, await loadPublishedSharedReplica(deps.database, deps.groupId),
           await loadSharedFacts(deps.database, deps.groupId), roster, deps.identity, key, `snapshot.${deps.makeId()}`, group.headSequence,
           (uid, device, version) => sharedAuthorIdentity(archive.find((item) => item.body.keyVersion === version)!, uid, device, version));
-        await deps.cloud.prepareSnapshot(snapshot, roster); await deps.cloud.publishSnapshot(snapshot.manifest, roster);
-        await deps.sync({ force: true }); return sharedRosterDigest(roster);
+        remaining(); await deps.cloud.prepareSnapshot(snapshot, roster, remaining);
+        remaining(); await deps.cloud.publishSnapshot(snapshot.manifest, roster, remaining);
+        await deps.sync({ force: true, budgetMs: remaining() }); return sharedRosterDigest(roster);
       } finally { key.fill(0); }
-    }),
+    }); },
   };
 }

@@ -146,7 +146,8 @@ export function validateAndDeduplicateTasks(value, manualUrl, allowedDomains, so
 
   const result = [...merged.values()];
   if (result.length === 0) throw new InvalidAiOutputError();
-  return result;
+  // Individually valid fragments may exceed the client contract after merging.
+  return result.map(task => validateTask(task, manualUrl, sourceAllowed));
 }
 
 function validateTask(task, manualUrl, sourceAllowed) {
@@ -229,7 +230,7 @@ function sameUrl(left, right) {
   try {
     const a = new URL(left);
     const b = new URL(right);
-    return a.origin === b.origin && (a.pathname.replace(/\/+$/, '') || '/') === (b.pathname.replace(/\/+$/, '') || '/');
+    return a.origin === b.origin && a.search === b.search && (a.pathname.replace(/\/+$/, '') || '/') === (b.pathname.replace(/\/+$/, '') || '/');
   } catch {
     return false;
   }

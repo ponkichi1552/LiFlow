@@ -161,6 +161,13 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
       : context.subjectUserIds.length > 0 && context.subjectUserIds.every((uid) => active.some((record) => record.subjectUserId === uid));
   }
   for (const chore of chores) {
+    const lastCompletionBySubject = new Map<string | null, LocalDate>();
+    for (const record of recordsByChore.get(chore.id) ?? []) {
+      if (!usable(record)) continue;
+      const day = sharedLocalDate(new Date(record.performedAt), timeZone);
+      const previous = lastCompletionBySubject.get(record.subjectUserId);
+      if (!previous || day > previous) lastCompletionBySubject.set(record.subjectUserId, day);
+    }
     const frames = new Map<string, SharedOccurrence>();
     const timeline = v2ConfigurationTimeline(view, chore.id, at);
     timelines.set(chore.id, timeline);
@@ -289,8 +296,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
         }
         const reviews = unresolvedRequestReviews({ occurrence: frame, subjectUserId, candidates, allRules, requests: assessment.requestStates, view });
         if (reviews.length) issue('requestConflict', chore.id, frame.id, subjectUserId, reviews);
-        const recent = (recordsByChore.get(chore.id) ?? []).filter((record) => record.subjectUserId === subjectUserId && usable(record));
-        const last = recent.map((record) => sharedLocalDate(new Date(record.performedAt), timeZone)).sort().at(-1);
+        const last = lastCompletionBySubject.get(subjectUserId);
         const minimumNextExecutionDay = context.config.intervalDays >= 2 && context.config.intervalDays <= 6 && last ? addDays(last, context.config.intervalDays) : null;
         if (formalDate.kind === 'automatic' && minimumNextExecutionDay && minimumNextExecutionDay > suggestedDate && minimumNextExecutionDay <= window.windowEnd) {
           suggestedDate = minimumNextExecutionDay;

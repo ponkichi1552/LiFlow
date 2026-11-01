@@ -598,10 +598,7 @@ async function loadPlannerSnapshotImpl(
   const weatherOutcome: WeatherScheduleOutcome = settings.weatherLocation ? 'current' : 'disabled';
   const weatherAdjustmentCount = 0;
   // Availability is optional: corrupt/unavailable cache never prevents normal planning or completion.
-  const googleAvailability = await getFreshCalendarAvailabilityDaysImpl(database, calendarNow, timeZone)
-    .catch(() => undefined);
-  const localAvailability = await readCalendarEventRows(database).then(({ events, exceptions }) => localCalendarAvailability(events, exceptions, today, addDays(today, 180), timeZone)).catch(() => undefined);
-  const externalAvailabilityByDate = combineCalendarAvailability(googleAvailability, localAvailability);
+  const { google: googleAvailability, combined: externalAvailabilityByDate } = await plannerCalendarAvailability(database, today, calendarNow, timeZone);
   if (settings.setupCompleted) {
     // Repair records made by the old enable path, which left an unknown first date non-pending.
     const statesById = new Map(states.map((state) => [state.choreId, state]));
@@ -2173,8 +2170,15 @@ async function readCalendarPlanningSignaturesImpl(database: SQLiteDatabase, now 
   const row = await database.getFirstAsync<{ planner_calendar_signature: string | null }>(
     'SELECT planner_calendar_signature FROM household_settings WHERE household_id = ?', LOCAL_HOUSEHOLD_ID,
   );
-  const available = await getFreshCalendarAvailabilityDaysImpl(database, now, timeZone);
-  return { current: calendarAvailabilitySignature(available), applied: row?.planner_calendar_signature ?? null };
+  const { combined } = await plannerCalendarAvailability(database, localDateFromDate(now), now, timeZone);
+  return { current: calendarAvailabilitySignature(combined), applied: row?.planner_calendar_signature ?? null };
+}
+
+/** The freshness check and planner must hash identical optional sources and coverage. */
+async function plannerCalendarAvailability(database: SQLiteDatabase, today: LocalDate, now: Date, timeZone: string) {
+  const google = await getFreshCalendarAvailabilityDaysImpl(database, now, timeZone).catch(() => undefined);
+  const local = await readCalendarEventRows(database).then(({ events, exceptions }) => localCalendarAvailability(events, exceptions, today, addDays(today, 180), timeZone)).catch(() => undefined);
+  return { google, combined: combineCalendarAvailability(google, local) };
 }
 
 async function hasFreshCalendarCoverageImpl(database: SQLiteDatabase, range: CalendarQueryRange, now = new Date()): Promise<boolean> {

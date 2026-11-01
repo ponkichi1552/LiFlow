@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { persistAnalysisResult } from './persist-result.mjs';
 import { randomUUID } from 'node:crypto';
 import { analyzeApplianceCare, validateApplianceCareRequest } from './service.mjs';
 import { analysisRequestKey, createAnalysisRunner } from './analysis-runner.mjs';
@@ -184,7 +185,7 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
             progress = progress.then(() => publicAccess.store.progress?.(admission, stage)).catch(() => undefined);
           }))
           .catch(() => ({ status: 'error', code: 'ANALYSIS_FAILED', message: '解析を完了できませんでした。時間をおいてお試しください。' }))
-          .then(async result => { await progress; await publicAccess.store.finish(admission, result); })
+          .then(async result => { await progress; await persistAnalysisResult(publicAccess.store, admission, result); })
           // A failed final write leaves the reservation intact. Never repeat the paid work to repair persistence.
           .catch(() => undefined).finally(() => clearTimeout(timeout));
       }

@@ -2,6 +2,7 @@ import type { SharedSyncDependencies } from '../synchronizer.ts';
 import type { SignedSharedRoster, VerifiedSharedRoster } from '../roster.ts';
 import { recoverSharedRoster, sharedAuthorIdentity, sharedRosterDigest } from '../roster.ts';
 import { canonicalJson } from '../operations.ts';
+import { recoveryArrayContent, recoveryArrayDigest } from './recovery-content.ts';
 import { sharedDocumentDigest, unwrapGroupKey, wrapGroupKey } from '../crypto.ts';
 import { buildSharedReplica, compactSharedReplica } from '../replica.ts';
 import { createEncryptedSharedSnapshot, openEncryptedSharedSnapshot } from '../snapshots.ts';
@@ -75,7 +76,7 @@ export function createV2OwnerRecovery(deps: Omit<SharedSyncDependencies, 'v2' | 
       throughSequence: metadata.group.headSequence, retainedChanges: analysis.readyFacts.length, unreadableChanges: analysis.unreadableChanges,
       heldChanges: analysis.heldChanges, restoredOriginals: analysis.restoredOriginals, removeDeviceIds: analysis.removeDeviceIds, removeUserIds, entries: analysis.entries };
     const reviewDigest = v2RecoveryReviewDigest({ ...body, baselineIndexDigest: analysis.baselineIndexDigest,
-      retainedIndexDigest: analysis.retainedIndexDigest, rawDigests: raw.map(sharedDocumentDigest) }, deps.identity);
+      retainedIndexDigest: analysis.retainedIndexDigest, rawDigests: recoveryArrayContent(raw.map(sharedDocumentDigest)) }, deps.identity);
     return { ...body, reviewDigest };
   }
   async function readConfirmed(id: string, expectedDigest: string) {
@@ -89,13 +90,13 @@ export function createV2OwnerRecovery(deps: Omit<SharedSyncDependencies, 'v2' | 
     const { review } = draft; const { body } = witness;
     return body.reviewDigest === review.reviewDigest && body.previousRosterDigest === review.previousRosterDigest
       && body.baselineSequence === review.baselineSequence && body.throughSequence === review.throughSequence
-      && body.baselineIndexDigest === draft.baselineIndexDigest && body.retainedIndexDigest === sharedDocumentDigest(draft.retainedBase.operationIndex)
+      && body.baselineIndexDigest === draft.baselineIndexDigest && body.retainedIndexDigest === recoveryArrayDigest(draft.retainedBase.operationIndex)
       && canonicalJson(body.entries) === canonicalJson(review.entries);
   }
   async function recoverCommitted(metadata: Current, draft: V2RecoveryDraft): Promise<string | null> {
     if (sharedRosterDigest(metadata.roster) === draft.review.previousRosterDigest) return null;
     if (!metadata.group.snapshotId) throw new V2RecoveryStaleError('共有の状態が変わりました。復旧内容を確認してください。');
-    const encrypted = await deps.cloud.readSnapshot(deps.groupId, metadata.group.snapshotId); guard();
+    const encrypted = await deps.cloud.readSnapshot(deps.groupId, metadata.group.snapshotId, metadata.archive); guard();
     const epoch = metadata.archive.find(item => sharedRosterDigest(item) === encrypted.manifest.body.rosterDigest);
     if (!epoch || epoch.body.keyVersion !== metadata.group.keyVersion) throw new V2RecoveryStaleError('復旧後の共有鍵を確認できません。');
     const key = await freshKey(epoch);

@@ -8,6 +8,16 @@ import { Card, palette, typography } from '@/components/planner-ui';
 
 const DURATION = 220;
 
+/** Direct settings destinations share the collapsed section's layout and tap area. */
+export function SettingsNavigationLink({ title, disabled = false, onPress }: { title: string; disabled?: boolean; onPress: () => void }) {
+  return <Card style={styles.card}>
+    <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress}
+      style={({ pressed }) => [styles.header, pressed && styles.pressed]}>
+      <Text style={styles.title}>{title}</Text><Chevron />
+    </Pressable>
+  </Card>;
+}
+
 export function AccordionSection({ title, summary, summaryError = false, expanded, onToggle, children }: {
   title: string;
   summary?: string;

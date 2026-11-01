@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
@@ -11,7 +11,7 @@ import type { WasteScheduleInput } from '@/features/waste/contracts';
 import { formatJapaneseDate, localDateFromDate } from '@/domain/scheduling/local-date';
 import { PlannerLoadState } from '@/components/planner-load-state';
 import { usePlannerData } from '@/hooks/use-planner-data';
-import { deleteWeeklyWasteSchedule, saveWeeklyWasteSchedule, setWasteOccurrenceHidden } from '@/platform/storage/repository';
+import { deleteWeeklyWasteSchedule, restoreDeletedWasteSchedule, saveWeeklyWasteSchedule, setWasteOccurrenceHidden } from '@/platform/storage/repository';
 
 export default function WasteScreen() {
   const wasteTypeColor = useWasteTypeColor();
@@ -23,6 +23,8 @@ export default function WasteScreen() {
   const [expandedUpcoming, setExpandedUpcoming] = useState(false);
   const [updatingOccurrence, setUpdatingOccurrence] = useState(false);
   const mutationInFlight = useRef(false);
+  const [undo, setUndo] = useState<{ label: string; action: () => Promise<void> } | null>(null);
+  useEffect(() => { if (!undo) return; const timer = setTimeout(() => setUndo(null), 6500); return () => clearTimeout(timer); }, [undo]);
   const busy = saving || updatingOccurrence;
 
   if (!snapshot) return <PlannerLoadState title="ゴミ収集日" message="曜日設定を読み込んでいます。" error={loadError} retry={refresh} />;
@@ -32,6 +34,7 @@ export default function WasteScreen() {
     mutationInFlight.current = true;
     setSaving(true);
     setMessage(null);
+    setUndo(null);
     try {
       await saveWeeklyWasteSchedule(database, schedule, editing);
       setEditing(undefined);
@@ -45,8 +48,10 @@ export default function WasteScreen() {
     mutationInFlight.current = true;
     setSaving(true);
     setMessage(null);
+    setUndo(null);
     try {
-      await deleteWeeklyWasteSchedule(database, scheduleId);
+      const receipt = await deleteWeeklyWasteSchedule(database, scheduleId);
+      if (receipt) setUndo({ label: receipt.label, action: () => restoreDeletedWasteSchedule(database, receipt.token) });
       if (editing?.id === scheduleId) setEditing(undefined);
       await refresh();
       setMessage('収集日を削除しました。');
@@ -63,8 +68,11 @@ export default function WasteScreen() {
     mutationInFlight.current = true;
     setUpdatingOccurrence(true);
     setMessage(null);
+    setUndo(null);
     try {
       await setWasteOccurrenceHidden(database, scheduleId, date, hidden);
+      const label = snapshot.wasteSchedules.find(schedule => schedule.id === scheduleId)?.label ?? '収集日';
+      setUndo({ label, action: () => setWasteOccurrenceHidden(database, scheduleId, date, !hidden) });
       await refresh();
       setMessage(hidden ? 'この日の表示だけを非表示にしました。' : 'ゴミ予定を再表示しました。');
     } catch (cause) {
@@ -75,13 +83,25 @@ export default function WasteScreen() {
     }
   };
 
+  const revert = async () => {
+    if (mutationInFlight.current || !undo) return;
+    mutationInFlight.current = true; setSaving(true); let committed = false;
+    try {
+      await undo.action(); committed = true; setUndo(null); await refresh(); setMessage('元に戻しました。');
+    } catch (cause) { setMessage(committed ? '元に戻しました。表示を更新するには画面を開き直してください。' : cause instanceof Error ? cause.message : '元に戻せませんでした。'); }
+    finally { mutationInFlight.current = false; setSaving(false); }
+  };
+
   const nextSevenDays = snapshot.upcomingWasteDates
     .filter((occurrence) => occurrence.date >= (snapshot.today ?? localDateFromDate(new Date())))
     .sort((left, right) => left.date.localeCompare(right.date))
     .slice(0, 8);
 
   return (
-    <Page header={<BackButton onPress={() => router.back()} />}>
+    <Page header={<BackButton onPress={() => router.back()} />} floatingFooter footer={undo ?
+      <View style={styles.undo}><Text numberOfLines={1} style={[styles.body, { flex: 1 }]}>{undo.label}</Text>
+        <AppButton title="元に戻す" accessibilityLabel={`${undo.label}を元に戻す`} compact variant="quiet" disabled={busy} onPress={() => void revert()} />
+      </View> : undefined}>
 
       <ScreenHeading eyebrow="WASTE DAY" title="ゴミ収集日" description="ゴミの種類を検索して選び、曜日や周期を登録します。" />
       {loadError ? <Card><Text style={styles.error}>{loadError}</Text></Card> : null}
@@ -134,6 +154,7 @@ export default function WasteScreen() {
 }
 
 const styles = StyleSheet.create({
+  undo: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 12 },
   count: { ...typography.caption, color: palette.muted },
   scheduleCard: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   scheduleCopy: { flex: 1, minWidth: 120, gap: 4 },

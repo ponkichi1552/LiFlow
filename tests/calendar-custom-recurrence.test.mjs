@@ -4,12 +4,29 @@ import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { newEventDraft, projectCalendarEvents, validateEventDraft } from '../src/features/calendar/events.ts';
-import { customRecurrenceDates, customRecurrenceLabel, validateCustomRecurrence } from '../src/features/calendar/recurrence.ts';
+import { customRecurrenceDates, customRecurrenceLabel, defaultCustomRecurrence, validateCustomRecurrence } from '../src/features/calendar/recurrence.ts';
 const { calendarDraftKey, calendarDraftVersion, readLocalCalendar, saveCalendarDraft, saveCalendarEvent } = await import('../src/platform/storage/calendar-events.ts');
 const { initializeLocalDatabase } = await import('../src/platform/storage/repository.ts');
 const date = '2026-01-01';
 const make = rule => ({ ...newEventDraft(date, 'Asia/Tokyo'), title: 'カスタムの予定', recurrence: 'custom', customRecurrence: rule });
 const event = (rule, patch = {}) => ({ ...make(rule), ...patch, id: 'custom.event', revision: 1 });
+test('Sunday custom recurrence uses the calendar weekday and keeps the starting week for every interval', () => {
+  const sunday = '2026-11-01';
+  assert.deepEqual(validateCustomRecurrence(defaultCustomRecurrence(sunday)), { unit: 'week', interval: 1, weekdays: [0] });
+  for (const interval of [1, 2, 3, 7]) {
+    const rule = { unit: 'week', interval, weekdays: [0, 1, 6] };
+    const dates = customRecurrenceDates(rule, sunday, sunday, '2026-11-07');
+    assert.deepEqual(dates, ['2026-11-01', '2026-11-02', '2026-11-07']);
+    assert.equal(customRecurrenceDates(rule, sunday, sunday, '2026-12-31')[3], new Date(Date.UTC(2026, 10, 1 + interval * 7)).toISOString().slice(0, 10));
+  }
+});
+for (const platform of ['ios', 'android']) test(`${platform} Sunday monthly weekday choice is valid without reselecting its day`, async () => {
+  const saved = [];
+  const screen = screenHarness('src/features/calendar/custom-recurrence-screen.tsx', { exportName: 'CustomRecurrenceScreen', platform,
+    props: { date: '2026-11-01', onBack() {}, onSave: async value => saved.push(value) } });
+  await screen.press('月'); await screen.press('第N曜日'); await screen.press('カスタム繰り返しを適用'); await screen.flush();
+  assert.deepEqual(saved, [{ unit: 'month', interval: 1, on: 'weekday', ordinal: 1, weekday: 0 }]);
+});
 async function fixture(t) {
   const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database);
   const local = { database: h.database, snapshot: await readLocalCalendar(h.database), loading: false, error: null, refresh: async () => { local.snapshot = await readLocalCalendar(h.database); } };

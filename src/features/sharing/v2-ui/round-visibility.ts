@@ -2,6 +2,13 @@ import type { V2GroupScreenModel } from '../v2/controller.ts';
 import type { V2PlannedOccurrence, V2SubjectPlan } from '../v2/common-plan.ts';
 import type { V2CompletionRecord } from '../v2/completion-history';
 
+const historyIndexes = new WeakMap<readonly V2CompletionRecord[], Map<string, { record: V2CompletionRecord; index: number }>>();
+function historyIndex(history: readonly V2CompletionRecord[]) {
+  let work = historyIndexes.get(history);
+  if (!work) { work = new Map(history.map((record, index) => [record.operationId, { record, index }])); historyIndexes.set(history, work); }
+  return work;
+}
+
 /** This is a display preference. Keep one's own work and the administrator's audit view available. */
 export function v2CanShowCompletion(model: V2GroupScreenModel, record: V2CompletionRecord) {
   const viewer = model.viewerUserId;
@@ -12,7 +19,7 @@ export function v2CanShowCompletion(model: V2GroupScreenModel, record: V2Complet
 
 /** Local presentation only; signed command permissions are still checked by the receiver. */
 export function createV2RoundVisibility(model: V2GroupScreenModel) {
-  const work = new Map(model.plan.history.map((record, index) => [record.operationId, { record, index }]));
+  const work = historyIndex(model.plan.history);
   const viewer = model.viewerUserId; const admin = viewer === model.adminUserId;
   return (round: V2PlannedOccurrence, subject: V2SubjectPlan) => {
     const owns = subject.subjectUserId === null ? round.assigneeIds.length === 0 || round.assigneeIds.includes(viewer) : subject.subjectUserId === viewer;

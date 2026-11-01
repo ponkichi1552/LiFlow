@@ -117,7 +117,7 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
     const adoptSnapshot = async (group: SharedCloudGroup, force = false) => {
       const checkpoint = await readSharingCheckpoint(deps.database, deps.groupId);
       if (!group.snapshotId || !force && group.snapshotId === checkpoint.snapshotId) return;
-      const encrypted = await deps.cloud.readSnapshot(deps.groupId, group.snapshotId);
+      const encrypted = await deps.cloud.readSnapshot(deps.groupId, group.snapshotId, archive);
       const epoch = archive.find((item) => sharedRosterDigest(item) === encrypted.manifest.body.rosterDigest);
       if (!epoch || encrypted.manifest.body.throughSequence !== group.snapshotThroughSequence) throw new Error('Snapshot does not match shared metadata');
       const snapshot = await openEncryptedSharedSnapshot(deps.crypto, encrypted, await getKey(epoch), epoch, historicalAuthor);

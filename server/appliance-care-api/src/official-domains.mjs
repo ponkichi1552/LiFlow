@@ -43,5 +43,5 @@ export function isBackedByOfficialSearchResult(value, sourceUrls, allowedDomains
 function urlKey(value) {
   const url = new URL(value);
   const path = url.pathname.replace(/\/+$/, '') || '/';
-  return url.origin.toLocaleLowerCase('en-US') + path;
+  return url.origin.toLocaleLowerCase('en-US') + path + url.search;
 }

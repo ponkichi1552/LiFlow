@@ -1,0 +1,130 @@
+{
+  "date": "2026-11-01",
+  "baseCommit": "62d4f0bbc584c9d2d28448cf592d9fa779d10f1f",
+  "audit": {
+    "ownedFiles": 944,
+    "lines": 83205,
+    "allReadBeforeFixes": true,
+    "unreviewedInitialFiles": 0
+  },
+  "tests": {
+    "initialIos": {
+      "pass": 2613,
+      "fail": 0
+    },
+    "initialAndroid": {
+      "pass": 2613,
+      "fail": 0
+    },
+    "finalIos": {
+      "pass": 2618,
+      "fail": 0
+    },
+    "legacyPointerRelated": {
+      "pass": 49,
+      "fail": 0
+    },
+    "cloudComplete": {
+      "pass": 108,
+      "fail": 0
+    },
+    "cloudUpgrade38And43": {
+      "pass": 2,
+      "fail": 0
+    },
+    "lint": "PASS",
+    "typecheck": "PASS",
+    "expoDoctor": "20/20",
+    "featureContracts": 425,
+    "requiredCloudReferences": 71
+  },
+  "native": {
+    "simulator": "final Release group settings, member section and group rules route PASS",
+    "iphone": "final Release group settings, member section and group rules route PASS",
+    "android": {
+      "releaseUpdatedWithoutUninstall": true,
+      "existingQaMembershipRecovered": true,
+      "groupSettingsVisible": true,
+      "observedCollapsedRowHeights": [
+        {
+          "label": "家事ごとの設定を開く",
+          "heightPx": 121
+        },
+        {
+          "label": "日時変更の申請",
+          "heightPx": 131
+        },
+        {
+          "label": "担当変更の申請",
+          "heightPx": 132
+        },
+        {
+          "label": "メンバー・招待（2人）を開く",
+          "heightPx": 120
+        },
+        {
+          "label": "グループ名・ルール",
+          "heightPx": 121
+        },
+        {
+          "label": "同期（未送信なし）を開く",
+          "heightPx": 120
+        },
+        {
+          "label": "更新・復旧を開く",
+          "heightPx": 121
+        }
+      ],
+      "groupRulesRouteVerified": true,
+      "groupRulesMemberReadOnlyVerified": true,
+      "qaRepair": "Restored only a missing singleton pointer for an already-approved member after comparing the trusted iPhone roster; no key or business data changed."
+    },
+    "iosDataHashesUnchanged": {
+      "iphoneDatabaseFiles": 48,
+      "simulatorDatabaseFiles": 6
+    },
+    "androidDatabaseHashComparisonPerformed": false
+  },
+  "productionRules": {
+    "project": "housework-planner-tkb2633",
+    "matchesWorkingCopy": true,
+    "sha256": "b419a2c496f9d71f6b3a9c61d5fce54630f699f90dbcf703ab2a36b3b497f85b",
+    "verifiedAt": "2026-10-31T23:53:31.054Z"
+  },
+  "toolchain": {
+    "moderateVersionBasedAuditPaths": 27,
+    "high": 0,
+    "critical": 0,
+    "apiAuditTotal": 0,
+    "backportedOfficialFixes": [
+      "GHSA-3g3m-2fjr-6pw4",
+      "GHSA-g3hv-75wg-m249"
+    ],
+    "behavioralBackportTests": 7,
+    "forceMajorUpgradeUsed": false
+  },
+  "staticAnalysis": {
+    "semgrep": {
+      "version": "1.183.0",
+      "rules": 127,
+      "targets": 627,
+      "findings": 0,
+      "partialParseErrors": 1,
+      "partialParseFile": "src/features/sharing/v2/confirmation.ts",
+      "sourceUpload": false
+    },
+    "gitleaks": {
+      "classifiedCandidates": 20,
+      "sourceAndLogSha256": 4,
+      "isolatedTestKeySha256": 15,
+      "expiredSyntheticUnsignedJwt": 1
+    }
+  },
+  "notClaimed": [
+    "independent third-party audit",
+    "zero unknown vulnerabilities",
+    "sub-one-second startup",
+    "new natural OS background execution success",
+    "personal Google Calendar two-way events implementation"
+  ]
+}

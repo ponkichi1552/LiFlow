@@ -32,14 +32,14 @@ export function subscribeLocalCalendar(database: SQLiteDatabase, callback: (chan
   let set = listeners.get(database); if (!set) { set = new Set(); listeners.set(database, set); } set.add(callback);
   return () => { set!.delete(callback); };
 }
-async function seed(database: SQLiteDatabase) {
-  for (const category of INITIAL_CATEGORIES) await database.runAsync('INSERT OR IGNORE INTO calendar_categories(id,name,color,revision) VALUES (?,?,?,1)', category.id, category.name, category.color);
-}
 export async function readLocalCalendar(database: SQLiteDatabase): Promise<LocalCalendarSnapshot> {
   return withPlannerDatabaseOperation(database, async () => {
-    await personal(database); await migrateLocalDatabase(database); await seed(database);
+    await personal(database); await migrateLocalDatabase(database);
     const { events, exceptions } = await readCalendarEventRows(database);
-    const categories = await database.getAllAsync<CalendarCategory>('SELECT * FROM calendar_categories ORDER BY rowid');
+    let categories = await database.getAllAsync<CalendarCategory>('SELECT * FROM calendar_categories ORDER BY rowid');
+    const missing = INITIAL_CATEGORIES.filter(category => !categories.some(existing => existing.id === category.id));
+    for (const category of missing) await database.runAsync('INSERT OR IGNORE INTO calendar_categories(id,name,color,revision) VALUES (?,?,?,1)', category.id, category.name, category.color);
+    if (missing.length) categories = await database.getAllAsync<CalendarCategory>('SELECT * FROM calendar_categories ORDER BY rowid');
     const rows = await database.getAllAsync<{ draft_json: string }>('SELECT draft_json FROM calendar_drafts ORDER BY rowid DESC LIMIT 51');
     const drafts: CalendarEditorDraft[] = []; let draftError: string | undefined;
     for (const raw of rows) try { drafts.push(parseEditorDraft(JSON.parse(raw.draft_json))); } catch { draftError = '入力途中の予定を読み込めません。保存済みの予定は表示しています。'; }

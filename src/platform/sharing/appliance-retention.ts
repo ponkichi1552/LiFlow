@@ -11,12 +11,15 @@ import { notifyApplianceLibraryChanges } from '../../features/appliance-care/lib
 /** No paid API, credentials, private chores or settings cross this boundary. */
 export function createNativeApplianceRetention(input: { database: SQLiteDatabase; repository: ReturnType<typeof createV2EventRepository>;
   assertAccess(): void | Promise<void> }) {
-  let completed: string | undefined; let running: Promise<void> | undefined; let again = false;
-  const refresh = (): Promise<void> => {
-    if (running) { again = true; return running; }
+  let completed: string | undefined; let running: Promise<void> | undefined; let again = false; let deadline = Infinity;
+  const refresh = (budgetMs?: number): Promise<void> => {
+    const requestedDeadline = budgetMs === undefined ? Infinity : Date.now() + budgetMs;
+    if (running) { deadline = Math.min(deadline, requestedDeadline); again = true; return running; }
+    deadline = requestedDeadline;
+    const guard = async () => { await input.assertAccess(); if (Date.now() >= deadline) throw new Error('家電の保存は次回同期で続けます。'); };
     const work = async () => {
       do {
-        again = false; await input.assertAccess();
+        again = false; await guard();
         const rows = await input.database.getAllAsync<{ operation_id: string }>("SELECT operation_id FROM sharing_operations WHERE group_id=? AND CASE WHEN json_valid(operation_json) THEN json_extract(operation_json, '$.entityType') ELSE NULL END IN (?, ?) ORDER BY operation_id", input.repository.scope.groupId, 'appliance', 'manualDocument');
         const snapshot = await input.database.getFirstAsync<{ snapshot_id: string }>('SELECT snapshot_id FROM sharing_snapshot_state WHERE group_id=?', input.repository.scope.groupId);
         if (!rows.length && !snapshot) { completed = '[]'; continue; }
@@ -31,19 +34,19 @@ export function createNativeApplianceRetention(input: { database: SQLiteDatabase
             return [{ appliance, manual: digest ? readV2ManualDocument(view, at, digest) : null }];
           });
         });
-        await input.assertAccess();
+        await guard();
         if (copies.length) {
           const personal = await openDatabaseAsync('housework.db', { useNewConnection: true });
           try {
-            await input.assertAccess(); await initializeLocalDatabase(personal); await input.assertAccess();
-            if (await retainSharedApplianceCopies(personal, input.repository.scope.groupId, copies, input.assertAccess)) notifyApplianceLibraryChanges();
+            await guard(); await initializeLocalDatabase(personal); await guard();
+            if (await retainSharedApplianceCopies(personal, input.repository.scope.groupId, copies, guard)) notifyApplianceLibraryChanges();
           } finally { await personal.closeAsync(); }
         }
         completed = token;
       } while (again);
     };
     const task = work(); running = task;
-    void task.finally(() => { if (running === task) running = undefined; }).catch(() => undefined);
+    void task.finally(() => { if (running === task) { running = undefined; deadline = Infinity; } }).catch(() => undefined);
     return task;
   };
   return { refresh };

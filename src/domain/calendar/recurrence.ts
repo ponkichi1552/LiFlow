@@ -9,9 +9,11 @@ export type CustomRecurrence =
   | { unit: 'month'; interval: number; on: 'weekday'; ordinal: -1 | 1 | 2 | 3 | 4 | 5; weekday: number };
 export const RECURRENCE_UNITS = { day: '日', week: '週', month: '月', year: '年' } as const;
 export const WEEKDAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'] as const;
+/** Calendar rules use Sunday=0; the planner's holiday settings use Sunday=7. */
+export const calendarWeekday = (date: LocalDate) => weekdayOf(date) % 7;
 
 export function defaultCustomRecurrence(date: LocalDate, unit: CustomRecurrence['unit'] = 'week', interval = 1): CustomRecurrence {
-  return unit === 'week' ? { unit, interval, weekdays: [weekdayOf(date)] } : unit === 'month' ? { unit, interval, on: 'date' } : { unit, interval };
+  return unit === 'week' ? { unit, interval, weekdays: [calendarWeekday(date)] } : unit === 'month' ? { unit, interval, on: 'date' } : { unit, interval };
 }
 export function validateCustomRecurrence(input: unknown): CustomRecurrence {
   const rule = input as CustomRecurrence;
@@ -40,7 +42,7 @@ export function customRecurrenceDates(rule: CustomRecurrence, start: LocalDate, 
     return Array.from({ length: Math.max(0, Math.floor(daysBetween(first, through) / rule.interval) + 1) }, (_, i) => addDays(first, i * rule.interval)).filter(keep);
   }
   if (rule.unit === 'week') {
-    const sunday = addDays(start, -weekdayOf(start)); const step = rule.interval * 7;
+    const sunday = addDays(start, -calendarWeekday(start)); const step = rule.interval * 7;
     const first = Math.max(0, Math.floor(daysBetween(sunday, from) / step)); const result: LocalDate[] = [];
     for (let n = first; addDays(sunday, n * step) <= through; n++) for (const day of rule.weekdays) {
       const date = addDays(sunday, n * step + day); if (keep(date)) result.push(date);

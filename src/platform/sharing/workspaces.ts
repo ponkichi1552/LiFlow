@@ -84,7 +84,21 @@ export async function saveSharingSelection(selection: SharingSelection | null): 
 export async function currentSharingWorkspace(): Promise<SharingWorkspaceRecord | null> {
   const user = await sharingSessionUser(); if (!user) return null;
   const previous = await readSharingSelection();
-  const record = await readCurrentSharingWorkspace(await sharingRegistryDatabase(), user.uid, previous?.userId === user.uid ? previous.groupId : undefined);
+  const registry = await sharingRegistryDatabase();
+  let record: SharingWorkspaceRecord | null;
+  try { record = await readCurrentSharingWorkspace(registry, user.uid, previous?.userId === user.uid ? previous.groupId : undefined); }
+  catch (error) {
+    if ((error as { code?: string })?.code !== 'sharing/ambiguous-current') throw error;
+    if ((await sharingSessionUser())?.uid !== user.uid) throw new SharingAccessError('共有アカウントが変わりました。');
+    const cloud = createSharingCloud(getSharingServices().firestore, user.uid, () => getSharingServices().auth.currentUser?.uid ?? null);
+    const groupId = await cloud.readMembership();
+    if ((await sharingSessionUser())?.uid !== user.uid) throw new SharingAccessError('共有アカウントが変わりました。');
+    const known = groupId ? await readSharingWorkspace(registry, user.uid, groupId) : null;
+    if (!known || ['left', 'removed'].includes(known.status)) throw error;
+    // This chooses only the display scope. Normal open/sync still verifies its
+    // locally pinned roster and approved device; historical data is untouched.
+    record = await readCurrentSharingWorkspace(registry, user.uid, known.groupId);
+  }
   if ((await sharingSessionUser())?.uid !== user.uid) throw new SharingAccessError('共有アカウントが変わりました。');
   return record;
 }
@@ -463,13 +477,14 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
               return state.assessment.view.field('member', userId, 'displayName', at) ? [] : [{ operationId: randomUUID(), entityType: 'member', entityId: userId,
                 operationType: 'patch', payload: { userId, displayName: user.displayName?.trim() || 'メンバー' } }];
             });
-            if (created.length) result = await session.synchronizer.sync({ ...options, force: true });
+            if (created.length) result = await session.synchronizer.sync({ ...remainingOptions(), force: true });
             const state = await session.repository.readState(); const at = v2ReadPoint(state.assessment.view, state.archive.at(-1)!);
             let name: unknown; try { name = state.assessment.view.field('settings', 'settings', 'name', at)?.value; } catch { /* Preserve a conflict for explicit review. */ }
             await access.update((prior) => ({ ...prior, status: 'active', displayName: typeof name === 'string' ? name : prior.displayName,
               lastSuccessfulSyncAt: Date.now(), lastErrorCode: null }));
           }
-          if (!result.waitingForApproval && result.complete) await retention.refresh();
+          if (!result.waitingForApproval && result.complete && (syncDeadline === null || syncDeadline - Date.now() >= 1000))
+            await retention.refresh(syncDeadline === null ? undefined : syncDeadline - Date.now());
           return result;
         } catch (error) {
           const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : 'sharing/failed';
@@ -507,10 +522,13 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
           chores: model.plan.chores, hasConflicts: model.configurations.some((entry) => entry.candidates.length > 1),
           ...(model.recoverySummary ? { recoverySummary: model.recoverySummary } : {}) };
       },
-      async maintainHistory() {
+      async maintainHistory(budgetMs = 120_000) {
+        const deadline = Date.now() + budgetMs;
+        const remaining = () => { const left = deadline - Date.now(); if (left < 1000) throw new Error('履歴の整理は次回同期で続けます。'); return left; };
         if (access.archive()?.at(-1)?.body.ownerDeviceId !== identity.deviceId || access.record().status !== 'active') return;
-        const { group } = await cloud.readGroup(groupId); if (group.rotationRequired) return;
-        if (group.headSequence - group.snapshotThroughSequence >= 256) await session.manager.publishSnapshot(); await cloud.compactHistory(groupId);
+        remaining(); const { group } = await cloud.readGroup(groupId); remaining(); if (group.rotationRequired) return;
+        if (group.headSequence - group.snapshotThroughSequence >= 256) await session.manager.publishSnapshot(remaining());
+        remaining(); await cloud.compactHistory(groupId, Date.now(), remaining);
       } };
   } catch (error) { clearTimeout(debounce); await database.closeAsync().catch(() => undefined); throw error; }
 }
@@ -594,7 +612,6 @@ export async function syncSharingWorkspace(budgetMs = 20_000): Promise<void> {
       const syncBudget = budgetMs - (Date.now() - start);
       if (syncBudget < 1000) { if (failures.length) throw failures[0]; return; }
       await workspace.sync({ budgetMs: syncBudget }).catch(error => { failures.push(error); });
-      if (Date.now() - start < budgetMs - 5000) await workspace.maintainHistory().catch(() => undefined);
       if (budgetMs - (Date.now() - start) >= 1000 && workspace.protocol === 2) {
         if (budgetMs - (Date.now() - start) >= 1000) await workspace.reminders().then(runtime => {
           const remaining = budgetMs - (Date.now() - start); if (remaining >= 1000) return runtime.synchronize(Math.min(15_000, remaining));
@@ -607,10 +624,15 @@ export async function syncSharingWorkspace(budgetMs = 20_000): Promise<void> {
           });
         }).catch(error => { failures.push(error); });
         const calendarBudget = budgetMs - (Date.now() - start);
-        if (calendarBudget >= 1000) await workspace.googleCalendar().then(runtime => runtime.synchronize({ budgetMs: Math.min(15_000, calendarBudget) })).then(result => {
-          if (!['success', 'skipped'].includes(result.kind)) throw new Error('共有予定のGoogle追加は未完了です。続きを再送します。');
+        if (calendarBudget >= 1000) await workspace.googleCalendar().then(runtime => {
+          const remaining = budgetMs - (Date.now() - start);
+          return remaining >= 1000 ? runtime.synchronize({ budgetMs: Math.min(15_000, remaining) }) : undefined;
+        }).then(result => {
+          if (result && !['success', 'skipped'].includes(result.kind)) throw new Error('共有予定のGoogle追加は未完了です。続きを再送します。');
         }).catch(error => { failures.push(error); });
       }
+      const historyBudget = budgetMs - (Date.now() - start);
+      if (historyBudget >= 5000) await workspace.maintainHistory(historyBudget).catch(() => undefined);
     } catch (error) { failures.push(error); }
   }
   if (failures.length) throw failures[0];

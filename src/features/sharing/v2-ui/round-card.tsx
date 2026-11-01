@@ -24,7 +24,7 @@ export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen,
   const viewer = model.viewerUserId;
   const { admin, owns, relatedWork, showStatus } = createV2RoundVisibility(model)(round, subject);
   const nameOf = v2MemberLabels(model.plan.members);
-  const undo = subject.completionOperationIds.filter((id) => model.plan.history.some((record) => record.operationId === id && record.active && (admin || record.recorderUserId === viewer)));
+  const undo = subject.completionOperationIds.filter((id) => relatedWork.some((record) => record.operationId === id && record.active && (admin || record.recorderUserId === viewer)));
   const ref: V2RoundReference = { choreId: round.choreId, anchorDate: round.anchorDate, ruleVersion: round.ruleVersion, subjectUserId: subject.subjectUserId,
     expectedConfigurationIds: model.configurations.find((entry) => entry.choreId === round.choreId)?.candidates.map((entry) => entry.operationId), expectedTimeZone: model.plan.timeZone };
   const canComplete = owns && round.activeInPeriod && !subject.pendingCompletionIds.length && !subject.dependencyBlocked && !subject.dependencyAwaitingCompletion && !round.assignmentConflictIds.length;

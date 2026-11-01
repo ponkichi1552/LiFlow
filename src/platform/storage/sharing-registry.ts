@@ -80,7 +80,7 @@ export function readCurrentSharingWorkspace(database: SQLiteDatabase, userId: st
       const rows = await database.getAllAsync<{ record_json: string }>('SELECT record_json FROM sharing_workspaces WHERE user_id = ?', userId);
       const eligible = rows.map(row => validate(JSON.parse(row.record_json))).filter(row => !['left', 'removed'].includes(row.status));
       const prior = eligible.find(row => row.groupId === previousGroupId);
-      if (!prior && eligible.length > 1) throw new Error('以前の検査用グループの表示情報を確認できません。保存データは保持しています。');
+      if (!prior && eligible.length > 1) throw Object.assign(new Error('以前の検査用グループの表示情報を確認できません。保存データは保持しています。'), { code: 'sharing/ambiguous-current' });
       const groupId = prior?.groupId ?? eligible[0]?.groupId ?? null;
       await database.runAsync('INSERT OR IGNORE INTO sharing_current_workspace (user_id, group_id) VALUES (?, ?)', userId, groupId);
       current = await database.getFirstAsync<{ group_id: string | null }>('SELECT group_id FROM sharing_current_workspace WHERE user_id = ?', userId);

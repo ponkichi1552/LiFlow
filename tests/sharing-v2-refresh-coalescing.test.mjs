@@ -6,6 +6,20 @@ import { fixture, seeds, now, groupId } from './helpers/sharing-v2-repository-fi
 import { createV2GroupController } from '../src/features/sharing/v2/controller.ts';
 import { createV2ScreenSession } from '../src/features/sharing/v2-ui/screen-session.ts';
 function deferred() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
+for (const platform of ['ios', 'android']) test(`${platform} a saved mutation does not claim its stale refresh was displayed after leaving`, async t => {
+  const f = await fixture(); const d = await f.device(); t.after(() => d.connection.close()); await d.repository.commit(seeds());
+  const c = createV2GroupController(d.repository, { makeId: () => 'unused', now, sync: async () => {} });
+  const value = await c.readModel({ from: '2026-10-27', through: '2026-11-10', asOfDate: '2026-10-27' });
+  let held = false; let focus; const entered = deferred(); const release = deferred();
+  const screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { platform, exportName: 'V2GroupScreen', focusEffect: callback => { focus = callback; },
+    props: { purpose: 'workspace', view: 'waste', loadSession: async () => ({ controller: c, readModel: async () => {
+      if (held) { entered.resolve(); await release.promise; } return value;
+    } }), onBack() {} }, mocks: { './waste-screen': { V2WasteScreen: props => ({ type: 'CapturedWaste', props }) } } });
+  const leave = focus(); for (let n = 0; n < 15 && !screen.nodes().some(node => node.type === 'CapturedWaste'); n++) await screen.flush();
+  held = true; const pending = screen.nodes().find(node => node.type === 'CapturedWaste').props.perform(async () => {});
+  await entered.promise; leave(); release.resolve();
+  assert.deepEqual(await pending, { committed: true, refreshed: false }); screen.unmount();
+});
 async function setup(platform, failWithoutError = false) {
   const f = await fixture(); const d = await f.device(); await d.repository.commit(seeds()); let n = 0; let listener; let reads = 0; let hold = null;
   const c = createV2GroupController(d.repository, { makeId: () => `refresh-${++n}`, now, sync: async () => {} });

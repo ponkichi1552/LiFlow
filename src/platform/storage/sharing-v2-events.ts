@@ -209,6 +209,19 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
         await assertCurrentAccess(); await assertV2Binding(transaction, options); return value;
       });
     },
+    /** Private connection metadata needs current membership, not a replay of business history per HTTP guard. */
+    withPrivateStorage<T>(work: (transaction: SQLiteDatabase) => Promise<T>): Promise<T> {
+      return withSharingLedgerTransaction(database, async transaction => {
+        await assertCurrentAccess(); await assertV2Binding(transaction, options);
+        const current = archive().at(-1)!; const expected = sharedRosterDigest(current);
+        if (current.body.closed || current.body.schemaVersion !== 2 || !isSupportedV2Scheduler(current.body.schedulerVersion)) throw new SharingAccessError('現在の共有メンバーを確認してください。');
+        sharedAuthorIdentity(current, options.userId, options.identity.deviceId, current.body.keyVersion);
+        const value = await work(transaction);
+        await assertCurrentAccess(); await assertV2Binding(transaction, options);
+        if (sharedRosterDigest(archive().at(-1)!) !== expected) throw new SharingAccessError('保存中に共有権限が変わりました。');
+        return value;
+      });
+    },
     project: async (transaction: SQLiteDatabase, replica: SharedReplica) => { await project(transaction, replica); },
     evidenceForServerReceipts(receipts: readonly V2ServerReceipt[]): SharedLedgerEvidence {
       let stored: ReadonlyMap<string, V2ServerReceipt> = new Map();

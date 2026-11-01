@@ -117,6 +117,13 @@ test('Rules: member removal blocks old ciphertexts and key envelopes; recipients
     keyVersion: 3, wrappedKeyJson: 'key', createdAt: serverTimestamp() }));
 });
 
+test('Rules: an owner cannot repoint the same snapshot floor to a previous key epoch', async () => {
+  const owner = db('owner'); await createGroup(owner); await approve(owner); await approve(owner);
+  assert.equal((await getDoc(root(owner))).data().snapshotId, 'membership-snapshot-3');
+  await assertFails(updateDoc(root(owner), { snapshotId: 'membership-snapshot-2', snapshotThroughSequence: 0, updatedAt: serverTimestamp() }));
+  assert.equal((await getDoc(root(owner))).data().snapshotId, 'membership-snapshot-3');
+});
+
 test('Rules: invites expire, require explicit owner approval and cannot be consumed by a requester', async () => {
   const owner = db('owner'); await createGroup(owner);
   const invitation = { groupId: 'group-a', ownerUserId: 'owner', invitationPublicKey: 'ab'.repeat(32), pinJson: 'public-key-pin',

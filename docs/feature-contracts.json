@@ -7854,5 +7854,119 @@
         "name": "real Firestore stores only encrypted PDF chunks denies outsiders and restores one appliance after a lost upload response"
       }
     ]
+  },
+  {
+    "feature": "audit-calendar-sunday-and-read-cost",
+    "tests": [
+      {
+        "file": "tests/calendar-custom-recurrence.test.mjs",
+        "name": "Sunday"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "unchanged local Calendar reads perform no category writes"
+      },
+      {
+        "file": "tests/storage-migrations.test.mjs",
+        "name": "current-schema reads avoid write transactions"
+      },
+      {
+        "file": "tests/calendar-planning-signature.test.mjs",
+        "name": "unchanged local busy events and Google availability use the same signature as the applied planner"
+      }
+    ]
+  },
+  {
+    "feature": "audit-api-paid-result-and-merged-bounds",
+    "tests": [
+      {
+        "file": "tests/audit-api-boundaries.test.mjs",
+        "name": "duplicate AI tasks remain bounded after merging rather than returning an unusable paid result"
+      }
+    ]
+  },
+  {
+    "feature": "audit-snapshot-auth-and-recovery-scale",
+    "tests": [
+      {
+        "file": "tests/sharing-snapshot-transport.test.mjs",
+        "name": "shared snapshot transport authenticates"
+      },
+      {
+        "file": "tests/sharing-recovery-scale.test.mjs",
+        "name": "recovery digests retain existing small-history proofs and bind the order count and every page of large histories"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/firestore-rules.integration.mjs",
+        "name": "Rules: an owner cannot repoint the same snapshot floor to a previous key epoch"
+      },
+      {
+        "file": "tests/sharing-cloud.integration.mjs",
+        "name": "invitation management finds a current invitation after more than one page of retained revoked invitations"
+      }
+    ]
+  },
+  {
+    "feature": "audit-shared-history-index-and-private-guards",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-history-index.test.mjs",
+        "name": "visible shared cards index an immutable history once while a new history and changed permissions take effect"
+      },
+      {
+        "file": "tests/shared-google-calendar-store.test.mjs",
+        "name": "shared export settings and Google IDs stay private and OFF preserves the same account target links"
+      }
+    ]
+  },
+  {
+    "feature": "audit-sync-original-budget",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a member-profile upload reuses only the original worker time left"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "loading the shared Calendar runtime cannot restart"
+      }
+    ]
+  },
+  {
+    "feature": "audit-waste-undo-and-late-join",
+    "tests": [
+      {
+        "file": "tests/waste-management-undo.test.mjs",
+        "name": "waste management can undo deletion"
+      },
+      {
+        "file": "tests/sharing-join-lifecycle.test.mjs",
+        "name": "invite join ignores a late"
+      }
+    ]
+  },
+  {
+    "feature": "audit-toolchain-security-backports",
+    "tests": [
+      {
+        "file": "tests/toolchain-security-backports.test.mjs",
+        "name": "minimatch bounds globstar-parent amplification"
+      },
+      {
+        "file": "tests/toolchain-security-backports.test.mjs",
+        "name": "does not start more filesystem reads after abort"
+      }
+    ]
+  },
+  {
+    "feature": "single-membership-legacy-pointer-recovery",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "ambiguous legacy group recovery"
+      }
+    ]
   }
 ]
