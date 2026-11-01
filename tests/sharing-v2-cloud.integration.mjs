@@ -36,6 +36,9 @@ import { v2ReadPoint } from '../src/features/sharing/v2/view-point.ts';
 import { createSharedJoinRequest } from '../src/features/sharing/invitations.ts';
 import { createV2PersonalCopyStore } from '../src/platform/storage/sharing-v2-personal-copy.ts';
 import { createV2CompletionNoticeStore } from '../src/platform/storage/sharing-v2-completion-notices.ts';
+import { newEventDraft } from '../src/features/calendar/events.ts';
+import { projectCalendarEvents, calendarEventsInTimeZone } from '../src/domain/calendar/events.ts';
+import { projectSharedCalendarRecords } from '../src/features/calendar/shared-events.ts';
 import { privateFixture } from './helpers/sharing-v2-private-fixture.mjs';
 const { readPersonalChoreCopySource } = await import('../src/platform/storage/repository.ts');
 
@@ -622,6 +625,79 @@ test('native pair harness uses real encrypted v2 sessions with approval cold res
     await assert.rejects((await member.pair.ui()).controller.actions.addChore('除名後の編集'), /利用状態|編集|利用でき/u);
     owner.pair.close(); member.pair.close();
   } finally { for (const openedDatabase of opened) openedDatabase.connection.close(); }
+});
+
+test('real encrypted calendar replicas converge after offline recurrence edits restart conflicts exceptions and deletion without changing formal chores', async () => {
+  const opened = []; let sequence = 0;
+  const db = () => { const h = createDatabase(); opened.push(h); return h.database; };
+  const run = 'calendar-replica-audit';
+  const create = async role => {
+    const keys = new Map(); const identity = await createDeviceIdentity(crypto); const userId = `development-v2-pair-${run}-${role}`;
+    const deps = { development: true, projectId: V2_PAIR_PROJECT, run, role, database: db(), registry: db(), identity, crypto,
+      cloud: createSharingCloud(environment.authenticatedContext(userId).firestore(), userId, () => userId),
+      readKey: async v => keys.get(v)?.slice() ?? null, saveKey: async (v, key) => { keys.set(v, key.slice()); },
+      serialized: work => work(), makeId: () => `calendar-operation-${++sequence}`, now: () => new Date(), invitationSeed: new Uint8Array(32).fill(94) };
+    return { deps, pair: await createV2NativePair(deps) };
+  };
+  let owner; let member;
+  try {
+    owner = await create('owner'); member = await create('member');
+    await owner.pair.prepareOwner(); await owner.pair.createInvitation(); await member.pair.requestJoin();
+    await owner.pair.approve(); await member.pair.synchronize(); await owner.pair.prepareChores(); await member.pair.synchronize();
+    const ui = await owner.pair.ui(); const other = await member.pair.ui();
+    const base = (await ui.readModel()).plan.range.asOfDate; const through = addLocalDays(base, 28);
+    const formal = JSON.stringify((await ui.readModel()).plan.occurrences);
+    const category = { id: 'personal', name: '共有の検査', color: '#348dc2', revision: 1 };
+    const value = i => ({ ...newEventDraft(base, i % 2 ? 'America/New_York' : 'Asia/Tokyo'), title: `QA encrypted calendar ${i}`,
+      notes: 'Never store this plaintext in cloud documents', allDay: true, recurrence: 'biweekly', untilDate: through });
+    const ids = [];
+    for (let i = 0; i < 12; i++) {
+      const controller = i % 2 ? other.controller : ui.controller;
+      const [fact] = await controller.actions.saveCalendarEvent({ scope: 'series', anchorDate: null, value: value(i), category }); ids.push(fact.operationId);
+    }
+    assert.equal((await member.pair.proof()).outbox, 6);
+    member.pair.close(); member.pair = await createV2NativePair(member.deps);
+    assert.equal((await member.pair.proof()).outbox, 6);
+    const sync = async () => { await owner.pair.synchronize(); await member.pair.synchronize(); await owner.pair.synchronize(); await member.pair.synchronize(); };
+    await sync();
+    const records = async device => (await (await device.pair.ui()).controller.readCalendar()).records;
+    const assertConverged = async () => {
+      const a = await records(owner); const b = await records(member); assert.deepEqual(a, b);
+      const projected = projectSharedCalendarRecords(a, owner.pair.scope.groupId);
+      const expanded = calendarEventsInTimeZone(projectCalendarEvents(projected.events, projected.exceptions, base, through), 'Asia/Tokyo');
+      return { a, projected, expanded };
+    };
+    const first = await assertConverged(); assert.equal(first.projected.events.length, 12); assert.ok(first.expanded.length >= 24);
+    assert.equal(JSON.stringify((await (await owner.pair.ui()).readModel()).plan.occurrences), formal);
+    const basis = row => JSON.stringify([row.heads.map(h => h.operationId).sort(), row.heads.map(h => h.operationId).sort()]);
+    const ownerEvent = first.a.find(row => row.id === ids[0]);
+    await assert.rejects((await member.pair.ui()).controller.actions.saveCalendarEvent({ eventId: ownerEvent.id, basisRevision: basis(ownerEvent), scope: 'series', anchorDate: null,
+      value: { ...value(0), title: 'Not authorized' }, category }), /権限|編集|permission/u);
+    const common = first.a.find(row => row.id === ids[1]);
+    for (const [device, title] of [[owner, 'Concurrent owner'], [member, 'Concurrent creator']]) {
+      await (await device.pair.ui()).controller.actions.saveCalendarEvent({ eventId: common.id, basisRevision: basis(common), scope: 'series', anchorDate: null,
+        value: { ...value(1), title }, category });
+    }
+    await sync(); const conflict = await assertConverged(); assert.equal(conflict.projected.conflicted, true);
+    const conflicted = conflict.a.find(row => row.id === common.id); assert.equal(conflicted.heads.length, 2);
+    await (await owner.pair.ui()).controller.actions.saveCalendarEvent({ eventId: common.id, basisRevision: basis(conflicted), scope: 'series', anchorDate: null,
+      value: { ...value(1), title: 'Reviewed resolution' }, category });
+    await sync(); const resolved = await assertConverged(); assert.equal(resolved.projected.conflicted, false);
+    const parent = resolved.a.find(row => row.id === ids[0]); const series = parent.heads.map(h => h.operationId).sort();
+    await (await owner.pair.ui()).controller.actions.saveCalendarEvent({ eventId: parent.id, basisRevision: JSON.stringify([series, []]), scope: 'one', anchorDate: base,
+      value: { ...value(0), title: 'Moved instance', startDate: addLocalDays(base, 1), endDate: addLocalDays(base, 1) }, category });
+    await (await owner.pair.ui()).controller.actions.saveCalendarEvent({ eventId: parent.id, basisRevision: JSON.stringify([series, []]), scope: 'one', anchorDate: addLocalDays(base, 14), value: null, category: null });
+    await sync(); const exceptions = await assertConverged(); assert.equal(exceptions.a.find(row => row.id === parent.id).exceptions.length, 2);
+    assert.ok(exceptions.expanded.some(row => row.title === 'Moved instance'));
+    for (const id of ids.slice(0, 3)) {
+      const row = (await records(owner)).find(row => row.id === id);
+      await (await owner.pair.ui()).controller.actions.saveCalendarEvent({ eventId: id, basisRevision: basis(row), scope: 'series', anchorDate: null, value: null, category: null });
+    }
+    await sync(); assert.equal((await assertConverged()).projected.events.length, 9);
+    assert.equal(JSON.stringify((await (await owner.pair.ui()).readModel()).plan.occurrences), formal);
+    await owner.pair.removeMember(); await assert.rejects(member.pair.synchronize());
+    await assert.rejects((await member.pair.ui()).controller.readCalendar(), /利用|権限|編集|permission/u);
+  } finally { owner?.pair.close(); member?.pair.close(); for (const h of opened) h.connection.close(); }
 });
 
 

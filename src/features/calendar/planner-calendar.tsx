@@ -192,6 +192,9 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   // changing (notices/rotation). Actual visible identities remain authoritative.
   const weekViewability = useMemo(() => ({ itemVisiblePercentThreshold: 50, minimumViewTime: 60 }), []);
   const visibleWeeksChanged = useCallback<NonNullable<FlatListProps<CalendarMonthRow>['onViewableItemsChanged']>>(({ viewableItems }) => {
+    // Editor dismissal, keyboard resizing and initial positioning can deliver
+    // stale native rows. Explicit navigation owns its month until a user drags.
+    if (!monthDragged.current) return;
     const visible = viewableItems.filter(item => item.isViewable && item.index !== null).sort((a, b) => a.index! - b.index!);
     if (!visible.length) return;
     const next = visible[Math.floor((visible.length - 1) / 2)].item.month;

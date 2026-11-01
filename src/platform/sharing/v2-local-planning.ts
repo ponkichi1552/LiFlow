@@ -8,6 +8,9 @@ import type { V2CommonPlan } from '../../features/sharing/v2/common-plan';
 import { sharedDocumentDigest } from '../../features/sharing/crypto';
 import { readLocalCalendar } from '../storage/calendar-events';
 import { createLocalCalendarAvailability, createLocalCalendarPlanSource } from '../../features/calendar/private-availability';
+import { sharedCalendarAvailability } from '../../features/calendar/shared-events';
+import type { SharedCalendarRecord } from '../../features/sharing/v2/calendar-state';
+import { combinePrivateCalendarAvailability } from '../../features/sharing/v2/private-availability';
 
 /** Both native integrations use the same owner-only inputs. Rendering/planning never fetches Google or requests a grant. */
 export async function readV2LocalPlanning(input: { userId: string; assertAccess(): void | Promise<void> }, now: Date) {
@@ -29,10 +32,12 @@ export async function readV2LocalPlanning(input: { userId: string; assertAccess(
     const revision = sharedDocumentDigest(JSON.stringify([preferences, snapshot.timeZone, snapshot.snapshot.scheduleEntries, snapshot.snapshot.completions,
       snapshot.snapshot.chores.map(chore => [chore.id, chore.enabled, Boolean(chore.archived), chore.load]), busy, calendarPages]));
     return { revision, preferences, privateTasks, localCalendar, calendar: { readForPlan: async () => busy, readOwnCalendar: calendar.readOwnCalendar },
-      personalize(plan: V2CommonPlan) {
+      personalize(plan: V2CommonPlan, sharedEvents: readonly SharedCalendarRecord[] = []) {
         const overlay = projectV2PrivateTasks(source, input.userId, plan.range);
         return buildV2PersonalPlan(plan, { viewerUserId: input.userId, now: now.getTime(), settings: preferences.settings,
-          localCalendar: { ownerUserId: input.userId, availability: createLocalCalendarAvailability(localEvents.events, localEvents.exceptions, plan.range, plan.timeZone) },
+          localCalendar: { ownerUserId: input.userId, availability: combinePrivateCalendarAvailability(
+            createLocalCalendarAvailability(localEvents.events, localEvents.exceptions, plan.range, plan.timeZone),
+            sharedCalendarAvailability(sharedEvents, plan.groupId, plan.range, plan.timeZone)) },
           ...(overlay.timeZone === plan.timeZone ? { privateLoad: { ownerUserId: input.userId, days: overlay.dailyLoad } } : {}),
           ...(busy ? { calendar: { cache: busy.cache, binding: busy.binding } } : {}) });
       },

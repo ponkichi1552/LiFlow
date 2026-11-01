@@ -8027,5 +8027,158 @@
         "name": "draft44 owner upgrades through a real atomic cloud snapshot and a fresh SQLite session restores unchanged shared settings and facts"
       }
     ]
+  },
+  {
+    "feature": "calendar-audit-google-events-real-transport",
+    "tests": [
+      {
+        "file": "tests/google-calendar-loopback.test.mjs",
+        "name": "real loopback HTTP exports 1052 events in bounded coalesced passes and unchanged or disabled passes issue no requests"
+      },
+      {
+        "file": "tests/google-calendar-loopback.test.mjs",
+        "name": "real HTTP disconnection after Google-like commit retries insert patch and delete without duplicate events or source changes"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "shared Calendar retries normalized Google responses after lost insert and patch acknowledgements without duplicates"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "explicit Google consent has its own human interaction time before the bounded calendar-list request"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "a recurring instance moved to another timezone is matched using its original series civil date"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "a short joining shared-export worker shortens the existing pass and aborts HTTP without dropping pending changes"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "another installation can recover the same updated Google event from its current source proof without creating a copy"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "a finite custom rule without any matching dates creates no phantom Google event"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "explicit manual Calendar sync gets a separate bounded foreground budget without extending automatic workers"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "a manual Calendar request behind a running worker starts its own fresh pass without extending that worker"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "${platform} shared Calendar settings request an interactive budget only after a user action and keep disabled mode inert"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-audit-native-token-and-recurrence-parity",
+    "tests": [
+      {
+        "file": "tests/calendar-event-api-audit.test.mjs",
+        "name": "one bounded Calendar API pass shares its token acquisition but checks account access around every HTTP response"
+      },
+      {
+        "file": "tests/calendar-event-api-audit.test.mjs",
+        "name": "Calendar HTTP rejects malformed JSON privately and honors both forms of Retry-After"
+      },
+      {
+        "file": "tests/calendar-event-api-audit.test.mjs",
+        "name": "Google DTSTART is the first real custom occurrence including interval phase month ordinals and empty finite series"
+      },
+      {
+        "file": "tests/calendar-recurrence-oracle.test.mjs",
+        "name": "independent daily enumeration agrees with 4096 seeded custom and preset recurrence windows"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-audit-shared-event-planning-and-native-agreement",
+    "tests": [
+      {
+        "file": "tests/calendar-group-availability.test.mjs",
+        "name": "shared general events move only local recommendations and fresh fixed-date reviews include exceptions without private disclosure"
+      },
+      {
+        "file": "tests/sharing-v2-reminder-native.test.mjs",
+        "name": "native shared Tasks and reminders use the same shared all-day calendar input as the screen without modifying formal chore dates"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-audit-bounded-read-cost-and-caller-isolation",
+    "tests": [
+      {
+        "file": "tests/calendar-read-cost.test.mjs",
+        "name": "unchanged Calendar rows avoid repeated timezone validation while raw edits same-revision corruption and caller mutations remain observable"
+      },
+      {
+        "file": "tests/calendar-read-cost.test.mjs",
+        "name": "calendar projection indexes unrelated exceptions once and preserves moved anchors at high volume"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-audit-personal-category-workspace-boundaries",
+    "tests": [
+      {
+        "file": "tests/calendar-shared-source-audit.test.mjs",
+        "name": "${platform} personal event categories exclude unsaveable group IDs and temporary shared categories cannot follow a changed workspace"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-audit-authenticated-encrypted-replica-recovery",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-command-capture.test.mjs",
+        "name": "v2 lightweight calendar reads wait for live workspace authorization and reject revoked access"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-v2-cloud.integration.mjs",
+        "name": "real encrypted calendar replicas converge after offline recurrence edits restart conflicts exceptions and deletion without changing formal chores"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-startup-status-only-and-confirmed-singleton-recovery",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-workspace-session.test.mjs",
+        "name": "a retained permission failure defers catalog writes without blocking authenticated local calendar reads"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a native singleton conflict adopts only the live confirmed locally known group and preserves both historical records"
+      },
+      {
+        "file": "tests/sharing-registry.test.mjs",
+        "name": "confirmed singleton recovery changes only the displayed legacy scope and rejects stale missing or departed targets"
+      },
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "${platform} foreground shared changes refresh only the selected user and group and unsubscribe when leaving"
+      },
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "${platform} a cold calendar shows its verified saved range before restoration without authorizing a controller"
+      },
+      {
+        "file": "tests/native-calendar.test.mjs",
+        "name": "${platform} native month callbacks during editor dismissal cannot move the saved event to another month"
+      },
+      {
+        "file": "tests/sharing-workspace-provider.test.mjs",
+        "name": "${platform} status-only sync notifications do not reload account membership while real permission changes still revoke the workspace"
+      }
+    ]
   }
 ]

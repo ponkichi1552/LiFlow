@@ -9,6 +9,9 @@ import { approveSharedDevice, upgradeSharedRoster, createSharedRoster } from '..
 import { rosterCloudFields } from '../src/features/sharing/cloud-contract.ts';
 import { encodeSharedInvitation } from '../src/features/sharing/invitations.ts';
 import { signSharedDocument } from '../src/features/sharing/crypto.ts';
+import { createDatabase } from './helpers/sqlite.mjs';
+import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
+import { createV2WorkspaceSession } from '../src/features/sharing/v2/workspace-session.ts';
 
 for (const [flag, expected, name] of [[undefined, true, 'normal v2 workspace enables owner recovery by default without changing its stored events'],
   ['false', false, 'an explicit recovery opt-out reaches the native cloud and session without changing its stored events']]) test(name, async (t) => {
@@ -37,6 +40,31 @@ test('native v2 workspace factory chooses its isolated session and never registe
     await h.api.saveSharingSelection(h.record); assert.deepEqual(JSON.parse(h.vault.get('active-workspace')), { userId: 'owner', groupId: h.record.groupId });
     h.auth.uid = 'other'; await assert.rejects(workspace.readOverview(), /切り替わり/u);
   } finally { await h.close(); }
+});
+
+test('a native singleton conflict adopts only the live confirmed locally known group and preserves both historical records', async () => {
+  const retained = createDatabase(); const h = await workspaceHarness({ deferWorkspaceTimers: true,
+    v2Database: scope => scope[1] === 'confirmed-native-group' ? retained.database : undefined });
+  try {
+    const workspace = await h.api.openSharedWorkspace(h.record);
+    await h.api.saveSharingSelection(h.record);
+    await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, row => ({ ...row, status: 'active' }));
+    const anchor = createSharedRoster('confirmed-native-group', 'owner', h.owner, { schemaVersion: 2 });
+    const confirmed = { ...h.record, status: 'active', groupId: anchor.body.groupId, anchor, rosterArchive: [anchor] };
+    await createV2WorkspaceSession({ userId: 'owner', groupId: confirmed.groupId, database: retained.database, householdId: 'shared-v2', identity: h.identity, crypto, cloud: {},
+      archive: () => [anchor], readRecord: async () => ({ ...confirmed, status: 'creating' }), creationKind: 'roommates', saveArchive: async () => {},
+      readKey: async () => null, saveKey: async () => {}, serialized: work => work(), changed() {}, assertCurrentAccount() {}, assertWritable() {}, makeId: () => 'restored-op', markLeft: async () => {} });
+    await h.index.database.runAsync('INSERT INTO sharing_workspaces VALUES (?, ?, ?)', 'owner', confirmed.groupId, JSON.stringify(confirmed));
+    h.cloud.bindMembership = async () => { throw Object.assign(new Error('another group already bound'), { code: 'sharing/access-denied' }); };
+    h.cloud.readMembership = async () => confirmed.groupId;
+    await assert.rejects(workspace.sync({ force: true }), /another group/u);
+    assert.equal((await h.api.currentSharingWorkspace()).groupId, confirmed.groupId);
+    assert.equal((await h.api.readSharingSelection()).groupId, confirmed.groupId);
+    assert.equal((await readSharingWorkspace(h.index.database, 'owner', h.record.groupId)).status, 'active');
+    assert.equal((await workspace.checkpoint()).pendingCount, 49, 'old encrypted data and unsent operations are retained');
+    await assert.rejects(workspace.readOverview(), /所属グループ/u);
+    await assert.rejects((await workspace.googleTasks()).readControl(), /所属グループ/u);
+  } finally { await h.close(); retained.connection.close(); }
 });
 test('a pending signed invitation never opens a guessed database or reads a group key before approval', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] }); const h = await workspaceHarness({ pending: true });

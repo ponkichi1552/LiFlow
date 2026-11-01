@@ -27,7 +27,7 @@ import { decodeSharingSelection, encodeSharingSelection } from '../../features/s
 import type { SharingSelection } from '../../features/sharing/workspace-selection.ts';
 import { SharingAccessError, SharingKeyVersionError, SharingSchedulerVersionError } from '../../features/sharing/cloud-contract.ts';
 import { sharingOwnerRecoveryEnabled } from '../../features/sharing/rollout.ts';
-import { initializeSharingRegistry, readCurrentSharingWorkspace, readSharingWorkspace, saveSharingWorkspace, updateSharingWorkspace } from '../storage/sharing-registry.ts';
+import { initializeSharingRegistry, readCurrentSharingWorkspace, readSharingWorkspace, saveSharingWorkspace, updateSharingWorkspace, adoptConfirmedSharingWorkspace } from '../storage/sharing-registry.ts';
 import type { SharingWorkspaceRecord } from '../storage/sharing-registry.ts';
 import { initializeSharedProjection } from '../storage/sharing-projection.ts';
 import { drainSharingLedger, initializeSharingLedger, loadSharedReplica, readSharingCheckpoint } from '../storage/sharing-ledger.ts';
@@ -37,10 +37,11 @@ import { createNativeApplianceRetention } from './appliance-retention';
 
 export type { SharingSelection } from '../../features/sharing/workspace-selection.ts';
 export type { SharedWorkspace } from './workspace-types.ts';
-type Listener = (selection?: SharingSelection) => void;
+export type SharingChange = SharingSelection & { statusOnly?: boolean };
+type Listener = (selection?: SharingChange) => void;
 const listeners = new Set<Listener>();
 export function subscribeSharingChanges(listener: Listener): () => void { listeners.add(listener); return () => { listeners.delete(listener); }; }
-function changed(selection?: SharingSelection) { for (const listener of listeners) try { listener(selection); } catch { /* A view cannot invalidate a committed edit. */ } }
+function changed(selection?: SharingChange) { for (const listener of listeners) try { listener(selection); } catch { /* A view cannot invalidate a committed edit. */ } }
 const keyForScope = (selection: SharingSelection) => canonicalJson([selection.userId, selection.groupId]);
 let registryPromise: Promise<SQLiteDatabase> | null = null;
 export function sharingRegistryDatabase(): Promise<SQLiteDatabase> {
@@ -267,17 +268,21 @@ async function buildLegacyMigrationWorkspace(context: WorkspaceOpenContext): Pro
 /** Registry writes stay bound to the account and approved local generation that opened this session. */
 function workspaceRegistryAccess(context: WorkspaceOpenContext) {
   const { selection: { userId, groupId }, registry } = context; const generation = context.record.localGeneration;
-  let record = context.record; let archive = context.archive;
-  const assertAccount = () => { if (getSharingServices().auth.currentUser?.uid !== userId) throw new SharingAccessError('共有アカウントが切り替わりました。'); };
+  let record = context.record; let archive = context.archive; let retired = false;
+  const assertAccount = () => {
+    if (retired) throw new SharingAccessError('表示する所属グループが更新されています。');
+    if (getSharingServices().auth.currentUser?.uid !== userId) throw new SharingAccessError('共有アカウントが切り替わりました。');
+  };
   const assertGeneration = (current: SharingWorkspaceRecord) => { if (current.localGeneration !== generation) throw new SharingAccessError('再参加前のデータは読み取り専用で保持されています。'); };
   const readRecord = async () => {
     assertAccount(); const current = await readSharingWorkspace(registry, userId, groupId); assertAccount();
     if (!current) throw new Error('共有グループが見つかりません。'); assertGeneration(current); record = current; return record;
   };
   const update = async (change: (prior: SharingWorkspaceRecord) => SharingWorkspaceRecord) => {
-    const previous = canonicalJson(record);
+    const previous = canonicalJson(record); const { lastSuccessfulSyncAt: _lastSync, ...beforeContent } = record;
     assertAccount(); record = await updateSharingWorkspace(registry, userId, groupId, (prior) => { assertAccount(); assertGeneration(prior); return change(prior); });
-    assertAccount(); if (canonicalJson(record) !== previous) changed(context.selection); return record;
+    const { lastSuccessfulSyncAt: _nextSync, ...afterContent } = record;
+    assertAccount(); if (canonicalJson(record) !== previous) changed({ ...context.selection, statusOnly: canonicalJson(beforeContent) === canonicalJson(afterContent) }); return record;
   };
   const saveArchive = async (next: VerifiedSharedRoster[]) => {
     const latest = next.at(-1); if (!latest || latest.body.groupId !== groupId) throw new SharingAccessError('共有グループが一致しません。');
@@ -295,7 +300,7 @@ function workspaceRegistryAccess(context: WorkspaceOpenContext) {
     if (!await context.cloud.cancelOwnJoinRequest(current.join.invitation, current.join.request)) throw new Error('参加は承認済みです。同期してからメンバー・端末の管理で解除してください。');
     await update((prior) => ({ ...prior, status: 'left', lastErrorCode: null }));
   };
-  return { assertAccount, assertWritable, readRecord, update, saveArchive, cancelJoinRequest, record: () => record, archive: () => archive };
+  return { assertAccount, assertWritable, readRecord, update, saveArchive, cancelJoinRequest, record: () => record, archive: () => archive, retire: () => { retired = true; } };
 }
 
 async function submitWorkspaceJoin(context: WorkspaceOpenContext, record: SharingWorkspaceRecord): Promise<void> {
@@ -454,7 +459,30 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
             membershipBound = true;
             await access.update((prior) => ({ ...prior, status: 'active' }));
           } else if (current.status === 'active' && !membershipBound) {
-            await cloud.bindMembership(groupId); membershipBound = true;
+            try { await cloud.bindMembership(groupId); membershipBound = true; }
+            catch (error) {
+              if (['sharing/access-denied', 'permission-denied'].includes((error as { code?: string }).code ?? '')) {
+                const confirmed = await cloud.readMembership().catch(() => null); access.assertAccount();
+                const known = confirmed && confirmed !== groupId ? await readSharingWorkspace(context.registry, userId, confirmed) : null;
+                if (known?.status === 'active') {
+                  // Verify the retained local view before replacing its display
+                  // scope. Unknown/unapproved/empty workspaces cannot be adopted.
+                  const nextKey = keyForScope(known); let candidate = workspacePromises.get(nextKey);
+                  const created = !candidate; let next: SharedWorkspace | undefined;
+                  if (!candidate) { candidate = buildWorkspace(known); workspacePromises.set(nextKey, candidate); }
+                  try { next = await candidate; if (next.protocol !== 2) throw error; await next.readOverview(); }
+                  catch {
+                    if (workspacePromises.get(nextKey) === candidate) workspacePromises.delete(nextKey);
+                    if (created && next?.database) await next.database.closeAsync().catch(() => undefined);
+                    throw error;
+                  }
+                  await adoptConfirmedSharingWorkspace(context.registry, userId, groupId, known.groupId); access.assertAccount();
+                  access.retire(); workspacePromises.delete(keyForScope(selection));
+                  await saveSharingSelection({ userId, groupId: known.groupId }); changed({ userId, groupId: known.groupId });
+                }
+              }
+              throw error;
+            }
           } else if (current.status === 'joining') await submitWorkspaceJoin(context, current);
           const remainingOptions = () => {
             if (syncDeadline === null) return options;
@@ -497,7 +525,7 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
           throw error;
         }
       })(); running = task;
-      void task.finally(() => { if (running === task) { running = null; syncDeadline = null; } changed(selection);
+      void task.finally(() => { if (running === task) { running = null; syncDeadline = null; } changed({ ...selection, statusOnly: true });
         // The bounded coordinator refreshes reminders once with its actual remaining time.
         if (options.budgetMs === undefined) refreshIntegrations?.();
         if (requested) {

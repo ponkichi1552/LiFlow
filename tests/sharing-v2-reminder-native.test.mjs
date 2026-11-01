@@ -17,6 +17,8 @@ import { sharedLocalDate } from '../src/features/sharing/group-clock.ts';
 import * as completionNotices from '../src/features/sharing/v2/completion-notices.ts';
 import * as localDate from '../src/domain/scheduling/local-date.ts';
 import * as localCalendarPlanning from '../src/features/calendar/private-availability.ts';
+import * as sharedCalendarPlanning from '../src/features/calendar/shared-events.ts';
+import * as privateCalendarAvailability from '../src/features/sharing/v2/private-availability.ts';
 import { newEventDraft } from '../src/features/calendar/events.ts';
 
 async function setup() {
@@ -38,6 +40,8 @@ async function setup() {
     '../../features/sharing/v2/personal-plan': personalPlan, '../../features/sharing/crypto': cryptoModule,
     '../storage/calendar-events': { readLocalCalendar: async () => ({ events, exceptions: [] }) },
     '../../features/calendar/private-availability': localCalendarPlanning,
+    '../../features/calendar/shared-events': sharedCalendarPlanning,
+    '../../features/sharing/v2/private-availability': privateCalendarAvailability,
     '../../features/notifications/reconcile-local-notifications': reconciliation, '../../features/sharing/v2/native-identity': identity,
     '../../features/sharing/v2/completion-notices': completionNotices, '../../domain/scheduling/local-date': localDate,
     'react-native': { Platform: { OS: process.env.HOUSEWORK_TEST_PLATFORM ?? 'ios' } },
@@ -81,6 +85,26 @@ test('native v2 reminders default off without permission, personal-data read or 
     assert.deepEqual(h.calls, ['personal-open', 'personal-read', 'local-calendar', 'personal-close']);
     assert.ok([...h.scheduled.values()].every(row => row.key.startsWith(identity.v2NotificationPrefix(scope.userId, scope.groupId))));
     assert.equal(h.d.connection.prepare('SELECT COUNT(*) AS n FROM households').get().n, 0, 'v2 stays out of legacy planner rows');
+    assert.equal(h.calls.includes('request-permission'), false);
+  } finally { h.close(); }
+});
+
+test('native shared Tasks and reminders use the same shared all-day calendar input as the screen without modifying formal chore dates', async () => {
+  const h = await setup(); try {
+    await h.d.repository.commit([{ operationId: 'heavy-shared', entityType: 'chore', entityId: 'floor', operationType: 'patch', payload: { load: 'heavy' } }]);
+    const instant = new Date('2026-10-31T01:00:00Z'); const range = { from: '2026-11-01', through: '2026-11-09', asOfDate: '2026-10-31' };
+    const initial = await h.controller.readModel(range); const local = await h.readPlanning(instant);
+    const original = local.personalize(initial.plan, initial.calendar).recommendations.find(row => row.date === '2026-11-03'); assert.ok(original);
+    await h.controller.actions.saveCalendarEvent({ scope: 'series', anchorDate: null,
+      value: { ...newEventDraft('2026-11-03', 'Asia/Tokyo'), title: 'Shared busy day', allDay: true }, category: { id: 'personal', name: '共有', color: '#348DC2', revision: 1 } });
+    const model = await h.controller.readModel(range);
+    const taskPlan = local.personalize(model.plan, model.calendar);
+    assert.notEqual(taskPlan.recommendations.find(row => row.subjectOccurrenceId === original.subjectOccurrenceId).date, original.date);
+    const session = screenModule.createV2ScreenSession({ controller: { readModel: async () => model }, userId: scope.userId, groupId: scope.groupId, now: () => instant,
+      readPreferences: () => local.preferences, privateTasks: local.privateTasks, calendar: local.calendar, localCalendar: local.localCalendar });
+    assert.deepEqual((await session.readModel()).personal, taskPlan);
+    assert.deepEqual(model.plan.occurrences, initial.plan.occurrences);
+    assert.equal(JSON.stringify(taskPlan).includes('Shared busy day'), false);
     assert.equal(h.calls.includes('request-permission'), false);
   } finally { h.close(); }
 });

@@ -20,18 +20,32 @@ export class GoogleCalendarHttpError extends Error {
 /** Tokens stay in the native caller; neither errors nor persisted records contain credentials. */
 export function createGoogleCalendarApi(input: { token: () => Promise<string>; assertCurrent: () => Promise<void>; signal?: AbortSignal; fetch?: typeof fetch }) {
   const transport = input.fetch ?? fetch;
+  // The API object belongs to one bounded pass, never to a persisted account.
+  // Keep every identity guard while avoiding a native credential round trip per event.
+  let tokenFlight: Promise<string> | undefined;
+  const accessToken = () => {
+    if (!tokenFlight) {
+      const pending = input.token(); tokenFlight = pending;
+      void pending.catch(() => { if (tokenFlight === pending) tokenFlight = undefined; });
+    }
+    return tokenFlight;
+  };
   async function request<T>(path: string, method = 'GET', body?: unknown, etag?: string): Promise<T> {
-    await input.assertCurrent(); const token = await input.token(); await input.assertCurrent();
+    await input.assertCurrent(); const token = await accessToken(); await input.assertCurrent();
     const response = await transport(`https://www.googleapis.com/calendar/v3/${path}`, { method, signal: input.signal,
       headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...(etag ? { 'If-Match': etag } : {}) }, body: body ? JSON.stringify(body) : undefined });
     await input.assertCurrent();
     if (!response.ok) {
+      if (response.status === 401) tokenFlight = undefined;
       const raw = response.headers.get('Retry-After'); const seconds = raw ? Number(raw) : 0;
-      throw new GoogleCalendarHttpError(response.status, Number.isFinite(seconds) ? Math.min(24 * 3600_000, Math.max(0, seconds * 1000)) : 0);
+      const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(raw ?? '') - Date.now();
+      throw new GoogleCalendarHttpError(response.status, Number.isFinite(delay) ? Math.min(24 * 3600_000, Math.max(0, delay)) : 0);
     }
     if (response.status === 204) return undefined as T;
     const text = await response.text(); if (text.length > 2_000_000) throw new Error('Googleカレンダーの応答が大きすぎます。');
-    await input.assertCurrent(); return JSON.parse(text) as T;
+    await input.assertCurrent();
+    try { return JSON.parse(text) as T; }
+    catch { throw new Error('Googleカレンダーの応答を読み込めませんでした。変更は保持しています。'); }
   }
   const path = (calendarId: string) => `calendars/${encodeURIComponent(calendarId)}/events`;
   const query = (values: Record<string, string | undefined>) => new URLSearchParams(Object.fromEntries(Object.entries(values).filter((entry): entry is [string, string] => entry[1] !== undefined))).toString();

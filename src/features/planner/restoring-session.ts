@@ -37,6 +37,7 @@ export function restoringDisplaySession(model: Awaited<ReturnType<V2GroupUiSessi
   });
   return { groupId: model.plan.groupId, userId: model.viewerUserId,
     controller: { actions, sync: async () => (await load()).controller.sync(),
+      readCalendar: async () => (await load()).controller.readCalendar(),
       readModel: async (...args) => (await load()).controller.readModel(...args) },
     readModel: async options => (await load()).readModel(options),
     privateTasks: { read: async (...args) => {

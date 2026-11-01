@@ -4,6 +4,7 @@ import { GoogleAccountMismatchError } from '../google-sync/account-binding.ts';
 import { GoogleCalendarHttpError } from '../../platform/google-calendar/calendar-api.ts';
 import type { GoogleCalendarApi, GoogleCalendarListEntry } from '../../platform/google-calendar/calendar-api';
 import type { SharedCalendarExportControl, SharedCalendarExportStore } from '../../platform/storage/sharing-v2-calendar-export';
+import type { GoogleOperationBudget } from '../google-sync/operation-budget';
 import { sharedDocumentDigest } from '../sharing/crypto.ts';
 import { sharedLocalDate } from '../sharing/group-clock.ts';
 import { googleEventBody } from './google-event-mapping.ts';
@@ -18,12 +19,16 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
   const now = input.now ?? Date.now; const random = input.random ?? Math.random;
   let running: Promise<{ kind: 'success' | 'pending' | 'skipped' | 'error'; sent: number }> | null = null;
   let cancel: (() => void) | undefined;
+  let activeBudget: GoogleOperationBudget | undefined;
+  let activeInteractive = false;
   type Review = { revision: number; account: { subject: string; label: string }; calendars: GoogleCalendarListEntry[] };
   const reviews = new WeakMap<Review, { revision: number; subject: string; label: string; calendars: Map<string, GoogleCalendarListEntry> }>();
   const prepareConnection = () => withGoogleSyncOperation(async (): Promise<Review> => {
-    await input.assertAccess(); const control = await input.store.readControl(); const budget = createGoogleOperationBudget(20_000);
+    await input.assertAccess(); const control = await input.store.readControl();
+    // Reading and approving Google's consent screen is a human action, not HTTP time.
+    const account = await input.authorize(control.subject ?? undefined);
+    const budget = createGoogleOperationBudget(20_000);
     try {
-      const account = await input.authorize(control.subject ?? undefined);
       const guard = async () => { budget.assert(); await input.assertAccess(); if (await input.currentSubject() !== account.subject) throw new GoogleAccountMismatchError(); };
       const api = input.createApi({ subject: account.subject, assertCurrent: guard, signal: budget.signal });
       const calendars: GoogleCalendarListEntry[] = []; let page: string | undefined; const seen = new Set<string>();
@@ -41,9 +46,16 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
     if (!current.enabled || current.revision !== control.revision || current.subject !== control.subject || current.calendarId !== control.calendarId
       || await input.currentSubject() !== control.subject) throw new GoogleAccountMismatchError();
   }
-  const synchronize = (options: { budgetMs?: number; force?: boolean } = {}) => {
-    if (running) return running;
-    const budget = createGoogleOperationBudget(Math.min(20_000, options.budgetMs ?? 20_000)); cancel = budget.cancel;
+  const synchronize = (options: { budgetMs?: number; force?: boolean; interactive?: boolean } = {}): Promise<{ kind: 'success' | 'pending' | 'skipped' | 'error'; sent: number }> => {
+    if (running) {
+      // A user's fresh pass can follow a worker, but cannot extend its OS deadline.
+      if (options.interactive && !activeInteractive) return running.then(() => synchronize(options));
+      if (options.budgetMs !== undefined) activeBudget?.shrink(Math.min(20_000, options.budgetMs));
+      return running;
+    }
+    const limit = options.interactive ? 90_000 : 20_000;
+    const budget = createGoogleOperationBudget(Math.min(limit, options.budgetMs ?? limit)); cancel = budget.cancel;
+    activeBudget = budget; activeInteractive = options.interactive === true;
     const work = (async () => {
       await input.assertAccess(); const control = await input.store.readControl();
       // OFF is a complete no-op: no native token, Google reads, writes or deletes.
@@ -71,20 +83,22 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
                 do {
                   const result = await request(() => api.instances(control.calendarId!, parent.googleId, { timeMin: `${addDays(item.anchorDate!, -2)}T00:00:00Z`, timeMax: `${addDays(item.anchorDate!, 3)}T00:00:00Z`, pageToken: page }));
                   found = result.items?.find(event => event.recurringEventId === parent.googleId && (event.originalStartTime?.date
-                    ?? (event.originalStartTime?.dateTime ? sharedLocalDate(new Date(event.originalStartTime.dateTime), item.value?.timeZone ?? items.find(row => row.sourceId === item.parentId)?.value?.timeZone ?? 'UTC') : undefined)) === item.anchorDate);
+                    ?? (event.originalStartTime?.dateTime ? sharedLocalDate(new Date(event.originalStartTime.dateTime), items.find(row => row.sourceId === item.parentId)?.value?.timeZone ?? event.originalStartTime.timeZone ?? 'UTC') : undefined)) === item.anchorDate);
                   page = result.nextPageToken; if (page && seen.has(page)) throw new Error('Googleの繰り返し予定を読み直してください。'); if (page) seen.add(page);
                 } while (!found && page);
                 if (!found?.id || !found.etag) throw new Error('Google側の対象回を確認できません。変更は送信待ちです。');
                 remoteId = found.id; etag = prior?.googleId === found.id ? prior.etag : found.etag;
               }
             }
-            if (value === null) {
+            const body = value ? googleEventBody(value, Boolean(item.parentId)) : null;
+            if (body === null) {
               if (remoteId && etag && !prior?.deleted) try { await request(() => api.remove(control.calendarId!, remoteId!, etag!)); }
               catch (cause) { if (!(cause instanceof GoogleCalendarHttpError && [404, 410].includes(cause.status))) throw cause; }
               const link = { sourceId: item.sourceId, googleId: remoteId ?? '', etag: etag ?? '', revision: item.revision, deleted: true };
               await input.store.saveLink(control.subject!, control.calendarId!, link); links.set(item.sourceId, link); sent++; continue;
             }
-            const payload = { ...googleEventBody(value, Boolean(item.parentId)), ...(item.reset ? { status: 'confirmed' } : {}) };
+            const payload = { ...body, ...(item.reset ? { status: 'confirmed' } : {}),
+              extendedProperties: { private: { liflowSource: sourceTag, liflowShared: '1', liflowRevision: item.revision } } };
             let result;
             if (remoteId && etag && (!prior?.deleted || item.parentId)) {
               try { result = await request(() => api.patch(control.calendarId!, remoteId!, payload, etag!)); }
@@ -97,8 +111,7 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
             }
             else {
               remoteId = `cf${sharedDocumentDigest([input.scope, control.subject, control.calendarId, item.sourceId, prior?.deleted ? item.revision : 'initial'])}`;
-              try { result = await request(() => api.insert(control.calendarId!, { ...payload, id: remoteId,
-                extendedProperties: { private: { liflowSource: sourceTag, liflowShared: '1', liflowRevision: item.revision } } })); }
+              try { result = await request(() => api.insert(control.calendarId!, { ...payload, id: remoteId })); }
               catch (cause) {
                 if (!(cause instanceof GoogleCalendarHttpError && cause.status === 409)) throw cause;
                 result = await request(() => api.get(control.calendarId!, remoteId!));
@@ -120,7 +133,7 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
           return { kind: limited ? 'pending' as const : 'error' as const, sent };
         }
       });
-    })().finally(() => { budget.close(); if (running === work) { running = null; cancel = undefined; } });
+    })().finally(() => { budget.close(); if (running === work) { running = null; cancel = undefined; activeBudget = undefined; activeInteractive = false; } });
     running = work; return work;
   };
   return { readControl: input.store.readControl, synchronize, prepareConnection,
@@ -134,8 +147,17 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
   };
 }
 function ownedFields(value: Record<string, unknown>) {
-  const result = Object.fromEntries(['summary', 'location', 'description', 'start', 'end', 'transparency', 'recurrence']
-    .filter(key => value[key] !== undefined && !(key === 'recurrence' && Array.isArray(value[key]) && !value[key].length)).map(key => [key, value[key]]));
+  const result: Record<string, unknown> = {
+    summary: value.summary ?? '', location: value.location ?? '', description: value.description ?? '',
+    start: value.start, end: value.end, transparency: value.transparency ?? 'opaque', status: value.status ?? 'confirmed',
+    recurrence: (Array.isArray(value.recurrence) ? value.recurrence : []).map(rule => {
+      if (typeof rule !== 'string' || !rule.startsWith('RRULE:')) return rule;
+      const parts = new Map(rule.slice(6).split(';').map(part => { const [key, contents] = part.split('='); return [key, contents?.split(',').sort().join(',')]; }));
+      if (!parts.has('INTERVAL')) parts.set('INTERVAL', '1');
+      if (!parts.has('WKST')) parts.set('WKST', 'MO');
+      return [...parts].sort(([a], [b]) => a.localeCompare(b));
+    }).sort(),
+  };
   for (const key of ['start', 'end']) {
     const raw = result[key] as { date?: string; dateTime?: string; timeZone?: string } | undefined;
     if (raw?.dateTime) result[key] = { instant: Date.parse(raw.dateTime), timeZone: raw.timeZone };

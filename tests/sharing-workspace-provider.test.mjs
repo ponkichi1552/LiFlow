@@ -112,7 +112,7 @@ for (const platform of ['ios', 'android']) test(`${platform} the same restored a
     finishAuthentication({ uid: 'owner' }); await screen.flush();
     assert.deepEqual(current().startupDisplay.model, model, 'authentication must not tear down the same account route hierarchy');
     finishMembership(record);
-    for (let i = 0; i < 8 && !finishCache; i++) await screen.flush();
+    for (const deadline = Date.now() + 1000; !finishCache && Date.now() < deadline;) { await new Promise(resolve => setTimeout(resolve, 2)); await screen.flush(); }
     assert.ok(finishCache); assert.deepEqual(current().startupDisplay?.model, model);
     finishCache(model);
     for (let i = 0; i < 12; i++) { await new Promise(resolve => setTimeout(resolve, 1)); await screen.flush(); }
@@ -275,4 +275,31 @@ for (const [platform, name] of [
     assert.equal(recoveries, 1, 'a failed group must not prevent the recovery coordinator from being started');
   } finally { disposeForeground?.(); disposeBoot?.(); }
   assert.equal(unsubscribed, 1);
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} status-only sync notifications do not reload account membership while real permission changes still revoke the workspace`, async () => {
+  const effects = []; let notify; let membershipReads = 0; let authReads = 0; let drained = 0;
+  let record = { userId: 'owner', groupId: 'house', status: 'active' };
+  const workspace = { ...record, protocol: 2, drain: async () => { drained++; } };
+  const screen = screenHarness('src/hooks/use-workspace.tsx', { platform, exportName: 'WorkspaceProvider', effect: callback => effects.push(callback), mocks: {
+    '@/components/planner-ui': {}, '@/contexts/workspace-context': { WorkspaceContext: { Provider: 'WorkspaceContextProvider' } },
+    '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => undefined, startupDisplayCache: { read: async () => undefined } },
+    '@/platform/sharing/auth': {}, '@/platform/sharing/private-calendar-sync': {},
+    '@/platform/sharing/workspaces': { readSharingSelection: async () => ({ userId: 'owner', groupId: 'house' }), hasSharingSessionEnabled: async () => true,
+      sharingSessionUser: async () => { authReads++; return { uid: 'owner' }; }, currentSharingWorkspace: async () => { membershipReads++; return record; },
+      openSharedWorkspace: async () => workspace, saveSharingSelection: async () => {}, subscribeSharingChanges: listener => { notify = listener; return () => {}; } },
+  } });
+  const dispose = effects[0]();
+  try {
+    for (let n = 0; n < 5; n++) await screen.flush();
+    assert.equal(screen.nodes().find(node => node.props.value)?.props.value.active, workspace);
+    const before = { authReads, membershipReads };
+    for (let n = 0; n < 50; n++) notify({ userId: 'owner', groupId: 'house', statusOnly: true });
+    for (let n = 0; n < 5; n++) await screen.flush();
+    assert.deepEqual({ authReads, membershipReads }, before, 'a completed sync does not restart membership or notification work');
+    record = { ...record, status: 'removed' }; notify({ userId: 'owner', groupId: 'house' });
+    for (let n = 0; n < 5; n++) await screen.flush();
+    assert.ok(membershipReads > before.membershipReads); assert.equal(drained, 1);
+    assert.equal(screen.nodes().find(node => node.props.value)?.props.value.active, null);
+  } finally { dispose?.(); screen.unmount(); }
 });

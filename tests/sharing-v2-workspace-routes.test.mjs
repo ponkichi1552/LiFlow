@@ -107,6 +107,18 @@ for (const platform of ['ios', 'android']) {
       }
     } finally { f.dispose(); }
   });
+  test(`${platform} a cold calendar shows its verified saved range before restoration without authorizing a controller`, async () => {
+    const f = await fixture();
+    try {
+      const model = await f.preview.readModel();
+      f.context.startupDisplay = { record: { ...f.context.group, userId: f.context.userId }, model }; f.context.active = null;
+      const before = await listSharingOutbox(f.database, f.preview.groupId);
+      const ui = await route(f, platform, 'calendar', {}, '共有カレンダー');
+      assert.equal(f.sessionInputs.length, 0); assert.deepEqual(await listSharingOutbox(f.database, f.preview.groupId), before);
+      assert.ok(ui.screen.nodes().some(node => node.props.accessibilityLabel === '予定を追加'));
+      ui.leave();
+    } finally { f.dispose(); }
+  });
   test(`${platform} normal v2 routes use only the authenticated private preference limits and preserve shared outbox and plan`, async () => {
     const f = await fixture();
     try {
@@ -206,6 +218,10 @@ for (const platform of ['ios', 'android']) {
       const r = await route(f, platform, 'index'); const model = await f.preview.readModel();
       const chore = model.plan.chores.find((item) => item.id === 'builtin-chore-08' || item.id.endsWith('.builtin-chore-08'));
       assert.equal(f.callbacks.size, 1); assert.equal(f.calendarCallbacks.size, 1);
+      const beforeStatus = f.calendarReads;
+      for (let i = 0; i < 50; i++) for (const callback of f.callbacks) callback({ userId: f.preview.userId, groupId: f.preview.groupId, statusOnly: true });
+      await new Promise(resolve => setTimeout(resolve, 120)); await r.screen.flush();
+      assert.equal(f.calendarReads, beforeStatus, 'sync timestamps and unchanged status cannot repeatedly invalidate calendar calculations');
       await f.preview.controller.actions.patchChore(chore.id, { name: '別端末から届いた床掃除' });
       for (const callback of f.callbacks) callback({ userId: 'another-user', groupId: f.preview.groupId });
       await new Promise((resolve) => setTimeout(resolve, 120)); await r.screen.flush(); assert.equal(r.screen.text().includes('別端末から届いた床掃除'), false);

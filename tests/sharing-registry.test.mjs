@@ -30,6 +30,29 @@ test('an unchanged workspace update performs no SQLite write while real metadata
   } finally { h.connection.close(); }
 });
 
+test('confirmed singleton recovery changes only the displayed legacy scope and rejects stale missing or departed targets', async () => {
+  const h = await fixture();
+  try {
+    await registry.saveSharingWorkspace(h.database, h.record);
+    const target = { ...h.record, groupId: 'confirmed-group', anchor: createSharedRoster('confirmed-group', 'owner', h.owner) };
+    target.rosterArchive = [target.anchor];
+    await h.database.runAsync('INSERT INTO sharing_workspaces VALUES (?, ?, ?)', 'owner', target.groupId, JSON.stringify(target));
+    const before = await registry.listSharingWorkspaces(h.database, 'owner');
+    for (const id of ['unknown', 'group-test']) {
+      if (id === 'group-test') continue;
+      await assert.rejects(registry.adoptConfirmedSharingWorkspace(h.database, 'owner', 'group-test', id));
+    }
+    await registry.updateSharingWorkspace(h.database, 'owner', target.groupId, row => ({ ...row, status: 'left' }));
+    await assert.rejects(registry.adoptConfirmedSharingWorkspace(h.database, 'owner', 'group-test', target.groupId));
+    await h.database.runAsync('UPDATE sharing_workspaces SET record_json=? WHERE user_id=? AND group_id=?', JSON.stringify(target), 'owner', target.groupId);
+    await registry.adoptConfirmedSharingWorkspace(h.database, 'owner', 'group-test', target.groupId);
+    assert.equal((await registry.readCurrentSharingWorkspace(h.database, 'owner')).groupId, target.groupId);
+    assert.deepEqual(await registry.listSharingWorkspaces(h.database, 'owner'), before);
+    await assert.rejects(registry.adoptConfirmedSharingWorkspace(h.database, 'owner', 'group-test', target.groupId), /更新/u);
+    await assert.rejects(registry.adoptConfirmedSharingWorkspace(h.database, 'other-user', 'group-test', target.groupId));
+  } finally { h.connection.close(); }
+});
+
 test('workspace registry isolates accounts, preserves trust pins and refuses credentials or secret keys', async () => {
   const h = await fixture();
   try {

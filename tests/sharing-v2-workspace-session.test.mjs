@@ -90,6 +90,24 @@ test('an empty authenticated commit does not announce another local edit or sche
     assert.equal((await listSharingOutbox(f.database, 'v2-session')).length, 49);
   } finally { f.connection.close(); }
 });
+
+test('a retained permission failure defers catalog writes without blocking authenticated local calendar reads', async () => {
+  const f = await fixture();
+  try {
+    const session = await createV2WorkspaceSession(f.options);
+    await f.database.runAsync('DELETE FROM sharing_v2_catalog_state');
+    f.record.lastErrorCode = 'permission-denied';
+    const before = await loadSharedFacts(f.database, 'v2-session');
+    const range = { from: '2026-10-27', through: '2026-11-10', asOfDate: '2026-10-27' };
+    const model = await session.controller.readModel(range);
+    assert.equal(model.plan.chores.length, 46); assert.equal((await session.controller.readCalendar()).groupId, 'v2-session');
+    await assert.rejects(session.controller.actions.addChore('blocked write'), /参加状態/u);
+    assert.deepEqual(await loadSharedFacts(f.database, 'v2-session'), before);
+    f.record.lastErrorCode = null; await session.controller.readModel(range);
+    assert.ok(await f.database.getFirstAsync('SELECT catalog_version FROM sharing_v2_catalog_state'));
+    f.stop(); await assert.rejects(session.controller.readModel(range), /account changed/u);
+  } finally { f.connection.close(); }
+});
 test('a mistakenly supplied personal database is rejected without changing any existing table or row', async () => {
   const f = await fixture(); const dump = () => JSON.stringify(f.connection.prepare("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name").all());
   try {

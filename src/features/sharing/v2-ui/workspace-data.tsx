@@ -57,7 +57,7 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
     let stopped = false; let stopCalendar: (() => void) | undefined;
     const matches = () => !stopped && active && current.current?.active === active && current.current.userId === active.userId;
     const stopSharing = subscribeSharingChanges((scope) => {
-      if (matches() && scope?.userId === active!.userId && scope.groupId === active!.groupId) changed();
+      if (matches() && !scope?.statusOnly && scope?.userId === active!.userId && scope.groupId === active!.groupId) changed();
     });
     const stopLocalCalendar = personalDatabase ? subscribeLocalCalendar(personalDatabase, change => {
       if (matches() && change !== 'drafts' && change !== 'categories') changed();
@@ -108,7 +108,10 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
   } : undefined, [context.startupDisplay, restoring]);
   const binding = useMemo<WorkspaceDisplayBinding>(() => ({
     workspace: active, invalidate: store.invalidate,
-    peek: options => store.peek(options) ?? (!options?.management && !options?.calendarMonth && !options?.focusDate ? savedDisplay : undefined),
+    // The calendar already marks dates outside its verified range as unloaded.
+    // A cold calendar entry can show the saved range while wider data restores.
+    peek: options => store.peek(options) ?? (!options?.management && !options?.focusDate
+      && (!options?.calendarMonth || options.calendarMonth === 'current') ? savedDisplay : undefined),
     subscribe: store.subscribe,
     loadSession: async () => {
       if (!active) return restoring.get();

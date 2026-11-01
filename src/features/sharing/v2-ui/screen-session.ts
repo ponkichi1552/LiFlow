@@ -10,8 +10,11 @@ import { v2CalendarDisplayRange } from './calendar-range.ts';
 import type { V2PrivateOverlayState, V2PrivateTaskSource } from './private-overlay';
 import type { PrivateCalendarRuntime } from '../private-calendar/runtime';
 import { v2CommonCompletionSource } from './common-chore-history.ts';
-import { combineCalendarConflicts } from '../v2/private-availability.ts';
+import { combineCalendarConflicts, combinePrivateCalendarAvailability } from '../v2/private-availability.ts';
 import type { PrivateCalendarAvailability } from '../v2/private-availability.ts';
+import { sharedCalendarAvailability } from '../../calendar/shared-events.ts';
+import { localCalendarTargetRange } from '../../calendar/private-availability.ts';
+import type { SharedCalendarRecord } from '../v2/calendar-state';
 import { traceStartup } from '../../../platform/diagnostics/startup-timing.ts';
 
 export interface V2GroupUiSession {
@@ -33,11 +36,23 @@ export function createV2ScreenSession(input: { controller: V2GroupController; gr
   };
 }): V2GroupUiSession {
   let planTimeZone: string | undefined;
+  let calendarRecords: readonly SharedCalendarRecord[] = [];
   return { controller: input.controller, groupId: input.groupId, userId: input.userId, privateTasks: input.privateTasks,
-    readOwnCalendar: input.localCalendar ? async target => {
-      const local = await input.localCalendar!.readOwnCalendar(target, planTimeZone);
-      return input.calendar ? combineCalendarConflicts(local, await input.calendar.readOwnCalendar(target)) : local;
-    } : input.calendar?.readOwnCalendar,
+    readOwnCalendar: async target => {
+      if (target.precision !== 'interval') return { kind: 'unknown', reason: 'timeNotSpecified' };
+      const current = await input.controller.readCalendar?.();
+      if (current && (current.groupId !== input.groupId || current.viewerUserId !== input.userId)) throw new Error('表示する共有アカウント・グループが変わりました。');
+      const zone = current?.timeZone ?? planTimeZone;
+      if (!zone) throw new Error('共有予定の地域を読み直してください。');
+      const range = localCalendarTargetRange(target, zone)!;
+      const shared = sharedCalendarAvailability(current?.records ?? calendarRecords, input.groupId, range, zone);
+      let result = shared?.(target).conflict;
+      for (const read of [input.localCalendar ? () => input.localCalendar!.readOwnCalendar(target, zone) : undefined,
+        input.calendar ? () => input.calendar!.readOwnCalendar(target) : undefined]) if (read) {
+        const next = await read(); result = result ? combineCalendarConflicts(result, next) : next;
+      }
+      return result ?? { kind: 'unknown', reason: 'missing' };
+    },
     async readModel(options) {
       if (options?.choreSettings && !options.management) throw new Error('連続した家事設定は編集画面から読み込んでください。');
       if (options?.reminders && (options.management || options.calendarMonth || options.focusDate)) throw new Error('通知用と画面用の予定範囲を同時に指定できません。');
@@ -64,6 +79,7 @@ export function createV2ScreenSession(input: { controller: V2GroupController; gr
       }, { detailChoreId: options?.detailChoreId, choreSettings: options?.choreSettings, groupPolicy: options?.groupPolicy, permissionsChoreId: options?.permissionsChoreId, waste: options?.waste, appliances: options?.appliances, applianceId: options?.applianceId }));
       if (model.viewerUserId !== input.userId || model.plan.groupId !== input.groupId) throw new Error('表示する共有アカウント・グループが変わりました。');
       planTimeZone = model.plan.timeZone;
+      calendarRecords = model.calendar ?? [];
       if (!preferences) return model;
       // Local ciphertext only: rendering cannot request OAuth, fetch Google or publish private data.
       let calendar: Awaited<ReturnType<PrivateCalendarRuntime['readForPlan']>> = null;
@@ -73,6 +89,9 @@ export function createV2ScreenSession(input: { controller: V2GroupController; gr
       if (input.localCalendar) try { localCalendar = await traceStartup('display.localCalendar', () => input.localCalendar!.readForPlan(model.plan.range, model.plan.timeZone)); }
       catch { localCalendar = { ownerUserId: input.userId, availability: () => ({ conflict: { kind: 'unknown', reason: 'invalid' }, busyMinutes: null }) }; }
       if (localCalendar && localCalendar.ownerUserId !== input.userId) throw new Error('本人のCalendar情報を確認してください。');
+      const sharedCalendar = sharedCalendarAvailability(calendarRecords, input.groupId, model.plan.range, model.plan.timeZone);
+      if (sharedCalendar) localCalendar = { ownerUserId: input.userId,
+        availability: combinePrivateCalendarAvailability(localCalendar?.availability, sharedCalendar) };
       let privateOverlay: V2PrivateOverlayState | undefined;
       if (input.privateTasks && !options?.management) try {
         await traceStartup('display.mirror', () => input.privateTasks!.mirrorShared?.(v2CommonCompletionSource(model)));

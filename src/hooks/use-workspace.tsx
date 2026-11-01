@@ -101,7 +101,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       catch { if (alive.current) { setStartupDisplay(null); setError('所属グループの保存情報を読み込めませんでした。'); } }
       finally { if (alive.current) setReady(true); }
     })();
-    const unsubscribe = subscribeSharingChanges(() => { void refreshSharing().catch(() => undefined); });
+    const unsubscribe = subscribeSharingChanges(change => { if (!change?.statusOnly) void refreshSharing().catch(() => undefined); });
     return () => { alive.current = false; unsubscribe(); };
   }, [refreshSharing]);
   useEffect(() => {

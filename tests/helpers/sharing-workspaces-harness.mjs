@@ -24,7 +24,7 @@ import { createV2ReminderRuntime } from '../../src/features/sharing/v2/reminder-
 import { addDays } from '../../src/domain/scheduling/local-date.ts';
 
 /** Real signatures, event repository and SQLite; only native handles/account storage/cloud I/O are injected. */
-export async function workspaceHarness({ pending = false, version = 2, cloud: overrides = {}, deferWorkspaceTimers = false, privateCalendarNeeded = false, initiallyEmpty = false } = {}) {
+export async function workspaceHarness({ pending = false, version = 2, cloud: overrides = {}, deferWorkspaceTimers = false, privateCalendarNeeded = false, initiallyEmpty = false, v2Database } = {}) {
   const handles = []; const calls = []; const cloudOptions = []; const reminderCalls = []; const taskCalls = []; const taskControl = { revision: 0, label: null, state: null }; let ordinal = 0;
   const create = () => { const h = createDatabase(); let closed = false;
     h.database.closeAsync = async () => { if (!closed) { closed = true; h.connection.close(); } }; handles.push(h); return h; };
@@ -53,7 +53,7 @@ export async function workspaceHarness({ pending = false, version = 2, cloud: ov
       saveSharingGroupKey: async (_uid, _group, version, bytes) => { groupKeys.set(version, bytes.slice()); },
       sharingSecureVault: { getItem: async (key) => vault.get(key) ?? null, setItem: async (key, value) => vault.set(key, value), removeItem: async (key) => vault.delete(key) } },
     './database-location.ts': { sharingDatabaseDirectory: async () => '/protected', openSharingDatabase: async () => { calls.push('legacy-open'); throw new Error('v2 must not open a legacy database'); },
-      openSharingV2Database: async (...scope) => { calls.push(['v2-open', ...scope]); return create().database; } },
+      openSharingV2Database: async (...scope) => { calls.push(['v2-open', ...scope]); return v2Database?.(scope) ?? create().database; } },
     './firestore-cloud.ts': { createSharingCloud: (_store, _uid, _guard, options) => { cloudOptions.push(options); cloud.ownerRecoveryEnabled = options?.ownerRecoveryEnabled ?? false; return cloud; } }, '../../features/sharing/roster.ts': rosters,
     '../../features/sharing/rollout.ts': rollout,
     '../../features/sharing/v2/live-legacy-migration.ts': liveMigration,

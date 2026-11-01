@@ -65,6 +65,7 @@ for (const platform of ['ios', 'android']) {
       today, timeZone: 'Asia/Tokyo', local: h.local, dayInfo: () => ({ loaded: true, pending: 0 }), renderChores: () => null,
     } });
     let weeks = screen.nodes().find(node => node.props.testID === 'calendar-weeks');
+    weeks.props.onScrollBeginDrag();
     // A stale native offset must not overrule the identities of the rows actually on screen.
     weeks.props.onScroll({ nativeEvent: { contentOffset: { x: 0, y: weeks.props.data.findIndex(row => row.days.includes('2026-08-30')) * 100 } } });
     screen.render(); weeks = screen.nodes().find(node => node.props.testID === 'calendar-weeks');
@@ -161,6 +162,23 @@ for (const platform of ['ios', 'android']) {
     assert.ok(screen.text().includes('2028年10月'));
     assert.ok(screen.nodes().some(node => node.props.accessibilityLabel?.startsWith('2028年10月31日、')));
     await selectCalendarView(screen, '1日表示'); assert.ok(screen.text().includes('10月31日'));
+  });
+  test(`${platform} native month callbacks during editor dismissal cannot move the saved event to another month`, async t => {
+    const h = await fixture(t); const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
+      today: '2026-11-01', timeZone: 'Asia/Tokyo', local: h.local, dayInfo: () => ({ loaded: true, pending: 0 }), renderChores: () => null,
+    } });
+    await screen.press('予定を追加'); await screen.change('予定名', '月初の予定'); await screen.press('予定を保存');
+    for (let n = 0; n < 20 && screen.nodes().some(node => node.props.accessibilityLabel === '予定を保存'); n++) await screen.flush();
+    const weeks = screen.nodes().find(node => node.props.testID === 'calendar-weeks');
+    const visible = ['2026-11-29', '2026-12-06', '2026-12-13'].map(day => {
+      const index = weeks.props.data.findIndex(row => row.days.includes(day)); const item = weeks.props.data[index];
+      return { item, key: item.id, index, isViewable: true };
+    });
+    weeks.props.onViewableItemsChanged({ viewableItems: visible, changed: [] }); screen.render();
+    await selectCalendarView(screen, 'リスト表示');
+    assert.ok(screen.button('月初の予定を編集'));
+    assert.ok(screen.text().includes('11月1日（日）'), 'saving and changing display keeps the actual saved date');
+    assert.equal((await store.readLocalCalendar(h.database)).events[0].startDate, '2026-11-01');
   });
 }
 test('iOS interactive editor dismissal keeps the latest draft visible when SQLite fails and allows a safe retry', async t => {

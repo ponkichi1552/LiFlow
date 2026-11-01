@@ -26,6 +26,13 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
   const actions = createV2PlannerActions(repository, options);
   return {
     actions, sync: options.sync,
+    // Date reviews need current shared events, not another scheduler/overlay run.
+    readCalendar: () => repository.readCurrent(async state => {
+      const at = v2ReadPoint(state.assessment.view, state.archive.at(-1)!);
+      const timeZone = state.assessment.view.field('settings', 'settings', 'timeZone', at)?.value;
+      if (typeof timeZone !== 'string') throw new Error('グループの地域を確認してください。');
+      return { groupId: repository.scope.groupId, viewerUserId: repository.scope.userId, timeZone, records: readSharedCalendar(state.assessment.view, at) };
+    }),
     async readModel(inputRange: V2ModelRange | ((context: { timeZone: string }) => V2ModelRange), readOptions: { detailChoreId?: string; choreSettings?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; appliances?: boolean; applianceId?: string } = {}) {
       const state = await repository.readState();
       const at = v2ReadPoint(state.assessment.view, state.archive.at(-1)!);

@@ -7,6 +7,8 @@ import { buildV2CommonPlan } from '../../features/sharing/v2/common-plan.ts';
 import type { V2CommonPlan } from '../../features/sharing/v2/common-plan';
 import type { V2PersonalPlan } from '../../features/sharing/v2/personal-plan';
 import { v2ReadPoint } from '../../features/sharing/v2/view-point.ts';
+import { readSharedCalendar } from '../../features/sharing/v2/calendar-state.ts';
+import type { SharedCalendarRecord } from '../../features/sharing/v2/calendar-state';
 import { v2NativeWorkspaceNamespace } from '../../features/sharing/v2/native-identity.ts';
 import { v2GoogleTaskItems, validateV2GoogleTaskTarget, v2GoogleRevisionAfterImport } from '../../features/sharing/v2/google-tasks-projection.ts';
 import type { V2GoogleTaskItem, V2GoogleTaskTarget } from '../../features/sharing/v2/google-tasks-projection';
@@ -36,7 +38,7 @@ function fieldsOnly(value: unknown, fields: Set<string>) {
 
 /** Private bindings live in the already isolated v2 DB. No Google identifiers enter the signed ledger or group snapshot. */
 export function createV2GoogleTaskStore(input: { repository: Repository; userId: string; groupId: string; assertAccess(): void | Promise<void>;
-  makeId(): string; now(): Date; personalize?(plan: V2CommonPlan): V2PersonalPlan; planningRevision?(): string }) {
+  makeId(): string; now(): Date; personalize?(plan: V2CommonPlan, calendar?: readonly SharedCalendarRecord[]): V2PersonalPlan; planningRevision?(): string }) {
   const { repository, userId, groupId } = input; const namespace = v2NativeWorkspaceNamespace(userId, groupId);
   if (repository.scope.userId !== userId || repository.scope.groupId !== groupId) throw new Error('Google家事の保存先を確認してください。');
   let issuedItems = new Map<string, V2GoogleTaskItem>();
@@ -114,7 +116,8 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
     for (const anchor of anchors) if (!visibleAnchors.has(anchor) && (anchor < main.range.from || anchor > main.range.through)) {
       plans.push(buildV2CommonPlan(state, { from: anchor, through: anchor, asOfDate: today }));
     }
-    const items = new Map(plans.flatMap(plan => v2GoogleTaskItems(plan, userId, input.personalize?.(plan))).map(item => [item.entry.id, item]));
+    const calendar = readSharedCalendar(state.assessment.view, v2ReadPoint(state.assessment.view, state.archive.at(-1)!));
+    const items = new Map(plans.flatMap(plan => v2GoogleTaskItems(plan, userId, input.personalize?.(plan, calendar))).map(item => [item.entry.id, item]));
     cached = { key, items, plans }; return cached;
   }
   function retainedEntry(row: LinkRecord, plans: V2CommonPlan[]): GoogleSyncEntry | null {

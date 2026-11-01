@@ -1,47 +1,24 @@
 import { useMemo, useState } from 'react';
-import type { CalendarCategory, CalendarEvent, CalendarException } from '../../../domain/calendar/events';
+import type { CalendarCategory } from '../../../domain/calendar/events';
 import type { CalendarEditorDraft } from '../../../platform/storage/calendar-events';
 import { clearCalendarEditorDraft, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent, deleteCalendarEvent } from '../../../platform/storage/calendar-events';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
-import { sharedDocumentDigest } from '../crypto';
-import { sharedCalendarPayload } from '../v2/calendar-state';
+import { projectSharedCalendarRecords } from '../../calendar/shared-events';
 import type { SharedCalendarRecord } from '../v2/calendar-state';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { V2MutationOutcome } from './mutation-outcome';
 
-const eventId = (group: string, id: string) => `group.${sharedDocumentDigest([group, id])}`;
-const categoryId = (group: string, category: { id: string; name: string; color: string }) => `gcat.${sharedDocumentDigest([group, category])}`;
+const noCategories: CalendarCategory[] = [];
 const proof = (record: SharedCalendarRecord) => JSON.stringify({ series: record.heads.map(op => op.operationId).sort(),
   exceptions: Object.fromEntries(record.exceptions.map(row => [row.anchorDate, row.heads.map(op => op.operationId).sort()])) });
-
-function projectGroupCalendar(records: readonly SharedCalendarRecord[], groupId: string) {
-  const recordsById = new Map(records.map(row => [eventId(groupId, row.id), row]));
-  const groupCategories = new Map<string, CalendarCategory>(); const rawCategories = new Map<string, CalendarCategory>();
-  const events: CalendarEvent[] = []; const exceptions: CalendarException[] = [];
-  for (const record of records) {
-    if (record.heads.length !== 1) continue;
-    const payload = sharedCalendarPayload(record.heads[0]); if (!payload.value || !payload.category) continue;
-    const id = eventId(groupId, record.id);
-    const category = (value: NonNullable<typeof payload.category>) => {
-      const result = { ...value, id: categoryId(groupId, value), revision: 1 };
-      groupCategories.set(result.id, result); rawCategories.set(result.id, { ...value, revision: 1 }); return result.id;
-    };
-    events.push({ ...payload.value, categoryId: category(payload.category), id, revision: record.heads[0].logicalClock });
-    for (const row of record.exceptions) {
-      const candidate = row.heads.length === 1 ? sharedCalendarPayload(row.heads[0]) : null;
-      exceptions.push({ eventId: id, anchorDate: row.anchorDate, revision: Math.max(...row.heads.map(op => op.logicalClock)),
-        override: candidate?.value && candidate.category ? { ...candidate.value, categoryId: category(candidate.category) } : null });
-    }
-  }
-  return { recordsById, groupCategories, rawCategories, events, exceptions };
-}
 
 /** A group event is never persisted by the personal event writer, or vice versa. */
 export function useGroupCalendar(local: LocalCalendarBinding | undefined, model: V2GroupScreenModel, actions: V2GroupController['actions'],
   perform: ((work: () => Promise<unknown>) => Promise<V2MutationOutcome>) | undefined, groupName: string): LocalCalendarBinding | undefined {
-  const [categories, setCategories] = useState<CalendarCategory[]>([]);
   const groupId = model.plan.groupId;
-  const projected = useMemo(() => projectGroupCalendar(model.calendar ?? [], groupId), [model.calendar, groupId]);
+  const [temporary, setTemporary] = useState<{ groupId: string; rows: CalendarCategory[] }>({ groupId, rows: [] });
+  const categories = temporary.groupId === groupId ? temporary.rows : noCategories;
+  const projected = useMemo(() => projectSharedCalendarRecords(model.calendar ?? [], groupId), [model.calendar, groupId]);
   const personalSnapshot = local?.snapshot;
   const events = useMemo(() => [...(personalSnapshot?.events ?? []), ...projected.events], [personalSnapshot?.events, projected.events]);
   const exceptions = useMemo(() => [...(personalSnapshot?.exceptions ?? []), ...projected.exceptions], [personalSnapshot?.exceptions, projected.exceptions]);
@@ -82,6 +59,7 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
   };
   return { ...local, shared: { groupId, name: groupName, enabled: model.calendarSupported === true },
     snapshot,
+    categoriesFor: audience => audience === 'personal' ? personalSnapshot!.categories : allCategories,
     canEditEvent: canEdit,
     prepareDraft(draft) {
       if (!draft.eventId || draft.audience === 'group') return draft;
@@ -115,7 +93,7 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
       }
       if (!value.name.trim() || value.name.length > 40 || !/^#[0-9a-f]{6}$/iu.test(value.color)) throw new Error('分類名と色を確認してください。');
       const id = `sharedcat.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 10)}`;
-      setCategories(rows => [...rows, { id, revision: 1, name: value.name.trim(), color: value.color.toUpperCase() }]); return id;
+      setTemporary(before => ({ groupId, rows: [...(before.groupId === groupId ? before.rows : []), { id, revision: 1, name: value.name.trim(), color: value.color.toUpperCase() }] })); return id;
     },
   };
 }

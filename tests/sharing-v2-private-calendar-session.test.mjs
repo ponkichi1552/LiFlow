@@ -17,12 +17,15 @@ async function base() {
 
 test('v2 screen session reads the own local Calendar once and changes only private recommendations without exporting intervals or binding', async () => {
   const f = await base(); let reads = 0; const before = JSON.stringify(f.model.plan); const baseline = await createV2ScreenSession(f.input).readModel();
-  const readOwnCalendar = async () => ({ kind: 'conflict' });
+  const reviewed = []; const readOwnCalendar = async target => { reviewed.push(target); return { kind: 'conflict' }; };
   const session = createV2ScreenSession({ ...f.input, calendar: { readForPlan: async () => { reads++; return busy(); }, readOwnCalendar } });
   const value = await session.readModel(); assert.equal(reads, 1); assert.equal(value.plan.planHash, baseline.plan.planHash); assert.equal(JSON.stringify(f.model.plan), before);
   const first = baseline.personal.recommendations.find(row => row.date === '2026-10-27'); assert.ok(first);
   assert.equal(value.personal.recommendations.find(row => row.subjectOccurrenceId === first.subjectOccurrenceId).date, '2026-10-28');
-  assert.equal(session.readOwnCalendar, readOwnCalendar);
+  const target = { precision: 'interval', start: '2026-10-27T00:00:00Z', end: '2026-10-27T01:00:00Z' };
+  assert.deepEqual(await session.readOwnCalendar(target), { kind: 'conflict' }); assert.deepEqual(reviewed, [target]);
+  assert.deepEqual(await session.readOwnCalendar({ precision: 'date', date: '2026-10-27' }), { kind: 'unknown', reason: 'timeNotSpecified' });
+  assert.equal(reviewed.length, 1, 'untimed chores never start a time-conflict review');
   for (const text of ['opaque-private-source', 'private-generation', 'intervals', 'fetchedAt', 'binding']) assert.equal(JSON.stringify(value).includes(text), false, text);
 });
 

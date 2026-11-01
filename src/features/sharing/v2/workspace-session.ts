@@ -77,7 +77,12 @@ export async function createV2WorkspaceSession(deps: Omit<SharedSyncDependencies
   const controller = { ...baseController, readModel: async (...args: Parameters<typeof baseController.readModel>) => {
     if (archive().at(-1)?.body.ownerUserId === deps.userId && (!migrating || migration)) {
       catalogCheck ??= ensureV2CatalogCurrent(repository, makeId);
-      try { if (!await catalogCheck) catalogCheck = undefined; } catch (error) { catalogCheck = undefined; throw error; }
+      try { if (!await catalogCheck) catalogCheck = undefined; } catch (error) {
+        catalogCheck = undefined;
+        // A remembered transport permission failure blocks writes, not reading
+        // authenticated local history. The normal read still rechecks access.
+        if (!(error instanceof SharingAccessError)) throw error;
+      }
     }
     const model = await baseController.readModel(...args);
     return migration ? { ...model, legacyHistory: legacyCompletionHistory(migration) } : model;

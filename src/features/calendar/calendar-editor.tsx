@@ -77,7 +77,8 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const pull = useMemo(() => createCalendarGesture(), []);
   useLayoutEffect(() => { pull.update({ canStart: gesture => Platform.OS === 'android' && !lock.current && scrollTop.current <= 0 && gesture.dy > 18 && gesture.dy > Math.abs(gesture.dx) * 1.5,
     release: gesture => { if (gesture.dy > 85) close(); } }); });
-  const selectedCategory = local.snapshot.categories.find(row => row.id === value.categoryId);
+  const categoryOptions = local.categoriesFor?.(draft.audience ?? 'personal') ?? local.snapshot.categories;
+  const selectedCategory = categoryOptions.find(row => row.id === value.categoryId);
   const matches = value.title.trim() ? chores.filter(chore => chore.name.includes(value.title.trim()) || value.title.trim().includes(chore.name)).slice(0, 4) : [];
   const textKey = `${draft.scope}:${initial.eventId ?? 'new'}:${initial.anchorDate ?? ''}`;
   const openCustomRecurrence = () => void work(async () => {
@@ -137,7 +138,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
               <View style={styles.categoryValue}>{selectedCategory ? <View style={[styles.swatchSmall, { backgroundColor: selectedCategory.color }]} /> : null}<Text style={styles.value}>{selectedCategory?.name ?? '分類を選択'}</Text></View><Chevron direction={categoryOpen ? 'up' : 'down'} />
             </Pressable>
             {categoryOpen ? <View style={styles.categoryMenu}><ScrollView nestedScrollEnabled style={styles.categoryOptions} keyboardShouldPersistTaps="handled">
-              {local.snapshot.categories.map(category => <Pressable key={category.id} accessibilityRole="button" accessibilityLabel={`${category.name}の分類を選択`} accessibilityState={{ selected: category.id === value.categoryId }} disabled={busy || readOnly}
+              {categoryOptions.map(category => <Pressable key={category.id} accessibilityRole="button" accessibilityLabel={`${category.name}の分類を選択`} accessibilityState={{ selected: category.id === value.categoryId }} disabled={busy || readOnly}
                 style={[styles.categoryOption, category.id === value.categoryId && { backgroundColor: palette.accentSoft }]} onPress={() => { patch({ categoryId: category.id }); setCategoryOpen(false); }}>
                 <View style={[styles.swatchSmall, { backgroundColor: category.color }]} /><Text style={[styles.value, { flex: 1 }]}>{category.name}</Text>{category.id === value.categoryId ? <Text style={styles.action}>✓</Text> : null}</Pressable>)}
             </ScrollView><View style={styles.categoryActions}><AppButton title="分類を追加" variant="quiet" compact disabled={busy} onPress={() => { setCategoryOpen(false); setCategoryEdit({ revision: 0, name: '', color: CATEGORY_PRESETS[0] }); setCustom(false); }} />

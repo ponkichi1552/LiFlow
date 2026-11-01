@@ -84,12 +84,14 @@ export function combineCalendarConflicts(first: CalendarConflict, second: Calend
 export function combinePrivateCalendarAvailability(first: PrivateCalendarAvailability | undefined, second: PrivateCalendarAvailability | undefined): PrivateCalendarAvailability {
   if (!first) return second ?? (() => ({ conflict: { kind: 'unknown', reason: 'missing' }, busyMinutes: null }));
   if (!second) return first;
-  return target => {
+  const read: PrivateCalendarAvailability = target => {
     const a = first(target); const b = second(target);
     const exact = a.busyMinutes !== null && b.busyMinutes !== null && first.ranges && second.ranges
       ? mergeInstantRanges([...first.ranges(target), ...second.ranges(target)]).reduce((sum, part) => sum + (part.end - part.start) / 60_000, 0) : null;
     return { conflict: combineCalendarConflicts(a.conflict, b.conflict), busyMinutes: exact ?? (a.busyMinutes === null && b.busyMinutes === null ? null : Math.max(a.busyMinutes ?? 0, b.busyMinutes ?? 0)) };
   };
+  if (first.ranges && second.ranges) read.ranges = target => mergeInstantRanges([...first.ranges!(target), ...second.ranges!(target)]);
+  return read;
 }
 export function createPrivateCalendarAvailability(cache: PrivateBusyCache | null, expected: PrivateBusyBinding, now: number): (target: DateTarget) => PrivateCalendarReading {
   const unknown = (reason: Extract<CalendarConflict, { kind: 'unknown' }>['reason']) => () => ({ conflict: { kind: 'unknown' as const, reason }, busyMinutes: null });

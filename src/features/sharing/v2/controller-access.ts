@@ -7,7 +7,9 @@ export function guardV2GroupController(controller: V2GroupController, authorize:
     const input = captureV2Input(args);
     await authorize(true); return Reflect.apply(command, undefined, input);
   }])) as V2GroupController['actions'];
-  return { ...controller, actions, readModel: async (range, readOptions) => {
+  return { ...controller, actions, readCalendar: async () => {
+    await authorize(false); return controller.readCalendar();
+  }, readModel: async (range, readOptions) => {
     const input = typeof range === 'function' ? range : captureV2Input(range); const options = captureV2Input(readOptions);
     await authorize(false); return controller.readModel(input, options);
   } };

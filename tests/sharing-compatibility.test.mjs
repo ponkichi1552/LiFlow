@@ -96,7 +96,7 @@ test('personal recommendations have a separate version contract while formal sha
   assertPersonalSchedulerVersion(local, local);
   assert.throws(() => assertPersonalSchedulerVersion({ ...local, sourceSha256: 'a'.repeat(64) }, local), /without/);
   assert.throws(() => assertPersonalSchedulerVersion({ ...local, sourceFiles: [] }, local), /Invalid/);
-  assertPersonalSchedulerVersion({ ...local, version: 'liflow-personal-2', sourceSha256: 'a'.repeat(64) }, local);
+  assertPersonalSchedulerVersion({ ...local, version: `liflow-personal-${Number(local.version.split('-').at(-1)) + 1}`, sourceSha256: 'a'.repeat(64) }, local);
   for (const file of local.sourceFiles) assert.equal(common.sourceFiles.includes(file), false);
   const visited = assertPersonalPlannerIsolation(); assert.ok(visited.has('src/features/sharing/v2/common-plan.ts'));
   for (const statement of ["import { buildV2PersonalPlan } from './personal-plan';", "export * from './private-availability';", "const x = import('../../calendar/events');"]) {

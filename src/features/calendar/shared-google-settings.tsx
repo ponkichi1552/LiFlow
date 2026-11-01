@@ -32,13 +32,13 @@ export function SharedGoogleCalendarSettings({ runtime, onBack }: { runtime: Sha
     </Card>
     {review ? <Card><Text style={{ ...typography.label, color: palette.ink }}>追加先を選択</Text><Text style={{ ...typography.caption, color: palette.muted }}>{review.account.label}</Text>
       {review.calendars.map(calendar => <AppButton key={calendar.id} title={calendar.summary || 'カレンダー'} variant="secondary" disabled={busy}
-        onPress={() => void run(async () => { await runtime.connect(review, calendar.id); setReview(null); await runtime.synchronize({ force: true }); })} />)}
+        onPress={() => void run(async () => { await runtime.connect(review, calendar.id); setReview(null); await runtime.synchronize({ force: true, interactive: true }); })} />)}
       {!review.calendars.length ? <Text style={{ ...typography.caption, color: palette.muted }}>書き込み可能なカレンダーがありません。</Text> : null}
       <AppButton title="キャンセル" variant="quiet" disabled={busy} onPress={() => setReview(null)} />
     </Card> : null}
     {error || control?.error ? <Text accessibilityRole="alert" style={{ ...typography.body, color: palette.warning }}>{error ?? control?.error}</Text> : null}
     {control?.enabled && control.pending ? <Text style={{ ...typography.caption, color: palette.muted }}>未送信の変更があります。次の同期で続きを送ります。</Text> : null}
     {control?.enabled ? <><Text style={{ ...typography.caption, color: palette.muted }}>最終同期：{control.lastSyncAt ? new Date(control.lastSyncAt).toLocaleString('ja-JP') : 'まだ同期していません'}</Text>
-      <AppButton title="今すぐ追加・更新" disabled={busy} variant="secondary" onPress={() => void run(async () => { await runtime.synchronize({ force: true }); })} /></> : null}
+      <AppButton title="今すぐ追加・更新" disabled={busy} variant="secondary" onPress={() => void run(async () => { await runtime.synchronize({ force: true, interactive: true }); })} /></> : null}
   </Page>;
 }

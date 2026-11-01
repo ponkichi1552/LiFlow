@@ -94,6 +94,24 @@ export function readCurrentSharingWorkspace(database: SQLiteDatabase, userId: st
   });
 }
 
+/** Recover a pre-singleton display only after the caller verifies the account's live cloud membership. */
+export function adoptConfirmedSharingWorkspace(database: SQLiteDatabase, userId: string, previousGroupId: string, confirmedGroupId: string): Promise<SharingWorkspaceRecord> {
+  for (const id of [userId, previousGroupId, confirmedGroupId]) assertSharedIdentifier(id);
+  return serial(database, async () => {
+    let confirmed!: SharingWorkspaceRecord;
+    await database.withTransactionAsync(async () => {
+      const current = await database.getFirstAsync<{ group_id: string | null }>('SELECT group_id FROM sharing_current_workspace WHERE user_id=?', userId);
+      if (current?.group_id !== previousGroupId) throw new Error('所属状態が更新されています。再読込してください。');
+      const stored = await database.getFirstAsync<{ record_json: string }>('SELECT record_json FROM sharing_workspaces WHERE user_id=? AND group_id=?', userId, confirmedGroupId);
+      if (!stored) throw new Error('確認済みグループの端末内データがありません。');
+      confirmed = validate(JSON.parse(stored.record_json));
+      if (confirmed.userId !== userId || confirmed.groupId !== confirmedGroupId || confirmed.status !== 'active') throw new Error('確認済みの参加状態が必要です。');
+      await database.runAsync('UPDATE sharing_current_workspace SET group_id=? WHERE user_id=? AND group_id=?', confirmedGroupId, userId, previousGroupId);
+    });
+    return confirmed;
+  });
+}
+
 async function claimCurrentWorkspace(database: SQLiteDatabase, record: SharingWorkspaceRecord) {
   if (['left', 'removed'].includes(record.status)) return;
   await database.runAsync('INSERT OR IGNORE INTO sharing_current_workspace (user_id, group_id) VALUES (?, NULL)', record.userId);

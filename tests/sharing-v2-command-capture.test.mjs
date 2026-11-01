@@ -66,6 +66,20 @@ test('v2 native command still checks current authorization and cannot save captu
   } finally { wait.release(); d.connection.close(); }
 });
 
+test('v2 lightweight calendar reads wait for live workspace authorization and reject revoked access', async () => {
+  const f = await fixture(); const d = await f.device(); const wait = gate();
+  try {
+    await d.repository.commit(seeds()); let reads = 0; const original = controller(d);
+    const api = guardV2GroupController({ ...original, readCalendar: async () => { reads++; return original.readCalendar(); } }, async editing => {
+      assert.equal(editing, false); await wait.promise; throw new Error('access revoked');
+    });
+    const reading = api.readCalendar(); assert.equal(reads, 0); wait.release();
+    await assert.rejects(reading, /access revoked/u); assert.equal(reads, 0);
+    const allowed = guardV2GroupController(original, async editing => assert.equal(editing, false));
+    assert.equal((await allowed.readCalendar()).groupId, groupId);
+  } finally { wait.release(); d.connection.close(); }
+});
+
 test('v2 current-state builder output cannot change after it yields to a SQLite operation lookup', async () => {
   const f = await fixture(); const d = await f.device();
   try {

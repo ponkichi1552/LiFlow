@@ -4,6 +4,7 @@ import { AppState } from 'react-native';
 import { useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
 import { EMPTY_LOCAL_CALENDAR, readLocalCalendar, subscribeLocalCalendar } from '../../platform/storage/calendar-events';
 import type { CalendarEditorDraft, LocalCalendarSnapshot } from '../../platform/storage/calendar-events';
+import type { CalendarCategory } from '../../domain/calendar/events';
 import { retainCalendarInputs } from './observed-snapshot';
 
 const LocalCalendarContext = createContext<LocalCalendarBinding | null>(null);
@@ -60,6 +61,7 @@ export interface LocalCalendarBinding {
   shared?: { groupId: string; name: string; enabled: boolean };
   prepareDraft?: (draft: CalendarEditorDraft) => CalendarEditorDraft;
   canEditEvent?: (eventId: string) => boolean;
+  categoriesFor?: (audience: 'personal' | 'group') => readonly CalendarCategory[];
   saveEvent?: (draft: CalendarEditorDraft, resetExceptions: boolean) => Promise<void>;
   deleteEvent?: (draft: CalendarEditorDraft) => Promise<void>;
   persistDraft?: (draft: CalendarEditorDraft) => Promise<void>;

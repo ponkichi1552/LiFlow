@@ -7,6 +7,7 @@ import { newEventDraft } from '../src/features/calendar/events.ts';
 import { createLocalCalendarAvailability, localCalendarTargetRange } from '../src/features/calendar/private-availability.ts';
 import { combinePrivateCalendarAvailability, createIntervalCalendarAvailability } from '../src/features/sharing/v2/private-availability.ts';
 import { createV2ScreenSession } from '../src/features/sharing/v2-ui/screen-session.ts';
+import { readSharedCalendar } from '../src/features/sharing/v2/calendar-state.ts';
 const { initializeLocalDatabase } = await import('../src/platform/storage/repository.ts');
 const { readLocalCalendar, saveCalendarEvent, deleteCalendarEvent, subscribeLocalCalendar } = await import('../src/platform/storage/calendar-events.ts');
 const settings = { frequencyMode: 'balanced', restDays: [], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 3 } };
@@ -85,4 +86,26 @@ test('combined private calendar readers never double count or turn an unavailabl
   assert.equal(combinePrivateCalendarAvailability(exact(0, 180), exact(180, 360))(day('2026-10-27')).busyMinutes, 360, 'disjoint appointments are both counted');
   assert.equal(combinePrivateCalendarAvailability(exact(0, 180), exact(60, 240))(day('2026-10-27')).busyMinutes, 240, 'overlap is counted once');
   assert.equal(combinePrivateCalendarAvailability(exact(0, 180), exact(0, 180))(day('2026-10-27')).busyMinutes, 180, 'duplicate entries count once');
+  const triple = combinePrivateCalendarAvailability(combinePrivateCalendarAvailability(exact(0, 180), exact(180, 360)), exact(360, 540));
+  assert.equal(triple(day('2026-10-27')).busyMinutes, 540, 'a third calendar source retains exact union, including nested combinations');
+});
+
+test('shared general events move only local recommendations and fresh fixed-date reviews include exceptions without private disclosure', async () => {
+  const f = await sharedFixture({ preset: 'assigned', members: ['a'], before: 0 }); f.make('chore', { load: 'heavy' }, { entityId: 'floor' });
+  const records = () => readSharedCalendar(f.state().assessment.view);
+  const session = createV2ScreenSession({ groupId: f.plan().groupId, userId: 'a', now, readPreferences: () => ({ ownerUserId: 'a', settings }),
+    controller: { readModel: async () => ({ viewerUserId: 'a', plan: f.plan(), calendar: records() }),
+      readCalendar: async () => ({ groupId: f.plan().groupId, viewerUserId: 'a', timeZone: 'Asia/Tokyo', records: records() }) } });
+  const before = JSON.stringify(f.plan().occurrences);
+  const recommendation = async () => (await session.readModel()).personal.recommendations.find(row => row.occurrenceId === f.occurrence('2026-10-27'));
+  assert.equal((await recommendation()).date, '2026-10-27');
+  const event = f.make('calendarEvent', { eventId: 'shared.calendar', scope: 'series', anchorDate: null, basisOperationIds: [], resetExceptionIds: [],
+    value: draft({ recurrence: 'weekly' }), category: { id: 'personal', name: '共有', color: '#348DC2' } }, { actor: 'a', operationId: 'shared.calendar' });
+  assert.equal((await recommendation()).date, '2026-10-28');
+  const target = interval('2026-10-27T00:00:00Z', '2026-10-27T01:00:00Z');
+  assert.deepEqual(await session.readOwnCalendar(target), { kind: 'conflict' });
+  f.make('calendarEvent', { eventId: event.operationId, scope: 'one', anchorDate: '2026-10-27', basisOperationIds: [], resetExceptionIds: [], value: null, category: null }, { actor: 'a' });
+  assert.deepEqual(await session.readOwnCalendar(target), { kind: 'clear' }, 'review reads current records rather than the last screen cache');
+  assert.equal((await recommendation()).date, '2026-10-27'); assert.equal(JSON.stringify(f.plan().occurrences), before, 'shared formal dates and conditions remain unchanged');
+  assert.deepEqual(await session.readOwnCalendar({ precision: 'date', date: '2026-10-27' }), { kind: 'unknown', reason: 'timeNotSpecified' });
 });

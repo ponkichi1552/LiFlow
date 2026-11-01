@@ -1,5 +1,5 @@
 {
-  "version": "liflow-shared-2-draft-45",
+  "version": "liflow-shared-2-draft-46",
   "timeZoneVersion": "2026e",
   "sourceFiles": [
     "src/features/sharing/v2/model.ts",
@@ -97,5 +97,5 @@
     "src/domain/chores/catalog-v3.ts",
     "src/domain/chores/household-care-guide.ts"
   ],
-  "sourceSha256": "b1a7dec9875488c90cfefd2a0e347baa63d577fb7dca0f13381bfbc26bfee960"
+  "sourceSha256": "4d1be33cb9126b48d1c8fd0643cc568cb9a3cfc1e18ab313413cb6ca7a5161e3"
 }

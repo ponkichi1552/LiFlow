@@ -93,11 +93,13 @@ export function projectCalendarEvents(events: readonly CalendarEvent[], exceptio
   parseLocalDate(from); parseLocalDate(through);
   if (from > through || daysBetween(from, through) > 370) throw new Error('表示期間は1年以内にしてください。');
   const exceptional = new Map(exceptions.map(row => [`${row.eventId}:${row.anchorDate}`, row]));
+  const exceptionsByEvent = new Map<string, CalendarException[]>();
+  for (const row of exceptions) { const rows = exceptionsByEvent.get(row.eventId) ?? []; rows.push(row); exceptionsByEvent.set(row.eventId, rows); }
   const result: CalendarOccurrence[] = [];
   for (const event of events) {
     const dates = new Set(anchors(event, from, through));
     // A moved instance may enter this range from outside its original month.
-    for (const row of exceptions) if (row.eventId === event.id && row.override && row.override.startDate <= through && row.override.endDate >= from
+    for (const row of exceptionsByEvent.get(event.id) ?? []) if (row.override && row.override.startDate <= through && row.override.endDate >= from
       && anchors(event, row.anchorDate, row.anchorDate).includes(row.anchorDate)) dates.add(row.anchorDate);
     for (const anchorDate of dates) {
       const exception = exceptional.get(`${event.id}:${anchorDate}`); if (exception && !exception.override) continue;

@@ -94,7 +94,7 @@ export function PlannerDataProvider({ children, databaseOverride }: { children: 
       void refreshCachedApplianceLibrary(database).then(() => { if (live) refresh(); }).catch(() => { if (live) void controller.refresh({ force: true }); });
     });
     const unsubscribeSharing = shared ? subscribeSharingChanges((scope) => {
-      if (scope?.userId === shared.userId && scope.groupId === shared.groupId) refresh();
+      if (!scope?.statusOnly && scope?.userId === shared.userId && scope.groupId === shared.groupId) refresh();
     }) : () => {};
     const subscription = AppState.addEventListener('change', (next) => {
       if (next === 'active' && appState !== 'active') resume();

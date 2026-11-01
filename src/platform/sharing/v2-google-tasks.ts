@@ -12,8 +12,8 @@ export function createNativeV2GoogleTasks(input: { repository: ReturnType<typeof
   readPlanning?: (now: Date) => Promise<Pick<Awaited<ReturnType<typeof readV2LocalPlanning>>, 'revision' | 'personalize'>> }) {
   let local: Pick<Awaited<ReturnType<typeof readV2LocalPlanning>>, 'revision' | 'personalize'> | undefined;
   const store = createV2GoogleTaskStore({ ...input, makeId: randomUUID, now: () => new Date(),
-    planningRevision: () => local?.revision ?? 'unprepared', personalize: plan => {
-      if (!local) throw new Error('本人の予定を読み直してください。'); return local.personalize(plan);
+    planningRevision: () => local?.revision ?? 'unprepared', personalize: (plan, calendar) => {
+      if (!local) throw new Error('本人の予定を読み直してください。'); return local.personalize(plan, calendar);
     } });
   return createV2GoogleTaskRuntime({ ...input, store, currentSubject: getCurrentGoogleSubject,
     restoreAccount: restorePrivateGoogleCalendarAccount, authorizeTasks: authorizeGoogleTasks, token: getGoogleTasksAccessToken,
