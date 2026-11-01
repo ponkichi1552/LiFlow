@@ -86,7 +86,7 @@ test('v2 development fixture uses a fresh synthetic scope and real signed SQLite
     openDatabase: async (userId, groupId) => { opened = { userId, groupId }; return { database: h.database, close: async () => h.connection.close() }; } });
   try {
     assert.ok(opened.userId.startsWith('qa-v2-owner-')); assert.ok(opened.groupId.startsWith('qa-v2-')); assert.notEqual(opened.userId, 'owner');
-    let model = await preview.readModel(); assert.equal(model.plan.chores.length, 20); assert.equal(model.plan.chores.filter((chore) => chore.enabled).length, 3);
+    let model = await preview.readModel(); assert.equal(model.plan.chores.length, 46); assert.equal(model.plan.chores.filter((chore) => chore.enabled).length, 3);
     assert.equal(h.connection.prepare('SELECT count(*) AS n FROM sharing_v2_server_receipts').get().n, 0);
     const round = model.plan.occurrences.find((entry) => entry.anchorDate === model.plan.range.asOfDate && entry.configuration.policy.completion === 'one');
     const ref = { choreId: round.choreId, anchorDate: round.anchorDate, ruleVersion: round.ruleVersion, subjectUserId: null };
@@ -109,7 +109,7 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} v2 isolated round navigation records explicit past work in its original group and history instead of routing the ID into a personal chore`, async () => {
     const f = await screenFixture(platform);
     try {
-      await f.screen.press('フローリングを掃除するの説明を開く'); const [kind, occurrenceId, subjectId] = f.navigation.pop(); assert.equal(kind, 'round');
+      await f.screen.press('室内・床・家具の掃除の説明を開く'); const [kind, occurrenceId, subjectId] = f.navigation.pop(); assert.equal(kind, 'round');
       Object.assign(f.props, { view: 'round', occurrenceId, subjectId }); f.screen.render();
       assert.ok(f.screen.text().includes('実施を記録'));
       const choice = f.screen.nodes().find((node) => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === '以前実施した'); choice.props.onPress(); await f.screen.flush();
@@ -128,18 +128,18 @@ for (const platform of ['ios', 'android']) {
       const before = await f.preview.readModel(); instant = new Date('2026-10-27T15:01:00Z');
       f.leave(); const leave = f.focus();
       for (let i = 0; i < 25 && !f.screen.text().includes('10月28日'); i++) await f.screen.flush();
-      const after = await f.preview.readModel(); const floor = after.plan.chores.find((entry) => entry.name === 'フローリングを掃除する');
+      const after = await f.preview.readModel(); const floor = after.plan.chores.find((entry) => entry.id.endsWith('.builtin-chore-08'));
       const round = after.plan.occurrences.find((entry) => entry.choreId === floor.id && entry.anchorDate === '2026-10-27');
       assert.equal(round.subjects[0].suggestedDate, '2026-10-27');
       assert.equal(after.personal.recommendations.find((entry) => entry.occurrenceId === round.id).date, '2026-10-28');
-      assert.ok(f.screen.text().includes('フローリングを掃除する')); assert.equal(f.screen.text().includes('推奨日：'), false);
+      assert.ok(f.screen.text().includes('室内・床・家具の掃除')); assert.equal(f.screen.text().includes('推奨日：'), false);
       assert.equal(after.pendingChanges, before.pendingChanges); leave();
     } finally { f.leave(); await f.preview.close(); }
   });
   test(`${platform} v2 isolated native preview connects home, always-visible expired rounds, configuration navigation and targeted history undo to actual SQLite`, async () => {
     const f = await screenFixture(platform);
     try {
-      assert.ok(f.screen.text().includes('今日の家事')); assert.ok(f.screen.text().includes('フローリングを掃除する'));
+      assert.ok(f.screen.text().includes('今日の家事')); assert.ok(f.screen.text().includes('室内・床・家具の掃除'));
       assert.ok(f.screen.nodes().find((node) => node.type === 'FlatList').props.itemLayoutAnimation, 'shared Home must animate the virtualized cells');
       assert.equal(f.screen.nodes().filter((node) => node.props.accessibilityRole === 'checkbox').length, 3);
       assert.ok(f.screen.text().indexOf('期限を過ぎた家事') < f.screen.text().indexOf('今週'));
@@ -148,16 +148,16 @@ for (const platform of ['ios', 'android']) {
       let model = await f.preview.readModel(); const today = model.plan.range.asOfDate;
       const round = model.plan.occurrences.find((entry) => entry.anchorDate === today && entry.configuration.policy.completion === 'one');
       assert.deepEqual(round.assigneeIds, [f.preview.userId]);
-      const checkbox = f.screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === 'フローリングを掃除するを完了');
+      const checkbox = f.screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '室内・床・家具の掃除を完了');
       await checkbox.props.onPress(); await f.screen.flush(); model = await f.preview.readModel();
       assert.equal(model.plan.history.length, 1); assert.equal(model.plan.history[0].active, true);
       assert.equal(model.plan.occurrences.find((entry) => entry.id === round.id).completed, true);
       await f.screen.press('直前の完了を元に戻す'); model = await f.preview.readModel();
       assert.equal(model.plan.history.filter(entry => entry.active).length, 0);
-      const again = f.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === 'フローリングを掃除するを完了');
+      const again = f.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '室内・床・家具の掃除を完了');
       await again.props.onPress(); await f.screen.flush(); model = await f.preview.readModel();
       assert.equal(model.plan.history.filter(entry => entry.active).length, 1);
-      await f.screen.press('「フローリングを掃除する」の設定'); assert.deepEqual(f.navigation.pop(), ['configuration', round.choreId]);
+      await f.screen.press('「室内・床・家具の掃除」の設定'); assert.deepEqual(f.navigation.pop(), ['configuration', round.choreId]);
       await f.screen.press('実施履歴'); assert.deepEqual(f.navigation.pop(), ['history']);
       f.props.view = 'history'; f.screen.render(); assert.ok(f.screen.text().includes('実施済み')); await f.screen.press('この完了を取り消す');
       model = await f.preview.readModel(); assert.equal(model.plan.history[0].active, false); assert.ok(f.screen.text().includes('取消済み'));

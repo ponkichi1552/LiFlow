@@ -53,14 +53,17 @@ test('legacy repair retains an already displayed first occurrence rather than mo
 });
 
 for (const frequencyMode of ['frequent', 'balanced', 'relaxed']) {
-  test(`all 20 built-in chores can be enabled and have their cycle edited from unknown/disabled (${frequencyMode})`, async () => {
+  test(`all 46 built-in chores can be enabled and have their cycle edited from unknown/disabled (${frequencyMode})`, async () => {
     const h = createDatabase();
     try {
       let snapshot = await setupDisabled(h.database);
       const builtIn = snapshot.chores.filter((item) => !item.archived);
-      assert.equal(builtIn.length, 20);
+      assert.equal(builtIn.length, 46);
       await repository.updatePlannerSettings(h.database, { frequencyMode, restDays: [6, 7], heavyDailyLimit: 1, normalDailyLimit: 2 });
-      for (const chore of builtIn) await repository.setChoreEnabled(h.database, chore.id, true);
+      for (const chore of builtIn) {
+        if (chore.requiresCycleSelection) await repository.updateChoreSettings(h.database, chore.id, { cycleDays: 17 });
+        await repository.setChoreEnabled(h.database, chore.id, true);
+      }
       snapshot = await repository.loadPlannerSnapshot(h.database, today);
       const firstDates = new Map(snapshot.states.map((state) => [state.choreId, state.initialScheduledDate]));
       for (const chore of builtIn) {
@@ -69,7 +72,7 @@ for (const frequencyMode of ['frequent', 'balanced', 'relaxed']) {
         const initialDate = firstDates.get(chore.id);
         assert.equal(selectDateTasks(snapshot.scheduleEntries, snapshot.completions, initialDate, 0, snapshot.chores)
           .filter((task) => task.choreId === chore.id).length, 1, chore.name);
-        await repository.updateChoreDefinition(h.database, { ...chore, enabled: true, recommendedCycleDays: 17, windowRadiusDays: 0, maxShiftDays: 0 });
+        await repository.updateChoreDefinition(h.database, { ...chore, enabled: true, requiresCycleSelection: false, recommendedCycleDays: 17, windowRadiusDays: 0, maxShiftDays: 0 });
       }
       snapshot = await repository.loadPlannerSnapshot(h.database, today);
       for (const chore of builtIn) {

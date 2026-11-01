@@ -15,7 +15,7 @@ async function setup(database) {
     frequencyMode: 'balanced', restDays: [], enabledChoreIds: [chore.id],
     previousDates: { [chore.id]: { date: '2026-10-01' } }, weatherLocation: null,
   });
-  return chore;
+  return { ...chore, enabled: true };
 }
 
 test('unchanged planner refreshes do not rewrite seed data or generated schedule rows', async () => {

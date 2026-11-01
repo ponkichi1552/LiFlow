@@ -106,7 +106,7 @@ function ChoreSettingsContent({
           <View style={styles.settingCopy}>
             <Text style={styles.settingTitle}>周期</Text>
             <Text style={styles.body}>
-              {chore.applianceCareSource && chore.manufacturerRecommendedIntervalDays === undefined
+              {chore.requiresCycleSelection ? '固定の周期は未設定です。実施条件に合わせて入力してください。' : chore.applianceCareSource && chore.manufacturerRecommendedIntervalDays === undefined
                 ? 'メーカー指定なし。周期を入力するまでは予定に追加されません。'
                 : chore.manufacturerRecommendedIntervalDays !== undefined
                   ? `メーカー推奨：${chore.manufacturerRecommendedIntervalDays}日${(chore.userIntervalDays ?? chore.recommendedCycleDays) !== undefined && (chore.userIntervalDays ?? chore.recommendedCycleDays) !== chore.manufacturerRecommendedIntervalDays ? ` · あなたの設定：${chore.userIntervalDays ?? chore.recommendedCycleDays}日` : ''}`
@@ -144,7 +144,7 @@ function ChoreSettingsContent({
           <Switch value={holidayPriority} accessibilityLabel="休日を優先" onValueChange={autosave.changeHoliday} />
         </View>
 
-        {chore.category === '洗濯' ? (
+        {chore.category === '洗濯' || chore.laundryDryingPreference !== undefined ? (
           <View style={styles.settingBlock}>
             <SectionHeading title="洗濯" level="subsection" />
             <Text style={styles.settingTitle}>基本の干し方</Text>

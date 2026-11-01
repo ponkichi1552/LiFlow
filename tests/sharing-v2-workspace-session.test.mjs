@@ -27,13 +27,13 @@ test('v2 workspace creation restores one disabled catalog and explicit family or
     try {
       const session = await createV2WorkspaceSession({ ...f.options, creationKind: kind });
       const model = await session.controller.readModel({ from: '2026-10-27', through: '2026-11-10', asOfDate: '2026-10-27' });
-      assert.equal(model.plan.policy.kind, kind); assert.equal(model.plan.chores.length, 20);
+      assert.equal(model.plan.policy.kind, kind); assert.equal(model.plan.chores.length, 46);
       assert.ok(model.plan.chores.every((chore) => !chore.enabled)); assert.equal(model.plan.occurrences.length, 0);
-      const before = await loadSharedFacts(f.database, 'v2-session'); assert.equal(before.length, 23);
+      const before = await loadSharedFacts(f.database, 'v2-session'); assert.equal(before.length, 49);
       assert.ok(before.every((fact) => fact.operation.schemaVersion === 2 && fact.authorSignature));
       await createV2WorkspaceSession({ ...f.options, creationKind: kind, now: () => Date.parse('2026-10-28T01:00:00Z') });
       assert.deepEqual(await loadSharedFacts(f.database, 'v2-session'), before);
-      assert.equal((await listSharingOutbox(f.database, 'v2-session')).length, 23);
+      assert.equal((await listSharingOutbox(f.database, 'v2-session')).length, 49);
       assert.equal(f.connection.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
     } finally { f.connection.close(); }
   }
@@ -78,7 +78,7 @@ test('v2 workspace reads and edits stop after an account change while committed 
     await assert.rejects(session.repository.commit([{ operationId: 'never-saved', entityType: 'chore', entityId: 'new', operationType: 'patch', payload: { name: '変更' } }]), /account changed/u);
     await assert.rejects(async () => session.synchronizer.verifyMembership(f.record.anchor), /account changed/u);
     assert.deepEqual(await loadSharedFacts(f.database, 'v2-session'), before);
-    assert.equal((await listSharingOutbox(f.database, 'v2-session')).length, 23);
+    assert.equal((await listSharingOutbox(f.database, 'v2-session')).length, 49);
   } finally { f.connection.close(); }
 });
 test('an empty authenticated commit does not announce another local edit or schedule an endless synchronization loop', async () => {
@@ -87,7 +87,7 @@ test('an empty authenticated commit does not announce another local edit or sche
     const session = await createV2WorkspaceSession(f.options); const notifications = f.commits();
     assert.deepEqual(await session.repository.commitCurrent(async () => []), []);
     assert.equal(f.commits(), notifications);
-    assert.equal((await listSharingOutbox(f.database, 'v2-session')).length, 23);
+    assert.equal((await listSharingOutbox(f.database, 'v2-session')).length, 49);
   } finally { f.connection.close(); }
 });
 test('a mistakenly supplied personal database is rejected without changing any existing table or row', async () => {

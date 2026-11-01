@@ -34,10 +34,10 @@ export async function createV2DevelopmentPreview(input: {
     await repository.commit(v2GroupBootstrap({ groupId, ownerUserId: userId, ownerDisplayName: '検査ユーザー', name: '開発用・端末内プレビュー',
       timeZone: 'Asia/Tokyo', anchorDate: today, kind: 'family' }));
     const plan = await controller.actions.readPlan({ from: today, through: today, asOfDate: today });
-    for (const [name, preset, anchorDate, intervalDays] of [
-      ['フローリングを掃除する', 'common', today, 7], ['部屋のほこりを取る', 'eachMember', today, 7], ['浴室全体を掃除する', 'common', addDays(today, -7), 30],
+    for (const [id, preset, anchorDate, intervalDays] of [
+      ['builtin-chore-08', 'common', today, 7], ['builtin-chore-14', 'eachMember', today, 7], ['builtin-chore-01', 'common', addDays(today, -7), 30],
     ] as const) {
-      const chore = plan.chores.find((entry) => entry.name === name); if (!chore) throw new Error('開発用の家事を準備できませんでした。');
+      const chore = plan.chores.find((entry) => entry.id === `${groupId}.${id}`); if (!chore) throw new Error('開発用の家事を準備できませんでした。');
       await controller.actions.configureChore(chore.id, { policy: chorePolicyFromPreset(preset), anchorDate, intervalDays,
         windowBeforeDays: 2, windowAfterDays: 2, effectiveFrom: anchorDate, active: true });
     }
@@ -50,7 +50,7 @@ export async function createV2DevelopmentPreview(input: {
       const { initializeLocalDatabase, loadPlannerSnapshot, completeFirstSetup, updateChoreDefinition,
         readPersonalPlannerOverlaySnapshot, setPersonalDateTaskCompleted } = await import('../../../platform/storage/repository.ts');
       const privateDatabase = privateOpened.database; await initializeLocalDatabase(privateDatabase);
-      const initial = await loadPlannerSnapshot(privateDatabase); const chore = initial.chores.find((entry) => entry.name === 'フローリングを掃除する');
+      const initial = await loadPlannerSnapshot(privateDatabase); const chore = initial.chores.find((entry) => entry.id === 'builtin-chore-08');
       if (!chore) throw new Error('検査用の個人家事を準備できませんでした。');
       await updateChoreDefinition(privateDatabase, { ...chore, name: '検査用の個人家事', description: '本人だけが見られる検査用の手順です。' });
       await completeFirstSetup(privateDatabase, { frequencyMode: 'balanced', restDays: [], enabledChoreIds: [chore.id],

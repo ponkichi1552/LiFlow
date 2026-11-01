@@ -8,6 +8,7 @@ export function prepareStartupDisplay(native: NonNullable<typeof splash>) {
 /** Reveal a laid-out usable surface directly; no intermediate loading card or added animation delay. */
 export function finishStartupDisplay() {
   if (finishing || !splash) return; finishing = true;
-  const hide = () => { void splash!.hideAsync().catch(() => { finishing = false; }); };
-  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(hide); else hide();
+  // The native splash may suppress drawing (including animation frames). The ready
+  // surface's layout already ran; waiting for another frame can prevent hiding forever.
+  void splash.hideAsync().catch(() => { finishing = false; });
 }

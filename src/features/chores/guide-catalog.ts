@@ -1,5 +1,6 @@
 import type { ChoreDefinition } from '../../domain/chores/types';
 import { commonChoreLinks } from '../planner/common-chore-links.ts';
+import { canonicalBuiltInChoreName } from '../../domain/chores/catalog.ts';
 
 /** Presentation only: keep both original definitions and their independent settings intact. */
 export function unifiedGuideCatalog(shared: readonly ChoreDefinition[], personal: readonly ChoreDefinition[]) {
@@ -18,6 +19,6 @@ export function guideCatalogSelection(chores: readonly ChoreDefinition[], source
   if (!original) return undefined;
   const direct = `${source}:${original.id}`;
   if (chores.some(chore => chore.id === direct)) return direct;
-  const matches = chores.filter(chore => chore.name.normalize('NFKC').trim() === original.name.normalize('NFKC').trim());
+  const matches = chores.filter(chore => canonicalBuiltInChoreName(chore.name) === canonicalBuiltInChoreName(original.name));
   return matches.length === 1 ? matches[0].id : undefined;
 }

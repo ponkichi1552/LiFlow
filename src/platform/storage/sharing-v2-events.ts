@@ -55,6 +55,8 @@ async function initializeV2EventStoreImpl(database: SQLiteDatabase, scope: V2Sto
       household_id TEXT NOT NULL, schema_version INTEGER NOT NULL CHECK(schema_version=2));`);
     await transaction.runAsync('INSERT OR IGNORE INTO sharing_v2_binding VALUES (1, ?, ?, ?, 2)', scope.userId, scope.groupId, scope.householdId);
     await assertV2Binding(transaction, scope);
+    await transaction.execAsync(`CREATE TABLE IF NOT EXISTS sharing_v2_catalog_state (
+      singleton INTEGER PRIMARY KEY CHECK(singleton=1), catalog_version INTEGER NOT NULL);`);
     await transaction.execAsync(`CREATE TABLE IF NOT EXISTS sharing_v2_projection (
       singleton INTEGER PRIMARY KEY CHECK(singleton=1), fact_hash TEXT NOT NULL, accepted_ids_json TEXT NOT NULL,
       rejected_json TEXT NOT NULL, pending_ids_json TEXT NOT NULL, provisional_ids_json TEXT NOT NULL DEFAULT '[]');`);

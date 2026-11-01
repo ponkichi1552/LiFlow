@@ -37,14 +37,14 @@ test('shared projection refuses personal data conversion and another account or 
     await assert.rejects(initializeSharedProjection(h.database, { ...scope, userId: 'outsider' }), /一致/);
     await assert.rejects(initializeSharedProjection(h.database, { ...scope, groupId: 'other' }), /一致/);
     await assert.rejects(ensureLocalHousehold(h.database), /共有/);
-    assert.equal(h.connection.prepare('SELECT COUNT(*) AS n FROM chore_definitions').get().n, 20);
+    assert.equal(h.connection.prepare('SELECT COUNT(*) AS n FROM chore_definitions').get().n, 46);
   } finally { h.connection.close(); }
 });
 
 test('shared edits and derived cache commit atomically, preserve private fields and avoid duplicate writes', async () => {
   const h = await fixture();
   try {
-    assert.equal((await listSharingOutbox(h.database, scope.groupId)).length, 42);
+    assert.equal((await listSharingOutbox(h.database, scope.groupId)).length, 94);
     await h.database.runAsync('UPDATE household_settings SET notification_hour=7, notifications_enabled=1');
     await h.edit([h.patch('chore', choreId, { enabled: true, recommendedCycleDays: 17 }),
       h.patch('baseline', choreId, { initialPending: true, initialScheduledDate: '2026-10-27' })]);
@@ -59,7 +59,7 @@ test('shared edits and derived cache commit atomically, preserve private fields 
     } }), /interrupted/);
     replica = await h.replica(); snapshot = h.snapshot(replica);
     assert.equal(snapshot.chores.find((chore) => chore.id === choreId).recommendedCycleDays, 17);
-    assert.equal((await listSharingOutbox(h.database, scope.groupId)).length, 44);
+    assert.equal((await listSharingOutbox(h.database, scope.groupId)).length, 96);
   } finally { h.connection.close(); }
 });
 

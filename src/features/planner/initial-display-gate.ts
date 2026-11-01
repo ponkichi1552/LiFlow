@@ -16,3 +16,22 @@ export function createInitialDisplayGate<Scope extends object>() {
     },
   };
 }
+
+/** Give cached content a frame to paint without making session restoration depend on a visible surface. */
+export function waitForInitialFrame(): Promise<void> {
+  if (typeof requestAnimationFrame !== 'function') return new Promise(resolve => setTimeout(resolve, 0));
+  return new Promise(resolve => {
+    let finished = false; let frame: number | undefined; let afterFrame: ReturnType<typeof setTimeout> | undefined;
+    const finish = () => {
+      if (finished) return;
+      finished = true; clearTimeout(deadline); clearTimeout(afterFrame);
+      if (frame !== undefined && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(frame);
+      resolve();
+    };
+    // A cold deep link may have no cached screen capable of dismissing the native splash yet.
+    const deadline = setTimeout(finish, 50);
+    frame = requestAnimationFrame(() => {
+      if (!finished) frame = requestAnimationFrame(() => { if (!finished) afterFrame = setTimeout(finish, 0); });
+    });
+  });
+}

@@ -13,6 +13,7 @@ import { restoreLegacyMigrationSourceFromSnapshot, verifiedLegacyMigrationPin } 
 import type { VerifiedLegacyMigration } from './legacy-migration-source.ts';
 import type { VerifiedSharedSnapshot } from '../snapshots.ts';
 import { legacyCompletionHistory } from './legacy-history.ts';
+import { ensureV2CatalogCurrent } from './catalog-update.ts';
 
 export class V2WorkspaceMigrationRequiredError extends Error {
   readonly code = 'sharing/v2-migration-required';
@@ -72,7 +73,12 @@ export async function createV2WorkspaceSession(deps: Omit<SharedSyncDependencies
   const manager = createSharedGroupManager({ ...transport, project: repository.project, sync: synchronizer.sync,
     verifyMembership: synchronizer.verifyMembership, makeId, markLeft: async () => { assertCurrentAccount(); await markLeft(); assertCurrentAccount(); } });
   const baseController = createV2GroupController(repository, { makeId, now: () => new Date((deps.now ?? Date.now)()), sync: () => synchronizer.sync({ force: true }) });
+  let catalogCheck: Promise<boolean> | undefined;
   const controller = { ...baseController, readModel: async (...args: Parameters<typeof baseController.readModel>) => {
+    if (archive().at(-1)?.body.ownerUserId === deps.userId && (!migrating || migration)) {
+      catalogCheck ??= ensureV2CatalogCurrent(repository, makeId);
+      try { if (!await catalogCheck) catalogCheck = undefined; } catch (error) { catalogCheck = undefined; throw error; }
+    }
     const model = await baseController.readModel(...args);
     return migration ? { ...model, legacyHistory: legacyCompletionHistory(migration) } : model;
   } };

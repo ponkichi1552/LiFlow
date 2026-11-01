@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createInitialDisplayGate } from '../src/features/planner/initial-display-gate.ts';
+import { createInitialDisplayGate, waitForInitialFrame } from '../src/features/planner/initial-display-gate.ts';
 import { createWorkspaceDisplayStore } from '../src/features/sharing/v2-ui/workspace-display-store.ts';
 
 // A group binding is an object owned by the current authenticated session, not a saved group ID.
@@ -30,4 +30,29 @@ test('the home does not wait for an idle calendar prefetch and prepared months r
   for (let i = 0; i < 10 && !release; i++) await Promise.resolve(); assert.equal(typeof release, 'function');
   assert.equal((await store.read({ waste: true })).model, home.model);
   release(); await calendar; await store.read({ calendarMonth: 'current' }); assert.equal(options.length, 2);
+});
+
+test('a cold deep link without native animation frames still releases local workspace restoration', async () => {
+  const previous = globalThis.requestAnimationFrame, cancel = globalThis.cancelAnimationFrame;
+  const pending = new Map(); let ordinal = 0;
+  globalThis.requestAnimationFrame = callback => { pending.set(++ordinal, callback); return ordinal; };
+  globalThis.cancelAnimationFrame = id => pending.delete(id);
+  let watchdog;
+  try {
+    await Promise.race([waitForInitialFrame(), new Promise((_, reject) => { watchdog = setTimeout(() => reject(new Error('local restoration waited indefinitely for a frame behind the splash')), 500); })]);
+    assert.equal(pending.size, 0);
+  } finally { clearTimeout(watchdog); globalThis.requestAnimationFrame = previous; globalThis.cancelAnimationFrame = cancel; }
+});
+
+test('a visible cached screen gets its normal frame opportunity before restoration proceeds', async () => {
+  const previous = globalThis.requestAnimationFrame, cancel = globalThis.cancelAnimationFrame;
+  const pending = new Map(); let ordinal = 0; let done = false;
+  globalThis.requestAnimationFrame = callback => { pending.set(++ordinal, callback); return ordinal; };
+  globalThis.cancelAnimationFrame = id => pending.delete(id);
+  const advance = () => { const [id, callback] = pending.entries().next().value; pending.delete(id); callback(0); };
+  try {
+    const value = waitForInitialFrame().then(() => { done = true; });
+    advance(); await Promise.resolve(); assert.equal(done, false);
+    advance(); await value; assert.equal(done, true); assert.equal(pending.size, 0);
+  } finally { globalThis.requestAnimationFrame = previous; globalThis.cancelAnimationFrame = cancel; }
 });

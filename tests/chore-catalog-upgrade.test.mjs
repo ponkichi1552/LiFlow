@@ -1,7 +1,7 @@
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-const { createHouseholdChoreDefinitions } = await import('../src/domain/chores/catalog.ts');
+const { createLegacyHouseholdChoreDefinitionsV3: createHouseholdChoreDefinitions } = await import('../src/domain/chores/catalog-v3.ts');
 const { upgradeBuiltInScheduleDefaults } = await import('../src/domain/chores/catalog-upgrade.ts');
 
 const expected = [
@@ -11,7 +11,7 @@ const expected = [
   ['light',1,1,1,0], ['light',3,7,14,2], ['light',3,7,14,2], ['light',1,1,1,0],
   ['normal',14,30,60,7], ['normal',14,30,60,7], ['light',30,60,90,14], ['normal',30,60,90,14],
 ];
-test('all 20 catalog schedules match the supplied table and exactly four defaults are daily', () => {
+test('the frozen version 3 catalog retains its 20 historical schedules for safe migrations', () => {
   const chores = createHouseholdChoreDefinitions('home');
   assert.deepEqual(chores.map((chore) => [chore.load, ...['frequent','balanced','relaxed'].map((mode) => chore.frequencyDaysByMode[mode]), chore.windowRadiusDays]), expected);
   assert.deepEqual(chores.flatMap((chore,index) => chore.everyday ? [index+1] : []), [11,12,13,16]);

@@ -7,6 +7,7 @@ import type { ChoreDefinition } from '../domain/chores/types';
 import { groupChores } from '../domain/chores/chore-groups';
 import { BackButton, navigationHeaderMetrics, palette, typography } from './planner-ui';
 import { ChoreCategoryRail } from './chore-category-rail';
+import { finishStartupDisplay } from '../platform/diagnostics/startup-splash';
 
 /** A continuous, virtualized document. The header and category rail never scroll away. */
 export function ChoreBook({ chores, selectedId, renderChore, onBack, header, title, titleAccessory, hasTabBar = false, banner }: {
@@ -59,7 +60,7 @@ export function ChoreBook({ chores, selectedId, renderChore, onBack, header, tit
     if (first?.id === target.current) { target.current = null; clearTimeout(timer.current); }
     if (first && !scrubbing.current) { setCategory(first.category); setVisibleId(first.id); }
   }, []);
-  return <SafeAreaView style={styles.safe} edges={['top']}>
+  return <SafeAreaView style={styles.safe} edges={['top']} onLayout={finishStartupDisplay}>
     {banner}
     <View style={styles.captionBar}>
       <View style={styles.captionTop}><BackButton onPress={onBack} /><View style={styles.captionCopy}>

@@ -46,7 +46,7 @@ export interface ChoreDefinition {
   manufacturerRecommendedIntervalDays?: number;
   /** Conditions stated by the manufacturer when no fixed cycle is specified. */
   manufacturerRecommendedConditions?: string[];
-  /** True when the manufacturer gave no interval and the user has not selected one. */
+  /** No fixed cadence was supplied (product, usage, season or municipal conditions), and none was chosen by the user. */
   requiresCycleSelection?: boolean;
   frequencyDaysByMode: Record<FrequencyMode, number>;
   /** Explains provisional or condition-based intervals in the current recurring model. */

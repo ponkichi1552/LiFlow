@@ -10,6 +10,7 @@ export function ChoreGuide({ chore, mode, procedureAction }: { chore: ChoreDefin
     <>
       <ScreenHeading title={chore.name} />
       <ChoreMeta chore={chore} mode={mode} />
+      {chore.schedulingNotes ? <Text style={styles.notes}>{chore.schedulingNotes}</Text> : null}
       {chore.description ? <Text style={styles.body}>{chore.description}</Text> : null}
       <Card>
         <SectionHeading title="家事の手順" trailing={procedureAction} />
@@ -51,6 +52,7 @@ export function ChoreGuide({ chore, mode, procedureAction }: { chore: ChoreDefin
 }
 
 const styles = StyleSheet.create({
+  notes: { ...typography.caption, color: palette.muted },
   body: { ...typography.body, color: palette.ink }, procedureSection: { gap: 10 },
   procedureTitle: { ...typography.subheading, color: palette.ink, fontWeight: '700' },
   toolList: { gap: 6 }, toolText: { ...typography.body, color: palette.ink },

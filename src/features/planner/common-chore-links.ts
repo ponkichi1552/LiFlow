@@ -1,6 +1,7 @@
 import type { ChoreCompletion, ChoreDefinition } from '../../domain/chores/types';
+import { canonicalBuiltInChoreName } from '../../domain/chores/catalog.ts';
 
-const nameKey = (name: string) => name.normalize('NFKC').trim();
+const nameKey = canonicalBuiltInChoreName;
 export interface CommonChoreLink { sharedChoreId: string; personalChoreId: string }
 
 /** Group definitions govern the common row; the original personal definition is never rewritten. */

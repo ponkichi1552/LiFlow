@@ -44,7 +44,7 @@ test('a separate shared workspace starts with 20 disabled built-ins and never im
   const ops = fixture(); const snapshot = plan(ops, { privateSettings: { frequencyMode: 'relaxed', restDays: [],
     heavyDailyLimit: 99, weatherLocation: { latitude: 0, longitude: 0, displayName: '個人用', region: 'private' },
     notificationHour: 7, calendarCountDisplayMode: 'dots' } });
-  assert.equal(snapshot.chores.length, 20); assert.ok(snapshot.chores.every((chore) => !chore.enabled && chore.id.startsWith('group-test.')));
+  assert.equal(snapshot.chores.length, 46); assert.ok(snapshot.chores.every((chore) => !chore.enabled && chore.id.startsWith('group-test.')));
   assert.equal(snapshot.scheduleEntries.length, 0); assert.equal(snapshot.settings.frequencyMode, 'balanced');
   assert.equal(snapshot.settings.notificationHour, 7); assert.equal(snapshot.settings.calendarCountDisplayMode, 'dots');
   assert.equal(snapshot.settings.weatherLocation, undefined); assert.equal(snapshot.externalAvailabilityByDate, undefined);
@@ -67,7 +67,7 @@ test('unknown disabled shared chores activate from a canonical date and retain o
   assert.equal(snapshot.completions[0].outcome, 'incomplete'); assert.equal(snapshot.scheduleEntries[0].id, first.id);
   snapshot = edit({ entityType: 'chore', entityId: id, operationType: 'delete', payload: {} });
   assert.equal(snapshot.scheduleEntries.length, 0); assert.ok(snapshot.chores.find((chore) => chore.id === id).archived);
-  assert.equal(snapshot.completions.length, 1); assert.equal(snapshot.chores.find((chore) => chore.id === id).name, 'フローリングを掃除する');
+  assert.equal(snapshot.completions.length, 1); assert.equal(snapshot.chores.find((chore) => chore.id === id).name, '室内・床・家具の掃除');
 });
 
 test('shared planning is identical across device timezones, arrival orders and private Calendar/weather input', () => {
@@ -184,9 +184,9 @@ test('shared batch edits roll back together, project once and allocate consecuti
     await assert.rejects(createLocalSharedOperations(h.database, author, sharedGroupBootstrap(options), async () => { throw new Error('projection'); }), /projection/);
     assert.equal((await listSharingOutbox(h.database, 'group-test')).length, 0);
     const saved = await createLocalSharedOperations(h.database, author, sharedGroupBootstrap(options), async () => { projections++; });
-    assert.equal(saved.length, 42); assert.equal(projections, 1); assert.equal(saved.at(-1).deviceSequence, 42);
+    assert.equal(saved.length, 94); assert.equal(projections, 1); assert.equal(saved.at(-1).deviceSequence, 94);
     assert.equal((await loadSharedReplica(h.database, 'group-test')).pendingOperationIds.length, 0);
-    assert.equal((await listSharingOutbox(h.database, 'group-test')).length, 42);
+    assert.equal((await listSharingOutbox(h.database, 'group-test')).length, 94);
   } finally { h.connection.close(); }
 });
 

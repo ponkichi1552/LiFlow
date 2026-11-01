@@ -7,13 +7,14 @@ import { AppButton, BackButton, palette, typography } from '../../../components/
 import type { PlannerSnapshot } from '../../../platform/storage/repository';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import { unifiedGuideCatalog } from '../../chores/guide-catalog';
-import { normalizeChoreName } from '../../chores/chore-library';
+import { canonicalBuiltInChoreName } from '../../../domain/chores/catalog';
 import type { ChoreDefinition } from '../../../domain/chores/types';
 import { ChoreGuide } from '../../chores/chore-guide';
 import { ChorePlanToggle } from '../../chores/chore-plan-toggle';
 import { setChoresEnabled } from '../../../platform/storage/repository';
 import type { V2MutationOutcome } from './mutation-outcome';
 import { GuideChapterActions } from '../../chores/guide-chapter-actions';
+import { router } from 'expo-router';
 
 export interface PersonalGuideSource { snapshot: PlannerSnapshot; database: SQLiteDatabase; refresh: () => Promise<unknown>; readError?: () => string | null }
 export function v2GuideChores(model: V2GroupScreenModel, personal?: PersonalGuideSource) {
@@ -37,7 +38,7 @@ export function V2ChoreBook({ model, personal, selectedId, source = 'shared', on
       onPress={() => {
         if (selection.source === audience) return;
         const candidates = audience === 'personal' ? individuals : shared;
-        const matching = visible ? candidates.filter(chore => normalizeChoreName(chore.name) === normalizeChoreName(visible.name)) : [];
+        const matching = visible ? candidates.filter(chore => canonicalBuiltInChoreName(chore.name) === canonicalBuiltInChoreName(visible.name)) : [];
         setSelection({ source: audience, id: matching.length === 1 ? matching[0].id : candidates.find(chore => chore.category === visible?.category)?.id ?? candidates[0]?.id });
       }} style={styles.audience}>
       <View aria-hidden style={[styles.audienceIcon, selection.source === audience && styles.selected]}>{audience === 'personal' ? <PersonIcon size={16} /> : <GroupIcon size={20} />}</View>
@@ -53,7 +54,9 @@ export function V2ChoreBook({ model, personal, selectedId, source = 'shared', on
       const round = model.plan.occurrences.find(row => row.choreId === id && row.subjects.some(subject => subject.subjectUserId === null || subject.subjectUserId === model.viewerUserId));
       const subject = round?.subjects.find(row => row.subjectUserId === null || row.subjectUserId === model.viewerUserId);
       return <View style={{ gap: 12 }}><ChoreGuide chore={display} mode={isPersonal ? personal!.snapshot.settings.frequencyMode : 'balanced'} procedureAction={<ChorePlanToggle name={chore.name} enabled={chore.enabled}
-          readOnly={!isPersonal && model.viewerUserId !== model.adminUserId} retryRead={async () => { if (isPersonal) { await personal!.refresh(); return !personal!.readError?.(); } return (await perform(async () => {})).refreshed; }} save={async enabled => {
+          readOnly={!isPersonal && model.viewerUserId !== model.adminUserId} requiresCycleSelection={isPersonal ? chore.requiresCycleSelection : !configuration}
+          onConfigure={() => { if (isPersonal) router.push({ pathname: '/chores/[id]', params: { id, source: 'personal' } }); else onConfiguration(id); }}
+          retryRead={async () => { if (isPersonal) { await personal!.refresh(); return !personal!.readError?.(); } return (await perform(async () => {})).refreshed; }} save={async enabled => {
             if (isPersonal) { await setChoresEnabled(personal!.database, [id], enabled); await personal!.refresh(); return { refreshed: !personal!.readError?.() }; }
             const result = await perform(() => actions.patchChore(id, { enabled }));
             if (!result.committed) throw result.error ?? new Error('予定の設定を保存できませんでした。'); return { refreshed: result.refreshed };

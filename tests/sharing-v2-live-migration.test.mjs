@@ -10,11 +10,18 @@ import { openEncryptedSharedSnapshot } from '../src/features/sharing/snapshots.t
 import { sharedAuthorIdentity, sharedRosterDigest } from '../src/features/sharing/roster.ts';
 import { canonicalJson } from '../src/features/sharing/operations.ts';
 import { initializeSharingLedger, applySharingSnapshot, loadSharedFacts, readSharingCheckpoint, loadSharedReplica } from '../src/platform/storage/sharing-ledger.ts';
+import { createLegacyHouseholdChoreDefinitionsV3 } from '../src/domain/chores/catalog-v3.ts';
+import { sharedPatchFromDefinition } from '../src/features/sharing/planning.ts';
 
-async function fixture() {
+async function fixture(withBuiltIn = false) {
   const f = await legacyMigrationFixture();
   Object.assign(f.operations[0].payload, { anchorDate: '2026-10-01' });
   Object.assign(f.operations[1].payload, { windowRadiusDays: 2, frequencyDaysByMode: { frequent: 3, balanced: 7, relaxed: 14 }, load: 'normal' });
+  if (withBuiltIn) {
+    const bath = createLegacyHouseholdChoreDefinitionsV3('shared-v2').find(chore => chore.id === 'builtin-chore-01');
+    f.operations.push(f.op('legacy-bath', f.owner, 'owner', 6, 8, { [f.owner.deviceId]: 5, [f.member.deviceId]: 2 },
+      'chore', `${f.groupId}.${bath.id}`, sharedPatchFromDefinition(bath)));
+  }
   const encrypted = await f.make();
   const source = createDatabase(), target = createDatabase();
   await initializeSharingLedger(source.database);
@@ -67,6 +74,27 @@ test('live v1 to v2 migration retains every signed setting completion undo and p
     assert.equal(f.targetSnapshot().manifest.body.factCount, f.operations.length, 'unreceipted new settings are not presented as published history');
     assert.equal(f.source.connection.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
     assert.equal(f.target.connection.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+  } finally { f.close(); }
+});
+
+test('a verified migrated owner refreshes the original built-in ID without changing legacy completion history or applying the catalog twice', async () => {
+  const f = await fixture(true);
+  try {
+    const review = await f.runtime().prepare('family'); await f.runtime().commit(review.id);
+    const before = await loadSharedFacts(f.target.database, f.groupId); let n = 0;
+    const session = await createV2WorkspaceSession({ ...f.deps, database: f.target.database, householdId: 'shared-v2', archive: () => f.record.rosterArchive,
+      makeId: () => `migrated-catalog-${++n}`, assertCurrentAccount: f.deps.assertAccess, assertWritable: () => {}, markLeft: async () => {},
+      pinMigration: async () => {}, verifyMigrationHistory: snapshot => verifyKnownLegacyHistory(f.source.database, f.groupId, snapshot) });
+    const range = { from: '2026-11-01', through: '2026-11-30', asOfDate: '2026-11-01' };
+    await session.controller.readModel(range);
+    const state = await session.repository.readState();
+    const bath = state.replica.entities.find(row => row.entityId === `${f.groupId}.builtin-chore-01`);
+    assert.equal(bath.fields.name, '浴室掃除'); assert.equal(bath.fields.estimatedMinutes, 25);
+    assert.equal(state.assessment.rejected.length, 0);
+    const after = await loadSharedFacts(f.target.database, f.groupId);
+    assert.deepEqual(after.filter(fact => fact.operation.schemaVersion === 1), before.filter(fact => fact.operation.schemaVersion === 1));
+    assert.ok(after.length > before.length);
+    await session.controller.readModel(range); assert.deepEqual(await loadSharedFacts(f.target.database, f.groupId), after);
   } finally { f.close(); }
 });
 

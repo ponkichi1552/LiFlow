@@ -8,7 +8,7 @@ export const privateToday = localDateFromDate(new Date());
 export const privateRange = { from: addDays(privateToday, -14), through: addDays(privateToday, 14) };
 export async function privateFixture({ commonHistory = false } = {}) {
   const f = createDatabase(); await repository.initializeLocalDatabase(f.database);
-  const first = await repository.loadPlannerSnapshot(f.database); let chore = first.chores.find((item) => item.name === 'フローリングを掃除する');
+  const first = await repository.loadPlannerSnapshot(f.database); let chore = first.chores.find((item) => item.id === 'builtin-chore-08' || item.id.endsWith('.builtin-chore-08'));
   chore = { ...chore, name: '本人だけの床掃除', description: '非公開の手順です。', load: 'heavy', recommendedCycleDays: 7,
     windowRadiusDays: 2, maxShiftDays: 2, holidayPriority: false };
   await repository.updateChoreDefinition(f.database, chore);

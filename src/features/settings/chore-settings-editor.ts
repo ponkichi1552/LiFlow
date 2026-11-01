@@ -2,6 +2,7 @@ import type { ChoreDefinition, FrequencyMode } from '../../domain/chores/types';
 import type { ChoreSettingsPatch } from '../../domain/chores/settings-patch';
 import { applyChoreSettingsPatch, parseSettingInteger } from '../../domain/chores/settings-patch.ts';
 import { createAutosaveQueue } from './autosave-queue.ts';
+import { builtInChoreCatalogEntry } from '../../domain/chores/catalog.ts';
 
 /** Document-owned draft and retry queue survive a virtual row being unmounted. */
 export function createChoreSettingsEditor(chore: ChoreDefinition, mode: FrequencyMode,
@@ -20,7 +21,7 @@ export function createChoreSettingsEditor(chore: ChoreDefinition, mode: Frequenc
   const update = (patch: Partial<typeof draft>) => { draft = { ...draft, ...patch }; emit(); };
   const resetCycle = () => {
     emptyCyclePending = false;
-    const missing = Boolean(chore.applianceCareSource && chore.manufacturerRecommendedIntervalDays === undefined);
+    const missing = Boolean(builtInChoreCatalogEntry(chore.id)?.requiresCycleSelection || chore.applianceCareSource && chore.manufacturerRecommendedIntervalDays === undefined);
     update({ cycleText: missing ? '' : String(chore.manufacturerRecommendedIntervalDays ?? chore.frequencyDaysByMode[mode]), ...(missing ? { enabled: false } : {}) });
     queue.enqueue({ cycleDays: null, ...(missing ? { enabled: false } : {}) }, true);
   };

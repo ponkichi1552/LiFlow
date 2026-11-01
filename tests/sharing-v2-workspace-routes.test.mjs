@@ -93,6 +93,20 @@ for (const platform of ['ios', 'android']) {
       ui.leave();
     } finally { f.dispose(); }
   });
+  test(`${platform} saved guide and library content is visible before restoration without constructing an unverified controller`, async () => {
+    const f = await fixture();
+    try {
+      const model = await f.preview.readModel();
+      f.context.startupDisplay = { record: { ...f.context.group, userId: f.context.userId }, model }; f.context.active = null;
+      const before = await listSharingOutbox(f.database, f.preview.groupId);
+      for (const [view, params, ready] of [['chores', {}, '家事一覧'], ['guide', { choreId: model.plan.chores[0].id }, model.plan.chores[0].name]]) {
+        const ui = await route(f, platform, view, params, ready);
+        assert.equal(f.sessionInputs.length, 0, 'cached descriptions cannot construct or authorize a live controller');
+        assert.deepEqual(await listSharingOutbox(f.database, f.preview.groupId), before);
+        ui.leave();
+      }
+    } finally { f.dispose(); }
+  });
   test(`${platform} normal v2 routes use only the authenticated private preference limits and preserve shared outbox and plan`, async () => {
     const f = await fixture();
     try {
@@ -146,7 +160,7 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} an unconfigured shared chore stays disabled until explicit valid initial settings and then enters the autosave editor`, async () => {
     const f = await fixture();
     try {
-      const model = await f.preview.readModel(); const chore = model.plan.chores.find((item) => item.name === 'トイレを掃除する');
+      const model = await f.preview.readModel(); const chore = model.plan.chores.find((item) => item.id.endsWith('.builtin-chore-06'));
       const r = await route(f, platform, 'configuration', { choreId: chore.id }, '家事の種類と周期を設定'); const before = (await listSharingOutbox(f.database, f.preview.groupId)).length;
       await r.screen.press('この条件で家事を有効にする'); assert.match(r.screen.text(), /種類を選んで/u);
       assert.equal((await listSharingOutbox(f.database, f.preview.groupId)).length, before);
@@ -164,7 +178,7 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} an initial shared chore can start on a future anchor without invalidating its effective date or creating past work`, async () => {
     const f = await fixture();
     try {
-      const model = await f.preview.readModel(); const chore = model.plan.chores.find((item) => item.name === 'トイレを掃除する'); const future = addDays(model.plan.range.asOfDate, 7);
+      const model = await f.preview.readModel(); const chore = model.plan.chores.find((item) => item.id.endsWith('.builtin-chore-06')); const future = addDays(model.plan.range.asOfDate, 7);
       const r = await route(f, platform, 'configuration', { choreId: chore.id }, '家事の種類と周期を設定');
       const preset = r.screen.nodes().find((node) => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === '誰か1人が行う');
       preset.props.onPress(); await r.screen.flush(); await r.screen.change('共有家事の基準日', future); await r.screen.change('初回の周期', '7');
@@ -190,7 +204,7 @@ for (const platform of ['ios', 'android']) {
     const f = await fixture();
     try {
       const r = await route(f, platform, 'index'); const model = await f.preview.readModel();
-      const chore = model.plan.chores.find((item) => item.name === 'フローリングを掃除する');
+      const chore = model.plan.chores.find((item) => item.id === 'builtin-chore-08' || item.id.endsWith('.builtin-chore-08'));
       assert.equal(f.callbacks.size, 1); assert.equal(f.calendarCallbacks.size, 1);
       await f.preview.controller.actions.patchChore(chore.id, { name: '別端末から届いた床掃除' });
       for (const callback of f.callbacks) callback({ userId: 'another-user', groupId: f.preview.groupId });

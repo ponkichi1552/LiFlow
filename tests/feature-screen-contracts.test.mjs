@@ -190,12 +190,20 @@ test('feature screen contract guard rejects a virtual removal of the waste onboa
 test('feature screen contract: chore categories, kana heading search and trivia collection remain usable', async () => {
   const h = await initialContext();
   try {
-    const screen = screenHarness('src/app/(tabs)/guide.tsx', { database: h.database, snapshot: () => h.snapshot });
-    const count = h.snapshot.chores.filter((chore) => !chore.archived && chore.category === 'キッチン').length;
-    await screen.press(`キッチン、${count}件`);
+    const screen = screenHarness('src/app/(tabs)/guide.tsx', { database: h.database, snapshot: () => h.snapshot, flatListItemHeight: 100 });
+    const category = h.snapshot.chores.find(chore => chore.id === 'builtin-chore-03').category;
+    const count = h.snapshot.chores.filter((chore) => !chore.archived && chore.category === category).length;
+    await screen.press(`${category}、${count}件`);
     assert.ok(!screen.text().includes('に分類されている家事です。'), 'redundant category copy stays removed');
-    assert.equal(screen.nodes().filter((node) => node.props.accessibilityLabel?.endsWith('の説明を開く')).length, count, 'expanded categories show their own chore headings inline');
-    await screen.press(`キッチン、${count}件`);
+    const seen = new Set();
+    const list = () => screen.nodes().find(node => node.type === 'FlatList');
+    for (let index = 0; index < list().props.data.length; index += 5) {
+      list().props.onScroll({ nativeEvent: { contentOffset: { y: index * 100 } } }); await screen.flush();
+      for (const node of screen.nodes()) if (node.props.accessibilityLabel?.endsWith('の説明を開く')) seen.add(node.props.accessibilityLabel);
+    }
+    assert.equal(seen.size, count, 'every expanded chore remains reachable through the virtualized list');
+    list().props.onScroll({ nativeEvent: { contentOffset: { y: 0 } } }); await screen.flush();
+    await screen.press(`${category}、${count}件`);
     await screen.change('家事名を検索', 'こんろ');
     const first = screen.nodes().find((node) => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.endsWith('の説明を開く'));
     assert.ok(first.props.accessibilityLabel.startsWith('コンロ'), 'kana heading matches must come first');

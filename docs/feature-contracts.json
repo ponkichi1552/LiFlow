@@ -60,7 +60,7 @@
       },
       {
         "file": "tests/chore-activation.test.mjs",
-        "name": "all 20 built-in chores can be enabled and have their cycle edited"
+        "name": "all 46 built-in chores can be enabled and have their cycle edited"
       },
       {
         "file": "tests/chore-activation.test.mjs",
@@ -146,8 +146,8 @@
     "feature": "per-chore-defaults-and-user-overrides",
     "tests": [
       {
-        "file": "tests/chore-catalog-upgrade.test.mjs",
-        "name": "all 20 catalog schedules match the supplied table and exactly four defaults are daily"
+        "file": "tests/household-care-catalog.test.mjs",
+        "name": "all 36 document entries retain source contents and use the user table instead of document elapsed times"
       },
       {
         "file": "tests/chore-catalog-upgrade.test.mjs",
@@ -7566,6 +7566,10 @@
     "tests": [
       {
         "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "${platform} saved guide and library content is visible before restoration without constructing an unverified controller"
+      },
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
         "name": "${platform} wider calendar and settings preparation waits for idle and a superseded preparation cannot restart it"
       },
       {
@@ -7583,6 +7587,14 @@
       {
         "file": "tests/initial-display-priority.test.mjs",
         "name": "the home does not wait for an idle calendar prefetch and prepared months remain reusable"
+      },
+      {
+        "file": "tests/initial-display-priority.test.mjs",
+        "name": "a cold deep link without native animation frames still releases local workspace restoration"
+      },
+      {
+        "file": "tests/initial-display-priority.test.mjs",
+        "name": "a visible cached screen gets its normal frame opportunity before restoration proceeds"
       },
       {
         "file": "tests/sharing-registry.test.mjs",
@@ -7966,6 +7978,53 @@
       {
         "file": "tests/sharing-v2-native-workspace.test.mjs",
         "name": "ambiguous legacy group recovery"
+      }
+    ]
+  },
+  {
+    "feature": "household-care-catalog-document-content-and-table-times",
+    "tests": [
+      {
+        "file": "tests/household-care-guide-ui.test.mjs",
+        "name": "${platform} a directly opened guide document and library reveal their laid-out content without requiring the home screen first"
+      },
+      {
+        "file": "tests/sharing-v2-live-migration.test.mjs",
+        "name": "a verified migrated owner refreshes the original built-in ID without changing legacy completion history or applying the catalog twice"
+      },
+      {
+        "file": "tests/household-care-catalog.test.mjs",
+        "name": "version 3 to 4 updates only untouched fields, preserves history and explicit edits, and adds disabled jobs once"
+      },
+      {
+        "file": "tests/household-care-catalog.test.mjs",
+        "name": "catalog migration failure rolls back definitions and version so a later retry remains possible"
+      },
+      {
+        "file": "tests/household-care-catalog.test.mjs",
+        "name": "document cadence defaults stay explicit and unresolved product usage season and municipal cadences never schedule themselves"
+      },
+      {
+        "file": "tests/household-care-catalog.test.mjs",
+        "name": "shared catalog refresh is owner-only, transactional, idempotent and keeps policies custom edits history and explicit deletions"
+      },
+      {
+        "file": "tests/household-care-catalog.test.mjs",
+        "name": "exact shipped renames retain one shared/private row and do not merge user names or ambiguous shared jobs"
+      },
+      {
+        "file": "tests/household-care-guide-ui.test.mjs",
+        "name": "${platform} all 36 guides render the document cadence conditions and fixed table minutes"
+      },
+      {
+        "file": "tests/household-care-guide-ui.test.mjs",
+        "name": "${platform} a cadence-free guide opens its configuration before any enable write and respects read-only access"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-v2-cloud.integration.mjs",
+        "name": "draft44 owner upgrades through a real atomic cloud snapshot and a fresh SQLite session restores unchanged shared settings and facts"
       }
     ]
   }

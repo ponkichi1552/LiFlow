@@ -22,7 +22,7 @@ test('schedule reset restores catalog defaults by stable ID while preserving ena
     const reset = resetChoreSchedule(current);
     assert.equal(reset.enabled, enabled); assert.equal(reset.name, current.name); assert.deepEqual(reset.instructions, current.instructions);
     for (const field of ['frequencyDaysByMode', 'load', 'windowRadiusDays', 'maxShiftDays', 'holidayPriority', 'everyday']) assert.deepEqual(reset[field], base[field]);
-    assert.equal(reset.recommendedCycleDays, undefined); assert.equal(reset.userIntervalDays, undefined);
+    assert.equal(reset.recommendedCycleDays, base.requiresCycleSelection ? 123 : undefined); assert.equal(reset.userIntervalDays, undefined);
     assert.equal(current.recommendedCycleDays, 123);
   }
   assert.throws(() => resetChoreSchedule({ ...createHouseholdChoreDefinitions('home')[0], id: 'custom' }), /初期値/);
@@ -95,8 +95,12 @@ test('shared reset keeps configuration assignment policy activation and history 
 test('deadline attention is restricted to still-open windows and startup hides its native surface once without a loading card', async () => {
   const task = { completed: false, load: 'normal', recommendedDate: '2026-10-27', windowEnd: '2026-10-28' };
   assert.equal(isTaskUrgent(task, '2026-10-29'), false); assert.equal(isTaskUrgent({ ...task, windowEnd: '2026-10-29' }, '2026-10-29'), true);
-  let prevent = 0, hide = 0; prepareStartupDisplay({ preventAutoHideAsync: async () => { prevent++; }, hideAsync: async () => { hide++; } });
-  assert.equal(prevent, 1); assert.equal(hide, 0); finishStartupDisplay(); finishStartupDisplay(); await Promise.resolve(); assert.equal(hide, 1);
+  const previous = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = () => 1; // Native splash can suppress every requested frame.
+  try {
+    let prevent = 0, hide = 0; prepareStartupDisplay({ preventAutoHideAsync: async () => { prevent++; }, hideAsync: async () => { hide++; } });
+    assert.equal(prevent, 1); assert.equal(hide, 0); finishStartupDisplay(); finishStartupDisplay(); await Promise.resolve(); assert.equal(hide, 1);
+  } finally { globalThis.requestAnimationFrame = previous; }
 });
 
 test('a compatible shared reset retains fixed future assignees and draft-40 groups need no forced upgrade', async () => {

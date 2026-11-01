@@ -72,13 +72,18 @@ for (const platform of ['ios', 'android']) {
         await screen.press(`${chore.category}の見出しを展開`);
         const toggle = screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === `${chore.name}を有効にする`);
         const privateBefore = definitions(f.personal), sharedBefore = definitions(f.shared), outbox = await listSharingOutbox(f.shared.database, f.scope.groupId);
-        toggle.props.onValueChange(!toggle.props.value); for (let i = 0; i < 4; i++) await screen.flush();
+        const queuedBefore = f.shared.connection.prepare('SELECT COUNT(*) AS n FROM sharing_outbox').get().n;
+        toggle.props.onValueChange(!toggle.props.value);
+        const deadline = Date.now() + 2000;
+        do { await new Promise(resolve => setTimeout(resolve, 5)); await screen.flush(); }
+        while (Date.now() < deadline && screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === `${chore.name}を有効にする`)?.props.disabled);
         if (first === 'personal') {
           assert.notDeepEqual(definitions(f.personal), privateBefore); assert.deepEqual(definitions(f.shared), sharedBefore);
           assert.deepEqual(await listSharingOutbox(f.shared.database, f.scope.groupId), outbox);
         } else {
           assert.notDeepEqual(definitions(f.shared), sharedBefore); assert.deepEqual(definitions(f.personal), privateBefore);
-          assert.ok((await listSharingOutbox(f.shared.database, f.scope.groupId)).length > outbox.length);
+          assert.ok(f.shared.connection.prepare('SELECT COUNT(*) AS n FROM sharing_outbox').get().n > queuedBefore);
+          assert.ok((await listSharingOutbox(f.shared.database, f.scope.groupId)).length <= 100, 'the public outbox read remains one bounded page');
         }
         await screen.press(`${chore.name}の個別設定`);
         assert.deepEqual(navigation.at(-1), ['push', first === 'personal'
@@ -102,7 +107,7 @@ for (const platform of ['ios', 'android']) {
       const value = f.source.getSnapshot().snapshot;
       assert.equal(value.protocol, 2); assert.equal(value.record.displayName, '家族');
       assert.equal(value.workspace.adapter, undefined);
-      assert.equal(value.model.plan.chores.length, 20);
+      assert.equal(value.model.plan.chores.length, 46);
 
     } finally { await f.close(); }
   });

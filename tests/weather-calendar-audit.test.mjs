@@ -22,7 +22,7 @@ const sunny = { weatherCode: 0, precipitationProbability: 0, precipitationMm: 0 
 async function fixture() {
   const h = createDatabase(); await repository.initializeLocalDatabase(h.database);
   const initial = await repository.loadPlannerSnapshot(h.database, today, now);
-  const chore = initial.chores.find((item) => item.category === '洗濯');
+  const chore = initial.chores.find((item) => item.id === 'builtin-chore-10');
   await repository.completeFirstSetup(h.database, { frequencyMode: 'balanced', restDays: [], enabledChoreIds: [chore.id],
     previousDates: { [chore.id]: { date: addDays(today, -1) } }, weatherLocation: location });
   const snapshot = await repository.loadPlannerSnapshot(h.database, today, now);

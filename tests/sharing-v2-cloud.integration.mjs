@@ -82,7 +82,7 @@ test('v2 workspace sessions restore real encrypted bootstrap and offline edits a
     async (value) => { ownerArchive = value; }, () => ownerArchive);
   try {
     const owner = await createV2WorkspaceSession({ ...ownerDeps, creationKind: 'roommates' }); await owner.synchronizer.sync({ force: true });
-    assert.equal((await f.cloud.readGroup(groupId)).group.headSequence, 23);
+    assert.equal((await f.cloud.readGroup(groupId)).group.headSequence, 49);
     ownerRecord = { ...ownerRecord, status: 'active' };
     const invite = await owner.manager.createInvitation(); const request = createSharedJoinRequest(invite, 'member', memberIdentity, Date.now());
     const memberCloud = createSharingCloud(environment.authenticatedContext('member').firestore(), 'member', () => 'member');
@@ -94,7 +94,7 @@ test('v2 workspace sessions restore real encrypted bootstrap and offline edits a
     const member = await createV2WorkspaceSession(memberDeps); await member.synchronizer.sync({ force: true });
     const range = { from: anchorDate, through: addLocalDays(anchorDate, 14), asOfDate: anchorDate };
     const initial = await member.controller.readModel(range); assert.equal(initial.plan.policy.kind, 'roommates');
-    assert.equal(initial.plan.chores.length, 20); assert.equal(initial.plan.occurrences.length, 0);
+    assert.equal(initial.plan.chores.length, 46); assert.equal(initial.plan.occurrences.length, 0);
     const privateData = await privateFixture();
     try {
       const source = { ...await readPersonalChoreCopySource(privateData.database), scope: 'personal', ownerUserId: 'owner' };
@@ -261,11 +261,11 @@ test('normal v2 workspace creation uses the real gateway and Rules and a no-chan
     const workspace = await h.api.createV2SharingWorkspace('新しい家族', 'family', 'Asia/Tokyo');
     const result = await workspace.sync({ force: true, budgetMs: 120_000 }); assert.equal(result.complete, true); assert.equal(result.pending, 0);
     const record = await workspace.record(); assert.equal(record.status, 'active'); assert.ok(record.lastSuccessfulSyncAt); assert.equal(record.lastErrorCode, null);
-    assert.equal((await f.cloud.readGroup(workspace.groupId)).group.headSequence, 23); assert.equal((await workspace.checkpoint()).pendingCount, 0);
+    assert.equal((await f.cloud.readGroup(workspace.groupId)).group.headSequence, 49); assert.equal((await workspace.checkpoint()).pendingCount, 0);
     const state = await workspace.session.repository.readState(); const at = v2ReadPoint(state.assessment.view, state.archive.at(-1));
     assert.equal(state.assessment.view.field('groupPolicy', 'policy', 'configuration', at).value.kind, 'family');
-    assert.equal((await workspace.readOverview()).chores.length, 20);
-    await workspace.sync({ force: true }); assert.equal((await f.cloud.readGroup(workspace.groupId)).group.headSequence, 23);
+    assert.equal((await workspace.readOverview()).chores.length, 46);
+    await workspace.sync({ force: true }); assert.equal((await f.cloud.readGroup(workspace.groupId)).group.headSequence, 49);
     await h.api.saveSharingSelection(record); assert.deepEqual(JSON.parse(h.vault.get('active-workspace')), { groupId: workspace.groupId, userId: 'owner' });
     h.auth.uid = 'another-user'; await assert.rejects(workspace.session.controller.actions.addChore('拒否される追加'));
     assert.equal((await workspace.checkpoint()).pendingCount, 0);
@@ -607,7 +607,7 @@ test('native pair harness uses real encrypted v2 sessions with approval cold res
     const ready = await owner.pair.proof(); const other = await member.pair.proof();
     assert.equal(ready.sourceHash, other.sourceHash); assert.equal(ready.planHash, other.planHash); assert.equal(ready.members, 2); assert.equal(ready.keyVersion, 2);
     const ui = await member.pair.ui(); const model = await ui.readModel();
-    const chore = model.plan.chores.find(row => row.name === 'フローリングを掃除する');
+    const chore = model.plan.chores.find(row => row.id.endsWith('.builtin-chore-08'));
     const ref = { choreId: chore.id, anchorDate: model.plan.range.asOfDate, ruleVersion: 1, subjectUserId: null };
     const [done] = await ui.controller.actions.complete(ref);
     assert.equal((await member.pair.proof()).outbox, 1);
@@ -649,6 +649,7 @@ async function verifyOldSchedulerUpgrade(oldVersion) {
 }
 test('draft38 owner upgrades through a real atomic cloud snapshot and a fresh SQLite session restores unchanged shared settings and facts', () => verifyOldSchedulerUpgrade('liflow-shared-2-draft-38'));
 test('draft43 owner upgrades through a real atomic cloud snapshot and a fresh SQLite session restores unchanged shared settings and facts', () => verifyOldSchedulerUpgrade('liflow-shared-2-draft-43'));
+test('draft44 owner upgrades through a real atomic cloud snapshot and a fresh SQLite session restores unchanged shared settings and facts', () => verifyOldSchedulerUpgrade('liflow-shared-2-draft-44'));
 
 test('real Firestore stores only encrypted PDF chunks denies outsiders and restores one appliance after a lost upload response', async () => {
   const f = await fixture(); const owner = createDatabase(); const restarted = createDatabase(); let n = 0;

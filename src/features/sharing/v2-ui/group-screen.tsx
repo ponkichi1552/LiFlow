@@ -76,7 +76,8 @@ export function readOptionsForView(view: V2GroupScreenProps['view'], anchorDate?
   if (view === 'groupPolicy') return { management: true, groupPolicy: true };
   if (view === 'dateRights') return { management: true, permissionsChoreId: choreId };
   if (view === 'details' || view === 'configuration') return { management: true, choreSettings: true };
-  if (view === 'guide' || view === 'chores' || view === 'addChore') return { management: true };
+  if (view === 'guide' || view === 'chores') return undefined;
+  if (view === 'addChore') return { management: true };
   if (anchorDate) return { focusDate: anchorDate, ...(['calendar', 'home'].includes(view) ? { waste: true } : {}) };
   return view === 'calendar' ? { calendarMonth: 'current', waste: true } : view === 'home' ? { waste: true } : undefined;
 }

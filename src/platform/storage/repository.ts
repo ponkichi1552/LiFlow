@@ -1,8 +1,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { createHouseholdChoreDefinitions } from '@/domain/chores/catalog';
+import { BUILT_IN_CHORE_CATALOG_VERSION, compareBuiltInChoreOrder, createHouseholdChoreDefinitions } from '@/domain/chores/catalog';
 import { choreScheduleDefaults, resetChoreSchedule } from '@/domain/chores/schedule-defaults';
-import { upgradeBuiltInScheduleDefaults } from '@/domain/chores/catalog-upgrade';
+import { upgradeBuiltInCatalogDefinition } from '@/domain/chores/catalog-upgrade';
 import { validateChoreToggle } from '@/domain/chores/chore-groups';
 import { applyChoreSettingsPatch } from '@/domain/chores/settings-patch';
 import type { ChoreSettingsPatch } from '@/domain/chores/settings-patch';
@@ -55,7 +55,6 @@ import { notifyGooglePlannerChanges } from '../../features/google-sync/planner-c
 
 export const LOCAL_HOUSEHOLD_ID = 'local-household';
 export const LOCAL_MEMBER_ID = 'local-member';
-const BUILT_IN_CHORE_CATALOG_VERSION = 3;
 
 export function plannerGenerationRange(today: LocalDate) {
   return { from: today, through: addDays(today, 180) };
@@ -355,24 +354,10 @@ async function ensureLocalHouseholdImpl(database: SQLiteDatabase): Promise<void>
         );
         if (existing) {
           const stored = JSON.parse(existing.definition_json) as ChoreDefinition;
-          const upgrade = previousCatalogVersion < 3
-            ? upgradeBuiltInScheduleDefaults(stored, definition)
-            : { definition: stored, scheduleChanged: false };
-          // Refresh the guide and untouched defaults; user-selected values and overrides stay intact.
+          const upgrade = upgradeBuiltInCatalogDefinition(stored, definition, previousCatalogVersion);
+          // Refresh untouched shipped fields; explicit edits, activation, cycle overrides and history remain intact.
           const updated: ChoreDefinition = {
             ...upgrade.definition,
-            name: definition.name,
-            category: definition.category,
-            description: definition.description,
-            locationOrAppliance: definition.locationOrAppliance,
-            estimatedMinutes: definition.estimatedMinutes,
-            instructions: definition.instructions,
-            procedureSections: definition.procedureSections,
-            tools: definition.tools,
-            cautions: definition.cautions,
-            trivia: definition.trivia,
-            sourceNotes: definition.sourceNotes,
-            schedulingNotes: definition.schedulingNotes,
             enabled: Boolean(existing.enabled),
           };
           await database.runAsync(
@@ -385,8 +370,9 @@ async function ensureLocalHouseholdImpl(database: SQLiteDatabase): Promise<void>
           }
         }
         await database.runAsync(
-          'INSERT OR IGNORE INTO chore_definitions (id, household_id, name, enabled, definition_json) VALUES (?, ?, ?, 1, ?)',
-          definition.id, definition.householdId, definition.name, JSON.stringify(definition),
+          'INSERT OR IGNORE INTO chore_definitions (id, household_id, name, enabled, definition_json) VALUES (?, ?, ?, ?, ?)',
+          definition.id, definition.householdId, definition.name, previousCatalogVersion > 0 ? 0 : Number(definition.enabled),
+          JSON.stringify({ ...definition, enabled: previousCatalogVersion > 0 ? false : definition.enabled }),
         );
         await database.runAsync(
           'INSERT OR IGNORE INTO chore_state (chore_id, initial_pending, unknown_reason) VALUES (?, 1, ?)',
@@ -554,7 +540,7 @@ async function loadPlannerSnapshotImpl(
   const chores = definitionRows.map((row) => ({
     ...(JSON.parse(row.definition_json) as ChoreDefinition),
     enabled: Boolean(row.enabled),
-  }));
+  })).sort(compareBuiltInChoreOrder);
   let states = stateRows.map((row): ChoreState => ({
     choreId: row.chore_id,
     lastCompletedDate: (row.last_completed_date ?? undefined) as LocalDate | undefined,
@@ -636,6 +622,18 @@ async function loadPlannerSnapshotImpl(
     const scheduleResult = generateHouseworkScheduleResult(input);
     scheduleEntries = scheduleResult.entries;
     const stateById = new Map(states.map((state) => [state.choreId, state]));
+    // Advancing an estimated cycle anchor must not erase the same still-open occurrence's
+    // missed-cycle count or rewrite its cache on the next identical read.
+    if (scheduleEntries.some(entry => entry.status === 'overdue' && stateById.get(entry.choreId)?.lastCompletedEstimated)) {
+      const previousById = new Map(previousScheduleEntries.map(entry => [entry.id, entry]));
+      for (const entry of scheduleEntries) {
+        const previous = previousById.get(entry.id);
+        if (entry.status === 'overdue' && stateById.get(entry.choreId)?.lastCompletedEstimated && previous?.status === 'overdue'
+          && previous.choreId === entry.choreId && previous.cycleBaseDate === entry.cycleBaseDate
+          && previous.windowStart === entry.windowStart && previous.windowEnd === entry.windowEnd
+          && (previous.overdueCycles ?? 0) > (entry.overdueCycles ?? 0)) entry.overdueCycles = previous.overdueCycles;
+      }
+    }
     const missingInitialDates = scheduleEntries.filter((entry) => entry.id === `${entry.choreId}:initial`
       && stateById.get(entry.choreId)?.initialPending && !stateById.get(entry.choreId)?.initialScheduledDate);
     await replaceGeneratedSchedule(database, household.id, scheduleEntries, scheduleResult.simulatedCompletions, missingInitialDates);
@@ -883,6 +881,7 @@ async function completeFirstSetupImpl(database: SQLiteDatabase, submission: Setu
     for (const row of definitions) {
       const isEnabled = enabled.has(row.id);
       const definition = { ...(JSON.parse(row.definition_json) as ChoreDefinition), enabled: isEnabled };
+      if (definition.enabled && definition.requiresCycleSelection) throw new Error(`「${definition.name}」は周期を設定してから有効にしてください。`);
       await database.runAsync(
         'UPDATE chore_definitions SET enabled = ?, definition_json = ? WHERE id = ?',
         isEnabled ? 1 : 0, JSON.stringify(definition), row.id,

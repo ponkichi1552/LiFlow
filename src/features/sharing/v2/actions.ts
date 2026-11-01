@@ -228,7 +228,7 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
         // A custom chore uses its first authenticated configuration, never another chore's name or policy.
         if (current && (defaults || initial)) {
           const appliance = facts.some(op => typeof op.payload.applianceId === 'string');
-          const cycle = appliance && initial ? initial.intervalDays : defaults?.frequencyDaysByMode[mode] ?? initial!.intervalDays;
+          const cycle = defaults?.requiresCycleSelection ? current.intervalDays : appliance && initial ? initial.intervalDays : defaults?.frequencyDaysByMode[mode] ?? initial!.intervalDays;
           const before = defaults?.windowRadiusDays ?? initial!.windowBeforeDays;
           const after = defaults?.windowRadiusDays ?? initial!.windowAfterDays;
           result.push(...configurationFieldDrafts(state, choreId, [

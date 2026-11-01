@@ -11,15 +11,8 @@ import { WorkspaceContext } from '@/contexts/workspace-context';
 import type { WorkspaceContextValue } from '@/contexts/workspace-context';
 import { startPrivateCalendarForeground, syncKnownPrivateCalendar } from '@/platform/sharing/private-calendar-sync';
 import { traceStartup } from '@/platform/diagnostics/startup-timing';
-import { createInitialDisplayGate } from '@/features/planner/initial-display-gate';
+import { createInitialDisplayGate, waitForInitialFrame } from '@/features/planner/initial-display-gate';
 import { canShowPersonalStartup, readSavedStartupDisplay, startupDisplayCache } from '@/platform/sharing/startup-display';
-
-function waitForInitialFrame() {
-  return new Promise<void>(resolve => {
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0)));
-    else setTimeout(resolve, 0);
-  });
-}
 
 /** Personal data stays mounted; a membership adds shared data to the same four tabs. */
 export function WorkspaceProvider({ children }: { children: ReactNode }) {

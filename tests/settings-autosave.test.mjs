@@ -17,7 +17,7 @@ async function context() {
   let snapshot;
   const refresh = async () => { snapshot = await repository.loadPlannerSnapshot(h.database, today); };
   await refresh();
-  const chore = snapshot.chores.find((item) => item.category === '洗濯' && !item.archived);
+  const chore = snapshot.chores.find((item) => item.id === 'builtin-chore-10' && !item.archived);
   const options = { database: h.database, snapshot: () => snapshot, refresh, params: { id: chore.id } };
   return { ...h, chore, options, refresh, snapshot: () => snapshot };
 }

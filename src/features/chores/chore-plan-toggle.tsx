@@ -3,8 +3,9 @@ import { Text, View } from 'react-native';
 import { SettingsSwitch } from '../../components/settings-switch';
 import { AppButton, palette, typography } from '../../components/planner-ui';
 
-export function ChorePlanToggle({ name, enabled, readOnly = false, save, retryRead }: {
+export function ChorePlanToggle({ name, enabled, readOnly = false, requiresCycleSelection = false, onConfigure, save, retryRead }: {
   name: string; enabled: boolean; readOnly?: boolean; save: (enabled: boolean) => Promise<{ refreshed: boolean } | void>;
+  requiresCycleSelection?: boolean; onConfigure?: () => void;
   retryRead?: () => Promise<boolean>;
 }) {
   const [pending, setPending] = useState<boolean | null>(null); const [error, setError] = useState<string | null>(null); const running = useRef(false);
@@ -12,6 +13,7 @@ export function ChorePlanToggle({ name, enabled, readOnly = false, save, retryRe
   useEffect(() => { if (!running.current && pending === enabled) { setPending(null); setReadPending(false); setError(null); } }, [enabled, pending]);
   const change = async (value: boolean) => {
     if (running.current || readOnly) return;
+    if (value && requiresCycleSelection && onConfigure) { onConfigure(); return; }
     running.current = true; setPending(value); setError(null); let retain = false;
     try { const result = await save(value); if (result?.refreshed === false) { retain = true; setReadPending(true); setError('保存済みです。表示を読み直してください。'); } }
     catch (cause) { setError(cause instanceof Error ? cause.message : '予定の設定を保存できませんでした。'); }

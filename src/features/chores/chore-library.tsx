@@ -6,6 +6,7 @@ import { Card, SectionHeading, palette, typography } from '../../components/plan
 import { Chevron } from '../../components/chevron';
 import { groupChores } from '../../domain/chores/chore-groups';
 import type { ChoreDefinition } from '../../domain/chores/types';
+import { finishStartupDisplay } from '../../platform/diagnostics/startup-splash';
 
 export const normalizeChoreName = (value: string) => value.normalize('NFKC').toLocaleLowerCase('ja')
   .replace(/[\u30a1-\u30f6]/g, character => String.fromCharCode(character.charCodeAt(0) - 0x60));
@@ -35,7 +36,7 @@ export function ChoreLibrary({ chores, onOpen, header, footer, onTrivia, triviaC
     return [...matching.map(({ chore }) => ({ kind: 'chore' as const, id: chore.id, chore })),
       ...(others.length ? [{ kind: 'heading' as const, id: 'other-heading', name: 'ほかの家事' }, ...others.map(({ chore }) => ({ kind: 'chore' as const, id: chore.id, chore }))] : [])];
   }, [expanded, groups, onTrivia, search, triviaCount]);
-  return <View style={styles.safe}><FlatList data={rows} keyExtractor={row => `${row.kind}:${row.id}`} initialNumToRender={10}
+  return <View style={styles.safe} onLayout={finishStartupDisplay}><FlatList data={rows} keyExtractor={row => `${row.kind}:${row.id}`} initialNumToRender={10}
     keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
     contentContainerStyle={styles.content} ListHeaderComponent={<View style={styles.header}>{header}
       <FormTextInput accessibilityLabel="家事名を検索" value={query} onChangeText={setQuery} placeholder="家事名で検索" autoCapitalize="none" clearButtonMode="while-editing" returnKeyType="search" style={styles.search} />

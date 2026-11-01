@@ -1,5 +1,6 @@
 import type { ChoreDefinition, ChoreLoad, LaundryDryingPreference } from './types';
 import { resetChoreSchedule } from './schedule-defaults.ts';
+import { builtInChoreCatalogEntry } from './catalog.ts';
 
 /** Only fields edited on the individual settings page. Null explicitly resets a cycle. */
 export interface ChoreSettingsPatch {
@@ -30,7 +31,8 @@ export function applyChoreSettingsPatch(chore: ChoreDefinition, patch: ChoreSett
     next.recommendedCycleDays = cycle;
     // The scheduler prefers userIntervalDays; never leave an older override shadowing a new cycle.
     next.userIntervalDays = chore.applianceId ? cycle : undefined;
-    next.requiresCycleSelection = Boolean(chore.applianceCareSource && chore.manufacturerRecommendedIntervalDays === undefined && cycle === undefined);
+    next.requiresCycleSelection = Boolean(cycle === undefined && (builtInChoreCatalogEntry(chore.id)?.requiresCycleSelection
+      || chore.applianceCareSource && chore.manufacturerRecommendedIntervalDays === undefined));
     if (next.requiresCycleSelection) next.enabled = false;
   }
   if (patch.windowRadiusDays !== undefined) {
@@ -44,7 +46,7 @@ export function applyChoreSettingsPatch(chore: ChoreDefinition, patch: ChoreSett
   if (patch.holidayPriority !== undefined) next.holidayPriority = patch.holidayPriority;
   if (patch.laundryDryingPreference !== undefined) {
     if (!['either', 'outdoors', 'indoors'].includes(patch.laundryDryingPreference)) throw new RangeError('干し方を確認してください。');
-    if (chore.category === '洗濯') next.laundryDryingPreference = patch.laundryDryingPreference;
+    if (chore.category === '洗濯' || chore.laundryDryingPreference !== undefined) next.laundryDryingPreference = patch.laundryDryingPreference;
   }
   if (patch.enabled !== undefined) {
     if (patch.enabled && next.requiresCycleSelection) throw new Error('周期を設定してから有効にしてください。');

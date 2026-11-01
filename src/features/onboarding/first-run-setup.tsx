@@ -40,7 +40,7 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
   const wasteTypeColor = useWasteTypeColor();
 
   const { database } = usePlannerData();
-  const availableChores = snapshot.chores.filter((chore) => !chore.archived);
+  const availableChores = snapshot.chores.filter((chore) => !chore.archived && !chore.requiresCycleSelection);
   const [step, setStep] = useState(0);
   const [mode, setMode] = useState(snapshot.settings.frequencyMode);
   const [restDays, setRestDays] = useState<Weekday[]>(snapshot.settings.restDays as Weekday[]);
@@ -205,12 +205,10 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
                 <SetupChoreRow key={chore.id} chore={chore} selected={enabledChoreIds.has(chore.id)} onPress={() => toggleChore(chore.id)} />
               ))}
             </View>
-            <AppButton
-              title={enabledChoreIds.size === availableChores.length ? '選択をすべて外す' : 'すべて選択'}
-              onPress={() => setEnabledChoreIds(enabledChoreIds.size === availableChores.length ? new Set() : new Set(availableChores.map((chore) => chore.id)))}
-              variant="quiet"
-              compact
-            />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+              <AppButton title="すべて選択" onPress={() => setEnabledChoreIds(new Set(availableChores.map(chore => chore.id)))} disabled={enabledChoreIds.size === availableChores.length} variant="quiet" compact />
+              <AppButton title="選択をすべて外す" onPress={() => setEnabledChoreIds(new Set())} disabled={!enabledChoreIds.size} variant="quiet" compact />
+            </View>
           </>
         ) : null}
 
