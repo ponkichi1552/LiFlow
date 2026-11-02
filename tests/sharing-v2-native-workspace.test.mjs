@@ -23,7 +23,7 @@ for (const [flag, expected, name] of [[undefined, true, 'normal v2 workspace ena
     const workspace = await h.api.openSharedWorkspace(h.record);
     assert.equal(h.cloudOptions[0].ownerRecoveryEnabled, expected);
     assert.equal(workspace.session.recovery.enabled, expected);
-    assert.equal((await workspace.checkpoint()).pendingCount, 49);
+    assert.equal((await workspace.checkpoint()).pendingCount, 39);
     assert.equal(h.calls.includes('legacy-open'), false);
   } finally { await h.close(); }
 });
@@ -33,10 +33,10 @@ test('native v2 workspace factory chooses its isolated session and never registe
   try {
     const workspace = await h.api.openSharedWorkspace(h.record); assert.equal(workspace.protocol, 2);
     assert.equal('adapter' in workspace, false); assert.deepEqual(h.calls, [['v2-open', 'owner', h.record.groupId, undefined]]);
-    const overview = await workspace.readOverview(); assert.equal(overview.timeZone, 'Asia/Tokyo'); assert.equal(overview.chores.length, 46);
+    const overview = await workspace.readOverview(); assert.equal(overview.timeZone, 'Asia/Tokyo'); assert.equal(overview.chores.length, 36);
     assert.equal(overview.members[0].displayName, '自分');
     assert.equal(h.handles[1].connection.prepare('SELECT COUNT(*) AS n FROM households').get().n, 0, 'legacy materialized rows stay empty');
-    assert.equal((await workspace.checkpoint()).pendingCount, 49);
+    assert.equal((await workspace.checkpoint()).pendingCount, 39);
     await h.api.saveSharingSelection(h.record); assert.deepEqual(JSON.parse(h.vault.get('active-workspace')), { userId: 'owner', groupId: h.record.groupId });
     h.auth.uid = 'other'; await assert.rejects(workspace.readOverview(), /切り替わり/u);
   } finally { await h.close(); }
@@ -61,7 +61,7 @@ test('a native singleton conflict adopts only the live confirmed locally known g
     assert.equal((await h.api.currentSharingWorkspace()).groupId, confirmed.groupId);
     assert.equal((await h.api.readSharingSelection()).groupId, confirmed.groupId);
     assert.equal((await readSharingWorkspace(h.index.database, 'owner', h.record.groupId)).status, 'active');
-    assert.equal((await workspace.checkpoint()).pendingCount, 49, 'old encrypted data and unsent operations are retained');
+    assert.equal((await workspace.checkpoint()).pendingCount, 39, 'old encrypted data and unsent operations are retained');
     await assert.rejects(workspace.readOverview(), /所属グループ/u);
     await assert.rejects((await workspace.googleTasks()).readControl(), /所属グループ/u);
   } finally { await h.close(); retained.connection.close(); }
@@ -108,7 +108,7 @@ test('a departed v2 session cannot save new operations while all prior signed hi
     await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, (record) => ({ ...record, status: 'left' }));
     await workspace.record();
     await assert.rejects(workspace.session.repository.commit([{ operationId: 'forbidden', entityType: 'chore', entityId: 'x', operationType: 'patch', payload: { name: '変更' } }]));
-    assert.equal((await workspace.checkpoint()).pendingCount, 49);
+    assert.equal((await workspace.checkpoint()).pendingCount, 39);
   } finally { await h.close(); }
 });
 
@@ -130,7 +130,7 @@ for (const [change, name] of [
     release(); await holding;
     await assert.rejects(saving, change === 'rejoin' ? /再参加前/u : /現在編集できません/u);
     assert.equal(JSON.stringify(h.handles[1].connection.prepare('SELECT * FROM sharing_operations ORDER BY operation_id').all()), before);
-    assert.equal((await workspace.checkpoint()).pendingCount, 49);
+    assert.equal((await workspace.checkpoint()).pendingCount, 39);
   } finally { release?.(); await h.close(); }
 });
 
@@ -144,7 +144,7 @@ test('a queued v2 Native read refuses group contents when membership was removed
     for (let i = 0; i < 8; i++) await new Promise(setImmediate);
     await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, record => ({ ...record, status: 'removed' }));
     release(); await holding; await assert.rejects(reading, /現在編集できません/u);
-    assert.equal((await workspace.checkpoint()).pendingCount, 49);
+    assert.equal((await workspace.checkpoint()).pendingCount, 39);
   } finally { release?.(); await h.close(); }
 });
 
@@ -159,7 +159,7 @@ test('a queued v2 Native command rechecks a newly stored access error while its 
     await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, record => ({ ...record, lastErrorCode: 'permission-denied' }));
     release(); await holding; await assert.rejects(saving, /参加状態を同期/u);
     assert.equal((await workspace.readOverview()).chores.find(item => item.id === chore.id).name, chore.name);
-    assert.equal((await workspace.checkpoint()).pendingCount, 49);
+    assert.equal((await workspace.checkpoint()).pendingCount, 39);
   } finally { release?.(); await h.close(); }
 });
 test('v2 UI commands recheck a stored version or access failure while cached data remains readable and retry does not invent edits', async (t) => {
@@ -169,11 +169,11 @@ test('v2 UI commands recheck a stored version or access failure while cached dat
     for (const code of ['sharing/scheduler-version-mismatch', 'permission-denied']) {
       await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, (record) => ({ ...record, lastErrorCode: code }));
       for (const command of Object.values(workspace.session.controller.actions)) await assert.rejects(command());
-      assert.equal((await workspace.checkpoint()).pendingCount, 49); assert.equal((await workspace.readOverview()).chores.find((item) => item.id === chore.id).name, chore.name);
+      assert.equal((await workspace.checkpoint()).pendingCount, 39); assert.equal((await workspace.readOverview()).chores.find((item) => item.id === chore.id).name, chore.name);
     }
     await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, (record) => ({ ...record, lastErrorCode: null }));
     await workspace.session.controller.actions.patchChore(chore.id, { name: '所属を確認した後の変更' });
-    assert.equal((await workspace.checkpoint()).pendingCount, 50);
+    assert.equal((await workspace.checkpoint()).pendingCount, 40);
     assert.equal((await workspace.readOverview()).chores.find((item) => item.id === chore.id).name, '所属を確認した後の変更');
   } finally { await h.close(); }
 });
@@ -233,6 +233,26 @@ test('a bounded v2 worker does not launch an independent notification pass after
     t.mock.timers.tick(1_000); for (let i = 0; i < 12; i++) await new Promise(setImmediate);
     assert.equal(reads, 1, 'coalesced worker requests retain their original deadline after the first pass');
   } finally { Date.now = previousNow; await h.close(); }
+});
+test('coalesced foreground sync callers run one history maintenance pass while a later fresh sync still maintains history', async () => {
+  let h, release; let runs = 0, compactions = 0;
+  h = await workspaceHarness({ deferWorkspaceTimers: true,
+    historyRuntime: { createV2HistoryRetentionRuntime: () => ({ run: async () => { runs++; } }) },
+    cloud: { readGroup: async () => ({ roster: h.initial, group: { ...rosterCloudFields(h.initial), id: h.record.groupId, headSequence: 0, snapshotThroughSequence: 0 } }),
+      compactHistory: async () => { compactions++; } },
+  });
+  try {
+    const workspace = await h.api.openSharedWorkspace(h.record);
+    let gate = new Promise(done => { release = done; });
+    workspace.session.synchronizer.sync = async () => { await gate; return { waitingForApproval: false, complete: true }; };
+    const attempts = Array.from({ length: 50 }, () => workspace.sync()); assert.equal(new Set(attempts).size, 1);
+    release(); await Promise.all(attempts);
+    for (let i = 0; i < 20; i++) await new Promise(setImmediate);
+    assert.equal(runs, 1); assert.equal(compactions, 1, 'coalesced callers must not multiply network cleanup');
+    gate = Promise.resolve(); await workspace.sync();
+    for (let i = 0; i < 20; i++) await new Promise(setImmediate);
+    assert.equal(runs, 2); assert.equal(compactions, 2, 'a fresh cloud result gets a fresh maintenance pass');
+  } finally { await h.close(); }
 });
 
 test('disconnecting a legacy Google workspace preserves a paused v2 connection on the same Native account', async t => {

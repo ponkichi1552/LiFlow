@@ -6,6 +6,7 @@ export function createCalendarGesture() {
   let canStart = (_gesture: PanResponderGestureState) => false;
   let release = (_gesture: PanResponderGestureState) => {};
   const control = PanResponder.create({ onMoveShouldSetPanResponderCapture: (_event, gesture) => canStart(gesture),
-    onPanResponderRelease: (_event, gesture) => release(gesture), onPanResponderTerminationRequest: () => true });
+    onPanResponderRelease: (_event, gesture) => release(gesture), onPanResponderTerminationRequest: () => false,
+    onShouldBlockNativeResponder: () => true });
   return { panHandlers: control.panHandlers, update: (handlers: { canStart: typeof canStart; release: typeof release }) => { canStart = handlers.canStart; release = handlers.release; } };
 }

@@ -167,7 +167,7 @@ for (const platform of ['ios', 'android']) {
     } finally { f.close(); }
   });
 
-  test(`${platform} shared appliance details distinguish current AI instructions from an already edited chore and retain guarded product links`, async () => {
+  test(`${platform} shared appliance details distinguish current AI instructions from an already edited chore and omit reference links without changing saved evidence`, async () => {
     const f = await setup();
     try {
       const saved = await f.seed(); const choreId = saved.createdChoreIds[0];
@@ -176,7 +176,7 @@ for (const platform of ['ios', 'android']) {
       const current = (await f.read(saved.applianceId)).appliances.detail; const result = applianceResult(); result.officialSources.productUrl = 'https://www.dyson.co.jp/v12';
       await f.c.actions.reviewAppliance({ reviewed: true, result, selection: current.row.selection, addTaskNames: [] });
       const { screen, navigation } = await f.mount(platform, 'appliance', saved.applianceId);
-      assert.match(screen.text(), /登録済み家事の手順には違いがあります/u); assert.match(screen.text(), /公式製品情報を見る/u);
+      assert.match(screen.text(), /登録済み家事の手順には違いがあります/u); assert.doesNotMatch(screen.text(), /公式製品情報を見る|出典を見る/u);
       const name = (await f.read()).plan.chores.find(row => row.id === choreId).name;
       await screen.press(`「${name}」の手順・設定`); assert.deepEqual(navigation.at(-1), ['configuration', choreId]);
       assert.deepEqual((await f.read()).plan.chores.find(row => row.id === choreId).instructions, ['自分たちで変更した手順']);
@@ -217,7 +217,7 @@ test('shared and personal appliance task cards reuse source guarded instructions
   const screen = screenHarness('src/features/appliance-care/appliance-detail-content.tsx', { exportName: 'MaintenanceTaskCard',
     props: { task, manufacturer: 'Dyson', index: 1, schedule: '共有の設定は未構成' } });
   assert.match(screen.text(), /汚れが付いたとき/u); assert.match(screen.text(), /十分に乾燥させる/u); assert.equal(screen.text().includes('予定周期：'), false);
-  assert.ok(screen.nodes().some(node => node.props.accessibilityRole === 'link'));
+  assert.equal(screen.nodes().some(node => node.props.accessibilityRole === 'link'), false, 'reference links are omitted while the reviewed instructions and cadence remain available');
 });
 
 for (const platform of ['ios', 'android']) test(`${platform} the joined appliance tab composes private and shared rows without a mode switch or a shared write`, async () => {

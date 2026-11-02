@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { useFocusEffect } from 'expo-router';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { completeChoreWithReceipt, undoCompletionReceipt, undoCompletedChore } from '../platform/storage/repository';
@@ -6,12 +6,22 @@ import { syncGoogleTasksAfterLocalCompletion } from '../features/google-sync/coo
 import { createTaskMutations, scopedDateTaskKey } from '../features/planner/task-mutations';
 import type { DateTask } from '../domain/scheduling/date-tasks';
 import { sharedRepositoryAdapter } from '../platform/storage/shared-repository-adapter';
+import { personalCompletionIntents } from '../platform/storage/completion-intents';
+import { dateTaskRevision } from '../domain/scheduling/date-task-reference';
+import { personalCompletionKey } from '../features/planner/completion-command';
+import type { PersonalCompletionTarget } from '../features/planner/completion-command';
+import type { CompletionIntentState } from '../features/planner/completion-intents';
+import type { Household } from '../domain/shared/types';
+
+const emptyIntents: CompletionIntentState = { values: new Map(), pending: new Set(), restored: false, error: null };
+const noChanges = () => () => {};
+const noIntents = () => emptyIntents;
 
 interface PersonalCompletionSource { database: SQLiteDatabase; refresh(): Promise<void>; readError?: () => string | null;
   isCurrent?: () => boolean; assertAccess?: (task?: DateTask) => void | Promise<void> }
 
 export function useTaskCompletion(database: SQLiteDatabase, refresh: () => Promise<void>, readError?: () => string | null,
-  personal?: PersonalCompletionSource) {
+  personal?: PersonalCompletionSource, household?: Household) {
   const personalDatabase = personal?.database; const personalRefresh = personal?.refresh; const personalReadError = personal?.readError;
   const isCurrent = personal?.isCurrent; const assertPersonalAccess = personal?.assertAccess;
   const binding = useMemo(() => {
@@ -42,5 +52,44 @@ export function useTaskCompletion(database: SQLiteDatabase, refresh: () => Promi
   useEffect(() => { binding.activate(); return binding.deactivate; }, [binding]);
   useFocusEffect(useCallback(() => () => binding.dismissUndo(), [binding]));
   const state = useSyncExternalStore(binding.subscribe, binding.getSnapshot, binding.getSnapshot);
-  return { ...state, ...binding };
+  // Ordinary personal mode and the personal rows inside a group share the same
+  // protected queue. A view projection can change a checkbox before a receipt
+  // exists; retain its original reference rather than inventing a new occurrence.
+  const runtime = useMemo(() => household && !personal && !sharedRepositoryAdapter(database)
+    ? personalCompletionIntents(database, household) : undefined,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [database, personal, household?.id, household?.createdAt]);
+  const intents = useSyncExternalStore(runtime?.queue.subscribe ?? noChanges, runtime?.queue.getSnapshot ?? noIntents, noIntents);
+  const originals = useMemo(() => new WeakMap<DateTask, DateTask>(), []);
+  const [queuedUndo, setQueuedUndo] = useState<{ key: string; target: PersonalCompletionTarget } | null>(null);
+  useEffect(() => runtime?.acquire(), [runtime]);
+  useEffect(() => { if (!queuedUndo) return; const timer = setTimeout(() => setQueuedUndo(null), 6500); return () => clearTimeout(timer); }, [queuedUndo]);
+  useFocusEffect(useCallback(() => {
+    const stop = runtime?.watchDisplay(async () => { await refresh(); const failure = readError?.(); if (failure) throw new Error(failure); });
+    runtime?.queue.retryRead();
+    return () => { stop?.(); setQueuedUndo(null); };
+  }, [runtime, refresh, readError]));
+  if (!runtime) return { ...state, ...binding };
+  const original = (task: DateTask) => originals.get(task) ?? task;
+  const keyFor = (task: DateTask) => personalCompletionKey(dateTaskRevision(original(task)));
+  const canToggle = (task: DateTask) => {
+    try { return Boolean((original(task).entry || original(task).completion) && keyFor(task)); } catch { return false; }
+  };
+  return { ...state, ...binding, pending: intents.pending, reading: false, error: intents.error, requiresReload: false,
+    undoAvailable: Boolean(queuedUndo), canToggle,
+    project: (tasks: readonly DateTask[]) => tasks.map(task => {
+      let key: string; try { key = keyFor(task); } catch { return task; }
+      const completed = intents.values.get(key); if (completed === undefined || completed === task.completed) return task;
+      const projected = { ...task, completed }; originals.set(projected, original(task)); return projected;
+    }),
+    async toggle(task: DateTask) {
+      if (!canToggle(task)) return;
+      const source = original(task); const revision = dateTaskRevision(source); const key = personalCompletionKey(revision);
+      const target: PersonalCompletionTarget = { kind: 'personal', command: { date: source.suggestedDate, graceDays: 3, choreId: source.choreId, revision } };
+      const completed = !(runtime.queue.getSnapshot().values.get(key) ?? source.completed);
+      runtime.queue.request(key, target, completed); setQueuedUndo(completed ? { key, target } : null);
+    },
+    async undoLast() { if (!queuedUndo) return; runtime.queue.request(queuedUndo.key, queuedUndo.target, false); setQueuedUndo(null); },
+    async retryRead() { await refresh(); runtime.queue.retryRead(); },
+  };
 }

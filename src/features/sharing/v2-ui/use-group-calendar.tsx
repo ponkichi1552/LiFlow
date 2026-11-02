@@ -77,14 +77,14 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
       if (!local.database || recordsById.has(draft.eventId ?? '')) throw new Error('個人予定の保存先を確認してください。');
       await saveCalendarEvent(local.database, { id: draft.eventId ?? undefined, expectedRevision: draft.revision, value: draft.value,
         scope: draft.scope, anchorDate: draft.anchorDate ?? undefined, expectedExceptionRevision: draft.exceptionRevision, resetExceptions });
-      await local.refresh();
+      void local.refresh();
     },
     async deleteEvent(draft) {
       if (draft.audience === 'group') { await saveGroup(draft, true); return; }
       if (!local.database || !draft.eventId || recordsById.has(draft.eventId)) throw new Error('個人予定の保存先を確認してください。');
       await deleteCalendarEvent(local.database, { id: draft.eventId, expectedRevision: draft.revision,
         anchorDate: draft.scope === 'one' ? draft.anchorDate ?? undefined : undefined, expectedExceptionRevision: draft.exceptionRevision });
-      await local.refresh();
+      void local.refresh();
     },
     async saveCategory(value, audience = 'personal') {
       if (audience === 'personal') {

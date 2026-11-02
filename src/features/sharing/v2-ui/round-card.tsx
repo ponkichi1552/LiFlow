@@ -12,37 +12,47 @@ import { v2TargetLabel } from './target-form';
 import { isTaskUrgent } from '../../../domain/scheduling/task-priority';
 import type { CompletionFeedback } from './completion-feedback';
 
-export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen, onDate, onAssignment, onPast, onAssignmentRequest, showActions = false, recommendation, feedback, home = false }: {
+export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen, onDate, onAssignment, onPast, onAssignmentRequest, showActions = false, recommendation, feedback, home = false, compact = false }: {
   model: V2GroupScreenModel; round: V2PlannedOccurrence; subject: V2SubjectPlan; actions: V2GroupController['actions']; busy: boolean;
   run: (work: () => Promise<unknown>) => Promise<void>; onOpen: () => void; onDate?: () => void; onAssignment?: () => void;
   onPast?: () => void; onAssignmentRequest?: () => void; showActions?: boolean;
   recommendation?: V2Recommendation;
   feedback?: CompletionFeedback;
-  home?: boolean;
+  home?: boolean; compact?: boolean;
 }) {
   const chore = model.plan.chores.find((entry) => entry.id === round.choreId); if (!chore) return null;
   const viewer = model.viewerUserId;
   const { admin, owns, relatedWork, showStatus } = createV2RoundVisibility(model)(round, subject);
   const nameOf = v2MemberLabels(model.plan.members);
   const undo = subject.completionOperationIds.filter((id) => relatedWork.some((record) => record.operationId === id && record.active && (admin || record.recorderUserId === viewer)));
+  const retainedUndoIds = subject.retainedCompletion?.recorderUserIds.filter(uid => admin || uid === viewer) ?? [];
+  const retainedUndo = retainedUndoIds.length && subject.retainedCompletion ? { choreId: round.choreId, anchorDate: round.anchorDate, subjectUserId: subject.subjectUserId,
+    checkpointId: subject.retainedCompletion.checkpointId, recorderUserIds: retainedUndoIds } : undefined;
+  const partialUndo = undo.length < subject.completionOperationIds.length || retainedUndoIds.length < (subject.retainedCompletion?.recorderUserIds.length ?? 0);
   const ref: V2RoundReference = { choreId: round.choreId, anchorDate: round.anchorDate, ruleVersion: round.ruleVersion, subjectUserId: subject.subjectUserId,
     expectedConfigurationIds: model.configurations.find((entry) => entry.choreId === round.choreId)?.candidates.map((entry) => entry.operationId), expectedTimeZone: model.plan.timeZone };
   const canComplete = owns && round.activeInPeriod && !subject.pendingCompletionIds.length && !subject.dependencyBlocked && !subject.dependencyAwaitingCompletion && !round.assignmentConflictIds.length;
   const key = `shared:${subject.id}`;
-  const work = subject.completed ? undo.length ? () => actions.undoMany(undo) : undefined
+  const work = subject.completed ? undo.length || retainedUndo ? () => actions.undoMany(undo, retainedUndo) : undefined
     : canComplete ? async () => {
       const created = await actions.complete(ref, { expectedAssigneeIds: subject.subjectUserId === null ? round.assigneeIds : [subject.subjectUserId] });
       const own = (created ?? []).filter(op => op.entityType === 'completion' && op.operationType === 'complete' && op.authorUserId === viewer);
       return own.length ? { undo: () => actions.undoMany(own.map(op => op.operationId)) } : undefined;
     } : undefined;
-  const onToggle = busy || feedback?.values.has(key) || !work ? undefined : () => feedback
-    ? feedback.run(key, subject.completed ? undo.length < subject.completionOperationIds.length : true, work) : run(work);
+  const displayedValue = feedback?.values.get(key) ?? subject.completed;
+  // A partial undo must keep another member's completion visible. Its existing
+  // receipt path preserves that distinction; ordinary toggles use the durable queue.
+  const queueable = feedback?.supports?.('shared') && feedback.request && !partialUndo;
+  const onToggle = queueable && (work || feedback!.values.has(key)) ? () => feedback!.request!(key, !displayedValue,
+    { kind: 'shared', ref, expectedAssigneeIds: subject.subjectUserId === null ? round.assigneeIds : [subject.subjectUserId] })
+    : busy || feedback?.values.has(key) || !work ? undefined : () => feedback
+      ? feedback.run(key, subject.completed ? partialUndo : true, work) : run(work);
   const category = subject.subjectUserId ? nameOf(subject.subjectUserId) : round.assigneeIds.length
     ? `${round.claimState === 'provisional' ? '暫定：' : ''}${round.assigneeIds.map(nameOf).join('・')}` : '';
   const formal = subject.formalDate;
   const schedules = relatedWork.filter((record) => record.active && record.schedule).map((record) => record.schedule!);
   const recordedWindow = subject.completed && schedules.length && schedules.every((schedule) => schedule.windowStart === schedules[0].windowStart && schedule.windowEnd === schedules[0].windowEnd) ? schedules[0] : null;
-  const displayCompleted = showStatus && (feedback?.values.get(key) ?? subject.completed);
+  const displayCompleted = showStatus && displayedValue;
   const recommendedDate = recommendation?.date ?? subject.suggestedDate;
   const assignmentPending = model.assignmentRequests.some((request) => !request.cancelled && request.proposal.occurrenceId === round.id && request.proposal.requesterUserId === viewer
     && ['pendingDelivery', 'awaiting'].includes(request.kind));
@@ -68,8 +78,8 @@ export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen,
       {showStatus && subject.cooldownSuppressed ? <Text style={styles.caption}>最近実施済み · {subject.minimumNextExecutionDay ? formatJapaneseDate(subject.minimumNextExecutionDay) : ''}以降に再実施できます。</Text> : null}
       {showStatus && subject.pendingCompletionIds.length ? <Text style={styles.notice}>実施記録の確認・承認待ち</Text> : null}
       {showStatus && subject.strictInstructionUnfulfilled ? <Text style={styles.notice}>実施済み · 指定日時の条件は未達成です。</Text> : null}
-      {showActions && showStatus && subject.completed ? <Text style={styles.caption}>実施者：{[...new Set(relatedWork.filter((record) => record.active).map((record) => nameOf(record.performerUserId)))].join('・')}</Text> : null}
-      {showActions && showStatus && subject.completed && undo.length < subject.completionOperationIds.length ? <Text style={styles.caption}>ほかの人が登録した完了は、その登録者か管理者が取り消せます。</Text> : null}
+      {showActions && showStatus && subject.completed && relatedWork.some(record => record.active) ? <Text style={styles.caption}>実施者：{[...new Set(relatedWork.filter((record) => record.active).map((record) => nameOf(record.performerUserId)))].join('・')}</Text> : null}
+      {showActions && showStatus && subject.completed && partialUndo ? <Text style={styles.caption}>ほかの人が登録した完了は、その登録者か管理者が取り消せます。</Text> : null}
       <View style={styles.buttons}>
         {showActions && onDate ? <AppButton title="日時を変更" compact variant="secondary" disabled={busy || !round.activeInPeriod || Boolean(round.assignmentConflictIds.length)} onPress={onDate} /> : null}
         {showActions && onPast && !subject.completed ? <AppButton title={owns ? '以前の実施を記録' : model.plan.policy?.allowSubstitution ? '代行を記録' : '代行を記録（承認が必要）'} compact variant="quiet" disabled={busy || Boolean(round.assignmentConflictIds.length)} onPress={onPast} /> : null}
@@ -82,7 +92,7 @@ export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen,
               expectedAssignmentIds: round.assignmentOperationIds, expectedConflictIds: round.assignmentConflictIds }); }))} /> : null}
       </View>
     </View> : undefined;
-  return <TaskCheckboxRow chore={{ ...chore, householdId: '', category }} completed={displayCompleted} home={home} detail={home ? [category, formal.kind === 'manual' ? v2TargetLabel(formal.target, formal.timeZone) : ''].filter(Boolean).join(' · ') : undefined}
+  return <TaskCheckboxRow chore={{ ...chore, householdId: '', category }} completed={displayCompleted} home={home} compact={compact} detail={home ? [category, formal.kind === 'manual' ? v2TargetLabel(formal.target, formal.timeZone) : ''].filter(Boolean).join(' · ') : undefined}
       sourceIcon={subject.subjectUserId === null ? 'person' : 'group'} footer={footer}
       action={canClaim ? <View style={styles.claim}><AppButton title="担う" compact variant="quiet" disabled={busy} onPress={() => run(() => actions.claim(ref))} /></View> : undefined}
       source={formal.kind === 'manual' ? 'instructed' : 'shared'}

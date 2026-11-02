@@ -3,6 +3,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { newEventDraft, projectCalendarEvents } from '../src/domain/calendar/events.ts';
+import { v2CalendarProjection } from '../src/features/sharing/v2-ui/calendar-projection.ts';
+import { createV2GroupController } from '../src/features/sharing/v2/controller.ts';
+import { fixture, seeds, now } from './helpers/sharing-v2-repository-fixture.mjs';
+import { addDays } from '../src/domain/scheduling/local-date.ts';
 const { initializeLocalDatabase } = await import('../src/platform/storage/repository.ts');
 const { readLocalCalendar } = await import('../src/platform/storage/calendar-events.ts');
 
@@ -39,4 +43,34 @@ test('calendar projection indexes unrelated exceptions once and preserves moved 
   const rows = projectCalendarEvents(events, exceptions, '2026-11-01', '2026-11-03');
   assert.equal(rows.length, 1000); assert.equal(rows.find(row => row.eventId === 'event.0').startDate, '2026-11-02');
   assert.ok(reads <= exceptions.length * 5, `exception accesses must be linear, observed ${reads}`);
+});
+
+test('shared calendar reuses collation within each projection while preserving native ID order counts and input', async () => {
+  const f = await fixture(); const d = await f.device();
+  const NativeCollator = Intl.Collator; const nativeCompare = String.prototype.localeCompare;
+  try {
+    await d.repository.commit(seeds());
+    const controller = createV2GroupController(d.repository, { makeId: () => 'read-cost', now, sync: async () => {} });
+    const model = await controller.readModel({ from: '2026-10-01', through: '2026-10-31', asOfDate: '2026-10-27' });
+    const template = model.plan.occurrences[0]; assert.ok(template);
+    model.plan.range = { from: '2026-10-01', through: '2027-03-29', asOfDate: '2026-10-27' };
+    const ids = ['a.2', 'a_10', 'A-1', 'Z.2', 'a-2', 'z_10'];
+    model.plan.occurrences = Array.from({ length: 180 }, (_, day) => ids.map((id, index) => {
+      const date = addDays('2026-10-01', day);
+      return { ...template, id: `round.${day}.${id}`, choreId: `chore.${index}`, anchorDate: date,
+        subjects: [{ ...template.subjects[0], id, suggestedDate: date, executionWindowStart: date, executionWindowEnd: date }] };
+    })).flat();
+    const before = JSON.stringify(model); const expected = [...ids].sort((a, b) => nativeCompare.call(a, b));
+    let constructions = 0; let individualComparisons = 0;
+    Intl.Collator = new Proxy(NativeCollator, { construct(target, args) { constructions++; return Reflect.construct(target, args); } });
+    String.prototype.localeCompare = function (...args) { individualComparisons++; return nativeCompare.apply(this, args); };
+    for (let run = 1; run <= 2; run++) {
+      const value = v2CalendarProjection(model);
+      assert.equal(value.byDate.size, 180);
+      for (const [date, rows] of value.byDate) { assert.deepEqual(rows.map(row => row.id), expected); assert.equal(value.counts.get(date), ids.length); }
+      assert.equal(constructions, run, 'a synchronous projection reuses its comparator without retaining the previous invocation locale');
+    }
+    assert.equal(individualComparisons, 0, 'native localeCompare must not construct a collator for each ID comparison');
+    assert.equal(JSON.stringify(model), before);
+  } finally { Intl.Collator = NativeCollator; String.prototype.localeCompare = nativeCompare; d.connection.close(); }
 });

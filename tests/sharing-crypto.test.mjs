@@ -7,6 +7,7 @@ import { createDeviceIdentity, decryptSharedOperation, decryptAuthenticatedShare
   signSharedOperation, verifyAuthenticatedSharedOperation, unwrapGroupKey, wrapGroupKey,
   validateDevicePublicIdentity } from '../src/features/sharing/crypto.ts';
 import { canonicalJson } from '../src/features/sharing/operations.ts';
+import { createSignatureVerificationCache } from '../src/features/sharing/signature-verification-cache.ts';
 
 function operation(identity, overrides = {}) {
   return { schemaVersion: 1, operationId: 'operation-1', groupId: 'group-test', authorUserId: 'user-a',
@@ -97,4 +98,68 @@ test('key rotation reencrypts an unsent operation without changing its identity,
 test('cryptographic creation rejects unavailable or short randomness instead of using an insecure fallback', async () => {
   await assert.rejects(createDeviceIdentity({ ...gateway, randomBytes: async () => new Uint8Array(1) }), /random source/);
   await assert.rejects(createDeviceIdentity({ ...gateway, randomBytes: async () => { throw new Error('unavailable'); } }), /unavailable/);
+});
+
+
+test('signature verification reuses only an identical authenticated message and still rejects changed data identities and invalid encodings', async () => {
+  const { loadNativeModule } = await import('./helpers/native-module.mjs');
+  const { ed25519, x25519 } = await import('@noble/curves/ed25519.js');
+  const { hkdf } = await import('@noble/hashes/hkdf.js'); const { sha256 } = await import('@noble/hashes/sha2.js');
+  const utils = await import('@noble/hashes/utils.js'); const operations = await import('../src/features/sharing/operations.ts');
+  let checks = 0; let largeHashes = 0;
+  const measuredHash = bytes => { if (bytes.length > 1024) largeHashes++; return sha256(bytes); };
+  const memo = loadNativeModule('src/features/sharing/signature-verification-cache.ts', { '@noble/hashes/sha2.js': { sha256: measuredHash }, '@noble/hashes/utils.js': utils });
+  const content = loadNativeModule('src/features/sharing/content-digest.ts', { '@noble/hashes/sha2.js': { sha256: measuredHash }, '@noble/hashes/utils.js': utils, './operations.ts': operations });
+  const crypto = loadNativeModule('src/features/sharing/crypto.ts', {
+    '@noble/curves/ed25519.js': { ed25519: { ...ed25519, verify: (...args) => { checks++; return ed25519.verify(...args); } }, x25519 },
+    '@noble/hashes/hkdf.js': { hkdf }, '@noble/hashes/sha2.js': { sha256: measuredHash }, '@noble/hashes/utils.js': utils, './operations.ts': operations, './content-digest.ts': content,
+    './signature-verification-cache.ts': { signatureVerificationCache: memo.createSignatureVerificationCache() },
+  });
+  const author = await createDeviceIdentity(gateway); const other = await createDeviceIdentity(gateway);
+  const value = { groupId: 'signature-cache-test', body: { enabled: true, name: '浴室'.repeat(1024) } };
+  const signed = crypto.signSharedDocument(value, author);
+  crypto.verifySharedDocument(value, signed, author); crypto.verifySharedDocument(JSON.parse(JSON.stringify(value)), signed, author);
+  assert.equal(checks, 1, 'equal content from a fresh SQLite read must not redo the same signature arithmetic');
+  assert.equal(largeHashes, 1, 'the protected digest is computed only for the initial success; the identical in-memory lookup must not hash the payload again');
+  value.body.enabled = false;
+  assert.throws(() => crypto.verifySharedDocument(value, signed, author), /signature/);
+  assert.throws(() => crypto.verifySharedDocument(value, signed, author), /signature/);
+  assert.equal(checks, 3, 'failed checks must not become successful cache entries');
+  value.body.enabled = true;
+  assert.throws(() => crypto.verifySharedDocument(value, signed, { ...author, deviceId: other.deviceId }), /fingerprint/);
+  assert.throws(() => crypto.verifySharedDocument(value, signed, other), /signature/);
+  assert.throws(() => crypto.verifySharedDocument(value, signed.toUpperCase(), author), /encoding/);
+  assert.throws(() => crypto.verifySharedDocument({ ...value, groupId: 'other-group' }, signed, author), /signature/);
+  crypto.verifySharedDocument(value, signed, author); assert.equal(checks, 5);
+});
+
+test('signature verification cache evicts old successes and never turns a read result into membership authority', async () => {
+  const { loadNativeModule } = await import('./helpers/native-module.mjs');
+  const { ed25519, x25519 } = await import('@noble/curves/ed25519.js'); const { hkdf } = await import('@noble/hashes/hkdf.js');
+  const { sha256 } = await import('@noble/hashes/sha2.js'); const utils = await import('@noble/hashes/utils.js');
+  const operations = await import('../src/features/sharing/operations.ts'); let checks = 0;
+  const crypto = loadNativeModule('src/features/sharing/crypto.ts', {
+    '@noble/curves/ed25519.js': { ed25519: { ...ed25519, verify: (...args) => { checks++; return ed25519.verify(...args); } }, x25519 },
+    '@noble/hashes/hkdf.js': { hkdf }, '@noble/hashes/sha2.js': { sha256 }, '@noble/hashes/utils.js': utils, './operations.ts': operations, './content-digest.ts': await import('../src/features/sharing/content-digest.ts'),
+    './signature-verification-cache.ts': { signatureVerificationCache: createSignatureVerificationCache() },
+  });
+  const author = await createDeviceIdentity(gateway);
+  const values = Array.from({ length: 1025 }, (_, index) => ({ groupId: 'bounded-signatures', index }));
+  const signatures = values.map(value => crypto.signSharedDocument(value, author));
+  values.forEach((value, index) => crypto.verifySharedDocument(value, signatures[index], author));
+  assert.equal(checks, values.length);
+  crypto.verifySharedDocument(values[0], signatures[0], author); assert.equal(checks, values.length + 1, 'the oldest signature is verified again after eviction');
+  const unauthorized = { ...author, agreementPublicKey: '00'.repeat(32) };
+  assert.throws(() => crypto.verifySharedDocument(values[0], signatures[0], unauthorized), /fingerprint/);
+});
+
+test('signature verification binds the validated identity before inspecting caller-owned signed content', async () => {
+  const { signSharedDocument, verifySharedDocument } = await import('../src/features/sharing/crypto.ts');
+  const author = await createDeviceIdentity(gateway); const other = await createDeviceIdentity(gateway);
+  const value = { groupId: 'signature-identity-snapshot', body: { name: '浴室' } };
+  const signature = signSharedDocument(value, other); verifySharedDocument(value, signature, other);
+  const selected = { ...author };
+  const changing = { groupId: value.groupId, get body() { Object.assign(selected, other); return value.body; } };
+  assert.throws(() => verifySharedDocument(changing, signature, selected), /signature/,
+    'looking at a payload must not swap the already-validated signing identity or select another cached signer');
 });

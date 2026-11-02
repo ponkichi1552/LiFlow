@@ -14,7 +14,7 @@ export function violatesV2RequiredOrder(input: { view: V2HistoryView; archive: r
   frame: SharedOccurrence; subjectUserId: string | null; target: DateTarget; mode: DesignationMode; timeZone: string; formalRules: readonly ManualRuleFact[];
   requests: readonly V2DateRequestState[]; receiptEpochs: ReadonlyMap<string, VerifiedSharedRoster>; receipts?: ReadonlyMap<string, V2ServerReceipt> }): boolean {
   if (!input.view.ofType('dependency').length) return false;
-  const cut = createV2AuthorityIndex(input.view.groupId);
+  const cut = createV2AuthorityIndex(input.view.groupId, undefined, undefined, undefined, input.view.retentionAt(input.operation));
   for (const op of input.view.ready) if (causallyPrecedes(op, input.operation)) cut.accept(op);
   const plan = buildV2CommonPlan({ assessment: { view: cut.view, approvedRules: [...input.formalRules], requestStates: [...input.requests], receiptEpochs: input.receiptEpochs },
     archive: input.archive.slice(0, input.operation.keyVersion), receipts: input.receipts ?? new Map() },

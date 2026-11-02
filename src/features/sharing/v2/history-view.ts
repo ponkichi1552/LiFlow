@@ -5,20 +5,22 @@ import { maximalCausalFacts } from './causal-facts.ts';
 import { normalizeV2Configuration } from './configuration-normalization.ts';
 import type { DateRuleCancellation, SharedChoreConfiguration } from './model.ts';
 import type { V2AssignmentProjection } from './assignment-state.ts';
+import type { V2RetentionBody } from './history-retention-schema';
+import { validateV2RetentionBody } from './history-retention-schema.ts';
 
 export class V2HistoryConflictError extends Error { readonly code = 'sharing/v2-history-conflict'; }
 
 /** Index once per projection. Never rebuild the whole replica for each causal permission lookup. */
 export function createV2HistoryView(replica: SharedReplica) {
   const pending = new Set(replica.pendingOperationIds);
-  const index = createV2AuthorityIndex(replica.groupId);
+  const index = createV2AuthorityIndex(replica.groupId, undefined, undefined, undefined, replica.retention ? validateV2RetentionBody(replica.retention.proposal.operation.payload.checkpoint) : undefined);
   for (const op of replica.operations) if (!pending.has(op.operationId)) index.accept(op);
   return index.view;
 }
 
 /** The receiver adds only authenticated, authorized facts; invalid writes never establish later privileges. */
 export function createV2AuthorityIndex(groupId: string, assignmentProjection?: (at: SharedOperation) => V2AssignmentProjection, confirmedContext?: () => VersionVector,
-  cancellationProjection?: (at?: SharedOperation) => DateRuleCancellation[]) {
+  cancellationProjection?: (at?: SharedOperation) => DateRuleCancellation[], retention?: V2RetentionBody) {
   const ready: SharedOperation[] = []; const byId = new Map<string, SharedOperation>();
   const topics = new Map<string, SharedOperation[]>(); const types = new Map<SharedEntityType, SharedOperation[]>();
   const occurrences = new Map<string, SharedOperation[]>();
@@ -55,6 +57,8 @@ export function createV2AuthorityIndex(groupId: string, assignmentProjection?: (
     assignmentsAt: (at: SharedOperation) => assignmentProjection?.(at),
     dateCancellationsAt: (at?: SharedOperation) => cancellationProjection?.(at) ?? [],
     confirmedReceiptContext: () => confirmedContext?.(),
+    retainedFrontier: () => retention?.frontier,
+    retentionAt: (at: SharedOperation) => retention && Object.entries(retention.frontier).every(([device, count]) => (at.context[device] ?? 0) >= count) ? retention : undefined,
     observed,
     field(type: SharedEntityType, id: string, field: string, at: SharedOperation, filter: (op: SharedOperation) => boolean = () => true):
       { value: JsonValue; operations: SharedOperation[] } | null {

@@ -8,7 +8,8 @@ import { expoWidgetGateway } from '@/platform/widgets/expo-widget-gateway';
 
 const synchronizers = new WeakMap<SQLiteDatabase, ReturnType<typeof createWidgetCompletionSync<PlannerSnapshot>>>();
 
-export function refreshPlannerFromWidget(database: SQLiteDatabase, requestedIds: readonly string[] = [], options: { publish?: boolean; preferCached?: boolean } = {}) {
+export async function refreshPlannerFromWidget(database: SQLiteDatabase, requestedIds: readonly string[] = [], options: { publish?: boolean; preferCached?: boolean } = {}) {
+  await (await import('../subscription/runtime')).assertSubscriptionAccess();
   let synchronize = synchronizers.get(database);
   if (!synchronize) {
     synchronize = createWidgetCompletionSync({

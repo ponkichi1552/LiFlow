@@ -149,7 +149,7 @@ test('appliance details virtualize long instructions and return by popping to th
     await screen.press('一覧へ戻る');
     assert.deepEqual(calls, [['dismissTo', returnTo]], 'return must pop rather than push/replace');
     const last = screenHarness('src/features/appliance-care/appliance-detail-content.tsx', { exportName: 'ApplianceDetailContent', props: { context, returnTo },
-      mocks: { 'react-native': { FlatList: (props) => props.renderItem({ item: props.data.at(-1), index: 9 }), Text: 'Text', View: 'View', Pressable: 'Pressable', StyleSheet: { create: (value) => value }, Linking: {} } } });
+      mocks: { 'react-native': { Platform: { OS: 'ios' }, FlatList: (props) => props.renderItem({ item: props.data.at(-1), index: 9 }), Text: 'Text', View: 'View', Pressable: 'Pressable', StyleSheet: { create: (value) => value }, Linking: {} } } });
     assert.ok(last.text().includes('作業9'), 'all items remain available when the list renders them');
     last.button('一覧へ戻る');
     const analysis = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { params: { returnTo }, navigate: (...args) => calls.push(args), mocks: { '@/features/appliance-care/api-client': {} } });

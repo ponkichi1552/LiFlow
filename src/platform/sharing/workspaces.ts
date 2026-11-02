@@ -1,16 +1,17 @@
 import { randomUUID } from 'expo-crypto';
-import { openDatabaseAsync } from 'expo-sqlite';
+import { deleteDatabaseAsync, openDatabaseAsync } from 'expo-sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { User } from 'firebase/auth';
 import { getSharingServices, isSharingConfigured } from './firebase-services.ts';
 import { nativeSharingCrypto } from './native-crypto.ts';
+import { initializeNativeSignatureCache } from './signature-verification-cache.ts';
 import { loadOrCreateSharingDeviceIdentity, loadSharingGroupKey, saveSharingGroupKey, sharingSecureVault } from './secure-store.ts';
-import { openSharingDatabase, openSharingV2Database, sharingDatabaseDirectory } from './database-location.ts';
+import { openSharingDatabase, openSharingV2Database, sharingDatabaseDirectory, sharingDatabaseFilename, sharingDatabaseFileExists } from './database-location.ts';
 import { createSharingCloud } from './firestore-cloud.ts';
 import { createSharedRoster, sharedRosterDigest } from '../../features/sharing/roster.ts';
 import type { VerifiedSharedRoster } from '../../features/sharing/roster.ts';
 import { canonicalJson } from '../../features/sharing/operations.ts';
-import { wrapGroupKey } from '../../features/sharing/crypto.ts';
+import { wrapGroupKey, sharedDocumentDigest } from '../../features/sharing/crypto.ts';
 import { createSharedSynchronizer } from '../../features/sharing/synchronizer.ts';
 import { readCloudWorkspaceArchive, sharedWorkspaceProtocol, verifyWorkspaceArchive } from '../../features/sharing/workspace-protocol.ts';
 import { createV2WorkspaceSession, V2WorkspaceMigrationRequiredError } from '../../features/sharing/v2/workspace-session.ts';
@@ -30,10 +31,14 @@ import { sharingOwnerRecoveryEnabled } from '../../features/sharing/rollout.ts';
 import { initializeSharingRegistry, readCurrentSharingWorkspace, readSharingWorkspace, saveSharingWorkspace, updateSharingWorkspace, adoptConfirmedSharingWorkspace } from '../storage/sharing-registry.ts';
 import type { SharingWorkspaceRecord } from '../storage/sharing-registry.ts';
 import { initializeSharedProjection } from '../storage/sharing-projection.ts';
-import { drainSharingLedger, initializeSharingLedger, loadSharedReplica, readSharingCheckpoint } from '../storage/sharing-ledger.ts';
+import { drainSharingLedger, initializeSharingLedger, loadSharedFacts, loadSharedReplica, readSharingCheckpoint } from '../storage/sharing-ledger.ts';
 import { sharedRepositoryAdapter } from '../storage/shared-repository-adapter.ts';
 import { drainPlannerDatabaseOperations, loadGoogleSyncState, LOCAL_HOUSEHOLD_ID, withPlannerDatabaseOperation } from '../storage/repository.ts';
 import { createNativeApplianceRetention } from './appliance-retention';
+import { createV2HistoryRetentionRuntime } from '../../features/sharing/v2/history-retention-runtime.ts';
+import { validateV2RetentionBody } from '../../features/sharing/v2/history-retention-schema.ts';
+import type { VerifiedSharedSnapshot } from '../../features/sharing/snapshots';
+import { removeRetainedLegacyArchive } from '../storage/retention-archives.ts';
 
 export type { SharingSelection } from '../../features/sharing/workspace-selection.ts';
 export type { SharedWorkspace } from './workspace-types.ts';
@@ -47,7 +52,7 @@ let registryPromise: Promise<SQLiteDatabase> | null = null;
 export function sharingRegistryDatabase(): Promise<SQLiteDatabase> {
   if (!registryPromise) {
     const pending = (async () => { const db = await openDatabaseAsync('sharing-index.db', { useNewConnection: true }, await sharingDatabaseDirectory());
-      try { await initializeSharingRegistry(db); return db; }
+      try { await initializeSharingRegistry(db); await initializeNativeSignatureCache(db); return db; }
       catch (error) { await db.closeAsync().catch(() => undefined); throw error; }
     })(); registryPromise = pending;
     void pending.catch(() => { if (registryPromise === pending) registryPromise = null; });
@@ -360,6 +365,30 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
   try {
     access.assertWritable();
     let sync!: V2SharedWorkspace['sync'];
+    const finishLocalHistoryRetention = async (snapshot: VerifiedSharedSnapshot) => {
+      if (!snapshot.base.retention) return;
+      const body = validateV2RetentionBody(snapshot.base.retention.proposal.operation.payload.checkpoint);
+      const marker = { cutoff: body.cutoff, throughSequence: body.throughSequence, digest: sharedDocumentDigest(body) };
+      const record = await access.readRecord(); access.assertWritable();
+      if (record.historyRetention?.digest !== marker.digest) {
+        await access.update(prior => ({ ...prior, historyRetention: marker }));
+      }
+      // Retry the purge after a process interruption between saving the marker and deleting the old cache.
+      const { clearSharedStartupDisplay } = await import('./startup-display');
+      const { startupDisplayScope } = await import('../../features/planner/startup-display');
+      await clearSharedStartupDisplay(userId, groupId, startupDisplayScope(await access.readRecord()));
+      if (record.v2Migration && access.archive()?.some(epoch => epoch.body.schemaVersion === 1)) {
+        const generations = [...new Set([record.localGeneration ?? 'initial', ...record.archivedLocalGenerations ?? []])];
+        for (const value of generations) {
+          const generation = value === 'initial' ? undefined : value; const filename = sharingDatabaseFilename(userId, groupId, generation);
+          await removeRetainedLegacyArchive({ snapshot, groupId, archive: access.archive()!,
+            exists: () => sharingDatabaseFileExists(filename), open: () => openSharingDatabase(userId, groupId, generation),
+            remove: async () => { await deleteDatabaseAsync(filename, await sharingDatabaseDirectory()); },
+            assertAccess: async () => { await access.readRecord(); access.assertWritable(); } });
+        }
+      }
+      await database.execAsync('PRAGMA wal_checkpoint(TRUNCATE)');
+    };
     const openedSession = await createV2WorkspaceSession({ ...selection, database, householdId: 'shared-v2', identity, crypto: nativeSharingCrypto, cloud,
       readRecord: access.readRecord, saveArchive: access.saveArchive, archive: () => access.archive() ?? [],
       readKey: (version) => loadSharingGroupKey(userId, groupId, version), saveKey: (version, bytes) => saveSharingGroupKey(userId, groupId, version, bytes),
@@ -376,6 +405,7 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
           if (table) await verifyKnownLegacyHistory(legacy, groupId, snapshot);
         } finally { await legacy.closeAsync(); }
       },
+      afterRetentionApplied: finishLocalHistoryRetention,
       markLeft: async () => { await access.update((prior) => ({ ...prior, status: 'left', lastErrorCode: null })); },
       afterCommit: () => {
         changed(selection); if (syncDeadline === null) refreshIntegrations?.(true);
@@ -395,6 +425,45 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
         await retention.refresh(); return result;
       },
     } }, openedSession.assertCurrentAccess) };
+    const historyRetention = createV2HistoryRetentionRuntime({ repository: session.repository, manager: session.manager,
+      sync: session.synchronizer.sync, readOriginals: () => loadSharedFacts(database, groupId),
+      assertAccess: async () => {
+        await session.assertCurrentAccess(false);
+        await session.repository.withPrivateStorage(async tx => {
+          if (await tx.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='sharing_v2_recovery_review'")
+            && await tx.getFirstAsync("SELECT 1 FROM sharing_v2_recovery_review WHERE status='review' AND cancelled=0")) throw new Error('復旧の確認を終えてから履歴を整理します。');
+        });
+      }, makeId: randomUUID,
+      readHead: async () => {
+        const { group, roster } = await cloud.readGroup(groupId); const checkpoint = await readSharingCheckpoint(database, groupId);
+        const locked = cloud.ownerRecoveryEnabled ? await cloud.readRecoveryLock(groupId) : null;
+        return { sequence: group.headSequence, localSequence: checkpoint.sequence, rotationRequired: group.rotationRequired || Boolean(locked),
+          rosterDigest: sharedRosterDigest(roster) };
+      } });
+    const maintainHistory = async (budgetMs = 120_000) => {
+      const deadline = Date.now() + budgetMs;
+      const remaining = () => { const left = deadline - Date.now(); if (left < 1000) throw new Error('履歴の整理は次回同期で続けます。'); return left; };
+      if (access.record().status !== 'active') return;
+      await historyRetention.run(remaining());
+      const state = await session.repository.readState(); remaining();
+      if (state.replica.retention) {
+        const saved = await database.getFirstAsync<{ snapshot_json: string }>('SELECT snapshot_json FROM sharing_snapshot_state WHERE group_id=?', groupId);
+        if (saved) await finishLocalHistoryRetention(JSON.parse(saved.snapshot_json));
+      }
+      if (access.archive()?.at(-1)?.body.ownerDeviceId !== identity.deviceId) return;
+      if (state.replica.retention) {
+        const body = validateV2RetentionBody(state.replica.retention.proposal.operation.payload.checkpoint);
+        const ids = new Set(state.replica.operations.map(op => op.operationId));
+        for (let pass = 0; pass < 32 && remaining() >= 1000; pass++) {
+          const result = await cloud.compactCertifiedHistory(groupId, body, ids, remaining);
+          if (!result.pending) break;
+        }
+      } else {
+        const { group } = await cloud.readGroup(groupId); remaining(); if (group.rotationRequired) return;
+        if (group.headSequence - group.snapshotThroughSequence >= 256) await session.manager.publishSnapshot(remaining());
+        remaining(); await cloud.compactHistory(groupId, Date.now(), remaining);
+      }
+    };
     let reminderPromise: Promise<import('../../features/sharing/v2/reminder-runtime').V2ReminderRuntime> | undefined;
     let taskPromise: Promise<import('../../features/sharing/v2/google-tasks-runtime').V2GoogleTaskRuntime> | undefined;
     const assertNativeAccess = async () => {
@@ -539,6 +608,18 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
         }
       }).catch(() => undefined); return task;
     };
+    const synchronize = sync;
+    const maintenanceFollowups = new WeakSet<Promise<unknown>>();
+    sync = options => {
+      const task = synchronize(options);
+      if (options?.budgetMs === undefined && !maintenanceFollowups.has(task)) {
+        maintenanceFollowups.add(task);
+        void task.then(result => {
+          if (!result.waitingForApproval && result.complete) return maintainHistory(60_000);
+        }).catch(() => undefined);
+      }
+      return task;
+    };
     return { ...selection, protocol: 2, database, session, identity, cloud, manager: session.manager, sync, reminders, googleTasks, googleCalendar, record: access.readRecord,
       roster: () => access.archive()?.at(-1), checkpoint: () => readSharingCheckpoint(database, groupId),
       drain: async () => { await drainPlannerDatabaseOperations(database); await drainSharingLedger(database); }, cancelJoinRequest: access.cancelJoinRequest,
@@ -550,14 +631,7 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
           chores: model.plan.chores, hasConflicts: model.configurations.some((entry) => entry.candidates.length > 1),
           ...(model.recoverySummary ? { recoverySummary: model.recoverySummary } : {}) };
       },
-      async maintainHistory(budgetMs = 120_000) {
-        const deadline = Date.now() + budgetMs;
-        const remaining = () => { const left = deadline - Date.now(); if (left < 1000) throw new Error('履歴の整理は次回同期で続けます。'); return left; };
-        if (access.archive()?.at(-1)?.body.ownerDeviceId !== identity.deviceId || access.record().status !== 'active') return;
-        remaining(); const { group } = await cloud.readGroup(groupId); remaining(); if (group.rotationRequired) return;
-        if (group.headSequence - group.snapshotThroughSequence >= 256) await session.manager.publishSnapshot(remaining());
-        remaining(); await cloud.compactHistory(groupId, Date.now(), remaining);
-      } };
+      maintainHistory };
   } catch (error) { clearTimeout(debounce); await database.closeAsync().catch(() => undefined); throw error; }
 }
 

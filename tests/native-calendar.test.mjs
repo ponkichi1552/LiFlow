@@ -49,13 +49,13 @@ for (const platform of ['ios', 'android']) {
     await screen.press('2026年10月30日の家事を開く');
     assert.ok(screen.text().includes(`家事：${today}`), 'the selected day must be visible without scrolling back through inherited timeline offsets');
     scroll('calendar-agenda'); await selectCalendarView(screen, '2日表示');
-    assert.ok(screen.text().includes('10月30日（金）')); assert.ok(screen.text().includes('10月31日（土）'));
+    assert.ok(screen.text().includes('10月30日 金')); assert.ok(screen.text().includes('10月31日 土'));
     scroll('calendar-timeline'); await selectCalendarView(screen, '1日表示');
-    assert.ok(screen.text().includes('10月30日（金）'));
+    assert.ok(screen.text().includes('10月30日 金'));
     scroll('calendar-timeline');
     const gesture = screen.nodes().find(node => typeof node.props.onPanResponderRelease === 'function');
     gesture.props.onPanResponderRelease({}, { x0: 200, dx: -140, dy: 0 }); screen.render();
-    assert.ok(screen.text().includes('10月31日（土）'), 'the next day starts with its own scroll state');
+    assert.ok(screen.text().includes('10月31日 土'), 'the next day starts with its own scroll state');
     await selectCalendarView(screen, 'リスト表示'); await screen.press('2026年10月31日の家事を開く');
     assert.ok(screen.text().includes('家事：2026-10-31'));
   });
@@ -177,7 +177,7 @@ for (const platform of ['ios', 'android']) {
     weeks.props.onViewableItemsChanged({ viewableItems: visible, changed: [] }); screen.render();
     await selectCalendarView(screen, 'リスト表示');
     assert.ok(screen.button('月初の予定を編集'));
-    assert.ok(screen.text().includes('11月1日（日）'), 'saving and changing display keeps the actual saved date');
+    assert.ok(screen.text().includes('11月1日 日'), 'saving and changing display keeps the actual saved date');
     assert.equal((await store.readLocalCalendar(h.database)).events[0].startDate, '2026-11-01');
   });
 }

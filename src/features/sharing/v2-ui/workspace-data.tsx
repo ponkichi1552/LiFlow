@@ -18,12 +18,16 @@ import { millisecondsUntilNextSharedDay } from '../group-clock';
 import type { SharedWorkspace } from '../../../platform/sharing/workspaces';
 import { createRestoringSessionGate, restoringDisplaySession } from '../../planner/restoring-session';
 import { startupDisplayCache } from '../../../platform/sharing/startup-display';
+import { personalCompletionIntents, sharedCompletionIntents } from '../../../platform/storage/completion-intents';
+import type { CompletionIntentRuntime } from '../../../platform/storage/completion-intents';
 
 interface WorkspaceDisplayBinding {
   workspace: Extract<SharedWorkspace, { protocol: 2 }> | null;
   invalidate: () => void;
   loadSession: () => Promise<V2GroupUiSession>;
   subscribe: (changed: () => void) => () => void;
+  sharedCompletion?: CompletionIntentRuntime;
+  personalCompletion?: CompletionIntentRuntime;
   peek: (options?: Parameters<V2GroupUiSession['readModel']>[0]) => WorkspaceDisplayValue | undefined;
 }
 const WorkspaceDisplayContext = createContext<WorkspaceDisplayBinding | null>(null);
@@ -51,7 +55,7 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
   const openCalendar = useCallback(async () => {
     await assertWorkspaceAccess();
     const { openPrivateCalendarRuntime } = await import('../../../platform/sharing/private-calendar-runtime');
-    await assertWorkspaceAccess(); const calendar = openPrivateCalendarRuntime(active!.userId); await assertWorkspaceAccess(); return calendar;
+    await assertWorkspaceAccess(); return openPrivateCalendarRuntime(active!.userId);
   }, [active, assertWorkspaceAccess]);
   const subscribeInputs = useCallback((changed: () => void) => {
     let stopped = false; let stopCalendar: (() => void) | undefined;
@@ -60,7 +64,7 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
       if (matches() && !scope?.statusOnly && scope?.userId === active!.userId && scope.groupId === active!.groupId) changed();
     });
     const stopLocalCalendar = personalDatabase ? subscribeLocalCalendar(personalDatabase, change => {
-      if (matches() && change !== 'drafts' && change !== 'categories') changed();
+      if (matches() && change !== 'drafts' && change !== 'categories' && change !== 'syncStatus') changed();
     }) : undefined;
     void openCalendar().then(calendar => { if (matches()) stopCalendar = calendar.subscribe(() => { if (matches()) changed(); }); }).catch(() => {});
     return () => { stopped = true; stopSharing(); stopCalendar?.(); stopLocalCalendar?.(); };
@@ -98,16 +102,39 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
   const prepared = useMemo(() => ({ load: loadSource, store: createWorkspaceDisplayStore() }), [loadSource]);
   const store = prepared.store;
   useLayoutEffect(() => { store.bind(prepared.load); }, [store, prepared]);
+  const loadVerifiedSession = useCallback(async () => {
+    const source = await loadSource();
+    return { ...source, invalidate: store.invalidate, readModel: async (options: Parameters<V2GroupUiSession['readModel']>[0]) => {
+      try { return (await store.read(options)).model; }
+      finally { completeInitialDisplay(); }
+    } };
+  }, [loadSource, store, completeInitialDisplay]);
   useLayoutEffect(() => {
-    if (active) restoring.bind(async () => { const value = await store.read(); return value.session; });
+    // Commands need the current verified controller, not a finished calendar or
+    // personal presentation. Each action still checks authority in its write transaction.
+    if (active) restoring.bind(loadVerifiedSession);
     else if (context.error) restoring.fail(new Error(context.error));
-  }, [active, context.error, restoring, store]);
+  }, [active, context.error, restoring, loadVerifiedSession]);
   useEffect(() => () => restoring.close(), [restoring]);
   const savedDisplay = useMemo<WorkspaceDisplayValue | undefined>(() => context.startupDisplay ? {
     model: context.startupDisplay.model, session: restoringDisplaySession(context.startupDisplay.model, restoring.get),
   } : undefined, [context.startupDisplay, restoring]);
+  const completionGeneration = context.group?.localGeneration ?? context.startupDisplay?.record.localGeneration;
+  const completionScope = useRef({ userId: context.userId, groupId, generation: completionGeneration });
+  useLayoutEffect(() => { completionScope.current = { userId: context.userId, groupId, generation: completionGeneration }; }, [context.userId, groupId, completionGeneration]);
+  const sharedCompletion = useMemo(() => context.userId && groupId ? sharedCompletionIntents({ userId: context.userId, groupId,
+    generation: completionGeneration, loadSession: () => restoring.get() }) : undefined, [context.userId, groupId, completionGeneration, restoring]);
+  const personalHousehold = personalSnapshot?.household;
+  const personalCompletion = useMemo(() => personalHousehold ? personalCompletionIntents(personalDatabase, personalHousehold) : undefined,
+    // The household's creation identity changes after reinstall/reset; its name does not change the save scope.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [personalDatabase, personalHousehold?.id, personalHousehold?.createdAt]);
+  useEffect(() => sharedCompletion?.acquire(() => completionScope.current.userId === context.userId && completionScope.current.groupId === groupId
+    && completionScope.current.generation === completionGeneration), [sharedCompletion, context.userId, groupId, completionGeneration]);
+  useEffect(() => personalCompletion?.acquire(), [personalCompletion]);
   const binding = useMemo<WorkspaceDisplayBinding>(() => ({
     workspace: active, invalidate: store.invalidate,
+    sharedCompletion, personalCompletion,
     // The calendar already marks dates outside its verified range as unloaded.
     // A cold calendar entry can show the saved range while wider data restores.
     peek: options => store.peek(options) ?? (!options?.management && !options?.focusDate
@@ -115,13 +142,9 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
     subscribe: store.subscribe,
     loadSession: async () => {
       if (!active) return restoring.get();
-      const source = await loadSource();
-      return { ...source, invalidate: store.invalidate, readModel: async options => {
-        try { return (await store.read(options)).model; }
-        finally { completeInitialDisplay(); }
-      } };
+      return loadVerifiedSession();
     },
-  }), [store, loadSource, active, completeInitialDisplay, savedDisplay, restoring]);
+  }), [store, loadVerifiedSession, active, savedDisplay, restoring, sharedCompletion, personalCompletion]);
   const snapshotRef = useRef(personalSnapshot);
   useEffect(() => {
     if (snapshotRef.current === personalSnapshot) return;
@@ -149,8 +172,16 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
             idle = undefined;
             // Persist only a verified result, encrypted separately from the live
             // database. A cache never supplies authority or a writable session.
-            void active.record().then(record => startupDisplayCache.write(record, value.model)).catch(() => undefined);
-            void store.read({ calendarMonth: 'current' }).then(() => {
+            const persist = async (model: typeof value.model) => {
+              const record = await active.record();
+              if (!stopped && revision === preparation && AppState.currentState === 'active') await startupDisplayCache.write(record, model);
+            };
+            // Persist the wider calendar result too. Previously only the home
+            // range survived restart, so month counts waited for another plan.
+            // Serialize writes so an older overview cannot replace the month.
+            void Promise.all([persist(value.model).catch(() => undefined), store.read({ calendarMonth: 'current' })]).then(async ([, prepared]) => {
+              if (stopped || revision !== preparation || AppState.currentState !== 'active') return;
+              await persist(prepared.model);
               if (!stopped && revision === preparation && AppState.currentState === 'active') return store.read({ management: true, choreSettings: true });
             }).catch(() => undefined);
           };

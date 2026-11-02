@@ -1,6 +1,5 @@
 import { SharingSchedulerVersionError } from './cloud-contract.ts';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { bytesToHex } from '@noble/hashes/utils.js';
+import { sharedContentDigest } from './content-digest.ts';
 import { assertJsonRecord, assertSharedIdentifier, canonicalJson, compareOperationIds, SHARED_SCHEDULER_VERSION } from './operations.ts';
 import { signSharedDocument, validateDevicePublicIdentity, verifySharedDocument } from './crypto.ts';
 import type { DevicePublicIdentity, DeviceSecretIdentity } from './crypto.ts';
@@ -76,7 +75,7 @@ export function validateSharedRoster(input: SignedSharedRoster): SignedSharedRos
 }
 
 export function sharedRosterDigest(roster: SignedSharedRoster): string {
-  return bytesToHex(sha256(new TextEncoder().encode(canonicalJson(roster))));
+  return sharedContentDigest(roster);
 }
 
 function signRoster(body: SharedRosterBody, identity: DeviceSecretIdentity): SignedSharedRoster {
@@ -174,6 +173,12 @@ export function upgradeSharedScheduler(previous: VerifiedSharedRoster, owner: De
   if (previous.body.schemaVersion !== 2 || !isSupportedV2Scheduler(previous.body.schedulerVersion)) throw new Error('Unsupported scheduler upgrade');
   if (previous.body.schedulerVersion === V2_SCHEDULER_VERSION) return previous;
   return updateRoster(previous, owner, body => { body.schedulerVersion = V2_SCHEDULER_VERSION; });
+}
+
+/** A deletion checkpoint retires the encryption epoch that could still contain its original history. */
+export function rotateSharedEncryptionKey(previous: VerifiedSharedRoster, owner: DeviceSecretIdentity): VerifiedSharedRoster {
+  if (previous.body.schemaVersion !== 2) throw new Error('History retention requires a v2 group');
+  return updateRoster(previous, owner, () => {});
 }
 
 export function approveSharedDevice(previous: VerifiedSharedRoster, owner: DeviceSecretIdentity, userId: string, publicIdentity: DevicePublicIdentity): VerifiedSharedRoster {

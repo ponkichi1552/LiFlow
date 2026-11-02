@@ -1,4 +1,4 @@
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView } from '@/components/screen-safe-area';
 import { ChoreLibrary, useChoreLibraryState } from '@/features/chores/chore-library';
 import { ChorePlanToggle } from '@/features/chores/chore-plan-toggle';
 import { setChoresEnabled } from '@/platform/storage/repository';

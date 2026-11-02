@@ -190,8 +190,10 @@ test('feature screen contract guard rejects a virtual removal of the waste onboa
 test('feature screen contract: chore categories, kana heading search and trivia collection remain usable', async () => {
   const h = await initialContext();
   try {
+    // The current guide has no trivia for its first kitchen item. Exercise the optional feature with explicit fixture content.
+    h.snapshot.chores.find(chore => chore.id === 'builtin-chore-21').trivia = [{ id: 'qa-kitchen-tip', title: '掃除の豆知識', body: '片付けてから作業を始めます。' }];
     const screen = screenHarness('src/app/(tabs)/guide.tsx', { database: h.database, snapshot: () => h.snapshot, flatListItemHeight: 100 });
-    const category = h.snapshot.chores.find(chore => chore.id === 'builtin-chore-03').category;
+    const category = h.snapshot.chores.find(chore => chore.id === 'builtin-chore-21').category;
     const count = h.snapshot.chores.filter((chore) => !chore.archived && chore.category === category).length;
     await screen.press(`${category}、${count}件`);
     assert.ok(!screen.text().includes('に分類されている家事です。'), 'redundant category copy stays removed');
@@ -204,9 +206,9 @@ test('feature screen contract: chore categories, kana heading search and trivia 
     assert.equal(seen.size, count, 'every expanded chore remains reachable through the virtualized list');
     list().props.onScroll({ nativeEvent: { contentOffset: { y: 0 } } }); await screen.flush();
     await screen.press(`${category}、${count}件`);
-    await screen.change('家事名を検索', 'こんろ');
+    await screen.change('家事名を検索', 'きっちん');
     const first = screen.nodes().find((node) => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.endsWith('の説明を開く'));
-    assert.ok(first.props.accessibilityLabel.startsWith('コンロ'), 'kana heading matches must come first');
+    assert.ok(first.props.accessibilityLabel.startsWith('キッチン'), 'kana heading matches must come first');
     await screen.press(first.props.accessibilityLabel);
     assert.ok(screen.text().includes('注意事項') && screen.text().includes('豆知識'));
     assert.ok(!screen.text().includes('手順、必要な道具、注意事項を確認できます。'), 'obsolete detail header must not return');

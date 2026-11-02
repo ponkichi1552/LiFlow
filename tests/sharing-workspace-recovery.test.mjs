@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { loadNativeModule } from './helpers/native-module.mjs';
 import * as rollout from '../src/features/sharing/rollout.ts';
+import * as retentionRuntime from '../src/features/sharing/v2/history-retention-runtime.ts';
+import * as retentionSchema from '../src/features/sharing/v2/history-retention-schema.ts';
+import * as retentionArchives from '../src/platform/storage/retention-archives.ts';
 
 function fixture(options = {}) {
   const events = []; const handles = []; const synchronizers = []; const syncBudgets = [];
@@ -19,6 +22,7 @@ function fixture(options = {}) {
     './firebase-services.ts': { isSharingConfigured: () => true,
       getSharingServices: () => ({ auth: { authStateReady: async () => {}, currentUser: { uid: session.userId } }, firestore: {} }) },
     './native-crypto.ts': { nativeSharingCrypto: {} },
+    './signature-verification-cache.ts': { initializeNativeSignatureCache: async () => {} },
     './secure-store.ts': { loadOrCreateSharingDeviceIdentity: async () => ({ deviceId: 'this-device' }),
       sharingSecureVault: { getItem: async key => vault.get(key) ?? (key === 'sharing-enabled' ? 'true' : key === 'active-workspace' && options.selection ? JSON.stringify(options.selection) : null),
         setItem: async (key, value) => { vault.set(key, value); } } },
@@ -35,6 +39,9 @@ function fixture(options = {}) {
     '../../features/sharing/operations.ts': { canonicalJson: JSON.stringify },
     '../../features/sharing/rollout.ts': rollout,
     '../../features/sharing/v2/live-legacy-migration.ts': { ...liveMigration, createLiveLegacyMigration: () => ({}) },
+    '../../features/sharing/v2/history-retention-runtime.ts': retentionRuntime,
+    '../../features/sharing/v2/history-retention-schema.ts': retentionSchema,
+    '../storage/retention-archives.ts': retentionArchives,
     '../../features/sharing/workspace-protocol.ts': { verifyWorkspaceArchive: (record) => [record.anchor], sharedWorkspaceProtocol: () => 1 },
     '../../features/sharing/v2/workspace-session.ts': {}, '../../features/sharing/v2/view-point.ts': {},
     '../../features/sharing/v2/controller-access.ts': {},

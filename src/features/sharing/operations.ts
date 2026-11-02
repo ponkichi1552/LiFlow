@@ -65,6 +65,20 @@ export function assertJsonRecord(value: unknown): asserts value is Record<string
 }
 
 /** Stable byte representation for signatures, equality and operation-ID collision detection. */
+const quotedCanonicalKeys = new Map<string, string>();
+function canonicalPropertyKey(key: string): string {
+  const cached = quotedCanonicalKeys.get(key);
+  if (cached !== undefined) return cached;
+  if (FORBIDDEN_FIELDS.has(key.replace(/[_\s-]/gu, '').toLowerCase())) throw new Error('Private or unsafe field in shared payload');
+  const quoted = JSON.stringify(key);
+  // Only immutable property-name validation/escaping is reused. Values, object
+  // shape, nesting and size limits are checked again on every serialization.
+  if (key.length <= 256) {
+    if (quotedCanonicalKeys.size >= 512) quotedCanonicalKeys.delete(quotedCanonicalKeys.keys().next().value!);
+    quotedCanonicalKeys.set(key, quoted);
+  }
+  return quoted;
+}
 export function canonicalJson(value: unknown, depth = 0): string {
   if (depth > 32) throw new Error('Shared payload is too deeply nested');
   if (value === null || typeof value === 'boolean' || typeof value === 'string') return JSON.stringify(value);
@@ -77,8 +91,7 @@ export function canonicalJson(value: unknown, depth = 0): string {
   const keys = Object.keys(value).sort();
   if (keys.length > 512) throw new Error('Shared object is too large');
   return `{${keys.map((key) => {
-    if (FORBIDDEN_FIELDS.has(key.replace(/[_\s-]/gu, '').toLowerCase())) throw new Error('Private or unsafe field in shared payload');
-    return `${JSON.stringify(key)}:${canonicalJson(value[key], depth + 1)}`;
+    return `${canonicalPropertyKey(key)}:${canonicalJson(value[key], depth + 1)}`;
   }).join(',')}}`;
 }
 

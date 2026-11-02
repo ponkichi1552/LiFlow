@@ -14,6 +14,9 @@ import * as access from '../../src/features/sharing/access-state.ts';
 import * as contracts from '../../src/features/sharing/cloud-contract.ts';
 import * as manager from '../../src/features/sharing/group-manager.ts';
 import * as sessionFactory from '../../src/features/sharing/v2/workspace-session.ts';
+import * as retentionRuntime from '../../src/features/sharing/v2/history-retention-runtime.ts';
+import * as retentionSchema from '../../src/features/sharing/v2/history-retention-schema.ts';
+import * as retentionArchives from '../../src/platform/storage/retention-archives.ts';
 import * as point from '../../src/features/sharing/v2/view-point.ts';
 import * as controllerAccess from '../../src/features/sharing/v2/controller-access.ts';
 import * as rollout from '../../src/features/sharing/rollout.ts';
@@ -24,7 +27,7 @@ import { createV2ReminderRuntime } from '../../src/features/sharing/v2/reminder-
 import { addDays } from '../../src/domain/scheduling/local-date.ts';
 
 /** Real signatures, event repository and SQLite; only native handles/account storage/cloud I/O are injected. */
-export async function workspaceHarness({ pending = false, version = 2, cloud: overrides = {}, deferWorkspaceTimers = false, privateCalendarNeeded = false, initiallyEmpty = false, v2Database } = {}) {
+export async function workspaceHarness({ pending = false, version = 2, cloud: overrides = {}, deferWorkspaceTimers = false, privateCalendarNeeded = false, initiallyEmpty = false, v2Database, historyRuntime = retentionRuntime } = {}) {
   const handles = []; const calls = []; const cloudOptions = []; const reminderCalls = []; const taskCalls = []; const taskControl = { revision: 0, label: null, state: null }; let ordinal = 0;
   const create = () => { const h = createDatabase(); let closed = false;
     h.database.closeAsync = async () => { if (!closed) { closed = true; h.connection.close(); } }; handles.push(h); return h; };
@@ -43,20 +46,26 @@ export async function workspaceHarness({ pending = false, version = 2, cloud: ov
     createGroup: async () => { calls.push('create-cloud'); }, readRoster: async () => initial,
     watch: () => () => {}, ...overrides };
   const api = loadNativeModule('src/platform/sharing/workspaces.ts', {
-    'expo-crypto': { randomUUID: () => `native-${++ordinal}` }, 'expo-sqlite': { openDatabaseAsync: async () => index.database },
+    'expo-crypto': { randomUUID: () => `native-${++ordinal}` }, 'expo-sqlite': { openDatabaseAsync: async () => index.database,
+      deleteDatabaseAsync: async () => { throw new Error('unexpected legacy archive deletion'); } },
     './appliance-retention': { createNativeApplianceRetention: () => ({ refresh: async () => {} }) },
     './firebase-services.ts': { isSharingConfigured: () => true, getSharingServices: () => ({ firestore: {}, auth: {
       authStateReady: async () => {}, get currentUser() { return auth.uid ? { uid: auth.uid, displayName: '自分' } : null; } } }) },
     './native-crypto.ts': { nativeSharingCrypto: crypto },
+    './signature-verification-cache.ts': { initializeNativeSignatureCache: async () => {} },
     './secure-store.ts': { loadOrCreateSharingDeviceIdentity: async () => identity,
       loadSharingGroupKey: async (_uid, _group, version) => { calls.push('read-key'); return groupKeys.get(version)?.slice() ?? null; },
       saveSharingGroupKey: async (_uid, _group, version, bytes) => { groupKeys.set(version, bytes.slice()); },
       sharingSecureVault: { getItem: async (key) => vault.get(key) ?? null, setItem: async (key, value) => vault.set(key, value), removeItem: async (key) => vault.delete(key) } },
-    './database-location.ts': { sharingDatabaseDirectory: async () => '/protected', openSharingDatabase: async () => { calls.push('legacy-open'); throw new Error('v2 must not open a legacy database'); },
+    './database-location.ts': { sharingDatabaseDirectory: async () => '/protected', sharingDatabaseFilename: () => 'group-legacy.db', sharingDatabaseFileExists: async () => false,
+      openSharingDatabase: async () => { calls.push('legacy-open'); throw new Error('v2 must not open a legacy database'); },
       openSharingV2Database: async (...scope) => { calls.push(['v2-open', ...scope]); return v2Database?.(scope) ?? create().database; } },
     './firestore-cloud.ts': { createSharingCloud: (_store, _uid, _guard, options) => { cloudOptions.push(options); cloud.ownerRecoveryEnabled = options?.ownerRecoveryEnabled ?? false; return cloud; } }, '../../features/sharing/roster.ts': rosters,
     '../../features/sharing/rollout.ts': rollout,
     '../../features/sharing/v2/live-legacy-migration.ts': liveMigration,
+    '../../features/sharing/v2/history-retention-runtime.ts': historyRuntime,
+    '../../features/sharing/v2/history-retention-schema.ts': retentionSchema,
+    '../storage/retention-archives.ts': retentionArchives,
     '../../features/sharing/operations.ts': operations, '../../features/sharing/crypto.ts': keys,
     '../../features/sharing/workspace-protocol.ts': protocols, '../../features/sharing/v2/workspace-session.ts': sessionFactory,
     '../../features/sharing/v2/view-point.ts': point, '../../features/sharing/synchronizer.ts': synchronizer,

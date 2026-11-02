@@ -27,8 +27,9 @@ const unrelatedToRecoveryLock = new Set(['unavailable', 'deadline-exceeded', 'ca
 export function createV2Synchronizer(dependencies: Omit<SharedSyncDependencies, 'v2' | 'project'> & {
   repository: ReturnType<typeof createV2EventRepository>; assertCurrentAccount: () => void;
   acceptMigrationSnapshot?: (snapshot: VerifiedSharedSnapshot, archive: readonly VerifiedSharedRoster[]) => Promise<void>;
+  afterSnapshot?: (snapshot: VerifiedSharedSnapshot, archive: readonly VerifiedSharedRoster[]) => Promise<void>;
 }) {
-  const { repository, assertCurrentAccount, acceptMigrationSnapshot, ...deps } = dependencies;
+  const { repository, assertCurrentAccount, acceptMigrationSnapshot, afterSnapshot, ...deps } = dependencies;
   if (repository.scope.groupId !== deps.groupId || repository.scope.userId !== deps.userId
     || repository.scope.deviceId !== deps.identity.deviceId) throw new Error('V2 synchronization must use the same account, device and repository');
   const now = deps.now ?? Date.now;
@@ -104,7 +105,7 @@ export function createV2Synchronizer(dependencies: Omit<SharedSyncDependencies, 
     readRecord: async () => { assertCurrentAccount(); const value = await deps.readRecord(); assertCurrentAccount(); return value; },
     saveArchive: async (archive) => { assertCurrentAccount(); await deps.saveArchive(archive); assertCurrentAccount(); },
     project: async (transaction, replica) => { assertCurrentAccount(); await repository.project(transaction, replica); assertCurrentAccount(); },
-    v2: { schedulerVersion: V2_SCHEDULER_VERSION, eventEvidence, snapshotEvidence } };
+    v2: { schedulerVersion: V2_SCHEDULER_VERSION, eventEvidence, snapshotEvidence, afterSnapshot } };
   const synchronizer = createSharedSynchronizer(configured);
   return { ...synchronizer,
     sync: async (options: Parameters<typeof synchronizer.sync>[0] = {}) => {

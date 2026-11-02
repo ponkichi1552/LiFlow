@@ -2,20 +2,18 @@ import { router } from 'expo-router';
 import { WorkspaceTab } from '@/components/workspace-tab';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView } from '@/components/screen-safe-area';
 import Animated, { LinearTransition } from 'react-native-reanimated';
-import { AppButton, Card, palette, typography } from '@/components/planner-ui';
+import { AppButton, palette, typography } from '@/components/planner-ui';
 import { PlannerLoadState } from '@/components/planner-load-state';
 import { TaskCheckboxRow } from '@/components/task-checkbox-row';
 import { WasteOccurrenceCard } from '@/components/waste-occurrence-card';
 import { CompletionToast } from '@/components/home-ui';
-import { completionPeriod } from '@/domain/scheduling/completion-matching';
 import type { DateTask } from '@/domain/scheduling/date-tasks';
-import { addDays, formatJapaneseDate, localDateFromDate } from '@/domain/scheduling/local-date';
+import { addDays, localDateFromDate } from '@/domain/scheduling/local-date';
 import type { LocalDate } from '@/domain/shared/types';
 import { usePlannerData } from '@/hooks/use-planner-data';
 import { useTaskCompletion } from '@/hooks/use-task-completion';
-import { isTaskUrgent } from '@/domain/scheduling/task-priority';
 import { generateWasteCollectionDates } from '@/features/waste/weekly-scheduler';
 import { useWasteOccurrenceToggle } from '@/features/waste/use-waste-occurrence-toggle';
 import { PlannerCalendar } from '@/features/calendar/planner-calendar';
@@ -30,8 +28,8 @@ function PersonalCalendarScreen() {
   const { snapshot, error, refresh, database, readError } = usePlannerData();
   const local = useLocalCalendar(database);
   const today = snapshot?.today ?? localDateFromDate(new Date());
-  const [selectedDate, setSelectedDate] = useState<LocalDate>(today); const [periodDate, setPeriodDate] = useState<LocalDate | null>(null);
-  const completion = useTaskCompletion(database, refresh, readError); const waste = useWasteOccurrenceToggle(database, refresh);
+  const [selectedDate, setSelectedDate] = useState<LocalDate>(today);
+  const completion = useTaskCompletion(database, refresh, readError, undefined, snapshot?.household); const waste = useWasteOccurrenceToggle(database, refresh);
   const tasksFor = snapshot ? personalCalendarTasks(snapshot, today, completion.project) : () => [] as DateTask[];
   if (!snapshot) return <PlannerLoadState title="カレンダー" message="予定を読み込んでいます。" error={error} retry={refresh} />;
   const chores = new Map(snapshot.chores.map(chore => [chore.id, chore])); const hidden = new Set(snapshot.hiddenWasteOccurrenceKeys);
@@ -39,8 +37,7 @@ function PersonalCalendarScreen() {
   const open = (choreId: string) => router.navigate({ pathname: '/(tabs)/guide', params: { choreId, returnTo: 'calendar' } });
   const renderTask = (task: DateTask, date: LocalDate) => {
     const chore = chores.get(task.choreId); if (!chore) return null;
-    return <Animated.View key={`${chore.id}:${date}`} layout={LinearTransition.duration(240)}><TaskCheckboxRow chore={chore} completed={task.completed} source="personal" executionWindow={task.entry ? { start: task.entry.windowStart, end: task.entry.windowEnd } : task.completion?.scheduledWindowStart && task.completion?.scheduledWindowEnd ? { start: task.completion.scheduledWindowStart, end: task.completion.scheduledWindowEnd } : undefined}
-      urgent={isTaskUrgent({ completed: task.completed, load: chore.load, recommendedDate: task.suggestedDate, windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd }, today)}
+    return <Animated.View key={`${chore.id}:${date}`} layout={LinearTransition.duration(240)}><TaskCheckboxRow compact chore={chore} completed={task.completed} source="personal" executionWindow={task.entry ? { start: task.entry.windowStart, end: task.entry.windowEnd } : task.completion?.scheduledWindowStart && task.completion?.scheduledWindowEnd ? { start: task.completion.scheduledWindowStart, end: task.completion.scheduledWindowEnd } : undefined}
       onOpen={() => open(chore.id)} onToggle={completion.canToggle(task) ? () => void completion.toggle(task) : undefined} /></Animated.View>;
   };
   return <SafeAreaView edges={['top']} style={styles.safe}>
@@ -55,21 +52,13 @@ function PersonalCalendarScreen() {
         const key = `${item.scheduleId}:${item.date}`; return <WasteOccurrenceCard key={key} occurrence={item} compact hidden={hidden.has(key)} busy={waste.busyKeys.has(key)} onToggle={() => void waste.toggle(item, hidden.has(key))} />;
       })}</View>}
       renderChores={date => {
-        const tasks = tasksFor(date); const ids = new Set(tasks.map(task => task.choreId));
-        const overdue = date === today ? [] : tasksFor(today).filter(task => task.entry?.status === 'overdue' && !task.completed && !ids.has(task.choreId));
-        return <View style={styles.tasks}>{tasks.length ? tasks.map(task => renderTask(task, date)) : <Text style={styles.caption}>{date > addDays(today, 180) ? 'この日の家事はまだ計算されていません。' : 'この日の家事はありません。'}</Text>}
-          {overdue.length ? <><Text style={styles.section}>期間を過ぎた家事</Text>{overdue.slice(0, 3).map(task => renderTask(task, today))}</> : null}
-          {tasks.length ? <AppButton title={periodDate === date ? '実施期間を閉じる' : '実施期間を確認'} compact variant="quiet" onPress={() => setPeriodDate(before => before === date ? null : date)} /> : null}
-          {periodDate === date ? <Card><Text style={styles.section}>{formatJapaneseDate(date)}を含む実施期間</Text>{tasks.map(task => {
-            const period = task.entry ? { start: task.entry.windowStart, end: task.entry.windowEnd } : completionPeriod(task.completion!);
-            return <View key={task.choreId} style={styles.period}><Text style={styles.caption}>{chores.get(task.choreId)?.name}</Text><Text style={styles.caption}>{formatJapaneseDate(period.start)}〜{formatJapaneseDate(period.end)}</Text></View>;
-          })}</Card> : null}
-        </View>;
+        const tasks = tasksFor(date);
+        return <View style={styles.tasks}>{tasks.length ? tasks.map(task => renderTask(task, date)) : <Text style={styles.caption}>{date > addDays(today, 180) ? 'この日の家事はまだ計算されていません。' : 'この日の家事はありません。'}</Text>}</View>;
       }} />
-    {completion.undoAvailable ? <View style={styles.toast}><CompletionToast busy={completion.pending.size > 0} onUndo={() => void completion.undoLast()} /></View> : null}
+    {completion.undoAvailable ? <View style={styles.toast}><CompletionToast onUndo={() => void completion.undoLast()} /></View> : null}
   </SafeAreaView>;
 }
 const styles = StyleSheet.create({ safe: { flex: 1, backgroundColor: palette.background }, notice: { padding: 10, gap: 6 }, error: { ...typography.caption, color: palette.warning },
-  caption: { ...typography.caption, color: palette.muted }, section: { ...typography.label, color: palette.ink, fontWeight: '700' }, tasks: { gap: 4 }, waste: { paddingHorizontal: 6, gap: 4 }, period: { gap: 2, paddingVertical: 4 },
+  caption: { ...typography.caption, color: palette.muted }, tasks: { gap: 4 }, waste: { paddingHorizontal: 6, gap: 4 },
   toast: { position: 'absolute', bottom: 8, left: 0, right: 0 },
 });

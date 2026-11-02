@@ -16,7 +16,7 @@ export function v2GroupBootstrap(input: { groupId: string; ownerUserId: string; 
   for (const builtIn of createHouseholdChoreDefinitions('unused-v2-bootstrap')) {
     const id = `${input.groupId}.${builtIn.id}`;
     operations.push({ operationId: `${input.groupId}.bootstrap.chore.${operations.length}`, entityType: 'chore', entityId: id,
-      operationType: 'patch', payload: { ...sharedPatchFromDefinition({ ...builtIn, id, enabled: false }), requiresCycleSelection: true } });
+      operationType: 'patch', payload: { ...sharedPatchFromDefinition({ ...builtIn, id, enabled: false }), requiresCycleSelection: builtIn.requiresCycleSelection === true } });
   }
   return operations;
 }

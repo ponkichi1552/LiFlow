@@ -9,7 +9,9 @@ import type { UploadedManualInput, ApplianceCareApiRequest, ProductVerifiedRespo
 import { ManualUploadInput } from '../../appliance-care/manual-upload-input';
 import { ApplianceAiAccount } from '../../appliance-care/ai-account';
 import { analyzeApplianceCareRequest } from '../../appliance-care/api-client';
-import { MaintenanceTaskCard, OfficialLink } from '../../appliance-care/appliance-detail-content';
+import { MaintenanceTaskCard } from '../../appliance-care/appliance-detail-content';
+import { applianceDisplayName } from '../../appliance-care/display-name';
+import { applianceAnalysisDate } from '../../appliance-care/analysis-date';
 import { useAbortApplianceRequestOnLeave } from '../../appliance-care/use-abort-on-leave';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { V2ApplianceReview, V2ApplianceReviewResult } from '../v2/appliance-actions';
@@ -115,7 +117,6 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   const appliance = mode === 'applianceReview' ? null : detail?.appliance ?? currentCandidate?.appliance;
   const analysis = mode === 'applianceReview' ? response?.analysis : appliance?.analysis;
   const product = mode === 'applianceReview' ? response?.product : appliance;
-  const productUrl = response?.officialSources.productUrl ?? appliance?.officialProductUrl;
   const instructionsDiffer = (name: string, steps: string[]) => model.plan.chores.some(chore => chore.applianceId === applianceId && chore.applianceTaskName === name
     && (chore.instructions.length !== steps.length || chore.instructions.some((step, index) => step !== steps[index])));
   const reviewToggle = <Pressable accessibilityRole="checkbox" accessibilityLabel="メーカー・型番・手順・注意事項を確認した" accessibilityState={{ checked: reviewed, disabled: locked }} disabled={locked}
@@ -146,19 +147,11 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
             onPress={() => { setCandidateId(candidate.operationId); check(false); setDeleting(false); }} />)}
           {currentCandidate ? <Text style={caption}>候補の作成者：{currentCandidate.authorUserId} · {currentCandidate.recordedAt ?? '受付前'}{!currentCandidate.appliance ? '\nこの候補は再解析が必要です。' : ''}</Text> : null}
         </Card> : null}
-        {onReview ? <AppButton title="この共有家電を再解析" variant="secondary" disabled={locked} onPress={() => onReview(applianceId)} /> : null}
-        <AppButton title="この共有家電を削除" variant="quiet" disabled={locked} onPress={() => setDeleting(true)} />
-        {detail.chores.length ? <Card><SectionHeading title="登録した共有家事" />{detail.chores.map(chore => <AppButton key={chore.id} title={`「${chore.name}」の手順・設定`} variant="quiet" disabled={locked} onPress={() => (onDetails ?? onConfiguration)(chore.id)} />)}</Card> : null}
-        {deleting ? <Card><Text style={body}>グループ全員の家電一覧から削除します。登録済みの家事・周期・完了履歴は保持します。</Text>
-          <AppButton title="共有家電の削除を確定" disabled={locked} onPress={() => void execute(() => actions.deleteAppliance(detail.row.selection))} />
-          <AppButton title="削除をやめる" disabled={locked} variant="quiet" onPress={() => setDeleting(false)} /></Card> : null}
+
       </>}
-      {product && analysis ? <Card><Text style={typography.subheading}>{product.productName}（{product.modelNumber}）</Text><Text style={caption}>{product.manufacturer} · 最終解析：{analysis.analyzedAt}</Text>
-        <OfficialLink manufacturer={product.manufacturer} title="公式取扱説明書を見る ↗" url={response?.officialSources.manualUrl ?? appliance!.officialManualUrl} />
-        {productUrl ? <OfficialLink manufacturer={product.manufacturer} title="公式製品情報を見る ↗" url={productUrl} /> : null}
-        <Text style={caption}>メーカーの周期は資料の参考値です。共有の周期・有効状態は家事の共通設定で確認してください。</Text></Card> : null}
+      {product && analysis ? <Text style={typography.subheading}>{applianceDisplayName(product, appliance?.displayName)}</Text> : null}
     </View>}
-    renderItem={({ item: task, index }) => <MaintenanceTaskCard task={task} manufacturer={product!.manufacturer} index={index} schedule={<View style={{ gap: 8 }}>
+    renderItem={({ item: task, index }) => <MaintenanceTaskCard task={task} index={index} schedule={<View style={{ gap: 8 }}>
       <Text style={body}>{task.recommendedIntervalDays ? `メーカー推奨：${task.recommendedIntervalDays}日` : 'メーカー指定：具体的な周期なし'}</Text>
       {instructionsDiffer(task.name, task.steps) ? <Text style={warning}>この解析と、登録済み家事の手順には違いがあります。登録済みの手順は保持しています。「登録した共有家事」から確認してください。</Text> : null}
       {mode === 'applianceReview' ? <Pressable accessibilityRole="checkbox" accessibilityLabel={`「${task.name}」を無効の共有家事として追加`} accessibilityState={{ checked: chosen.includes(task.name), disabled: locked }} disabled={locked}
@@ -169,6 +162,15 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
         : <Text style={caption}>登録した家事の設定・手順は共有家事の一覧から確認してください。</Text>}
     </View>} />}
     ListFooterComponent={analysis ? <View style={{ gap: 14 }}>
+      <Text style={caption}>最終解析：{applianceAnalysisDate(analysis.analyzedAt)}</Text>
+      {mode === 'appliance' && detail ? <>
+        {onReview ? <AppButton title="この共有家電を再解析" variant="quiet" disabled={locked} onPress={() => onReview(applianceId)} /> : null}
+        <AppButton title="この共有家電を削除" variant="quiet" disabled={locked} onPress={() => setDeleting(true)} />
+        {detail.chores.length ? <Card><SectionHeading title="登録した共有家事" />{detail.chores.map(chore => <AppButton key={chore.id} title={`「${chore.name}」の手順・設定`} variant="quiet" disabled={locked} onPress={() => (onDetails ?? onConfiguration)(chore.id)} />)}</Card> : null}
+        {deleting ? <Card><Text style={body}>グループ全員の家電一覧から削除します。登録済みの家事・周期・完了履歴は保持します。</Text>
+          <AppButton title="共有家電の削除を確定" disabled={locked} onPress={() => void execute(() => actions.deleteAppliance(detail.row.selection))} />
+          <AppButton title="削除をやめる" disabled={locked} variant="quiet" onPress={() => setDeleting(false)} /></Card> : null}
+      </> : null}
       {mode === 'applianceReview' && response && !saved ? <>{reviewToggle}<AppButton title="確認した解析結果を共有する" disabled={locked || !reviewed}
         onPress={() => void save({ reviewed: true, result: response, addTaskNames: chosenRef.current, ...(basis ? { selection: basis.row.selection,
           ...(basis.source.kind === 'conflict' ? { resolveOperationIds: basis.candidates.map(candidate => candidate.operationId) } : {}),

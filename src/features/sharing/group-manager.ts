@@ -1,6 +1,6 @@
 import type { SharedSyncDependencies, SharingSyncResult } from './synchronizer.ts';
 import { verifyCloudMembership } from './synchronizer.ts';
-import { upgradeSharedScheduler, approveSharedDevice, removeSharedDevice, removeSharedMembers, transferSharedOwnership, sharedAuthorIdentity, sharedRosterDigest } from './roster.ts';
+import { rotateSharedEncryptionKey, upgradeSharedScheduler, approveSharedDevice, removeSharedDevice, removeSharedMembers, transferSharedOwnership, sharedAuthorIdentity, sharedRosterDigest } from './roster.ts';
 import type { SignedSharedRoster, VerifiedSharedRoster } from './roster.ts';
 import { createEncryptedSharedSnapshot } from './snapshots.ts';
 import { createSharedInvitation, encodeCompactSharedInvitation, verifySharedJoinRequest } from './invitations.ts';
@@ -8,6 +8,10 @@ import type { SharedJoinRequest, SignedSharedInvitation } from './invitations.ts
 import { wrapGroupKey } from './crypto.ts';
 import { SharingAccessError, SharingCloudChangedError, SharingKeyVersionError } from './cloud-contract.ts';
 import { loadPublishedSharedReplica, loadSharedFacts, readSharingCheckpoint } from '../../platform/storage/sharing-ledger.ts';
+import type { SharedReplica } from './replica';
+import type { AuthenticatedSharedOperation } from './crypto';
+import type { SharedCloudGroup } from './cloud-contract';
+type SnapshotTransform = (replica: SharedReplica, context: { group: SharedCloudGroup; archive: readonly VerifiedSharedRoster[]; facts: AuthenticatedSharedOperation[] }) => Promise<SharedReplica>;
 
 /** Membership changes always rotate forward keys and publish a signed snapshot atomically. */
 export function createSharedGroupManager(deps: SharedSyncDependencies & {
@@ -26,34 +30,40 @@ export function createSharedGroupManager(deps: SharedSyncDependencies & {
     return { ...metadata, roster, archive };
   }
   async function rotate(change: (roster: VerifiedSharedRoster, revoked: string[]) => VerifiedSharedRoster,
-    approval?: { invitation: SignedSharedInvitation; request: SharedJoinRequest }) {
-    try { await deps.sync({ force: true, budgetMs: 120_000 }); }
+    approval?: { invitation: SignedSharedInvitation; request: SharedJoinRequest }, maintenance?: { budgetMs: number; transform: SnapshotTransform }) {
+    const deadline = Date.now() + (maintenance?.budgetMs ?? 120_000);
+    const remaining = () => { const left = deadline - Date.now(); if (left < 1000) throw new Error('共有鍵の更新は次の同期で続けます。'); return left; };
+    try { await deps.sync({ force: true, budgetMs: remaining() }); }
     catch (error) { if (!(error instanceof SharingKeyVersionError)) throw error; }
-    const { roster, group, archive } = await current();
+    remaining(); const { roster, group, archive } = await current(); remaining();
     const checkpoint = await readSharingCheckpoint(deps.database, deps.groupId);
     if (checkpoint.sequence !== group.headSequence) throw new SharingCloudChangedError('最新の共有データを受信してから再試行してください。');
     const next = change(roster, group.revokedUserIds);
-    if (next === roster) return;
+    if (next === roster) return sharedRosterDigest(roster);
     const key = await deps.crypto.randomBytes(32);
     try {
       const keys = await Promise.all(next.body.members.flatMap((member) => member.devices.map((device) =>
         wrapGroupKey(deps.crypto, deps.groupId, next.body.keyVersion, key, deps.identity, device.identity, member.userId))));
       let snapshot;
       if (!next.body.closed) {
-        const published = await loadPublishedSharedReplica(deps.database, deps.groupId); const facts = await loadSharedFacts(deps.database, deps.groupId);
+        let published = await loadPublishedSharedReplica(deps.database, deps.groupId); const facts = await loadSharedFacts(deps.database, deps.groupId);
+        if (maintenance) published = await maintenance.transform(published, { group, archive, facts });
+        remaining();
         const history = [...archive, next];
         snapshot = await createEncryptedSharedSnapshot(deps.crypto, published, facts, next, deps.identity, key, `snapshot.${deps.makeId()}`, group.headSequence,
           (uid, device, version) => {
             const epoch = history.find((item) => item.body.keyVersion === version); if (!epoch) throw new Error('Missing historical membership');
             return sharedAuthorIdentity(epoch, uid, device, version);
-          });
-        await deps.cloud.prepareSnapshot(snapshot, next);
+          }, history);
+        await deps.cloud.prepareSnapshot(snapshot, next, remaining);
       }
+      remaining();
       await deps.cloud.commitMembership(roster, next, keys, group.headSequence, snapshot?.manifest, approval);
       // Only a successful commit makes this an authoritative key epoch. Failed preparations never overwrite a working key.
       if (!next.body.closed) await deps.saveKey(next.body.keyVersion, key);
       await deps.saveArchive([...archive, next]); deps.changed();
-      if (!next.body.closed) await deps.sync({ force: true, budgetMs: 120_000 });
+      if (!next.body.closed && deadline - Date.now() >= 1000) await deps.sync({ force: true, budgetMs: deadline - Date.now() });
+      return sharedRosterDigest(next);
     } finally { key.fill(0); }
   }
   return {
@@ -98,7 +108,8 @@ export function createSharedGroupManager(deps: SharedSyncDependencies & {
       } else await deps.cloud.leaveGroup(deps.groupId);
       await deps.markLeft(); deps.changed();
     }),
-    publishSnapshot: (budgetMs = 120_000) => {
+    publishSnapshot: (budgetMs = 120_000, transform?: SnapshotTransform) => {
+      if (transform) return serial(() => rotate(previous => rotateSharedEncryptionKey(previous, deps.identity), undefined, { budgetMs, transform }));
       const deadline = Date.now() + budgetMs;
       const remaining = () => {
         const budgetMs = deadline - Date.now();
@@ -111,9 +122,10 @@ export function createSharedGroupManager(deps: SharedSyncDependencies & {
       if (checkpoint.sequence !== group.headSequence) throw new SharingCloudChangedError('最新の共有データを受信してください。');
       remaining(); const key = await deps.readKey(roster.body.keyVersion); if (!key) throw new Error('共有鍵が見つかりません。');
       try {
-        remaining(); const snapshot = await createEncryptedSharedSnapshot(deps.crypto, await loadPublishedSharedReplica(deps.database, deps.groupId),
-          await loadSharedFacts(deps.database, deps.groupId), roster, deps.identity, key, `snapshot.${deps.makeId()}`, group.headSequence,
-          (uid, device, version) => sharedAuthorIdentity(archive.find((item) => item.body.keyVersion === version)!, uid, device, version));
+        remaining(); const published = await loadPublishedSharedReplica(deps.database, deps.groupId); const facts = await loadSharedFacts(deps.database, deps.groupId);
+        remaining(); const snapshot = await createEncryptedSharedSnapshot(deps.crypto, published,
+          facts, roster, deps.identity, key, `snapshot.${deps.makeId()}`, group.headSequence,
+          (uid, device, version) => sharedAuthorIdentity(archive.find((item) => item.body.keyVersion === version)!, uid, device, version), archive);
         remaining(); await deps.cloud.prepareSnapshot(snapshot, roster, remaining);
         remaining(); await deps.cloud.publishSnapshot(snapshot.manifest, roster, remaining);
         await deps.sync({ force: true, budgetMs: remaining() }); return sharedRosterDigest(roster);

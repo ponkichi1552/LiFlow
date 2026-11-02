@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView } from '@/components/screen-safe-area';
 import { BackButton, ChoiceChip, navigationHeaderMetrics, palette, typography } from '../../components/planner-ui';
 import { FormTextInput } from '../../components/form-text-input';
 import { Chevron } from '../../components/chevron';

@@ -1,0 +1,31 @@
+# 月額契約の実装・検査記録
+
+2026-11-02時点。統合検査中であり、実ストアの購入成功・公開可能という記録ではない。Google Play Consoleは利用者の回答により未登録。Apple Developer Programも未契約。商品ID、実価格、ストアの権限・通知先・本番署名鍵・法的案内URLは未設定。
+
+## 処理
+
+- Expo推奨ライブラリの`expo-iap` 6.4.1を追加。iOSはStoreKit、AndroidはPlay Billingを使い、購入・復元・購入元の契約管理へ進む。価格はストアから取得する。1か月の通常プランだけを購入候補にし、未取得の価格を90円と表示しない。
+- Firebaseの同一UIDを両OSで使用する。サーバーで発行したAppleの`appAccountToken`、Googleの`obfuscatedAccountId`を購入に付ける。サーバーは公式Appleライブラリで署名と最新の購読状態を確認し、Googleは`purchases.subscriptionsv2.get`を使用する。元のアカウントと購入元・商品・プラン・環境が一致しなければ拒否する。
+- 購入の所有者はFirestoreトランザクションで固定する。Google購入トークン等の再確認情報は、サーバーだけが持つ別の鍵でAES-GCM暗号化する。同一トークンを別UIDへ付け直せない。確認の古い応答が新しい返金・失効状態を上書きしないよう、世代番号も照合する。
+- 決済待ちを利用可能にしない。確認済みの権利を保存してから購入を完了扱いにする。重複コールバックをまとめ、確認失敗では未処理購入を残して復元・再送する。Googleの確認応答もサーバーで行う。
+- サーバーがアカウント・期限・状態・版数へ署名した利用権を端末のSecureStoreへ保存する。サーバーは直近5分の検証済み状態を再利用し、その再利用で確認時刻・有効期限を延長しない。本人が明示的に再確認した場合とストアの更新通知では最新状態を取得する。保存済みの正しい利用権はHTTPS応答より先に表示へ使用する。オフライン利用期限は支払済み期限と最終確認から24時間の早い方。期限を端末で延長しない。契約解除後も確認済みの支払済み期間・ストアの猶予期間は使える。
+- 購入の更新通知は既存APIへ集約する。Appleは署名済み通知、Googleは指定したPub/Subサービスアカウントとaudienceを確認する。通知の内容だけを根拠に期限を延長せず、ストアの最新状態を再取得する。
+- 期限切れでは通常画面とバックグラウンド処理を止め、購入・復元・ログイン・管理を残す。SQLite・暗号鍵・Googleカレンダーの既存予定は削除しない。通知は確認済み期間内だけ予約する。Widgetには期限後の非表示エントリーを用意し、既に行った未取込の完了操作を保持する。OSが保存済みWidgetを描画し直す時刻までは保証しない。遅れて押された完了もWidget内とアプリ側で拒否する。
+
+## 内部検査と公開の境界
+
+現在の実機検査用ビルドは、ストア契約を開始しない内部ビルドとして維持する。公開版に無料枠を設けたという意味ではない。
+
+`EAS_BUILD_PROFILE=production`または`LIFLOW_DISTRIBUTION=store`では、`EXPO_PUBLIC_LIFLOW_SUBSCRIPTIONS=required`、両ストアの商品ID、Googleの月額base plan、検証用の公開鍵、HTTPS API・利用規約・プライバシーURLが揃わないビルドを拒否する。秘密鍵を`EXPO_PUBLIC_`へ入れない。
+
+Firestoreは管理者だけが設定できる`serviceConfiguration/billing.enforced=true`で利用権検証を有効にする。内部検査中にこの設定を利用者の端末から変更できない。公開APIはこの設定を管理者SDKで確認できなければ起動を拒否する。課金基盤が揃っていれば、正規端末証明やAIの設定が未完でも購入・復元専用で起動できる。その場合は全AI経路を503で閉じ、解析枠の消費や有料処理を開始しない。課金の権限境界と、本人の除名確認だけを許可するRulesは隔離環境で検査した後、実サービスへ配布し原文の一致を確認した。管理者の課金設定は存在しないことも確認しており、現在の検査プロジェクトを有料モードへ切り替えたり、実ユーザーの契約を作成したりしていない。
+
+サーバー設定は`LIFLOW_SUBSCRIPTIONS_ENABLED=true`、`LIFLOW_SUBSCRIPTION_SIGNING_KEY_FILE`（Ed25519）、`LIFLOW_BILLING_TOKEN_KEY_FILE`（別の32バイト鍵）を使用する。Appleには公式ルート証明書、IAPキー、issuer/key ID、アプリID、商品、Sandbox/Productionの明示設定が必要。GoogleにはPublisher APIを利用できる既存のサーバーID、商品・base plan、Pub/Subのaudienceと送信サービスアカウントを設定する。鍵ファイルはリポジトリへ保存しない。
+
+## 検査済み／残り
+
+初期の自動検査では、実Ed25519のサーバー・端末間照合、改ざん・異なるUID・古い版数の拒否、トークン暗号化、所有者固定、同時確認、未決済・猶予・失効、重複・確認失敗・アカウント変更、失効後のAI受付拒否を確認した。Firestore Emulatorでも同じストアの同時使用、再起動後の所有者、利用権の偽造と失効後の拒否を確認した。1ms境界の検査は既存watchの結果再利用と混同せず、新しい接続で現行Rulesの判定を確認する。
+
+lint・TypeScript・自動回帰2,821件、Auth／Firestore Emulatorの結合検査118件がPASS。機能契約442件・必須Cloud80参照も検査した。新しいネイティブライブラリを含むAndroid 10・iPhone・iOSシミュレーターのReleaseビルドは成功し、データを保持して更新した。iPhoneとシミュレーターの主要画面検査、およびAndroidの実際のホームから説明への操作を確認した。別アカウントの購入が先にある明示復元、アカウント変更中の古い応答、短縮GCMタグ、失効中の通知、課金拒否と除名の区別も回帰検査へ加えた。公開用の商品・資格情報がないため、実際の価格を持つ購入画面はまだ確認できていない。実ストアの購入・復元・更新・返金・二重購入回避・異種OS間の契約引き継ぎは、開発者登録と商品・資格情報の設定後に実行する。現在の合成ストア応答の検査を実購入E2Eと読み替えない。
+
+参照：[Expo IAP](https://docs.expo.dev/guides/in-app-purchases/)、[OpenIAP](https://www.openiap.dev/docs/setup/expo)、[Apple公式Server Library](https://github.com/apple/app-store-server-library-node)、[Googleの購読状態](https://developer.android.com/google/play/billing/lifecycle/subscriptions)。

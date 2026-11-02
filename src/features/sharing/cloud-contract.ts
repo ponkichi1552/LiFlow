@@ -3,6 +3,8 @@ import { sharedRosterDigest, validateSharedRoster } from './roster.ts';
 import type { SignedSharedRoster, VerifiedSharedRoster } from './roster.ts';
 import type { EncryptedSharedOperation } from './crypto.ts';
 import type { V2ServerReceipt } from './v2/server-receipts.ts';
+import { parseLocalDate } from '../../domain/scheduling/local-date.ts';
+import type { LocalDate } from '../../domain/shared/types';
 
 export interface SharedCloudGroup {
   schemaVersion: 1 | 2;
@@ -20,6 +22,9 @@ export interface SharedCloudGroup {
   lastOperationId: string | null;
   snapshotId: string | null;
   snapshotThroughSequence: number;
+  retentionCutoff?: LocalDate;
+  retentionThroughSequence?: number;
+  retentionKeyVersion?: number;
 }
 export interface SharedCloudEvent {
   operationId: string;
@@ -65,7 +70,7 @@ export function parseSharedCloudGroup(raw: unknown, groupId: string): { group: S
   const { createdAt: _created, updatedAt: _updated, ...value } = raw as Record<string, unknown>;
   if (Object.keys(value).sort().join(',') !== ['schemaVersion', 'ownerUserId', 'ownerDeviceId', 'memberIds', 'deviceOwners',
     'keyVersion', 'rosterRevision', 'rosterJson', 'revokedUserIds', 'rotationRequired', 'closed', 'headSequence',
-    'lastOperationId', 'snapshotId', 'snapshotThroughSequence'].sort().join(',')) throw new Error('Unknown shared cloud metadata');
+    'lastOperationId', 'snapshotId', 'snapshotThroughSequence', ...('retentionCutoff' in value ? ['retentionCutoff', 'retentionThroughSequence', 'retentionKeyVersion'] : [])].sort().join(',')) throw new Error('Unknown shared cloud metadata');
   if (typeof value.rosterJson !== 'string' || value.rosterJson.length > 60_000) throw new Error('Invalid public roster');
   const roster = validateSharedRoster(JSON.parse(value.rosterJson));
   if (roster.body.groupId !== groupId) throw new Error('Shared group mismatch');
@@ -83,6 +88,12 @@ export function parseSharedCloudGroup(raw: unknown, groupId: string): { group: S
     if (typeof value[key] !== 'number' || !Number.isSafeInteger(value[key]) || value[key] < 0) throw new Error('Invalid shared delivery position');
   }
   if ((value.snapshotThroughSequence as number) > (value.headSequence as number)) throw new Error('Snapshot is ahead of the log');
+  if ('retentionCutoff' in value) {
+    parseLocalDate(value.retentionCutoff as LocalDate);
+    if (value.schemaVersion !== 2 || !Number.isSafeInteger(value.retentionThroughSequence) || Number(value.retentionThroughSequence) < 0
+      || Number(value.retentionThroughSequence) > Number(value.snapshotThroughSequence) || !Number.isSafeInteger(value.retentionKeyVersion)
+      || Number(value.retentionKeyVersion) < 1 || Number(value.retentionKeyVersion) >= Number(value.keyVersion)) throw new Error('Invalid shared retention boundary');
+  }
   for (const key of ['lastOperationId', 'snapshotId'] as const) if (value[key] !== null) assertSharedIdentifier(value[key]);
   return { group: value as unknown as SharedCloudGroup, roster };
 }

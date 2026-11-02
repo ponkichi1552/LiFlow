@@ -53,12 +53,12 @@ test('legacy repair retains an already displayed first occurrence rather than mo
 });
 
 for (const frequencyMode of ['frequent', 'balanced', 'relaxed']) {
-  test(`all 46 built-in chores can be enabled and have their cycle edited from unknown/disabled (${frequencyMode})`, async () => {
+  test(`all 36 built-in chores can be enabled and have their cycle edited from unknown/disabled (${frequencyMode})`, async () => {
     const h = createDatabase();
     try {
       let snapshot = await setupDisabled(h.database);
       const builtIn = snapshot.chores.filter((item) => !item.archived);
-      assert.equal(builtIn.length, 46);
+      assert.equal(builtIn.length, 36);
       await repository.updatePlannerSettings(h.database, { frequencyMode, restDays: [6, 7], heavyDailyLimit: 1, normalDailyLimit: 2 });
       for (const chore of builtIn) {
         if (chore.requiresCycleSelection) await repository.updateChoreSettings(h.database, chore.id, { cycleDays: 17 });

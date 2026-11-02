@@ -1,7 +1,7 @@
 import { createV2CalendarActions } from './calendar-actions.ts';
 import type { LocalDate } from '../../../domain/shared/types.ts';
 import { addDays } from '../../../domain/scheduling/local-date.ts';
-import type { createV2EventRepository } from '../../../platform/storage/sharing-v2-events.ts';
+import type { createV2EventRepository, V2LocalCompletionIntent } from '../../../platform/storage/sharing-v2-events.ts';
 import type { SharedOperationDraft } from '../../../platform/storage/sharing-ledger.ts';
 import { canonicalJson } from '../operations.ts';
 import type { JsonValue, SharedOperation } from '../operations.ts';
@@ -38,10 +38,13 @@ import { v2AssignmentRequestReference, approvedV2AssignmentId, observedV2Assignm
 import type { DateTarget, DesignationMode, DesignationOptions, GroupKind, GroupPolicy, RuleSelector, SharedChoreConfiguration } from './model.ts';
 import { choreScheduleDefaults } from '../../../domain/chores/schedule-defaults.ts';
 import type { FrequencyMode } from '../../../domain/chores/types';
+import { sharedDocumentDigest } from '../crypto.ts';
+import { v2RetainedCompletions } from './retained-completions.ts';
 
 export interface V2RoundReference { choreId: string; anchorDate: LocalDate; ruleVersion: number; subjectUserId: string | null;
   /** The displayed configuration frontier is an optimistic edit guard, never part of a signed business payload. */
   expectedConfigurationIds?: readonly string[]; expectedTimeZone?: string }
+export interface V2RetainedUndoReference extends Pick<V2RoundReference, 'choreId' | 'anchorDate' | 'subjectUserId'> { checkpointId: string; recorderUserIds: readonly string[] }
 export interface V2AssignmentEdit {
   expectedAssignmentIds?: readonly string[]; expectedConflictIds?: readonly string[]; expectedClaimIds?: readonly string[];
   expectedTargetOccurrenceId?: string;
@@ -120,7 +123,26 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
     return { subject, recentWork: subject?.minimumNextExecutionDay !== null && subject?.minimumNextExecutionDay !== undefined && civil < subject.minimumNextExecutionDay,
       highLoad: load !== 'light' && typeof limit === 'number' && count + 1 > limit };
   }
-  const undoTargets = (targetOperationIds: readonly string[]) => repository.commitCurrent(async (state) => {
+  function completionDrafts(state: State, ref: V2RoundReference, input: { performedAt?: string; performerUserId?: string; additionalWork?: boolean; expectedAssigneeIds?: readonly string[] }, performedAt: string): SharedOperationDraft[] {
+    const context = frame(state, ref); const at = point(state); const view = state.assessment.view;
+    if (input.expectedAssigneeIds && !sameIds(input.expectedAssigneeIds, ref.subjectUserId === null ? context.assigneeIds : [ref.subjectUserId])) throw new V2StaleSettingsError();
+    const history = v2CompletionHistory(view, at, state.receipts, ref);
+    if (!input.additionalWork && history.some(record => record.occurrenceId === context.frame.id && record.subjectUserId === ref.subjectUserId && record.active && record.outcome === 'completed')) return [];
+    if (!input.additionalWork && v2RetainedCompletions(view, at).some(row => row.choreId === ref.choreId && row.anchorDate === ref.anchorDate && row.subjectUserId === ref.subjectUserId && row.reports.length)) return [];
+    const instruction = recordedInstructionAt(view, at, context.frame, ref.subjectUserId, state.assessment.formalRulesAt(at));
+    const scheduledDate = instruction.kind === 'designated' ? targetCivilDate(instruction.target, instruction.timeZone) : ref.anchorDate;
+    const commonWindow = expandedCommonWindow({ frame: context.frame, timeZone: instruction.timeZone, view, at, requests: state.assessment.requestStates,
+      approvedRules: state.assessment.formalRulesAt(at), receiptEpochs: state.assessment.receiptEpochs });
+    const windowStart = instruction.kind === 'designated' && scheduledDate < commonWindow.windowStart ? scheduledDate : commonWindow.windowStart;
+    const windowEnd = instruction.kind === 'designated' && scheduledDate > commonWindow.windowEnd ? scheduledDate : commonWindow.windowEnd;
+    return [draft('completion', v2SubjectOccurrenceId(context.frame.id, ref.subjectUserId), { choreId: ref.choreId, anchorDate: ref.anchorDate,
+      subjectUserId: ref.subjectUserId, ruleVersion: context.config.ruleVersion, completedAt: performedAt, completedByMemberId: input.performerUserId ?? scope.userId,
+      originalAssigneeIds: ref.subjectUserId === null ? context.assigneeIds : [ref.subjectUserId], outcome: 'completed',
+      recordedInstruction: instruction, recordedCommonWindow: { start: commonWindow.windowStart, end: commonWindow.windowEnd }, scheduledDate,
+      scheduledWindowStart: windowStart, scheduledWindowEnd: windowEnd,
+      completionNote: input.performedAt ? 'alreadyDone' : 'completedNow' }, 'complete')];
+  }
+  function undoDrafts(state: State, targetOperationIds: readonly string[], retained?: V2RetainedUndoReference): SharedOperationDraft[] {
     const view = state.assessment.view; const result: SharedOperationDraft[] = [];
     for (const targetOperationId of new Set(targetOperationIds)) {
       const target = view.byId(targetOperationId);
@@ -128,8 +150,18 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
       if (view.ofType('completion').some((op) => op.operationType === 'undo' && op.payload.targetOperationId === targetOperationId)) continue;
       result.push(draft('completion', target.entityId, { targetOperationId }, 'undo'));
     }
+    if (retained) {
+      const at = point(state); const checkpoint = view.retentionAt(at);
+      if (!checkpoint || sharedDocumentDigest(checkpoint) !== retained.checkpointId) throw new V2StaleSettingsError();
+      const current = v2RetainedCompletions(view, at).find(row => row.choreId === retained.choreId && row.anchorDate === retained.anchorDate && row.subjectUserId === retained.subjectUserId);
+      if (!current) throw new V2StaleSettingsError();
+      const recorderUserIds = [...new Set(retained.recorderUserIds)].filter(uid => current.reports.some(report => report.recorderUserId === uid));
+      if (recorderUserIds.length) result.push(draft('retainedCompletionUndo', null, { choreId: retained.choreId, anchorDate: retained.anchorDate,
+        subjectUserId: retained.subjectUserId, checkpointId: retained.checkpointId, recorderUserIds }));
+    }
     return result;
-  });
+  }
+  const undoTargets = (targetOperationIds: readonly string[], retained?: V2RetainedUndoReference) => repository.commitCurrent(async state => undoDrafts(state, targetOperationIds, retained));
   function configurationFieldDrafts(state: State, choreId: string, edits: readonly NonNullable<V2ConfigurationFieldEdit>[], effectiveFrom: LocalDate): SharedOperationDraft[] {
     const at = point(state); const enabled = state.assessment.view.field('chore', choreId, 'enabled', at)?.value === true;
     const current = state.assessment.view.field('chorePolicy', choreId, 'configuration', at)?.value as unknown as SharedChoreConfiguration | undefined;
@@ -257,23 +289,22 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
     editGroupOptions,
     complete: (ref: V2RoundReference, input: { performedAt?: string; performerUserId?: string; additionalWork?: boolean; expectedAssigneeIds?: readonly string[] } = {}) => {
       const performedAt = input.performedAt ?? options.now().toISOString();
-      return repository.commitCurrent(async (state) => {
-        const context = frame(state, ref); const at = point(state); const view = state.assessment.view;
-        if (input.expectedAssigneeIds && !sameIds(input.expectedAssigneeIds, ref.subjectUserId === null ? context.assigneeIds : [ref.subjectUserId])) throw new V2StaleSettingsError();
-        const history = v2CompletionHistory(view, at, state.receipts);
-        if (!input.additionalWork && history.some((record) => record.occurrenceId === context.frame.id && record.subjectUserId === ref.subjectUserId && record.active && record.outcome === 'completed')) return [];
-        const instruction = recordedInstructionAt(view, at, context.frame, ref.subjectUserId, state.assessment.formalRulesAt(at));
-        const scheduledDate = instruction.kind === 'designated' ? targetCivilDate(instruction.target, instruction.timeZone) : ref.anchorDate;
-        const commonWindow = expandedCommonWindow({ frame: context.frame, timeZone: instruction.timeZone, view, at, requests: state.assessment.requestStates,
-          approvedRules: state.assessment.formalRulesAt(at), receiptEpochs: state.assessment.receiptEpochs });
-        const windowStart = instruction.kind === 'designated' && scheduledDate < commonWindow.windowStart ? scheduledDate : commonWindow.windowStart;
-        const windowEnd = instruction.kind === 'designated' && scheduledDate > commonWindow.windowEnd ? scheduledDate : commonWindow.windowEnd;
-        return [draft('completion', v2SubjectOccurrenceId(context.frame.id, ref.subjectUserId), { choreId: ref.choreId, anchorDate: ref.anchorDate,
-          subjectUserId: ref.subjectUserId, ruleVersion: context.config.ruleVersion, completedAt: performedAt, completedByMemberId: input.performerUserId ?? scope.userId,
-          originalAssigneeIds: ref.subjectUserId === null ? context.assigneeIds : [ref.subjectUserId], outcome: 'completed',
-          recordedInstruction: instruction, recordedCommonWindow: { start: commonWindow.windowStart, end: commonWindow.windowEnd }, scheduledDate,
-          scheduledWindowStart: windowStart, scheduledWindowEnd: windowEnd,
-          completionNote: input.performedAt ? 'alreadyDone' : 'completedNow' }, 'complete')];
+      return repository.commitCurrent(async state => completionDrafts(state, ref, input, performedAt));
+    },
+    setCompletedIntent: (intent: V2LocalCompletionIntent, ref: V2RoundReference, completed: boolean, input: { createdAt: string; expectedAssigneeIds?: readonly string[] }) => {
+      if (typeof completed !== 'boolean' || !Number.isFinite(Date.parse(input.createdAt))) throw new Error('保存待ちの完了操作を確認できません。');
+      return repository.commitCompletionIntent(intent, async state => {
+        if (completed) return completionDrafts(state, ref, { expectedAssigneeIds: input.expectedAssigneeIds }, input.createdAt);
+        const at = point(state); const view = state.assessment.view;
+        const canUndo = (recorder: string) => recorder === scope.userId || state.archive.at(-1)!.body.ownerUserId === scope.userId;
+        const targets = v2CompletionHistory(view, at, state.receipts, ref).filter(record => record.subjectUserId === ref.subjectUserId
+          && record.active && record.outcome === 'completed' && canUndo(record.recorderUserId));
+        const retained = v2RetainedCompletions(view, at).find(row => row.choreId === ref.choreId && row.anchorDate === ref.anchorDate && row.subjectUserId === ref.subjectUserId);
+        const recorderUserIds = retained?.reports.map(report => report.recorderUserId).filter(canUndo) ?? [];
+        return undoDrafts(state, targets.map(record => record.operationId), recorderUserIds.length ? {
+          choreId: ref.choreId, anchorDate: ref.anchorDate, subjectUserId: ref.subjectUserId,
+          checkpointId: sharedDocumentDigest(view.retentionAt(at)), recorderUserIds,
+        } : undefined);
       });
     },
     undo: (targetOperationId: string) => undoTargets([targetOperationId]),

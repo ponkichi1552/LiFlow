@@ -1,4 +1,4 @@
-import { GoogleAuthProvider, OAuthProvider, onAuthStateChanged, signInWithCredential, signOut } from 'firebase/auth';
+import { GoogleAuthProvider, OAuthProvider, linkWithCredential, onAuthStateChanged, signInWithCredential, signOut } from 'firebase/auth';
 import type { User } from 'firebase/auth';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { digestStringAsync, CryptoDigestAlgorithm, getRandomBytesAsync } from 'expo-crypto';
@@ -32,6 +32,32 @@ export function signInSharingWithGoogle(): Promise<User> {
     await loadOrCreateSharingDeviceIdentity(result.user.uid);
     void bindPaidAiIdentity(result.user.uid);
     return result.user;
+  });
+}
+
+export async function sharingAccountProviders(userId: string): Promise<readonly string[]> {
+  const auth = getSharingServices().auth; await auth.authStateReady();
+  return auth.currentUser?.uid === userId ? auth.currentUser.providerData.map(provider => provider.providerId) : [];
+}
+
+/** Explicitly add a Google sign-in to an Apple account; never merge two LiFlow UIDs or move a purchase. */
+export async function linkSharingWithGoogle(): Promise<User> {
+  if (signingIn || signingOut) throw new Error('アカウントの操作が終わってから再試行してください。');
+  return oneSignIn(async () => {
+    const auth = getSharingServices().auth; await auth.authStateReady();
+    const user = auth.currentUser;
+    if (!user || user.isAnonymous) throw new Error('現在のLiFlowアカウントでログインしてください。');
+    if (user.providerData.some(provider => provider.providerId === 'google.com')) return user;
+    const assertOwner = () => { if (auth.currentUser?.uid !== user.uid) throw new Error('アカウントが切り替わりました。もう一度確認してください。'); };
+    const { idToken } = await authorizeGoogleSharingIdentity(); assertOwner();
+    try {
+      const result = await linkWithCredential(user, GoogleAuthProvider.credential(idToken)); assertOwner();
+      if (result.user.uid !== user.uid) throw new Error('元のアカウントとの紐づけを確認できません。');
+      return result.user;
+    } catch (error) {
+      if ((error as { code?: string }).code === 'auth/credential-already-in-use') throw new Error('このGoogleは別のLiFlowアカウントに紐づいています。別アカウントの契約やデータは統合しません。');
+      throw error;
+    }
   });
 }
 

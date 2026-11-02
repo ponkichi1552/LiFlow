@@ -7,11 +7,11 @@ async function main() {
   const publicMode = process.env.APPLIANCE_CARE_MODE === 'public';
   // Keep the server-only Admin SDK out of the mobile dependency graph and local-only development path.
   const publicAccess = publicMode ? (await import('./firebase-public-runtime.mjs')).createFirebasePublicRuntime() : undefined;
+  const billingOnly = Boolean(publicAccess && (!publicAccess.securityReady || !ai.isConfigured));
   if (publicAccess) {
-    if (!publicAccess.securityReady) throw new Error('Paid AI device protection is not configured');
-    if (!ai.isConfigured) throw new Error('The public AI service is not configured');
     // Refuse the public listener if credentials, the project or quota-store permissions are not ready.
     await publicAccess.store.ready();
+    await publicAccess.subscriptions.service.ready();
     void publicAccess.store.prune().catch(() => undefined);
   }
   const server = startApplianceCareHttpServer({
@@ -19,6 +19,7 @@ async function main() {
     manualUploadsOnly: true,
     aiConfigured: ai.isConfigured,
     publicAccess,
+    billingOnly,
     ...(publicMode ? { createJobDependencies: signal => createPublicAnalysisDependencies(signal) } : {}),
   });
 

@@ -12,6 +12,8 @@ export interface LocalNotificationRequest {
 export interface LocalNotificationGateway {
   /** Total app-wide pending capacity, including other planner workspaces. */
   readonly maximumScheduledRequests?: number;
+  /** No reminder may be scheduled outside the server-verified period. Internal QA has no subscription deadline. */
+  schedulingDeadline?(): Promise<number>;
   requestPermission(): Promise<boolean>;
   hasPermission(): Promise<boolean>;
   getScheduledRequests(): Promise<readonly LocalNotificationRequest[]>;

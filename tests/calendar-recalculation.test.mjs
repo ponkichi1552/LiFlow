@@ -31,6 +31,38 @@ test('SQLite draft and category notifications update observers without invalidat
 });
 
 for (const platform of ['ios', 'android']) {
+  test(`${platform} replacing the restored session binding cannot erase or duplicate a pending completion`, async () => {
+    const { fixture, seeds, now } = await import('./helpers/sharing-v2-repository-fixture.mjs');
+    const { createV2GroupController } = await import('../src/features/sharing/v2/controller.ts');
+    const { createV2ScreenSession } = await import('../src/features/sharing/v2-ui/screen-session.ts');
+    const f = await fixture(); const d = await f.device(); let release; let completing; let screen;
+    try {
+      await d.repository.commit(seeds()); let writes = 0;
+      const controller = createV2GroupController(d.repository, { now, makeId: () => `completion-binding-${++writes}`, sync: async () => {} });
+      const wait = new Promise(resolve => { release = resolve; });
+      const source = createV2ScreenSession({ controller, groupId: d.options.groupId, userId: 'owner', now,
+        readPreferences: async () => ({ ownerUserId: 'owner', settings: { frequencyMode: 'balanced', restDays: [], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 3 } } }) });
+      const model = await source.readModel(); let attempts = 0;
+      const session = { ...source, controller: { ...controller, actions: { ...controller.actions,
+        complete: async (...args) => { attempts++; await wait; return controller.actions.complete(...args); } } } };
+      const props = { purpose: 'workspace', view: 'home', lifecycleManaged: true, initialDisplay: { session, model }, loadSession: async () => session,
+        onBack: () => {}, onConfiguration: () => {}, onHistory: () => {} };
+      screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen', platform, props,
+        effectDependencies: true, focusDependencies: true, effect: callback => callback(), layoutEffect: callback => callback() });
+      await screen.flush();
+      const checkbox = () => screen.nodes().find(node => node.props.accessibilityRole === 'checkbox');
+      completing = checkbox().props.onPress(); await screen.flush();
+      assert.equal(checkbox().props.accessibilityState.checked, true);
+      props.loadSession = async () => session; screen.render(); await screen.flush();
+      assert.equal(checkbox().props.accessibilityState.checked, true, 'restoring the live provider must retain the pending checkmark');
+      assert.equal(attempts, 1); assert.equal(writes, 0, 'optimistic feedback must not fabricate a stored completion');
+      release(); await completing; await screen.flush();
+      assert.equal(attempts, 1); assert.equal(writes, 1);
+      assert.equal(checkbox().props.accessibilityState.checked, true);
+      assert.equal(checkbox().props.disabled, false);
+    } finally { release?.(); await completing; screen?.unmount(); d.connection.close(); }
+  });
+
   test(`${platform} background refresh keeps the saved home visible and does not reproject unchanged completion feedback`, async () => {
     const { fixture, seeds, now } = await import('./helpers/sharing-v2-repository-fixture.mjs');
     const { createV2GroupController } = await import('../src/features/sharing/v2/controller.ts');
@@ -46,6 +78,7 @@ for (const platform of ['ios', 'android']) {
       let nextRead = new Promise(done => { resolve = done; });
       const session = { ...source, readModel: () => nextRead };
       const screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen', platform,
+        effectDependencies: true, effect: callback => callback(), layoutEffect: callback => callback(),
         props: { purpose: 'workspace', view: 'home', lifecycleManaged: true, initialDisplay: { session, model }, loadSession: async () => session,
           subscribe: callback => { changed = callback; return () => {}; }, onBack: () => {}, onConfiguration: () => {}, onHistory: () => {} },
         focusEffect: callback => { focus = callback; },

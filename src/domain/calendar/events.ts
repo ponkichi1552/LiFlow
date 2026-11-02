@@ -11,12 +11,17 @@ export interface EventDraft {
   recurrence: CalendarRecurrence; untilDate: LocalDate | null; categoryId: string; birthday: boolean;
   customRecurrence?: CustomRecurrence;
 }
-export interface CalendarEvent extends EventDraft { id: string; revision: number }
+export interface CalendarEvent extends EventDraft {
+  id: string; revision: number;
+  /** Private transport metadata is never part of a shared EventDraft. */
+  readOnly?: boolean; externalUrl?: string; blocksTime?: boolean;
+}
 export interface CalendarCategory { id: string; name: string; color: string; revision: number }
 export interface CalendarException { eventId: string; anchorDate: LocalDate; override: EventDraft | null; revision: number }
 export interface CalendarOccurrence extends EventDraft {
   id: string; eventId: string; anchorDate: LocalDate; eventRevision: number; exceptionRevision: number;
   timeIssue?: 'gap' | 'fold'; original?: CalendarOccurrence;
+  readOnly?: boolean; externalUrl?: string; blocksTime?: boolean;
 }
 export const RECURRENCE_LABELS: Record<CalendarRecurrence, string> = { none: '繰り返さない', daily: '毎日', weekly: '毎週', biweekly: '隔週', monthly: '毎月', yearly: '毎年', custom: 'カスタム' };
 export function recurrenceLabel(value: EventDraft) { return value.recurrence === 'custom' && value.customRecurrence ? customRecurrenceLabel(value.customRecurrence, value.startDate) : RECURRENCE_LABELS[value.recurrence]; }
@@ -111,7 +116,8 @@ export function projectCalendarEvents(events: readonly CalendarEvent[], exceptio
           v2WallTimeCandidates({ date: body.endDate, hour: Math.floor(body.endMinute / 60), minute: body.endMinute % 60, timeZone: body.timeZone }).length];
         if (lengths.some(n => n !== 1)) timeIssue = lengths.includes(0) ? 'gap' : 'fold';
       }
-      result.push({ ...body, id: `${event.id}:${anchorDate}`, eventId: event.id, anchorDate, eventRevision: event.revision, exceptionRevision: exception?.revision ?? 0, ...(timeIssue ? { timeIssue } : {}) });
+      result.push({ ...body, ...(event.readOnly ? { readOnly: true } : {}), ...(event.externalUrl ? { externalUrl: event.externalUrl } : {}),
+        ...(event.blocksTime !== undefined ? { blocksTime: event.blocksTime } : {}), id: `${event.id}:${anchorDate}`, eventId: event.id, anchorDate, eventRevision: event.revision, exceptionRevision: exception?.revision ?? 0, ...(timeIssue ? { timeIssue } : {}) });
       if (result.length > 20_000) throw new Error('表示する予定が多すぎます。期間を狭めてください。');
     }
   }

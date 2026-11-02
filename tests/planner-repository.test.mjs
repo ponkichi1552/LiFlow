@@ -17,6 +17,17 @@ async function setup(database) {
   });
   return { ...chore, enabled: true };
 }
+test('reopening a current personal database does no seed writes while a missing local member is still repaired', async t => {
+  const h = createDatabase(); t.after(() => h.connection.close()); await repository.initializeLocalDatabase(h.database);
+  const initial = h.connection.prepare('SELECT id,definition_json FROM chore_definitions ORDER BY id').all();
+  h.writes.length = 0; await repository.initializeLocalDatabase({ ...h.database });
+  assert.equal(h.writes.length, 0, 'each cold connection must not rewrite an already initialized household');
+  assert.deepEqual(h.connection.prepare('SELECT id,definition_json FROM chore_definitions ORDER BY id').all(), initial);
+  const member = h.connection.prepare('SELECT * FROM household_members').get();
+  h.connection.prepare('DELETE FROM chore_assignments').run(); h.connection.prepare('DELETE FROM household_members').run();
+  await repository.initializeLocalDatabase({ ...h.database });
+  assert.deepEqual(h.connection.prepare('SELECT * FROM household_members').get(), member);
+});
 
 test('unchanged planner refreshes do not rewrite seed data or generated schedule rows', async () => {
   const { connection, database, writes } = createDatabase();

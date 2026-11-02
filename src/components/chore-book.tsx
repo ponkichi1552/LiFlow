@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ReactNode } from 'react';
 import { FlatList, Platform, StyleSheet, Text, View } from 'react-native';
 import type { ListViewToken } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from '@/components/screen-safe-area';
 import type { ChoreDefinition } from '../domain/chores/types';
 import { groupChores } from '../domain/chores/chore-groups';
 import { BackButton, navigationHeaderMetrics, palette, typography } from './planner-ui';

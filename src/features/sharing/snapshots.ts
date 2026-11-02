@@ -12,6 +12,12 @@ import type { SignedLegacyMigrationWitness } from './v2/legacy-migration-witness
 import { validateLegacyMigrationWitness } from './v2/legacy-migration-witness.ts';
 import { validateV2RecoveryWitness } from './v2/recovery-witness.ts';
 import type { SignedV2RecoveryHeader, SignedV2RecoveryWitness, V2RecoveryPreservedFact } from './v2/recovery-witness.ts';
+import { assertV2RetentionBase } from './v2/history-retention-certificate.ts';
+import type { V2RetentionWitness } from './v2/history-retention-certificate';
+import type { V2ServerReceipt } from './v2/server-receipts';
+import type { V2RetentionBody } from './v2/history-retention-schema';
+import { parseLocalDate } from '../../domain/scheduling/local-date.ts';
+import type { LocalDate } from '../../domain/shared/types';
 
 export type SharedAuthorResolver = (userId: string, deviceId: string, keyVersion: number) => DevicePublicIdentity;
 interface SharedSnapshotManifestBody {
@@ -19,6 +25,9 @@ interface SharedSnapshotManifestBody {
   ownerDeviceId: string; rosterDigest: string; schedulerVersion: string;
   frontier: VersionVector; logicalClock: number; receiptCount: number; factCount: number;
   recoveryCount?: number;
+  retentionCutoff?: string;
+  retentionThroughSequence?: number;
+  retentionKeyVersion?: number;
   chunks: { id: string; digest: string; bytes: number }[];
 }
 export interface SignedSharedSnapshotManifest { body: SharedSnapshotManifestBody; signature: string }
@@ -28,6 +37,8 @@ type SnapshotRecord = { kind: 'receipt'; value: SharedOperationReceipt } | { kin
   | { kind: 'legacyMigrationWitness'; value: SignedLegacyMigrationWitness }
   | { kind: 'recoveryWitness'; value: SignedV2RecoveryHeader }
   | { kind: 'recoveryPreservedFact'; value: V2RecoveryPreservedFact & { snapshotId: string } };
+type RetentionRecord = { kind: 'retentionProposal'; value: AuthenticatedSharedOperation }
+  | { kind: 'retentionReceipt'; value: V2ServerReceipt } | { kind: 'retentionApproval'; value: AuthenticatedSharedOperation };
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
@@ -47,7 +58,7 @@ function snapshotSigner(roster: VerifiedSharedRoster, deviceId: string): DeviceP
 
 export async function createEncryptedSharedSnapshot(crypto: SharingCryptoGateway, replica: SharedReplica,
   availableFacts: readonly AuthenticatedSharedOperation[], roster: VerifiedSharedRoster, owner: DeviceSecretIdentity,
-  key: Uint8Array, snapshotId: string, throughSequence: number, author: SharedAuthorResolver): Promise<EncryptedSharedSnapshot> {
+  key: Uint8Array, snapshotId: string, throughSequence: number, author: SharedAuthorResolver, archive?: readonly VerifiedSharedRoster[]): Promise<EncryptedSharedSnapshot> {
   assertSharedIdentifier(snapshotId);
   if (snapshotId.length > 150 || roster.body.groupId !== replica.groupId
     || roster.body.closed || !Number.isSafeInteger(throughSequence) || throughSequence < 0
@@ -55,6 +66,7 @@ export async function createEncryptedSharedSnapshot(crypto: SharingCryptoGateway
   if (canonicalJson(snapshotSigner(roster, owner.deviceId)) !== canonicalJson({ deviceId: owner.deviceId, signingPublicKey: owner.signingPublicKey,
     agreementPublicKey: owner.agreementPublicKey })) throw new Error('Invalid snapshot signing identity');
   const base = compactSharedReplica(replica); const facts = new Map(availableFacts.map((fact) => [fact.operation.operationId, fact]));
+  if (base.retention) { if (!archive || roster.body.schemaVersion !== 2) throw new Error('Missing retention authority archive'); assertV2RetentionBase(replica, base.retention, archive); }
   if (base.legacyMigrationWitness && roster.body.schemaVersion !== 2) throw new Error('A v1 snapshot cannot carry a migration statement');
   if (base.recoveryWitnesses?.length && roster.body.schemaVersion !== 2) throw new Error('A v1 snapshot cannot carry recovery evidence');
   const retained = base.operations.map((operation) => {
@@ -62,14 +74,16 @@ export async function createEncryptedSharedSnapshot(crypto: SharingCryptoGateway
     if (!fact || canonicalJson(fact.operation) !== canonicalJson(operation)) throw new Error('Snapshot is missing an original author proof');
     return authenticate(fact, replica.groupId, roster.body.keyVersion, author);
   });
-  const records: SnapshotRecord[] = [...base.operationIndex.map((value): SnapshotRecord => ({ kind: 'receipt', value })),
+  const records: (SnapshotRecord | RetentionRecord)[] = [...base.operationIndex.map((value): SnapshotRecord => ({ kind: 'receipt', value })),
     ...retained.map((value): SnapshotRecord => ({ kind: 'fact', value })),
     ...(base.legacyMigrationWitness ? [{ kind: 'legacyMigrationWitness' as const, value: base.legacyMigrationWitness }] : []),
     ...(base.recoveryWitnesses ?? []).flatMap((witness): SnapshotRecord[] => [
       { kind: 'recoveryWitness', value: { body: witness.body, signature: witness.signature } },
       ...witness.preservedFacts.map((value): SnapshotRecord => ({ kind: 'recoveryPreservedFact', value: { ...value, snapshotId: witness.body.snapshotId } })),
-    ])];
-  const chunks: EncryptedSharedSnapshotChunk[] = []; let page: SnapshotRecord[] = []; let bytes = 2;
+    ]), ...(base.retention ? [{ kind: 'retentionProposal' as const, value: base.retention.proposal },
+      { kind: 'retentionReceipt' as const, value: base.retention.proposalReceipt },
+      ...base.retention.approvals.map(value => ({ kind: 'retentionApproval' as const, value }))] : [])];
+  const chunks: EncryptedSharedSnapshotChunk[] = []; let page: (SnapshotRecord | RetentionRecord)[] = []; let bytes = 2;
   const flush = async () => {
     if (!page.length) return;
     chunks.push(await sealSharedSnapshotChunk(crypto, encoder.encode(canonicalJson(page)),
@@ -87,6 +101,8 @@ export async function createEncryptedSharedSnapshot(crypto: SharingCryptoGateway
     throughSequence, ownerDeviceId: owner.deviceId, rosterDigest: sharedRosterDigest(roster), schedulerVersion: roster.body.schedulerVersion,
     frontier: base.frontier, logicalClock: base.logicalClock, receiptCount: base.operationIndex.length, factCount: retained.length,
     ...(roster.body.schemaVersion === 2 ? { recoveryCount: base.recoveryWitnesses?.length ?? 0 } : {}),
+    ...(base.retention ? (() => { const checkpoint = base.retention.proposal.operation.payload.checkpoint as unknown as V2RetentionBody;
+      return { retentionCutoff: checkpoint.cutoff, retentionThroughSequence: checkpoint.throughSequence, retentionKeyVersion: checkpoint.keyVersion }; })() : {}),
     chunks: chunks.map((chunk, index) => ({ id: `${snapshotId}.${index}`, digest: sharedDocumentDigest(chunk),
       bytes: encoder.encode(canonicalJson(chunk)).length })) };
   const manifest = { body, signature: signSharedDocument({ domain: 'liflow-shared-snapshot-v1', body }, owner) };
@@ -99,7 +115,7 @@ export function verifySharedSnapshotManifest(input: SignedSharedSnapshotManifest
   if (Object.keys(input).sort().join(',') !== 'body,signature') throw new Error('Unknown snapshot manifest field');
   const { body } = input; assertJsonRecord(body);
   const fields = ['chunks', 'factCount', 'frontier', 'groupId', 'keyVersion', 'logicalClock', 'ownerDeviceId', 'receiptCount', 'rosterDigest', 'schedulerVersion', 'schemaVersion', 'snapshotId', 'throughSequence',
-    ...(roster.body.schemaVersion === 2 ? ['recoveryCount'] : [])];
+    ...(roster.body.schemaVersion === 2 ? ['recoveryCount', ...('retentionCutoff' in body ? ['retentionCutoff', 'retentionThroughSequence', 'retentionKeyVersion'] : [])] : [])];
   if (Object.keys(body).sort().join(',') !== fields.sort().join(',')
     || body.schemaVersion !== roster.body.schemaVersion || body.groupId !== roster.body.groupId
     || body.keyVersion !== roster.body.keyVersion || body.rosterDigest !== sharedRosterDigest(roster)
@@ -111,6 +127,12 @@ export function verifySharedSnapshotManifest(input: SignedSharedSnapshotManifest
     if (!Number.isSafeInteger(value) || value < 0) throw new Error('Invalid snapshot count');
   }
   if (body.schemaVersion === 2 && (!Number.isSafeInteger(body.recoveryCount) || body.recoveryCount! < 0 || body.recoveryCount! > 64)) throw new Error('Invalid recovery witness count');
+  if (body.retentionCutoff !== undefined) {
+    parseLocalDate(body.retentionCutoff as LocalDate);
+    if (body.schemaVersion !== 2 || !Number.isSafeInteger(body.retentionThroughSequence) || body.retentionThroughSequence! < 0
+      || body.retentionThroughSequence! > body.throughSequence || !Number.isSafeInteger(body.retentionKeyVersion)
+      || body.retentionKeyVersion! < 1 || body.retentionKeyVersion! > body.keyVersion) throw new Error('Invalid retention position');
+  }
   if (body.factCount > body.receiptCount) throw new Error('Snapshot fact count exceeds causal receipts');
   for (const [index, chunk] of body.chunks.entries()) {
     assertJsonRecord(chunk);
@@ -123,7 +145,7 @@ export function verifySharedSnapshotManifest(input: SignedSharedSnapshotManifest
 }
 
 export async function openEncryptedSharedSnapshot(crypto: SharingCryptoGateway, input: EncryptedSharedSnapshot,
-  key: Uint8Array, roster: VerifiedSharedRoster, author: SharedAuthorResolver): Promise<VerifiedSharedSnapshot> {
+  key: Uint8Array, roster: VerifiedSharedRoster, author: SharedAuthorResolver, archive?: readonly VerifiedSharedRoster[]): Promise<VerifiedSharedSnapshot> {
   const { body } = verifySharedSnapshotManifest(input.manifest, roster);
   if (input.chunks.length !== body.chunks.length) throw new Error('Snapshot is missing encrypted chunks');
   const owner = snapshotSigner(roster, body.ownerDeviceId);
@@ -131,11 +153,12 @@ export async function openEncryptedSharedSnapshot(crypto: SharingCryptoGateway, 
   let legacyMigrationWitness: SignedLegacyMigrationWitness | undefined;
   const recoveryHeaders = new Map<string, SignedV2RecoveryHeader>();
   const heldRecoveryFacts = new Map<string, V2RecoveryPreservedFact[]>();
+  let retentionProposal: AuthenticatedSharedOperation | undefined; let retentionReceipt: V2ServerReceipt | undefined; const retentionApprovals: AuthenticatedSharedOperation[] = [];
   for (const [index, chunk] of input.chunks.entries()) {
     if (sharedDocumentDigest(chunk) !== body.chunks[index].digest || encoder.encode(canonicalJson(chunk)).length !== body.chunks[index].bytes) throw new Error('Snapshot chunk hash mismatch');
     const plaintext = await openSharedSnapshotChunk(crypto, chunk, { groupId: body.groupId, snapshotId: body.snapshotId,
       keyVersion: body.keyVersion, chunkIndex: index }, key, owner);
-    const records = JSON.parse(decoder.decode(plaintext)) as SnapshotRecord[];
+    const records = JSON.parse(decoder.decode(plaintext)) as (SnapshotRecord | RetentionRecord)[];
     if (!Array.isArray(records) || records.length > 1000) throw new Error('Invalid snapshot page');
     for (const record of records) {
       assertJsonRecord(record);
@@ -155,6 +178,9 @@ export async function openEncryptedSharedSnapshot(crypto: SharingCryptoGateway, 
         list.push({ fact: authenticate(record.value.fact, body.groupId, body.keyVersion, author), receipt: record.value.receipt });
         heldRecoveryFacts.set(record.value.snapshotId, list);
       }
+      else if (body.retentionCutoff && record.kind === 'retentionProposal' && !retentionProposal) retentionProposal = authenticate(record.value, body.groupId, body.keyVersion, author);
+      else if (body.retentionCutoff && record.kind === 'retentionReceipt' && !retentionReceipt) retentionReceipt = record.value;
+      else if (body.retentionCutoff && record.kind === 'retentionApproval') retentionApprovals.push(authenticate(record.value, body.groupId, body.keyVersion, author));
       else throw new Error('Unknown snapshot record');
     }
   }
@@ -162,9 +188,17 @@ export async function openEncryptedSharedSnapshot(crypto: SharingCryptoGateway, 
   if (body.schemaVersion === 2 && recoveryHeaders.size !== body.recoveryCount
     || [...heldRecoveryFacts.keys()].some(id => !recoveryHeaders.has(id))) throw new Error('Snapshot lost recovery evidence');
   const recoveryWitnesses: SignedV2RecoveryWitness[] = [...recoveryHeaders.values()].map(header => validateV2RecoveryWitness({ ...header, preservedFacts: heldRecoveryFacts.get(header.body.snapshotId) ?? [] }));
+  let retention: V2RetentionWitness | undefined;
+  if (body.retentionCutoff) {
+    if (!archive || !retentionProposal || !retentionReceipt) throw new Error('Missing collective retention certificate');
+    retention = { proposal: retentionProposal, proposalReceipt: retentionReceipt, approvals: retentionApprovals };
+  }
   const base = validateSharedSnapshotBase(body.groupId, { groupId: body.groupId, frontier: body.frontier,
     logicalClock: body.logicalClock, operationIndex, operations: facts.map((fact) => fact.operation),
     ...(legacyMigrationWitness ? { legacyMigrationWitness } : {}),
-    ...(recoveryWitnesses.length ? { recoveryWitnesses } : {}) });
+    ...(recoveryWitnesses.length ? { recoveryWitnesses } : {}), ...(retention ? { retention } : {}) });
+  if (retention) { const checkpoint = assertV2RetentionBase({ ...base }, retention, archive!);
+    if (checkpoint.cutoff !== body.retentionCutoff || checkpoint.throughSequence !== body.retentionThroughSequence
+      || checkpoint.keyVersion !== body.retentionKeyVersion) throw new Error('Snapshot retention position differs from its collective certificate'); }
   return { base, facts, snapshotId: body.snapshotId, throughSequence: body.throughSequence };
 }

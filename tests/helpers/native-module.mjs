@@ -11,6 +11,9 @@ export function loadNativeModule(filename, mocks, timers = {}) {
   });
   const module = { exports: {} };
   Function('require', 'module', 'exports', 'setTimeout', 'clearTimeout', outputText)((name) => {
+    if (!(name in mocks) && ['../subscription/runtime', '@/platform/subscription/runtime'].includes(name)) return {
+      subscriptionRequired: false, assertSubscriptionAccess: async () => {}, subscriptionAccessDeadline: async () => Infinity,
+    };
     if (!(name in mocks) && name === '../google-calendar/calendar-api') return calendarApi();
     if (!(name in mocks) && name === '@/platform/diagnostics/startup-timing') return require('../../src/platform/diagnostics/startup-timing.ts');
     if (!(name in mocks) && name === './src/platform/diagnostics/startup-clock') return require('../../src/platform/diagnostics/startup-clock.ts');

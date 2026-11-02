@@ -1,5 +1,9 @@
+import { traceStartup } from '../diagnostics/startup-timing.ts';
+
 export const GOOGLE_CALENDAR_EVENT_SCOPES = ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'] as const;
-export interface GoogleCalendarListEntry { id: string; summary: string; accessRole: string; timeZone?: string; backgroundColor?: string }
+export interface GoogleCalendarListEntry { id: string; summary: string; accessRole: string; primary?: boolean; timeZone?: string; backgroundColor?: string }
+export const canReadGoogleCalendar = (calendar: GoogleCalendarListEntry) => ['owner', 'writer', 'writerWithoutPrivateAccess', 'reader'].includes(calendar.accessRole);
+export const canWriteGoogleCalendar = (calendar: GoogleCalendarListEntry) => ['owner', 'writer', 'writerWithoutPrivateAccess'].includes(calendar.accessRole);
 export interface GoogleCalendarEvent {
   id: string; etag?: string; status?: string; summary?: string; location?: string; description?: string;
   start?: { date?: string; dateTime?: string; timeZone?: string }; end?: { date?: string; dateTime?: string; timeZone?: string };
@@ -31,9 +35,9 @@ export function createGoogleCalendarApi(input: { token: () => Promise<string>; a
     return tokenFlight;
   };
   async function request<T>(path: string, method = 'GET', body?: unknown, etag?: string): Promise<T> {
-    await input.assertCurrent(); const token = await accessToken(); await input.assertCurrent();
-    const response = await transport(`https://www.googleapis.com/calendar/v3/${path}`, { method, signal: input.signal,
-      headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...(etag ? { 'If-Match': etag } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    await input.assertCurrent(); const token = await traceStartup('googleCalendar.token', accessToken); await input.assertCurrent();
+    const response = await traceStartup('googleCalendar.http', () => transport(`https://www.googleapis.com/calendar/v3/${path}`, { method, signal: input.signal,
+      headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...(etag ? { 'If-Match': etag } : {}) }, body: body ? JSON.stringify(body) : undefined }));
     await input.assertCurrent();
     if (!response.ok) {
       if (response.status === 401) tokenFlight = undefined;
@@ -50,7 +54,7 @@ export function createGoogleCalendarApi(input: { token: () => Promise<string>; a
   const path = (calendarId: string) => `calendars/${encodeURIComponent(calendarId)}/events`;
   const query = (values: Record<string, string | undefined>) => new URLSearchParams(Object.fromEntries(Object.entries(values).filter((entry): entry is [string, string] => entry[1] !== undefined))).toString();
   return {
-    calendars: (pageToken?: string) => request<{ items?: GoogleCalendarListEntry[]; nextPageToken?: string }>(`users/me/calendarList?${query({ maxResults: '100', pageToken })}`),
+    calendars: (pageToken?: string) => request<{ items?: GoogleCalendarListEntry[]; nextPageToken?: string }>(`users/me/calendarList?${query({ maxResults: '100', showHidden: 'true', pageToken })}`),
     events: (calendarId: string, cursor: { syncToken?: string; pageToken?: string }) => request<{ items?: GoogleCalendarEvent[]; nextPageToken?: string; nextSyncToken?: string }>(`${path(calendarId)}?${query({ maxResults: '100', showDeleted: 'true', singleEvents: 'false', ...cursor })}`),
     instances: (calendarId: string, id: string, range: { timeMin: string; timeMax: string; pageToken?: string }) => request<{ items?: GoogleCalendarEvent[]; nextPageToken?: string }>(`${path(calendarId)}/${encodeURIComponent(id)}/instances?${query({ maxResults: '100', showDeleted: 'true', ...range })}`),
     get: (calendarId: string, id: string) => request<GoogleCalendarEvent>(`${path(calendarId)}/${encodeURIComponent(id)}`),

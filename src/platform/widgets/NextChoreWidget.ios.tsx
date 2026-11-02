@@ -14,8 +14,11 @@ import type { NextChoreWidgetDisplayProps } from '@/features/widgets/contracts';
 function NextChoreWidget(props: NextChoreWidgetDisplayProps) {
   'widget';
 
-  const chores = props.chores ?? [];
-  const remainingCount = props.remainingCount ?? 0;
+  // This is an isolated native widget render, without React hooks; a stale OS snapshot must still check its deadline.
+  // eslint-disable-next-line react-hooks/purity
+  const locked = props.subscriptionLocked || props.accessUntil !== undefined && !(Date.now() < props.accessUntil);
+  const chores = locked ? [] : props.chores ?? [];
+  const remainingCount = locked ? 0 : props.remainingCount ?? 0;
 
   return (
     <VStack alignment="leading" spacing={6} modifiers={[padding({ all: 14 }), containerBackground('#FFFFFF', 'widget')] }>
@@ -23,7 +26,7 @@ function NextChoreWidget(props: NextChoreWidgetDisplayProps) {
         今日の家事
       </Text>
       {chores.length === 0 ? (
-        <Text modifiers={[font({ size: 13 }), foregroundStyle('#68718B')]}>予定はありません</Text>
+        <Text modifiers={[font({ size: 13 }), foregroundStyle('#68718B')]}>{locked ? 'アプリで契約を確認' : '予定はありません'}</Text>
       ) : chores.map((chore) => {
         // Only code inside this function is serialized into the widget runtime.
         const content = (
@@ -43,7 +46,10 @@ function NextChoreWidget(props: NextChoreWidgetDisplayProps) {
           <Button
             key={chore.id}
             target={`complete:${chore.id}`}
-            onPress={() => ({
+            onPress={() => props.accessUntil !== undefined && !(Date.now() < props.accessUntil) ? ({
+              chores: [], subscriptionLocked: true, remainingCount: 0,
+              pendingWidgetCompletionIds: props.pendingWidgetCompletionIds ?? [],
+            }) : ({
               chores: (props.chores ?? []).map((item) => item.id === chore.id ? { ...item, completed: true } : item),
               pendingWidgetCompletionIds: [...new Set([...(props.pendingWidgetCompletionIds ?? []), chore.id])],
             })}

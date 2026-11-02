@@ -19,6 +19,8 @@ export function createV2ImmediateNoticePresenter(scope: { userId: string; groupI
     if (captured.date) parseLocalDate(captured.date);
     return withLocalNotificationOperation(expoLocalNotificationGateway, async () => {
       await assertCurrent();
+      const deadline = await expoLocalNotificationGateway.schedulingDeadline?.() ?? Infinity;
+      if (Date.now() >= deadline) return;
       const capacity = expoLocalNotificationGateway.maximumScheduledRequests;
       if (capacity !== undefined && (await expoLocalNotificationGateway.getScheduledRequests()).length >= capacity) throw new Error('端末の通知予約上限のため、通知を省略しました。');
       await assertCurrent();
@@ -26,6 +28,10 @@ export function createV2ImmediateNoticePresenter(scope: { userId: string; groupI
       await assertCurrent();
       if (beforePresent && !await beforePresent()) return;
       await assertCurrent();
+      // Channel setup and the final state review can outlive the entitlement.
+      const currentDeadline = await expoLocalNotificationGateway.schedulingDeadline?.() ?? Infinity;
+      await assertCurrent();
+      if (Date.now() >= Math.min(deadline, currentDeadline)) return;
       await scheduleNotificationAsync({ identifier: captured.key, content: { title: captured.title, body: captured.body,
         data: { kind: config.kind, workspace: namespace, count: captured.count, ...(captured.date ? { date: captured.date } : {}) }, color: '#4AADE0' },
         trigger: Platform.OS === 'android' ? { channelId: config.channelId } : null });

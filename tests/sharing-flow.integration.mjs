@@ -35,7 +35,7 @@ test('real Firestore Rules + SQLite planner: explicit approval, concurrent edits
   try {
     assert.equal((await b.sync()).waitingForApproval, true);
     await a.manager.approve(f.invitation.invitation, f.request); await b.sync();
-    assert.equal((await a.snapshot()).chores.length, 46); assert.equal((await b.snapshot()).chores.length, 46);
+    assert.equal((await a.snapshot()).chores.length, 36); assert.equal((await b.snapshot()).chores.length, 36);
     assert.equal((await b.checkpoint()).snapshotId, (await f.cloud.readGroup('group-flow')).group.snapshotId);
     await a.repository.setChoreEnabled(a.database, choreId, true); await a.sync(); await b.sync();
     assert.equal((await a.snapshot()).scheduleEntries[0].id, (await b.snapshot()).scheduleEntries[0].id);
@@ -76,7 +76,7 @@ test('removing a secondary device rotates keys and preserves the same-account ow
     const next = await f.cloud.readGroup('group-flow');
     assert.equal(next.group.keyVersion, before + 1);
     assert.deepEqual(next.roster.body.members[0].devices.map((d) => d.identity.deviceId), [f.owner.deviceId]);
-    assert.equal((await f.a.snapshot()).chores.length, 46);
+    assert.equal((await f.a.snapshot()).chores.length, 36);
     await assert.rejects(f.b.sync());
     await assert.rejects(f.a.manager.removeDevice(f.owner.deviceId), /owner device/);
   } finally { f.a.close(); f.b.close(); }
@@ -158,7 +158,7 @@ test('a perpetually offline device cannot make the cloud log grow forever when n
     await a.manager.publishSnapshot();
     const second = await f.cloud.compactHistory('group-flow'); assert.ok(second.deleted >= 42); assert.equal(second.waitingForDevices, true);
     assert.equal((await getDocsFromServer(collection(env.authenticatedContext('owner').firestore(), 'sharingGroups', 'group-flow', 'events'))).size, 0);
-    await b.sync(); assert.equal((await b.snapshot()).chores.length, 46);
+    await b.sync(); assert.equal((await b.snapshot()).chores.length, 36);
     assert.equal((await b.replica()).pendingOperationIds.length, 0);
   } finally { a.close(); b.close(); }
 });

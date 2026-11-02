@@ -31,11 +31,15 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} month cells distinguish unavailable partial and zero while total and pending remain separate`, async () => {
     const screen = make({ selectedDate: '2026-10-31', dayInfo: date => date === '2026-10-31' ? { loaded: true, total: 3, pending: 1 }
       : date === '2026-10-30' ? { loaded: true, total: 2, pending: 2, partial: true }
-        : date === '2026-10-29' ? { loaded: true, total: 0, pending: 0 } : { loaded: false } });
+        : date === '2026-10-29' ? { loaded: true, total: 0, pending: 0 }
+          : date === '2026-10-28' ? { loaded: true, total: 0, pending: 0, partial: true } : { loaded: false } });
     await scrollCalendarToDate(screen, '2026-10-31');
     const labels = screen.nodes().map(node => node.props.accessibilityLabel ?? '').filter(label => label.includes('2026年10月'));
     assert.ok(labels.some(label => label.includes('31日') && label.includes('家事3件') && label.includes('未完了1件')));
     assert.ok(labels.some(label => label.includes('30日') && label.includes('一部は未取得')));
-    assert.ok(screen.text().includes('家事なし')); assert.ok(screen.text().includes('未取得'));
+    assert.ok(labels.some(label => label.includes('29日') && label.includes('家事0件') && label.includes('未完了0件')));
+    assert.ok(labels.some(label => label.includes('28日') && label.includes('一部は未取得')));
+    assert.ok(screen.text().includes('一部未取得'));
+    assert.ok(screen.text().includes('未取得'));
   });
 }

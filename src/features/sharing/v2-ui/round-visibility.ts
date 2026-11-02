@@ -26,6 +26,7 @@ export function createV2RoundVisibility(model: V2GroupScreenModel) {
     const ids = new Set([...subject.completionOperationIds, ...subject.pendingCompletionIds]);
     const relatedWork = [...ids].flatMap((id) => { const record = work.get(id); return record ? [record] : []; }).sort((a, b) => a.index - b.index).map((entry) => entry.record);
     return { admin, owns, relatedWork, showStatus: owns || admin || model.plan.policy?.showCompletionStatus === true
+      || subject.retainedCompletion?.recorderUserIds.includes(viewer) === true
       || relatedWork.some((record) => v2CanShowCompletion(model, record)) };
   };
 }

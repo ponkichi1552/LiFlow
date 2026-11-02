@@ -31,11 +31,12 @@ for (const platform of ['ios', 'android']) {
       props: { context: context(operation.payload.analysis) } });
     assert.match(screen.text(), /解析結果に確認が必要/u); assert.equal(JSON.stringify(operation), original);
   });
-  test(`${platform} existing readable appliance analyses keep condition-only tasks empty histories and untrusted-link warnings available`, () => {
+  test(`${platform} existing readable appliance analyses keep condition-only tasks empty histories while omitting reference links`, () => {
     const value = { analyzedAt: analysis.analyzedAt, tasks: [{ ...task, steps: [], evidence: [{ url: 'https://example.test/untrusted', pageOrSection: '参考資料' }] }] };
     const screen = screenHarness('src/features/appliance-care/appliance-detail-content.tsx', { exportName: 'ApplianceDetailContent', platform, props: { context: context(value) } });
     assert.match(screen.text(), /フィルター清掃/u); assert.match(screen.text(), /定期予定なし/u); assert.match(screen.text(), /乾いてから戻す/u);
-    assert.equal(screen.nodes().some(node => node.props.accessibilityRole === 'link'), true, 'the verified manual remains accessible');
+    assert.equal(screen.nodes().some(node => node.props.accessibilityRole === 'link'), false, 'reference links are omitted without rewriting the saved evidence');
+    assert.equal(value.tasks[0].evidence[0].url, 'https://example.test/untrusted');
     const empty = screenHarness('src/features/appliance-care/appliance-detail-content.tsx', { exportName: 'ApplianceDetailContent', platform,
       props: { context: context({ analyzedAt: analysis.analyzedAt, tasks: [] }) } });
     assert.equal(empty.nodes().find(node => node.type === 'FlatList').props.data.length, 0);

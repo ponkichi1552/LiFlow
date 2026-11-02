@@ -8,13 +8,13 @@ import { NumberInputField } from '@/components/number-input-field';
 import type { UploadedManualInput, ApplianceCareAnalysisStage, ApplianceCareApiResponse, ProductAnalysisErrorResponse, ProductVerifiedResponse } from '@/features/appliance-care/api-contracts';
 import { ManualUploadInput } from '@/features/appliance-care/manual-upload-input';
 import { ApplianceAiAccount } from '@/features/appliance-care/ai-account';
-import { OfficialLink } from '@/features/appliance-care/appliance-detail-content';
 import { analyzeApplianceCareRequest } from '@/features/appliance-care/api-client';
 import { useAbortApplianceRequestOnLeave } from '@/features/appliance-care/use-abort-on-leave';
 import type { ApplianceCareTaskDraft } from '@/features/appliance-care/contracts';
 import { automaticApplianceTasks, defaultApplianceCycles } from '@/features/appliance-care/auto-save-policy';
 import { applianceCategoryLabel, searchApplianceCategories } from '@/features/appliance-care/categories';
 import { applianceDisplayName } from '@/features/appliance-care/display-name';
+import { applianceAnalysisDate } from '@/features/appliance-care/analysis-date';
 import { usePlannerData } from '@/hooks/use-planner-data';
 import { loadApplianceCareReviewContext, saveReviewedApplianceCare } from '@/platform/storage/repository';
 import type { ApplianceCareReviewContext } from '@/platform/storage/repository';
@@ -194,7 +194,6 @@ export default function ApplianceCareScreen() {
         <Field label="メーカー名" value={manufacturer} onChangeText={setManufacturer} placeholder="例：Dyson" editable={!savedContext} />
         <Field label="製品名" value={productName} onChangeText={setProductName} placeholder="例：V12 Detect Slim" editable={!savedContext} />
         <Field label="型番" value={modelNumber} onChangeText={(value) => { setModelNumber(value); setMessage(null); }} placeholder="例：SV20" editable={!savedContext} />
-        {getOfficialSupportUrl(manufacturer) ? <ExternalLink title="メーカー公式サイトで型番を確認する ↗" url={getOfficialSupportUrl(manufacturer)!} manufacturer={manufacturer} /> : null}
         <Field label="カテゴリ（任意）" value={categoryQuery} onChangeText={(value) => { setCategoryQuery(value); setCategory(''); }} placeholder="例：掃除機、せんたくき" editable={!savedContext && !working} />
         {!savedContext && categoryQuery.trim() && !category ? <View style={styles.categoryResults}>
           {searchApplianceCategories(categoryQuery).map((option) => <Pressable key={option.value} accessibilityRole="button" accessibilityLabel={`${option.label}を選択`}
@@ -246,7 +245,6 @@ export default function ApplianceCareScreen() {
                 setCategoryQuery('');
                 setResult(null);
               }} variant="secondary" compact />
-              <ExternalLink title="公式製品情報を開く ↗" url={candidate.officialProductUrl} manufacturer={candidate.manufacturer} />
             </View>
           ))}
         </Card>
@@ -262,9 +260,7 @@ export default function ApplianceCareScreen() {
           <Card style={styles.verifiedCard}>
             <Text style={styles.verifiedLabel}>選択した説明書の解析結果・内容を確認してください</Text>
             {verified.product.category ? <Text style={styles.body}>カテゴリ：{applianceCategoryLabel(verified.product.category)}</Text> : null}
-            {verified.officialSources.productUrl ? <ExternalLink title="公式製品情報を開く ↗" url={verified.officialSources.productUrl} manufacturer={verified.product.manufacturer} /> : null}
-            <OfficialLink title="公式取扱説明書を開く ↗" url={verified.officialSources.manualUrl} manufacturer={verified.product.manufacturer} />
-            <Text style={styles.note}>解析日時：{verified.analysis.analyzedAt} · {analysisSaved ? '解析結果を保存済みです。内容をご確認ください' : '未保存です'}</Text>
+            <Text style={styles.note}>解析日時：{applianceAnalysisDate(verified.analysis.analyzedAt)} · {analysisSaved ? '解析結果を保存済みです。内容をご確認ください' : '未保存です'}</Text>
           </Card>
           <SectionHeading title="お手入れ項目・周期の変更" />
           {verified.analysis.tasks.map((task, index) => (
@@ -275,7 +271,6 @@ export default function ApplianceCareScreen() {
               working={working}
               cycleValue={cycleValues[index] ?? ''}
               onChangeCycle={(value) => setCycleValues((current) => ({ ...current, [index]: value }))}
-              manufacturer={verified.product.manufacturer}
             />
           ))}
           <AppButton title={working ? '保存中…' : analysisSaved ? '周期の変更を保存' : snapshot?.sharing ? '内容を確認して共有グループへ保存' : '解析結果の保存を再試行'} onPress={() => void saveChanges()} disabled={working} />
@@ -301,13 +296,12 @@ function Field({ label, value, onChangeText, placeholder, editable = true }: {
   );
 }
 
-function TaskReviewCard({ task, index, working, cycleValue, onChangeCycle, manufacturer }: {
+function TaskReviewCard({ task, index, working, cycleValue, onChangeCycle }: {
   task: ApplianceCareTaskDraft;
   index: number;
   working: boolean;
   cycleValue: string;
   onChangeCycle: (value: string) => void;
-  manufacturer: string;
 }) {
   return (
     <Card>
@@ -338,26 +332,9 @@ function TaskReviewCard({ task, index, working, cycleValue, onChangeCycle, manuf
         </View>
       ) : null}
       {task.estimatedMinutes ? <Text style={styles.note}>所要時間：約{task.estimatedMinutes}分</Text> : null}
-      {task.evidence.map((item, evidenceIndex) => (
-        <ExternalLink key={`${item.url}-${evidenceIndex}`} title={`出典を見る${item.pageOrSection ? ` · ${item.pageOrSection}` : ''} ↗`} url={item.url} manufacturer={manufacturer} />
-      ))}
+
     </Card>
   );
-}
-
-function ExternalLink({ title, url, manufacturer }: { title: string; url: string; manufacturer: string }) {
-  return <OfficialLink title={title} url={url} manufacturer={manufacturer} />;
-}
-
-function getOfficialSupportUrl(manufacturer: string): string | undefined {
-  const normalized = manufacturer.normalize('NFKC').trim().toLocaleLowerCase('en-US');
-  const urls: Record<string, string> = {
-    dyson: 'https://www.dyson.co.jp/support', ダイソン: 'https://www.dyson.co.jp/support',
-    panasonic: 'https://panasonic.jp/support/', パナソニック: 'https://panasonic.jp/support/',
-    hitachi: 'https://kadenfan.hitachi.co.jp/support/', 日立: 'https://kadenfan.hitachi.co.jp/support/',
-    sharp: 'https://jp.sharp/support/', シャープ: 'https://jp.sharp/support/',
-  };
-  return urls[normalized];
 }
 
 function errorTitle(error: ProductAnalysisErrorResponse): string {

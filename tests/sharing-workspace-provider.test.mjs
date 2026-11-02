@@ -3,6 +3,31 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 
+for (const platform of ['ios', 'android']) test(`${platform} cold startup restores the local display before mounting planner calendar and prefetch work`, async () => {
+  let ready = false; const started = [];
+  const provider = name => ({ children }) => { started.push(name); return children; };
+  const screen = screenHarness('src/app/_layout.tsx', { platform, mocks: {
+    'expo-router': { ThemeProvider: ({ children }) => children, DarkTheme: { colors: {} }, DefaultTheme: { colors: {} } },
+    'expo-sqlite': { SQLiteProvider: ({ children }) => children },
+    '@/platform/diagnostics/startup-splash': { prepareStartupDisplay() {} },
+    '@/platform/storage/repository': { initializeLocalDatabase: async () => {} },
+    '@/features/google-sync/coordinator': { syncGoogleTasksAfterLocalCompletion() {} },
+    '@/hooks/use-planner-data': { PlannerDataProvider: provider('planner'), usePlannerData: () => ({ database: {}, refresh: async () => {} }) },
+    '../platform/widgets/widget-interaction-listener': {}, '@/components/planner-system-bars': { PlannerSystemBars: () => null },
+    '@/components/notification-workspace-bridge': { NotificationWorkspaceBridge: () => null },
+    '@/hooks/use-workspace': { WorkspaceProvider: ({ children }) => children, ActiveWorkspaceScope: ({ children }) => ready ? children : null },
+    '@/components/workspace-navigator': { WorkspaceNavigator: () => 'ready-navigation' },
+    '@/platform/notifications/configure-foreground-notifications': {}, '@/components/planner-theme': { plannerColorsForScheme: () => ({}) },
+    '@/features/sharing/v2-ui/workspace-data': { WorkspaceDisplayProvider: provider('prefetch') },
+    '@/features/calendar/use-local-calendar': { LocalCalendarProvider: provider('calendar') },
+  } });
+  try {
+    assert.deepEqual(started, [], 'background providers must not compete with initial protected-display restoration');
+    ready = true; await screen.flush();
+    for (const kind of ['planner', 'calendar', 'prefetch']) assert.ok(started.includes(kind));
+  } finally { screen.unmount(); }
+});
+
 for (const platform of ['ios', 'android']) test(`${platform} a device with no saved shared workspaces shows personal data before unrelated account restoration without starting workers`, async () => {
   for (const empty of [true, false]) {
     const effects = []; let finish; let workers = 0;

@@ -17,7 +17,7 @@ export function v2CalendarMonth(day: LocalDate, offset = 0) {
 }
 
 /** Local display only. Personal recommendations never change the common plan or another member's date. */
-export function v2CalendarProjection(model: V2GroupScreenModel, personal?: V2PersonalPlan, completionValues?: ReadonlyMap<string, boolean>) {
+export function v2CalendarProjection(model: V2GroupScreenModel, personal?: V2PersonalPlan, completionValues?: ReadonlyMap<string, boolean>, recommendedOnly = false) {
   if (personal && (personal.viewerUserId !== model.viewerUserId || personal.groupId !== model.plan.groupId || personal.commonPlanHash !== model.plan.planHash)) {
     throw new Error('本人と現在の共有予定に対応する推奨を取得してください。');
   }
@@ -28,22 +28,27 @@ export function v2CalendarProjection(model: V2GroupScreenModel, personal?: V2Per
     const candidate = recommendations.get(subject.id); const recommendation = candidate && visible.owns ? candidate : undefined;
     const completion = visible.relatedWork.find(record => record.active && record.outcome === 'completed' && record.acceptance === 'accepted');
     return { id: subject.id, round, subject, recommendation, date: recommendation?.date ?? subject.suggestedDate,
-      completedDate: completion ? sharedLocalDate(new Date(completion.performedAt), model.plan.timeZone) : undefined,
+      completedDate: completion ? sharedLocalDate(new Date(completion.performedAt), model.plan.timeZone) : subject.retainedCompletion?.completedDate,
       windowStart: completion?.schedule?.windowStart ?? subject.executionWindowStart, windowEnd: completion?.schedule?.windowEnd ?? subject.executionWindowEnd,
       counted: visible.showStatus && subject.required && !(completionValues?.get(`shared:${subject.id}`) ?? subject.completed) };
   }));
   const byDate = new Map<LocalDate, typeof entries>(); const counts = new Map<LocalDate, number>();
   for (const entry of entries) {
-    const from = entry.windowStart > model.plan.range.from ? entry.windowStart : model.plan.range.from;
-    const through = entry.windowEnd < model.plan.range.through ? entry.windowEnd : model.plan.range.through;
-    for (let date = from; date <= through; date = addDays(date, 1)) {
+    const dates: LocalDate[] = [];
+    if (recommendedOnly) dates.push(entry.completedDate ?? entry.date);
+    else {
+      const from = entry.windowStart > model.plan.range.from ? entry.windowStart : model.plan.range.from;
+      const through = entry.windowEnd < model.plan.range.through ? entry.windowEnd : model.plan.range.through;
+      for (let date = from; date <= through; date = addDays(date, 1)) dates.push(date);
+      if (entry.completedDate && !dates.includes(entry.completedDate)) dates.push(entry.completedDate);
+    }
+    for (const date of dates) if (date >= model.plan.range.from && date <= model.plan.range.through) {
       const list = byDate.get(date) ?? []; list.push(entry); byDate.set(date, list);
     }
-    if (entry.completedDate && entry.completedDate >= model.plan.range.from && entry.completedDate <= model.plan.range.through
-      && (entry.completedDate < from || entry.completedDate > through)) {
-      const list = byDate.get(entry.completedDate) ?? []; list.push(entry); byDate.set(entry.completedDate, list);
-    }
   }
+  // Hermes constructs a native collator for localeCompare. Reuse one only for
+  // this synchronous projection, so the next invocation still uses its locale.
+  let compareIds: Intl.Collator['compare'] | undefined;
   for (const [date, list] of byDate) {
     const selected = new Map<string, typeof entries[number]>();
     const choice = (entry: typeof entries[number]) => ({ id: entry.id, suggestedDate: entry.date,
@@ -53,7 +58,7 @@ export function v2CalendarProjection(model: V2GroupScreenModel, personal?: V2Per
       const key = JSON.stringify([entry.round.choreId, entry.subject.subjectUserId]); const previous = selected.get(key);
       if (!previous || compareDateOccurrence(choice(entry), choice(previous), date) < 0) selected.set(key, entry);
     }
-    const rows = [...selected.values()].sort((a, b) => a.id.localeCompare(b.id)); byDate.set(date, rows);
+    const rows = [...selected.values()].sort((a, b) => (compareIds ??= new Intl.Collator().compare)(a.id, b.id)); byDate.set(date, rows);
     counts.set(date, rows.filter(entry => entry.counted).length);
   }
   return { byDate, counts };

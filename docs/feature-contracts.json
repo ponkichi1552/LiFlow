@@ -60,7 +60,7 @@
       },
       {
         "file": "tests/chore-activation.test.mjs",
-        "name": "all 46 built-in chores can be enabled and have their cycle edited"
+        "name": "all 36 built-in chores can be enabled and have their cycle edited"
       },
       {
         "file": "tests/chore-activation.test.mjs",
@@ -219,6 +219,10 @@
       {
         "file": "tests/mobile-navigation.test.mjs",
         "name": "mobile onboarding back control retains selections when moving backward and forward"
+      },
+      {
+        "file": "tests/native-platform-gateways.test.mjs",
+        "name": "screen roots keep Android controls outside the status bar without double insets or changing iOS"
       }
     ],
     "manualReview": "docs/testing-strategy.md"
@@ -840,6 +844,14 @@
       {
         "file": "tests/sharing-ledger.test.mjs",
         "name": "adding the sharing ledger leaves all legacy SQLite tables and personal Google mappings intact"
+      },
+      {
+        "file": "tests/sharing-ledger.test.mjs",
+        "name": "unchanged ledger reads reuse only the exact SQLite text and isolate every returned replica"
+      },
+      {
+        "file": "tests/sharing-ledger.test.mjs",
+        "name": "a replica read inside a rolled back transaction cannot publish its provisional facts on the next read"
       }
     ]
   },
@@ -861,6 +873,70 @@
       {
         "file": "tests/sharing-crypto.test.mjs",
         "name": "key rotation reencrypts an unsent operation without changing its identity"
+      },
+      {
+        "file": "tests/sharing-crypto.test.mjs",
+        "name": "signature verification reuses only an identical authenticated message and still rejects changed data identities and invalid encodings"
+      },
+      {
+        "file": "tests/sharing-crypto.test.mjs",
+        "name": "signature verification cache evicts old successes and never turns a read result into membership authority"
+      },
+      {
+        "file": "tests/sharing-content-digest.test.mjs",
+        "name": "content digest reuses exact canonical bytes across fresh objects but revalidates mutated and invalid values"
+      },
+      {
+        "file": "tests/sharing-content-digest.test.mjs",
+        "name": "content digest bounds retained content and entry count and does not retain oversized snapshots"
+      },
+      {
+        "file": "tests/sharing-content-digest.test.mjs",
+        "name": "shared document and operation digests preserve the original canonical SHA256 contract for all generated inputs"
+      },
+      {
+        "file": "tests/sharing-crypto.test.mjs",
+        "name": "signature verification binds the validated identity before inspecting caller-owned signed content"
+      },
+      {
+        "file": "tests/sharing-signature-cache.test.mjs",
+        "name": "protected signature memo restores only authenticated exact positive digests without retaining chore contents"
+      },
+      {
+        "file": "tests/sharing-signature-cache.test.mjs",
+        "name": "modified ciphertext wrong keys policies nonces and malformed verified rows cannot seed signature success"
+      },
+      {
+        "file": "tests/sharing-signature-cache.test.mjs",
+        "name": "signature memo coalesces writes retains concurrent verified changes and bounds its restored entries"
+      },
+      {
+        "file": "tests/sharing-signature-cache.test.mjs",
+        "name": "unavailable protected storage never invents a positive verification or blocks the existing verifier"
+      },
+      {
+        "file": "tests/sharing-signature-cache.test.mjs",
+        "name": "a restored signature digest skips only the same strict proof while changed messages and revoked members still fail"
+      },
+      {
+        "file": "tests/sharing-signature-cache.test.mjs",
+        "name": "signature memo policy pins the installed audited verifier version"
+      },
+      {
+        "file": "tests/sharing-signature-cache.test.mjs",
+        "name": "native signature memo persists through protected SQLite and vault without writing on every workspace read"
+      },
+      {
+        "file": "tests/sharing-signature-cache.test.mjs",
+        "name": "strict low order and noncanonical scalar rejections never become persisted verification successes"
+      },
+      {
+        "file": "tests/sharing-content-digest.test.mjs",
+        "name": "repeated retained facts and original proofs do not thrash the digest memo between adjacent repository reads"
+      },
+      {
+        "file": "tests/sharing-content-digest.test.mjs",
+        "name": "canonical serialization reuses bounded property-name checks while reading every changed value and rejecting unsafe fields"
       }
     ]
   },
@@ -1076,6 +1152,22 @@
       {
         "file": "tests/sharing-synchronizer.test.mjs",
         "name": "a stalled cloud response times out without losing local edits and a late successful write is acknowledged once on retry"
+      },
+      {
+        "file": "tests/firebase-sdk-resilience.test.mjs",
+        "name": "the packaged native Firebase SDK bounds offline retries and keeps its queue usable"
+      },
+      {
+        "file": "tests/firebase-sdk-resilience.test.mjs",
+        "name": "Firestore Auth network fix is exact, repeatable and rejects changed upstream code"
+      },
+      {
+        "file": "tests/firebase-sdk-resilience.test.mjs",
+        "name": "preserves denied, unauthenticated and ordinary transport failures"
+      },
+      {
+        "file": "tests/firebase-sdk-resilience.test.mjs",
+        "name": "retries credential network failure without a token or successful result"
       }
     ]
   },
@@ -1653,6 +1745,18 @@
   {
     "feature": "sharing-v2-isolated-event-repository",
     "tests": [
+      {
+        "file": "tests/sharing-v2-repository.test.mjs",
+        "name": "unchanged authenticated v2 reads do not acquire a SQLite writer for the projection"
+      },
+      {
+        "file": "tests/sharing-v2-repository.test.mjs",
+        "name": "v2 reads repair a missing or altered projection even when their authenticated inputs are cached"
+      },
+      {
+        "file": "tests/sharing-v2-repository.test.mjs",
+        "name": "an authenticated unchanged v2 read survives another native-style WAL writer without replaying or acknowledging operations"
+      },
       {
         "file": "tests/sharing-v2-repository.test.mjs",
         "name": "v2 repository binds a fresh database and preserves every personal table and v1 workspace without in-place conversion"
@@ -2829,6 +2933,10 @@
     "feature": "v2-shared-calendar-display",
     "tests": [
       {
+        "file": "tests/calendar-read-cost.test.mjs",
+        "name": "shared calendar reuses collation within each projection while preserving native ID order counts and input"
+      },
+      {
         "file": "tests/sharing-v2-calendar-ui.test.mjs",
         "name": "v2 calendar month cells use the minimum complete weeks and stay identical across device timezones"
       },
@@ -2859,6 +2967,10 @@
       {
         "file": "tests/sharing-v2-calendar-ui.test.mjs",
         "name": "v2 unloaded calendar months show a retry state rather than falsely claiming an empty day"
+      },
+      {
+        "file": "tests/calendar-navigation-ux.test.mjs",
+        "name": "${platform} month cells distinguish unavailable partial and zero while total and pending remain separate"
       }
     ]
   },
@@ -3358,7 +3470,7 @@
     "tests": [
       {
         "file": "tests/sharing-v2-detail-ui.test.mjs",
-        "name": "shared round guides retain grouped steps tools cautions and source links and edit the same shared chore"
+        "name": "shared round guides retain grouped steps tools cautions without reference links and edit the same shared chore"
       }
     ]
   },
@@ -3721,7 +3833,7 @@
     "tests": [
       {
         "file": "tests/appliance-restored-analysis-ui.test.mjs",
-        "name": "existing readable appliance analyses keep condition-only tasks empty histories and untrusted-link warnings available"
+        "name": "existing readable appliance analyses keep condition-only tasks empty histories while omitting reference links"
       },
       {
         "file": "tests/appliance-care-client.test.mjs",
@@ -3755,7 +3867,7 @@
       },
       {
         "file": "tests/sharing-v2-appliance-ui.test.mjs",
-        "name": "shared appliance details distinguish current AI instructions from an already edited chore and retain guarded product links"
+        "name": "shared appliance details distinguish current AI instructions from an already edited chore and omit reference links without changing saved evidence"
       },
       {
         "file": "tests/sharing-v2-appliance.test.mjs",
@@ -6177,7 +6289,7 @@
     "tests": [
       {
         "file": "tests/mobile-ui-recovery.test.mjs",
-        "name": "${platform} todays calendar puts all overdue tiers first and keeps a just-checked overdue card below pending work"
+        "name": "${platform} todays calendar shows recommended-day work and keeps a just-checked card below pending work"
       }
     ]
   },
@@ -6648,6 +6760,10 @@
       {
         "file": "tests/background-sync-audit.test.mjs",
         "name": "only the OS worker callback creates release evidence and one domain failure does not skip later domains"
+      },
+      {
+        "file": "tests/background-sync-audit.test.mjs",
+        "name": "registering the OS worker defers all application synchronization modules and loads Tasks only when enabled=${enabled}"
       }
     ]
   },
@@ -7622,6 +7738,14 @@
         "name": "an unchanged workspace update performs no SQLite write while real metadata changes still persist behind identity guards"
       },
       {
+        "file": "tests/sharing-registry.test.mjs",
+        "name": "unchanged registry bytes reuse validation while every read still checks SQLite and returns isolated current account data"
+      },
+      {
+        "file": "tests/sharing-workspace-provider.test.mjs",
+        "name": "${platform} cold startup restores the local display before mounting planner calendar and prefetch work"
+      },
+      {
         "file": "tests/sharing-secure-vault.test.mjs",
         "name": "protected credential chunks are read concurrently after their committed manifest without skipping missing-chunk verification"
       }
@@ -7673,6 +7797,10 @@
       {
         "file": "tests/startup-display.test.mjs",
         "name": "a failed restoration rejects queued changes and can recover through a newly verified session without fabricating a successful write"
+      },
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "${platform} a restored card commits through current authority without waiting for unrelated presentation preparation"
       }
     ]
   },
@@ -7706,6 +7834,10 @@
       {
         "file": "tests/workspace-display-cache.test.mjs",
         "name": "calendar cache never treats partial coverage, invalid ranges or another civil day as a complete prepared month"
+      },
+      {
+        "file": "tests/calendar-recalculation.test.mjs",
+        "name": "${platform} replacing the restored session binding cannot erase or duplicate a pending completion"
       }
     ]
   },
@@ -8023,7 +8155,7 @@
       },
       {
         "file": "tests/household-care-catalog.test.mjs",
-        "name": "document cadence defaults stay explicit and unresolved product usage season and municipal cadences never schedule themselves"
+        "name": "product and seasonal jobs have explicit provisional cycles while municipal collection still uses its own settings"
       },
       {
         "file": "tests/household-care-catalog.test.mjs",
@@ -8199,6 +8331,332 @@
       {
         "file": "tests/sharing-workspace-provider.test.mjs",
         "name": "${platform} status-only sync notifications do not reload account membership while real permission changes still revoke the workspace"
+      }
+    ]
+  },
+  {
+    "feature": "personal-google-calendar-automatic-incremental-private-sync",
+    "tests": [
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "personal local create edit and delete use one stable Google id and PATCH preserves unowned Google fields"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "Google creates edits and deletions are imported privately without echo writes or group-export duplicates"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "lost insert acknowledgements and application restarts cannot duplicate a personal Google event"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "an unchanged incremental pass does not invalidate every page or repeat Google writes"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "all automatically discovered calendars progress beyond 100 without starving offline personal edits"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a thousand unchanged mappings need no definition reads or Google writes and a later edit sends only its delta"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "Google birthday imports never block available time or become ordinary editable exports"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "slow native import work leaves time for offline outbound edits and resumes its saved inbox without loss"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a new one-occurrence edit exports when its unchanged series is filtered out of the outbound delta"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "new recurring edits retain the resolved Google instance availability and unowned fields"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "one atomic inbound batch avoids a native identity bridge round trip per imported row"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "changing the native account during an inbound batch rolls back every row before it becomes visible"
+      },
+      {
+        "file": "tests/google-calendar-availability.test.mjs",
+        "name": "repeated Calendar availability keeps exact regional day boundaries without repeating Intl binary searches"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "manual Calendar retry after joining an expired automatic pass receives its own budget without extending a worker"
+      },
+      {
+        "file": "tests/sharing-v2-projection-cache.test.mjs",
+        "name": "private refreshes reuse unchanged shared planning while new facts tampering and revoked access still take effect"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "Google recurring instance availability overrides only that private occurrence in both personal and joined planning"
+      },
+      {
+        "file": "tests/calendar-group-availability.test.mjs",
+        "name": "private recommendations inside a group ignore transparent Google appointments as personal planning does"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "reopening an older private Google store repairs inherited instance metadata without replaying a local series reset"
+      },
+      {
+        "file": "tests/sharing-v2-projection-cache.test.mjs",
+        "name": "copying an already isolated query keeps one isolation boundary and preserves callback and result protection"
+      }
+    ]
+  },
+  {
+    "feature": "shared-monthly-certified-physical-history-retention",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "shared history retention needs each current member and binds the exact retained state instead of trusting an owner summary"
+      },
+      {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "unchanged retained projections reuse their verified certificate while changed witnesses and revoked access still fail"
+      },
+      {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "monthly cleanup proposes and independently approves across isolated member databases before publishing a compacted snapshot"
+      },
+      {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "a correctly owner-signed but invented cleanup summary is never automatically approved by another member"
+      },
+      {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "deleting an old report preserves a future round current state and only its recorder or administrator can undo it"
+      },
+      {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "an encrypted checkpoint physically removes expired reports and receipts on both existing and fresh replicas and prevents replay resurrection"
+      },
+      {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "legacy archive deletion checks the collective certificate every original index and unsent work before closing and removing the duplicate file"
+      },
+      {
+        "file": "tests/startup-display-platform.test.mjs",
+        "name": "retention retries purge stale encrypted displays while current-scope writes survive and an older in-flight write is refused"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-v2-retention-cloud.integration.mjs",
+        "name": "collective retention rotates keys and actually removes old cloud ciphertext and receipts while fresh replicas and subsequent edits survive"
+      }
+    ]
+  },
+  {
+    "feature": "personal-google-calendar-keeps-single-background-worker",
+    "tests": [
+      {
+        "file": "tests/background-sync-audit.test.mjs",
+        "name": "turning Tasks off preserves the single OS worker while personal Calendar synchronization remains enabled"
+      }
+    ]
+  },
+  {
+    "feature": "store-subscription-account-bound-entitlement",
+    "tests": [
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "subscription certificates verify real Ed25519 across server and mobile and reject tampering accounts keys replay and expired access"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "subscription ownership survives restart encrypted tokens cannot be rebound and cancelled paid time remains usable until expiry"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "subscription pending hold grace revocation and provider failure never invent a grant or finish a purchase"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "subscription concurrent stale confirmation cannot overwrite a newer refund or revocation"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "Google subscription adapter uses authoritative v2 expiry account and base plan and acknowledges only after durable verification"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "Apple subscription adapter verifies current signed transactions account bundle environment and grace rather than a stale client expiry"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "official Apple verifier refuses malformed and forged JWS without a successful purchase grant"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "mobile subscription flow deduplicates callbacks keeps pending unfinished retries failures and rejects an account switch"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "subscription HTTP requires provider identity rejects body UID and never spends AI quota when no entitlement exists"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "recent server subscription reads reuse verified state without extending expiry and a manual check still observes a fresh revocation"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "unpaid AI requests stop before native attestation and a paid request checks its entitlement only once"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "public billing and restore remain available when AI attestation is unavailable while every analysis endpoint stays closed"
+      }
+    ]
+  },
+  {
+    "feature": "subscription-fast-cached-display-and-expired-native-features",
+    "tests": [
+      {
+        "file": "tests/subscription-native.test.mjs",
+        "name": "mobile verified subscription cache presents the same account before a network response and never grants to a switched account"
+      },
+      {
+        "file": "tests/subscription-native.test.mjs",
+        "name": "${platform} an expired subscription stops the background worker before database tasks calendar or sharing begin"
+      },
+      {
+        "file": "tests/subscription-native.test.mjs",
+        "name": "notification reconciliation cancels old reservations beyond the verified subscription deadline without removing another scope"
+      },
+      {
+        "file": "tests/subscription-native.test.mjs",
+        "name": "paid widget expiry timeline preserves current pending actions and does not replay old generations"
+      },
+      {
+        "file": "tests/widget-layout.test.mjs",
+        "name": "${platform} expired widget snapshots hide chores and reject a late completion without discarding earlier pending actions"
+      },
+      {
+        "file": "tests/subscription-native.test.mjs",
+        "name": "${platform} store purchase uses the server account and store price while foreground recovery verifies and finishes a transaction once"
+      },
+      {
+        "file": "tests/subscription-native.test.mjs",
+        "name": "${platform} a product catalogue outage or another account receipt cannot block recovery of this accounts paid transaction"
+      },
+      {
+        "file": "tests/subscription-native.test.mjs",
+        "name": "public store builds reject missing billing setup and keep the native Google billing provider pinned to Play"
+      }
+    ]
+  },
+  {
+    "feature": "subscription-paid-cloud-boundary",
+    "tests": [
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "subscription HTTP requires provider identity rejects body UID and never spends AI quota when no entitlement exists"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/subscription-cloud.integration.mjs",
+        "name": "real paid Firestore access refuses unpaid expired held and forged grants while paid members still cannot read another group"
+      },
+      {
+        "file": "tests/subscription-cloud.integration.mjs",
+        "name": "real Firestore atomically binds one store purchase to one account across server restarts and concurrent requests"
+      },
+      {
+        "file": "tests/subscription-cloud.integration.mjs",
+        "name": "public subscription startup refuses a missing disabled or client-forged enforcement switch"
+      },
+      {
+        "file": "tests/sharing-v2-cloud.integration.mjs",
+        "name": "paid v2 groups create and commit encrypted receipts within Rules limits and retry the same queued edit after subscription renewal"
+      }
+    ]
+  },
+  {
+    "feature": "processing-audit-expiry-deletion-and-restoration",
+    "tests": [
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "calendar access removal and restoration invalidate the private view without replaying unchanged events"
+      },
+      {
+        "file": "tests/subscription-native.test.mjs",
+        "name": "${platform} explicit restore continues past a foreign receipt without finishing it or disturbing a switched account"
+      },
+      {
+        "file": "tests/subscription-native.test.mjs",
+        "name": "${platform} immediate notices stop if paid access expires or is revoked during preparation"
+      },
+      {
+        "file": "tests/sharing-auth.test.mjs",
+        "name": "explicit Apple to Google linking retains one UID device keys group selection and subscription owner"
+      },
+      {
+        "file": "tests/sharing-auth.test.mjs",
+        "name": "provider linking never merges another account and stops before Firebase if the current account changes"
+      },
+      {
+        "file": "tests/sharing-registry.test.mjs",
+        "name": "display candidates defer signature work only behind authenticated ciphertext and never populate live authority validation"
+      },
+      {
+        "file": "tests/startup-display.test.mjs",
+        "name": "compact encrypted display bytes retain older hex caches and reject malformed encodings without changing saved content"
+      },
+      {
+        "file": "tests/planner-repository.test.mjs",
+        "name": "reopening a current personal database does no seed writes while a missing local member is still repaired"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "coalesced foreground sync callers run one history maintenance pass while a later fresh sync still maintains history"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "stored subscription proofs reject shortened GCM tags even when the shortened prefix authenticates in Node"
+      },
+      {
+        "file": "tests/startup-display.test.mjs",
+        "name": "native startup restoration passes validated base64 to the platform without decoding the full ciphertext on JavaScript"
+      },
+      {
+        "file": "tests/startup-display-platform.test.mjs",
+        "name": "native base64 display decryption keeps the existing AES-GCM nonce ciphertext AAD and sixteen-byte tag on both platforms"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-cloud.integration.mjs",
+        "name": "paid access denial cannot be mistaken for removal and renewal recovers the same membership"
+      },
+      {
+        "file": "tests/sharing-cloud.integration.mjs",
+        "name": "revocation probes disclose no group data to active unpaid or unrelated users and prove a removed callers own revocation"
+      }
+    ]
+  },
+  {
+    "feature": "native-sqlite-connection-foreign-keys",
+    "tests": [
+      {
+        "file": "tests/native-sqlite-config.test.mjs",
+        "name": "new native SQLite transaction connections enforce foreign keys on both operating systems"
+      },
+      {
+        "file": "tests/native-sqlite-config.test.mjs",
+        "name": "native SQLite safety defaults preserve encryption and platform-specific build options"
       }
     ]
   }

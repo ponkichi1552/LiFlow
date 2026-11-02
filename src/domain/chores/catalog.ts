@@ -3,7 +3,7 @@ import { HOUSEHOLD_CARE_GUIDE } from './household-care-guide.ts';
 import { createLegacyHouseholdChoreDefinitionsV3 } from './catalog-v3.ts';
 
 type CatalogEntry = Omit<ChoreDefinition, 'householdId' | 'enabled'>;
-export const BUILT_IN_CHORE_CATALOG_VERSION = 4;
+export const BUILT_IN_CHORE_CATALOG_VERSION = 5;
 const old = createLegacyHouseholdChoreDefinitionsV3('catalog-comparison');
 const originallyEnabled = new Set(old.filter(entry => entry.enabled).map(entry => entry.id));
 /** Preserve the identity of the same job; never reuse a removed job's ID for a different one. */
@@ -11,10 +11,11 @@ export const HOUSEHOLD_CARE_IDS = [21, 2, 1, 7, 6, 8, 4, 15, 5, 10, 9, 22, 23, 2
 /** Numeric initial values stay inside the document's stated ranges. null means no fixed cadence is specified. */
 const cycles: readonly (readonly [number, number, number] | null)[] = [
   [7, 7, 7], [30, 60, 90], [7, 7, 7], [7, 7, 7], [7, 7, 7], [3, 4, 7], [180, 180, 365], [7, 10, 14], [30, 30, 30],
-  [2, 2, 3], [7, 10, 14], [7, 7, 7], [30, 30, 30], [7, 7, 7], [7, 7, 7], null, [30, 30, 30], [14, 14, 14], [30, 60, 90],
-  [30, 45, 60], null, [14, 14, 14], [30, 30, 30], [60, 75, 90], [10, 20, 30], [7, 7, 7], null, [7, 7, 7], [180, 180, 180],
-  [1, 1, 1], null, [180, 180, 180], [30, 30, 30], [30, 30, 30], null, null,
+  [2, 2, 3], [7, 10, 14], [7, 7, 7], [30, 30, 30], [7, 7, 7], [7, 7, 7], [1, 1, 1], [30, 30, 30], [14, 14, 14], [30, 60, 90],
+  [30, 45, 60], [3, 7, 14], [14, 14, 14], [30, 30, 30], [60, 75, 90], [10, 20, 30], [7, 7, 7], [60, 90, 180], [7, 7, 7], [180, 180, 180],
+  [1, 1, 1], [7, 14, 30], [180, 180, 180], [30, 30, 30], [30, 30, 30], null, [180, 365, 365],
 ];
+const provisional = new Set([16, 21, 27, 31, 36]);
 const current = HOUSEHOLD_CARE_GUIDE.map((guide, index): CatalogEntry => {
   const id = HOUSEHOLD_CARE_IDS[index]; const prior = old.find(entry => entry.id === id);
   const cycle = cycles[index]; const everyday = Boolean(cycle?.every(days => days === 1));
@@ -31,15 +32,14 @@ const current = HOUSEHOLD_CARE_GUIDE.map((guide, index): CatalogEntry => {
     estimatedMinutes: guide.estimatedMinutes, tools: [guide.tools], instructions: [...guide.instructions],
     cautions: guide.cautions.match(/[^。]+。?/gu) ?? [guide.cautions],
     ...(guide.trivia ? { trivia: [{ id: `household-care-${guide.number}`, title: `${guide.name}のポイント`, body: guide.trivia }] } : {}),
-    schedulingNotes: [guide.frequency, guide.conditions].filter(Boolean).join('\n'), sourceNotes: [guide.sourceUrl],
+    schedulingNotes: [provisional.has(guide.number) ? '仮の周期です。製品・使用条件に合わせて変更してください。' : '', guide.frequency, guide.conditions].filter(Boolean).join('\n'), sourceNotes: [],
   };
 });
 const used = new Set(HOUSEHOLD_CARE_IDS);
-/** Keep existing daily/specialized jobs that were not replaced by an equivalent document entry. */
-const retained: CatalogEntry[] = old.filter(entry => !used.has(entry.id)).map(({ householdId: _householdId, enabled: _enabled, ...entry }) => ({
-  ...entry, category: '室内・水回りの清掃',
-}));
-export const CHORE_CATALOG: readonly CatalogEntry[] = [...current, ...retained];
+/** Explicitly retired by the user; these jobs and their private history must not return. */
+export const RETIRED_BUILT_IN_CHORE_IDS = old.filter(entry => !used.has(entry.id)).map(entry => entry.id);
+export function isRetiredBuiltInChore(id: string) { return RETIRED_BUILT_IN_CHORE_IDS.some(retired => id === retired || id.endsWith(`.${retired}`)); }
+export const CHORE_CATALOG: readonly CatalogEntry[] = current;
 const byId = new Map(CHORE_CATALOG.map(entry => [entry.id, entry]));
 const orderById = new Map(CHORE_CATALOG.map((entry, index) => [entry.id, index]));
 export function compareBuiltInChoreOrder(a: Pick<ChoreDefinition, 'id'>, b: Pick<ChoreDefinition, 'id'>): number {

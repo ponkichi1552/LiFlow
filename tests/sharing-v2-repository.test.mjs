@@ -1,6 +1,10 @@
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
 import { initializeV2EventStore, createV2EventRepository } from '../src/platform/storage/sharing-v2-events.ts';
@@ -20,6 +24,55 @@ import { observedDateRules } from '../src/features/sharing/v2/formal-rule-view.t
 const { ensureLocalHousehold } = await import('../src/platform/storage/repository.ts');
 
 import { fixture, groupId, scope, now, receiptsFor, draft, seeds } from './helpers/sharing-v2-repository-fixture.mjs';
+
+test('unchanged authenticated v2 reads do not acquire a SQLite writer for the projection', async () => {
+  const f = await fixture(); const h = await f.device();
+  try {
+    await h.repository.commit(seeds()); const before = h.writes.length;
+    for (let index = 0; index < 10; index++) await h.repository.readState();
+    await h.repository.commitCurrent(async () => []);
+    assert.equal(h.writes.length, before, 'reading and an empty member update must not attempt even a no-op INSERT');
+    h.stopWrites();
+    await assert.rejects(h.repository.readState(), /account changed/u, 'skipping a redundant write must still recheck access');
+  } finally { h.connection.close(); }
+});
+
+test('v2 reads repair a missing or altered projection even when their authenticated inputs are cached', async () => {
+  const f = await fixture(); const h = await f.device();
+  try {
+    await h.repository.commit(seeds());
+    const original = h.connection.prepare('SELECT * FROM sharing_v2_projection WHERE singleton=1').get();
+    for (const column of ['fact_hash', 'accepted_ids_json', 'rejected_json', 'pending_ids_json', 'provisional_ids_json', 'request_states_json', 'formal_rules_json']) {
+      h.connection.prepare(`UPDATE sharing_v2_projection SET ${column}=? WHERE singleton=1`).run('altered');
+      await h.repository.readState();
+      assert.deepEqual(h.connection.prepare('SELECT * FROM sharing_v2_projection WHERE singleton=1').get(), original, column);
+    }
+    h.connection.exec('DELETE FROM sharing_v2_projection');
+    await h.repository.readState();
+    assert.deepEqual(h.connection.prepare('SELECT * FROM sharing_v2_projection WHERE singleton=1').get(), original);
+  } finally { h.connection.close(); }
+});
+
+test('an authenticated unchanged v2 read survives another native-style WAL writer without replaying or acknowledging operations', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'liflow-v2-projection-lock-')); const path = join(directory, 'shared.db');
+  const f = await fixture(); const h = await f.device('owner', f.owner, path); const writer = new DatabaseSync(path);
+  try {
+    await h.repository.commit(seeds());
+    const original = h.state(); const outbox = h.connection.prepare('SELECT * FROM sharing_outbox ORDER BY operation_id').all();
+    writer.exec('BEGIN IMMEDIATE; UPDATE sharing_v2_projection SET fact_hash=fact_hash WHERE singleton=1');
+    const state = await h.repository.readState();
+    assert.equal(state.replica.operations.length, 4);
+    await h.repository.commitCurrent(async () => []);
+    assert.deepEqual(h.state(), original);
+    assert.deepEqual(h.connection.prepare('SELECT * FROM sharing_outbox ORDER BY operation_id').all(), outbox);
+    writer.exec('ROLLBACK');
+    await h.repository.commit([draft('after-writer', 'chore', 'floor', { name: '床の掃除' })]);
+    assert.equal((await h.repository.readState()).replica.operations.length, 5, 'real edits still persist after contention ends');
+  } finally {
+    if (writer.isTransaction) writer.exec('ROLLBACK');
+    writer.close(); h.connection.close(); rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test('v2 repository binds a fresh database and preserves every personal table and v1 workspace without in-place conversion', async () => {
   const personal = createDatabase(); const legacy = createDatabase();

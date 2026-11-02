@@ -28,7 +28,7 @@ test('v2 actions keep bootstrap separate, require explicit activation and protec
   try {
     const operations = v2GroupBootstrap({ groupId, ownerUserId: 'owner', ownerDisplayName: '所有者', name: '検査', timeZone: 'Asia/Tokyo', anchorDate: '2026-10-27', kind: 'roommates' });
     await owner.repository.commit(operations); const a = actions(owner); let plan = await a.readPlan(range);
-    assert.equal(plan.chores.length, 46); assert.equal(plan.chores.some((chore) => chore.enabled), false); assert.equal(plan.occurrences.length, 0);
+    assert.equal(plan.chores.length, 36); assert.equal(plan.chores.some((chore) => chore.enabled), false); assert.equal(plan.occurrences.length, 0);
     assert.equal(plan.policy.kind, 'roommates'); const choreId = plan.chores[0].id;
     await a.configureChore(choreId, { policy: chorePolicyFromPreset('eachMember'), anchorDate: '2026-10-29', intervalDays: 3, windowBeforeDays: 0, windowAfterDays: 1, effectiveFrom: '2026-10-29', active: true });
     plan = await a.readPlan(range); assert.equal(plan.occurrences[0].anchorDate, '2026-10-29');

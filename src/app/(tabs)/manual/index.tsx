@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { Text } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView } from '@/components/screen-safe-area';
 import { WorkspaceTab } from '@/components/workspace-tab';
 import { palette, typography } from '@/components/planner-ui';
 import { PlannerLoadState } from '@/components/planner-load-state';

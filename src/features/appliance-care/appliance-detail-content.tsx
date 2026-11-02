@@ -1,16 +1,15 @@
 import { router } from 'expo-router';
 import type { ReactNode } from 'react';
-import { FlatList, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from '@/components/screen-safe-area';
 
 import { ProcedureStep } from '../../components/procedure-step';
 import { AppButton, BackButton, Card, NavigationHeader, navigationHeaderMetrics, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
 import type { ChoreDefinition } from '@/domain/chores/types';
-import { applianceCategoryLabel } from '@/features/appliance-care/categories';
-import { isOfficialApplianceUrl } from '@/features/appliance-care/official-url';
 import type { ApplianceCareReviewContext } from '@/platform/storage/repository';
-import { isUploadedManualReference } from './manual-source';
 import { isRenderableApplianceAnalysis } from './analysis-validation';
+import { applianceDisplayName } from './display-name';
+import { applianceAnalysisDate } from './analysis-date';
 
 export function ApplianceDetailContent({ context, returnTo, error }: {
   context: ApplianceCareReviewContext;
@@ -29,7 +28,7 @@ export function ApplianceDetailContent({ context, returnTo, error }: {
   </SafeAreaView>;
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
-      <View testID="appliance-detail-header" style={styles.backHeader}><BackButton accessibilityLabel="一覧へ戻る" onPress={goBack} /><Text style={styles.modelTitle}>{appliance.modelNumber}</Text></View>
+      <View testID="appliance-detail-header" style={styles.backHeader}><BackButton accessibilityLabel="一覧へ戻る" onPress={goBack} /><Text style={styles.modelTitle}>お手入れ方法</Text></View>
       <FlatList
         data={appliance.analysis.tasks}
         keyExtractor={(task, index) => `${index}-${task.name}`}
@@ -41,31 +40,25 @@ export function ApplianceDetailContent({ context, returnTo, error }: {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={<View style={styles.listHeader}>
         {error ? <Text style={styles.invalidLink}>{error}</Text> : null}
-        <ScreenHeading eyebrow={appliance.manufacturer} title="お手入れ方法" description={`${appliance.displayName}の${appliance.analysis.manualSource ? '選択した説明書を解析した' : '公式資料から確認した'}内容です。`} />
-        <Card style={styles.productCard}>
-          <Text style={styles.productMeta}>メーカー {appliance.manufacturer} · 型番 {appliance.modelNumber}</Text>
-          {appliance.category ? <Text style={styles.body}>カテゴリ：{applianceCategoryLabel(appliance.category)}</Text> : null}
-          {appliance.officialProductUrl ? <OfficialLink manufacturer={appliance.manufacturer} title="公式製品情報を見る ↗" url={appliance.officialProductUrl} /> : null}
-          <OfficialLink manufacturer={appliance.manufacturer} title="公式取扱説明書を見る ↗" url={appliance.officialManualUrl} />
-          <Text style={styles.note}>最終解析：{appliance.analysis.analyzedAt}</Text>
-          <AppButton title="この家電を再解析" onPress={reanalyze} variant="secondary" />
-        </Card>
-
+        <ScreenHeading title={applianceDisplayName(appliance, appliance.displayName)} />
         <SectionHeading title="お手入れ項目" trailing={<Text style={styles.note}>{appliance.analysis.tasks.length}件</Text>} />
         </View>}
         renderItem={({ item: task, index }) => {
           const chore = chores.find((item) => item.applianceTaskName === task.name);
-          return <MaintenanceTaskCard task={task} chore={chore} manufacturer={appliance.manufacturer} index={index} />;
+          return <MaintenanceTaskCard task={task} chore={chore} index={index} />;
         }}
+        ListFooterComponent={<View style={styles.listHeader}>
+          <Text style={styles.note}>最終解析：{applianceAnalysisDate(appliance.analysis.analyzedAt)}</Text>
+          <AppButton title="この家電を再解析" onPress={reanalyze} variant="quiet" />
+        </View>}
       />
     </SafeAreaView>
   );
 }
 
-export function MaintenanceTaskCard({ task, chore, manufacturer, index, schedule }: {
+export function MaintenanceTaskCard({ task, chore, index, schedule }: {
   task: ApplianceCareReviewContext['appliance']['analysis']['tasks'][number];
   chore?: ChoreDefinition;
-  manufacturer: string;
   index: number;
   /** Shared workspaces supply their own cadence status; a maker interval is not a shared schedule. */
   schedule?: ReactNode;
@@ -102,18 +95,9 @@ export function MaintenanceTaskCard({ task, chore, manufacturer, index, schedule
         </View>
       ) : null}
       {task.estimatedMinutes !== undefined ? <Text style={styles.note}>メーカー記載の所要時間：約{task.estimatedMinutes}分</Text> : null}
-      {task.evidence.map((evidence, evidenceIndex) => (
-        <OfficialLink key={`${evidence.url}-${evidenceIndex}`} manufacturer={manufacturer} title={`出典を見る${evidence.pageOrSection ? ` · ${evidence.pageOrSection}` : ''} ↗`} url={evidence.url} />
-      ))}
+
     </Card>
   );
-}
-
-export function OfficialLink({ manufacturer, title, url }: { manufacturer: string; title: string; url: string }) {
-  if (isUploadedManualReference(url)) return <Text style={styles.note}>選択した説明書PDF{title.includes(' · ') ? ` · ${title.split(' · ')[1].replace(' ↗', '')}` : ''}</Text>;
-  const valid = isOfficialApplianceUrl(url, manufacturer);
-  if (!valid) return <Text style={styles.invalidLink}>公式URLを検証できないため開けません</Text>;
-  return <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(url).catch(() => undefined)}><Text style={styles.link}>{title}</Text></Pressable>;
 }
 
 const styles = StyleSheet.create({
@@ -122,8 +106,6 @@ const styles = StyleSheet.create({
   listContent: { width: '100%', maxWidth: 820, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 18, paddingBottom: 36, gap: 15 },
   listHeader: { gap: 15 },
   modelTitle: { ...typography.subheading, color: palette.ink, fontWeight: '700' },
-  productCard: { backgroundColor: palette.accentSoft, borderColor: palette.border },
-  productMeta: { ...typography.label, color: palette.ink, fontWeight: '700' },
   taskIndex: { ...typography.caption, color: palette.accent, fontWeight: '800', letterSpacing: 1 },
   taskTitle: { ...typography.subheading, color: palette.ink, fontWeight: '700' },
   body: { ...typography.body, color: palette.muted },

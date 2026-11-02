@@ -11,6 +11,7 @@ import type { GroupKind } from './model.ts';
 import { createV2OwnerRecovery } from './owner-recovery.ts';
 import { restoreLegacyMigrationSourceFromSnapshot, verifiedLegacyMigrationPin } from './legacy-migration-source.ts';
 import type { VerifiedLegacyMigration } from './legacy-migration-source.ts';
+import { assertV2RetentionBase } from './history-retention-certificate.ts';
 import type { VerifiedSharedSnapshot } from '../snapshots.ts';
 import { legacyCompletionHistory } from './legacy-history.ts';
 import { ensureV2CatalogCurrent } from './catalog-update.ts';
@@ -27,8 +28,9 @@ export async function createV2WorkspaceSession(deps: Omit<SharedSyncDependencies
   creationKind?: GroupKind;
   pinMigration?: (pin: { sourceSnapshotDigest: string; witnessDigest: string }) => Promise<void>;
   verifyMigrationHistory?: (snapshot: VerifiedSharedSnapshot) => Promise<void>;
+  afterRetentionApplied?: (snapshot: VerifiedSharedSnapshot) => Promise<void>;
 }) {
-  const { householdId, archive, assertCurrentAccount, assertWritable, makeId, markLeft, afterCommit, creationKind, pinMigration, verifyMigrationHistory, ...transport } = deps;
+  const { householdId, archive, assertCurrentAccount, assertWritable, makeId, markLeft, afterCommit, creationKind, pinMigration, verifyMigrationHistory, afterRetentionApplied, ...transport } = deps;
   assertCurrentAccount(); const record = await deps.readRecord(); assertCurrentAccount();
   if (record.userId !== deps.userId || record.groupId !== deps.groupId || ['left', 'removed'].includes(record.status)) throw new SharingAccessError('共有グループの利用状態を確認してください。');
   const verified = verifyWorkspaceArchive(record);
@@ -36,12 +38,14 @@ export async function createV2WorkspaceSession(deps: Omit<SharedSyncDependencies
   const migrating = verified.some((roster) => roster.body.schemaVersion === 1);
   if (migrating && !pinMigration) throw new V2WorkspaceMigrationRequiredError();
   let migration: VerifiedLegacyMigration | undefined;
+  let retainedMigration = false;
   if (record.status === 'creating' && (!record.creation || !['family', 'roommates'].includes(creationKind ?? ''))) throw new Error('新しい共有グループの種類を確認してください。');
   assertCurrentAccount(); assertWritable();
   const scope = { userId: deps.userId, groupId: deps.groupId, householdId };
   const generation = record.localGeneration;
   await initializeV2EventStore(deps.database, scope); assertCurrentAccount(); assertWritable();
   const acceptMigrationSnapshot = async (snapshot: VerifiedSharedSnapshot, history: readonly VerifiedSharedRoster[]) => {
+    if (snapshot.base.retention) { assertV2RetentionBase(snapshot.base, snapshot.base.retention, history); return; }
     if (!migrating) {
       if (snapshot.base.legacyMigrationWitness) throw new V2WorkspaceMigrationRequiredError();
       return;
@@ -52,16 +56,20 @@ export async function createV2WorkspaceSession(deps: Omit<SharedSyncDependencies
     await pinMigration?.(verifiedLegacyMigrationPin(restored)); assertCurrentAccount();
     migration = restored;
   };
-  if (migrating) {
+  {
     const saved = await deps.database.getFirstAsync<{ snapshot_json: string }>('SELECT snapshot_json FROM sharing_snapshot_state WHERE group_id=?', deps.groupId);
-    if (saved) await acceptMigrationSnapshot(JSON.parse(saved.snapshot_json), verified);
+    if (saved) {
+      const snapshot = JSON.parse(saved.snapshot_json) as VerifiedSharedSnapshot;
+      if (migrating || snapshot.base.retention) await acceptMigrationSnapshot(snapshot, verified);
+      retainedMigration = Boolean(snapshot.base.retention);
+    }
   }
   const assertCurrentAccess = async (editing: boolean) => {
     assertCurrentAccount(); const current = await deps.readRecord(); assertCurrentAccount(); assertWritable();
     if (current.userId !== scope.userId || current.groupId !== scope.groupId || !['active', 'creating', 'joining'].includes(current.status)) throw new SharingAccessError('この共有グループは現在編集できません。');
     if (current.localGeneration !== generation) throw new SharingAccessError('再参加前のデータは読み取り専用で保持されています。');
     if (!editing) return;
-    if (migrating && !migration) throw new V2WorkspaceMigrationRequiredError();
+    if (migrating && !migration && !retainedMigration) throw new V2WorkspaceMigrationRequiredError();
     if (current.lastErrorCode === 'sharing/scheduler-version-mismatch') throw new SharingSchedulerVersionError();
     if (['sharing/access-denied', 'permission-denied'].includes(current.lastErrorCode ?? '')) throw new SharingAccessError('共有グループの参加状態を同期して確認してください。');
   };
@@ -69,13 +77,14 @@ export async function createV2WorkspaceSession(deps: Omit<SharedSyncDependencies
     get migration() { return migration; },
     assertWritable: () => { assertCurrentAccount(); assertWritable(); }, verifyCurrentAccess: assertCurrentAccess,
     now: () => new Date((deps.now ?? Date.now)()), afterCommit });
-  const synchronizer = createV2Synchronizer({ ...transport, repository, assertCurrentAccount, acceptMigrationSnapshot });
+  const synchronizer = createV2Synchronizer({ ...transport, repository, assertCurrentAccount, acceptMigrationSnapshot,
+    afterSnapshot: async snapshot => { if (snapshot.base.retention) { retainedMigration = true; migration = undefined; await afterRetentionApplied?.(snapshot); } } });
   const manager = createSharedGroupManager({ ...transport, project: repository.project, sync: synchronizer.sync,
     verifyMembership: synchronizer.verifyMembership, makeId, markLeft: async () => { assertCurrentAccount(); await markLeft(); assertCurrentAccount(); } });
   const baseController = createV2GroupController(repository, { makeId, now: () => new Date((deps.now ?? Date.now)()), sync: () => synchronizer.sync({ force: true }) });
   let catalogCheck: Promise<boolean> | undefined;
   const controller = { ...baseController, readModel: async (...args: Parameters<typeof baseController.readModel>) => {
-    if (archive().at(-1)?.body.ownerUserId === deps.userId && (!migrating || migration)) {
+    if (archive().at(-1)?.body.ownerUserId === deps.userId && (!migrating || migration || retainedMigration)) {
       catalogCheck ??= ensureV2CatalogCurrent(repository, makeId);
       try { if (!await catalogCheck) catalogCheck = undefined; } catch (error) {
         catalogCheck = undefined;
@@ -92,8 +101,13 @@ export async function createV2WorkspaceSession(deps: Omit<SharedSyncDependencies
   if (record.status === 'creating') {
     const creation = record.creation!;
     // Deterministic bootstrap operation IDs recover a crash without duplicating catalog entries.
-    await repository.commit(v2GroupBootstrap({ groupId: deps.groupId, ownerUserId: deps.userId, ownerDisplayName: creation.ownerDisplayName,
-      name: record.displayName, timeZone: creation.timeZone, anchorDate: creation.anchorDate as Parameters<typeof v2GroupBootstrap>[0]['anchorDate'], kind: creationKind! }));
+    await repository.commitCurrent(async state => state.replica.operations.some(operation => operation.operationId === `${deps.groupId}.bootstrap.policy`) ? []
+      : v2GroupBootstrap({ groupId: deps.groupId, ownerUserId: deps.userId, ownerDisplayName: creation.ownerDisplayName,
+        name: record.displayName, timeZone: creation.timeZone, anchorDate: creation.anchorDate as Parameters<typeof v2GroupBootstrap>[0]['anchorDate'], kind: creationKind! }));
+  }
+  if (retainedMigration && afterRetentionApplied) {
+    const saved = await deps.database.getFirstAsync<{ snapshot_json: string }>('SELECT snapshot_json FROM sharing_snapshot_state WHERE group_id=?', deps.groupId);
+    if (saved) await afterRetentionApplied(JSON.parse(saved.snapshot_json));
   }
   return { repository, synchronizer, manager, controller, recovery, assertCurrentAccess };
 }

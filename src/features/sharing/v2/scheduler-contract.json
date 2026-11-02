@@ -1,5 +1,5 @@
 {
-  "version": "liflow-shared-2-draft-46",
+  "version": "liflow-shared-2-draft-47",
   "timeZoneVersion": "2026e",
   "sourceFiles": [
     "src/features/sharing/v2/model.ts",
@@ -95,7 +95,14 @@
     "src/features/sharing/v2/manual-documents.ts",
     "src/features/sharing/v2/recovery-content.ts",
     "src/domain/chores/catalog-v3.ts",
-    "src/domain/chores/household-care-guide.ts"
+    "src/domain/chores/household-care-guide.ts",
+    "src/features/sharing/v2/history-retention-schema.ts",
+    "src/features/sharing/v2/history-retention-certificate.ts",
+    "src/features/sharing/v2/history-retention-plan.ts",
+    "src/features/sharing/v2/retained-completions.ts",
+    "src/domain/chores/history-retention.ts",
+    "src/features/sharing/content-digest.ts",
+    "src/features/sharing/signature-verification-cache.ts"
   ],
-  "sourceSha256": "4d1be33cb9126b48d1c8fd0643cc568cb9a3cfc1e18ab313413cb6ca7a5161e3"
+  "sourceSha256": "9e84c56113fbef533573be0ca40f4a121850a66818b5e76a9a9d3a1dc9d94c47"
 }

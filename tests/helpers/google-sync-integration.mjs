@@ -14,7 +14,7 @@ export async function createIntegration({ cycleDays = 1, previousDate = today, d
   const { database, connection } = store;
   await repository.initializeLocalDatabase(database);
   let snapshot = await repository.loadPlannerSnapshot(database, initialToday);
-  let chore = snapshot.chores.find((item) => item.name === '食器を洗う');
+  let chore = snapshot.chores.find((item) => item.id === 'builtin-chore-26');
   assert.ok(chore);
   chore = { ...chore, load: 'light', windowRadiusDays: 0, maxShiftDays: 0, holidayPriority: false, recommendedCycleDays: cycleDays,
     frequencyDaysByMode: { frequent: cycleDays, balanced: cycleDays, relaxed: cycleDays }, ...choreOverrides };

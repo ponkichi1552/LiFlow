@@ -5,10 +5,15 @@ import { loadNativeModule } from './helpers/native-module.mjs';
 
 function fixture(platform = 'android') {
   const events = []; let rejectCredential = false; let blockedIdentity;
-  const user = { uid: 'firebase-uid' }; const auth = { name: 'isolated-sharing-auth' };
+  const user = { uid: 'firebase-uid', providerData: [{ providerId: 'apple.com' }] }; const auth = { name: 'isolated-sharing-auth', currentUser: user, authStateReady: async () => {} };
+  let linkError;
   class OAuthProvider { constructor(provider) { this.provider = provider; } credential(value) { return { provider: this.provider, ...value }; } }
   const module = loadNativeModule('src/platform/sharing/auth.ts', {
     'firebase/auth': { GoogleAuthProvider: { credential: (idToken) => ({ provider: 'google', idToken }) }, OAuthProvider,
+      async linkWithCredential(target, credential) {
+        assert.equal(target, user); events.push(['link-provider', credential]); if (linkError) throw linkError;
+        user.providerData.push({ providerId: 'google.com' }); return { user };
+      },
       async signInWithCredential(target, credential) {
         assert.equal(target, auth); events.push(['credential', credential]); if (rejectCredential) throw new Error('synthetic auth failure'); return { user };
       }, async signOut(target) { assert.equal(target, auth); events.push(['firebase-sign-out']); },
@@ -26,7 +31,7 @@ function fixture(platform = 'android') {
     './secure-store.ts': { sharingSecureVault: { async removeItem(key) { assert.equal(key, 'active-workspace'); events.push(['clear-saved-home']); } },
       async loadOrCreateSharingDeviceIdentity(uid) { assert.equal(uid, user.uid); events.push(['protected-device-identity']); } },
   });
-  return { module, events, user, fail: (value) => { rejectCredential = value; }, block: (value) => { blockedIdentity = value; } };
+  return { module, events, user, auth, fail: (value) => { rejectCredential = value; }, block: (value) => { blockedIdentity = value; }, linkError: value => { linkError = value; } };
 }
 
 test('Google sharing sign-in uses only a basic ID token, binds the device key to the Firebase UID and coalesces duplicate taps', async () => {
@@ -75,4 +80,21 @@ test('Apple sharing is conditional and uses a hashed native nonce with the origi
 test('sharing auth observation is scoped to the sharing app and can unsubscribe', () => {
   const h = fixture(); let observed; const unsubscribe = h.module.observeSharingUser((user) => { observed = user; });
   assert.equal(observed, h.user); unsubscribe(); assert.deepEqual(h.events, [['unsubscribe']]);
+});
+test('explicit Apple to Google linking retains one UID device keys group selection and subscription owner', async () => {
+  const h = fixture('ios');
+  assert.deepEqual(await h.module.sharingAccountProviders(h.user.uid), ['apple.com']);
+  assert.equal(await h.module.linkSharingWithGoogle(), h.user);
+  assert.deepEqual(h.events.map(([name]) => name), ['native-basic-identity', 'link-provider']);
+  assert.deepEqual(await h.module.sharingAccountProviders(h.user.uid), ['apple.com', 'google.com']);
+  await h.module.linkSharingWithGoogle(); assert.equal(h.events.length, 2, 'already linked accounts need no extra native authentication');
+});
+test('provider linking never merges another account and stops before Firebase if the current account changes', async () => {
+  const h = fixture('ios'); h.linkError(Object.assign(new Error('synthetic'), { code: 'auth/credential-already-in-use' }));
+  await assert.rejects(h.module.linkSharingWithGoogle(), /別のLiFlowアカウント/);
+  assert.deepEqual(h.user.providerData, [{ providerId: 'apple.com' }]);
+  assert.equal(h.events.some(([name]) => name === 'clear-saved-home' || name === 'firebase-sign-out' || name === 'credential'), false);
+  let resolve; h.block(new Promise(done => { resolve = done; })); const pending = h.module.linkSharingWithGoogle(); await new Promise(setImmediate);
+  h.auth.currentUser = { uid: 'someone-else' }; resolve(); await assert.rejects(pending, /切り替わり/);
+  assert.equal(h.events.filter(([name]) => name === 'link-provider').length, 1);
 });

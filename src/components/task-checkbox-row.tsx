@@ -8,9 +8,9 @@ import { formatJapaneseDate } from '../domain/scheduling/local-date';
 import type { LocalDate } from '../domain/shared/types';
 
 export function TaskCheckboxRow({ chore, completed = false, deemphasized = false, source, urgent = false,
-  onToggle, onOpen, home = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow }: {
+  onToggle, onOpen, home = false, compact = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow }: {
   chore: ChoreDefinition; completed?: boolean; deemphasized?: boolean; source?: 'personal' | 'shared' | 'instructed';
-  urgent?: boolean; onToggle?: () => void; onOpen: () => void; home?: boolean; mixedSources?: boolean;
+  urgent?: boolean; onToggle?: () => void; onOpen: () => void; home?: boolean; compact?: boolean; mixedSources?: boolean;
   executionWindow?: { start: LocalDate; end: LocalDate };
   detail?: string; detailsExpanded?: boolean; lastInList?: boolean; contextLabel?: string; action?: ReactNode; footer?: ReactNode; sourceIcon?: 'person' | 'group';
 }) {
@@ -23,6 +23,14 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
     style={[styles.checkbox, completed && styles.checkboxCompleted]}>
     {completed ? <Text style={styles.checkmark}>✓</Text> : null}
   </Pressable>;
+  if (compact) return <View style={[styles.compactRow, completed && styles.completedRow]}>
+    <View style={styles.compactCheck}>{checkbox}</View>
+    <Pressable accessibilityRole="button" accessibilityLabel={`${actionName}の説明を開く`} accessibilityHint="手順や道具を確認します" onPress={onOpen}
+      style={({ pressed }) => [styles.compactOpen, pressed && styles.pressed]}>
+      <Text numberOfLines={2} style={[styles.compactName, completed && styles.completedText]}>{chore.name}</Text>
+      {executionWindow && executionWindow.start !== executionWindow.end ? <Text style={styles.compactPeriod}>{calendarPeriodLabel(executionWindow.start, executionWindow.end)}</Text> : null}
+    </Pressable>
+  </View>;
   return <View style={[styles.row, source && source !== 'personal' && styles.sharedRow, source === 'instructed' && styles.instructedRow,
     deemphasized && !completed && styles.deemphasizedRow, urgent && !completed && styles.urgentRow,
     completed && styles.completedRow, home && styles.listRow, home && lastInList && styles.lastRow]}>
@@ -40,7 +48,7 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
         {source === 'personal' && mixedSources ? <View style={styles.sourceIcon}><PersonIcon size={15} /></View> : null}
         <Text style={[styles.category, urgent && !completed && styles.urgentText, completed && styles.completedCategory]}>{[
           source === 'instructed' ? '日時指定' : '', minutes,
-          urgent && !completed ? '期限間近' : '', period, detail,
+          urgent && !completed ? '期限間近' : '', executionWindow && period ? calendarPeriodLabel(executionWindow.start, executionWindow.end) : undefined, detail,
         ].filter(Boolean).join(' · ')}</Text>
       </View> : source || urgent || chore.category || period ? <View style={styles.metadata}><Text style={[styles.category, completed && styles.completedCategory]}>{[
         source === 'instructed' ? '共有・日時指定' : source === 'shared' ? '共有' : source === 'personal' && mixedSources ? '個人' : '',
@@ -54,7 +62,17 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
     {footer ? <View style={home ? styles.listFooter : undefined}>{footer}</View> : null}
   </View>;
 }
+export function calendarPeriodLabel(start: LocalDate, end: LocalDate) {
+  const date = (value: LocalDate) => value.slice(0, 4) !== start.slice(0, 4) || start.slice(0, 4) !== end.slice(0, 4)
+    ? value.split('-').map(Number).join('/') : value.slice(5).split('-').map(Number).join('/');
+  return `${date(start)}–${date(end)}`;
+}
 const styles = StyleSheet.create({
+  compactRow: { flexDirection: 'row', alignItems: 'center', minHeight: 44, borderRadius: 7, backgroundColor: palette.accentSoft, overflow: 'hidden' },
+  compactCheck: { width: 42, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  compactOpen: { flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center', paddingVertical: 5, paddingRight: 6 },
+  compactName: { ...typography.label, color: palette.ink, fontWeight: '500' },
+  compactPeriod: { ...typography.small, color: palette.muted },
   row: { minHeight: 64, gap: 6, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, paddingHorizontal: 15, paddingVertical: 9 },
   listRow: { borderRadius: 0, borderWidth: 0, borderLeftWidth: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border }, lastRow: { borderBottomWidth: 0 },
   content: { flexDirection: 'row', alignItems: 'center', gap: 14 }, listContent: { gap: 12 }, listFooter: { paddingLeft: 40 }, action: { minWidth: 44 },
@@ -62,8 +80,8 @@ const styles = StyleSheet.create({
   sharedRow: { borderLeftWidth: 3, borderLeftColor: palette.shared }, instructedRow: { borderLeftColor: palette.sharedStrong, backgroundColor: palette.sharedSoft },
   urgentRow: { borderLeftWidth: 3, borderLeftColor: palette.gold }, urgentText: { color: palette.gold },
   deemphasizedRow: { backgroundColor: palette.elevated, borderColor: palette.border }, completedRow: { backgroundColor: palette.elevated, borderColor: palette.elevated },
-  copy: { flex: 1, gap: 2, minHeight: 44, justifyContent: 'center' }, metadata: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 5 },
-  sourceIcon: { height: typography.caption.lineHeight, justifyContent: 'center' },
+  copy: { flex: 1, minWidth: 0, gap: 2, minHeight: 44, justifyContent: 'center' }, metadata: { flexDirection: 'row', alignItems: 'flex-start', gap: 5 },
+  sourceIcon: { minHeight: typography.caption.lineHeight, justifyContent: 'center', flexShrink: 0 },
   name: { ...typography.subheading, color: palette.ink, fontWeight: '600' }, category: { ...typography.caption, color: palette.muted, flexShrink: 1 },
   deemphasizedText: { color: palette.muted }, completedText: { color: palette.muted, textDecorationLine: 'line-through' }, completedCategory: { color: palette.muted },
   checkbox: { width: 28, height: 28, borderRadius: 8, borderWidth: 1.5, borderColor: palette.inputBorder, backgroundColor: palette.surface, alignItems: 'center', justifyContent: 'center' },

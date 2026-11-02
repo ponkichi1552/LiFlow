@@ -49,7 +49,11 @@ before(async () => { environment = await initializeTestEnvironment({ projectId: 
 beforeEach(async () => { await environment.clearFirestore(); });
 after(async () => { await environment?.cleanup(); });
 const groupId = 'v2-cloud-group';
-async function fixture(schemaVersion = 2, schedulerVersion) {
+async function fixture(schemaVersion = 2, schedulerVersion, paid = false) {
+  if (paid) await environment.withSecurityRulesDisabled(async context => {
+    const db = context.firestore(); await setDoc(doc(db, 'serviceConfiguration/billing'), { enforced: true });
+    await setDoc(doc(db, 'billingEntitlements/owner'), { userId: 'owner', status: 'active', validUntil: Date.now() + 3600_000, expiresAt: Date.now() + 86400_000 });
+  });
   const identity = await createDeviceIdentity(crypto); const key = await crypto.randomBytes(32);
   const store = environment.authenticatedContext('owner').firestore(); let active = 'owner';
   const cloud = createSharingCloud(store, 'owner', () => active);
@@ -68,6 +72,26 @@ async function fixture(schemaVersion = 2, schedulerVersion) {
   return { identity, key, roster, store, cloud, make, root: doc(store, 'sharingGroups', groupId), switchAccount: () => { active = 'another'; } };
 }
 
+test('paid v2 groups create and commit encrypted receipts within Rules limits and retry the same queued edit after subscription renewal', async () => {
+  const f = await fixture(2, undefined, true); const first = await f.make(1);
+  const sent = await f.cloud.upload(first.envelope, { authorProofDigest: first.authorProofDigest });
+  assert.equal(sent.serverReceipt.uploadSequence, 1);
+  const next = await f.make(2);
+  await environment.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'billingEntitlements/owner'), {
+    userId: 'owner', status: 'expired', validUntil: 0, expiresAt: 0,
+  }));
+  await assert.rejects(f.cloud.upload(next.envelope, { authorProofDigest: next.authorProofDigest }));
+  await environment.withSecurityRulesDisabled(async context => {
+    assert.equal((await getDocFromServer(doc(context.firestore(), 'sharingGroups', groupId))).data().headSequence, 1);
+    await setDoc(doc(context.firestore(), 'billingEntitlements/owner'), {
+      userId: 'owner', status: 'active', validUntil: Date.now() + 3600_000, expiresAt: Date.now() + 86400_000,
+    });
+  });
+  const retried = await f.cloud.upload(next.envelope, { authorProofDigest: next.authorProofDigest });
+  assert.equal(retried.serverReceipt.uploadSequence, 2);
+  assert.equal((await f.cloud.pull(groupId, 0)).events.length, 2);
+});
+
 test('v2 workspace sessions restore real encrypted bootstrap and offline edits across approved user devices without private planner adapters', async () => {
   const f = await fixture(); const ownerDb = createDatabase(); const memberDb = createDatabase(); let rejoinedDb;
   const memberIdentity = await createDeviceIdentity(crypto); const now = new Date(); const anchorDate = sharedLocalDate(now, 'Asia/Tokyo');
@@ -85,7 +109,7 @@ test('v2 workspace sessions restore real encrypted bootstrap and offline edits a
     async (value) => { ownerArchive = value; }, () => ownerArchive);
   try {
     const owner = await createV2WorkspaceSession({ ...ownerDeps, creationKind: 'roommates' }); await owner.synchronizer.sync({ force: true });
-    assert.equal((await f.cloud.readGroup(groupId)).group.headSequence, 49);
+    assert.equal((await f.cloud.readGroup(groupId)).group.headSequence, 39);
     ownerRecord = { ...ownerRecord, status: 'active' };
     const invite = await owner.manager.createInvitation(); const request = createSharedJoinRequest(invite, 'member', memberIdentity, Date.now());
     const memberCloud = createSharingCloud(environment.authenticatedContext('member').firestore(), 'member', () => 'member');
@@ -97,7 +121,7 @@ test('v2 workspace sessions restore real encrypted bootstrap and offline edits a
     const member = await createV2WorkspaceSession(memberDeps); await member.synchronizer.sync({ force: true });
     const range = { from: anchorDate, through: addLocalDays(anchorDate, 14), asOfDate: anchorDate };
     const initial = await member.controller.readModel(range); assert.equal(initial.plan.policy.kind, 'roommates');
-    assert.equal(initial.plan.chores.length, 46); assert.equal(initial.plan.occurrences.length, 0);
+    assert.equal(initial.plan.chores.length, 36); assert.equal(initial.plan.occurrences.length, 0);
     const privateData = await privateFixture();
     try {
       const source = { ...await readPersonalChoreCopySource(privateData.database), scope: 'personal', ownerUserId: 'owner' };
@@ -264,11 +288,11 @@ test('normal v2 workspace creation uses the real gateway and Rules and a no-chan
     const workspace = await h.api.createV2SharingWorkspace('新しい家族', 'family', 'Asia/Tokyo');
     const result = await workspace.sync({ force: true, budgetMs: 120_000 }); assert.equal(result.complete, true); assert.equal(result.pending, 0);
     const record = await workspace.record(); assert.equal(record.status, 'active'); assert.ok(record.lastSuccessfulSyncAt); assert.equal(record.lastErrorCode, null);
-    assert.equal((await f.cloud.readGroup(workspace.groupId)).group.headSequence, 49); assert.equal((await workspace.checkpoint()).pendingCount, 0);
+    assert.equal((await f.cloud.readGroup(workspace.groupId)).group.headSequence, 39); assert.equal((await workspace.checkpoint()).pendingCount, 0);
     const state = await workspace.session.repository.readState(); const at = v2ReadPoint(state.assessment.view, state.archive.at(-1));
     assert.equal(state.assessment.view.field('groupPolicy', 'policy', 'configuration', at).value.kind, 'family');
-    assert.equal((await workspace.readOverview()).chores.length, 46);
-    await workspace.sync({ force: true }); assert.equal((await f.cloud.readGroup(workspace.groupId)).group.headSequence, 49);
+    assert.equal((await workspace.readOverview()).chores.length, 36);
+    await workspace.sync({ force: true }); assert.equal((await f.cloud.readGroup(workspace.groupId)).group.headSequence, 39);
     await h.api.saveSharingSelection(record); assert.deepEqual(JSON.parse(h.vault.get('active-workspace')), { groupId: workspace.groupId, userId: 'owner' });
     h.auth.uid = 'another-user'; await assert.rejects(workspace.session.controller.actions.addChore('拒否される追加'));
     assert.equal((await workspace.checkpoint()).pendingCount, 0);

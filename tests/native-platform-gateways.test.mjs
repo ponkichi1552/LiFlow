@@ -78,7 +78,8 @@ test('native entry defines background work before Router can mount any screens',
     'expo-background-task': { BackgroundTaskResult: { Success: 'success', Failed: 'failed' } },
     'expo-task-manager': { defineTask: (name, run) => { events.push(`define:${name}`); callback = run; } },
     'expo-sqlite': { openDatabaseAsync: async (_name, options) => { assert.equal(options.useNewConnection, true); return { closeAsync: async () => { events.push('close'); } }; } },
-    './coordinator': { syncGoogleTasks: async () => { events.push('sync'); return { kind: 'success' }; } },
+    '@/platform/google-calendar/personal-runtime': { nativePersonalGoogleCalendar: () => ({ sync: async () => ({ kind: 'skipped' }) }) },
+      './coordinator': { syncGoogleTasks: async () => { events.push('sync'); return { kind: 'success' }; } },
     '@/platform/sharing/private-calendar-sync': { syncKnownPrivateCalendar: async budget => { assert.equal(budget, 15000); events.push('private-calendar'); } },
     '@/platform/sharing/workspaces': { syncSharingWorkspace: async (budget) => { assert.equal(budget, 30000); events.push('sharing'); } },
     '@/platform/storage/repository': { LOCAL_HOUSEHOLD_ID: 'home', initializeLocalDatabase: async () => { events.push('initialize'); },
@@ -103,10 +104,35 @@ test('background tasks close their SQLite connection after a sync failure withou
     'expo-background-task': { BackgroundTaskResult: { Success: 'success', Failed: 'failed' } },
     'expo-task-manager': { defineTask: (_name, run) => { callback = run; } },
     'expo-sqlite': { openDatabaseAsync: async () => ({ closeAsync: async () => { closed++; } }) },
-    './coordinator': { syncGoogleTasks: async () => { throw new Error('SQLite busy'); } },
+    '@/platform/google-calendar/personal-runtime': { nativePersonalGoogleCalendar: () => ({ sync: async () => ({ kind: 'skipped' }) }) },
+      './coordinator': { syncGoogleTasks: async () => { throw new Error('SQLite busy'); } },
     '@/platform/sharing/private-calendar-sync': { syncKnownPrivateCalendar: async () => {} },
     '@/platform/sharing/workspaces': { syncSharingWorkspace: async () => {} },
     '@/platform/storage/repository': { LOCAL_HOUSEHOLD_ID: 'home', initializeLocalDatabase: async () => {}, loadGoogleSyncState: async () => ({ enabled: true }) },
   });
   assert.equal(await callback({}), 'failed'); assert.equal(closed, 2);
+});
+
+
+test('screen roots keep Android controls outside the status bar without double insets or changing iOS', () => {
+  const flatten = value => Array.isArray(value) ? Object.assign({}, ...value.map(flatten)) : value;
+  const render = (platform, top) => load('src/components/screen-safe-area.tsx', {
+    'react/jsx-runtime': { jsx: (type, props) => ({ type, props }) },
+    'react-native': { Platform: { OS: platform }, StatusBar: { currentHeight: 24 }, StyleSheet: { flatten } },
+    'react-native-safe-area-context': { SafeAreaView: 'NativeSafeAreaView', useSafeAreaInsets: () => ({ top, right: 0, bottom: 16, left: 0 }) },
+  }).SafeAreaView;
+  const style = { flex: 1, paddingTop: 6 }; const edges = ['top', 'bottom']; const onLayout = () => {};
+  for (const top of [0, 24, 48]) {
+    const view = render('android', top)({ style, edges, onLayout, children: 'header' });
+    const effectiveTop = flatten(view.props.style).paddingTop;
+    assert.equal(effectiveTop, Math.max(top, 24) + style.paddingTop);
+    assert.equal(view.props.edges.top, 'maximum', 'the native inset cannot be added a second time');
+    assert.equal(view.props.edges.bottom, 'additive'); assert.equal(view.props.onLayout, onLayout); assert.equal(view.props.children, 'header');
+  }
+  const bottom = render('android', 48)({ style, edges: ['bottom'] });
+  assert.equal(bottom.props.style, style); assert.deepEqual(bottom.props.edges, ['bottom']);
+  const maximum = render('android', 24)({ style: { paddingTop: 50 }, edges: { top: 'maximum', bottom: 'off' } });
+  assert.equal(flatten(maximum.props.style).paddingTop, 50);
+  const ios = render('ios', 59)({ style, edges }); assert.equal(ios.props.style, style); assert.equal(ios.props.edges, edges);
+  assert.deepEqual(style, { flex: 1, paddingTop: 6 }); assert.deepEqual(edges, ['top', 'bottom']);
 });

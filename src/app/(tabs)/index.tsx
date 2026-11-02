@@ -52,7 +52,7 @@ function PersonalHomeScreen() {
     }
   }, [authorizeCommon, readPersonalSnapshot, readSharedSnapshot, personalReadError]);
   const refreshHome = useCallback(async () => { await refresh(); const failure = readError?.(); if (failure) throw new Error(failure); await syncCommonHistory(); }, [refresh, readError, syncCommonHistory]);
-  const completion = useTaskCompletion(database, refreshHome, readError, combined ? { ...personal, isCurrent: commonHistory.isCurrent, assertAccess: assertUncommonPersonalAccess } : undefined);
+  const completion = useTaskCompletion(database, refreshHome, readError, combined ? { ...personal, isCurrent: commonHistory.isCurrent, assertAccess: assertUncommonPersonalAccess } : undefined, snapshot?.household);
   const clock = useHomeClock(snapshot?.timeZone);
   const wasteVisibility = useWasteOccurrenceToggle(database, refresh);
   const personalWasteVisibility = useWasteOccurrenceToggle(personal.database, personal.refresh);
@@ -121,7 +121,7 @@ function PersonalHomeScreen() {
   return (
     <>
       <Tabs.Screen options={{ tabBarStyle: { ...plannerTabBarLayout(insets.bottom), backgroundColor: palette.surface, borderTopColor: palette.border, borderTopWidth: 1 } }} />
-      <Page header={<HomeHeader today={today} workspaceName={snapshot.sharing ? groupName : undefined} />} contentStyle={styles.homePage} floatingFooter footerHasTabBar footer={completion.undoAvailable ? <CompletionToast onUndo={() => void completion.undoLast()} busy={completion.pending.size > 0 || completion.reading} /> : undefined}>
+      <Page header={<HomeHeader today={today} workspaceName={snapshot.sharing ? groupName : undefined} />} contentStyle={styles.homePage} floatingFooter footerHasTabBar footer={completion.undoAvailable ? <CompletionToast onUndo={() => void completion.undoLast()} /> : undefined}>
         {error || actionError ? <Card><Text style={styles.error}>{actionError ?? error}</Text><AppButton title="表示を再読込" variant="quiet" compact
           disabled={completion.pending.size > 0 || completion.reading} onPress={() => void completion.retryRead()} /></Card> : null}
 

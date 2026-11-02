@@ -6,6 +6,8 @@ import type { SharedReplica } from '../../features/sharing/replica.ts';
 import type { AuthenticatedSharedOperation } from '../../features/sharing/crypto.ts';
 import type { VerifiedSharedSnapshot } from '../../features/sharing/snapshots.ts';
 import { withIsolatedSqliteTransaction as atomic } from './isolated-transaction.ts';
+import { validateV2RetentionBody } from '../../features/sharing/v2/history-retention-schema.ts';
+import { isolatedProjectionValue } from './isolated-projection-value.ts';
 
 export interface SharingOutboxItem {
   operation: SharedOperation;
@@ -96,6 +98,26 @@ async function loadSnapshotInside(db: SQLiteDatabase, groupId: string): Promise<
 }
 async function loadReplicaInside(db: SQLiteDatabase, groupId: string): Promise<SharedReplica> {
   return buildSharedReplica(groupId, await loadOperations(db, groupId), (await loadSnapshotInside(db, groupId))?.base);
+}
+
+/** One repository lifetime, one exact SQLite input; never a membership or proof cache. */
+export function createSharedReplicaReader() {
+  let retained: { source: string; replica: SharedReplica } | undefined;
+  return async (db: SQLiteDatabase, groupId: string): Promise<SharedReplica> => {
+    // The caller holds its normal ledger transaction. Read both tables every time,
+    // including edits made by another connection or a transaction that rolled back.
+    const rows = await db.getAllAsync<{ operation_json: string }>(
+      'SELECT operation_json FROM sharing_operations WHERE group_id = ? ORDER BY operation_id', groupId);
+    const snapshot = await db.getFirstAsync<{ snapshot_json: string }>('SELECT snapshot_json FROM sharing_snapshot_state WHERE group_id = ?', groupId);
+    if (rows.some(row => typeof row.operation_json !== 'string') || snapshot && typeof snapshot.snapshot_json !== 'string') throw new Error('Invalid shared ledger content');
+    const source = JSON.stringify([groupId, rows.map(row => row.operation_json), snapshot?.snapshot_json ?? null]);
+    if (retained?.source === source) return isolatedProjectionValue(retained.replica);
+    const replica = buildSharedReplica(groupId, rows.map(row => validateSharedOperation(JSON.parse(row.operation_json), groupId)),
+      snapshot ? (JSON.parse(snapshot.snapshot_json) as VerifiedSharedSnapshot).base : undefined);
+    // Bound retained input as well as object count; large groups still rebuild normally.
+    retained = source.length <= 4 * 1024 * 1024 ? { source, replica: isolatedProjectionValue(replica) } : undefined;
+    return replica;
+  };
 }
 
 async function insertOperation(db: SQLiteDatabase, op: SharedOperation, signature?: string): Promise<boolean> {
@@ -355,6 +377,12 @@ export function applySharingSnapshot(db: SQLiteDatabase, groupId: string, snapsh
       const cursor = await db.getFirstAsync<{ cursor: string }>('SELECT cursor FROM sharing_cursors WHERE group_id = ?', groupId);
       if ((cursor?.cursor ?? null) !== expectedCursor) throw new Error('Shared receive position changed concurrently');
       const prior = await loadSnapshotInside(db, groupId);
+      const retention = snapshot.base.retention ? validateV2RetentionBody(snapshot.base.retention.proposal.operation.payload.checkpoint) : undefined;
+      if (retention) await db.execAsync('PRAGMA secure_delete=ON');
+      if (prior?.base.retention) {
+        const previous = validateV2RetentionBody(prior.base.retention.proposal.operation.payload.checkpoint);
+        if (!retention || retention.cutoff < previous.cutoff || Object.entries(previous.frontier).some(([device, count]) => count > (retention.frontier[device] ?? 0))) throw new Error('Snapshot history-retention rollback');
+      }
       if (Object.entries(prior?.base.frontier ?? {}).some(([device, count]) => count > (snapshot.base.frontier[device] ?? 0))) throw new Error('Snapshot causal rollback');
       // Validate collisions and replay unpublished changes before replacing or deleting any old rows.
       result = buildSharedReplica(groupId, await loadOperations(db, groupId), snapshot.base);
@@ -367,7 +395,7 @@ export function applySharingSnapshot(db: SQLiteDatabase, groupId: string, snapsh
           const rows = await db.getAllAsync<{ operation_json: string }>('SELECT operation_json FROM sharing_operations WHERE group_id=? AND author_device_id=? AND device_sequence<=?', groupId, device, sequence);
           for (const row of rows) {
             const operation = validateSharedOperation(JSON.parse(row.operation_json), groupId);
-            if (!await evidence.acknowledge(db, operation)) continue;
+            if (!(retention && operation.deviceSequence <= (retention.frontier[operation.authorDeviceId] ?? 0)) && !await evidence.acknowledge(db, operation)) continue;
             await db.runAsync('DELETE FROM sharing_outbox WHERE operation_id=?', operation.operationId);
             await db.runAsync('DELETE FROM sharing_operations WHERE operation_id=?', operation.operationId);
           }
@@ -378,6 +406,20 @@ export function applySharingSnapshot(db: SQLiteDatabase, groupId: string, snapsh
         }
       }
       await apply(db, result);
+      if (retention) {
+        // The projection above verifies every member's certificate before any deletion commits.
+        const ids = JSON.stringify(snapshot.facts.map(fact => fact.operation.operationId));
+        if (await db.getFirstAsync("SELECT name FROM sqlite_master WHERE name='sharing_v2_server_receipts'")) {
+          await db.runAsync(`DELETE FROM sharing_v2_server_receipts WHERE group_id=?
+            AND CAST(json_extract(receipt_json,'$.uploadSequence') AS INTEGER)<=?
+            AND operation_id NOT IN (SELECT value FROM json_each(?))`, groupId, retention.throughSequence, ids);
+        }
+        if (await db.getFirstAsync("SELECT name FROM sqlite_master WHERE name='sharing_v2_recovery_review'")) {
+          await db.runAsync("DELETE FROM sharing_v2_recovery_review WHERE (status='applied' OR cancelled=1) AND CAST(json_extract(draft_json,'$.review.throughSequence') AS INTEGER)<=?", retention.throughSequence);
+          const active = await db.getFirstAsync("SELECT singleton FROM sharing_v2_recovery_review WHERE status='review' AND cancelled=0");
+          if (!active) await db.runAsync("DELETE FROM sharing_v2_recovery_originals WHERE CAST(json_extract(raw_json,'$.uploadSequence') AS INTEGER)<=?", retention.throughSequence);
+        }
+      }
       await db.runAsync(`INSERT INTO sharing_cursors (group_id, cursor, last_successful_sync_at) VALUES (?, ?, ?)
         ON CONFLICT(group_id) DO UPDATE SET cursor=excluded.cursor, last_successful_sync_at=excluded.last_successful_sync_at`, groupId, String(Math.max(Number(cursor?.cursor ?? 0), snapshot.throughSequence)), now);
     });

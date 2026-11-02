@@ -17,7 +17,7 @@ export function calendarDraftKey(draft: CalendarEditorDraft) { const prefix = dr
 export function calendarDraftVersion(draft: CalendarEditorDraft) { return bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(parseEditorDraft(draft))))); }
 export interface LocalCalendarSnapshot { events: CalendarEvent[]; categories: CalendarCategory[]; exceptions: CalendarException[]; draft: CalendarEditorDraft | null; drafts?: CalendarEditorDraft[]; draftError?: string }
 export const EMPTY_LOCAL_CALENDAR: LocalCalendarSnapshot = { events: [], categories: [...INITIAL_CATEGORIES], exceptions: [], draft: null };
-export type LocalCalendarChange = 'events' | 'categories' | 'drafts';
+export type LocalCalendarChange = 'events' | 'categories' | 'drafts' | 'sync' | 'syncStatus';
 const listeners = new WeakMap<SQLiteDatabase, Set<(change: LocalCalendarChange) => void>>();
 let idSequence = 0;
 function newId(prefix: string) { return `${prefix}.${Date.now().toString(36)}.${(++idSequence).toString(36)}.${Math.random().toString(36).slice(2, 12)}`; }
@@ -27,7 +27,17 @@ async function personal(database: SQLiteDatabase) {
   if (sharedRepositoryAdapter(database)) throw new Error('個人のカレンダーは個人の保存先で開いてください。');
   if (!await database.getFirstAsync("SELECT id FROM households WHERE id = 'local-household'")) throw new Error('個人の保存先を確認できません。');
 }
+async function assertEditableGoogleEvent(database: SQLiteDatabase, id: string) {
+  if (await database.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='calendar_google_links'")
+    && await database.getFirstAsync('SELECT event_id FROM calendar_google_links WHERE event_id=? AND (read_only=1 OR active=0) LIMIT 1', id)) {
+    throw new Error('この予定はGoogleカレンダーで編集してください。');
+  }
+}
 function changed(database: SQLiteDatabase, change: LocalCalendarChange = 'events') { for (const fn of listeners.get(database) ?? []) { try { fn(change); } catch { /* A view failure cannot change a committed SQLite result. */ } } }
+/** A committed personal Google transaction uses the same local subscription as an editor. */
+export function notifyCalendarSyncChanged(database: SQLiteDatabase) { invalidateLocalCalendarPlan(database); changed(database, 'sync'); }
+/** Connection/error timestamps update Settings without invalidating any event or schedule. */
+export function notifyCalendarSyncStatusChanged(database: SQLiteDatabase) { changed(database, 'syncStatus'); }
 export function subscribeLocalCalendar(database: SQLiteDatabase, callback: (change: LocalCalendarChange) => void) {
   let set = listeners.get(database); if (!set) { set = new Set(); listeners.set(database, set); } set.add(callback);
   return () => { set!.delete(callback); };
@@ -93,6 +103,7 @@ export async function saveCalendarEvent(database: SQLiteDatabase, input: {
   if (input.anchorDate) parseLocalDate(input.anchorDate);
   await withPlannerDatabaseOperation(database, async () => { await personal(database);
     await withIsolatedSqliteTransaction(database, async tx => {
+      await assertEditableGoogleEvent(tx, id);
       if (!await tx.getFirstAsync('SELECT id FROM calendar_categories WHERE id=?', body.categoryId)) throw new Error('分類を選び直してください。');
       const prior = await tx.getFirstAsync<{ revision: number; deleted: number; definition_json: string }>('SELECT * FROM calendar_events WHERE id=?', id);
       if (prior ? prior.deleted || prior.revision !== input.expectedRevision : input.expectedRevision !== 0) throw conflict();
@@ -119,6 +130,7 @@ export async function deleteCalendarEvent(database: SQLiteDatabase, input: { id:
   identifier(input.id); if (input.anchorDate) parseLocalDate(input.anchorDate);
   await withPlannerDatabaseOperation(database, async () => { await personal(database);
     await withIsolatedSqliteTransaction(database, async tx => {
+      await assertEditableGoogleEvent(tx, input.id);
       const row = await tx.getFirstAsync<{ revision: number; deleted: number; definition_json: string }>('SELECT revision,deleted,definition_json FROM calendar_events WHERE id=?', input.id);
       if (!row || row.deleted || row.revision !== input.expectedRevision) throw conflict();
       if (input.anchorDate) {

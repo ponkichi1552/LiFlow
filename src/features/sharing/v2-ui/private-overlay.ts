@@ -13,7 +13,7 @@ import type { CommonCompletionSource } from '../../planner/common-chore-links';
 
 export interface V2PrivateTaskRow {
   source: 'personal'; key: string; revision: string; ownerUserId: string; householdId: string;
-  date: LocalDate; graceDays: 0 | 3; chore: ChoreDefinition; completed: boolean; suggestedDate: LocalDate; windowStart?: LocalDate; windowEnd?: LocalDate;
+  date: LocalDate; graceDays: 0 | 3; chore: ChoreDefinition; completed: boolean; completedDate?: LocalDate; suggestedDate: LocalDate; windowStart?: LocalDate; windowEnd?: LocalDate;
 }
 export interface V2PrivateOverlay {
   status: 'ready'; ownerUserId: string; householdId: string; timeZone: string; today: LocalDate; setupCompleted: boolean;
@@ -69,7 +69,7 @@ export function projectV2PrivateTasks(input: PrivatePlannerInput, ownerUserId: s
     const rows = (date: LocalDate, graceDays: 0 | 3) => selectDateTasks(entries, relevant, date, graceDays, [chore]).map((task): V2PrivateTaskRow => ({
       source: 'personal', key: `personal:${JSON.stringify([ownerUserId, snapshot.household.id, date, graceDays, chore.id])}`,
       revision: dateTaskRevision(task), ownerUserId, householdId: snapshot.household.id, date, graceDays, chore,
-      completed: task.completed, suggestedDate: task.suggestedDate, windowStart: task.entry?.windowStart ?? task.completion?.scheduledWindowStart, windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd,
+      completed: task.completed, completedDate: task.completion ? completionRecordedDate(task.completion) : undefined, suggestedDate: task.suggestedDate, windowStart: task.entry?.windowStart ?? task.completion?.scheduledWindowStart, windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd,
     }));
     home.push(...rows(today, 3));
     for (let date = range.from; date <= range.through; date = addDays(date, 1)) {
@@ -92,9 +92,12 @@ export function projectV2PrivateTasks(input: PrivatePlannerInput, ownerUserId: s
 }
 
 /** Display counts use the same execution-period rows as home and the selected day. */
-export function privateOverlayPendingCounts(overlay: V2PrivateOverlay | undefined, values?: ReadonlyMap<string, boolean>) {
+export function privateOverlayCalendarRows(rows: readonly V2PrivateTaskRow[], date: LocalDate) {
+  return rows.filter(row => (row.completedDate ?? row.suggestedDate) === date);
+}
+export function privateOverlayPendingCounts(overlay: V2PrivateOverlay | undefined, values?: ReadonlyMap<string, boolean>, recommendedOnly = false) {
   const counts = new Map<LocalDate, number>();
-  if (overlay) for (const [date, rows] of overlay.byDate) counts.set(date, rows.filter(row => !(values?.get(row.key) ?? row.completed)).length);
+  if (overlay) for (const [date, rows] of overlay.byDate) counts.set(date, (recommendedOnly ? privateOverlayCalendarRows(rows, date) : rows).filter(row => !(values?.get(row.key) ?? row.completed)).length);
   return counts;
 }
 

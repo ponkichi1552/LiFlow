@@ -1,12 +1,12 @@
 import { authorizeSharedCalendarOperation } from './calendar-state.ts';
-import { supportsRetainedManuals, supportsUploadedManuals, supportsSharedCalendar } from './payload-schema.ts';
+import { supportsRetainedManuals, supportsUploadedManuals, supportsSharedCalendar, V2_SCHEDULER_VERSION } from './payload-schema.ts';
 import { readV2ManualDocument } from './manual-documents.ts';
 import { restoreManualDocument } from '../../appliance-care/manual-document.ts';
 import type { ManualDocument, ManualChunk } from '../../appliance-care/manual-document';
 import { canonicalJson, causallyPrecedes, compareOperationIds } from '../operations.ts';
 import type { SharedOperation } from '../operations.ts';
 import type { SharedReplica } from '../replica.ts';
-import { sharedAuthorIdentity } from '../roster.ts';
+import { sharedAuthorIdentity, sharedRosterDigest } from '../roster.ts';
 import type { VerifiedSharedRoster } from '../roster.ts';
 import type { LocalDate } from '../../../domain/shared/types.ts';
 import { v2DatePermissionId, v2SubjectOccurrenceId } from './occurrence-id.ts';
@@ -45,6 +45,8 @@ import { v2AssignmentLineage } from './assignment-lineage.ts';
 import { assertVerifiedLegacyMigration, verifiedLegacyMigrationKind } from './legacy-migration-source.ts';
 import type { VerifiedLegacyMigration } from './legacy-migration-source.ts';
 import { verifyV2RecoveryWitnesses } from './recovery-witness.ts';
+import { assertV2RetentionBase, retentionCovered } from './history-retention-certificate.ts';
+import { validateV2RetentionBody, v2RetentionAuthorityState } from './history-retention-schema.ts';
 export type { VerifiedLegacyMigration } from './legacy-migration-source.ts';
 type DependencyEvidence = { receipts: ReadonlyMap<string, V2ServerReceipt>; epochs: ReadonlyMap<string, VerifiedSharedRoster> };
 
@@ -77,6 +79,8 @@ export interface V2ReceiptEvidence {
 }
 export function assessV2BusinessHistory(replica: SharedReplica, archive: readonly VerifiedSharedRoster[], migration?: VerifiedLegacyMigration,
   evidence?: V2ReceiptEvidence) {
+  const retention = replica.retention ? assertV2RetentionBase(replica, replica.retention, archive) : undefined;
+  if (retention) migration = undefined;
   if (migration !== undefined) assertVerifiedLegacyMigration(migration, replica, archive);
   const recoveries = verifyV2RecoveryWitnesses(replica.recoveryWitnesses ?? [], archive, replica.groupId);
   const indexed = new Map(replica.operationIndex.map(item => [item.operationId, item]));
@@ -108,12 +112,23 @@ export function assessV2BusinessHistory(replica: SharedReplica, archive: readonl
   const unconfirmedFrontier = new Map<string, number>();
   const dots = new Map(replica.operations.map((op) => [`${op.authorDeviceId}:${op.deviceSequence}`, op]));
   let assignmentsAt!: ReturnType<typeof createV2AssignmentHistory>;
-  const { view, accept } = createV2AuthorityIndex(replica.groupId, (at) => assignmentsAt(at), () => v2ConfirmedReceiptContext(view.ready, evidence?.receipts ?? new Map()), cancellationsAt);
+  const { view, accept } = createV2AuthorityIndex(replica.groupId, (at) => assignmentsAt(at), () => {
+    const current = v2ConfirmedReceiptContext(view.ready, evidence?.receipts ?? new Map());
+    return Object.fromEntries([...new Set([...Object.keys(current), ...Object.keys(retention?.frontier ?? {})])].map(device => [device, Math.max(current[device] ?? 0, retention?.frontier[device] ?? 0)]));
+  }, cancellationsAt, retention);
+  const certified = new Map(retention ? replica.operations.filter(op => retentionCovered(op, retention)).sort((a, b) => a.operationId.localeCompare(b.operationId))
+    .map((op, index) => [op.operationId, v2RetentionAuthorityState(retention, index)]) : []);
   assignmentsAt = createV2AssignmentHistory(view, archive, evidence);
   const ready = replica.operations.filter((op) => !pending.has(op.operationId))
     .sort((a, b) => a.logicalClock - b.logicalClock || compareOperationIds(a.operationId, b.operationId));
   for (const op of ready) {
     try {
+      const authority = certified.get(op.operationId);
+      if (authority !== undefined && authority !== 0) {
+        const kind = authority === 2 ? 'conflict' : authority === 3 ? 'unconfirmed' : 'unauthorized';
+        rejected.push({ operationId: op.operationId, kind, error: kind === 'conflict' ? new V2HistoryConflictError('保持された競合を確認してください。')
+          : kind === 'unconfirmed' ? new V2AwaitingReceiptError('保持された受付記録を確認してください。') : new V2AuthorityError('この操作は検証済みの履歴で拒否されています。') }); continue;
+      }
       const formal = ['designation', 'designationCancel', 'changeRequest', 'requestDecision', 'completion', 'assignmentRequest'].includes(op.entityType)
         ? formalRulesAt(op, op.entityType === 'requestDecision' ? op.payload.requestId as string : undefined) : [];
       const reviewIds = (op.entityType === 'designation' ? (op.payload.configuration as unknown as ManualRule).reviewedRequestIds
@@ -133,17 +148,17 @@ export function assessV2BusinessHistory(replica: SharedReplica, archive: readonl
           const receivedEpoch = bindV2ServerReceipt(receipt, fact, archive);
           receiptEpochs.set(op.operationId, receivedEpoch);
           for (const [device, count] of Object.entries(op.context)) {
-            if (count <= (migration?.frontier[device] ?? 0)) continue;
+            if (count <= Math.max(migration?.frontier[device] ?? 0, retention?.frontier[device] ?? 0)) continue;
             const ancestor = dots.get(`${device}:${count}`); const prior = ancestor && evidence.receipts.get(ancestor.operationId);
             if (!prior) throw new V2AwaitingReceiptError('Fetch the observed fact receipt before applying its descendant');
             if (prior.uploadSequence >= receipt.uploadSequence) throw new V2ReceiptCausalityError('A future server event cannot retroactively establish observed authority');
           }
-          authorizeV2Operation(view, archive, op, migration, undefined, receiptEpochs, formal, requestContexts, reviews, evidence.receipts); authorizeV2Operation(view, archive, op, migration, receivedEpoch, receiptEpochs, formal, requestContexts, reviews, evidence.receipts);
+          if (authority !== 0) { authorizeV2Operation(view, archive, op, migration, undefined, receiptEpochs, formal, requestContexts, reviews, evidence.receipts); authorizeV2Operation(view, archive, op, migration, receivedEpoch, receiptEpochs, formal, requestContexts, reviews, evidence.receipts); }
         } else if (evidence.pendingLocalIds.has(op.operationId)) {
           authorizeV2Operation(view, archive, op, migration, undefined, receiptEpochs, formal, requestContexts, reviews, evidence.receipts);
           authorizeV2Operation(view, archive, op, migration, archive.at(-1), receiptEpochs, formal, requestContexts, reviews, evidence.receipts);
         } else throw new V2AwaitingReceiptError('Fetch the immutable receipt before applying this received fact');
-      } else authorizeV2Operation(view, archive, op, migration);
+      } else if (authority !== 0) authorizeV2Operation(view, archive, op, migration);
       const originalContext = evidence && op.entityType === 'changeRequest'
         ? dateContext(view, archive, op, undefined, undefined, receiptEpochs.get(op.operationId), formal, reviews, { receipts: evidence.receipts, epochs: receiptEpochs }) : undefined;
       accept(op);
@@ -269,6 +284,28 @@ function authorizeV2Operation(view: V2HistoryView, archive: readonly VerifiedSha
   if (op.entityType === 'calendarEvent') {
     requireAuthority(supportsSharedCalendar(originalEpoch.body.schedulerVersion), 'Shared calendar requires an owner-approved compatibility update');
     authorizeSharedCalendarOperation(view, op, admin); return;
+  }
+  if (op.entityType === 'historyRetention') {
+    requireAuthority(originalEpoch.body.schedulerVersion === V2_SCHEDULER_VERSION, '履歴整理にはグループの互換更新が必要です。');
+    if (op.payload.phase === 'proposal') {
+      const body = validateV2RetentionBody(op.payload.checkpoint);
+      requireAuthority(admin && body.groupId === op.groupId && body.keyVersion === op.keyVersion && body.rosterDigest === sharedRosterDigest(originalEpoch)
+        && canonicalJson(Object.fromEntries(Object.entries(body.frontier).filter(([, count]) => count > 0))) === canonicalJson(op.context), '履歴整理の対象と権限が一致しません。');
+    } else {
+      const proposal = observedTarget(view, op, String(op.payload.proposalId), 'historyRetention');
+      const receipt = receipts?.get(proposal.operationId);
+      requireAuthority(proposal.payload.phase === 'proposal' && proposal.keyVersion === op.keyVersion && receipt
+        && op.payload.checkpointDigest === sharedDocumentDigest(proposal.payload.checkpoint)
+        && op.payload.receiptDigest === sharedDocumentDigest(receipt), '履歴整理の確認対象が一致しません。');
+    }
+    return;
+  }
+  if (op.entityType === 'retainedCompletionUndo') {
+    const checkpoint = view.retentionAt(op);
+    const round = checkpoint?.roundStates.find(state => state.choreId === op.payload.choreId && state.anchorDate === op.payload.anchorDate && state.subjectUserId === op.payload.subjectUserId);
+    requireAuthority(checkpoint && round && sharedDocumentDigest(checkpoint) === op.payload.checkpointId
+      && (op.payload.recorderUserIds as string[]).every(uid => round.reports.some(report => report.recorderUserId === uid) && (admin || uid === op.authorUserId)), '保持された完了を取り消す権限または対象を確認してください。');
+    return;
   }
   const memberIds = epoch.body.members.map((member) => member.userId);
   const member = (id: string) => requireAuthority(memberIds.includes(id), 'Target is not an approved member');

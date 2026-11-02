@@ -75,6 +75,13 @@ test('local calendar interval reader unions overlap honors exact boundaries time
   assert.equal(dst(interval('2026-03-08T05:00:00Z', '2026-03-09T04:00:00Z')).conflict.kind, 'unknown');
 });
 
+test('private recommendations inside a group ignore transparent Google appointments as personal planning does', () => {
+  const events = [{ ...draft({ allDay: true }), id: 'google-free', revision: 1, blocksTime: false }];
+  const read = createLocalCalendarAvailability(events, [], { from: '2026-10-27', through: '2026-10-27' }, 'Asia/Tokyo');
+  const result = read(interval('2026-10-26T15:00:00Z', '2026-10-27T15:00:00Z'));
+  assert.equal(result.conflict.kind, 'clear'); assert.equal(result.busyMinutes, 0);
+});
+
 test('combined private calendar readers never double count or turn an unavailable source into confirmed availability', () => {
   const local = () => ({ conflict: { kind: 'clear' }, busyMinutes: 30 });
   const google = () => ({ conflict: { kind: 'clear' }, busyMinutes: 45 });

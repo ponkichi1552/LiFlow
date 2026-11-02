@@ -44,7 +44,7 @@ function capture(draft: V2RecoveryDraft, groupId: string): V2RecoveryDraft {
   draft.preservedFacts.forEach(value => { exact(value, ['fact', 'receipt']); validateV2ServerReceipt(value.receipt); });
   for (const base of [draft.retainedBase, draft.baselineBase]) {
     assertJsonRecord(base);
-    if (Object.keys(base).some(key => !['groupId', 'frontier', 'logicalClock', 'operationIndex', 'operations', 'legacyMigrationWitness', 'recoveryWitnesses'].includes(key))) {
+    if (Object.keys(base).some(key => !['groupId', 'frontier', 'logicalClock', 'operationIndex', 'operations', 'legacyMigrationWitness', 'recoveryWitnesses', 'retention'].includes(key))) {
       throw new Error('Unknown retained recovery history field');
     }
   }

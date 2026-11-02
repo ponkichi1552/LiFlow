@@ -18,6 +18,7 @@ import type {
 export class ExpoLocalNotificationGateway implements LocalNotificationGateway {
   readonly maximumScheduledRequests = Platform.OS === 'ios' ? 60 : undefined;
   private permissionRequest: Promise<boolean> | null = null;
+  async schedulingDeadline(): Promise<number> { return (await import('../subscription/runtime')).subscriptionAccessDeadline(); }
 
   async requestPermission(): Promise<boolean> {
     if (this.permissionRequest) return this.permissionRequest;
@@ -72,6 +73,7 @@ export class ExpoLocalNotificationGateway implements LocalNotificationGateway {
     if (Number.isNaN(fireAt.getTime())) {
       throw new RangeError(`Invalid notification date: ${request.fireAt}`);
     }
+    if (fireAt.getTime() >= await this.schedulingDeadline()) throw new Error('契約の確認期限を過ぎる通知は予約できません。');
 
     return scheduleNotificationAsync({
       identifier: request.key,

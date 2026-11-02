@@ -98,7 +98,9 @@ test('deadline attention is restricted to still-open windows and startup hides i
   const previous = globalThis.requestAnimationFrame;
   globalThis.requestAnimationFrame = () => 1; // Native splash can suppress every requested frame.
   try {
-    let prevent = 0, hide = 0; prepareStartupDisplay({ preventAutoHideAsync: async () => { prevent++; }, hideAsync: async () => { hide++; } });
+    let prevent = 0, hide = 0, transition;
+    prepareStartupDisplay({ setOptions: options => { transition = options; }, preventAutoHideAsync: async () => { prevent++; }, hideAsync: async () => { hide++; } });
+    assert.deepEqual(transition, { duration: 0, fade: false });
     assert.equal(prevent, 1); assert.equal(hide, 0); finishStartupDisplay(); finishStartupDisplay(); await Promise.resolve(); assert.equal(hide, 1);
   } finally { globalThis.requestAnimationFrame = previous; }
 });

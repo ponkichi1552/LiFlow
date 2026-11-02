@@ -4,6 +4,8 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import { assertJsonRecord, assertSharedIdentifier, canonicalJson, MAX_OPERATION_BYTES, validateSharedOperation } from './operations.ts';
 import type { SharedOperation } from './operations.ts';
+import { sharedContentDigest } from './content-digest.ts';
+import { signatureVerificationCache } from './signature-verification-cache.ts';
 
 export interface SharingCryptoGateway {
   randomBytes(length: number): Promise<Uint8Array>;
@@ -67,7 +69,7 @@ function bytes(hex: string, length?: number): Uint8Array {
 function positive(value: number): void { if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid cryptographic version or clock'); }
 function publicIdentity(signingPublicKey: string, agreementPublicKey: string): DevicePublicIdentity {
   bytes(signingPublicKey, 32); bytes(agreementPublicKey, 32);
-  return { deviceId: `device-${bytesToHex(sha256(utf8({ signingPublicKey, agreementPublicKey })))}`,
+  return { deviceId: `device-${sharedContentDigest({ signingPublicKey, agreementPublicKey })}`,
     signingPublicKey, agreementPublicKey };
 }
 export function validateDevicePublicIdentity(identity: DevicePublicIdentity): DevicePublicIdentity {
@@ -90,18 +92,43 @@ export function validateDeviceSecretIdentity(identity: DeviceSecretIdentity): De
   return { ...pub, signingSecretKey: identity.signingSecretKey, agreementSecretKey: identity.agreementSecretKey };
 }
 
+// A signature's mathematical validity is independent of current membership.
+// Keep only positive, content-bound results; callers still check authority and
+// revocation. Canonical signed bytes stay in bounded process memory only;
+// secret keys and permission decisions are never cached.
+const verifiedSignatures = new Map<string, string>();
+let verifiedSignatureBytes = 0;
+const maximumSignatureBytes = 8 * 1024 * 1024;
+const signatureWeight = (text: string) => text.length * 2 + 256;
 function verify(value: unknown, signature: string, trusted: DevicePublicIdentity): void {
-  validateDevicePublicIdentity(trusted);
-  if (!ed25519.verify(bytes(signature, 64), utf8(value), bytes(trusted.signingPublicKey, 32), { zip215: false })) {
-    throw new Error('Shared signature authentication failed');
+  const identity = { deviceId: trusted.deviceId, signingPublicKey: trusted.signingPublicKey, agreementPublicKey: trusted.agreementPublicKey };
+  validateDevicePublicIdentity(identity);
+  const signatureBytes = bytes(signature, 64); const publicKey = bytes(identity.signingPublicKey, 32);
+  const text = canonicalJson(value); const key = `${identity.signingPublicKey}:${signature}`;
+  const cached = verifiedSignatures.get(key);
+  // Exact text equality avoids hashing a large snapshot merely to find its
+  // already-verified signature. Reusing a signature with changed bytes still verifies.
+  if (cached === text) { verifiedSignatures.delete(key); verifiedSignatures.set(key, text); return; }
+  if (!signatureVerificationCache.has(identity.signingPublicKey, signature, text)) {
+    if (!ed25519.verify(signatureBytes, encoder.encode(text), publicKey, { zip215: false })) {
+      throw new Error('Shared signature authentication failed');
+    }
+    signatureVerificationCache.rememberVerified(identity.signingPublicKey, signature, text);
   }
+  const size = signatureWeight(text); if (size > maximumSignatureBytes) return;
+  if (cached !== undefined) { verifiedSignatures.delete(key); verifiedSignatureBytes -= signatureWeight(cached); }
+  while (verifiedSignatures.size >= 1024 || verifiedSignatureBytes + size > maximumSignatureBytes) {
+    const oldest = verifiedSignatures.keys().next().value!;
+    verifiedSignatureBytes -= signatureWeight(verifiedSignatures.get(oldest)!); verifiedSignatures.delete(oldest);
+  }
+  verifiedSignatures.set(key, text); verifiedSignatureBytes += size;
 }
 export function signSharedDocument(value: unknown, identity: DeviceSecretIdentity): string {
   validateDeviceSecretIdentity(identity);
   return bytesToHex(ed25519.sign(utf8(value), bytes(identity.signingSecretKey, 32)));
 }
 export function verifySharedDocument(value: unknown, signature: string, trusted: DevicePublicIdentity): void { verify(value, signature, trusted); }
-export function sharedDocumentDigest(value: unknown): string { return bytesToHex(sha256(utf8(value))); }
+export function sharedDocumentDigest(value: unknown): string { return sharedContentDigest(value); }
 
 export async function sealSharedSnapshotChunk(crypto: SharingCryptoGateway, plaintext: Uint8Array,
   context: { groupId: string; snapshotId: string; chunkIndex: number; keyVersion: number },

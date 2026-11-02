@@ -172,6 +172,7 @@ export async function authorizeGoogleTasks(): Promise<void> {
 }
 
 export async function getGoogleTasksAccessToken(expectedSubject?: string): Promise<string> {
+  await (await import('../subscription/runtime')).assertSubscriptionAccess();
   const module = await loadGoogleSignIn();
   const currentUser = await getCurrentGoogleUser(module);
   if (!currentUser) throw new GoogleSignInRequiredError();
@@ -258,6 +259,7 @@ export async function authorizeGoogleCalendarEvents(expectedSubject?: string): P
 
 /** Background-safe. It never presents sign-in or requests an additional scope. */
 export async function getGoogleCalendarEventsAccessToken(expectedSubject: string): Promise<string> {
+  await (await import('../subscription/runtime')).assertSubscriptionAccess();
   const module = await loadGoogleSignIn(); const user = await getCurrentGoogleUser(module);
   if (!user || !expectedSubject || user.user.id !== expectedSubject) throw new GoogleAccountMismatchError();
   if (GOOGLE_CALENDAR_EVENT_SCOPES.some(scope => !user.scopes.includes(scope))) throw new CalendarPermissionRequiredError();
@@ -271,6 +273,7 @@ export async function getGoogleCalendarEventsAccessToken(expectedSubject: string
 
 /** Non-interactive: no requestScopes/createAccount/presentExplicitSignIn fallback. */
 export async function getGoogleCalendarAccessToken(expectedSubject?: string): Promise<string> {
+  await (await import('../subscription/runtime')).assertSubscriptionAccess();
   const module = await loadGoogleSignIn();
   const user = await getCurrentGoogleUser(module);
   if (user && expectedSubject && user.user.id !== expectedSubject) throw new GoogleAccountMismatchError();

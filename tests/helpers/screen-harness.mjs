@@ -69,7 +69,7 @@ export function screenHarness(filename, options = {}) {
         }, children: [props.ListHeaderComponent,
           ...((props.data ?? []).length ? props.data.slice(first, first + (props.initialNumToRender ?? 10)).map((item, index) => props.renderItem({ item, index: index + first })) : [props.ListEmptyComponent]), props.ListFooterComponent] });
       },
-      Platform: { OS: options.platform ?? process.env.HOUSEWORK_TEST_PLATFORM ?? 'ios' }, StyleSheet: { create: (styles) => styles, hairlineWidth: 1, absoluteFill: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 } },
+      Platform: { OS: options.platform ?? process.env.HOUSEWORK_TEST_PLATFORM ?? 'ios' }, StatusBar: { currentHeight: 0 }, StyleSheet: { flatten: value => Array.isArray(value) ? Object.assign({}, ...value.map(part => Array.isArray(part) ? Object.assign({}, ...part) : part)) : value, create: (styles) => styles, hairlineWidth: 1, absoluteFill: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 } },
       useColorScheme: () => options.colorScheme ?? 'light',
       useWindowDimensions: () => ({ width: options.width ?? 390, height: options.height ?? 844, fontScale: 1, scale: 3 }),
       PanResponder: { create: callbacks => ({ panHandlers: callbacks }) },
@@ -89,7 +89,8 @@ export function screenHarness(filename, options = {}) {
         setParams: (value) => { options.params = { ...options.params, ...value }; } }),
       router: { ...Object.fromEntries(['push', 'navigate', 'replace', 'back', 'dismissTo'].map((name) => [name, (...args) => options.navigate?.(name, ...args)])),
         setParams: (value) => { options.params = { ...options.params, ...value }; } },
-      Tabs: { Screen: 'TabsScreen' }, useFocusEffect: (callback) => options.focusEffect?.(callback),
+      Tabs: { Screen: 'TabsScreen' }, useFocusEffect: (callback) => options.focusDependencies
+        ? effect(callback, [callback], options.effect) : options.focusEffect?.(callback),
       usePreventRemove: (prevent, callback) => { options.preventRemove?.(prevent, callback); return () => options.disablePrevention?.(); },
     },
     'expo-sqlite': { useSQLiteContext: () => options.database },
@@ -103,6 +104,10 @@ export function screenHarness(filename, options = {}) {
     // Native FlatList jumps are tested directly in chore-book tests. Other screen tests
     // inspect the requested virtual chapter instead of pretending all chapters are mounted.
     '../sharing/v2-ui/workspace-data': { useOptionalWorkspaceDisplay: () => null },
+    // Screen tests without a native queue fixture exercise the legacy receipt
+    // path. Durable queue wiring has explicit runtimes in completion-intents-ui.
+    '../platform/storage/completion-intents': { personalCompletionIntents: () => undefined },
+    '../../../platform/storage/completion-intents': { personalCompletionIntents: () => undefined, sharedCompletionIntents: () => undefined },
     '@/components/chore-book': { ChoreBook: (props) => jsx('ChoreBook', { ...props, children: [typeof props.titleAccessory === 'function' ? props.titleAccessory(props.chores.find(row => row.id === props.selectedId) ?? props.chores[0]) : props.titleAccessory, props.header,
       props.renderChore(props.chores.find(row => row.id === props.selectedId) ?? props.chores[0]),
       jsx(load(resolve(root, 'src/components/planner-ui.tsx')).BackButton, { onPress: props.onBack })] }) },

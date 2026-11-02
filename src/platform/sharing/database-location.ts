@@ -42,6 +42,11 @@ export function sharingV2DatabaseFilename(userId: string, groupId: string, local
   return sharingDatabaseFilename(userId, groupId, localGeneration).replace(/^group-/u, 'group-v2-');
 }
 
+export async function sharingDatabaseFileExists(filename: string): Promise<boolean> {
+  if (!/^group-[a-f0-9]{64}\.db$/u.test(filename)) throw new Error('Invalid legacy sharing database filename');
+  return new File(await sharingDatabaseDirectory(), filename).exists;
+}
+
 /** The account is part of the filename: private Google mappings cannot cross Firebase accounts. */
 export async function openSharingDatabase(userId: string, groupId: string, localGeneration?: string) {
   return openDatabaseAsync(sharingDatabaseFilename(userId, groupId, localGeneration), { useNewConnection: true }, await sharingDatabaseDirectory());

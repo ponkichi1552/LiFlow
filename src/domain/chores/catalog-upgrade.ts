@@ -93,8 +93,14 @@ const same = (a: unknown, b: unknown): boolean => {
 export function builtInCatalogPatch(existing: Record<string, unknown>, current: ChoreDefinition): Record<string, unknown> {
   const match = /(?:^|\.)(builtin-chore-\d{2})$/u.exec(current.id);
   const previous = match ? legacyById.get(match[1]) : undefined;
-  if (!previous || existing.applianceId || existing.applianceCareSource) return {};
+  if (!match || existing.applianceId || existing.applianceCareSource) return {};
   const patch: Record<string, unknown> = {};
+  if (!same(existing.sourceNotes, [])) patch.sourceNotes = [];
+  if (existing.requiresCycleSelection === true && !current.requiresCycleSelection && existing.recommendedCycleDays == null) {
+    for (const field of [...scheduleFields, 'frequencyDaysByMode', 'requiresCycleSelection'] as const) patch[field] = current[field] ?? false;
+    patch.schedulingNotes = current.schedulingNotes;
+  }
+  if (!previous) return patch;
   for (const field of [...BUILT_IN_GUIDE_FIELDS, ...scheduleFields]) {
     if (same(existing[field], previous[field]) && !same(existing[field], current[field])) patch[field] = current[field];
   }

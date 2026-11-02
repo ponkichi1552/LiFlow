@@ -43,7 +43,7 @@ async function route(f, platform, file, params = {}, readyText = '今日の家�
       '../../../hooks/use-workspace': { useWorkspace: () => f.context },
       './workspace-display-store': { createWorkspaceDisplayStore: loader => createWorkspaceDisplayStore(loader, f.now) },
       './screen-session': { createV2ScreenSession: input => { f.sessionInputs.push(input); const source = createV2ScreenSession({ ...input, now: f.now });
-        return { ...source, readModel: async options => { (f.planReadOptions ??= []).push(options); return source.readModel(options); } }; } },
+        return { ...source, readModel: async options => { (f.planReadOptions ??= []).push(options); await f.planBarrier; return source.readModel(options); } }; } },
       '@/platform/sharing/workspaces': { sharingFailureMessage: () => '同期を確認してください。', subscribeSharingChanges: (callback) => { f.callbacks?.add(callback); return () => f.callbacks?.delete(callback); } },
       '../../../platform/sharing/private-calendar-runtime': { openPrivateCalendarRuntime: userId => { assert.equal(userId, f.context.userId); return {
         subscribe: callback => { f.calendarCallbacks.add(callback); return () => f.calendarCallbacks.delete(callback); },
@@ -92,6 +92,25 @@ for (const platform of ['ios', 'android']) {
       assert.equal((await listSharingOutbox(f.database, f.preview.groupId)).length, before + 1);
       ui.leave();
     } finally { f.dispose(); }
+  });
+  test(`${platform} a restored card commits through current authority without waiting for unrelated presentation preparation`, async () => {
+    const f = await fixture(); let release; let completing; let ui;
+    try {
+      const model = await f.preview.readModel(); const active = f.context.active;
+      f.context.startupDisplay = { record: { ...f.context.group, userId: f.context.userId }, model }; f.context.active = null;
+      f.planBarrier = new Promise(resolve => { release = resolve; });
+      const before = (await listSharingOutbox(f.database, f.preview.groupId)).length;
+      ui = await route(f, platform, 'index');
+      const check = ui.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && typeof node.props.onPress === 'function' && !node.props.disabled);
+      assert.ok(check, ui.screen.text()); completing = check.props.onPress(); await ui.screen.flush();
+      assert.equal((await listSharingOutbox(f.database, f.preview.groupId)).length, before);
+      f.context.active = active; ui.screen.render();
+      for (let i = 0; i < 40 && (await listSharingOutbox(f.database, f.preview.groupId)).length === before; i++) await ui.screen.flush();
+      assert.equal((await listSharingOutbox(f.database, f.preview.groupId)).length, before + 1,
+        'an authenticated command must not queue behind calendar/preferences/presentation preparation');
+      release(); await completing; await ui.screen.flush();
+      assert.equal((await listSharingOutbox(f.database, f.preview.groupId)).length, before + 1);
+    } finally { release?.(); await completing; ui?.leave(); f.dispose(); }
   });
   test(`${platform} saved guide and library content is visible before restoration without constructing an unverified controller`, async () => {
     const f = await fixture();
@@ -230,8 +249,8 @@ for (const platform of ['ios', 'android']) {
       const before = f.calendarReads; for (const callback of f.calendarCallbacks) callback();
       for (let n = 0; n < 50 && f.calendarReads === before; n++) { await new Promise(resolve => setTimeout(resolve, 20)); await r.screen.flush(); } assert.ok(f.calendarReads > before);
       const beforeLocal = f.calendarReads; assert.equal(f.localCalendarCallbacks.size, 1);
-      for (const callback of f.localCalendarCallbacks) { callback('drafts'); callback('categories'); }
-      await new Promise(resolve => setTimeout(resolve, 120)); await r.screen.flush(); assert.equal(f.calendarReads, beforeLocal, 'drafts and colors do not change housework allocation');
+      for (const callback of f.localCalendarCallbacks) { callback('drafts'); callback('categories'); callback('syncStatus'); }
+      await new Promise(resolve => setTimeout(resolve, 120)); await r.screen.flush(); assert.equal(f.calendarReads, beforeLocal, 'drafts, colors and sync status do not change housework allocation');
       for (const callback of f.localCalendarCallbacks) callback();
       for (let n = 0; n < 50 && f.calendarReads === beforeLocal; n++) { await new Promise(resolve => setTimeout(resolve, 20)); await r.screen.flush(); } assert.ok(f.calendarReads > beforeLocal);
       r.leave?.(); assert.equal(f.callbacks.size, 0); assert.equal(f.calendarCallbacks.size, 0); assert.equal(f.localCalendarCallbacks.size, 0);

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createDatabase } from './helpers/sqlite.mjs';
 import * as ledger from '../src/platform/storage/sharing-ledger.ts';
+import { canonicalJson } from '../src/features/sharing/operations.ts';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
 import { createDeviceIdentity, encryptSharedOperation, signSharedOperation } from '../src/features/sharing/crypto.ts';
 import { createSharedRoster } from '../src/features/sharing/roster.ts';
@@ -182,5 +183,48 @@ test('adding the sharing ledger leaves all legacy SQLite tables and personal Goo
     await ledger.initializeSharingLedger(h.database); await ledger.initializeSharingLedger(h.database);
     for (const [name, rows] of before) assert.deepEqual(h.connection.prepare(`SELECT * FROM ${name}`).all(), rows, name);
     assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 21);
+  } finally { h.connection.close(); }
+});
+
+test('unchanged ledger reads reuse only the exact SQLite text and isolate every returned replica', async t => {
+  const h = await fixture(); const read = ledger.createSharedReplicaReader();
+  try {
+    await ledger.commitLocalSharedOperation(h.database, operation(), noProjection);
+    const encoded = h.connection.prepare('SELECT operation_json FROM sharing_operations').get().operation_json;
+    const originalParse = JSON.parse; let parses = 0;
+    t.mock.method(JSON, 'parse', (...args) => { if (args[0] === encoded) parses++; return originalParse(...args); });
+    const current = () => ledger.withSharingLedgerTransaction(h.database, tx => read(tx, 'group-test'));
+    const first = await current(); const firstReadParses = parses; assert.ok(firstReadParses > 0);
+    first.entities[0].fields.name = 'caller mutation'; first.operations[0].payload.name = 'also mutated';
+    const second = await current();
+    assert.equal(second.entities[0].fields.name, '床掃除1'); assert.equal(second.operations[0].payload.name, '床掃除1');
+    assert.equal(parses, firstReadParses, 'unchanged serialized operations are not parsed and rebuilt again across separate transactions');
+    h.connection.prepare('UPDATE sharing_operations SET operation_json=?').run('{');
+    await assert.rejects(current(), SyntaxError); await assert.rejects(current(), SyntaxError);
+    h.connection.prepare('UPDATE sharing_operations SET operation_json=?').run(encoded);
+    assert.equal((await current()).entities[0].fields.name, '床掃除1');
+    h.connection.prepare('INSERT INTO sharing_snapshot_state VALUES (?, ?, ?, ?)').run('group-test', 'malformed', 1, '{');
+    await assert.rejects(current(), SyntaxError, 'a changed snapshot is checked even when operation rows are identical');
+    h.connection.prepare('DELETE FROM sharing_snapshot_state').run();
+    h.connection.prepare('DELETE FROM sharing_outbox').run();
+    h.connection.prepare('DELETE FROM sharing_operations').run();
+    assert.equal((await current()).operations.length, 0, 'deletion must not leave a cached fact visible');
+    assert.equal((await read(h.database, 'other-group')).groupId, 'other-group');
+  } finally { h.connection.close(); }
+});
+
+test('a replica read inside a rolled back transaction cannot publish its provisional facts on the next read', async () => {
+  const h = await fixture(); const read = ledger.createSharedReplicaReader();
+  try {
+    await ledger.commitLocalSharedOperation(h.database, operation(), noProjection);
+    const original = await ledger.withSharingLedgerTransaction(h.database, tx => read(tx, 'group-test'));
+    await assert.rejects(ledger.withSharingLedgerTransaction(h.database, async tx => {
+      await tx.runAsync('UPDATE sharing_operations SET operation_json=?', canonicalJson({ ...operation(), payload: { name: 'rolled back' } }));
+      assert.equal((await read(tx, 'group-test')).entities[0].fields.name, 'rolled back');
+      throw new Error('abort this transaction');
+    }), /abort this transaction/);
+    assert.deepEqual(await ledger.withSharingLedgerTransaction(h.database, tx => read(tx, 'group-test')), original);
+    const checkpoint = await ledger.readSharingCheckpoint(h.database, 'group-test');
+    assert.equal(checkpoint.pendingCount, 1, 'read caching must not change unsent edits');
   } finally { h.connection.close(); }
 });

@@ -5,6 +5,7 @@ import { analyzeApplianceCare, validateApplianceCareRequest } from './service.mj
 import { analysisRequestKey, createAnalysisRunner } from './analysis-runner.mjs';
 import { analyzeUploadedManual, decodeUploadedManual, inspectUploadedManual, MAX_MANUAL_BYTES } from './uploaded-manual.mjs';
 import { PublicApiError } from './public-access.mjs';
+import { SubscriptionError } from './subscription-service.mjs';
 
 const MAX_BODY_BYTES = 8 * 1024;
 const RATE_WINDOW_MS = 60_000;
@@ -25,16 +26,21 @@ const STATUS_BY_ERROR = {
 };
 
 export function createApplianceCareHttpServer({ dependencies, aiConfigured = true, allowedOrigins = [], analysisLimits = {},
-  publicAccess, createJobDependencies, manualUploadsOnly = Boolean(publicAccess) }) {
+  publicAccess, subscriptionAccess = publicAccess?.subscriptions, billingOnly = false, createJobDependencies, manualUploadsOnly = Boolean(publicAccess) }) {
+  if (billingOnly && !subscriptionAccess?.service) throw new Error('Billing-only mode requires verified subscription services');
   if (publicAccess && !manualUploadsOnly) throw new Error('Public AI requires uploaded manuals');
   if (process.env.NODE_ENV?.trim().toLowerCase() === 'production' && publicAccess?.mode !== 'firebase-firestore') {
     const error = new Error('Public user authentication and distributed usage limits are required before production deployment.');
     error.code = 'DEVELOPMENT_API_ONLY';
     throw error;
   }
-  if (process.env.NODE_ENV?.trim().toLowerCase() === 'production' && !publicAccess?.securityReady) {
+  if (process.env.NODE_ENV?.trim().toLowerCase() === 'production' && !publicAccess?.securityReady && !billingOnly) {
     const error = new Error('Verified native app, device continuity and reinstall protection are required for paid AI.');
     error.code = 'DEVICE_SECURITY_NOT_CONFIGURED'; throw error;
+  }
+  if (process.env.NODE_ENV?.trim().toLowerCase() === 'production' && !subscriptionAccess?.service) {
+    const error = new Error('Verified subscriptions are required before public deployment');
+    error.code = 'SUBSCRIPTIONS_NOT_CONFIGURED'; throw error;
   }
   const requestsByAddress = new Map();
   const publicRequestsByAddress = new Map();
@@ -47,7 +53,7 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
     return handle(request, response).catch(error => {
       if (response.destroyed || response.writableEnded) return;
       if (response.headersSent) { response.destroy(); return; }
-      const expected = error instanceof PublicApiError;
+      const expected = error instanceof PublicApiError || error instanceof SubscriptionError;
       if (expected && error.status === 401) response.setHeader('www-authenticate', 'Bearer');
       rejectRequest(request, response, expected ? error.status : 503, { status: 'error',
         code: expected ? error.code : 'TEMPORARY_NETWORK_ERROR',
@@ -89,10 +95,15 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
     if (publicAccess && !consumeRateLimit(request.socket.remoteAddress ?? 'unknown', publicRequestsByAddress, Date.now(), 300)) {
       throw new PublicApiError(429, 'RATE_LIMITED', 'リクエストが多すぎます。少し待って再試行してください。');
     }
+    if (subscriptionAccess && await subscriptionAccess.handle(request, response, url)) return;
+    if (billingOnly) {
+      sendJson(response, 503, { code: 'DEVICE_VERIFICATION_UNAVAILABLE', message: '家電AIは安全な端末確認の準備中です。購入・復元は利用できます。' }); return;
+    }
     const principal = publicAccess ? await publicAccess.authenticate(request) : null;
     if (principal && !consumeRateLimit(principal.uid, publicRequestsByUser, Date.now(), 90)) {
       throw new PublicApiError(429, 'RATE_LIMITED', 'リクエストが多すぎます。少し待って再試行してください。');
     }
+    if (principal && subscriptionAccess && publicAccess.subscriptions !== subscriptionAccess) await subscriptionAccess.service.assertActive(principal.uid);
     if (publicAccess && request.method === 'GET' && url.pathname === '/api/appliance-care/usage') {
       sendJson(response, 200, { usage: await publicAccess.store.usage(principal) }); return;
     }
@@ -248,6 +259,7 @@ export function startApplianceCareHttpServer({
     maxPerHour: serverLimit(process.env.APPLIANCE_CARE_MAX_PER_HOUR, 20, 1000),
   },
   publicAccess,
+  billingOnly = false,
   createJobDependencies,
   manualUploadsOnly,
 } = {}) {
@@ -255,7 +267,7 @@ export function startApplianceCareHttpServer({
     const error = new Error('Unauthenticated development APIs must bind to loopback only.');
     error.code = 'DEVELOPMENT_API_LOCALHOST_ONLY'; throw error;
   }
-  const server = createApplianceCareHttpServer({ dependencies, aiConfigured, allowedOrigins, analysisLimits, publicAccess, createJobDependencies, manualUploadsOnly });
+  const server = createApplianceCareHttpServer({ dependencies, aiConfigured, allowedOrigins, analysisLimits, publicAccess, billingOnly, createJobDependencies, manualUploadsOnly });
   server.listen(port, host);
   return server;
 }

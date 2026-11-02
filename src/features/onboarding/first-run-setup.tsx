@@ -1,7 +1,7 @@
 import { FormTextInput as TextInput } from '../../components/form-text-input';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView } from '@/components/screen-safe-area';
 import { router } from 'expo-router';
 import { usePlannerData } from '@/hooks/use-planner-data';
 

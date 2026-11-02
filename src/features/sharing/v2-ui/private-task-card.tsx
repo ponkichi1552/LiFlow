@@ -25,16 +25,18 @@ export function V2PrivateTaskNotice({ overlay, sharedTimeZone, date }: { overlay
 }
 
 /** The shared actions object is deliberately absent. Only the captured personal source accepts this checkbox. */
-export function V2PrivateTaskCard({ row, source, busy, run, feedback, today = row.date, home = false, mixedSources = false, onOpen }: { row: V2PrivateTaskRow; source?: V2PrivateTaskSource; busy: boolean; feedback?: CompletionFeedback; today?: LocalDate; home?: boolean; mixedSources?: boolean;
+export function V2PrivateTaskCard({ row, source, busy, run, feedback, today = row.date, home = false, compact = false, mixedSources = false, onOpen }: { row: V2PrivateTaskRow; source?: V2PrivateTaskSource; busy: boolean; feedback?: CompletionFeedback; today?: LocalDate; home?: boolean; compact?: boolean; mixedSources?: boolean;
   onOpen?: () => void; run: (work: () => Promise<unknown>) => Promise<void> }) {
   const [open, setOpen] = useState(false); const chore = row.chore;
   const completed = feedback?.values.get(row.key) ?? row.completed;
+  const queueable = feedback?.supports?.('personal') && feedback.request;
   return <View style={{ gap: 6 }}>
-    <TaskCheckboxRow chore={{ ...chore, category: `本人のみ${chore.category ? ` · ${chore.category}` : ''}` }} completed={completed} source="personal" home={home} mixedSources={mixedSources} detailsExpanded={onOpen ? undefined : open}
+    <TaskCheckboxRow chore={{ ...chore, category: `本人のみ${chore.category ? ` · ${chore.category}` : ''}` }} completed={completed} source="personal" home={home} compact={compact} mixedSources={mixedSources} detailsExpanded={onOpen ? undefined : open}
       executionWindow={row.windowStart && row.windowEnd ? { start: row.windowStart, end: row.windowEnd } : undefined}
       urgent={isTaskUrgent({ completed, load: chore.load, recommendedDate: row.suggestedDate, windowEnd: row.windowEnd }, today)}
       onOpen={onOpen ?? (() => setOpen((value) => !value))}
-      onToggle={!busy && source && !feedback?.values.has(row.key) ? () => feedback
+      onToggle={queueable ? () => feedback!.request!(row.key, !completed, { kind: 'personal',
+        command: { date: row.date, graceDays: row.graceDays, choreId: row.chore.id, revision: row.revision } }) : !busy && source && !feedback?.values.has(row.key) ? () => feedback
         ? feedback.run(row.key, !row.completed, async () => {
           const changed = await source.setCompleted(row.key, row.revision, !row.completed);
           if (!changed || row.completed || !home) return;

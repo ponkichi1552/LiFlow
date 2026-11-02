@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { personalChoreHistoryCutoffInstant } from '../../domain/chores/history-retention.ts';
 
-import { BUILT_IN_CHORE_CATALOG_VERSION, compareBuiltInChoreOrder, createHouseholdChoreDefinitions } from '@/domain/chores/catalog';
+import { BUILT_IN_CHORE_CATALOG_VERSION, RETIRED_BUILT_IN_CHORE_IDS, compareBuiltInChoreOrder, createHouseholdChoreDefinitions } from '@/domain/chores/catalog';
 import { choreScheduleDefaults, resetChoreSchedule } from '@/domain/chores/schedule-defaults';
 import { upgradeBuiltInCatalogDefinition } from '@/domain/chores/catalog-upgrade';
 import { validateChoreToggle } from '@/domain/chores/chore-groups';
@@ -18,11 +19,12 @@ import type {
 import { parseCalendarCountColors } from '@/domain/calendar/count-colors';
 import { completionCycleDate, completionWasRecordedBeforeWindow } from '@/domain/scheduling/completion-matching';
 import { selectDateTasks } from '@/domain/scheduling/date-tasks';
-import { dateTaskRevision } from '@/domain/scheduling/date-task-reference';
+import type { DateTask } from '@/domain/scheduling/date-tasks';
+import { dateTaskRevision, dateTaskOccurrenceReference, sameDateTaskOccurrence } from '@/domain/scheduling/date-task-reference';
 import type { PersonalDateTaskCommand } from '@/domain/scheduling/date-task-reference';
 import type { ScheduleGenerationInput } from '@/domain/scheduling/contracts';
 import { generateHouseworkScheduleResult, wouldCreateDependencyCycle } from '@/domain/scheduling/engine';
-import { addDays, localDateFromDate, parseLocalDate } from '@/domain/scheduling/local-date';
+import { addDays, localDateFromDate, localDateFromISODateTime, parseLocalDate } from '@/domain/scheduling/local-date';
 import type { CalendarCountColors, CalendarCountDisplayMode, EntityId, Household, HouseholdMember, LocalDate, WeatherLocation, Weekday } from '@/domain/shared/types';
 import type { WasteRecurrence, WasteScheduleInput, WeeklyWasteSchedule } from '@/features/waste/contracts';
 import { mergeWasteScheduleEdits, normalizeWasteSchedule } from '@/features/waste/schedule-policy';
@@ -310,8 +312,16 @@ async function ensureLocalHouseholdImpl(database: SQLiteDatabase): Promise<void>
   if (await database.getFirstAsync("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sharing_workspace_metadata'")) {
     throw new Error('共有DBはアカウントとグループを確認してから開いてください。');
   }
+  const existing = await database.getFirstAsync<{ built_in_chore_catalog_version: number }>(
+    `SELECT s.built_in_chore_catalog_version FROM household_settings s
+     JOIN households h ON h.id=s.household_id
+     JOIN household_members m ON m.household_id=h.id AND m.id=?
+     WHERE s.household_id=?`, LOCAL_MEMBER_ID, LOCAL_HOUSEHOLD_ID,
+  );
+  if (existing && existing.built_in_chore_catalog_version >= BUILT_IN_CHORE_CATALOG_VERSION) {
+    initializedHouseholds.add(database); return;
+  }
   const now = new Date().toISOString();
-  const definitions = createHouseholdChoreDefinitions(LOCAL_HOUSEHOLD_ID);
   await database.withTransactionAsync(async () => {
     await database.runAsync(
       'INSERT OR IGNORE INTO households (id, name, created_at) VALUES (?, ?, ?)',
@@ -334,6 +344,14 @@ async function ensureLocalHouseholdImpl(database: SQLiteDatabase): Promise<void>
     );
     const previousCatalogVersion = catalogVersionRow?.built_in_chore_catalog_version ?? 0;
     if (previousCatalogVersion < BUILT_IN_CHORE_CATALOG_VERSION) {
+      const definitions = createHouseholdChoreDefinitions(LOCAL_HOUSEHOLD_ID);
+      for (const id of RETIRED_BUILT_IN_CHORE_IDS) {
+        // Keep only the opaque remote mapping until the existing obsolete-task
+        // reconciliation removes that managed Google task. Never leave an orphan.
+        await database.runAsync('DELETE FROM chore_completions WHERE chore_id=?', id);
+        await database.runAsync('DELETE FROM chore_dependencies WHERE predecessor_chore_id=? OR successor_chore_id=?', id, id);
+        await database.runAsync('DELETE FROM chore_definitions WHERE household_id=? AND id=?', LOCAL_HOUSEHOLD_ID, id);
+      }
       const legacyBuiltIns = await database.getAllAsync<{ id: string; definition_json: string }>(
         `SELECT id, definition_json FROM chore_definitions
          WHERE household_id = ? AND id GLOB 'chore-[0-9][0-9]'`, LOCAL_HOUSEHOLD_ID,
@@ -456,6 +474,12 @@ async function loadPlannerSnapshotImpl(
   const shared = sharedRepositoryAdapter(database);
   if (shared) return shared.readSnapshot(calendarNow);
   await ensureLocalHouseholdImpl(database);
+  // The scheduling anchor lives in chore_state, independently of disposable history.
+  // Do not delete Google Calendar events, definitions or the last completed civil date.
+  const historyCutoff = personalChoreHistoryCutoffInstant(today);
+  if (await database.getFirstAsync('SELECT id FROM chore_completions WHERE household_id=? AND completed_at < ? LIMIT 1', LOCAL_HOUSEHOLD_ID, historyCutoff)) {
+    await database.runAsync('DELETE FROM chore_completions WHERE household_id=? AND completed_at < ?', LOCAL_HOUSEHOLD_ID, historyCutoff);
+  }
   const householdRow = await database.getFirstAsync<HouseholdRow>(
     'SELECT id, name, created_at FROM households WHERE id = ?', LOCAL_HOUSEHOLD_ID,
   );
@@ -1252,14 +1276,27 @@ async function readPersonalChoreCopySourceImpl(database: SQLiteDatabase, ids?: r
 }
 
 /** Re-select inside the personal queue and transaction; a stale UI can never target a new occurrence. */
+export interface PersonalCompletionIntentIdentity { id: string; digest: string; householdCreatedAt: string; createdAt: string }
 async function setPersonalDateTaskCompletedImpl(database: SQLiteDatabase, command: PersonalDateTaskCommand,
-  assertAccess: () => void | Promise<void>): Promise<boolean> {
+  assertAccess: () => void | Promise<void>, intent?: PersonalCompletionIntentIdentity): Promise<boolean> {
   parseLocalDate(command.date);
   if (![0, 3].includes(command.graceDays) || typeof command.completed !== 'boolean' || typeof command.revision !== 'string'
     || !command.choreId) throw new Error('表示した個人家事を選び直してください。');
   await assertAccess(); await assertPersonalPlannerDatabase(database);
+  if (intent && (!/^completion-intent\.[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(intent.id)
+    || !/^[a-f0-9]{64}$/u.test(intent.digest) || !Number.isFinite(Date.parse(intent.createdAt)))) throw new Error('保存待ちの完了操作を確認できません。');
   let changed = false;
   await database.withTransactionAsync(async () => {
+    if (intent) {
+      const household = await database.getFirstAsync<HouseholdRow>('SELECT id, name, created_at FROM households WHERE id=?', LOCAL_HOUSEHOLD_ID);
+      if (!household || household.created_at !== intent.householdCreatedAt) throw new Error('個人家事の保存先が変わりました。');
+      await database.execAsync(`CREATE TABLE IF NOT EXISTS planner_completion_intents (intent_id TEXT PRIMARY KEY, target_digest TEXT NOT NULL);`);
+      const previous = await database.getFirstAsync<{ target_digest: string }>('SELECT target_digest FROM planner_completion_intents WHERE intent_id=?', intent.id);
+      if (previous) {
+        if (previous.target_digest !== intent.digest) throw new Error('保存待ちの完了操作が一致しません。');
+        await assertAccess(); return;
+      }
+    }
     const row = await database.getFirstAsync<DefinitionRow>(
       'SELECT id, enabled, definition_json FROM chore_definitions WHERE id = ? AND household_id = ?', command.choreId, LOCAL_HOUSEHOLD_ID,
     );
@@ -1277,12 +1314,32 @@ async function setPersonalDateTaskCompletedImpl(database: SQLiteDatabase, comman
        scheduled_date, scheduled_window_start, scheduled_window_end, outcome FROM chore_completions
        WHERE chore_id = ? AND household_id = ? ORDER BY completed_at DESC`, command.choreId, LOCAL_HOUSEHOLD_ID,
     )).map(completionFromRow);
-    const task = selectDateTasks(entries, completions, command.date, command.graceDays, [chore])[0];
-    if (!task || dateTaskRevision(task) !== command.revision) throw new Error('個人家事の状態が変わっています。表示を更新して選び直してください。');
+    let task: DateTask | undefined = selectDateTasks(entries, completions, command.date, command.graceDays, [chore])[0];
+    if (intent && (!task || !sameDateTaskOccurrence(command.revision, dateTaskRevision(task)))) {
+      // Another overlapping cycle may now sort first. Resolve only the exact
+      // original cycle, using current stored entries and actual completion facts.
+      const original = dateTaskOccurrenceReference(command.revision);
+      const entry = entries.find(value => original !== null && dateTaskOccurrenceReference(dateTaskRevision({ id: value.id, choreId: value.choreId,
+        suggestedDate: value.suggestedDate, completed: false, entry: value })) === original);
+      const completion = completions.find(value => value.outcome === 'completed' && original !== null
+        && dateTaskOccurrenceReference(dateTaskRevision({ id: `completed:${value.id}`, choreId: value.choreId,
+          suggestedDate: value.scheduledDate ?? command.date, completed: true, completion: value })) === original);
+      task = entry || completion ? { id: entry?.id ?? `completed:${completion!.id}`, choreId: command.choreId,
+        suggestedDate: entry?.suggestedDate ?? completion!.scheduledDate ?? command.date, completed: Boolean(completion), entry, completion } : undefined;
+    }
+    if (!task || (intent ? !sameDateTaskOccurrence(command.revision, dateTaskRevision(task)) : dateTaskRevision(task) !== command.revision)) {
+      throw new Error('個人家事の状態が変わっています。表示を更新して選び直してください。');
+    }
     await assertAccess();
-    if (task.completed === command.completed) return;
-    if (command.completed && task.entry && await isActiveChoreEntry(database, task.entry)) changed = await persistChoreCompletion(database, task.entry, new Date().toISOString(), 'inApp');
-    else if (!command.completed && task.completion) changed = await undoCompletionInTransaction(database, task.completion.id, 'inApp', localDateFromDate(new Date()));
+    if (task.completed !== command.completed) {
+      if (command.completed && task.entry && await isActiveChoreEntry(database, task.entry)) changed = await persistChoreCompletion(database, task.entry, intent?.createdAt ?? new Date().toISOString(), 'inApp');
+      else if (!command.completed && task.completion) changed = await undoCompletionInTransaction(database, task.completion.id, 'inApp', intent ? localDateFromISODateTime(intent.createdAt) : localDateFromDate(new Date()));
+    }
+    await assertAccess();
+    if (intent) {
+      await database.runAsync('INSERT INTO planner_completion_intents VALUES (?, ?)', intent.id, intent.digest);
+      await assertAccess();
+    }
   });
   return changed;
 }
@@ -2258,6 +2315,8 @@ export const mirrorSharedChoreCompletions = serializeDatabaseOperation(mirrorSha
 export const readPersonalPlannerOverlaySnapshot = serializeDatabaseOperation(readPersonalPlannerOverlaySnapshotImpl);
 export const readPersonalChoreCopySource = serializeDatabaseOperation(readPersonalChoreCopySourceImpl);
 export const setPersonalDateTaskCompleted = serializePlannerOperation(setPersonalDateTaskCompletedImpl);
+export const setPersonalDateTaskCompletedIntent = serializePlannerOperation((database: SQLiteDatabase, command: PersonalDateTaskCommand,
+  intent: PersonalCompletionIntentIdentity, assertAccess: () => void | Promise<void>) => setPersonalDateTaskCompletedImpl(database, command, assertAccess, { ...intent }));
 export const importGoogleTaskCompletions = serializePlannerOperation(importGoogleTaskCompletionsImpl, 'importGoogleTaskCompletions');
 export const importGoogleTaskChanges = serializePlannerOperation(importGoogleTaskChangesImpl, 'importGoogleTaskChanges');
 export const undoCompletedChore = serializePlannerOperation(undoCompletedChoreImpl, 'undoCompletedChore');

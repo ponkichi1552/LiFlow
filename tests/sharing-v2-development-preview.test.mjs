@@ -86,7 +86,7 @@ test('v2 development fixture uses a fresh synthetic scope and real signed SQLite
     openDatabase: async (userId, groupId) => { opened = { userId, groupId }; return { database: h.database, close: async () => h.connection.close() }; } });
   try {
     assert.ok(opened.userId.startsWith('qa-v2-owner-')); assert.ok(opened.groupId.startsWith('qa-v2-')); assert.notEqual(opened.userId, 'owner');
-    let model = await preview.readModel(); assert.equal(model.plan.chores.length, 46); assert.equal(model.plan.chores.filter((chore) => chore.enabled).length, 3);
+    let model = await preview.readModel(); assert.equal(model.plan.chores.length, 36); assert.equal(model.plan.chores.filter((chore) => chore.enabled).length, 3);
     assert.equal(h.connection.prepare('SELECT count(*) AS n FROM sharing_v2_server_receipts').get().n, 0);
     const round = model.plan.occurrences.find((entry) => entry.anchorDate === model.plan.range.asOfDate && entry.configuration.policy.completion === 'one');
     const ref = { choreId: round.choreId, anchorDate: round.anchorDate, ruleVersion: round.ruleVersion, subjectUserId: null };
@@ -242,7 +242,7 @@ test('v2 preview discards a late read after navigation and a successful retry cl
   try {
     let resolve; let focus; let attempts = 0;
     const props = { ...f.props, loadSession: async () => { if (++attempts === 1) throw new Error('Temporary read failure'); return f.preview; } };
-    const screen = screenHarness(screenFile, { exportName: 'V2DevelopmentPreviewScreen', props, focusEffect: (callback) => { focus = callback; } });
+    const screen = screenHarness(screenFile, { exportName: 'V2DevelopmentPreviewScreen', props, layoutEffect: callback => callback(), focusEffect: (callback) => { focus = callback; } });
     const leave = focus(); for (let i = 0; i < 15 && !screen.text().includes('Temporary read failure'); i++) await screen.flush();
     assert.ok(screen.text().includes('Temporary read failure')); await screen.press('読み込みを再試行'); assert.ok(!screen.text().includes('Temporary read failure'));
     props.loadSession = () => new Promise((ready) => { resolve = ready; }); screen.render(); const leaveNext = focus(); leaveNext();

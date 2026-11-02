@@ -22,6 +22,38 @@ test('a restarted home restores authenticated encrypted presentation including p
   assert.deepEqual(restored, f.model); assert.ok(restored.privateOverlay.byDate instanceof Map);
   assert.equal(restored.privateOverlay.counts.get('2026-10-31'), 0);
 });
+test('compact encrypted display bytes retain older hex caches and reject malformed encodings without changing saved content', async () => {
+  const f = await fixture(); await f.cache.write(f.record, f.model);
+  const { toByteArray } = await import('base64-js'); const envelope = JSON.parse(f.values.get('owner:house'));
+  assert.equal(envelope.encoding, 'base64');
+  const original = JSON.stringify(f.model);
+  const legacy = { ...envelope, nonce: Buffer.from(toByteArray(envelope.nonce)).toString('hex'), ciphertext: Buffer.from(toByteArray(envelope.ciphertext)).toString('hex') };
+  delete legacy.encoding; f.values.set('owner:house', JSON.stringify(legacy)); assert.deepEqual(await f.cache.read(f.record), f.model);
+  for (const patch of [{ encoding: 'unknown' }, { ciphertext: '*' }, { ciphertext: '====' }, { nonce: 'a'.repeat(100) }]) {
+    f.values.set('owner:house', JSON.stringify({ ...envelope, ...patch })); assert.equal(await f.cache.read(f.record), undefined);
+  }
+  assert.equal(JSON.stringify(f.model), original);
+});
+test('native startup restoration passes validated base64 to the platform without decoding the full ciphertext on JavaScript', async () => {
+  const f = await fixture(); await f.cache.write(f.record, f.model);
+  const envelope = JSON.parse(f.values.get('owner:house')); const calls = [];
+  const cache = createStartupDisplayCache({ ...f.dependencies,
+    crypto: { ...crypto, decrypt: () => { throw new Error('Full JavaScript conversion should not be needed'); } },
+    decryptBase64: async (key, nonce, ciphertext, aad) => {
+      calls.push([nonce, ciphertext]);
+      return crypto.decrypt(key, new Uint8Array(Buffer.from(nonce, 'base64')), new Uint8Array(Buffer.from(ciphertext, 'base64')), aad);
+    },
+  });
+  assert.deepEqual(await cache.read(f.record), f.model);
+  assert.deepEqual(calls, [[envelope.nonce, envelope.ciphertext]]);
+  for (const patch of [{ nonce: 'AA==' }, { nonce: '*'.repeat(16) }, { ciphertext: 'AAAA' }, { ciphertext: 'a'.repeat(2800000) }, { encoding: 'unsupported' }]) {
+    f.values.set('owner:house', JSON.stringify({ ...envelope, ...patch }));
+    assert.equal(await cache.read(f.record), undefined);
+  }
+  assert.equal(calls.length, 1, 'invalid encodings and oversized data must be rejected before native work');
+  f.values.set('owner:house', JSON.stringify({ ...envelope, ciphertext: `${envelope.ciphertext.startsWith('A') ? 'B' : 'A'}${envelope.ciphertext.slice(1)}` }));
+  assert.equal(await cache.read(f.record), undefined, 'a well-formed but modified ciphertext still fails authentication');
+});
 test('saved home rejects changed ciphertext keys account membership generation or signed roster before display', async () => {
   const f = await fixture(); await f.cache.write(f.record, f.model); const raw = f.values.get('owner:house');
   const bad = JSON.parse(raw); bad.ciphertext = `${bad.ciphertext.startsWith('00') ? 'ff' : '00'}${bad.ciphertext.slice(2)}`;
@@ -44,6 +76,16 @@ test('saved home expires at the personal midnight even while the shared househol
   const f = await fixture(); const model = { ...f.model, plan: { ...f.model.plan, timeZone: 'UTC' } };
   await f.cache.write(f.record, model); assert.ok(await f.cache.read(f.record));
   f.setNow('2026-10-31T15:00:00Z'); assert.equal(await f.cache.read(f.record), undefined);
+});
+test('saved presentation cannot restore or rewrite deleted shared audit history under a newer retention boundary', async () => {
+  const f = await fixture(); await f.cache.write(f.record, f.model);
+  const historyRetention = { cutoff: '2026-09-30', throughSequence: 12, digest: 'a'.repeat(64) };
+  const record = { ...f.record, historyRetention }; assert.equal(await f.cache.read(record), undefined);
+  const original = f.values.get('owner:house'); await f.cache.write(record, f.model); assert.equal(f.values.get('owner:house'), original);
+  const model = { ...f.model, plan: { ...f.model.plan, historyRetention }, legacyHistory: [] };
+  await f.cache.write(record, model); assert.deepEqual(await f.cache.read(record), model);
+  const valid = f.values.get('owner:house'); await f.cache.write(record, { ...model, legacyHistory: [{ performer: 'old-private-history' }] });
+  assert.equal(f.values.get('owner:house'), valid);
 });
 test('pressing a restored card cannot edit until the current authenticated session is bound and revoked sessions reject pending actions', async () => {
   const f = await fixture(); const gate = createRestoringSessionGate(); const calls = [];

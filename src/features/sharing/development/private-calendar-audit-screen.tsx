@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Text } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView } from '@/components/screen-safe-area';
 import { AppButton, Card, palette, ScreenHeading, typography } from '../../../components/planner-ui';
 import { V2FormScrollView } from '../v2-ui/form-controls';
 import { nativePrivateCalendarCrypto } from '../../../platform/sharing/native-private-calendar-crypto';

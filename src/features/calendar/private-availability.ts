@@ -5,7 +5,7 @@ import { fixedInterval } from '../sharing/v2/date-target.ts';
 import { v2WallTimeCandidates } from '../sharing/v2/local-time.ts';
 import { createIntervalCalendarAvailability } from '../sharing/v2/private-availability.ts';
 import type { PrivateCalendarAvailability } from '../sharing/v2/private-availability.ts';
-import { projectCalendarEvents } from './events.ts';
+import { projectPrivateCalendarEvents } from './private-event-projection.ts';
 import type { CalendarEvent, CalendarException } from './events.ts';
 
 /** App events stay in personal SQLite. Only a local availability reader reaches shared-plan UI. */
@@ -13,8 +13,8 @@ export function createLocalCalendarAvailability(events: readonly CalendarEvent[]
   const coverage = { start: sharedDateAtTime(range.from, 0, 0, timeZone).getTime(), end: sharedDateAtTime(addDays(range.through, 1), 0, 0, timeZone).getTime() };
   const intervals: { start: number; end: number }[] = [];
   const uncertain: { from: LocalDate; through: LocalDate }[] = [];
-  for (const row of projectCalendarEvents(events, exceptions, addDays(range.from, -2), addDays(range.through, 2))) {
-    if (row.birthday) continue;
+  for (const row of projectPrivateCalendarEvents(events, exceptions, addDays(range.from, -2), addDays(range.through, 2))) {
+    if (row.birthday || row.blocksTime === false) continue;
     if (row.timeIssue) { uncertain.push({ from: addDays(row.startDate, -2), through: addDays(row.endDate, 2) }); continue; }
     // All-day dates retain their civil date in the displayed workspace, as in the calendar UI.
     const clock = (date: LocalDate, minute: number) => v2WallTimeCandidates({ date, hour: Math.floor(minute / 60), minute: minute % 60, timeZone: row.allDay ? timeZone : row.timeZone });

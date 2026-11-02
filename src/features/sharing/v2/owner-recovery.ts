@@ -102,7 +102,7 @@ export function createV2OwnerRecovery(deps: Omit<SharedSyncDependencies, 'v2' | 
     const key = await freshKey(epoch);
     try {
       const snapshot = await openEncryptedSharedSnapshot(deps.crypto, encrypted, key, epoch,
-        (uid, device, version) => sharedAuthorIdentity(metadata.archive[version - 1], uid, device, version)); guard();
+        (uid, device, version) => sharedAuthorIdentity(metadata.archive[version - 1], uid, device, version), metadata.archive); guard();
       const witnesses = verifyV2RecoveryWitnesses(snapshot.base.recoveryWitnesses ?? [], metadata.archive, deps.groupId);
       const own = witnesses.find(witness => matchesWitness(witness, draft));
       if (!own) throw new V2RecoveryStaleError('共有は別の操作で更新されています。確認した復旧の完了とは扱いません。');
@@ -145,7 +145,7 @@ export function createV2OwnerRecovery(deps: Omit<SharedSyncDependencies, 'v2' | 
         recoveryWitnesses: [...(analysis.retainedBase.recoveryWitnesses ?? []), witness] });
       const facts = [...await loadSharedFacts(deps.database, deps.groupId), ...analysis.readyFacts]; guard();
       const snapshot = await createEncryptedSharedSnapshot(deps.crypto, replica, facts, next, deps.identity, proposed, snapshotId,
-        reviewed.throughSequence, (uid, device, version) => sharedAuthorIdentity(archive[version - 1], uid, device, version));
+        reviewed.throughSequence, (uid, device, version) => sharedAuthorIdentity(archive[version - 1], uid, device, version), archive);
       const encrypted = await sealV2RecoveryHeader(deps.crypto, { body: witness.body, signature: witness.signature }, proposed, deps.identity); guard();
       const record: V2RecoveryCloudRecord = { schemaVersion: 1, snapshotId, previousKeyVersion: metadata.roster.body.keyVersion,
         keyVersion: next.body.keyVersion, throughSequence: reviewed.throughSequence, lockId: id, reviewDigest: expectedDigest,

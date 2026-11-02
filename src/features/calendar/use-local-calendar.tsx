@@ -5,13 +5,17 @@ import { useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
 import { EMPTY_LOCAL_CALENDAR, readLocalCalendar, subscribeLocalCalendar } from '../../platform/storage/calendar-events';
 import type { CalendarEditorDraft, LocalCalendarSnapshot } from '../../platform/storage/calendar-events';
 import type { CalendarCategory } from '../../domain/calendar/events';
+import type { LocalDate } from '../../domain/shared/types';
 import { retainCalendarInputs } from './observed-snapshot';
+import { usePersonalGoogleSync } from './use-personal-google-sync';
 
 const LocalCalendarContext = createContext<LocalCalendarBinding | null>(null);
 /** Loads local events once at app startup and keeps every page on the same subscription. */
 export function LocalCalendarProvider({ children }: { children: ReactNode }) {
   const database = useSQLiteContext(); const value = useObservedLocalCalendar(database, true);
-  return <LocalCalendarContext.Provider value={value}>{children}</LocalCalendarContext.Provider>;
+  const requestRange = usePersonalGoogleSync(database);
+  const binding = useMemo(() => ({ ...value, requestRange }), [value, requestRange]);
+  return <LocalCalendarContext.Provider value={binding}>{children}</LocalCalendarContext.Provider>;
 }
 export function useLocalCalendar(database?: SQLiteDatabase, includeGroupDrafts = false): LocalCalendarBinding {
   const provided = useContext(LocalCalendarContext);
@@ -41,7 +45,7 @@ function useObservedLocalCalendar(database?: SQLiteDatabase, includeGroupDrafts 
     const attempt = { database, promise: Promise.resolve(), again: false }; pending.current = attempt;
     const work = (async () => {
       do { attempt.again = false; const value = await readLocalCalendar(database);
-        if (alive.current && current.current === database) { const drafts = (value.drafts ?? []).filter(draft => includeGroupDrafts || draft.audience !== 'group');
+        if (alive.current && current.current === database && !attempt.again) { const drafts = (value.drafts ?? []).filter(draft => includeGroupDrafts || draft.audience !== 'group');
           setSnapshot(previous => retainCalendarInputs(previous, { ...value, drafts, draft: drafts[0] ?? null })); setError(null); }
       } while (attempt.again && alive.current && current.current === database);
     })().catch(cause => { if (alive.current && current.current === database) setError(cause instanceof Error ? cause.message : '予定を読み込めません。'); })
@@ -50,17 +54,18 @@ function useObservedLocalCalendar(database?: SQLiteDatabase, includeGroupDrafts 
   }, [database, includeGroupDrafts]);
   useEffect(() => {
     if (!database) return;
-    void refresh(); const unsubscribe = subscribeLocalCalendar(database, () => { void refresh(); });
+    void refresh(); const unsubscribe = subscribeLocalCalendar(database, change => { if (change !== 'syncStatus') void refresh(); });
     const appState = AppState.addEventListener('change', state => { if (state === 'active') void refresh(); });
     return () => { unsubscribe(); appState.remove(); };
   }, [database, refresh]);
-  return { database, snapshot, error, loading, refresh };
+  return { database, snapshot, error, loading, refresh, canEditEvent: id => snapshot.events.find(row => row.id === id)?.readOnly !== true };
 }
 export interface LocalCalendarBinding {
   database?: SQLiteDatabase; snapshot: LocalCalendarSnapshot; loading: boolean; error: string | null; refresh: () => Promise<void>;
   shared?: { groupId: string; name: string; enabled: boolean };
   prepareDraft?: (draft: CalendarEditorDraft) => CalendarEditorDraft;
   canEditEvent?: (eventId: string) => boolean;
+  requestRange?: (from: LocalDate, through: LocalDate) => void;
   categoriesFor?: (audience: 'personal' | 'group') => readonly CalendarCategory[];
   saveEvent?: (draft: CalendarEditorDraft, resetExceptions: boolean) => Promise<void>;
   deleteEvent?: (draft: CalendarEditorDraft) => Promise<void>;

@@ -37,7 +37,18 @@ function invitationData(raw: Record<string, unknown> | undefined) {
 }
 function snapshotFields(manifest: SignedSharedSnapshotManifest) {
   return { keyVersion: manifest.body.keyVersion, throughSequence: manifest.body.throughSequence,
+    ...retentionFields(manifest),
     manifestJson: canonicalJson(manifest), createdAt: serverTimestamp() };
+}
+function retentionFields(manifest: SignedSharedSnapshotManifest) {
+  const body = manifest.body; return body.retentionCutoff === undefined ? {} : { retentionCutoff: body.retentionCutoff,
+    retentionThroughSequence: body.retentionThroughSequence!, retentionKeyVersion: body.retentionKeyVersion! };
+}
+function assertRetentionAdvance(current: ReturnType<typeof parseSharedCloudGroup>['group'], manifest: SignedSharedSnapshotManifest) {
+  const body = manifest.body;
+  if (current.retentionCutoff && (!body.retentionCutoff || body.retentionCutoff < current.retentionCutoff
+    || body.retentionThroughSequence! < current.retentionThroughSequence! || body.retentionKeyVersion! < current.retentionKeyVersion!)) throw new Error('Snapshot cannot restore deleted shared history');
+  if (body.retentionCutoff && body.retentionKeyVersion! >= body.keyVersion) throw new Error('History deletion must retire its original encryption epoch');
 }
 
 export function createSharingManagement({ firestore, userId, checkAccount, reference, readGroup, recoveryEnabled = false }: SharingCloudContext) {
@@ -165,8 +176,9 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
         if (current.group.snapshotId === body.snapshotId) return;
         if (current.group.rosterJson !== canonicalJson(roster) || current.group.headSequence !== body.throughSequence
           || current.group.rotationRequired) throw new SharingCloudChangedError('共有状態が更新されたためSnapshotを作り直します。');
+        assertRetentionAdvance(current.group, manifest);
         transaction.set(doc(ref, 'snapshots', body.snapshotId), snapshotFields(manifest));
-        transaction.update(ref, { snapshotId: body.snapshotId, snapshotThroughSequence: body.throughSequence, updatedAt: serverTimestamp() });
+        transaction.update(ref, { snapshotId: body.snapshotId, snapshotThroughSequence: body.throughSequence, ...retentionFields(manifest), updatedAt: serverTimestamp() });
       }); guard();
     },
     async commitMembership(previous: VerifiedSharedRoster, next: VerifiedSharedRoster, keys: readonly WrappedGroupKey[],
@@ -194,6 +206,7 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
         if (current.group.rosterJson === canonicalJson(next)) return;
         if (current.group.rosterJson !== canonicalJson(previous) || current.group.headSequence !== expectedHead
           || current.group.ownerUserId !== userId) throw new SharingCloudChangedError('メンバー情報を更新してから再試行してください。');
+        if (manifest) assertRetentionAdvance(current.group, manifest);
         if (current.group.revokedUserIds.some((uid) => fields.memberIds.includes(uid))) throw new Error('A departed member cannot retain the next group key');
         const lockRef = doc(ref, 'recoveryLocks', 'current');
         if (previous.body.schemaVersion === 2 && recoveryEnabled) {
@@ -221,7 +234,7 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
         });
         for (const uid of fields.memberIds.filter((uid) => !current.group.memberIds.includes(uid))) transaction.set(doc(firestore, 'sharingUsers', uid, 'memberships', 'current'), { groupId, invitationId: null, createdAt: serverTimestamp() });
         if (manifest) transaction.set(doc(ref, 'snapshots', manifest.body.snapshotId), snapshotFields(manifest));
-        transaction.update(ref, { ...fields, ...(manifest ? { snapshotId: manifest.body.snapshotId, snapshotThroughSequence: manifest.body.throughSequence } : {}), updatedAt: serverTimestamp() });
+        transaction.update(ref, { ...fields, ...(manifest ? { snapshotId: manifest.body.snapshotId, snapshotThroughSequence: manifest.body.throughSequence, ...retentionFields(manifest) } : {}), updatedAt: serverTimestamp() });
         if (recovery) transaction.delete(lockRef);
         if (approval) {
           transaction.update(inviteRef(approval.invitation.body.inviteId), { status: 'used', usedBy: approval.request.body.userId });
@@ -256,7 +269,9 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
       if (typeof raw?.manifestJson !== 'string' || raw.manifestJson.length > 100_000) throw new Error('Snapshot manifest is missing');
       const manifest = JSON.parse(raw.manifestJson) as SignedSharedSnapshotManifest;
       if (manifest.body.snapshotId !== snapshotId || manifest.body.groupId !== groupId || manifest.body.keyVersion !== raw.keyVersion
-        || manifest.body.throughSequence !== raw.throughSequence || !Array.isArray(manifest.body.chunks) || manifest.body.chunks.length > 512) throw new Error('Invalid snapshot metadata');
+        || manifest.body.throughSequence !== raw.throughSequence || manifest.body.retentionCutoff !== raw.retentionCutoff
+        || manifest.body.retentionThroughSequence !== raw.retentionThroughSequence || manifest.body.retentionKeyVersion !== raw.retentionKeyVersion
+        || !Array.isArray(manifest.body.chunks) || manifest.body.chunks.length > 512) throw new Error('Invalid snapshot metadata');
       // Cloud membership alone is not a trust anchor. Require the caller's verified chain.
       const roster = trustedArchive?.find(epoch => sharedRosterDigest(epoch) === manifest.body.rosterDigest);
       if (!roster) throw new Error('Snapshot membership is not trusted');

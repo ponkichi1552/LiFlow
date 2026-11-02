@@ -14,7 +14,7 @@ import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { V2PersonalPlan } from '../v2/personal-plan';
 import { v2CalendarMonth, v2CalendarProjection } from './calendar-projection';
 import { V2RoundCard } from './round-card';
-import { privateOverlayForViewer, privateOverlayPendingCounts } from './private-overlay';
+import { privateOverlayForViewer, privateOverlayPendingCounts, privateOverlayCalendarRows } from './private-overlay';
 import type { V2PrivateOverlayState, V2PrivateTaskSource } from './private-overlay';
 import { V2PrivateTaskCard, V2PrivateTaskNotice } from './private-task-card';
 import { V2WasteOccurrence } from './waste-occurrence';
@@ -35,9 +35,9 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
   // cached counts behind after an optimistic completion is rolled back.
   const completionRevision = JSON.stringify([...(feedback?.values ?? [])]);
   const completionValues = useMemo(() => new Map<string, boolean>(JSON.parse(completionRevision)), [completionRevision]);
-  const projection = useMemo(() => v2CalendarProjection(model, personal, completionValues), [model, personal, completionValues]);
+  const projection = useMemo(() => v2CalendarProjection(model, personal, completionValues, true), [model, personal, completionValues]);
   const privateOverlay = privateOverlayForViewer(privateValue, model.viewerUserId);
-  const privateCounts = useMemo(() => privateOverlayPendingCounts(privateOverlay?.status === 'ready' ? privateOverlay : undefined, completionValues), [privateOverlay, completionValues]);
+  const privateCounts = useMemo(() => privateOverlayPendingCounts(privateOverlay?.status === 'ready' ? privateOverlay : undefined, completionValues, true), [privateOverlay, completionValues]);
   const privateReady = (date: LocalDate) => privateOverlay?.status === 'ready' && privateOverlay.range.from <= date && privateOverlay.range.through >= date;
   const loaded = (date: LocalDate) => model.plan.initialized && model.plan.range.from <= date && model.plan.range.through >= date;
   const wasteLoaded = (date: LocalDate) => model.waste && model.waste.range.from <= date && model.waste.range.through >= date;
@@ -48,7 +48,7 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
     const personalReady = (date: LocalDate) => privateOverlay?.status === 'ready' && privateOverlay.range.from <= date && date <= privateOverlay.range.through;
     const calculate = (date: LocalDate): CalendarDayInfo => {
       const shared = sharedReady(date) ? projection.byDate.get(date) ?? [] : [];
-      const privateRows = personalReady(date) && privateOverlay?.status === 'ready' ? privateOverlay.byDate.get(date) ?? [] : [];
+      const privateRows = personalReady(date) && privateOverlay?.status === 'ready' ? privateOverlayCalendarRows(privateOverlay.byDate.get(date) ?? [], date) : [];
       return { loaded: sharedReady(date), partial: Boolean(privateValue && !personalReady(date)), pending: (sharedReady(date) ? projection.counts.get(date) ?? 0 : 0) + (personalReady(date) ? privateCounts.get(date) ?? 0 : 0),
         accessibilityCountLabel: `${sharedReady(date) ? `確認できる未完了の共有家事${projection.counts.get(date) ?? 0}件` : '予定は未取得'}${privateValue ? personalReady(date) ? `、個人家事${privateCounts.get(date) ?? 0}件` : '、個人家事は未取得' : ''}`,
         total: shared.length + privateRows.length,
@@ -70,7 +70,7 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
   }, [model.plan.occurrences, chores]);
   const entriesFor = (date: LocalDate) => orderTaskRows([
     ...(loaded(date) ? projection.byDate.get(date) ?? [] : []).map(entry => ({ source: 'shared' as const, key: `shared:${entry.id}`, entry })),
-    ...(privateReady(date) && privateOverlay?.status === 'ready' ? privateOverlay.byDate.get(date) ?? [] : []).map(row => ({ source: 'personal' as const, key: row.key, row })),
+    ...(privateReady(date) && privateOverlay?.status === 'ready' ? privateOverlayCalendarRows(privateOverlay.byDate.get(date) ?? [], date) : []).map(row => ({ source: 'personal' as const, key: row.key, row })),
   ], model.plan.range.asOfDate, item => item.source === 'personal'
     ? { completed: feedback?.values.get(item.key) ?? item.row.completed, load: item.row.chore.load, recommendedDate: item.row.suggestedDate, windowEnd: item.row.windowEnd, asOfDate: privateOverlay?.status === 'ready' ? privateOverlay.today : undefined }
     : { completed: visible(item.entry.round, item.entry.subject).showStatus && (feedback?.values.get(item.key) ?? item.entry.subject.completed),
@@ -95,9 +95,9 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
         {model.waste?.rows.some(row => !row.deleted && row.needsReview) ? <Text style={caption}>確認が必要な収集ルールは共有のゴミ収集日で確認できます。</Text> : null}
       </View>}
       ListEmptyComponent={loaded(date) && !busy ? <Card><Text style={caption}>この日の共有家事はありません。</Text></Card> : undefined}
-      renderItem={({ item }) => item.source === 'personal' ? <V2PrivateTaskCard row={item.row} today={privateOverlay?.status === 'ready' ? privateOverlay.today : undefined} source={privateSource} busy={busy} run={run} feedback={feedback} mixedSources
+      renderItem={({ item }) => item.source === 'personal' ? <V2PrivateTaskCard compact row={item.row} today={privateOverlay?.status === 'ready' ? privateOverlay.today : undefined} source={privateSource} busy={busy} run={run} feedback={feedback} mixedSources
         onOpen={onGuide ? () => onGuide(item.row.chore.id, 'personal') : undefined} />
-        : <V2RoundCard model={model} round={item.entry.round} subject={item.entry.subject} recommendation={item.entry.recommendation} actions={actions} busy={busy} run={run} feedback={feedback}
+        : <V2RoundCard compact model={model} round={item.entry.round} subject={item.entry.subject} recommendation={item.entry.recommendation} actions={actions} busy={busy} run={run} feedback={feedback}
           onOpen={() => onGuide ? onGuide(item.entry.round.choreId, 'shared') : onRound(item.entry.round.id, item.entry.subject.id, item.entry.round.anchorDate)} />} />}
   />;
 }

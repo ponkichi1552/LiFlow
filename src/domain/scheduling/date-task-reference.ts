@@ -28,3 +28,22 @@ export function sameOccurrenceAfterCompletion(before: string, after: string): bo
       && a[2] === b[12] && typeof b[8] === 'string';
   } catch { return false; }
 }
+
+/** A queued gesture follows the same cycle through completion/undo, never a
+ * different overlapping cycle selected by a later refresh or edited window.
+ * The recommended day may move inside that unchanged cycle.
+ */
+export function dateTaskOccurrenceReference(revision: string): string | null {
+  try {
+    const value = JSON.parse(revision);
+    if (!Array.isArray(value) || value.length !== 15 || typeof value[1] !== 'string' || typeof value[3] !== 'boolean') return null;
+    const id = value[3] ? value[11] ?? value[0] : value[0];
+    const start = value[3] ? value[13] : value[6], end = value[3] ? value[14] : value[7];
+    if (typeof id !== 'string' || !id || start != null && typeof start !== 'string' || end != null && typeof end !== 'string') return null;
+    return JSON.stringify([value[1], id, start ?? null, end ?? null]);
+  } catch { return null; }
+}
+export function sameDateTaskOccurrence(before: string, after: string): boolean {
+  const expected = dateTaskOccurrenceReference(before);
+  return expected !== null && expected === dateTaskOccurrenceReference(after);
+}

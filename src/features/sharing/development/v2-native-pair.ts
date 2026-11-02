@@ -147,7 +147,7 @@ export async function createV2NativePair(input: {
     async prepareChores() {
       check(); if (scope.role !== 'owner') throw new Error('検査用所有者の操作です。'); const value = await open();
       const ui = await this.ui(); const model = await ui.readModel({ management: true }); const today = model.plan.range.asOfDate;
-      for (const [id, preset] of [['builtin-chore-08', 'common'], ['builtin-chore-14', 'eachMember']] as const) {
+      for (const [id, preset] of [['builtin-chore-08', 'common'], ['builtin-chore-07', 'eachMember']] as const) {
         const chore = model.plan.chores.find(row => row.id === `${scope.groupId}.${id}`); if (!chore) throw new Error('検査用の家事が見つかりません。');
         if (!model.configurations.find(row => row.choreId === chore.id)?.configuration) await value.controller.actions.configureChore(chore.id, {
           policy: chorePolicyFromPreset(preset), anchorDate: today, intervalDays: 7, windowBeforeDays: 2, windowAfterDays: 2, effectiveFrom: today, active: true });

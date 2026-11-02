@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { router } from 'expo-router';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import type { TextInputProps } from 'react-native';
-import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
+import { Alert, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { AppButton, ChoiceChip, palette, typography } from '../../components/planner-ui';
 import { FormTextInput } from '../../components/form-text-input';
 import { SettingsSwitch } from '../../components/settings-switch';
@@ -55,7 +55,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
     if (d.audience === 'group') throw new Error('共有予定の保存先を確認してください。');
     await saveCalendarEvent(local.database, { id: d.eventId ?? undefined, expectedRevision: d.revision, value: d.value,
       scope: d.scope, anchorDate: d.anchorDate ?? undefined, expectedExceptionRevision: d.exceptionRevision, resetExceptions });
-    await local.refresh(); onSaved(d.value.startDate);
+    onSaved(d.value.startDate); void local.refresh();
   });
   const saveReviewed = () => {
     const d = latest.current;
@@ -71,7 +71,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
       if (local.deleteEvent) { await local.deleteEvent(d); onClose(); return; }
       await deleteCalendarEvent(local.database, { id: initial.eventId, expectedRevision: d.revision,
         anchorDate: repeated && d.scope === 'one' ? d.anchorDate ?? undefined : undefined, expectedExceptionRevision: d.exceptionRevision });
-      await local.refresh(); onClose();
+      onClose(); void local.refresh();
     }) },
   ]);
   const pull = useMemo(() => createCalendarGesture(), []);
@@ -102,7 +102,8 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
             <ChoiceChip label="個人" selected={draft.audience !== 'group'} disabled={busy} onPress={() => change(before => ({ ...before, audience: 'personal', groupId: undefined, basisRevision: undefined, value: { ...before.value, categoryId: 'personal' } }))} />
             <ChoiceChip label="グループ共通" selected={draft.audience === 'group'} disabled={busy || !local.shared.enabled} onPress={() => change(before => ({ ...before, audience: 'group', groupId: local.shared!.groupId }))} />
           </View>{!local.shared.enabled ? <Text style={styles.caption}>共有予定は、所有者がグループの互換更新を行うと利用できます。</Text> : <Text style={styles.caption}>{draft.audience === 'group' ? `${local.shared.name}のメンバーに共有します。` : 'この予定はグループへ共有しません。'}</Text>}</View> : initial.eventId && local.shared ? <Text style={styles.caption}>{draft.audience === 'group' ? `${local.shared.name} · グループ共通` : '個人 · 本人のみ'}</Text> : null}
-          {readOnly ? <Text style={styles.caption}>閲覧のみです。共有予定は作成者または管理者が変更できます。</Text> : null}
+          {readOnly ? original?.readOnly ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(original.externalUrl ?? 'https://calendar.google.com/calendar/u/0/r')}><Text style={styles.action}>Googleカレンダーで編集 ↗</Text></Pressable>
+            : <Text style={styles.caption}>共有予定は作成者または管理者が変更できます。</Text> : null}
           {error ? <View><Text accessibilityRole="alert" style={styles.error}>{error}</Text><AppButton title="予定を再読込" variant="quiet" compact onPress={() => void local.refresh()} /></View> : null}
           <View pointerEvents={readOnly ? 'none' : 'auto'} style={{ gap: 18 }}>
           {repeated ? <View style={styles.row}>{(['one', 'series'] as const).map(scope => <ChoiceChip key={scope} label={scope === 'one' ? '今回だけ' : '繰り返し全体'} selected={draft.scope === scope} disabled={busy || readOnly}
@@ -116,7 +117,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           <CalendarTextInput icon={{ ios: 'text.alignleft', android: 'title' }} key={`${textKey}:title`} accessibilityLabel="予定名" defaultValue={value.title} placeholder={value.birthday ? '名前・誕生日' : '予定名・家事名'} style={[styles.textInput, styles.titleInput]} maxLength={160} editable={!busy && !readOnly} onChangeText={title => patch({ title })} />
           {matches.length && !value.birthday && !initial.eventId ? <View style={styles.existing}><Text style={styles.label}>登録済みの家事</Text>{matches.map(chore => <Pressable key={chore.id} accessibilityRole="button" accessibilityLabel={`${chore.name}の既存の予定を開く`} onPress={() => { onClose(); chore.onOpen(); }} style={styles.existingRow}>
             <Text style={styles.value}>{chore.name}{chore.minutes ? ` · 約${chore.minutes}分` : ''}</Text><Chevron /></Pressable>)}<Text style={styles.caption}>家事を選ぶと、登録済みの家事回が開きます。</Text></View> : null}
-          {!value.birthday ? <CalendarTextInput icon={{ ios: 'mappin', android: 'location_on' }} key={`${textKey}:location`} accessibilityLabel="予定の場所" defaultValue={value.location} style={styles.textInput} maxLength={300} placeholder="場所（任意）" editable={!busy && !readOnly} onChangeText={location => patch({ location })} /> : null}
+          {!value.birthday ? <CalendarTextInput icon={{ ios: 'mappin', android: 'location_on' }} key={`${textKey}:location`} accessibilityLabel="予定の場所" autoCorrect={false} defaultValue={value.location} style={styles.textInput} maxLength={300} placeholder="場所（任意）" editable={!busy && !readOnly} onChangeText={location => patch({ location })} /> : null}
           <CalendarTextInput icon={{ ios: 'note.text', android: 'notes' }} key={`${textKey}:notes`} accessibilityLabel="予定のメモ" multiline defaultValue={value.notes} style={[styles.textInput, styles.notesInput]} maxLength={4000} placeholder="メモ（任意）" editable={!busy && !readOnly} onChangeText={notes => patch({ notes })} />
           </View>
           {!value.birthday ? <View style={styles.switchRow}><Text style={styles.value}>終日</Text><SettingsSwitch accessibilityLabel="終日" value={value.allDay} disabled={busy || readOnly} onValueChange={allDay => patch({ allDay })} /></View> : null}

@@ -28,12 +28,17 @@ export function selectDateTasks(
   const activeIds = chores ? new Set(chores.filter((chore) => chore.enabled !== false && !chore.archived).map((chore) => chore.id)) : undefined;
   const visibleCompletions = activeIds ? completions.filter((completion) => activeIds.has(completion.choreId)) : completions;
   const relevantCompletions = visibleCompletions.filter((completion) => completionIncludesDate(completion, date));
+  const completionsByChore = new Map<string, ChoreCompletion[]>();
+  for (const completion of visibleCompletions) {
+    const bucket = completionsByChore.get(completion.choreId);
+    if (bucket) bucket.push(completion); else completionsByChore.set(completion.choreId, [completion]);
+  }
   const byChore = new Map<string, DateTask>();
 
   for (const entry of entries) {
     if (activeIds && !activeIds.has(entry.choreId)) continue;
-    if (entry.windowStart > date || date > addDays(entry.windowEnd, graceDays)) continue;
-    const completion = visibleCompletions.find((candidate) => completionMatchesEntry(candidate, entry));
+    if (entry.windowStart > date || date > (graceDays === 0 ? entry.windowEnd : addDays(entry.windowEnd, graceDays))) continue;
+    const completion = completionsByChore.get(entry.choreId)?.find((candidate) => completionMatchesEntry(candidate, entry));
     const task: DateTask = {
       id: entry.id, choreId: entry.choreId, suggestedDate: entry.suggestedDate,
       completed: Boolean(completion), entry, completion,

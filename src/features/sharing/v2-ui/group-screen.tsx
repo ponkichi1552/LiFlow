@@ -2,11 +2,12 @@ import { V2ChoreSettingsBook } from './chore-settings-book';
 import { useChoreLibraryState } from '../../chores/chore-library';
 import { v2HomeUpcomingRows, type V2HomeUpcomingRow } from './home-upcoming';
 import { homeUpcomingRange, type HomeWeekScope } from '../../planner/home-presentation';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ComponentProps } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { ActivityIndicator, AppState, FlatList, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from '@/components/screen-safe-area';
 import { AppButton, BackButton, Card, NavigationHeader, palette, ScreenHeading, SectionHeading, typography } from '../../../components/planner-ui';
 import { AccordionSection } from '../../../components/accordion-section';
 import { V2RoundCard } from './round-card';
@@ -51,8 +52,18 @@ import { HistoryDayHeading } from '../../../components/history-day-heading';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
 import type { PlannerCalendarProps } from '../../calendar/planner-calendar';
 import type { ChoreAudienceSelection } from '../../chores/audience-selection';
+import { personalCompletionKey } from '../../planner/completion-command';
+import type { CompletionIntentState } from '../../planner/completion-intents';
+import type { CompletionIntentRuntime } from '../../../platform/storage/completion-intents';
+
+const noCompletionChanges = () => () => {};
+const emptyCompletionState: CompletionIntentState = { values: new Map(), pending: new Set(), restored: false, error: null };
+const noCompletionState = () => emptyCompletionState;
 
 export interface V2GroupScreenProps {
+  sharedCompletion?: CompletionIntentRuntime;
+  personalCompletion?: CompletionIntentRuntime;
+  invalidateCompletionDisplay?: () => void;
   settingsSelection?: ChoreAudienceSelection;
   initialDisplay?: WorkspaceDisplayValue;
   lifecycleManaged?: boolean;
@@ -84,7 +95,7 @@ export function readOptionsForView(view: V2GroupScreenProps['view'], anchorDate?
   return view === 'calendar' ? { calendarMonth: 'current', waste: true } : view === 'home' ? { waste: true } : undefined;
 }
 
-export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage, subscribe, loadSession, view, choreId, settingsSelection, applianceId, onBack, onConfiguration, onHistory, onRequests, occurrenceId, subjectId, onRound, onDate, onAssignment, onAssignmentRequests, onCalendar, anchorDate, onManageChores, onDetails, onAddChore, onChoreCreated, onGroupPolicy, onNotifications, onGoogleTasks, onPersonalCopy, onDateRights, onWaste, onAppliances, onAppliance, onApplianceReview, localCalendar, onCalendarNavigate, onGuide, personalGuide, guideSource, onPersonalAppliance, initialProductName, initialDisplay, lifecycleManaged = false }: V2GroupScreenProps) {
+export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage, subscribe, loadSession, view, choreId, settingsSelection, applianceId, onBack, onConfiguration, onHistory, onRequests, occurrenceId, subjectId, onRound, onDate, onAssignment, onAssignmentRequests, onCalendar, anchorDate, onManageChores, onDetails, onAddChore, onChoreCreated, onGroupPolicy, onNotifications, onGoogleTasks, onPersonalCopy, onDateRights, onWaste, onAppliances, onAppliance, onApplianceReview, localCalendar, onCalendarNavigate, onGuide, personalGuide, guideSource, onPersonalAppliance, initialProductName, initialDisplay, lifecycleManaged = false, sharedCompletion, personalCompletion, invalidateCompletionDisplay }: V2GroupScreenProps) {
   const libraryState = useChoreLibraryState();
   const [session, setSession] = useState<V2GroupUiSession | null>(initialDisplay?.session ?? null); const [screenModel, setModel] = useState<Awaited<ReturnType<V2GroupUiSession['readModel']>> | null>(initialDisplay?.model ?? null);
   const composition = useMemo(() => {
@@ -93,38 +104,67 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   }, [screenModel]);
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [weekScope, setWeekScope] = useState<HomeWeekScope>('current');
   const [proceduresOpen, setProceduresOpen] = useState(true);
-  const [completionValues, setCompletionValues] = useState(new Map<string, boolean>());
+  const [legacyCompletionValues, setCompletionValues] = useState(new Map<string, boolean>());
+  const sharedIntents = useSyncExternalStore(sharedCompletion?.queue.subscribe ?? noCompletionChanges, sharedCompletion?.queue.getSnapshot ?? noCompletionState, noCompletionState);
+  const personalIntents = useSyncExternalStore(personalCompletion?.queue.subscribe ?? noCompletionChanges, personalCompletion?.queue.getSnapshot ?? noCompletionState, noCompletionState);
+  const personalAliases = useMemo(() => {
+    const aliases = new Map<string, Set<string>>(); const overlay = composition?.privateValue;
+    if (overlay?.status === 'ready') for (const rows of [overlay.home, ...overlay.byDate.values()]) for (const row of rows) {
+      try { const key = personalCompletionKey(row.revision); const names = aliases.get(key) ?? new Set<string>(); names.add(row.key); aliases.set(key, names); } catch { /* Invalid cached rows remain non-authoritative. */ }
+    }
+    return aliases;
+  }, [composition?.privateValue]);
+  const completionValues = useMemo(() => {
+    if (!sharedIntents.values.size && !personalIntents.values.size) return legacyCompletionValues;
+    const values = new Map(legacyCompletionValues);
+    for (const [key, completed] of sharedIntents.values) values.set(key, completed);
+    for (const [key, completed] of personalIntents.values) for (const alias of personalAliases.get(key) ?? []) values.set(alias, completed);
+    return values;
+  }, [legacyCompletionValues, sharedIntents.values, personalIntents.values, personalAliases]);
   const homeProjection = useMemo(() => view === 'home' && composition
     ? v2CalendarProjection(composition.model, composition.personal, completionValues) : null, [view, composition, completionValues]);
   const feedbackEpoch = useRef(0);
   const display = useHomeDisplay();
   const insets = useSafeAreaInsets();
-  const [lastUndo, setLastUndo] = useState<{ undo: () => Promise<unknown> } | null>(null);
+  const [lastUndo, setLastUndo] = useState<{ undo: () => Promise<unknown>; queued?: boolean } | null>(null);
   useEffect(() => { if (!lastUndo) return; const timer = setTimeout(() => setLastUndo(null), 6500); return () => clearTimeout(timer); }, [lastUndo]);
   const alive = useRef(false); const generation = useRef(0); const running = useRef(false);
   const notificationTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const mutationRead = useRef(false); const refreshQueued = useRef(false);
   const readOptions = useRef(readOptionsForView(view, anchorDate, choreId, applianceId));
   const readBinding = useRef({ anchorDate, view, choreId, applianceId });
+  const sessionLoader = useRef(loadSession);
+  useLayoutEffect(() => { sessionLoader.current = loadSession; }, [loadSession]);
   const [calendarMonth, setCalendarMonth] = useState<LocalDate | null>(null); const [calendarDay, setCalendarDay] = useState<LocalDate | null>(null);
   const refresh = useCallback(async () => {
     clearTimeout(notificationTimer.current); notificationTimer.current = undefined;
     const revision = ++generation.current;
     try {
-      const preview = await loadSession(); const value = await preview.readModel(readOptions.current);
+      const preview = await sessionLoader.current(); const value = await preview.readModel(readOptions.current);
       if (alive.current && generation.current === revision) {
         setSession(preview); setModel(value); setError(null);
         setCompletionValues(values => values.size ? new Map() : values);
         return true;
       } return false;
     } catch (cause) { if (alive.current && generation.current === revision) setError(cause instanceof Error ? cause.message : '共有データを読み込めませんでした。'); return false; }
-  }, [loadSession]);
+  }, []);
+  useEffect(() => {
+    const read = async () => { invalidateCompletionDisplay?.(); if (!await refresh()) throw new Error('表示を更新できませんでした。'); };
+    const stops = [sharedCompletion, personalCompletion].flatMap(runtime => runtime ? [runtime.watchDisplay(read, () => alive.current)] : []);
+    return () => { stops.forEach(stop => stop()); };
+  }, [sharedCompletion, personalCompletion, invalidateCompletionDisplay, refresh]);
   useFocusEffect(useCallback(() => {
     alive.current = true;
     if (readBinding.current.anchorDate !== anchorDate || readBinding.current.view !== view || readBinding.current.choreId !== choreId || readBinding.current.applianceId !== applianceId) {
       readOptions.current = readOptionsForView(view, anchorDate, choreId, applianceId);
       readBinding.current = { anchorDate, view, choreId, applianceId };
     }
+    void refresh(); sharedCompletion?.queue.retryRead(); personalCompletion?.queue.retryRead();
+    return () => { alive.current = false; setLastUndo(null); feedbackEpoch.current++; setCompletionValues(new Map()); generation.current++; clearTimeout(notificationTimer.current); refreshQueued.current = false; };
+  }, [refresh, anchorDate, view, choreId, applianceId, sharedCompletion, personalCompletion]));
+  // Restoring a live provider may replace its subscription while this route is
+  // still focused. Rebind observation without cancelling the pending user action.
+  useEffect(() => {
     const unsubscribe = subscribe?.(() => {
       clearTimeout(notificationTimer.current);
       if (!alive.current) return;
@@ -139,8 +179,8 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
       clearTimeout(notificationTimer.current);
       notificationTimer.current = setTimeout(() => { notificationTimer.current = undefined; if (alive.current) void refresh(); }, 80);
     });
-    void refresh(); return () => { alive.current = false; setLastUndo(null); feedbackEpoch.current++; setCompletionValues(new Map()); generation.current++; clearTimeout(notificationTimer.current); refreshQueued.current = false; unsubscribe?.(); foreground?.remove(); };
-  }, [refresh, anchorDate, subscribe, view, choreId, applianceId, lifecycleManaged]));
+    return () => { unsubscribe?.(); foreground?.remove(); };
+  }, [refresh, subscribe, lifecycleManaged]);
   useEffect(() => {
     if (!screenModel || lifecycleManaged) return;
     const zones = [screenModel.plan.timeZone, ...(screenModel.privateOverlay?.status === 'ready' ? [screenModel.privateOverlay.timeZone] : [])];
@@ -167,7 +207,18 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     }
     return { committed: !failed, refreshed: loaded, ...(failed ? { error: failure } : {}) };
   };
-  const feedback: CompletionFeedback = { values: completionValues, run: async (key, completed, work) => {
+  const feedback: CompletionFeedback = { values: completionValues,
+    supports: kind => Boolean(kind === 'shared' ? sharedCompletion : personalCompletion),
+    request: (key, completed, target) => {
+      try {
+        const runtime = target.kind === 'shared' ? sharedCompletion : personalCompletion;
+        if (!runtime) throw new Error('完了操作の保存先を確認できません。');
+        const targetKey = target.kind === 'shared' ? key : personalCompletionKey(target.command.revision);
+        runtime.queue.request(targetKey, target, completed);
+        if (view === 'home') setLastUndo(completed ? { queued: true, undo: async () => { runtime.queue.request(targetKey, target, false); } } : null);
+      } catch { setError('完了操作の保存先を確認できません。'); }
+    },
+    run: async (key, completed, work) => {
     if (running.current || !alive.current) return;
     const epoch = feedbackEpoch.current;
     setLastUndo(null);
@@ -181,10 +232,11 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   } };
   const run = async (work: () => Promise<unknown>) => { await perform(work); };
   const groupName = typeof screenModel?.plan.commonSettings.name === 'string' ? screenModel.plan.commonSettings.name : workspaceName ?? '共有グループ';
-  const notice = purpose === 'development' || workspaceError || error ? <View style={styles.notice}>
+  const actionError = error ?? sharedIntents.error ?? personalIntents.error;
+  const notice = purpose === 'development' || workspaceError || actionError ? <View style={styles.notice}>
     {purpose === 'development' ? <Text style={styles.caption}>検査用の独立したデータです。既存データやログイン中のアカウントを使わず、共有操作をクラウドへ送信しません。</Text> : null}
     {workspaceError ? <Text accessibilityRole="alert" style={styles.error}>{workspaceError}</Text> : null}
-    {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+    {actionError ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
   </View> : null;
   if ((!screenModel || !session) && (view === 'details' || view === 'configuration')) return <V2ScreenFrame purpose={purpose} startupReady={Boolean(error)} style={styles.safe} edges={['top']}>
     <NavigationHeader><View style={styles.settingsHeader}><BackButton onPress={onBack} /><Text style={styles.settingsHeaderTitle}>家事ごとの設定</Text></View></NavigationHeader>
@@ -374,8 +426,8 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         {purpose === 'development' ? <Card><SectionHeading title="設定を検査" />{model.configurations.map((entry) =>
           <AppButton key={entry.choreId} title={`「${model.plan.chores.find((chore) => chore.id === entry.choreId)?.name ?? '家事'}」の設定`} variant="quiet" disabled={busy} onPress={() => onConfiguration(entry.choreId)} />)}</Card> : null}
       </View>} />
-    {lastUndo ? <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: Math.max(insets.bottom, 8) }}><CompletionToast busy={busy} onUndo={() => {
-      if (running.current || !alive.current) return; const receipt = lastUndo; setLastUndo(null); void perform(receipt.undo);
+    {lastUndo ? <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: Math.max(insets.bottom, 8) }}><CompletionToast busy={busy && !lastUndo.queued} onUndo={() => {
+      if ((!lastUndo.queued && running.current) || !alive.current) return; const receipt = lastUndo; setLastUndo(null); if (receipt.queued) void receipt.undo(); else void perform(receipt.undo);
     }} /></View> : null}
   </V2ScreenFrame>;
 }

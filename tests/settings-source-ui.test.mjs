@@ -331,7 +331,8 @@ test('chore rows show their execution period without an early badge or source-sp
   for (const home of [true, false]) for (const completed of [false, true]) {
     const screen = screenHarness('src/components/task-checkbox-row.tsx', { exportName: 'TaskCheckboxRow', props: {
       chore: { name: '洗濯', category: '洗濯', estimatedMinutes: 30 }, executionWindow: { start: '2026-10-28', end: '2026-11-01' }, home, completed, onOpen() {}, onToggle() {} } });
-    assert.equal(screen.text().includes('推奨日前'), false); assert.match(screen.text(), /10月28日.*11月1日/u);
+    assert.equal(screen.text().includes('推奨日前'), false); assert.match(screen.text(), home ? /10\/28.*11\/1/u : /10月28日.*11月1日/u);
+    assert.ok(screen.nodes().some(node => /10月28日.*11月1日/u.test(node.props.accessibilityHint ?? '')), 'spoken hints retain the full date range');
     assert.equal(Boolean(screen.nodes().find(node => node.props.accessibilityRole === 'button').props.accessibilityHint?.includes('推奨日前')), false);
   }
 });

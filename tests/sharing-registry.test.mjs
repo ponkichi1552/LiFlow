@@ -8,6 +8,10 @@ import { createDatabase } from './helpers/sqlite.mjs';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
 import { createDeviceIdentity } from '../src/features/sharing/crypto.ts';
 import { createSharedRoster } from '../src/features/sharing/roster.ts';
+import * as rosters from '../src/features/sharing/roster.ts';
+import * as operations from '../src/features/sharing/operations.ts';
+import * as localDates from '../src/domain/scheduling/local-date.ts';
+import { loadNativeModule } from './helpers/native-module.mjs';
 import * as registry from '../src/platform/storage/sharing-registry.ts';
 async function fixture() {
   const h = createDatabase(); await registry.initializeSharingRegistry(h.database);
@@ -16,6 +20,70 @@ async function fixture() {
     createdAt: '2026-10-27T00:00:00Z', lastSuccessfulSyncAt: null, lastErrorCode: null };
   return { ...h, owner, record };
 }
+test('display candidates defer signature work only behind authenticated ciphertext and never populate live authority validation', async t => {
+  const h = await fixture(); t.after(() => h.connection.close()); let validations = 0;
+  const api = loadNativeModule('src/platform/storage/sharing-registry.ts', {
+    '../../features/sharing/operations.ts': operations,
+    '../../features/sharing/roster.ts': { ...rosters, validateSharedRoster: value => { validations++; return rosters.validateSharedRoster(value); } },
+    '../../domain/scheduling/local-date.ts': localDates,
+  });
+  await api.saveSharingWorkspace(h.database, h.record); validations = 0;
+  const { createStartupDisplayCache } = await import('../src/features/planner/startup-display.ts');
+  let saved; const key = await crypto.randomBytes(32);
+  const cache = createStartupDisplayCache({ crypto, key: async () => key, read: async () => saved, write: async (_u, _g, value) => { saved = value; }, now: () => new Date('2026-11-02T01:00:00Z') });
+  const model = { viewerUserId: 'owner', plan: { groupId: 'group-test', timeZone: 'Asia/Tokyo', range: { asOfDate: '2026-11-02' } } };
+  await cache.write(h.record, model);
+  const coldConnection = { ...h.database };
+  const candidate = await api.readSharingDisplayCandidate(coldConnection, 'owner', 'group-test');
+  assert.deepEqual(await cache.read(candidate), model); assert.equal(validations, 0);
+  await api.readSharingWorkspace(coldConnection, 'owner', 'group-test'); assert.equal(validations, 1, 'the real session still verifies its roster');
+  const forged = structuredClone(h.record); forged.anchor.signature = '00'.repeat(64);
+  await h.database.runAsync('UPDATE sharing_workspaces SET record_json=?', JSON.stringify(forged));
+  assert.equal(await cache.read(await api.readSharingDisplayCandidate(coldConnection, 'owner', 'group-test')), undefined);
+  await assert.rejects(api.readSharingWorkspace(coldConnection, 'owner', 'group-test')); assert.equal(validations, 2);
+  const mutated = await api.readSharingDisplayCandidate(coldConnection, 'owner', 'group-test'); mutated.displayName = 'changed by caller';
+  assert.equal((await api.readSharingDisplayCandidate(coldConnection, 'owner', 'group-test')).displayName, h.record.displayName);
+});
+
+test('unchanged registry bytes reuse validation while every read still checks SQLite and returns isolated current account data', async () => {
+  const h = await fixture(); let validations = 0; let reads = 0;
+  const api = loadNativeModule('src/platform/storage/sharing-registry.ts', {
+    '../../features/sharing/operations.ts': operations,
+    '../../features/sharing/roster.ts': { ...rosters, validateSharedRoster: (value) => { validations++; return rosters.validateSharedRoster(value); } },
+    '../../domain/scheduling/local-date.ts': localDates,
+  });
+  const database = { ...h.database, getFirstAsync: async (...args) => { reads++; return h.database.getFirstAsync(...args); } };
+  try {
+    await registry.saveSharingWorkspace(h.database, h.record);
+    const first = await api.readSharingWorkspace(database, 'owner', 'group-test');
+    first.status = 'removed'; first.anchor.body.members.length = 0; first.rosterArchive.length = 0;
+    for (let i = 0; i < 10; i++) {
+      const row = await api.readSharingWorkspace(database, 'owner', 'group-test');
+      assert.equal(row.status, 'active'); assert.equal(row.anchor.body.members.length, 1); assert.equal(row.rosterArchive.length, 1);
+    }
+    assert.equal(reads, 11, 'validation reuse cannot skip a fresh SQLite read');
+    assert.equal(validations, 1, 'an identical saved roster need not repeat its signature validation');
+    const anotherHandle = { ...database };
+    await api.readSharingWorkspace(anotherHandle, 'owner', 'group-test');
+    assert.equal(validations, 2, 'verification is scoped to the database handle');
+    assert.equal(await api.readSharingWorkspace(database, 'other-account', 'group-test'), null);
+
+    const changed = { ...h.record, status: 'left' };
+    await h.database.runAsync('UPDATE sharing_workspaces SET record_json=?', JSON.stringify(changed));
+    assert.equal((await api.readSharingWorkspace(database, 'owner', 'group-test')).status, 'left');
+    assert.equal(validations, 3, 'a change made by another connection must be validated immediately');
+    const tampered = structuredClone(changed); tampered.anchor.signature = '0'.repeat(128);
+    await h.database.runAsync('UPDATE sharing_workspaces SET record_json=?', JSON.stringify(tampered));
+    await assert.rejects(api.readSharingWorkspace(database, 'owner', 'group-test'));
+    await assert.rejects(api.readSharingWorkspace(database, 'owner', 'group-test'), undefined, 'failed validation is never cached');
+    const foreign = { ...changed, userId: 'another-account' };
+    await h.database.runAsync('UPDATE sharing_workspaces SET record_json=?', JSON.stringify(foreign));
+    await assert.rejects(api.readSharingWorkspace(database, 'owner', 'group-test'), /identity/);
+    await assert.rejects(api.readSharingWorkspace(database, 'owner', 'group-test'), /identity/);
+    await h.database.runAsync('DELETE FROM sharing_workspaces');
+    assert.equal(await api.readSharingWorkspace(database, 'owner', 'group-test'), null, 'a prior validation cannot resurrect deleted data');
+  } finally { h.connection.close(); }
+});
 
 test('an unchanged workspace update performs no SQLite write while real metadata changes still persist behind identity guards', async () => {
   const h = await fixture();

@@ -4,6 +4,8 @@ import type { LocalDate } from '../../../domain/shared/types.ts';
 import type { createV2EventRepository } from '../../../platform/storage/sharing-v2-events.ts';
 import { createV2PlannerActions } from './actions.ts';
 import { buildV2CommonPlan } from './common-plan.ts';
+import type { V2CommonPlan } from './common-plan';
+import { isolatedProjectionValue } from '../../../platform/storage/isolated-projection-value.ts';
 import { v2ReadPoint } from './view-point.ts';
 import { maximalCausalFacts } from './causal-facts.ts';
 import { normalizeV2Configuration } from './configuration-normalization.ts';
@@ -17,6 +19,7 @@ import { v2MembershipStart } from './membership-period.ts';
 import { buildV2WastePlan } from './waste-state.ts';
 import { buildV2ApplianceModel } from './appliance-state.ts';
 import type { LegacyCompletionRecord } from './legacy-history.ts';
+import { traceStartup, traceStartupSync } from '../../../platform/diagnostics/startup-timing.ts';
 type V2ModelRange = { from: LocalDate; through: LocalDate; asOfDate: LocalDate };
 
 /** Injected transport keeps the screen independent of production, Emulator, and offline test workspaces. */
@@ -24,6 +27,7 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
   makeId: () => string; now: () => Date; sync: () => Promise<unknown>;
 }) {
   const actions = createV2PlannerActions(repository, options);
+  const recentPlans = new Map<string, V2CommonPlan>();
   return {
     actions, sync: options.sync,
     // Date reviews need current shared events, not another scheduler/overlay run.
@@ -34,7 +38,7 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
       return { groupId: repository.scope.groupId, viewerUserId: repository.scope.userId, timeZone, records: readSharedCalendar(state.assessment.view, at) };
     }),
     async readModel(inputRange: V2ModelRange | ((context: { timeZone: string }) => V2ModelRange), readOptions: { detailChoreId?: string; choreSettings?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; appliances?: boolean; applianceId?: string } = {}) {
-      const state = await repository.readState();
+      const state = await traceStartup('display.repository', () => repository.readState());
       const at = v2ReadPoint(state.assessment.view, state.archive.at(-1)!);
       let range: V2ModelRange;
       if (typeof inputRange === 'function') {
@@ -49,7 +53,16 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
         }
         range = inputRange({ timeZone: zone });
       } else range = inputRange;
-      const plan = buildV2CommonPlan(state, range);
+      // Private-calendar imports can change a person's recommendations without
+      // changing a single shared fact. Reuse only the pure common calculation;
+      // the repository above still authenticates every read and current access.
+      const source = JSON.stringify([state.replica, state.archive, [...state.receipts], state.assessment.pendingOutboxIds, range]);
+      const prepared = recentPlans.get(source);
+      const plan = traceStartupSync('display.commonCalculation', () => prepared ? isolatedProjectionValue(prepared) : buildV2CommonPlan(state, range));
+      if (!prepared) {
+        recentPlans.set(source, isolatedProjectionValue(plan));
+        if (recentPlans.size > 3) recentPlans.delete(recentPlans.keys().next().value!);
+      }
       const configurations = plan.chores.map((chore) => {
         const facts = state.assessment.view.topic('chorePolicy', chore.id); const candidates = maximalCausalFacts(facts);
         let configuration: SharedChoreConfiguration | null = null;

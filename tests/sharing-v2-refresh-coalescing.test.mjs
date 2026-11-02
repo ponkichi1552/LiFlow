@@ -30,11 +30,12 @@ async function setup(platform, failWithoutError = false) {
     if (hold) { const current = hold; hold = null; current.entered.resolve(); await current.release.promise; } return model; } };
   let focus;
   const screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen', platform,
+    effectDependencies: true, effect: callback => callback(), layoutEffect: callback => callback(),
     props: { purpose: 'workspace', view: 'home', loadSession: async () => session, subscribe: callback => { listener = callback; return () => { listener = null; }; }, onBack() {}, onConfiguration() {}, onHistory() {} },
     focusEffect: callback => { focus = callback; } });
   const leave = focus(); for (let n = 0; n < 25 && !screen.text().includes('床を掃除する'); n++) await screen.flush();
   assert.match(screen.text(), /床を掃除する/u);
-  return { d, c, screen, reads: () => reads, notify: () => listener?.(), holdNext: value => { hold = value; }, close: () => { leave(); d.connection.close(); } };
+  return { d, c, screen, reads: () => reads, notify: () => listener?.(), holdNext: value => { hold = value; }, close: () => { leave(); screen.unmount(); d.connection.close(); } };
 }
 for (const platform of ['ios', 'android']) {
   test(`${platform} a mutation that throws a non-Error value remains failed and cannot be displayed as a successful completion`, async () => {

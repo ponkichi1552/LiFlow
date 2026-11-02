@@ -13,6 +13,7 @@ import { GroupManagementLinks } from '@/features/sharing/group-management-links'
 import { ChoreSettingsSources } from '@/features/settings/chore-settings-sources';
 import { AccordionSection } from '@/components/accordion-section';
 import { BirthdaySettings } from '@/features/calendar/birthday-settings';
+import { PersonalGoogleCalendarSettings } from '@/features/calendar/personal-google-settings';
 import { useLocalCalendar } from '@/features/calendar/use-local-calendar';
 import { DataCredits } from '@/components/data-credits';
 import type { FrequencyMode } from '@/domain/chores/types';
@@ -44,6 +45,7 @@ import { configureGoogleCalendarAvailability } from '@/features/google-sync/cale
 import { hasOtherGoogleWorkspaceConnections, sharingSessionUser } from '@/platform/sharing/workspaces';
 import { getDeviceTimeZone } from '@/features/google-sync/calendar-availability';
 import { createOwnerRhythmSettings, type PlannerRhythm } from '@/features/settings/owner-rhythm-settings';
+import { subscriptionRequired } from '@/platform/subscription/runtime';
 
 const modeOptions: { id: FrequencyMode; label: string; detail: string }[] = [
   { id: 'frequent', label: 'こまめ', detail: '短めの周期' },
@@ -492,6 +494,10 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
           ? { pathname: '/sharing/group/[groupId]', params: { groupId: workspace.group.groupId } } : '/sharing'))} style={[styles.notificationRow, { minHeight: 46 }]}>
         <Text style={[typography.section, { color: palette.ink, fontWeight: '700', flex: 1 }]}>共有グループ</Text><Chevron />
       </Pressable></Card>
+      {subscriptionRequired ? <Card style={{ paddingVertical: 4 }}><Pressable accessibilityRole="button" accessibilityLabel="月額契約を確認"
+        onPress={() => void autosave.navigate(() => router.push('/subscription'))} style={[styles.notificationRow, { minHeight: 46 }]}>
+        <Text style={[typography.section, { color: palette.ink, fontWeight: '700', flex: 1 }]}>月額契約</Text><Chevron />
+      </Pressable></Card> : null}
       <AccordionSection title="Google連携" summary={googleSummary}
         summaryError={googleSummaryError} expanded={expandedSections.has('google-sync')} onToggle={() => toggleSection('google-sync')}>
         <FeatureStatus
@@ -551,6 +557,7 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
           <AppButton title={googleBusy ? '接続中…' : 'Googleと接続'} onPress={() => void connectGoogle()} disabled={googleBusy || !googleOAuthConfigured} />
         )}
         <Text style={styles.hint}>同期する家事名と予定日をGoogleへ送信します。接続解除時もGoogle Tasks上の既存家事は削除しません。Google Tasks権限は広い範囲に適用されるため、信頼できるGoogleアカウントで接続してください。</Text>
+        <PersonalGoogleCalendarSettings database={database} />
         {v2 ? <GroupManagementLinks section="google" busy={googleBusy} onSelect={target => router.push(target)} /> : null}
         {googleMessage ? <Text style={googleMessage.kind === 'success' ? styles.success : styles.error}>{googleMessage.text}</Text> : null}
       </AccordionSection>

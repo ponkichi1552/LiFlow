@@ -23,12 +23,14 @@ export function reconcileLocalNotifications(gateway: LocalNotificationGateway, i
     await assertCurrent?.();
     const existing = await gateway.getScheduledRequests();
     const permitted = enabled && await gateway.hasPermission();
+    const deadline = await gateway.schedulingDeadline?.() ?? Infinity;
     await assertCurrent?.();
     const otherCount = existing.filter(request => !request.key.startsWith(prefix)).length;
     const capacity = gateway.maximumScheduledRequests;
     if (capacity !== undefined && (!Number.isSafeInteger(capacity) || capacity < 0)) throw new Error('通知の上限を確認してください。');
     const room = capacity === undefined ? Infinity : Math.max(0, capacity - otherCount);
-    const requests = permitted ? desired.sort((a, b) => a.fireAt.localeCompare(b.fireAt) || a.key.localeCompare(b.key)).slice(0, room) : [];
+    const requests = permitted ? desired.filter(request => Date.parse(request.fireAt) < deadline)
+      .sort((a, b) => a.fireAt.localeCompare(b.fireAt) || a.key.localeCompare(b.key)).slice(0, room) : [];
     const desiredKeys = new Set(requests.map(request => request.key));
     const byKey = new Map(existing.map(request => [request.key, request]));
     const obsolete = existing.filter(request => request.key.startsWith(prefix) && !desiredKeys.has(request.key));

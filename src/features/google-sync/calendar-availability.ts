@@ -1,11 +1,11 @@
 import type { LocalDate } from '@/domain/shared/types';
 import type { ExternalAvailabilityByDate } from '@/domain/scheduling/contracts';
-import { addDays } from '@/domain/scheduling/local-date';
-import { parseGoogleCompletedAt } from './google-completion-policy';
-import { busyMinutesToBucket } from '@/domain/scheduling/calendar-penalty';
-import { CALENDAR_AVAILABILITY_MAX_AGE_MS, CALENDAR_REFRESH_INTERVAL_MS } from './calendar-timing';
+import { addDays } from '../../domain/scheduling/local-date.ts';
+import { parseGoogleCompletedAt } from './google-completion-policy.ts';
+import { busyMinutesToBucket } from '../../domain/scheduling/calendar-penalty.ts';
+import { CALENDAR_AVAILABILITY_MAX_AGE_MS, CALENDAR_REFRESH_INTERVAL_MS } from './calendar-timing.ts';
 
-export { CALENDAR_AVAILABILITY_MAX_AGE_MS, CALENDAR_REFRESH_INTERVAL_MS, CALENDAR_RETRY_INTERVAL_MS } from './calendar-timing';
+export { CALENDAR_AVAILABILITY_MAX_AGE_MS, CALENDAR_REFRESH_INTERVAL_MS, CALENDAR_RETRY_INTERVAL_MS } from './calendar-timing.ts';
 
 /** Only changes that alter the Scheduler penalty require a new plan; freshness metadata is excluded. */
 export function calendarAvailabilitySignature(availability: ExternalAvailabilityByDate | undefined): string {
@@ -60,8 +60,16 @@ export function getDeviceTimeZone(): string {
   } catch { return 'UTC'; }
 }
 
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
+const dayBoundaries = new WeakMap<Intl.DateTimeFormat, Map<LocalDate, number>>();
 function dateFormatter(timeZone: string): Intl.DateTimeFormat {
-  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+  let formatter = dateFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    dateFormatters.set(timeZone, formatter);
+    if (dateFormatters.size > 8) dateFormatters.delete(dateFormatters.keys().next().value!);
+  }
+  return formatter;
 }
 
 function formattedDate(formatter: Intl.DateTimeFormat, instant: number): LocalDate {
@@ -74,6 +82,8 @@ function formattedDate(formatter: Intl.DateTimeFormat, instant: number): LocalDa
 function dayStart(date: LocalDate, formatter: Intl.DateTimeFormat): number {
   const utc = Date.parse(`${date}T00:00:00.000Z`);
   if (!Number.isFinite(utc) || new Date(utc).toISOString().slice(0, 10) !== date) throw new RangeError('Invalid local date');
+  const known = dayBoundaries.get(formatter) ?? new Map<LocalDate, number>();
+  const cached = known.get(date); if (cached !== undefined) return cached;
   let low = utc - 36 * 60 * 60 * 1000;
   let high = utc + 36 * 60 * 60 * 1000;
   while (low < high) {
@@ -81,7 +91,8 @@ function dayStart(date: LocalDate, formatter: Intl.DateTimeFormat): number {
     if (formattedDate(formatter, mid) < date) low = mid + 1;
     else high = mid;
   }
-  return low;
+  known.set(date, low); if (known.size > 1024) known.delete(known.keys().next().value!);
+  dayBoundaries.set(formatter, known); return low;
 }
 
 export function createCalendarQueryRange(from: LocalDate, through: LocalDate, timeZone: string): CalendarQueryRange {

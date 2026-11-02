@@ -26,7 +26,7 @@ export function V2WorkspaceRoute({ view }: { view: V2GroupScreenProps['view'] })
     return navigation.addListener('tabPress', () => router.setParams({ choreId: undefined, source: undefined, returnTo: undefined }));
   }, [navigation, router, view]);
   const active = context.active?.protocol === 2 ? context.active : null;
-  const { loadSession, subscribe, peek } = useWorkspaceDisplay();
+  const { loadSession, subscribe, peek, sharedCompletion, personalCompletion, invalidate } = useWorkspaceDisplay();
   const selected = active ?? context.startupDisplay?.record;
   if (!context.ready || !selected || selected.userId !== context.userId) return <Page><Card><Text style={typography.body}>所属グループを確認してください。</Text>
     <AppButton title="共有グループへ" onPress={() => router.replace('/sharing')} /></Card></Page>;
@@ -34,7 +34,7 @@ export function V2WorkspaceRoute({ view }: { view: V2GroupScreenProps['view'] })
   const focus = text(params.anchorDate); const anchorContext = focus ? { anchorDate: focus } : {};
   const record = context.group;
   const Screen = view === 'calendar' ? CalendarWorkspaceScreen : V2GroupScreen;
-  return <Screen key={`${selected.userId}:${selected.groupId}:${context.group?.localGeneration ?? 'initial'}`} database={personalDatabase} purpose="workspace" view={view} loadSession={loadSession} subscribe={subscribe} lifecycleManaged initialDisplay={peek(readOptionsForView(view, focus, text(params.choreId), text(params.applianceId)))}
+  return <Screen key={`${selected.userId}:${selected.groupId}:${context.group?.localGeneration ?? 'initial'}`} database={personalDatabase} purpose="workspace" view={view} loadSession={loadSession} subscribe={subscribe} sharedCompletion={sharedCompletion} personalCompletion={personalCompletion} invalidateCompletionDisplay={invalidate} lifecycleManaged initialDisplay={peek(readOptionsForView(view, focus, text(params.choreId), text(params.applianceId)))}
     onCalendarNavigate={tab => router.navigate(({ home: '/(tabs)', calendar: '/(tabs)/explore', chores: '/(tabs)/guide', appliances: '/(tabs)/manual' } as const)[tab])}
     workspaceName={record?.displayName} workspaceError={context.error ?? (record?.lastErrorCode ? sharingFailureMessage({ code: record.lastErrorCode }) : undefined)}
     anchorDate={focus} choreId={text(params.choreId)} occurrenceId={text(params.occurrenceId)} subjectId={text(params.subjectId)} applianceId={text(params.applianceId)} initialProductName={text(params.productName)}

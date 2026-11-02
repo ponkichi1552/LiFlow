@@ -18,6 +18,7 @@ import { plannerColorsForScheme } from '@/components/planner-theme';
 import { WorkspaceDisplayProvider } from '@/features/sharing/v2-ui/workspace-data';
 import { LocalCalendarProvider } from '@/features/calendar/use-local-calendar';
 import { traceStartup } from '@/platform/diagnostics/startup-timing';
+import { SubscriptionBoundary } from '@/features/subscription/subscription-boundary';
 
 const initialize = (database: Parameters<typeof initializeLocalDatabase>[0]) => traceStartup('database.initialize', () => initializeLocalDatabase(database));
 prepareStartupDisplay(SplashScreen);
@@ -56,25 +57,25 @@ export default function RootLayout() {
   const theme = { ...baseTheme, colors: { ...baseTheme.colors, background: colors.background, card: colors.surface,
     text: colors.ink, border: colors.border, primary: colors.accent, notification: colors.warning } };
   return (
-    <SQLiteProvider databaseName="housework.db" onInit={initialize}>
-      <PlannerDataProvider>
-        <WorkspaceProvider>
-        <LocalCalendarProvider>
-        <WorkspaceDisplayProvider>
-        <ThemeProvider value={theme}>
-          <>
-            <PlannerSystemBars />
-            <WidgetInteractionBridge />
-            <NotificationWorkspaceBridge />
-            <ActiveWorkspaceScope>
-            <WorkspaceNavigator />
-            </ActiveWorkspaceScope>
-          </>
-        </ThemeProvider>
-        </WorkspaceDisplayProvider>
-        </LocalCalendarProvider>
-        </WorkspaceProvider>
-      </PlannerDataProvider>
-    </SQLiteProvider>
+    <SubscriptionBoundary><SQLiteProvider databaseName="housework.db" onInit={initialize}>
+      <WorkspaceProvider>
+        <ActiveWorkspaceScope>
+          <PlannerDataProvider>
+            <LocalCalendarProvider>
+              <WorkspaceDisplayProvider>
+                <ThemeProvider value={theme}>
+                  <>
+                    <PlannerSystemBars />
+                    <WidgetInteractionBridge />
+                    <NotificationWorkspaceBridge />
+                    <WorkspaceNavigator />
+                  </>
+                </ThemeProvider>
+              </WorkspaceDisplayProvider>
+            </LocalCalendarProvider>
+          </PlannerDataProvider>
+        </ActiveWorkspaceScope>
+      </WorkspaceProvider>
+    </SQLiteProvider></SubscriptionBoundary>
   );
 }

@@ -1,11 +1,12 @@
 import { canonicalJson, causallyPrecedes, compareOperationIds, validateSharedOperation } from './operations.ts';
 import type { JsonValue, SharedEntityType, SharedOperation, VersionVector } from './operations.ts';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { bytesToHex } from '@noble/hashes/utils.js';
+import { sharedContentDigest } from './content-digest.ts';
 import { validateLegacyMigrationWitness } from './v2/legacy-migration-witness.ts';
 import type { SignedLegacyMigrationWitness } from './v2/legacy-migration-witness.ts';
 import { MAX_V2_RECOVERY_WITNESSES, validateV2RecoveryWitness } from './v2/recovery-witness.ts';
 import type { SignedV2RecoveryWitness } from './v2/recovery-witness.ts';
+import type { V2RetentionWitness } from './v2/history-retention-certificate';
+import { validateV2RetentionBody } from './v2/history-retention-schema.ts';
 
 export interface SharedOperationReceipt { operationId: string; deviceId: string; sequence: number; digest: string }
 export interface SharedSnapshotBase {
@@ -19,6 +20,7 @@ export interface SharedSnapshotBase {
   legacyMigrationWitness?: SignedLegacyMigrationWitness;
   /** Owner-approved quarantine proof; never a fabricated operation or causal dot. */
   recoveryWitnesses?: SignedV2RecoveryWitness[];
+  retention?: V2RetentionWitness;
 }
 
 export interface FieldCandidate { operationId: string; value: JsonValue }
@@ -48,10 +50,11 @@ export interface SharedReplica {
   operationIndex: SharedOperationReceipt[];
   legacyMigrationWitness?: SignedLegacyMigrationWitness;
   recoveryWitnesses?: SignedV2RecoveryWitness[];
+  retention?: V2RetentionWitness;
 }
 
 export function sharedOperationDigest(operation: SharedOperation): string {
-  return bytesToHex(sha256(new TextEncoder().encode(canonicalJson(operation))));
+  return sharedContentDigest(operation);
 }
 
 function receipt(operation: SharedOperation): SharedOperationReceipt {
@@ -60,6 +63,8 @@ function receipt(operation: SharedOperation): SharedOperationReceipt {
 }
 
 export function validateSharedSnapshotBase(groupId: string, base: SharedSnapshotBase): SharedSnapshotBase {
+  if (base.retention && (validateV2RetentionBody(base.retention.proposal.operation.payload.checkpoint).groupId !== groupId
+    || base.legacyMigrationWitness)) throw new Error('Retention checkpoint cannot retain superseded original archives');
   if (base.legacyMigrationWitness !== undefined && validateLegacyMigrationWitness(base.legacyMigrationWitness).body.groupId !== groupId) throw new Error('Foreign migration witness');
   if (base.recoveryWitnesses !== undefined) {
     if (!Array.isArray(base.recoveryWitnesses) || base.recoveryWitnesses.length > MAX_V2_RECOVERY_WITNESSES) throw new Error('Invalid recovery history');
@@ -67,6 +72,11 @@ export function validateSharedSnapshotBase(groupId: string, base: SharedSnapshot
     for (const raw of base.recoveryWitnesses) {
       const witness = validateV2RecoveryWitness(raw);
       if (witness.body.groupId !== groupId || ids.has(witness.body.snapshotId)) throw new Error('Foreign or duplicate recovery witness');
+      if (base.retention) {
+        const checkpoint = validateV2RetentionBody(base.retention.proposal.operation.payload.checkpoint);
+        if (witness.body.baselineSequence <= checkpoint.throughSequence || witness.preservedFacts.some(({ fact }) => fact.operation.deviceSequence <= (checkpoint.frontier[fact.operation.authorDeviceId] ?? 0)
+          && !base.operations.some(op => op.operationId === fact.operation.operationId))) throw new Error('Recovery cannot restore deleted original history');
+      }
       ids.add(witness.body.snapshotId);
     }
   }
@@ -191,6 +201,9 @@ export function buildSharedReplica(groupId: string, input: readonly SharedOperat
   }
   for (const undo of ready.filter((op) => op.operationType === 'undo')) {
     const target = byId.get(undo.payload.targetOperationId as string);
+    // A late undo of a certified, deleted report is rejected by business authority,
+    // without poisoning an otherwise valid receive batch or resurrecting the report.
+    if (!target && base?.retention && past.has(undo.payload.targetOperationId as string)) continue;
     if (!target || target.entityType !== 'completion' || target.operationType !== 'complete'
       || target.entityId !== undo.entityId || !causallyPrecedes(target, undo)) {
       throw new Error('Undo does not observe its target completion');
@@ -222,6 +235,7 @@ export function buildSharedReplica(groupId: string, input: readonly SharedOperat
   }
   effective.sort((a, b) => compareOperationIds(a.occurrenceId, b.occurrenceId));
   return { groupId, operations, entities, completions: effective, frontier,
+    ...(base?.retention ? { retention: JSON.parse(canonicalJson(base.retention)) as V2RetentionWitness } : {}),
     ...(base?.legacyMigrationWitness ? { legacyMigrationWitness: JSON.parse(canonicalJson(base.legacyMigrationWitness)) as SignedLegacyMigrationWitness } : {}),
     ...(base?.recoveryWitnesses?.length ? { recoveryWitnesses: JSON.parse(canonicalJson(base.recoveryWitnesses)) as SignedV2RecoveryWitness[] } : {}),
     logicalClock: operations.reduce((max, op) => Math.max(max, op.logicalClock), base?.logicalClock ?? 0),
@@ -245,6 +259,7 @@ export function compactSharedReplica(replica: SharedReplica): SharedSnapshotBase
   return validateSharedSnapshotBase(replica.groupId, { groupId: replica.groupId, frontier: { ...replica.frontier },
     logicalClock: replica.logicalClock, operationIndex: replica.operationIndex.map((item) => ({ ...item })),
     operations: replica.operations.filter((op) => retained.has(op.operationId)),
+    ...(replica.retention ? { retention: JSON.parse(canonicalJson(replica.retention)) as V2RetentionWitness } : {}),
     ...(replica.legacyMigrationWitness ? { legacyMigrationWitness: JSON.parse(canonicalJson(replica.legacyMigrationWitness)) as SignedLegacyMigrationWitness } : {}),
     ...(replica.recoveryWitnesses?.length ? { recoveryWitnesses: JSON.parse(canonicalJson(replica.recoveryWitnesses)) as SignedV2RecoveryWitness[] } : {}) });
 }

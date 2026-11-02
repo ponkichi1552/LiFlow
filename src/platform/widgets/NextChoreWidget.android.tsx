@@ -11,8 +11,11 @@ function NextChoreWidget(props: NextChoreWidgetDisplayProps) {
   'widget';
 
   const InteractiveButton = Button as React.ComponentType<InteractiveButtonProps>;
-  const chores = props.chores ?? [];
-  const remainingCount = props.remainingCount ?? 0;
+  // This is an isolated native widget render, without React hooks; a stale OS snapshot must still check its deadline.
+  // eslint-disable-next-line react-hooks/purity
+  const locked = props.subscriptionLocked || props.accessUntil !== undefined && !(Date.now() < props.accessUntil);
+  const chores = locked ? [] : props.chores ?? [];
+  const remainingCount = locked ? 0 : props.remainingCount ?? 0;
 
   return (
     <Column
@@ -22,7 +25,7 @@ function NextChoreWidget(props: NextChoreWidgetDisplayProps) {
     >
       <Text color="#292C3B" style={{ fontSize: 17, fontWeight: '700' }}>今日の家事</Text>
       {chores.length === 0 ? (
-        <Text color="#68718B" style={{ fontSize: 13 }}>予定はありません</Text>
+        <Text color="#68718B" style={{ fontSize: 13 }}>{locked ? 'アプリで契約を確認' : '予定はありません'}</Text>
       ) : chores.map((chore) => {
         // Only code inside this function is serialized into the widget runtime.
         const content = (
@@ -47,7 +50,10 @@ function NextChoreWidget(props: NextChoreWidgetDisplayProps) {
           <InteractiveButton
             key={chore.id}
             target={`complete:${chore.id}`}
-            onClick={() => ({
+            onClick={() => props.accessUntil !== undefined && !(Date.now() < props.accessUntil) ? ({
+              chores: [], subscriptionLocked: true, remainingCount: 0,
+              pendingWidgetCompletionIds: props.pendingWidgetCompletionIds ?? [],
+            }) : ({
               chores: (props.chores ?? []).map((item) => item.id === chore.id ? { ...item, completed: true } : item),
               pendingWidgetCompletionIds: [...new Set([...(props.pendingWidgetCompletionIds ?? []), chore.id])],
             })}

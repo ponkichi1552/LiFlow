@@ -75,3 +75,19 @@ test('busy buckets and load equivalents have explicit boundaries', () => {
   assert.deepEqual([0,120,121,300,301,480,481,1440].map(busyMinutesToBucket),[0,0,1,1,2,2,3,3]);
   assert.deepEqual(['light','normal','heavy'].map((load)=>calendarPenaltyForChore(load,481)),[3,6,9]);
 });
+
+test('repeated Calendar availability keeps exact regional day boundaries without repeating Intl binary searches', () => {
+  const original = Intl.DateTimeFormat.prototype.formatToParts; let calls = 0;
+  Intl.DateTimeFormat.prototype.formatToParts = function (...args) { calls++; return original.apply(this, args); };
+  try {
+    const first = createCalendarQueryRange('2011-12-29', '2012-01-03', 'Pacific/Apia');
+    const whole = [{ start: first.timeMin, end: first.timeMax }];
+    const a = aggregateBusyMinutes(whole, first, stamp); const warmed = calls; assert.ok(warmed > 0);
+    const second = createCalendarQueryRange('2011-12-29', '2012-01-03', 'Pacific/Apia');
+    assert.deepEqual(aggregateBusyMinutes(whole, second, stamp), a); assert.equal(calls, warmed);
+    assert.equal(a.find(row => row.localDate === '2011-12-30').busyMinutes, 0, 'a skipped civil day is not invented');
+    const utc = createCalendarQueryRange('2011-12-29', '2012-01-03', 'UTC');
+    assert.notEqual(utc.timeMin, first.timeMin); assert.ok(calls > warmed, 'another timezone must not reuse these boundaries');
+    assert.throws(() => createCalendarQueryRange('2011-12-32', '2012-01-03', 'Pacific/Apia'));
+  } finally { Intl.DateTimeFormat.prototype.formatToParts = original; }
+});

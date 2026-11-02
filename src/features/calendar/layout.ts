@@ -17,8 +17,8 @@ export function timelineEvents(events: readonly CalendarOccurrence[], date: Loca
   }
   finish(); return rows;
 }
-export function calendarSwipe(startX: number, dx: number, dy: number, width: number): 'home' | 'chores' | 'previous' | 'next' | null {
-  if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.4) return null;
+export function calendarSwipe(startX: number, dx: number, dy: number, width: number, minimum = 45): 'home' | 'chores' | 'previous' | 'next' | null {
+  if (Math.abs(dx) < minimum || Math.abs(dx) < Math.abs(dy) * 1.4) return null;
   if (startX <= 24 && dx > 0) return 'home';
   if (startX >= width - 24 && dx < 0) return 'chores';
   if (startX <= 24 || startX >= width - 24) return null;

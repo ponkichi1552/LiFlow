@@ -48,6 +48,35 @@ test('membership discovery reads one group and never enumerates historical group
   assert.equal(await client('other-user').cloud.hasMembership('group-test'), false);
   h.store.switch('other-user'); await assert.rejects(h.store.cloud.hasMembership('group-test'), /切り替わり/);
 });
+test('paid access denial cannot be mistaken for removal and renewal recovers the same membership', async () => {
+  const h = await fixture();
+  await env.withSecurityRulesDisabled(async context => setDoc(doc(context.firestore(), 'serviceConfiguration', 'billing'), { enforced: true }));
+  await assert.rejects(h.store.cloud.hasMembership('group-test'), error => error.code === 'permission-denied');
+  await assert.rejects(h.store.cloud.readMembership(), error => error.code === 'permission-denied');
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    assert.equal((await getDocFromServer(doc(db, 'sharingUsers', 'owner', 'memberships', 'current'))).data().groupId, 'group-test');
+    await setDoc(doc(db, 'billingEntitlements', 'owner'), { userId: 'owner', status: 'active', validUntil: Date.now() + 60_000, expiresAt: Date.now() + 60_000 });
+  });
+  assert.equal(await h.store.cloud.hasMembership('group-test'), true);
+  assert.equal(await h.store.cloud.readMembership(), 'group-test');
+});
+test('revocation probes disclose no group data to active unpaid or unrelated users and prove a removed callers own revocation', async () => {
+  const h = await fixture(); const probe = doc(h.store.firestore, 'sharingUsers', 'owner', 'revocations', 'group-test');
+  await assert.rejects(getDocFromServer(probe), error => error.code === 'permission-denied');
+  const other = client('outsider');
+  await assert.rejects(getDocFromServer(doc(other.firestore, 'sharingUsers', 'owner', 'revocations', 'group-test')), error => error.code === 'permission-denied');
+  await assert.rejects(getDocFromServer(doc(other.firestore, 'sharingUsers', 'outsider', 'revocations', 'group-test')), error => error.code === 'permission-denied');
+  await env.withSecurityRulesDisabled(async context => {
+    const ref = doc(context.firestore(), 'sharingGroups', 'group-test');
+    const data = (await getDocFromServer(ref)).data(); await setDoc(ref, { ...data, revokedUserIds: ['owner'], memberIds: [] });
+  });
+  assert.equal((await getDocFromServer(probe)).exists(), false, 'the proof contains no document payload');
+  assert.equal(await h.store.cloud.hasMembership('group-test'), false); assert.equal(await h.store.cloud.readMembership(), null);
+  await env.withSecurityRulesDisabled(async context => setDoc(doc(context.firestore(), 'serviceConfiguration', 'billing'), { enforced: true }));
+  await assert.rejects(getDocFromServer(probe), error => error.code === 'permission-denied');
+  await assert.rejects(h.store.cloud.hasMembership('group-test'), error => error.code === 'permission-denied');
+});
 
 test('invitation management finds a current invitation after more than one page of retained revoked invitations', async () => {
   const h = await fixture();

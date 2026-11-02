@@ -8,14 +8,15 @@ import type { JsonValue } from '../operations.ts';
 import type { LocalDate } from '../../../domain/shared/types.ts';
 import { isSharedTimeZone } from '../group-clock.ts';
 import { validateManualChunk, validateManualDocument } from '../../appliance-care/manual-document.ts';
+import { validateV2RetentionPayload } from './history-retention-schema.ts';
 
 export const V2_ENTITY_TYPES = ['groupPolicy', 'chorePolicy', 'datePermission', 'assignmentRule', 'claim', 'claimRelease',
-  'claimResolution', 'assignmentRequest', 'assignmentDecision', 'assignmentCancel', 'designation', 'designationCancel', 'changeRequest', 'requestDecision', 'completionApproval', 'migration', 'calendarEvent', 'manualChunk', 'manualDocument'] as const;
+  'claimResolution', 'assignmentRequest', 'assignmentDecision', 'assignmentCancel', 'designation', 'designationCancel', 'changeRequest', 'requestDecision', 'completionApproval', 'migration', 'calendarEvent', 'manualChunk', 'manualDocument', 'historyRetention', 'retainedCompletionUndo'] as const;
 export type V2EntityType = typeof V2_ENTITY_TYPES[number];
 export const V2_SCHEMA_VERSION = 2;
-export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-46';
+export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-47';
 /** Signed 38/39 histories keep their original epochs until the owner approves an upgrade. */
-export const supportsRetainedManuals = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-45' || version === 'liflow-shared-2-draft-44' || version === 'liflow-shared-2-draft-43' || version === 'liflow-shared-2-draft-42';
+export const supportsRetainedManuals = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-46' || version === 'liflow-shared-2-draft-45' || version === 'liflow-shared-2-draft-44' || version === 'liflow-shared-2-draft-43' || version === 'liflow-shared-2-draft-42';
 export const supportsSharedCalendar = (version: string): boolean => supportsRetainedManuals(version) || version === 'liflow-shared-2-draft-41';
 export const supportsUploadedManuals = (version: string): boolean => supportsSharedCalendar(version) || version === 'liflow-shared-2-draft-40' || version === 'liflow-shared-2-draft-39';
 export const isSupportedV2Scheduler = (version: string): boolean => supportsUploadedManuals(version) || version === 'liflow-shared-2-draft-38';
@@ -93,6 +94,12 @@ export function validateV2EntityPayload(entityType: V2EntityType, payload: Recor
   }
   // Each append-only business fact has its own identity. A patch cannot rewrite an older fact entity.
   if (binding.entityId !== binding.operationId) throw new Error('V2 fact identity must equal its operation ID');
+  if (entityType === 'historyRetention') { validateV2RetentionPayload(payload); return; }
+  if (entityType === 'retainedCompletionUndo') {
+    record(payload, ['choreId', 'anchorDate', 'subjectUserId', 'checkpointId', 'recorderUserIds']);
+    assertSharedIdentifier(payload.choreId); day(payload.anchorDate); idOrNull(payload.subjectUserId); ids(payload.recorderUserIds, false, 4096);
+    if (typeof payload.checkpointId !== 'string' || !/^[a-f0-9]{64}$/u.test(payload.checkpointId)) throw new Error('Invalid retained completion checkpoint'); return;
+  }
   if (entityType === 'calendarEvent') { validateSharedCalendarPayload(payload, binding.operationId); return; }
   if (entityType === 'assignmentRule') {
     const required = ['choreId', 'memberIds', 'fromOccurrenceId', 'fromAnchorDate', 'scope', 'fixed', 'ruleVersion'];

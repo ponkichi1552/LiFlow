@@ -31,24 +31,30 @@ export function publicUsage(used, now, policy = PUBLIC_API_POLICY) {
 }
 
 /** The verifier is the official Firebase Admin verifier, including revoked-token and disabled-user checks. */
-export function createPublicApiAccess({ verifyIdToken, verifyDevice, store }) {
+export async function authenticateFirebaseUser(request, verifyIdToken) {
+  const header = request.headers.authorization;
+  if (typeof header !== 'string' || header.length > 16_384 || !/^Bearer [A-Za-z0-9._~-]+$/u.test(header)) {
+    throw new PublicApiError(401, 'AUTHENTICATION_REQUIRED', '利用者認証を確認できませんでした。もう一度ログインしてください。');
+  }
+  let decoded;
+  try { decoded = await verifyIdToken(header.slice(7), true); }
+  catch { throw new PublicApiError(401, 'AUTHENTICATION_REQUIRED', '認証の有効期限を確認できませんでした。もう一度お試しください。'); }
+  if (typeof decoded?.uid !== 'string' || !decoded.uid.length || decoded.uid.length > 128
+    || !['google.com', 'apple.com'].includes(decoded?.firebase?.sign_in_provider)) {
+    throw new PublicApiError(403, 'ACCESS_DENIED', 'GoogleまたはAppleでログインしてください。');
+  }
+  return Object.freeze({ uid: decoded.uid });
+}
+
+export function createPublicApiAccess({ verifyIdToken, verifyDevice, store, subscriptions }) {
   if (typeof verifyIdToken !== 'function' || !store || !['admit', 'read', 'finish', 'usage'].every(key => typeof store[key] === 'function')) {
     throw new Error('Public authentication and durable quota storage are required');
   }
-  return Object.freeze({ mode: 'firebase-firestore', securityReady: typeof verifyDevice === 'function', store,
+  return Object.freeze({ mode: 'firebase-firestore', securityReady: typeof verifyDevice === 'function', store, subscriptions,
     async authenticate(request) {
-      const header = request.headers.authorization;
-      if (typeof header !== 'string' || header.length > 16_384 || !/^Bearer [A-Za-z0-9._~-]+$/u.test(header)) {
-        throw new PublicApiError(401, 'AUTHENTICATION_REQUIRED', '家電AIの利用者認証を確認できませんでした。もう一度お試しください。');
-      }
-      let decoded;
-      try { decoded = await verifyIdToken(header.slice(7), true); }
-      catch { throw new PublicApiError(401, 'AUTHENTICATION_REQUIRED', '認証の有効期限を確認できませんでした。もう一度お試しください。'); }
-      const provider = decoded?.firebase?.sign_in_provider;
-      if (typeof decoded?.uid !== 'string' || !decoded.uid.length || decoded.uid.length > 128
-        || !['google.com', 'apple.com'].includes(provider)) {
-        throw new PublicApiError(403, 'ACCESS_DENIED', '家電AIにはGoogleまたはAppleのログインが必要です。匿名認証では利用できません。');
-      }
+      const decoded = await authenticateFirebaseUser(request, verifyIdToken);
+      // Refuse unpaid AI requests before performing a potentially costly native-attestation provider call.
+      if (subscriptions) await subscriptions.service.assertActive(decoded.uid);
       if (typeof verifyDevice !== 'function') throw new PublicApiError(503, 'DEVICE_VERIFICATION_UNAVAILABLE', '安全な端末確認が準備できていないため、家電AIは停止しています。');
       const proof = await verifyDevice(request, Object.freeze({ uid: decoded.uid }));
       // These identifiers must come from a verified platform provider, never from body fields or raw device headers.

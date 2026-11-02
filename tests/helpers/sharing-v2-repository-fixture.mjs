@@ -25,8 +25,8 @@ export async function fixture({ clock = now, schedulerVersion } = {}) {
   const initial = createSharedRoster(groupId, 'owner', owner, { schemaVersion: 2 });
   if (schedulerVersion) { initial.body.schedulerVersion = schedulerVersion; initial.signature = signSharedDocument({ domain: 'liflow-shared-roster-v1', body: initial.body }, owner); }
   const archive = [initial]; archive.push(approveSharedDevice(archive[0], owner, 'member', member));
-  async function device(userId = 'owner', identity = owner) {
-    const h = createDatabase(); await initializeV2EventStore(h.database, { ...scope, userId });
+  async function device(userId = 'owner', identity = owner, databasePath) {
+    const h = createDatabase(databasePath); await initializeV2EventStore(h.database, { ...scope, userId });
     let writable = true;
     const options = { ...scope, userId, identity, anchor: archive[0], archive: () => archive, now: clock, assertWritable: () => { if (!writable) throw new Error('account changed'); } };
     const repository = createV2EventRepository(h.database, options);

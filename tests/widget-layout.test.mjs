@@ -53,6 +53,19 @@ function plain(value) {
 }
 
 for (const platform of ['android', 'ios']) {
+  test(`${platform} expired widget snapshots hide chores and reject a late completion without discarding earlier pending actions`, () => {
+    const layout = loadWidgetLayout(platform);
+    const props = { chores: [{ id: 'late', name: '非公開の家事', completed: false }], pendingWidgetCompletionIds: ['earlier'], remainingCount: 1, updatedAt: '', accessUntil: Date.now() - 1 };
+    const expired = nodes(layout(props));
+    assert.equal(expired.filter(node => node.type === 'Button').length, 0);
+    assert.ok(!expired.filter(node => node.type === 'Text').some(node => node.props.children === '非公開の家事'));
+    props.accessUntil = Date.now() + 60_000;
+    const button = nodes(layout(props)).find(node => node.type === 'Button');
+    props.accessUntil = 0;
+    const result = (button.props.onClick ?? button.props.onPress)();
+    assert.deepEqual(plain(result.pendingWidgetCompletionIds), ['earlier']);
+    assert.equal(result.subscriptionLocked, true); assert.deepEqual(plain(result.chores), []);
+  });
   test(`${platform} widget renders chores in its isolated runtime`, () => {
     const layout = loadWidgetLayout(platform);
     const tree = layout({

@@ -17,6 +17,8 @@ export interface NextChoreWidgetDisplayProps {
   pendingWidgetCompletionIds: readonly string[];
   remainingCount: number;
   updatedAt: ISODateTime;
+  accessUntil?: number;
+  subscriptionLocked?: boolean;
 }
 
 export interface WidgetGateway {

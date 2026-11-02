@@ -1,4 +1,4 @@
-import { BUILT_IN_CHORE_CATALOG_VERSION, createHouseholdChoreDefinitions } from '../../../domain/chores/catalog.ts';
+import { BUILT_IN_CHORE_CATALOG_VERSION, RETIRED_BUILT_IN_CHORE_IDS, createHouseholdChoreDefinitions } from '../../../domain/chores/catalog.ts';
 import { builtInCatalogPatch } from '../../../domain/chores/catalog-upgrade.ts';
 import type { createV2EventRepository } from '../../../platform/storage/sharing-v2-events.ts';
 import type { SharedOperationDraft } from '../../../platform/storage/sharing-ledger.ts';
@@ -19,6 +19,10 @@ export async function ensureV2CatalogCurrent(repository: ReturnType<typeof creat
     const view = state.assessment.view; const at = v2ReadPoint(view, roster);
     if (view.field('settings', 'settings', '$alive', at)?.value !== true || !view.ofType('groupPolicy').length) return [];
     const drafts: SharedOperationDraft[] = [];
+    for (const retired of RETIRED_BUILT_IN_CHORE_IDS) {
+      const id = `${repository.scope.groupId}.${retired}`;
+      if (view.field('chore', id, '$alive', at)?.value === true) drafts.push({ operationId: makeId(), entityType: 'chore', entityId: id, operationType: 'delete', payload: {} });
+    }
     const builtIns = view.ofType('chore').some(op => op.authorUserId === roster.body.ownerUserId
       && op.entityId.startsWith(`${repository.scope.groupId}.builtin-chore-`));
     if (builtIns) for (const definition of createHouseholdChoreDefinitions(repository.scope.householdId)) {
@@ -26,7 +30,7 @@ export async function ensureV2CatalogCurrent(repository: ReturnType<typeof creat
       const facts = view.topic('chore', id);
       if (!facts.length) {
         drafts.push({ operationId: makeId(), entityType: 'chore', entityId: id, operationType: 'patch',
-          payload: { ...sharedPatchFromDefinition({ ...definition, id, enabled: false }), requiresCycleSelection: true } });
+          payload: { ...sharedPatchFromDefinition({ ...definition, id, enabled: false }), requiresCycleSelection: definition.requiresCycleSelection === true } });
         continue;
       }
       try {

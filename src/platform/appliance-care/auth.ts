@@ -7,7 +7,7 @@ export interface ApplianceApiSession {
 
 function failure(message: string) { return Object.assign(new Error(message), { code: 'AUTHENTICATION_REQUIRED' }); }
 
-/** Called only when using the AI API. Ordinary personal planning still needs neither a login nor a network. */
+/** The API reuses the app account; it never creates a separate AI login. */
 export async function authorizeApplianceCareApi(baseUrl: string): Promise<ApplianceApiSession> {
   try { return await createSession(baseUrl); }
   catch (error) {
@@ -26,7 +26,7 @@ async function createSession(baseUrl: string): Promise<ApplianceApiSession> {
   const sharedAuth = getSharingServices().auth;
   await sharedAuth.authStateReady();
   const user = sharedAuth.currentUser;
-  if (!user || user.isAnonymous) throw failure('家電AIを利用するにはGoogleまたはAppleでログインしてください。通常の家事管理と保存済みの説明はログイン不要です。');
+  if (!user || user.isAnonymous) throw failure('家電AIを利用するにはGoogleまたはAppleでログインしてください。');
   const requestId = randomUUID();
   const current = () => sharedAuth.currentUser?.uid === user.uid;
   return { async headers() {

@@ -1,7 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { palette, SectionHeading, typography } from '../../../components/planner-ui';
 import { ProcedureStep } from '../../../components/procedure-step';
-import { ChoreSourceLinks } from '../../../components/chore-source-links';
 import type { ChoreDefinition } from '../../../domain/chores/types';
 
 /** Shared and private displays reuse the rendering, while their data and commands stay separate. */
@@ -13,7 +12,6 @@ export function V2ChoreProcedures({ chore }: { chore: Pick<ChoreDefinition, 'des
     </View>)}
     {chore.tools.length ? <View style={{ gap: 6 }}><SectionHeading title="使う道具" level="subsection" /><Text style={styles.body}>{chore.tools.join('・')}</Text></View> : null}
     {chore.cautions.length ? <View style={{ gap: 6 }}><SectionHeading title="注意点" level="subsection" />{chore.cautions.map((text, index) => <Text key={index} style={styles.body}>・{text}</Text>)}</View> : null}
-    <ChoreSourceLinks sources={chore.sourceNotes} />
   </View>;
 }
 const styles = StyleSheet.create({

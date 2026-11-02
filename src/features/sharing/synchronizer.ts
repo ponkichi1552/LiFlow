@@ -24,6 +24,7 @@ export interface SharedV2SyncProtocol {
   schedulerVersion: typeof V2_SCHEDULER_VERSION;
   eventEvidence: (facts: readonly AuthenticatedSharedOperation[], events: readonly SharedCloudEvent[], archive: readonly VerifiedSharedRoster[]) => Promise<SharedLedgerEvidence>;
   snapshotEvidence: (snapshot: VerifiedSharedSnapshot, archive: readonly VerifiedSharedRoster[], deadline: number) => Promise<SharedLedgerEvidence>;
+  afterSnapshot?: (snapshot: VerifiedSharedSnapshot, archive: readonly VerifiedSharedRoster[]) => Promise<void>;
 }
 export interface SharedSyncDependencies {
   database: SQLiteDatabase; groupId: string; userId: string; identity: DeviceSecretIdentity; crypto: SharingCryptoGateway; cloud: SharingCloud;
@@ -119,10 +120,13 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
       if (!group.snapshotId || !force && group.snapshotId === checkpoint.snapshotId) return;
       const encrypted = await deps.cloud.readSnapshot(deps.groupId, group.snapshotId, archive);
       const epoch = archive.find((item) => sharedRosterDigest(item) === encrypted.manifest.body.rosterDigest);
-      if (!epoch || encrypted.manifest.body.throughSequence !== group.snapshotThroughSequence) throw new Error('Snapshot does not match shared metadata');
-      const snapshot = await openEncryptedSharedSnapshot(deps.crypto, encrypted, await getKey(epoch), epoch, historicalAuthor);
+      if (!epoch || encrypted.manifest.body.throughSequence !== group.snapshotThroughSequence
+        || encrypted.manifest.body.retentionCutoff !== group.retentionCutoff || encrypted.manifest.body.retentionThroughSequence !== group.retentionThroughSequence
+        || encrypted.manifest.body.retentionKeyVersion !== group.retentionKeyVersion) throw new Error('Snapshot does not match shared metadata');
+      const snapshot = await openEncryptedSharedSnapshot(deps.crypto, encrypted, await getKey(epoch), epoch, historicalAuthor, archive);
       const evidence = await deps.v2?.snapshotEvidence(snapshot, archive, deadline);
-      await deps.serialized(() => applySharingSnapshot(deps.database, deps.groupId, snapshot, deps.project, checkpoint.cursor, now(), evidence)); deps.changed();
+      await deps.serialized(() => applySharingSnapshot(deps.database, deps.groupId, snapshot, deps.project, checkpoint.cursor, now(), evidence));
+      await deps.v2?.afterSnapshot?.(snapshot, archive); deps.changed();
     };
     const refreshMetadata = async (forceSnapshot = false) => {
       metadata = await deps.cloud.readGroup(deps.groupId); archive = await verifyCloudMembership(deps, metadata.roster); roster = archive.at(-1)!;

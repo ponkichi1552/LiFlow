@@ -12,6 +12,7 @@ import { V2RecoveryInProgressError, verifyV2RecoveryLock } from '../../features/
 import { sharingCloudWithDeadline } from './network-deadline.ts';
 import { parseV2FirestoreReceipt } from './v2-receipts.ts';
 import type { V2ServerReceipt } from '../../features/sharing/v2/server-receipts.ts';
+import { createSharingHistoryRetention } from './firestore-retention.ts';
 import type { SharedCloudEvent } from '../../features/sharing/cloud-contract.ts';
 
 /** All reads use the server; Firestore's memory cache cannot acknowledge delivery. */
@@ -26,8 +27,17 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
     const parsed = parseSharedCloudGroup(response.data(), groupId); assertSharedCloudAccess(parsed.group, userId);
     return parsed;
   };
+  const confirmRemoval = async (groupId: string) => {
+    const membership = await getDocFromServer(doc(firestore, 'sharingUsers', userId, 'memberships', 'current')); checkAccount();
+    if (!membership.exists() || membership.data().groupId !== groupId) return;
+    // A stale index can remain after a signed removal. This empty-document probe
+    // is readable only when Rules confirm paid access AND this user's revocation.
+    // Unknown access or subscription expiry rejects it instead of proving removal.
+    await getDocFromServer(doc(firestore, 'sharingUsers', userId, 'revocations', groupId)); checkAccount();
+  };
   return sharingCloudWithDeadline({
     ...createSharingManagement({ firestore, userId, checkAccount, reference, readGroup, recoveryEnabled }),
+    ...createSharingHistoryRetention({ firestore, userId, checkAccount, reference, readGroup, recoveryEnabled }),
     ...createSharingRecovery({ firestore, userId, checkAccount, reference, readGroup, recoveryEnabled }),
     ownerRecoveryEnabled: recoveryEnabled,
     readGroup,
@@ -41,12 +51,18 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
         if (invitation.data()?.status === 'open' && invitation.data()?.expiresAt?.toMillis() > Date.now()) return groupId;
       }
       try { await readGroup(groupId); return groupId; }
-      catch (error) { if ((error as { code?: string }).code === 'permission-denied') return null; throw error; }
+      catch (error) {
+        if ((error as { code?: string }).code !== 'permission-denied') throw error;
+        await confirmRemoval(groupId); return null;
+      }
     },
     async hasMembership(groupId: string): Promise<boolean> {
       assertSharedIdentifier(groupId); checkAccount();
       try { await readGroup(groupId); return true; }
-      catch (error) { if ((error as { code?: string }).code === 'permission-denied') return false; throw error; }
+      catch (error) {
+        if ((error as { code?: string }).code !== 'permission-denied') throw error;
+        await confirmRemoval(groupId); return false;
+      }
     },
     /** Adopt the already displayed pre-index membership without rejoining or replacing any group data. */
     async bindMembership(groupId: string): Promise<void> {

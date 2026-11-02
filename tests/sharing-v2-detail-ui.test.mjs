@@ -142,7 +142,7 @@ for (const platform of ['ios', 'android']) {
     } finally { f.close(); }
   });
 
-  test(`${platform} shared round guides retain grouped steps tools cautions and source links and edit the same shared chore`, async () => {
+  test(`${platform} shared round guides retain grouped steps tools cautions without reference links and edit the same shared chore`, async () => {
     const f = await setup('member'); let focus; const opened = []; const links = [];
     try {
       const session = createV2ScreenSession({ controller: f.controller, groupId, userId: 'member', now,
@@ -156,8 +156,8 @@ for (const platform of ['ios', 'android']) {
       const leave = focus(); for (let i = 0; i < 30 && !screen.text().includes('床掃除の説明'); i++) await screen.flush();
       for (const value of ['床掃除の説明', '準備', '道具を用意する', 'モップ', '床材を確認する']) assert.ok(screen.text().includes(value), screen.text());
       assert.equal(screen.text().includes('共通の手順'), false);
-      const link = screen.nodes().find((node) => node.props.accessibilityLabel === '参照元を開く：https://example.org/manual'); assert.ok(link);
-      await link.props.onPress(); assert.deepEqual(links, ['https://example.org/manual']);
+      assert.equal(screen.nodes().some(node => node.props.accessibilityLabel?.startsWith('参照元を開く：')), false);
+      assert.deepEqual(links, []);
       await screen.press('家事の手順を閉じる');
       assert.equal(screen.nodes().some((node) => node.type === 'Text' && node.children?.includes('道具を用意する')), false);
       await screen.press('家事の手順を開く'); await screen.press('家事名・手順を編集'); assert.deepEqual(opened, ['floor']);

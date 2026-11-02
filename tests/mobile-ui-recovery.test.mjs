@@ -98,17 +98,17 @@ async function calendarFixture(platform, binding) {
   return { h, screen, snapshot };
 }
 for (const platform of ['ios', 'android']) {
-  test(`${platform} todays calendar puts all overdue tiers first and keeps a just-checked overdue card below pending work`, async () => {
+  test(`${platform} todays calendar shows recommended-day work and keeps a just-checked card below pending work`, async () => {
     const held = deferred(); const binding = createTaskMutations({ isCurrent: () => true, write: async () => held.promise, refresh: async () => {} });
     const { h, screen } = await calendarFixture(platform, binding);
     try {
       const labels = () => screen.nodes().filter(n => n.props.accessibilityRole === 'checkbox').map(n => n.props.accessibilityLabel);
-      assert.deepEqual(labels(), ['urgent-heavy', 'urgent-normal', 'urgent-light', 'pending-heavy', 'pending-normal', 'pending-light', 'done-heavy', 'done-normal', 'done-light']
+      assert.deepEqual(labels(), ['pending-heavy', 'pending-normal', 'pending-light', 'done-heavy', 'done-normal', 'done-light']
         .map(id => `${id}を${id.startsWith('done') ? '未完了に戻す' : '完了'}`));
       assert.equal(screen.text().includes('期間を過ぎた家事'), false, 'today uses one priority-sorted collection');
-      screen.nodes().find(n => n.props.accessibilityLabel === 'urgent-heavyを完了').props.onPress(); await screen.flush();
-      const after = labels(); assert.equal(after.length, 9); assert.ok(after.indexOf('urgent-heavyを未完了に戻す') > after.indexOf('pending-lightを完了'));
-      assert.equal(after[0], 'urgent-normalを完了'); held.resolve(); await screen.flush();
+      screen.nodes().find(n => n.props.accessibilityLabel === 'pending-heavyを完了').props.onPress(); await screen.flush();
+      const after = labels(); assert.equal(after.length, 6); assert.ok(after.indexOf('pending-heavyを未完了に戻す') > after.indexOf('pending-lightを完了'));
+      assert.equal(after[0], 'pending-normalを完了'); held.resolve(); await screen.flush();
     } finally { held.resolve(); h.connection.close(); }
   });
   test(`${platform} calendar supplies a read-only recovery button and disables stale completion actions after a saved read failure`, async () => {

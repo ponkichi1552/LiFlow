@@ -5,7 +5,7 @@ export function publicStoreFixture(options = {}) {
   const records = new Map(); let queued = Promise.resolve(); let fail = false; let committedWrites = 0;
   function snapshot(path) {
     const value = records.get(path);
-    return { exists: value !== undefined, data() {
+    return { id: path.split('/').at(-1), exists: value !== undefined, data() {
       const copy = structuredClone(value);
       if (copy?.expiresAt instanceof Date) copy.expiresAt = { toMillis: () => value.expiresAt.getTime() };
       return copy;
@@ -13,6 +13,7 @@ export function publicStoreFixture(options = {}) {
   }
   function ref(path) { return { path, collection: collection => ({ doc: name => ref(`${path}/${collection}/${name}`) }), get: async () => snapshot(path) }; }
   const firestore = { collection: collection => ({ doc: name => ref(`${collection}/${name}`) }),
+    getAll: async (...targets) => targets.map(target => snapshot(target.path)),
     runTransaction(callback) {
       const pending = queued.then(async () => {
         if (fail) throw new Error('synthetic storage unavailable');

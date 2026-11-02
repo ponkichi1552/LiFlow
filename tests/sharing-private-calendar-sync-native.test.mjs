@@ -48,6 +48,7 @@ for (const broken of ['personal', 'private', 'sharing']) {
         getRegisteredTasksAsync: async () => registered ? [{ taskName: 'housework-planner-google-tasks-sync' }] : [] },
       'expo-sqlite': { openDatabaseAsync: async () => ({ closeAsync: async () => { calls.push('close'); } }) },
       '@/platform/storage/repository': { initializeLocalDatabase: async () => {}, loadGoogleSyncState: async () => ({ enabled: true }), LOCAL_HOUSEHOLD_ID: 'local' },
+      '@/platform/google-calendar/personal-runtime': { nativePersonalGoogleCalendar: () => ({ sync: async () => ({ kind: 'skipped' }) }) },
       './coordinator': { syncGoogleTasks: async () => { calls.push('personal'); if (broken === 'personal') throw new Error('synthetic personal failure'); return { kind: 'success' }; } },
       '@/platform/sharing/private-calendar-sync': { syncKnownPrivateCalendar: async budget => { assert.equal(budget, 15000); calls.push('private'); if (broken === 'private') throw new Error('synthetic private failure'); } },
       '@/platform/sharing/workspaces': { syncSharingWorkspace: async budget => { assert.equal(budget, 30000); calls.push('sharing'); if (broken === 'sharing') throw new Error('synthetic sharing failure'); } },
