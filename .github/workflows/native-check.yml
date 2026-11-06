@@ -31,7 +31,19 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npx --yes expo-doctor
+      # Validate this lockfile against its installed SDK's bundled matrix.
+      # The live recommendation endpoint can change after physical validation.
+      - name: Validate dependencies against the locked Expo SDK
+        env:
+          EXPO_OFFLINE: '1'
+          EXPO_NO_DOTENV: '1'
+        run: npx expo install --check --json
+      # The preceding step keeps dependency validation blocking. Keep the other
+      # online Doctor checks without repeating the mutable version comparison.
+      - name: Diagnose project configuration
+        env:
+          EXPO_DOCTOR_SKIP_DEPENDENCY_VERSION_CHECK: '1'
+        run: npx --yes expo-doctor@1.21.6
       - run: npx expo prebuild --platform android --no-clean --no-install
       - name: Verify generated Android security boundaries
         run: node scripts/check-android-security.mjs

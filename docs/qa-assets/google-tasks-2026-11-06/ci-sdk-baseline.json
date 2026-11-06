@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "sdk": "58.0.22",
+  "bundledSafeAreaRange": "~5.10.1",
+  "remoteRecommendedSafeAreaRangeAtFailedRun": "~5.11.1",
+  "realProjectOfflineVersionCheck": "PASS, dependencies[]/upToDate true",
+  "checksActuallyExecuted": true,
+  "nativeVersionCheckDisabled": false,
+  "fixtures": [
+    {
+      "fixtureSafeAreaVersion": "5.10.1",
+      "expectedExit": 0,
+      "actualExit": 0,
+      "upToDate": true,
+      "wrongVersionDetected": false,
+      "stdoutSha256": "fc3256b98387e981aa47215095230779d6d4a33651a3d5a373eb29f2103b894d"
+    },
+    {
+      "fixtureSafeAreaVersion": "5.11.1",
+      "expectedExit": 1,
+      "actualExit": 1,
+      "upToDate": false,
+      "wrongVersionDetected": true,
+      "stdoutSha256": "9aedc08e45a686431756b5e9f4926e3a408c72286c2c2ee82810531dbca19e17"
+    }
+  ],
+  "normalAppSourceOrDataChanged": false,
+  "onlyOwnedTemporaryFixturesRemoved": true,
+  "failedPublishedCommit": "e9c9657e46217035830b170d026af323147cd861",
+  "failedRun": "https://github.com/ponkichi1552/LiFlow/actions/runs/42222795479",
+  "pinnedDiagnosticTool": "expo-doctor@1.21.6",
+  "diagnosticSplit": {
+    "blockingNativeVersionCheck": "EXPO_OFFLINE=1 npx expo install --check --json (official SDK58 CLI reads bundled module ranges, verified by negative fixture)",
+    "otherOnlineDoctorChecks": 19,
+    "otherOnlineDoctorResult": "PASS",
+    "doctorMutableVersionComparisonReplaced": true,
+    "skipAllDoctorOrAllVersionChecks": false,
+    "dependencyUpgradesApplied": false,
+    "remoteNineRecommendedVersionDifferencesResolved": false
+  },
+  "primaryDocumentation": "https://docs.expo.dev/more/expo-cli/#environment-variables",
+  "logsSha256": {
+    "published-e9c9657-native-failed.log": "90424cca8b4f4d9e18e3695b734f0e0de16a303a478f9aa0efea28b9dec71bac",
+    "pinned-sdk-compatibility-check.json": "fc3256b98387e981aa47215095230779d6d4a33651a3d5a373eb29f2103b894d",
+    "pinned-doctor-other-checks.log": "80ed071f0fcaea41291b18ab18e1ce32de5a810661350bcd056c9c26af1c8720"
+  }
+}
