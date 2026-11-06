@@ -1,10 +1,96 @@
 {
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "sharingInvites",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "groupId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "expiresAt",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
   "fieldOverrides": [
-    { "collectionGroup": "events", "fieldPath": "envelopeJson", "indexes": [] },
-    { "collectionGroup": "snapshotChunks", "fieldPath": "envelopeJson", "indexes": [] },
-    { "collectionGroup": "rosters", "fieldPath": "rosterJson", "indexes": [] },
-    { "collectionGroup": "keyEnvelopes", "fieldPath": "wrappedKeyJson", "indexes": [] },
-    { "collectionGroup": "sharingGroups", "fieldPath": "rosterJson", "indexes": [] }
+    {
+      "collectionGroup": "events",
+      "fieldPath": "envelopeJson",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "snapshotChunks",
+      "fieldPath": "envelopeJson",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "rosters",
+      "fieldPath": "rosterJson",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "keyEnvelopes",
+      "fieldPath": "wrappedKeyJson",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "sharingGroups",
+      "fieldPath": "rosterJson",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "analysisInputChunks",
+      "fieldPath": "bytes",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "jobs",
+      "fieldPath": "result",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "serverWeatherRegionsV1",
+      "fieldPath": "cache",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "serverWeatherControlV1",
+      "fieldPath": "leases",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "serverWeatherControlV1",
+      "fieldPath": "starts",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "accountDeviceRequests",
+      "fieldPath": "requestJson",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "accountDeviceRequests",
+      "fieldPath": "grantJson",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "accountDeviceRequests",
+      "fieldPath": "expiresAt",
+      "indexes": [],
+      "ttl": true
+    },
+    {
+      "collectionGroup": "accountDeviceServiceUsage",
+      "fieldPath": "expiresAt",
+      "indexes": [],
+      "ttl": true
+    }
   ]
 }

@@ -10,20 +10,20 @@ export function createWidgetCompletionSync<Snapshot extends WidgetPlannerData>(d
   load(preferCached?: boolean): Promise<Snapshot>;
   pendingIds(): Promise<readonly string[]>;
   complete(entry: ChoreScheduleEntry): Promise<boolean>;
-  publish(snapshot: Snapshot): void;
+  publish(snapshot: Snapshot): void | Promise<void>;
 }) {
   let queue: Promise<unknown> = Promise.resolve();
-  return (requestedIds: readonly string[] = [], options: { publish?: boolean; preferCached?: boolean } = {}): Promise<{ snapshot: Snapshot; canPublishWidget: boolean }> => {
+  return (requestedIds: readonly string[] = [], options: { publish?: boolean; preferCached?: boolean; ignorePending?: boolean } = {}): Promise<{ snapshot: Snapshot; canPublishWidget: boolean }> => {
     const operation = queue.then(async () => {
       let canPublishWidget = true;
       let pendingIds: readonly string[] = [];
       try {
-        pendingIds = await dependencies.pendingIds();
+        if (!options.ignorePending) pendingIds = await dependencies.pendingIds();
       } catch {
         // Keep unacknowledged widget actions until the native timeline can be read.
         canPublishWidget = false;
       }
-      let snapshot = await dependencies.load(options.preferCached);
+      let snapshot = await dependencies.load(pendingIds.length || requestedIds.length ? false : options.preferCached);
       let attempted = false;
       for (const id of new Set([...pendingIds, ...requestedIds])) {
         const entry = snapshot.scheduleEntries.find((candidate) => candidate.id === id);
@@ -37,7 +37,7 @@ export function createWidgetCompletionSync<Snapshot extends WidgetPlannerData>(d
       }
       if (attempted) snapshot = await dependencies.load();
       if (canPublishWidget && options.publish !== false) {
-        try { dependencies.publish(snapshot); } catch { /* Native widgets must not block planner screens. */ }
+        try { await dependencies.publish(snapshot); } catch { canPublishWidget = false; }
       }
       return { snapshot, canPublishWidget };
     });

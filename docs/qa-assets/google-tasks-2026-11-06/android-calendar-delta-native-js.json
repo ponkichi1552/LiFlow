@@ -1,0 +1,363 @@
+{
+  "result": "PASS",
+  "stage": "deferred-resume",
+  "failure": null,
+  "passes": [
+    {
+      "mode": "valid-deltas",
+      "elapsedMs": 1945,
+      "result": {
+        "kind": "success",
+        "received": 0,
+        "sent": 0
+      },
+      "calls": [
+        {
+          "id": "owned0",
+          "delta": true
+        },
+        {
+          "id": "owned1",
+          "delta": true
+        },
+        {
+          "id": "owned2",
+          "delta": true
+        }
+      ],
+      "identities": 59,
+      "sql": {
+        "getFirstAsync:other": {
+          "calls": 40,
+          "ms": 149
+        },
+        "execAsync:other": {
+          "calls": 56,
+          "ms": 144
+        },
+        "execAsync:inbox": {
+          "calls": 2,
+          "ms": 2
+        },
+        "getAllAsync:links": {
+          "calls": 4,
+          "ms": 18
+        },
+        "getAllAsync:inbox": {
+          "calls": 7,
+          "ms": 21
+        },
+        "runAsync:inbox": {
+          "calls": 2,
+          "ms": 10
+        },
+        "getFirstAsync:control": {
+          "calls": 35,
+          "ms": 169
+        },
+        "getFirstAsync:progress": {
+          "calls": 2,
+          "ms": 6
+        },
+        "runAsync:progress": {
+          "calls": 5,
+          "ms": 11
+        },
+        "getFirstAsync:inbox": {
+          "calls": 13,
+          "ms": 44
+        },
+        "getFirstAsync:cursors": {
+          "calls": 3,
+          "ms": 10
+        },
+        "runAsync:cursors": {
+          "calls": 3,
+          "ms": 10
+        },
+        "getAllAsync:expansion": {
+          "calls": 6,
+          "ms": 12
+        },
+        "runAsync:control": {
+          "calls": 1,
+          "ms": 2
+        }
+      },
+      "remaining": []
+    },
+    {
+      "mode": "last-calendar-410",
+      "elapsedMs": 1804,
+      "result": {
+        "kind": "pending",
+        "received": 0,
+        "sent": 0
+      },
+      "calls": [
+        {
+          "id": "owned0",
+          "delta": true
+        },
+        {
+          "id": "owned1",
+          "delta": true
+        },
+        {
+          "id": "owned2",
+          "delta": true
+        }
+      ],
+      "identities": 50,
+      "sql": {
+        "getFirstAsync:other": {
+          "calls": 32,
+          "ms": 117
+        },
+        "getFirstAsync:control": {
+          "calls": 30,
+          "ms": 120
+        },
+        "execAsync:other": {
+          "calls": 46,
+          "ms": 95
+        },
+        "getFirstAsync:progress": {
+          "calls": 2,
+          "ms": 5
+        },
+        "runAsync:progress": {
+          "calls": 3,
+          "ms": 8
+        },
+        "getAllAsync:inbox": {
+          "calls": 5,
+          "ms": 13
+        },
+        "getFirstAsync:inbox": {
+          "calls": 11,
+          "ms": 45
+        },
+        "getFirstAsync:cursors": {
+          "calls": 4,
+          "ms": 12
+        },
+        "runAsync:cursors": {
+          "calls": 3,
+          "ms": 8
+        },
+        "getAllAsync:expansion": {
+          "calls": 4,
+          "ms": 15
+        },
+        "getAllAsync:links": {
+          "calls": 3,
+          "ms": 18
+        },
+        "runAsync:inbox": {
+          "calls": 1,
+          "ms": 3
+        }
+      },
+      "remaining": [
+        "owned2"
+      ]
+    },
+    {
+      "mode": "deferred-resume",
+      "elapsedMs": 1336,
+      "result": {
+        "kind": "pending",
+        "received": 0,
+        "sent": 0
+      },
+      "calls": [
+        {
+          "id": "owned0",
+          "delta": true
+        },
+        {
+          "id": "owned1",
+          "delta": true
+        }
+      ],
+      "identities": 45,
+      "sql": {
+        "getFirstAsync:other": {
+          "calls": 29,
+          "ms": 109
+        },
+        "getFirstAsync:control": {
+          "calls": 27,
+          "ms": 116
+        },
+        "execAsync:other": {
+          "calls": 42,
+          "ms": 74
+        },
+        "getFirstAsync:progress": {
+          "calls": 2,
+          "ms": 5
+        },
+        "runAsync:progress": {
+          "calls": 3,
+          "ms": 7
+        },
+        "getAllAsync:inbox": {
+          "calls": 5,
+          "ms": 10
+        },
+        "getFirstAsync:inbox": {
+          "calls": 11,
+          "ms": 37
+        },
+        "getFirstAsync:cursors": {
+          "calls": 3,
+          "ms": 12
+        },
+        "runAsync:cursors": {
+          "calls": 2,
+          "ms": 5
+        },
+        "getAllAsync:expansion": {
+          "calls": 4,
+          "ms": 9
+        },
+        "getAllAsync:links": {
+          "calls": 3,
+          "ms": 33
+        },
+        "runAsync:inbox": {
+          "calls": 1,
+          "ms": 5
+        }
+      },
+      "remaining": [
+        "owned2"
+      ]
+    }
+  ],
+  "cleaned": true,
+  "existingDatabaseOpened": false,
+  "internetUsed": false,
+  "platform": "android",
+  "hermes": true,
+  "syntheticMappedEvents": 1000,
+  "schemaVersion": 1,
+  "scope": "Separate Android package with no INTERNET;1000 synthetic unchanged mappings use the production Calendar coordinator and actual Hermes/Expo SQLite. API pages are synthetic with400ms delay, not provider/Google identity performance.",
+  "applicationSources": {
+    "src/features/calendar/personal-google-sync.ts": "87b7c95917382cb40ffce02115892181fb5a23bb89507a2d14188745c57287a8",
+    "src/features/google-sync/operation-lock.ts": "ec5546918f168d437934792cce0d6deee52dcabe2fd19c5cd7621350adc7ffdb",
+    "src/platform/diagnostics/startup-timing.ts": "3491fe3cb440d426cd7832c54b44b11a9419af7c938d5607719a1009e67553f7",
+    "src/features/google-sync/operation-budget.ts": "22574fa726a5d8459f18bdb8631c7e23bb75134a4fd2b5e38a17cec5f431909f",
+    "src/features/google-sync/account-binding.ts": "9d0bfcb0cfa7db3fa34e40836813026dbb8b083cd6f8b2e7be2df551be2f8c40",
+    "src/platform/google-calendar/calendar-api.ts": "069f8cc7bbeb217ad9ef4272705777636ddd00c16e3176f1b4d11e7d748a3355",
+    "src/platform/storage/personal-google-calendar.ts": "24087357a64e6ae44540d3af6625ae1fd8ec67608e5290b1ee14928e54bdb09b",
+    "src/platform/storage/shared-repository-adapter.ts": "e67279c54909ee7b8644004f82c7497e1daeaaa36fa7d0f0d3f6d79abf0f28b5",
+    "src/platform/storage/repository.ts": "b3ea4129c2479c4e9ee26a80b7ccfc341848fe8d8cb94e23e31f4f3a8554372e",
+    "src/features/weather/municipality-search.ts": "d7aefe77239f7948fcc2d5d56a70894947876e7a308ef83146d503d2681c57ba",
+    "src/features/weather/met-server-provider.ts": "c7a75e28bdf9e055b66bb4b4cb267a53b19200a03f567b4d34cac240014a0ffa",
+    "src/platform/storage/regional-weather.ts": "c8f29d99e3bb9e587b472edc8bf551c8cfce88bc3c687894def292d90b113689",
+    "src/features/weather/chore-weather.ts": "2f1a7457cfae6101ec9c19f6260fc1d3f3151cf70a71235f69076149fb01ed6c",
+    "src/platform/storage/google-task-create-intents.ts": "56502247abdc8b170b42f3d6271a3fd37d9c32d8952c3ed7f639153371dc6606",
+    "src/platform/storage/google-task-read-cache.ts": "203e333b00559d0e4aa19d8e9311587326effc97019200bcbb215203ca562d59",
+    "src/platform/google-tasks/google-tasks-api.ts": "64c13d57668c92251fe1d6667dd20e626c003e0f1714218b584d114045afd34d",
+    "src/features/google-sync/task-create-intent.ts": "aba109db358599308814a6c8fa017b043b0fdfae7d772426b5ae31598111bdc7",
+    "src/features/google-sync/task-read-cache.ts": "3d61a0cdf38679877eb8c592c2cd9c0ac3aee2577e4d31cd3c01e3cb5ba15f8b",
+    "src/platform/storage/isolated-transaction.ts": "eedf8a4a49bde1146fa857a54003ad664be1e5e6959eb52675b059548593f2d1",
+    "src/platform/storage/adaptive-owner-inputs.ts": "e2eb150ac6b9b1327dc60d725d04466f399b66e0561cba554d7977107afa85e9",
+    "src/features/sharing/group-clock.ts": "a8d4a2ad2e3452b88279b12ca593347a1f742eb8a50ecd935ec0515a53c04952",
+    "src/platform/storage/completion-journal.ts": "788e580453422712731b94fdb42b09fd62084a41518b98bc6cbc3cea32bfde65",
+    "src/domain/scheduling/completion-matching.ts": "55b6dfb765dc5668c4d0c6c320faee1a78867110f6421ba497c298b40841a105",
+    "src/domain/scheduling/local-date.ts": "b7ab3ca6bf46689dcc595b2ee7e96fe1f1a330ce27d800900f9420778c097ccf",
+    "src/features/planner/common-chore-links.ts": "2a9023589ecfa5aaab826727a009847355dedf78edf21e0cbae417c58790269d",
+    "src/domain/chores/catalog.ts": "2d4dd0240e3181341c58cdd2b977f02ad6e24d4dabd41a483865c82b1bb10992",
+    "src/domain/chores/household-care-guide.ts": "8eb9e8c2b55e0c351cee6c08ad96575999769701c527a47f1541cb80aec51e9f",
+    "src/domain/chores/catalog-v3.ts": "89c4410d82e67654895f04e27656b946d65d6a0cd420b1586aaa5455c724f387",
+    "src/domain/chores/history-retention.ts": "add4c34e4214becefde27d654be07c07624fb2d8b7820c9cb3479aa9754cf5b3",
+    "src/domain/chores/schedule-defaults.ts": "b63a9b4fa23af3e46f346776519774974802430f9cedf07ad075d0c0c5461380",
+    "src/domain/chores/cycle-policy.ts": "14fb3cda469eb2a785beb339707d27f9576789f98b92219cb1731ed7bbea9adb",
+    "src/domain/chores/chore-groups.ts": "9da722fda6309bbf8bca3fc15bdb2d40d19072cccfd42b3823974622eaf7c0e3",
+    "src/domain/chores/settings-patch.ts": "765ae08a119bd0134741837bc798fa1a385083aa2dec41e43568ba739e02c947",
+    "src/platform/storage/personal-settings-view.ts": "d0dd73743e377e45816c654ae643a773a0e80416929526fe602ace7d827a17d6",
+    "src/domain/chores/personal-catalog.ts": "b1f4a0a96d13fa6d4ae5c1555fcdadce7b800be8dc1ed6b55ee1212d18660666",
+    "src/domain/scheduling/adaptive/placement.ts": "d5d883cd75173605fc17d2467c2800d07208e03b6512540738b561ae3ec18197",
+    "src/domain/scheduling/adaptive/models.ts": "5ab25f6f9ce160ec4a32d30ae0cbf11184f2bfb9104e78d422130d89824b2f29",
+    "src/domain/calendar/count-colors.ts": "f6c5810b9cddf994159e22c9807a515580a3b2aabb53f5ad927b30443c69d417",
+    "src/domain/scheduling/date-tasks.ts": "0009040287a45954c81a3d96e78289de67e0eb4f41fb3f9e7b8ca3614837d7cb",
+    "src/domain/calendar/day-entries.ts": "a7fd5c90adb0140774ecba7585df77703b98bdc7805e2176c53d46b8587a6de3",
+    "src/domain/scheduling/task-priority.ts": "1c0397cbc9b36204aa0c706e130b6abaef0519c30be71514e2aa0f8f03c7df4b",
+    "src/domain/scheduling/date-task-reference.ts": "3fc01234ee627c3afd5e9a4282c1de9a1362a7d9629b2a50b506f076fce8502e",
+    "src/domain/scheduling/engine.ts": "70118d671c2cb6fb952679ffb90231c03a2404f92e5af4b2533a776ccceeb97b",
+    "src/domain/scheduling/calendar-penalty.ts": "605a7f776bfb7004e0db1e5dabe13b920468ebae52aa69d215e733d10ad04b71",
+    "src/domain/scheduling/dependency-matching.ts": "d8dc911bd1aa6c4c1ca6b8735f1eaf93287df529ae6078e3e12dc3ee2b20d562",
+    "src/features/waste/schedule-policy.ts": "488217781a1b61791386e1ff56f21620dbb9028496b71df3f92aeabb286f7a81",
+    "src/features/google-sync/google-completion-policy.ts": "e43362ed92673d641705a0820689a985403336acc4ff48bf41e854097ac03245",
+    "src/features/waste/weekly-scheduler.ts": "2c16ce4bec8a691426f42dfa0a6e4da3662e306747bf824cebe63f85dfa4d149",
+    "src/features/waste/occurrence-visibility.ts": "1942e5c36739b5a93c497d0d10ef31a2d5aad0ab937749baa35cc7a6ec9a8dc7",
+    "src/platform/storage/appliance-manual-storage.ts": "9420e966e7eb632b610149c4a167f05966dd6993ba3073db1f161869976398b5",
+    "src/features/appliance-care/manual-document.ts": "25b9f3f23e3228c8d7a863467f84fbb39196b94ff8db7f936265bfeaf759a97e",
+    "src/features/appliance-care/display-name.ts": "a592be7e74abf7e8e5bf2dd6816219735fed00fb0d25cb7a85aceff4e51af832",
+    "src/features/appliance-care/persistence-policy.ts": "5542cf491d25ce26cfe31e2082789b8b5dd8dde433e1f0d80323adac3e0b77aa",
+    "src/features/appliance-care/to-chore-definition.ts": "afc2950a7383325ccb31387136d910eaea082ff4dfb9eac071a346ace17c36b7",
+    "src/features/appliance-care/categories.ts": "1a009086f127e99d63c8f90d97223427ee5b62aca6a8f7adaa51853dacdc9f2d",
+    "src/features/weather/optimize-laundry-schedule.ts": "5c1fcf09957ea5d1e68d57983c7102761343316f5e6e5fe82d815a59774fcd30",
+    "src/features/weather/laundry-policy.ts": "5e6fd209006edad21372df6098ab75a237bb25459cc23884620e057eea598d3e",
+    "src/features/weather/contracts.ts": "bc84a4f91b5a8cf3a91bf63689a983d2af7b5ca19a2d4cbaf75ac891567cfb89",
+    "src/platform/storage/migrations.ts": "8e34dd3ede9ff303bfcade6aeef48644b7f38e30a4b3c59aff584f3ca83d39bf",
+    "src/platform/storage/adaptive-personal-chores.ts": "57b18a5bccb50641c5a44d10dfa19229a7182a754def0507cc03a5981ee797e3",
+    "src/domain/scheduling/adaptive/history.ts": "e59dddd08167202a5a55ca3474447c1f0f60fe5210a199cb2e223e4a0dc81415",
+    "src/features/google-sync/calendar-availability.ts": "96fc38dbe0cca082e19dc6a4d504c64145ad1f9e3a549c61b16547eaeee0d63a",
+    "src/features/google-sync/calendar-timing.ts": "5967d228b581b4f9adf022f5c58d0440bd710de0240841945080f452aed87705",
+    "src/features/calendar/local-day-boundary.ts": "7656e5aa7240d1276e0b5109595fc1accec4a9507d00a4ab8adf053f3c1bc8bb",
+    "src/features/sharing/v2/local-time.ts": "c7796cad57d45061b7471c7c5a65d4ed68e2d34541619bfa5560dc524a17d73f",
+    "src/platform/storage/google-task-link-state.ts": "6befa13af4d73e01a3d7c60d9779692f816c2f25f9b9aa17061aa6f7ad61923e",
+    "src/features/widgets/completion-operation.ts": "f297be5d846b77a9cfdfb9d5bb6dc7eb6534b0e97068722ca56b666f51897daf",
+    "src/features/sharing/operations.ts": "6d0c6f4dd3accc80fbd46446fd36dfd5078502b5a94d7eea0b724b6e766fb81c",
+    "src/features/sharing/identifier.ts": "7932f05edcd58e36e80a8d4f46b2786dec4b6544181ad69364cf85c91f461ca5",
+    "src/features/sharing/v2/payload-schema.ts": "c611f9555d1d880ab595058757462a8bdce05748e7bc86df92b148aca007ff23",
+    "src/features/sharing/v2/calendar-state.ts": "223f684f3232240c5c9cc6d40a34af6315a9fb909b16954bf68dd8a809740e44",
+    "src/domain/calendar/events.ts": "672f9bd85d776d8f219870bad54a2cdfcf85731f5e7847a1e4cdeaf94d6fb818",
+    "src/domain/calendar/recurrence.ts": "a5abf92866836d2012100afa5d5c1f2791d5c3679a38d829162bd837df52442a",
+    "src/features/sharing/v2/causal-facts.ts": "b1a5a8a0a98309de5bef650c3b92ea225354c71c2e6101aaa764a0b4710e1401",
+    "src/features/sharing/v2/date-target.ts": "fb50570b28a26219fa5909c4699b5e34026e03a308cd749591b4cf3e2a910c8b",
+    "src/features/sharing/v2/model.ts": "e7f02ec286d9ef37980f6be0d20577222848bc8ec57a48cbcbce93ecee449f64",
+    "src/features/sharing/v2/history-retention-schema.ts": "fa1b3b05233a917d929e6a30be8a64ff630a592f110ec1c04930789e9192ed97",
+    "src/features/sharing/crypto.ts": "62dd1d55b7e2a4a05b40cbff40a005a7dc14d992b13fbe4106dd114443ab1c30",
+    "src/features/sharing/content-digest.ts": "4741e84d8cb268a87c3afc48a178135dd5e1997e02df46b04a263de7541b787e",
+    "src/features/sharing/signature-verification-cache.ts": "da9b6628c6a3e892d6cbd8ea241dabf4971a003b0a26b56e8880235951c949ed",
+    "src/platform/storage/calendar-event-rows.ts": "3731ad2db1b613edde8dd8ea83bd43aa2c4cf6a085ff01502a30f9a4536a7b0a",
+    "src/features/calendar/events.ts": "1a8e00f7a3d62bedf17db9bb78e3cc823d984d7479238cc82a709f5dd28f75ee",
+    "src/features/calendar/local-availability.ts": "61deef14b27f195603256bfc836927b521dd1878e60cd728c1e7763d817fa146",
+    "src/features/calendar/private-event-projection.ts": "a1f3dca52954e64575fd0e6f15b87c797c9d377ca0d3c3b2d08fa971bcbf7643",
+    "src/features/google-sync/planner-change-events.ts": "e89ac136d63f5dd3ce10faabf353a055bb101e50534b8e3e517f7a92f92e430e",
+    "src/domain/chores/occurrence-name.ts": "28e43ddfccca142e683689e755b73d4494510cf7ca64350420813605f153052c",
+    "src/platform/storage/personal-catalog.ts": "f42a0ee8bae9bba94a10d34b76a55134e758f03de433c17822f2244b7fbc52f1",
+    "src/features/planner/adaptive-cadence.ts": "89f7de7b83e1f8f719505637145c4c81a7e21a4dec8b934382373c00511c51ae",
+    "src/platform/storage/repository-adaptive.ts": "cca0a0552be16ae4b9d6e0dc537fe63b62a48e8b141d9fe763e9f3ccebe266d2",
+    "src/features/planner/adaptive-input.ts": "a9ac0a53f53bddd8b82d357e733405e0931efb57774b863909dbcf4899c27869",
+    "src/features/planner/adaptive-digest.ts": "cfc88774e5aeb2988f6ae9087fa7984a2bbc6c9819eeaccac8d16a477b4c77f5",
+    "src/platform/storage/personal-adaptive-planner.ts": "8507f32b11c813b10380ebf5847228d80ba301a9b76faf561683e4d51ffabddf",
+    "src/features/planner/adaptive-rounds.ts": "ec48bdf1753f198b374d94c22a08c6ec48567c366ece4e20f1b7cb08811d1db7",
+    "src/domain/scheduling/adaptive/seasonal.ts": "eae61de98873bfa05782f3d10e3a23e2570f15a997ec348a018e54b746f363f9",
+    "src/features/planner/shared-adaptive-load.ts": "b9010310fe82effc230229f6290181b267497c4540d8642660884939fa647a4b",
+    "src/features/calendar/shared-events.ts": "45a6c3e9eb6598598d8709616a9bc5931a794af8d43ee25c91ee01e782cd68cc",
+    "src/features/calendar/private-availability.ts": "52512f6efbaee4abd64bf1e711af13864656202c14712e9f25ec935303bb5cd4",
+    "src/features/sharing/v2/private-availability.ts": "dce49b69fcc5fbae5e746c8e6688bbd3c620cd6a1f1830e500e9373fb87c4e56",
+    "src/features/planner/private-busy-input.ts": "12acecd3ffe21f18c6806cbd17500085352437361337e609bd4cddd0534a0463",
+    "src/features/planner/personal-placement-preferences.ts": "5d1e80cb3025922588485779be44b48d28b5c8b3968999cddb98b8718ee9b55a",
+    "src/platform/storage/personal-seasonal-chores.ts": "736efc09cdbc209b5d4bb035f3b37ccd446fc9b91a0f18715a81bf33ce3539d4",
+    "src/platform/storage/calendar-events.ts": "c128acc6020b698f8074cc59f814f4eb9610649f6a4a8cb123e09b1e5a2e1e87",
+    "src/platform/storage/personal-google-store.ts": "1c032edc614f9b7496dba068ae393ee4d1c2c79cde26c1bc4ad79c6b8f469a1e",
+    "src/features/calendar/google-event-mapping.ts": "0e117c02e695acd50f1970a91c91b1a74a2ccceb6a384564264ed22054c2ada4",
+    "src/features/calendar/google-event-import.ts": "3b9328aad6dfddac21c0236d736d723756f28ed0a47aa63649d9efabf624e559",
+    "src/features/calendar/google-owned-fields.ts": "6df3a5c5719abd30b1a910718cdc5ccc0bfdae7dc7dffdb9b4a22a332b65a75d",
+    "src/features/calendar/google-instance.ts": "648a3bea95118665b7edda628ce367721a2a9ddefee749f7db006045ef60a275",
+    "src/platform/storage/personal-google-ranges.ts": "48416f27a86d45d7ca54fe671841c49d2b176548ff4ed5475e0451157986d229"
+  },
+  "fixtureSha256": "a5e3e4791389ec592931d31994af57ee0e865abd7829091e03ec35eaa397ac95",
+  "bundleSha256": "5521351df0f11217c808e92f38a7b9bdae67391ba0e1d5c55bc0d402bb71dca9",
+  "apkSha256": "6d2e506e47b2e5a4fe0d8a9f09eb2f57c762a157cbc09a4fa4252bd197fe77d7",
+  "nativePayloadUnchanged": true,
+  "helperRemoved": true
+}

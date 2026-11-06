@@ -1,3 +1,4 @@
+import { installFrozenSchedulerFixture } from './helpers/frozen-scheduler-fixture.mjs';
 import { plannerLightColors } from '../src/components/planner-theme.ts';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
@@ -19,7 +20,7 @@ import { createCommonChoreHistoryBridge } from '../src/features/planner/common-c
 const repository = await import('../src/platform/storage/repository.ts');
 const now = new Date(); const today = localDateFromDate(now);
 async function fixture() {
-  const h = createDatabase(); await repository.initializeLocalDatabase(h.database);
+  const h = createDatabase(); await repository.initializeLocalDatabase(h.database); await installFrozenSchedulerFixture(h.database);
   const initial = await repository.loadPlannerSnapshot(h.database, today);
   const personal = initial.chores[0];
   await repository.completeFirstSetup(h.database, { frequencyMode: 'balanced', restDays: [], enabledChoreIds: [personal.id], previousDates: {}, weatherLocation: null });
@@ -39,6 +40,8 @@ test('common home chores use the active group definition while preserving disabl
     for (const patch of [{ enabled: false }, { archived: true }, { name: `${h.shared.name}別の作業` }])
       assert.deepEqual(commonChoreLinks([h.personal], [{ ...h.shared, ...patch }]), []);
     assert.deepEqual(commonChoreLinks([h.personal], [h.shared, { ...h.shared, id: 'ambiguous' }]), []);
+    assert.deepEqual(commonChoreLinks([h.personal, { ...h.personal, id: 'a-different-personal-appliance' }], [h.shared]), [],
+      'one generic shared name cannot complete two distinct personal targets');
     assert.equal(JSON.stringify(h.personal), original);
   } finally { h.connection.close(); }
 });

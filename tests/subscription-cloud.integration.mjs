@@ -18,14 +18,37 @@ before(async () => {
 });
 beforeEach(async () => { await env.clearFirestore(); });
 after(async () => { await firestore?.terminate(); await deleteApp(app); await env?.cleanup(); });
-function service() {
+function service(overrides = {}, now = Date.now) {
   const { privateKey } = generateKeyPairSync('ed25519');
   const signer = createSubscriptionSigner(privateKey.export({ format: 'pem', type: 'pkcs8' }));
   const store = createFirestoreSubscriptionStore({ firestore, tokenKey: Buffer.alloc(32, 9) });
   const google = { verify: async proof => ({ store: 'google', purchaseId: proof, proof, productId: 'monthly', status: 'active', expiresAt: Date.now() + 30 * 86400_000, autoRenew: true }),
-    refresh: async record => record };
-  return { store, value: createSubscriptionService({ store, signer, providers: { google } }) };
+    refresh: async record => record, ...overrides };
+  return { store, value: createSubscriptionService({ store, signer, providers: { google }, now }) };
 }
+
+test('real Firestore acknowledgement queue survives a failed reply and server restart while all client access is denied', async () => {
+  let at = Date.now(); let acknowledged = false; let failed = false; let calls = 0;
+  const provider = {
+    verify: async proof => ({ store: 'google', purchaseId: proof, proof, productId: 'monthly', status: 'active', expiresAt: at + 30 * 86400_000, autoRenew: true, acknowledgementPending: !acknowledged }),
+    refresh: async record => ({ ...record, acknowledgementPending: !acknowledged }),
+    acknowledge: async () => { calls++; if (!failed) { failed = true; throw new Error('synthetic lost acknowledgement'); } acknowledged = true; },
+  };
+  const original = service(provider, () => at);
+  await assert.rejects(original.value.verify('person-a', { store: 'google', proof: 'synthetic-private-queued-token' }));
+  const pending = await firestore.collection('billingAcknowledgements').get(); assert.equal(pending.size, 1);
+  assert.equal(JSON.stringify(pending.docs[0].data()).includes('synthetic-private-queued-token'), false);
+  for (const userId of ['person-a', 'person-b']) {
+    const client = env.authenticatedContext(userId).firestore(); const ref = doc(client, 'billingAcknowledgements', pending.docs[0].id);
+    await assertFails(getDocFromServer(ref)); await assertFails(setDoc(ref, { userId, nextAttemptAt: 0 }));
+  }
+  at += 60_000;
+  const results = await Promise.all([service(provider, () => at).value.retryAcknowledgements(), service(provider, () => at).value.retryAcknowledgements()]);
+  assert.equal(results.reduce((sum, result) => sum + result.completed, 0), 1);
+  assert.equal(calls, 2); assert.equal((await firestore.collection('billingAcknowledgements').get()).size, 0);
+  assert.equal((await service(provider, () => at).value.refresh('person-a')).entitlement.body.status, 'active');
+  assert.equal(calls, 2);
+});
 
 test('real paid Firestore access refuses unpaid expired held and forged grants while paid members still cannot read another group', async () => {
   await firestore.doc('serviceConfiguration/billing').set({ enforced: true });

@@ -44,6 +44,15 @@ function previousRevision() {
   return 'origin/main';
 }
 function readAt(base, file) { return execFileSync('git', ['show', `${base}:${file}`], { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] }); }
+export function readPreviousSchedulerContract(base, file, run = args => execFileSync('git', args, { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] })) {
+  // Only a provably absent path is a first release. A missing base commit,
+  // unreadable Git object or malformed JSON must never disable compatibility checks.
+  run(['rev-parse', '--verify', `${base}^{commit}`]);
+  const paths = String(run(['ls-tree', '--name-only', base, '--', file])).trim();
+  if (!paths) return undefined;
+  if (paths !== file) throw new Error('Previous scheduler contract path is invalid');
+  return JSON.parse(String(run(['show', `${base}:${file}`])));
+}
 
 /** A personal recommendation never changes a signed rule, roster version or shared plan hash. */
 export function assertPersonalPlannerIsolation(read = file => readFileSync(resolve(root, file), 'utf8')) {
@@ -74,8 +83,8 @@ export function assertPersonalSchedulerVersion(current, previous) {
   if (previous && current.version === previous.version && current.sourceSha256 !== previous.sourceSha256) throw new Error('Personal scheduler changed without its own version change');
 }
 export function verifyPersonalSchedulerContract() {
-  const current = JSON.parse(readFileSync(resolve(root, personalContractPath), 'utf8')); let previous;
-  try { previous = JSON.parse(readAt(previousRevision(), personalContractPath)); } catch { /* First separate local-only contract. */ }
+  const current = JSON.parse(readFileSync(resolve(root, personalContractPath), 'utf8'));
+  const previous = readPreviousSchedulerContract(previousRevision(), personalContractPath);
   assertPersonalSchedulerVersion(current, previous);
   if (sharedSchedulerSourceDigest(current.sourceFiles) !== current.sourceSha256) throw new Error('Personal scheduler source differs from its contract');
   return current;
@@ -89,9 +98,7 @@ function verifyContract({ contractPath, versionSource, constant, allowDraft }) {
   const zone = JSON.parse(readFileSync(resolve(root, 'node_modules/moment-timezone/data/packed/latest.json'), 'utf8'));
   if (zone.version !== current.timeZoneVersion) throw new Error('Shared timezone database changed without updating the contract');
   const base = previousRevision();
-  let previous;
-  try { previous = JSON.parse(readAt(base, contractPath)); }
-  catch { /* The first sharing release has no prior contract. */ }
+  let previous = readPreviousSchedulerContract(base, contractPath);
   // One-time split: compare every remaining formal source byte with the old revision.
   // No source can disappear except the two independently versioned local-only readers.
   if (previous && contractPath === 'src/features/sharing/v2/scheduler-contract.json'

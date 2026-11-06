@@ -60,10 +60,11 @@ export function createSharingRecovery({ firestore, userId, checkAccount: checkCu
         where('uploadSequence', '<=', through), orderBy('uploadSequence'), limit(count))); checkAccount();
       return result.docs.map(item => rawV2RecoveryEvent(item.data(), groupId, item.id));
     },
-    async readRecoveryOriginals(groupId: string, operationIds: readonly string[]): Promise<RawV2RecoveryEvent[]> {
+    async readRecoveryOriginals(groupId: string, operationIds: readonly string[], options: { deadlineAtMs?: number } = {}): Promise<RawV2RecoveryEvent[]> {
       if (operationIds.length > 256 || new Set(operationIds).size !== operationIds.length) throw new Error('Invalid original recovery query');
       operationIds.forEach(assertSharedIdentifier); checkAccount(); const result: RawV2RecoveryEvent[] = [];
       for (let offset = 0; offset < operationIds.length; offset += 30) {
+        if (options.deadlineAtMs !== undefined && Date.now() >= options.deadlineAtMs) throw Object.assign(new Error('復旧証拠の取得は次の同期で続けます。'), { code: 'sharing/receipt-recovery-pending' });
         const page = await getDocsFromServer(query(collection(reference(groupId), 'events'), where(documentId(), 'in', operationIds.slice(offset, offset + 30))));
         checkAccount(); result.push(...page.docs.map(item => rawV2RecoveryEvent(item.data(), groupId, item.id)));
       }
@@ -114,10 +115,11 @@ export function createSharingRecovery({ firestore, userId, checkAccount: checkCu
       if (record.snapshotId !== snapshotId) throw new Error('Recovery record path mismatch');
       return record;
     },
-    async readRecoveryQuarantines(groupId: string, operationIds: readonly string[]): Promise<V2RecoveryQuarantineRecord[]> {
+    async readRecoveryQuarantines(groupId: string, operationIds: readonly string[], options: { deadlineAtMs?: number } = {}): Promise<V2RecoveryQuarantineRecord[]> {
       if (operationIds.length > 256 || new Set(operationIds).size !== operationIds.length) throw new Error('Invalid quarantine evidence query');
       operationIds.forEach(assertSharedIdentifier); checkAccount(); const result: V2RecoveryQuarantineRecord[] = [];
       for (let offset = 0; offset < operationIds.length; offset += 30) {
+        if (options.deadlineAtMs !== undefined && Date.now() >= options.deadlineAtMs) throw Object.assign(new Error('復旧証拠の取得は次の同期で続けます。'), { code: 'sharing/receipt-recovery-pending' });
         const page = await getDocsFromServer(query(collection(reference(groupId), 'quarantines'), where(documentId(), 'in', operationIds.slice(offset, offset + 30))));
         checkAccount(); result.push(...page.docs.map(item => parseFirestoreRecoveryQuarantine(item.data(), item.id)));
       }

@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "dependencies": [
+    {
+      "path": "node_modules/@eslint/config-array/node_modules/minimatch",
+      "name": "minimatch",
+      "version": "3.1.5",
+      "files": [
+        {
+          "path": "minimatch.js",
+          "sha256": "746849f267c4868a53729225bd85c7dccd387712136fb305fcc0a3eadd4a3d9d"
+        }
+      ]
+    },
+    {
+      "path": "node_modules/@eslint/eslintrc/node_modules/minimatch",
+      "name": "minimatch",
+      "version": "3.1.5",
+      "files": [
+        {
+          "path": "minimatch.js",
+          "sha256": "746849f267c4868a53729225bd85c7dccd387712136fb305fcc0a3eadd4a3d9d"
+        }
+      ]
+    },
+    {
+      "path": "node_modules/eslint-plugin-import/node_modules/minimatch",
+      "name": "minimatch",
+      "version": "3.1.5",
+      "files": [
+        {
+          "path": "minimatch.js",
+          "sha256": "746849f267c4868a53729225bd85c7dccd387712136fb305fcc0a3eadd4a3d9d"
+        }
+      ]
+    },
+    {
+      "path": "node_modules/eslint-plugin-react/node_modules/minimatch",
+      "name": "minimatch",
+      "version": "3.1.5",
+      "files": [
+        {
+          "path": "minimatch.js",
+          "sha256": "746849f267c4868a53729225bd85c7dccd387712136fb305fcc0a3eadd4a3d9d"
+        }
+      ]
+    },
+    {
+      "path": "node_modules/eslint/node_modules/minimatch",
+      "name": "minimatch",
+      "version": "3.1.5",
+      "files": [
+        {
+          "path": "minimatch.js",
+          "sha256": "746849f267c4868a53729225bd85c7dccd387712136fb305fcc0a3eadd4a3d9d"
+        }
+      ]
+    },
+    {
+      "path": "node_modules/glob",
+      "name": "glob",
+      "version": "13.0.6",
+      "files": [
+        {
+          "path": "dist/commonjs/walker.js",
+          "sha256": "a5d267e5c9260b09fe2c107f22b89391e5da9c71d23df3290b86bd82acff8cd2"
+        },
+        {
+          "path": "dist/esm/walker.js",
+          "sha256": "d8f9ad324be2df34ee8d50cdb95218cbd6ce33e5c0b40bd68fb7926e2772693e"
+        }
+      ]
+    },
+    {
+      "path": "node_modules/minimatch",
+      "name": "minimatch",
+      "version": "10.2.6",
+      "files": [
+        {
+          "path": "dist/commonjs/index.js",
+          "sha256": "df62b5058f6b4077d524f0717bad0b8ea525865783535aaa029bc7e113f85ca0"
+        },
+        {
+          "path": "dist/esm/index.js",
+          "sha256": "b5665e0682c95482f9f0f2fcb3c0e094f3a5118bc09bfcc230004472cc485218"
+        }
+      ]
+    }
+  ]
+}

@@ -26,15 +26,20 @@ export function createCalendarFreeBusyClient(fetcher: typeof fetch = fetch, onRe
   const queryWindow = async (accessToken: string, range: CalendarQueryRange, deadline: number | undefined, remainingIntervals: number, signal?: AbortSignal): Promise<{ start: string; end: string }[]> => {
     if (signal?.aborted || deadline !== undefined && Date.now() >= deadline) throw new CalendarFreeBusyError(503, 'calendar_timeout');
     const controller = new AbortController();
-    const abort = () => controller.abort(); signal?.addEventListener('abort', abort, { once: true });
-    const timer = setTimeout(() => controller.abort(), Math.min(20_000, deadline === undefined ? 20_000 : Math.max(1, deadline - Date.now())));
+    let rejectInterrupted!: (error: Error) => void;
+    const interrupted = new Promise<never>((_resolve, reject) => { rejectInterrupted = reject; });
+    const abort = () => { controller.abort(); rejectInterrupted(new CalendarFreeBusyError(503, 'calendar_timeout')); };
+    signal?.addEventListener('abort', abort, { once: true });
+    const timer = setTimeout(abort, Math.min(20_000, deadline === undefined ? 20_000 : Math.max(1, deadline - Date.now())));
     try {
+      return await Promise.race([interrupted, (async () => {
       onRequest?.();
       const response = await fetcher('https://www.googleapis.com/calendar/v3/freeBusy', {
         method: 'POST', signal: controller.signal,
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ timeMin: range.timeMin, timeMax: range.timeMax, timeZone: range.timeZone, items: [{ id: 'primary' }] }),
       });
+      if (controller.signal.aborted) throw new CalendarFreeBusyError(503, 'calendar_timeout');
       const payload = await response.json().catch(() => null);
       if (controller.signal.aborted || deadline !== undefined && Date.now() >= deadline) throw new CalendarFreeBusyError(503, 'calendar_timeout');
       if (!response.ok) {
@@ -76,6 +81,7 @@ export function createCalendarFreeBusyClient(fetcher: typeof fetch = fetch, onRe
           || Date.parse(item.end) <= Date.parse(item.start)) throw new CalendarFreeBusyError(502, 'calendar_invalid_response');
         return { start: item.start, end: item.end };
       });
+      })()]);
     } catch (error) {
       if (controller.signal.aborted) throw new CalendarFreeBusyError(503, 'calendar_timeout'); throw error;
     } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }

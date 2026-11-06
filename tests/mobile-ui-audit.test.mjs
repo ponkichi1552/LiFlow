@@ -192,20 +192,23 @@ test('weather selection keeps the first pending candidate consistent and permits
   const h = await fixture();
   try {
     const pending = deferred(); const saved = [];
-    const candidates = ['横浜市', '横浜町'].map((label, index) => ({ id: index + 1, label, name: label, latitude: 35 + index, longitude: 139, countryCode: 'JP' }));
+    const { searchJapaneseMunicipalities } = await import('../src/features/weather/municipality-search.ts');
+    const candidates = [searchJapaneseMunicipalities('横浜市').find(row => row.name === '横浜市'), searchJapaneseMunicipalities('横浜町')[0]];
+    assert.ok(candidates.every(Boolean));
+    const candidateLabel = index => `地域 ${candidates[index].label} を選択`;
     const screen = screenHarness('src/app/settings.tsx', { ...h.options, mocks: { ...settingsMocks,
       '@/features/weather/use-municipality-suggestions': { useMunicipalitySuggestions: () => ({ status: 'results', query: 'よこはま', error: null, candidates }) },
       '@/platform/storage/repository': { saveWeatherLocation: async (_db, value) => { saved.push(value); if (saved.length === 1) await pending.promise; } },
     } });
     await screen.press('天気予報・洗濯を開く');
     await screen.change('天気予報に使う市区町村', 'よこはま');
-    const first = screen.button('地域 横浜市 を選択'); const second = screen.button('地域 横浜町 を選択');
+    const first = screen.button(candidateLabel(0)); const second = screen.button(candidateLabel(1));
     first.props.onPress(); second.props.onPress(); await screen.flush();
-    assert.equal(saved.length, 1); assert.equal(saved[0].displayName, '横浜市');
-    assert.equal(screen.button('地域 横浜市 を選択').props.accessibilityState.selected, true);
-    assert.equal(screen.button('地域 横浜町 を選択').props.accessibilityState.selected, false);
+    assert.equal(saved.length, 1); assert.equal(saved[0].displayName, candidates[0].label);
+    assert.equal(screen.button(candidateLabel(0)).props.accessibilityState.selected, true);
+    assert.equal(screen.button(candidateLabel(1)).props.accessibilityState.selected, false);
     pending.reject(new Error('地域の保存失敗')); await screen.flush(); assert.ok(screen.text().includes('地域の保存失敗'));
-    await screen.press('地域 横浜町 を選択'); assert.equal(saved.length, 2); assert.equal(saved[1].displayName, '横浜町');
+    await screen.press(candidateLabel(1)); assert.equal(saved.length, 2); assert.equal(saved[1].displayName, candidates[1].label);
   } finally { h.connection.close(); }
 });
 

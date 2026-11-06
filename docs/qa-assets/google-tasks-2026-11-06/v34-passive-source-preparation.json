@@ -1,0 +1,48 @@
+{
+  "normalVersion": 34,
+  "method": "Normal Android foreground checkbox completion and Undo; iPhone kept locked/background",
+  "baselineHead": 443,
+  "targetHead": 445,
+  "sourceRestoredUnchecked": true,
+  "normalHomeButtonUsed": true,
+  "backgroundEstablishedAt": "2026-11-06T12:13:51.754217+00:00",
+  "iphoneAckBeforeNextWorker": {
+    "deviceDigest": "29774d412062c433272d34fa6e6829d0f19e144d39fb2d0f0b2f2a713fc73484",
+    "sameAccount": true,
+    "sequence": 443,
+    "updatedAt": "2026-11-06T11:23:49.661Z"
+  },
+  "receipts": [
+    {
+      "operationDigest": "065bb2a924d491e301ad41232cf9180b1518dcb487cf9e9707d842d96303dd65",
+      "sequence": 444,
+      "author": "android",
+      "sameAccount": true,
+      "acceptedAt": "2026-11-06T12:11:39.035Z"
+    },
+    {
+      "operationDigest": "f3bcd925f338691e76218cdf286b6d5d1cd42f09aa590064b5996ff607ff3c95",
+      "sequence": 445,
+      "author": "android",
+      "sameAccount": true,
+      "acceptedAt": "2026-11-06T12:12:11.847Z"
+    }
+  ],
+  "sourceCloudAcceptanceDelay": [
+    {
+      "action": "complete",
+      "milliseconds": 46559
+    },
+    {
+      "action": "undo",
+      "milliseconds": 33802
+    }
+  ],
+  "originalProbeTimedOut": true,
+  "originalProbeFailurePreserved": true,
+  "note": "The first45-second receipt wait ended before the delayed receipts. Supplementary read-only cloud evidence proves acceptance; foreground send, not natural Android send. The cause of latency is not established.",
+  "originalProbeSha256": "883d191c471e48825c06b302f38514b47e9309d201e2b16e203527f2a528710e",
+  "schemaVersion": 1,
+  "sourceOnly": true,
+  "iphoneNaturalReceiveNotYetObserved": true
+}

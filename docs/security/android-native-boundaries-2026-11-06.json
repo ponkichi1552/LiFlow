@@ -1,0 +1,49 @@
+{
+  "observedAt": "2026-11-06T08:51:56.123507+00:00",
+  "candidate": "normal-v32",
+  "device": "SonyI4293-Android10",
+  "checks": [
+    {
+      "name": "private-receiver",
+      "exit": 0,
+      "explicitPermissionDenied": false,
+      "notDebuggable": false,
+      "rawSha256": "40488ca14cdbc0ef1fa93d76239350b6e0f07e68a21bde39fa0573411cdaaaee",
+      "systemLoggedReceiverNotExported": false,
+      "systemDenialLineDigests": [],
+      "result": "INCONCLUSIVE: shell broadcast returned0 without explicit denial; not proof of an unprivileged app delivery or rejection"
+    },
+    {
+      "name": "private-file-provider",
+      "exit": 0,
+      "explicitPermissionDenied": true,
+      "notDebuggable": false,
+      "rawSha256": "6714e2ea2cda39487d5caf6938279608131f447b6fbafb6a7aed70a64cb14801",
+      "result": "PASS: direct provider query rejected before reading data"
+    },
+    {
+      "name": "release-run-as",
+      "exit": 1,
+      "explicitPermissionDenied": false,
+      "notDebuggable": true,
+      "rawSha256": "18765eb83c781013a43387cc2d1a4e36286b585d6d95e5897b6a0e081b43c761",
+      "result": "PASS: run-as rejected non-debuggable release"
+    }
+  ],
+  "normalProcessUnchanged": true,
+  "debuggableFlag": false,
+  "normalAppReset": false,
+  "normalAppDataChanged": false,
+  "paidRequest": false,
+  "untrustedCaller": "ADB shell UID2000; no URI grant; no root",
+  "limits": [
+    "Three bounded attempts against receiver/file provider/run-as; not exhaustive device compromise testing",
+    "Backup flag is not interpreted alone; native exclusions preserve the existing personal backup policy while excluding shared/key material",
+    "Shell caller has platform privileges; receiver attack was inconclusive. Installed binary explicitly declares exported=false. No ordinary third-party app attack is claimed."
+  ],
+  "observedChecksPassed": false,
+  "installedApkSha256": "26e9720143a2e96f93bc3ec692aa1034c625570819772aae98cc9d574b3d092f",
+  "installedApkMatchesPinnedV32": true,
+  "receiverBinaryExportedFalse": true,
+  "supportedChecksPassed": true
+}

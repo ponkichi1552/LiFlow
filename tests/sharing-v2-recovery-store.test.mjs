@@ -73,3 +73,23 @@ test('recovery store detects altered persisted original bytes rather than replac
   f.device.connection.prepare('UPDATE sharing_v2_recovery_originals SET raw_json=?').run(JSON.stringify(raw));
   await assert.rejects(createV2RecoveryStore(f.device.repository).read(), /altered/);
 });
+
+test('recovery reload batches 201 immutable originals without per-original native reads or changing their signed order', async t => {
+  const f = await setup(); t.after(() => f.device.connection.close());
+  const draft = structuredClone(f.draft); draft.rawEvents = Array.from({ length: 201 }, (_, index) => ({ ...draft.rawEvents[0], operationId: `original-${index}`, uploadSequence: index + 1 }));
+  draft.review.throughSequence = 201; draft.review.entries = draft.rawEvents.map(raw => ({ ...draft.review.entries[0], operationId: raw.operationId,
+    uploadSequence: raw.uploadSequence, rawDigest: sharedDocumentDigest(raw) })); draft.review.unreadableChanges = 201;
+  await f.store.save(draft); let singleReads = 0; let batches = 0;
+  const { database } = f.device; const one = database.getFirstAsync; const many = database.getAllAsync;
+  database.getFirstAsync = async (...args) => { if (args[0].includes('FROM sharing_v2_recovery_originals')) singleReads++; return one(...args); };
+  database.getAllAsync = async (...args) => {
+    const result = await many(...args);
+    if (args[0].includes('FROM sharing_v2_recovery_originals')) { batches++; return result.reverse(); }
+    return result;
+  };
+  const summary = await createV2RecoveryStore(f.device.repository).readSummary();
+  assert.deepEqual(summary.draft.review, draft.review); assert.deepEqual(summary.draft.preservedFacts, draft.preservedFacts);
+  assert.equal('rawEvents' in summary.draft, false); assert.equal(singleReads, 0); assert.equal(batches, 0);
+  assert.deepEqual((await createV2RecoveryStore(f.device.repository).read()).draft, draft);
+  assert.equal(singleReads, 0); assert.equal(batches, 3);
+});

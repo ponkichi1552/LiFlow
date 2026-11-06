@@ -1,0 +1,38 @@
+{
+  "version": 29,
+  "source": "normal iPhone UI and existing-grant readonly provider GET on Android",
+  "sameAccount": true,
+  "sameListDigest": true,
+  "mappingCount": 23,
+  "mappingDigest": "gxnvUFZLv8P-Q22tLk1EJ9aPj-nkd4hTivbzoFFk-zY",
+  "providerCompletedCounts": [
+    1,
+    0
+  ],
+  "duplicateLiveMarkers": [
+    0,
+    0
+  ],
+  "signedCloudReceipts": [
+    420,
+    421
+  ],
+  "cloudBothAcknowledged": true,
+  "completionOnIphone": {
+    "requestedAt": "2026-11-06T01:11:21.295998+00:00",
+    "normalVersion": 29,
+    "scope": "first currently visible Laundry round, exact checkbox observed step033",
+    "action": "complete"
+  },
+  "undoOnIphone": {
+    "requestedAt": "2026-11-06T01:22:14.206505+00:00",
+    "normalVersion": 29,
+    "scope": "same current Laundry round Nov6, period Nov5-Nov7",
+    "action": "undo"
+  },
+  "manualTasksSyncForThisPair": false,
+  "naturalBackgroundProof": false,
+  "freshConcurrentCreationProof": false,
+  "otherPhoneDisplayPass": false,
+  "displayDefect": "A committed optimistic value can survive a prepared display notification and mask subsequent remote state; reproduced on both OS harnesses, v30 correction pending physical recheck."
+}

@@ -24,8 +24,12 @@ export default function WasteScreen() {
   const [updatingOccurrence, setUpdatingOccurrence] = useState(false);
   const mutationInFlight = useRef(false);
   const [undo, setUndo] = useState<{ label: string; action: () => Promise<void> } | null>(null);
-  useEffect(() => { if (!undo) return; const timer = setTimeout(() => setUndo(null), 6500); return () => clearTimeout(timer); }, [undo]);
   const busy = saving || updatingOccurrence;
+  useEffect(() => {
+    if (!undo || busy) return;
+    const timer = setTimeout(() => setUndo(current => current === undo ? null : current), 6500);
+    return () => clearTimeout(timer);
+  }, [undo, busy]);
 
   if (!snapshot) return <PlannerLoadState title="ゴミ収集日" message="曜日設定を読み込んでいます。" error={loadError} retry={refresh} />;
 

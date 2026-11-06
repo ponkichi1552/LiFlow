@@ -25,8 +25,8 @@ export function classifyGoogleSyncFailure(
   }
 
   const quotaLimited = ['ratelimitexceeded', 'userratelimitexceeded', 'quotaexceeded',
-    'dailylimitexceeded', 'rate_limit_exceeded', 'quota_exceeded', 'resource_exhausted'].includes(code);
-  if (failure.status === 429 || (failure.status === 403 && quotaLimited)) {
+    'dailylimitexceeded', 'rate_limit_exceeded', 'quota_exceeded', 'resource_exhausted', 'resource-exhausted'].includes(code);
+  if (failure.status === 429 || (quotaLimited && (failure.status === 403 || failure.status === undefined))) {
     const retryAfterTime = parseRetryAfter(failure.retryAfter, now);
     const minimumRetryTime = now.getTime() + GOOGLE_SYNC_RETRY_INTERVAL_MS;
     return {
@@ -36,7 +36,10 @@ export function classifyGoogleSyncFailure(
     };
   }
 
-  const transientNetworkCode = ['abort_error', 'dns', 'fetch_failed', 'network', 'network_error', 'offline', 'timeout']
+  // Shared Tasks also waits for Firestore creation receipts. Its transient SDK
+  // codes have no HTTP status and must not permanently disable automatic retry.
+  const transientNetworkCode = ['abort_error', 'dns', 'fetch_failed', 'network', 'network_error', 'offline', 'timeout',
+    'aborted', 'deadline-exceeded', 'unavailable']
     .includes(code);
   if (failure.networkFailure || transientNetworkCode || (failure.status !== undefined && failure.status >= 500)) {
     return {

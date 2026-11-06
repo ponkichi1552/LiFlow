@@ -20,6 +20,8 @@ import * as localCalendarPlanning from '../src/features/calendar/private-availab
 import * as sharedCalendarPlanning from '../src/features/calendar/shared-events.ts';
 import * as privateCalendarAvailability from '../src/features/sharing/v2/private-availability.ts';
 import { newEventDraft } from '../src/features/calendar/events.ts';
+const personalCatalog = await import('../src/domain/chores/personal-catalog.ts');
+const sharedAdaptive = await import('../src/features/planner/shared-adaptive-load.ts');
 
 async function setup() {
   const f = await fixture(); const d = await f.device(); await d.repository.commit(seeds());
@@ -38,6 +40,8 @@ async function setup() {
     '../../features/sharing/v2/reminder-runtime': runtimeModule, '../../features/sharing/v2-ui/screen-session': screenModule,
     '../../features/sharing/v2-ui/private-overlay': overlayModule, '../../features/sharing/v2-ui/owner-preferences': ownerModule,
     '../../features/sharing/v2/personal-plan': personalPlan, '../../features/sharing/crypto': cryptoModule,
+    '../../domain/chores/personal-catalog': personalCatalog,
+    '../../features/planner/shared-adaptive-load': sharedAdaptive,
     '../storage/calendar-events': { readLocalCalendar: async () => ({ events, exceptions: [] }) },
     '../../features/calendar/private-availability': localCalendarPlanning,
     '../../features/calendar/shared-events': sharedCalendarPlanning,

@@ -86,7 +86,7 @@ export class LaundryWeatherAdjustmentPolicy implements WeatherAdjustmentPolicy<
       const originalDate = current.suggestedDate;
 
       removeLoad(loads, chore, originalDate);
-      const candidates: LaundryCandidate[] = [];
+      const windowsByDate = new Map<LocalDate, LaundryCandidate>();
       for (let shiftDays = -maxShift; shiftDays <= maxShift; shiftDays += 1) {
         const shiftedBase = addDays(current.cycleBaseDate, shiftDays);
         const windowStart = addDays(shiftedBase, -radius);
@@ -94,14 +94,20 @@ export class LaundryWeatherAdjustmentPolicy implements WeatherAdjustmentPolicy<
         const candidateStart = laterDate(this.context.today, windowStart);
         const candidateEnd = earlierDate(forecastThrough, windowEnd);
         for (let date = candidateStart; date <= candidateEnd; date = addDays(date, 1)) {
-          if (!isSuitableLaundryDay(forecastByDate.get(date))) continue;
-          if (!fitsLoadLimits(loads.get(date), chore, this.context.settings)) continue;
-          if (!respectsOccurrenceOrder(date, current, entriesByChore)) continue;
-          if (!respectsDependencies(date, current, this.context.dependencies, entriesByChore)) continue;
-          candidates.push({ date, windowStart, windowEnd, shiftDays });
+          const previous = windowsByDate.get(date);
+          // All eligibility and date costs are shared by overlapping windows.
+          // Retain the same last tie-breaks before checking that date once.
+          if (!previous || Math.abs(shiftDays) < Math.abs(previous.shiftDays)
+            || Math.abs(shiftDays) === Math.abs(previous.shiftDays) && windowStart < previous.windowStart) {
+            windowsByDate.set(date, { date, windowStart, windowEnd, shiftDays });
+          }
         }
       }
 
+      const candidates = [...windowsByDate.values()].filter(({ date }) => isSuitableLaundryDay(forecastByDate.get(date))
+        && fitsLoadLimits(loads.get(date), chore, this.context.settings)
+        && respectsOccurrenceOrder(date, current, entriesByChore)
+        && respectsDependencies(date, current, this.context.dependencies, entriesByChore));
       candidates.sort((left, right) => {
         const cost = (date: LocalDate) => Math.abs(daysBetween(originalDate, date))
           + calendarPenaltyForChore(chore.load, this.context.externalAvailabilityByDate?.[date]?.busyMinutes);

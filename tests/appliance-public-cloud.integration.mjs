@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Buffer } from 'node:buffer';
 import { syntheticManual } from './helpers/synthetic-pdf.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
@@ -10,9 +11,13 @@ import { once } from 'node:events';
 import { initializeTestEnvironment, assertFails } from '@firebase/rules-unit-testing';
 import { doc, getDocFromServer, setDoc } from 'firebase/firestore';
 import { createPublicApiAccess, PUBLIC_API_POLICY, publicKey } from '../server/appliance-care-api/src/public-access.mjs';
-import { createFirestoreUsageStore } from '../server/appliance-care-api/src/firestore-usage-store.mjs';
+import { createFirestoreUsageStore as buildFirestoreUsageStore } from '../server/appliance-care-api/src/firestore-usage-store.mjs';
+import { syntheticAnalysisQueueKeys } from './helpers/appliance-public-store.mjs';
 import { createApplianceCareHttpServer } from '../server/appliance-care-api/src/http-server.mjs';
 import { createFirebasePublicRuntime } from '../server/appliance-care-api/src/firebase-public-runtime.mjs';
+import { runAnalysisQueueBatch } from '../server/appliance-care-api/src/analysis-queue-worker.mjs';
+import { analysisRequestKey } from '../server/appliance-care-api/src/analysis-runner.mjs';
+import { decodeUploadedManual, MAX_MANUAL_BYTES } from '../server/appliance-care-api/src/uploaded-manual.mjs';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST || !process.env.FIREBASE_AUTH_EMULATOR_HOST
   || !/^127\.0\.0\.1:\d+$/u.test(process.env.FIRESTORE_EMULATOR_HOST)
@@ -22,6 +27,7 @@ const { initializeApp, deleteApp } = serverRequire('firebase-admin/app');
 const { getAuth } = serverRequire('firebase-admin/auth');
 const { getFirestore } = serverRequire('firebase-admin/firestore');
 const projectId = 'demo-liflow-sharing'; let env; let admin; let firestore; let auth;
+const createFirestoreUsageStore = options => buildFirestoreUsageStore({ analysisQueueKeys: syntheticAnalysisQueueKeys(), ...options });
 before(async () => {
   env = await initializeTestEnvironment({ projectId, firestore: { rules: readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8') } });
   admin = initializeApp({ projectId }, 'appliance-api-integration'); firestore = getFirestore(admin); auth = getAuth(admin);
@@ -31,6 +37,78 @@ after(async () => { await firestore?.terminate(); await deleteApp(admin); await 
 const who = (uid, device = uid, installationId = 'synthetic-installation-0001') => ({ uid, anonymous: false, deviceId: publicKey(device), installationId });
 const input = (uid, key, forceReanalysis = false) => ({ principal: who(uid), requestKey: key, forceReanalysis, idempotencyKey: `request-${key}-synthetic` });
 const output = { status: 'not_found', code: 'PRODUCT_NOT_FOUND', message: '合成した検査用製品です。' };
+
+test('real Firestore queues a maximum PDF atomically and independent workers claim paid execution once without exposing its chunks', async () => {
+  const bytes = Buffer.alloc(MAX_MANUAL_BYTES, 32); bytes.write('%PDF-1.4\n'); bytes.write('%%EOF', bytes.length - 5);
+  const request = { manufacturer: '検査', productName: '合成製品', modelNumber: 'QA', manual: decodeUploadedManual({ rightsConfirmed: true, base64: bytes.toString('base64') }) };
+  const stores = [createFirestoreUsageStore({ firestore }), createFirestoreUsageStore({ firestore })];
+  await stores[0].heartbeatAnalysisWorker();
+  const receipt = await stores[0].admit({ ...input('queue-owner', 'maximum-pdf'), requestKey: analysisRequestKey(request), analysisRequest: request });
+  const chunks = await firestore.collection('applianceApi/v1/analysisInputChunks').get();
+  const queued = (await firestore.doc(`applianceApi/v1/jobs/${receipt.jobId}`).get()).data();
+  assert.ok(chunks.size > 1); assert.equal(chunks.docs.reduce((sum, doc) => sum + doc.data().bytes.length, 0), queued.inputManifest.bytes);
+  assert.ok(queued.inputManifest.bytes < 10 * 1024 * 1024); assert.doesNotMatch(JSON.stringify(queued), /合成製品|base64|manufacturer/u);
+  for (const uid of [null, 'queue-owner', 'someone-else']) {
+    const client = uid === null ? env.unauthenticatedContext().firestore() : env.authenticatedContext(uid).firestore();
+    await assertFails(getDocFromServer(doc(client, chunks.docs[0].ref.path)));
+    await assertFails(setDoc(doc(client, chunks.docs[0].ref.path), { bytes: 'changed' }));
+  }
+  const claims = await Promise.all(stores.map(store => store.claimAnalysis(receipt.jobId))); assert.equal(claims.filter(Boolean).length, 1);
+  const claim = claims.find(Boolean); const decoded = await stores[1].readAnalysisInput(claim); assert.deepEqual(decoded.manual.bytes, bytes);
+  assert.equal(await stores[1].startAnalysis(claim.admission), true); assert.equal(await stores[0].startAnalysis(claim.admission), false);
+  const largeResult = { status: 'verified', synthetic: 'x'.repeat(690 * 1024) };
+  assert.equal(await stores[1].stageAnalysisResult(claim.admission, largeResult), true);
+  await stores[0].finish(claim.admission, { status: 'error', code: 'AI_SERVICE_NO_RESULT' });
+  assert.deepEqual((await stores[0].read(who('queue-owner'), receipt.jobId)).result, largeResult, 'settlement uses the single durable result field');
+  assert.equal((await firestore.collection('applianceApi/v1/analysisInputChunks').get()).size, 0);
+  assert.equal((await stores[1].usage(who('queue-owner'))).used, 1);
+});
+
+test('real Firestore resumes staged AI settlement after a worker restart without another paid invocation or lost no-result refund', async () => {
+  let clock = Date.now(); const now = () => clock; const store = () => createFirestoreUsageStore({ firestore, now });
+  const request = { manufacturer: '検査', productName: '合成製品', modelNumber: 'QA', manual: decodeUploadedManual(syntheticManual()) };
+  await store().heartbeatAnalysisWorker();
+  const receipt = await store().admit({ ...input('queue-owner', 'staged-result'), requestKey: analysisRequestKey(request), analysisRequest: request });
+  let calls = 0; const monitor = [];
+  const execute = change => runAnalysisQueueBatch({ store: store(), now, authorize: async () => {}, createDependencies: () => ({}), monitor: event => monitor.push(event),
+    analyze: async () => { calls++; return { status: 'error', code: 'AI_SERVICE_NO_RESULT', message: '合成したOpenAI無応答' }; }, ...change });
+  assert.equal((await execute({ checkpoint: async phase => { if (phase === 'resultStaged') throw new Error('synthetic worker stop'); } })).failed, 1);
+  clock += PUBLIC_API_POLICY.jobTimeoutMs + 1;
+  assert.equal((await execute({})).settled, 1); assert.equal(calls, 1);
+  assert.equal((await store().read(who('queue-owner'), receipt.jobId)).result.code, 'AI_SERVICE_NO_RESULT');
+  assert.equal((await store().usage(who('queue-owner'))).used, 0);
+});
+
+test('real Firestore replaces an expired preparing claimant but never takes over paid execution before its hard deadline', async () => {
+  let clock = Date.now(); const now = () => clock; const store = () => createFirestoreUsageStore({ firestore, now });
+  const request = { manufacturer: '検査', productName: '合成製品', modelNumber: 'QA', manual: decodeUploadedManual(syntheticManual()) };
+  await store().heartbeatAnalysisWorker();
+  const receipt = await store().admit({ ...input('queue-owner', 'claim-recovery'), requestKey: analysisRequestKey(request), analysisRequest: request });
+  const first = await store().claimAnalysis(receipt.jobId); clock += 30_000;
+  const second = await store().claimAnalysis(receipt.jobId);
+  assert.equal(await store().startAnalysis(first.admission), false); assert.equal(await store().startAnalysis(second.admission), true);
+  clock += 30_000; assert.equal(await store().claimAnalysis(receipt.jobId), null);
+  clock = receipt.deadlineAt; const expired = await store().claimAnalysis(receipt.jobId);
+  assert.equal(expired.result.code, 'ANALYSIS_INTERRUPTED'); await store().finish(expired.admission, expired.result);
+  assert.equal((await store().read(who('queue-owner'), receipt.jobId)).done, true);
+});
+
+test('real Firestore refuses a new paid admission without a live worker and prunes expired private input without downloading it into the query', async () => {
+  let clock = Date.now(); const now = () => clock; const store = () => createFirestoreUsageStore({ firestore, now });
+  const request = { manufacturer: '検査', productName: '合成製品', modelNumber: 'QA', manual: decodeUploadedManual(syntheticManual()) };
+  const admission = { ...input('queue-owner', 'worker-gate'), requestKey: analysisRequestKey(request), analysisRequest: request };
+  await assert.rejects(store().admit(admission), error => error.code === 'ANALYSIS_WORKER_UNAVAILABLE');
+  assert.equal((await firestore.collection('applianceApi/v1/admissions').get()).size, 0);
+  await store().heartbeatAnalysisWorker(); const receipt = await store().admit(admission);
+  clock += 90_000;
+  await assert.rejects(store().admit({ ...admission, forceReanalysis: true, idempotencyKey: 'synthetic-stale-worker-admission' }), error => error.code === 'ANALYSIS_WORKER_UNAVAILABLE');
+  assert.equal((await store().admit(admission)).jobId, receipt.jobId); assert.equal((await store().usage(who('queue-owner'))).used, 1);
+  clock = receipt.deadlineAt + 1; assert.ok(await store().prune());
+  assert.equal((await firestore.collection('applianceApi/v1/analysisInputChunks').get()).size, 0);
+  let calls = 0;
+  assert.equal((await runAnalysisQueueBatch({ store: store(), now, authorize: async () => {}, createDependencies: () => ({}), analyze: async () => { calls++; return output; } })).settled, 1);
+  assert.equal(calls, 0); assert.equal((await store().read(who('queue-owner'), receipt.jobId)).result.code, 'ANALYSIS_INTERRUPTED');
+});
 
 async function guest() {
   const response = await fetch(`http://${process.env.FIREBASE_AUTH_EMULATOR_HOST}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=synthetic-test-key`, {
@@ -106,17 +184,20 @@ test('real Firebase Admin authentication accepts an emulator Google user and rej
   const store = createFirestoreUsageStore({ firestore });
   const access = createPublicApiAccess({ verifyDevice: async (_req, { uid }) => ({ ...who(uid), reinstallProtection: 'verified' }), store, verifyIdToken: (token, revoked) => auth.verifyIdToken(token, revoked) });
   let calls = 0;
-  const server = createApplianceCareHttpServer({ publicAccess: access,
-    dependencies: { async analyzeUploaded() { calls++; throw new Error('synthetic no paid AI'); } } });
+  const dependencies = { async analyzeUploaded() { calls++; throw new Error('synthetic no paid AI'); } };
+  const server = createApplianceCareHttpServer({ publicAccess: access, dependencies });
   server.listen(0, '127.0.0.1'); await once(server, 'listening'); const base = `http://127.0.0.1:${server.address().port}`;
   try {
     const body = JSON.stringify({ manufacturer: 'Dyson', productName: '合成製品', modelNumber: 'QA', manual: syntheticManual() });
     const anonymous = await guest();
     assert.equal((await fetch(base + '/api/appliance-care/usage', { headers: { authorization: `Bearer ${anonymous.token}` } })).status, 403);
+    await store.heartbeatAnalysisWorker();
     const response = await fetch(base + '/api/appliance-care/jobs', { method: 'POST',
       headers: { authorization: `Bearer ${a.token}`, 'x-idempotency-key': 'synthetic-integration-job', 'content-type': 'application/json' }, body });
     assert.equal(response.status, 202); const receipt = await response.json(); assert.equal(receipt.usage.used, 1);
     assert.equal((await fetch(base + '/api/appliance-care/jobs/' + receipt.jobId, { headers: { authorization: `Bearer ${b.token}` } })).status, 404);
+    assert.equal(calls, 0);
+    assert.equal((await runAnalysisQueueBatch({ store: createFirestoreUsageStore({ firestore }), authorize: async () => {}, createDependencies: () => dependencies })).settled, 1);
     assert.equal(calls, 1);
     await auth.updateUser(a.uid, { disabled: true });
     assert.equal((await fetch(base + '/api/appliance-care/usage', { headers: { authorization: `Bearer ${a.token}` } })).status, 401);

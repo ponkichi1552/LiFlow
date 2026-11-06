@@ -1,5 +1,6 @@
 import type { LocalNotificationGateway } from '../../notifications/contracts';
 import { reconcileLocalNotifications } from '../../notifications/reconcile-local-notifications.ts';
+import type { NotificationReconciliationResult } from '../../notifications/reconcile-local-notifications.ts';
 import type { V2ReminderStore, V2ReminderControl } from '../../../platform/storage/sharing-v2-reminders';
 import type { V2GroupScreenModel } from './controller';
 import type { V2PersonalPlan } from './personal-plan';
@@ -13,11 +14,10 @@ const sameControl = (a: V2ReminderControl, b: V2ReminderControl) => a.revision =
 export function createV2ReminderRuntime(input: { userId: string; groupId: string; store: V2ReminderStore; gateway: LocalNotificationGateway;
   readModel(now: Date): Promise<V2ReminderModel>; assertAccess(): void | Promise<void>; now?: () => Date; budgetNow?: () => number;
   afterSynchronize?: (remainingMs: number) => Promise<void> }) {
-  let running: Promise<{ skippedDates: string[] }> | null = null; let requested = false;
+  let running: Promise<{ skippedDates: string[]; reservations: NotificationReconciliationResult }> | null = null; let requested = false;
   const elapsed = input.budgetNow ?? Date.now; let deadline = 0;
   const prefix = v2NotificationPrefix(input.userId, input.groupId);
   async function execute() {
-    let result = { skippedDates: [] as string[] };
     const budget = () => { if (elapsed() >= deadline) throw new Error('共有通知の更新は次回の同期で続けます。'); };
     for (let pass = 0; pass < 3; pass++) {
       requested = false; budget(); await input.assertAccess(); const before = await input.store.read(); budget();
@@ -26,11 +26,12 @@ export function createV2ReminderRuntime(input: { userId: string; groupId: string
       if (!sameControl(before, after)) continue;
       const planned = model ? createV2ReminderRequests({ model, userId: input.userId, groupId: input.groupId,
         preferences: before.preferences, personal: model.personal, now: (input.now ?? (() => new Date()))() }) : { requests: [], skippedDates: [] };
+      let reservations: NotificationReconciliationResult;
       try {
-        await reconcileLocalNotifications(input.gateway, { prefix, enabled: before.preferences.enabled, desired: planned.requests,
+        reservations = await reconcileLocalNotifications(input.gateway, { prefix, enabled: before.preferences.enabled, desired: planned.requests,
           assertCurrent: async () => { budget(); await input.assertAccess(); if (!sameControl(before, await input.store.read())) throw new ReminderChanged(); budget(); } });
       } catch (error) { if (error instanceof ReminderChanged) continue; throw error; }
-      result = { skippedDates: planned.skippedDates };
+      const result = { skippedDates: planned.skippedDates, reservations };
       budget(); await input.afterSynchronize?.(Math.max(1, deadline - elapsed())); budget();
       if (!requested) return result;
     }

@@ -10,7 +10,7 @@ const invalid = message => new PublicApiError(400, 'INVALID_MANUAL', message);
 export function decodeUploadedManual(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || value.rightsConfirmed !== true
     || typeof value.base64 !== 'string' || value.base64.length > Math.ceil(MAX_MANUAL_BYTES / 3) * 4
-    || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value.base64)) {
+    || value.base64.length % 4 || /[^A-Za-z0-9+/=]/u.test(value.base64)) {
     throw invalid('利用できる取扱説明書PDFを選択し、送信の確認をしてください（6MiB以内）。');
   }
   const bytes = Buffer.from(value.base64, 'base64');

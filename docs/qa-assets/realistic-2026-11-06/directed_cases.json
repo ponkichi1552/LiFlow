@@ -1,0 +1,383 @@
+[
+  {
+    "id": "D01",
+    "label": "今日の急用",
+    "input": {
+      "today": "2026-11-04",
+      "existing_chore_day": "2026-11-04",
+      "event": "new_busy_event_same_day"
+    },
+    "expected": {
+      "recommended_day": "2026-11-04",
+      "extra_confirmation_count": 0
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D02",
+    "label": "明日の急用",
+    "input": {
+      "today": "2026-11-04",
+      "existing_chore_day": "2026-11-05",
+      "event": "new_busy_event_tomorrow"
+    },
+    "expected": {
+      "recommended_day": "2026-11-05",
+      "extra_confirmation_count": 0
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D03",
+    "label": "今日に空きができる",
+    "input": {
+      "today": "2026-11-04",
+      "other_chore_day": "2026-11-10",
+      "event": "busy_event_cancelled_today"
+    },
+    "expected": {
+      "move_other_chore_to_today": false
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D04",
+    "label": "毎日家事完了",
+    "input": {
+      "completed_day": "2026-11-04",
+      "interval_days": 1
+    },
+    "expected": {
+      "next_day": "2026-11-05",
+      "same_day_reappearance": false
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D05",
+    "label": "フォールバックと固定",
+    "input": {
+      "today": "2026-11-04",
+      "current_recommended_day": "2026-11-08",
+      "original_base_day": "2026-11-05",
+      "search_result": "none"
+    },
+    "expected": {
+      "recommended_day": "2026-11-08"
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D06",
+    "label": "完了後の初回追加",
+    "input": {
+      "completed_today_minutes": 30,
+      "new_chore_minutes": 30,
+      "daily_capacity_minutes": 45
+    },
+    "expected": {
+      "existing_completed_load": 30,
+      "new_chore_fit_today": false
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D07",
+    "label": "同期コピー",
+    "input": {
+      "local_event": {
+        "canonical_id": "A",
+        "start": "10:00",
+        "end": "10:30"
+      },
+      "google_event": {
+        "canonical_id": "A",
+        "start": "10:00",
+        "end": "10:30"
+      }
+    },
+    "expected": {
+      "event_count": 1,
+      "occupied_minutes": 30
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D08",
+    "label": "細切れ空き",
+    "input": {
+      "available_intervals": [
+        [
+          "10:00",
+          "10:10"
+        ],
+        [
+          "11:00",
+          "11:10"
+        ],
+        [
+          "12:00",
+          "12:10"
+        ]
+      ],
+      "duration_minutes": 30
+    },
+    "expected": {
+      "fits_contiguously": false
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D09",
+    "label": "日跨ぎ空き",
+    "input": {
+      "available_interval": [
+        "2026-11-04T23:50:00+09:00",
+        "2026-11-05T00:20:00+09:00"
+      ],
+      "duration_minutes": 30
+    },
+    "expected": {
+      "fits_contiguously": true
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D10",
+    "label": "共有未担当",
+    "input": {
+      "member_ids": [
+        "u1",
+        "u2"
+      ],
+      "shared_chore_duration_minutes": 30,
+      "assignee": null
+    },
+    "expected": {
+      "shared_entity_count": 1,
+      "member_loads": {
+        "u1": 30,
+        "u2": 30
+      },
+      "learn_shared_cycle": false
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D11",
+    "label": "別ID二重完了",
+    "input": {
+      "operations": [
+        {
+          "operation_id": "a",
+          "occurrence_id": "same"
+        },
+        {
+          "operation_id": "b",
+          "occurrence_id": "same"
+        }
+      ]
+    },
+    "expected": {
+      "effective_completions": 1,
+      "phase_advances": 1
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D12",
+    "label": "取消後の後続設定",
+    "input": {
+      "events": [
+        "complete_A",
+        "set_B_20_days",
+        "undo_complete_A"
+      ]
+    },
+    "expected": {
+      "B_fixed_days": 20,
+      "A_effective_completion_count": 0
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D13",
+    "label": "季節の遅い完了",
+    "input": {
+      "spring_fixed_day": "2026-05-15",
+      "spring_completed_day": "2026-08-01",
+      "autumn_fixed_day": "2026-10-15"
+    },
+    "expected": {
+      "autumn_fixed_day": "2026-10-15",
+      "infer_day_interval": false,
+      "mark_autumn_complete": false
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D14",
+    "label": "長周期の履歴不足",
+    "input": {
+      "recorded_completion_days": [
+        0,
+        180,
+        360
+      ],
+      "initial_days": 180,
+      "horizon_days": 365
+    },
+    "expected": {
+      "valid_intervals": 2,
+      "learning_started": false,
+      "cycle_days": 180
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D15",
+    "label": "本人の担当だけ長周期",
+    "input": {
+      "observed_completion_days": [
+        0,
+        60,
+        120,
+        180
+      ],
+      "initial_days": 14,
+      "hidden_other_household_work": "not_provided_to_app"
+    },
+    "expected": {
+      "hard_cap_to_14_days": false,
+      "assume_no_household_care": false
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D16",
+    "label": "天気取得失敗",
+    "input": {
+      "existing_day": "2026-11-10",
+      "event": "weather_unavailable"
+    },
+    "expected": {
+      "recommended_day": "2026-11-10"
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D17",
+    "label": "モード境界",
+    "input": {
+      "complete_day_0": 0,
+      "mode_change_day": 10,
+      "complete_day_1": 20
+    },
+    "expected": {
+      "raw_record_kept": true,
+      "cross_mode_interval_used_for_learning": false
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D18",
+    "label": "拡張期間端の完了",
+    "input": {
+      "learned_days": 14,
+      "displayed_window_days": [
+        14,
+        20
+      ],
+      "completion_day": 20
+    },
+    "expected": {
+      "cycle_days": 14,
+      "relearn": false
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D19",
+    "label": "夜勤と休日初期値",
+    "input": {
+      "personal_available": [
+        "16:00",
+        "20:00"
+      ],
+      "default_holiday_window": [
+        "09:00",
+        "19:00"
+      ],
+      "date_marked_holiday": true
+    },
+    "expected": {
+      "overwrite_personal_window": false
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D20",
+    "label": "ゴミ収集表示",
+    "input": {
+      "collection_days": [
+        "2026-11-05"
+      ],
+      "kind": "garbage_display"
+    },
+    "expected": {
+      "requires_completion": false,
+      "learns_interval": false
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  },
+  {
+    "id": "D21",
+    "label": "候補が狭い順",
+    "input": {
+      "chores": [
+        {
+          "id": "flex",
+          "candidate_slots": [
+            "A",
+            "B"
+          ]
+        },
+        {
+          "id": "tight",
+          "candidate_slots": [
+            "A"
+          ]
+        }
+      ]
+    },
+    "expected": {
+      "one_valid_solution": {
+        "tight": "A",
+        "flex": "B"
+      },
+      "note": "これは唯一の最適性一般証明ではない"
+    },
+    "status": "specified_not_executed_against_app",
+    "origin": "user_design_contract"
+  }
+]

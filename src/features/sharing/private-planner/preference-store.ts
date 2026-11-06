@@ -7,6 +7,8 @@ import { emptyPrivatePreferenceSyncState, observePrivatePreferences, preferenceV
 import type { AcceptedPrivatePreferences, PrivatePreferenceSyncState } from './preference-sync-state.ts';
 import { privatePreferenceCursor, samePrivatePreferenceCursor, snapshotEncryptedPrivatePreferences, snapshotPrivatePreferenceCursor } from './preference-crypto.ts';
 import type { EncryptedPrivatePreferences, PrivatePreferenceCursor } from './preference-crypto.ts';
+import { snapshotLocalPreferenceProjection } from './local-projection.ts';
+import type { LocalPreferenceProjection } from './local-projection';
 
 export interface PrivatePlannerPreferencePort {
   ownerUserId: string;
@@ -22,6 +24,13 @@ export class PrivatePlannerPreferenceConflict extends Error {
 /** Local value, accepted baseline and exact pending envelope share one protected publication. */
 export function createPrivatePlannerPreferenceStore(port: PrivatePlannerPreferencePort) {
   const { ownerUserId, vault } = port; assertSharedIdentifier(ownerUserId); const key = `private-planner-preferences:${ownerUserId}`;
+  const projectionKey = `${key}:local-projection`;
+  const readProjectionInside = async () => {
+    await port.assertOwner(ownerUserId); const raw = await vault.getItem(projectionKey); await port.assertOwner(ownerUserId);
+    if (raw === null || raw === 'null') return null;
+    if (raw.length > 16 * 1024) throw new Error('生活リズムの未反映データを確認してください。');
+    return snapshotLocalPreferenceProjection(JSON.parse(raw));
+  };
   async function saved(): Promise<PrivatePreferenceSyncState> {
     await port.assertOwner(ownerUserId); const raw = await vault.getItem(key); await port.assertOwner(ownerUserId);
     if (raw === null) return emptyPrivatePreferenceSyncState(ownerUserId);
@@ -54,6 +63,27 @@ export function createPrivatePlannerPreferenceStore(port: PrivatePlannerPreferen
     return result;
   }
   return { read: async () => (await readSyncState()).local, readSyncState, subscribe: port.subscribe ?? (() => () => {}),
+    readLocalProjection: () => port.exclusive(ownerUserId, readProjectionInside),
+    prepareLocalProjection: async (value: LocalPreferenceProjection) => {
+      const own = snapshotLocalPreferenceProjection(value);
+      const json = JSON.stringify(own);
+      if (json.length > 16 * 1024) throw new Error('生活リズムの未反映データが大きすぎます。');
+      await port.exclusive(ownerUserId, async () => {
+        const state = await saved();
+        if ((state.local?.revision ?? 0) !== own.privateRevision && !(state.local?.revision === own.privateRevision + 1 && samePreferenceValues(state.local, own.preferences))) throw new PrivatePlannerPreferenceConflict();
+        await port.assertOwner(ownerUserId);
+        try { await vault.setItem(projectionKey, json); }
+        catch (cause) { if (canonicalJson(await readProjectionInside()) !== canonicalJson(own)) throw cause; }
+        await port.assertOwner(ownerUserId);
+      });
+    },
+    clearLocalProjection: async (value: LocalPreferenceProjection) => {
+      const own = snapshotLocalPreferenceProjection(value);
+      await port.exclusive(ownerUserId, async () => {
+        if (canonicalJson(await readProjectionInside()) !== canonicalJson(own)) return;
+        await vault.setItem(projectionKey, 'null'); await port.assertOwner(ownerUserId);
+      });
+    },
     async save(expectedRevision: number, input: PrivatePlannerPreferences) {
       const own = snapshotPrivatePlannerPreferences(input);
       if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0 || expectedRevision >= Number.MAX_SAFE_INTEGER) throw new Error('保存する設定の版を確認してください。');

@@ -1,0 +1,138 @@
+{
+  "candidate": "normal-v31",
+  "status": "natural-pair-delivered-aggregate-domain-pending",
+  "recordedAt": "2026-11-06T07:07:48.486033+00:00",
+  "completed": false,
+  "source": {
+    "os": "Android10",
+    "method": "normal foreground shared Washbasin completion checkbox and same checked checkbox Undo",
+    "uiActionTimes": [
+      "2026-11-06T04:56:51.712652+00:00",
+      "2026-11-06T04:58:23.753210+00:00"
+    ],
+    "receipts": [
+      {
+        "operationDigest": "9175afdd4e18ad094d684b39463af45f570f0085a05f0625fd004e73d3157cc1",
+        "sequence": 434,
+        "author": "android",
+        "sameAccount": true,
+        "acceptedAt": "2026-11-06T04:57:04.597Z"
+      },
+      {
+        "operationDigest": "c80ce0ad7c193b9c589889ca9fee5ce48e05a85d604ebc3776db2e118501892f",
+        "sequence": 435,
+        "author": "android",
+        "sameAccount": true,
+        "acceptedAt": "2026-11-06T04:58:35.292Z"
+      }
+    ],
+    "restoredUncheckedAt": "2026-11-06T04:59:57.253266+00:00"
+  },
+  "receiver": {
+    "os": "iOS26.7.2",
+    "lastAckBeforeObservation": 433,
+    "expectedAck": 435,
+    "observationStartedAt": "2026-11-06T05:00:42.997946+00:00",
+    "normalAppOpenedDuringObservation": false,
+    "forcedWorker": false,
+    "lastAuditBeforeObservation": {
+      "id": 59,
+      "startedAt": "2026-11-06T04:41:48.729Z",
+      "finishedAt": "2026-11-06T04:42:10.076Z",
+      "release": true,
+      "outcome": "success",
+      "sharing": "pending",
+      "personalGoogleCalendar": "success",
+      "naturalDeliveryPass": false
+    },
+    "receiveOnlyWindow": {
+      "startedAt": "2026-11-06T05:00:42.997946+00:00",
+      "endedAt": "2026-11-06T05:12:04.419245Z",
+      "lastWorker": 59,
+      "lastAck": 433,
+      "accepted": false
+    },
+    "observationActive": false
+  },
+  "failedPreparation": {
+    "singleContinuousSession": true,
+    "failedAt": "Wi-Fi OFF terminated XCTest communication before normal LiFlow activation or completion",
+    "newIphoneCompletionAdded": false,
+    "runnerRelaunch": "refused by iOS developer trust while offline",
+    "radiosRestoredByOwner": true,
+    "radioOffMethodRetired": true
+  },
+  "acceptance": "A new current-version OS worker beginning after observation start must complete sharing and acknowledge both real source changes. ACK without that worker or a pending domain is not a pass. iPhone outgoing complete/Undo remains unverified.",
+  "combinedObservation": {
+    "candidate": "normal-v31",
+    "baselineSequence": 435,
+    "preparedIphoneOutboxCount": 2,
+    "backgroundEstablishedAt": "2026-11-06T05:43:32.037Z",
+    "backgroundMethod": "system Settings activated; actual Settings screenshot verified",
+    "nativeHomeAttemptAcceptedAsEvidence": false,
+    "networkReleasedAt": "2026-11-06T05:52:43.005407Z",
+    "physicalLockConfirmedAt": "2026-11-06T06:14:44.498713+00:00",
+    "forcedWorker": false,
+    "normalAppActivatedAfterBackground": false,
+    "audit": {
+      "id": 60,
+      "started_at": 1793946050097,
+      "finished_at": 1793946083640,
+      "release": 1,
+      "outcome": "success",
+      "personal": "skipped",
+      "private_calendar": "skipped",
+      "sharing": "pending",
+      "personal_google_calendar": "success"
+    },
+    "receipts": [
+      {
+        "operationDigest": "9a1ddb544cd1f8d26f93d31cd2269f43244cd44241ec0448c06fede8b8ebfd1d",
+        "sequence": 436,
+        "author": "android",
+        "sameAccount": true,
+        "acceptedAt": "2026-11-06T06:03:55.241Z"
+      },
+      {
+        "operationDigest": "de81e2de80e0bcb0e5730b2c940af98c97224384a35832836c4c2998abb14fea",
+        "sequence": 437,
+        "author": "android",
+        "sameAccount": true,
+        "acceptedAt": "2026-11-06T06:03:56.845Z"
+      },
+      {
+        "operationDigest": "b4e78a5b92e5fa7fd7dbfdea959580a3da7d83f28c3ed40a0f1a6ac3f1efe3b6",
+        "sequence": 438,
+        "author": "iphone",
+        "sameAccount": true,
+        "acceptedAt": "2026-11-06T06:21:05.290Z"
+      },
+      {
+        "operationDigest": "93fc6d83dfae517984ed5c76abc5399f45bb8e5324c2e81eaa75bbb4be08464d",
+        "sequence": 439,
+        "author": "iphone",
+        "sameAccount": true,
+        "acceptedAt": "2026-11-06T06:21:06.895Z"
+      }
+    ],
+    "iphoneAcknowledgment": {
+      "deviceDigest": "29774d412062c433272d34fa6e6829d0f19e144d39fb2d0f0b2f2a713fc73484",
+      "sameAccount": true,
+      "sequence": 439,
+      "updatedAt": "2026-11-06T06:21:11.986Z"
+    },
+    "actualIphoneCompleteAndUndoSent": true,
+    "actualAndroidPairReceivedByIphone": true,
+    "androidSourceDelivery": "network reconnect, not OS-natural execution",
+    "fullDomainAcceptance": false,
+    "aggregateSharingDomain": "pending",
+    "rawAuditReclassified": false,
+    "observerResult": {
+      "kind": "observer-stopped-without-pass",
+      "at": "2026-11-06T06:59:28.183592+00:00",
+      "acceptance": false
+    },
+    "followup": "A separate regression reproduced a healthy Tasks cadence being marked pending. It does not prove the exact cause of this old aggregate row. A narrow classification fix is under validation; blocked retries remain pending.",
+    "observationsSha256": "d3d32a2f491309024c0d7c5de34232e231f89cf158103f2f72f82c8cd09136bf"
+  }
+}

@@ -19,3 +19,21 @@ export function withinPrivateCalendarDeadline<T>(work: Promise<T>, milliseconds:
     work.then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
   });
 }
+
+export interface PrivateCalendarWorkControl { assertBudget?: () => void; signal?: AbortSignal }
+export function assertPrivateCalendarWork(control: PrivateCalendarWorkControl) {
+  if (control.signal?.aborted) throw privateCalendarDeadlineError();
+  control.assertBudget?.();
+}
+/** Abandon a late SDK result; immutable writes retain their existing recovery receipt. */
+export async function privateCalendarWork<T>(work: () => Promise<T>, control: PrivateCalendarWorkControl = {}): Promise<T> {
+  assertPrivateCalendarWork(control);
+  const pending = work(); const signal = control.signal;
+  const value = signal ? await new Promise<T>((resolve, reject) => {
+    const abort = () => { signal.removeEventListener('abort', abort); reject(privateCalendarDeadlineError()); };
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) abort();
+    pending.then(value => { signal.removeEventListener('abort', abort); resolve(value); }, error => { signal.removeEventListener('abort', abort); reject(error); });
+  }) : await pending;
+  assertPrivateCalendarWork(control); return value;
+}

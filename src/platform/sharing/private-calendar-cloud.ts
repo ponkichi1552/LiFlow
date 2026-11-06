@@ -35,7 +35,7 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
   const authorityForUser = (authority: VerifiedPrivateCalendarAuthority) => {
     checkAccount(); if (authority.signed.body.ownerUserId !== userId) throw new Error('本人用Calendarの所有アカウントが異なります。');
   };
-  async function serverRead(ref: DocumentReference) { checkAccount(); const result = await getDocFromServer(ref); checkAccount(); return result; }
+  async function serverRead(ref: DocumentReference, checkBudget: () => void = () => {}) { checkAccount(); checkBudget(); const result = await getDocFromServer(ref); checkAccount(); checkBudget(); return result; }
   async function recoverImmutable<T>(write: () => Promise<T>, recover: () => Promise<T | null>): Promise<T> {
     try { return await write(); }
     catch (error) {
@@ -46,8 +46,8 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
       throw error;
     }
   }
-  const readHead = async () => {
-    const result = await serverRead(reference); return result.exists() ? headFromDocument(result.data(), userId) : null;
+  const readHead = async (checkBudget: () => void = () => {}) => {
+    const result = await serverRead(reference, checkBudget); return result.exists() ? headFromDocument(result.data(), userId) : null;
   };
   function authorityFromDocument(data: DocumentData | undefined, revision: number) {
     const row = bodyWithoutServerTime(data, ['schemaVersion', 'revision', 'authorityDigest', 'authorityJson']);
@@ -78,36 +78,38 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
   }
   return sharingCloudWithDeadline({
     readHead,
-    async createRoot(authority: VerifiedPrivateCalendarAuthority) {
+    async createRoot(authority: VerifiedPrivateCalendarAuthority, checkBudget: () => void = () => {}) {
+      const guard = () => { checkAccount(); checkBudget(); }; guard();
       authorityForUser(authority); authority = verifyPrivateCalendarRoot(authority.signed, authority.anchor);
       const fields = privateCalendarCloudFields(authority); const archive = doc(reference, 'authorities', '1');
       const result = await recoverImmutable(() => runTransaction(firestore, async (transaction) => {
-        checkAccount(); const existing = await transaction.get(reference); checkAccount();
+        guard(); const existing = await transaction.get(reference); guard();
         if (existing.exists()) {
           const current = headFromDocument(existing.data(), userId);
           if (current.rootDigest !== authority.anchor.rootDigest || current.accountGeneration !== authority.anchor.accountGeneration) throw new PrivateCalendarCloudConflict();
-          const accepted = await transaction.get(archive); checkAccount();
+          const accepted = await transaction.get(archive); guard();
           if (!accepted.exists() || canonicalJson(authorityFromDocument(accepted.data(), 1)) !== fields.authorityJson) throw new PrivateCalendarCloudConflict();
           return { created: false, head: current };
         }
-        const orphan = await transaction.get(archive); checkAccount(); if (orphan.exists()) throw new PrivateCalendarCloudConflict();
+        const orphan = await transaction.get(archive); guard(); if (orphan.exists()) throw new PrivateCalendarCloudConflict();
         transaction.set(reference, { ...fields, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
         transaction.set(archive, { schemaVersion: 1, revision: 1, authorityDigest: authority.digest, authorityJson: fields.authorityJson, createdAt: serverTimestamp() });
         return { created: true, head: fields };
       }), async () => {
-        const current = await readHead(); if (!current) return null;
+        const current = await readHead(checkBudget); if (!current) return null;
         if (current.rootDigest !== authority.anchor.rootDigest || current.accountGeneration !== authority.anchor.accountGeneration) throw new PrivateCalendarCloudConflict();
-        const accepted = await serverRead(archive);
+        const accepted = await serverRead(archive, checkBudget);
         return accepted.exists() && canonicalJson(authorityFromDocument(accepted.data(), 1)) === fields.authorityJson ? { created: false, head: current } : null;
       });
-      checkAccount(); return result;
+      guard(); return result;
     },
-    async authorityPage(afterRevision: number) {
+    async authorityPage(afterRevision: number, checkBudget: () => void = () => {}) {
+      const guard = () => { checkAccount(); checkBudget(); }; guard();
       if (!Number.isSafeInteger(afterRevision) || afterRevision < 0) throw new Error('本人用Calendarの取得位置が無効です。');
-      const head = await readHead(); if (!head) return null;
+      const head = await readHead(checkBudget); if (!head) return null;
       if (afterRevision > head.authorityRevision) throw new PrivateCalendarCloudConflict();
-      checkAccount(); const page = await getDocsFromServer(query(collection(reference, 'authorities'), where('revision', '>', afterRevision),
-        where('revision', '<=', head.authorityRevision), orderBy('revision'), limit(100))); checkAccount();
+      guard(); const page = await getDocsFromServer(query(collection(reference, 'authorities'), where('revision', '>', afterRevision),
+        where('revision', '<=', head.authorityRevision), orderBy('revision'), limit(100))); guard();
       const authorities = page.docs.map((entry, index) => {
         const revision = afterRevision + index + 1; const signed = authorityFromDocument(entry.data(), revision);
         if (entry.id !== String(revision) || signed.body.accountGeneration !== head.accountGeneration) throw new Error('本人端末の認証履歴が欠けているか異なります。');
@@ -116,21 +118,22 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
       if (afterRevision < head.authorityRevision && !authorities.length) throw new Error('本人端末の認証履歴を取得できません。');
       return { head, authorities };
     },
-    async commitAuthority(before: VerifiedPrivateCalendarAuthority, next: VerifiedPrivateCalendarAuthority) {
+    async commitAuthority(before: VerifiedPrivateCalendarAuthority, next: VerifiedPrivateCalendarAuthority, checkBudget: () => void = () => {}) {
+      const guard = () => { checkAccount(); checkBudget(); }; guard();
       authorityForUser(before); next = verifyPrivateCalendarAuthorityUpdate(before, next.signed);
       const fields = privateCalendarCloudFields(next); const archive = doc(reference, 'authorities', String(next.signed.body.revision));
       const result = await recoverImmutable(() => runTransaction(firestore, async (transaction) => {
-        checkAccount(); let [currentDoc, accepted] = await Promise.all([transaction.get(reference), transaction.get(archive)]); checkAccount();
+        guard(); let [currentDoc, accepted] = await Promise.all([transaction.get(reference), transaction.get(archive)]); guard();
         if (!currentDoc.exists()) throw new PrivateCalendarCloudConflict(); let current = headFromDocument(currentDoc.data(), userId);
         // The Web SDK verifies read versions at commit. Separate reads can straddle
         // another client's atomic commit; throwing our own conflict first would
         // bypass that verification and its bounded retry. Re-read the older side
         // so the SDK detects a changed version before we judge the signed pair.
         if (accepted.exists() && current.authorityRevision < next.signed.body.revision) {
-          currentDoc = await transaction.get(reference); checkAccount();
+          currentDoc = await transaction.get(reference); guard();
           if (!currentDoc.exists()) throw new PrivateCalendarCloudConflict(); current = headFromDocument(currentDoc.data(), userId);
         } else if (!accepted.exists() && current.authorityRevision >= next.signed.body.revision) {
-          accepted = await transaction.get(archive); checkAccount();
+          accepted = await transaction.get(archive); guard();
         }
         if (accepted.exists()) {
           if (current.rootDigest !== before.anchor.rootDigest || canonicalJson(authorityFromDocument(accepted.data(), next.signed.body.revision)) !== fields.authorityJson
@@ -138,51 +141,54 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
           return { accepted: true, head: current };
         }
         assertPrivateCalendarCloudAuthority(current, before);
-        const oldKeys = await Promise.all(before.signed.body.devices.map((device) => transaction.get(doc(reference, 'keyEnvelopes', keyId(before, device.deviceId))))); checkAccount();
+        const oldKeys = await Promise.all(before.signed.body.devices.map((device) => transaction.get(doc(reference, 'keyEnvelopes', keyId(before, device.deviceId))))); guard();
         transaction.update(reference, { ...fields, cacheHead: current.cacheHead, updatedAt: serverTimestamp() });
         transaction.set(archive, { schemaVersion: 1, revision: next.signed.body.revision, authorityDigest: next.digest, authorityJson: fields.authorityJson, createdAt: serverTimestamp() });
         // Only obsolete wrapped transport copies are retired; never delete protected device keys or authority history.
         for (const key of oldKeys) if (key.exists()) transaction.delete(key.ref);
         return { accepted: true, head: { ...fields, cacheHead: current.cacheHead } };
       }), async () => {
-        const current = await readHead(); if (!current) return null;
+        const current = await readHead(checkBudget); if (!current) return null;
         if (current.rootDigest !== before.anchor.rootDigest || current.accountGeneration !== before.anchor.accountGeneration) throw new PrivateCalendarCloudConflict();
-        const accepted = await serverRead(archive);
+        const accepted = await serverRead(archive, checkBudget);
         if (accepted.exists() && canonicalJson(authorityFromDocument(accepted.data(), next.signed.body.revision)) === fields.authorityJson
           && current.authorityRevision >= next.signed.body.revision) return { accepted: true, head: current };
         assertPrivateCalendarCloudAuthority(current, before); return null;
       });
-      checkAccount(); return result;
+      guard(); return result;
     },
-    async sendKey(authority: VerifiedPrivateCalendarAuthority, incoming: WrappedPrivateCalendarKey) {
+    async sendKey(authority: VerifiedPrivateCalendarAuthority, incoming: WrappedPrivateCalendarKey, checkBudget: () => void = () => {}) {
+      const guard = () => { checkAccount(); checkBudget(); }; guard();
       authorityForUser(authority); const wrapped = verifyPrivateCalendarWrappedKey(incoming, authority, incoming.body.recipientDeviceId);
       const json = canonicalJson(wrapped); const key = doc(reference, 'keyEnvelopes', keyId(authority, wrapped.body.recipientDeviceId));
       await recoverImmutable(() => runTransaction(firestore, async (transaction) => {
-        checkAccount(); const [current, previous] = await Promise.all([transaction.get(reference), transaction.get(key)]); checkAccount();
+        guard(); const [current, previous] = await Promise.all([transaction.get(reference), transaction.get(key)]); guard();
         if (!current.exists()) throw new PrivateCalendarCloudConflict(); assertPrivateCalendarCloudAuthority(headFromDocument(current.data(), userId), authority);
         if (previous.exists()) {
           if (canonicalJson(parseKey(previous.data(), authority, wrapped.body.recipientDeviceId)) !== json) throw new PrivateCalendarCloudConflict(); return;
         }
         transaction.set(key, { schemaVersion: 1, authorityDigest: authority.digest, recipientDeviceId: wrapped.body.recipientDeviceId, wrappedKeyJson: json, createdAt: serverTimestamp() });
       }), async () => {
-        const current = await readHead(); if (!current) return null; assertPrivateCalendarCloudAuthority(current, authority);
-        const accepted = await serverRead(key); if (!accepted.exists()) return null;
+        const current = await readHead(checkBudget); if (!current) return null; assertPrivateCalendarCloudAuthority(current, authority);
+        const accepted = await serverRead(key, checkBudget); if (!accepted.exists()) return null;
         if (canonicalJson(parseKey(accepted.data(), authority, wrapped.body.recipientDeviceId)) !== json) throw new PrivateCalendarCloudConflict();
         return undefined;
       });
-      checkAccount();
+      guard();
     },
-    async readKey(authority: VerifiedPrivateCalendarAuthority, deviceId: string) {
+    async readKey(authority: VerifiedPrivateCalendarAuthority, deviceId: string, checkBudget: () => void = () => {}) {
+      const guard = () => { checkAccount(); checkBudget(); }; guard();
       authorityForUser(authority); assertSharedIdentifier(deviceId);
       if (!authority.signed.body.devices.some((device) => device.deviceId === deviceId)) throw new Error('未承認の本人端末です。');
-      const current = await readHead(); if (!current) throw new PrivateCalendarCloudConflict(); assertPrivateCalendarCloudAuthority(current, authority);
-      const key = await serverRead(doc(reference, 'keyEnvelopes', keyId(authority, deviceId)));
-      const after = await readHead(); if (!after) throw new PrivateCalendarCloudConflict(); assertPrivateCalendarCloudAuthority(after, authority);
+      const current = await readHead(checkBudget); if (!current) throw new PrivateCalendarCloudConflict(); assertPrivateCalendarCloudAuthority(current, authority);
+      const key = await serverRead(doc(reference, 'keyEnvelopes', keyId(authority, deviceId)), checkBudget);
+      const after = await readHead(checkBudget); if (!after) throw new PrivateCalendarCloudConflict(); assertPrivateCalendarCloudAuthority(after, authority);
       return key.exists() ? parseKey(key.data(), authority, deviceId) : null;
     },
-    async uploadCache(authority: VerifiedPrivateCalendarAuthority, incoming: EncryptedPrivateCalendarCache) {
+    async uploadCache(authority: VerifiedPrivateCalendarAuthority, incoming: EncryptedPrivateCalendarCache, checkBudget: () => void = () => {}) {
+      const guard = () => { checkAccount(); checkBudget(); }; guard();
       authorityForUser(authority);
-      const owned = await verifyPrivateCalendarCacheCiphertext(crypto, incoming, authority); checkAccount();
+      const owned = await verifyPrivateCalendarCacheCiphertext(crypto, incoming, authority); guard();
       const manifestJson = canonicalJson(owned.manifest); const digest = sharedDocumentDigest(owned.manifest);
       const head = { cacheId: owned.manifest.body.cacheId, manifestDigest: digest, authorityDigest: authority.digest,
         sequence: owned.manifest.body.sequence, chunkCount: owned.manifest.body.chunkCount };
@@ -190,14 +196,14 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
       const prepared = owned.chunks.map((part) => ({ reference: doc(cacheRef, 'parts', String(part.index)), part, json: canonicalJson(part) }));
       let attemptedCacheHead: string | undefined;
       const publish = () => runTransaction(firestore, async (transaction) => {
-        checkAccount(); const [currentDoc, target] = await Promise.all([transaction.get(reference), transaction.get(cacheRef)]); checkAccount();
+        guard(); const [currentDoc, target] = await Promise.all([transaction.get(reference), transaction.get(cacheRef)]); guard();
         if (!currentDoc.exists()) throw new PrivateCalendarCloudConflict(); const current = headFromDocument(currentDoc.data(), userId);
         assertPrivateCalendarCloudAuthority(current, authority);
         attemptedCacheHead = canonicalJson(current.cacheHead);
         if (current.cacheHead?.cacheId === head.cacheId) {
           if (!target.exists() || canonicalJson(current.cacheHead) !== canonicalJson(head)) throw new PrivateCalendarCloudConflict();
           parseManifest(target.data(), authority, head);
-          const pieces = await Promise.all(prepared.map((part) => transaction.get(part.reference))); checkAccount();
+          const pieces = await Promise.all(prepared.map((part) => transaction.get(part.reference))); guard();
           if (pieces.some((piece, index) => !piece.exists() || canonicalJson(parsePart(piece.data(), piece.id)) !== prepared[index].json)) throw new Error('送信済みのCalendarが欠けているか異なります。');
           return { published: false, head };
         }
@@ -215,17 +221,17 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
         return { published: true, head };
       });
       for (let retry = 0; ; retry++) {
-        try { const result = await publish(); checkAccount(); return result; }
+        try { const result = await publish(); guard(); return result; }
         catch (error) {
-          checkAccount();
+          guard();
           if (!error || typeof error !== 'object' || !('code' in error) || !['permission-denied', 'aborted', 'failed-precondition', 'unavailable', 'deadline-exceeded'].includes(String(error.code))) throw error;
           let latest: PrivateCalendarCloudHead | null;
-          try { latest = await readHead(); } catch { checkAccount(); throw error; }
+          try { latest = await readHead(checkBudget); } catch { guard(); throw error; }
           if (!latest) throw error; assertPrivateCalendarCloudAuthority(latest, authority);
           if (latest.cacheHead?.cacheId === head.cacheId && latest.cacheHead.manifestDigest === digest) {
             // Rules can reject a concurrent create as an update before SDK precondition retries.
             // Recover only by rechecking every exact stored part in the read-only idempotent branch.
-            const recovered = await publish(); checkAccount(); return recovered;
+            const recovered = await publish(); guard(); return recovered;
           }
           if (latest.cacheHead?.authorityDigest === authority.digest && latest.cacheHead.sequence >= head.sequence) throw new PrivateCalendarCloudConflict();
           // A newer root can also change which old parts this atomic publication must retire.
@@ -234,18 +240,19 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
         }
       }
     },
-    async readCache(authority: VerifiedPrivateCalendarAuthority) {
-      authorityForUser(authority); const current = await readHead(); if (!current) throw new PrivateCalendarCloudConflict();
+    async readCache(authority: VerifiedPrivateCalendarAuthority, checkBudget: () => void = () => {}) {
+      const guard = () => { checkAccount(); checkBudget(); }; guard();
+      authorityForUser(authority); const current = await readHead(checkBudget); if (!current) throw new PrivateCalendarCloudConflict();
       assertPrivateCalendarCloudAuthority(current, authority);
       if (!current.cacheHead || current.cacheHead.authorityDigest !== authority.digest) return null;
-      const cacheRef = doc(reference, 'caches', current.cacheHead.cacheId); const manifestDoc = await serverRead(cacheRef);
+      const cacheRef = doc(reference, 'caches', current.cacheHead.cacheId); const manifestDoc = await serverRead(cacheRef, checkBudget);
       if (!manifestDoc.exists()) throw new Error('本人用Calendarの取得が完了していません。');
       const manifest = parseManifest(manifestDoc.data(), authority, current.cacheHead);
-      checkAccount(); const page = await getDocsFromServer(query(collection(cacheRef, 'parts'), orderBy('index'), limit(33))); checkAccount();
+      guard(); const page = await getDocsFromServer(query(collection(cacheRef, 'parts'), orderBy('index'), limit(33))); guard();
       if (page.size !== manifest.body.chunkCount) throw new Error('本人用Calendarの分割が揃っていません。');
       const chunks = page.docs.map((entry) => parsePart(entry.data(), entry.id));
-      const verified = await verifyPrivateCalendarCacheCiphertext(crypto, { manifest, chunks }, authority); checkAccount();
-      const after = await readHead(); if (!after) throw new PrivateCalendarCloudConflict(); assertPrivateCalendarCloudAuthority(after, authority);
+      const verified = await verifyPrivateCalendarCacheCiphertext(crypto, { manifest, chunks }, authority); guard();
+      const after = await readHead(checkBudget); if (!after) throw new PrivateCalendarCloudConflict(); assertPrivateCalendarCloudAuthority(after, authority);
       if (after.cacheHead?.manifestDigest !== current.cacheHead.manifestDigest || after.cacheHead.cacheId !== current.cacheHead.cacheId) throw new PrivateCalendarCloudConflict();
       return verified;
     },

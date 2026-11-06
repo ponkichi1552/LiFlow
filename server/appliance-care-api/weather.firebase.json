@@ -1,0 +1,5 @@
+{
+  "firestore": [
+    { "database": "liflow-weather", "rules": "weather.firestore.rules", "indexes": "weather.firestore.indexes.json" }
+  ]
+}

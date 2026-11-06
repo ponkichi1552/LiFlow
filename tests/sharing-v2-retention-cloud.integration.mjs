@@ -107,6 +107,15 @@ test('collective retention rotates keys and actually removes old cloud ciphertex
   assert.equal((await h.cloud.readGroup(groupId)).group.retentionCutoff, body.cutoff);
   await h.owner.manager.removeMembers(['member']);
   await assert.rejects(h.memberCloud.readGroup(groupId), /permission|利用できません|denied/i);
+  // Certified history removal must not disable later snapshot/key maintenance.
+  const beforeCleanup = (await h.cloud.readGroup(groupId)).group;
+  for (let n = 0; n < 4; n++) await h.cloud.compactHistory(groupId, Date.now() + 8 * 86400_000);
+  await environment.withSecurityRulesDisabled(async context => {
+    assert.equal((await getDocFromServer(doc(context.firestore(), root.path, 'keyEnvelopes', `1_${h.owner.deps.identity.deviceId}`))).exists(), false);
+  });
+  assert.equal((await getDocFromServer(doc(root, 'events', 'recent-name'))).exists(), true, 'post-cut facts still require the next certified deletion');
+  assert.equal((await getDocFromServer(doc(root, 'snapshots', beforeCleanup.snapshotId))).exists(), true);
+  assert.equal((await h.cloud.readGroup(groupId)).group.retentionCutoff, body.cutoff);
   const final = (await h.cloud.readGroup(groupId)).group;
   const lock = doc(root, 'recoveryLocks', 'current');
   await environment.withSecurityRulesDisabled(async context => { await setDoc(doc(context.firestore(), lock.path), { keyVersion: final.keyVersion }); });

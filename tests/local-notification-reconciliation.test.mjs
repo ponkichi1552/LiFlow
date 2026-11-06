@@ -32,9 +32,21 @@ test('capacity-limited replacement frees its own obsolete keys before creating a
   const g = gateway(2); g.stored.set('a:old', request('a:old')); g.stored.set('other', request('other'));
   let fail = true; const original = g.cancel; g.cancel = async key => { if (fail) { fail = false; throw new Error('OS rejected cancellation'); } return original(key); };
   const input = { prefix: 'a:', enabled: true, desired: [request('a:new')] };
-  await assert.rejects(reconcileLocalNotifications(g, input), /OS rejected/u); assert.equal(g.stored.size, 2); assert.ok(!g.stored.has('a:new'));
+  await assert.rejects(reconcileLocalNotifications(g, input), error => error.result.failed === 1 && /OS rejected/u.test(error.cause.message)); assert.equal(g.stored.size, 2); assert.ok(!g.stored.has('a:new'));
   await reconcileLocalNotifications(g, input); assert.ok(g.stored.has('a:new') && g.stored.has('other')); assert.equal(g.stored.size, 2);
   assert.deepEqual(g.calls.slice(-2), [['cancel', 'a:old'], ['schedule', 'a:new']]);
+});
+
+test('notification results distinguish unchanged publication deadline permission and native capacity exclusions without exposing content', async () => {
+  const g = gateway(3); g.stored.set('other:one', request('other:one'));
+  g.schedulingDeadline = async () => Date.parse(request('a:boundary', 4).fireAt);
+  const input = { prefix: 'a:', enabled: true, desired: [1, 2, 3, 4].map(day => request(`a:${day}`, day)) };
+  const first = await reconcileLocalNotifications(g, input);
+  assert.deepEqual(first, { scheduled: 2, unchanged: 0, cancelled: 0, deadlineExcluded: 1, capacityExcluded: 1, permissionExcluded: 0, failed: 0 });
+  const second = await reconcileLocalNotifications(g, input); assert.equal(second.unchanged, 2); assert.equal(second.scheduled, 0);
+  g.permission(false); const denied = await reconcileLocalNotifications(g, input);
+  assert.equal(denied.permissionExcluded, 4); assert.equal(denied.cancelled, 2); assert.equal(g.stored.has('other:one'), true);
+  assert.ok(Object.values(first).every(Number.isSafeInteger), 'diagnostic results carry counts, not private notification payloads');
 });
 
 test('permission changes cancel only this scope, and an unchanged plan creates no native writes', async () => {

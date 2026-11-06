@@ -1,0 +1,8 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // The weather HTTP/worker use database-scoped IAM. No mobile account may
+    // read raw provider responses or alter acquisition leases and budgets.
+    match /{document=**} { allow read, write: if false; }
+  }
+}

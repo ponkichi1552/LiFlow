@@ -1,0 +1,35 @@
+{
+  "candidate": "normal-v32",
+  "clientInputs": 710,
+  "productionDeltaFromV31": [
+    "src/features/google-sync/coordinator.ts",
+    "src/platform/sharing/workspaces.ts"
+  ],
+  "change": "Distinguish a healthy Tasks cadence skip from unresolved retry/auth/interrupted/unknown skips; no transport or scheduling calculation change",
+  "lint": "PASS",
+  "typecheck": "PASS",
+  "unit": {
+    "passed": 3452,
+    "failed": 0,
+    "skipped": 0
+  },
+  "cloud": {
+    "passed": 153,
+    "failed": 0,
+    "skipped": 0,
+    "isolatedAuthAndFirestore": true,
+    "unrelatedEmulatorsTouched": false
+  },
+  "affected": {
+    "passed": 85,
+    "failed": 0,
+    "redBeforeFix": "delivered group with a fresh Tasks cadence was incorrectly pending"
+  },
+  "physicalGatesSubstitute": false,
+  "logs": {
+    "wholeCheckSha256": "4a3836f08989de4583b9eb966f3f2de278fa22ad6c2dbee22dfc0f4fda0adb97",
+    "affectedSha256": "ac9123068d56a8c3bfe9a2029d7367af1fdf26f1ab69655968af9db6696ed04f",
+    "redSha256": "4e5ca560530a8da427394d2de6faf1eea53a23a0b09b3e4a71a9c4c71d4b03e9",
+    "cloudSha256": "f0ba2354bae461d37b7ed4efc1a050aad43a7f900b45563bb5f3c4faaab585fe"
+  }
+}

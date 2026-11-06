@@ -29,3 +29,11 @@ Firestoreは管理者だけが設定できる`serviceConfiguration/billing.enfor
 lint・TypeScript・自動回帰2,821件、Auth／Firestore Emulatorの結合検査118件がPASS。機能契約442件・必須Cloud80参照も検査した。新しいネイティブライブラリを含むAndroid 10・iPhone・iOSシミュレーターのReleaseビルドは成功し、データを保持して更新した。iPhoneとシミュレーターの主要画面検査、およびAndroidの実際のホームから説明への操作を確認した。別アカウントの購入が先にある明示復元、アカウント変更中の古い応答、短縮GCMタグ、失効中の通知、課金拒否と除名の区別も回帰検査へ加えた。公開用の商品・資格情報がないため、実際の価格を持つ購入画面はまだ確認できていない。実ストアの購入・復元・更新・返金・二重購入回避・異種OS間の契約引き継ぎは、開発者登録と商品・資格情報の設定後に実行する。現在の合成ストア応答の検査を実購入E2Eと読み替えない。
 
 参照：[Expo IAP](https://docs.expo.dev/guides/in-app-purchases/)、[OpenIAP](https://www.openiap.dev/docs/setup/expo)、[Apple公式Server Library](https://github.com/apple/app-store-server-library-node)、[Googleの購読状態](https://developer.android.com/google/play/billing/lifecycle/subscriptions)。
+
+## 2026-11-05の承認再試行
+
+Googleの未承認購入は、検証済み利用権・所有者の確定と同じFirestoreトランザクションで`billingAcknowledgements`へ登録する。購入証明はキューへ複製せず、既存の暗号化された購入行だけに保持する。端末・グループメンバーからキューへのアクセスは拒否する。
+
+直後の承認に失敗しても、`npm --prefix server/appliance-care-api run billing:retry`で再開できる。処理は最大10件・90秒の開始予算と2分のリースを持ち、再起動・競合を考慮する。毎回ストアの現在状態と所有者を再検証し、失効・置換済み・承認済み購入には承認要求を再送しない。失敗時はジッター付き30秒から最大1時間の間隔で再試行する。受付から48時間を超えた未処理は集計に出す。この時間は実際の購入期限を証明するものではない。
+
+公開運用には、既存サーバーと同じ秘密情報・最小権限を持つ管理型ジョブで、このコマンドを5分ごとに実行する設定が必要。HTTPの202応答後のCPUや利用者の再接続には依存させない。リポジトリに実行処理を用意しただけでは定期実行を設定したことにはならず、現在は実ストア商品と同様に公開前の設定・実行確認が残る。出力は処理件数と段階のみで、証明・認証トークン・家事内容は含めない。

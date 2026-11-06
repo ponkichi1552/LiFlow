@@ -1,6 +1,6 @@
 import { proposePersonalRelocation } from '../v2/personal-relocation.ts';
 import type { PersonalRelocation, PersonalRelocationInput } from '../v2/personal-relocation.ts';
-import { privatePlannerAllowedWindows, snapshotSavedPrivatePlannerPreferences } from './preferences.ts';
+import { privatePlannerAllowedWindows, snapshotSavedPrivatePlannerPreferences, privatePlannerPreferenceValues } from './preferences.ts';
 import type { SavedPrivatePlannerPreferences } from './preferences.ts';
 import { assertSharedIdentifier } from '../identifier.ts';
 import { sharedDateAtTime, sharedLocalDate } from '../group-clock.ts';
@@ -16,12 +16,9 @@ export function proposePrivatePlannerRelocation(ownerUserId: string, preferences
   if (input.windowStart > input.windowEnd) throw new Error('個人家事の実施期間を確認してください。');
   const start = sharedDateAtTime(input.windowStart, 0, 0, input.timeZone);
   const end = sharedDateAtTime(addDays(input.windowEnd, 1), 0, 0, input.timeZone).getTime();
-  const allowed = privatePlannerAllowedWindows(ownPreferences(own), sharedLocalDate(start, own.timeZone), sharedLocalDate(new Date(end - 1), own.timeZone));
+  const allowed = privatePlannerAllowedWindows(privatePlannerPreferenceValues(own), sharedLocalDate(start, own.timeZone), sharedLocalDate(new Date(end - 1), own.timeZone));
   // Bands use their explicit region; the chore's original civil window and same-day priority stay in its own region.
   const result = proposePersonalRelocation({ ...input, allowedWindows: allowed.unresolvedDates.length ? [] : allowed.windows });
   return result.kind === 'needsReview' && result.reason === 'missingAllowedTimes' && allowed.unresolvedDates.length
     ? { kind: 'needsReview', reason: 'ambiguousAllowedTimes' } : result;
-}
-function ownPreferences(value: SavedPrivatePlannerPreferences) {
-  return { timeZone: value.timeZone, restDays: value.restDays, loadLimits: value.loadLimits, allowedBands: value.allowedBands };
 }

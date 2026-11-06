@@ -3,7 +3,7 @@ import { useContext, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { WorkspaceContext } from '@/contexts/workspace-context';
-import { usePlannerData } from '@/hooks/use-planner-data';
+import { usePersonalSettingsData } from '@/hooks/use-personal-settings-data';
 import { resetAllChoreSchedules, setChoresEnabled } from '@/platform/storage/repository';
 import { ScheduleResetAction } from '@/components/schedule-reset-action';
 import type { SharingSelection } from '../sharing/workspace-selection';
@@ -42,7 +42,7 @@ function SettingsAudience({ title, icon, initialOpen, children }: { title: strin
 }
 
 function PersonalChoreSettings({ shared = false }: { shared?: boolean }) {
-  const data = usePlannerData({ personal: true });
+  const data = usePersonalSettingsData();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   if (!data.snapshot) return <Text style={styles.hint}>設定を読み込んでいます。</Text>;
   return <View style={styles.body}>{shared ? <Text style={styles.hint}>自分だけに保存されます。共通の家事は、ホームではグループの設定で表示します。</Text> : null}

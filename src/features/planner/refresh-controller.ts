@@ -16,6 +16,8 @@ export function createPlannerRefreshController<Snapshot>(dependencies: {
   weather(snapshot: Snapshot, canCommit: () => boolean): Promise<Snapshot | null>;
   publish(snapshot: Snapshot, canPublishWidget: boolean): void | Promise<void>;
   discardSnapshotOnError?: (error: unknown) => boolean;
+  /** Only a read whose captured inputs changed may be retried, once. Never retry mutations here. */
+  retryLoadOnError?: (error: unknown) => boolean;
 }) {
   let state: PlannerViewState<Snapshot> = { snapshot: null, loading: true, error: null };
   const listeners = new Set<() => void>();
@@ -23,10 +25,13 @@ export function createPlannerRefreshController<Snapshot>(dependencies: {
   let requested: { ids: Set<string>; waitForWeather: boolean; force: boolean } | null = null;
   let running: Promise<void> | null = null;
   let lastCanPublishWidget: boolean | undefined;
+  let finishInitialRead!: () => void;
+  const initialRead = new Promise<void>(resolve => { finishInitialRead = resolve; });
 
   const update = (next: PlannerViewState<Snapshot>) => {
     state = next;
     for (const listener of listeners) listener();
+    if (!next.loading) finishInitialRead();
   };
   const publish = (snapshot: Snapshot, canPublishWidget: boolean, current: number) => {
     if (state.snapshot === snapshot && !state.loading && state.error === null && lastCanPublishWidget === canPublishWidget) return;
@@ -48,7 +53,17 @@ export function createPlannerRefreshController<Snapshot>(dependencies: {
       requested = null;
       const current = revision;
       try {
-        const result = await dependencies.load([...request.ids], request.force);
+        let result: Awaited<ReturnType<typeof dependencies.load>>;
+        try {
+          result = await dependencies.load([...request.ids], request.force);
+        } catch (error) {
+          if (current !== revision) continue;
+          if (!dependencies.retryLoadOnError?.(error)) throw error;
+          if (current !== revision) continue;
+          // The failed read did not publish its transaction. Re-capture current
+          // inputs without flashing an error or duplicating weather/native output.
+          result = await dependencies.load([...request.ids], request.force);
+        }
         if (current !== revision) continue;
         publish(result.snapshot, result.canPublishWidget, current);
         if (current !== revision) continue;
@@ -73,6 +88,8 @@ export function createPlannerRefreshController<Snapshot>(dependencies: {
   };
   return {
     getSnapshot: () => state,
+    // Network observers share this read; waiting never starts another calculation.
+    waitForInitialRead: () => initialRead,
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     refresh(options: PlannerRefreshOptions = {}): Promise<void> {
       revision += 1;

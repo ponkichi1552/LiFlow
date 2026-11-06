@@ -14,7 +14,7 @@ import { createCalendarGesture } from './gesture-control';
 import { CalendarField } from './calendar-field';
 import type { LocalCalendarBinding } from './use-local-calendar';
 import type { CalendarEditorDraft } from '../../platform/storage/calendar-events';
-import { calendarDraftKey, clearCalendarEditorDraft, deleteCalendarEvent, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent } from '../../platform/storage/calendar-events';
+import { calendarDraftKey, clearCalendarEditorDraft, deleteCalendarEvent, discardCalendarDraftIfUnchanged, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent } from '../../platform/storage/calendar-events';
 import { CalendarOptionPicker } from './calendar-option-picker';
 import { moveCalendarStart } from './event-editing';
 
@@ -104,7 +104,10 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           </View>{!local.shared.enabled ? <Text style={styles.caption}>共有予定は、所有者がグループの互換更新を行うと利用できます。</Text> : <Text style={styles.caption}>{draft.audience === 'group' ? `${local.shared.name}のメンバーに共有します。` : 'この予定はグループへ共有しません。'}</Text>}</View> : initial.eventId && local.shared ? <Text style={styles.caption}>{draft.audience === 'group' ? `${local.shared.name} · グループ共通` : '個人 · 本人のみ'}</Text> : null}
           {readOnly ? original?.readOnly ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(original.externalUrl ?? 'https://calendar.google.com/calendar/u/0/r')}><Text style={styles.action}>Googleカレンダーで編集 ↗</Text></Pressable>
             : <Text style={styles.caption}>共有予定は作成者または管理者が変更できます。</Text> : null}
-          {error ? <View><Text accessibilityRole="alert" style={styles.error}>{error}</Text><AppButton title="予定を再読込" variant="quiet" compact onPress={() => void local.refresh()} /></View> : null}
+          {error ? <View><Text accessibilityRole="alert" style={styles.error}>{error}</Text><AppButton title="予定を再読込" variant="quiet" compact onPress={() => void local.refresh()} />
+            {initial.eventId && local.database ? <AppButton title="下書きを破棄して閉じる" variant="quiet" compact disabled={busy} onPress={() => void work(async () => {
+              await discardCalendarDraftIfUnchanged(local.database!, initial); onClose(); void local.refresh();
+            })} /> : null}</View> : null}
           <View pointerEvents={readOnly ? 'none' : 'auto'} style={{ gap: 18 }}>
           {repeated ? <View style={styles.row}>{(['one', 'series'] as const).map(scope => <ChoiceChip key={scope} label={scope === 'one' ? '今回だけ' : '繰り返し全体'} selected={draft.scope === scope} disabled={busy || readOnly}
             onPress={() => change(before => {

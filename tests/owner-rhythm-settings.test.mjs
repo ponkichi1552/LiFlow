@@ -46,3 +46,37 @@ test('opening ordinary settings does not create a private profile or any permitt
   assert.equal(h.calls.length, 0); await h.source.save({ ...local, heavyDailyLimit: 2 });
   assert.deepEqual((await h.store.read()).allowedBands, []);
 });
+
+test('a partial rhythm save resumes after editor recreation without replaying a protected revision or hiding the pending local apply', async t => {
+  const h = await fixture(t); const next = { ...local, restDays: [6], heavyDailyLimit: 4 };
+  h.failLocal(true); await assert.rejects(h.source.save(next));
+  assert.deepEqual((await h.store.readLocalProjection()).value, next);
+  let applied;
+  const recreated = createOwnerRhythmSettings({ store: h.store, saved: await h.store.read(), local, timeZone: 'UTC',
+    saveLocal: async (value, expected) => { assert.deepEqual(expected, local); applied = value; } });
+  await recreated.resume(); assert.deepEqual(applied, next); assert.deepEqual(recreated.settings(), next);
+  assert.equal((await h.store.read()).revision, 2); assert.equal(await h.store.readLocalProjection(), null);
+});
+
+test('a pending rhythm projection cannot overwrite a newer protected edit or cross into another account', async t => {
+  const h = await fixture(t); h.failLocal(true); await assert.rejects(h.source.save({ ...local, heavyDailyLimit: 4 }));
+  await h.store.save(2, { ...own, restDays: [3] });
+  let writes = 0;
+  const recreated = createOwnerRhythmSettings({ store: h.store, saved: await h.store.read(), local, timeZone: 'UTC', saveLocal: async () => { writes++; } });
+  await assert.rejects(recreated.resume(), /別の操作/); assert.equal(writes, 0); assert.ok(await h.store.readLocalProjection());
+  h.f.state.currentUser = 'other'; await assert.rejects(recreated.resume()); assert.equal(writes, 0);
+});
+
+test('the real SQLite rhythm compare-and-set rejects a stale partial projection and accepts only its exact already-applied value', async t => {
+  const repository = await import('../src/platform/storage/repository.ts');
+  const { createDatabase } = await import('./helpers/sqlite.mjs');
+  const d = createDatabase(); t.after(() => d.connection.close()); await repository.initializeLocalDatabase(d.database);
+  let before = (await repository.loadPlannerSnapshot(d.database, '2026-11-04')).settings;
+  const expected = { frequencyMode: before.frequencyMode, restDays: before.restDays, heavyDailyLimit: before.heavyDailyLimit, normalDailyLimit: before.normalDailyLimit };
+  const accepted = { ...expected, heavyDailyLimit: 3 }; const stale = { ...expected, heavyDailyLimit: 4 };
+  await repository.updatePlannerSettings(d.database, accepted, expected);
+  await assert.rejects(repository.updatePlannerSettings(d.database, stale, expected), /別の操作/);
+  assert.equal((await repository.loadPlannerSnapshot(d.database, '2026-11-04')).settings.heavyDailyLimit, 3);
+  await repository.updatePlannerSettings(d.database, accepted, expected);
+  assert.equal((await repository.loadPlannerSnapshot(d.database, '2026-11-04')).settings.heavyDailyLimit, 3);
+});

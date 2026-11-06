@@ -1,0 +1,139 @@
+{
+  "observedAt": "2026-11-06T08:43:58.180Z",
+  "method": "read-only deployed configuration and bounded unauthenticated requests",
+  "productionWrites": 0,
+  "appOrWorkerForced": false,
+  "services": {
+    "liflow-weather": {
+      "uri": "https://liflow-weather-db3dkwyp3q-an.a.run.app",
+      "generation": "1",
+      "latestReadyRevision": "projects/housework-planner-tkb2633/locations/asia-northeast1/services/liflow-weather/revisions/liflow-weather-00001-sbm",
+      "image": "asia-northeast1-docker.pkg.dev/housework-planner-tkb2633/liflow-weather/runtime@sha256:d6c84e5c29a485c5ee7c74f1198741e35f6eccad6c8b02fd47b8000286d77e8c",
+      "serviceAccountDigest": "e6cd2fb892ceaf24b264a1cd5d0b89acd0980ae9089057b8901435be20b515d5",
+      "maxInstances": 1,
+      "minInstances": 0,
+      "concurrency": 8,
+      "timeout": "20s",
+      "publicInvoker": true,
+      "authenticatedUsersInvoker": false,
+      "invokerCount": 1,
+      "envNames": [
+        "APPLIANCE_CARE_FIREBASE_PROJECT_ID",
+        "LIFLOW_WEATHER_FIRESTORE_DATABASE_ID",
+        "MET_WEATHER_USER_AGENT"
+      ],
+      "secretReferenceCount": 0
+    },
+    "liflow-weather-worker": {
+      "uri": "https://liflow-weather-worker-db3dkwyp3q-an.a.run.app",
+      "generation": "2",
+      "latestReadyRevision": "projects/housework-planner-tkb2633/locations/asia-northeast1/services/liflow-weather-worker/revisions/liflow-weather-worker-00002-gb5",
+      "image": "asia-northeast1-docker.pkg.dev/housework-planner-tkb2633/liflow-weather/runtime@sha256:4e02d0d3b6e8acc5fda8041c8ec6b68d246aecafd255d65b3811e1da1b14de9c",
+      "serviceAccountDigest": "e6cd2fb892ceaf24b264a1cd5d0b89acd0980ae9089057b8901435be20b515d5",
+      "maxInstances": 1,
+      "minInstances": 0,
+      "concurrency": 1,
+      "timeout": "180s",
+      "publicInvoker": false,
+      "authenticatedUsersInvoker": false,
+      "invokerCount": 1,
+      "envNames": [
+        "APPLIANCE_CARE_FIREBASE_PROJECT_ID",
+        "LIFLOW_WEATHER_FIRESTORE_DATABASE_ID",
+        "MET_WEATHER_USER_AGENT"
+      ],
+      "secretReferenceCount": 0
+    },
+    "liflow-account-device": {
+      "uri": "https://liflow-account-device-db3dkwyp3q-an.a.run.app",
+      "generation": "1",
+      "latestReadyRevision": "projects/housework-planner-tkb2633/locations/asia-northeast1/services/liflow-account-device/revisions/liflow-account-device-00001-vsm",
+      "image": "asia-northeast1-docker.pkg.dev/housework-planner-tkb2633/liflow-weather/account-device@sha256:e54895000ff16f24e4ef8e42a3a4a0ca73a194e4465f8e2c82ddf932a6649238",
+      "serviceAccountDigest": "00cfb20fd31e93ab99da721191c8d3ca95b192deff9b51be6dd44ec837361d37",
+      "maxInstances": 1,
+      "minInstances": 0,
+      "concurrency": 8,
+      "timeout": "30s",
+      "publicInvoker": true,
+      "authenticatedUsersInvoker": false,
+      "invokerCount": 1,
+      "envNames": [
+        "LIFLOW_FIREBASE_PROJECT_ID"
+      ],
+      "secretReferenceCount": 0
+    }
+  },
+  "http": [
+    {
+      "service": "liflow-weather",
+      "path": "/health",
+      "method": "GET",
+      "authorization": "none",
+      "status": 200,
+      "expected": 200,
+      "matched": true,
+      "elapsedMs": 107
+    },
+    {
+      "service": "liflow-weather",
+      "path": "/v1/appliance-care/analyze",
+      "method": "GET",
+      "authorization": "none",
+      "status": 404,
+      "expected": 404,
+      "matched": true,
+      "elapsedMs": 47
+    },
+    {
+      "service": "liflow-weather-worker",
+      "path": "/health",
+      "method": "GET",
+      "authorization": "none",
+      "status": 403,
+      "expected": 403,
+      "matched": true,
+      "elapsedMs": 265
+    },
+    {
+      "service": "liflow-account-device",
+      "path": "/health",
+      "method": "GET",
+      "authorization": "none",
+      "status": 200,
+      "expected": 200,
+      "matched": true,
+      "elapsedMs": 104
+    },
+    {
+      "service": "liflow-account-device",
+      "path": "/v1/restore/read",
+      "method": "POST",
+      "authorization": "none",
+      "status": 401,
+      "expected": 401,
+      "matched": true,
+      "elapsedMs": 42
+    },
+    {
+      "service": "liflow-account-device",
+      "path": "/v1/restore/read",
+      "method": "POST",
+      "authorization": "deliberately invalid token",
+      "status": 401,
+      "expected": 401,
+      "matched": true,
+      "elapsedMs": 19
+    }
+  ],
+  "rules": {
+    "liveSha256": "034af937493e67ea2c13ec7a16c08b6118929343a9cf944924ab44850dcc5e0b",
+    "localSha256": "034af937493e67ea2c13ec7a16c08b6118929343a9cf944924ab44850dcc5e0b",
+    "exactMatch": true
+  },
+  "currentBoundaryChecksPassed": true,
+  "limits": [
+    "Configuration read-back and six bounded HTTP requests only",
+    "No authenticated hostile user, cross-group mutation, load test or paid AI request",
+    "No independent third-party audit claim"
+  ]
+}

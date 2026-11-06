@@ -1,0 +1,17 @@
+{
+  "cases": 1680,
+  "profiles": 28,
+  "variations": 10,
+  "seed_replicas": 2,
+  "horizons": [
+    90,
+    365,
+    730
+  ],
+  "completion_records": 1068228,
+  "lifecycle_events": 16664,
+  "validated_cases": 1680,
+  "executed_app_tests": 0,
+  "invariants": 20,
+  "not_independent_real_users": true
+}

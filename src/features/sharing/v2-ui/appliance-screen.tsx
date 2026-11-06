@@ -109,6 +109,7 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
     <ScreenHeading title={mode === 'applianceReview' ? '家電の解析・共有' : '共有家電のお手入れ'} />
     {error ? <Text accessibilityRole="alert" style={warning}>{error}</Text> : null}{pending}
     {saved ? <Card><Text style={body}>家電の確認内容を端末に保存しました。新しい家事{saved.createdChoreIds.length}件は無効で追加しています。既存の家事は保持しています。</Text>
+      {saved.personalRetentionPending ? <Text accessibilityRole="alert" style={warning}>共有先には保存済みです。個人側への保存は次回同期時に再試行します。</Text> : null}
       <Text style={caption}>他メンバーへの反映は同期後です。周期・負荷・有効状態は管理者が設定します。</Text>
       {onOpen ? <AppButton title="保存した共有家電を開く" disabled={locked} onPress={() => onOpen(saved.applianceId)} /> : null}
       {saved.createdChoreIds.map(id => <AppButton key={id} title={`「${model.plan.chores.find(chore => chore.id === id)?.name ?? '追加した家事'}」の共通設定`} disabled={locked} variant="quiet" onPress={() => onConfiguration(id)} />)}</Card> : null}

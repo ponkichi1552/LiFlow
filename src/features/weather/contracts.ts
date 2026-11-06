@@ -5,7 +5,7 @@ export interface DailyWeather {
   date: LocalDate;
   weatherCode: number | null;
   precipitationProbability: number | null;
-  /** Open-Meteo daily precipitation_sum, in millimeters. */
+  /** Legacy daily-provider port, in millimeters; the active MET path uses UTC intervals. */
   precipitationMm: number | null;
 }
 

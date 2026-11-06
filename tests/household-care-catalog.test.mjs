@@ -18,6 +18,7 @@ import { ensureV2CatalogCurrent } from '../src/features/sharing/v2/catalog-updat
 import { sharedPatchFromDefinition } from '../src/features/sharing/planning.ts';
 import { applyReceivedSharedFacts, loadSharedFacts, listSharingOutbox } from '../src/platform/storage/sharing-ledger.ts';
 const repository = await import('../src/platform/storage/repository.ts');
+const { createPersonalChoreDefinitions } = await import('../src/domain/chores/personal-catalog.ts');
 const snapshot = JSON.parse(readFileSync(new URL('../docs/catalog/household-care-2026-11-01.json', import.meta.url), 'utf8'));
 const expectedMinutes = [20,35,25,10,15,20,45,10,20,30,25,15,10,30,15,10,15,20,20,10,15,10,15,10,10,10,10,15,20,25,35,10,10,10,10,15];
 const day = '2026-11-01';
@@ -55,31 +56,24 @@ test('the document catalog contains only 36 jobs and never reuses a retired job 
   for (const n of [12, 13]) assert.equal(isLaundryChore(rows.find(row => row.id === HOUSEHOLD_CARE_IDS[n - 1])), false, 'machine maintenance is not weather-dependent laundry');
 });
 
-test('product and seasonal jobs have explicit provisional cycles while municipal collection still uses its own settings', async () => {
+test('personal condition and seasonal entries no longer manufacture provisional day cycles or a municipal completion task', async () => {
   const h = createDatabase();
   try {
     await repository.initializeLocalDatabase(h.database);
-    await repository.completeFirstSetup(h.database, { frequencyMode: 'balanced', restDays: [], enabledChoreIds: [], previousDates: {} });
-    for (const n of [16,21,27,31,36]) {
-      const chore = (await repository.loadPlannerSnapshot(h.database, day)).chores.find(row => row.id === HOUSEHOLD_CARE_IDS[n - 1]);
-      assert.equal(chore.requiresCycleSelection, false); assert.ok(chore.frequencyDaysByMode.balanced > 0); assert.ok(chore.schedulingNotes.includes('仮の周期'));
+    await repository.completeFirstSetup(h.database, { frequencyMode: 'balanced', restDays: [], enabledChoreIds: [], previousDates: {}, weatherLocation: null });
+    let snapshot = await repository.loadPlannerSnapshot(h.database, day);
+    for (const name of ['調理後の片付け', '枕本体の洗濯']) {
+      const chore = snapshot.chores.find(row => row.name === name); assert.ok(chore);
+      assert.deepEqual(chore.frequencyDaysByMode, {});
       await repository.setChoreEnabled(h.database, chore.id, true);
-      assert.equal((await repository.loadPlannerSnapshot(h.database, day)).chores.find(row => row.id === chore.id).enabled, true);
+      snapshot = await repository.loadPlannerSnapshot(h.database, day);
+      assert.equal(snapshot.chores.find(row => row.id === chore.id).enabled, true);
+      assert.equal(snapshot.scheduleEntries.some(row => row.choreId === chore.id), false);
     }
-    for (const n of [35]) {
-      const chore = (await repository.loadPlannerSnapshot(h.database, day)).chores.find(row => row.id === HOUSEHOLD_CARE_IDS[n - 1]);
-      assert.equal(chore.requiresCycleSelection, true); assert.equal(chore.enabled, false);
-      await assert.rejects(repository.setChoreEnabled(h.database, chore.id, true), /周期/);
-      await assert.rejects(repository.completeFirstSetup(h.database, { frequencyMode: 'balanced', restDays: [], enabledChoreIds: [chore.id], previousDates: {} }), /周期/);
-      assert.equal((await repository.loadPlannerSnapshot(h.database, day)).scheduleEntries.some(row => row.choreId === chore.id), false);
-      await repository.updateChoreSettings(h.database, chore.id, { cycleDays: 17, enabled: true });
-      const current = (await repository.loadPlannerSnapshot(h.database, day)).chores.find(row => row.id === chore.id);
-      assert.equal(current.requiresCycleSelection, false); assert.equal(current.recommendedCycleDays, 17); assert.equal(current.enabled, true);
-      assert.equal(resetChoreSchedule(current).recommendedCycleDays, 17, 'reset must not replace a chosen cycle with the serialization placeholder');
-      const cleared = applyChoreSettingsPatch(current, { cycleDays: null });
-      assert.equal(cleared.requiresCycleSelection, true); assert.equal(cleared.enabled, false);
-      await repository.updateChoreSettings(h.database, chore.id, { cycleDays: null });
-    }
+    assert.equal(snapshot.chores.some(row => row.name === 'ごみ・資源の収集日に合わせたごみ出し'), false);
+    assert.equal(snapshot.chores.some(row => row.name === '追いだき配管の洗浄'), false);
+    const seasonal = snapshot.chores.find(row => row.personalSchedulingKind === 'seasonal'); assert.ok(seasonal);
+    await assert.rejects(repository.updateChoreSettings(h.database, seasonal.id, { cycleDays: 30 }), /固定日/u);
   } finally { h.connection.close(); }
 });
 
@@ -90,35 +84,19 @@ function prepareV3(h) {
   h.connection.prepare('UPDATE household_settings SET built_in_chore_catalog_version=3').run();
 }
 
-test('version 3 to 4 updates only untouched fields, preserves history and explicit edits, and adds disabled jobs once', async () => {
+test('adopting the new private catalogue removes old built-ins rather than guessing a history or setting migration', async () => {
   const h = createDatabase();
   try {
-    await repository.initializeLocalDatabase(h.database);
-    await repository.completeFirstSetup(h.database, { frequencyMode: 'balanced', restDays: [], enabledChoreIds: ['builtin-chore-01'], previousDates: {} });
-    let before = await repository.loadPlannerSnapshot(h.database, day);
-    await repository.completeChore(h.database, before.scheduleEntries.find(row => row.choreId === 'builtin-chore-01'));
-    prepareV3(h);
-    const range = createLegacyHouseholdChoreDefinitionsV3('local-household').find(row => row.id === 'builtin-chore-02');
-    const custom = { ...range, enabled: false, name: '自分の換気扇', instructions: ['自分の手順'], recommendedCycleDays: 17, load: 'light',
-      frequencyDaysByMode: { frequent: 23, balanced: 90, relaxed: 180 } };
-    h.connection.prepare('UPDATE chore_definitions SET name=?,enabled=0,definition_json=? WHERE id=?').run(custom.name, JSON.stringify(custom), custom.id);
-    const history = h.connection.prepare('SELECT * FROM chore_completions ORDER BY id').all();
-    const state = h.connection.prepare('SELECT * FROM chore_state WHERE chore_id=\'builtin-chore-01\'').get();
-    const enabled = h.connection.prepare('SELECT id,enabled FROM chore_definitions ORDER BY id').all();
+    await repository.initializeLocalDatabase(h.database); prepareV3(h);
+    const old = createLegacyHouseholdChoreDefinitionsV3('local-household')[0];
+    h.connection.prepare("INSERT INTO chore_completions(id,household_id,chore_id,completed_at,outcome) VALUES(?,?,?,?,'completed')")
+      .run('old-private-done','local-household',old.id,'2026-10-25T01:00:00Z');
     await repository.initializeLocalDatabase({ ...h.database });
-    before = await repository.loadPlannerSnapshot(h.database, day);
-    assert.equal(before.chores.length, 36);
-    const updated = before.chores.find(row => row.id === custom.id);
-    assert.equal(updated.name, custom.name); assert.deepEqual(updated.instructions, custom.instructions); assert.equal(updated.load, 'light');
-    assert.deepEqual(updated.frequencyDaysByMode, { frequent: 23, balanced: 60, relaxed: 90 });
-    assert.equal(updated.recommendedCycleDays, 17); assert.equal(updated.enabled, false); assert.equal(updated.estimatedMinutes, 35);
-    assert.equal(before.chores.find(row => row.id === 'builtin-chore-01').name, '浴室掃除');
-    assert.deepEqual(h.connection.prepare('SELECT * FROM chore_completions ORDER BY id').all(), history);
-    assert.deepEqual(h.connection.prepare('SELECT * FROM chore_state WHERE chore_id=\'builtin-chore-01\'').get(), state);
-    for (const row of enabled.filter(row => !RETIRED_BUILT_IN_CHORE_IDS.includes(row.id))) assert.equal(h.connection.prepare('SELECT enabled FROM chore_definitions WHERE id=?').get(row.id).enabled, row.enabled);
-    assert.ok(before.chores.filter(row => Number(row.id.slice(-2)) > 20).every(row => !row.enabled));
-    const writes = h.writes.length;
-    await repository.initializeLocalDatabase({ ...h.database });
+    const snapshot = await repository.loadPlannerSnapshot(h.database, day);
+    assert.deepEqual(snapshot.chores.map(row => row.id), createPersonalChoreDefinitions('local-household').map(row => row.id));
+    assert.equal(h.connection.prepare('SELECT count(*) n FROM chore_completions').get().n, 0);
+    assert.equal(snapshot.chores.filter(row => row.enabled).length, 8);
+    const writes = h.writes.length; await repository.initializeLocalDatabase({ ...h.database });
     assert.equal(h.writes.slice(writes).filter(row => /UPDATE chore_definitions|INSERT OR IGNORE INTO chore_definitions/.test(row.sql)).length, 0);
   } finally { h.connection.close(); }
 });
@@ -128,13 +106,13 @@ test('catalog migration failure rolls back definitions and version so a later re
   try {
     await repository.initializeLocalDatabase(h.database); prepareV3(h);
     const before = h.connection.prepare('SELECT * FROM chore_definitions ORDER BY id').all();
-    h.connection.exec("CREATE TRIGGER stop_catalog BEFORE INSERT ON chore_definitions WHEN NEW.id='builtin-chore-25' BEGIN SELECT RAISE(ABORT,'catalog rollback'); END");
+    h.connection.exec("CREATE TRIGGER stop_catalog BEFORE INSERT ON chore_definitions WHEN NEW.id='liflow-catalog-6.025' BEGIN SELECT RAISE(ABORT,'catalog rollback'); END");
     const reopened = { ...h.database };
     await assert.rejects(repository.initializeLocalDatabase(reopened), /catalog rollback/);
     assert.deepEqual(h.connection.prepare('SELECT * FROM chore_definitions ORDER BY id').all(), before);
     assert.equal(h.connection.prepare('SELECT built_in_chore_catalog_version AS v FROM household_settings').get().v, 3);
     h.connection.exec('DROP TRIGGER stop_catalog'); await repository.initializeLocalDatabase(reopened);
-    assert.equal(h.connection.prepare('SELECT COUNT(*) AS n FROM chore_definitions').get().n, 36);
+    assert.equal(h.connection.prepare('SELECT COUNT(*) AS n FROM chore_definitions').get().n, createPersonalChoreDefinitions('local-household').length);
   } finally { h.connection.close(); }
 });
 

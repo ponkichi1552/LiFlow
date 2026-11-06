@@ -1,4 +1,4 @@
-import { hasSubscriptionAccess, verifySubscriptionEntitlement } from '../../features/subscription/entitlement';
+import { entitlementSigningText, hasSubscriptionAccess, verifySubscriptionEntitlement } from '../../features/subscription/entitlement';
 import type { SignedSubscriptionEntitlement } from '../../features/subscription/entitlement';
 
 export const subscriptionRequired = process.env.EXPO_PUBLIC_LIFLOW_SUBSCRIPTIONS === 'required';
@@ -15,6 +15,10 @@ let auth: import('firebase/auth').Auth | undefined;
 let vault: typeof import('../sharing/secure-store').sharingSecureVault | undefined;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let lastWall = 0;
+let initializationGeneration = 0;
+let serverClock: { at: number; monotonicAt: number } | undefined;
+const acceptanceQueues = new Map<string, Promise<void>>();
+const acceptedProofs = new Map<string, SignedSubscriptionEntitlement>();
 let selecting: { userId: string | null; promise: Promise<void> } | undefined;
 export const subscriptionSnapshot = () => snapshot;
 export function subscribeSubscription(listener: () => void) { observers.add(listener); return () => { observers.delete(listener); }; }
@@ -29,7 +33,14 @@ function bounded<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T
       error => { signal.removeEventListener('abort', abort); reject(error); });
   });
 }
-function now() { lastWall = Math.max(Date.now(), lastWall); return lastWall; }
+function serverNow() { return serverClock && serverClock.at + Math.max(0, performance.now() - serverClock.monotonicAt); }
+function now() { lastWall = Math.max(Math.floor(serverNow() ?? Date.now()), lastWall); return lastWall; }
+function acceptServerTime(entitlement: SignedSubscriptionEntitlement) {
+  // Only a fresh response from the authenticated HTTPS request may repair an
+  // untrusted wall clock. A saved or caller-provided certificate cannot do so.
+  const at = Math.max(entitlement.body.checkedAt, Math.floor(serverNow() ?? 0));
+  serverClock = { at, monotonicAt: performance.now() }; lastWall = at;
+}
 function key(userId: string) { if (!/^[A-Za-z0-9_.:@-]{1,128}$/u.test(userId)) throw new Error('利用者を確認できません。'); return `subscription-certificate:${userId}`; }
 function configuration() {
   const base = process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL?.trim().replace(/\/+$/, '');
@@ -42,15 +53,22 @@ function configuration() {
 export async function startSubscriptions(): Promise<void> {
   if (!subscriptionRequired) return;
   if (started) return started;
-  started = (async () => {
+  const attempt = ++initializationGeneration;
+  let unsubscribe: (() => void) | undefined;
+  const work = (async () => {
     const services = await import('../sharing/firebase-services'); const secure = await import('../sharing/secure-store');
     auth = services.getSharingServices().auth; vault = secure.sharingSecureVault;
     const { onAuthStateChanged } = await import('firebase/auth');
-    onAuthStateChanged(auth, user => { void selectAccount(user?.uid ?? null); });
+    unsubscribe = onAuthStateChanged(auth, user => { if (attempt === initializationGeneration) void selectAccount(user?.uid ?? null); });
     await auth.authStateReady();
     await selectAccount(auth.currentUser?.uid ?? null);
-  })().catch(() => { publish({ ...snapshot, phase: 'locked', error: '契約の接続先を確認できません。' }); });
-  return started;
+  })().catch(() => {
+    unsubscribe?.();
+    if (attempt !== initializationGeneration) return;
+    initializationGeneration++; generation++; selecting = undefined; started = undefined;
+    publish({ phase: 'locked', userId: null, entitlement: null, account: null, error: '契約の接続先を確認できません。' });
+  });
+  started = work; return work;
 }
 function selectAccount(userId: string | null): Promise<void> {
   if (selecting?.userId === userId) return selecting.promise;
@@ -66,8 +84,11 @@ async function selectAccountImpl(userId: string | null) {
   try {
     const saved = await vault!.getItem(key(userId)); if (current !== generation) return;
     if (saved) {
-      const record = JSON.parse(saved); lastWall = Math.max(lastWall, record.lastWall ?? 0);
-      const signed = verifySubscriptionEntitlement(record.entitlement, { userId, publicKey: configuration().publicKey, now: now() });
+      const record = JSON.parse(saved);
+      if (!serverClock) lastWall = Math.max(lastWall, record.lastWall ?? 0);
+      const known = acceptedProofs.get(userId)?.body;
+      const signed = verifySubscriptionEntitlement(record.entitlement, { userId, publicKey: configuration().publicKey, now: now(),
+        lastRevision: known?.revision, lastCheckedAt: known?.checkedAt });
       apply(signed);
     } else publish({ ...snapshot, phase: 'locked' });
   } catch { if (current === generation) publish({ ...snapshot, phase: 'locked', error: '保存した契約情報を確認できません。通信して確認してください。' }); }
@@ -77,19 +98,47 @@ function apply(entitlement: SignedSubscriptionEntitlement) {
   clearTimeout(timer);
   const active = hasSubscriptionAccess(entitlement.body, now());
   publish({ ...snapshot, phase: active ? 'active' : 'locked', entitlement, error: null });
+  const current = generation;
   if (active) timer = setTimeout(() => {
-    publish({ ...snapshot, phase: 'locked' }); void refreshSubscription().catch(() => undefined);
+    if (current !== generation || snapshot.entitlement?.signature !== entitlement.signature) return;
+    apply(entitlement);
+    if (snapshot.phase !== 'active') void refreshSubscription().catch(() => undefined);
   }, Math.max(1, entitlement.body.validUntil - now()));
 }
-export async function acceptSubscription(input: unknown): Promise<void> {
-  const userId = snapshot.userId; if (!userId || auth?.currentUser?.uid !== userId) throw new Error('ログインしているアカウントが変わりました。');
-  const previous = snapshot.entitlement?.body;
-  const entitlement = verifySubscriptionEntitlement(input, { userId, publicKey: configuration().publicKey, now: now(),
-    lastRevision: previous?.revision, lastCheckedAt: previous?.checkedAt });
-  const current = generation;
-  await vault!.setItem(key(userId), JSON.stringify({ entitlement, lastWall: now() }));
-  if (generation !== current || auth.currentUser?.uid !== userId) throw new Error('購入時のアカウントで確認してください。');
-  apply(entitlement);
+export function acceptSubscription(input: unknown): Promise<void> {
+  const userId = snapshot.userId; const current = generation;
+  const ensureCurrent = () => {
+    if (!userId || current !== generation || snapshot.userId !== userId || auth?.currentUser?.uid !== userId) throw new Error('購入時のアカウントで確認してください。');
+  };
+  try { ensureCurrent(); } catch (error) { return Promise.reject(error); }
+  const work = (acceptanceQueues.get(userId!) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    ensureCurrent();
+    const previous = [snapshot.entitlement, acceptedProofs.get(userId!)].filter((proof): proof is SignedSubscriptionEntitlement => Boolean(proof))
+      .sort((left, right) => right.body.revision - left.body.revision)[0];
+    const entitlement = verifySubscriptionEntitlement(input, { userId: userId!, publicKey: configuration().publicKey, now: now(),
+      lastRevision: previous?.body.revision, lastCheckedAt: previous?.body.checkedAt });
+    if (previous?.body.revision === entitlement.body.revision && entitlementSigningText(previous.body) !== entitlementSigningText(entitlement.body)) throw new Error('同じ版の契約情報が一致しません。');
+    const remember = () => {
+      acceptedProofs.set(userId!, entitlement);
+      if (acceptedProofs.size > 32) acceptedProofs.delete(acceptedProofs.keys().next().value!);
+    };
+    const denied = !hasSubscriptionAccess(entitlement.body, now());
+    if (denied) { remember(); apply(entitlement); }
+    try { await vault!.setItem(key(userId!), JSON.stringify({ entitlement, lastWall: now() })); }
+    catch (error) {
+      if (denied) {
+        // Removing a stale grant is a second, independently retryable safeguard.
+        // A total storage outage cannot be made durable by a memory-only lock.
+        try { await vault!.removeItem(key(userId!)); } catch { /* Keep the verified denial in memory and report the failed save. */ }
+        if (current === generation) publish({ ...snapshot, error: '契約の失効は確認済みです。端末への保存を再試行してください。' });
+      }
+      throw error;
+    }
+    remember(); ensureCurrent(); apply(entitlement);
+  });
+  acceptanceQueues.set(userId!, work);
+  void work.finally(() => { if (acceptanceQueues.get(userId!) === work) acceptanceQueues.delete(userId!); }).catch(() => undefined);
+  return work;
 }
 export async function subscriptionRequest(path: 'status' | 'verify', evidence?: { store: 'apple' | 'google'; proof: string }, force = false) {
   const user = auth?.currentUser; const current = generation;
@@ -106,7 +155,8 @@ export async function subscriptionRequest(path: 'status' | 'verify', evidence?: 
     if (current !== generation || auth?.currentUser?.uid !== user.uid) throw new Error('購入時のアカウントで確認してください。');
     const previous = snapshot.entitlement?.body;
     const entitlement = verifySubscriptionEntitlement(value.entitlement, { userId: user.uid, publicKey: configuration().publicKey,
-      now: now(), lastRevision: previous?.revision, lastCheckedAt: previous?.checkedAt });
+      now: value.entitlement?.body?.checkedAt, lastRevision: previous?.revision, lastCheckedAt: previous?.checkedAt });
+    acceptServerTime(entitlement);
     if (path === 'status') await acceptSubscription(entitlement);
     if (typeof value.account?.appAccountToken !== 'string' || !/^[0-9a-f-]{36}$/u.test(value.account.appAccountToken)
       || !/^[a-f0-9]{64}$/u.test(value.account.obfuscatedAccountId)) throw new Error('購入するアカウントを確認できません。');

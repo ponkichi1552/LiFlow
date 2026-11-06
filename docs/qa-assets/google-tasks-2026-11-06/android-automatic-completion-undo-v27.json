@@ -1,0 +1,128 @@
+{
+  "schemaVersion": 1,
+  "status": "PASS_ANDROID_FOREGROUND_AUTOMATIC_ONLY",
+  "normalRelease": 27,
+  "startupTrace": false,
+  "apkSha256": "048a09cfe0735317bc0edafb2a52f5c1752f18a7896336bb79144522bcb1acde",
+  "sourceManifestSha256": "9852f97d4647d3b6a2e16068ae55645f4b5fdb0ce1c2d205b618894662b2d969",
+  "sourceInputs": 709,
+  "platform": {
+    "os": "Android",
+    "api": 29,
+    "physical": true
+  },
+  "sequence": [
+    {
+      "action": "complete",
+      "tapAt": "2026-11-05T20:48:00.849352+00:00",
+      "period": "11/5–11/7",
+      "manualSyncPressed": false,
+      "providerObservedAt": "2026-11-05T20:56:07.144238+00:00",
+      "tasks": {
+        "accountDigest": "CVVkaArWJLRcOTocJBSq-2RcxWQbd2t0JXvD2uGCzX0",
+        "taskListDigest": "1u7hE1t8WqfRTqpr6S-0cnApL3OpKdFW8MMpYawtdBc",
+        "localLinkDigest": "gxnvUFZLv8P-Q22tLk1EJ9aPj-nkd4hTivbzoFFk-zY",
+        "localLinks": 23,
+        "matchedLinks": 23,
+        "missingLinks": 0,
+        "providerLiveTasks": 23,
+        "providerCompletedTasks": 1,
+        "duplicateLiveMarkers": 0,
+        "localStatus": "idle",
+        "lastAttemptAt": "2026-11-05T20:48:04.386Z",
+        "lastSuccessfulSyncAt": "2026-11-05T20:48:04.386Z",
+        "retryCount": 0,
+        "nextRetryAt": "",
+        "localErrorCode": ""
+      },
+      "target": {
+        "control": "laundry",
+        "entryDigest": "WevijbWbhf0pmazwvmpETBMP0Sw3x8kKWJLg5Xi21co",
+        "taskDigest": "V6LbUnhg8Ua-zJ3lcPzHCBocTsq0lI7x3SRJI1IVdsU",
+        "linkedDueDate": "2026-11-06",
+        "lastSyncedStatus": "completed",
+        "pendingStatus": "",
+        "providerStatus": "completed",
+        "providerDueDate": "2026-11-06T00:00:00.000Z"
+      },
+      "sharing": {
+        "headSequence": 418,
+        "acceptedAt": "2026-11-05T20:48:15.989Z",
+        "author": "android",
+        "sameAccount": true,
+        "acks": {
+          "iphone": {
+            "sequence": 418,
+            "updatedAt": "2026-11-05T20:48:17.042Z",
+            "sameAccount": true
+          },
+          "android": {
+            "sequence": 418,
+            "updatedAt": "2026-11-05T20:48:26.944Z",
+            "sameAccount": true
+          }
+        }
+      }
+    },
+    {
+      "action": "undo",
+      "tapAt": "2026-11-05T20:58:50.183769+00:00",
+      "period": "11/5–11/7",
+      "manualSyncPressed": false,
+      "providerObservedAt": "2026-11-05T21:01:37.606168+00:00",
+      "tasks": {
+        "accountDigest": "CVVkaArWJLRcOTocJBSq-2RcxWQbd2t0JXvD2uGCzX0",
+        "taskListDigest": "1u7hE1t8WqfRTqpr6S-0cnApL3OpKdFW8MMpYawtdBc",
+        "localLinkDigest": "gxnvUFZLv8P-Q22tLk1EJ9aPj-nkd4hTivbzoFFk-zY",
+        "localLinks": 23,
+        "matchedLinks": 23,
+        "missingLinks": 0,
+        "providerLiveTasks": 23,
+        "providerCompletedTasks": 0,
+        "duplicateLiveMarkers": 0,
+        "localStatus": "idle",
+        "lastAttemptAt": "2026-11-05T20:58:53.640Z",
+        "lastSuccessfulSyncAt": "2026-11-05T20:58:53.640Z",
+        "retryCount": 0,
+        "nextRetryAt": "",
+        "localErrorCode": ""
+      },
+      "target": {
+        "control": "laundry",
+        "entryDigest": "WevijbWbhf0pmazwvmpETBMP0Sw3x8kKWJLg5Xi21co",
+        "taskDigest": "V6LbUnhg8Ua-zJ3lcPzHCBocTsq0lI7x3SRJI1IVdsU",
+        "linkedDueDate": "2026-11-07",
+        "lastSyncedStatus": "needsAction",
+        "pendingStatus": "",
+        "providerStatus": "needsAction",
+        "providerDueDate": "2026-11-07T00:00:00.000Z"
+      },
+      "sharing": {
+        "headSequence": 419,
+        "acceptedAt": "2026-11-05T20:59:05.077Z",
+        "author": "android",
+        "sameAccount": true,
+        "acks": {
+          "iphone": {
+            "sequence": 419,
+            "updatedAt": "2026-11-05T20:59:05.986Z",
+            "sameAccount": true
+          },
+          "android": {
+            "sequence": 419,
+            "updatedAt": "2026-11-05T20:59:15.537Z",
+            "sameAccount": true
+          }
+        }
+      }
+    }
+  ],
+  "boundaries": [
+    "No manual Sync button was pressed for either action.",
+    "Provider GETs used existing credentials on the phone and returned only digests and fixed built-in controls.",
+    "The same 23 mappings were retained; recalculated future due dates are not claimed to match the earlier original baseline.",
+    "The other phone acknowledgement is not proof of iOS OS-natural worker execution.",
+    "This is not the remaining fresh cross-phone creation test.",
+    "The normal app data was preserved; the temporary read-only observer was removed."
+  ]
+}

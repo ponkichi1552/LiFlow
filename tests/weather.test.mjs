@@ -8,17 +8,10 @@ import {
   LaundryWeatherAdjustmentPolicy,
 } from '../src/features/weather/laundry-policy.ts';
 import { optimizeLaundryScheduleForWeather } from '../src/features/weather/optimize-laundry-schedule.ts';
-import {
-  OpenMeteoForecastProvider,
-  parseOpenMeteoDailyResponse,
-} from '../src/features/weather/open-meteo-provider.ts';
-import {
-  OpenMeteoGeocodingProvider,
-  parseOpenMeteoGeocodingResponse,
-} from '../src/features/weather/open-meteo-geocoder.ts';
+import './helpers/typescript-loader.mjs';
+const { searchJapaneseMunicipalities } = await import('../src/features/weather/municipality-search.ts');
 
 const today = '2026-10-24';
-const through = '2026-10-30';
 const householdId = 'home';
 
 function chore(id, overrides = {}) {
@@ -101,176 +94,10 @@ function policyInput(overrides = {}) {
   };
 }
 
-test('Open-Meteo daily response maps dates and values without changing local dates', () => {
-  const parsed = parseOpenMeteoDailyResponse({
-    daily: {
-      time: ['2026-10-24', '2026-10-25'],
-      weather_code: [0, 3],
-      precipitation_probability_max: [10, 20],
-      precipitation_sum: [0, 0.2],
-    },
-  });
-
-  assert.deepEqual(parsed, [
-    { date: '2026-10-24', weatherCode: 0, precipitationProbability: 10, precipitationMm: 0 },
-    { date: '2026-10-25', weatherCode: 3, precipitationProbability: 20, precipitationMm: 0.2 },
-  ]);
-});
-
-test('Open-Meteo parser preserves null values and rejects missing or invalid data', () => {
-  const parsed = parseOpenMeteoDailyResponse({
-    daily: {
-      time: ['2026-10-24'],
-      weather_code: [null],
-      precipitation_probability_max: [null],
-      precipitation_sum: [null],
-    },
-  });
-  assert.deepEqual(parsed[0], {
-    date: '2026-10-24', weatherCode: null, precipitationProbability: null, precipitationMm: null,
-  });
-  assert.equal(isSuitableLaundryDay(parsed[0]), false);
-  assert.throws(() => parseOpenMeteoDailyResponse('{bad json'));
-  assert.throws(() => parseOpenMeteoDailyResponse({ daily: {} }));
-  assert.throws(() => parseOpenMeteoDailyResponse({ daily: {
-    time: ['2026-10-24'], weather_code: [0], precipitation_probability_max: [], precipitation_sum: [0],
-  } }));
-  assert.throws(() => parseOpenMeteoDailyResponse({ daily: {
-    time: ['2026-02-30'], weather_code: [0], precipitation_probability_max: [0], precipitation_sum: [0],
-  } }));
-  assert.throws(() => parseOpenMeteoDailyResponse({ daily: {
-    time: ['2026-10-24'], weather_code: ['sunny'], precipitation_probability_max: [0], precipitation_sum: [0],
-  } }));
-});
-
-test('Open-Meteo provider handles HTTP and invalid JSON failures', async () => {
-  const httpFailure = new OpenMeteoForecastProvider(async () => ({ ok: false, status: 503 }));
-  await assert.rejects(() => httpFailure.fetchForecast({
-    householdId, location: weatherLocation(), from: today, through,
-  }), /HTTP 503/);
-
-  const jsonFailure = new OpenMeteoForecastProvider(async () => ({
-    ok: true,
-    status: 200,
-    json: async () => { throw new SyntaxError('invalid json'); },
-  }));
-  await assert.rejects(() => jsonFailure.fetchForecast({
-    householdId, location: weatherLocation(), from: today, through,
-  }), /invalid json/);
-
-  const timeout = new OpenMeteoForecastProvider((_url, options) => new Promise((_resolve, reject) => {
-    options.signal.addEventListener('abort', () => reject(new Error('request aborted')), { once: true });
-  }), Date.now, 5);
-  await assert.rejects(() => timeout.fetchForecast({
-    householdId, location: weatherLocation(), from: today, through,
-  }), /request aborted/);
-});
-
-test('Open-Meteo geocoder parses candidate labels and handles no matches', () => {
-  assert.deepEqual(parseOpenMeteoGeocodingResponse({ results: [{
-    id: 1,
-    name: '横浜市',
-    admin2: '横浜市',
-    admin1: '神奈川県',
-    country: '日本',
-    country_code: 'JP',
-    latitude: 35.44,
-    longitude: 139.64,
-  }] }), [{
-    id: 1,
-    name: '横浜市',
-    label: '横浜市, 神奈川県',
-    countryCode: 'JP',
-    latitude: 35.44,
-    longitude: 139.64,
-  }]);
-  assert.deepEqual(parseOpenMeteoGeocodingResponse({}), []);
-  assert.throws(() => parseOpenMeteoGeocodingResponse({ results: 'none' }), /候補形式/);
-  assert.throws(() => parseOpenMeteoGeocodingResponse({ results: [{ name: '不正' }] }), /候補 1/);
-  assert.throws(() => parseOpenMeteoGeocodingResponse({ error: true, reason: 'bad query' }), /bad query/);
-});
-
-test('concurrent forecast requests share one fetch and return independent data', async () => {
-  let calls = 0;
-  let release;
-  const waiting = new Promise((resolve) => { release = resolve; });
-  const provider = new OpenMeteoForecastProvider(async () => {
-    calls += 1;
-    await waiting;
-    return { ok: true, json: async () => ({ daily: {
-      time: [today], weather_code: [1], precipitation_probability_max: [10], precipitation_sum: [0],
-    } }) };
-  });
-  const query = { householdId, location: weatherLocation(), from: today, through: today };
-  const first = provider.fetchForecast(query);
-  const second = provider.fetchForecast(query);
-  release();
-  const results = await Promise.all([first, second]);
-  assert.equal(calls, 1);
-  results[0][0].weatherCode = 99;
-  assert.equal(results[1][0].weatherCode, 1);
-});
-
-test('failed shared forecasts can be retried', async () => {
-  let calls = 0;
-  const provider = new OpenMeteoForecastProvider(async () => {
-    calls += 1;
-    throw new Error('offline');
-  });
-  const query = { householdId, location: weatherLocation(), from: today, through: today };
-  const failed = await Promise.allSettled([provider.fetchForecast(query), provider.fetchForecast(query)]);
-  assert.ok(failed.every((result) => result.status === 'rejected'));
-  assert.equal(calls, 1);
-  await assert.rejects(provider.fetchForecast(query), /offline/);
-  assert.equal(calls, 2);
-});
-
-test('Open-Meteo geocoder sends the entered region and validates failures', async () => {
-  let requestedUrl;
-  const geocoder = new OpenMeteoGeocodingProvider(async (input) => {
-    requestedUrl = new URL(input);
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ results: [{
-        id: 2,
-        name: '札幌市',
-        admin1: '北海道',
-        country: '日本',
-        feature_code: 'PPLA',
-        latitude: 43.06,
-        longitude: 141.35,
-      }] }),
-    };
-  });
-  const results = await geocoder.search(' 札幌市 ');
-  assert.equal(requestedUrl.origin, 'https://geocoding-api.open-meteo.com');
-  assert.equal(requestedUrl.pathname, '/v1/search');
-  assert.equal(requestedUrl.searchParams.get('name'), '札幌市');
-  assert.equal(requestedUrl.searchParams.get('language'), 'ja');
-  assert.equal(requestedUrl.searchParams.get('count'), '20');
-  assert.equal(results[0].label, '札幌市, 北海道');
-
-  await assert.rejects(() => geocoder.search('東'), /2〜120文字/);
-  const httpFailure = new OpenMeteoGeocodingProvider(async () => ({ ok: false, status: 503 }));
-  await assert.rejects(() => httpFailure.search('東京'), /HTTP 503/);
-  const timeout = new OpenMeteoGeocodingProvider((_url, options) => new Promise((_resolve, reject) => {
-    options.signal.addEventListener('abort', () => reject(new Error('request aborted')), { once: true });
-  }), 5);
-  await assert.rejects(() => timeout.search('東京'), /request aborted/);
-});
-
 test('romanized municipality queries do not acquire a Japanese suffix on an English Android keyboard', async () => {
-  const queries = [];
-  const provider = new OpenMeteoGeocodingProvider(async (url) => {
-    queries.push(new URL(url).searchParams.get('name'));
-    return { ok: true, json: async () => ({ results: [{ id: 1, name: '横浜市', admin1: '神奈川県',
-      country_code: 'JP', feature_code: 'PPLA', latitude: 35.4, longitude: 139.6 }] }) };
-  });
   for (const input of ['Yokohama', 'Ｙｏｋｏｈａｍａ', '横浜', '横浜市']) {
-    assert.equal((await provider.search(input))[0].name, '横浜市');
+    assert.equal(searchJapaneseMunicipalities(input)[0].name, '横浜市');
   }
-  assert.deepEqual(queries, ['Yokohama', 'Yokohama', '横浜市', '横浜市']);
 });
 
 test('laundry policy selects a nearby suitable day only for laundry chores', () => {

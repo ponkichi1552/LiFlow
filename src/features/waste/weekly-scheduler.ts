@@ -1,4 +1,4 @@
-import { daysBetween, parseLocalDate, weekdayOf } from '../../domain/scheduling/local-date.ts';
+import { parseLocalDate } from '../../domain/scheduling/local-date.ts';
 import type { LocalDate } from '@/domain/shared/types';
 import type { WasteCollectionOccurrence, WeeklyWasteSchedule } from '@/features/waste/contracts';
 
@@ -16,30 +16,36 @@ export function generateWasteCollectionDates(
     throw new RangeError('from must be on or before through');
   }
 
-  const weekdays = new Set(schedule.collectionWeekdays);
   const recurrence = schedule.recurrence ?? 'weekly';
-  if (schedule.anchorDate) parseLocalDate(schedule.anchorDate);
+  const anchor = schedule.anchorDate ? parseLocalDate(schedule.anchorDate).getTime() : null;
   const occurrences: WasteCollectionOccurrence[] = [];
-
-  for (let timestamp = start.getTime(); timestamp <= end.getTime(); timestamp += DAY_IN_MILLISECONDS) {
-    const date = new Date(timestamp);
-    const localDate = date.toISOString().slice(0, 10) as LocalDate;
-    const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
-    const matches = recurrence === 'weekly'
-      ? weekdays.has(weekdayOf(localDate))
-      : recurrence === 'biweekly'
-        ? Boolean(schedule.anchorDate && localDate >= schedule.anchorDate && daysBetween(schedule.anchorDate, localDate) % 14 === 0)
-        : recurrence === 'monthly' && Number.isInteger(schedule.monthlyDay) && schedule.monthlyDay! >= 1 && schedule.monthlyDay! <= 31
-          && (!schedule.anchorDate || localDate >= schedule.anchorDate)
-          && date.getUTCDate() === Math.min(schedule.monthlyDay!, lastDay);
-
-    if (matches) {
-      occurrences.push({
+  const add = (timestamp: number) => {
+    if (timestamp >= start.getTime() && timestamp <= end.getTime()) occurrences.push({
         scheduleId: schedule.id,
         householdId: schedule.householdId,
         label: schedule.label,
-        date: localDate,
+        date: new Date(timestamp).toISOString().slice(0, 10) as LocalDate,
       });
+  };
+  if (recurrence === 'weekly') {
+    const firstWeekday = start.getUTCDay() || 7;
+    for (const weekday of new Set(schedule.collectionWeekdays)) {
+      if (!Number.isInteger(weekday) || weekday < 1 || weekday > 7) continue;
+      const first = start.getTime() + ((weekday - firstWeekday + 7) % 7) * DAY_IN_MILLISECONDS;
+      for (let timestamp = first; timestamp <= end.getTime(); timestamp += 7 * DAY_IN_MILLISECONDS) add(timestamp);
+    }
+    occurrences.sort((a, b) => a.date.localeCompare(b.date));
+  } else if (recurrence === 'biweekly' && anchor !== null) {
+    const step = 14 * DAY_IN_MILLISECONDS;
+    const first = anchor + Math.max(0, Math.ceil((start.getTime() - anchor) / step)) * step;
+    for (let timestamp = first; timestamp <= end.getTime(); timestamp += step) add(timestamp);
+  } else if (recurrence === 'monthly' && Number.isInteger(schedule.monthlyDay) && schedule.monthlyDay! >= 1 && schedule.monthlyDay! <= 31) {
+    let year = start.getUTCFullYear(); let month = start.getUTCMonth();
+    while (Date.UTC(year, month, 1) <= end.getTime()) {
+      const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+      const timestamp = Date.UTC(year, month, Math.min(schedule.monthlyDay!, lastDay));
+      if (anchor === null || timestamp >= anchor) add(timestamp);
+      month++; if (month === 12) { year++; month = 0; }
     }
   }
 

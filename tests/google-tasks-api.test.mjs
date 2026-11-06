@@ -16,6 +16,7 @@ test('Google Tasks API paginates task lists and sends the access token only in t
   assert.deepEqual(lists.map(({ id }) => id), ['list-1', 'list-2']);
   assert.match(calls[0].url, /users\/@me\/lists\?maxResults=100/u);
   assert.match(calls[1].url, /pageToken=next/u);
+  assert.equal(new URL(calls[0].url).searchParams.get('fields'), 'nextPageToken,items(id,title)');
   assert.equal(calls[0].init.headers.Authorization, 'Bearer access-token-secret');
   assert.equal(calls[0].url.includes('access-token-secret'), false);
 });
@@ -220,8 +221,77 @@ test('tasks.list rejects repeated page tokens instead of looping forever', async
   assert.equal(calls, 2);
 });
 
+test('partial task reads preserve recovery markers, concurrent-change identity, hidden completions and deletions across pages', async () => {
+  const remote = [
+    { id: 'finished', title: '掃除', notes: 'LiFlow personal occurrence: marker', status: 'completed',
+      completed: '2026-11-05T02:00:00Z', due: '2026-11-05T00:00:00Z', hidden: true,
+      etag: 'revision-1', updated: '2026-11-05T02:00:01Z', parent: 'parent-id', kind: 'tasks#task', webViewLink: 'unused' },
+    { id: 'deleted', deleted: true, etag: 'revision-2', updated: '2026-11-05T02:01:00Z', kind: 'tasks#task' },
+  ];
+  let page = 0;
+  const api = createGoogleTasksApi(async url => {
+    const params = new URL(url).searchParams;
+    assert.equal(params.get('pageToken'), page ? 'second' : null);
+    const match = /^nextPageToken,items\(([^)]+)\)$/u.exec(params.get('fields'));
+    assert.ok(match, 'partial reads must retain the pagination cursor');
+    const selected = new Set(match[1].split(','));
+    const item = Object.fromEntries(Object.entries(remote[page]).filter(([key]) => selected.has(key)));
+    return Response.json({ items: [item], ...(page++ === 0 ? { nextPageToken: 'second' } : {}) });
+  });
+  const result = await api.listTasks('token', 'list');
+  assert.deepEqual(result, remote.map(({ kind: _kind, webViewLink: _unused, ...task }) => task));
+});
+
 test('tasklists.list rejects repeated page tokens before a third HTTP request', async () => {
   let calls = 0;
   const api = createGoogleTasksApi(async () => { if (++calls > 2) throw new Error('fixture detected an unbounded read'); return Response.json({ nextPageToken: 'same' }); });
   await assert.rejects(api.listTaskLists('test-token'), /repeated page token/u); assert.equal(calls, 2);
+});
+
+test('a native Tasks fetch that ignores abort still terminates and does not process a late response', async context => {
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  let resolveFetch; let signal; let bodyReads = 0;
+  const api = createGoogleTasksApi(async (_url, init) => {
+    signal = init.signal; return new Promise(resolve => { resolveFetch = resolve; });
+  });
+  const call = api.listTasks('token', 'list');
+  const rejected = assert.rejects(call, error => error.name === 'AbortError' && error.code === 'timeout');
+  context.mock.timers.tick(20_000); await rejected;
+  assert.equal(signal.aborted, true);
+  resolveFetch({ ok: true, status: 200, json: async () => { bodyReads++; return { items: [] }; } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(bodyReads, 0);
+});
+
+test('Tasks JSON error and success body readers share the request deadline even when abort is ignored', async context => {
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  for (const status of [200, 503]) {
+    const api = createGoogleTasksApi(async () => ({ ok: status === 200, status,
+      headers: new Headers(), json: () => new Promise(() => {}) }));
+    const call = api.listTaskLists('token');
+    await Promise.resolve();
+    const rejected = assert.rejects(call, error => error.name === 'AbortError');
+    context.mock.timers.tick(20_000); await rejected;
+  }
+});
+
+test('a multipart Tasks response reader that never settles cannot hold the sync worker forever', async context => {
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const api = createGoogleTasksApi(async () => ({ ok: true, status: 200,
+    headers: new Headers({ 'Content-Type': 'multipart/mixed; boundary=stalled' }), text: () => new Promise(() => {}) }));
+  const call = api.createTasksBatch('token', 'list', [{ title: '家事', due: '2026-11-05T00:00:00.000Z' }]);
+  await Promise.resolve(); const rejected = assert.rejects(call, error => error.name === 'AbortError');
+  context.mock.timers.tick(60_000); await rejected;
+});
+
+test('Google Tasks deletion requires a strong current ETag and sends the exact If-Match condition without a body', async () => {
+  let calls = 0; let request;
+  const api = createGoogleTasksApi(async (url, init) => { calls++; request = { url: String(url), init }; return new Response(null, { status: 204 }); });
+  for (const invalid of [undefined, null, '', '*', 'W/"version"', 'unquoted', '"line\r\nbreak"', '"' + 'x'.repeat(501) + '"']) {
+    await assert.rejects(api.deleteTask('synthetic-token', 'list', 'task', invalid), error => error.code === 'task_delete_etag_required');
+  }
+  assert.equal(calls, 0);
+  await api.deleteTask('synthetic-token', 'list/id', 'task/id', '"version-1"');
+  assert.equal(calls, 1); assert.equal(request.init.method, 'DELETE'); assert.equal(request.init.headers['If-Match'], '"version-1"');
+  assert.equal(request.init.body, undefined); assert.match(request.url, /list%2Fid\/tasks\/task%2Fid$/u);
 });

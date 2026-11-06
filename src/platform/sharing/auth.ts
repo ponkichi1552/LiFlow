@@ -24,15 +24,26 @@ function oneSignIn(operation: () => Promise<User>): Promise<User> {
   return pending;
 }
 
-export function signInSharingWithGoogle(): Promise<User> {
+export function signInSharingWithGoogle(options: { selectAccount?: boolean } = {}): Promise<User> {
+  const selectAccount = options.selectAccount === true;
+  if (selectAccount && (signingIn || signingOut)) return Promise.reject(new Error('アカウントの操作が終わってから再試行してください。'));
   return oneSignIn(async () => {
-    await sharingSecureVault.removeItem('active-workspace');
-    const { idToken } = await authorizeGoogleSharingIdentity();
+    const previousUserId = getSharingServices().auth.currentUser?.uid;
+    if (!selectAccount) await sharingSecureVault.removeItem('active-workspace');
+    const { idToken } = await authorizeGoogleSharingIdentity(selectAccount ? { selectAccount: true } : undefined);
     const result = await signInWithCredential(getSharingServices().auth, GoogleAuthProvider.credential(idToken));
     await loadOrCreateSharingDeviceIdentity(result.user.uid);
+    if (selectAccount && previousUserId !== result.user.uid) await sharingSecureVault.removeItem('active-workspace');
+    await sharingSecureVault.setItem('sharing-enabled', 'true');
+    void import('./workspaces.ts').then(module => module.notifySharingWorkspaceChanged()).catch(() => undefined);
     void bindPaidAiIdentity(result.user.uid);
     return result.user;
   });
+}
+
+/** A user-selected account replaces the session; it never links two accounts or deletes their saved data. */
+export function switchSharingGoogleAccount(): Promise<User> {
+  return signInSharingWithGoogle({ selectAccount: true });
 }
 
 export async function sharingAccountProviders(userId: string): Promise<readonly string[]> {
@@ -78,6 +89,8 @@ export function signInSharingWithApple(): Promise<User> {
     const credential = new OAuthProvider('apple.com').credential({ idToken: apple.identityToken, rawNonce });
     const result = await signInWithCredential(getSharingServices().auth, credential);
     await loadOrCreateSharingDeviceIdentity(result.user.uid);
+    await sharingSecureVault.setItem('sharing-enabled', 'true');
+    void import('./workspaces.ts').then(module => module.notifySharingWorkspaceChanged()).catch(() => undefined);
     void bindPaidAiIdentity(result.user.uid);
     return result.user;
   });

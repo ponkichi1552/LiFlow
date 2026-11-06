@@ -20,6 +20,12 @@ for (const [name, api] of [['android:windowLightNavigationBar', 27], ['android:e
   assert.ok(qualified.resources.style.some(style => style.item?.some(item => item.$.name === name)), `${name} disappeared from its supported API`);
 }
 const gradle = await readFile(path.join(root, 'android/app/build.gradle'), 'utf8');
+const widgetDirectory = path.join(root, 'android/app/src/main/java/jp/jphacks/tkb2633');
+assert.equal(await readFile(path.join(widgetDirectory, 'WidgetCompletionDatabase.kt'), 'utf8'),
+  await readFile(path.join(root, 'plugins/android/WidgetCompletionDatabase.kt'), 'utf8'), 'Generated widget input bridge is stale');
+const provider = await readFile(path.join(widgetDirectory, 'NextChoreWidgetProvider.kt'), 'utf8');
+assert.match(provider, /goAsync\(\)/); assert.match(provider, /WidgetCompletionDatabase\.enqueue\(/); assert.match(provider, /pending\.finish\(\)/);
+assert.doesNotMatch(provider, /WidgetCompletionDatabase\.complete\(/);
 const securityDependencies = require('../plugins/with-android-security-dependencies.js');
 assert.equal(securityDependencies.addSecurityConstraints(gradle), gradle, 'Generated Android dependency security constraints are missing or stale');
 console.log('Generated Android security boundaries, dependency minimums and API24-qualified themes: PASS');

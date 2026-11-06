@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "candidate": "normal-v34",
+  "method": "Read-only existing grant provider GET and native SQLite metadata; MainApplication skipped, separate helper removed; normal app/data unchanged.",
+  "afterAcceptedSharedCompleteAndUndo": [
+    444,
+    445
+  ],
+  "provider": {
+    "accountDigest": "CVVkaArWJLRcOTocJBSq-2RcxWQbd2t0JXvD2uGCzX0",
+    "taskListDigest": "1u7hE1t8WqfRTqpr6S-0cnApL3OpKdFW8MMpYawtdBc",
+    "localLinks": 25,
+    "localLinkDigest": "IVB11Rx0qvmVbGAzpBJAMwG2poQcKcIn5SL0wFlYULM",
+    "matchedLinks": 25,
+    "missingLinks": 0,
+    "providerLiveTasks": 25,
+    "providerCompletedTasks": 0,
+    "providerMarkerCount": 25,
+    "duplicateLiveMarkers": 0,
+    "providerDigest": "TwEFS9TbWLs2ERJCGh3UKHILwRF_N0ih2Wvw2pESBls",
+    "providerPages": 1,
+    "localStatus": "idle",
+    "localErrorCode": "",
+    "lastAttemptAt": "2026-11-06T12:11:28.399Z",
+    "lastSuccessfulSyncAt": "2026-11-06T12:11:28.399Z",
+    "nextRetryAt": "",
+    "retryCount": 0,
+    "watchedControls": [
+      {
+        "control": "laundry",
+        "entryDigest": "UixXCZvz1Zw6PDqyJKRVCdFcjO1W22DlBnK1xIPsERU",
+        "taskDigest": "UyvzVuUwDiwsRJhosVw5C61bzpCFjY0FhnY397Z3KuQ",
+        "linkedDueDate": "2026-11-16",
+        "lastSyncedStatus": "needsAction",
+        "pendingStatus": "",
+        "providerStatus": "needsAction",
+        "providerDueDate": "2026-11-16T00:00:00.000Z"
+      },
+      {
+        "control": "laundry",
+        "entryDigest": "TLfYaMXR5YSLkGkCdaY7vawNQPxoCe-Eh0mTEkk3H3A",
+        "taskDigest": "ENqVpR8EAEcD-rvWEYFIsDjM_D59LmgoPEU1cjQFKWE",
+        "linkedDueDate": "2026-11-18",
+        "lastSyncedStatus": "needsAction",
+        "pendingStatus": "",
+        "providerStatus": "needsAction",
+        "providerDueDate": "2026-11-18T00:00:00.000Z"
+      },
+      {
+        "control": "laundry",
+        "entryDigest": "WevijbWbhf0pmazwvmpETBMP0Sw3x8kKWJLg5Xi21co",
+        "taskDigest": "V6LbUnhg8Ua-zJ3lcPzHCBocTsq0lI7x3SRJI1IVdsU",
+        "linkedDueDate": "2026-11-07",
+        "lastSyncedStatus": "needsAction",
+        "pendingStatus": "",
+        "providerStatus": "needsAction",
+        "providerDueDate": "2026-11-07T00:00:00.000Z"
+      },
+      {
+        "control": "laundry",
+        "entryDigest": "duxJRlfx9-cQbPuz25zVVi5q34PToSR801ohpN2k4zY",
+        "taskDigest": "-JrAOWciBZWDqGEWV4_AdVUbtoo9A_tal3kb9sp3omI",
+        "linkedDueDate": "2026-11-08",
+        "lastSyncedStatus": "needsAction",
+        "pendingStatus": "",
+        "providerStatus": "needsAction",
+        "providerDueDate": "2026-11-08T00:00:00.000Z"
+      },
+      {
+        "control": "washbasin",
+        "entryDigest": "4S9eCiJFlOFdIx14fl0COkE6GHOD2XS_UGlzwfe6u6A",
+        "taskDigest": "DM4YrBnYGy_L5n91b6IDtK-51Q8tsrK0hbzscNCPEpI",
+        "linkedDueDate": "2026-11-19",
+        "lastSyncedStatus": "needsAction",
+        "pendingStatus": "",
+        "providerStatus": "needsAction",
+        "providerDueDate": "2026-11-19T00:00:00.000Z"
+      },
+      {
+        "control": "washbasin",
+        "entryDigest": "Afi3R4e3EQ2RrqTaHZ9chAPiw5boDCaOm-_jGSigkuI",
+        "taskDigest": "1H8hEieGn6npvgXsS8hpVobSEUbgqUuyKz0S_mZTSIw",
+        "linkedDueDate": "2026-11-12",
+        "lastSyncedStatus": "needsAction",
+        "pendingStatus": "",
+        "providerStatus": "needsAction",
+        "providerDueDate": "2026-11-12T00:00:00.000Z"
+      },
+      {
+        "control": "laundry",
+        "entryDigest": "TiNlSjNqWsXf4QmGr1C3B0_D7JBi74qYlT57-g-426E",
+        "taskDigest": "wYGxz567ELjjdMjeHJ88HVxm7C-LPOe2fRT9zjnMXq4",
+        "linkedDueDate": "2026-11-19",
+        "lastSyncedStatus": "needsAction",
+        "pendingStatus": "",
+        "providerStatus": "needsAction",
+        "providerDueDate": "2026-11-19T00:00:00.000Z"
+      },
+      {
+        "control": "laundry",
+        "entryDigest": "yoso6rtVZVDlboO4upjpols53T34QWyREL8EmEHoAHo",
+        "taskDigest": "lDTMHd2vdG_jX7CAl_SRD7gegUk76Fzhoo9ZwHCAiDQ",
+        "linkedDueDate": "2026-11-12",
+        "lastSyncedStatus": "needsAction",
+        "pendingStatus": "",
+        "providerStatus": "needsAction",
+        "providerDueDate": "2026-11-12T00:00:00.000Z"
+      },
+      {
+        "control": "laundry",
+        "entryDigest": "czbta5Z5zT8z3O7nG4gG7vK2upVpb1FccUOTSE0ECvA",
+        "taskDigest": "J6QwWpvuROVJ7XSsiC4TaqL7qRClm8zWVxY-BSLnnKQ",
+        "linkedDueDate": "2026-11-09",
+        "lastSyncedStatus": "needsAction",
+        "pendingStatus": "",
+        "providerStatus": "needsAction",
+        "providerDueDate": "2026-11-09T00:00:00.000Z"
+      },
+      {
+        "control": "laundry",
+        "entryDigest": "3xyMtm4C9WeZ9EHHizG2Tq599R9PJlT95L-nBbvU6zA",
+        "taskDigest": "IX3cxStsMVkkOfDvydlBViDc_wFR_PQLOg32hMe6nVo",
+        "linkedDueDate": "2026-11-14",
+        "lastSyncedStatus": "needsAction",
+        "pendingStatus": "",
+        "providerStatus": "needsAction",
+        "providerDueDate": "2026-11-14T00:00:00.000Z"
+      },
+      {
+        "control": "washbasin",
+        "entryDigest": "PlzSQSNy8kDhT-8oH9hiy3YACHJN82dgQGmbQ_lsi68",
+        "taskDigest": "5WFwYX9Ia9Pl31KastFG5UisI96C5jH4CmVOZ7T408o",
+        "linkedDueDate": "2026-11-06",
+        "lastSyncedStatus": "needsAction",
+        "pendingStatus": "",
+        "providerStatus": "needsAction",
+        "providerDueDate": "2026-11-06T00:00:00.000Z"
+      }
+    ],
+    "mappingBefore": "2026-11-06T10:29:00.000Z",
+    "baselineMappingCount": 25,
+    "baselineMappingDigest": "IVB11Rx0qvmVbGAzpBJAMwG2poQcKcIn5SL0wFlYULM",
+    "baselineProviderDigest": "6CT6z_tPOz70w0orYeFP898_zvm7Ds3m8IsUVMft-Qw",
+    "newMappings": []
+  },
+  "sameBaseline25Mappings": true,
+  "all25RestoredUncompleted": true,
+  "rawLogSha256": "43ae2a1cd52f824a3c687e972171e40279f0f65a3b0f2106d62359b9739c9169",
+  "notNaturalAndroidProof": true
+}

@@ -51,7 +51,8 @@ test('personal completion intents reject an edited execution window before savin
     const entry = JSON.parse(h.connection.prepare('SELECT entry_json FROM chore_schedule_entries WHERE id=?').get(id).entry_json);
     h.connection.prepare('UPDATE chore_schedule_entries SET entry_json=? WHERE id=?').run(JSON.stringify({ ...entry, windowEnd: addDays(entry.windowEnd, 1) }), id);
     await assert.rejects(repository.setPersonalDateTaskCompletedIntent(h.database, h.command, h.identity(1), () => {}), /状態が変わって/);
-    assert.equal(h.connection.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='planner_completion_intents'").get().n, 0);
+    assert.equal(h.connection.prepare('SELECT count(*) AS n FROM planner_completion_intents').get().n, 0);
+    assert.equal(h.connection.prepare('SELECT count(*) AS n FROM chore_completion_actions').get().n, 0);
   } finally { h.connection.close(); }
 });
 
@@ -66,6 +67,6 @@ test('personal completion intents roll back history and the acknowledgement when
   try {
     await assert.rejects(repository.setPersonalDateTaskCompletedIntent(h.database, h.command, h.identity(1), () => { if (!access) throw new Error('account changed'); }), /account changed/);
     assert.equal(h.connection.prepare('SELECT count(*) AS n FROM chore_completions').get().n, before);
-    assert.equal(h.connection.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='planner_completion_intents'").get().n, 0);
+    assert.equal(h.connection.prepare('SELECT count(*) AS n FROM planner_completion_intents').get().n, 0);
   } finally { h.database.runAsync = original; h.connection.close(); }
 });

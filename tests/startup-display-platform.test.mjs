@@ -97,3 +97,27 @@ test('retention retries purge stale encrypted displays while current-scope write
   await writer('owner', 'house', JSON.stringify({ scope: 'older' }));
   assert.equal(h.connection.prepare('SELECT COUNT(*) n FROM sharing_startup_display').get().n, 0);
 });
+
+test('cache-missing startup diagnostics require both opt-in flags and never delete the encrypted saved display', async t => {
+  const h = createDatabase(); t.after(() => h.connection.close()); let read;
+  await h.database.execAsync('CREATE TABLE sharing_startup_display(user_id TEXT, group_id TEXT, encrypted_json TEXT, PRIMARY KEY(user_id,group_id))');
+  await h.database.runAsync('INSERT INTO sharing_startup_display VALUES(?,?,?)', 'owner', 'house', 'preserved encrypted view');
+  const trace = process.env.EXPO_PUBLIC_LIFLOW_STARTUP_TRACE, skip = process.env.EXPO_PUBLIC_LIFLOW_STARTUP_NO_CACHE;
+  loadNativeModule('src/platform/sharing/startup-display.ts', {
+    '../../features/planner/startup-display.ts': { createStartupDisplayCache: input => { read = input.read; return {}; } },
+    './native-crypto.ts': {}, './secure-store.ts': {},
+    './workspaces.ts': { sharingRegistryDatabase: async () => h.database }, '../storage/sharing-registry.ts': {},
+    '../storage/isolated-transaction.ts': transactions,
+    '@/platform/diagnostics/startup-timing': { traceStartup: async (_label, work) => work() },
+  });
+  try {
+    for (const [diagnostic, missing] of [['0', '1'], ['1', '0'], ['0', '0'], ['1', '1']]) {
+      process.env.EXPO_PUBLIC_LIFLOW_STARTUP_TRACE = diagnostic; process.env.EXPO_PUBLIC_LIFLOW_STARTUP_NO_CACHE = missing;
+      assert.equal(await read('owner', 'house'), diagnostic === '1' && missing === '1' ? null : 'preserved encrypted view');
+      assert.equal(h.connection.prepare('SELECT encrypted_json FROM sharing_startup_display').get().encrypted_json, 'preserved encrypted view');
+    }
+  } finally {
+    if (trace === undefined) delete process.env.EXPO_PUBLIC_LIFLOW_STARTUP_TRACE; else process.env.EXPO_PUBLIC_LIFLOW_STARTUP_TRACE = trace;
+    if (skip === undefined) delete process.env.EXPO_PUBLIC_LIFLOW_STARTUP_NO_CACHE; else process.env.EXPO_PUBLIC_LIFLOW_STARTUP_NO_CACHE = skip;
+  }
+});

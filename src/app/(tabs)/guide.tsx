@@ -123,7 +123,7 @@ function PersonalChoreGuideScreen() {
   return <ChoreBook chores={chores} selectedId={selectedChoreId} title="家事の説明" onBack={returnFromDetail} hasTabBar
     header={error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : undefined}
     renderChore={chore => <View style={{ gap: 12 }}>
-      <ChoreGuide chore={chore} mode={snapshot.settings.frequencyMode} procedureAction={<ChorePlanToggle name={chore.name} enabled={chore.enabled} requiresCycleSelection={chore.requiresCycleSelection}
+      <ChoreGuide chore={chore} mode={snapshot.settings.frequencyMode} cadenceLabel={snapshot.personalCadences?.[chore.id]?.label} procedureAction={<ChorePlanToggle name={chore.name} enabled={chore.enabled} requiresCycleSelection={chore.requiresCycleSelection}
         onConfigure={() => router.push({ pathname: '/chores/[id]', params: { id: chore.id, source: 'personal' } })}
         retryRead={async () => { await refresh(); return !readError(); }} save={async enabled => { await setChoresEnabled(database, [chore.id], enabled); await refresh(); return { refreshed: !readError() }; }} />} />
       <GuideChapterActions choreId={chore.id} snapshot={snapshot} database={database} refresh={refresh} personalSource={personalSource} />

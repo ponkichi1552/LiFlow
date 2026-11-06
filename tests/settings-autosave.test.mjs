@@ -17,7 +17,7 @@ async function context() {
   let snapshot;
   const refresh = async () => { snapshot = await repository.loadPlannerSnapshot(h.database, today); };
   await refresh();
-  const chore = snapshot.chores.find((item) => item.id === 'builtin-chore-10' && !item.archived);
+  const chore = snapshot.chores.find((item) => item.id === 'liflow-catalog-6.007' && !item.archived);
   const options = { database: h.database, snapshot: () => snapshot, refresh, params: { id: chore.id } };
   return { ...h, chore, options, refresh, snapshot: () => snapshot };
 }
@@ -127,12 +127,15 @@ test('autosave partial DB updates preserve fresh metadata and concurrent changes
 test('autosave unchanged settings do not write or invalidate the shared cached planner', async () => {
   const h = await context();
   try {
+    // Choosing a width for the first time pins it against future adaptive
+    // changes, even if its value equals today's default. Repeating it is a no-op.
+    await repository.updateChoreSettings(h.database, h.chore.id, { windowRadiusDays: h.chore.windowRadiusDays }); await h.refresh();
     const before = repository.readCachedPlannerSnapshot(h.database);
     const writeCount = h.writes.length;
     assert.equal(await repository.updateChoreSettings(h.database, h.chore.id, { enabled: h.chore.enabled, load: h.chore.load, windowRadiusDays: h.chore.windowRadiusDays }), false);
     assert.equal(h.writes.length, writeCount);
     assert.equal(repository.readCachedPlannerSnapshot(h.database), before);
-    for (const patch of [{ cycleDays: 0 }, { cycleDays: 3651 }, { windowRadiusDays: -1 }, { windowRadiusDays: 15 }, { load: 'invalid' }, { laundryDryingPreference: 'invalid' }]) {
+    for (const patch of [{ cycleDays: 0 }, { cycleDays: Number.MAX_SAFE_INTEGER + 1 }, { windowRadiusDays: -1 }, { windowRadiusDays: 15 }, { load: 'invalid' }, { laundryDryingPreference: 'invalid' }]) {
       await assert.rejects(repository.updateChoreSettings(h.database, h.chore.id, patch));
     }
     assert.equal(h.writes.length, writeCount, 'invalid input must not alter the database');
@@ -159,6 +162,18 @@ test('individual settings save numeric edits automatically without a save button
   } finally { h.connection.close(); }
 });
 
+test('personal cycle autosave accepts long positive intervals without a product cap and rejects unsafe integers without overwriting the saved value', async () => {
+  const h = await context();
+  try {
+    const screen = screenHarness('src/app/chores/[id].tsx', h.options);
+    await screen.change('家事周期の日数', '4000'); await screen.endEditing('家事周期の日数');
+    assert.equal(h.snapshot().chores.find(item => item.id === h.chore.id).recommendedCycleDays, 4000);
+    await screen.change('家事周期の日数', String(Number.MAX_SAFE_INTEGER + 1)); await screen.endEditing('家事周期の日数');
+    assert.equal(h.snapshot().chores.find(item => item.id === h.chore.id).recommendedCycleDays, 4000);
+    assert.ok(screen.text().includes('周期は1日以上'));
+  } finally { h.connection.close(); }
+});
+
 test('individual settings keep invalid drafts out of the DB while saving independent toggles', async () => {
   const h = await context();
   try {
@@ -168,7 +183,7 @@ test('individual settings keep invalid drafts out of the DB while saving indepen
     switchFor(screen, '家事を有効にする').props.onValueChange(true); await screen.flush();
     const saved = h.snapshot().chores.find((item) => item.id === h.chore.id);
     assert.equal(saved.enabled, true); assert.equal(saved.windowRadiusDays, h.chore.windowRadiusDays); assert.equal(saved.recommendedCycleDays, h.chore.recommendedCycleDays);
-    assert.ok(screen.text().includes('周期は1〜3650') && screen.text().includes('期間幅は±0〜±14'));
+    assert.ok(screen.text().includes('周期は1日以上') && screen.text().includes('期間幅は±0〜±14'));
     await screen.change('家事周期の日数', '２１'); await screen.change('実施期間の日数幅', '0'); await screen.endEditing('家事周期の日数');
     assert.equal(h.snapshot().chores.find((item) => item.id === h.chore.id).recommendedCycleDays, 21);
   } finally { h.connection.close(); }
@@ -242,8 +257,8 @@ for (const manufacturerDays of [undefined, 30]) {
         await screen.flush();
         const saved = h.snapshot().chores.find((item) => item.id === chore.id);
         assert.equal(saved.userIntervalDays, undefined);
-        assert.equal(saved.requiresCycleSelection, manufacturerDays === undefined);
-        assert.equal(saved.enabled, false);
+        assert.equal(Boolean(saved.requiresCycleSelection), false);
+        assert.equal(saved.enabled, manufacturerDays === undefined);
         assert.deepEqual(saved.instructions, chore.instructions);
         if (event !== 'unmount') for (const cleanup of cleanups) cleanup?.();
         await screen.flush();
@@ -270,7 +285,7 @@ test('individual settings show failed saves and retry the retained draft', async
   } finally { h.connection.close(); }
 });
 
-test('appliance autosave requires a valid cycle, respects explicit disabling, and supports clearing an unknown maker cycle', async () => {
+test('private appliance autosave supports necessary-only reset and preserves explicit disabling without requiring another fixed cycle', async () => {
   const h = await context();
   try {
     const task = { name: '汚れを拭く', steps: ['布で拭く'], tools: ['布'], safetyCautions: [], evidence: [{ url: 'https://www.dyson.co.jp/support' }] };
@@ -280,7 +295,7 @@ test('appliance autosave requires a valid cycle, respects explicit disabling, an
     await h.refresh(); const chore = h.snapshot().chores.find((item) => item.applianceId === saved.applianceId);
     await repository.updateChoreSettings(h.database, chore.id, { cycleDays: null }); await h.refresh();
     const screen = screenHarness('src/app/chores/[id].tsx', { ...h.options, params: { id: chore.id } });
-    assert.equal(switchFor(screen, '家事を有効にする').props.disabled, true);
+    assert.equal(switchFor(screen, '家事を有効にする').props.disabled, false);
     await screen.change('家事周期の日数', '14'); await screen.endEditing('家事周期の日数');
     assert.equal(h.snapshot().chores.find((item) => item.id === chore.id).enabled, true);
     switchFor(screen, '家事を有効にする').props.onValueChange(false); await screen.flush();
@@ -288,8 +303,8 @@ test('appliance autosave requires a valid cycle, respects explicit disabling, an
     assert.equal(h.snapshot().chores.find((item) => item.id === chore.id).enabled, false);
     await screen.change('家事周期の日数', ''); await screen.endEditing('家事周期の日数');
     const cleared = h.snapshot().chores.find((item) => item.id === chore.id);
-    assert.equal(cleared.requiresCycleSelection, true); assert.equal(cleared.enabled, false); assert.equal(cleared.userIntervalDays, undefined);
-    assert.throws(() => applyChoreSettingsPatch(cleared, { enabled: true }), /周期/);
+    assert.equal(cleared.requiresCycleSelection, false); assert.equal(cleared.enabled, false); assert.equal(cleared.userIntervalDays, undefined);
+    assert.equal(applyChoreSettingsPatch(cleared, { enabled: true }).enabled, true);
   } finally { h.connection.close(); }
 });
 

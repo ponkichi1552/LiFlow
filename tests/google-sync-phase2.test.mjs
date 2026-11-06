@@ -33,7 +33,7 @@ test('180 tasks use all pages and import the final first-party hidden completion
     assert.equal((await h.sync()).imported, 0);
     assert.equal(h.history().length, 1);
     assert.equal(h.state().last_completed_estimated, 0);
-    assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 21);
+    assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 27);
   } finally { h.connection.close(); }
 });
 
@@ -147,7 +147,8 @@ test('mapped completion is imported before title/due writes and obsolete cleanup
     const patches = h.calls.filter((call) => call.method === 'PATCH');
     assert.equal(patches.length, 1);
     assert.equal(patches[0].path.endsWith('/remote-0'), true);
-    assert.deepEqual(patches[0].body, { title: h.chore.name, due: `${h.entries[0].suggestedDate}T00:00:00.000Z` });
+    assert.match(patches[0].body.notes, /^LiFlow personal occurrence: [a-f0-9]{64}$/u);
+    assert.deepEqual({ ...patches[0].body, notes: undefined }, { title: h.chore.name, due: `${h.entries[0].suggestedDate}T00:00:00.000Z`, notes: undefined });
     assert.ok(h.events.indexOf('IMPORT') < h.events.indexOf('PATCH'));
     assert.equal(task.status, 'completed');
     assert.equal((await repository.listGoogleTaskLinks(h.database)).find((link) => link.scheduleEntryId === h.entries[0].id).googleTaskId, 'remote-0');

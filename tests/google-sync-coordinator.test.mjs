@@ -50,11 +50,17 @@ test('disabled, not-due, and retry-not-due syncs make no API calls', async () =>
   assert.deepEqual(await syncGoogleTasksWithDependencies(disabled.dependencies, { now, force: true }), { kind: 'success', skipped: true });
 
   const notDue = setup({ lastSuccessfulSyncAt: new Date(now.getTime() - 23 * 60 * 60 * 1000).toISOString() });
-  assert.deepEqual(await syncGoogleTasksWithDependencies(notDue.dependencies, { now }), { kind: 'success', skipped: true });
+  assert.deepEqual(await syncGoogleTasksWithDependencies(notDue.dependencies, { now }), { kind: 'success', skipped: true, skipReason: 'notDue' });
 
   const retryNotDue = setup({ status: 'retryPending', nextRetryAt: new Date(now.getTime() + 60_000).toISOString() });
   assert.deepEqual(await syncGoogleTasksWithDependencies(retryNotDue.dependencies, { now }), { kind: 'success', skipped: true });
   assert.equal(disabled.counters.api + notDue.counters.api + retryNotDue.counters.api, 0);
+});
+
+test('a future-clock success marker cannot classify an unverified Tasks skip as a settled cadence', async () => {
+  const h = setup({ lastSuccessfulSyncAt: new Date(now.getTime() + 60_000).toISOString() });
+  assert.deepEqual(await syncGoogleTasksWithDependencies(h.dependencies, { now }), { kind: 'success', skipped: true });
+  assert.equal(h.counters.api, 0);
 });
 
 test('successful manual sync bypasses the 24-hour interval and clears retry state', async () => {
@@ -71,6 +77,31 @@ test('successful manual sync bypasses the 24-hour interval and clears retry stat
   assert.equal(harness.currentState.retryCount, 0);
   assert.equal(harness.currentState.nextRetryAt, undefined);
   assert.equal(harness.currentState.lastSuccessfulSyncAt, now.toISOString());
+});
+
+test('a background Tasks full-read deferral preserves its checkpoint and is automatically resumed in foreground', async () => {
+  const h = setup({ lastSuccessfulSyncAt: new Date(now.getTime() - 25 * 60 * 60 * 1000).toISOString() });
+  const previousSuccess = h.currentState.lastSuccessfulSyncAt;
+  const first = await syncGoogleTasksWithDependencies(h.dependencies, { now, deltaOnly: true });
+  assert.deepEqual(first, { kind: 'success', skipped: true, skipReason: 'foregroundRequired', foregroundRequired: true });
+  assert.equal(h.counters.api, 0); assert.equal(h.currentState.status, 'idle');
+  assert.equal(h.currentState.lastSuccessfulSyncAt, previousSuccess); assert.equal(h.currentState.lastErrorCode, 'task_foreground_scan_required');
+  const before = h.counters.api;
+  assert.equal((await syncGoogleTasksWithDependencies(h.dependencies, { now, deltaOnly: true })).foregroundRequired, true);
+  assert.equal(h.counters.api, before);
+  const resumed = await syncGoogleTasksWithDependencies(h.dependencies, { now });
+  assert.equal(resumed.kind, 'success'); assert.equal(resumed.skipped, undefined); assert.equal(h.counters.api, 2);
+  assert.equal(h.currentState.lastErrorCode, undefined); assert.equal(h.currentState.lastSuccessfulSyncAt, now.toISOString());
+});
+
+test('a recent background Tasks deferral cannot be mistaken for healthy not-due work before foreground recovery', async () => {
+  const h = setup({ lastSuccessfulSyncAt: new Date(now.getTime() - 60_000).toISOString(), lastErrorCode: 'task_foreground_scan_required' });
+  assert.deepEqual(await syncGoogleTasksWithDependencies(h.dependencies, { now, deltaOnly: true }), {
+    kind: 'success', skipped: true, skipReason: 'foregroundRequired', foregroundRequired: true,
+  });
+  assert.equal(h.counters.api, 0);
+  assert.equal((await syncGoogleTasksWithDependencies(h.dependencies, { now })).skipped, undefined);
+  assert.equal(h.counters.api, 2); assert.equal(h.currentState.lastErrorCode, undefined);
 });
 
 test('transient API failures persist an hourly retry and 401 asks for reconnection', async () => {

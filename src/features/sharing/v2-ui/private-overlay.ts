@@ -10,16 +10,19 @@ import type { PlannerSnapshot } from '../../../platform/storage/repository';
 import type { V2PersonalDayLoad } from '../v2/personal-plan';
 import { commonChoreLinks } from '../../planner/common-chore-links.ts';
 import type { CommonCompletionSource } from '../../planner/common-chore-links';
+import type { CapturedSharedPlanning } from '../../planner/shared-adaptive-load';
 
 export interface V2PrivateTaskRow {
   source: 'personal'; key: string; revision: string; ownerUserId: string; householdId: string;
   date: LocalDate; graceDays: 0 | 3; chore: ChoreDefinition; completed: boolean; completedDate?: LocalDate; suggestedDate: LocalDate; windowStart?: LocalDate; windowEnd?: LocalDate;
+  seasonalWork?: ChoreScheduleEntry['seasonalWork'];
 }
 export interface V2PrivateOverlay {
   status: 'ready'; ownerUserId: string; householdId: string; timeZone: string; today: LocalDate; setupCompleted: boolean;
   range: { from: LocalDate; through: LocalDate }; generatedThrough: LocalDate;
   home: V2PrivateTaskRow[]; byDate: Map<LocalDate, V2PrivateTaskRow[]>; counts: Map<LocalDate, number>;
   dailyLoad: Partial<Record<LocalDate, V2PersonalDayLoad>>;
+  sharedPlanning?: CapturedSharedPlanning;
 }
 export type V2PrivateOverlayState = V2PrivateOverlay | { status: 'unavailable'; message: string };
 export interface V2PrivateTaskSource {
@@ -66,9 +69,11 @@ export function projectV2PrivateTasks(input: PrivatePlannerInput, ownerUserId: s
       if (completion) needed.add(completion);
     }
     const relevant = completions.filter((completion) => needed.has(completion));
-    const rows = (date: LocalDate, graceDays: 0 | 3) => selectDateTasks(entries, relevant, date, graceDays, [chore]).map((task): V2PrivateTaskRow => ({
-      source: 'personal', key: `personal:${JSON.stringify([ownerUserId, snapshot.household.id, date, graceDays, chore.id])}`,
+    const rows = (date: LocalDate, graceDays: 0 | 3) => selectDateTasks(entries, relevant, date, graceDays, [chore], graceDays === 3).map((task): V2PrivateTaskRow => ({
+      source: 'personal', key: `personal:${JSON.stringify([ownerUserId, snapshot.household.id, date, graceDays, chore.id,
+        ...((task.entry?.seasonalWork ?? task.completion?.seasonalWork) ? [task.entry?.seasonalWork ?? task.completion?.seasonalWork] : [])])}`,
       revision: dateTaskRevision(task), ownerUserId, householdId: snapshot.household.id, date, graceDays, chore,
+      seasonalWork: task.entry?.seasonalWork ?? task.completion?.seasonalWork,
       completed: task.completed, completedDate: task.completion ? completionRecordedDate(task.completion) : undefined, suggestedDate: task.suggestedDate, windowStart: task.entry?.windowStart ?? task.completion?.scheduledWindowStart, windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd,
     }));
     home.push(...rows(today, 3));
@@ -82,12 +87,13 @@ export function projectV2PrivateTasks(input: PrivatePlannerInput, ownerUserId: s
     }
   }
   const order = (rows: V2PrivateTaskRow[], date: LocalDate) => {
-    const byChore = new Map(rows.map((row) => [row.chore.id, row]));
+    const byKey = new Map(rows.map((row) => [row.key, row]));
     return orderDateTasks(rows.map((row) => ({ id: row.key, choreId: row.chore.id, suggestedDate: row.suggestedDate, completed: row.completed })), date, chores)
-      .map((task) => byChore.get(task.choreId)!);
+      .map((task) => byKey.get(task.id)!);
   };
   for (const [date, rows] of byDate) { byDate.set(date, order(rows, date)); counts.set(date, rows.filter(row => !row.completed).length); }
   return { status: 'ready', ownerUserId, householdId: snapshot.household.id, today, timeZone, range: { ...range },
+    ...(snapshot.personalSharedPlanning?.ownerUserId === ownerUserId ? { sharedPlanning: snapshot.personalSharedPlanning } : {}),
     generatedThrough: addDays(today, 180), setupCompleted: snapshot.settings.setupCompleted, home: order(home, today), byDate, counts, dailyLoad };
 }
 

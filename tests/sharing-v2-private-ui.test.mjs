@@ -89,14 +89,14 @@ for (const platform of ['ios', 'android']) {
         run: async (work) => { await work(); const { privateOverlay, personal, ...next } = await f.session.readModel(readOptions); Object.assign(props, { model: next, personal, privateOverlay }); } };
       const screen = screenHarness('src/features/sharing/v2-ui/calendar.tsx', { exportName: 'V2Calendar', props, platform });
       await openCalendarDay(screen, privateToday);
-      assert.ok(screen.nodes().some((node) => node.props.accessibilityLabel?.endsWith('、個人家事1件')));
+      assert.ok(screen.nodes().some((node) => /、個人家事1件(?:、|$)/u.test(node.props.accessibilityLabel ?? '')));
       await checkbox(screen, f.personal.chore.name).props.onPress(); await screen.flush();
-      assert.ok(screen.nodes().some((node) => node.props.accessibilityLabel?.endsWith('、個人家事0件')));
+      assert.ok(screen.nodes().some((node) => /、個人家事0件(?:、|$)/u.test(node.props.accessibilityLabel ?? '')));
       assert.equal(checkbox(screen, f.personal.chore.name, true).props.accessibilityState.checked, true);
       assert.equal(sharedActions, 0); assert.deepEqual(await listSharingOutbox(f.d.database, groupId), before);
       props.privateOverlay = { status: 'unavailable', message: '個人家事を取得できませんでした。' }; screen.render();
       assert.equal(screen.text().includes(f.personal.chore.name), false); assert.match(screen.text(), /個人家事を取得できません/u);
-      assert.ok(screen.nodes().some((node) => node.props.accessibilityLabel?.endsWith('、個人家事は未取得')));
+      assert.ok(screen.nodes().some((node) => /、個人家事は未取得(?:、|$)/u.test(node.props.accessibilityLabel ?? '')));
     } finally { f.close(); }
   });
 
@@ -126,3 +126,54 @@ for (const platform of ['ios', 'android']) {
     }
   });
 }
+
+for (const [platform, name] of [
+  ['ios', 'ios shared home reads actual personal settings while the full personal snapshot is still loading'],
+  ['android', 'android shared home reads actual personal settings while the full personal snapshot is still loading'],
+]) test(name, async () => {
+  const f = await setup(); let focus; let screen; let leave; let completedDisplay = 0; let privateRefreshes = 0;
+  try {
+    const active = { protocol: 2, groupId, userId: 'owner', record: async () => ({ status: 'active' }), session: { controller: f.controller }, sync: async () => {} };
+    const context = { ready: true, active, userId: 'owner', group: null, completeInitialDisplay: () => { completedDisplay++; } };
+    screen = screenHarness('tests/helpers/workspace-route-host.tsx', { exportName: 'WorkspaceRouteHost', props: { view: 'home' }, platform,
+      focusEffect: fn => { focus = fn; }, layoutEffect: commit => { commit(); }, mocks: {
+        '../../../hooks/use-workspace': { useWorkspace: () => context },
+        '../../../hooks/use-planner-data': { usePlannerData: () => ({ database: f.personal.database, snapshot: undefined, refresh: async () => { privateRefreshes++; } }) },
+        '../../../platform/sharing/private-calendar-runtime': { openPrivateCalendarRuntime: () => ({
+          readPlannerPreferences: async () => null, readForPlan: async () => null, subscribe: () => () => {},
+        }) },
+        '@/platform/sharing/workspaces': { subscribeSharingChanges: () => () => {}, sharingFailureMessage: () => '同期を確認してください。' },
+      } });
+    leave = focus(); await ready(screen, f.personal.chore.name);
+    assert.equal(checkbox(screen, f.personal.chore.name).props.accessibilityState.checked, false);
+    assert.doesNotMatch(screen.text(), /本人の予定設定を読み込んでいます/u);
+    assert.ok(completedDisplay > 0); assert.equal(privateRefreshes, 0, 'reading preferences must not start another whole plan');
+  } finally { leave?.(); screen?.unmount(); f.close(); }
+});
+
+for (const [platform, name] of [
+  ['ios', 'ios an idle saved shared home does not decode every private calendar command and pending completion aliases remain immediate'],
+  ['android', 'android an idle saved shared home does not decode every private calendar command and pending completion aliases remain immediate'],
+]) test(name, async () => {
+  const f = await setup(); let screen;
+  try {
+    const model = await f.session.readModel(); const row = model.privateOverlay.home[0]; assert.ok(row);
+    const commands = await import('../src/features/planner/completion-command.ts');
+    let decodes = 0; let scans = 0;
+    const byDate = model.privateOverlay.byDate; const values = byDate.values.bind(byDate);
+    byDate.values = () => { scans++; return values(); };
+    let pending = { values: new Map(), pending: new Set(), failed: new Set(), restored: true, error: null };
+    const runtime = { queue: { subscribe: () => () => {}, getSnapshot: () => pending, retryRead() {} }, watchDisplay: () => () => {} };
+    screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen', platform,
+      props: { purpose: 'workspace', view: 'home', lifecycleManaged: true, initialDisplay: { session: f.session, model },
+        loadSession: async () => f.session, personalCompletion: runtime, onBack() {}, onConfiguration() {}, onHistory() {} },
+      mocks: { '../../planner/completion-command': { ...commands, personalCompletionKey(value) { decodes++; return commands.personalCompletionKey(value); } } } });
+    assert.equal(decodes, 0); assert.equal(scans, 0); assert.equal(checkbox(screen, f.personal.chore.name).props.accessibilityState.checked, false);
+    const key = commands.personalCompletionKey(row.revision);
+    pending = { ...pending, values: new Map([[key, true]]) }; screen.render();
+    assert.ok(decodes > 0); assert.equal(scans, 1); assert.equal(checkbox(screen, f.personal.chore.name, true).props.accessibilityState.checked, true);
+    const used = decodes;
+    pending = { ...pending, values: new Map([[key, false]]) }; screen.render();
+    assert.equal(decodes, used); assert.equal(scans, 1); assert.equal(checkbox(screen, f.personal.chore.name).props.accessibilityState.checked, false);
+  } finally { screen?.unmount(); f.close(); }
+});

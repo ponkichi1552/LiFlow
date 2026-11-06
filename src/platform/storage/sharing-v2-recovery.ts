@@ -6,31 +6,34 @@ import { recoveryArrayDigest } from '../../features/sharing/v2/recovery-content.
 import { validateSharedSnapshotBase } from '../../features/sharing/replica.ts';
 import { validateV2ServerReceipt } from '../../features/sharing/v2/server-receipts.ts';
 import { MAX_V2_RECOVERY_SCAN_EVENTS, validateRawV2RecoveryEvent, V2RecoveryStaleError } from '../../features/sharing/v2/recovery-contract.ts';
-import type { RawV2RecoveryEvent, V2RecoveryDraft } from '../../features/sharing/v2/recovery-contract.ts';
+import type { RawV2RecoveryEvent, V2RecoveryDraft, V2RecoveryReview } from '../../features/sharing/v2/recovery-contract.ts';
 
 type Repository = ReturnType<typeof createV2EventRepository>;
 function exact(value: unknown, fields: string[]) {
   assertJsonRecord(value);
   if (Object.keys(value).sort().join(',') !== fields.sort().join(',')) throw new Error('Unknown private recovery draft field');
 }
+function validateReview(review: V2RecoveryReview, groupId: string) {
+  exact(review, ['id', 'groupId', 'reviewDigest', 'previousRosterDigest', 'baselineSequence', 'throughSequence', 'retainedChanges',
+    'unreadableChanges', 'heldChanges', 'restoredOriginals', 'removeDeviceIds', 'removeUserIds', 'entries']);
+  assertSharedIdentifier(review.id);
+  if (review.groupId !== groupId || !/^[a-f0-9]{64}$/u.test(review.reviewDigest) || !/^[a-f0-9]{64}$/u.test(review.previousRosterDigest)
+    || !Array.isArray(review.removeDeviceIds) || !Array.isArray(review.removeUserIds) || !Array.isArray(review.entries)
+    || review.entries.length > 256 || review.removeDeviceIds.length > 64 || review.removeUserIds.length > 16
+    || ![review.baselineSequence, review.throughSequence, review.retainedChanges, review.unreadableChanges, review.heldChanges, review.restoredOriginals]
+      .every(value => Number.isSafeInteger(value) && value >= 0)) throw new Error('Invalid recovery draft scope or counts');
+  for (const id of [...review.removeDeviceIds, ...review.removeUserIds]) assertSharedIdentifier(id);
+  for (const entry of review.entries) exact(entry, ['operationId', 'uploadSequence', 'authorUserId', 'authorDeviceId', 'keyVersion', 'rawDigest', 'receiptDigest', 'classification', 'preservedFactDigest']);
+}
 function capture(draft: V2RecoveryDraft, groupId: string): V2RecoveryDraft {
   exact(draft, ['review', 'baselineIndexDigest', 'baselineBase', 'rawEvents', 'receipts', 'preservedFacts', 'readyFacts', 'retainedBase', 'createdAtMs']);
-  exact(draft.review, ['id', 'groupId', 'reviewDigest', 'previousRosterDigest', 'baselineSequence', 'throughSequence', 'retainedChanges',
-    'unreadableChanges', 'heldChanges', 'restoredOriginals', 'removeDeviceIds', 'removeUserIds', 'entries']);
-  assertSharedIdentifier(draft.review.id);
-  if (draft.review.groupId !== groupId || !/^[a-f0-9]{64}$/u.test(draft.review.reviewDigest)
-    || !/^[a-f0-9]{64}$/u.test(draft.review.previousRosterDigest) || !/^[a-f0-9]{64}$/u.test(draft.baselineIndexDigest)
+  validateReview(draft.review, groupId);
+  if (!/^[a-f0-9]{64}$/u.test(draft.baselineIndexDigest)
     || !Number.isSafeInteger(draft.createdAtMs) || draft.createdAtMs < 0
     || !Array.isArray(draft.receipts) || !Array.isArray(draft.preservedFacts) || !Array.isArray(draft.readyFacts)
     || draft.receipts.length > MAX_V2_RECOVERY_SCAN_EVENTS || draft.readyFacts.length > MAX_V2_RECOVERY_SCAN_EVENTS || draft.preservedFacts.length > 256
-    || !Array.isArray(draft.review.removeDeviceIds) || !Array.isArray(draft.review.removeUserIds) || !Array.isArray(draft.review.entries)
-    || draft.review.entries.length > 256 || draft.review.removeDeviceIds.length > 64 || draft.review.removeUserIds.length > 16
-    || ![draft.review.baselineSequence, draft.review.throughSequence, draft.review.retainedChanges, draft.review.unreadableChanges, draft.review.heldChanges, draft.review.restoredOriginals]
-      .every(value => Number.isSafeInteger(value) && value >= 0)
     || !Array.isArray(draft.rawEvents) || draft.rawEvents.length > MAX_V2_RECOVERY_SCAN_EVENTS
     || draft.rawEvents.length !== draft.review.throughSequence - draft.review.baselineSequence) throw new Error('Invalid recovery draft scope or counts');
-  for (const id of [...draft.review.removeDeviceIds, ...draft.review.removeUserIds]) assertSharedIdentifier(id);
-  for (const entry of draft.review.entries) exact(entry, ['operationId', 'uploadSequence', 'authorUserId', 'authorDeviceId', 'keyVersion', 'rawDigest', 'receiptDigest', 'classification', 'preservedFactDigest']);
   const ids = new Set<string>();
   for (const raw of draft.rawEvents) {
     validateRawV2RecoveryEvent(raw, groupId);
@@ -109,6 +112,28 @@ export function createV2RecoveryStore(repository: Repository) {
           draft_json=excluded.draft_json, status='review', snapshot_id=NULL, confirmed=0, cancelled=0`, saved.review.id, saved.review.reviewDigest, JSON.stringify(stored));
       }, true);
     },
+    async readSummary() {
+      return transaction(async (database, state) => {
+        const row = await database.getFirstAsync<{ review_id: string; review_digest: string; review_json: string; preserved_json: string;
+          status: 'review' | 'applied'; snapshot_id: string | null; confirmed: number; cancelled: number }>(`SELECT review_id,review_digest,
+          json_extract(draft_json,'$.review') review_json,json_extract(draft_json,'$.preservedFacts') preserved_json,
+          status,snapshot_id,confirmed,cancelled FROM sharing_v2_recovery_review WHERE singleton=1`);
+        if (!row) return null;
+        const review = JSON.parse(row.review_json) as V2RecoveryReview; validateReview(review, groupId);
+        if (review.id !== row.review_id || review.reviewDigest !== row.review_digest) throw new Error('Recovery review metadata differs');
+        const preservedFacts = JSON.parse(row.preserved_json) as V2RecoveryDraft['preservedFacts'];
+        if (!Array.isArray(preservedFacts) || preservedFacts.length > 256) throw new Error('Invalid preserved recovery summary');
+        for (const value of preservedFacts) {
+          exact(value, ['fact', 'receipt']); exact(value.fact, ['operation', 'authorSignature']);
+          validateSharedOperation(value.fact.operation, groupId); validateV2ServerReceipt(value.receipt);
+          if (!/^[a-f0-9]{128}$/u.test(value.fact.authorSignature)) throw new Error('Missing original recovery author proof');
+        }
+        const status = row.status === 'applied' ? 'applied' as const : row.cancelled ? 'cancelled' as const : row.confirmed ? 'confirming' as const : 'review' as const;
+        // Display metadata is never used to authorize recovery. Confirm/cancel still read and verify full originals.
+        return { draft: { review, preservedFacts }, status, snapshotId: row.snapshot_id,
+          locallyApplied: Boolean(state.replica.recoveryWitnesses?.some(witness => witness.body.reviewDigest === review.reviewDigest)) };
+      });
+    },
     async read() {
       return transaction(async (database, state) => {
         const row = await database.getFirstAsync<{ review_id: string; review_digest: string; draft_json: string; status: 'review' | 'applied'; snapshot_id: string | null; confirmed: number; cancelled: number }>('SELECT * FROM sharing_v2_recovery_review WHERE singleton=1');
@@ -116,13 +141,24 @@ export function createV2RecoveryStore(repository: Repository) {
         const { rawReferences, ...content } = JSON.parse(row.draft_json);
         if (!Array.isArray(rawReferences) || rawReferences.length > MAX_V2_RECOVERY_SCAN_EVENTS) throw new Error('Invalid recovery original references');
         const rawEvents: RawV2RecoveryEvent[] = [];
-        for (const ref of rawReferences) {
-          exact(ref, ['operationId', 'digest']); assertSharedIdentifier(ref.operationId);
-          const raw = await database.getFirstAsync<{ raw_digest: string; raw_json: string }>('SELECT * FROM sharing_v2_recovery_originals WHERE operation_id=?', ref.operationId);
-          if (!raw || raw.raw_digest !== ref.digest) throw new Error('Recovery original evidence is missing');
-          const value = JSON.parse(raw.raw_json);
-          if (sharedDocumentDigest(value) !== ref.digest) throw new Error('Recovery original evidence was altered');
-          rawEvents.push(value);
+        const unique = new Set<string>();
+        for (let offset = 0; offset < rawReferences.length; offset += 100) {
+          const refs = rawReferences.slice(offset, offset + 100);
+          for (const ref of refs) {
+            exact(ref, ['operationId', 'digest']); assertSharedIdentifier(ref.operationId);
+            if (unique.has(ref.operationId) || !/^[a-f0-9]{64}$/u.test(ref.digest)) throw new Error('Invalid duplicate recovery original references');
+            unique.add(ref.operationId);
+          }
+          const rows = await database.getAllAsync<{ operation_id: string; raw_digest: string; raw_json: string }>(
+            `SELECT operation_id,raw_digest,raw_json FROM sharing_v2_recovery_originals WHERE operation_id IN (${refs.map(() => '?').join(',')})`, ...refs.map(ref => ref.operationId));
+          const byId = new Map(rows.map(row => [row.operation_id, row]));
+          for (const ref of refs) {
+            const raw = byId.get(ref.operationId);
+            if (!raw || raw.raw_digest !== ref.digest) throw new Error('Recovery original evidence is missing');
+            const value = JSON.parse(raw.raw_json);
+            if (sharedDocumentDigest(value) !== ref.digest) throw new Error('Recovery original evidence was altered');
+            rawEvents.push(value);
+          }
         }
         const draft = capture({ ...content, rawEvents }, groupId);
         if (draft.review.id !== row.review_id || draft.review.reviewDigest !== row.review_digest) throw new Error('Recovery review metadata differs');

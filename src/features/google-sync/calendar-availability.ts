@@ -4,6 +4,7 @@ import { addDays } from '../../domain/scheduling/local-date.ts';
 import { parseGoogleCompletedAt } from './google-completion-policy.ts';
 import { busyMinutesToBucket } from '../../domain/scheduling/calendar-penalty.ts';
 import { CALENDAR_AVAILABILITY_MAX_AGE_MS, CALENDAR_REFRESH_INTERVAL_MS } from './calendar-timing.ts';
+import { localDayBoundary } from '../calendar/local-day-boundary.ts';
 
 export { CALENDAR_AVAILABILITY_MAX_AGE_MS, CALENDAR_REFRESH_INTERVAL_MS, CALENDAR_RETRY_INTERVAL_MS } from './calendar-timing.ts';
 
@@ -60,47 +61,11 @@ export function getDeviceTimeZone(): string {
   } catch { return 'UTC'; }
 }
 
-const dateFormatters = new Map<string, Intl.DateTimeFormat>();
-const dayBoundaries = new WeakMap<Intl.DateTimeFormat, Map<LocalDate, number>>();
-function dateFormatter(timeZone: string): Intl.DateTimeFormat {
-  let formatter = dateFormatters.get(timeZone);
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
-    dateFormatters.set(timeZone, formatter);
-    if (dateFormatters.size > 8) dateFormatters.delete(dateFormatters.keys().next().value!);
-  }
-  return formatter;
-}
-
-function formattedDate(formatter: Intl.DateTimeFormat, instant: number): LocalDate {
-  const parts = formatter.formatToParts(instant);
-  const part = (type: string) => parts.find((value) => value.type === type)!.value;
-  return `${part('year')}-${part('month')}-${part('day')}` as LocalDate;
-}
-
-/** First instant of a local day; date comparisons also handle 23/25-hour DST days. */
-function dayStart(date: LocalDate, formatter: Intl.DateTimeFormat): number {
-  const utc = Date.parse(`${date}T00:00:00.000Z`);
-  if (!Number.isFinite(utc) || new Date(utc).toISOString().slice(0, 10) !== date) throw new RangeError('Invalid local date');
-  const known = dayBoundaries.get(formatter) ?? new Map<LocalDate, number>();
-  const cached = known.get(date); if (cached !== undefined) return cached;
-  let low = utc - 36 * 60 * 60 * 1000;
-  let high = utc + 36 * 60 * 60 * 1000;
-  while (low < high) {
-    const mid = Math.floor((low + high) / 2);
-    if (formattedDate(formatter, mid) < date) low = mid + 1;
-    else high = mid;
-  }
-  known.set(date, low); if (known.size > 1024) known.delete(known.keys().next().value!);
-  dayBoundaries.set(formatter, known); return low;
-}
-
 export function createCalendarQueryRange(from: LocalDate, through: LocalDate, timeZone: string): CalendarQueryRange {
   if (from > through) throw new RangeError('Invalid calendar query coverage');
-  const formatter = dateFormatter(timeZone);
   return { from, through, timeZone,
-    timeMin: new Date(dayStart(from, formatter)).toISOString(),
-    timeMax: new Date(dayStart(addDays(through, 1), formatter)).toISOString() };
+    timeMin: new Date(localDayBoundary(from, timeZone)).toISOString(),
+    timeMax: new Date(localDayBoundary(addDays(through, 1), timeZone)).toISOString() };
 }
 
 /** Raw intervals only exist in memory. Invalid data fails the refresh instead of inventing free time. */
@@ -121,12 +86,11 @@ export function aggregateBusyMinutes(
     if (previous && item.start <= previous.end) previous.end = Math.max(previous.end, item.end);
     else merged.push({ ...item });
   }
-  const formatter = dateFormatter(range.timeZone);
   const days: CalendarAvailabilityDay[] = [];
   let start = min;
   let intervalIndex = 0;
   for (let date = range.from; date <= range.through; date = addDays(date, 1)) {
-    const end = dayStart(addDays(date, 1), formatter);
+    const end = localDayBoundary(addDays(date, 1), range.timeZone);
     let milliseconds = 0;
     // Both days and merged intervals are ordered. Consume each interval once,
     // retaining one that crosses midnight for the next day (including DST).

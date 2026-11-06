@@ -1,3 +1,4 @@
+import { installFrozenSchedulerFixture } from './frozen-scheduler-fixture.mjs';
 import assert from 'node:assert/strict';
 import './typescript-loader.mjs';
 import { createDatabase } from './sqlite.mjs';
@@ -12,7 +13,7 @@ export const listId = 'planner-list';
 export async function createIntegration({ cycleDays = 1, previousDate = today, databasePath, choreOverrides = {}, initialToday = today } = {}) {
   const store = createDatabase(databasePath);
   const { database, connection } = store;
-  await repository.initializeLocalDatabase(database);
+  await repository.initializeLocalDatabase(database); await installFrozenSchedulerFixture(database);
   let snapshot = await repository.loadPlannerSnapshot(database, initialToday);
   let chore = snapshot.chores.find((item) => item.id === 'builtin-chore-26');
   assert.ok(chore);
@@ -138,6 +139,12 @@ export async function createIntegration({ cycleDays = 1, previousDate = today, d
     listGoogleTaskLinks: (householdId) => repository.listGoogleTaskLinks(database, householdId),
     upsertGoogleTaskLink: (link) => repository.upsertGoogleTaskLink(database, link),
     deleteGoogleTaskLink: (id) => repository.deleteGoogleTaskLink(database, id),
+    taskCreateJournal: {
+      reserve: identity => repository.reserveGoogleTaskCreate(database, identity),
+      reject: intent => repository.rejectGoogleTaskCreate(database, intent),
+      linked: (identity, taskId) => repository.linkGoogleTaskCreate(database, identity, taskId),
+      deleted: (identity, taskId) => repository.deleteGoogleTaskCreate(database, identity, taskId),
+    },
     importGoogleTaskChanges: (changes, date) => { events.push('IMPORT'); return repository.importGoogleTaskChanges(database, changes, date, now); },
     acknowledgeGoogleTaskStatus: (link, status) => repository.acknowledgeGoogleTaskStatus(database, link, status),
   };

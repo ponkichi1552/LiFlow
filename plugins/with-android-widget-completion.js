@@ -38,26 +38,37 @@ module.exports = function withAndroidWidgetCompletion(config) {
 
 import android.content.Context
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
+import java.util.concurrent.Executors
 import expo.modules.widgets.ExpoWidgetsAppWidgetProvider
 
 class NextChoreWidgetProvider : ExpoWidgetsAppWidgetProvider("NextChoreWidget") {
+  companion object { private val inputs = Executors.newSingleThreadExecutor() }
   override fun onReceive(context: Context, intent: Intent) {
-    var completed = false
     if (intent.action == "expo.modules.widgets.ACTION_WIDGET_INTERACTION"
       && intent.getStringExtra("expo.modules.widgets.extra.SOURCE") == "NextChoreWidget") {
       val target = intent.getStringExtra("expo.modules.widgets.extra.TARGET")
       if (target?.startsWith("complete:") == true) {
-        completed = runCatching {
-          WidgetCompletionDatabase.complete(context, target.removePrefix("complete:"))
-        }.getOrDefault(false)
+        val pending = goAsync()
+        inputs.execute {
+          val accepted = runCatching { WidgetCompletionDatabase.enqueue(context, target.removePrefix("complete:")) }.getOrDefault(false)
+          Handler(Looper.getMainLooper()).post {
+            try {
+              deliver(context, intent, accepted)
+            } finally { pending.finish() }
+          }
+        }
+        return
       }
     }
     super.onReceive(context, intent)
-    if (completed) {
-      context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launchIntent ->
-        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        context.startActivity(launchIntent)
-      }
+  }
+  private fun deliver(context: Context, intent: Intent, accepted: Boolean) {
+    if (accepted) super.onReceive(context, intent)
+    context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launchIntent ->
+      launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+      context.startActivity(launchIntent)
     }
   }
 }

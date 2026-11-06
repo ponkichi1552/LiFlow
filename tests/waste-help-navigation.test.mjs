@@ -10,7 +10,6 @@ import { HELP_SECTIONS } from '../src/features/help/help-content.ts';
 
 const repository = await import('../src/platform/storage/repository.ts');
 const today = localDateFromDate(new Date());
-const checkbox = (screen, label) => screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === label);
 const settingsMocks = {
   '@/features/google-sync/background-task': {},
   '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: false }) },
@@ -27,7 +26,7 @@ test('calendar waste names omit every kana variant without changing registered n
   assert.equal(calendarWasteLabel('容器包装プラスチック'), '容器プラ');
 });
 
-test('waste check hides only one occurrence on home and calendar can restore all recurrence modes', async () => {
+test('waste reminders stay display-only on home and calendar while management exceptions preserve every recurrence', async () => {
   const h = createDatabase();
   try {
     await repository.initializeLocalDatabase(h.database);
@@ -51,49 +50,52 @@ test('waste check hides only one occurrence on home and calendar can restore all
     assert.ok(!home.text().includes('今回だけ非表示') && !home.text().includes('今日のゴミ収集'));
     await openCalendarDay(calendar, today);
     const originalCount = snapshot.completions.length;
+    const originalPlan = snapshot.scheduleEntries;
+    const wasteChecks = screen => screen.nodes().filter(node => node.props.accessibilityRole === 'checkbox'
+      && node.props.accessibilityLabel?.includes('ゴミ出し'));
+    assert.deepEqual(wasteChecks(home), []);
+    assert.deepEqual(wasteChecks(calendar), []);
     for (const schedule of schedules) {
-      const hideLabel = `${schedule.label}の${today}のゴミ出しを非表示`;
-      const homeCheck = checkbox(home, hideLabel);
-      assert.ok(homeCheck, schedule.label);
-      homeCheck.props.onPress(); await home.flush(); calendar.render();
-      assert.ok(!checkbox(home, hideLabel));
+      assert.ok(home.text().includes(schedule.label));
+      await repository.setWasteOccurrenceHidden(h.database, schedule.id, today, true);
+      await refresh(); home.render(); calendar.render();
+      assert.ok(!home.text().includes(schedule.label));
       assert.ok(snapshot.hiddenWasteOccurrenceKeys.includes(`${schedule.id}:${today}`));
       assert.ok(snapshot.upcomingWasteDates.some((item) => item.scheduleId === schedule.id && item.date > today), 'the next collection must remain');
-      const restore = checkbox(calendar, `${schedule.label}の${today}のゴミ出しを再表示`);
-      assert.equal(restore.props.accessibilityState.checked, true);
-      restore.props.onPress(); await calendar.flush(); home.render();
-      assert.ok(checkbox(home, hideLabel));
+      assert.deepEqual(wasteChecks(home), []); assert.deepEqual(wasteChecks(calendar), []);
+      await repository.setWasteOccurrenceHidden(h.database, schedule.id, today, false);
+      await refresh(); calendar.render(); home.render();
+      assert.ok(home.text().includes(schedule.label));
       assert.equal(snapshot.completions.length, originalCount, 'hiding waste must not create a chore completion');
+      assert.deepEqual(snapshot.scheduleEntries, originalPlan, 'collection visibility cannot create or move chore rounds');
       assert.equal(snapshot.wasteSchedules.find((item) => item.id === schedule.id).label, schedule.label);
     }
-    const roles = calendar.nodes().filter((node) => node.props.accessibilityRole === 'checkbox');
-    assert.ok(roles[0].props.accessibilityLabel.includes('ゴミ出し'), 'waste cards come before chores');
-    assert.ok(roles.at(-1).props.accessibilityLabel.includes(chore.name), 'chore card remains below waste');
+    assert.deepEqual(wasteChecks(home), []); assert.deepEqual(wasteChecks(calendar), []);
   } finally { h.connection.close(); }
 });
 
-test('waste checks reject duplicate taps and remain visible after a failed save', async () => {
+test('waste management visibility rejects duplicate taps and remains retryable after a failed save', async () => {
   const h = createDatabase();
   try {
     await repository.initializeLocalDatabase(h.database);
+    await repository.saveWeeklyWasteSchedule(h.database, { id: 'weekly', label: '可燃ごみ', collectionWeekdays: [weekdayOf(today)] });
     const snapshot = await repository.loadPlannerSnapshot(h.database, today);
     snapshot.settings.setupCompleted = true;
-    snapshot.upcomingWasteDates = [{ scheduleId: 'weekly', label: '可燃ごみ', date: today }];
     let release;
     let writes = 0;
-    const screen = screenHarness('src/app/(tabs)/index.tsx', { snapshot: () => snapshot, database: h.database,
-      mocks: { '@/platform/storage/repository': { setWasteOccurrenceHidden: async () => {
+    const screen = screenHarness('src/app/waste.tsx', { snapshot: () => snapshot, database: h.database,
+      mocks: { '@/platform/storage/repository': { ...repository, setWasteOccurrenceHidden: async () => {
         writes++; await new Promise((resolve) => { release = resolve; }); throw new Error('write failed');
       } } },
     });
-    const label = `可燃ごみの${today}のゴミ出しを非表示`;
-    const control = checkbox(screen, label);
+    await screen.press('次の収集日を開く');
+    const control = screen.button('今回は表示しない');
     control.props.onPress(); control.props.onPress(); await screen.flush();
     assert.equal(writes, 1, 'in-flight guard must work before a rerender');
-    assert.equal(checkbox(screen, label).props.disabled, true);
+    assert.equal(screen.button('今回は表示しない').props.disabled, true);
     release(); await screen.flush();
-    assert.equal(checkbox(screen, label).props.disabled, false);
-    assert.ok(screen.text().includes('ゴミ出しの表示を保存できませんでした'));
+    assert.equal(screen.button('今回は表示しない').props.disabled, false);
+    assert.ok(screen.text().includes('write failed'));
     assert.deepEqual(snapshot.hiddenWasteOccurrenceKeys, []);
   } finally { h.connection.close(); }
 });
@@ -125,12 +127,12 @@ test('settings retain working weather and location attribution', async () => {
     assert.equal(credits.nodes().filter((node) => node.props.accessibilityRole === 'link').length, 0);
     await credits.press('クレジットを開く');
     for (const link of credits.nodes().filter((node) => node.props.accessibilityRole === 'link')) await link.props.onPress();
-    assert.deepEqual(urls, ['https://open-meteo.com/', 'https://www.geonames.org/', 'https://creativecommons.org/licenses/by/4.0/']);
+    assert.deepEqual(urls, ['https://www.met.no/en/free-meteorological-data/Licensing-and-crediting', 'https://geolonia.github.io/japanese-addresses/', 'https://creativecommons.org/licenses/by/4.0/']);
     screen.button('クレジットを開く');
     const setup = screenHarness('src/features/onboarding/first-run-setup.tsx', { exportName: 'FirstRunSetup', database: h.database, props: { snapshot, onComplete() {} } });
     await setup.press('次へ'); await setup.press('次へ'); await setup.press('選択をすべて外す');
     await setup.press('次へ'); await setup.press('前回の時期はスキップ');
-    assert.ok(setup.text().includes('GeoNames') && setup.text().includes('Open-Meteo'), 'region search needs attribution before setup is finished too');
+    assert.ok(setup.text().includes('Geolonia') && setup.text().includes('MET Norway'), 'region search needs attribution before setup is finished too');
   } finally { h.connection.close(); }
 });
 

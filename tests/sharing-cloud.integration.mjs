@@ -92,6 +92,9 @@ test('invitation management finds a current invitation after more than one page 
   const current = await createSharedInvitation(crypto, h.roster, h.owner, 'z-current', Date.now()); await h.store.cloud.createInvitation(current.invitation);
   const listed = await h.store.cloud.listInvitations('group-test');
   assert.equal(listed.length, 106); assert.equal(listed.find(item => item.id === 'z-current').status, 'open');
+  const active = await h.store.cloud.listInvitations('group-test', { activeAtMs: Date.now() });
+  assert.deepEqual(active.map(item => item.id), ['z-current']);
+  assert.deepEqual(await h.store.cloud.listInvitations('group-test', { activeAtMs: current.invitation.body.expiresAt }), []);
 });
 
 test('cloud transport bounds 250 encrypted edits into 100/100/50 pages and retries a create or lost upload response without duplicates', async () => {
@@ -134,8 +137,19 @@ async function approvedFixture() {
   await h.store.cloud.prepareSnapshot(snapshot, next);
   await h.store.cloud.commitMembership(h.roster, next, keys, 1, snapshot.manifest, { invitation: link.invitation, request });
   await h.store.cloud.commitMembership(h.roster, next, keys, 1, snapshot.manifest, { invitation: link.invitation, request });
-  return { ...h, op, member, memberStore, link, request, next, nextKey, author, snapshot };
+  return { ...h, op, member, memberStore, link, request, next, nextKey, author, snapshot, keys };
 }
+
+test('an identical membership roster cannot acknowledge a different randomly generated key after a lost commit reply', async () => {
+  const h = await approvedFixture(); const otherKey = await crypto.randomBytes(32);
+  const different = await Promise.all(h.next.body.members.flatMap(member => member.devices.map(device =>
+    wrapGroupKey(crypto, 'group-test', 2, otherKey, h.owner, device.identity, member.userId))));
+  await assert.rejects(h.store.cloud.commitMembership(h.roster, h.next, different, 1, h.snapshot.manifest), { code: 'sharing/cloud-changed' });
+  await h.store.cloud.commitMembership(h.roster, h.next, h.keys, 1, h.snapshot.manifest);
+  const committed = await h.store.cloud.readGroupKey('group-test', 2, h.owner.deviceId);
+  assert.deepEqual(await unwrapGroupKey(crypto, committed, h.owner, 'owner', h.owner, 'group-test', 2), h.nextKey);
+  assert.notDeepEqual(h.nextKey, otherKey);
+});
 
 test('a new device is explicitly approved with a fresh key and restores existing encrypted data from the same atomic membership snapshot', async () => {
   const h = await approvedFixture(); const group = await h.memberStore.cloud.readGroup('group-test');
@@ -259,4 +273,45 @@ test('an existing displayed group adopts the singleton index without changing it
   assert.equal(await h.store.cloud.readMembership(), 'group-test');
   assert.deepEqual(await h.store.cloud.readGroup('group-test'), before);
   await assert.rejects(h.store.cloud.bindMembership('unrelated-group'));
+});
+
+
+test('rejecting a stale invitation request never reads or changes the applicants unrelated current group', async () => {
+  const h = await fixture(); const applicant = client('former-applicant'); const identity = await createDeviceIdentity(crypto); const key = await crypto.randomBytes(32);
+  const elsewhere = createSharedRoster('another-house', 'former-applicant', identity);
+  await applicant.cloud.createGroup(elsewhere, await wrapGroupKey(crypto, 'another-house', 1, key, identity, identity, 'former-applicant'));
+  // Administrative setup represents a legitimately expired retained invitation; no production data is touched.
+  const old = await createSharedInvitation(crypto, h.roster, h.owner, 'expired-request', Date.now() - 2 * 86400_000);
+  const request = createSharedJoinRequest(old, 'former-applicant', identity, Date.now() - 2 * 86400_000);
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'sharingInvites', 'expired-request'), { groupId: 'group-test', ownerUserId: 'owner', invitationPublicKey: old.invitation.body.invitationPublicKey,
+      pinJson: JSON.stringify(old.invitation), expiresAt: Timestamp.fromMillis(old.invitation.body.expiresAt), status: 'open', usedBy: null, createdAt: serverTimestamp() });
+    await setDoc(doc(db, 'sharingInvites', 'expired-request', 'requests', 'former-applicant'), { userId: 'former-applicant', deviceId: identity.deviceId, requestJson: JSON.stringify(request), createdAt: serverTimestamp() });
+  });
+  await assert.rejects(getDocFromServer(doc(h.store.firestore, 'sharingUsers', 'former-applicant', 'memberships', 'current')), error => error.code === 'permission-denied');
+  await h.store.cloud.withdrawOrRejectJoinRequest('expired-request', 'former-applicant');
+  assert.equal((await getDocFromServer(doc(h.store.firestore, 'sharingInvites', 'expired-request', 'requests', 'former-applicant'))).exists(), false);
+  assert.equal(await applicant.cloud.readMembership(), 'another-house');
+  await assert.rejects(getDocFromServer(doc(h.store.firestore, 'sharingUsers', 'former-applicant', 'memberships', 'current')), error => error.code === 'permission-denied');
+});
+
+for (const count of [99, 100, 101]) test(`join request pagination reaches a valid applicant after ${count - 1} invalid documents`, async () => {
+  const h = await fixture(); const link = await createSharedInvitation(crypto, h.roster, h.owner, 'paged-requests', Date.now());
+  await h.store.cloud.createInvitation(link.invitation);
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore(); const batch = writeBatch(db);
+    for (let n = 0; n < count - 1; n++) { const uid = `a-${String(n).padStart(3, '0')}`;
+      batch.set(doc(db, 'sharingInvites', 'paged-requests', 'requests', uid), { userId: uid, deviceId: 'synthetic', requestJson: '{broken', createdAt: serverTimestamp() }); }
+    await batch.commit();
+  });
+  const member = await createDeviceIdentity(crypto); const good = client('zz-good');
+  await good.cloud.submitJoinRequest(link.invitation, createSharedJoinRequest(link, 'zz-good', member, Date.now()));
+  const first = await h.store.cloud.listJoinRequests(link.invitation);
+  assert.equal(first.requests.length, count > 100 ? 0 : 1); assert.equal(first.invalidUserIds.length, Math.min(100, count - 1));
+  assert.equal(Boolean(first.nextCursor), count >= 100);
+  if (first.nextCursor) {
+    const restarted = client('owner'); const next = await restarted.cloud.listJoinRequests(link.invitation, first.nextCursor);
+    assert.equal(next.requests.length, count > 100 ? 1 : 0); assert.equal(next.invalidUserIds.length, 0); assert.equal(next.nextCursor, null);
+  }
 });

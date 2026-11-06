@@ -14,9 +14,17 @@ function RequiredSubscription({ children }: PropsWithChildren) {
   const state = useSyncExternalStore(subscribeSubscription, subscriptionSnapshot, subscriptionSnapshot);
   useEffect(() => { void startSubscriptions(); const listener = AppState.addEventListener('change', next => { if (next === 'active') void refreshSubscription(); }); return () => listener.remove(); }, []);
   useEffect(() => {
-    if (state.phase !== 'checking' && state.phase !== 'active') void import('../../platform/subscription/stop-expired-features')
-      .then(module => module.stopExpiredSubscriptionFeatures()).catch(() => undefined);
-  }, [state.phase]);
+    if (state.phase === 'checking' || state.phase === 'active') return;
+    let live = true; let attempt = 0; let timer: ReturnType<typeof setTimeout> | undefined;
+    const stop = () => {
+      clearTimeout(timer);
+      void import('../../platform/subscription/stop-expired-features').then(module => live ? module.stopExpiredSubscriptionFeatures() : undefined)
+        .catch(() => { if (live && attempt < 4) timer = setTimeout(stop, [1000, 5000, 30_000, 60_000][attempt++]); });
+    };
+    stop();
+    const listener = AppState.addEventListener('change', next => { if (next === 'active') { attempt = 0; stop(); } });
+    return () => { live = false; clearTimeout(timer); listener.remove(); };
+  }, [state.phase, state.userId, state.entitlement]);
   useEffect(() => {
     if (!state.userId) return;
     let live = true; const userId = state.userId;

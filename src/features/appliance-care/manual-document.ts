@@ -40,11 +40,16 @@ export function validateManualDocument(value: unknown, entityId?: string): asser
     || entityId !== undefined && entityId !== `manual.${data.sha256}` || !Number.isSafeInteger(data.byteLength) || data.byteLength < 32 || data.byteLength > MAX_MANUAL_BYTES
     || !Array.isArray(data.chunks) || data.chunks.length !== Math.ceil(data.byteLength / MANUAL_CHUNK_BYTES) || !data.chunks.every(hex)) throw new Error('説明書PDFの保存情報を確認できません。');
 }
-export function prepareManualDocument(base64: string, expectedDigest?: string): SavedManual {
+/** Local storage needs only verified bytes and identity, not derived network chunks. */
+export function verifyManualContent(base64: string, expectedDigest?: string) {
   const bytes = decodeManualBytes(base64);
   if (bytes.length < 32 || String.fromCharCode(...bytes.subarray(0, 5)) !== '%PDF-') throw new Error('説明書はPDFを選択してください。');
   const digest = hash(bytes);
   if (expectedDigest !== undefined && digest !== expectedDigest) throw new Error('解析したPDFと保存するPDFが一致しません。');
+  return { bytes, sha256: digest, byteLength: bytes.length };
+}
+export function prepareManualDocument(base64: string, expectedDigest?: string): SavedManual {
+  const { bytes, sha256: digest } = verifyManualContent(base64, expectedDigest);
   const chunks: ManualChunk[] = [];
   for (let start = 0; start < bytes.length; start += MANUAL_CHUNK_BYTES) {
     const part = bytes.subarray(start, start + MANUAL_CHUNK_BYTES); chunks.push({ sha256: hash(part), content: encodeManualBytes(part) });

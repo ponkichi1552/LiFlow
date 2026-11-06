@@ -109,6 +109,55 @@ test('subscription concurrent stale confirmation cannot overwrite a newer refund
   assert.equal((await h.store.entitlement('person-a')).status, 'revoked');
 });
 
+test('a permanently expired Google token cannot block a fresh verified purchase and its ownership stays bound', async () => {
+  const h = setup(); const oldToken = 'permanently-expired-purchase-token'; const newToken = 'fresh-purchase-token';
+  h.status('expired'); await h.service.verify('person-a', { store: 'google', proof: oldToken });
+  h.clock(at + month + 61 * 86400_000); h.status('active');
+  h.providers.google.refresh = async () => { throw new Error('expired tokens are no longer queryable'); };
+  const oldVerify = h.providers.google.verify;
+  h.providers.google.verify = async (...args) => ({ ...await oldVerify(...args), expiresAt: at + month + 90 * 86400_000 });
+  const result = await h.service.verify('person-a', { store: 'google', proof: newToken });
+  assert.equal(result.entitlement.body.status, 'active');
+  assert.deepEqual((await h.store.purchases('person-a')).map(record => record.purchaseId), [newToken]);
+  h.providers.google.verify = async (...args) => ({ ...await oldVerify(...args), expiresAt: at + month + 90 * 86400_000 });
+  await assert.rejects(h.service.verify('person-b', { store: 'google', proof: oldToken }), error => error.code === 'PURCHASE_ALREADY_BOUND');
+});
+
+test('invalid purchase evidence is rejected before changing a durable subscription verification generation', async () => {
+  const h = setup(); await h.service.verify('person-a', { store: 'google', proof: 'synthetic-private-purchase-token' });
+  const before = await h.store.account('person-a');
+  for (const evidence of [null, [], {}, { store: 'google', proof: 'short' }, { store: 'google', proof: 'valid-proof', userId: 'person-b' }]) {
+    await assert.rejects(h.service.verify('person-a', evidence), error => error.code === 'INVALID_PURCHASE');
+    assert.deepEqual(await h.store.account('person-a'), before);
+  }
+});
+
+test('Google terminal token responses retire refresh pointers while transient or unrecognized errors preserve them', async () => {
+  const account = newSubscriptionAccount('person-a'); let status = 410; let reason = 'subscriptionNoLongerAvailable';
+  const provider = createGoogleSubscriptionProvider({ packageName: 'jp.jphacks.tkb2633', productId: 'monthly', basePlanId: 'month',
+    request: async () => { throw { response: { status, data: { error: { errors: [{ reason }] } } } }; } });
+  const record = { store: 'google', purchaseId: 'synthetic-token', proof: 'synthetic-token', productId: 'monthly', status: 'active', expiresAt: at - 100, autoRenew: true };
+  const retired = await provider.refresh(record, account);
+  assert.equal(retired.status, 'expired'); assert.equal(retired.retired, true); assert.equal(retired.autoRenew, false);
+  for (const failure of [[503, 'subscriptionNoLongerAvailable'], [410, 'unknown'], [403, 'userInsufficientPermission']]) {
+    [status, reason] = failure; await assert.rejects(provider.refresh(record, account));
+  }
+  status = 410; reason = 'purchaseTokenNoLongerValid'; await assert.rejects(provider.verify('unbound-token', account));
+});
+
+test('signed Apple TEST notifications need no transaction but never change an entitlement or bypass application checks', async () => {
+  let transactionReads = 0; let fail = false;
+  const event = { notificationType: 'TEST', data: { bundleId: 'jp.jphacks.tkb2633', environment: 'Production' } };
+  const provider = createAppleSubscriptionProvider({ bundleId: 'jp.jphacks.tkb2633', productId: 'monthly', environment: 'Production', client: {},
+    verifier: { verifyAndDecodeNotification: async () => { if (fail) throw new Error('forged signature'); return event; },
+      verifyAndDecodeTransaction: async () => { transactionReads++; assert.fail('TEST does not carry a purchase'); } } });
+  assert.equal(await provider.notification({ signedPayload: 'signed-test' }), null); assert.equal(transactionReads, 0);
+  fail = true; await assert.rejects(provider.notification({ signedPayload: 'forged-test' })); fail = false;
+  event.data.environment = 'Sandbox'; await assert.rejects(provider.notification({ signedPayload: 'signed-test' })); event.data.environment = 'Production';
+  event.data.bundleId = 'another.app'; await assert.rejects(provider.notification({ signedPayload: 'signed-test' })); event.data.bundleId = 'jp.jphacks.tkb2633';
+  event.notificationType = 'REFUND'; await assert.rejects(provider.notification({ signedPayload: 'signed-refund' }));
+});
+
 test('Google subscription adapter uses authoritative v2 expiry account and base plan and acknowledges only after durable verification', async () => {
   const account = newSubscriptionAccount('person-a'); const calls = [];
   const data = { externalAccountIdentifiers: { obfuscatedExternalAccountId: account.obfuscatedAccountId },
@@ -130,6 +179,18 @@ test('Google subscription adapter uses authoritative v2 expiry account and base 
   await assert.rejects(provider.verify('synthetic-token', account), 'production does not accept license-test purchases by accident');
   delete data.testPurchase; data.subscriptionState = 'SUBSCRIPTION_STATE_ACTIVE'; delete data.acknowledgementState;
   await assert.rejects(provider.verify('synthetic-token', account), 'missing acknowledgement state is not treated as acknowledged');
+});
+
+test('a Google pending purchase cancellation without expiry is terminal and never grants access or retires a different account binding', async () => {
+  const account = newSubscriptionAccount('person-a');
+  const data = { externalAccountIdentifiers: { obfuscatedExternalAccountId: account.obfuscatedAccountId },
+    subscriptionState: 'SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED', lineItems: [{ productId: 'monthly', offerDetails: { basePlanId: 'month' } }] };
+  const provider = createGoogleSubscriptionProvider({ packageName: 'jp.jphacks.tkb2633', productId: 'monthly', basePlanId: 'month', request: async () => ({ data }) });
+  const result = await provider.verify('cancelled-pending-token', account);
+  assert.equal(result.status, 'expired'); assert.equal(result.expiresAt, 0); assert.equal(result.autoRenew, false);
+  await assert.rejects(provider.verify('cancelled-pending-token', newSubscriptionAccount('person-b')));
+  data.subscriptionState = 'SUBSCRIPTION_STATE_ACTIVE'; data.acknowledgementState = 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED';
+  await assert.rejects(provider.verify('cancelled-pending-token', account), 'active records still require an authoritative expiry');
 });
 
 test('Apple subscription adapter verifies current signed transactions account bundle environment and grace rather than a stale client expiry', async () => {
@@ -176,7 +237,7 @@ test('subscription HTTP requires provider identity rejects body UID and never sp
   const subscriptions = createSubscriptionHttp({ service: h.service, providers: h.providers,
     verifyIdToken: async (token, revoked) => { revokedCheck = revoked; if (token !== 'synthetic-valid') throw new Error('bad token'); return { uid: 'person-a', firebase: { sign_in_provider: 'google.com' } }; } });
   const server = createApplianceCareHttpServer({ dependencies: {}, subscriptionAccess: subscriptions,
-    publicAccess: { authenticate: async () => ({ uid: 'person-a' }), store: { usage: async () => { admission++; } } } });
+    publicAccess: { authenticate: async () => ({ uid: 'person-a' }), store: { ...publicStoreFixture().store, usage: async () => { admission++; } } } });
   server.listen(0, '127.0.0.1'); await once(server, 'listening'); const base = `http://127.0.0.1:${server.address().port}`;
   try {
     assert.equal((await fetch(`${base}/api/subscriptions/status`)).status, 401);
@@ -217,4 +278,64 @@ test('public billing and restore remain available when AI attestation is unavail
     for (const path of ['jobs', 'analyze', 'usage']) assert.equal((await fetch(`${base}/api/appliance-care/${path}`, { method: path === 'usage' ? 'GET' : 'POST' })).status, 503);
     assert.equal(work, 0);
   } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+
+function acknowledgementFixture() {
+  const h = setup(); let acknowledged = false; let failOnce = true; let calls = 0;
+  const verify = h.providers.google.verify;
+  h.providers.google.verify = async (...args) => ({ ...await verify(...args), acknowledgementPending: !acknowledged });
+  h.providers.google.refresh = async record => ({ ...record, acknowledgementPending: !acknowledged });
+  h.providers.google.acknowledge = async () => { calls++; if (failOnce) { failOnce = false; throw new Error('synthetic acknowledgement disconnected'); } acknowledged = true; };
+  const restart = () => createSubscriptionService({ store: createFirestoreSubscriptionStore({ firestore: h.fixture.firestore, tokenKey: Buffer.alloc(32, 7) }), providers: h.providers, signer: h.signing, now: () => h.time });
+  h.time = at;
+  return { ...h, restart, clock(value) { h.time = value; h.clock(value); }, calls: () => calls,
+    acknowledgeRemotely: () => { acknowledged = true; }, pending: () => [...h.fixture.records.keys()].filter(key => key.startsWith('billingAcknowledgements/')) };
+}
+
+test('a durable Google acknowledgement retries after server restart without client reconnection and never exposes a purchase proof', async () => {
+  const h = acknowledgementFixture();
+  await assert.rejects(h.service.verify('person-a', { store: 'google', proof: 'synthetic-queued-private-token' }), /disconnected/);
+  assert.equal(h.pending().length, 1); assert.equal(h.calls(), 1);
+  assert.equal(JSON.stringify([...h.fixture.records.values()]).includes('synthetic-queued-private-token'), false);
+  assert.equal((await h.service.status('person-a')).entitlement.body.status, 'active');
+  assert.equal(h.calls(), 1, 'cached status is not required to drain the queue');
+  h.clock(at + 60_000);
+  assert.deepEqual(await h.restart().retryAcknowledgements(), { completed: 1, deferred: 0, failed: 0, overdue: 0 });
+  assert.equal(h.calls(), 2); assert.equal(h.pending().length, 0);
+  assert.equal((await h.restart().retryAcknowledgements()).completed, 0);
+  await h.restart().refresh('person-a'); assert.equal(h.calls(), 2, 'already acknowledged renewals do not call acknowledge');
+});
+
+test('an acknowledgement accepted before a lost reply is observed before retry and never acknowledged twice', async () => {
+  const h = acknowledgementFixture();
+  h.providers.google.acknowledge = async () => { h.acknowledgeRemotely(); throw new Error('synthetic lost acknowledgement reply'); };
+  await assert.rejects(h.service.verify('person-a', { store: 'google', proof: 'synthetic-lost-ack-token' }), /lost/);
+  h.clock(at + 60_000); let retry = 0;
+  h.providers.google.acknowledge = async () => { retry++; };
+  assert.equal((await h.restart().retryAcknowledgements()).completed, 1);
+  assert.equal(retry, 0); assert.equal(h.pending().length, 0);
+});
+
+test('acknowledgement leases survive process loss prevent concurrent retry and reject stale receipts', async () => {
+  const h = acknowledgementFixture();
+  await assert.rejects(h.service.verify('person-a', { store: 'google', proof: 'synthetic-leased-token' }));
+  h.clock(at + 60_000); const key = h.pending()[0].split('/')[1];
+  const claim = await h.store.claimAcknowledgement(key, at + 60_000);
+  assert.ok(claim); assert.equal(await h.store.claimAcknowledgement(key, at + 60_000), null);
+  assert.equal((await h.restart().retryAcknowledgements()).completed, 0);
+  h.clock(at + 181_000);
+  const results = await Promise.all([h.restart().retryAcknowledgements(), h.restart().retryAcknowledgements()]);
+  assert.equal(results.reduce((sum, item) => sum + item.completed, 0), 1);
+  assert.equal(h.calls(), 2); assert.equal(await h.store.finishAcknowledgement(claim, true, at + 181_000), false);
+  assert.equal(h.pending().length, 0);
+});
+
+test('a revoked queued purchase is reconciled before acknowledgement and cannot grant or acknowledge an invalid purchase', async () => {
+  const h = acknowledgementFixture();
+  await assert.rejects(h.service.verify('person-a', { store: 'google', proof: 'synthetic-revoked-token' }));
+  h.clock(at + 60_000); h.providers.google.refresh = async record => ({ ...record, status: 'revoked', acknowledgementPending: true });
+  assert.equal((await h.restart().retryAcknowledgements()).completed, 1);
+  assert.equal(h.calls(), 1); assert.equal(h.pending().length, 0);
+  await assert.rejects(h.service.assertActive('person-a'), error => error.code === 'SUBSCRIPTION_REQUIRED');
 });

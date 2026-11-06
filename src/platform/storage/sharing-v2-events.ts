@@ -24,13 +24,28 @@ import type { V2ServerReceipt } from '../../features/sharing/v2/server-receipts.
 import { v2ConfirmedReceiptContext } from '../../features/sharing/v2/receipt-context.ts';
 import { captureV2Input } from '../../features/sharing/v2/input-capture.ts';
 import { isolatedProjectionValue } from './isolated-projection-value.ts';
+import { traceStartup, traceStartupSync } from '../diagnostics/startup-timing.ts';
 
 interface V2StoreScope { userId: string; groupId: string; householdId: string }
 export interface V2LocalCompletionIntent { id: string; digest: string }
+type V2LocalMutationIntent = V2LocalCompletionIntent & { kind: 'completion' | 'calendar' };
 function digestPages(values: readonly unknown[]): string[] {
   const result: string[] = [];
   for (let offset = 0; offset < values.length; offset += 1000) result.push(sharedDocumentDigest(values.slice(offset, offset + 1000)));
   return result;
+}
+
+/** Keep cold authentication responsive without publishing a partially checked replica. */
+async function verifyInSlices<T>(values: Iterable<T>, verify: (value: T) => void, assertCurrent: () => void) {
+  let resumedAt = performance.now();
+  for (const value of values) {
+    verify(value);
+    if (performance.now() - resumedAt >= 8) {
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      assertCurrent();
+      resumedAt = performance.now();
+    }
+  }
 }
 
 const initializations = new WeakMap<SQLiteDatabase, Promise<void>>();
@@ -61,7 +76,10 @@ async function initializeV2EventStoreImpl(database: SQLiteDatabase, scope: V2Sto
     await assertV2Binding(transaction, scope);
     await transaction.execAsync(`CREATE TABLE IF NOT EXISTS sharing_v2_catalog_state (
       singleton INTEGER PRIMARY KEY CHECK(singleton=1), catalog_version INTEGER NOT NULL);`);
-    await transaction.execAsync(`CREATE TABLE IF NOT EXISTS sharing_v2_completion_intents (
+    if (await transaction.getFirstAsync("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sharing_v2_completion_intents'")) {
+      await transaction.execAsync('ALTER TABLE sharing_v2_completion_intents RENAME TO sharing_v2_mutation_intents');
+    }
+    await transaction.execAsync(`CREATE TABLE IF NOT EXISTS sharing_v2_mutation_intents (
       intent_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, device_id TEXT NOT NULL,
       target_digest TEXT NOT NULL);`);
     await transaction.execAsync(`CREATE TABLE IF NOT EXISTS sharing_v2_projection (
@@ -102,7 +120,8 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
   function archive() {
     const input = options.archive(); const latest = input.at(-1); if (!latest) throw new SharingAccessError('共有メンバーを確認できません。');
     const digest = canonicalJson([options.anchor, input]);
-    if (checkedArchive?.digest !== digest) checkedArchive = { digest, value: isolatedProjectionValue(verifySharedRosterArchive(options.anchor, input)) };
+    if (checkedArchive?.digest !== digest) checkedArchive = { digest,
+      value: traceStartupSync('v2.archiveVerify', () => isolatedProjectionValue(verifySharedRosterArchive(options.anchor, input))) };
     return isolatedProjectionValue(checkedArchive.value);
   }
   async function project(transaction: SQLiteDatabase, replica: SharedReplica, localIds?: ReadonlySet<string>) {
@@ -117,7 +136,7 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
     const receipts = await readV2ServerReceiptsInside(transaction, options.groupId);
     const pendingRows = await transaction.getAllAsync<{ operation_id: string }>(`SELECT q.operation_id FROM sharing_outbox q
       JOIN sharing_operations o USING(operation_id) WHERE o.group_id=? AND o.author_device_id=?`, options.groupId, options.identity.deviceId);
-    const source = JSON.stringify({ replica, history, proofs: [...proofs], receipts: [...receipts], pending: pendingRows });
+    const source = traceStartupSync('v2.projectionSource', () => JSON.stringify({ replica, history, proofs: [...proofs], receipts: [...receipts], pending: pendingRows }));
     const migration = replica.retention ? undefined : options.migration;
     const unchanged = projectionCache?.source === source && projectionCache.migration === migration;
     if (replica.retention) seededMigration = undefined;
@@ -126,32 +145,35 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
     // content-addressed cache instead of verifying all legacy signatures twice.
     // Deserialized/forged checkpoints, a changed chain or a changed fact still fail.
     if (migration && migration !== seededMigration) {
-      assertVerifiedLegacyMigration(migration, replica, history);
-      for (const fact of readVerifiedLegacyMigrationSnapshot(migration).facts) {
-        const operation = fact.operation; const epoch = rosterAtOperation(history, operation);
-        const identity = sharedAuthorIdentity(epoch, operation.authorUserId, operation.authorDeviceId, operation.keyVersion);
-        authenticated.set(operation.operationId, sharedDocumentDigest([operation, fact.authorSignature, identity]));
-      }
+      await traceStartup('v2.migrationProofs', async () => {
+        assertVerifiedLegacyMigration(migration, replica, history);
+        await verifyInSlices(readVerifiedLegacyMigrationSnapshot(migration).facts, fact => {
+          const operation = fact.operation; const epoch = rosterAtOperation(history, operation);
+          const identity = sharedAuthorIdentity(epoch, operation.authorUserId, operation.authorDeviceId, operation.keyVersion);
+          authenticated.set(operation.operationId, sharedDocumentDigest([operation, fact.authorSignature, identity]));
+        }, options.assertWritable);
+      });
       seededMigration = migration;
     }
-    if (!unchanged) for (const operation of replica.operations) {
-      const fact = proofs.get(operation.operationId);
-      if (!fact || canonicalJson(fact.operation) !== canonicalJson(operation)) throw new Error('Missing original v2 author proof');
-      const epoch = rosterAtOperation(history, operation);
-      const identity = sharedAuthorIdentity(epoch, operation.authorUserId, operation.authorDeviceId, operation.keyVersion);
-      const digest = sharedDocumentDigest([operation, fact.authorSignature, identity]);
-      if (authenticated.get(operation.operationId) !== digest) {
-        verifyAuthenticatedSharedOperation(fact, identity, options.groupId); authenticated.set(operation.operationId, digest);
-      }
-      const receipt = receipts.get(operation.operationId); if (receipt) bindV2ServerReceipt(receipt, fact, history);
-    }
+    if (!unchanged) await traceStartup('v2.operationProofs', () =>
+      verifyInSlices(replica.operations, operation => {
+        const fact = proofs.get(operation.operationId);
+        if (!fact || canonicalJson(fact.operation) !== canonicalJson(operation)) throw new Error('Missing original v2 author proof');
+        const epoch = rosterAtOperation(history, operation);
+        const identity = sharedAuthorIdentity(epoch, operation.authorUserId, operation.authorDeviceId, operation.keyVersion);
+        const digest = sharedDocumentDigest([operation, fact.authorSignature, identity]);
+        if (authenticated.get(operation.operationId) !== digest) {
+          verifyAuthenticatedSharedOperation(fact, identity, options.groupId); authenticated.set(operation.operationId, digest);
+        }
+        const receipt = receipts.get(operation.operationId); if (receipt) bindV2ServerReceipt(receipt, fact, history);
+      }, options.assertWritable));
     while (authenticated.size > 50_000) authenticated.delete(authenticated.keys().next().value!);
     // Every proof/receipt is authenticated on a miss, and every read checks current
     // membership and exact input equality. Never trust SQLite revision flags alone.
     // The cached query closures capture private copies and callers receive isolated values.
     const cache: NonNullable<typeof projectionCache> = unchanged ? projectionCache! : { source, migration,
-      value: assessV2BusinessHistory(isolatedProjectionValue(replica), isolatedProjectionValue(history), migration,
-        { receipts: isolatedProjectionValue(receipts), facts: isolatedProjectionValue(proofs), pendingLocalIds: new Set(pendingRows.map(row => row.operation_id)) }) };
+      value: traceStartupSync('v2.businessAssessment', () => assessV2BusinessHistory(isolatedProjectionValue(replica), isolatedProjectionValue(history), migration,
+        { receipts: isolatedProjectionValue(receipts), facts: isolatedProjectionValue(proofs), pendingLocalIds: new Set(pendingRows.map(row => row.operation_id)) })) };
     // Assessment verifies the collective retention certificate before exposing
     // its frontier. Reuse that result here instead of authenticating it twice.
     // Missing history still rejects the entire read before any projection write.
@@ -204,12 +226,14 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
     return { assessment, replica: source, archive: history, receipts };
   }
   type CurrentBuilder = (state: Awaited<ReturnType<typeof readStateInside>>, transaction: SQLiteDatabase) => Promise<readonly SharedOperationDraft[]>;
-  async function commit(input: readonly SharedOperationDraft[] | ((replica: SharedReplica) => Promise<readonly SharedOperationDraft[]>) | { build: CurrentBuilder; intent?: V2LocalCompletionIntent }): Promise<SharedOperation[]> {
+  async function commit(input: readonly SharedOperationDraft[] | ((replica: SharedReplica) => Promise<readonly SharedOperationDraft[]>) | { build: CurrentBuilder; intent?: V2LocalMutationIntent }): Promise<SharedOperation[]> {
     options.assertWritable(); const latest = archive().at(-1)!; const localIds = new Set<string>();
     const capturedInput = typeof input === 'function' ? input : 'build' in input ? { build: input.build, intent: input.intent ? { ...input.intent } : undefined } : captureV2Input(input);
     const intent = typeof capturedInput !== 'function' && 'build' in capturedInput ? capturedInput.intent : undefined;
-    if (intent && (!/^completion-intent\.[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(intent.id) || !/^[a-f0-9]{64}$/u.test(intent.digest))) {
-      throw new Error('保存待ちの完了操作を確認できません。');
+    if (intent && (!['completion', 'calendar'].includes(intent.kind) || !(intent.kind === 'completion'
+      ? /^completion-intent\.[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u
+      : /^calendar-intent\.[A-Za-z0-9._-]{1,100}$/u).test(intent.id) || !/^[a-f0-9]{64}$/u.test(intent.digest))) {
+      throw new Error('保存待ちの操作を確認できません。');
     }
     if (latest.body.schemaVersion !== 2 || !isSupportedV2Scheduler(latest.body.schedulerVersion)) throw new SharingSchedulerVersionError();
     const operationTime = clock();
@@ -221,10 +245,10 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
       const current = await readStateInside(transaction, replica);
       if (intent) {
         const saved = await transaction.getFirstAsync<{ user_id: string; device_id: string; target_digest: string }>(
-          'SELECT user_id, device_id, target_digest FROM sharing_v2_completion_intents WHERE intent_id=?', intent.id);
+          'SELECT user_id, device_id, target_digest FROM sharing_v2_mutation_intents WHERE intent_id=?', intent.id);
         if (saved) {
           if (saved.user_id !== options.userId || saved.device_id !== options.identity.deviceId || saved.target_digest !== intent.digest) {
-            throw new SharingAccessError('保存待ちの完了操作と保存先が一致しません。');
+            throw new SharingAccessError('保存待ちの操作と保存先が一致しません。');
           }
           await assertCurrentAccess(true); await assertV2Binding(transaction, options);
           if (sharedRosterDigest(archive().at(-1)!) !== sharedRosterDigest(latest)) throw new SharingAccessError('保存待ちの確認中に共有権限が変わりました。');
@@ -237,12 +261,13 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
         : 'build' in capturedInput ? captureV2Input(await capturedInput.build(current, transaction)) : capturedInput;
       await assertCurrentAccess(true);
       if (intent) {
-        if (drafts.some(draft => draft.entityType !== 'completion' && draft.entityType !== 'retainedCompletionUndo')) {
+        if (intent.kind === 'completion' && drafts.some(draft => draft.entityType !== 'completion' && draft.entityType !== 'retainedCompletionUndo')) {
           throw new Error('完了の保存待ちから別の設定は変更できません。');
         }
+        if (intent.kind === 'calendar' && drafts.some(draft => draft.entityType !== 'calendarEvent')) throw new Error('予定の保存待ちから別の設定は変更できません。');
         // The marker commits or rolls back with the signed facts and Outbox.
         // Replaying a protected request after a crash cannot repeat that action.
-        await transaction.runAsync('INSERT INTO sharing_v2_completion_intents VALUES (?, ?, ?, ?)',
+        await transaction.runAsync('INSERT INTO sharing_v2_mutation_intents VALUES (?, ?, ?, ?)',
           intent.id, options.userId, options.identity.deviceId, intent.digest);
       }
       for (const draft of drafts) localIds.add(draft.operationId); return drafts;
@@ -324,6 +349,7 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
     commit,
     /** Build against this transaction's authenticated state, without a nested read or stale UI snapshot. */
     commitCurrent: (build: CurrentBuilder) => commit({ build }),
-    commitCompletionIntent: (intent: V2LocalCompletionIntent, build: CurrentBuilder) => commit({ build, intent }),
+    commitCompletionIntent: (intent: V2LocalCompletionIntent, build: CurrentBuilder) => commit({ build, intent: { ...intent, kind: 'completion' } }),
+    commitCalendarIntent: (intent: V2LocalCompletionIntent, build: CurrentBuilder) => commit({ build, intent: { ...intent, kind: 'calendar' } }),
   };
 }

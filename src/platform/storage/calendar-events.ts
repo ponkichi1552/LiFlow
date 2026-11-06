@@ -11,7 +11,7 @@ import { invalidateLocalCalendarPlan, withPlannerDatabaseOperation } from './rep
 import { withIsolatedSqliteTransaction } from './isolated-transaction.ts';
 import { readCalendarEventRows } from './calendar-event-rows.ts';
 
-export interface CalendarEditorDraft { audience?: 'personal' | 'group'; groupId?: string; basisRevision?: string; editorCategory?: CalendarCategory; eventId: string | null; anchorDate: LocalDate | null; revision: number; exceptionRevision: number; scope: 'one' | 'series'; value: EventDraft }
+export interface CalendarEditorDraft { audience?: 'personal' | 'group'; groupId?: string; basisRevision?: string; editorCategory?: CalendarCategory; submission?: { id: string; digest: string }; eventId: string | null; anchorDate: LocalDate | null; revision: number; exceptionRevision: number; scope: 'one' | 'series'; value: EventDraft }
 export function calendarDraftKey(draft: CalendarEditorDraft) { const prefix = draft.audience === 'group' ? `group:${draft.groupId}:` : ''; return prefix + (draft.eventId ? `event:${draft.eventId}:${draft.scope}:${draft.scope === 'one' ? draft.anchorDate : ''}` : draft.value.birthday ? 'birthday:new' : 'new'); }
 /** A return route carries this digest, never the private input text. */
 export function calendarDraftVersion(draft: CalendarEditorDraft) { return bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(parseEditorDraft(draft))))); }
@@ -21,6 +21,7 @@ export type LocalCalendarChange = 'events' | 'categories' | 'drafts' | 'sync' | 
 const listeners = new WeakMap<SQLiteDatabase, Set<(change: LocalCalendarChange) => void>>();
 let idSequence = 0;
 function newId(prefix: string) { return `${prefix}.${Date.now().toString(36)}.${(++idSequence).toString(36)}.${Math.random().toString(36).slice(2, 12)}`; }
+export function newCalendarSubmissionId() { return newId('calendar-intent'); }
 const conflict = () => new Error('予定が別の画面で変更されました。再読込してから編集してください。');
 function identifier(id: string) { if (!/^[A-Za-z0-9._-]{1,100}$/.test(id)) throw new Error('予定・分類の識別子が無効です。'); }
 async function personal(database: SQLiteDatabase) {
@@ -42,19 +43,30 @@ export function subscribeLocalCalendar(database: SQLiteDatabase, callback: (chan
   let set = listeners.get(database); if (!set) { set = new Set(); listeners.set(database, set); } set.add(callback);
   return () => { set!.delete(callback); };
 }
+export type LocalCalendarDrafts = Pick<LocalCalendarSnapshot, 'draft' | 'drafts' | 'draftError'>;
+async function readDrafts(database: SQLiteDatabase): Promise<LocalCalendarDrafts> {
+  const rows = await database.getAllAsync<{ draft_json: string }>('SELECT draft_json FROM calendar_drafts ORDER BY rowid DESC LIMIT 51');
+  const drafts: CalendarEditorDraft[] = []; let draftError: string | undefined;
+  for (const raw of rows) try { drafts.push(parseEditorDraft(JSON.parse(raw.draft_json))); } catch { draftError = '入力途中の予定を読み込めません。保存済みの予定は表示しています。'; }
+  return { draft: drafts[0] ?? null, drafts, draftError };
+}
+/** A keystroke only changes drafts, never the saved recurrence, category or availability inputs. */
+export function readLocalCalendarDrafts(database: SQLiteDatabase): Promise<LocalCalendarDrafts> {
+  return withPlannerDatabaseOperation(database, async () => { await personal(database); await migrateLocalDatabase(database); return readDrafts(database); });
+}
 export async function readLocalCalendar(database: SQLiteDatabase): Promise<LocalCalendarSnapshot> {
   return withPlannerDatabaseOperation(database, async () => {
     await personal(database); await migrateLocalDatabase(database);
     const { events, exceptions } = await readCalendarEventRows(database);
     let categories = await database.getAllAsync<CalendarCategory>('SELECT * FROM calendar_categories ORDER BY rowid');
     const missing = INITIAL_CATEGORIES.filter(category => !categories.some(existing => existing.id === category.id));
-    for (const category of missing) await database.runAsync('INSERT OR IGNORE INTO calendar_categories(id,name,color,revision) VALUES (?,?,?,1)', category.id, category.name, category.color);
+    for (const category of missing) await insertInitialCalendarCategory(database, category);
     if (missing.length) categories = await database.getAllAsync<CalendarCategory>('SELECT * FROM calendar_categories ORDER BY rowid');
-    const rows = await database.getAllAsync<{ draft_json: string }>('SELECT draft_json FROM calendar_drafts ORDER BY rowid DESC LIMIT 51');
-    const drafts: CalendarEditorDraft[] = []; let draftError: string | undefined;
-    for (const raw of rows) try { drafts.push(parseEditorDraft(JSON.parse(raw.draft_json))); } catch { draftError = '入力途中の予定を読み込めません。保存済みの予定は表示しています。'; }
-    return { events, exceptions, categories, draft: drafts[0] ?? null, drafts, draftError };
+    return { events, exceptions, categories, ...await readDrafts(database) };
   });
+}
+function insertInitialCalendarCategory(database: SQLiteDatabase, category: CalendarCategory) {
+  return database.runAsync('INSERT OR IGNORE INTO calendar_categories(id,name,color,revision) VALUES (?,?,?,1)', category.id, category.name, category.color);
 }
 function parseEditorDraft(draft: CalendarEditorDraft): CalendarEditorDraft {
   if (!draft || typeof draft !== 'object' || !['one', 'series'].includes(draft.scope) || !Number.isInteger(draft.revision) || draft.revision < 0
@@ -67,10 +79,11 @@ function parseEditorDraft(draft: CalendarEditorDraft): CalendarEditorDraft {
   if (draft.audience !== undefined && !['personal', 'group'].includes(draft.audience)) throw new Error('予定の保存先を確認してください。');
   if (draft.audience === 'group' && (typeof draft.groupId !== 'string' || !/^[A-Za-z0-9._-]{1,192}$/.test(draft.groupId))) throw new Error('共有予定のグループを確認してください。');
   if (draft.basisRevision !== undefined && (typeof draft.basisRevision !== 'string' || draft.basisRevision.length > 50000)) throw new Error('共有予定の編集元を確認してください。');
+  if (draft.submission && (!/^calendar-intent\.[A-Za-z0-9._-]{1,100}$/u.test(draft.submission.id) || !/^[a-f0-9]{64}$/u.test(draft.submission.digest))) throw new Error('予定の保存待ちを確認してください。');
   const category = draft.editorCategory;
   if (category && (!/^[A-Za-z0-9._-]{1,100}$/.test(category.id) || typeof category.name !== 'string' || category.name.length > 40 || !Number.isSafeInteger(category.revision) || category.revision < 0 || !/^#[0-9a-f]{6}$/i.test(category.color))) throw new Error('分類を確認してください。');
   return { ...(draft.audience ? { audience: draft.audience } : {}), ...(draft.audience === 'group' ? { groupId: draft.groupId } : {}),
-    ...(draft.basisRevision ? { basisRevision: draft.basisRevision } : {}), ...(category ? { editorCategory: { id: category.id, name: category.name, color: category.color, revision: category.revision } } : {}), eventId: draft.eventId, anchorDate: draft.anchorDate, revision: draft.revision, exceptionRevision: draft.exceptionRevision, scope: draft.scope,
+    ...(draft.basisRevision ? { basisRevision: draft.basisRevision } : {}), ...(draft.audience === 'group' && draft.submission ? { submission: { ...draft.submission } } : {}), ...(category ? { editorCategory: { id: category.id, name: category.name, color: category.color, revision: category.revision } } : {}), eventId: draft.eventId, anchorDate: draft.anchorDate, revision: draft.revision, exceptionRevision: draft.exceptionRevision, scope: draft.scope,
     value: { ...value, title: draft.value.title, allDay: draft.value.allDay, birthday: draft.value.birthday, endDate: draft.value.endDate, untilDate: draft.value.untilDate } };
 }
 async function clearRelatedDrafts(database: SQLiteDatabase, id: string | null, scope?: 'one' | 'series', anchorDate?: LocalDate | null, birthday = false, audience: Pick<CalendarEditorDraft, 'audience' | 'groupId'> = {}) {
@@ -104,7 +117,13 @@ export async function saveCalendarEvent(database: SQLiteDatabase, input: {
   await withPlannerDatabaseOperation(database, async () => { await personal(database);
     await withIsolatedSqliteTransaction(database, async tx => {
       await assertEditableGoogleEvent(tx, id);
-      if (!await tx.getFirstAsync('SELECT id FROM calendar_categories WHERE id=?', body.categoryId)) throw new Error('分類を選び直してください。');
+      if (!await tx.getFirstAsync('SELECT id FROM calendar_categories WHERE id=?', body.categoryId)) {
+        // Creation remains usable before the first calendar read finishes. Only a
+        // built-in initial category can be seeded; unknown/deleted custom IDs stay invalid.
+        const initial = INITIAL_CATEGORIES.find(category => category.id === body.categoryId);
+        if (!initial) throw new Error('分類を選び直してください。');
+        await insertInitialCalendarCategory(tx, initial);
+      }
       const prior = await tx.getFirstAsync<{ revision: number; deleted: number; definition_json: string }>('SELECT * FROM calendar_events WHERE id=?', id);
       if (prior ? prior.deleted || prior.revision !== input.expectedRevision : input.expectedRevision !== 0) throw conflict();
       if (input.scope === 'one') {
@@ -157,4 +176,27 @@ export async function saveCalendarCategory(database: SQLiteDatabase, value: { id
 /** Clear only the submitted scope; a group draft can never clear a private one. */
 export async function clearCalendarEditorDraft(database: SQLiteDatabase, draft: CalendarEditorDraft) {
   await withPlannerDatabaseOperation(database, async () => { await personal(database); await database.runAsync('DELETE FROM calendar_drafts WHERE slot=?', calendarDraftKey(draft)); }); changed(database, 'drafts');
+}
+
+/** Post-commit cleanup must not remove an editor that has since saved newer input. */
+export async function clearSubmittedCalendarDraft(database: SQLiteDatabase, input: CalendarEditorDraft) {
+  const draft = parseEditorDraft(input);
+  const removed = await withPlannerDatabaseOperation(database, async () => {
+    await personal(database);
+    return database.runAsync('DELETE FROM calendar_drafts WHERE slot=? AND draft_json=?', calendarDraftKey(draft), JSON.stringify(draft));
+  }); if (removed.changes) changed(database, 'drafts');
+}
+
+/** Explicit recovery discards only the exact draft opened by this editor. */
+export async function discardCalendarDraftIfUnchanged(database: SQLiteDatabase, input: CalendarEditorDraft) {
+  const draft = parseEditorDraft(input); let removed = false;
+  await withPlannerDatabaseOperation(database, async () => {
+    await personal(database); await withIsolatedSqliteTransaction(database, async tx => {
+      const row = await tx.getFirstAsync<{ draft_json: string }>('SELECT draft_json FROM calendar_drafts WHERE slot=?', calendarDraftKey(draft));
+      if (!row) return;
+      if (row.draft_json !== JSON.stringify(draft)) throw new Error('別の画面で入力が更新されています。閉じてから最新の下書きを開いてください。');
+      const result = await tx.runAsync('DELETE FROM calendar_drafts WHERE slot=? AND draft_json=?', calendarDraftKey(draft), row.draft_json); removed = Boolean(result.changes);
+    });
+  });
+  if (removed) changed(database, 'drafts');
 }

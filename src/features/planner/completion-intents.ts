@@ -13,6 +13,7 @@ export interface CompletionIntentStore<T> {
 export interface CompletionIntentState {
   values: ReadonlyMap<string, boolean>;
   pending: ReadonlySet<string>;
+  failed: ReadonlySet<string>;
   restored: boolean;
   error: string | null;
 }
@@ -39,16 +40,19 @@ export function createCompletionIntents<T>(options: {
   let persistence: Promise<void> = Promise.resolve();
   let worker: Promise<void> | undefined;
   let reading: Promise<void> | undefined;
+  let readAgain = false;
   let revision = 0, savedRevision = -1;
-  let state: CompletionIntentState = { values: new Map(), pending: new Set(), restored: false, error: null };
+  let state: CompletionIntentState = { values: new Map(), pending: new Set(), failed: new Set(), restored: false, error: null };
   const current = () => active && options.isCurrent();
   function emit(error = state.error) {
-    if (error === null && [...requests.values()].some(item => item.status === 'failed')) error = '一部の家事を保存できませんでした。選び直してください。';
+    if (error === null && [...requests.values()].some(item => item.status === 'failed')) error = '一部の家事を保存できませんでした。再試行できます。';
     const visible = [...requests.values()].filter(item => item.status !== 'failed');
     const values = new Map(visible.map(item => [item.key, item.completed]));
     const pending = new Set(visible.map(item => item.key));
+    const failed = new Set([...requests.values()].filter(item => item.status === 'failed').map(item => item.key));
     state = { values: values.size === state.values.size && [...values].every(([key, value]) => state.values.get(key) === value) ? state.values : values,
       pending: pending.size === state.pending.size && [...pending].every(key => state.pending.has(key)) ? state.pending : pending,
+      failed: failed.size === state.failed.size && [...failed].every(key => state.failed.has(key)) ? state.failed : failed,
       restored: state.restored, error };
     for (const listener of listeners) try { listener(); } catch { /* View listeners cannot cancel a saved request. */ }
   }
@@ -109,9 +113,10 @@ export function createCompletionIntents<T>(options: {
     reading = pending;
     void pending.finally(() => {
       if (reading === pending) reading = undefined;
+      const retryRequested = readAgain; readAgain = false;
       // A newer completion can commit while the previous presentation is read.
       // Confirm it with another read; a failed read still requires explicit retry.
-      if (refreshed && [...requests.values()].some(item => item.status === 'committed')) refreshCommitted();
+      if ((refreshed || retryRequested) && [...requests.values()].some(item => item.status === 'committed')) refreshCommitted();
     }).catch(() => undefined);
   }
   function drain() {
@@ -154,16 +159,16 @@ export function createCompletionIntents<T>(options: {
     },
     deactivate() { active = false; },
     request(key: string, target: T, completed: boolean) {
-      if (!current() || typeof completed !== 'boolean') return;
+      if (!current() || typeof completed !== 'boolean') return false;
       if (!key || key.length > 2000 || !requests.has(key) && requests.size >= 128) {
-        emit('保存待ちの家事が多いため、少し待ってから操作してください。'); return;
+        emit(state.failed.size ? '保存できなかった家事があります。保存を再試行してください。' : '保存待ちの家事が多いため、少し待ってから操作してください。'); return false;
       }
       let item: CompletionIntent<T>;
       try {
         const id = options.makeId();
         if (!id || id.length > 200) throw new Error('操作を準備できませんでした。');
         item = { id, key, target: options.capture(target), completed, createdAt: options.now().toISOString(), status: 'queued' };
-      } catch { emit('操作を準備できませんでした。'); return; }
+      } catch { emit('操作を準備できませんでした。'); return false; }
       if (!state.restored) touched.add(key);
       const previous = requests.get(key); if (previous) durable.delete(previous.id);
       requests.set(key, item); revision++; emit(null);
@@ -171,8 +176,31 @@ export function createCompletionIntents<T>(options: {
         if (requests.get(key)?.id === item.id) { requests.set(key, { ...item, status: 'failed' }); revision++; }
         emit('端末に保存できませんでした。もう一度お試しください。');
       });
+      return true;
     },
-    retryRead() { refreshCommitted(); },
+    retryFailed() {
+      if (!current()) return;
+      const retrying = [...requests.values()].filter(item => item.status === 'failed');
+      if (!retrying.length) return;
+      for (const item of retrying) {
+        requests.set(item.key, { ...item, status: 'queued' }); durable.delete(item.id); revision++;
+      }
+      emit(null);
+      // Retain the original id, target and gesture timestamp. A lost business
+      // acknowledgement is replayed idempotently, never as a second completion.
+      void persist().then(drain).catch(() => {
+        for (const item of retrying) if (requests.get(item.key)?.id === item.id && !durable.has(item.id)) {
+          requests.set(item.key, { ...item, status: 'failed' }); revision++;
+        }
+        emit('端末に保存できませんでした。もう一度お試しください。');
+      });
+    },
+    retryRead() {
+      // A display can mount while the previous read is still discovering that
+      // no screen is focused. Keep that explicit retry until the read settles.
+      if (reading) readAgain = true;
+      else refreshCommitted();
+    },
     async settled() {
       for (;;) {
         const p = persistence, w = worker, r = reading;

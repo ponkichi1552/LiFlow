@@ -1,0 +1,25 @@
+{
+  "candidate": "normal-v31",
+  "clientInputs": 710,
+  "sourcePinsMatch": true,
+  "lint": "PASS",
+  "typecheck": "PASS",
+  "unit": {
+    "passed": 3446,
+    "failed": 0,
+    "skipped": 0
+  },
+  "cloud": {
+    "passed": 153,
+    "failed": 0,
+    "skipped": 0,
+    "candidate": "normal-v31",
+    "isolatedAuthAndFirestore": true,
+    "unrelatedEmulatorsTouched": false
+  },
+  "physicalGatesSubstitute": false,
+  "logs": {
+    "wholeCheckSha256": "e6e9c8a1c2deffcb24749d6b348d6bb5d0d8e2bff54aac8fb343a26ac6895e35",
+    "cloudSha256": "d26a4ddf78598a568b1db5fd00fcc5004c0ec1cb3e7953b0ebc3dc7e4c0099d3"
+  }
+}

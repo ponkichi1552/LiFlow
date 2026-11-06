@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import moment from 'moment-timezone';
 import './helpers/typescript-loader.mjs';
 
 const { createCalendarFreeBusyClient, CalendarFreeBusyError } = await import('../src/platform/google-tasks/google-calendar-freebusy-client.ts');
@@ -119,13 +120,12 @@ for (const timeZone of zones) for (const from of ['2026-03-07', '2026-10-24', '2
     const range = createCalendarQueryRange(from, through, timeZone);
     const minimum = Date.parse(range.timeMin); const maximum = Date.parse(range.timeMax);
     const minutes = (maximum - minimum) / 60_000;
-    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    // Events and availability use the same packaged tzdb on both mobile OSes.
+    // The host ICU can have an older law set (e.g. 2026a versus bundled 2026e).
     // Independent oracle walks real instants and labels each minute; it does not
-    // reuse the implementation's binary-search midnight or interval merging.
+    // reuse the implementation's transition-boundary selection or interval merging.
     const dateIndex = Array.from({ length: minutes }, (_, minute) => {
-      const parts = formatter.formatToParts(minimum + minute * 60_000);
-      const part = (kind) => parts.find(({ type }) => type === kind).value;
-      const date = `${part('year')}-${part('month')}-${part('day')}`;
+      const date = moment.tz(minimum + minute * 60_000, timeZone).format('YYYY-MM-DD');
       return [from, addDays(from, 1), through].indexOf(date);
     });
     assert.ok(dateIndex.every((index) => index >= 0));

@@ -1,0 +1,783 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-11-06T06:03:24Z",
+  "original_input_assets_retained_in_repo": true,
+  "archives": [
+    {
+      "run_id": "attempt-1-preclassification-failed",
+      "split": "development",
+      "status": "failed_invariant_classification",
+      "unique_cases": 840,
+      "sqlite_operations": 137777,
+      "invariant_condition_evaluations": 10635,
+      "failures": [
+        {
+          "type": "invariant",
+          "invariant": "MODE_BOUNDARY",
+          "case_id": "long_absence-v09-h90-r0"
+        }
+      ],
+      "closed_loop": [
+        {
+          "target_follow_percent": 0,
+          "scenario_observations": 84,
+          "actionable_cases": 83,
+          "fail_count": 0,
+          "observed_follow_fraction": 0
+        },
+        {
+          "target_follow_percent": 50,
+          "scenario_observations": 84,
+          "actionable_cases": 84,
+          "fail_count": 0,
+          "observed_follow_fraction": 0.5
+        },
+        {
+          "target_follow_percent": 100,
+          "scenario_observations": 84,
+          "actionable_cases": 84,
+          "fail_count": 0,
+          "observed_follow_fraction": 1
+        }
+      ],
+      "external_path": "/Volumes/DockerExternal/LiFlowBuildCache/realistic-20261106/lifestyle-traces/attempt-1-preclassification-failed",
+      "manifest_sha256": "2a31cf923ec32c549b813f78124ee8ec2cc23997a58994c7c178c358929be8fb",
+      "sha256sums_sha256": "8136114feaf6b76e2d1bae02e5fb991a75e62626a5e7a950970c34d34658bf90",
+      "file_count": 23,
+      "operation_traces": [
+        {
+          "path": "results/development-case-dependant_appointments-v05-h365-r0.operations.jsonl.gz",
+          "bytes": 36675,
+          "sha256": "f1171bf8f73ea72601ac81cbe0306df5a22e9b0354730acddb8e7904b8ab758d"
+        },
+        {
+          "path": "results/development-case-distributed_cleaning-v05-h730-r0.operations.jsonl.gz",
+          "bytes": 60416,
+          "sha256": "727b7c0c4207a7b00bee8b325135fd1d2bb31a13b920e885a54c415d2046680c"
+        },
+        {
+          "path": "results/development-case-fixed_early-v00-h90-r0.operations.jsonl.gz",
+          "bytes": 13532,
+          "sha256": "33580f7882fcf4455476c08cbb05646aed4a97519e9de121c04906a5aaa5ec2e"
+        },
+        {
+          "path": "results/development-case-night_shift-v05-h90-r0.operations.jsonl.gz",
+          "bytes": 19010,
+          "sha256": "0614d963601ade89563fcd17e044c743e852c20e354a66e6b6a0f577603028a7"
+        },
+        {
+          "path": "results/development-case-seasonal_items-v02-h730-r0.operations.jsonl.gz",
+          "bytes": 96988,
+          "sha256": "181357c547a9839aaece8f119be6b35cd2e7d32683d5706270c48e2f2b0dcc53"
+        },
+        {
+          "path": "results/development-case-sparse_recording-v01-h730-r0.operations.jsonl.gz",
+          "bytes": 101425,
+          "sha256": "9ad301705997e4f532b031fc53f3c3f14b87ca621a8f36f08ca53569f70e8975"
+        },
+        {
+          "path": "results/development-case-student_timetable-v01-h365-r0.operations.jsonl.gz",
+          "bytes": 32045,
+          "sha256": "5f2f9969b584f8964432e530fe9e8af6a8827bcac43dd91a6fe6ea469f27ccb2"
+        },
+        {
+          "path": "results/development-case-two_adults_assigned-v02-h365-r0.operations.jsonl.gz",
+          "bytes": 36026,
+          "sha256": "d20b9eb1bee90d5277e6ec449ada3e927b676a2bcccfc32f835b0b55f93c68b7"
+        },
+        {
+          "path": "results/development.operations.jsonl.gz",
+          "bytes": 53344310,
+          "sha256": "ec7120e69e5e026167b13897cefde8dc7e5a4c1280adb75ad09b4a3e30de100a"
+        }
+      ],
+      "report_sha256": "9784486f5718d91d4e884b4d9e2b7346dd73edb228b2e3d1ebe644fc72c3c340",
+      "note": "The single MODE_BOUNDARY fail is unobservable: target chores have no recorded completion after the mode change. It is retained as an adapter-classification failure, not counted as production PASS."
+    },
+    {
+      "run_id": "final-development-20261106",
+      "split": "development",
+      "status": "pass",
+      "unique_cases": 840,
+      "requested_case_count": 840,
+      "actual_case_evaluations": 840,
+      "actual_repetitions_per_case": 1,
+      "sqlite_operations": 137777,
+      "invariant_condition_evaluations": 10634,
+      "failures": [],
+      "directed": {
+        "cases": 21,
+        "pass": 21,
+        "fail": 0
+      },
+      "closed_loop": [
+        {
+          "target_follow_percent": 0,
+          "unique_source_cases": 84,
+          "scenario_observations": 84,
+          "actionable_cases": 83,
+          "follow_actions": 0,
+          "fail_count": 0,
+          "not_applicable_count": 1
+        },
+        {
+          "target_follow_percent": 50,
+          "unique_source_cases": 84,
+          "scenario_observations": 84,
+          "actionable_cases": 84,
+          "follow_actions": 42,
+          "fail_count": 0,
+          "not_applicable_count": 0
+        },
+        {
+          "target_follow_percent": 100,
+          "unique_source_cases": 84,
+          "scenario_observations": 84,
+          "actionable_cases": 84,
+          "follow_actions": 84,
+          "fail_count": 0,
+          "not_applicable_count": 0
+        }
+      ],
+      "invariant_summary": {
+        "LOCK_NEAR": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "NEXT_GENERATION": {
+          "pass": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 840,
+          "condition_evaluations": 0,
+          "tested_pass_fraction": null
+        },
+        "DAILY_FIXED": {
+          "pass": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 840,
+          "condition_evaluations": 0,
+          "tested_pass_fraction": null
+        },
+        "NEXT_AFTER_COMPLETION": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "COMPLETED_LOAD_ONCE": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "SAME_EVENT_ONCE": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "CONTIGUOUS": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "SHARED_NO_LEARN": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "UNASSIGNED_LOAD": {
+          "pass": 30,
+          "fail": 0,
+          "not_applicable": 810,
+          "not_tested": 0,
+          "condition_evaluations": 30,
+          "tested_pass_fraction": 1
+        },
+        "SEASONAL_FIXED": {
+          "pass": 810,
+          "fail": 0,
+          "not_applicable": 30,
+          "not_tested": 0,
+          "condition_evaluations": 810,
+          "tested_pass_fraction": 1
+        },
+        "FIXED_OVERRIDE": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "NO_INTERVAL_CAP": {
+          "pass": 484,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 356,
+          "condition_evaluations": 484,
+          "tested_pass_fraction": 1
+        },
+        "MIN_THREE": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "INSIDE_WINDOW": {
+          "pass": 827,
+          "fail": 0,
+          "not_applicable": 13,
+          "not_tested": 0,
+          "condition_evaluations": 827,
+          "tested_pass_fraction": 1
+        },
+        "UNDO_LOCAL": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "WEATHER_FAILURE_STABLE": {
+          "pass": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 840,
+          "condition_evaluations": 0,
+          "tested_pass_fraction": null
+        },
+        "NO_EXTRA_INPUT": {
+          "pass": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 840,
+          "condition_evaluations": 0,
+          "tested_pass_fraction": null
+        },
+        "NO_FAKE_HISTORY": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "MODE_BOUNDARY": {
+          "pass": 83,
+          "fail": 0,
+          "not_applicable": 756,
+          "not_tested": 1,
+          "condition_evaluations": 83,
+          "tested_pass_fraction": 1
+        },
+        "FALLBACK_LOCK": {
+          "pass": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 840,
+          "condition_evaluations": 0,
+          "tested_pass_fraction": null
+        }
+      },
+      "operation_trace": {
+        "local_path": "results/development.operations.jsonl.gz",
+        "external_path": "final-development-20261106/results/development.operations.jsonl.gz",
+        "bytes": 53344310,
+        "sha256": "ec7120e69e5e026167b13897cefde8dc7e5a4c1280adb75ad09b4a3e30de100a"
+      },
+      "report_sha256": "696d73714b412e0dae817890072128649dd06e5c1d9b6ce1f1065c626b52c01b",
+      "aggregate_sha256": "59e3f35a0fec6b47a44c25f203624b0cedc2c0376d7592428b55f78af6f3ebf2",
+      "aggregate_source_sha256": "a9780419f84e2dcada3b674b34e86d2f8ce0c974d5f4f3124026b5d609cd0e66",
+      "runner_freeze_sha256": "3c444d6de5c8c508f8ccca98afe82f21e5f4463d72f2f909468b937b260170af",
+      "code_fingerprint": "904387d423e56b28857a92015c14dc9b7f9be1b5013e9ba34675617ed60fcd86",
+      "external_path": "/Volumes/DockerExternal/LiFlowBuildCache/realistic-20261106/lifestyle-traces/final-development-20261106",
+      "manifest_sha256": "459237be3024e4e3015b23311e4f54305f61c94c06b484a4dacc1f983753494e",
+      "sha256sums_sha256": "d2bcb64d699219d3280220ec0c894c21af9aeade93755ce63ca985a7b1b5eac7",
+      "file_count_including_manifest_and_sums": 7,
+      "files": [
+        {
+          "path": "results/development.json",
+          "bytes": 29877747,
+          "sha256": "696d73714b412e0dae817890072128649dd06e5c1d9b6ce1f1065c626b52c01b",
+          "verified": true
+        },
+        {
+          "path": "results/development.operations.jsonl.gz",
+          "bytes": 53344310,
+          "sha256": "ec7120e69e5e026167b13897cefde8dc7e5a4c1280adb75ad09b4a3e30de100a",
+          "verified": true
+        },
+        {
+          "path": "results/development-final-aggregate.json",
+          "bytes": 4995660,
+          "sha256": "59e3f35a0fec6b47a44c25f203624b0cedc2c0376d7592428b55f78af6f3ebf2",
+          "verified": true
+        },
+        {
+          "path": "results/runner-freeze.json",
+          "bytes": 4182,
+          "sha256": "3c444d6de5c8c508f8ccca98afe82f21e5f4463d72f2f909468b937b260170af",
+          "verified": true
+        },
+        {
+          "path": "results/multistep-feedback.json",
+          "bytes": 259358,
+          "sha256": "ebaf563d9dac352c89d5f9f612e4fb652a3cc253cfa379ba9c354453022e2d33",
+          "verified": true
+        },
+        {
+          "path": "manifest.json",
+          "bytes": 1412,
+          "sha256": "459237be3024e4e3015b23311e4f54305f61c94c06b484a4dacc1f983753494e"
+        },
+        {
+          "path": "SHA256SUMS",
+          "bytes": 575,
+          "sha256": "d2bcb64d699219d3280220ec0c894c21af9aeade93755ce63ca985a7b1b5eac7"
+        }
+      ],
+      "observation_and_learning": {
+        "total_observation_days": 331800,
+        "visible_completion_records": 15688,
+        "completion_records_through_horizon": 139775,
+        "target_chore_histories": 3114,
+        "target_histories_reaching_three_intervals": 1547,
+        "three_interval_reach_fraction": 0.4967886962106615,
+        "target_valid_interval_total": 12304,
+        "target_valid_intervals_per_target_history": 3.9511881824020554,
+        "minimum_observation_days": 90,
+        "maximum_observation_days": 730,
+        "reach_three_definition": "one target personal chore with at least three valid chronological SQLite completion intervals; seasonal, shared, fixed and non-target histories are excluded"
+      },
+      "prediction_scoring": {
+        "scored_predictions": 2926,
+        "unresolved_predictions": 188,
+        "mean_absolute_error_days_scored_only": 7.6537935748462065,
+        "unresolved_counted_as_zero_error": false,
+        "hidden_truth_sent_to_app": false,
+        "hidden_truth_used_as_prediction_target": false
+      },
+      "learning_eligibility": {
+        "applied_target_completions": 135425,
+        "eligible_completions": 104846,
+        "fraction": 0.7741997415543659,
+        "raw_source_zero_status": "invalid_for_chronological_sqlite_evaluation"
+      },
+      "no_candidate_and_replan": {
+        "rows": 158537,
+        "bytes": 53344310,
+        "sha256": "ec7120e69e5e026167b13897cefde8dc7e5a4c1280adb75ad09b4a3e30de100a",
+        "calendar_replan_calls": 14880,
+        "published_plan_results": 158355,
+        "fallback_plan_results_no_candidate": 1726,
+        "fallback_by_step_kind": {
+          "operation": 782,
+          "calendar_replan": 944
+        },
+        "no_plan_results": 182,
+        "no_plan_by_step_kind": {
+          "operation": 87,
+          "calendar_replan": 65,
+          "initialize": 30
+        },
+        "completion_operation_rows": 136265,
+        "completion_receipts": {
+          "applied": 135425,
+          "alreadyCompleted": 840
+        },
+        "settings_operation_rows": 1512,
+        "undo_operation_rows": 840,
+        "definitions": {
+          "fallback_plan_results_no_candidate": "actual persisted plan_after.fallback === true from chronological SQLite trace",
+          "no_plan_results": "actual trace rows with no plan_after; separated from no-candidate fallback results"
+        }
+      },
+      "multi_step_feedback": {
+        "local_path": "results/multistep-feedback.json",
+        "sha256": "ebaf563d9dac352c89d5f9f612e4fb652a3cc253cfa379ba9c354453022e2d33",
+        "scenarios": 9,
+        "steps_per_scenario": 15,
+        "actual_operation_observations": 135,
+        "status": "pass"
+      }
+    },
+    {
+      "run_id": "final-holdout-20261106",
+      "split": "holdout",
+      "status": "pass",
+      "unique_cases": 840,
+      "requested_case_count": 840,
+      "actual_case_evaluations": 840,
+      "actual_repetitions_per_case": 1,
+      "sqlite_operations": 140077,
+      "invariant_condition_evaluations": 10633,
+      "failures": [],
+      "directed": {
+        "cases": 21,
+        "pass": 21,
+        "fail": 0
+      },
+      "closed_loop": [
+        {
+          "target_follow_percent": 0,
+          "unique_source_cases": 84,
+          "scenario_observations": 84,
+          "actionable_cases": 84,
+          "follow_actions": 0,
+          "fail_count": 0,
+          "not_applicable_count": 0
+        },
+        {
+          "target_follow_percent": 50,
+          "unique_source_cases": 84,
+          "scenario_observations": 84,
+          "actionable_cases": 84,
+          "follow_actions": 42,
+          "fail_count": 0,
+          "not_applicable_count": 0
+        },
+        {
+          "target_follow_percent": 100,
+          "unique_source_cases": 84,
+          "scenario_observations": 84,
+          "actionable_cases": 84,
+          "follow_actions": 84,
+          "fail_count": 0,
+          "not_applicable_count": 0
+        }
+      ],
+      "invariant_summary": {
+        "LOCK_NEAR": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "NEXT_GENERATION": {
+          "pass": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 840,
+          "condition_evaluations": 0,
+          "tested_pass_fraction": null
+        },
+        "DAILY_FIXED": {
+          "pass": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 840,
+          "condition_evaluations": 0,
+          "tested_pass_fraction": null
+        },
+        "NEXT_AFTER_COMPLETION": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "COMPLETED_LOAD_ONCE": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "SAME_EVENT_ONCE": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "CONTIGUOUS": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "SHARED_NO_LEARN": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "UNASSIGNED_LOAD": {
+          "pass": 30,
+          "fail": 0,
+          "not_applicable": 810,
+          "not_tested": 0,
+          "condition_evaluations": 30,
+          "tested_pass_fraction": 1
+        },
+        "SEASONAL_FIXED": {
+          "pass": 810,
+          "fail": 0,
+          "not_applicable": 30,
+          "not_tested": 0,
+          "condition_evaluations": 810,
+          "tested_pass_fraction": 1
+        },
+        "FIXED_OVERRIDE": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "NO_INTERVAL_CAP": {
+          "pass": 486,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 354,
+          "condition_evaluations": 486,
+          "tested_pass_fraction": 1
+        },
+        "MIN_THREE": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "INSIDE_WINDOW": {
+          "pass": 824,
+          "fail": 0,
+          "not_applicable": 16,
+          "not_tested": 0,
+          "condition_evaluations": 824,
+          "tested_pass_fraction": 1
+        },
+        "UNDO_LOCAL": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "WEATHER_FAILURE_STABLE": {
+          "pass": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 840,
+          "condition_evaluations": 0,
+          "tested_pass_fraction": null
+        },
+        "NO_EXTRA_INPUT": {
+          "pass": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 840,
+          "condition_evaluations": 0,
+          "tested_pass_fraction": null
+        },
+        "NO_FAKE_HISTORY": {
+          "pass": 840,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 0,
+          "condition_evaluations": 840,
+          "tested_pass_fraction": 1
+        },
+        "MODE_BOUNDARY": {
+          "pass": 83,
+          "fail": 0,
+          "not_applicable": 756,
+          "not_tested": 1,
+          "condition_evaluations": 83,
+          "tested_pass_fraction": 1
+        },
+        "FALLBACK_LOCK": {
+          "pass": 0,
+          "fail": 0,
+          "not_applicable": 0,
+          "not_tested": 840,
+          "condition_evaluations": 0,
+          "tested_pass_fraction": null
+        }
+      },
+      "operation_trace": {
+        "local_path": "results/holdout.operations.jsonl.gz",
+        "external_path": "final-holdout-20261106/results/holdout.operations.jsonl.gz",
+        "bytes": 53833012,
+        "sha256": "7cce3e4153a74be83600a7bdd1d038b2754572fb76d3693a52ba30befa6fb7db"
+      },
+      "report_sha256": "4afb1493544688daf58e4feef6a316c64409daff0b327c675609cd2084794931",
+      "aggregate_sha256": "3660fc2b6266845be3d07c230edfe0fa24ce032678901d997ad18a89cc50e230",
+      "aggregate_source_sha256": "a9780419f84e2dcada3b674b34e86d2f8ce0c974d5f4f3124026b5d609cd0e66",
+      "runner_freeze_sha256": "3c444d6de5c8c508f8ccca98afe82f21e5f4463d72f2f909468b937b260170af",
+      "code_fingerprint": "904387d423e56b28857a92015c14dc9b7f9be1b5013e9ba34675617ed60fcd86",
+      "external_path": "/Volumes/DockerExternal/LiFlowBuildCache/realistic-20261106/lifestyle-traces/final-holdout-20261106",
+      "manifest_sha256": "57fd1966c5981b2222babcbe4877168ab362428ca895e15e8ab01b2ada990301",
+      "sha256sums_sha256": "eaa50d1face5e9e32fb1b405537814fbb1fccf41121c400c461f7b3f1aea1d3b",
+      "file_count_including_manifest_and_sums": 6,
+      "files": [
+        {
+          "path": "results/holdout.json",
+          "bytes": 29936522,
+          "sha256": "4afb1493544688daf58e4feef6a316c64409daff0b327c675609cd2084794931",
+          "verified": true
+        },
+        {
+          "path": "results/holdout.operations.jsonl.gz",
+          "bytes": 53833012,
+          "sha256": "7cce3e4153a74be83600a7bdd1d038b2754572fb76d3693a52ba30befa6fb7db",
+          "verified": true
+        },
+        {
+          "path": "results/holdout-final-aggregate.json",
+          "bytes": 5001414,
+          "sha256": "3660fc2b6266845be3d07c230edfe0fa24ce032678901d997ad18a89cc50e230",
+          "verified": true
+        },
+        {
+          "path": "results/runner-freeze.json",
+          "bytes": 4182,
+          "sha256": "3c444d6de5c8c508f8ccca98afe82f21e5f4463d72f2f909468b937b260170af",
+          "verified": true
+        },
+        {
+          "path": "manifest.json",
+          "bytes": 1200,
+          "sha256": "57fd1966c5981b2222babcbe4877168ab362428ca895e15e8ab01b2ada990301"
+        },
+        {
+          "path": "SHA256SUMS",
+          "bytes": 465,
+          "sha256": "eaa50d1face5e9e32fb1b405537814fbb1fccf41121c400c461f7b3f1aea1d3b"
+        }
+      ],
+      "observation_and_learning": {
+        "total_observation_days": 331800,
+        "visible_completion_records": 15854,
+        "completion_records_through_horizon": 142075,
+        "target_chore_histories": 3142,
+        "target_histories_reaching_three_intervals": 1570,
+        "three_interval_reach_fraction": 0.4996817313812858,
+        "target_valid_interval_total": 12442,
+        "target_valid_intervals_per_target_history": 3.9598981540420115,
+        "minimum_observation_days": 90,
+        "maximum_observation_days": 730,
+        "reach_three_definition": "one target personal chore with at least three valid chronological SQLite completion intervals; seasonal, shared, fixed and non-target histories are excluded"
+      },
+      "prediction_scoring": {
+        "scored_predictions": 2954,
+        "unresolved_predictions": 188,
+        "mean_absolute_error_days_scored_only": 7.157413676371022,
+        "unresolved_counted_as_zero_error": false,
+        "hidden_truth_sent_to_app": false,
+        "hidden_truth_used_as_prediction_target": false
+      },
+      "learning_eligibility": {
+        "applied_target_completions": 137725,
+        "eligible_completions": 106342,
+        "fraction": 0.7721328734797603,
+        "raw_source_zero_status": "invalid_for_chronological_sqlite_evaluation"
+      },
+      "no_candidate_and_replan": {
+        "rows": 160837,
+        "bytes": 53833012,
+        "sha256": "7cce3e4153a74be83600a7bdd1d038b2754572fb76d3693a52ba30befa6fb7db",
+        "calendar_replan_calls": 14880,
+        "published_plan_results": 160655,
+        "fallback_plan_results_no_candidate": 1684,
+        "fallback_by_step_kind": {
+          "operation": 740,
+          "calendar_replan": 944
+        },
+        "no_plan_results": 182,
+        "no_plan_by_step_kind": {
+          "operation": 87,
+          "calendar_replan": 65,
+          "initialize": 30
+        },
+        "completion_operation_rows": 138565,
+        "completion_receipts": {
+          "applied": 137725,
+          "alreadyCompleted": 840
+        },
+        "settings_operation_rows": 1512,
+        "undo_operation_rows": 840,
+        "definitions": {
+          "fallback_plan_results_no_candidate": "actual persisted plan_after.fallback === true from chronological SQLite trace",
+          "no_plan_results": "actual trace rows with no plan_after; separated from no-candidate fallback results"
+        }
+      }
+    }
+  ],
+  "run_results_report": {
+    "path": "results/RUN-RESULTS.md",
+    "sha256": "4bebcd45f4f80498d9982bbd912008bcfc5b443f93c01fab503ecac2af6f5f8d"
+  },
+  "run_summary_script": {
+    "path": "scripts/realistic-lifestyle-summary.mjs",
+    "sha256": "524d24d80104e5b7031c185af8efafaca969cdce96b1df9649389aacbbb753cc"
+  },
+  "final_code_fingerprint": "904387d423e56b28857a92015c14dc9b7f9be1b5013e9ba34675617ed60fcd86",
+  "final_aggregate_source_sha256": "a9780419f84e2dcada3b674b34e86d2f8ce0c974d5f4f3124026b5d609cd0e66",
+  "focused_audit": {
+    "kind": "post-run focused audit; no 1680-case corpus rerun",
+    "path": "results/focused-contract-audit.json",
+    "sha256": "7fe5c1d1544b5b81a671ac12dd4ab1c67d0f11fa96697d2af6dd4db44d51f1f4",
+    "previous_run_results_report_sha256": "78a23e805c84a37a4ad684572e5f689aad085389aef3294f4e9e8add3b6eae29",
+    "historical_runner_freeze_sha256": "3c444d6de5c8c508f8ccca98afe82f21e5f4463d72f2f909468b937b260170af",
+    "historical_code_fingerprint": "904387d423e56b28857a92015c14dc9b7f9be1b5013e9ba34675617ed60fcd86",
+    "historical_code_file_count": 19,
+    "input_zip_sha256": "df5a7481859bd9d77a55903084355ceae9ca3457be80a5235dfab95d481e743b",
+    "focused_source_sha256": {
+      "tests/completion-intents-ui.test.mjs": "dbcb9be2a3689b82aa31cb4a023660c556366b38332b3724c895a08d1cbe3064",
+      "tests/met-adaptive-weather.test.mjs": "e08df95946af8a2bac4f92c9dba59ecf969b9c3450aef9f93d033c9425acd276",
+      "tests/google-calendar-scheduler.test.mjs": "404a65ccedb209ee44bdbc05f064480a1857227c32b54972fe4e2d9d532a921e",
+      "tests/adaptive-placement.test.mjs": "695f313026edb935d311a6a0748c1805556442695021bac981b2829d33f8abf2",
+      "tests/personal-adaptive-repository.test.mjs": "afbcfa90072019981099c0923a7b736eb5b6a31ceeb04ca0685383ac41a8ae15",
+      "tests/weather-calendar-audit.test.mjs": "d5ee0e229be027438bdc554afbbef03958a9386ed1952c4574dabdacdb458218"
+    },
+    "targeted_test_count": 7,
+    "targeted_test_pass_count": 7,
+    "targeted_test_failure_count": 0,
+    "corpus_rerun": false,
+    "main_invariant_not_tested_counts_changed": false,
+    "frozen_helper_current_sha256": "32d55422f001be91cffa9c39933f6d5b8cb1f8667f140c07b32748de6da88ed3",
+    "historical_check_count": 10,
+    "historical_check_pass_count": 10,
+    "historical_check_failure_count": 0,
+    "report_consistency_check_count": 3,
+    "report_consistency_check_pass_count": 3,
+    "report_consistency_candidate_sha256": "9e0dfaee64b7052ef3e2b49742fde75ef782a2ca84ce1f9e7d5b26453f006cab",
+    "report_consistency_candidate_removed_from_worktree": true
+  }
+}

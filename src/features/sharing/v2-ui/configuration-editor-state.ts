@@ -16,17 +16,17 @@ export interface V2EditorInput { configuration: SharedChoreConfiguration; effect
 
 /** An external store keeps remote updates and queued drafts coherent without render-time ref writes. */
 export function createV2ConfigurationEditorState(initial: V2EditorInput) {
-  let input = initial; let draft = texts(initial.configuration); let refreshError: string | null = null;
+  let input = initial; let effectiveFrom = initial.effectiveFrom; let draft = texts(initial.configuration); let refreshError: string | null = null;
   let leaving = false; let removalAllowed = false;
   const listeners = new Set<() => void>();
-  const autosave = createV2ConfigurationAutosave({ configuration: initial.configuration, effectiveFrom: () => input.effectiveFrom,
+  const autosave = createV2ConfigurationAutosave({ configuration: initial.configuration, effectiveFrom: () => effectiveFrom,
     save: (edits, from) => input.save(edits, from), onSaved: async () => { refreshError = null; await input.onSaved(); },
     onRefreshError: () => { refreshError = '保存済みです。表示を更新できなかったため、再度開いて確認してください。'; },
   });
   function state() {
-    return { draft, status: autosave.getSnapshot(), refreshError, leaving, removalAllowed,
+    return { draft, effectiveFrom, status: autosave.getSnapshot(), refreshError, leaving, removalAllowed,
       hasDraft: Object.keys(draft).some((field) => autosave.isDirty(field as keyof typeof draft)),
-      anchorError: (() => { try { parseLocalDate(draft.anchorDate); return draft.anchorDate > input.effectiveFrom ? '基準日は適用開始日以前にしてください。' : null; }
+      anchorError: (() => { try { parseLocalDate(draft.anchorDate); return draft.anchorDate > effectiveFrom ? '基準日は適用開始日以前にしてください。' : null; }
         catch { return '日付を年-月-日で入力してください。'; } })() };
   }
   let snapshot = state();
@@ -60,6 +60,10 @@ export function createV2ConfigurationEditorState(initial: V2EditorInput) {
       catch { leaving = false; removalAllowed = false; refreshError = '端末に保存済みです。画面を移動できなかったため、もう一度お試しください。'; publish(); return false; }
     },
     hasDraft: () => snapshot.hasDraft, numberError,
+    changeEffectiveFrom(value: LocalDate) {
+      if (snapshot.hasDraft || ['pending', 'saving'].includes(autosave.getSnapshot().phase)) return;
+      effectiveFrom = value; publish();
+    },
     changeNumber(field: NumericField, text: string) {
       draft = { ...draft, [field]: text }; const [min, max] = limits[field]; const value = parseSettingInteger(text, min, max);
       if (value === undefined) autosave.invalidate(field); else autosave.enqueue(field, value); publish();
@@ -72,7 +76,7 @@ export function createV2ConfigurationEditorState(initial: V2EditorInput) {
     changeActive(value: boolean) { draft = { ...draft, active: value }; autosave.enqueue('active', value, true); publish(); },
     discard() {
       for (const field of Object.keys(draft)) autosave.discard(field as keyof typeof draft);
-      autosave.updateDisplayed(input.configuration); draft = texts(input.configuration); publish();
+      autosave.updateDisplayed(input.configuration); draft = texts(input.configuration); effectiveFrom = input.effectiveFrom; publish();
     },
   };
 }

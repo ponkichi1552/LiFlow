@@ -14,7 +14,6 @@ import {
 } from './laundry-policy.ts';
 import type { DailyWeather, WeatherForecastProvider } from './contracts';
 import { WEATHER_ADJUSTMENTS_ENABLED } from './contracts.ts';
-import { OpenMeteoForecastProvider } from './open-meteo-provider.ts';
 
 export type WeatherScheduleOutcome = 'disabled' | 'current' | 'adjusted' | 'unavailable';
 
@@ -36,12 +35,11 @@ export interface LaundryWeatherOptimizationInput {
   schedule: readonly ChoreScheduleEntry[];
 }
 
-const openMeteoForecastProvider = new OpenMeteoForecastProvider();
 
 /** Adds weather as an optional optimization; any failure returns the rule-based schedule unchanged. */
 export async function optimizeLaundryScheduleForWeather(
   input: LaundryWeatherOptimizationInput,
-  provider: WeatherForecastProvider<WeatherLocation, readonly DailyWeather[]> = openMeteoForecastProvider,
+  provider?: WeatherForecastProvider<WeatherLocation, readonly DailyWeather[]>,
 ): Promise<WeatherOptimizedSchedule> {
   if (!WEATHER_ADJUSTMENTS_ENABLED || !input.location) {
     return { schedule: [...input.schedule], outcome: 'disabled', adjustmentCount: 0 };
@@ -49,6 +47,9 @@ export async function optimizeLaundryScheduleForWeather(
 
   const forecastThrough = addDays(input.today, 6);
   if (!eligibleLaundryEntries(input.schedule, input).length) return { schedule: [...input.schedule], outcome: 'current', adjustmentCount: 0 };
+  // Historical schedule fixtures can inject their daily provider. Production
+  // personal planning uses the durable regional MET path, never this old client.
+  if (!provider) return { schedule: [...input.schedule], outcome: 'unavailable', adjustmentCount: 0 };
 
   try {
     const forecast = await provider.fetchForecast({

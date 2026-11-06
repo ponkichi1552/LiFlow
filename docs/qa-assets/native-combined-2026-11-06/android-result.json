@@ -1,0 +1,29 @@
+{
+  "checks": [
+    "genuine-history-three-interval-learning",
+    "unassigned-shared-load-reserved-without-learning",
+    "calendar-rain-shared-load-combined-reallocation",
+    "late-input-change-atomic-rollback",
+    "undo-preserves-later-explicit-setting",
+    "completion-replay-after-undo-is-idempotent"
+  ],
+  "proof": {
+    "projectionDigest": "e4c6fa70ba0293f0dc22f59bd7efec27112d3ba933513a3a5eace6cdbeb3365d",
+    "actionCount": 6
+  },
+  "learnedDays": 28,
+  "baselineDate": "2026-04-23",
+  "combinedDate": "2026-04-24",
+  "sharedProjectionUnchanged": true,
+  "syntheticInputOnly": true,
+  "networkUsed": false,
+  "result": "PASS",
+  "platform": "android",
+  "hermes": true,
+  "sqliteVersion": "3.53.3",
+  "durableRestart": true,
+  "cleaned": true,
+  "existingDatabaseOpened": false,
+  "elapsedMs": 2323,
+  "failure": null
+}

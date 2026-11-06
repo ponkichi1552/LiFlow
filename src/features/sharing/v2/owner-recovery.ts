@@ -93,7 +93,7 @@ export function createV2OwnerRecovery(deps: Omit<SharedSyncDependencies, 'v2' | 
       && body.baselineIndexDigest === draft.baselineIndexDigest && body.retainedIndexDigest === recoveryArrayDigest(draft.retainedBase.operationIndex)
       && canonicalJson(body.entries) === canonicalJson(review.entries);
   }
-  async function recoverCommitted(metadata: Current, draft: V2RecoveryDraft): Promise<string | null> {
+  async function recoverCommitted(metadata: Current, draft: V2RecoveryDraft, allowDifferentReview = false): Promise<string | null> {
     if (sharedRosterDigest(metadata.roster) === draft.review.previousRosterDigest) return null;
     if (!metadata.group.snapshotId) throw new V2RecoveryStaleError('共有の状態が変わりました。復旧内容を確認してください。');
     const encrypted = await deps.cloud.readSnapshot(deps.groupId, metadata.group.snapshotId, metadata.archive); guard();
@@ -105,7 +105,12 @@ export function createV2OwnerRecovery(deps: Omit<SharedSyncDependencies, 'v2' | 
         (uid, device, version) => sharedAuthorIdentity(metadata.archive[version - 1], uid, device, version), metadata.archive); guard();
       const witnesses = verifyV2RecoveryWitnesses(snapshot.base.recoveryWitnesses ?? [], metadata.archive, deps.groupId);
       const own = witnesses.find(witness => matchesWitness(witness, draft));
-      if (!own) throw new V2RecoveryStaleError('共有は別の操作で更新されています。確認した復旧の完了とは扱いません。');
+      if (!own) {
+        // Cancellation may retire an obsolete LOCAL review only after the
+        // current signed snapshot, key and witness set have all been verified.
+        if (allowDifferentReview) return null;
+        throw new V2RecoveryStaleError('共有は別の操作で更新されています。確認した復旧の完了とは扱いません。');
+      }
       // A lost commit response must recover the actual committed key, never a regenerated next-epoch key.
       await deps.saveKey(epoch.body.keyVersion, key); guard();
       await store.markApplied(draft.review.id, draft.review.reviewDigest, own.body.snapshotId); guard();
@@ -114,7 +119,6 @@ export function createV2OwnerRecovery(deps: Omit<SharedSyncDependencies, 'v2' | 
   }
   async function confirmInside(id: string, expectedDigest: string) {
     const saved = await readConfirmed(id, expectedDigest);
-    if (saved.status === 'review') await store.markConfirming(id, expectedDigest);
     const { draft } = saved; const metadata = await current();
     const committed = await recoverCommitted(metadata, draft); if (committed) return committed;
     const baseline = buildSharedReplica(deps.groupId, [], draft.baselineBase);
@@ -129,6 +133,7 @@ export function createV2OwnerRecovery(deps: Omit<SharedSyncDependencies, 'v2' | 
     } finally { key.fill(0); }
     const reviewed = reviewFor(id, metadata, draft.review.baselineSequence, analysis, prefix.events);
     if (canonicalJson(reviewed) !== canonicalJson(draft.review)) throw new V2RecoveryStaleError('共有の内容が変わりました。復旧の影響を確認し直してください。');
+    if (saved.status === 'review') await store.markConfirming(id, expectedDigest);
     const lock = signV2RecoveryLock(metadata.roster, deps.identity, { id, throughSequence: reviewed.throughSequence, reviewDigest: expectedDigest });
     await deps.cloud.startRecoveryLock(lock); guard();
     const next = recoverSharedRoster(metadata.roster, deps.identity, reviewed.removeDeviceIds, reviewed.removeUserIds);
@@ -168,6 +173,7 @@ export function createV2OwnerRecovery(deps: Omit<SharedSyncDependencies, 'v2' | 
   return {
     enabled: deps.cloud.ownerRecoveryEnabled,
     read: () => { deps.assertCurrentAccount(); return store.read(); },
+    readSummary: () => { deps.assertCurrentAccount(); return store.readSummary(); },
     prepare: () => deps.withMaintenance(async () => {
       const metadata = await current(); const checkpoint = await readSharingCheckpoint(deps.database, deps.groupId); guard();
       if (checkpoint.sequence < metadata.group.snapshotThroughSequence) throw new V2RecoveryStaleError('先に最新の共有Snapshotを受信してください。');
@@ -196,6 +202,12 @@ export function createV2OwnerRecovery(deps: Omit<SharedSyncDependencies, 'v2' | 
       const metadata = await current();
       const previous = metadata.archive.find(epoch => sharedRosterDigest(epoch) === saved.draft.review.previousRosterDigest);
       if (!previous) throw new V2RecoveryStaleError('元の共有権限を確認できません。');
+      if (sharedRosterDigest(metadata.roster) !== saved.draft.review.previousRosterDigest) {
+        if (await recoverCommitted(metadata, saved.draft, true)) throw new V2RecoveryStaleError('この復旧は既に完了しています。');
+        // A forward-only roster change makes a late start under the previous
+        // signed epoch impossible. Do not cancel another recovery's cloud lock.
+        await store.markCancelled(id, expectedDigest); guard(); deps.changed(); return;
+      }
       await deps.cloud.cancelRecoveryLock(signV2RecoveryLock(previous, deps.identity, { id,
         throughSequence: saved.draft.review.throughSequence, reviewDigest: expectedDigest })); guard();
       await store.markCancelled(id, expectedDigest); guard(); deps.changed();

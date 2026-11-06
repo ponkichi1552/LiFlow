@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
 import { newSubscriptionAccount, SubscriptionError, subscriptionUserId, subscriptionHash } from './subscription-service.mjs';
 
 /** Admin SDK only. Neither clients nor shared-group members can write these collections. */
@@ -6,6 +6,7 @@ export function createFirestoreSubscriptionStore({ firestore, tokenKey }) {
   if (!Buffer.isBuffer(tokenKey) || tokenKey.length !== 32) throw new Error('A separate 32-byte billing token-encryption key is required');
   const accounts = firestore.collection('billingAccounts'); const purchases = firestore.collection('billingPurchases');
   const entitlements = firestore.collection('billingEntitlements');
+  const acknowledgements = firestore.collection('billingAcknowledgements');
   function encrypt(key, value) {
     const nonce = randomBytes(12); const cipher = createCipheriv('aes-256-gcm', tokenKey, nonce, { authTagLength: 16 });
     cipher.setAAD(Buffer.from(key)); const bytes = Buffer.concat([cipher.update(JSON.stringify(value)), cipher.final()]);
@@ -50,16 +51,28 @@ export function createFirestoreSubscriptionStore({ firestore, tokenKey }) {
         if (!account || account.generation !== generation) throw new SubscriptionError(409, 'SUBSCRIPTION_RETRY_REQUIRED', '契約の確認が更新されました。もう一度確認してください。');
         const keys = new Set(records.flatMap(record => [record.key, ...(record.linkedPurchaseId ? [`${record.store}-${subscriptionHash(record.linkedPurchaseId)}`] : [])]));
         const old = keys.size ? await tx.getAll(...[...keys].map(key => purchases.doc(key))) : [];
+        const queued = keys.size ? await tx.getAll(...[...keys].map(key => acknowledgements.doc(key))) : [];
         if (old.some(snapshot => snapshot.exists && snapshot.data().userId !== userId)) {
           throw new SubscriptionError(409, 'PURCHASE_ALREADY_BOUND', 'この購入は別のLiFlowアカウントに紐づいています。購入時のアカウントでログインしてください。');
         }
         const linked = new Set(records.filter(record => record.linkedPurchaseId).map(record => `${record.store}-${subscriptionHash(record.linkedPurchaseId)}`));
         const current = records.filter(record => !linked.has(record.key));
         // Remove only old pointers. Permanent purchase ownership records still prevent token reuse by another UID.
-        const nextKeys = current.filter(record => !['expired', 'revoked'].includes(record.status) || record.expiresAt > at - 60 * 24 * 60 * 60_000).map(record => record.key);
+        const nextKeys = current.filter(record => record.retired !== true
+          && (!['expired', 'revoked'].includes(record.status) || record.expiresAt > at - 60 * 24 * 60 * 60_000)).map(record => record.key);
         if (nextKeys.length > 8) throw new SubscriptionError(409, 'SUBSCRIPTION_REVIEW_REQUIRED', '契約の確認が必要です。');
         const body = entitlement(at, current);
         if (body.revision !== account.revision + 1) throw new Error('Invalid subscription revision');
+        const pending = new Set(current.filter(record => record.store === 'google' && record.acknowledgementPending === true
+          && ['active', 'grace'].includes(record.status) && record.expiresAt > at).map(record => record.key));
+        for (const key of keys) {
+          const previous = queued.find(snapshot => snapshot.id === key)?.data();
+          if (pending.has(key)) {
+            // Preserve retry/lease state on ordinary client refreshes. The token remains only in encryptedProof.
+            if (!previous) tx.set(acknowledgements.doc(key), { userId, firstQueuedAt: at, nextAttemptAt: at, attempts: 0, lease: null });
+            else if (previous.userId !== userId) throw new Error('Invalid acknowledgement owner');
+          } else if (previous) tx.delete(acknowledgements.doc(key));
+        }
         for (const record of records) tx.set(purchases.doc(record.key), { userId, store: record.store,
           encryptedProof: encrypt(record.key, record), updatedAt: at });
         tx.set(accountRef, { ...account, revision: body.revision, purchaseKeys: nextKeys });
@@ -70,5 +83,54 @@ export function createFirestoreSubscriptionStore({ firestore, tokenKey }) {
     async entitlement(userId) { return (await entitlements.doc(subscriptionUserId(userId)).get()).data() ?? null; },
     async account(userId) { return (await accounts.doc(subscriptionUserId(userId)).get()).data() ?? null; },
     async owner(key) { return (await purchases.doc(key).get()).data()?.userId ?? null; },
+    async dueAcknowledgements(at, limit = 10) {
+      if (!Number.isSafeInteger(at) || !Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('Invalid acknowledgement batch');
+      const result = await acknowledgements.where('nextAttemptAt', '<=', at).orderBy('nextAttemptAt').limit(limit).get();
+      return result.docs.map(snapshot => snapshot.id);
+    },
+    async claimAcknowledgement(key, at) {
+      if (!/^google-[a-f0-9]{64}$/u.test(key) || !Number.isSafeInteger(at)) throw new Error('Invalid acknowledgement claim');
+      return firestore.runTransaction(async tx => {
+        const ref = acknowledgements.doc(key); const pending = (await tx.get(ref)).data();
+        if (!pending || pending.nextAttemptAt > at) return null;
+        const purchase = (await tx.get(purchases.doc(key))).data();
+        const account = purchase ? (await tx.get(accounts.doc(subscriptionUserId(purchase.userId)))).data() : null;
+        const record = purchase ? decrypt(key, purchase.encryptedProof) : null;
+        if (!purchase || pending.userId !== purchase.userId || !account?.purchaseKeys.includes(key)
+          || record.store !== 'google' || record.acknowledgementPending !== true
+          || !['active', 'grace'].includes(record.status) || record.expiresAt <= at) {
+          tx.delete(ref); return null;
+        }
+        if (!Number.isSafeInteger(pending.attempts) || pending.attempts < 0 || !Number.isSafeInteger(pending.firstQueuedAt)) throw new Error('Invalid acknowledgement state');
+        const lease = randomUUID();
+        tx.set(ref, { ...pending, lease, attempts: pending.attempts + 1, nextAttemptAt: at + 120_000 });
+        return { key, userId: purchase.userId, lease, firstQueuedAt: pending.firstQueuedAt };
+      });
+    },
+    async finishAcknowledgement(claim, success, at, random = Math.random) {
+      return firestore.runTransaction(async tx => {
+        const ref = acknowledgements.doc(claim.key); const pending = (await tx.get(ref)).data();
+        if (!pending || pending.lease !== claim.lease || pending.userId !== claim.userId) return false;
+        const purchaseRef = purchases.doc(claim.key); const purchase = success ? (await tx.get(purchaseRef)).data() : null;
+        if (success) {
+          if (purchase?.userId !== claim.userId) throw new Error('Invalid acknowledgement owner');
+          const record = decrypt(claim.key, purchase.encryptedProof);
+          tx.set(purchaseRef, { ...purchase, encryptedProof: encrypt(claim.key, { ...record, acknowledgementPending: false }) });
+          tx.delete(ref);
+        } else {
+          const jitter = Math.max(0, Math.min(1, random()));
+          const delay = Math.floor(Math.min(3600_000, 30_000 * 2 ** Math.min(7, pending.attempts - 1)) * (0.8 + 0.2 * jitter));
+          tx.set(ref, { ...pending, lease: null, nextAttemptAt: at + delay });
+        }
+        return true;
+      });
+    },
+    async ownsAcknowledgement(claim) {
+      return firestore.runTransaction(async tx => {
+        const pending = (await tx.get(acknowledgements.doc(claim.key))).data();
+        const account = (await tx.get(accounts.doc(subscriptionUserId(claim.userId)))).data();
+        return Boolean(pending?.lease === claim.lease && pending.userId === claim.userId && account?.purchaseKeys.includes(claim.key));
+      });
+    },
   };
 }

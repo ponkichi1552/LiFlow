@@ -1,12 +1,111 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createPlannerRefreshController } from '../src/features/planner/refresh-controller.ts';
+import { AdaptiveOwnerInputsChangedError } from '../src/platform/storage/adaptive-owner-inputs.ts';
 
 function deferred() {
   let resolve;
   const promise = new Promise((done) => { resolve = done; });
   return { promise, resolve };
 }
+
+const retryOwnerDrift = error => error instanceof AdaptiveOwnerInputsChangedError;
+
+test('a captured owner-input change retries one local read without an error flash or duplicate weather and native output', async () => {
+  const retry = deferred(); const calls = [], published = [], states = []; let ready = false, weatherReads = 0;
+  const controller = createPlannerRefreshController({
+    load: async (ids, force) => {
+      calls.push({ ids, force });
+      if (calls.length === 1) throw new AdaptiveOwnerInputsChangedError();
+      return { snapshot: await retry.promise, canPublishWidget: true };
+    },
+    retryLoadOnError: retryOwnerDrift,
+    weather: async () => { weatherReads++; return null; }, publish: snapshot => published.push(snapshot),
+  });
+  controller.subscribe(() => states.push(controller.getSnapshot()));
+  void controller.waitForInitialRead().then(() => { ready = true; });
+  const pending = controller.refresh({ widgetCompletionIds: ['durable-action'], force: true });
+  await new Promise(setImmediate);
+  assert.equal(ready, false); assert.deepEqual(states, []); assert.equal(weatherReads, 0);
+  assert.deepEqual(calls, [ { ids: ['durable-action'], force: true }, { ids: ['durable-action'], force: true } ]);
+  retry.resolve('current settings'); await pending;
+  assert.equal(ready, true); assert.deepEqual(published, ['current settings']); assert.equal(weatherReads, 1);
+  assert.equal(controller.getSnapshot().error, null); assert.equal(states.length, 1);
+});
+
+test('persistent owner-input drift retries only once and retains an existing usable snapshot', async () => {
+  let calls = 0, fail = false; const published = [];
+  const controller = createPlannerRefreshController({
+    load: async () => { calls++; if (fail) throw new AdaptiveOwnerInputsChangedError(); return { snapshot: 'saved', canPublishWidget: true }; },
+    retryLoadOnError: retryOwnerDrift, weather: async () => null, publish: snapshot => published.push(snapshot),
+  });
+  await controller.refresh(); fail = true; await controller.refresh();
+  assert.equal(calls, 3); assert.deepEqual(published, ['saved']);
+  assert.equal(controller.getSnapshot().snapshot, 'saved');
+  assert.equal(controller.getSnapshot().error, new AdaptiveOwnerInputsChangedError().message);
+});
+
+test('owner-read recovery never retries access revocation or an untyped error and still discards revoked content', async () => {
+  for (const error of [Object.assign(new Error('access revoked'), { code: 'sharing/access-denied' }),
+    new Error(new AdaptiveOwnerInputsChangedError().message)]) {
+    let calls = 0, fail = false;
+    const controller = createPlannerRefreshController({
+      load: async () => { calls++; if (fail) throw error; return { snapshot: 'saved', canPublishWidget: false }; },
+      retryLoadOnError: retryOwnerDrift, discardSnapshotOnError: value => value.code === 'sharing/access-denied',
+      weather: async () => null, publish() {},
+    });
+    await controller.refresh(); fail = true; await controller.refresh();
+    assert.equal(calls, 2); assert.equal(controller.getSnapshot().error, error.message);
+    assert.equal(controller.getSnapshot().snapshot, error.code ? null : 'saved');
+  }
+});
+
+test('a superseding refresh or invalidation cancels owner-read recovery and never publishes the obsolete attempt', async () => {
+  for (const phase of ['superseded-before-retry', 'invalidated-before-retry', 'invalidated-during-retry']) {
+    const first = deferred(), retry = deferred(); const calls = [], published = []; let weatherReads = 0;
+    const controller = createPlannerRefreshController({
+      load: async ids => {
+        calls.push(ids);
+        if (calls.length === 1) { await first.promise; throw new AdaptiveOwnerInputsChangedError(); }
+        if (phase === 'invalidated-during-retry') await retry.promise;
+        return { snapshot: 'current', canPublishWidget: false };
+      },
+      retryLoadOnError: retryOwnerDrift, weather: async () => { weatherReads++; return null; }, publish: snapshot => published.push(snapshot),
+    });
+    const pending = controller.refresh({ widgetCompletionIds: ['old'] }); await Promise.resolve();
+    if (phase === 'superseded-before-retry') void controller.refresh({ widgetCompletionIds: ['new'] });
+    if (phase === 'invalidated-before-retry') controller.invalidate();
+    first.resolve(); await new Promise(setImmediate);
+    if (phase === 'invalidated-during-retry') { controller.invalidate(); retry.resolve(); }
+    await pending;
+    assert.deepEqual(calls, phase === 'superseded-before-retry' ? [['old'], ['new']]
+      : phase === 'invalidated-before-retry' ? [['old']] : [['old'], ['old']]);
+    assert.deepEqual(published, phase === 'superseded-before-retry' ? ['current'] : []);
+    assert.equal(weatherReads, phase === 'superseded-before-retry' ? 1 : 0);
+    assert.equal(controller.getSnapshot().error, null);
+  }
+});
+
+test('foreground observers wait for the existing first local read without starting or duplicating it', async () => {
+  const read = deferred(); let loads = 0; let ready = false;
+  const controller = createPlannerRefreshController({ load: async () => { loads++; return { snapshot: await read.promise, canPublishWidget: false }; },
+    weather: async () => null, publish() {} });
+  void controller.waitForInitialRead().then(() => { ready = true; });
+  await Promise.resolve(); assert.equal(ready, false); assert.equal(loads, 0);
+  const pending = controller.refresh(); await Promise.resolve(); assert.equal(ready, false); assert.equal(loads, 1);
+  read.resolve('local content'); await pending; assert.equal(ready, true); assert.equal(loads, 1);
+  await controller.waitForInitialRead(); assert.equal(controller.getSnapshot().snapshot, 'local content');
+});
+
+test('a failed local attempt releases independent recovery while a cancelled stale read does not', async () => {
+  const read = deferred(); let ready = false; let loads = 0;
+  const controller = createPlannerRefreshController({ load: async () => { if (++loads === 1) await read.promise; throw new Error('local read failed'); },
+    weather: async () => null, publish() {} });
+  void controller.waitForInitialRead().then(() => { ready = true; });
+  const pending = controller.refresh(); await Promise.resolve(); controller.invalidate(); read.resolve(); await pending;
+  assert.equal(ready, false);
+  await controller.refresh(); assert.equal(ready, true); assert.equal(controller.getSnapshot().error, 'local read failed');
+});
 
 test('concurrent refreshes share one load and merge widget actions', async () => {
   const calls = [], published = [];

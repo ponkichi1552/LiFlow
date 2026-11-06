@@ -30,8 +30,8 @@ export function toApplianceCareChore(
 ): ChoreDefinition {
   const manufacturerCycle = approved.task.recommendedIntervalDays;
   const userCycle = approved.userIntervalDays;
-  if (userCycle !== undefined && (!Number.isInteger(userCycle) || userCycle < 1 || userCycle > 3650)) {
-    throw new RangeError('周期は1〜3650日の整数で入力してください。');
+  if (userCycle !== undefined && (!Number.isSafeInteger(userCycle) || userCycle < 1)) {
+    throw new RangeError('周期は1日以上の整数で入力してください。');
   }
   const cycleRequired = userCycle === undefined && manufacturerCycle === undefined;
   const fallbackCycle = manufacturerCycle ?? 30;

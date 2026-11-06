@@ -1,7 +1,7 @@
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { workspaceHarness } from './helpers/sharing-workspaces-harness.mjs';
+import { workspaceHarness, createWorkspaceTestTimers } from './helpers/sharing-workspaces-harness.mjs';
 
 import { withSharingLedgerTransaction } from '../src/platform/storage/sharing-ledger.ts';
 import { readSharingWorkspace, updateSharingWorkspace } from '../src/platform/storage/sharing-registry.ts';
@@ -12,6 +12,39 @@ import { signSharedDocument } from '../src/features/sharing/crypto.ts';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
 import { createV2WorkspaceSession } from '../src/features/sharing/v2/workspace-session.ts';
+const { syncGoogleTasksWithDependencies } = await import('../src/features/google-sync/coordinator.ts');
+
+for (const status of ['idle', 'retryPending', 'authRequired', 'syncing']) {
+  test(`a delivered native group distinguishes a fresh Tasks cadence from ${status} deferred work`, async () => {
+    const h = await workspaceHarness({ deferWorkspaceTimers: true });
+    try {
+      const workspace = await h.api.openSharedWorkspace(h.record);
+      await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, value => ({ ...value, status: 'active' }));
+      await workspace.record(); h.vault.set('sharing-enabled', 'true');
+      const now = new Date(); let saves = 0; let pendingReads = 0; let googleResult;
+      const state = { householdId: 'shared-v2', enabled: true, disconnected: false, taskListId: 'test-list', status,
+        lastSuccessfulSyncAt: new Date(now.getTime() - 60_000).toISOString(), lastAttemptAt: now.toISOString(),
+        nextRetryAt: new Date(now.getTime() + 3_600_000).toISOString(), retryCount: 0, updatedAt: now.toISOString() };
+      workspace.sync = async () => ({ complete: true, pending: 0, waitingForApproval: false });
+      workspace.reminders = async () => ({ synchronize: async () => {} });
+      workspace.maintainHistory = async () => {};
+      workspace.googleCalendar = async () => ({ synchronize: async () => ({ kind: 'skipped' }) });
+      workspace.googleTasks = async () => ({ readControl: async () => ({ state, revision: 1 }), synchronize: async () => {
+        googleResult = await syncGoogleTasksWithDependencies({
+          loadState: async () => state, saveState: async () => { saves++; },
+          hasPendingLocalChanges: async () => { pendingReads++; return false; },
+          getAccessToken: async () => { throw new Error('No Google authorization is needed before the cadence is due'); },
+          api: new Proxy({}, { get() { throw new Error('No Google request is allowed before the cadence is due'); } }),
+        }, { now });
+        return googleResult;
+      } });
+      assert.deepEqual(await h.api.syncSharingWorkspace(), { kind: status === 'idle' ? 'success' : 'pending' });
+      assert.equal(googleResult.skipped, true);
+      assert.equal(saves, 0, 'classifying an existing cadence cannot write or resend changes');
+      assert.equal(pendingReads, ['idle', 'syncing'].includes(status) ? 1 : 0);
+    } finally { await h.close(); }
+  });
+}
 
 for (const [flag, expected, name] of [[undefined, true, 'normal v2 workspace enables owner recovery by default without changing its stored events'],
   ['false', false, 'an explicit recovery opt-out reaches the native cloud and session without changing its stored events']]) test(name, async (t) => {
@@ -29,7 +62,7 @@ for (const [flag, expected, name] of [[undefined, true, 'normal v2 workspace ena
 });
 
 test('native v2 workspace factory chooses its isolated session and never registers a legacy planner adapter', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] }); const h = await workspaceHarness();
+  const timers = createWorkspaceTestTimers(); const h = await workspaceHarness({ workspaceTimers: timers });
   try {
     const workspace = await h.api.openSharedWorkspace(h.record); assert.equal(workspace.protocol, 2);
     assert.equal('adapter' in workspace, false); assert.deepEqual(h.calls, [['v2-open', 'owner', h.record.groupId, undefined]]);
@@ -67,7 +100,7 @@ test('a native singleton conflict adopts only the live confirmed locally known g
   } finally { await h.close(); retained.connection.close(); }
 });
 test('a pending signed invitation never opens a guessed database or reads a group key before approval', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] }); const h = await workspaceHarness({ pending: true });
+  const timers = createWorkspaceTestTimers(); const h = await workspaceHarness({ workspaceTimers: timers, pending: true });
   try {
     const workspace = await h.api.openSharedWorkspace(h.record); assert.equal(workspace.protocol, null); assert.equal(workspace.database, null);
     assert.equal((await workspace.sync({ force: true })).waitingForApproval, true); assert.deepEqual(h.calls, ['join']);
@@ -77,7 +110,7 @@ test('a pending signed invitation never opens a guessed database or reads a grou
   } finally { await h.close(); }
 });
 test('a verified pending approval opens v2 only after discovery and does not activate an empty uninitialized group', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] }); const h = await workspaceHarness({ pending: true });
+  const timers = createWorkspaceTestTimers(); const h = await workspaceHarness({ workspaceTimers: timers, pending: true });
   try {
     const waiting = await h.api.openSharedWorkspace(h.record); const next = approveSharedDevice(h.initial, h.owner, 'member', h.identity);
     const metadata = { roster: next, group: { ...rosterCloudFields(next), headSequence: 0, lastOperationId: null, snapshotId: null, snapshotThroughSequence: 0 } };
@@ -93,7 +126,7 @@ test('a verified pending approval opens v2 only after discovery and does not act
   } finally { await h.close(); }
 });
 test('pending protocol discovery stops an account switch before saving membership or opening any chore database', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] }); const h = await workspaceHarness({ pending: true });
+  const timers = createWorkspaceTestTimers(); const h = await workspaceHarness({ workspaceTimers: timers, pending: true });
   try {
     const workspace = await h.api.openSharedWorkspace(h.record);
     h.cloud.readGroup = async () => { h.auth.uid = 'other'; return { roster: h.initial }; };
@@ -102,7 +135,7 @@ test('pending protocol discovery stops an account switch before saving membershi
   } finally { await h.close(); }
 });
 test('a departed v2 session cannot save new operations while all prior signed history remains stored', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] }); const h = await workspaceHarness();
+  const timers = createWorkspaceTestTimers(); const h = await workspaceHarness({ workspaceTimers: timers });
   try {
     const workspace = await h.api.openSharedWorkspace(h.record);
     await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, (record) => ({ ...record, status: 'left' }));
@@ -163,7 +196,7 @@ test('a queued v2 Native command rechecks a newly stored access error while its 
   } finally { release?.(); await h.close(); }
 });
 test('v2 UI commands recheck a stored version or access failure while cached data remains readable and retry does not invent edits', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] }); const h = await workspaceHarness();
+  const timers = createWorkspaceTestTimers(); const h = await workspaceHarness({ workspaceTimers: timers });
   try {
     const workspace = await h.api.openSharedWorkspace(h.record); const chore = (await workspace.readOverview()).chores[0];
     for (const code of ['sharing/scheduler-version-mismatch', 'permission-denied']) {
@@ -178,7 +211,7 @@ test('v2 UI commands recheck a stored version or access failure while cached dat
   } finally { await h.close(); }
 });
 test('an unsupported signed protocol during invitation discovery preserves the pin and never opens a database or reads a key', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] }); const h = await workspaceHarness({ pending: true });
+  const timers = createWorkspaceTestTimers(); const h = await workspaceHarness({ workspaceTimers: timers, pending: true });
   try {
     const workspace = await h.api.openSharedWorkspace(h.record); const approved = approveSharedDevice(h.initial, h.owner, 'member', h.identity);
     const body = { ...approved.body, schedulerVersion: 'future-v2-unsupported' };
@@ -192,7 +225,7 @@ test('an unsupported signed protocol during invitation discovery preserves the p
 });
 
 test('normal workspace dispatch refuses an unprepared v1 upgrade before opening either database format', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] }); const h = await workspaceHarness({ version: 1 });
+  const timers = createWorkspaceTestTimers(); const h = await workspaceHarness({ workspaceTimers: timers, version: 1 });
   try {
     const upgraded = upgradeSharedRoster(h.initial, h.owner);
     await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, (record) => ({ ...record, rosterArchive: [h.initial, upgraded] }));
@@ -203,7 +236,7 @@ test('normal workspace dispatch refuses an unprepared v1 upgrade before opening 
 });
 
 test('normal v2 workspace commits refresh its local reminders and retain the real account and group guard', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] }); const h = await workspaceHarness();
+  const timers = createWorkspaceTestTimers(); const h = await workspaceHarness({ workspaceTimers: timers });
   try {
     const workspace = await h.api.openSharedWorkspace(h.record);
     await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, value => ({ ...value, status: 'active' })); await workspace.record();
@@ -218,10 +251,10 @@ test('normal v2 workspace commits refresh its local reminders and retain the rea
 });
 
 test('a bounded v2 worker does not launch an independent notification pass after its cloud budget expires', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] }); const previousNow = Date.now; let now = previousNow();
+  const timers = createWorkspaceTestTimers(); const previousNow = Date.now; let now = previousNow();
   Date.now = () => now;
   let reads = 0;
-  const h = await workspaceHarness({ cloud: { readGroup: async () => { reads++; now += 30_000; throw new Error('cloud unavailable after deadline'); } } });
+  const h = await workspaceHarness({ workspaceTimers: timers, cloud: { readGroup: async () => { reads++; now += 30_000; throw new Error('cloud unavailable after deadline'); } } });
   try {
     const workspace = await h.api.openSharedWorkspace(h.record);
     const attempts = Array.from({ length: 100 }, () => workspace.sync({ budgetMs: 1_000 }));
@@ -230,7 +263,7 @@ test('a bounded v2 worker does not launch an independent notification pass after
     assert.equal(h.reminderCalls.includes('factory'), false, 'the coordinator owns the remaining worker budget');
     assert.equal(h.reminderCalls.includes('sync'), false);
     assert.equal(h.taskCalls.length, 0);
-    t.mock.timers.tick(1_000); for (let i = 0; i < 12; i++) await new Promise(setImmediate);
+    timers.tick(1_000); for (let i = 0; i < 12; i++) await new Promise(setImmediate);
     assert.equal(reads, 1, 'coalesced worker requests retain their original deadline after the first pass');
   } finally { Date.now = previousNow; await h.close(); }
 });
@@ -256,7 +289,7 @@ test('coalesced foreground sync callers run one history maintenance pass while a
 });
 
 test('disconnecting a legacy Google workspace preserves a paused v2 connection on the same Native account', async t => {
-  t.mock.timers.enable({ apis: ['setTimeout'] }); const h = await workspaceHarness();
+  const timers = createWorkspaceTestTimers(); const h = await workspaceHarness({ workspaceTimers: timers });
   try {
     const workspace = await h.api.openSharedWorkspace(h.record);
     await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, value => ({ ...value, status: 'active' })); await workspace.record();
@@ -268,8 +301,8 @@ test('disconnecting a legacy Google workspace preserves a paused v2 connection o
 });
 
 test('loading the v2 Tasks runtime consumes the original worker budget before any Google synchronization starts', async t => {
-  t.mock.timers.enable({ apis: ['setTimeout'] }); const previous = Date.now; let now = previous(); Date.now = () => now;
-  const h = await workspaceHarness();
+  const timers = createWorkspaceTestTimers(); const previous = Date.now; let now = previous(); Date.now = () => now;
+  const h = await workspaceHarness({ workspaceTimers: timers });
   try {
     const workspace = await h.api.openSharedWorkspace(h.record);
     await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, value => ({ ...value, status: 'active' })); await workspace.record();
@@ -279,6 +312,27 @@ test('loading the v2 Tasks runtime consumes the original worker budget before an
     workspace.googleTasks = async () => { now += 30_000; return { synchronize: async () => { syncs++; } }; };
     await h.api.syncSharingWorkspace(20_000); assert.equal(syncs, 0);
   } finally { Date.now = previous; await h.close(); }
+});
+
+test('the shared worker completes group delivery without starting an unconfigured paused or disconnected optional Tasks sync', async t => {
+  for (const state of [null, { enabled: false, disconnected: false }, { enabled: false, disconnected: true }]) {
+    await t.test(state === null ? 'unconfigured' : state.disconnected ? 'disconnected' : 'paused', async () => {
+      const h = await workspaceHarness({ deferWorkspaceTimers: true });
+      try {
+        const workspace = await h.api.openSharedWorkspace(h.record);
+        await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, value => ({ ...value, status: 'active' })); await workspace.record();
+        h.vault.set('sharing-enabled', 'true'); let taskSyncs = 0;
+        workspace.sync = async () => ({ complete: true, pending: 0, waitingForApproval: false });
+        workspace.reminders = async () => ({ synchronize: async () => {} });
+        workspace.maintainHistory = async () => {};
+        workspace.googleTasks = async () => ({ readControl: async () => ({ state, revision: 1 }),
+          synchronize: async () => { taskSyncs++; return { kind: 'success', skipped: true }; } });
+        workspace.googleCalendar = async () => ({ synchronize: async () => ({ kind: 'skipped' }) });
+        assert.deepEqual(await h.api.syncSharingWorkspace(), { kind: 'success' });
+        assert.equal(taskSyncs, 0, 'an optional disabled integration must not create work or mark delivered group changes pending');
+      } finally { await h.close(); }
+    });
+  }
 });
 
 for (const failure of ['shared', 'reminders', 'google-throw', 'retry', 'authRequired', 'error', 'success']) {
@@ -291,7 +345,7 @@ for (const failure of ['shared', 'reminders', 'google-throw', 'retry', 'authRequ
       workspace.sync = async () => { calls.push('shared'); if (failure === 'shared') throw new Error('synthetic shared failure'); return {}; };
       workspace.maintainHistory = async () => { calls.push('history'); };
       workspace.reminders = async () => ({ synchronize: async () => { calls.push('reminders'); if (failure === 'reminders') throw new Error('synthetic reminder failure'); } });
-      workspace.googleTasks = async () => ({ synchronize: async () => {
+      workspace.googleTasks = async () => ({ readControl: async () => ({ state: { enabled: true, disconnected: false } }), synchronize: async () => {
         calls.push('google'); if (failure === 'google-throw') throw new Error('synthetic Google failure');
         return { kind: ['retry', 'authRequired', 'error'].includes(failure) ? failure : 'success', code: 'synthetic', skipped: failure === 'success' };
       } });
@@ -303,16 +357,16 @@ for (const failure of ['shared', 'reminders', 'google-throw', 'retry', 'authRequ
 }
 
 test('a local commit during a bounded v2 sync cannot escape the worker through its debounce callback', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] }); const previousNow = Date.now; let now = previousNow();
+  const timers = createWorkspaceTestTimers(); const previousNow = Date.now; let now = previousNow();
   Date.now = () => now; let workspace; let choreId; let reads = 0;
-  const h = await workspaceHarness({ cloud: { readGroup: async () => {
+  const h = await workspaceHarness({ workspaceTimers: timers, cloud: { readGroup: async () => {
     reads++; await workspace.session.controller.actions.patchChore(choreId, { name: 'worker中の保存' });
     now += 30_000; throw new Error('cloud unavailable after commit');
   } } });
   try {
     workspace = await h.api.openSharedWorkspace(h.record); choreId = (await workspace.readOverview()).chores[0].id;
     await assert.rejects(workspace.sync({ budgetMs: 1_000 }), /cloud unavailable/u);
-    t.mock.timers.tick(1_000); for (let i = 0; i < 12; i++) await new Promise(setImmediate);
+    timers.tick(1_000); for (let i = 0; i < 12; i++) await new Promise(setImmediate);
     assert.equal(reads, 1); assert.equal(h.reminderCalls.includes('factory'), false);
     assert.equal((await workspace.readOverview()).chores.find(row => row.id === choreId).name, 'worker中の保存', 'the local edit stays durable for the next sync');
   } finally { Date.now = previousNow; await h.close(); }
@@ -387,7 +441,7 @@ test('loading the shared Calendar runtime cannot restart the exhausted OS-worker
     h.vault.set('sharing-enabled', 'true'); let syncs = 0; let history = 0;
     workspace.sync = async () => ({}); workspace.maintainHistory = async () => { history++; };
     workspace.reminders = async () => ({ synchronize: async () => {} });
-    workspace.googleTasks = async () => ({ synchronize: async () => ({ kind: 'success' }) });
+    workspace.googleTasks = async () => ({ readControl: async () => ({ state: { enabled: true, disconnected: false } }), synchronize: async () => ({ kind: 'success' }) });
     workspace.googleCalendar = async () => { now += 30_000; return { synchronize: async () => { syncs++; } }; };
     await h.api.syncSharingWorkspace(20_000); assert.equal(syncs, 0); assert.equal(history, 0);
   } finally { Date.now = previous; await h.close(); }

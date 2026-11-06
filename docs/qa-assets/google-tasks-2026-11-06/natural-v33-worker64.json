@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "candidate": "normal-v33",
+  "sourceManifestSha256": "151f53e91104d8817b38f9fb60a466d02857c37e23f8452f7e35f96e0a21ba08",
+  "forcedWorker": false,
+  "normalAppOpenedDuringObservation": false,
+  "result": {
+    "kind": "new-natural-worker-incomplete",
+    "candidate": "normal-v33",
+    "observedAt": "2026-11-06T11:24:21.481972+00:00",
+    "worker": {
+      "id": 64,
+      "started_at": 1793964185168,
+      "finished_at": 1793964231934,
+      "release": 1,
+      "outcome": "success",
+      "personal": "skipped",
+      "private_calendar": "skipped",
+      "sharing": "success",
+      "personal_google_calendar": "pending"
+    },
+    "aggregateDomainsComplete": false,
+    "actualIncomingCompleteAndUndo": true,
+    "actualOutgoingOnV33": false,
+    "classificationAccepted": false
+  },
+  "cloud": {
+    "observedAt": "2026-11-06T11:24:22.216Z",
+    "rosterRevision": 11,
+    "headSequence": 443,
+    "headStableAcrossRead": true,
+    "headUpdatedAt": "2026-11-06T10:30:00.494Z",
+    "acks": {
+      "iphone": {
+        "deviceDigest": "29774d412062c433272d34fa6e6829d0f19e144d39fb2d0f0b2f2a713fc73484",
+        "sameAccount": true,
+        "sequence": 443,
+        "updatedAt": "2026-11-06T11:23:49.661Z"
+      },
+      "android": {
+        "deviceDigest": "d06eb1deebdf5271e1603b6d86b7a19a4ce9b9b99e0e96523cda04355a742606",
+        "sameAccount": true,
+        "sequence": 443,
+        "updatedAt": "2026-11-06T10:37:38.928Z"
+      }
+    },
+    "lastReceipt": {
+      "operationDigest": "ecfd7f310dc2d74bf357fe40ac5c7d8f95b3a2094059af4092b497942e63fac6",
+      "sequence": 443,
+      "author": "android",
+      "sameAccount": true,
+      "acceptedAt": "2026-11-06T10:30:00.494Z"
+    },
+    "receiptAfterSequence": 441,
+    "recentReceipts": [
+      {
+        "operationDigest": "13e2118e95f82c2a9729cb6d60d8bd94ba4cc49434bb128f7e0d7fa4d9889ef5",
+        "sequence": 442,
+        "author": "android",
+        "sameAccount": true,
+        "acceptedAt": "2026-11-06T10:29:30.943Z"
+      },
+      {
+        "operationDigest": "ecfd7f310dc2d74bf357fe40ac5c7d8f95b3a2094059af4092b497942e63fac6",
+        "sequence": 443,
+        "author": "android",
+        "sameAccount": true,
+        "acceptedAt": "2026-11-06T10:30:00.494Z"
+      }
+    ]
+  },
+  "calendarMetadataAfterWorker": {
+    "observedAt": "2026-11-06T11:25:59.645336+00:00",
+    "readOnly": true,
+    "normalAppOpened": false,
+    "rawDatabaseRetained": false,
+    "control": {
+      "enabled": true,
+      "lastSyncAt": "2026-11-06T10:21:24.862Z",
+      "retryAt": 0,
+      "retryCount": 0,
+      "hasError": false,
+      "calendarCount": 3
+    },
+    "calendars": [
+      {
+        "ordinal": 0,
+        "hasSyncToken": true,
+        "hasPageToken": false,
+        "dirty": 0
+      },
+      {
+        "ordinal": 1,
+        "hasSyncToken": true,
+        "hasPageToken": false,
+        "dirty": 0
+      },
+      {
+        "ordinal": 2,
+        "hasSyncToken": false,
+        "hasPageToken": false,
+        "dirty": 0
+      }
+    ],
+    "remainingOrdinals": [
+      2
+    ],
+    "links": 790
+  },
+  "scope": "Actual incoming completion and Undo accepted at442/443 and iPhone acknowledgment advanced to443 inside the natural worker. Calendar valid feeds completed; one expired feed remains for foreground rebuild. Earlier v31 outgoing is a separate proof, not v33 outgoing.",
+  "rawLogsSha256": {
+    "result.json": "d18aa3abaea2d0b849879df811787a18d3ec5bf45bdbd980718afbc2cc23f5dc",
+    "cloud-after-worker.json": "6141d2456868f4c0afbdd9f8573d3503a7866aaf85e85b476095051713e18ea7",
+    "metadata.json": "a4f6c5693416f62d82ffb1025c3af0f4e4987f6a8646323d1627273dba0f0110",
+    "ios-v33-calendar-after-worker64.json": "f65344cb271d18195b0381c9d358bea23b963b0a7550e304dd8e1e2f55459a6d"
+  }
+}

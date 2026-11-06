@@ -11,14 +11,14 @@ import { addDays } from '../../../domain/scheduling/local-date.ts';
 import { createCalendarQueryRange } from '../../google-sync/calendar-availability.ts';
 import { assertPrivateCalendarCloudAuthority } from './cloud-contract.ts';
 import { assertPrivateCalendarDeadline, privateCalendarDeadline, privateCalendarDeadlineError, withinPrivateCalendarDeadline,
-  PRIVATE_CALENDAR_AUTOMATIC_BUDGET_MS, PRIVATE_CALENDAR_MANUAL_BUDGET_MS } from './sync-deadline.ts';
+  PRIVATE_CALENDAR_AUTOMATIC_BUDGET_MS, PRIVATE_CALENDAR_MANUAL_BUDGET_MS, privateCalendarWork } from './sync-deadline.ts';
 import { observePrivateCalendarForeground } from './foreground-observer.ts';
 import type { PrivatePlannerPreferenceStore } from '../private-planner/preference-store.ts';
 import type { PrivatePreferenceSync } from '../private-planner/preference-sync.ts';
 
 export interface PrivateCalendarRuntimePort extends PrivateCalendarCapturePort {
   devices: PrivateCalendarDeviceSession; sourceController: ReturnType<typeof createPrivateCalendarSourceController>;
-  cloud: PrivateCalendarCapturePort['cloud'] & { readCache: (authority: NonNullable<Awaited<ReturnType<PrivateCalendarCapturePort['secrets']['authority']>>>) => Promise<import('./cache-crypto').EncryptedPrivateCalendarCache | null>;
+  cloud: PrivateCalendarCapturePort['cloud'] & { readCache: (authority: NonNullable<Awaited<ReturnType<PrivateCalendarCapturePort['secrets']['authority']>>>, checkBudget?: () => void) => Promise<import('./cache-crypto').EncryptedPrivateCalendarCache | null>;
     watch?: (changed: () => void, failed: () => void) => () => void };
   timeZone(): string;
   currentGoogleAccount(): Promise<{ subject: string; label: string } | null>;
@@ -110,7 +110,7 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
   const synchronizeAutomatically = (options: { budgetMs?: number } = {}) => requestRefresh(false, options.budgetMs ?? PRIVATE_CALENDAR_AUTOMATIC_BUDGET_MS);
   async function update(force: boolean, deadline: number, ensure: () => void, signal: AbortSignal) {
     ensure();
-    const device = await devices.synchronizeDevices({ force }); ensure();
+    const device = await devices.synchronizeDevices({ force, assertBudget: ensure, signal }); ensure();
     if (device.phase !== 'approved') return { kind: 'unavailable' as const };
     const planner = port.plannerSync?.synchronize(force, ensure).catch(() => undefined);
     try { return await updateCalendar(force, deadline, ensure, signal); }
@@ -118,7 +118,7 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
   }
   async function updateCalendar(force: boolean, deadline: number, ensure: () => void, signal: AbortSignal) {
     if ((await source.read())?.pending) {
-      const resumed = await sourceController.resume(); if (resumed.kind === 'review') return resumed;
+      const resumed = await sourceController.resume({ assertBudget: ensure, signal }); if (resumed.kind === 'review') return resumed;
       ensure();
     }
     const state = await secrets.publicState(userId); const authority = state?.authority;
@@ -126,13 +126,13 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
     if (!authority || !authority.signed.body.devices.some(value => value.deviceId === state.identity.deviceId)) return { kind: 'unavailable' as const };
     if (authority.signed.body.mainDeviceId === state.identity.deviceId) {
       const profile = await source.read();
-      if (profile?.active && !await sourceController.isCurrentSelection()) { requiresSourceReview = true; return { kind: 'sourceReview' as const }; }
+      if (profile?.active && !await sourceController.isCurrentSelection({ assertBudget: ensure, signal })) { requiresSourceReview = true; return { kind: 'sourceReview' as const }; }
       ensure();
       requiresSourceReview = false;
       const zone = port.timeZone(); const today = sharedLocalDate(new Date(now()), zone);
       return capture.capture({ range: createCalendarQueryRange(today, addDays(today, 180), zone), force, automatic: !force, deadline, assertBudget: ensure, signal });
     }
-    const head = await cloud.readHead(); ensure();
+    const head = await privateCalendarWork(() => cloud.readHead(ensure), { assertBudget: ensure, signal }); ensure();
     if (!head) throw new Error('本人用Calendarのサーバー設定がありません。'); assertPrivateCalendarCloudAuthority(head, authority);
     if (!head.cacheHead || head.cacheHead.authorityDigest !== authority.digest) return { kind: 'missing' as const };
     const local = await cache.status(authority); ensure();
@@ -141,7 +141,7 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
     try {
       ensure();
       if (!key) return { kind: 'awaitingKey' as const };
-      const encrypted = await cloud.readCache(authority); if (!encrypted) return { kind: 'missing' as const };
+      const encrypted = await privateCalendarWork(() => cloud.readCache(authority, ensure), { assertBudget: ensure, signal }); if (!encrypted) return { kind: 'missing' as const };
       ensure();
       await cache.save(encrypted, { authority, accountKey: key, calendarBinding: privateCalendarSourceBinding(authority), origin: 'remote' }); await port.assertOwner();
       return { kind: 'received' as const, sequence: encrypted.manifest.body.sequence };
@@ -151,12 +151,13 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
     plannerSync: port.plannerSync,
     syncPlannerPreferences() {
       const deadline = privateCalendarDeadline(now(), PRIVATE_CALENDAR_MANUAL_BUDGET_MS);
+      const controller = new AbortController();
       let expired = false; const ensure = () => { if (expired) throw privateCalendarDeadlineError(); assertPrivateCalendarDeadline(deadline, now()); };
       const work = configure(async () => {
-        ensure(); const device = await devices.synchronizeDevices({ force: true }); ensure();
+        ensure(); const device = await devices.synchronizeDevices({ force: true, assertBudget: ensure, signal: controller.signal }); ensure();
         return device.phase === 'approved' && port.plannerSync ? port.plannerSync.synchronize(true, ensure) : { kind: 'unavailable' as const };
       });
-      return withinPrivateCalendarDeadline(work, PRIVATE_CALENDAR_MANUAL_BUDGET_MS, () => { expired = true; });
+      return withinPrivateCalendarDeadline(work, PRIVATE_CALENDAR_MANUAL_BUDGET_MS, () => { expired = true; controller.abort(); });
     },
     async readPlannerPreferences() {
       await port.assertOwner(); const value = await port.plannerPreferences?.read() ?? null; await port.assertOwner();

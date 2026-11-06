@@ -2,18 +2,19 @@ import { localDateFromDate } from '@/domain/scheduling/local-date';
 import type { PlannerSnapshot } from '@/platform/storage/repository';
 import { createTodayWidgetSnapshot } from '@/features/widgets/today-widget-snapshot';
 import { expoWidgetGateway } from '@/platform/widgets/expo-widget-gateway';
+import { sharedLocalDate } from '../sharing/group-clock.ts';
 
-export function publishTodayWidgetSnapshot(snapshot: PlannerSnapshot): void {
+export async function publishTodayWidgetSnapshot(snapshot: PlannerSnapshot): Promise<void> {
+  const now = new Date();
   const widget = createTodayWidgetSnapshot(
     snapshot.scheduleEntries,
     snapshot.chores,
     snapshot.completions,
-    localDateFromDate(new Date()),
-    new Date().toISOString(),
+    snapshot.timeZone ? sharedLocalDate(now, snapshot.timeZone) : localDateFromDate(now),
+    now.toISOString(), snapshot.timeZone,
   );
-  try {
-    expoWidgetGateway.updateNextChore(widget);
-  } catch {
-    // The planner remains usable when a native widget extension is unavailable.
-  }
+  widget.householdCreatedAt = snapshot.household?.createdAt;
+  widget.chores = widget.chores.map(chore => ({ ...chore, entry: snapshot.scheduleEntries.find(entry => entry.id === chore.id) }));
+  // The refresh controller keeps the screen usable and retries an unfinished output.
+  await expoWidgetGateway.updateNextChore(widget);
 }

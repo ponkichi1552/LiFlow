@@ -13,6 +13,14 @@ import { buildV2PersonalPlan } from '../src/features/sharing/v2/personal-plan.ts
 
 const ref = item => item.target;
 const count = h => h.d.connection.prepare('SELECT COUNT(*) AS n FROM sharing_operations').get().n;
+function mapEntriesPort(port, transform) {
+  return { ...port,
+    listEntriesForGoogleSync: async (...args) => (await port.listEntriesForGoogleSync(...args)).map(transform),
+    readLocalStatusSnapshot: async (...args) => {
+      const value = await port.readLocalStatusSnapshot(...args); return { ...value, entries: value.entries.map(transform) };
+    },
+  };
+}
 function firstRemote(h) { return [...h.tasks.values()].find(task => !task.deleted); }
 function firstItem(h) { return h.entries().then(rows => rows.find(row => row.entry.choreId === 'floor' && row.entry.cycleBaseDate === '2026-10-27')); }
 
@@ -26,6 +34,62 @@ test('v2 Google bindings default unconfigured, use separate private tables, and 
     await assert.rejects(h.store.port.listGoogleTaskLinks('personal'), /作業領域/u);
     await assert.rejects(h.store.port.listEntriesForGoogleSync('2026-10-27', 'personal'), /作業領域/u);
     assert.equal(h.tasks.size, 0);
+  } finally { h.close(); }
+});
+
+test('v2 Google connection guards and private receipts do not replay business history or repeat schema setup but still refuse revoked access', async () => {
+  const h = await googleFixture(); let schemaCalls = 0; let businessReads = 0;
+  try {
+    const store = createV2GoogleTaskStore({ ...h.scope, repository: { ...h.d.repository,
+      readCurrent: async () => { businessReads++; throw new Error('authenticated business read required'); },
+      withPrivateStorage: work => h.d.repository.withPrivateStorage(transaction => work(new Proxy(transaction, { get(target, key) {
+        if (key === 'execAsync') return async sql => { if (/CREATE TABLE/iu.test(sql)) schemaCalls++; return target.execAsync(sql); };
+        const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value;
+      } }))),
+    } });
+    assert.equal((await store.readControl()).revision, 0); const initialSchemas = schemaCalls; assert.ok(initialSchemas > 0);
+    const control = await store.configure(0, { subject: 'synthetic-google-subject', label: '検査用' }, true);
+    for (let index = 0; index < 30; index++) assert.equal((await store.readControl()).revision, control.revision);
+    await store.saveSyncState({ ...control.state, status: 'retryPending', lastErrorCode: 'network_error' }, control.revision);
+    assert.equal((await store.readControl()).state.lastErrorCode, 'network_error');
+    assert.deepEqual(await store.readSavedLinks(), []);
+    assert.equal(schemaCalls, initialSchemas); assert.equal(businessReads, 0);
+    await assert.rejects(store.port.listEntriesForGoogleSync('2026-10-27', h.namespace), /authenticated business read/u);
+    assert.equal(businessReads, 1);
+    h.stop(); await assert.rejects(store.readControl(), /account changed/u);
+    await assert.rejects(store.saveSyncState(control.state, control.revision), /account changed/u);
+  } finally { h.close(); }
+});
+
+test('v2 Google private schema readiness is not retained after its first transaction rolls back', async () => {
+  const h = await googleFixture(); let fail = true;
+  try {
+    const store = createV2GoogleTaskStore({ ...h.scope, repository: { ...h.d.repository,
+      withPrivateStorage: work => h.d.repository.withPrivateStorage(async transaction => {
+        const value = await work(transaction); if (fail) { fail = false; throw new Error('injected private commit failure'); } return value;
+      }),
+    } });
+    await assert.rejects(store.readControl(), /injected private commit/u);
+    assert.equal(h.d.connection.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE name='sharing_v2_private_google_control'").get().n, 0);
+    assert.deepEqual(await store.readControl(), { revision: 0, label: null, state: null });
+  } finally { h.close(); }
+});
+
+test('v2 private Google state rolls back when access is revoked after its SQL update', async () => {
+  const h = await googleFixture(); let revoke = false;
+  try {
+    const store = createV2GoogleTaskStore({ ...h.scope, repository: { ...h.d.repository,
+      withPrivateStorage: work => h.d.repository.withPrivateStorage(transaction => work(new Proxy(transaction, { get(target, key) {
+        if (key === 'runAsync') return async (sql, ...args) => { const value = await target.runAsync(sql, ...args);
+          if (revoke && /UPDATE sharing_v2_private_google_control/u.test(sql)) h.stop(); return value; };
+        const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value;
+      } }))),
+    } });
+    const control = await store.configure(0, { subject: 'synthetic-google-subject', label: '検査用' }, true);
+    const before = h.d.connection.prepare('SELECT state_json FROM sharing_v2_private_google_control').get().state_json;
+    revoke = true;
+    await assert.rejects(store.saveSyncState({ ...control.state, status: 'retryPending', lastErrorCode: 'network_error' }, control.revision), /account changed/u);
+    assert.equal(h.d.connection.prepare('SELECT state_json FROM sharing_v2_private_google_control').get().state_json, before);
   } finally { h.close(); }
 });
 
@@ -97,8 +161,33 @@ test('v2 remote task deletion never becomes an undo and preserves completed shar
     await h.connect(); await h.sync(); const item = await firstItem(h); await h.actions.complete(ref(item)); await h.sync();
     const before = count(h); const link = (await h.links()).find(row => row.scheduleEntryId === item.entry.id); h.tasks.get(link.googleTaskId).deleted = true;
     await h.sync(); assert.ok((await firstItem(h)).completedAt); assert.equal(count(h), before);
-    assert.equal((await h.links()).some(row => row.googleTaskId === link.googleTaskId), false);
+    assert.equal((await h.links()).some(row => row.googleTaskId === link.googleTaskId), true, 'retain a durable deletion receipt');
+    for (let pass = 0; pass < 3; pass++) assert.equal((await h.sync()).created, 0);
+    const restarted = createV2GoogleTaskStore({ ...h.scope, repository: createV2EventRepository(h.d.database, h.d.options) });
+    assert.equal((await h.sync(restarted.port)).created, 0);
+    assert.equal([...h.tasks.values()].filter(task => !task.deleted && task.notes === h.tasks.get(link.googleTaskId).notes).length, 0);
+    const done = (await loadSharedFacts(h.d.database, groupId)).find(row => row.operation.entityType === 'completion');
+    await h.actions.undo(done.operation.operationId);
+    assert.equal((await h.sync()).created, 1, 'a new explicit undo can recreate the now incomplete task');
   } finally { h.close(); }
+});
+
+for (const batch of [false, true]) test(`a title-only Tasks update preserves an unimported remote undo with ${batch ? 'batch' : 'individual'} HTTP and real signed SQLite history`, async t => {
+  const h = await googleFixture(); t.after(() => h.close());
+  if (!batch) h.api.patchTasksBatch = undefined;
+  await h.connect(); await h.sync(); const item = await firstItem(h); await h.actions.complete(ref(item)); await h.sync();
+  const link = (await h.links()).find(row => row.scheduleEntryId === item.entry.id);
+  const port = mapEntriesPort(h.store.port, row => row.entry.id === item.entry.id ? { ...row, choreName: '名前だけ変更' } : row);
+  h.hooks.afterPatch = async (id, patch) => {
+    if (id !== link.googleTaskId || Object.keys(patch).join(',') !== 'title') return;
+    delete h.hooks.afterPatch; h.tasks.get(id).status = 'needsAction'; h.tasks.get(id).completed = null;
+  };
+  assert.equal((await h.sync(port)).imported, 0);
+  assert.equal((await h.links()).find(row => row.scheduleEntryId === item.entry.id).lastSyncedStatus, 'completed');
+  assert.ok((await firstItem(h)).completedAt);
+  assert.equal((await h.sync(port)).imported, 1); assert.equal((await firstItem(h)).completedAt, undefined);
+  assert.equal(h.tasks.get(link.googleTaskId).status, 'needsAction');
+  assert.equal((await loadSharedFacts(h.d.database, groupId)).filter(row => row.operation.operationType === 'undo').length, 1);
 });
 
 test('v2 a lost Google creation reply adopts the exact opaque occurrence note without duplicate tasks', async () => {
@@ -116,8 +205,7 @@ test('v2 unresolved task rows freeze Google reads and writes while independent r
   try {
     await h.connect(); await h.sync(); const item = await firstItem(h); const link = (await h.links()).find(row => row.scheduleEntryId === item.entry.id);
     h.tasks.get(link.googleTaskId).status = 'completed'; h.tasks.get(link.googleTaskId).completed = '2026-10-27T00:30:00Z'; const before = count(h); h.calls.length = 0;
-    const original = h.store.port.listEntriesForGoogleSync;
-    await h.sync({ ...h.store.port, listEntriesForGoogleSync: async (...args) => (await original(...args)).map(row => row.entry.id === item.entry.id ? { ...row, synchronizationBlocked: true } : { ...row, choreName: '独立した変更' }) });
+    await h.sync(mapEntriesPort(h.store.port, row => row.entry.id === item.entry.id ? { ...row, synchronizationBlocked: true } : { ...row, choreName: '独立した変更' }));
     assert.equal(count(h), before); assert.equal(h.calls.some(row => ['patch', 'delete'].includes(row[0]) && row[1] === link.googleTaskId), false);
     assert.ok(h.calls.some(row => row[0] === 'patch' && row[1] !== link.googleTaskId));
   } finally { h.close(); }

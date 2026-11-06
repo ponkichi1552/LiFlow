@@ -1,13 +1,12 @@
 import { startApplianceCareHttpServer } from './http-server.mjs';
 import { OpenAIResponsesClient } from './openai-responses-client.mjs';
-import { createPublicAnalysisDependencies } from './public-analysis.mjs';
 
 async function main() {
   const ai = new OpenAIResponsesClient({ maxOutputTokens: 16_384, maxToolCalls: 1 });
   const publicMode = process.env.APPLIANCE_CARE_MODE === 'public';
   // Keep the server-only Admin SDK out of the mobile dependency graph and local-only development path.
   const publicAccess = publicMode ? (await import('./firebase-public-runtime.mjs')).createFirebasePublicRuntime() : undefined;
-  const billingOnly = Boolean(publicAccess && (!publicAccess.securityReady || !ai.isConfigured));
+  const billingOnly = Boolean(publicAccess && (!publicAccess.securityReady || !publicAccess.analysisQueueReady || !ai.isConfigured));
   if (publicAccess) {
     // Refuse the public listener if credentials, the project or quota-store permissions are not ready.
     await publicAccess.store.ready();
@@ -20,7 +19,6 @@ async function main() {
     aiConfigured: ai.isConfigured,
     publicAccess,
     billingOnly,
-    ...(publicMode ? { createJobDependencies: signal => createPublicAnalysisDependencies(signal) } : {}),
   });
 
   const port = Number(process.env.PORT ?? 8787);

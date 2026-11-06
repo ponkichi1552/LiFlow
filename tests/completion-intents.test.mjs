@@ -129,3 +129,40 @@ test('committed completion requests remain quiet and recoverable when no visible
   assert.equal(h.queue.getSnapshot().error, null); assert.equal(h.queue.getSnapshot().values.get('bath'), true);
   visible = true; h.queue.retryRead(); await tick(); await h.queue.settled(); assert.equal(h.queue.getSnapshot().pending.size, 0);
 });
+
+test('failed completion intents retry their original identity after an unknown commit and never repeat successful business history', async () => {
+  const committed = new Set(); const attempts = []; let failed = false;
+  const h = fixture({ apply: async item => {
+    attempts.push(item.id);
+    if (committed.has(item.id)) return;
+    committed.add(item.id);
+    if (!failed) { failed = true; throw new Error('commit succeeded but its reply was lost'); }
+  } });
+  await h.queue.activate(); h.queue.request('bath', { chore: 'bath' }, true); await tick(); await h.queue.settled();
+  assert.deepEqual([...h.queue.getSnapshot().failed], ['bath']); assert.equal(h.saved()[0].status, 'failed');
+  h.queue.retryFailed(); await tick(); await h.queue.settled();
+  assert.deepEqual(attempts, ['intent-1', 'intent-1']); assert.equal(committed.size, 1);
+  assert.equal(h.queue.getSnapshot().failed.size, 0); assert.deepEqual(h.saved(), []);
+});
+
+test('a full restored failed queue can recover and accept another chore without reinstalling or silently discarding requests', async () => {
+  const saved = Array.from({ length: 128 }, (_, index) => ({ id: `saved-${index}`, key: `chore-${index}`, target: { chore: `chore-${index}` },
+    completed: true, createdAt: '2026-11-02T04:00:00Z', status: 'failed' }));
+  const h = fixture({ saved }); await h.queue.activate();
+  assert.equal(h.queue.getSnapshot().failed.size, 128);
+  assert.equal(h.queue.request('another', { chore: 'another' }, true), false);
+  h.queue.retryFailed(); await tick(); await h.queue.settled();
+  assert.equal(h.applied.length, 128); assert.equal(h.queue.getSnapshot().failed.size, 0);
+  assert.equal(h.queue.request('another', { chore: 'another' }, true), true);
+  await tick(); await h.queue.settled(); assert.equal(h.applied.at(-1).key, 'another');
+});
+
+test('retrying a failed completion requires a durable request and retains failures when storage is still unavailable', async () => {
+  const item = { id: 'saved', key: 'bath', target: { chore: 'bath' }, completed: true, createdAt: '2026-11-02T04:00:00Z', status: 'failed' };
+  let failing = true;
+  const h = fixture({ saved: [item], save: async () => { if (failing) throw new Error('protected storage unavailable'); } });
+  await h.queue.activate(); h.queue.retryFailed(); await tick(); await h.queue.settled();
+  assert.equal(h.applied.length, 0); assert.equal(h.queue.getSnapshot().failed.size, 1);
+  failing = false; h.queue.retryFailed(); await tick(); await h.queue.settled();
+  assert.deepEqual(h.applied.map(value => value.id), ['saved']);
+});

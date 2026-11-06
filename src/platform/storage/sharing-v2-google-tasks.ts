@@ -1,4 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { reserveGoogleTaskCreateInside, rejectGoogleTaskCreateInside, linkGoogleTaskCreateInside, deleteGoogleTaskCreateInside, initializeGoogleTaskCreateIntentsInside } from './google-task-create-intents.ts';
+import { createGoogleTaskReadCache, initializeGoogleTaskReadCacheInside } from './google-task-read-cache.ts';
 import type { createV2EventRepository } from './sharing-v2-events';
 import type { GoogleSyncState, GoogleTaskLink, GoogleTaskStatus, GoogleTaskStatusChange, GoogleSyncEntry } from '../../features/google-sync/contracts';
 import type { GoogleSyncRepositoryPort } from '../../features/google-sync/reconcile-google-tasks';
@@ -43,6 +45,13 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
   if (repository.scope.userId !== userId || repository.scope.groupId !== groupId) throw new Error('Google家事の保存先を確認してください。');
   let issuedItems = new Map<string, V2GoogleTaskItem>();
   let cached: { key: string; items: Map<string, V2GoogleTaskItem>; plans: V2CommonPlan[] } | undefined;
+  let initialized = false;
+  async function privateStorage<T>(work: (transaction: SQLiteDatabase) => Promise<T>): Promise<T> {
+    const value = await repository.withPrivateStorage(work);
+    // Mark readiness only after the outer transaction commits, never after DDL
+    // inside a transaction that may still roll back.
+    initialized = true; return value;
+  }
   async function check(transaction: SQLiteDatabase) {
     await input.assertAccess(); const binding = await transaction.getFirstAsync<{ user_id: string; group_id: string; schema_version: number }>('SELECT user_id,group_id,schema_version FROM sharing_v2_binding WHERE singleton=1');
     if (binding?.user_id !== userId || binding.group_id !== groupId || binding.schema_version !== 2) throw new Error('Google家事のアカウント・グループが変わりました。');
@@ -50,6 +59,9 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
   }
   async function initialize(transaction: SQLiteDatabase) {
     await check(transaction);
+    if (initialized) return;
+    await initializeGoogleTaskCreateIntentsInside(transaction);
+    await initializeGoogleTaskReadCacheInside(transaction);
     await transaction.execAsync(`CREATE TABLE IF NOT EXISTS sharing_v2_private_google_control (
       singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL CHECK(revision>0), label TEXT, state_json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sharing_v2_private_google_links (
@@ -145,16 +157,59 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
     }
     return { rows, projected };
   }
-  const readControl = () => repository.readCurrent((_state, transaction) => controlInside(transaction));
+  function entriesFrom(rows: LinkRecord[], projected: Awaited<ReturnType<typeof catalog>>) {
+    issuedItems = new Map([...projected.items].map(([id, item]) => [id, snapshot(item)]));
+    return snapshot([...projected.items.values(), ...rows.filter(row => !projected.items.has(row.link.scheduleEntryId)).flatMap(row => {
+      const item = retainedEntry(row, projected.plans); return item ? [item] : [];
+    })]);
+  }
+  const readControl = () => privateStorage(controlInside);
+  const reserveCreates = (identities: readonly import('../../features/google-sync/task-create-intent').GoogleTaskCreateIdentity[], beforeCommit?: () => void) => {
+    const captured = identities.map(identity => ({ ...identity }));
+    if (!captured.length || captured.length > 100) throw new Error('Google家事は100件以内に分けて送信してください。');
+    return privateStorage(async transaction => {
+      await initialize(transaction); beforeCommit?.(); const results = [];
+      for (const identity of captured) results.push(await reserveGoogleTaskCreateInside(transaction,
+        { ...identity, attemptId: input.makeId(), startedAt: input.now().toISOString() }));
+      await check(transaction); beforeCommit?.(); return results;
+    });
+  };
+  const rejectCreates = (intents: readonly import('../../features/google-sync/task-create-intent').GoogleTaskCreateIntent[]) => {
+    const captured = intents.map(intent => ({ ...intent }));
+    if (!captured.length || captured.length > 100) throw new Error('Google家事は100件以内に分けて送信してください。');
+    return privateStorage(async transaction => {
+      await initialize(transaction);
+      for (const intent of captured) await rejectGoogleTaskCreateInside(transaction, intent);
+      await check(transaction);
+    });
+  };
   const port: GoogleSyncRepositoryPort = {
     taskNamespace: namespace,
+    taskReadCache: createGoogleTaskReadCache(work => privateStorage(async transaction => {
+      await initialize(transaction); const result = await work(transaction); await check(transaction); return result;
+    })),
+    taskCreateJournal: {
+      reserve: async identity => (await reserveCreates([identity]))[0],
+      reserveBatch: reserveCreates,
+      reject: intent => rejectCreates([intent]), rejectBatch: rejectCreates,
+      linked: (identity, taskId) => privateStorage(async transaction => {
+        await initialize(transaction); await linkGoogleTaskCreateInside(transaction, identity, taskId); await check(transaction);
+      }),
+      deleted: (identity, taskId) => privateStorage(async transaction => {
+        await initialize(transaction); await deleteGoogleTaskCreateInside(transaction, identity, taskId); await check(transaction);
+      }),
+    },
     async listEntriesForGoogleSync(_today, householdId) {
       if (householdId !== namespace) throw new Error('Google家事の作業領域を確認してください。');
       return repository.readCurrent(async (state, transaction) => {
-        const { rows, projected } = await stageRows(state, transaction); issuedItems = new Map([...projected.items].map(([id, item]) => [id, snapshot(item)]));
-        return snapshot([...projected.items.values(), ...rows.filter(row => !projected.items.has(row.link.scheduleEntryId)).flatMap(row => {
-          const item = retainedEntry(row, projected.plans); return item ? [item] : [];
-        })]);
+        const { rows, projected } = await stageRows(state, transaction); return entriesFrom(rows, projected);
+      });
+    },
+    async readLocalStatusSnapshot(_today, householdId) {
+      if (householdId !== namespace) throw new Error('Google家事の作業領域を確認してください。');
+      return repository.readCurrent(async (state, transaction) => {
+        const { rows, projected } = await stageRows(state, transaction);
+        return { entries: entriesFrom(rows, projected), links: rows.map(row => ({ ...row.link })) };
       });
     },
     listGoogleTaskLinks: householdId => {
@@ -163,7 +218,7 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
     },
     async upsertGoogleTaskLink(value) {
       const link = snapshot(value);
-      await repository.readCurrent(async (_state, transaction) => {
+      await privateStorage(async transaction => {
         const rows = await rowsInside(transaction); const previous = rows.find(row => row.link.scheduleEntryId === link.scheduleEntryId);
         const item = issuedItems.get(link.scheduleEntryId); const target = item?.target ?? previous?.target;
         if (!target || link.choreId !== target.choreId || link.householdId !== namespace || !boundedText(link.googleTaskListId) || !boundedText(link.googleTaskId)
@@ -174,7 +229,7 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
         else await writeRow(transaction, { link, target, baselineRevision: item && !item.completedAt && !item.locallyIncomplete ? item.localRevision : null, acknowledgedCompletionIds: [] });
       });
     },
-    deleteGoogleTaskLink: id => repository.readCurrent(async (_state, transaction) => {
+    deleteGoogleTaskLink: id => privateStorage(async transaction => {
       const row = (await rowsInside(transaction)).find(row => row.link.scheduleEntryId === id); if (row) { await check(transaction); await transaction.runAsync('DELETE FROM sharing_v2_private_google_links WHERE schedule_entry_id=?', id); await check(transaction); }
     }),
     async acknowledgeGoogleTaskStatus(sent, remoteStatus) {
@@ -218,11 +273,11 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
   };
   return { port, readControl,
     readToday: () => repository.readCurrent(async state => localToday(state)),
-    readSavedLinks: () => repository.readCurrent(async (_state, transaction) => (await rowsInside(transaction)).map(row => snapshot(row.link))),
+    readSavedLinks: () => privateStorage(async transaction => (await rowsInside(transaction)).map(row => snapshot(row.link))),
     async configure(expectedRevision: number, account: { subject: string; label: string }, enabled: boolean, disconnected = false) {
       if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0 || !boundedText(account.subject, 512) || !boundedText(account.label, 320)
         || typeof enabled !== 'boolean' || typeof disconnected !== 'boolean' || enabled && disconnected) throw new Error('Google家事の接続操作を確認してください。');
-      return repository.readCurrent(async (_state, transaction) => {
+      return privateStorage(async transaction => {
         const before = await controlInside(transaction);
         if (before.revision !== expectedRevision) throw new Error('別の操作でGoogle家事の接続が変わりました。再読込してください。');
         if (before.state?.accountSubject && before.state.accountSubject !== account.subject) throw Object.assign(new Error('以前連携したGoogleアカウントを選択してください。'), { code: 'google_account_mismatch' });
@@ -236,7 +291,7 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
     },
     async saveSyncState(value: GoogleSyncState, expectedRevision: number) {
       const state = validateState(value);
-      return repository.readCurrent(async (_current, transaction) => {
+      return privateStorage(async transaction => {
         const before = await controlInside(transaction);
         if (!before.state || before.revision !== expectedRevision || before.state.accountSubject !== state.accountSubject
           || before.state.enabled !== state.enabled || before.state.disconnected !== state.disconnected) throw new Error('Google家事の接続が変わりました。古い同期結果は保存しません。');

@@ -8,6 +8,8 @@ import { sharedDocumentDigest } from '../crypto.ts';
 import { assertSharedIdentifier } from '../identifier.ts';
 import { exactRecord, hexBytes } from './validation.ts';
 import { assertPrivateCalendarAuthorityAppend } from './authority-history-limits.ts';
+import { assertPrivateCalendarWork } from './sync-deadline.ts';
+import type { PrivateCalendarWorkControl } from './sync-deadline.ts';
 
 /** Source epochs are the signed transitions with unchanged device, main and key configuration. */
 function latestSourceDigest(history: readonly SignedPrivateCalendarAuthority[]) {
@@ -28,24 +30,28 @@ export function createPrivateCalendarSourceController(port: { userId: string; se
   source: ReturnType<typeof createPrivateCalendarSourceStorage>; intents: ReturnType<typeof createPrivateCalendarAuthorityIntentStorage>;
   authoritySync: ReturnType<typeof createPrivateCalendarAuthoritySync> }) {
   const { userId, secrets, source, intents, authoritySync } = port; assertSharedIdentifier(userId);
-  async function resume() {
+  async function resume(control: PrivateCalendarWorkControl = {}) {
+    assertPrivateCalendarWork(control);
     const pending = (await source.read())?.pending; if (!pending) return { kind: 'idle' as const };
     const current = await secrets.authority(userId); if (!current) throw new Error('本人端末の信頼を確認してください。');
     if (current.digest === pending.signed.body.previousDigest) {
+      assertPrivateCalendarWork(control);
       const body = pending.signed.body;
       const prepared = await intents.prepare({ devices: body.devices, mainDeviceId: body.mainDeviceId, keyVersion: body.keyVersion }, await secrets.identity(userId), { purpose: 'calendarSourceChange' });
       if (!prepared || prepared.digest !== pending.digest) throw new Error('取得元の変更と準備済みの端末設定が一致しません。');
-      const accepted = await authoritySync.resume();
+      const accepted = await authoritySync.resume(control);
       if (accepted.kind === 'review') return { kind: 'review' as const, targetDigest: pending.digest, observedCurrentDigest: accepted.observedCurrentDigest };
       if (accepted.kind === 'accepted' && accepted.intentDigest === pending.digest) {
+        assertPrivateCalendarWork(control);
         if (!await source.commitAccepted(pending.digest, accepted.authority.digest)) throw new Error('取得元の受付確認中に本人設定が変わりました。');
         return { kind: 'ready' as const, authorityDigest: accepted.authority.digest };
       }
     }
     // Includes a crash after SQL receipt but before the protected source commit, or a later device change.
-    const verified = await authoritySync.refresh(); const accepted = verified.history[pending.signed.body.revision - 1];
+    const verified = await authoritySync.refresh(control); const accepted = verified.history[pending.signed.body.revision - 1];
     if (!accepted || sharedDocumentDigest(accepted) !== pending.digest) return { kind: 'review' as const, targetDigest: pending.digest, observedCurrentDigest: verified.authority.digest };
     const leftover = await intents.readPending();
+    assertPrivateCalendarWork(control);
     if (leftover?.digest === pending.digest && !await intents.markAccepted(pending.digest, verified.authority)) throw new Error('取得元に対応する端末設定の受付を確認できません。');
     if (!await source.commitAccepted(pending.digest, verified.authority.digest)) throw new Error('取得元の受付確認中に本人設定が変わりました。');
     return { kind: 'ready' as const, authorityDigest: verified.authority.digest };
@@ -58,15 +64,17 @@ export function createPrivateCalendarSourceController(port: { userId: string; se
   return {
     read: source.read,
     /** Only during explicit refresh, never passive per-card reads. A prior main must not revive an obsolete source. */
-    async isCurrentSelection() {
+    async isCurrentSelection(control: PrivateCalendarWorkControl = {}) {
+      assertPrivateCalendarWork(control);
       const profile = await source.read(); const current = await secrets.publicState(userId);
       if (!profile?.active || profile.pending || !current?.authority || current.authority.signed.body.mainDeviceId !== current.identity.deviceId) return false;
       if (profile.active.authorityDigest === current.authority.digest) return true;
-      const verified = await authoritySync.refresh(); const after = await source.read(); const state = await secrets.publicState(userId);
+      const verified = await authoritySync.refresh(control); const after = await source.read(); const state = await secrets.publicState(userId);
+      assertPrivateCalendarWork(control);
       return !after?.pending && after?.active?.authorityDigest === latestSourceDigest(verified.history)
         && state?.authority?.digest === verified.authority.digest && verified.authority.signed.body.mainDeviceId === state.identity.deviceId;
     },
-    resume: () => exclusive(resume),
+    resume: (control: PrivateCalendarWorkControl = {}) => exclusive(() => resume(control)),
     change(selected: PrivateCalendarSourceChoice, expectedAuthorityDigest: string) {
       // Never infer a Google subject from Firebase UID or any personal/group database.
       exactRecord(selected, ['googleSubject']);

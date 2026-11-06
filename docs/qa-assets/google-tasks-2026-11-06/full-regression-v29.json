@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "sourceBaseCommit": "e60fa09f1b811277eff27ced29de9fee1c719f31",
+  "checkedAt": "2026-11-05T21:44:38.264898+00:00",
+  "candidate": "normal-v29",
+  "startupTrace": false,
+  "clientInputs": 710,
+  "manifestSha256": "8e7712246569afbb4657301d27985bb8ba3308529bc85896a9e13ed78c7324c6",
+  "lint": "PASS",
+  "typecheck": "PASS",
+  "unit": {
+    "tests": 3442,
+    "pass": 3442,
+    "fail": 0,
+    "skipped": 0,
+    "durationMs": 119949.324833,
+    "logSha256": "f7c012d4b52757ba3ebc66474ec9714fe146f64b634b1e97e0d9632b21220c9d"
+  },
+  "cloud": {
+    "tests": 153,
+    "pass": 153,
+    "fail": 0,
+    "skipped": 0,
+    "durationMs": 169898.1255,
+    "isolated": true,
+    "normalAppsModified": false,
+    "rulesRelaxed": false,
+    "logSha256": "409546355983f6f1dcd03a204e60315ef882a33203aed2c7c8cc573df802552c"
+  },
+  "nativeArtifacts": {
+    "android": {
+      "dataPreservingInstall": true,
+      "sourcePinsVerified": true,
+      "trace": false,
+      "apkSha256": "647222eefc3c181a0a64f6ac2377c66f159b340cb72c408ed7aa84edb8dae53e",
+      "existingTasksObservedNormalRelease": 29,
+      "existingTaskMappingsVerified": 23,
+      "providerDuplicateAndMissingLinks": 0,
+      "evidence": "docs/qa-assets/google-tasks-2026-11-06/android-final-existing-list-v29.json"
+    },
+    "ios": {
+      "signedAndVerified": true,
+      "installed": false,
+      "bundledSources": 649,
+      "changedSources": 40,
+      "nativePayloadSectionsUnchanged": 57,
+      "method": "SDK58 production Hermes export over verified normal v13 native payload; native/config/assets/dependencies unchanged"
+    }
+  },
+  "boundaries": [
+    "Not an overall acceptance pass: four cross-phone/natural-background conditions still have pending iPhone work.",
+    "No commit or push before the requested physical conditions and ZIP are complete.",
+    "A first full-unit run had one stale manual-screen-harness read after Undo; the semantic wait retains completion/Undo/navigation assertions.",
+    "The first Cloud run hit a ja_JP emulator message-resource failure; it is retained, and the successful run used the same rules and tests with JVM en-US."
+  ]
+}

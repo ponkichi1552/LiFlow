@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "candidate": "normal-v34",
+  "platform": "ios",
+  "recordedAt": "2026-11-06T12:32:56.665517+00:00",
+  "scenario": "OS-natural receipt of actual completion and targeted Undo, without opening the normal app",
+  "scenarioResult": "PASS",
+  "worker": {
+    "id": 65,
+    "started_at": 1793968251744,
+    "finished_at": 1793968280699,
+    "release": 1,
+    "outcome": "success",
+    "personal": "skipped",
+    "private_calendar": "skipped",
+    "sharing": "success",
+    "personal_google_calendar": "pending",
+    "durationMs": 28955
+  },
+  "cutoffAtEpochMs": 1793966996935,
+  "normalAppLastActivatedAt": "2026-11-06T11:42:30Z",
+  "normalAppOpenedDuringObservation": false,
+  "workerForced": false,
+  "normalAppReinstalledOrResetDuringObservation": false,
+  "source": {
+    "platform": "android",
+    "candidate": "normal-v34",
+    "mode": "ordinary foreground UI",
+    "acceptedSequences": [
+      444,
+      445
+    ],
+    "acceptedAt": [
+      "2026-11-06T12:11:39.035Z",
+      "2026-11-06T12:12:11.847Z"
+    ],
+    "normalSourceStateRestoredUnchecked": true,
+    "sourceEvidence": "v34-passive-source-preparation.json"
+  },
+  "receive": {
+    "previousAck": 443,
+    "ack": 445,
+    "ackUpdatedAt": "2026-11-06T12:31:03.223Z",
+    "ackInsideWorker": true,
+    "completeAndUndoAcceptedAndDurable": true,
+    "signedSchemaVersion": 2,
+    "undoTargetsExactCompletion": true,
+    "pendingOrProvisionalFacts": 0,
+    "durabilityCheckedReadOnlyWithoutAppOpen": true
+  },
+  "calendar": {
+    "domainResult": "pending",
+    "validDeltasFinished": 2,
+    "remainingPublicHolidayFeedCount": 1,
+    "remainingFeedNeedsForegroundFullRead": true,
+    "pendingWrites": 0,
+    "conflicts": 0,
+    "boundaryEvidence": "public-holiday-provider-sync-token.json"
+  },
+  "aggregateDomainsComplete": false,
+  "actualOutgoingOnCurrentV34PreparedOrProved": false,
+  "earlierV31ActualOutgoingIsSeparate": true,
+  "observerEndedAfterResult": true,
+  "rawEvidenceSha256": {
+    "result.json": "5efc0ca4d37eaf846aa51b0cce4c51e3e6b5c25c9e68723abc8ef66e3df2f332",
+    "cloud-after-worker.json": "824ca4aa4f04ee2aeeb6ea86d770a6605c7da6d774ac05abd586cd60fc4f2e32",
+    "calendar-after-worker.json": "1dcbdad5b2b98e00a7e426235fbc4a6c7041984fab31e8b401aa786a37573c40",
+    "received-facts.json": "14585b41f98b61acd31b4d4c5329b8d3805833ceb77caac16699567cb242eaa8"
+  },
+  "limits": [
+    "The 28955ms interval is the recorded JS worker, not native startup duration or a guarantee for later callbacks.",
+    "Calendar aggregate remains pending; a public holiday feed returned410 even immediately after a fresh full read.",
+    "The copied raw observer field actualOutgoingOnV33 is an old field name; no outgoing V34 scenario was prepared or claimed.",
+    "This scenario proves iPhone natural receipt; Android source transmission was foreground."
+  ]
+}

@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "candidate": "normal-v34",
+  "sourceManifestSha256": "89e05e88f2186c7a1ba57e10e38d12a5049f2508835a97bfb2b1e193ff9c3176",
+  "forcedWorker": false,
+  "normalAppOpenedDuringObservation": false,
+  "run": {
+    "id": 83,
+    "started_at": 1793963186137,
+    "finished_at": 1793963249503,
+    "release": 1,
+    "outcome": "success",
+    "personal": "skipped",
+    "private_calendar": "skipped",
+    "sharing": "success",
+    "personal_google_calendar": "pending"
+  },
+  "durationMs": 63366,
+  "aggregateComplete": false,
+  "actualSharedChangePrepared": false,
+  "scope": "OS-natural normal Release callback and per-domain completion only. The native successful finish is not an all-domain success or a proof of actual shared changes.",
+  "afterWorkerReadOnly": {
+    "mainApplicationStarted": false,
+    "control": {
+      "enabled": true,
+      "hasSubject": true,
+      "hasTarget": true,
+      "calendarCount": 3,
+      "lastSyncAt": "2026-11-06T10:47:15.286Z",
+      "hasError": false,
+      "retryCount": 0
+    },
+    "progress": {
+      "scope": "current-control-subject",
+      "inboxTotal": 690,
+      "linksTotal": 793,
+      "inboxReady": 0,
+      "inboxWaiting": 0,
+      "pendingExpansions": 0,
+      "pendingWrites": 0,
+      "conflictLinks": 0,
+      "cursorsWithPage": 0,
+      "cursorsWithSync": 3,
+      "calendarsRemaining": 3
+    }
+  },
+  "independentReadOnlyProviderProbe": {
+    "existingGrantMs": 232,
+    "readOnly": true,
+    "sqlScope": "System SQLite read-only row counts, not Expo JSON query timing",
+    "mainApplicationStarted": false,
+    "calendars": [
+      {
+        "calendarOrdinal": 0,
+        "cursorReadMs": 2,
+        "dirtyRows": 0,
+        "dirtyReadMs": 1,
+        "maxAttemptOrder": 0,
+        "attemptReadMs": 2,
+        "hasSyncToken": true,
+        "hasPageToken": false,
+        "httpMs": 546,
+        "status": 200,
+        "itemCount": 0,
+        "hasNextPage": false,
+        "hasNextSync": true
+      },
+      {
+        "calendarOrdinal": 1,
+        "cursorReadMs": 3,
+        "dirtyRows": 0,
+        "dirtyReadMs": 1,
+        "maxAttemptOrder": 0,
+        "attemptReadMs": 2,
+        "hasSyncToken": true,
+        "hasPageToken": false,
+        "httpMs": 284,
+        "status": 200,
+        "itemCount": 0,
+        "hasNextPage": false,
+        "hasNextSync": true
+      },
+      {
+        "calendarOrdinal": 2,
+        "cursorReadMs": 2,
+        "dirtyRows": 0,
+        "dirtyReadMs": 1,
+        "maxAttemptOrder": 0,
+        "attemptReadMs": 2,
+        "hasSyncToken": true,
+        "hasPageToken": false,
+        "httpMs": 303,
+        "status": 410,
+        "itemCount": 0,
+        "hasNextPage": false,
+        "hasNextSync": false
+      }
+    ],
+    "totalMs": 1391
+  },
+  "providerProbeScope": "Existing grant, at most one saved-token delta GET per calendar, no returned cursor/event applied. System SQLite counts do not measure Expo SQLite JS latency. First auxiliary probe failed on an unsupported system SQLite JSON query; retained separately and not an app failure.",
+  "rawLogsSha256": {
+    "android-v34-natural-audit/calendar-state.log": "3b092a8fcdefa784526bf46670913ac6b913316313a9734c29cb3c0b4041463e",
+    "calendar-delta-readonly-probe/command2.log": "1334f44a2faeaedb7da9d98d2ae93af6f79994fd9db0ca0fa94088047d2baa43",
+    "calendar-delta-readonly-probe/command.log": "f213f4cd9f78cb9c447d805dd033488dec9d98d9c241f2603cc88b726f856257"
+  },
+  "pendingInvestigation": "Two valid feeds did not finish inside this worker. The third token expired and correctly requires foreground rebuild. No cause is yet assigned to the unfinished valid feeds."
+}

@@ -7,6 +7,7 @@ export function createDatabase(path = ':memory:') {
     connection,
     writes,
     database: {
+      async isInTransactionAsync() { return connection.isTransaction; },
       async execAsync(sql) { connection.exec(sql); },
       async runAsync(sql, ...params) {
         writes.push({ sql, params });

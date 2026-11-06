@@ -50,6 +50,7 @@ function authenticate(fact: AuthenticatedSharedOperation, groupId: string, keyVe
 
 function snapshotSigner(roster: VerifiedSharedRoster, deviceId: string): DevicePublicIdentity {
   // A handover snapshot is atomically committed by the outgoing owner who signed this transition.
+  if (roster.body.accountDeviceRestore && deviceId !== roster.body.ownerDeviceId) throw new Error('Account device restoration does not grant snapshot ownership');
   if (deviceId !== roster.body.ownerDeviceId && deviceId !== roster.signer.deviceId) throw new Error('Untrusted snapshot owner');
   const identity = roster.body.members.flatMap((member) => member.devices).find((device) => device.identity.deviceId === deviceId)?.identity;
   if (!identity || (deviceId === roster.signer.deviceId && canonicalJson(identity) !== canonicalJson(roster.signer))) throw new Error('Missing snapshot owner authority');

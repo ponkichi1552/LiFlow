@@ -24,6 +24,7 @@ export function selectDateTasks(
   date: LocalDate,
   graceDays = 0,
   chores?: readonly (Pick<ChoreDefinition, 'id'> & Partial<Pick<ChoreDefinition, 'enabled' | 'archived'>>)[],
+  includeRetainedOverdue = false,
 ): DateTask[] {
   const activeIds = chores ? new Set(chores.filter((chore) => chore.enabled !== false && !chore.archived).map((chore) => chore.id)) : undefined;
   const visibleCompletions = activeIds ? completions.filter((completion) => activeIds.has(completion.choreId)) : completions;
@@ -34,21 +35,23 @@ export function selectDateTasks(
     if (bucket) bucket.push(completion); else completionsByChore.set(completion.choreId, [completion]);
   }
   const byChore = new Map<string, DateTask>();
+  const meaningKey = (choreId: string, work?: ChoreScheduleEntry['seasonalWork']) => work ? JSON.stringify([choreId, work]) : choreId;
 
   for (const entry of entries) {
     if (activeIds && !activeIds.has(entry.choreId)) continue;
-    if (entry.windowStart > date || date > (graceDays === 0 ? entry.windowEnd : addDays(entry.windowEnd, graceDays))) continue;
+    const retained = includeRetainedOverdue && entry.status === 'overdue' && (entry.id.startsWith('personal-round.') || entry.id.startsWith('seasonal-round.'));
+    if (entry.windowStart > date || !retained && date > (graceDays === 0 ? entry.windowEnd : addDays(entry.windowEnd, graceDays))) continue;
     const completion = completionsByChore.get(entry.choreId)?.find((candidate) => completionMatchesEntry(candidate, entry));
     const task: DateTask = {
       id: entry.id, choreId: entry.choreId, suggestedDate: entry.suggestedDate,
       completed: Boolean(completion), entry, completion,
     };
-    const previous = byChore.get(entry.choreId);
-    if (!previous || compareOccurrence(task, previous, date) < 0) byChore.set(entry.choreId, task);
+    const key = meaningKey(entry.choreId, entry.seasonalWork); const previous = byChore.get(key);
+    if (!previous || compareOccurrence(task, previous, date) < 0) byChore.set(key, task);
   }
 
   for (const completion of relevantCompletions) {
-    const previous = byChore.get(completion.choreId);
+    const key = meaningKey(completion.choreId, completion.seasonalWork); const previous = byChore.get(key);
     if (previous?.completion?.id === completion.id) continue;
     const task: DateTask = {
       id: `completed:${completion.id}`, choreId: completion.choreId,
@@ -56,7 +59,7 @@ export function selectDateTasks(
       completed: true, completion,
     };
     // Today's real completion must remain visible even if recalculation created another overlapping cycle.
-    if (!previous || compareOccurrence(task, previous, date) < 0) byChore.set(completion.choreId, task);
+    if (!previous || compareOccurrence(task, previous, date) < 0) byChore.set(key, task);
   }
   return [...byChore.values()];
 }

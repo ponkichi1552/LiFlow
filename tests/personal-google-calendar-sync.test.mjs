@@ -6,11 +6,11 @@ const { initializeLocalDatabase } = await import('../src/platform/storage/reposi
 const { readLocalCalendar, saveCalendarEvent, deleteCalendarEvent } = await import('../src/platform/storage/calendar-events.ts');
 const { createPersonalGoogleCalendarSync } = await import('../src/features/calendar/personal-google-sync.ts');
 import { newEventDraft, projectCalendarEvents } from '../src/domain/calendar/events.ts';
-import { GoogleCalendarHttpError } from '../src/platform/google-calendar/calendar-api.ts';
+import { createGoogleCalendarApi, GoogleCalendarHttpError } from '../src/platform/google-calendar/calendar-api.ts';
 const clone = value => structuredClone(value);
 async function harness(t, extraInput = {}) {
   const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database); await readLocalCalendar(h.database);
-  let subject = 'google-one'; let version = 0; let lost = false; let blocked; const events = new Map(); const changes = []; const calls = [];
+  let subject = 'google-one'; let version = 0; let lost = null; let blocked; const events = new Map(); const changes = []; const calls = [];
   const calendar = { id: 'owned', summary: '個人', accessRole: 'owner', primary: true, timeZone: 'Asia/Tokyo' };
   const put = value => { const event = { ...clone(value), etag: `etag-${++version}` }; events.set(event.id, event); changes.push({ version, event }); return clone(event); };
   const api = {
@@ -19,19 +19,134 @@ async function harness(t, extraInput = {}) {
       const since = Number(cursor.syncToken?.slice(1) ?? 0); return { items: cursor.syncToken ? changes.filter(row => row.version > since).map(row => clone(row.event)) : [...events.values()].map(clone), nextSyncToken: `S${version}` }; },
     instances: async () => ({ items: [] }),
     get: async (calendarId, id) => { calls.push(['get', id]); if (!events.has(id)) throw new GoogleCalendarHttpError(404); return clone(events.get(id)); },
-    insert: async (calendarId, body) => { calls.push(['insert', body.id]); if (events.has(body.id)) throw new GoogleCalendarHttpError(409); const result = put(body); if (lost) { lost = false; throw new Error('lost acknowledgement'); } return result; },
-    patch: async (calendarId, id, body, etag) => { calls.push(['patch', id, clone(body)]); const old = events.get(id); if (!old || old.etag !== etag) throw new GoogleCalendarHttpError(412); return put({ ...old, ...clone(body) }); },
+    insert: async (calendarId, body) => { calls.push(['insert', body.id]); if (events.has(body.id)) throw new GoogleCalendarHttpError(409); const result = put(body); if (lost === 'insert') { lost = null; throw new Error('lost acknowledgement'); } return result; },
+    patch: async (calendarId, id, body, etag) => { calls.push(['patch', id, clone(body)]); const old = events.get(id); if (!old || old.etag !== etag) throw new GoogleCalendarHttpError(412); const result = put({ ...old, ...clone(body) }); if (lost === 'patch') { lost = null; throw new Error('lost acknowledgement'); } return result; },
     remove: async (calendarId, id, etag) => { calls.push(['remove', id]); const old = events.get(id); if (!old) throw new GoogleCalendarHttpError(404); if (old.etag !== etag) throw new GoogleCalendarHttpError(412); put({ id, status: 'cancelled' }); },
   };
-  const sync = createPersonalGoogleCalendarSync({ database: h.database, currentSubject: async () => subject,
+  const makeSync = () => createPersonalGoogleCalendarSync({ database: h.database, currentSubject: async () => subject,
     authorize: async () => ({ subject, label: 'QA' }), createApi: () => api, today: () => '2026-11-01', random: () => .5, ...extraInput });
+  const sync = makeSync();
   const connect = async () => { const result = await sync.connect(await sync.prepareConnection()); calls.length = 0; return result; };
-  return { ...h, sync, api, connect, put, events, calls, subject: value => { subject = value; }, loseNext: () => { lost = true; }, block: value => { blocked = value; },
+  return { ...h, sync, makeSync, api, connect, put, events, calls, subject: value => { subject = value; }, loseNext: (method = 'insert') => { lost = method; }, block: value => { blocked = value; },
     local: async (extra = {}) => { const value = { ...newEventDraft('2026-11-03', 'Asia/Tokyo'), title: '予定', ...extra }; const id = await saveCalendarEvent(h.database, { value, expectedRevision: 0 }); return { ...value, id, revision: 1 }; },
     links: () => h.connection.prepare('SELECT * FROM calendar_google_links ORDER BY event_id,anchor_date').all(),
     remote: (id = 'remote', extra = {}) => ({ id, summary: 'Googleの予定', start: { date: '2026-11-04' }, end: { date: '2026-11-05' }, ...extra }),
   };
 }
+test('a background Calendar pass defers its initial full read but sends pending local edits and resumes in foreground', async t => {
+  const h = await harness(t); await h.connect(); const event = await h.local();
+  const first = await h.sync.sync({ deltaOnly: true });
+  assert.equal(first.kind, 'pending'); assert.equal(first.sent, 1);
+  assert.equal(h.calls.some(call => ['calendars', 'events'].includes(call[0])), false);
+  assert.equal((await h.sync.readControl()).lastSyncAt, null);
+  assert.equal(h.connection.prepare('SELECT count(*) n FROM calendar_google_cursors').get().n, 0);
+  const id = h.links()[0].google_id;
+  await saveCalendarEvent(h.database, { id: event.id, expectedRevision: 1, value: { ...event, title: '背景での編集' } });
+  assert.equal((await h.makeSync().sync({ deltaOnly: true })).sent, 1);
+  assert.equal(h.events.size, 1); assert.equal(h.events.get(id).summary, '背景での編集');
+  assert.equal(h.calls.some(call => ['calendars', 'events'].includes(call[0])), false);
+  h.calls.length = 0;
+  const resumed = await h.makeSync().sync();
+  assert.equal(resumed.kind, 'success'); assert.equal(h.events.size, 1);
+  assert.equal(h.calls.some(call => call[0] === 'calendars'), true);
+  assert.ok(h.connection.prepare('SELECT sync_token FROM calendar_google_cursors').get().sync_token);
+});
+
+test('a background Calendar 410 defers the full rebuild while other calendar deltas and local writes continue', async t => {
+  const h = await harness(t); let expire = false; let sharedVersion = 0;
+  h.api.calendars = async () => { h.calls.push(['calendars']); return { items: [
+    { id: 'owned', summary: '個人', accessRole: 'owner', primary: true },
+    { id: 'shared-read', summary: '共有先', accessRole: 'reader' },
+  ] }; };
+  h.api.events = async (id, cursor) => {
+    h.calls.push(['events', id, clone(cursor)]);
+    if (id === 'owned' && expire && cursor.syncToken) { expire = false; throw new GoogleCalendarHttpError(410); }
+    if (id === 'shared-read') return { items: [h.remote('shared-item', { etag: `shared-${++sharedVersion}`, summary: `共有の変更${sharedVersion}` })], nextSyncToken: `shared-${sharedVersion}` };
+    return { items: [], nextSyncToken: 'owned-token' };
+  };
+  await h.connect(); assert.equal((await h.sync.sync()).kind, 'success');
+  const previous = (await h.sync.readControl()).lastSyncAt;
+  await h.local(); expire = true; h.calls.length = 0;
+  const result = await h.sync.sync({ deltaOnly: true });
+  assert.equal(result.kind, 'pending'); assert.equal(result.sent, 1);
+  assert.equal(h.calls.some(call => call[0] === 'calendars'), false);
+  assert.ok(h.calls.filter(call => call[0] === 'events').every(call => call[2].syncToken));
+  assert.equal(h.connection.prepare("SELECT sync_token FROM calendar_google_cursors WHERE calendar_id='owned'").get(), undefined);
+  assert.deepEqual(JSON.parse(h.connection.prepare('SELECT remaining_json FROM calendar_google_progress').get().remaining_json), ['owned']);
+  assert.equal((await h.sync.readControl()).lastSyncAt, previous, 'deferral is not a completed full synchronization');
+  const firstVersion = sharedVersion; h.calls.length = 0;
+  assert.equal((await h.makeSync().sync({ deltaOnly: true })).kind, 'pending');
+  assert.equal(sharedVersion, firstVersion + 1, 'a deferred first calendar cannot starve a later delta feed');
+  assert.ok(h.calls.filter(call => call[0] === 'events').every(call => call[1] === 'shared-read' && call[2].syncToken));
+  assert.equal((await readLocalCalendar(h.database)).events.find(row => row.title.startsWith('共有の変更')).title, `共有の変更${sharedVersion}`);
+  h.calls.length = 0;
+  assert.equal((await h.makeSync().sync()).kind, 'success');
+  assert.ok(h.calls.some(call => call[0] === 'events' && call[1] === 'owned' && !call[2].syncToken));
+  assert.equal(h.connection.prepare('SELECT count(*) n FROM calendar_google_progress').get().n, 0);
+  assert.equal(h.events.size, 1, 'the pending write was not duplicated by foreground recovery');
+});
+
+test('a Calendar deadline with an unacknowledged HTTP insert preserves its intent and later edit without a duplicate after restart', async t => {
+  let h, reply, remoteReply; let holdReply = false;
+  const createApi = context => {
+    const http = createGoogleCalendarApi({ ...context, token: async () => 'synthetic-token', fetch: async (_url, options) => {
+      assert.equal(options.method, 'POST');
+      remoteReply = await h.api.insert('owned', JSON.parse(options.body));
+      return holdReply ? new Promise(resolve => { reply = resolve; }) : Response.json(remoteReply);
+    } });
+    return { ...h.api, insert: http.insert };
+  };
+  h = await harness(t, { createApi }); await h.connect(); const event = await h.local();
+  t.mock.timers.enable({ apis: ['setTimeout'] }); holdReply = true;
+  const pending = h.sync.sync({ force: true, budgetMs: 1000 });
+  try {
+    for (let i = 0; i < 40 && !reply; i++) await new Promise(setImmediate);
+    assert.equal(typeof reply, 'function'); assert.equal(h.events.size, 1);
+    t.mock.timers.tick(1000); assert.equal((await pending).kind, 'pending');
+    const beforeLateReply = h.links(); assert.ok(beforeLateReply[0].pending_json); assert.equal(beforeLateReply[0].local_revision, 0);
+    reply(Response.json(remoteReply)); await new Promise(setImmediate); await new Promise(setImmediate);
+    assert.deepEqual(h.links(), beforeLateReply, 'a late native response must not acknowledge the expired pass');
+    await saveCalendarEvent(h.database, { id: event.id, expectedRevision: 1, value: { ...event, title: '期限終了後の端末編集' } });
+    holdReply = false; t.mock.timers.reset();
+    const restarted = h.makeSync(); assert.equal((await restarted.sync({ force: true })).kind, 'success');
+    assert.equal(h.events.size, 1); assert.equal(h.calls.filter(row => row[0] === 'insert').length, 1);
+    assert.equal([...h.events.values()][0].summary, '期限終了後の端末編集');
+    assert.equal((await readLocalCalendar(h.database)).events[0].title, '期限終了後の端末編集');
+    assert.equal(h.links()[0].pending_json, null);
+  } finally { reply?.(Response.json(remoteReply ?? {})); t.mock.timers.reset(); }
+});
+test('Calendar native identity timeouts release the queue and rollback an uncommitted page', async t => {
+  for (const phase of ['guard', 'transaction-entry', 'page-final-fence']) await t.test(phase, async t => {
+    let h, release, armed = false;
+    h = await harness(t, { currentSubject: async () => {
+      const inTransaction = h?.connection.isTransaction;
+      const shouldHold = phase === 'guard' ? !inTransaction : phase === 'transaction-entry' ? inTransaction
+        : inTransaction && h.connection.prepare('SELECT count(*) n FROM calendar_google_inbox').get().n > 0;
+      if (armed && shouldHold) return new Promise(resolve => { release = resolve; });
+      return 'google-one';
+    } });
+    await h.connect(); h.put(h.remote('identity-timeout')); armed = true;
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let result; const pending = h.sync.sync({ force: true, budgetMs: 1000 }).then(value => { result = value; return value; });
+    try {
+      for (let i = 0; i < 50 && !release; i++) await new Promise(setImmediate);
+      assert.equal(typeof release, 'function', 'the actual native identity boundary must be reached');
+      t.mock.timers.tick(1000);
+      for (let i = 0; i < 20 && !result; i++) await new Promise(setImmediate);
+      assert.equal(result?.kind, 'pending', 'a native identity wait must end with the pass deadline');
+      assert.equal(h.connection.isTransaction, false, 'no transaction may remain open after timeout');
+      assert.equal(h.connection.prepare('SELECT count(*) n FROM calendar_google_inbox').get().n, 0);
+      assert.equal((await readLocalCalendar(h.database)).events.length, 0);
+    } finally {
+      armed = false; release?.('google-one'); await pending; t.mock.timers.reset();
+    }
+    assert.equal(h.connection.prepare('SELECT count(*) n FROM calendar_google_inbox').get().n, 0, 'a late identity reply cannot commit the expired page');
+    assert.equal((await readLocalCalendar(h.database)).events.length, 0);
+    const recovered = await h.makeSync().sync({ force: true });
+    assert.equal(recovered.kind, 'success');
+    assert.equal((await readLocalCalendar(h.database)).events.length, 1);
+  });
+});
 test('personal Calendar stays completely OFF until selected, and disables without deleting either side', async t => {
   const h = await harness(t); await h.local(); assert.equal((await h.sync.sync()).kind, 'skipped'); assert.deepEqual(h.calls, []);
   await h.connect(); assert.equal((await h.sync.sync()).sent, 1); const control = await h.sync.readControl(); await h.sync.disable(control);
@@ -92,6 +207,44 @@ test('lost insert acknowledgements and application restarts cannot duplicate a p
   const h = await harness(t); await h.connect(); await h.local(); h.loseNext(); assert.equal((await h.sync.sync({ force: true })).kind, 'error');
   assert.equal(h.events.size, 1); assert.equal(h.links().length, 1); assert.equal((await h.sync.sync({ force: true })).kind, 'success');
   assert.equal(h.events.size, 1); assert.equal(h.calls.filter(row => row[0] === 'insert').length, 1);
+});
+for (const method of ['insert', 'patch']) for (const action of ['edit', 'delete']) test(`personal Calendar preserves a later ${action} after a lost ${method} reply and runtime restart`, async t => {
+  const h = await harness(t); await h.connect(); const event = await h.local();
+  let revision = 1;
+  if (method === 'patch') {
+    await h.sync.sync(); await saveCalendarEvent(h.database, { id: event.id, expectedRevision: revision++, value: { ...event, title: '送信した変更' } });
+  }
+  h.loseNext(method); assert.equal((await h.sync.sync({ force: true })).kind, 'error');
+  if (action === 'edit') await saveCalendarEvent(h.database, { id: event.id, expectedRevision: revision, value: { ...event, title: '応答喪失後の編集' } });
+  else await deleteCalendarEvent(h.database, { id: event.id, expectedRevision: revision });
+  const restarted = h.makeSync();
+  for (let n = 0; n < 3; n++) await restarted.sync({ force: true });
+  const visible = (await readLocalCalendar(h.database)).events;
+  assert.equal(visible.length, action === 'edit' ? 1 : 0);
+  if (action === 'edit') assert.equal(visible[0].title, '応答喪失後の編集');
+  assert.equal(h.events.size, 1);
+  assert.equal([...h.events.values()][0][action === 'edit' ? 'summary' : 'status'], action === 'edit' ? '応答喪失後の編集' : 'cancelled');
+  assert.equal((await restarted.readConflicts()).length, 0);
+});
+test('a third party edit after a lost personal insert stays an explicit conflict with the newer local edit intact', async t => {
+  const h = await harness(t); await h.connect(); const event = await h.local(); h.loseNext(); await h.sync.sync();
+  await saveCalendarEvent(h.database, { id: event.id, expectedRevision: 1, value: { ...event, title: '端末の追加編集' } });
+  const remote = [...h.events.values()][0]; h.put({ ...remote, summary: '別の編集' });
+  await h.makeSync().sync({ force: true });
+  assert.equal((await readLocalCalendar(h.database)).events[0].title, '端末の追加編集');
+  assert.equal([...h.events.values()][0].summary, '別の編集');
+  assert.equal((await h.sync.readConflicts()).length, 1);
+});
+test('an unconfirmed personal write is not acknowledged before HTTP succeeds and later offline edits still converge', async t => {
+  const h = await harness(t); await h.connect(); const event = await h.local();
+  const insert = h.api.insert; h.api.insert = async () => { throw new Error('request never sent'); };
+  assert.equal((await h.sync.sync()).kind, 'error');
+  assert.equal(h.links()[0].base_json, null); assert.equal(h.links()[0].local_revision, 0); assert.ok(h.links()[0].pending_json);
+  await saveCalendarEvent(h.database, { id: event.id, expectedRevision: 1, value: { ...event, title: '再起動前の変更' } });
+  h.api.insert = insert; const runtime = h.makeSync();
+  assert.equal((await runtime.sync({ force: true })).kind, 'success');
+  assert.equal((await readLocalCalendar(h.database)).events[0].title, '再起動前の変更');
+  assert.equal([...h.events.values()][0].summary, '再起動前の変更');
 });
 test('simultaneous local and remote edits are retained as a conflict instead of silently choosing the last writer', async t => {
   const h = await harness(t); await h.connect(); const local = await h.local(); await h.sync.sync(); const id = h.links()[0].google_id;
@@ -409,4 +562,33 @@ test('manual Calendar retry after joining an expired automatic pass receives its
   const manual = h.sync.sync({ interactive: true, force: true }); clock += 21_000; h.block(null); release();
   assert.equal((await automatic).kind, 'pending'); const result = await manual;
   assert.equal(result.kind, 'success'); assert.equal(result.sent, 1); assert.equal(h.events.size, 1);
+});
+
+
+for (const parentState of ['missing', 'deleting']) test(`a ${parentState} master with twenty six waiting exceptions never starves a later valid series and resumes after restart`, async t => {
+  const h = await harness(t); await h.connect();
+  if (parentState === 'deleting') h.put(h.remote('waiting-master', { recurrence: ['RRULE:FREQ=DAILY'] }));
+  h.put(h.remote('valid-master', { recurrence: ['RRULE:FREQ=DAILY'] })); await h.sync.sync();
+  const remove = h.api.remove;
+  if (parentState === 'deleting') {
+    const row = (await readLocalCalendar(h.database)).events.find(row => h.links().some(link => link.event_id === row.id && link.google_id === 'waiting-master'));
+    await deleteCalendarEvent(h.database, { id: row.id, expectedRevision: row.revision });
+    h.api.remove = async () => { throw new Error('synthetic deletion temporarily unavailable'); };
+  }
+  for (let n = 0; n < 26; n++) h.put(h.remote(`a-${String(n).padStart(2, '0')}`, { recurringEventId: 'waiting-master', originalStartTime: { date: `2026-11-${String(n + 1).padStart(2, '0')}` } }));
+  h.put(h.remote('z-valid-instance', { summary: '後続の有効な例外', recurringEventId: 'valid-master', originalStartTime: { date: '2026-11-04' } }));
+  let result;
+  for (let n = 0; n < 3; n++) result = await h.makeSync().sync({ force: true });
+  const local = await readLocalCalendar(h.database);
+  assert.ok(projectCalendarEvents(local.events, local.exceptions, '2026-11-04', '2026-11-04').some(row => row.title === '後続の有効な例外'));
+  assert.notEqual(result.kind, 'success');
+  assert.equal(h.connection.prepare('SELECT count(*) n FROM calendar_google_inbox WHERE dirty=2').get().n, 26);
+  if (parentState === 'missing') {
+    assert.match((await h.sync.readControl()).error, /受信待ち/);
+    h.put(h.remote('waiting-master', { recurrence: ['RRULE:FREQ=DAILY'] }));
+  } else h.api.remove = remove;
+  for (let n = 0; n < 5; n++) { result = await h.makeSync().sync({ force: true }); if (result.kind === 'success') break; }
+  assert.equal(result.kind, 'success'); assert.equal(h.connection.prepare('SELECT count(*) n FROM calendar_google_inbox WHERE dirty<>0').get().n, 0);
+  assert.equal((await h.sync.readControl()).error, null);
+  assert.ok((await readLocalCalendar(h.database)).events.some(row => row.title === 'Googleの予定'));
 });

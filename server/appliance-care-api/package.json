@@ -7,7 +7,11 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "node src/index.mjs"
+    "start": "node src/index.mjs",
+    "billing:retry": "node src/subscription-worker.mjs",
+    "analysis:work": "node src/analysis-worker.mjs",
+    "weather:work": "node src/weather-worker.mjs",
+    "weather:start": "node src/weather-index.mjs"
   },
   "dependencies": {
     "@apple/app-store-server-library": "^3.1.0",

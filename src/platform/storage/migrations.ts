@@ -1,7 +1,14 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { initializeGoogleTaskCreateIntentsInside } from './google-task-create-intents.ts';
+import { initializeAdaptivePersonalSchemaInside } from './adaptive-personal-chores.ts';
+import { initializeGoogleTaskReadCacheInside } from './google-task-read-cache.ts';
 
 const INITIAL_SCHEMA_VERSION = 1;
-const CURRENT_SCHEMA_VERSION = 21;
+const CURRENT_SCHEMA_VERSION = 27;
+
+function assertReadableVersion(version: number) {
+  if (!Number.isSafeInteger(version) || version < 0 || version > CURRENT_SCHEMA_VERSION) throw new Error('新しいバージョンで保存されたデータです。LiFlowを更新してください。');
+}
 
 const runningMigrations = new WeakMap<SQLiteDatabase, Promise<void>>();
 
@@ -18,11 +25,12 @@ async function runMigration(database: SQLiteDatabase): Promise<void> {
   // Connection PRAGMAs must be outside the transaction. All schema changes and version writes commit together.
   for (let attempt = 0; ; attempt += 1) {
     try {
-      await database.execAsync('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
       // Recheck the real version on every call, including after restore/reset. A
       // current schema needs no write transaction or repeat migration work.
       const version = await database.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
-      if (version && version.user_version >= CURRENT_SCHEMA_VERSION) return;
+      assertReadableVersion(version?.user_version ?? 0);
+      await database.execAsync('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+      if (version?.user_version === CURRENT_SCHEMA_VERSION) return;
       await database.withTransactionAsync(() => migrateSchema(database));
       return;
     } catch (error) {
@@ -43,6 +51,7 @@ async function addColumnIfMissing(database: SQLiteDatabase, table: string, colum
 async function migrateSchema(database: SQLiteDatabase): Promise<void> {
   const versionRow = await database.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
   let version = versionRow?.user_version ?? 0;
+  assertReadableVersion(version);
   const startingVersion = version;
 
   if (version < INITIAL_SCHEMA_VERSION) {
@@ -394,6 +403,72 @@ async function migrateSchema(database: SQLiteDatabase): Promise<void> {
       PRAGMA user_version = 21;
     `);
     version = 21;
+  }
+  if (version < 22) {
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS planner_completion_intents (
+        intent_id TEXT PRIMARY KEY, target_digest TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_completions_household_chore_completed
+        ON chore_completions (household_id, chore_id, completed_at DESC);
+    `);
+    version = 22;
+  }
+  if (version < 23) {
+    await addColumnIfMissing(database, 'chore_completions', 'completed_local_date', 'TEXT');
+    await addColumnIfMissing(database, 'chore_completions', 'completed_time_zone', 'TEXT');
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS chore_completion_actions (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        operation_id TEXT NOT NULL UNIQUE,
+        completion_id TEXT NOT NULL REFERENCES chore_completions(id) ON DELETE CASCADE,
+        chore_id TEXT NOT NULL REFERENCES chore_definitions(id) ON DELETE CASCADE,
+        action TEXT NOT NULL CHECK(action IN ('complete','undo','legacy')),
+        target_sequence INTEGER, previous_action_sequence INTEGER,
+        completed_at TEXT NOT NULL, completed_local_date TEXT NOT NULL, time_zone TEXT NOT NULL,
+        scheduled_date TEXT, scheduled_window_start TEXT, previous_chore_state_json TEXT,
+        source TEXT NOT NULL, origin TEXT NOT NULL CHECK(origin IN ('personal','shared'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_completion_actions_chore_sequence ON chore_completion_actions(chore_id,sequence DESC);
+      CREATE INDEX IF NOT EXISTS idx_completion_actions_completion_sequence ON chore_completion_actions(completion_id,sequence DESC);
+      CREATE INDEX IF NOT EXISTS idx_completion_actions_chore_day ON chore_completion_actions(chore_id,completed_local_date,sequence DESC);
+    `);
+    version = 23;
+  }
+  if (version < 24) {
+    await initializeGoogleTaskCreateIntentsInside(database);
+    version = 24;
+  }
+  if (version < 25) {
+    await initializeAdaptivePersonalSchemaInside(database);
+    await addColumnIfMissing(database, 'chore_completions', 'adaptive_operation_id', 'TEXT');
+    await addColumnIfMissing(database, 'chore_completions', 'seasonal_work', 'TEXT');
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS personal_adaptive_preferences (
+        household_id TEXT PRIMARY KEY NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+        revision INTEGER NOT NULL, preferences_json TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS personal_adaptive_inputs (
+        household_id TEXT PRIMARY KEY NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+        source_revision TEXT NOT NULL, geometry_json TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS personal_seasonal_state (
+        chore_id TEXT PRIMARY KEY NOT NULL, revision INTEGER NOT NULL,
+        state_json TEXT NOT NULL, source_revision TEXT NOT NULL
+      );
+    `);
+    version = 25;
+  }
+  if (version < 26) {
+    await initializeGoogleTaskReadCacheInside(database);
+    version = 26;
+  }
+  if (version < 27) {
+    await addColumnIfMissing(database, 'household_settings', 'weather_municipality_id', 'TEXT');
+    await database.execAsync(`CREATE TABLE IF NOT EXISTS private_weather_cache (
+      region_id TEXT PRIMARY KEY NOT NULL, revision TEXT NOT NULL, cache_json TEXT NOT NULL
+    );`);
+    version = 27;
   }
   if (startingVersion < CURRENT_SCHEMA_VERSION) {
     await database.execAsync(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);

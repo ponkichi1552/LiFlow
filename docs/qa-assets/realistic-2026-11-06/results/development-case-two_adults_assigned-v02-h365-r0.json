@@ -1,0 +1,1546 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-11-05T19:09:26.082Z",
+  "started_at": "2026-11-05T19:09:25.436Z",
+  "split": "development",
+  "sampled": true,
+  "run_label": "development-case-two_adults_assigned-v02-h365-r0",
+  "unique_cases": 1,
+  "requested_case_count": 1,
+  "actual_case_evaluations": 1,
+  "actual_repetitions_per_case": 1,
+  "code_fingerprint": "a16370b2a863eb4595c6d4a31638d4490807285cb1b1f811076a3bb0d43ba6b2",
+  "code_snapshot": {
+    "code_files": {
+      "tests/helpers/realistic-lifestyle-cases.mjs": "cb4855db88da528d21670bfe7c91b4affdf5f32ced089c3a9cdb8870d08f9f0e",
+      "tests/helpers/sqlite.mjs": "7eda99d44d8c4bc99005dc8a8446c8899f71ea21b4b5bff8288218813ca2bba2",
+      "tests/helpers/typescript-loader.mjs": "927a2cd6093ece24b1cb7bbceb6daee3dd2eec5164c5c86865a4b928b9cbbd3e",
+      "tests/realistic-lifestyle-cases.test.mjs": "266e378ec0b0ffba7c2eeb52e5fb1ebc2c921e1f4f142075aabf86de2c85f9ff",
+      "scripts/realistic-lifestyle-benchmark.mjs": "7045420b7409a50d243d0552acc677ea291bb0307808d9c5c0373c44efd9c925",
+      "src/domain/scheduling/local-date.ts": "b7ab3ca6bf46689dcc595b2ee7e96fe1f1a330ce27d800900f9420778c097ccf",
+      "src/domain/scheduling/adaptive/history.ts": "e59dddd08167202a5a55ca3474447c1f0f60fe5210a199cb2e223e4a0dc81415",
+      "src/domain/scheduling/adaptive/models.ts": "5ab25f6f9ce160ec4a32d30ae0cbf11184f2bfb9104e78d422130d89824b2f29",
+      "src/domain/scheduling/adaptive/placement.ts": "d5d883cd75173605fc17d2467c2800d07208e03b6512540738b561ae3ec18197",
+      "src/domain/scheduling/adaptive/seasonal.ts": "eae61de98873bfa05782f3d10e3a23e2570f15a997ec348a018e54b746f363f9",
+      "src/domain/chores/personal-catalog.ts": "b1f4a0a96d13fa6d4ae5c1555fcdadce7b800be8dc1ed6b55ee1212d18660666",
+      "src/features/planner/adaptive-input.ts": "a9ac0a53f53bddd8b82d357e733405e0931efb57774b863909dbcf4899c27869",
+      "src/features/planner/adaptive-rounds.ts": "ec48bdf1753f198b374d94c22a08c6ec48567c366ece4e20f1b7cb08811d1db7",
+      "src/features/planner/shared-adaptive-load.ts": "b9010310fe82effc230229f6290181b267497c4540d8642660884939fa647a4b",
+      "src/features/weather/chore-weather.ts": "2f1a7457cfae6101ec9c19f6260fc1d3f3151cf70a71235f69076149fb01ed6c",
+      "src/features/google-sync/calendar-availability.ts": "96fc38dbe0cca082e19dc6a4d504c64145ad1f9e3a549c61b16547eaeee0d63a",
+      "src/features/sharing/v2/local-time.ts": "c7796cad57d45061b7471c7c5a65d4ed68e2d34541619bfa5560dc524a17d73f",
+      "src/platform/storage/adaptive-personal-chores.ts": "57b18a5bccb50641c5a44d10dfa19229a7182a754def0507cc03a5981ee797e3",
+      "server/appliance-care-api/src/weather/forecast.mjs": "337b024ebe0b21300d456050b2adfd57cb8b22b305ef4238e9b185d6e4182eab"
+    },
+    "code_sha256": "ebeb65481ef588787776cc54c79cedfacece68bb08eb703b3efd8dd0d5d80aa8",
+    "asset_files": {
+      "./README.md": "c951cc0438e1c8043a029364e3d85162656d9c1259f94ab9e111197de21b7912",
+      "./case_index.csv": "818f3cf8dd71ad6e362e0023d1ac964276f120f2da665b93507041b2efb5d78a",
+      "./cases.jsonl.gz": "c532da90a0a7a6ccb72c8aefd7d6ebc31b98c74d280b8d2599242878da5027b0",
+      "./directed_cases.json": "0dd2205dc8d82a06a91eadb00fe78d6b85fcc6c6eb3547c5e34ba19cec23a200",
+      "./evidence/housework.md": "f558badba38f467d6527c9277fc162d2011eb4fb30f676171d523ca5a10e67ae",
+      "./evidence/lifestyles.md": "58c0c941c14de9db560ced55a68ecc666419067e476b1f5c696ee9a666e5e033",
+      "./examples.json": "8d69767ca765aad31eee9fa8a431dc06410492055e9716d4abbfa00d1accae07",
+      "./generate.py": "d14be412826994ced99670b48e116284ad013a2d830e6a5c489561aab3f7a829",
+      "./invariants.json": "874c4a94470510c608d0a932837cedba82059fb7a31b703df5d2cca59fa35828",
+      "./make_directed.py": "8d8abe8f62439c653822264c50f5527e325bf114eb4844ea7e6890cd9ea64936",
+      "./sources.json": "5edabba05ca51612c81a052b731e44356c470bab34aa3f32e10b9a817fbf3c80",
+      "./validation.json": "69b6ce664acccfb773ab3372f10c69b7ec832489bec61c95234289f0f0f1f3d4"
+    },
+    "asset_manifest_sha256": "7253e1e2bbab9dcf8e0203277ccd70458ccd381bb963a9583ae5e0bc3b7b0329",
+    "git_head": "e60fa09f1b811277eff27ced29de9fee1c719f31",
+    "fingerprint": "a16370b2a863eb4595c6d4a31638d4490807285cb1b1f811076a3bb0d43ba6b2"
+  },
+  "corpus": {
+    "case_status_counts": {
+      "pass": 1
+    },
+    "invariant_summary": {
+      "LOCK_NEAR": {
+        "pass": 1,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 0,
+        "condition_evaluations": 1,
+        "tested_pass_fraction": 1
+      },
+      "NEXT_GENERATION": {
+        "pass": 0,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 1,
+        "condition_evaluations": 0,
+        "tested_pass_fraction": null
+      },
+      "DAILY_FIXED": {
+        "pass": 0,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 1,
+        "condition_evaluations": 0,
+        "tested_pass_fraction": null
+      },
+      "NEXT_AFTER_COMPLETION": {
+        "pass": 1,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 0,
+        "condition_evaluations": 1,
+        "tested_pass_fraction": 1
+      },
+      "COMPLETED_LOAD_ONCE": {
+        "pass": 1,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 0,
+        "condition_evaluations": 1,
+        "tested_pass_fraction": 1
+      },
+      "SAME_EVENT_ONCE": {
+        "pass": 1,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 0,
+        "condition_evaluations": 1,
+        "tested_pass_fraction": 1
+      },
+      "CONTIGUOUS": {
+        "pass": 1,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 0,
+        "condition_evaluations": 1,
+        "tested_pass_fraction": 1
+      },
+      "SHARED_NO_LEARN": {
+        "pass": 1,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 0,
+        "condition_evaluations": 1,
+        "tested_pass_fraction": 1
+      },
+      "UNASSIGNED_LOAD": {
+        "pass": 0,
+        "fail": 0,
+        "not_applicable": 1,
+        "not_tested": 0,
+        "condition_evaluations": 0,
+        "tested_pass_fraction": null
+      },
+      "SEASONAL_FIXED": {
+        "pass": 1,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 0,
+        "condition_evaluations": 1,
+        "tested_pass_fraction": 1
+      },
+      "FIXED_OVERRIDE": {
+        "pass": 1,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 0,
+        "condition_evaluations": 1,
+        "tested_pass_fraction": 1
+      },
+      "NO_INTERVAL_CAP": {
+        "pass": 1,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 0,
+        "condition_evaluations": 1,
+        "tested_pass_fraction": 1
+      },
+      "MIN_THREE": {
+        "pass": 1,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 0,
+        "condition_evaluations": 1,
+        "tested_pass_fraction": 1
+      },
+      "INSIDE_WINDOW": {
+        "pass": 1,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 0,
+        "condition_evaluations": 1,
+        "tested_pass_fraction": 1
+      },
+      "UNDO_LOCAL": {
+        "pass": 1,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 0,
+        "condition_evaluations": 1,
+        "tested_pass_fraction": 1
+      },
+      "WEATHER_FAILURE_STABLE": {
+        "pass": 0,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 1,
+        "condition_evaluations": 0,
+        "tested_pass_fraction": null
+      },
+      "NO_EXTRA_INPUT": {
+        "pass": 0,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 1,
+        "condition_evaluations": 0,
+        "tested_pass_fraction": null
+      },
+      "NO_FAKE_HISTORY": {
+        "pass": 1,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 0,
+        "condition_evaluations": 1,
+        "tested_pass_fraction": 1
+      },
+      "MODE_BOUNDARY": {
+        "pass": 0,
+        "fail": 0,
+        "not_applicable": 1,
+        "not_tested": 0,
+        "condition_evaluations": 0,
+        "tested_pass_fraction": null
+      },
+      "FALLBACK_LOCK": {
+        "pass": 0,
+        "fail": 0,
+        "not_applicable": 0,
+        "not_tested": 1,
+        "condition_evaluations": 0,
+        "tested_pass_fraction": null
+      }
+    },
+    "metrics": {
+      "recorded_completion_inputs": 123,
+      "hidden_truth_sent_to_app": false,
+      "hidden_truth_used_as_prediction_target": false,
+      "scored_predictions": 4,
+      "unresolved_predictions": 0,
+      "mean_absolute_error_days_scored_only": 0.5,
+      "prediction_error_days": [
+        0,
+        0,
+        2,
+        0
+      ],
+      "unresolved_counted_as_zero_error": false,
+      "learning_eligible_fraction": 0,
+      "learning_eligibility_reason": "observed corpus events do not include frozen displayed-window snapshots; missing-window completions do not produce learning updates"
+    },
+    "cases": [
+      {
+        "case_id": "two_adults_assigned-v02-h365-r0",
+        "split": "development",
+        "profile": "two_adults_assigned",
+        "behavior_model": "permanent_longer",
+        "horizon_days": 365,
+        "initial_now_day": 40,
+        "adapter": {
+          "mode": "balanced",
+          "source_mode": "standard",
+          "clock_time": "08:00",
+          "missing_displayed_windows": 0,
+          "hidden_events_sent_to_app": false
+        },
+        "input": {
+          "observed_completion_records_visible_at_initial_now": 19,
+          "observed_completion_records_through_horizon": 123,
+          "hidden_evaluation_events_received": false,
+          "chore_count": 8
+        },
+        "geometry": {
+          "from": "2026-02-10",
+          "through": "2026-08-09",
+          "busy_span_count": 130,
+          "recurring_event_count": 5,
+          "visible_overlay_event_count": 2,
+          "google_busy_copy_count": 0,
+          "unresolved_dates": 0
+        },
+        "placements": {
+          "planned_chore_count": 6,
+          "placed_slots": 5,
+          "fallback_count": 1,
+          "by_chore": [
+            {
+              "chore_id": "daily",
+              "base_date": "2026-01-01",
+              "recommended_date": "2026-01-01",
+              "slot": {
+                "start": 1767261600000,
+                "end": 1767262200000
+              },
+              "fallback": false
+            },
+            {
+              "chore_id": "laundry",
+              "base_date": "2026-02-12",
+              "recommended_date": "2026-02-12",
+              "slot": {
+                "start": 1770892200000,
+                "end": 1770893400000
+              },
+              "fallback": false
+            },
+            {
+              "chore_id": "floor",
+              "base_date": "2026-02-12",
+              "recommended_date": "2026-02-12",
+              "slot": {
+                "start": 1770890400000,
+                "end": 1770892200000
+              },
+              "fallback": false
+            },
+            {
+              "chore_id": "filter",
+              "base_date": "2026-02-12",
+              "recommended_date": "2026-02-14",
+              "slot": {
+                "start": 1771027200000,
+                "end": 1771029000000
+              },
+              "fallback": false
+            },
+            {
+              "chore_id": "long_care",
+              "base_date": "2027-01-01",
+              "recommended_date": "2027-01-01",
+              "slot": null,
+              "fallback": true
+            },
+            {
+              "chore_id": "manual",
+              "base_date": "2026-01-10",
+              "recommended_date": "2026-01-17",
+              "slot": {
+                "start": 1768608000000,
+                "end": 1768609200000
+              },
+              "fallback": false
+            }
+          ]
+        },
+        "metrics": {
+          "valid_intervals_at_initial_now": 12,
+          "personal_intervals_through_horizon": 88,
+          "learning_eligible_fraction": 0.6021505376344086,
+          "learning_eligible_operations": 56,
+          "learning_eligibility_reason": "actual SQLite plan snapshots and forecast eligibility are measured only for chronological behavior-learning targets",
+          "scored_predictions": 4,
+          "unresolved_predictions": 0,
+          "scored_predictions_detail": [
+            {
+              "chore_id": "laundry",
+              "predicted_date": "2026-02-12",
+              "next_observed_date": "2026-02-12",
+              "error_days": 0,
+              "scored": true
+            },
+            {
+              "chore_id": "floor",
+              "predicted_date": "2026-02-12",
+              "next_observed_date": "2026-02-12",
+              "error_days": 0,
+              "scored": true
+            },
+            {
+              "chore_id": "filter",
+              "predicted_date": "2026-02-14",
+              "next_observed_date": "2026-02-12",
+              "error_days": 2,
+              "scored": true
+            },
+            {
+              "chore_id": "long_care",
+              "predicted_date": "2027-01-01",
+              "next_observed_date": "2027-01-01",
+              "error_days": 0,
+              "scored": true
+            }
+          ],
+          "prediction_error_days": [
+            0,
+            0,
+            2,
+            0
+          ],
+          "unrequested_move_count": null,
+          "extra_input_count": 0,
+          "double_counted_load": 0,
+          "target_recorded_completion_count": 94,
+          "target_applied_completion_count": 93,
+          "verified_invariant_pass_count": 13
+        },
+        "actual_history": [
+          {
+            "chore_id": "daily",
+            "kind": "personal",
+            "valid_intervals": 0,
+            "valid_units": 0,
+            "model": {
+              "method": "median",
+              "days": 1
+            },
+            "missing_window_issues": 0,
+            "last_completion": null
+          },
+          {
+            "chore_id": "laundry",
+            "kind": "personal",
+            "valid_intervals": 5,
+            "valid_units": 6,
+            "model": {
+              "method": "median",
+              "days": 7
+            },
+            "missing_window_issues": 0,
+            "last_completion": "2026-02-05"
+          },
+          {
+            "chore_id": "floor",
+            "kind": "personal",
+            "valid_intervals": 5,
+            "valid_units": 6,
+            "model": {
+              "method": "median",
+              "days": 7
+            },
+            "missing_window_issues": 0,
+            "last_completion": "2026-02-05"
+          },
+          {
+            "chore_id": "filter",
+            "kind": "personal",
+            "valid_intervals": 2,
+            "valid_units": 3,
+            "model": {
+              "method": "median",
+              "days": 14
+            },
+            "missing_window_issues": 0,
+            "last_completion": "2026-01-29"
+          },
+          {
+            "chore_id": "long_care",
+            "kind": "personal",
+            "valid_intervals": 0,
+            "valid_units": 1,
+            "model": {
+              "method": "median",
+              "days": 365
+            },
+            "missing_window_issues": 0,
+            "last_completion": "2026-01-01"
+          },
+          {
+            "chore_id": "manual",
+            "kind": "personal",
+            "valid_intervals": 0,
+            "valid_units": 0,
+            "model": {
+              "method": "median",
+              "days": 20
+            },
+            "missing_window_issues": 0,
+            "last_completion": null
+          },
+          {
+            "chore_id": "wardrobe",
+            "kind": "seasonal",
+            "valid_intervals": 0,
+            "valid_units": 0,
+            "model": null,
+            "missing_window_issues": 0,
+            "last_completion": null
+          },
+          {
+            "chore_id": "shared",
+            "kind": "shared",
+            "valid_intervals": 0,
+            "valid_units": 0,
+            "model": null,
+            "missing_window_issues": 0,
+            "last_completion": null
+          }
+        ],
+        "shared_load": {
+          "assignment": "u1",
+          "entities": 1,
+          "member_load_counts": {
+            "u1": 1,
+            "u2": 0
+          },
+          "member_round_ids": {
+            "u1": [
+              "shared:realistic-group:two_adults_assigned-v02-h365-r0:shared-subject:two_adults_assigned-v02-h365-r0"
+            ],
+            "u2": []
+          }
+        },
+        "invariant_results": {
+          "LOCK_NEAR": {
+            "status": "pass",
+            "evidence": {
+              "existingDay": "2026-02-10",
+              "otherChoreDay": "2026-02-14",
+              "tomorrow": "2026-02-11",
+              "passed": true
+            }
+          },
+          "NEXT_GENERATION": {
+            "status": "not_tested",
+            "reason": "日次固定の高頻度履歴はchronological target外。実SQLiteの日次完了境界はdirected D04で検査",
+            "evidence": {
+              "daily_completion_history_replayed": false,
+              "daily_plan": "2026-01-01"
+            }
+          },
+          "DAILY_FIXED": {
+            "status": "not_tested",
+            "reason": "日次固定の高頻度履歴はchronological target外。周期固定はdirected D04で検査",
+            "evidence": {
+              "daily_completion_history_replayed": false,
+              "model": {
+                "method": "median",
+                "days": 1
+              }
+            }
+          },
+          "NEXT_AFTER_COMPLETION": {
+            "status": "pass",
+            "evidence": {
+              "checked_chore_count": 4,
+              "predictions": [
+                {
+                  "chore_id": "laundry",
+                  "after": "2026-02-05",
+                  "next": "2026-02-12"
+                },
+                {
+                  "chore_id": "floor",
+                  "after": "2026-02-05",
+                  "next": "2026-02-12"
+                },
+                {
+                  "chore_id": "filter",
+                  "after": "2026-01-29",
+                  "next": "2026-02-12"
+                },
+                {
+                  "chore_id": "long_care",
+                  "after": "2026-01-01",
+                  "next": "2027-01-01"
+                }
+              ]
+            }
+          },
+          "COMPLETED_LOAD_ONCE": {
+            "status": "pass",
+            "evidence": {
+              "once": {
+                "date": "2026-02-12",
+                "slot": {
+                  "start": 1770890400000,
+                  "end": 1770891000000
+                }
+              },
+              "duplicate": {
+                "date": "2026-02-12",
+                "slot": {
+                  "start": 1770890400000,
+                  "end": 1770891000000
+                }
+              },
+              "passed": true
+            }
+          },
+          "SAME_EVENT_ONCE": {
+            "status": "pass",
+            "evidence": {
+              "canonical_id": "liflow-floor-1",
+              "minutes": 30,
+              "expected_minutes": 30,
+              "passes": true
+            }
+          },
+          "CONTIGUOUS": {
+            "status": "pass",
+            "evidence": {
+              "placed_slots": 5,
+              "slots": [
+                {
+                  "chore_id": "daily",
+                  "expected_ms": 600000,
+                  "actual_ms": 600000,
+                  "matches": true
+                },
+                {
+                  "chore_id": "laundry",
+                  "expected_ms": 1200000,
+                  "actual_ms": 1200000,
+                  "matches": true
+                },
+                {
+                  "chore_id": "floor",
+                  "expected_ms": 1800000,
+                  "actual_ms": 1800000,
+                  "matches": true
+                },
+                {
+                  "chore_id": "filter",
+                  "expected_ms": 1800000,
+                  "actual_ms": 1800000,
+                  "matches": true
+                },
+                {
+                  "chore_id": "manual",
+                  "expected_ms": 1200000,
+                  "actual_ms": 1200000,
+                  "matches": true
+                }
+              ]
+            }
+          },
+          "SHARED_NO_LEARN": {
+            "status": "pass",
+            "evidence": {
+              "model": null,
+              "kind": "shared"
+            }
+          },
+          "UNASSIGNED_LOAD": {
+            "status": "not_applicable",
+            "reason": "未担当の有効共有回がこのケースにない",
+            "evidence": {
+              "assignment": "u1",
+              "enabled": true
+            }
+          },
+          "SEASONAL_FIXED": {
+            "status": "pass",
+            "evidence": {
+              "spring": "2026-05-15",
+              "autumn": "2026-10-15",
+              "afterSpring": "2027-05-15",
+              "springMatchesFixture": true,
+              "autumnMatchesFixture": true,
+              "autumnUnchanged": true
+            }
+          },
+          "FIXED_OVERRIDE": {
+            "status": "pass",
+            "evidence": {
+              "fixed_days": 20,
+              "model": {
+                "method": "median",
+                "days": 20
+              }
+            }
+          },
+          "NO_INTERVAL_CAP": {
+            "status": "pass",
+            "evidence": {
+              "learned_above_initial_cycle_chores": [
+                {
+                  "chore_id": "laundry",
+                  "initial_days": 7,
+                  "learned_above_initial_observations": 13,
+                  "final_model": {
+                    "method": "median",
+                    "days": 14
+                  }
+                },
+                {
+                  "chore_id": "floor",
+                  "initial_days": 7,
+                  "learned_above_initial_observations": 13,
+                  "final_model": {
+                    "method": "median",
+                    "days": 14
+                  }
+                },
+                {
+                  "chore_id": "filter",
+                  "initial_days": 14,
+                  "learned_above_initial_observations": 6,
+                  "final_model": {
+                    "method": "median",
+                    "days": 28
+                  }
+                }
+              ]
+            }
+          },
+          "MIN_THREE": {
+            "status": "pass",
+            "evidence": {
+              "checked_completions": 11,
+              "model_changes_before_three_intervals": 0,
+              "target_chore_ids": [
+                "laundry",
+                "floor",
+                "filter",
+                "long_care"
+              ],
+              "examples": [
+                {
+                  "operation_id": "two_adults_assigned-v02-h365-r0:operation:laundry:two_adults_assigned-v02-h365-r0:laundry:observed:0",
+                  "completed_date": "2026-01-01",
+                  "window": null,
+                  "inside_window": false,
+                  "intervals_before": 0,
+                  "intervals_after": 0,
+                  "model_before": {
+                    "method": "median",
+                    "days": 7
+                  },
+                  "model_after": {
+                    "method": "median",
+                    "days": 7
+                  },
+                  "receipt": "applied"
+                },
+                {
+                  "operation_id": "two_adults_assigned-v02-h365-r0:operation:laundry:two_adults_assigned-v02-h365-r0:laundry:observed:1",
+                  "completed_date": "2026-01-08",
+                  "window": null,
+                  "inside_window": false,
+                  "intervals_before": 0,
+                  "intervals_after": 1,
+                  "model_before": {
+                    "method": "median",
+                    "days": 7
+                  },
+                  "model_after": {
+                    "method": "median",
+                    "days": 7
+                  },
+                  "receipt": "applied"
+                },
+                {
+                  "operation_id": "two_adults_assigned-v02-h365-r0:operation:laundry:two_adults_assigned-v02-h365-r0:laundry:observed:2",
+                  "completed_date": "2026-01-15",
+                  "window": null,
+                  "inside_window": false,
+                  "intervals_before": 1,
+                  "intervals_after": 2,
+                  "model_before": {
+                    "method": "median",
+                    "days": 7
+                  },
+                  "model_after": {
+                    "method": "median",
+                    "days": 7
+                  },
+                  "receipt": "applied"
+                },
+                {
+                  "operation_id": "two_adults_assigned-v02-h365-r0:operation:floor:two_adults_assigned-v02-h365-r0:floor:observed:0",
+                  "completed_date": "2026-01-01",
+                  "window": null,
+                  "inside_window": false,
+                  "intervals_before": 0,
+                  "intervals_after": 0,
+                  "model_before": {
+                    "method": "median",
+                    "days": 7
+                  },
+                  "model_after": {
+                    "method": "median",
+                    "days": 7
+                  },
+                  "receipt": "applied"
+                }
+              ]
+            }
+          },
+          "INSIDE_WINDOW": {
+            "status": "pass",
+            "evidence": {
+              "inside_window_completions": 30,
+              "model_changes": 0,
+              "examples": [
+                {
+                  "operation_id": "two_adults_assigned-v02-h365-r0:operation:filter:two_adults_assigned-v02-h365-r0:filter:observed:1",
+                  "completed_date": "2026-01-15",
+                  "window": {
+                    "revision": "90880d50f341f33d982444c247426a01f1b9235d0afe34c6a57ed91076bae40e",
+                    "from": "2026-01-13",
+                    "through": "2026-01-17"
+                  },
+                  "inside_window": true,
+                  "intervals_before": 0,
+                  "intervals_after": 1,
+                  "model_before": {
+                    "method": "median",
+                    "days": 14
+                  },
+                  "model_after": {
+                    "method": "median",
+                    "days": 14
+                  },
+                  "receipt": "applied"
+                },
+                {
+                  "operation_id": "two_adults_assigned-v02-h365-r0:operation:filter:two_adults_assigned-v02-h365-r0:filter:observed:2",
+                  "completed_date": "2026-01-29",
+                  "window": {
+                    "revision": "951026ab088ad1b9a4e6278a1ec40dd0d2d846f53d59290dc682610bfb134955",
+                    "from": "2026-01-27",
+                    "through": "2026-01-31"
+                  },
+                  "inside_window": true,
+                  "intervals_before": 1,
+                  "intervals_after": 2,
+                  "model_before": {
+                    "method": "median",
+                    "days": 14
+                  },
+                  "model_after": {
+                    "method": "median",
+                    "days": 14
+                  },
+                  "receipt": "applied"
+                },
+                {
+                  "operation_id": "two_adults_assigned-v02-h365-r0:operation:long_care:two_adults_assigned-v02-h365-r0:long_care:observed:0",
+                  "completed_date": "2026-01-01",
+                  "window": {
+                    "revision": "e4ab8a70d0c7abaf09640dae118525c442ece32ef88915e3a00188bc77c249c0",
+                    "from": "2025-12-28",
+                    "through": "2026-01-25"
+                  },
+                  "inside_window": true,
+                  "intervals_before": 0,
+                  "intervals_after": 0,
+                  "model_before": {
+                    "method": "median",
+                    "days": 365
+                  },
+                  "model_after": {
+                    "method": "median",
+                    "days": 365
+                  },
+                  "receipt": "applied"
+                },
+                {
+                  "operation_id": "two_adults_assigned-v02-h365-r0:operation:long_care:two_adults_assigned-v02-h365-r0:long_care:observed:1",
+                  "completed_date": "2027-01-01",
+                  "window": {
+                    "revision": "566373c11cf045088f05a6692ea39df8b3807b4eb2957a9451aacf9b9638cec3",
+                    "from": "2026-12-18",
+                    "through": "2027-01-15"
+                  },
+                  "inside_window": true,
+                  "intervals_before": 0,
+                  "intervals_after": 1,
+                  "model_before": {
+                    "method": "median",
+                    "days": 365
+                  },
+                  "model_after": {
+                    "method": "median",
+                    "days": 365
+                  },
+                  "receipt": "applied"
+                }
+              ]
+            }
+          },
+          "UNDO_LOCAL": {
+            "status": "pass",
+            "evidence": {
+              "undo_checks": [
+                {
+                  "case_id": "two_adults_assigned-v02-h365-r0",
+                  "target_exists_before": true,
+                  "target_removed_after": true,
+                  "unrelated_active_actions_preserved": true
+                }
+              ]
+            }
+          },
+          "WEATHER_FAILURE_STABLE": {
+            "status": "not_tested",
+            "reason": "この入力には天気provider応答がなく、失敗から予定を維持するRepository経路は本ケースのadapter外",
+            "evidence": {
+              "weather_failure_count": 1,
+              "forecast_input_available": false,
+              "repository_weather_path_executed": false
+            }
+          },
+          "NO_EXTRA_INPUT": {
+            "status": "not_tested",
+            "reason": "UIの入力要求経路はこのdomain/repository harnessでは実行していない",
+            "evidence": {
+              "ui_executed": false,
+              "fixture_declares_extra_input": false
+            }
+          },
+          "NO_FAKE_HISTORY": {
+            "status": "pass",
+            "evidence": {
+              "hidden_events_sent_to_app": false,
+              "active_units": 92,
+              "effective_completion_inputs": 123,
+              "personal_history_counts": [
+                {
+                  "chore_id": "realistic-sqlite:two_adults_assigned-v02-h365-r0:daily",
+                  "valid_units": 0,
+                  "recorded_completion_events": 0
+                },
+                {
+                  "chore_id": "realistic-sqlite:two_adults_assigned-v02-h365-r0:laundry",
+                  "valid_units": 36,
+                  "recorded_completion_events": 36
+                },
+                {
+                  "chore_id": "realistic-sqlite:two_adults_assigned-v02-h365-r0:floor",
+                  "valid_units": 36,
+                  "recorded_completion_events": 37
+                },
+                {
+                  "chore_id": "realistic-sqlite:two_adults_assigned-v02-h365-r0:filter",
+                  "valid_units": 18,
+                  "recorded_completion_events": 18
+                },
+                {
+                  "chore_id": "realistic-sqlite:two_adults_assigned-v02-h365-r0:long_care",
+                  "valid_units": 2,
+                  "recorded_completion_events": 2
+                },
+                {
+                  "chore_id": "realistic-sqlite:two_adults_assigned-v02-h365-r0:manual",
+                  "valid_units": 0,
+                  "recorded_completion_events": 0
+                }
+              ]
+            }
+          },
+          "MODE_BOUNDARY": {
+            "status": "not_applicable",
+            "reason": "setting-change variantではない",
+            "evidence": {}
+          },
+          "FALLBACK_LOCK": {
+            "status": "not_tested",
+            "reason": "fallbackの期限境界はdirected D05で本体placementに接続",
+            "evidence": {
+              "fallback_count": 1
+            }
+          }
+        }
+      }
+    ]
+  },
+  "sqlite_repository": {
+    "engine": "Node built-in node:sqlite DatabaseSync (in-memory SQLite), through the production SQLite repository functions",
+    "chronology": "initialize at clock.start; run each recorded target completion/settings/undo/duplicate in timestamp order; snapshot at initial_now and evaluation horizon; save the published plan/window after every accepted operation",
+    "unique_case_probes": 1,
+    "operations_applied": 95,
+    "counters": {
+      "cases": 1,
+      "initialized_chores": 6,
+      "completion_operations": 93,
+      "settings_operations": 1,
+      "undo_operations": 1,
+      "duplicate_deliveries": 1,
+      "calendar_replan_calls": 12,
+      "rejected_stale_completions": 0
+    },
+    "geometry_cache": {
+      "case_cache_hits": 74,
+      "case_cache_misses": 41
+    },
+    "condition_evaluations": 1,
+    "status_counts": {
+      "pass": 1
+    },
+    "cases": [
+      {
+        "case_id": "two_adults_assigned-v02-h365-r0",
+        "status": "pass",
+        "target_chore_ids": [
+          "laundry",
+          "floor",
+          "filter",
+          "long_care"
+        ],
+        "initialized_personal_chores": 6,
+        "target_completion_operations": 94,
+        "target_applied_completions": 93,
+        "cached_geometry_revisions": 41,
+        "event_history_scope": "full recorded completion history for enabled floor/filter/long_care and laundry when initial_days > 1; no daily, fixed-manual, shared or seasonal completion histories imported",
+        "shared_truth_sent_to_personal_history": false,
+        "hidden_truth_sent_to_app": false,
+        "trace_by_chore": {
+          "daily": {
+            "completion_operations": 0,
+            "applied_completions": 0,
+            "rejected_or_duplicate_completions": 0,
+            "inside_frozen_window": 0,
+            "inside_window_model_changes": 0,
+            "pre_three_interval_checks": 0,
+            "pre_three_interval_model_changes": 0,
+            "learned_above_initial_cycle": 0,
+            "learning_eligible": 0,
+            "out_of_frozen_window": 0,
+            "mode_change_applied": false,
+            "mode_change_interval_count": null,
+            "first_post_mode_interval_count": null,
+            "cross_mode_interval_added": null,
+            "examples": []
+          },
+          "laundry": {
+            "completion_operations": 36,
+            "applied_completions": 36,
+            "rejected_or_duplicate_completions": 0,
+            "inside_frozen_window": 9,
+            "inside_window_model_changes": 0,
+            "pre_three_interval_checks": 3,
+            "pre_three_interval_model_changes": 0,
+            "learned_above_initial_cycle": 13,
+            "learning_eligible": 24,
+            "out_of_frozen_window": 27,
+            "mode_change_applied": false,
+            "mode_change_interval_count": null,
+            "first_post_mode_interval_count": null,
+            "cross_mode_interval_added": null,
+            "examples": [
+              {
+                "operation_id": "two_adults_assigned-v02-h365-r0:operation:laundry:two_adults_assigned-v02-h365-r0:laundry:observed:0",
+                "completed_date": "2026-01-01",
+                "window": null,
+                "inside_window": false,
+                "intervals_before": 0,
+                "intervals_after": 0,
+                "model_before": {
+                  "method": "median",
+                  "days": 7
+                },
+                "model_after": {
+                  "method": "median",
+                  "days": 7
+                },
+                "receipt": "applied"
+              },
+              {
+                "operation_id": "two_adults_assigned-v02-h365-r0:operation:laundry:two_adults_assigned-v02-h365-r0:laundry:observed:1",
+                "completed_date": "2026-01-08",
+                "window": null,
+                "inside_window": false,
+                "intervals_before": 0,
+                "intervals_after": 1,
+                "model_before": {
+                  "method": "median",
+                  "days": 7
+                },
+                "model_after": {
+                  "method": "median",
+                  "days": 7
+                },
+                "receipt": "applied"
+              },
+              {
+                "operation_id": "two_adults_assigned-v02-h365-r0:operation:laundry:two_adults_assigned-v02-h365-r0:laundry:observed:2",
+                "completed_date": "2026-01-15",
+                "window": null,
+                "inside_window": false,
+                "intervals_before": 1,
+                "intervals_after": 2,
+                "model_before": {
+                  "method": "median",
+                  "days": 7
+                },
+                "model_after": {
+                  "method": "median",
+                  "days": 7
+                },
+                "receipt": "applied"
+              }
+            ]
+          },
+          "floor": {
+            "completion_operations": 38,
+            "applied_completions": 37,
+            "rejected_or_duplicate_completions": 1,
+            "inside_frozen_window": 9,
+            "inside_window_model_changes": 0,
+            "pre_three_interval_checks": 3,
+            "pre_three_interval_model_changes": 0,
+            "learned_above_initial_cycle": 13,
+            "learning_eligible": 25,
+            "out_of_frozen_window": 28,
+            "mode_change_applied": false,
+            "mode_change_interval_count": null,
+            "first_post_mode_interval_count": null,
+            "cross_mode_interval_added": null,
+            "examples": [
+              {
+                "operation_id": "two_adults_assigned-v02-h365-r0:operation:floor:two_adults_assigned-v02-h365-r0:floor:observed:0",
+                "completed_date": "2026-01-01",
+                "window": null,
+                "inside_window": false,
+                "intervals_before": 0,
+                "intervals_after": 0,
+                "model_before": {
+                  "method": "median",
+                  "days": 7
+                },
+                "model_after": {
+                  "method": "median",
+                  "days": 7
+                },
+                "receipt": "applied"
+              },
+              {
+                "operation_id": "two_adults_assigned-v02-h365-r0:operation:floor:two_adults_assigned-v02-h365-r0:floor:observed:1",
+                "completed_date": "2026-01-08",
+                "window": null,
+                "inside_window": false,
+                "intervals_before": 0,
+                "intervals_after": 1,
+                "model_before": {
+                  "method": "median",
+                  "days": 7
+                },
+                "model_after": {
+                  "method": "median",
+                  "days": 7
+                },
+                "receipt": "applied"
+              },
+              {
+                "operation_id": "two_adults_assigned-v02-h365-r0:operation:floor:two_adults_assigned-v02-h365-r0:floor:observed:2",
+                "completed_date": "2026-01-15",
+                "window": null,
+                "inside_window": false,
+                "intervals_before": 1,
+                "intervals_after": 2,
+                "model_before": {
+                  "method": "median",
+                  "days": 7
+                },
+                "model_after": {
+                  "method": "median",
+                  "days": 7
+                },
+                "receipt": "applied"
+              }
+            ]
+          },
+          "filter": {
+            "completion_operations": 18,
+            "applied_completions": 18,
+            "rejected_or_duplicate_completions": 0,
+            "inside_frozen_window": 10,
+            "inside_window_model_changes": 0,
+            "pre_three_interval_checks": 3,
+            "pre_three_interval_model_changes": 0,
+            "learned_above_initial_cycle": 6,
+            "learning_eligible": 7,
+            "out_of_frozen_window": 8,
+            "mode_change_applied": false,
+            "mode_change_interval_count": null,
+            "first_post_mode_interval_count": null,
+            "cross_mode_interval_added": null,
+            "examples": [
+              {
+                "operation_id": "two_adults_assigned-v02-h365-r0:operation:filter:two_adults_assigned-v02-h365-r0:filter:observed:0",
+                "completed_date": "2026-01-01",
+                "window": {
+                  "revision": "1fd53a988447ba951676658f7662b63d6ff31554249e6fa542525509c1bd9e90",
+                  "from": "2026-01-08",
+                  "through": "2026-01-12"
+                },
+                "inside_window": false,
+                "intervals_before": 0,
+                "intervals_after": 0,
+                "model_before": {
+                  "method": "median",
+                  "days": 14
+                },
+                "model_after": {
+                  "method": "median",
+                  "days": 14
+                },
+                "receipt": "applied"
+              },
+              {
+                "operation_id": "two_adults_assigned-v02-h365-r0:operation:filter:two_adults_assigned-v02-h365-r0:filter:observed:1",
+                "completed_date": "2026-01-15",
+                "window": {
+                  "revision": "90880d50f341f33d982444c247426a01f1b9235d0afe34c6a57ed91076bae40e",
+                  "from": "2026-01-13",
+                  "through": "2026-01-17"
+                },
+                "inside_window": true,
+                "intervals_before": 0,
+                "intervals_after": 1,
+                "model_before": {
+                  "method": "median",
+                  "days": 14
+                },
+                "model_after": {
+                  "method": "median",
+                  "days": 14
+                },
+                "receipt": "applied"
+              },
+              {
+                "operation_id": "two_adults_assigned-v02-h365-r0:operation:filter:two_adults_assigned-v02-h365-r0:filter:observed:2",
+                "completed_date": "2026-01-29",
+                "window": {
+                  "revision": "951026ab088ad1b9a4e6278a1ec40dd0d2d846f53d59290dc682610bfb134955",
+                  "from": "2026-01-27",
+                  "through": "2026-01-31"
+                },
+                "inside_window": true,
+                "intervals_before": 1,
+                "intervals_after": 2,
+                "model_before": {
+                  "method": "median",
+                  "days": 14
+                },
+                "model_after": {
+                  "method": "median",
+                  "days": 14
+                },
+                "receipt": "applied"
+              }
+            ]
+          },
+          "long_care": {
+            "completion_operations": 2,
+            "applied_completions": 2,
+            "rejected_or_duplicate_completions": 0,
+            "inside_frozen_window": 2,
+            "inside_window_model_changes": 0,
+            "pre_three_interval_checks": 2,
+            "pre_three_interval_model_changes": 0,
+            "learned_above_initial_cycle": 0,
+            "learning_eligible": 0,
+            "out_of_frozen_window": 0,
+            "mode_change_applied": false,
+            "mode_change_interval_count": null,
+            "first_post_mode_interval_count": null,
+            "cross_mode_interval_added": null,
+            "examples": [
+              {
+                "operation_id": "two_adults_assigned-v02-h365-r0:operation:long_care:two_adults_assigned-v02-h365-r0:long_care:observed:0",
+                "completed_date": "2026-01-01",
+                "window": {
+                  "revision": "e4ab8a70d0c7abaf09640dae118525c442ece32ef88915e3a00188bc77c249c0",
+                  "from": "2025-12-28",
+                  "through": "2026-01-25"
+                },
+                "inside_window": true,
+                "intervals_before": 0,
+                "intervals_after": 0,
+                "model_before": {
+                  "method": "median",
+                  "days": 365
+                },
+                "model_after": {
+                  "method": "median",
+                  "days": 365
+                },
+                "receipt": "applied"
+              },
+              {
+                "operation_id": "two_adults_assigned-v02-h365-r0:operation:long_care:two_adults_assigned-v02-h365-r0:long_care:observed:1",
+                "completed_date": "2027-01-01",
+                "window": {
+                  "revision": "566373c11cf045088f05a6692ea39df8b3807b4eb2957a9451aacf9b9638cec3",
+                  "from": "2026-12-18",
+                  "through": "2027-01-15"
+                },
+                "inside_window": true,
+                "intervals_before": 0,
+                "intervals_after": 1,
+                "model_before": {
+                  "method": "median",
+                  "days": 365
+                },
+                "model_after": {
+                  "method": "median",
+                  "days": 365
+                },
+                "receipt": "applied"
+              }
+            ]
+          },
+          "manual": {
+            "completion_operations": 0,
+            "applied_completions": 0,
+            "rejected_or_duplicate_completions": 0,
+            "inside_frozen_window": 0,
+            "inside_window_model_changes": 0,
+            "pre_three_interval_checks": 0,
+            "pre_three_interval_model_changes": 0,
+            "learned_above_initial_cycle": 0,
+            "learning_eligible": 0,
+            "out_of_frozen_window": 0,
+            "mode_change_applied": false,
+            "mode_change_interval_count": null,
+            "first_post_mode_interval_count": null,
+            "cross_mode_interval_added": null,
+            "examples": []
+          }
+        },
+        "undo_checks": [
+          {
+            "case_id": "two_adults_assigned-v02-h365-r0",
+            "target_exists_before": true,
+            "target_removed_after": true,
+            "unrelated_active_actions_preserved": true
+          }
+        ]
+      }
+    ],
+    "boundary": "Chronological recorded histories are imported only for floor/filter/long_care and laundry when initial_days > 1. Daily/fixed-manual/shared/seasonal histories are excluded from the high-volume learning loop; directed cases cover the relevant production APIs."
+  },
+  "operation_trace": {
+    "file": "development-case-two_adults_assigned-v02-h365-r0.operations.jsonl.gz",
+    "format": "gzip-compressed JSONL",
+    "rows": 114,
+    "bytes": 36026,
+    "sha256": "d20b9eb1bee90d5277e6ec449ada3e927b676a2bcccfc32f835b0b55f93c68b7",
+    "contents": "Every target completion/settings/undo/duplicate, initialization, calendar replan, pre/post model, frozen plan/window, ruleDate and available forecast record."
+  },
+  "directed": {
+    "unique_cases": 21,
+    "actual_case_evaluations": 21,
+    "assertion_pass_count": 21,
+    "status_counts": {
+      "pass": 21,
+      "fail": 0
+    },
+    "cases": [
+      {
+        "id": "D01",
+        "label": "今日の急用",
+        "passed": true,
+        "observed": {
+          "recommended_day": "2026-11-04",
+          "extra_confirmation_count": 0
+        }
+      },
+      {
+        "id": "D02",
+        "label": "明日の急用",
+        "passed": true,
+        "observed": {
+          "recommended_day": "2026-11-05",
+          "extra_confirmation_count": 0
+        }
+      },
+      {
+        "id": "D03",
+        "label": "今日に空きができる",
+        "passed": true,
+        "observed": {
+          "move_other_chore_to_today": false
+        }
+      },
+      {
+        "id": "D04",
+        "label": "毎日家事完了",
+        "passed": true,
+        "observed": {
+          "next_day": "2026-11-05",
+          "same_day_reappearance": false
+        }
+      },
+      {
+        "id": "D05",
+        "label": "フォールバックと固定",
+        "passed": true,
+        "observed": {
+          "recommended_day": "2026-11-08"
+        }
+      },
+      {
+        "id": "D06",
+        "label": "完了後の初回追加",
+        "passed": true,
+        "observed": {
+          "existing_completed_load": 30,
+          "new_chore_fit_today": false,
+          "duplicate_result_matches_single": true,
+          "duplicate_load_still_allows_fifteen_minutes": true
+        }
+      },
+      {
+        "id": "D07",
+        "label": "同期コピー",
+        "passed": true,
+        "observed": {
+          "event_count": 1,
+          "occupied_minutes": 30
+        }
+      },
+      {
+        "id": "D08",
+        "label": "細切れ空き",
+        "passed": true,
+        "observed": {
+          "fits_contiguously": false
+        }
+      },
+      {
+        "id": "D09",
+        "label": "日跨ぎ空き",
+        "passed": true,
+        "observed": {
+          "fits_contiguously": true,
+          "slot_start": "2026-11-04T14:50:00.000Z",
+          "slot_end": "2026-11-04T15:20:00.000Z"
+        }
+      },
+      {
+        "id": "D10",
+        "label": "共有未担当",
+        "passed": true,
+        "observed": {
+          "shared_entity_count": 1,
+          "member_loads": {
+            "u1": 30,
+            "u2": 30
+          },
+          "learn_shared_cycle": false
+        }
+      },
+      {
+        "id": "D11",
+        "label": "別ID二重完了",
+        "passed": true,
+        "observed": {
+          "effective_completions": 1,
+          "phase_advances": 1,
+          "duplicate_receipt": "alreadyCompleted"
+        }
+      },
+      {
+        "id": "D12",
+        "label": "取消後の後続設定",
+        "passed": true,
+        "observed": {
+          "B_fixed_days": 20,
+          "A_effective_completion_count": 0
+        }
+      },
+      {
+        "id": "D13",
+        "label": "季節の遅い完了",
+        "passed": true,
+        "observed": {
+          "autumn_fixed_day": "2026-10-15",
+          "infer_day_interval": false,
+          "mark_autumn_complete": false
+        }
+      },
+      {
+        "id": "D14",
+        "label": "長周期の履歴不足",
+        "passed": true,
+        "observed": {
+          "valid_intervals": 2,
+          "learning_started": false,
+          "cycle_days": 180
+        }
+      },
+      {
+        "id": "D15",
+        "label": "本人の担当だけ長周期",
+        "passed": true,
+        "observed": {
+          "model": {
+            "method": "median",
+            "days": 60
+          },
+          "hard_cap_to_14_days": false,
+          "assume_no_household_care": false
+        }
+      },
+      {
+        "id": "D16",
+        "label": "天気取得失敗",
+        "passed": true,
+        "observed": {
+          "recommended_day": "2026-11-10",
+          "stable": true
+        }
+      },
+      {
+        "id": "D17",
+        "label": "モード境界",
+        "passed": true,
+        "observed": {
+          "raw_record_kept": true,
+          "cross_mode_interval_used_for_learning": false
+        }
+      },
+      {
+        "id": "D18",
+        "label": "拡張期間端の完了",
+        "passed": true,
+        "observed": {
+          "cycle_days": 14,
+          "relearn": false
+        }
+      },
+      {
+        "id": "D19",
+        "label": "夜勤と休日初期値",
+        "passed": true,
+        "observed": {
+          "overwrite_personal_window": false
+        }
+      },
+      {
+        "id": "D20",
+        "label": "ゴミ収集表示",
+        "passed": true,
+        "observed": {
+          "requires_completion": false,
+          "learns_interval": false
+        }
+      },
+      {
+        "id": "D21",
+        "label": "候補が狭い順",
+        "passed": true,
+        "observed": {
+          "one_valid_solution": {
+            "tight": "2026-11-04",
+            "tight_fits": true,
+            "flex": "2026-11-05",
+            "flex_fits": true
+          }
+        }
+      }
+    ]
+  },
+  "closed_loop": null,
+  "automatic_checks": {
+    "input_asset_sha256_files": 12,
+    "corpus_cases_evaluated": 1,
+    "invariant_condition_evaluations": 13,
+    "sqlite_repository_condition_evaluations": 1,
+    "directed_case_assertions_passed": 21,
+    "closed_loop_condition_evaluations": 0,
+    "failures": 0,
+    "note": "Condition evaluations, directed test assertions, unique cases, and repeated scenario observations are counted separately."
+  },
+  "failures": [],
+  "elapsed_ms": 646
+}

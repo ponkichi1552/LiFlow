@@ -16,7 +16,7 @@ import { mergeInstantRanges } from '../v2/private-availability.ts';
 import { assertSharedIdentifier } from '../identifier.ts';
 import { canonicalJson } from '../operations.ts';
 import { sharedDocumentDigest } from '../crypto.ts';
-import { assertPrivateCalendarDeadline, privateCalendarDeadlineError } from './sync-deadline.ts';
+import { assertPrivateCalendarDeadline, privateCalendarDeadlineError, privateCalendarWork } from './sync-deadline.ts';
 
 export interface PrivateCalendarCapturePort {
   userId: string; assertOwner(): void | Promise<void>;
@@ -71,10 +71,10 @@ export function createPrivateCalendarCapture(port: PrivateCalendarCapturePort) {
       if (current?.authority?.digest !== authority!.digest || current.identity.deviceId !== state!.identity.deviceId
         || !current.hasCurrentKey || selected?.pending || selected?.active?.googleSubject !== subject) throw new Error('本人用Calendarの取得中に端末・取得元が変わりました。');
     }
-    async function head() { await assertContext(); const current = await cloud.readHead(); if (!current) throw new Error('本人用Calendarのサーバー設定がありません。'); assertPrivateCalendarCloudAuthority(current, authority!); return current; }
+    async function head() { await assertContext(); const current = await privateCalendarWork(() => cloud.readHead(withinBudget), { assertBudget: withinBudget, signal }); if (!current) throw new Error('本人用Calendarのサーバー設定がありません。'); assertPrivateCalendarCloudAuthority(current, authority!); return current; }
     async function publish(encrypted: EncryptedPrivateCalendarCache) {
       const digest = sharedDocumentDigest(encrypted.manifest); await head();
-      try { await cloud.uploadCache(authority!, encrypted); }
+      try { await privateCalendarWork(() => cloud.uploadCache(authority!, encrypted, withinBudget), { assertBudget: withinBudget, signal }); }
       catch (error) {
         await cache.fail(authority!, digest, now(), privateCalendarDeliveryFailureCode(error), randomFraction()); throw error;
       }

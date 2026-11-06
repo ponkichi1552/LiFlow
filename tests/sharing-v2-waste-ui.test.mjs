@@ -59,13 +59,15 @@ for (const platform of ['ios', 'android']) {
     } finally { f.close(); }
   });
 
-  test(`${platform} shared home hides one waste occurrence and its compact calendar checkbox restores the same date without changing chores`, async () => {
+  test(`${platform} shared collection reminders are display-only while management hides and restores exactly one date without changing chores`, async () => {
     const f = await setup();
     try {
       await f.c.actions.addWasteSchedule(weekly); const before = await f.read(); const home = await f.mount(platform, 'home');
       const list = home.nodes().find(node => node.type === 'FlatList'); const todayRows = list.props.data.filter(row => row.kind === 'today').map(row => row.item);
       assert.equal(todayRows[0].source, 'waste'); assert.equal(todayRows[1].source, 'shared');
-      assert.ok(checkbox(home)); await checkbox(home).props.onPress(); await settle(home, () => !checkbox(home));
+      assert.equal(checkbox(home), undefined);
+      const management = await f.mount(platform); await management.press('次の収集日を開く');
+      assert.ok(checkbox(management)); await checkbox(management).props.onPress(); await settle(management, () => Boolean(checkbox(management, true)));
       const hidden = await f.read();
       for (const field of ['chores', 'occurrences', 'history', 'policy', 'commonSettings']) assert.deepEqual(hidden.plan[field], before.plan[field]);
       assert.equal(hidden.waste.occurrences.filter(entry => entry.hidden).length, 1);
@@ -73,12 +75,14 @@ for (const platform of ['ios', 'android']) {
       const calendar = await f.mount(platform, 'calendar');
       const date = calendar.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2026年10月27日'));
       assert.match(date.props.accessibilityLabel, /非表示の収集/u);
-      await openCalendarDay(calendar, day); const checked = checkbox(calendar, true); assert.ok(checked); assert.equal(checked.props.accessibilityState.checked, true);
-      const compact = calendar.nodes().find(node => node.type === 'View' && Array.isArray(node.props.style) && node.props.style.some(style => style?.minHeight === 56)); assert.ok(compact);
+      await openCalendarDay(calendar, day); assert.equal(checkbox(calendar, true), undefined); assert.equal(checkbox(calendar), undefined);
       assert.ok(calendar.nodes().some(node => node.type === 'Text' && node.children.join('') === '可燃' && node.props.style.some(style => style?.color === wasteTypeColor('可燃ごみ'))));
-      await checked.props.onPress(); await settle(calendar, () => Boolean(checkbox(calendar)) && !checkbox(calendar, true));
+      await checkbox(management, true).props.onPress(); await settle(management, () => Boolean(checkbox(management)) && !checkbox(management, true));
       assert.equal((await f.read()).waste.occurrences.find(entry => entry.occurrence.date === day).hidden, false);
-      assert.ok(checkbox(await f.mount(platform, 'home')));
+      const restoredHome = await f.mount(platform, 'home');
+      assert.match(restoredHome.text(), /可燃ごみ/u); assert.equal(checkbox(restoredHome), undefined);
+      const restoredCalendar = await f.mount(platform, 'calendar'); await openCalendarDay(restoredCalendar, day);
+      assert.match(restoredCalendar.text(), /可燃ごみ/u); assert.equal(checkbox(restoredCalendar), undefined);
     } finally { f.close(); }
   });
 
@@ -99,7 +103,8 @@ for (const platform of ['ios', 'android']) {
       assert.ok(captions.filter(node => node.children.join('') === '粗大').every(node => !/[ごゴ][みミ]/u.test(node.children.join(''))));
       await openCalendarDay(screen, day);
       const checks = screen.nodes().filter(node => node.props.accessibilityRole === 'checkbox');
-      assert.equal(checks.length, 3); assert.match(checks[0].props.accessibilityLabel, /ゴミ出し/u); assert.match(checks.at(-1).props.accessibilityLabel, /床を掃除/u);
+      assert.equal(checks.length, 1); assert.match(checks[0].props.accessibilityLabel, /床を掃除/u);
+      assert.ok(screen.text().includes('粗大ゴみ') && screen.text().includes('びん'));
       assert.equal((await f.read()).waste.schedules.find(row => row.label === '粗大ゴみ').label, '粗大ゴみ');
     } finally { f.close(); }
   });
@@ -155,7 +160,7 @@ for (const platform of ['ios', 'android']) {
     } finally { member.connection.close(); f.close(); }
   });
 
-  test(`${platform} an unresolved shared waste hide decision keeps its checkbox disabled until an explicit current choice`, async () => {
+  test(`${platform} an unresolved shared waste hide decision stays read-only on home and is resolved only in management`, async () => {
     const f = await setup(); const member = await f.base.device('member', f.base.member);
     try {
       await f.c.actions.addWasteSchedule(weekly); let entry = (await f.read()).waste.occurrences[0]; await f.c.actions.setWasteOccurrenceHidden(entry.selection, true);
@@ -163,7 +168,10 @@ for (const platform of ['ios', 'android']) {
       await f.c.actions.setWasteOccurrenceHidden((await f.read()).waste.occurrences[0].selection, false);
       await b.actions.setWasteOccurrenceHidden((await b.readModel(range, { waste: true })).waste.occurrences[0].selection, false);
       await b.actions.setWasteOccurrenceHidden((await b.readModel(range, { waste: true })).waste.occurrences[0].selection, true);
-      await receive(f.owner, await loadSharedFacts(member.database, groupId)); const screen = await f.mount(platform, 'home');
+      await receive(f.owner, await loadSharedFacts(member.database, groupId)); const home = await f.mount(platform, 'home');
+      assert.equal(checkbox(home), undefined); assert.match(home.text(), /表示設定が重なっています/u);
+      assert.equal(home.nodes().some(node => node.props.accessibilityLabel === 'この収集日を表示する'), false);
+      const screen = await f.mount(platform); await screen.press('次の収集日を開く');
       assert.equal(checkbox(screen).props.accessibilityState.disabled, true); assert.match(screen.text(), /表示と非表示の変更が重なりました/u);
       await screen.press('この収集日を表示する'); await settle(screen, () => checkbox(screen)?.props.accessibilityState.disabled === false);
       entry = (await f.read()).waste.occurrences[0]; assert.equal(entry.hidden, false);

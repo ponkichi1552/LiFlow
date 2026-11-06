@@ -7,6 +7,18 @@ import { readV2Appliance } from '../../features/sharing/v2/appliance-state';
 import { readV2ManualDocument } from '../../features/sharing/v2/manual-documents';
 import { v2ReadPoint } from '../../features/sharing/v2/view-point';
 import { notifyApplianceLibraryChanges } from '../../features/appliance-care/library-changes';
+import type { V2ApplianceReviewResult } from '../../features/sharing/v2/appliance-actions';
+
+/** A retained-copy failure does not undo the signed save. Existing replica facts
+ * and copy fingerprints are the durable retry source on sync or the next launch. */
+export async function reviewWithPersonalApplianceRetention(review: () => Promise<V2ApplianceReviewResult>,
+  retention: { refresh(): Promise<void> }, assertAccess: () => void | Promise<void>): Promise<V2ApplianceReviewResult> {
+  await assertAccess(); const saved = await review(); let personalRetentionPending = false;
+  try { await retention.refresh(); } catch { personalRetentionPending = true; }
+  // Never return the old account's product data through a replaced session.
+  await assertAccess();
+  return { ...saved, personalRetentionPending };
+}
 
 /** No paid API, credentials, private chores or settings cross this boundary. */
 export function createNativeApplianceRetention(input: { database: SQLiteDatabase; repository: ReturnType<typeof createV2EventRepository>;

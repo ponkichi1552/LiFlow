@@ -1,0 +1,148 @@
+{
+  "status": "PASS",
+  "scope": "Android10/API29 physical phone, normal Release25 trace=false, foreground automatic completion and Undo; no manual sync pressed",
+  "notEstablishedByThisEvidence": [
+    "same-account fresh simultaneous creation on two phones",
+    "iPhone Google Tasks acceptance",
+    "OS-natural background execution"
+  ],
+  "sourceArtifact": "/Volumes/DockerExternal/LiFlowBuildCache/owner-release-review-20261105/startup-v25-android-artifact.json",
+  "actions": {
+    "complete": {
+      "at": "2026-11-05T20:26:23.072798+00:00",
+      "action": "complete",
+      "normalRelease": 25,
+      "trace": false,
+      "period": "11/5–11/7",
+      "manualSyncPressed": false,
+      "bounds": [
+        81,
+        1061,
+        155,
+        1134
+      ]
+    },
+    "undo": {
+      "at": "2026-11-05T20:35:17.367325+00:00",
+      "action": "undo",
+      "normalRelease": 25,
+      "trace": false,
+      "period": "11/5–11/7",
+      "manualSyncPressed": false,
+      "bounds": [
+        81,
+        1400,
+        155,
+        1473
+      ]
+    }
+  },
+  "cloud": {
+    "complete": {
+      "headSequence": 416,
+      "headStableAcrossRead": true,
+      "lastReceipt": {
+        "operationDigest": "73b3ef3bf85999128f3a75248de2c9eea2ff839292e951f48734aa538962b4a6",
+        "sequence": 416,
+        "author": "android",
+        "sameAccount": true,
+        "acceptedAt": "2026-11-05T20:26:41.744Z"
+      }
+    },
+    "undo": {
+      "headSequence": 417,
+      "headStableAcrossRead": true,
+      "lastReceipt": {
+        "operationDigest": "1ef789052c14626db032a36e6fb692c0b56518079a8b864dffc4ae38d1cedd57",
+        "sequence": 417,
+        "author": "android",
+        "sameAccount": true,
+        "acceptedAt": "2026-11-05T20:35:30.686Z"
+      }
+    }
+  },
+  "existingBaseline": {
+    "localLinks": 22,
+    "localLinkDigest": "FNOfEB_jBsQ1jAjAI6aNDzAhkI9cgR8D68p35-OohZQ",
+    "providerCompletedTasks": 0
+  },
+  "provider": {
+    "complete": {
+      "accountDigest": "CVVkaArWJLRcOTocJBSq-2RcxWQbd2t0JXvD2uGCzX0",
+      "taskListDigest": "1u7hE1t8WqfRTqpr6S-0cnApL3OpKdFW8MMpYawtdBc",
+      "localLinks": 23,
+      "localLinkDigest": "gxnvUFZLv8P-Q22tLk1EJ9aPj-nkd4hTivbzoFFk-zY",
+      "matchedLinks": 23,
+      "missingLinks": 0,
+      "providerLiveTasks": 23,
+      "providerCompletedTasks": 1,
+      "providerMarkerCount": 23,
+      "duplicateLiveMarkers": 0,
+      "providerDigest": "x5SMx0WAppbuYqyjcJKdbtp8ZOeKMuG7xSok8umO2XQ",
+      "localStatus": "idle",
+      "localErrorCode": "",
+      "lastAttemptAt": "2026-11-05T20:26:30.556Z",
+      "lastSuccessfulSyncAt": "2026-11-05T20:26:30.556Z",
+      "baselineMappingCount": 22,
+      "baselineMappingDigest": "FNOfEB_jBsQ1jAjAI6aNDzAhkI9cgR8D68p35-OohZQ",
+      "baselineProviderDigest": "8TwIH-XOtPRazv-BGILuTOB6Jf_U5qx1JgPBGNNL258",
+      "newMappings": [
+        {
+          "mappingDigest": "gaI7P0BT9hfSlLgUyhfRFiKqXHpGLR6uQvuEf1t-suk",
+          "createdAt": "2026-11-05T20:26:30.556Z",
+          "linkedDueDate": "2026-11-19",
+          "providerStatus": "needsAction"
+        }
+      ]
+    },
+    "undo": {
+      "accountDigest": "CVVkaArWJLRcOTocJBSq-2RcxWQbd2t0JXvD2uGCzX0",
+      "taskListDigest": "1u7hE1t8WqfRTqpr6S-0cnApL3OpKdFW8MMpYawtdBc",
+      "localLinks": 23,
+      "localLinkDigest": "gxnvUFZLv8P-Q22tLk1EJ9aPj-nkd4hTivbzoFFk-zY",
+      "matchedLinks": 23,
+      "missingLinks": 0,
+      "providerLiveTasks": 23,
+      "providerCompletedTasks": 0,
+      "providerMarkerCount": 23,
+      "duplicateLiveMarkers": 0,
+      "providerDigest": "7dHu0ROc35wzOCHdBZJkvO_PTvZGXuug7LlyvofP7nQ",
+      "localStatus": "idle",
+      "localErrorCode": "",
+      "lastAttemptAt": "2026-11-05T20:35:45.091Z",
+      "lastSuccessfulSyncAt": "2026-11-05T20:35:45.091Z",
+      "baselineMappingCount": 22,
+      "baselineMappingDigest": "FNOfEB_jBsQ1jAjAI6aNDzAhkI9cgR8D68p35-OohZQ",
+      "baselineProviderDigest": "ZQKy5qlNcwvgoyEbhZ0hUK1KVvxpa3--NX6Q8mkTCn4",
+      "newMappings": [
+        {
+          "mappingDigest": "gaI7P0BT9hfSlLgUyhfRFiKqXHpGLR6uQvuEf1t-suk",
+          "createdAt": "2026-11-05T20:26:30.556Z",
+          "linkedDueDate": "2026-11-21",
+          "providerStatus": "needsAction",
+          "providerDueDate": "2026-11-21T00:00:00.000Z",
+          "providerDeleted": false
+        }
+      ]
+    }
+  },
+  "assertions": {
+    "sameAccountAndList": true,
+    "allOriginal22TaskMappingsPreserved": true,
+    "same23MappingsAcrossCompletionAndUndo": true,
+    "oneAdditionalFutureRoundWithUniqueMarker": true,
+    "completionOneThenZero": true,
+    "noMissingMappings": true,
+    "noDuplicateLiveMarkers": true,
+    "sameFutureTaskDueUpdatedFrom19To21AndRetainedBeyondCreationWindow": true,
+    "normalAppDataReset": false,
+    "normalAppUninstalled": false
+  },
+  "limits": "Future due dates were recalculated; the old22 provider state/due digest differs from the earlier baseline. This test verifies stable IDs and actual completion/Undo, not unchanged future recommendations. The initial cold25 observation was interrupted by instrumentation; diagnostic26 restart recovery is separate and is not normal Release acceptance.",
+  "evidenceDigests": {
+    "tasks-provider-v25-fresh-auto-complete-cohort.json": "fcdc9c757071730a28ecccef485de372dd4e8ca3a8cf0ccbef753f3f0d8364ce",
+    "tasks-provider-v25-fresh-auto-undo-cohort.json": "760da061ce2fd41050da0d161c933761a3b8e66d918dd0656fe26115a0885e08",
+    "cloud-after-v25-fresh-auto-complete.json": "0631ee7bf8e2a72283803b471fb410ffe8ad266495fdb4fe90e98f1e490eabc4",
+    "cloud-after-v25-fresh-auto-undo.json": "087481ef9db71893ba272a8a0a575265e3a7e827ea5c1e59b16b7b1bae900b51"
+  }
+}

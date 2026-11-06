@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Appliance } from '../../features/appliance-care/contracts';
-import { prepareManualDocument } from '../../features/appliance-care/manual-document.ts';
+import { verifyManualContent } from '../../features/appliance-care/manual-document.ts';
 import { applianceManufacturerIdentity } from '../../features/appliance-care/official-url.ts';
 import { sharedDocumentDigest } from '../../features/sharing/crypto.ts';
 import { withPlannerDatabaseOperation } from './repository.ts';
@@ -11,7 +11,7 @@ export function readApplianceManual(database: SQLiteDatabase, digest: string): P
     if (!/^[a-f0-9]{64}$/u.test(digest)) throw new Error('説明書の保存先を確認してください。');
     const row = await database.getFirstAsync<{ content_base64: string }>('SELECT content_base64 FROM appliance_manual_documents WHERE sha256=?', digest);
     if (!row) return null;
-    prepareManualDocument(row.content_base64, digest); return row.content_base64;
+    verifyManualContent(row.content_base64, digest); return row.content_base64;
   });
 }
 export interface SharedApplianceCopy { appliance: Appliance; manual: string | null }

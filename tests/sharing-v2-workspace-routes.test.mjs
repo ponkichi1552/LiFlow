@@ -55,6 +55,9 @@ async function route(f, platform, file, params = {}, readyText = '今日の家�
         readLocalCalendar: async () => ({ events: f.localEvents ?? [], exceptions: [], categories: [], draft: null }),
         subscribeLocalCalendar: (_database, changed) => { f.localCalendarCallbacks.add(changed); return () => f.localCalendarCallbacks.delete(changed); },
       },
+      '../../../platform/storage/personal-schedule-settings': { readPersonalScheduleSettings: async database => {
+        assert.equal(database, f.database); return f.personalSnapshot.settings;
+      } },
       '../../../hooks/use-planner-data': { usePlannerData: () => ({ database: f.database, snapshot: f.personalSnapshot }) } } });
   const leaveFocus = focus?.(); const leave = () => { leaveFocus?.(); screen.unmount(); f.leaves.delete(leave); }; f.leaves.add(leave); for (let n = 0; n < 30 && !(readyText === '共有カレンダー' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(readyText)); n++) await screen.flush();
   assert.ok((readyText === '共有カレンダー' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(readyText)), screen.text()); return { screen, leave, navigation };

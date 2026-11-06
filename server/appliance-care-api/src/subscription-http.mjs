@@ -1,9 +1,10 @@
 import { authenticateFirebaseUser } from './public-access.mjs';
 import { SubscriptionError } from './subscription-service.mjs';
+import { createFixedWindowRateLimit } from './rate-limit.mjs';
 
 /** Mounted on the existing API listener, before AI/device admission. Buying/restoring must remain usable without AI. */
 export function createSubscriptionHttp({ service, providers, verifyIdToken }) {
-  const requests = new Map();
+  const allowUser = createFixedWindowRateLimit({ limit: 30, maximumKeys: 5000 });
   return {
     service,
     async handle(request, response, url) {
@@ -28,11 +29,7 @@ export function createSubscriptionHttp({ service, providers, verifyIdToken }) {
         send(200, { received: true }); return true;
       }
       const { uid } = await authenticateFirebaseUser(request, verifyIdToken);
-      const at = Date.now();
-      for (const [key, value] of requests) if (value.until <= at) requests.delete(key);
-      const rate = requests.get(uid) ?? { count: 0, until: at + 60_000 };
-      if ((!requests.has(uid) && requests.size >= 5000) || ++rate.count > 30) throw new SubscriptionError(429, 'RATE_LIMITED', '契約の確認が多すぎます。少し待ってから再試行してください。');
-      requests.set(uid, rate);
+      if (!allowUser(uid)) throw new SubscriptionError(429, 'RATE_LIMITED', '契約の確認が多すぎます。少し待ってから再試行してください。');
       if (request.method === 'GET' && url.pathname === '/api/subscriptions/status') { send(200, await service.status(uid, url.searchParams.get('refresh') === 'true')); return true; }
       if (request.method === 'POST' && url.pathname === '/api/subscriptions/verify') { send(200, await service.verify(uid, await body())); return true; }
       send(404, { code: 'NOT_FOUND', message: '購入の確認先が見つかりません。' }); return true;

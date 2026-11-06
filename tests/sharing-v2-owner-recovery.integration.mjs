@@ -10,13 +10,14 @@ import { createSharedRoster } from '../src/features/sharing/roster.ts';
 import { createSharedJoinRequest } from '../src/features/sharing/invitations.ts';
 import { readCloudWorkspaceArchive } from '../src/features/sharing/workspace-protocol.ts';
 import { createV2WorkspaceSession } from '../src/features/sharing/v2/workspace-session.ts';
+import { createV2Synchronizer } from '../src/features/sharing/v2/synchronizer.ts';
 import { v2AuthorProofDigest } from '../src/features/sharing/v2/server-receipts.ts';
 import { signV2RecoveryLock } from '../src/features/sharing/v2/recovery-lock.ts';
 import { openV2RecoveryHeader } from '../src/features/sharing/v2/recovery-encryption.ts';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
 import { seeds } from './helpers/sharing-v2-repository-fixture.mjs';
-import { loadSharedFacts, loadSharedReplica, listSharingOutbox } from '../src/platform/storage/sharing-ledger.ts';
+import { loadSharedFacts, loadSharedReplica, listSharingOutbox, readSharingCheckpoint } from '../src/platform/storage/sharing-ledger.ts';
 
 if (!/^(localhost|127\.0\.0\.1):\d+$/u.test(process.env.FIRESTORE_EMULATOR_HOST ?? '')) throw new Error('Owner recovery attacks require the local Firestore emulator.');
 let environment;
@@ -69,8 +70,32 @@ async function fixture(t, { recoveryEnabled = true, env = environment } = {}) {
     }
     await device.cloud.upload(envelope, { authorProofDigest: v2AuthorProofDigest(fact) }); return { fact, envelope };
   }
-  return { owner, a, b, cloud, store, send, root: doc(store, 'sharingGroups', groupId) };
+  return { owner, a, b, cloud, store, send, cloneOwner: () => device('owner', identity, cloud, owner.archive()), root: doc(store, 'sharingGroups', groupId) };
 }
+
+test('owner recovery server proof downloads resume after each deadline without applying a partial snapshot or losing offline edits', async t => {
+  const f = await fixture(t);
+  await f.send(f.a, 'broken-proof', '隔離する通信', true); await f.send(f.a, 'held-proof', '保持する変更');
+  await assert.rejects(f.owner.synchronizer.sync({ force: true }));
+  const review = await f.owner.recovery.prepare(); await f.owner.recovery.confirm(review.id, review.reviewDigest);
+  await f.b.repository.commit([{ operationId: 'offline-b', entityType: 'chore', entityId: 'floor', operationType: 'patch', payload: { description: '未送信の変更' } }]);
+  const cursor = await readSharingCheckpoint(f.b.database, groupId); const outbox = await listSharingOutbox(f.b.database, groupId);
+  let clock = Date.now(); const counts = {};
+  for (const method of ['readRecoveryRecord', 'readRecoveryOriginals', 'readRecoveryQuarantines', 'readReceipts']) {
+    const original = f.b.cloud[method].bind(f.b.cloud);
+    f.b.cloud[method] = async (...args) => { counts[method] = (counts[method] ?? 0) + 1; const result = await original(...args); clock += 1000; return result; };
+  }
+  const restart = () => createV2Synchronizer({ ...f.b.deps, repository: f.b.repository, now: () => clock });
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await assert.rejects(restart().sync({ force: true, budgetMs: 1000 }), { code: 'sharing/receipt-recovery-pending' });
+    assert.equal((await readSharingCheckpoint(f.b.database, groupId)).cursor, cursor.cursor);
+    assert.deepEqual(await listSharingOutbox(f.b.database, groupId), outbox);
+  }
+  await restart().sync({ force: true });
+  for (const method of ['readRecoveryRecord', 'readRecoveryOriginals', 'readRecoveryQuarantines']) assert.equal(counts[method], 1, method);
+  assert.equal(f.b.connection.prepare('SELECT count(*) n FROM sharing_v2_recovery_originals').get().n, 2);
+  assert.equal((await listSharingOutbox(f.b.database, groupId)).length, 0);
+});
 
 test('owner-confirmed recovery preserves independent edits original evidence held facts and offline outbox across restart and compaction', async t => {
   const f = await fixture(t);
@@ -151,6 +176,41 @@ test('a stale owner review cannot freeze or rotate a changed log and a member ca
   await assert.rejects(f.b.recovery.confirm(review.id, review.reviewDigest), { code: 'sharing/recovery-review-stale' });
   await f.owner.recovery.cancel(review.id, review.reviewDigest);
   const next = await f.owner.recovery.prepare(); assert.equal(next.retainedChanges, 1);
+});
+
+test('an obsolete confirming owner review can be cancelled after another valid recovery without cancelling the committed recovery or losing originals', async t => {
+  const f = await fixture(t); await f.send(f.a, 'first-broken', '隔離する通信', true);
+  const review = await f.owner.recovery.prepare(); const other = await f.cloneOwner();
+  await assert.rejects(other.synchronizer.sync({ force: true }));
+  const replacement = await other.recovery.prepare(); assert.notEqual(replacement.id, review.id);
+  const start = f.cloud.startRecoveryLock;
+  f.cloud.startRecoveryLock = async () => { throw new Error('synthetic disconnect before lock commit'); };
+  await assert.rejects(f.owner.recovery.confirm(review.id, review.reviewDigest), /synthetic disconnect/u);
+  f.cloud.startRecoveryLock = start;
+  assert.equal((await f.owner.recovery.read()).status, 'confirming');
+  const accepted = await other.recovery.confirm(replacement.id, replacement.reviewDigest);
+  const before = (await f.cloud.readGroup(groupId)).group;
+  await assert.rejects(f.owner.recovery.confirm(review.id, review.reviewDigest), { code: 'sharing/recovery-review-stale' });
+  await f.owner.recovery.cancel(review.id, review.reviewDigest);
+  assert.equal((await f.owner.recovery.read()).status, 'cancelled');
+  assert.deepEqual((await f.cloud.readGroup(groupId)).group, before);
+  assert.equal((await other.recovery.read()).snapshotId, accepted);
+  assert.ok(f.owner.connection.prepare('SELECT count(*) n FROM sharing_v2_recovery_originals').get().n > 0);
+  await f.b.synchronizer.sync({ force: true }); await f.send(f.b, 'later-broken', '後から届いた通信', true);
+  await assert.rejects(f.owner.synchronizer.sync({ force: true }));
+  const next = await f.owner.recovery.prepare(); assert.notEqual(next.id, review.id); assert.equal(next.unreadableChanges, 1);
+});
+
+test('cancelling an unacknowledged but committed recovery verifies its own signed witness and marks it applied instead of cancelled', async t => {
+  const f = await fixture(t); await f.send(f.a, 'broken-lost-ack', '保持する元の通信', true);
+  const review = await f.owner.recovery.prepare(); const commit = f.cloud.commitMembership; const read = f.cloud.readSnapshot; let committed = false;
+  f.cloud.commitMembership = async (...args) => { await commit(...args); committed = true; throw new Error('synthetic lost commit reply'); };
+  f.cloud.readSnapshot = async (...args) => { if (committed) throw new Error('synthetic temporary snapshot outage'); return read(...args); };
+  await assert.rejects(f.owner.recovery.confirm(review.id, review.reviewDigest), /synthetic temporary snapshot/u);
+  assert.equal((await f.owner.recovery.read()).status, 'confirming'); const before = (await f.cloud.readGroup(groupId)).group;
+  f.cloud.readSnapshot = read; f.cloud.commitMembership = commit;
+  await assert.rejects(f.owner.recovery.cancel(review.id, review.reviewDigest), /既に完了/u);
+  assert.equal((await f.owner.recovery.read()).status, 'applied'); assert.deepEqual((await f.cloud.readGroup(groupId)).group, before);
 });
 
 test('a lost final recovery response uses the actual committed next key once and retry does not create another epoch', async t => {

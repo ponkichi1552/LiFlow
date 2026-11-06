@@ -17,6 +17,7 @@ import * as sessionFactory from '../../src/features/sharing/v2/workspace-session
 import * as retentionRuntime from '../../src/features/sharing/v2/history-retention-runtime.ts';
 import * as retentionSchema from '../../src/features/sharing/v2/history-retention-schema.ts';
 import * as retentionArchives from '../../src/platform/storage/retention-archives.ts';
+import * as historyCheckpoint from '../../src/platform/storage/history-checkpoint.ts';
 import * as point from '../../src/features/sharing/v2/view-point.ts';
 import * as controllerAccess from '../../src/features/sharing/v2/controller-access.ts';
 import * as rollout from '../../src/features/sharing/rollout.ts';
@@ -27,7 +28,7 @@ import { createV2ReminderRuntime } from '../../src/features/sharing/v2/reminder-
 import { addDays } from '../../src/domain/scheduling/local-date.ts';
 
 /** Real signatures, event repository and SQLite; only native handles/account storage/cloud I/O are injected. */
-export async function workspaceHarness({ pending = false, version = 2, cloud: overrides = {}, deferWorkspaceTimers = false, privateCalendarNeeded = false, initiallyEmpty = false, v2Database, historyRuntime = retentionRuntime } = {}) {
+export async function workspaceHarness({ pending = false, version = 2, cloud: overrides = {}, deferWorkspaceTimers = false, workspaceTimers, privateCalendarNeeded = false, initiallyEmpty = false, v2Database, historyRuntime = retentionRuntime, initializeSignatureCache = async () => {} } = {}) {
   const handles = []; const calls = []; const cloudOptions = []; const reminderCalls = []; const taskCalls = []; const taskControl = { revision: 0, label: null, state: null }; let ordinal = 0;
   const create = () => { const h = createDatabase(); let closed = false;
     h.database.closeAsync = async () => { if (!closed) { closed = true; h.connection.close(); } }; handles.push(h); return h; };
@@ -52,7 +53,7 @@ export async function workspaceHarness({ pending = false, version = 2, cloud: ov
     './firebase-services.ts': { isSharingConfigured: () => true, getSharingServices: () => ({ firestore: {}, auth: {
       authStateReady: async () => {}, get currentUser() { return auth.uid ? { uid: auth.uid, displayName: '自分' } : null; } } }) },
     './native-crypto.ts': { nativeSharingCrypto: crypto },
-    './signature-verification-cache.ts': { initializeNativeSignatureCache: async () => {} },
+    './signature-verification-cache.ts': { initializeNativeSignatureCache: initializeSignatureCache },
     './secure-store.ts': { loadOrCreateSharingDeviceIdentity: async () => identity,
       loadSharingGroupKey: async (_uid, _group, version) => { calls.push('read-key'); return groupKeys.get(version)?.slice() ?? null; },
       saveSharingGroupKey: async (_uid, _group, version, bytes) => { groupKeys.set(version, bytes.slice()); },
@@ -66,6 +67,7 @@ export async function workspaceHarness({ pending = false, version = 2, cloud: ov
     '../../features/sharing/v2/history-retention-runtime.ts': historyRuntime,
     '../../features/sharing/v2/history-retention-schema.ts': retentionSchema,
     '../storage/retention-archives.ts': retentionArchives,
+    '../storage/history-checkpoint.ts': historyCheckpoint,
     '../../features/sharing/operations.ts': operations, '../../features/sharing/crypto.ts': keys,
     '../../features/sharing/workspace-protocol.ts': protocols, '../../features/sharing/v2/workspace-session.ts': sessionFactory,
     '../../features/sharing/v2/view-point.ts': point, '../../features/sharing/synchronizer.ts': synchronizer,
@@ -100,7 +102,26 @@ export async function workspaceHarness({ pending = false, version = 2, cloud: ov
       return { async readControl() { await input.assertAccess(); return structuredClone(taskControl); },
         async synchronize(options) { await input.assertAccess(); taskCalls.push(['sync', options]); return { kind: 'success', skipped: true }; } };
     } },
-  }, deferWorkspaceTimers ? { setTimeout: () => 1, clearTimeout: () => {} } : {});
+  }, workspaceTimers ?? (deferWorkspaceTimers ? { setTimeout: () => 1, clearTimeout: () => {} } : {}));
   return { api, handles, index, calls, cloudOptions, reminderCalls, taskCalls, taskControl, auth, identity, owner, initial, record, link, request, vault, groupKeys, cloud,
     close: async () => { for (const h of handles) await h.database.closeAsync(); } };
+}
+
+/** Virtualize maintenance timers only; cryptographic work still yields on real event-loop turns. */
+export function createWorkspaceTestTimers() {
+  let now = 0; let ordinal = 0; const pending = new Map();
+  return {
+    setTimeout(callback, delay = 0) { const id = ++ordinal; pending.set(id, { callback, at: now + delay }); return id; },
+    clearTimeout(id) { pending.delete(id); },
+    tick(milliseconds) {
+      const through = now + milliseconds; let runs = 0;
+      while (true) {
+        const next = [...pending].filter(([, value]) => value.at <= through).sort((a, b) => a[1].at - b[1].at || a[0] - b[0])[0];
+        if (!next) break;
+        if (++runs > 1000) throw new Error('Unexpected recurring maintenance loop');
+        pending.delete(next[0]); now = next[1].at; next[1].callback();
+      }
+      now = through;
+    },
+  };
 }

@@ -3,9 +3,10 @@ import { AppState } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { subscribeLocalCalendar } from '../../platform/storage/calendar-events';
 import type { LocalDate } from '../../domain/shared/types';
+import { waitForInitialFrame } from '../planner/initial-display-gate';
 
 /** Navigation and editor commits never wait on Google. Only the global provider installs this observer. */
-export function usePersonalGoogleSync(database: SQLiteDatabase) {
+export function usePersonalGoogleSync(database: SQLiteDatabase, waitForInitialRead: () => Promise<void>) {
   const request = useRef<((from: LocalDate, through: LocalDate) => void) | null>(null);
   useEffect(() => {
     let alive = true; let pending = false; let running = false; let timer: ReturnType<typeof setTimeout> | undefined;
@@ -13,6 +14,8 @@ export function usePersonalGoogleSync(database: SQLiteDatabase) {
       if (!alive || AppState.currentState !== 'active') return;
       if (running) { pending = true; return; } running = true;
       try {
+        await waitForInitialRead(); await waitForInitialFrame();
+        if (!alive || AppState.currentState !== 'active') return;
         const { nativePersonalGoogleCalendar } = await import('../../platform/google-calendar/personal-runtime');
         if (alive) { const result = await nativePersonalGoogleCalendar(database).sync(); if (result.kind === 'pending' && !result.retryAt) pending = true; }
       } catch { /* The coordinator retains state and retries; a network error must not block a screen. */ }
@@ -29,6 +32,6 @@ export function usePersonalGoogleSync(database: SQLiteDatabase) {
     const state = AppState.addEventListener('change', value => { if (value === 'active') schedule(); });
     const periodic = setInterval(() => void run(), 10 * 60_000);
     return () => { alive = false; request.current = null; clearTimeout(timer); clearInterval(periodic); unsubscribe(); state.remove(); };
-  }, [database]);
+  }, [database, waitForInitialRead]);
   return useCallback((from: LocalDate, through: LocalDate) => request.current?.(from, through), []);
 }

@@ -32,11 +32,14 @@ jobs:
       - name: Install isolated API parser dependencies for security regressions
         run: npm run api:install
 
-      - name: Ensure required feature regressions are still present
-        run: node scripts/check-feature-contracts.mjs
+      # These configurations do not depend on HOUSEWORK_TEST_PLATFORM. Keep both
+      # behavioral matrices, while running the same static checks only once.
+      - name: Lint and typecheck
+        if: matrix.platform == 'ios'
+        run: npm run lint && npm run typecheck
 
-      - name: Lint, typecheck, and test
-        run: npm run check
+      - name: Run platform behavior and required feature regressions
+        run: npm test
 
   sharing-security:
     runs-on: ubuntu-latest
@@ -50,12 +53,21 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
+      - name: Cache the pinned Firestore emulator binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators/cloud-firestore-emulator-v1.22.0.jar
+          key: ${{ runner.os }}-firebase-tools-15.34.1-firestore-1.22.0
       - run: npm ci
       - name: Install server-only authentication dependencies
         run: npm run api:install
+      - name: Install same-account device service dependencies
+        run: npm --prefix server/account-device-api ci --ignore-scripts
       - name: Audit dependencies for high and critical vulnerabilities
         run: npm audit --audit-level=high
       - name: Audit API runtime dependencies
         run: npm --prefix server/appliance-care-api audit --audit-level=high
+      - name: Audit same-account device service dependencies
+        run: npm --prefix server/account-device-api audit --audit-level=moderate
       - name: Verify sharing authorization and encrypted transport against local Firestore
         run: npx --yes firebase-tools@15.34.1 emulators:exec --non-interactive --only firestore,auth --project demo-liflow-sharing --config firebase.json "npm run test:sharing-cloud"

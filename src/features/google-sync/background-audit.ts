@@ -6,6 +6,14 @@ export interface BackgroundRun {
   id: number; started_at: number; finished_at: number | null; release: number; outcome: BackgroundOutcome;
   personal: string; private_calendar: string; sharing: string; personal_google_calendar: string;
 }
+/** The native worker can finish normally while a bounded domain retains work. */
+export function backgroundRunStatus(run: BackgroundRun): BackgroundOutcome | 'pending' | 'skipped' {
+  if (run.outcome === 'running' || run.outcome === 'interrupted' || run.outcome === 'failed') return run.outcome;
+  const domains = [run.personal, run.private_calendar, run.sharing, run.personal_google_calendar];
+  if (domains.includes('failed')) return 'failed';
+  if (run.outcome !== 'success' || run.finished_at === null || domains.some(value => value !== 'success' && value !== 'skipped')) return 'pending';
+  return domains.every(value => value === 'skipped') ? 'skipped' : 'success';
+}
 /** Metadata only. No account, operation, group, key, token or business content is stored here. */
 export function createBackgroundAudit(database: SQLiteDatabase) {
   return {

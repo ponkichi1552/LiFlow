@@ -1,11 +1,12 @@
 import { Chevron } from '@/components/chevron';
 import { useSettingsAutosave } from '@/features/settings/use-settings-autosave';
 import { BackgroundSyncDiagnostics } from '@/features/google-sync/background-diagnostics';
+import { subscribeToGoogleAccountChanges } from '@/features/google-sync/account-change-events';
 import { FormTextInput as TextInput } from '../components/form-text-input';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SettingsSwitch as Switch } from '@/components/settings-switch';
 
 import { AppButton, BackButton, Card, ChoiceChip, Page, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
@@ -19,9 +20,10 @@ import { DataCredits } from '@/components/data-credits';
 import type { FrequencyMode } from '@/domain/chores/types';
 import type { Weekday } from '@/domain/shared/types';
 import { PlannerLoadState } from '@/components/planner-load-state';
-import { usePlannerData } from '@/hooks/use-planner-data';
+import { usePersonalSettingsData } from '@/hooks/use-personal-settings-data';
 import { WorkspaceContext } from '@/contexts/workspace-context';
-import type { WeatherRegionCandidate } from '@/features/weather/open-meteo-geocoder';
+import { municipalityWeatherLocation } from '@/features/weather/municipality-search';
+import type { WeatherRegionCandidate } from '@/features/weather/municipality-search';
 import { useMunicipalitySuggestions } from '@/features/weather/use-municipality-suggestions';
 import {
   clearWeatherLocation,
@@ -31,9 +33,11 @@ import {
   saveGoogleSyncState,
   saveWeatherLocation,
   setNotificationsEnabled,
+  loadPersonalPlacementPreferences,
+  savePersonalPlacementPreferences,
   updatePlannerSettings,
 } from '@/platform/storage/repository';
-import type { PlannerSnapshot } from '@/platform/storage/repository';
+import type { PersonalSettingsView } from '@/platform/storage/personal-settings-view';
 import { ExpoLocalNotificationGateway } from '@/platform/notifications/expo-local-notification-gateway';
 import { getGoogleSyncOAuthConfig } from '@/features/google-sync/google-oauth-config';
 import type { GoogleSyncState } from '@/features/google-sync/contracts';
@@ -46,6 +50,11 @@ import { hasOtherGoogleWorkspaceConnections, sharingSessionUser } from '@/platfo
 import { getDeviceTimeZone } from '@/features/google-sync/calendar-availability';
 import { createOwnerRhythmSettings, type PlannerRhythm } from '@/features/settings/owner-rhythm-settings';
 import { subscriptionRequired } from '@/platform/subscription/runtime';
+import { PersonalCapacitySettings } from '@/features/settings/personal-capacity-settings';
+import { localDateFromDate } from '@/domain/scheduling/local-date';
+import type { PersonalPlacementPreferences } from '@/features/planner/personal-placement-preferences';
+import { sharedLocalDate } from '@/features/sharing/group-clock';
+import { GoogleAccountSwitch } from '@/features/settings/google-account-switch';
 
 const modeOptions: { id: FrequencyMode; label: string; detail: string }[] = [
   { id: 'frequent', label: 'こまめ', detail: '短めの周期' },
@@ -59,14 +68,19 @@ const weekdays: { id: Weekday; label: string }[] = [
 const notificationGateway = new ExpoLocalNotificationGateway();
 
 export default function SettingsScreen() {
-  const { snapshot, error: loadError, refresh, database } = usePlannerData({ personal: true });
+  const { snapshot, error: loadError, refresh, database } = usePersonalSettingsData();
   const workspace = useContext(WorkspaceContext);
   if (!snapshot) return <PlannerLoadState title="設定" message="設定を読み込んでいます。" error={loadError} retry={refresh} onBack={() => router.back()} />;
   if (workspace?.userId) return <AccountSettings key={workspace.userId} userId={workspace.userId} snapshot={snapshot} loadError={loadError} refresh={refresh} database={database} />;
   return <SettingsContent snapshot={snapshot} loadError={loadError} refresh={refresh} database={database} />;
 }
 
-function AccountSettings(props: { userId: string; snapshot: PlannerSnapshot; loadError: string | null; refresh: () => Promise<void>; database: SQLiteDatabase }) {
+async function activateCurrentGoogleTaskAccount(database: SQLiteDatabase) {
+  const accounts = await import('@/features/google-sync/account-switch');
+  return accounts.activateCurrentGoogleTaskAccount(database);
+}
+
+function AccountSettings(props: { userId: string; snapshot: PersonalSettingsView; loadError: string | null; refresh: () => Promise<void>; database: SQLiteDatabase }) {
   const initial = useRef(props.snapshot); const { database, userId } = props; const focused = useRef(false);
   const [source, setSource] = useState<{ value: ReturnType<typeof createOwnerRhythmSettings>; attempt: number } | null>(null);
   const [error, setError] = useState<string | null>(null); const [attempt, setAttempt] = useState(0);
@@ -82,27 +96,42 @@ function AccountSettings(props: { userId: string; snapshot: PlannerSnapshot; loa
       const store = nativePrivatePlannerPreferences(userId); const saved = await store.read();
       const value = createOwnerRhythmSettings({ store, saved, local: initial.current.settings, timeZone: getDeviceTimeZone(),
         saveLocal: (next, expected) => updatePlannerSettings(database, next, expected) });
-      if (current) { setSource({ value, attempt }); setError(null); }
+      let pendingError: string | null = null;
+      try { await value.resume(); } catch { pendingError = '本人設定は保存済みですが、端末の予定には未反映です。最新の設定を確認して再試行してください。'; }
+      if (current) { setSource({ value, attempt }); setError(pendingError); }
     })().catch(() => { if (current) setError('本人の生活リズムを読み込めませんでした。保存済みの内容は保持しています。'); });
     return () => { current = false; };
   }, [database, userId, attempt]);
   if (!source || source.attempt !== attempt) return <PlannerLoadState title="設定" message="設定を読み込んでいます。" error={error} retry={async () => setAttempt(value => value + 1)} onBack={() => router.back()} />;
-  return <SettingsContent key={attempt} {...props} snapshot={{ ...props.snapshot, settings: { ...props.snapshot.settings, ...source.value.settings() } }} saveRhythm={source.value.save}
-    onDraftChange={onDraftChange} reloadRhythm={() => setAttempt(value => value + 1)} />;
+  const timeZone = source.value.timeZone();
+  return <SettingsContent key={attempt} {...props} snapshot={{ ...props.snapshot, timeZone, today: sharedLocalDate(new Date(), timeZone),
+    settings: { ...props.snapshot.settings, ...source.value.settings() } }} saveRhythm={source.value.save} capacity={source.value}
+    rhythmRecoveryError={error} onDraftChange={onDraftChange} reloadRhythm={() => setAttempt(value => value + 1)} />;
 }
 
-function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, reloadRhythm, onDraftChange }: {
-  snapshot: PlannerSnapshot;
+function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, reloadRhythm, onDraftChange, rhythmRecoveryError, capacity }: {
+  snapshot: PersonalSettingsView;
   loadError: string | null;
   refresh: (options?: { waitForWeather?: boolean }) => Promise<void>;
   database: SQLiteDatabase;
   saveRhythm?: (value: PlannerRhythm) => Promise<void>;
   reloadRhythm?: () => void;
+  rhythmRecoveryError?: string | null;
   onDraftChange?: (unsettled: boolean) => void;
+  capacity?: ReturnType<typeof createOwnerRhythmSettings>;
 }) {
   const workspace = useContext(WorkspaceContext);
   const v2 = workspace?.active?.protocol === 2;
   const calendar = useLocalCalendar(database);
+  const draftParts = useRef({ rhythm: false, capacity: false });
+  const onCapacityDraftChange = useCallback((value: boolean) => {
+    draftParts.current.capacity = value; onDraftChange?.(value || draftParts.current.rhythm);
+  }, [onDraftChange]);
+  const loadCapacity = useCallback(async () => ({ initial: capacity ? capacity.placement() : await loadPersonalPlacementPreferences(database),
+    save: async (value: PersonalPlacementPreferences, expected: PersonalPlacementPreferences) => {
+      if (capacity) await capacity.savePlacement(value, expected); else await savePersonalPlacementPreferences(database, value, expected);
+      await refresh();
+    } }), [capacity, database, refresh]);
   const [mode, setMode] = useState<FrequencyMode>(snapshot.settings.frequencyMode);
   const [restDays, setRestDays] = useState<Weekday[]>(snapshot.settings.restDays as Weekday[]);
   const [heavyLimit, setHeavyLimit] = useState(snapshot.settings.heavyDailyLimit);
@@ -110,6 +139,7 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
   const plannerDraftBase = useRef({ frequencyMode: snapshot.settings.frequencyMode, restDays: snapshot.settings.restDays,
     heavyDailyLimit: snapshot.settings.heavyDailyLimit, normalDailyLimit: snapshot.settings.normalDailyLimit });
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
+  const showCapacityError = useCallback(() => setExpandedSections(value => new Set([...value, 'rhythm'])), []);
   const [weatherUpdating, setWeatherUpdating] = useState(false);
   const [weatherRegion, setWeatherRegion] = useState(snapshot.settings.weatherLocation?.region ?? '');
   const [weatherSearchEnabled, setWeatherSearchEnabled] = useState(false);
@@ -149,12 +179,16 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
               : !googleOAuthConfigured ? '設定待ち'
                 : googleConnected ? 'Tasks接続済み' : '未接続';
 
+  const googleReadGeneration = useRef(0);
+  const cancelGoogleReads = useCallback(() => { googleReadGeneration.current++; }, []);
   const refreshGoogleState = useCallback(async () => {
-    const [state, connected, calendarState] = await Promise.all([
+    const generation = ++googleReadGeneration.current;
+    const [state, calendarState] = await Promise.all([
       loadGoogleSyncState(database, LOCAL_HOUSEHOLD_ID),
-      hasGoogleTasksSession(),
       loadCalendarAvailabilityState(database),
     ]);
+    const connected = await hasGoogleTasksSession(state?.accountSubject);
+    if (generation !== googleReadGeneration.current) return;
     setGoogleSyncState(state);
     setGoogleConnected(connected && Boolean(state) && !state?.disconnected);
     setCalendarAvailabilityState(calendarState);
@@ -163,12 +197,18 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
 
   useEffect(() => {
     // SQLite state is external persisted state; hydrate the screen after mount.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void refreshGoogleState().catch(() => {
-      setGoogleLoadStatus('error');
-      setGoogleMessage({ text: 'Google同期の設定を読み込めませんでした。', kind: 'error' });
-    });
-  }, [refreshGoogleState]);
+    const read = () => {
+      const pending = refreshGoogleState(); const generation = googleReadGeneration.current;
+      return pending.catch(() => {
+        if (generation !== googleReadGeneration.current) return;
+        setGoogleLoadStatus('error');
+        setGoogleMessage({ text: 'Google同期の設定を読み込めませんでした。', kind: 'error' });
+      });
+    };
+    const stop = subscribeToGoogleAccountChanges(database, () => { setGoogleMessage(null); void read(); });
+    void read();
+    return () => { stop(); cancelGoogleReads(); };
+  }, [database, refreshGoogleState, cancelGoogleReads]);
 
   const connectGoogle = async () => {
     if (googleBusy) return;
@@ -177,6 +217,7 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
     setGoogleMessage(null);
     try {
       await authorizeGoogleTasks();
+      await activateCurrentGoogleTaskAccount(database);
       const current = await loadGoogleSyncState(database, LOCAL_HOUSEHOLD_ID);
       const now = new Date().toISOString();
       await saveGoogleSyncState(database, {
@@ -217,7 +258,7 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
     try {
       const current = await loadGoogleSyncState(database, LOCAL_HOUSEHOLD_ID);
       const now = new Date().toISOString();
-      const previous: GoogleSyncState = current ?? {
+      let previous: GoogleSyncState = current ?? {
         householdId: LOCAL_HOUSEHOLD_ID,
         enabled: false,
         status: 'idle',
@@ -227,6 +268,8 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
       if (enabled) {
         if (previous.status === 'authRequired' || !await hasGoogleTasksSession()) await authorizeGoogleTasks();
         else await getGoogleTasksAccessToken();
+        await activateCurrentGoogleTaskAccount(database);
+        previous = await loadGoogleSyncState(database, LOCAL_HOUSEHOLD_ID) ?? previous;
       }
       await saveGoogleSyncState(database, {
         ...previous,
@@ -267,7 +310,9 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
     setGoogleBusy(true);
     setGoogleMessage(null);
     try {
-      if (googleSyncState.status === 'authRequired' || !await hasGoogleTasksSession()) await authorizeGoogleTasks();
+      if (googleSyncState.status === 'authRequired' || !await hasGoogleTasksSession()) {
+        await authorizeGoogleTasks(); await activateCurrentGoogleTaskAccount(database);
+      }
       const result = await syncGoogleTasks(database, { force: true });
       await refreshGoogleState();
       setGoogleMessage(result.kind === 'success'
@@ -366,7 +411,9 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
     }
     await refresh();
   });
-  useLayoutEffect(() => { onDraftChange?.(!['idle', 'saved'].includes(autosave.status.phase)); }, [onDraftChange, autosave.status.phase]);
+  useLayoutEffect(() => {
+    draftParts.current.rhythm = !['idle', 'saved'].includes(autosave.status.phase); onDraftChange?.(draftParts.current.rhythm || draftParts.current.capacity);
+  }, [onDraftChange, autosave.status.phase]);
   const changeSettings = (patch: Partial<Rhythm>) => {
     currentDraft.current = { ...currentDraft.current, ...patch };
     const value = currentDraft.current;
@@ -381,12 +428,7 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
     setWeatherUpdating(true);
     setWeatherMessage(null);
     try {
-      await saveWeatherLocation(database, {
-        region: weatherRegion.trim(),
-        displayName: candidate.label,
-        latitude: candidate.latitude,
-        longitude: candidate.longitude,
-      });
+      await saveWeatherLocation(database, municipalityWeatherLocation(candidate, weatherRegion));
       await refresh({ waitForWeather: true });
       setWeatherRegion(weatherRegion.trim());
       setWeatherResultsDismissed(false);
@@ -445,13 +487,15 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
           reloadRhythm();
         }} /> : null}</Card> : autosave.status.phase === 'saving' || autosave.status.phase === 'pending' ? <Text style={styles.hint}>自動保存中…</Text> : null}
       {loadError ? <Card><Text style={styles.error}>{loadError}</Text></Card> : null}
+      {rhythmRecoveryError ? <Card><Text accessibilityRole="alert" style={styles.error}>{rhythmRecoveryError}</Text>
+        <AppButton title="端末への反映を再試行" variant="quiet" compact onPress={() => reloadRhythm?.()} /></Card> : null}
 
 
       <Card><SectionHeading title="家事ごとの設定" />
         <ChoreSettingsSources first="personal" />
       </Card>
 
-      <AccordionSection title="生活リズム" summary={rhythmSummary}
+      <PersonalCapacitySettings load={loadCapacity} today={snapshot.today ?? localDateFromDate(new Date())} onDraftChange={onCapacityDraftChange} onBlocked={showCapacityError}>{capacityForm => <AccordionSection title="生活リズム" summary={rhythmSummary}
         expanded={expandedSections.has('rhythm')} onToggle={() => toggleSection('rhythm')}>
         <Text style={styles.label}>家事の頻度</Text>
         <View style={styles.modeRow}>
@@ -486,8 +530,8 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
           <View style={styles.limitCopy}><Text style={styles.label}>普通の家事の1日上限</Text><Text style={styles.hint}>初期値：2件</Text></View>
           <Counter value={normalLimit} onChange={normalDailyLimit => changeSettings({ normalDailyLimit })} maximum={20} label="普通の家事の上限" />
         </View>
-
-      </AccordionSection>
+        {capacityForm}
+      </AccordionSection>}</PersonalCapacitySettings>
 
       <Card style={{ paddingVertical: 4 }}><Pressable accessibilityRole="button" accessibilityLabel="共有グループを管理" onPress={() => void autosave.navigate(() => router.push(
         workspace?.group && workspace.group.userId === workspace.userId && ['active', 'creating', 'joining'].includes(workspace.group.status)
@@ -584,7 +628,7 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
       {!snapshot.sharing ? <AccordionSection title="天気予報・洗濯" summary={weatherMessage?.kind === 'error' ? '保存を確認' : snapshot.settings.weatherLocation?.displayName ?? '未設定'}
         summaryError={weatherMessage?.kind === 'error'} expanded={expandedSections.has('weather')} onToggle={() => toggleSection('weather')}>
         <Text style={styles.hint}>{snapshot.settings.weatherLocation
-          ? `対象地域：${snapshot.settings.weatherLocation.displayName}。予報取得時に、この地域の座標をOpen-Meteoへ送信します。`
+          ? `対象地域：${snapshot.settings.weatherLocation.displayName}。予報更新時に、サーバー経由でMET Norwayへ地域の代表座標を送信します。`
           : '市区町村を選ぶと、天気に合わせて洗濯予定を調整します。端末の位置情報は使いません。'}</Text>
         <TextInput
           value={weatherRegion}
@@ -603,7 +647,6 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
           returnKeyType="done"
         />
         <Text style={styles.hint}>入力すると候補を検索します。候補は「市区町村、都道府県」で表示します。</Text>
-        {weatherSuggestions.status === 'searching' ? <ActivityIndicator color={palette.accent} /> : null}
         <View style={styles.weatherActions}>
           {snapshot.settings.weatherLocation ? (
             <AppButton title="連動を解除" onPress={() => void disableWeather()} disabled={weatherUpdating} variant="quiet" compact />
@@ -630,12 +673,6 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
         {weatherSuggestions.status === 'empty' && !weatherResultsDismissed
           ? <Text style={styles.hint}>市区町村が見つかりませんでした。市区町村名を変えてください。</Text>
           : null}
-        {weatherSuggestions.status === 'error' && !weatherResultsDismissed
-          ? <Text style={styles.error}>{weatherSuggestions.error}</Text>
-          : null}
-        {weatherSuggestions.status === 'debouncing' || weatherSuggestions.status === 'searching'
-          ? <Text style={styles.hint}>市区町村を検索しています…</Text>
-          : null}
         {weatherMessage ? (
           <Text style={weatherMessage.kind === 'success' ? styles.success : styles.error}>{weatherMessage.text}</Text>
         ) : null}
@@ -644,6 +681,14 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
       <AccordionSection title="誕生日" summary={birthdaySummary}
         summaryError={Boolean(calendar.error)} expanded={expandedSections.has('birthdays')} onToggle={() => toggleSection('birthdays')}><BirthdaySettings /></AccordionSection>
       {workspace?.userId ? <AccordionSection title="アカウントと端末" expanded={expandedSections.has('account-devices')} onToggle={() => toggleSection('account-devices')}>
+        <GoogleAccountSwitch database={database} disabled={googleBusy} acquire={() => {
+          if (!beginOperation('google')) return false; setGoogleBusy(true); return true;
+        }} release={() => { endOperation('google'); setGoogleBusy(false); }} onChanged={async () => {
+          setGoogleMessage(null);
+        }} prepare={async () => {
+          if (!await autosave.flush() || draftParts.current.rhythm || draftParts.current.capacity) { showCapacityError(); return false; }
+          return true;
+        }} />
         <Pressable accessibilityRole="button" accessibilityLabel="設定の端末間同期" onPress={() => void autosave.navigate(() => router.push('/sharing/personal-preferences'))} style={[styles.notificationRow, { minHeight: 44 }]}><Text style={[styles.label, { flex: 1 }]}>設定の端末間同期</Text><Chevron /></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="同期する端末の管理" onPress={() => void autosave.navigate(() => router.push('/sharing/private-calendar'))} style={[styles.notificationRow, { minHeight: 44 }]}><Text style={[styles.label, { flex: 1 }]}>同期する端末の管理</Text><Chevron /></Pressable>
       </AccordionSection> : null}

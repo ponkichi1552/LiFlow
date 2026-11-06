@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "candidate": "normal-v34",
+  "applicationChanged": false,
+  "deviceDatabaseDirectWrite": false,
+  "workerForced": false,
+  "provider": {
+    "existingGrantMs": 201,
+    "readOnly": true,
+    "sqlScope": "System SQLite read-only row counts, not Expo JSON query timing",
+    "mainApplicationStarted": false,
+    "calendars": [
+      {
+        "calendarOrdinal": 2,
+        "calendarKind": "public-holiday",
+        "accessRole": "reader",
+        "cursorReadMs": 1,
+        "dirtyRows": 0,
+        "dirtyReadMs": 2,
+        "maxAttemptOrder": 0,
+        "attemptReadMs": 1,
+        "hasSyncToken": true,
+        "hasPageToken": false,
+        "httpMs": 563,
+        "status": 410,
+        "errorReason": "fullSyncRequired",
+        "itemCount": 0,
+        "hasNextPage": false,
+        "hasNextSync": false,
+        "boundedFullPages": 4,
+        "boundedFullEvents": 317,
+        "boundedFullMs": 1431,
+        "boundedFullComplete": true,
+        "freshTokenEqualsSaved": true,
+        "freshDeltaStatus": 410,
+        "freshDeltaErrorReason": "fullSyncRequired"
+      }
+    ],
+    "totalMs": 2513
+  },
+  "requestCache": "Native HTTP cache disabled with Cache-Control:no-cache,no-store,max-age=0 and Pragma:no-cache. Exact same list query parameters as production; maxResults100; no field filter.",
+  "scope": "This particular public holiday feed issued the same unusable sync token after a fresh four-page read; do not generalize to every holiday calendar or call this an app-only defect. No cursor or provider response was applied to LiFlow.",
+  "officialReference": "https://developers.google.com/workspace/calendar/api/guides/sync",
+  "rawLogSha256": "27e5e81b29f0fd90dc9eb4b9b72161a449f45345513bcaa195719bef61ca0a43"
+}

@@ -15,6 +15,20 @@ async function setup() {
 }
 function deferred() { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; }
 
+test('retained shared setting drafts keep their selected effective date across failure and editor recreation', async t => {
+  const d = await setup(); t.after(() => d.connection.close()); let fail = true; const dates = [];
+  const save = async (edits, from) => { dates.push(from); if (fail) throw new Error('save failed'); return d.actions.patchChoreConfigurationFields('floor', edits, from); };
+  const input = { configuration: await d.configuration(), effectiveFrom: '2026-10-27', save, onSaved: async () => {} };
+  const editor = createV2ConfigurationEditorState(input); editor.changeEffectiveFrom('2026-12-01'); editor.changeNumber('intervalDays', '17');
+  assert.equal(await editor.flush(), false);
+  editor.updateInput({ ...input, effectiveFrom: '2026-10-28' });
+  assert.equal(editor.getSnapshot().effectiveFrom, '2026-12-01');
+  editor.changeEffectiveFrom('2026-10-28'); assert.equal(editor.getSnapshot().effectiveFrom, '2026-12-01');
+  fail = false; assert.equal(await editor.flush(), true); assert.deepEqual(dates, ['2026-12-01', '2026-12-01']);
+  const facts = await (await import('../src/platform/storage/sharing-ledger.ts')).loadSharedFacts(d.database, groupId);
+  assert.equal(facts.find(row => row.operation.entityType === 'chorePolicy' && row.operation.payload.configuration?.intervalDays === 17).operation.payload.configuration.effectiveFrom, '2026-12-01');
+});
+
 test('v2 autosave batches valid fields into one revision and does not change another field after its base became stale during a save', async () => {
   const d = await setup();
   try {

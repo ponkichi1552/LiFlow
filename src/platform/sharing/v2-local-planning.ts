@@ -11,6 +11,8 @@ import { createLocalCalendarAvailability, createLocalCalendarPlanSource } from '
 import { sharedCalendarAvailability } from '../../features/calendar/shared-events';
 import type { SharedCalendarRecord } from '../../features/sharing/v2/calendar-state';
 import { combinePrivateCalendarAvailability } from '../../features/sharing/v2/private-availability';
+import { usesPersonalAdaptivePlanner } from '../../domain/chores/personal-catalog';
+import { capturedSharedRecommendations } from '../../features/planner/shared-adaptive-load';
 
 /** Both native integrations use the same owner-only inputs. Rendering/planning never fetches Google or requests a grant. */
 export async function readV2LocalPlanning(input: { userId: string; assertAccess(): void | Promise<void> }, now: Date) {
@@ -34,12 +36,12 @@ export async function readV2LocalPlanning(input: { userId: string; assertAccess(
     return { revision, preferences, privateTasks, localCalendar, calendar: { readForPlan: async () => busy, readOwnCalendar: calendar.readOwnCalendar },
       personalize(plan: V2CommonPlan, sharedEvents: readonly SharedCalendarRecord[] = []) {
         const overlay = projectV2PrivateTasks(source, input.userId, plan.range);
-        return buildV2PersonalPlan(plan, { viewerUserId: input.userId, now: now.getTime(), settings: preferences.settings,
+        return capturedSharedRecommendations(plan, buildV2PersonalPlan(plan, { viewerUserId: input.userId, now: now.getTime(), settings: preferences.settings,
           localCalendar: { ownerUserId: input.userId, availability: combinePrivateCalendarAvailability(
             createLocalCalendarAvailability(localEvents.events, localEvents.exceptions, plan.range, plan.timeZone),
             sharedCalendarAvailability(sharedEvents, plan.groupId, plan.range, plan.timeZone)) },
-          ...(overlay.timeZone === plan.timeZone ? { privateLoad: { ownerUserId: input.userId, days: overlay.dailyLoad } } : {}),
-          ...(busy ? { calendar: { cache: busy.cache, binding: busy.binding } } : {}) });
+          ...(!source.snapshot.chores.some(usesPersonalAdaptivePlanner) && overlay.timeZone === plan.timeZone ? { privateLoad: { ownerUserId: input.userId, days: overlay.dailyLoad } } : {}),
+          ...(busy ? { calendar: { cache: busy.cache, binding: busy.binding } } : {}) }), source.snapshot.personalSharedPlanning);
       },
     };
   } finally { await personal.closeAsync(); }

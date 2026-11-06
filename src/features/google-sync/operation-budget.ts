@@ -16,3 +16,12 @@ export function createGoogleOperationBudget(milliseconds: number, now: () => num
   };
 }
 export type GoogleOperationBudget = ReturnType<typeof createGoogleOperationBudget>;
+
+/** An ignored native abort cannot keep credential/HTTP waits alive after their caller's deadline. */
+export async function withinGoogleOperationBudget<T>(budget: GoogleOperationBudget, work: () => Promise<T>): Promise<T> {
+  budget.assert();
+  const value = await Promise.race([work(), budget.expiration.then(() => {
+    throw Object.assign(new Error('Google同期の時間を超えました。'), { name: 'AbortError', code: 'timeout' });
+  })]);
+  budget.assert(); return value;
+}

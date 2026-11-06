@@ -34,6 +34,22 @@ test('condition-based appliance reset never disables a chore or invents a manufa
   const maker = resetChoreSchedule({ ...current, manufacturerRecommendedIntervalDays: 30 }); assert.equal(maker.userIntervalDays, undefined); assert.equal(maker.enabled, true);
 });
 
+test('private condition-based appliance reset releases its fixed period and keeps its enabled choice without inheriting a placeholder cadence', async () => {
+  const { applyChoreSettingsPatch } = await import('../src/domain/chores/settings-patch.ts');
+  const { registeredChoreCycleDays, choreCadenceLabel } = await import('../src/domain/chores/cycle-policy.ts');
+  for (const enabled of [true, false]) {
+    const current = { ...createHouseholdChoreDefinitions(repository.LOCAL_HOUSEHOLD_ID)[0], id: 'care.1', applianceId: 'appliance',
+      userIntervalDays: 19, recommendedCycleDays: 19, enabled, frequencyDaysByMode: { frequent: 30, balanced: 30, relaxed: 30 } };
+    for (const patch of [{ resetSchedule: true }, { cycleDays: null }]) {
+      const next = applyChoreSettingsPatch(current, patch);
+      assert.equal(next.enabled, enabled); assert.equal(next.requiresCycleSelection, false);
+      assert.equal(next.userIntervalDays, undefined); assert.equal(next.recommendedCycleDays, undefined);
+      assert.equal(registeredChoreCycleDays(next, 'balanced'), undefined); assert.equal(choreCadenceLabel(next, 'balanced'), '必要なとき');
+      assert.equal(current.userIntervalDays, 19);
+    }
+  }
+});
+
 test('reset replaces unsaved scheduling drafts without dropping a separately queued enabled toggle', async () => {
   const base = createHouseholdChoreDefinitions('home')[0]; let saved = base; const patches = [];
   const editor = createChoreSettingsEditor(base, 'balanced', async patch => {
@@ -42,6 +58,38 @@ test('reset replaces unsaved scheduling drafts without dropping a separately que
   editor.changeCycle('123'); editor.changeRadius('14'); editor.changeEnabled(false); await editor.resetSchedule();
   assert.equal(saved.recommendedCycleDays, undefined); assert.equal(saved.windowRadiusDays, base.windowRadiusDays); assert.equal(saved.enabled, false);
   assert.equal(editor.getSnapshot().draft.cycleText, String(base.frequencyDaysByMode.balanced)); assert.ok(patches.some(patch => patch.resetSchedule));
+});
+
+for (const newer of [null, '13']) test(`an appliance reset displays the accepted retained cycle after an in-flight save${newer ? ' without erasing a newer edit' : ''}`, async () => {
+  const { applyChoreSettingsPatch } = await import('../src/domain/chores/settings-patch.ts');
+  const base = { ...createHouseholdChoreDefinitions('home')[0], id: 'care.1', applianceId: 'appliance', manufacturerRecommendedIntervalDays: undefined,
+    userIntervalDays: 7, recommendedCycleDays: 7, enabled: true };
+  let saved = base; let release; let first = true;
+  const editor = createChoreSettingsEditor(base, 'balanced', async patch => {
+    if (first) { first = false; await new Promise(resolve => { release = resolve; }); }
+    saved = applyChoreSettingsPatch(saved, patch);
+  });
+  editor.changeCycle('10'); const pending = editor.flush();
+  const reset = editor.resetSchedule(); if (newer) editor.changeCycle(newer);
+  release(); assert.equal(await pending, true); assert.equal(await reset, true); await editor.flush();
+  assert.equal(editor.getSnapshot().draft.cycleText, newer ?? '10');
+  assert.equal(saved.userIntervalDays, Number(newer ?? '10')); assert.equal(saved.enabled, true);
+});
+
+for (const newer of [null, '13']) test(`private appliance fixed release survives an in-flight autosave${newer ? ' while preserving a newer explicit period' : ''}`, async () => {
+  const { applyChoreSettingsPatch } = await import('../src/domain/chores/settings-patch.ts');
+  const base = { ...createHouseholdChoreDefinitions(repository.LOCAL_HOUSEHOLD_ID)[0], id: 'care.1', applianceId: 'appliance',
+    userIntervalDays: 7, recommendedCycleDays: 7, enabled: true };
+  let saved = base; let release; let first = true;
+  const editor = createChoreSettingsEditor(base, 'balanced', async patch => {
+    if (first) { first = false; await new Promise(resolve => { release = resolve; }); }
+    saved = applyChoreSettingsPatch(saved, patch);
+  });
+  editor.changeCycle('10'); const pending = editor.flush(); const reset = editor.resetSchedule();
+  if (newer) editor.changeCycle(newer);
+  release(); assert.equal(await pending, true); assert.equal(await reset, true); assert.equal(await editor.flush(), true);
+  assert.equal(editor.getSnapshot().draft.cycleText, newer ?? ''); assert.equal(saved.userIntervalDays, newer ? 13 : undefined);
+  assert.equal(saved.enabled, true); assert.equal(saved.requiresCycleSelection, false);
 });
 
 test('personal all-chore reset is atomic and preserves all enabled flags completion history assignment state and names', async () => {
@@ -57,12 +105,12 @@ test('personal all-chore reset is atomic and preserves all enabled flags complet
     assert.equal(reset.name, '名前を保持'); assert.deepEqual(reset.instructions, ['手順を保持']); assert.equal(reset.enabled, false); assert.equal(reset.recommendedCycleDays, undefined);
     await repository.updateChoreSettings(h.database, base.id, { cycleDays: 35 });
     const rows = h.connection.prepare('SELECT * FROM chore_definitions ORDER BY id').all();
-    h.connection.exec(`CREATE TRIGGER stop_reset BEFORE UPDATE ON chore_definitions WHEN NEW.id='builtin-chore-02' BEGIN SELECT RAISE(ABORT,'synthetic rollback'); END`);
+    h.connection.exec(`CREATE TRIGGER stop_reset BEFORE UPDATE ON chore_definitions WHEN NEW.id='liflow-catalog-6.002' BEGIN SELECT RAISE(ABORT,'synthetic rollback'); END`);
     await repository.updateChoreSettings(h.database, base.id, { load: 'light' });
     // Make a second row need resetting, then fail while updating it.
-    h.connection.exec('DROP TRIGGER stop_reset'); await repository.updateChoreSettings(h.database, 'builtin-chore-02', { cycleDays: 15 });
+    h.connection.exec('DROP TRIGGER stop_reset'); await repository.updateChoreSettings(h.database, 'liflow-catalog-6.002', { cycleDays: 15 });
     const atFailure = h.connection.prepare('SELECT * FROM chore_definitions ORDER BY id').all();
-    h.connection.exec(`CREATE TRIGGER stop_reset BEFORE UPDATE ON chore_definitions WHEN NEW.id='builtin-chore-02' BEGIN SELECT RAISE(ABORT,'synthetic rollback'); END`);
+    h.connection.exec(`CREATE TRIGGER stop_reset BEFORE UPDATE ON chore_definitions WHEN NEW.id='liflow-catalog-6.002' BEGIN SELECT RAISE(ABORT,'synthetic rollback'); END`);
     await assert.rejects(repository.resetAllChoreSchedules(h.database), /synthetic rollback/); assert.deepEqual(h.connection.prepare('SELECT * FROM chore_definitions ORDER BY id').all(), atFailure);
     assert.ok(rows.length > 0);
   } finally { h.connection.close(); }

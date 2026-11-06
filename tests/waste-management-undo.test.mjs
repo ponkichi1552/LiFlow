@@ -42,3 +42,40 @@ test('waste Undo can retry a failed durable restore without duplicating successf
     assert.ok(!screen.nodes().some(node => node.props.accessibilityLabel === 'びんを元に戻す'));
   } finally { screen?.unmount(); h.connection.close(); }
 });
+
+
+for (const recurrence of ['weekly', 'biweekly', 'monthly']) test(`waste ${recurrence} Undo does not expire while refresh or failed restoration prevents input`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = createDatabase(); let screen; t.after(() => { screen?.unmount(); h.connection.close(); });
+  await repository.initializeLocalDatabase(h.database);
+  const rule = { id: 'slow-undo', label: 'びん', recurrence,
+    collectionWeekdays: recurrence === 'monthly' ? [] : [1],
+    ...(recurrence === 'biweekly' ? { anchorDate: '2026-11-02' } : {}), ...(recurrence === 'monthly' ? { monthlyDay: 2 } : {}) };
+  await repository.saveWeeklyWasteSchedule(h.database, rule);
+  await repository.setWasteOccurrenceHidden(h.database, rule.id, '2026-11-02', true);
+  let snapshot = await repository.loadPlannerSnapshot(h.database, '2026-11-01'); let release; let began; let refreshCount = 0; let refreshed; let retryEntered;
+  const retryRefreshing = new Promise(resolve => { retryEntered = resolve; });
+  const refreshedAgain = new Promise(resolve => { refreshed = resolve; });
+  const entered = new Promise(resolve => { began = resolve; }); let restoring; let restoreBegan; let attempts = 0;
+  const enteredRestore = new Promise(resolve => { restoreBegan = resolve; });
+  screen = screenHarness('src/app/waste.tsx', { database: h.database, snapshot: () => snapshot,
+    refresh: async () => { refreshCount++; await new Promise(resolve => { release = resolve; if (refreshCount === 1) began(); else retryEntered(); }); snapshot = await repository.loadPlannerSnapshot(h.database, '2026-11-01'); if (refreshCount === 2) refreshed(); },
+    mocks: { '@/platform/storage/repository': { ...repository, restoreDeletedWasteSchedule: async (...args) => {
+      if (++attempts === 1) { restoreBegan(); await new Promise(resolve => { restoring = resolve; }); throw new Error('synthetic restore unavailable'); }
+      return repository.restoreDeletedWasteSchedule(...args);
+    } } }, effectDependencies: true, effect: callback => callback() });
+  const removing = screen.press('削除'); await entered; screen.render();
+  assert.equal(screen.button('びんを元に戻す').props.disabled, true);
+  t.mock.timers.tick(20_000); screen.render();
+  assert.ok(screen.button('びんを元に戻す'));
+  release(); await removing; screen.render();
+  assert.equal(screen.button('びんを元に戻す').props.disabled, false);
+  t.mock.timers.tick(1000);
+  const undoing = screen.press('びんを元に戻す'); await enteredRestore; screen.render();
+  t.mock.timers.tick(20_000); screen.render(); restoring(); await undoing; screen.render();
+  assert.match(screen.text(), /synthetic restore unavailable/); assert.ok(screen.button('びんを元に戻す'));
+  const retry = screen.press('びんを元に戻す'); await retryRefreshing;
+  release(); await refreshedAgain; await retry; await screen.flush();
+  assert.equal(snapshot.wasteSchedules[0].id, rule.id); assert.ok(snapshot.hiddenWasteOccurrenceKeys.includes('slow-undo:2026-11-02'));
+  assert.equal(attempts, 2); assert.equal(h.connection.prepare('SELECT count(*) n FROM deleted_waste_schedules').get().n, 0);
+});

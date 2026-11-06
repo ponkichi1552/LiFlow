@@ -16,35 +16,38 @@ TaskManager.defineTask(GOOGLE_SYNC_BACKGROUND_TASK, async ({ error }) => {
     auditDatabase = await SQLite.openDatabaseAsync('background-sync-audit.db', { useNewConnection: true });
     audit = createBackgroundAudit(auditDatabase); runId = await audit.begin(Date.now(), !__DEV__);
   } catch { /* Diagnostics must not prevent pending user changes from synchronizing. */ }
-  const record = (domain: 'personal' | 'privateCalendar' | 'sharing', failed: boolean) =>
-    runId === undefined ? Promise.resolve() : audit!.domain(runId, domain, failed ? 'failed' : 'success').catch(() => undefined);
+  type Outcome = 'success' | 'failed' | 'skipped' | 'pending';
+  const record = (domain: 'personal' | 'privateCalendar' | 'sharing', outcome: Outcome) =>
+    runId === undefined ? Promise.resolve() : audit!.domain(runId, domain, outcome).catch(() => undefined);
   if (error) {
     if (runId !== undefined) await audit!.finish(runId, Date.now(), true).catch(() => undefined);
     await auditDatabase?.closeAsync().catch(() => undefined);
     return BackgroundTask.BackgroundTaskResult.Failed;
   }
   let database: SQLite.SQLiteDatabase | null = null;
-  let failed = false; let domainFailed = false;
+  let failed = false; let outcome: Outcome = 'skipped';
   try {
+    await import('@/platform/sharing/adaptive-personal-runtime');
     database = await SQLite.openDatabaseAsync('housework.db', { useNewConnection: true });
     const { initializeLocalDatabase, loadGoogleSyncState, LOCAL_HOUSEHOLD_ID } = await import('@/platform/storage/repository');
     await initializeLocalDatabase(database);
     const state = await loadGoogleSyncState(database, LOCAL_HOUSEHOLD_ID);
     if (state?.enabled) {
       const { syncGoogleTasks } = await import('./coordinator');
-      const result = await syncGoogleTasks(database);
+      const result = await syncGoogleTasks(database, { budgetMs: 15_000, deltaOnly: true });
       // The coordinator persists transport/auth failures and resolves with their classification.
       // A resolved promise is therefore not proof of a successful synchronization.
-      if (result.kind !== 'success') { failed = true; domainFailed = true; }
+      outcome = result.kind !== 'success' ? 'failed' : result.foregroundRequired ? 'pending' : result.skipped ? 'skipped' : 'success';
+      if (outcome === 'failed') failed = true;
     }
   } catch {
-    failed = true; domainFailed = true;
+    failed = true; outcome = 'failed';
   } finally {
-    await record('personal', domainFailed); domainFailed = false;
+    await record('personal', outcome); outcome = 'pending';
     let calendarOutcome: 'success' | 'failed' | 'skipped' | 'pending' = 'skipped';
     if (database) try {
       const { nativePersonalGoogleCalendar } = await import('@/platform/google-calendar/personal-runtime');
-      const result = await nativePersonalGoogleCalendar(database).sync({ budgetMs: 15_000 });
+      const result = await nativePersonalGoogleCalendar(database).sync({ budgetMs: 15_000, deltaOnly: true });
       calendarOutcome = result.kind === 'error' ? 'failed' : result.kind;
       if (calendarOutcome === 'failed') failed = true;
     } catch { failed = true; calendarOutcome = 'failed'; }
@@ -53,14 +56,16 @@ TaskManager.defineTask(GOOGLE_SYNC_BACKGROUND_TASK, async ({ error }) => {
   }
   try {
     const { syncKnownPrivateCalendar } = await import('@/platform/sharing/private-calendar-sync');
-    await syncKnownPrivateCalendar(15_000);
-  } catch { failed = true; domainFailed = true; }
-  await record('privateCalendar', domainFailed); domainFailed = false;
+    const result = await syncKnownPrivateCalendar(15_000);
+    outcome = ['published', 'received', 'fresh', 'unchanged'].includes(result?.kind) ? 'success'
+      : ['skipped', 'disabled', 'unavailable'].includes(result?.kind) ? 'skipped' : 'pending';
+  } catch { failed = true; outcome = 'failed'; }
+  await record('privateCalendar', outcome); outcome = 'pending';
   try {
     const { syncSharingWorkspace } = await import('@/platform/sharing/workspaces');
-    await syncSharingWorkspace(30_000);
-  } catch { failed = true; domainFailed = true; }
-  await record('sharing', domainFailed);
+    const result = await syncSharingWorkspace(30_000, { deltaOnly: true }); outcome = result?.kind ?? 'pending';
+  } catch { failed = true; outcome = 'failed'; }
+  await record('sharing', outcome);
   if (runId !== undefined) await audit!.finish(runId, Date.now(), failed).catch(() => undefined);
   await auditDatabase?.closeAsync().catch(() => undefined);
   // Each domain keeps its own retries. One storage failure cannot prevent the other domain from running.

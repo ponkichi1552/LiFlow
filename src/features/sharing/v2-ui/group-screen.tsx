@@ -57,7 +57,7 @@ import type { CompletionIntentState } from '../../planner/completion-intents';
 import type { CompletionIntentRuntime } from '../../../platform/storage/completion-intents';
 
 const noCompletionChanges = () => () => {};
-const emptyCompletionState: CompletionIntentState = { values: new Map(), pending: new Set(), restored: false, error: null };
+const emptyCompletionState: CompletionIntentState = { values: new Map(), pending: new Set(), failed: new Set(), restored: false, error: null };
 const noCompletionState = () => emptyCompletionState;
 
 export interface V2GroupScreenProps {
@@ -107,13 +107,14 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   const [legacyCompletionValues, setCompletionValues] = useState(new Map<string, boolean>());
   const sharedIntents = useSyncExternalStore(sharedCompletion?.queue.subscribe ?? noCompletionChanges, sharedCompletion?.queue.getSnapshot ?? noCompletionState, noCompletionState);
   const personalIntents = useSyncExternalStore(personalCompletion?.queue.subscribe ?? noCompletionChanges, personalCompletion?.queue.getSnapshot ?? noCompletionState, noCompletionState);
+  const hasPersonalIntents = personalIntents.values.size > 0;
   const personalAliases = useMemo(() => {
     const aliases = new Map<string, Set<string>>(); const overlay = composition?.privateValue;
-    if (overlay?.status === 'ready') for (const rows of [overlay.home, ...overlay.byDate.values()]) for (const row of rows) {
+    if (hasPersonalIntents && overlay?.status === 'ready') for (const rows of [overlay.home, ...overlay.byDate.values()]) for (const row of rows) {
       try { const key = personalCompletionKey(row.revision); const names = aliases.get(key) ?? new Set<string>(); names.add(row.key); aliases.set(key, names); } catch { /* Invalid cached rows remain non-authoritative. */ }
     }
     return aliases;
-  }, [composition?.privateValue]);
+  }, [composition?.privateValue, hasPersonalIntents]);
   const completionValues = useMemo(() => {
     if (!sharedIntents.values.size && !personalIntents.values.size) return legacyCompletionValues;
     const values = new Map(legacyCompletionValues);
@@ -122,31 +123,44 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     return values;
   }, [legacyCompletionValues, sharedIntents.values, personalIntents.values, personalAliases]);
   const homeProjection = useMemo(() => view === 'home' && composition
-    ? v2CalendarProjection(composition.model, composition.personal, completionValues) : null, [view, composition, completionValues]);
+    ? v2CalendarProjection(composition.model, composition.personal, completionValues, false, {
+      from: composition.model.plan.range.asOfDate,
+      through: homeUpcomingRange(composition.model.plan.range.asOfDate, 'next').through,
+    }) : null, [view, composition, completionValues]);
   const feedbackEpoch = useRef(0);
   const display = useHomeDisplay();
   const insets = useSafeAreaInsets();
   const [lastUndo, setLastUndo] = useState<{ undo: () => Promise<unknown>; queued?: boolean } | null>(null);
-  useEffect(() => { if (!lastUndo) return; const timer = setTimeout(() => setLastUndo(null), 6500); return () => clearTimeout(timer); }, [lastUndo]);
+  useEffect(() => { if (!lastUndo || busy && !lastUndo.queued) return; const timer = setTimeout(() => setLastUndo(null), 6500); return () => clearTimeout(timer); }, [lastUndo, busy]);
   const alive = useRef(false); const generation = useRef(0); const running = useRef(false);
   const notificationTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const mutationRead = useRef(false); const refreshQueued = useRef(false);
   const readOptions = useRef(readOptionsForView(view, anchorDate, choreId, applianceId));
   const readBinding = useRef({ anchorDate, view, choreId, applianceId });
   const sessionLoader = useRef(loadSession);
+  const refreshPending = useRef<{ options: typeof readOptions.current; revision: number; work: Promise<boolean> } | undefined>(undefined);
   useLayoutEffect(() => { sessionLoader.current = loadSession; }, [loadSession]);
   const [calendarMonth, setCalendarMonth] = useState<LocalDate | null>(null); const [calendarDay, setCalendarDay] = useState<LocalDate | null>(null);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(() => {
     clearTimeout(notificationTimer.current); notificationTimer.current = undefined;
+    const options = readOptions.current;
+    const pending = refreshPending.current;
+    // Publishing a prepared display notifies this screen during its own read.
+    // Join that read so the saved gesture can acknowledge it, rather than
+    // superseding itself and retaining a stale optimistic value indefinitely.
+    if (pending && pending.options === options && pending.revision === generation.current) return pending.work;
     const revision = ++generation.current;
-    try {
-      const preview = await sessionLoader.current(); const value = await preview.readModel(readOptions.current);
+    const work = (async () => { try {
+      const preview = await sessionLoader.current(); const value = await preview.readModel(options);
       if (alive.current && generation.current === revision) {
         setSession(preview); setModel(value); setError(null);
         setCompletionValues(values => values.size ? new Map() : values);
         return true;
       } return false;
-    } catch (cause) { if (alive.current && generation.current === revision) setError(cause instanceof Error ? cause.message : '共有データを読み込めませんでした。'); return false; }
+    } catch (cause) { if (alive.current && generation.current === revision) setError(cause instanceof Error ? cause.message : '共有データを読み込めませんでした。'); return false; } })();
+    const reading = { options, revision, work }; refreshPending.current = reading;
+    void work.finally(() => { if (refreshPending.current === reading) refreshPending.current = undefined; });
+    return work;
   }, []);
   useEffect(() => {
     const read = async () => { invalidateCompletionDisplay?.(); if (!await refresh()) throw new Error('表示を更新できませんでした。'); };
@@ -214,8 +228,8 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         const runtime = target.kind === 'shared' ? sharedCompletion : personalCompletion;
         if (!runtime) throw new Error('完了操作の保存先を確認できません。');
         const targetKey = target.kind === 'shared' ? key : personalCompletionKey(target.command.revision);
-        runtime.queue.request(targetKey, target, completed);
-        if (view === 'home') setLastUndo(completed ? { queued: true, undo: async () => { runtime.queue.request(targetKey, target, false); } } : null);
+        const accepted = runtime.queue.request(targetKey, target, completed);
+        if (accepted && view === 'home') setLastUndo(completed ? { queued: true, undo: async () => { runtime.queue.request(targetKey, target, false); } } : null);
       } catch { setError('完了操作の保存先を確認できません。'); }
     },
     run: async (key, completed, work) => {
@@ -237,6 +251,8 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     {purpose === 'development' ? <Text style={styles.caption}>検査用の独立したデータです。既存データやログイン中のアカウントを使わず、共有操作をクラウドへ送信しません。</Text> : null}
     {workspaceError ? <Text accessibilityRole="alert" style={styles.error}>{workspaceError}</Text> : null}
     {actionError ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
+    {sharedIntents.failed.size || personalIntents.failed.size ? <AppButton title="保存を再試行" variant="quiet" compact
+      onPress={() => { sharedCompletion?.queue.retryFailed(); personalCompletion?.queue.retryFailed(); }} /> : null}
   </View> : null;
   if ((!screenModel || !session) && (view === 'details' || view === 'configuration')) return <V2ScreenFrame purpose={purpose} startupReady={Boolean(error)} style={styles.safe} edges={['top']}>
     <NavigationHeader><View style={styles.settingsHeader}><BackButton onPress={onBack} /><Text style={styles.settingsHeaderTitle}>家事ごとの設定</Text></View></NavigationHeader>
@@ -416,7 +432,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         if (item.kind === 'emptyWeek') return <Card><Text style={styles.body}>{privateOverlay?.status === 'unavailable' ? '共有家事の予定はありません。個人家事は未取得です。' : weekScope === 'current' ? '今週の予定はありません。' : '来週の予定はありません。'}</Text></Card>;
         if (item.kind !== 'today' && item.kind !== 'upcoming') return null;
         const row = item.item;
-        return row.source === 'waste' ? <V2WasteOccurrence entry={row.entry} actions={controller.actions} busy={busy} run={run} />
+        return row.source === 'waste' ? <V2WasteOccurrence entry={row.entry} />
           : row.source === 'personal' ? <V2PrivateTaskCard row={row.row} onOpen={onGuide ? () => onGuide(row.row.chore.id, 'personal') : undefined} source={session.privateTasks} busy={busy} run={run} feedback={feedback} home mixedSources /> : card(row.round, row.subject);
       }}
       ListFooterComponent={<View style={styles.footer}>

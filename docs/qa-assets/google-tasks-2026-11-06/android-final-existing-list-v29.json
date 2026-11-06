@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "status": "PASS_ANDROID_FOREGROUND_EXISTING_LIST_ONLY",
+  "normalRelease": 29,
+  "startupTrace": false,
+  "manualSyncPressed": true,
+  "dataReset": false,
+  "helperRemoved": true,
+  "same23IdsAsV27AndV28": true,
+  "evidence": {
+    "accountDigest": "CVVkaArWJLRcOTocJBSq-2RcxWQbd2t0JXvD2uGCzX0",
+    "taskListDigest": "1u7hE1t8WqfRTqpr6S-0cnApL3OpKdFW8MMpYawtdBc",
+    "localLinkDigest": "gxnvUFZLv8P-Q22tLk1EJ9aPj-nkd4hTivbzoFFk-zY",
+    "localLinks": 23,
+    "matchedLinks": 23,
+    "missingLinks": 0,
+    "providerLiveTasks": 23,
+    "providerCompletedTasks": 0,
+    "duplicateLiveMarkers": 0,
+    "localStatus": "idle",
+    "lastSuccessfulSyncAt": "2026-11-05T21:47:39.514Z",
+    "localErrorCode": "",
+    "baselineMappingCount": 23,
+    "baselineMappingDigest": "gxnvUFZLv8P-Q22tLk1EJ9aPj-nkd4hTivbzoFFk-zY"
+  },
+  "boundaries": [
+    "Not simultaneous fresh creation on two physical phones.",
+    "Not OS-natural background execution.",
+    "On reopening the app retained its previous Tasks settings route; the earlier Home-only assertion was a harness assumption and performed no data mutation."
+  ]
+}

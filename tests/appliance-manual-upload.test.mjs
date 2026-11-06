@@ -23,6 +23,17 @@ test('manual upload rejects URLs paths missing consent forged hashes oversized m
   await assert.rejects(inspectUploadedManual(Buffer.from('%PDF-1.7\n' + 'invalid encrypted document'.repeat(3) + '\n%%EOF')), e => e.code === 'INVALID_MANUAL');
 });
 
+test('manual base64 validation accepts the full upload limit without recursive regular-expression overflow', () => {
+  const pdf = syntheticPdf();
+  const bytes = Buffer.concat([pdf.subarray(0, -6), Buffer.alloc(MAX_MANUAL_BYTES - pdf.length, 32), pdf.subarray(-6)]);
+  const input = { base64: bytes.toString('base64'), rightsConfirmed: true };
+  assert.deepEqual(decodeUploadedManual(input).bytes, bytes);
+  for (const base64 of [input.base64.slice(0, -1), input.base64.slice(0, -8) + '=AAA====',
+    'JVBERi0xLjQK' + 'A'.repeat(120000) + '?===', input.base64.slice(0, 1000000) + '\n' + input.base64.slice(1000001)]) {
+    assert.throws(() => decodeUploadedManual({ base64, rightsConfirmed: true }), e => e.code === 'INVALID_MANUAL');
+  }
+});
+
 test('uploaded analysis sends only submitted bytes with no search or URL fetch and validates exact digest-only provenance', async () => {
   const manual = decodeUploadedManual(syntheticManual()); let sent; let calls = 0;
   const task = { name: 'フィルターのお手入れ', recommendedIntervalDays: null, recommendedConditions: ['汚れが目立った時'],

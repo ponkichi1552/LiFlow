@@ -24,6 +24,24 @@ async function reachWasteStep(screen) {
   assert.ok(screen.text().includes('ゴミ収集日を設定'), 'onboarding must retain its waste setup step');
 }
 
+test('committed first-run setup retries only display loading after a refresh failure and cannot replay old choices', async () => {
+  const h = await initialContext(); let reads = 0; let fail = true;
+  try {
+    const screen = screenHarness('src/features/onboarding/first-run-setup.tsx', { exportName: 'FirstRunSetup', database: h.database,
+      props: { snapshot: h.snapshot, onComplete: async () => { reads++; if (fail) throw new Error('view read failed'); } } });
+    await reachWasteStep(screen); await screen.press('設定して始める'); await screen.flush();
+    assert.equal(h.connection.prepare('SELECT setup_completed FROM household_settings').get().setup_completed, 1);
+    assert.ok(screen.text().includes('初期設定は保存済み'));
+    assert.equal(screen.nodes().some(node => node.props.title === '設定して始める'), false);
+    const before = h.connection.prepare('SELECT * FROM chore_state ORDER BY chore_id').all();
+    fail = false; await screen.press('表示を再読込'); await screen.flush(); assert.equal(reads, 2);
+    assert.deepEqual(h.connection.prepare('SELECT * FROM chore_state ORDER BY chore_id').all(), before);
+    await repository.completeFirstSetup(h.database, { frequencyMode: 'relaxed', restDays: [7], enabledChoreIds: [], previousDates: {}, weatherLocation: null });
+    assert.equal(h.connection.prepare('SELECT frequency_mode FROM household_settings').get().frequency_mode, 'balanced');
+    assert.deepEqual(h.connection.prepare('SELECT * FROM chore_state ORDER BY chore_id').all(), before);
+  } finally { h.connection.close(); }
+});
+
 test('feature screen contract: onboarding can register weekly, biweekly and monthly waste then reach home', async () => {
   const h = await initialContext();
   try {
@@ -101,21 +119,27 @@ test('feature screen contract: calendar renders weekly labels in headers and mon
   } finally { h.connection.close(); }
 });
 
-test('feature screen contract: individual settings enable unknown chores and home completion/undo/disable stay consistent', async () => {
+test('feature screen contract: individual settings enable unknown chores and home completion/undo/disable stay consistent', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse(`${today}T01:00:00Z`) });
   const h = await initialContext();
   try {
     await repository.completeFirstSetup(h.database, { frequencyMode: 'balanced', restDays: [], enabledChoreIds: [], previousDates: {}, weatherLocation: null });
     let snapshot = await repository.loadPlannerSnapshot(h.database, today);
     const chore = snapshot.chores.find((item) => item.load === 'normal' && !item.archived);
+    let displayedDate = today;
     const shared = { database: h.database, snapshot: () => snapshot,
-      refresh: async () => { snapshot = await repository.loadPlannerSnapshot(h.database, today); } };
+      refresh: async () => { snapshot = await repository.loadPlannerSnapshot(h.database, displayedDate); } };
     const settings = screenHarness('src/app/chores/[id].tsx', { ...shared, params: { id: chore.id } });
     const enabledSwitch = () => settings.nodes().find((node) => node.type === 'Switch');
     enabledSwitch().props.onValueChange(true); settings.render();
     await settings.change('家事周期の日数', '17'); await settings.endEditing('家事周期の日数');
+    const plans = snapshot.scheduleEntries.filter(entry => entry.choreId === chore.id);
+    assert.equal(plans.length, 1, 'enabling an unknown chore immediately saves one real first round');
+    displayedDate = plans[0].suggestedDate;
+    t.mock.timers.setTime(Date.parse(`${displayedDate}T01:00:00Z`)); await shared.refresh();
     const home = screenHarness('src/app/(tabs)/index.tsx', shared);
     const checkbox = (verb) => home.nodes().find((node) => node.props.accessibilityLabel === `${chore.name}を${verb}`);
-    assert.ok(checkbox('完了'), 'enabled unknown chore must immediately appear on home');
+    assert.ok(checkbox('完了'), 'the distributed first round is usable on its actual scheduled day');
     checkbox('完了').props.onPress(); await home.flush();
     assert.ok(checkbox('未完了に戻す'));
     enabledSwitch().props.onValueChange(false); await settings.flush();
@@ -190,10 +214,10 @@ test('feature screen contract guard rejects a virtual removal of the waste onboa
 test('feature screen contract: chore categories, kana heading search and trivia collection remain usable', async () => {
   const h = await initialContext();
   try {
-    // The current guide has no trivia for its first kitchen item. Exercise the optional feature with explicit fixture content.
-    h.snapshot.chores.find(chore => chore.id === 'builtin-chore-21').trivia = [{ id: 'qa-kitchen-tip', title: '掃除の豆知識', body: '片付けてから作業を始めます。' }];
+    const kitchen = h.snapshot.chores.find(chore => chore.name === 'キッチンマットの洗濯'); assert.ok(kitchen);
+    kitchen.trivia = [{ id: 'qa-kitchen-tip', title: '掃除の豆知識', body: '片付けてから作業を始めます。' }];
     const screen = screenHarness('src/app/(tabs)/guide.tsx', { database: h.database, snapshot: () => h.snapshot, flatListItemHeight: 100 });
-    const category = h.snapshot.chores.find(chore => chore.id === 'builtin-chore-21').category;
+    const category = kitchen.category;
     const count = h.snapshot.chores.filter((chore) => !chore.archived && chore.category === category).length;
     await screen.press(`${category}、${count}件`);
     assert.ok(!screen.text().includes('に分類されている家事です。'), 'redundant category copy stays removed');

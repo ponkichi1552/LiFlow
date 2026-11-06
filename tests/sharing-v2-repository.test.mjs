@@ -37,6 +37,50 @@ test('unchanged authenticated v2 reads do not acquire a SQLite writer for the pr
   } finally { h.connection.close(); }
 });
 
+test('cold v2 authentication yields to foreground work but never publishes an unchecked tail proof', async (t) => {
+  const f = await fixture(); const h = await f.device();
+  try {
+    await h.repository.commit([...seeds(), ...Array.from({ length: 48 }, (_, index) =>
+      draft(`cold-${String(index).padStart(3, '0')}`, 'chore', 'floor', { name: `床の掃除${index}` }))]);
+    const before = h.state(); const writes = h.writes.length;
+    let tick = 0; t.mock.method(performance, 'now', () => { tick += 4; return tick; });
+    let foregroundRan = false;
+    setTimeout(() => { foregroundRan = true; assert.deepEqual(h.state(), before); }, 0);
+    const restart = createV2EventRepository(h.database, h.options);
+    const state = await restart.readState();
+    assert.equal(foregroundRan, true, 'timer work must run before a cold authentication pass completes');
+    assert.equal(state.assessment.view.ready.length, 52);
+    assert.deepEqual(state.assessment.rejected, []);
+    assert.equal(h.writes.length, writes, 'cooperative authentication must not rewrite an unchanged projection');
+
+    h.connection.prepare('UPDATE sharing_operations SET author_signature=? WHERE operation_id=?').run('0'.repeat(128), 'cold-047');
+    const damaged = createV2EventRepository(h.database, h.options);
+    await assert.rejects(damaged.readState(), /signature/i);
+    assert.deepEqual(h.state(), before, 'a bad final proof cannot publish a partially verified prefix');
+    assert.equal(h.writes.length, writes);
+  } finally { h.connection.close(); }
+});
+
+test('revocation during a cooperative v2 proof slice aborts the read without changing projection or outbox', async (t) => {
+  const f = await fixture(); const h = await f.device();
+  try {
+    await h.repository.commit([...seeds(), ...Array.from({ length: 48 }, (_, index) =>
+      draft(`slice-${index}`, 'chore', 'floor', { name: `床の掃除${index}` }))]);
+    const before = h.state(); const pending = h.connection.prepare('SELECT * FROM sharing_outbox ORDER BY operation_id').all();
+    const writes = h.writes.length; let tick = 0;
+    t.mock.method(performance, 'now', () => { tick += 4; return tick; });
+    let revoked = false;
+    setTimeout(() => { revoked = true; h.stopWrites(); }, 0);
+    const restart = createV2EventRepository(h.database, h.options);
+    await assert.rejects(restart.readState(), /account changed/);
+    assert.equal(revoked, true);
+    assert.deepEqual(h.state(), before);
+    assert.deepEqual(h.connection.prepare('SELECT * FROM sharing_outbox ORDER BY operation_id').all(), pending);
+    assert.equal(h.writes.length, writes);
+    assert.equal(h.connection.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+  } finally { h.connection.close(); }
+});
+
 test('v2 reads repair a missing or altered projection even when their authenticated inputs are cached', async () => {
   const f = await fixture(); const h = await f.device();
   try {

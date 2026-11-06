@@ -5,7 +5,8 @@ import { SafeAreaView } from '@/components/screen-safe-area';
 
 import { ProcedureStep } from '../../components/procedure-step';
 import { AppButton, BackButton, Card, NavigationHeader, navigationHeaderMetrics, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
-import type { ChoreDefinition } from '@/domain/chores/types';
+import type { ChoreDefinition, FrequencyMode } from '@/domain/chores/types';
+import { registeredChoreCycleDays } from '../../domain/chores/cycle-policy';
 import type { ApplianceCareReviewContext } from '@/platform/storage/repository';
 import { isRenderableApplianceAnalysis } from './analysis-validation';
 import { applianceDisplayName } from './display-name';
@@ -45,7 +46,7 @@ export function ApplianceDetailContent({ context, returnTo, error }: {
         </View>}
         renderItem={({ item: task, index }) => {
           const chore = chores.find((item) => item.applianceTaskName === task.name);
-          return <MaintenanceTaskCard task={task} chore={chore} index={index} />;
+          return <MaintenanceTaskCard task={task} chore={chore} index={index} frequencyMode={context.frequencyMode} />;
         }}
         ListFooterComponent={<View style={styles.listHeader}>
           <Text style={styles.note}>最終解析：{applianceAnalysisDate(appliance.analysis.analyzedAt)}</Text>
@@ -56,16 +57,18 @@ export function ApplianceDetailContent({ context, returnTo, error }: {
   );
 }
 
-export function MaintenanceTaskCard({ task, chore, index, schedule }: {
+export function MaintenanceTaskCard({ task, chore, index, schedule, frequencyMode = 'balanced' }: {
   task: ApplianceCareReviewContext['appliance']['analysis']['tasks'][number];
   chore?: ChoreDefinition;
   index: number;
   /** Shared workspaces supply their own cadence status; a maker interval is not a shared schedule. */
   schedule?: ReactNode;
+  frequencyMode?: FrequencyMode;
 }) {
   const manufacturerDays = task.recommendedIntervalDays;
   const userDays = chore?.userIntervalDays ?? chore?.recommendedCycleDays;
-  const noSchedule = manufacturerDays === undefined && userDays === undefined;
+  const actualDays = chore ? registeredChoreCycleDays(chore, frequencyMode) : undefined;
+  const noSchedule = actualDays === undefined;
   return (
     <Card>
       <Text style={styles.taskIndex}>お手入れ {String(index + 1).padStart(2, '0')}</Text>
@@ -73,14 +76,15 @@ export function MaintenanceTaskCard({ task, chore, index, schedule }: {
       {schedule !== undefined ? schedule : noSchedule ? (
         <View style={styles.noSchedule}>
           <Text style={styles.noScheduleTitle}>定期予定なし</Text>
+          {manufacturerDays !== undefined ? <Text style={styles.body}>メーカー推奨：{manufacturerDays}日</Text> : null}
           {task.recommendedConditions?.map((condition) => <Text key={condition} style={styles.body}>メーカー指定：「{condition}」</Text>)}
-          <Text style={styles.body}>メーカーから具体的な周期が指定されていないため、カレンダー・自動予定・定期通知には登録されません。</Text>
+          <Text style={styles.body}>{manufacturerDays === undefined ? 'メーカーから具体的な周期が指定されていないため、カレンダー・自動予定・定期通知には登録されません。' : '家事予定には登録していません。'}</Text>
         </View>
       ) : (
         <View style={styles.intervalBlock}>
           {manufacturerDays !== undefined ? <Text style={styles.body}>メーカー推奨：{manufacturerDays}日</Text> : <Text style={styles.body}>メーカー指定：具体的周期なし</Text>}
           {userDays !== undefined && userDays !== manufacturerDays ? <Text style={styles.body}>あなたの設定：{userDays}日</Text> : null}
-          <Text style={styles.intervalActual}>予定周期：{userDays ?? manufacturerDays}日</Text>
+          <Text style={styles.intervalActual}>予定周期：{actualDays}日</Text>
           {chore ? <Text style={styles.note}>{chore.enabled ? '家事一覧・カレンダーに登録済み' : '予定はオフです。家事一覧から変更できます。'}</Text> : <Text style={styles.note}>解析項目は保存済みですが、家事予定には登録していません。</Text>}
         </View>
       )}

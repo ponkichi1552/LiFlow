@@ -1,15 +1,15 @@
 import { createServer } from 'node:http';
-import { persistAnalysisResult } from './persist-result.mjs';
+import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import { analyzeApplianceCare, validateApplianceCareRequest } from './service.mjs';
 import { analysisRequestKey, createAnalysisRunner } from './analysis-runner.mjs';
 import { analyzeUploadedManual, decodeUploadedManual, inspectUploadedManual, MAX_MANUAL_BYTES } from './uploaded-manual.mjs';
-import { PublicApiError } from './public-access.mjs';
+import { PublicApiError, publicJobId } from './public-access.mjs';
 import { SubscriptionError } from './subscription-service.mjs';
+import { createFixedWindowRateLimit } from './rate-limit.mjs';
+import { createWeatherHttpHandler } from './weather/http-handler.mjs';
 
 const MAX_BODY_BYTES = 8 * 1024;
-const RATE_WINDOW_MS = 60_000;
-const RATE_LIMIT = 20;
 const JOB_RETENTION_MS = 10 * 60_000;
 const MAX_JOBS = 100;
 const STATUS_BY_ERROR = {
@@ -26,9 +26,12 @@ const STATUS_BY_ERROR = {
 };
 
 export function createApplianceCareHttpServer({ dependencies, aiConfigured = true, allowedOrigins = [], analysisLimits = {},
-  publicAccess, subscriptionAccess = publicAccess?.subscriptions, billingOnly = false, createJobDependencies, manualUploadsOnly = Boolean(publicAccess) }) {
+  publicAccess, subscriptionAccess = publicAccess?.subscriptions, weather = publicAccess?.weather, billingOnly = false, manualUploadsOnly = Boolean(publicAccess) }) {
   if (billingOnly && !subscriptionAccess?.service) throw new Error('Billing-only mode requires verified subscription services');
   if (publicAccess && !manualUploadsOnly) throw new Error('Public AI requires uploaded manuals');
+  if (publicAccess && !billingOnly && !['heartbeatAnalysisWorker', 'claimAnalysis', 'startAnalysis', 'readAnalysisInput', 'stageAnalysisResult'].every(key => typeof publicAccess.store?.[key] === 'function')) {
+    throw new Error('Public AI requires durable worker storage');
+  }
   if (process.env.NODE_ENV?.trim().toLowerCase() === 'production' && publicAccess?.mode !== 'firebase-firestore') {
     const error = new Error('Public user authentication and distributed usage limits are required before production deployment.');
     error.code = 'DEVELOPMENT_API_ONLY';
@@ -42,9 +45,10 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
     const error = new Error('Verified subscriptions are required before public deployment');
     error.code = 'SUBSCRIPTIONS_NOT_CONFIGURED'; throw error;
   }
-  const requestsByAddress = new Map();
-  const publicRequestsByAddress = new Map();
-  const publicRequestsByUser = new Map();
+  const allowAddress = createFixedWindowRateLimit({ limit: 20 });
+  const allowPublicAddress = createFixedWindowRateLimit({ limit: 300 });
+  const allowPublicUser = createFixedWindowRateLimit({ limit: 90 });
+  const handleWeather = createWeatherHttpHandler({ weather });
   const jobsById = new Map();
   const jobsByRequest = new Map();
   const analyze = manualUploadsOnly ? analyzeUploadedManual : analyzeApplianceCare;
@@ -92,15 +96,16 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
       sendJson(response, 200, publicAccess ? { status: 'ok' } : { status: 'ok', aiConfigured });
       return;
     }
-    if (publicAccess && !consumeRateLimit(request.socket.remoteAddress ?? 'unknown', publicRequestsByAddress, Date.now(), 300)) {
+    if (publicAccess && !allowPublicAddress(request.socket.remoteAddress ?? 'unknown')) {
       throw new PublicApiError(429, 'RATE_LIMITED', 'リクエストが多すぎます。少し待って再試行してください。');
     }
+    if (await handleWeather(request, response, url)) return;
     if (subscriptionAccess && await subscriptionAccess.handle(request, response, url)) return;
     if (billingOnly) {
       sendJson(response, 503, { code: 'DEVICE_VERIFICATION_UNAVAILABLE', message: '家電AIは安全な端末確認の準備中です。購入・復元は利用できます。' }); return;
     }
     const principal = publicAccess ? await publicAccess.authenticate(request) : null;
-    if (principal && !consumeRateLimit(principal.uid, publicRequestsByUser, Date.now(), 90)) {
+    if (principal && !allowPublicUser(principal.uid)) {
       throw new PublicApiError(429, 'RATE_LIMITED', 'リクエストが多すぎます。少し待って再試行してください。');
     }
     if (principal && subscriptionAccess && publicAccess.subscriptions !== subscriptionAccess) await subscriptionAccess.service.assertActive(principal.uid);
@@ -139,7 +144,10 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
       sendJson(response, 404, { error: { code: 'NOT_FOUND', message: 'API endpointが見つかりません。' } });
       return;
     }
-    if (!consumeRateLimit(request.socket.remoteAddress ?? 'unknown', requestsByAddress)) {
+    // Cheap envelope validation precedes upload parsing. Quota reservation still
+    // follows full PDF inspection, so a bad document never consumes a slot.
+    if (publicAccess) publicJobId(principal, request.headers['x-idempotency-key']);
+    if (!allowAddress(request.socket.remoteAddress ?? 'unknown')) {
       rejectRequest(request, response, 429, { status: 'error', code: 'RATE_LIMITED', message: '短時間のリクエスト上限に達しました。少し待って再試行してください。' });
       return;
     }
@@ -184,22 +192,7 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
     };
     if (publicAccess) {
       const admission = await publicAccess.store.admit({ principal, requestKey: analysisRequestKey(analysisRequest),
-        forceReanalysis: body.forceReanalysis === true, idempotencyKey: request.headers['x-idempotency-key'] });
-      if (admission.created) {
-        // Work starts only after the durable quota/job transaction commits. Duplicate sends never start another worker.
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), Math.max(1, admission.deadlineAt - Date.now()));
-        timeout.unref();
-        let progress = Promise.resolve();
-        void Promise.resolve().then(() => analyze(analysisRequest,
-          createJobDependencies ? createJobDependencies(controller.signal) : dependencies, stage => {
-            progress = progress.then(() => publicAccess.store.progress?.(admission, stage)).catch(() => undefined);
-          }))
-          .catch(() => ({ status: 'error', code: 'ANALYSIS_FAILED', message: '解析を完了できませんでした。時間をおいてお試しください。' }))
-          .then(async result => { await progress; await persistAnalysisResult(publicAccess.store, admission, result); })
-          // A failed final write leaves the reservation intact. Never repeat the paid work to repair persistence.
-          .catch(() => undefined).finally(() => clearTimeout(timeout));
-      }
+        forceReanalysis: body.forceReanalysis === true, idempotencyKey: request.headers['x-idempotency-key'], analysisRequest });
       sendJson(response, 202, { jobId: admission.jobId, usage: admission.usage }); return;
     }
     if (isJobRequest) {
@@ -260,14 +253,13 @@ export function startApplianceCareHttpServer({
   },
   publicAccess,
   billingOnly = false,
-  createJobDependencies,
   manualUploadsOnly,
 } = {}) {
   if (!publicAccess && !['127.0.0.1', '::1', 'localhost'].includes(host)) {
     const error = new Error('Unauthenticated development APIs must bind to loopback only.');
     error.code = 'DEVELOPMENT_API_LOCALHOST_ONLY'; throw error;
   }
-  const server = createApplianceCareHttpServer({ dependencies, aiConfigured, allowedOrigins, analysisLimits, publicAccess, billingOnly, createJobDependencies, manualUploadsOnly });
+  const server = createApplianceCareHttpServer({ dependencies, aiConfigured, allowedOrigins, analysisLimits, publicAccess, billingOnly, manualUploadsOnly });
   server.listen(port, host);
   return server;
 }
@@ -302,22 +294,6 @@ async function readJsonBody(request, maxBytes = MAX_BODY_BYTES) {
     request.on('error', () => reject(new Error('Request read failed')));
     request.once('aborted', () => reject(new Error('Request aborted')));
   });
-}
-
-function consumeRateLimit(address, requestsByAddress, now = Date.now(), limit = RATE_LIMIT) {
-  const oldest = requestsByAddress.values().next().value;
-  if (oldest && now - oldest.startedAt >= RATE_WINDOW_MS) {
-    for (const [key, value] of requestsByAddress) { if (now - value.startedAt >= RATE_WINDOW_MS) requestsByAddress.delete(key); }
-  }
-  const existing = requestsByAddress.get(address);
-  if (!existing || now - existing.startedAt >= RATE_WINDOW_MS) {
-    if (!existing && requestsByAddress.size >= 10_000) return false;
-    requestsByAddress.set(address, { startedAt: now, count: 1 });
-    return true;
-  }
-  if (existing.count >= limit) return false;
-  existing.count += 1;
-  return true;
 }
 
 function serverLimit(value, fallback, maximum) {

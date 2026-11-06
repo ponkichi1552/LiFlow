@@ -16,6 +16,7 @@ import { sharedCalendarAvailability } from '../../calendar/shared-events.ts';
 import { localCalendarTargetRange } from '../../calendar/private-availability.ts';
 import type { SharedCalendarRecord } from '../v2/calendar-state';
 import { traceStartup } from '../../../platform/diagnostics/startup-timing.ts';
+import { capturedSharedRecommendations } from '../../planner/shared-adaptive-load.ts';
 
 export interface V2GroupUiSession {
   controller: V2GroupController; groupId: string; userId: string;
@@ -29,6 +30,7 @@ export interface V2GroupUiSession {
 export function createV2ScreenSession(input: { controller: V2GroupController; groupId: string; userId: string; now: () => Date;
   readPreferences: () => { ownerUserId: string; settings: ScheduleSettings } | Promise<{ ownerUserId: string; settings: ScheduleSettings }>;
   privateTasks?: V2PrivateTaskSource;
+  sharedLoadFirst?: boolean;
   calendar?: Pick<PrivateCalendarRuntime, 'readForPlan' | 'readOwnCalendar'>;
   localCalendar?: {
     readForPlan: (range: { from: LocalDate; through: LocalDate }, timeZone: string) => Promise<{ ownerUserId: string; availability: PrivateCalendarAvailability }>;
@@ -98,10 +100,12 @@ export function createV2ScreenSession(input: { controller: V2GroupController; gr
         privateOverlay = await traceStartup('display.personalOverlay', () => input.privateTasks!.read(model.plan.range, instant, model.plan.chores));
         if (privateOverlay.ownerUserId !== input.userId) throw new Error('本人の個人家事を確認してください。');
       } catch { privateOverlay = { status: 'unavailable', message: '個人家事を取得できませんでした。個人の状態を確認し、再読込してください。' }; }
-      const privateLoad = privateOverlay?.status === 'ready' && privateOverlay.timeZone === model.plan.timeZone
+      const privateLoad = !input.sharedLoadFirst && privateOverlay?.status === 'ready' && privateOverlay.timeZone === model.plan.timeZone
         ? { ownerUserId: input.userId, days: privateOverlay.dailyLoad } : undefined;
-      const personal = await traceStartup('display.personalPlan', () => buildV2PersonalPlan(model.plan, { viewerUserId: input.userId, now: instant.getTime(), settings: preferences.settings, privateLoad, localCalendar,
-        ...(calendar ? { calendar: { cache: calendar.cache, binding: calendar.binding } } : {}) }));
+      const personal = await traceStartup('display.personalPlan', () => capturedSharedRecommendations(model.plan,
+        buildV2PersonalPlan(model.plan, { viewerUserId: input.userId, now: instant.getTime(), settings: preferences.settings, privateLoad, localCalendar,
+          ...(calendar ? { calendar: { cache: calendar.cache, binding: calendar.binding } } : {}) }),
+        privateOverlay?.status === 'ready' ? privateOverlay.sharedPlanning : undefined));
       return { ...model, personal, ...(privateOverlay ? { privateOverlay } : {}) };
     } };
 }

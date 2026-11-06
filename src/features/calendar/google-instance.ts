@@ -1,0 +1,43 @@
+import type { GoogleCalendarApi, GoogleCalendarEvent } from '../../platform/google-calendar/calendar-api';
+import { GoogleCalendarHttpError } from '../../platform/google-calendar/calendar-api.ts';
+import type { LocalDate } from '../../domain/shared/types';
+import { projectCalendarEvents } from '../../domain/calendar/events.ts';
+import type { EventDraft } from '../../domain/calendar/events';
+import { googleEventBody } from './google-event-mapping.ts';
+
+export function googleOriginalDate(remote: GoogleCalendarEvent, timeZone: string): string | null {
+  if (remote.originalStartTime?.date) return remote.originalStartTime.date;
+  const at = remote.originalStartTime?.dateTime; if (!at || !Number.isFinite(Date.parse(at))) return null;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(at)).map(part => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+/** An occurrence's actual start may have moved years away from its original day. */
+export async function findGoogleCalendarInstance(input: {
+  api: GoogleCalendarApi; request<T>(work: () => Promise<T>): Promise<T>;
+  calendarId: string; parentId: string; anchorDate: LocalDate; series?: EventDraft | null; knownId?: string;
+}): Promise<GoogleCalendarEvent> {
+  const zone = input.series?.timeZone ?? 'UTC';
+  const matches = (row: GoogleCalendarEvent) => row.recurringEventId === input.parentId && googleOriginalDate(row, zone) === input.anchorDate;
+  if (input.knownId) {
+    try {
+      const row = await input.request(() => input.api.get(input.calendarId, input.knownId!));
+      if (!matches(row)) throw new Error('Google側の対象回の紐付けを確認してください。');
+      return row;
+    } catch (cause) { if (!(cause instanceof GoogleCalendarHttpError && [404, 410].includes(cause.status))) throw cause; }
+  }
+  const occurrence = input.series && projectCalendarEvents([{ ...input.series, id: input.parentId, revision: 1 }], [], input.anchorDate, input.anchorDate)[0];
+  const body = occurrence && googleEventBody(occurrence, true);
+  const start = body?.start as GoogleCalendarEvent['start'];
+  const originalStart = start?.date ?? start?.dateTime;
+  if (!originalStart) throw new Error('Google側の対象回を確認できません。変更は送信待ちです。');
+  let pageToken: string | undefined; const seen = new Set<string>();
+  do {
+    const page = await input.request(() => input.api.instances(input.calendarId, input.parentId, { originalStart, pageToken }));
+    const found = page.items?.find(matches); if (found) return found;
+    pageToken = page.nextPageToken;
+    if (pageToken && (seen.has(pageToken) || seen.size >= 100)) throw new Error('Googleの繰り返し予定を読み直してください。');
+    if (pageToken) seen.add(pageToken);
+  } while (pageToken);
+  throw new Error('Google側の対象回を確認できません。変更は送信待ちです。');
+}

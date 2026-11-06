@@ -9,6 +9,7 @@ export interface GeoCoordinates {
 
 /** Coordinates selected from a user-entered region through place search. */
 export interface WeatherLocation extends GeoCoordinates {
+  municipalityId?: string;
   region: string;
   displayName: string;
 }

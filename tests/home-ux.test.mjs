@@ -120,19 +120,24 @@ test('completion Undo is one-shot and an old closure cannot run after a workspac
 });
 
 for (const platform of ['ios', 'android']) {
-  test(`${platform} home exposes the saved completion Undo without finding the moved card`, async () => {
+  test(`${platform} home exposes the saved completion Undo without finding the moved card`, async t => {
     const h = createDatabase();
     try {
       await repository.initializeLocalDatabase(h.database); const base = await repository.loadPlannerSnapshot(h.database, today);
       await repository.completeFirstSetup(h.database, { frequencyMode: 'balanced', restDays: [], enabledChoreIds: [base.chores[0].id], previousDates: {}, weatherLocation: null });
       let snapshot = await repository.loadPlannerSnapshot(h.database, today);
+      const visibleDay = snapshot.scheduleEntries.find(entry => entry.choreId === base.chores[0].id).suggestedDate;
+      // The adaptive first round is allowed to start after setup day. Exercise its
+      // real recommended day, rather than assuming the old placeholder was today.
+      t.mock.timers.enable({ apis: ['Date'], now: new Date(`${visibleDay}T12:00:00`).getTime() });
+      snapshot = await repository.loadPlannerSnapshot(h.database, visibleDay);
       const screen = screenHarness('src/app/(tabs)/index.tsx', { platform, database: h.database, snapshot: () => snapshot,
-        refresh: async () => { snapshot = await repository.loadPlannerSnapshot(h.database, today); } });
+        refresh: async () => { snapshot = await repository.loadPlannerSnapshot(h.database, visibleDay); } });
       await screen.nodes().find(n => n.props.accessibilityRole === 'checkbox' && !n.props.accessibilityState.checked).props.onPress();
       await screen.flush();
-      assert.equal((await repository.loadPlannerSnapshot(h.database, today)).completions.filter(item => item.outcome === 'completed').length, 1);
+      assert.equal((await repository.loadPlannerSnapshot(h.database, visibleDay)).completions.filter(item => item.outcome === 'completed').length, 1);
       await screen.press('直前の完了を元に戻す'); await screen.flush();
-      assert.equal((await repository.loadPlannerSnapshot(h.database, today)).completions.filter(item => item.outcome === 'completed').length, 0);
+      assert.equal((await repository.loadPlannerSnapshot(h.database, visibleDay)).completions.filter(item => item.outcome === 'completed').length, 0);
       assert.equal(screen.text().includes('元に戻す'), false);
     } finally { h.connection.close(); }
   });

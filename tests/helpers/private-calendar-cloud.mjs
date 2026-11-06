@@ -15,7 +15,14 @@ export function privateCalendarMemoryCloud() {
   } : null });
   const cloud = {
     async readHead() { return head(); },
-    async createRoot(root) { current = root; history.push(root.signed); return { head: privateCalendarCloudFields(root) }; },
+    async createRoot(root) {
+      if (current) {
+        if (root.anchor.rootDigest !== current.anchor.rootDigest || root.anchor.accountGeneration !== current.anchor.accountGeneration
+          || sharedDocumentDigest(history[0]) !== root.digest) throw new PrivateCalendarCloudConflict();
+        return { created: false, head: privateCalendarCloudFields(current) };
+      }
+      current = root; history.push(root.signed); return { created: true, head: privateCalendarCloudFields(root) };
+    },
     async authorityPage(after) { pages.push(after); return { head: privateCalendarCloudFields(current), authorities: history.slice(after, after + 100) }; },
     async commitAuthority(before, next) {
       const accepted = history[next.signed.body.revision - 1];

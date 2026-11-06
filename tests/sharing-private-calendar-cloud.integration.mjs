@@ -39,6 +39,18 @@ function client(uid, changeAtCall = 0, gateway = crypto) {
   return { firestore, cloud: createPrivateCalendarCloud(firestore, uid, () => { if (++calls === changeAtCall) current = 'another-user'; return current; }, gateway),
     switch: value => { current = value; }, calls: () => calls };
 }
+async function clientSwitchingAfterCommit(uid) {
+  const firestore = env.authenticatedContext(uid).firestore(); let current = uid;
+  const filename = 'src/platform/sharing/private-calendar-cloud.ts'; const sourceUrl = new URL(`../${filename}`, import.meta.url);
+  const imports = [...new Set([...readFileSync(sourceUrl, 'utf8').matchAll(/from '([^']+)'/g)].map(match => match[1]))];
+  const mocks = Object.fromEntries(await Promise.all(imports.filter(name => name !== 'firebase/firestore')
+    .map(async name => [name, await import(new URL(name, sourceUrl))])));
+  mocks['firebase/firestore'] = { ...firestoreSdk, async runTransaction(...args) {
+    const result = await firestoreSdk.runTransaction(...args); current = 'another-user'; return result;
+  } };
+  const factory = loadNativeModule(filename, mocks).createPrivateCalendarCloud;
+  return { firestore, cloud: factory(firestore, uid, () => current, crypto) };
+}
 async function fixture() {
   const main = await createDeviceIdentity(crypto); const other = await createDeviceIdentity(crypto);
   const root = await createPrivateCalendarRoot(crypto, userId, main); const left = client(userId);
@@ -129,7 +141,7 @@ test('private Calendar authority changes retire obsolete wrapped transport copie
 
 test('private Calendar Cloud rechecks the account after a committed create and an exact retry recovers the existing root', async () => {
   const identity = await createDeviceIdentity(crypto); const root = await createPrivateCalendarRoot(crypto, userId, identity);
-  const interrupted = client(userId, 5);
+  const interrupted = await clientSwitchingAfterCommit(userId);
   await assert.rejects(() => interrupted.cloud.createRoot(root), { code: 'private-calendar/access-denied' });
   const recovered = client(userId); assert.equal((await recovered.cloud.createRoot(root)).created, false);
   assert.equal((await recovered.cloud.readHead()).rootDigest, root.digest);
@@ -170,7 +182,7 @@ test('private Calendar Cloud transfers twenty thousand encrypted intervals to th
 });
 
 test('private Calendar Cloud uncertain cache delivery recovers the exact saved envelope after an account change without publishing a second cache', async () => {
-  const h = await cacheFixture(); const encrypted = await h.seal(); const interrupted = client(userId, 5);
+  const h = await cacheFixture(); const encrypted = await h.seal(); const interrupted = await clientSwitchingAfterCommit(userId);
   await assert.rejects(() => interrupted.cloud.uploadCache(h.authority, encrypted), { code: 'private-calendar/access-denied' });
   assert.equal((await h.right.cloud.uploadCache(h.authority, encrypted)).published, false);
   assert.deepEqual(await h.right.cloud.readCache(h.authority), encrypted);

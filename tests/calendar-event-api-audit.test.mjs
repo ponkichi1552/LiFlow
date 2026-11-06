@@ -5,6 +5,48 @@ import { createGoogleCalendarApi } from '../src/platform/google-calendar/calenda
 import { googleEventBody } from '../src/features/calendar/google-event-mapping.ts';
 import { newEventDraft, projectCalendarEvents } from '../src/domain/calendar/events.ts';
 
+for (const phase of ['guard', 'credential', 'fetch', 'body']) test(`Calendar cancellation ends an ignored native ${phase} wait and prevents late work`, async () => {
+  const controller = new AbortController(); let release; let entered = false; let requests = 0, bodies = 0, tokens = 0;
+  const hold = () => { entered = true; return new Promise(resolve => { release = resolve; }); };
+  const response = { ok: true, status: 200, text: async () => { bodies++; return phase === 'body' ? hold() : '{"id":"synthetic"}'; } };
+  const api = createGoogleCalendarApi({ signal: controller.signal,
+    assertCurrent: async () => { if (phase === 'guard') await hold(); },
+    token: async () => { tokens++; return phase === 'credential' ? hold() : 'synthetic-token'; },
+    fetch: async () => { requests++; return phase === 'fetch' ? hold() : response; },
+  });
+  let status = 'waiting'; let error;
+  const pending = api.get('synthetic-calendar', 'synthetic-event').then(() => { status = 'fulfilled'; }, cause => { status = 'rejected'; error = cause; });
+  const flush = async () => { await new Promise(setImmediate); await new Promise(setImmediate); };
+  try {
+    await flush(); assert.equal(entered, true); controller.abort(); await flush();
+    assert.equal(status, 'rejected'); assert.equal(error?.name, 'AbortError');
+    release(phase === 'fetch' ? response : phase === 'credential' ? 'synthetic-late-token' : phase === 'body' ? 'PRIVATE-BODY must not be parsed' : undefined);
+    await pending; await flush();
+    assert.equal(tokens, phase === 'guard' ? 0 : 1);
+    assert.equal(requests, ['guard', 'credential'].includes(phase) ? 0 : 1);
+    assert.equal(bodies, phase === 'body' ? 1 : 0);
+    await assert.rejects(api.get('synthetic-calendar', 'another-event'), cause => cause.name === 'AbortError');
+    assert.equal(requests, ['guard', 'credential'].includes(phase) ? 0 : 1);
+    assert.equal(error.message.includes('PRIVATE'), false);
+  } finally {
+    release?.(phase === 'fetch' ? response : phase === 'credential' ? 'synthetic-late-token' : phase === 'body' ? '{}' : undefined);
+  }
+});
+
+test('Calendar concurrent requests share one cancellation listener and release it after their final response', async t => {
+  const controller = new AbortController(); const signal = controller.signal; let added = 0, removed = 0;
+  const add = signal.addEventListener.bind(signal), remove = signal.removeEventListener.bind(signal);
+  t.mock.method(signal, 'addEventListener', (...args) => { added++; return add(...args); });
+  t.mock.method(signal, 'removeEventListener', (...args) => { removed++; return remove(...args); });
+  const api = createGoogleCalendarApi({ signal, assertCurrent: async () => {}, token: async () => 'synthetic',
+    fetch: async () => Response.json({ id: 'synthetic' }) });
+  await Promise.all(Array.from({ length: 100 }, () => api.get('synthetic-calendar', 'synthetic-event')));
+  assert.equal(added, 1); assert.equal(removed, 1);
+  await api.get('synthetic-calendar', 'another-event'); assert.equal(added, 2); assert.equal(removed, 2);
+  controller.abort(); await assert.rejects(api.get('synthetic-calendar', 'cancelled'), cause => cause.name === 'AbortError');
+  assert.equal(added, 2); assert.equal(removed, 2);
+});
+
 test('one bounded Calendar API pass shares its token acquisition but checks account access around every HTTP response', async () => {
   let tokens = 0, guards = 0, calls = 0, forbidden = false;
   const api = createGoogleCalendarApi({ token: async () => { tokens++; return 'synthetic-token'; },

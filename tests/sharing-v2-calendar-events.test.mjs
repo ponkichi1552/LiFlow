@@ -52,3 +52,30 @@ test('shared event payload rejects provider IDs and additional private fields ra
   assert.throws(() => f.make('calendarEvent', { ...change('calendar.a'), googleCalendarId: 'private-calendar' }, { operationId: 'calendar.a' }));
   assert.throws(() => f.make('calendarEvent', change('calendar.b', { value: { ...value(), freeBusy: [] } }), { operationId: 'calendar.b' }));
 });
+
+test('resetting an edited recurring exception never resurrects its superseded ancestor and a later new exception remains valid', async () => {
+  const f = await fixture(); const series = value({ recurrence: 'weekly', untilDate: '2026-11-10' });
+  const create = f.make('calendarEvent', change('calendar.reset', { value: series }), { actor: 'a', operationId: 'calendar.reset' });
+  const first = f.make('calendarEvent', change(create.operationId, { scope: 'one', anchorDate: '2026-11-03', value: { ...series, title: '古い個別変更' } }), { actor: 'a' });
+  const second = f.make('calendarEvent', change(create.operationId, { scope: 'one', anchorDate: '2026-11-03', basisOperationIds: [first.operationId], value: { ...series, title: '最新の個別変更' } }), { actor: 'a' });
+  assert.equal(accepted(f, second), true);
+  const reset = f.make('calendarEvent', change(create.operationId, { basisOperationIds: [create.operationId], resetExceptionIds: [second.operationId], value: series }), { actor: 'a' });
+  assert.equal(accepted(f, reset), true);
+  for (const facts of [f.facts, [...f.facts].reverse(), [...f.facts, ...f.facts]]) assert.deepEqual(readSharedCalendar(f.state(facts).assessment.view)[0].exceptions, []);
+  const fresh = f.make('calendarEvent', change(create.operationId, { scope: 'one', anchorDate: '2026-11-03', value: { ...series, title: 'リセット後の変更' } }), { actor: 'a' });
+  assert.equal(accepted(f, fresh), true);
+  assert.deepEqual(readSharedCalendar(f.state().assessment.view)[0].exceptions[0].heads.map(op => op.operationId), [fresh.operationId]);
+});
+
+test('resetting one concurrent exception preserves a genuinely concurrent alternative instead of an earlier causal version', async () => {
+  const f = await fixture(); const series = value({ recurrence: 'weekly' });
+  const create = f.make('calendarEvent', change('calendar.concurrent-reset', { value: series }), { actor: 'a', operationId: 'calendar.concurrent-reset' });
+  const ancestor = f.make('calendarEvent', change(create.operationId, { scope: 'one', anchorDate: '2026-11-03', value: series }), { actor: 'a' });
+  const observed = f.facts.map(fact => fact.operation);
+  const first = f.make('calendarEvent', change(create.operationId, { scope: 'one', anchorDate: '2026-11-03', basisOperationIds: [ancestor.operationId], value: { ...series, title: '本人の変更' } }), { actor: 'a', observed });
+  const second = f.make('calendarEvent', change(create.operationId, { scope: 'one', anchorDate: '2026-11-03', basisOperationIds: [ancestor.operationId], value: { ...series, title: '管理者の変更' } }), { observed });
+  assert.equal(accepted(f, first), true); assert.equal(accepted(f, second), true);
+  const reset = f.make('calendarEvent', change(create.operationId, { basisOperationIds: [create.operationId], resetExceptionIds: [second.operationId], value: series }), { actor: 'a' });
+  assert.equal(accepted(f, reset), true);
+  assert.deepEqual(readSharedCalendar(f.state().assessment.view)[0].exceptions[0].heads.map(op => op.operationId), [first.operationId]);
+});

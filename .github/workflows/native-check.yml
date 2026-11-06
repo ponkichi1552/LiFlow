@@ -10,9 +10,9 @@ concurrency:
 on:
   push:
     branches: [main]
-    paths: ['package.json', 'package-lock.json', 'app.json', 'app.config.*', 'plugins/**', 'scripts/patch-*', 'scripts/check-android-security.mjs', '.github/workflows/native-check.yml']
+    paths: ['package.json', 'package-lock.json', 'app.json', 'app.config.*', 'index.ts', 'src/**', 'modules/**', 'plugins/**', 'babel.config.*', 'metro.config.*', 'scripts/patch-*', 'scripts/check-android-security.mjs', 'tests/widget-*.test.mjs', '.github/workflows/native-check.yml']
   pull_request:
-    paths: ['package.json', 'package-lock.json', 'app.json', 'app.config.*', 'plugins/**', 'scripts/patch-*', 'scripts/check-android-security.mjs', '.github/workflows/native-check.yml']
+    paths: ['package.json', 'package-lock.json', 'app.json', 'app.config.*', 'index.ts', 'src/**', 'modules/**', 'plugins/**', 'babel.config.*', 'metro.config.*', 'scripts/patch-*', 'scripts/check-android-security.mjs', 'tests/widget-*.test.mjs', '.github/workflows/native-check.yml']
   workflow_dispatch:
     inputs:
       compileAndroid:
@@ -32,15 +32,28 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx --yes expo-doctor
-      - run: npx expo prebuild --platform android --no-install
+      - run: npx expo prebuild --platform android --no-clean --no-install
       - name: Verify generated Android security boundaries
         run: node scripts/check-android-security.mjs
       - uses: actions/setup-java@v4
-        if: github.event_name == 'workflow_dispatch' && inputs.compileAndroid
         with:
           distribution: temurin
           java-version: 17
+      - name: Compile Android native interaction boundaries
+        working-directory: android
+        run: ./gradlew :app:compileDebugKotlin --no-daemon --max-workers=2 -PreactNativeArchitectures=arm64-v8a
       - name: Compile Android debug app
         if: github.event_name == 'workflow_dispatch' && inputs.compileAndroid
         working-directory: android
         run: ./gradlew :app:assembleDebug --no-daemon
+
+  ios-widget-input:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Compile and exercise app-extension input journal across processes
+        run: node --test tests/widget-ios-native-journal.test.mjs

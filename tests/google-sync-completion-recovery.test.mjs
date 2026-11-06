@@ -2,6 +2,7 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { createIntegration, now, repository } from './helpers/google-sync-integration.mjs';
 import { googleSyncRunOptions } from '../src/features/google-sync/sync-policy.ts';
 import { migrateLocalDatabase } from '../src/platform/storage/migrations.ts';
@@ -83,29 +84,31 @@ test('foreground recovery retains retry backoff and permanent failures with pend
 test('Android native completion SQL keeps a revision so an older network response cannot acknowledge a new action', async () => {
   const h = await createIntegration();
   try {
-    const source = readFileSync(new URL('../plugins/android/WidgetCompletionDatabase.kt', import.meta.url), 'utf8');
-    const sql = source.match(/"(UPDATE google_task_links SET pending_status = 'completed', pending_status_revision = \? WHERE schedule_entry_id = \?)"/u)?.[1];
-    assert.ok(sql);
-    h.connection.prepare(sql).run('native-widget-revision', h.entries[0].id);
+    const operation = { id: `completion-intent.${randomUUID()}`, accountScope: 'person-a',
+      householdCreatedAt: h.connection.prepare('SELECT created_at FROM households').get().created_at,
+      acceptedAtMs: now.getTime(), completedLocalDate: '2026-10-25', timeZone: 'Asia/Tokyo', entry: h.entries[0] };
+    assert.equal(await repository.commitWidgetCompletionOperation(h.database, operation, () => {}), 'saved');
     const old = (await repository.listGoogleTaskLinks(h.database))[0];
-    h.connection.prepare(sql).run('newer-native-widget-revision', h.entries[0].id);
+    const completion = h.connection.prepare('SELECT id FROM chore_completions').get();
+    await repository.undoCompletedChore(h.database, completion.id);
+    await repository.commitWidgetCompletionOperation(h.database, { ...operation, id: `completion-intent.${randomUUID()}` }, () => {});
+    const revision = (await repository.listGoogleTaskLinks(h.database))[0].pendingStatusRevision;
+    assert.notEqual(revision, old.pendingStatusRevision);
     await repository.acknowledgeGoogleTaskStatus(h.database, old, 'completed');
     const current = (await repository.listGoogleTaskLinks(h.database))[0];
     assert.equal(current.pendingStatus, 'completed');
-    assert.equal(current.pendingStatusRevision, 'newer-native-widget-revision');
-    assert.match(source, /completedDate >= entry.windowStart/);
-    assert.match(source, /completedDate >= previousCompletedDate/);
+    assert.equal(current.pendingStatusRevision, revision);
   } finally { h.connection.close(); }
 });
 
 test('widget completion written before the v16 migration survives upgrade and syncs by its timestamp', async () => {
   const h = await createIntegration();
   try {
-    const source = readFileSync(new URL('../plugins/android/WidgetCompletionDatabase.kt', import.meta.url), 'utf8');
-    assert.match(source, /if \(hasPendingStatusColumns\(database\)\) \{\s*database\.execSQL\(\s*"UPDATE google_task_links/u);
-    const columnsQuery = source.match(/rawQuery\("(PRAGMA table_info\(google_task_links\))", null\)/u)?.[1];
-    const insert = source.match(/"""(INSERT INTO chore_completions[\s\S]*?)"""/u)?.[1];
-    assert.ok(columnsQuery); assert.ok(insert);
+    // An immutable pre-v16 fixture verifies migration, independently of today's native input producer.
+    const columnsQuery = 'PRAGMA table_info(google_task_links)';
+    const insert = `INSERT INTO chore_completions(id,household_id,chore_id,completed_at,source,schedule_entry_id,
+      scheduled_date,scheduled_window_start,scheduled_window_end,previous_chore_state_json,outcome)
+      VALUES (?,?,?,?,'widget',?,?,?,?,?,'completed')`;
     h.connection.exec(`ALTER TABLE google_task_links DROP COLUMN pending_status;
       ALTER TABLE google_task_links DROP COLUMN pending_status_revision;
       ALTER TABLE google_task_links DROP COLUMN last_synced_status;

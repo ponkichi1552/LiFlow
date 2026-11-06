@@ -12,6 +12,8 @@ import { createPrivateCalendarPairingController } from './pairing-controller.ts'
 import { privateCalendarPairingReference, snapshotPrivateCalendarPairingReference, verifyPrivateCalendarPairingRequest } from './pairing.ts';
 import type { PrivateCalendarPairingReference, PrivateCalendarPairingRequest } from './pairing.ts';
 import { assertSharedIdentifier } from '../identifier.ts';
+import { assertPrivateCalendarWork, privateCalendarWork } from './sync-deadline.ts';
+import type { PrivateCalendarWorkControl } from './sync-deadline.ts';
 
 export interface PrivateCalendarDeviceSessionPort {
   userId: string; assertOwner(): void | Promise<void>;
@@ -74,31 +76,37 @@ export function createPrivateCalendarDeviceSession(port: PrivateCalendarDeviceSe
       if (notify) for (const listener of listeners) try { listener(); } catch { /* A view cannot roll back a committed device setting. */ }
     }).catch(() => {}); return pending;
   }
-  async function deliver(force: boolean) {
+  async function deliver(force: boolean, control: PrivateCalendarWorkControl = {}) {
+    assertPrivateCalendarWork(control);
     const state = await secrets.publicState(userId); const authority = state?.authority;
     if (!authority || !authority.signed.body.devices.some(device => device.deviceId === state.identity.deviceId)) return;
     if (!state.hasCurrentKey) {
+      assertPrivateCalendarWork(control);
       if (authority.keyIssuer?.deviceId === state.identity.deviceId) { const key = await secrets.createCurrentKey(userId, authority); key.fill(0); }
-      else { const wrapped = await cloud.readKey(authority, state.identity.deviceId); if (wrapped) await secrets.receiveCurrentKey(userId, authority, wrapped); }
+      else { const wrapped = await privateCalendarWork(() => cloud.readKey(authority, state.identity.deviceId, control.assertBudget), control); if (wrapped) await secrets.receiveCurrentKey(userId, authority, wrapped); }
     }
-    await delivery.queueApprovedDevices(); await delivery.flush({ force });
+    assertPrivateCalendarWork(control);
+    await delivery.queueApprovedDevices(control); await delivery.flush({ ...control, force });
   }
   let sync: { force: boolean; promise: Promise<PrivateCalendarDeviceView> } | null = null;
-  const synchronizeDevices = (options: { force?: boolean } = {}): Promise<PrivateCalendarDeviceView> => {
+  const synchronizeDevices = (options: PrivateCalendarWorkControl & { force?: boolean } = {}): Promise<PrivateCalendarDeviceView> => {
     const force = options.force !== false;
     if (sync) {
       const current = sync;
-      return force && !current.force ? current.promise.then(() => synchronizeDevices({ force: true })) : current.promise;
+      return force && !current.force ? current.promise.then(() => synchronizeDevices({ ...options, force: true })) : current.promise;
     }
     const pending = exclusive(async () => {
+      assertPrivateCalendarWork(options);
       const before = await read();
+      assertPrivateCalendarWork(options);
       // Merely opening/retrying an unconfigured or unapproved device cannot create trust.
       if (before.phase === 'unconfigured' || before.phase === 'pairing') return before;
-      if (before.phase === 'firstPending') await first.resume();
-      const resumed = await authoritySync.resume();
+      if (before.phase === 'firstPending') await first.resume(options);
+      const resumed = await authoritySync.resume(options);
       if (resumed.kind === 'review') return read();
-      if (resumed.kind === 'idle') await authoritySync.refresh();
-      await deliver(force); return read();
+      if (resumed.kind === 'idle') await authoritySync.refresh(options);
+      assertPrivateCalendarWork(options);
+      await deliver(force, options); assertPrivateCalendarWork(options); return read();
     }, force);
     sync = { force, promise: pending }; void pending.finally(() => { if (sync?.promise === pending) sync = null; }).catch(() => {}); return pending;
   };
@@ -122,7 +130,24 @@ export function createPrivateCalendarDeviceSession(port: PrivateCalendarDeviceSe
     }),
     prepareConfirmedReference(reference: PrivateCalendarPairingReference) {
       const owned = snapshotPrivateCalendarPairingReference(reference);
-      return exclusive(async () => { await pairing.prepareConfirmedReference(owned); return read(); });
+      return exclusive(async () => {
+        const protectedState = await secrets.publicState(userId);
+        const pending = protectedState ? await roots.read() : null;
+        if (pending?.status === 'pending') {
+          // Reuse the existing reference-review action, without another confirmation.
+          // An unknown/temporarily unreachable server is never evidence of a conflicting root.
+          const head = await cloud.readHead(); await port.assertOwner();
+          if (!head || head.ownerUserId !== userId || owned.anchor.ownerUserId !== userId
+            || head.rootDigest !== owned.anchor.rootDigest || head.accountGeneration !== owned.anchor.accountGeneration
+            || head.authorityDigest !== owned.authorityDigest || head.authorityRevision !== owned.authorityRevision) throw new Error('元の本人端末の最新の確認情報を確認してください。初回の準備は保持しています。');
+          if (head.rootDigest === pending.digest) {
+            await first.resume();
+            throw new Error('この端末の初回設定は受付済みです。端末設定を再読込してください。');
+          }
+          if (!await roots.discardUnaccepted(pending.digest)) throw new Error('保護された本人端末の設定があります。鍵と保存データの復旧を確認してください。');
+        }
+        await pairing.prepareConfirmedReference(owned); return read();
+      });
     },
     approveConfirmedRequest(request: PrivateCalendarPairingRequest) {
       const owned = verifyPrivateCalendarPairingRequest(request);

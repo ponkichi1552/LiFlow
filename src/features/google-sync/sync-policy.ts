@@ -15,6 +15,9 @@ export const GOOGLE_SYNC_STALE_ATTEMPT_MS = 10 * 60 * 1000;
 export interface GoogleSyncTriggerOptions {
   force?: boolean;
   trigger?: 'manual' | 'completion';
+  budgetMs?: number;
+  /** Background workers may resume delta pages, but cannot start a full inventory scan. */
+  deltaOnly?: boolean;
 }
 
 /** Keep task forcing, Calendar cadence and interrupted-attempt recovery independent. */
@@ -25,6 +28,7 @@ export function googleSyncRunOptions(options: GoogleSyncTriggerOptions) {
     // Live attempts are joined by the coordinator's in-memory promise/operation
     // queue. A persisted marker on a forced run may belong to a killed process.
     recoverInterruptedAttempt: options.force === true,
+    ...(options.deltaOnly ? { deltaOnly: true } : {}),
   };
 }
 

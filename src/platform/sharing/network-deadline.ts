@@ -15,7 +15,7 @@ export function sharingCloudWithDeadline<T extends object>(cloud: T, millisecond
   const wrapped = { ...cloud };
   for (const key of Object.keys(cloud) as (keyof T)[]) {
     const method = cloud[key];
-    if (key === 'watch' || typeof method !== 'function') continue;
+    if (key === 'watch' || key === 'watchAccountDeviceRestores' || typeof method !== 'function') continue;
     wrapped[key] = ((...args: unknown[]) => {
       const pending = Promise.resolve(Reflect.apply(method, cloud, args));
       return new Promise((resolve, reject) => {

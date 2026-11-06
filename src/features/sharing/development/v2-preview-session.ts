@@ -50,11 +50,13 @@ export async function createV2DevelopmentPreview(input: {
       const { initializeLocalDatabase, loadPlannerSnapshot, completeFirstSetup, updateChoreDefinition,
         readPersonalPlannerOverlaySnapshot, setPersonalDateTaskCompleted } = await import('../../../platform/storage/repository.ts');
       const privateDatabase = privateOpened.database; await initializeLocalDatabase(privateDatabase);
-      const initial = await loadPlannerSnapshot(privateDatabase); const chore = initial.chores.find((entry) => entry.id === 'builtin-chore-08');
-      if (!chore) throw new Error('検査用の個人家事を準備できませんでした。');
+      const initial = await loadPlannerSnapshot(privateDatabase);
+      const chore = initial.chores.find(entry => entry.personalRecipeId && entry.enabled && Number.isSafeInteger(entry.frequencyDaysByMode.balanced));
+      const period = chore?.frequencyDaysByMode.balanced;
+      if (!chore || period === undefined || period <= 0) throw new Error('検査用の個人家事を準備できませんでした。');
       await updateChoreDefinition(privateDatabase, { ...chore, name: '検査用の個人家事', description: '本人だけが見られる検査用の手順です。' });
       await completeFirstSetup(privateDatabase, { frequencyMode: 'balanced', restDays: [], enabledChoreIds: [chore.id],
-        previousDates: { [chore.id]: { date: addDays(localDateFromDate(input.now()), -7) } }, weatherLocation: null });
+        previousDates: { [chore.id]: { date: addDays(localDateFromDate(input.now()), -period) } }, weatherLocation: null });
       const assertAccess = () => { if (!input.development || closed) throw new Error('Development preview is unavailable'); };
       privateTasks = createV2PrivateTaskSource({ ownerUserId: userId, assertAccess,
         readSnapshot: async (instant) => ({ ownerUserId: userId, ...await readPersonalPlannerOverlaySnapshot(privateDatabase, instant) }),

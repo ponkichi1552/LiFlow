@@ -64,7 +64,7 @@ export function PrivateCalendarDeviceScreen({ loadSession, onBack, onShare, onCa
   const share = (kind: 'reference' | 'request') => run(async active => {
     const current = await active.read(); const value = current[kind]; if (!value) throw new Error('確認情報が更新されています。'); await onShare(value); return current;
   });
-  const approved = view?.phase === 'approved'; const canPrepare = view && ['unconfigured', 'pairing', 'revoked'].includes(view.phase);
+  const approved = view?.phase === 'approved'; const canPrepare = view && ['unconfigured', 'firstPending', 'pairing', 'revoked'].includes(view.phase);
   return <Page header={<BackButton onPress={onBack} />}>
 
     <ScreenHeading title="本人用カレンダーの端末" description="本人の時間帯を利用する端末を管理します。グループの他メンバーには公開しません。" />

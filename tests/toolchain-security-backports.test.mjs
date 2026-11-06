@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { toolchainSecurityInventory } from '../scripts/toolchain-security-inventory.mjs';
 const require = createRequire(import.meta.url);
 const patches = require('../scripts/patch-glob-security.cjs');
 for (const format of ['commonjs', 'esm']) {
@@ -51,4 +53,25 @@ test('toolchain security backports are idempotent and reject unknown replacement
   }
   const legacy = require('../node_modules/eslint/node_modules/minimatch');
   assert.equal(typeof legacy, 'function'); assert.equal(legacy('src/file.ts', '**/*.ts'), true, 'ESLint retains its v3 callable API');
+});
+
+test('every resolved legacy minimatch copy avoids amplification without replacing its callable ESLint API', () => {
+  const inventory = toolchainSecurityInventory();
+  assert.ok(inventory.some(row => row.name === 'glob'));
+  assert.ok(inventory.some(row => row.name === 'minimatch' && row.version === '10.2.6'));
+  for (const row of inventory) {
+    assert.ok(row.files.every(file => /^[a-f0-9]{64}$/u.test(file.sha256)));
+    if (row.name === 'glob') { assert.equal(row.version, '13.0.6', 'review new copies before assuming the root patch covers them'); assert.equal(row.path, 'node_modules/glob'); continue; }
+    assert.ok(['3.1.5', '10.2.6'].includes(row.version), 'new versions need an explicit backport/behavior review');
+    if (row.version !== '3.1.5') { assert.equal(row.path, 'node_modules/minimatch'); continue; }
+    const child = spawnSync(process.execPath, ['-e', `
+      const assert = require('node:assert/strict'); const m = require(process.argv[1]);
+      assert.equal(typeof m, 'function');
+      const pattern = '**/../a/'.repeat(18) + 'z';
+      const hostile = new m.Minimatch(pattern, { optimizationLevel: 2, braceExpandMax: 8 });
+      assert.equal(hostile.globParts.length, 1);
+      assert.equal(m('src/a.ts', 'src/**/*.ts'), true); assert.equal(m('src/a.tsx', 'src/**/*.ts'), false);
+    `, resolve(import.meta.dirname, '..', row.path)], { timeout: 3000, encoding: 'utf8' });
+    assert.ifError(child.error); assert.equal(child.status, 0, child.stderr);
+  }
 });

@@ -1,0 +1,268 @@
+{
+  "schema_version": 1,
+  "kind": "post-run focused audit; not a lifestyle corpus rerun",
+  "recorded_at": "2026-11-06T06:03:24Z",
+  "historical_run": {
+    "input_zip_sha256": "df5a7481859bd9d77a55903084355ceae9ca3457be80a5235dfab95d481e743b",
+    "runner_freeze_path": "results/runner-freeze.json",
+    "runner_freeze_sha256": "3c444d6de5c8c508f8ccca98afe82f21e5f4463d72f2f909468b937b260170af",
+    "code_fingerprint": "904387d423e56b28857a92015c14dc9b7f9be1b5013e9ba34675617ed60fcd86",
+    "code_sha256": "f95fff0ecfd2b2f80c5d51b42edbb285457e0af82f95c0f073ab978dc2533c8d",
+    "frozen_code_file_count": 19,
+    "historical_freeze_record_rewritten": false,
+    "corpus_rerun": false,
+    "source_zip_retained": true,
+    "frozen_helper_current_sha256": "32d55422f001be91cffa9c39933f6d5b8cb1f8667f140c07b32748de6da88ed3"
+  },
+  "reclassification": {
+    "historical_raw_directed_values_retained": true,
+    "development_and_holdout_old_D01_D02_extra_confirmation_count_zero": "fixture assumption emitted by the old evaluator; not a measured observation",
+    "corrected_interpretation": "Historical raw values remain unchanged at 0. The post-run audit reclassifies extra_confirmation_count as null/NOT_TESTED for D01 and D02; only their day-lock behavior was measured.",
+    "main_invariant_counts_unchanged": {
+      "development": 840,
+      "holdout": 840,
+      "not_tested_in_each_split": [
+        "NEXT_GENERATION",
+        "DAILY_FIXED",
+        "WEATHER_FAILURE_STABLE",
+        "NO_EXTRA_INPUT",
+        "FALLBACK_LOCK"
+      ]
+    },
+    "main_invariant_not_tested": [
+      "NEXT_GENERATION",
+      "DAILY_FIXED",
+      "WEATHER_FAILURE_STABLE",
+      "NO_EXTRA_INPUT",
+      "FALLBACK_LOCK"
+    ]
+  },
+  "directed_cases": [
+    {
+      "id": "D01",
+      "status": "partial",
+      "measured": {
+        "recommended_day": "2026-11-04"
+      },
+      "not_tested": {
+        "extra_confirmation_count": null
+      },
+      "note": "Home UI/input-request path is not exercised by this planner probe."
+    },
+    {
+      "id": "D02",
+      "status": "partial",
+      "measured": {
+        "recommended_day": "2026-11-05"
+      },
+      "not_tested": {
+        "extra_confirmation_count": null
+      },
+      "note": "Home UI/input-request path is not exercised by this planner probe."
+    },
+    {
+      "id": "D04",
+      "status": "pass",
+      "measured": {
+        "next_day": "2026-11-05",
+        "same_day_reappearance": false,
+        "persisted_completion_actions": 1
+      },
+      "scope": "Daily completion is saved in SQLite and publishes a new next-day round; occupancy relocation is covered separately."
+    },
+    {
+      "id": "D05",
+      "status": "pass",
+      "measured": {
+        "recommended_day": "2026-11-08",
+        "original_base_day": "2026-11-05",
+        "fallback": true,
+        "slot": null
+      }
+    },
+    {
+      "id": "D16",
+      "status": "partial",
+      "measured": {
+        "recommended_day": "2026-11-10",
+        "stable": true
+      },
+      "not_tested": {
+        "provider_failure_to_repository_refresh_with_same_D16_fixture": null
+      },
+      "note": "This directed probe compares a no-forecast planner input. A separate injected-failure and successful-retry regression covers the provider/repository refresh path with a different repository fixture."
+    }
+  ],
+  "focused_observations": {
+    "ordinary_home_completion": {
+      "status": "pass",
+      "test": "tests/completion-intents-ui.test.mjs :: personal home and calendar immediately share the last completion gesture while protected persistence is blocked",
+      "platforms": [
+        "ios",
+        "android"
+      ],
+      "observed": {
+        "alert_calls": 0,
+        "additional_text_input_delta": 0,
+        "visible_modal_delta": 0,
+        "durable_completed_rows": 1,
+        "displayed_schedule_entry_matches_saved_entry": true,
+        "source": "inApp",
+        "planner_completion_intent_rows": 1,
+        "coalesced_business_writes": 1
+      },
+      "save_api": "setPersonalDateTaskCompletedIntent",
+      "scope": "screenHarness Home route and injected completion-intent runtime; no physical device or real Keychain operation"
+    },
+    "daily_fixed": {
+      "status": "pass",
+      "test": "tests/google-calendar-scheduler.test.mjs :: daily fixed chores stay on each calendar date once despite busy days and old shift settings",
+      "fixture": {
+        "daily_chores": 4,
+        "dates_per_chore": 15,
+        "full_day_busy_dates": [
+          "2026-10-27",
+          "2026-10-30",
+          "2026-11-03",
+          "2026-11-06"
+        ],
+        "previous_schedule_supplied": true
+      },
+      "observed": {
+        "regenerated_schedule_equal_to_baseline": true,
+        "each_chore_retained_15_distinct_due_dates": true
+      },
+      "additional_existing_test": {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "automatic replacement protects today tomorrow overdue and fixed-daily rounds and cannot refill their dates",
+        "status": "pass"
+      }
+    },
+    "next_generation": {
+      "status": "pass",
+      "test": {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "actual repository completion immediately publishes one next adaptive round and an exact Undo restores the old round while keeping a later fixed interval",
+        "status": "pass"
+      },
+      "directed_probe": "D04"
+    },
+    "fallback_lock": {
+      "status": "pass",
+      "directed_probe": "D05",
+      "observed": {
+        "base_date": "2026-11-05",
+        "existing_fallback_date": "2026-11-08",
+        "no_available_slot": true,
+        "fallback_date_preserved": true
+      }
+    },
+    "weather_failure": {
+      "status": "pass",
+      "test": "tests/met-adaptive-weather.test.mjs :: an actual provider failure keeps stale cache unavailable, then a successful retry refreshes adaptive planning input",
+      "observed": {
+        "injected_transport_failures_before_recovery": 1,
+        "stale_cache_age_hours": 73,
+        "failed_attempt_outcome": "unavailable",
+        "failed_attempt_cache_preserved": true,
+        "failed_attempt_schedule_dates_unchanged": true,
+        "failed_attempt_adaptive_plan_rows_unchanged": true,
+        "failed_attempt_database_write_delta": 0,
+        "successful_retry_after_minutes": 1,
+        "successful_retry_refreshed_cache": true,
+        "successful_retry_reached_repository_planning_geometry": true,
+        "planning_source_revision_changed_after_retry": true
+      },
+      "transport": "Injected fetcher throws on first request and returns a valid fixture on retry; no real network request was made.",
+      "additional_existing_test": {
+        "file": "tests/weather-calendar-audit.test.mjs",
+        "name": "expired forecasts are evaluated against the base plan and failure restores the same plan shown by the UI",
+        "status": "pass"
+      },
+      "scope": "The failed response itself does not trigger replanning because the 73-hour-old cache is unusable. A successful provider retry after the one-minute backoff updates repository planning input; the test does not claim that a task date changed. Physical-device network handling was not tested."
+    }
+  },
+  "targeted_test_runs": [
+    {
+      "command": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/realistic-lifestyle-focused-boundaries.test.mjs",
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "check_type": "report_consistency",
+      "source_sha256": "9e0dfaee64b7052ef3e2b49742fde75ef782a2ca84ce1f9e7d5b26453f006cab",
+      "source_status": "archived privately and removed from the worktree after parent review; no product regression coverage"
+    },
+    {
+      "command": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test --test-name-pattern='personal home and calendar immediately share the last completion gesture' tests/completion-intents-ui.test.mjs",
+      "tests": 2,
+      "passed": 2,
+      "failed": 0,
+      "check_type": "functional_regression"
+    },
+    {
+      "command": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test --test-name-pattern='actual provider failure keeps stale cache unavailable' tests/met-adaptive-weather.test.mjs",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "check_type": "functional_regression"
+    },
+    {
+      "command": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test --test-name-pattern='daily fixed chores stay on each calendar date once' tests/google-calendar-scheduler.test.mjs",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "check_type": "functional_regression"
+    },
+    {
+      "command": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test --test-name-pattern='automatic replacement protects today tomorrow overdue and fixed-daily rounds' tests/adaptive-placement.test.mjs",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "check_type": "functional_regression"
+    },
+    {
+      "command": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test --test-name-pattern='actual repository completion immediately publishes one next adaptive round' tests/personal-adaptive-repository.test.mjs",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "check_type": "functional_regression"
+    },
+    {
+      "command": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test --test-name-pattern='expired forecasts are evaluated against the base plan and failure restores the same plan shown by the UI' tests/weather-calendar-audit.test.mjs",
+      "tests": 1,
+      "passed": 1,
+      "failed": 0,
+      "check_type": "functional_regression"
+    }
+  ],
+  "focused_source_sha256": {
+    "tests/completion-intents-ui.test.mjs": "dbcb9be2a3689b82aa31cb4a023660c556366b38332b3724c895a08d1cbe3064",
+    "tests/met-adaptive-weather.test.mjs": "e08df95946af8a2bac4f92c9dba59ecf969b9c3450aef9f93d033c9425acd276",
+    "tests/google-calendar-scheduler.test.mjs": "404a65ccedb209ee44bdbc05f064480a1857227c32b54972fe4e2d9d532a921e",
+    "tests/adaptive-placement.test.mjs": "695f313026edb935d311a6a0748c1805556442695021bac981b2829d33f8abf2",
+    "tests/personal-adaptive-repository.test.mjs": "afbcfa90072019981099c0923a7b736eb5b6a31ceeb04ca0685383ac41a8ae15",
+    "tests/weather-calendar-audit.test.mjs": "d5ee0e229be027438bdc554afbbef03958a9386ed1952c4574dabdacdb458218"
+  },
+  "focused_probe_provenance": {
+    "directed_evaluator_candidate_sha256": "6ac65fb0c8aff8bf89eaf421cac7c753378d28d343f051dd5943430fca5cad73",
+    "candidate_saved_to_private_addendum_before_restoration": true,
+    "frozen_helper_restored_sha256": "32d55422f001be91cffa9c39933f6d5b8cb1f8667f140c07b32748de6da88ed3",
+    "historical_raw_results_modified": false,
+    "note": "D04/D05 focused directed probe outputs were observed with this post-run candidate; the original 19-file frozen helper is restored in the worktree.",
+    "directed_probe_test_candidate_sha256": "9287b4cdc6558cc408edae5807cd476c16c44e5c6da6b95b3d00d53ce9eea352",
+    "report_consistency_candidate_sha256": "9e0dfaee64b7052ef3e2b49742fde75ef782a2ca84ce1f9e7d5b26453f006cab",
+    "report_consistency_candidate_archived_privately_and_removed_from_worktree": true,
+    "report_consistency_candidate_classification": "static known-value audit; not app regression coverage"
+  },
+  "targeted_check_summary": {
+    "historical_check_count": 10,
+    "historical_pass_count": 10,
+    "historical_failure_count": 0,
+    "functional_regression_count": 7,
+    "functional_regression_pass_count": 7,
+    "report_consistency_check_count": 3,
+    "report_consistency_check_pass_count": 3,
+    "report_consistency_candidate_sha256": "9e0dfaee64b7052ef3e2b49742fde75ef782a2ca84ce1f9e7d5b26453f006cab",
+    "report_consistency_candidate_is_required_test": false
+  }
+}

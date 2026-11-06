@@ -6,6 +6,7 @@ import { createApplianceCareHttpServer } from '../server/appliance-care-api/src/
 import { createPublicApiAccess, PUBLIC_API_POLICY, publicJobId, publicKey, usagePeriods } from '../server/appliance-care-api/src/public-access.mjs';
 import { createFirestoreUsageStore } from '../server/appliance-care-api/src/firestore-usage-store.mjs';
 import { publicStoreFixture } from './helpers/appliance-public-store.mjs';
+import { runAnalysisQueueBatch } from '../server/appliance-care-api/src/analysis-queue-worker.mjs';
 
 const principal = (uid, device = uid, installationId = 'synthetic-installation-0001') => ({ uid, anonymous: false, deviceId: publicKey(device), installationId });
 const admission = (uid, key, force = false) => ({ principal: principal(uid), requestKey: key,
@@ -101,13 +102,55 @@ test('public API user retries can recover failed products while in-flight and ve
   const retry = { ...admission('a', 'same-product'), idempotencyKey: 'different-user-initiated-attempt' };
   assert.equal((await f.store.admit(retry)).jobId, first.jobId, 'in-flight reuse works across different taps');
   await f.store.finish(first, { status: 'error', code: 'TEMPORARY_NETWORK_ERROR', message: '合成した通信失敗' });
-  const second = await f.store.admit(retry); assert.equal(second.created, true); assert.equal(second.usage.used, 2);
+  assert.equal((await f.store.admit(retry)).jobId, first.jobId, 'a resend of the same reused admission cannot start new paid work');
+  const second = await f.store.admit({ ...retry, idempotencyKey: 'new-explicit-user-attempt' }); assert.equal(second.created, true); assert.equal(second.usage.used, 2);
   await f.store.finish(second, { status: 'verified', synthetic: true });
   const third = { ...retry, idempotencyKey: 'third-user-initiated-attempt' };
   assert.equal((await f.store.admit(third)).jobId, second.jobId, 'verified reuse is owner-scoped and free');
   clock += PUBLIC_API_POLICY.retentionMs + 1;
   assert.equal(await f.store.read(principal('a'), second.jobId), null);
-  const fresh = await f.store.admit(third); assert.equal(fresh.created, true, 'expired cached results do not trap a new search');
+  await assert.rejects(f.store.admit(third), error => error.code === 'REQUEST_CONFLICT', 'an expired admission never becomes a new paid job');
+  const fresh = await f.store.admit({ ...third, idempotencyKey: 'fresh-explicit-attempt-after-expiry' }); assert.equal(fresh.created, true, 'a new search can use a fresh admission after cached result expiry');
+});
+
+test('reused AI admissions stay permanently bound to their original job through a lost response failure and server restart', async () => {
+  const f = publicStoreFixture(); const first = await f.store.admit(admission('a', 'same-reused-product'));
+  const retry = { ...admission('a', 'same-reused-product'), idempotencyKey: 'reused-admission-with-lost-response' };
+  assert.equal((await f.store.admit(retry)).jobId, first.jobId);
+  await f.store.finish(first, { status: 'error', code: 'AI_SERVICE_NO_RESULT', message: '合成したOpenAI無応答' });
+  const restarted = createFirestoreUsageStore({ firestore: f.firestore });
+  const repeated = await restarted.admit(retry);
+  assert.equal(repeated.jobId, first.jobId); assert.equal(repeated.created, false); assert.equal(repeated.usage.used, 0);
+  await assert.rejects(restarted.admit({ ...retry, forceReanalysis: true }), error => error.code === 'REQUEST_CONFLICT');
+  const fresh = await restarted.admit({ ...retry, idempotencyKey: 'new-user-tap-after-no-result' });
+  assert.equal(fresh.created, true); assert.equal(fresh.usage.used, 1);
+});
+
+test('steady AI status polls use read-only quota checks while device changes and refunds still synchronize the strict allowance', async () => {
+  const f = publicStoreFixture(); const first = await f.store.admit(admission('a', 'read-only-status'));
+  let transactions = 0; const transact = f.firestore.runTransaction;
+  f.firestore.runTransaction = async callback => { transactions++; return transact(callback); };
+  for (let i = 0; i < 50; i++) assert.equal((await f.store.read(principal('a'), first.jobId)).usage.used, 1);
+  assert.equal(transactions, 0, 'informational polling must not contend on the admission transaction');
+  await f.store.finish(first, { status: 'error', code: 'AI_SERVICE_NO_RESULT', message: '合成したOpenAI無応答' });
+  assert.equal((await f.store.read(principal('a'), first.jobId)).usage.used, 0);
+  assert.equal((await f.store.read(principal('a', 'new-phone'), first.jobId)).usage.used, 0);
+  assert.ok(transactions > 1, 'a changed device or refund still persists its stricter quota evidence');
+  await assert.rejects(f.store.usage(principal('b', 'new-phone', 'synthetic-reinstalled-0002')), error => error.code === 'REINSTALL_ACCOUNT_LOCKED');
+  assert.equal(await f.store.read(principal('b', 'new-phone', 'synthetic-reinstalled-0002'), first.jobId), null);
+});
+
+test('normal AI admissions can durably reuse a successful explicit reanalysis without changing either request identity', async () => {
+  const f = publicStoreFixture();
+  const original = await f.store.admit(admission('a', 'reanalysed-manual', true));
+  await f.store.finish(original, { status: 'verified', synthetic: true });
+  const normal = { ...admission('a', 'reanalysed-manual'), idempotencyKey: 'normal-request-reuses-reanalysis' };
+  const firstReply = await f.store.admit(normal);
+  assert.equal(firstReply.jobId, original.jobId); assert.equal(firstReply.created, false);
+  const restarted = createFirestoreUsageStore({ firestore: f.firestore });
+  const retry = await restarted.admit(normal);
+  assert.equal(retry.jobId, original.jobId); assert.equal(retry.created, false); assert.equal(retry.usage.used, 1);
+  await assert.rejects(restarted.admit({ ...normal, forceReanalysis: true }), e => e.code === 'REQUEST_CONFLICT');
 });
 
 test('public API per-day documents retain previous counts when two server clocks cross midnight in opposite directions', async () => {
@@ -138,12 +181,24 @@ async function httpFixture() {
     if (!['user-a', 'user-b'].includes(token)) throw new Error('invalid token');
     return { uid: token, firebase: { sign_in_provider: 'google.com' } };
   } });
-  const server = createApplianceCareHttpServer({ publicAccess, allowedOrigins: ['https://allowed.example'],
-    dependencies: { async analyzeUploaded() { aiCalls++; throw new Error('synthetic no paid AI'); } } });
+  const dependencies = { async analyzeUploaded() { aiCalls++; throw new Error('synthetic no paid AI'); } };
+  const server = createApplianceCareHttpServer({ publicAccess, allowedOrigins: ['https://allowed.example'], dependencies });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   return { ...fixture, server, base: `http://127.0.0.1:${server.address().port}`, calls: () => aiCalls,
+    work: () => runAnalysisQueueBatch({ store: createFirestoreUsageStore({ firestore: fixture.firestore, analysisQueueKeys: fixture.analysisQueueKeys }), createDependencies: () => dependencies, authorize: async () => {} }),
     close: async () => { const closing = new Promise(resolve => server.close(resolve)); server.closeAllConnections(); await closing; } };
 }
+
+test('public AI rejects an invalid admission identity before decoding a PDF and never reserves a paid slot', async () => {
+  const f = await httpFixture();
+  try {
+    const response = await fetch(f.base + '/api/appliance-care/jobs', { method: 'POST',
+      headers: { authorization: 'Bearer user-a', 'content-type': 'application/json', 'x-idempotency-key': 'bad' },
+      body: JSON.stringify({ manufacturer: '検査', productName: '合成製品', modelNumber: 'QA', manual: { base64: 'invalid', rightsConfirmed: true } }) });
+    assert.equal(response.status, 400); assert.equal((await response.json()).code, 'INVALID_REQUEST');
+    assert.equal(f.calls(), 0); assert.equal(f.records.size, 0);
+  } finally { await f.close(); }
+});
 
 test('public HTTP API rejects anonymous unauthenticated requests before paid work and keeps results owner-only with no sync-endpoint bypass', async () => {
   const f = await httpFixture(); const body = JSON.stringify({ manufacturer: 'Dyson', productName: '合成製品', modelNumber: 'QA', manual: syntheticManual() });
@@ -161,12 +216,15 @@ test('public HTTP API rejects anonymous unauthenticated requests before paid wor
     }
     assert.equal(f.calls(), 0); assert.equal(f.records.size, 0);
     assert.equal((await fetch(f.base + '/api/appliance-care/analyze', { method: 'POST', headers, body })).status, 405);
+    await f.store.heartbeatAnalysisWorker();
     const starts = await Promise.all(Array.from({ length: 10 }, () => fetch(f.base + '/api/appliance-care/jobs', { method: 'POST', headers, body }).then(res => res.json())));
     assert.equal(new Set(starts.map(item => item.jobId)).size, 1); assert.equal(starts[0].usage.used, 1);
     const path = '/api/appliance-care/jobs/' + starts[0].jobId;
     const others = await fetch(f.base + path, { headers: { authorization: 'Bearer user-b' } }); assert.equal(others.status, 404);
     assert.equal((await fetch(f.base + path)).status, 401);
-    await new Promise(resolve => setImmediate(resolve));
+    const waiting = await fetch(f.base + path, { headers }); assert.equal((await waiting.json()).done, false);
+    assert.equal(f.calls(), 0, 'HTTP admission never executes work after sending its response');
+    assert.equal((await f.work()).settled, 1);
     const mine = await fetch(f.base + path, { headers }); assert.equal(mine.status, 200);
     assert.equal((await mine.json()).done, true); assert.equal(f.calls(), 1);
     const usage = await fetch(f.base + '/api/appliance-care/usage', { headers }); assert.equal((await usage.json()).usage.used, 1);

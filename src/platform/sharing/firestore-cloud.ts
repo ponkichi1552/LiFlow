@@ -14,6 +14,7 @@ import { parseV2FirestoreReceipt } from './v2-receipts.ts';
 import type { V2ServerReceipt } from '../../features/sharing/v2/server-receipts.ts';
 import { createSharingHistoryRetention } from './firestore-retention.ts';
 import type { SharedCloudEvent } from '../../features/sharing/cloud-contract.ts';
+import { createSharingAccountDevices } from './firestore-account-devices.ts';
 
 /** All reads use the server; Firestore's memory cache cannot acknowledge delivery. */
 export function createSharingCloud(firestore: Firestore, userId: string, currentUserId: () => string | null,
@@ -36,6 +37,7 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
     await getDocFromServer(doc(firestore, 'sharingUsers', userId, 'revocations', groupId)); checkAccount();
   };
   return sharingCloudWithDeadline({
+    ...createSharingAccountDevices({ firestore, userId, checkAccount, reference, readGroup, recoveryEnabled }),
     ...createSharingManagement({ firestore, userId, checkAccount, reference, readGroup, recoveryEnabled }),
     ...createSharingHistoryRetention({ firestore, userId, checkAccount, reference, readGroup, recoveryEnabled }),
     ...createSharingRecovery({ firestore, userId, checkAccount, reference, readGroup, recoveryEnabled }),

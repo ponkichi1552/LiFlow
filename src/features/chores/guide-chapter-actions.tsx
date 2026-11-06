@@ -14,7 +14,7 @@ export function GuideChapterActions({ choreId, snapshot, database, refresh, pers
 }) {
   const [busy, setBusy] = useState(false); const running = useRef(false); const [message, setMessage] = useState<string | null>(null);
   const today = snapshot.today ?? localDateFromDate(new Date());
-  const task = selectDateTasks(snapshot.scheduleEntries, snapshot.completions, today, 3, snapshot.chores).find(task => task.choreId === choreId);
+  const task = selectDateTasks(snapshot.scheduleEntries, snapshot.completions, today, 3, snapshot.chores, true).find(task => task.choreId === choreId);
   const entry = task ? task.entry : snapshot.scheduleEntries.find(entry => entry.choreId === choreId && entry.suggestedDate >= today);
   const canRecord = Boolean(entry && entry.windowStart <= today);
   const record = async () => {

@@ -1,0 +1,1949 @@
+{
+  "schemaVersion": 1,
+  "baseCommit": "e60fa09f1b811277eff27ced29de9fee1c719f31",
+  "startedOn": "2026-11-04",
+  "completed": false,
+  "authorizedSpecificationUpdate": true,
+  "specifications": [
+    "docs/specifications/housework-catalog-2026-11-04.md",
+    "docs/specifications/adaptive-scheduling-2026-11-04.md"
+  ],
+  "baseline": {
+    "lint": "passed",
+    "typecheck": "passed",
+    "unitDiagnostic": {
+      "passed": 2853,
+      "failed": 2,
+      "reason": "shared scheduler source contract (unfinished completion intent changes)"
+    },
+    "pretest": "failed",
+    "startupOneSecondTarget": "not-achieved",
+    "completionIntents": "screen integration and native verification unfinished"
+  },
+  "implementationStages": [
+    "validate audit findings against current code and authorized behavior",
+    "finish durable optimistic completion and fix contract checks",
+    "fix reproducible authentication storage synchronization and editing defects",
+    "implement catalog and adaptive personal scheduling without changing shared authority",
+    "implement MET regional weather cache and provider",
+    "measure and fix startup and interaction performance",
+    "run required regressions cloud attacks and both mobile platforms",
+    "update private main after completed checks"
+  ],
+  "findings": [
+    {
+      "id": "O01",
+      "title": "O01｜通知集計で日付ごとの全走査と家事名の線形検索を繰り返す",
+      "status": "fixed-local",
+      "resolution": "Index only window-start/end/next-day reminder boundaries, group history by chore once and resolve names by map. A thousand old rows no longer require 31 whole-schedule scans; digest outputs stay identical."
+    },
+    {
+      "id": "O02",
+      "title": "O02｜SecureStoreのhex表現と大量のネイティブ呼び出し",
+      "status": "fixed-local",
+      "resolution": "Base64 writes reduce protected chunk volume by about one third; legacy hex remains readable, native chunk concurrency limited to four."
+    },
+    {
+      "id": "O03",
+      "title": "O03｜解析状況の取得ごとに利用回数の同期トランザクションが走る",
+      "status": "fixed-local",
+      "resolution": "Steady status polling uses read-only quota evidence. Changed bindings/refunds still synchronize the strict counters transactionally."
+    },
+    {
+      "id": "O04",
+      "title": "O04｜CIの共通検査を各プラットフォームで重複実行している",
+      "status": "fixed-local",
+      "resolution": "Keep both OS behavior test matrices and existing job names, but run platform-independent lint/typecheck once. npm pretest remains the required contract gate."
+    },
+    {
+      "id": "O05",
+      "title": "O05｜Firestoreエミュレーターの再ダウンロード",
+      "status": "fixed-local",
+      "resolution": "CI caches only the pinned Firestore emulator JAR, never database state or credentials. Local CLI/Firestore versions verified; GitHub execution remains unobserved for unpushed edits."
+    },
+    {
+      "id": "O06",
+      "title": "O06｜明らかに不正な購入入力でDB世代を更新しない",
+      "status": "fixed-local",
+      "resolution": "Reject malformed purchase evidence before durable verification generation changes."
+    },
+    {
+      "id": "O07",
+      "title": "O07｜要求ごとのレート制限Map全走査を必要な時だけにする",
+      "status": "fixed-local",
+      "resolution": "One bounded fixed-window limiter serves both HTTP paths, evicts expiry prefixes only, and retains identity limits across server-clock rollback."
+    },
+    {
+      "id": "O08",
+      "title": "O08｜家事単位の履歴読取りと索引を対応させる",
+      "status": "fixed-local",
+      "resolution": "Migration creates an index matching household/chore completion reads; query-plan regression confirms it is used."
+    },
+    {
+      "id": "O09",
+      "title": "O09｜処理済み操作の記録を安全に維持し、増加と繰返しDDLを管理する",
+      "status": "fixed-local",
+      "resolution": "Completion intent markers are created during migration and kept for replay safety, without per-completion DDL."
+    },
+    {
+      "id": "O10",
+      "title": "O10｜Tasksの全履歴取得を毎回繰り返す構成を見直す",
+      "status": "fixed-local-native-final-pending",
+      "resolution": "Schema26 adds account/list-isolated durable page staging and a complete Tasks cache in both real private and v2 stores. Use updatedMin deltas only after a complete baseline, with Google response time minus5s; missing server time forces full traversal. 7-day/backward-clock full checks, expired/repeated cursor recovery, scoped corrupt-cache rebuild and 10000-task/2-change regression passed. Cached full-list reconciliation CPU/memory remains an optimization opportunity."
+    },
+    {
+      "id": "O11",
+      "title": "O11｜Tasksの同期全体に処理予算と中断位置を持たせる",
+      "status": "fixed-local-native-final-pending",
+      "resolution": "The existing queue, credentials, all HTTP pages and response bodies share a caller budget. Normal/completion/worker15s and default forced manual100s. Actual late work stays fenced/coalesced until cleanup. Each committed receive page resumes after restart; incomplete traversal cannot reconcile deletion. Interrupted SQLite transactions are not forcibly cancelled, and OS rescheduling is not guaranteed. Physical final-run checks remain."
+    },
+    {
+      "id": "O12",
+      "title": "O12｜承認画面を開くたびに過去の招待を全件取得してから捨てる",
+      "status": "fixed-local-index-ready-live-query-accepted",
+      "resolution": "Open-invitation queries freeze the current time and use snapshot pagination instead of retrieving historical invitations. The production composite groupId/status/expiresAt index is READY. All five pre-existing field overrides preserved; five additional prepared large encrypted/cache fields excluded from indexing. Readback matches configured fields plus automatic provider defaults. An empty synthetic-group read-only query with the exact production filters/order succeeded; this is index acceptance, not a real-user invitation UI pass."
+    },
+    {
+      "id": "O13",
+      "title": "O13｜復旧の概要画面を開くために、保存原文を1件ずつ全て復元する",
+      "status": "fixed-local",
+      "resolution": "Recovery overview reads only summary metadata and preserved facts, not original ciphertext. Confirmation still validates every original in bounded 100-ID SQL batches. 201-original ordering, altered evidence and both OS UI regressions pass."
+    },
+    {
+      "id": "O14",
+      "title": "O14｜同じ権限履歴を、端末同期と取得元の確認で重複取得・再検証する",
+      "status": "fixed-local",
+      "resolution": "Keep the full already-verified immutable signed prefix in process memory, fetch only a fresh head and signed suffix in later cycles, and reuse a verified history only inside the same bounded AbortSignal work scope. Pending commits invalidate work reuse before receipt recovery; account/root/generation/pin mismatches, regressed heads, gaps and aborts still reject. 105-revision multi-page, account-switch, altered head and lost-receipt regressions passed."
+    },
+    {
+      "id": "O15",
+      "title": "O15｜個人Calendarの二つの予定源を最大値で合成する近似を、用途に合わせて見直す",
+      "status": "fixed-adaptive-personal-local-native-final-pending",
+      "resolution": "Active personal adaptive planning combines exact application/Google intervals by union. Fully received account-bound Google mirrors are verified from all calendar cursors, pending inbox/expansions and actual expanded coverage, not a requested display range. Incomplete or unavailable mirrors cannot grant free time using primary-only FreeBusy zero. Aggregate-only nonzero days remain opaque; frozen legacy engines are unchanged."
+    },
+    {
+      "id": "O16",
+      "title": "O16｜Android受信処理内の同期DB操作を短くする",
+      "status": "fixed-local-current-android-widget-verified",
+      "resolution": "Android broadcast uses goAsync and one background input executor. Queue insertion has bounded SQLite busy timeout and never updates completion/history/Google state. Release Kotlin compilation passed; physical interaction pending. Physical Android10 validates the corrected native SQL API and queue-only writes. No actual home-screen launch/tap timing claim. Actual normal v12 launcher row was tapped once: one widget completion fact/input receipt and no pending native input, then normal Home Undo restored0 completed facts without database edits. See widget-v12-android-before/after/after-undo logs. No immediate-render or background execution claim."
+    },
+    {
+      "id": "O17",
+      "title": "O17｜「処理が例外なく戻った」と「同期が完了した」を区別する",
+      "status": "fixed-local",
+      "resolution": "Runtime wrappers return structured outcomes. OS audit distinguishes disabled/skipped, received/no-change, pending key/review/busy/approval, and failed; pending is not incorrectly returned as OS failure. Metadata-only 32-row boundary remains."
+    },
+    {
+      "id": "O18",
+      "title": "O18｜不正な受付IDを、PDF構造解析の後まで判定しない",
+      "status": "fixed-local",
+      "resolution": "Invalid admission IDs are rejected after authentication but before body/PDF parsing; reservations still follow PDF inspection."
+    },
+    {
+      "id": "O19",
+      "title": "O19｜ローカルPDFの検証だけなのに、共有送信用の全チャンクを生成して捨てる",
+      "status": "fixed-local",
+      "resolution": "Local PDF saves and reads use full byte/digest validation without generating unused network chunks; shared transfers retain identical chunk validation."
+    },
+    {
+      "id": "O20",
+      "title": "O20｜ネイティブ検証を、変更入力・有効な設定・生成後の成果物へ対応させる",
+      "status": "fixed-local-ci-not-run",
+      "resolution": "Native CI input paths now include app/widget source and Metro/Babel inputs; ordinary changes compile Android Kotlin instead of only manual dispatch. macOS CI compiles and executes the actual iOS journal across separate processes. These workflow changes have not been pushed or observed on GitHub."
+    },
+    {
+      "id": "O21",
+      "title": "O21｜同じ候補日を複数の移動窓から繰り返し検査・整列する",
+      "status": "fixed-local",
+      "resolution": "Select the best equivalent window per forecast day before weather/load/dependency checks. Same tie-breaks and existing 83 behavior regressions plus a bounded repeated-check case pass."
+    },
+    {
+      "id": "O22",
+      "title": "O22｜収集のない日まで走査し、不要な月末計算を繰り返す",
+      "status": "fixed-local",
+      "resolution": "Weekly/biweekly/monthly generators jump directly between collection dates. Differential tests cover clamps/leap years/anchors and a 31-year case avoids non-collection-day Date construction."
+    },
+    {
+      "id": "O23",
+      "title": "O23｜一括初期化で変更がなくても予定キャッシュを無効にする",
+      "status": "fixed-local",
+      "resolution": "A no-op all-chore reset neither writes schedule/definition rows nor advances the planner cache version. Atomic rollback behavior remains."
+    },
+    {
+      "id": "O24",
+      "title": "O24｜下書きだけの更新でも保存済み予定全体を読み直す",
+      "status": "fixed-local",
+      "resolution": "Draft-only observation reads only draft rows and keeps saved event/category/exception inputs. A saved-event change arriving during a slow draft read upgrades the queued read to full."
+    },
+    {
+      "id": "O25",
+      "title": "O25｜日付ごとの予定検索を表示範囲単位で索引化する",
+      "status": "fixed-local",
+      "resolution": "Calendar occurrence coverage is indexed once, replacing a complete event scan per day; multiday/midnight behavior compared across 3000 events."
+    },
+    {
+      "id": "Q01",
+      "title": "Q01｜未完了Promiseへの復旧方針は追加検証が必要runtimeの15秒タイマーが直接制限するのはboundedで囲った認証トークン取得・fetch・JSON読",
+      "status": "fixed-local-native-final-pending",
+      "resolution": "Tasks and FreeBusy fetch/body reads terminate even if native abort is ignored. Queue/credential/API budgets and late-result fences are tested. Page checkpoint transactions preserve progress; caller timeout does not claim that SQLite or OS background execution was forcibly stopped."
+    },
+    {
+      "id": "Q02",
+      "title": "Q02｜Googleの保留購入取消し時のexpiryTime欠落F08はPENDING_PURCHASE_CANCELEDをexpiredへ写像し、expiryTimeがなければ",
+      "status": "verified-existing",
+      "resolution": "A canceled pending Google purchase without expiryTime already returns expired/0 and grants no access. Added regression also rejects wrong account and active records without expiry. No additional behavior change needed."
+    },
+    {
+      "id": "Q03",
+      "title": "Q03｜対応範囲より新しいDBバージョンを、そのまま受け入れるmigrations.tsのrunMigrationはuser_version >= CURRENT_SCHEMA_VERSIONで成功終了",
+      "status": "fixed-local",
+      "resolution": "Future SQLite schema versions are refused before connection/schema mutations; current schemas avoid repeated migration writes."
+    },
+    {
+      "id": "Q04",
+      "title": "Q04｜ネイティブの別接続経路を、単一接続の試験だけでは確認できない",
+      "status": "verified-android-ios-expo-js-and-android-jni",
+      "resolution": "Independent file-backed Node WAL, Android JNI4 and separate empty-sandbox physical Android10/iPhone12 Release Hermes/Expo SQLite3.53.3 JS tests pass. Both OS6 cases verify data_version, concurrent read/write isolation, stale WAL rejection, readonly peer, application exclusive rollback and captured-owner final fence. Disposable DBs and newly owned test apps removed; normal app/data retained. iOS harness entry/scene/output issues retained as failed harness trials, not product passes. Test output JSX differs from earlier Android source pin; storage logic/6 assertions identical. No whole-app security or Firebase revocation proof."
+    },
+    {
+      "id": "Q05",
+      "title": "Q05｜TasksのDELETEに対する条件付き要求の実挙動TaskにETagがあることと、Tasksの性能ガイドが条件付き更新の考え方を説明することは公式本",
+      "status": "verified-live-google-android",
+      "resolution": "Physical Android10 same-signer provider-only probe used the existing native Tasks grant. A unique synthetic list/task was completed between GET and stale If-Match DELETE: actual HTTP412 and completion preservation. Fresh ETag DELETE204 and identity-checked synthetic-list cleanup both passed. No credentials or provider bodies left the device. tasks-conditional-live-android-v7.log. This proves provider enforcement, not R66 two-phone synchronization."
+    },
+    {
+      "id": "Q06",
+      "title": "Q06｜別のroster更新で古くなった復旧確認を中断できるか不具合としては保留。confirmInsideは状態の鮮度を確かめる前にmarkConfirmingを保存する。",
+      "status": "fixed-local",
+      "resolution": "Reproduced with two independently persisted owner sessions through public recovery APIs and real Firestore, without administrative data edits: one pending confirmation was blocked after the other recovery advanced the roster. Verify the current signed snapshot/key/witnesses before locally cancelling an obsolete uncommitted review; recognize a matching lost-ACK commit as applied instead. Current cloud locks, accepted recovery and original evidence remain intact. Fresh reviews are not marked confirming before their full comparison succeeds."
+    },
+    {
+      "id": "Q07",
+      "title": "Q07｜許容サイズ内PDFのBase64検査で例外。ただし指定ランタイムの確認は未完了",
+      "status": "fixed-local",
+      "resolution": "Full 6 MiB Base64 PDF reproduction overflowed the old grouped regex. Linear character validation plus canonical decode/encode now accepts the limit and rejects malformed encoding."
+    },
+    {
+      "id": "Q08",
+      "title": "Q08｜選択地域と端末のタイムゾーンが異なる場合の「同じ日」の意味",
+      "status": "verified-local-current-weather-contract",
+      "resolution": "The adopted MET provider preserves actual forecast instants instead of assigning daily summaries to another timezone. Independent Tokyo/Honolulu owner civil-day fixture proves the same Japanese forecast moves only the wet Tokyo slot, without changing dates or inventing a conversion. New regression passes. Actual provider deployment and physical weather checks remain separate pending work."
+    },
+    {
+      "id": "Q09",
+      "title": "Q09｜削除した実施回の復旧導線は製品仕様の",
+      "status": "proposal-unadopted",
+      "resolution": "Restoring Google-only deleted recurrence instances as a new UI action is an unadopted product proposal. The user rejected added confirmation operations; keep the proposal documented. Existing explicitly authorized resets and receipt-backed export recovery remain covered; unknown external histories stay held instead of being overwritten."
+    },
+    {
+      "id": "Q10",
+      "title": "Q10｜確認後に増えた例外まで全体リセットする契約の確認",
+      "status": "fixed-local",
+      "resolution": "Series resets must match the exception IDs captured when reviewed; newly arrived exceptions are not silently cleared."
+    },
+    {
+      "id": "Q11",
+      "title": "Q11｜競合・受付待ちを除外した同期の「成功」をどう表示するか",
+      "status": "fixed-local",
+      "resolution": "Private export inputs explicitly retain receipt/conflict blockers without a delete instruction. Eligible independent events still send, pending stays true and full-sync timestamp is not advanced while any source is blocked. Signed SQLite receipt/conflict/resolution tests and runtime tests pass; pending UI no longer promises an unresolved version will send on the next attempt."
+    },
+    {
+      "id": "Q12",
+      "title": "Q12｜Googleアカウントの明示的な再接続契約",
+      "status": "fixed-local",
+      "resolution": "Ordinary ON/OFF and background sync remain bound to the saved Google subject. Existing connection-change action can explicitly prepare another native account even while OFF; returned calendar/account review, current subject and control CAS are verified before rebinding. Old account/target links remain private and reusable on return. Both OS callback tests and runtime tests passed; no real account was changed."
+    },
+    {
+      "id": "Q13",
+      "title": "Q13｜複数端末・Google側変更後の復旧方針S01の初期Google IDは利用者・グループ・Googleアカウント・追加先・元予定IDから決まる。",
+      "status": "partially-fixed-local",
+      "resolution": "Verified receipted historical series projections permit safe ETag adoption/rebase after another device export, including a lost rebase reply and a newer pending source without rollback. Unknown Google-only edits/deletions and individual-instance histories remain held; independent records continue. A new user overwrite/restore UI is not adopted. Actual-service/two-physical-device verification remains."
+    },
+    {
+      "id": "R01",
+      "title": "R01｜共有スケジューラーの契約不一致でCIが停止",
+      "status": "fixed-local",
+      "resolution": "Finished optimistic completion screen wiring and upgraded the formal contract to draft 48. Compatibility checks pass locally; whole-task release and physical-device verification remain pending."
+    },
+    {
+      "id": "R02",
+      "title": "R02｜古い購入記録の照会失敗が有効な新規購入も止める",
+      "status": "fixed-local",
+      "resolution": "Retire terminal Google refresh pointers while preserving permanent purchase ownership; recognize only documented terminal 410 responses."
+    },
+    {
+      "id": "R03",
+      "title": "R03｜契約機能の初期化失敗後に再初期化できない",
+      "status": "fixed-local",
+      "resolution": "Failed auth initialization releases its observer and can restart."
+    },
+    {
+      "id": "R04",
+      "title": "R04｜秘密情報のチャンク削除失敗を成功扱いし、孤立データが残る",
+      "status": "fixed-local",
+      "resolution": "Protected cleanup journal survives partial deletion and interrupted replacements; committed saves remain readable."
+    },
+    {
+      "id": "R05",
+      "title": "R05｜購入承認の再試行を利用者の再接続だけに依存させない",
+      "status": "fixed-local-deployment-required",
+      "resolution": "Google pending acknowledgements are persisted in the grant transaction and retried by a bounded leased server job. Restart, lost reply, concurrent workers and revoked-purchase regressions pass locally. Managed scheduling and real store tests await store/project setup."
+    },
+    {
+      "id": "R06",
+      "title": "R06｜202応答後の解析をプロセス内だけで実行する",
+      "status": "fixed-local-deployment-required",
+      "resolution": "Public HTTP admission now commits encrypted uploaded input and quota atomically and never starts post-response analysis. Independent worker uses recoverable pre-paid leases, an at-most-once paid-start fence, durable result settlement, exact quota refunds, recent worker heartbeat admission gate and redacted failure events. Dedicated AES-256-GCM keyring stays outside Firestore and fails closed when missing; no real key, worker scheduler, public native attestation or deployment configured."
+    },
+    {
+      "id": "R07",
+      "title": "R07｜通知予約枠の省略を呼び出し元へ返していない",
+      "status": "fixed-local",
+      "resolution": "Notification reconciliation returns counts for accepted/unchanged/cancelled, deadline, permission and capacity exclusions. A typed failure carries partial counts and the original cause. Shared reminders and daily digests preserve these results without adding banners or changing cross-scope authority."
+    },
+    {
+      "id": "R08",
+      "title": "R08｜依存関係の警告とバックポートの有効性を分けて検査する",
+      "status": "fixed-local",
+      "resolution": "Inventory and behavior tests cover every resolved installed glob/minimatch copy; API audit clean, root has 22 moderate version advisories and no high/critical. Backport testing is not an advisory withdrawal."
+    },
+    {
+      "id": "R09",
+      "title": "R09｜検証と保存の間の競合で契約revisionが巻き戻る",
+      "status": "fixed-local",
+      "resolution": "Serialize entitlement acceptance per account and refuse revision rollback."
+    },
+    {
+      "id": "R10",
+      "title": "R10｜失効情報の保存失敗で古い利用許可が残る",
+      "status": "fixed-local",
+      "resolution": "A verified denial locks immediately; failed protected writes retain denial in memory and attempt removal of the old grant. Total secure-storage failure remains an explicit durability limit."
+    },
+    {
+      "id": "R11",
+      "title": "R11｜商品カタログの一時障害が新規購入を固定的に止める",
+      "status": "fixed-local",
+      "resolution": "Retry product catalogue after recovery without dropping purchase observation or paid receipts."
+    },
+    {
+      "id": "R12",
+      "title": "R12｜未来の端末時刻が保存され、時計修正後も契約がロックされる",
+      "status": "fixed-local",
+      "resolution": "A verified fresh HTTPS response repairs future wall-clock poisoning; offline certificates cannot roll the trusted clock back."
+    },
+    {
+      "id": "R13",
+      "title": "R13｜古い購入要求のcatchが別アカウントのbusyを解除する",
+      "status": "fixed-local",
+      "resolution": "Bind purchase callbacks and UI updates to the exact login session, including A-B-A switches."
+    },
+    {
+      "id": "R14",
+      "title": "R14｜AppleのTEST通知を正規の疎通確認として受理できない",
+      "status": "fixed-local",
+      "resolution": "Verified Apple TEST notification accepts an omitted transaction; application and environment checks remain mandatory."
+    },
+    {
+      "id": "R15",
+      "title": "R15｜取消し後の再完了で、取り消した実施日が状態に復活する",
+      "status": "fixed-local",
+      "resolution": "Immutable completion/undo actions retain causal parent sequences and local-date/timezone metadata. Both undo orders, same-day redo, original anchor restoration, travel, Google undo and transactional rollback pass."
+    },
+    {
+      "id": "R16",
+      "title": "R16｜別接続で更新済みでも、古い入力から計算した計画を保存できる",
+      "status": "fixed-local",
+      "resolution": "Read inputs bind SQLite data_version; schedule diff, derived state repairs and calendar signature commit in one guarded read/write transaction. Changed inputs or SQLITE_BUSY_SNAPSHOT retry from fresh inputs; weather discards stale results."
+    },
+    {
+      "id": "R17",
+      "title": "R17｜失敗した完了操作が128件に達すると、新しい操作を受け付けない",
+      "status": "fixed-local",
+      "resolution": "Failed durable completion requests retain the original identity and can be retried after storage recovery; protected persistence and real Home/Calendar screen wiring are covered."
+    },
+    {
+      "id": "R18",
+      "title": "R18｜Calendarの新規作成応答を失うと、その後の端末編集を上書きし得る",
+      "status": "fixed-local",
+      "resolution": "Personal Calendar persists exact outbound payload and revision before HTTP, recovers only observed receipts and keeps later edits/deletions separate. SQLite restart and uncommitted/third-party cases covered."
+    },
+    {
+      "id": "R19",
+      "title": "R19｜個人Tasksの復旧が名前・日付の照合に依存し、変更後に重複や誤対応を生む",
+      "status": "fixed-local",
+      "resolution": "Personal and v2 adapters durably reserve non-idempotent Tasks inserts before HTTP. Stable occurrence markers recover lost responses after rename/move. A missing/uncertain result is held without another POST; other occurrences continue. Recorded links remain fenced across concurrent SQLite connections and reopening; only explicit rejection or confirmed exact-ID deletion reopens creation. Cross-device creation remains R66."
+    },
+    {
+      "id": "R20",
+      "title": "R20｜古い一覧の未完了判定で、直前に完了したTasksを削除し得る",
+      "status": "fixed-local-and-real-provider-verified",
+      "resolution": "Fresh GET plus strong ETag / exact If-Match gates DELETE; unsafe or missing ETags and HTTP412 preserve mappings. Affected mocks and actual Android Google synthetic-list probe passed, including an intervening completion, stale412, preserved completion, fresh204 and isolated cleanup. Q05 now verified; unrelated shared synchronization remains separately pending."
+    },
+    {
+      "id": "R21",
+      "title": "R21｜処理待ちの繰返し例外が先頭26件を占めると、後続の例外を取り込めない",
+      "status": "fixed-local",
+      "resolution": "Persist waiting-instance retry order, alternate bounded batches, keep unresolved state pending, and recover late/cancelled masters. Real SQLite negative tests pass."
+    },
+    {
+      "id": "R22",
+      "title": "R22｜鍵更新の再試行が別の鍵を「確定済み」と扱い、端末の復号を止め得る",
+      "status": "fixed-local",
+      "resolution": "Membership idempotence verifies the accepted snapshot and exact owner key envelope/manifest, not only the roster. Distinct keys under the same roster are rejected by the real Cloud test."
+    },
+    {
+      "id": "R23",
+      "title": "R23｜古い参加申請を拒否するために、別グループの所属情報を読もうとして失敗する",
+      "status": "fixed-local",
+      "resolution": "Owner rejection reads only the authorized invitation request and leaves another group membership untouched; Rules still deny cross-group membership reads."
+    },
+    {
+      "id": "R24",
+      "title": "R24｜参加申請を先頭100件で打ち切り、不正申請に埋もれた正規申請を表示できない",
+      "status": "fixed-local",
+      "resolution": "Validated request pagination and restart cursors cover 99/100/101 rows. Invalid records cannot hide a valid later request or appear as an empty queue; failed page/deletion retains retry state."
+    },
+    {
+      "id": "R25",
+      "title": "R25｜復旧証拠の取得が時間切れになると、再試行しても最初からやり直す",
+      "status": "fixed-local",
+      "resolution": "Recovery originals, quarantine and receipt stages survive process/SQLite reopen with no cursor/outbox advancement before complete verification. Both isolated real Cloud tests and local 6-case attacks pass; immutable original protection survives fresh preparation IDs."
+    },
+    {
+      "id": "R26",
+      "title": "R26｜履歴の期限削除を一度適用すると、通常のログ圧縮と旧鍵の掃除へ進まなくなる",
+      "status": "fixed-local",
+      "resolution": "Certified retention no longer bypasses ordinary snapshot/key maintenance. Compaction keeps the post-cut protection boundary and ordinary no-retention compaction."
+    },
+    {
+      "id": "R27",
+      "title": "R27｜WALの切詰め結果を読まず、削除後処理の未完了を検知できない",
+      "status": "fixed-local",
+      "resolution": "Read TRUNCATE checkpoint outcome, keep a durable local pending marker on BUSY/unknown failure, and retry after the reader releases its WAL snapshot. Two-connection file-backed regression passes."
+    },
+    {
+      "id": "R28",
+      "title": "R28｜初回端末設定が既存の設定と衝突すると、通常の端末承認画面へ戻れなくなる",
+      "status": "fixed-local",
+      "resolution": "An explicitly reviewed existing-device pairing reference can retire only a conflicting unaccepted public proposal after verifying server root/account/revision. Protected trust, keys, ciphertext and lost-acceptance recovery remain guarded."
+    },
+    {
+      "id": "R29",
+      "title": "R29｜自動同期が時間切れを返しても、端末設定の取得が続き、取得停止の操作が待たされる",
+      "status": "fixed-local",
+      "resolution": "One automatic deadline and abort signal fence device setup, paginated authority reads, key delivery and subsequent SDK operations. A 201-revision regression stops before the next page and permits source disabling."
+    },
+    {
+      "id": "R30",
+      "title": "R30｜未来の実施回に付けた完了記録が、予定日を迎える前に履歴削除される",
+      "status": "fixed-local",
+      "resolution": "Adopted specification supersedes personal raw-history deletion: raw facts/actions remain for learning and undo; normal snapshot reads use a one-month window plus future early completions. Shared retention is unchanged."
+    },
+    {
+      "id": "R31",
+      "title": "R31｜保存済みの初回予定が、新しく設定した依存順序を無視して残る",
+      "status": "fixed-local",
+      "resolution": "Changing dependencies clears only automatically generated pending first dates of the successor and its transitive descendants. Existing completed anchors, history and unrelated first dates survive; cycles roll back. Repository regressions pass."
+    },
+    {
+      "id": "R32",
+      "title": "R32｜契約復帰後に、古い停止処理がウィジェットをロックし直す",
+      "status": "fixed-local",
+      "resolution": "Widget lock/publication share operation ordering and generation guards; a delayed lock read cannot overwrite renewed content. Native output signature follows an actual accepted write."
+    },
+    {
+      "id": "R33",
+      "title": "R33｜日付が変わっても、前日の内容を「今日の家事」と表示し続ける",
+      "status": "fixed-local",
+      "resolution": "Snapshots carry their local day/content deadline, iOS publishes a midnight stale entry independently of billing expiry, and both layouts/gesture handlers reject old-day content. OS redraw timing still needs native observation."
+    },
+    {
+      "id": "R34",
+      "title": "R34｜Androidのウィジェット完了保存が契約確認より先に行われる",
+      "status": "fixed-local-current-android-widget-verified",
+      "resolution": "Android writes only a private durable accepted-input queue off the broadcast thread. Authorized JS rechecks entitlement/account/household/exact occurrence around the common atomic completion, history and Google intent transaction. Exact operation receipt prevents replay after Undo. Kotlin Release compilation passed; physical interaction pending. Android10 physical system-SQLite test found execSQL(PRAGMA busy_timeout) fails; rawQuery correction and stale household/occurrence fencing passed all 45 isolated native assertions. Actual home-screen interaction remains pending. Actual normal v12 launcher row was tapped once: one widget completion fact/input receipt and no pending native input, then normal Home Undo restored0 completed facts without database edits. See widget-v12-android-before/after/after-undo logs. No immediate-render or background execution claim."
+    },
+    {
+      "id": "R35",
+      "title": "R35｜ウィジェット公開失敗が上位へ伝わらず、同じ内容の再試行が省略される",
+      "status": "fixed-local",
+      "resolution": "Widget publication failures propagate to the refresh controller while preserving the usable planner; identical cached content retries. Publication and notification failures are isolated."
+    },
+    {
+      "id": "R36",
+      "title": "R36｜Google同期後の再公開が、未保存のiOSウィジェット完了操作を消し得る",
+      "status": "fixed-local-current-ios-widget-restart-undo-verified",
+      "resolution": "iOS durable file journal is independent of timeline props, uses process/file locks plus atomic protected writes, and acknowledges only IDs already committed to SQLite. Native read/write failure retains inputs. A real Swift multiple-process regression passed; Expo Widgets native compilation passed for arm64/x86_64 iOS Simulator; physical checks pending. Normal iOS v12 actual launcher widget tap opens app; real app restart preserves exact completed chore and normal Home Undo restores pending. XCTest15.121s plus UI hierarchy8/1->8/0; no direct DB edit. Not natural background proof."
+    },
+    {
+      "id": "R37",
+      "title": "R37｜通知取消しの1件の失敗が、残りの取消しとウィジェット停止まで止める",
+      "status": "fixed-local",
+      "resolution": "Notification cancellations continue after individual failures; widget locking is independent. Failed cleanup retries with bounded delays and on foreground resume, using current subscription/account and shared native output ordering."
+    },
+    {
+      "id": "R38",
+      "title": "R38｜再利用された受付IDが保存されず、通信再試行で別の解析が開始される",
+      "status": "fixed-local",
+      "resolution": "Permanent minimal admission receipts bind reused requests to the original job, including force/non-force aliases. A lost reply or expired result cannot create a second paid call for the same admission."
+    },
+    {
+      "id": "R39",
+      "title": "R39｜個人家電の再解析が、確認画面を経ずに現在のグループへの共有保存へ進む",
+      "status": "proposal-rejected",
+      "resolution": "User rejects additional appliance sharing confirmation. Preserve automatic sharing; commit/retry defects remain tracked by R40."
+    },
+    {
+      "id": "R40",
+      "title": "R40｜共有保存が確定した後の個人コピー失敗を、共有保存の失敗として返す",
+      "status": "fixed-local",
+      "resolution": "Shared review success is returned independently from personal retention. Pending copy status is visible and existing replica facts/fingerprints allow retry on sync/restart without another review or paid analysis; account changes still reject the returned data."
+    },
+    {
+      "id": "R41",
+      "title": "R41｜共有解析の個人コピー後、表示する予定周期と実際の計算周期が食い違う",
+      "status": "fixed-local",
+      "resolution": "Appliance details separate current maker analysis from the registered personal-mode cycle, including retained settings and user override; signed retention and actual scheduler regressions pass."
+    },
+    {
+      "id": "R42",
+      "title": "R42｜比較元の取得失敗を「過去の契約なし」として互換性比較を省略する",
+      "status": "fixed-local",
+      "resolution": "Only a proven missing historical Git path counts as first release; unreadable commit/JSON fails closed."
+    },
+    {
+      "id": "R43",
+      "title": "R43｜reset-projectが必須スクリプトを移動・削除したまま起動可能と案内する",
+      "status": "fixed-local",
+      "resolution": "Removed the unused destructive template reset command and its dedicated script; no source-reset execution was performed."
+    },
+    {
+      "id": "R44",
+      "title": "R44｜家電情報の更新後に、天気キャッシュが古い画面データを返す",
+      "status": "fixed-local",
+      "resolution": "Metadata-only appliance refresh updates the existing weather assessment result without recalculation, expiry extension or loss of retained metadata."
+    },
+    {
+      "id": "R45",
+      "title": "R45｜欠測した予報を15分キャッシュし、1分後の再評価でも取得し直さない",
+      "status": "fixed-local",
+      "resolution": "Usable complete forecasts retain the ordinary TTL. Empty, missing-day and all-null HTTP successes use the same 60-second retry lifetime as the planner, retaining request coalescing and immutable returned values. Real provider/optimizer/SQLite recovery tests pass."
+    },
+    {
+      "id": "R46",
+      "title": "R46｜取消ボタンが操作不能な間にも6.5秒の期限が進む",
+      "status": "fixed-local",
+      "resolution": "Shared completion Undo expiry pauses during an unrelated serialized mutation; queued Undo keeps the same durable target."
+    },
+    {
+      "id": "R47",
+      "title": "R47｜未取得の月の非表示例外を、通常表示として補完してしまう",
+      "status": "fixed-local",
+      "resolution": "Shared Calendar distinguishes unknown waste occurrence coverage from known absent/hidden collections and never guesses exception state outside the prepared range."
+    },
+    {
+      "id": "R48",
+      "title": "R48｜保持した共有設定の再試行で、選択済みの適用開始日が変わる",
+      "status": "fixed-local",
+      "resolution": "Retained shared setting drafts capture their effective date before enqueue and preserve it through failure, refresh and editor recreation."
+    },
+    {
+      "id": "R49",
+      "title": "R49｜保存中の周期を保持する初期化で、表示値だけが古い周期に戻る",
+      "status": "fixed-local",
+      "resolution": "Reset previews are reconciled with the accepted serialized save while retaining per-field edits made after the reset."
+    },
+    {
+      "id": "R50",
+      "title": "R50｜部分保存後の破棄・再読込みで、端末への未反映が隠れる",
+      "status": "fixed-local",
+      "resolution": "Account-scoped protected projection journal persists both bases and the exact intended rhythm before dual saves; recreated editors resume only the remaining CAS apply and reject concurrent or foreign edits."
+    },
+    {
+      "id": "R51",
+      "title": "R51｜初回設定の確定後、読込み失敗を理由に初期化を再実行できる",
+      "status": "fixed-local",
+      "resolution": "After durable first setup, display failures retry reading only; transaction setup completion guard prevents replaying obsolete choices."
+    },
+    {
+      "id": "R52",
+      "title": "R52｜古い既存予定の下書きが、再読込み後も編集を塞ぐ",
+      "status": "fixed-local",
+      "resolution": "A stale recurring draft can be explicitly discarded by exact compare-and-delete without removing another occurrence or a newer draft; fresh revision remains editable."
+    },
+    {
+      "id": "R53",
+      "title": "R53｜共有予定の保存後に下書き削除が失敗すると、再試行で予定を重複作成する",
+      "status": "fixed-local",
+      "resolution": "Calendar mutation receipts commit with signed facts and Outbox. Retry identity is persisted before shared commit, cleanup failure is reported separately, and compare-and-delete preserves a newer draft. Both native screen adapters tested with real SQLite."
+    },
+    {
+      "id": "R54",
+      "title": "R54｜表示地域へ変換した予定が時刻順に並び直されない",
+      "status": "fixed-local",
+      "resolution": "Display-timezone conversion is followed by stable chronological sorting without mutating source events."
+    },
+    {
+      "id": "R55",
+      "title": "R55｜夏時間の時刻異常で元の地域表示が欠ける",
+      "status": "fixed-local",
+      "resolution": "DST gap/fold warnings retain the original timezone and describe why the original time cannot be placed."
+    },
+    {
+      "id": "R56",
+      "title": "R56｜例外リセット後に、上書き済みの古い個別変更が復活する",
+      "status": "fixed-local",
+      "resolution": "Resolve maximal causal exception heads before reset filtering, preventing superseded edits from reappearing."
+    },
+    {
+      "id": "R57",
+      "title": "R57｜親予定の削除後も個別競合が残り、表示された採用操作が拒否される",
+      "status": "fixed-local",
+      "resolution": "Deleted/conflicted series do not advertise impossible exception-resolution controls."
+    },
+    {
+      "id": "R58",
+      "title": "R58｜競合候補の差分が表示されず、内容を見分けずに採用することになる",
+      "status": "fixed-local",
+      "resolution": "Existing conflict candidates expose relevant differing location, notes, recurrence, category and timezone in the review."
+    },
+    {
+      "id": "R59",
+      "title": "R59｜作成結果が未確定のまま編集・削除すると、Google出力が収束しない",
+      "status": "fixed-local",
+      "resolution": "Shared export persists an unconfirmed intent before HTTP in private SQLite; exact insert/patch receipts are recovered before later edits or deletion, with target and authority fencing. Additional regressions prove previous authorized series rebasing without stale rollback; per-record permanent conflict does not block independent output."
+    },
+    {
+      "id": "R60",
+      "title": "R60｜遠くへ移動した実施回を元の日付付近で探し、再編集・削除できなくなる",
+      "status": "fixed-local",
+      "resolution": "Recurring copies resolve by verified known ID or originalStart rather than the occurrence current time range, retaining series timezone identity."
+    },
+    {
+      "id": "R61",
+      "title": "R61｜リセット後に全体を再編集すると、未送信の例外リセットが出力候補から落ちる",
+      "status": "fixed-local",
+      "resolution": "Export includes still-relevant reset anchors from accepted series ancestry after subsequent series edits. Signed real SQLite regression passed."
+    },
+    {
+      "id": "R62",
+      "title": "R62｜個別回の削除前ETagを復元に使い、412から進めない",
+      "status": "fixed-local",
+      "resolution": "Restoring an explicitly reset occurrence uses its verified current cancelled-state ETag; a subsequent confirmed external edit remains a conflict."
+    },
+    {
+      "id": "R63",
+      "title": "R63｜書込み可能な権限を持つカレンダーが共有出力先から欠落する",
+      "status": "fixed-local",
+      "resolution": "Shared target selection uses the common write-role predicate and preserves visibility and access guards."
+    },
+    {
+      "id": "R64",
+      "title": "R64｜削除した完了済みタスクが2回目の同期で再作成される",
+      "status": "fixed-local",
+      "resolution": "Completed Google deletions retain their exact private link across repeats and repository restart; an explicit new incomplete revision can recreate the task."
+    },
+    {
+      "id": "R65",
+      "title": "R65｜名称更新の応答で未取込みの取消しを確認済みにし、次回に上書きする",
+      "status": "fixed-local",
+      "resolution": "Title/due response statuses inconsistent with the local state cannot advance the acknowledged status baseline before import; signed undo and real SQLite regressions cover both batch paths."
+    },
+    {
+      "id": "R66",
+      "title": "R66｜2端末の同時作成で実施回マーカーが重複し、再同期でも残る",
+      "status": "fixed-local-and-isolated-cloud-android-existing-list-verified-two-phone-pending",
+      "resolution": "Owner-only Firestore CAS now arbitrates the shared Google list itself before per-occurrence claims. Two independent SQLite clients starting with no list create one list and the same three Google Task IDs. Only hashes are stored; canonical identity survives renames. Unknown POST outcomes remain held; conflicting old lists are never silently deleted. Normal physical Android v28 and v29 keep the same existing23 IDs, zero duplicates or missing links. Full current v29 unit3442 and isolatedCloud153 pass. Actual fresh cross-phone provider creation and iOS natural delivery remain pending."
+    }
+  ],
+  "verification": {
+    "subscriptionAndVaultTests": {
+      "passed": 53,
+      "failed": 0,
+      "scope": "local real-signature and mocked native/Firestore boundary tests; actual store purchase not configured"
+    },
+    "lint": "passed after first batch; rerun at completion",
+    "typecheck": "passed after first batch; rerun at completion",
+    "dependencyAudit": {
+      "root": {
+        "high": 0,
+        "critical": 0,
+        "moderate": 22
+      },
+      "server": {
+        "total": 0
+      },
+      "note": "Version-based alerts include glob/minimatch backports; full resolved-copy behavior audit remains pending."
+    },
+    "regionalWeather": {
+      "status": "deployed-real-provider-and-android-acquisition-verified-placement-final-pending",
+      "report": "docs/security/weather-regional-cache-2026-11-05.md",
+      "schemaVersion": 27,
+      "municipalityTests": 6,
+      "regionalCacheTests": 13,
+      "focusedWeatherEarlier": 70,
+      "settingsOperationTests": 2,
+      "cloudCases": 4,
+      "nativeBundle": [
+        "ios",
+        "android"
+      ],
+      "realMetRequests": 1,
+      "deployed": true,
+      "remaining": [
+        "physical iOS acquisition and final personal/shared weather placement acceptance"
+      ],
+      "operatorContactConfigured": true,
+      "actualProvider": "Finite MET200/224 intervals; naturally scheduled Cloud13101/221 and retry13104/218; normal Android okhttp HTTPS200 and local224-interval cache. No weather-driven movement inferred."
+    },
+    "ownerAdaptiveInputs": {
+      "status": "locally-integrated-final-native-pending",
+      "direct": "15 PASS: owner-bridge-final-direct-tests.log",
+      "nativeDelivery": "6 PASS: owner-bridge-native-delivery-recheck.log",
+      "priorBoundaries": "52 PASS before final transaction-publication guards: owner-bridge-delivery-boundaries.log",
+      "privateApplianceReset": "Related58 had57 PASS; adopted-spec expectation updated and its1 test PASS in private-appliance-reset-autosave-final.log. New actual repository nonperiodic reset test passes.",
+      "remaining": "Final physical UI, performance, real-service and overall acceptance.",
+      "privateCalendar": "Fresh, owner-bound exact intervals plus source coverage now feed actual private geometry; stale/missing/unreadable configured sources stay unknown. Native subscription, expiry and final protected-cache recheck prevent late publication.",
+      "capacity": "Optional per-date holidays/workdays and day/global minute budgets now autosave in rhythm settings, with serialized protected revision, legacy-editor preservation, encryption roundtrip and anonymous SQLite CAS/rollback.",
+      "latestFocused": "27 PASS: owner-capacity-final-area.log; native calendar source5 PASS earlier in owner-private-calendar-bridge.log; private editor/rhythm/sync related55 PASS: owner-capacity-affected-boundaries.log. These overlap prior checkpoints.",
+      "widget": "Android10/API29 physical isolated Release Kotlin audit67 PASS; real Swift cross-process journal + serialized callback checks24 PASS. Final home-screen widget UI still pending."
+    },
+    "tasksConditionalDelete": {
+      "unit": "45 PASS: tasks-conditional-delete-unit.log",
+      "probeUnit": "2 PASS: tasks-conditional-probe-unit.log",
+      "realService": "Android10 provider-only synthetic list: stale If-Match DELETE412, completed state retained, fresh204, exact-owned cleanup. tasks-conditional-live-android-v7.log"
+    }
+  },
+  "updatedOn": "2026-11-06",
+  "validationNote": "Local tests are not physical-device, store-purchase or deployed-cloud verification; the full task remains incomplete.",
+  "lastValidation": {
+    "fullSuite": {
+      "total": 3048,
+      "passed": 3048,
+      "failed": 0,
+      "log": "/tmp/liflow-resume-20261104/full-unit-ai-q06-q11-q12.log",
+      "scope": "Before server-input AES encryption; includes R06 worker, Q06, Q11, Q12 and catalog/model formulas. Final whole-app run intentionally deferred until all work completes."
+    },
+    "cloud": {
+      "tests": 118,
+      "passed": 118,
+      "failed": 0,
+      "scope": "isolated local Auth/Firestore emulators; no production writes"
+    },
+    "lint": "passed for full code before AES addition; changed server/API files passed focused ESLint afterward",
+    "typecheck": "passed; subsequent changes are server-only JavaScript",
+    "native": "Physical devices rediscovered; revised-build native checks pending",
+    "privateCalendar": {
+      "total": 224,
+      "passed": 224,
+      "failed": 0,
+      "log": "/tmp/liflow-resume-20261104/private-calendar-all-latest.log"
+    },
+    "widget": {
+      "total": 49,
+      "passed": 49,
+      "failed": 0,
+      "log": "/tmp/liflow-resume-20261104/widget-current.log",
+      "nativeObserved": false
+    },
+    "targetedCloud": {
+      "total": 47,
+      "passed": 47,
+      "failed": 0,
+      "log": "/tmp/liflow-resume-20261104/cloud-regressions-latest.log"
+    },
+    "efficiency": {
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "log": "/tmp/liflow-resume-20261104/efficiency-latest.log"
+    },
+    "fullCloud": {
+      "total": 131,
+      "passed": 131,
+      "failed": 0,
+      "log": "/tmp/liflow-resume-20261104/cloud-ai-q06-q11-q12.log",
+      "scope": "Full isolated local Auth/Firestore suite before server-input AES encryption; no production writes."
+    },
+    "notification": {
+      "log": "/tmp/liflow-resume-20261104/notification-latest.log",
+      "note": "targeted suite passed; final whole-app run pending"
+    },
+    "backgroundOutcomes": {
+      "log": "/tmp/liflow-resume-20261104/worker-outcomes.log",
+      "note": "30 tests passed including 11 waiting/received/disabled cases; physical OS scheduling not observed in resumed run"
+    }
+  },
+  "remainingMajorWork": [
+    "v32 iPhone natural worker aggregate-domain acceptance after ordinary foreground recovery of a saved Tasks error; actual natural C/U send and receive already measured separately on v31",
+    "final evidence reconciliation and private origin/main publication after the four requested physical gates; current whole check3452 and isolated Cloud153 PASS",
+    "public AI attestation/worker operational configuration and store purchase validation require actual service/store configuration and are outside this current four-gate acceptance",
+    "additional startup optimization remains deferred by owner; one-second target is not established"
+  ],
+  "latestValidation": {
+    "cloud": {
+      "total": 131,
+      "passed": 131,
+      "failed": 0,
+      "log": "/tmp/liflow-resume-20261104/cloud-ai-q06-q11-q12.log",
+      "scope": "Full isolated local Auth/Firestore suite before server-input AES encryption; no production writes."
+    },
+    "unit": {
+      "total": 3048,
+      "passed": 3048,
+      "failed": 0,
+      "log": "/tmp/liflow-resume-20261104/full-unit-ai-q06-q11-q12.log",
+      "scope": "Before server-input AES encryption; includes R06 worker, Q06, Q11, Q12 and catalog/model formulas. Final whole-app run intentionally deferred until all work completes."
+    },
+    "dependencyWeather": {
+      "passed": 55,
+      "failed": 0
+    },
+    "recoveryProgress": {
+      "passed": 6,
+      "failed": 0
+    },
+    "lint": "passed for full code before AES addition; changed server/API files passed focused ESLint afterward",
+    "typecheck": "passed; subsequent changes are server-only JavaScript",
+    "recoveryCloud": {
+      "passed": 11,
+      "failed": 0,
+      "log": "/tmp/liflow-resume-20261104/r25-cloud-latest.log"
+    },
+    "nativeWidget": {
+      "android": "Release Kotlin compile PASS",
+      "ios": "ExpoWidgets iOS Simulator arm64/x86_64 build PASS",
+      "physical": "not yet run in this resumed change",
+      "swiftConcurrentJournal": "PASS, separate real processes; exact acknowledgement preserves all 32 newer writes",
+      "androidSystemSQLite": "PASS: Sony I4293 Android10/API29, actual Release-compiled Kotlin in isolated audit APK, 45 checks; no LiFlow DB opened. Home-screen Widget integration still pending.",
+      "releaseApk": "Pre-PRAGMA-correction APK quarantined outside checkout; fresh full APK build required before any LiFlow install."
+    },
+    "privateAuthority": {
+      "passed": 33,
+      "failed": 0,
+      "log": "/tmp/liflow-resume-20261104/private-authority-regressions.log"
+    },
+    "selectedWidget": {
+      "passed": 35,
+      "failed": 0,
+      "log": "/tmp/liflow-resume-20261104/widget-complete-selected.log"
+    },
+    "paidAnalysis": {
+      "unitPassed": 67,
+      "unitFailed": 0,
+      "unitLog": "/tmp/liflow-resume-20261104/analysis-queue-encryption.log",
+      "cloudPassed": 14,
+      "cloudFailed": 0,
+      "cloudLog": "/tmp/liflow-resume-20261104/cloud-ai-encryption.log",
+      "focusedLint": "passed",
+      "scope": "Encrypted input and worker boundary; synthetic PDFs and synthetic secret keys, no real OpenAI or public deployment."
+    }
+  },
+  "adaptiveImplementation": {
+    "status": "active-private-catalog-and-appliance-adapter-local-verification-native-pending",
+    "models": "Six model/threshold regressions passed.",
+    "history": "Eleven ordered replay regressions + six model regressions pass, including same-day first-forecast carry only through a surviving round lineage. Raw shared physical completion is separate from personal learning.",
+    "placement": "Thirteen placement tests pass including stable initial seeding, first30-day search then one-cycle extension, first-generation light-load distribution, and frozen today/tomorrow handling.",
+    "remaining": "Protected date-override/minute-limit settings and UI; private Calendar cache freshness bridge; final native UI/Release/performance and final unit/isolated Cloud acceptance. MET operator configuration and real service validation remain.",
+    "sqlite": "Schema25 and the actual repository jointly save ordered completion/settings/Undo, model, frozen display plan, next-round cache and Google pending status. Reanalysis starting-value changes begin an ordered new learning generation. Ordinary rendering reads the saved model/plan join and cannot create forecasts or a new cycle.",
+    "catalog": "Personal default initialization now uses catalog6, removes approved old built-in private settings/history without a guessed mapping, keeps unrelated custom/appliance data and opaque obsolete Google mappings. Eight basic jobs are initially selected; further and split jobs remain available after setup. Shared catalog and frozen Scheduler1 are unchanged.",
+    "repository": "Five actual repository tests PASS: no fake history/repeated future cards, read/date no retraining, next-round cache immediately committed, 60-day learning from actual completion callbacks, exact Undo preserving a later4000-day fixed policy, stale same-clock Undo rejected, and injected final-write failure rolls back history/model/plan together.",
+    "geometry": "Exact private calendar intervals and opaque aggregate-only FreeBusy fallback are wired to the active private planner. Independent winter/summer fixed rounds, long-retained overdue home/widget commands and seasonal notifications use distinct stable work identities. Unknown appliance times remain null with conservative date-only placement, not a fabricated duration."
+  },
+  "testingPolicy": {
+    "duringWork": "changed-area regressions only; proceed after they pass",
+    "atCompletion": "full required suite, lint and typecheck",
+    "authorizedByUserOn": "2026-11-05"
+  },
+  "catalogImplementation": {
+    "status": "active-personal-runtime-local-checks-pass-native-pending",
+    "recipes": 81,
+    "initialEnabled": 8,
+    "source": "docs/specifications/housework-catalog-2026-11-04.md",
+    "testsPassed": 5,
+    "log": "/tmp/liflow-resume-20261104/personal-catalog-initial-tests.log",
+    "remaining": "Final native visual and interaction acceptance and final regression/performance tests. Owner/shared-load, protected time-zone/preferences and regional-weather input bridges are implemented with affected local tests; real MET configuration/service checks remain.",
+    "activation": "The adopted81-row specification is bundled; available non-collection definitions seed private catalog6. An individual split selection atomically disables its aggregate/alternative without erasing settings/history or inventing siblings. Conflicting bulk activation rejects before any commit. Initial setup offers eight basic jobs. Learned cadence is a derived snapshot field used by both private and shared-mode personal guides/settings, never a fixed override."
+  },
+  "deviceReadiness": {
+    "xcodeWorkspace": "ios/LiFlow.xcworkspace",
+    "destination": "pon (iPhone12)",
+    "xcodeVisible": true,
+    "physicalIphoneAvailable": null,
+    "passwordPromptObserved": false,
+    "note": "Canonical Xcode workspace/schemeLiFlow/physical pon destination visible. Initial physical Release build, signature and preserving install passed; iOS rejects both app and runner as untrusted Developer App. Same valid signing certificate confirmed; user device trust operation requested. No iOS UI PASS.",
+    "latest": "iPhone physical work explicitly deferred for unplugging by owner; current installed v12, v13 ready locally only. Android normal v13 remains available.",
+    "iosDeveloperTrust": "resolved-current-v8-release-and-xctest-pass"
+  },
+  "latestTasksValidation": {
+    "partialResponse": "42 passed",
+    "createIntentAndV2Migration": "62 passed before final independent-connection regression",
+    "intentAndTimeout": "/tmp/liflow-resume-20261104/tasks-intent-timeout-final.log",
+    "scope": "Only affected tests during work; final full suite pending",
+    "databaseVersion": 25,
+    "freshRead": "20 reconciliation regressions passed: tasks-obsolete-fresh-read.log"
+  },
+  "adaptiveValidationCurrent": {
+    "pureHistoryAndModels": "17 passed: adaptive-history-unit-forecast.log",
+    "placement": "11 passed: adaptive-placement-user-holiday.log",
+    "catalogAndSqlite": "16 passed: personal-catalog-nonperiodic-store.log",
+    "personalAutosave": "30 passed: personal-cycle-no-cap.log",
+    "fullSuite": "Not repeated during ongoing work; final full suite pending as instructed.",
+    "placementAndIsolatedStore": "23 passed: adaptive-initial-placement.log",
+    "calendarGeometry": "9 passed: adaptive-calendar-geometry.log",
+    "schema25": "storage migrations + isolated adaptive store passed: adaptive-schema25.log",
+    "plannerContext": "6 passed: adaptive-planner-context.log",
+    "actualRepository": "5 passed: adaptive-main-repository.log",
+    "legacyRepositoryBoundary": "planner-repository and settings-autosave passed: adaptive-repository-legacy-boundaries.log",
+    "googleBoundary": "actual adaptive repository + Google Calendar integration passed: adaptive-repository-google-boundary.log",
+    "catalogActivation": "Personal-catalog-storage3 + actual default-catalog repository12 and source-spec7 tests; see catalog-active-repository.log, catalog-contract-adoption.log and appliance-adaptive-integration.log.",
+    "seasonal": "Pure policy7 and SQLite5 passed earlier; actual repository now checks separate seasonal complete/Undo, no name-only shared seasonal mirroring, separate overdue command keys and exact selected work.",
+    "appliance": "Actual appliance numeric periods with documented or unknown work time learn from14 to60 days. Reanalysis21-day starting-value event and Undo preserve later policy; 10000-day explicit fixed cycles accepted, explicit equal-to-maker cycle stays fixed. 84/87 affected checks passed then the3 old duplicate SQLite harness failures were corrected by reusing the actual shared NodeSQLite fixture; the17 affected placement/appliance repository cases passed. Logs appliance-adaptive-integration.log, appliance-adaptive-boundaries-recheck.log.",
+    "scope": "Only affected suites run during work. Final full unit/Cloud acceptance and final native delivery are pending.",
+    "lint": "Affected catalog/seasonal/UI lint and typecheck passed; appliance-adaptive-lint.log and appliance-adaptive-typecheck-final.log. Registry464/Cloud93 references and frozenShared1/unpublishedShared2draft48 digests checked."
+  },
+  "catalogTestCompatibility": "Historical bulk Google Tasks and frozen Scheduler/journal tests now explicitly install a frozen fixture instead of treating the current shipped private catalog as old36. Actual new initialization/round/state/UI tests use the production catalog6 entry point. Private old-default migration preservation/provisional-cycle contracts were replaced because the user adopted the new destructive catalogue/nonperiodic specification; shared legacy catalog upgrade tests remain.",
+  "googleSyncContinuation": {
+    "schemaVersion": 26,
+    "document": "docs/security/google-sync-recovery-2026-11-05.md",
+    "tasksBudgetAndReservationChecks": "71 passed: tasks-unsent-reservations.log",
+    "tasksCacheChecks": "12 passed: tasks-cache-clock-recovery.log",
+    "calendarAdaptiveChecks": "45 passed: adaptive-mirror-semantic-input-final.log",
+    "sharedExportChecks": "38 passed: shared-google-proof-recovery-final.log",
+    "fullSuite": "Not rerun during ongoing work, as instructed. Final full unit/Cloud/native validation pending.",
+    "nativeSource": "No build/install/launch in this resumed section. Xcode physical destination pon was prepared earlier."
+  },
+  "startupContinuation": {
+    "status": "in-progress-not-within-one-second",
+    "source": "docs/security/startup-performance-2026-11-05.md",
+    "affectedChecks": "Changed-area checks passed before moving to final acceptance; current full3272 unit and142 isolated Cloud tests, lint and typecheck PASS.",
+    "releaseTrace": "Current Android v7 normal Release, TRACE=0/NO_CACHE=0; 696 client inputs verified before/after build; signature and preserving install verified. Includes latest source. Final current iOS normal build in progress.",
+    "observations": "Cold saved-home first-frame host observations: baseline3141/3186/3192ms, initial optimized3043/3015/2967ms, second optimized3213/2824/2793ms. These are not chore tap acknowledgement or one-second PASS. First no-usable-cache launch previously24953ms after JS begin.",
+    "runtimeChanges": [
+      "Google Tasks and Calendar automatic observers wait for the existing local planner read and a frame; backgrounded/departed scopes cannot start late",
+      "Owner home/calendar composition reuses a plan after protected cache, account and independent SQLite version rechecks; silent drift rejects/recomputes",
+      "Saved encrypted presentation bypasses only the optional signature memo initialization; normal live reads still initialize it and authenticate",
+      "Home projects only today and this/next week from a wider cached month; same within-range rows/counts and caller isolation",
+      "Metro preserves Expo transform defaults and enables inlineRequires; explicit background registration/owner setup side-effect imports remain"
+    ],
+    "ios": "Initial Release installed without data reset; app and XCTest runner launch blocked by iOS developer trust. New incremental normal build passes but is not the final current source. User action requested.",
+    "nativeInteraction": "v4 normal awake UI3/3 PASS: OS firstdraw2298/2235/2295ms, actual accessible chore3174/3089/3094ms, accessibility lookup757/754/702ms, tap→guide1570/1563/1554ms. One-second target not met. Separate no-cache diagnostic before v4 had31224/31090/31122ms and is not current final performance.",
+    "observationLimit": "Earlier JS first-frame runs did not pin/log screen-on state in every trial. They do not prove tap readiness or a rigorous before/after improvement; actual awake accessibility runs are recorded separately.",
+    "latestAffected": "40 day-boundary/private settings,116 timezone stress,17 startup frame/lifecycle tests PASS; no whole-suite run. Owner local planner restoration now waits for a display frame before heavy validation; latest defer is not yet native measured.",
+    "proofResponsiveness": "v6 diagnostic actual Sony3 read-only cold navigation passes after12s observation:tap→guide567/570/527ms. Last run timestamps overlap a complete v2.operationProofs interval; first two were stopped by the following cold launch and have no completed interval. Source still predates latest display-only waste wiring. Startup remains~3.1s, not one-second PASS.",
+    "latestNormalNative": {
+      "status": "normal-release-readonly-navigation-pass-performance-incomplete",
+      "artifact": "liflow-current-v7-normal-arm64.apk",
+      "sha256": "26c066722c2c07c2ede60263c5d98c11fe71c7a699c2c27423e78e5c211ee83b",
+      "clientInputCount": 696,
+      "trace": false,
+      "noCache": false,
+      "preservingInstall": true,
+      "signature": "matches existing signer",
+      "log": "startup-v7-normal-interaction.log",
+      "runs": 3,
+      "launchToChoreAvailableMs": [
+        3228,
+        3134,
+        3098
+      ],
+      "tapToExplanationMs": [
+        1595,
+        1587,
+        1554
+      ],
+      "limit": "Read-only UI navigation is successful. One-second startup is not met; metrics include accessibility query overhead. No completion or setting was changed."
+    }
+  },
+  "googleTaskClaimContinuation": {
+    "status": "fixed-local-cloud-rules-deployed-final-native-pending",
+    "report": "docs/security/google-tasks-cross-device-2026-11-05.md",
+    "affectedUnitPass": 64,
+    "isolatedCloudPass": 7,
+    "deployedRulesSha256": "1db27c3788a01bf0c8c3880fdbc05bbdb01a95f01ddd34db5768361198c22f51",
+    "rulesReadback": "2026-11-05T03:21:33.305Z",
+    "limitations": [
+      "Two independent real Firestore/SQLite sessions pass with synthetic provider; actual two-phone concurrent create not yet verified",
+      "Normal Android v12 and iOS v12 include fix and each synchronizes24 tasks with its own account; same-owner concurrent create remains unverified.",
+      "Unknown or lost grant acknowledgements stay held; no elapsed-time retry"
+    ],
+    "paidAccessRegression": "Missing, expired and foreign entitlement deny reads/reserve/release; grace permits access without granting another reservation."
+  },
+  "indexDeploymentContinuation": {
+    "checkedAt": "2026-11-05T03:32:39.341Z",
+    "sourceSha256": "6c02fb4a6f87b2ef44fa2f131a04227ff4d523ddd7adb607a3aa803ee4d9ff70",
+    "compositeState": "READY",
+    "preExistingOverridesPreserved": 5,
+    "fieldOverridesNow": 10,
+    "emptySyntheticGroupReadOnlyQueryAccepted": true,
+    "noDocumentWrites": true
+  },
+  "catalogDisplayOnlyContinuation": {
+    "status": "implemented-affected-tests-pass-final-native-pending",
+    "authorizedBy": "Adopted2026-11-02 catalog specification: collection reminders have no completion checks",
+    "change": "Home and personal/shared Calendar show reminders without visibility checkboxes. Hidden occurrences stay hidden in ordinary views. Existing hide/show, conflict resolution and Undo remain in waste management. Removed the now-unused home/calendar mutation hook. No chore completion, learning or schedule round is created by collection visibility.",
+    "checks": "waste-display-only-affected.log48PASS across real SQLite and both native screen adapters",
+    "contractUpdate": "Renamed the old waste-occurrence-checkboxes acceptance contract to display-only reminders and management exceptions; kept recurrence, hidden dates, failed-write retry, duplicate input and Undo coverage."
+  },
+  "finalVerificationCurrent": {
+    "status": "Code checks passed; both normal34 installed preserving data, ordinary foreground recovery and final iPhone natural receipt observed; aggregate Calendar pending remains explicit",
+    "unit": {
+      "pass": 3477,
+      "failed": 0,
+      "skipped": 0
+    },
+    "cloud": {
+      "pass": 153,
+      "failed": 0,
+      "skipped": 0
+    },
+    "lint": "PASS",
+    "typecheck": "PASS",
+    "android": {
+      "candidate": "normal-v34",
+      "dataPreserved": true,
+      "normalHomeAndFourTabs": true,
+      "providerTasks": 25,
+      "matched": 25,
+      "missing": 0,
+      "duplicate": 0,
+      "oldTimeoutStateRecoveredByForegroundAction": true,
+      "calendarForegroundRecovered": true,
+      "finalCuRestoredProvider25": true
+    },
+    "ios": {
+      "signedCandidate": "normal-v34",
+      "installedCandidate": "normal-v34",
+      "nativeSectionsVerified": 57,
+      "dataPreserved": true,
+      "naturalObservationInProgress": false,
+      "normalAppOpenedDuringObservation": false,
+      "normalHomeAndFourTabs": true,
+      "smokeEvidence": "docs/qa-assets/google-tasks-2026-11-06/ios-v34-normal-smoke.json",
+      "naturalCompleteAndUndoReceive": "PASS, worker65, accepted durable sequences444/445",
+      "naturalEvidence": "docs/qa-assets/google-tasks-2026-11-06/natural-v34-worker65.json"
+    },
+    "overallAcceptance": false,
+    "evidence": "docs/qa-assets/google-tasks-2026-11-06/full-regression-v34.json",
+    "report": "docs/physical-convergence-2026-11-06.md",
+    "testCampaignComplete": true,
+    "overallAcceptanceMeaning": "All background domains complete in the same natural callback; remains false due the public holiday provider feed requiring foreground repair. This is not a product-wide release approval.",
+    "githubPublishedWhenCaptured": false,
+    "publication": {
+      "target": "https://github.com/ponkichi1552/LiFlow",
+      "branch": "main",
+      "capturedBeforePublication": true,
+      "ci": "The published commit and its own GitHub Actions runs are authoritative; earlier CI is not reused."
+    }
+  },
+  "cloudHostingContinuation": {
+    "projectBillingBeforeSignup": false,
+    "accessibleBillingAccountsBeforeSignup": 0,
+    "ownerChoice": "existing Google Cloud",
+    "ownerReportedBillingRegistrationComplete": true,
+    "projectLinkAndReadback": "live billingEnabled verified; existing project used",
+    "browser": "Chrome4 tab1952457805, marked handoff; no payment data handled by agent",
+    "billing": "verified-enabled-existing-project",
+    "weatherHttps": "deployed-conditional-read-passed",
+    "weatherWorker": "natural-scheduled-acquisition-and-delayed-retry-success-verified",
+    "privateDatabaseBoundary": "live-runtime-identity-named-database-write-pass-private-default-read-denied",
+    "serviceAccountKeysCreated": 0
+  },
+  "continuedNativeObservation20261105": {
+    "completed": false,
+    "androidSharedTasks": {
+      "release": "normal v10",
+      "result": "success",
+      "created": 24,
+      "updated": 0,
+      "imported": 0,
+      "readOnlyDatabase": {
+        "status": "idle",
+        "errorCode": "",
+        "links": 24
+      },
+      "evidence": "/tmp/liflow-resume-20261104/android-real-tasks-sync-v10-result.log",
+      "limits": "No timing, iOS concurrency or natural-background success implied."
+    },
+    "ownerInputReadRecovery": {
+      "status": "fixed-current-android-cold-settings-no-manual-retry",
+      "affectedTestsPassed": 37,
+      "attemptLimit": 2,
+      "scope": "Typed captured-input drift during a read only; revoked content is discarded, stale work cannot publish.",
+      "build": "normal v11 and v12 Android confirmed; final both-platform acceptance pending",
+      "sqliteWidgetRelatedPass": 6
+    },
+    "regionalRetry": {
+      "regionId": "jp-municipal.13104",
+      "result": "ready-after-natural-retry",
+      "checkedAt": "2026-11-05T06:11:02.899Z",
+      "intervals": 218,
+      "httpsStatus": 200,
+      "earlierFailures": 2,
+      "earlierHttpStatus": "unobserved",
+      "evidence": "/tmp/liflow-resume-20261104/weather-shinjuku-natural-retry-observation.json"
+    },
+    "finalSuiteRequiredAfterCurrentEdits": false,
+    "personalSettingsMetadata": {
+      "status": "implemented-tested-current-normal-both-os-settings-navigation-verified",
+      "affectedStorageAndBehaviorTestsPassed": 100,
+      "newMetadataTestsPassed": 5,
+      "scope": "One joined readonly independent connection; no planner/history/OAuth prerequisite for metadata; protected account rhythm still waits for verified owner.",
+      "androidColdSettingsMs": [
+        6319,
+        6374,
+        7026
+      ],
+      "previousNormalV11Ms": [
+        35349,
+        34974,
+        34807
+      ],
+      "limits": "Accessibility observation includes automation overhead. Remaining account settings gate and one-second launch target are not solved. Further startup optimization deferred by owner."
+    },
+    "expoNativeConnectionBoundary": {
+      "status": "android-jni-and-hermes-js-verified-ios-deferred",
+      "sqliteVersion": "3.53.3",
+      "casesPassed": 4,
+      "existingDatabaseOpened": false,
+      "mainApplicationStarted": false,
+      "disposableDatabaseCleaned": true,
+      "evidence": "expo-sqlite-physical-connections-v5.log",
+      "earlierHarnessFailures": "v1-v3 loader initialization errors; v4 incorrectly expected returned error instead of official Expo SQLiteErrorException. Kept failures; v5 verifies exact native error code and connection closure.",
+      "canonicalRunner": "tests/native/android/run-expo-sqlite-connections-audit.py",
+      "canonicalRun": "PASS; exact installed APK hash and new helper package checked,4 native cases, original app/data preserved, helper removed",
+      "jsAsyncCasesPassed": 6,
+      "jsEngine": "Hermes",
+      "jsHarness": "tests/native/expo-sqlite/connections-app.tsx",
+      "jsEvidence": "sqlite-js-isolated-result.json / sqlite-js-isolated-artifact.json",
+      "jsTestPackage": "separate network-disabled applicationId; main app remains backgrounded",
+      "jsScope": "Actual source wrapper and a synthetic captured-input invalidation, not a live Firebase revocation experiment."
+    },
+    "ownerScopeUpdate": {
+      "date": "2026-11-05",
+      "startupOptimization": "deferred after current settings metadata change; owner reviewing alternatives in regular chat",
+      "continue": "storage, synchronization, security and other remaining fixes"
+    },
+    "iosSharedTasks": {
+      "release": "normal v12",
+      "result": "success",
+      "created": 24,
+      "updated": 0,
+      "imported": 0,
+      "screenLastSync": "11/5 16:05",
+      "evidence": "tasks-v12-ios-sync-result.json",
+      "limits": "Existing reviewed iOS identity, different from current Android Google identity. Not same-account R66 concurrency or natural background."
+    },
+    "normalIosV12": {
+      "clientInputs": 699,
+      "artifactFiles": 260,
+      "codesignVerified": true,
+      "preservingInstall": true,
+      "settingsAndGoogleNavigation": "passed after external helper brought navigation button fully into visible interior",
+      "firstAutomationFailure": "Initial test tapped an expanding-edge control and remained on Settings; preserved failure, no app code changed to force PASS."
+    },
+    "androidWidgetInteraction": {
+      "release": "normal v12",
+      "source": "actual launcher widget row",
+      "completedFactsBefore": 0,
+      "completedFactsAfter": 1,
+      "acceptedInputReceiptsAfter": 1,
+      "pendingNativeInputsAfter": 0,
+      "displayAfterSettling": "8 total /1 complete",
+      "undoSource": "normal Home exact completed-row checkbox",
+      "completedFactsAfterUndo": 0,
+      "acceptedInputReceiptsAfterUndo": 2,
+      "pendingNativeInputsAfterUndo": 0,
+      "limits": "No instant UI, duration, shared completion or natural background proof. Private pending state restored through normal Undo; no database edit.",
+      "launcherAfterUndo": "Both original rows unchecked after normal planner publication; final-launcher-ui.xml retained"
+    },
+    "iosWidgetInteraction": {
+      "status": "normal-v12-actual-widget-complete-restart-undo-pass",
+      "ownerAction": "Owner added actual system widget after XCTest Home-button transition attempts could not reach launcher icons.",
+      "tap": "Exact observed incomplete row tapped once; normal app foregrounded. test passed3.017s.",
+      "restart": "Normal app terminated/relaunched; exact private chore restored completed,8 total/1 complete; normal checkbox Undo restored pending,8 total/0 complete. Test passed15.121s.",
+      "evidence": [
+        "widget-v12-ios-current-home.log",
+        "widget-v12-ios-complete-tap.log",
+        "widget-v12-ios-restart-undo.log"
+      ],
+      "limits": "XCTest/UI acceptance, not direct raw SQLite dump, background OS run or speed guarantee. No data reset or database edit."
+    },
+    "additionalSettingsOwnerClock": {
+      "status": "reproduced-both-os-then-fixed-local",
+      "failureBefore": "Two real settings/autosave regressions saved Nov5 from the unfinished root/device clock instead of Nov4 in verified Honolulu preferences. early-settings-owner-date-before.log retained.",
+      "resolution": "Expose current verified protected preference timezone through existing rhythm source; account settings computes its civil date from that same source, including resumed publications. No additional auth/store read, timer or startup gate change.",
+      "affectedTestsPassed": 46,
+      "evidence": "early-settings-owner-date-affected.log",
+      "native": "Normal Android v13 preserving install and3 cold read-only Settings flows PASS; iPhone v13 acceptance deferred by owner."
+    },
+    "ownerDeviceScopeUpdate": {
+      "date": "2026-11-05",
+      "ios": "Resumed explicitly by owner on2026-11-05 after reconnection. Wired, paired, unlocked, Developer Mode enabled. v13 preserving update and current Settings/Calendar/guide route tests passed; further iOS security/background acceptance remains.",
+      "continue": "Android and code/security regression work"
+    },
+    "normalIosV13LocalBuild": {
+      "clientInputs": 699,
+      "artifactFiles": 260,
+      "codesignVerified": true,
+      "trace": false,
+      "noCache": false,
+      "installed": true,
+      "reason": "Owner reconnected and resumed iPhone tests. Source699/artifact260 hashes and codesign verified before preserving update.",
+      "settingsGoogleNavigation": "XCTest PASS15.689s, read-only connection observation; no account replacement or sync action",
+      "calendarGuideNavigation": "XCTest PASS42.509s: initial month,1day/2day/list, expansion, guide and all4 tabs/back; screenshots inspected.",
+      "evidence": [
+        "ios-v13-preserving-install.json",
+        "ios-v13-settings-review-20261105.log",
+        "ios-v13-routes-20261105.log"
+      ]
+    },
+    "androidPersonalCalendarRoundTrip": {
+      "release": "normal v13",
+      "groupJoined": true,
+      "newEventAudience": "personal",
+      "nativeStartChange": "09:00→19:00 preserved one-hour duration; saved end20:00 verified after reopen",
+      "outgoingGoogleGet": 200,
+      "remoteConditionalPatch": 200,
+      "remoteChangedTimes": "19:15–20:15",
+      "incomingNormalUi": "Same exact owned event reopened with changed start/end and private audience",
+      "normalUiDelete": true,
+      "providerDeleted": true,
+      "providerDeletionGetStatus": 200,
+      "providerDeletionState": "cancelled",
+      "finalLocalRevision": 3,
+      "finalSyncedRevision": 3,
+      "finalPending": false,
+      "finalConflict": false,
+      "ownedSyntheticEventCleaned": true,
+      "evidence": "docs/security/calendar-native-2026-11-05.md",
+      "limits": "One real-service event; not all recurrences, cross-OS concurrency, natural background or speed proof. Tokens/IDs/provider bodies remain on phone."
+    },
+    "androidNaturalBackgroundCurrent": {
+      "status": "natural-worker-execution-confirmed-enabled-domain-sync-pending",
+      "release": "normal v13",
+      "baselineFile": "/tmp/liflow-resume-20261104/background-v13-android-observation.json",
+      "lastAuditRunBefore": 66,
+      "note": "Native logs, current v13 APK/source and readonly Release audit agree. Both enabled domains returned pending; framework SUCCESS is not all-domain sync success. No synthetic pending user change was added; no iPhone operation or Git publication.",
+      "naturalRunAuditId": 67,
+      "startedAt": "2026-11-05T08:42:32.605000+00:00",
+      "finishedAt": "2026-11-05T08:43:05.208000+00:00",
+      "elapsedMs": 32603,
+      "domains": {
+        "sharing": "pending",
+        "personalGoogleCalendar": "pending"
+      },
+      "overallSyncCompletionConfirmed": false,
+      "actualChangeDeliveryVerified": false,
+      "evidence": "background-v13-android-result.json",
+      "laterNaturalRuns": [
+        {
+          "id": 69,
+          "startedAt": "2026-11-05T10:47:41.397000+00:00",
+          "sharing": "success",
+          "personalGoogleCalendar": "pending"
+        },
+        {
+          "id": 68,
+          "startedAt": "2026-11-05T09:46:44.884000+00:00",
+          "sharing": "success",
+          "personalGoogleCalendar": "pending"
+        }
+      ],
+      "laterProgressSummary": {
+        "inboxReady": 0,
+        "inboxWaiting": 0,
+        "pendingExpansions": 0,
+        "pendingWrites": 0,
+        "conflictLinks": 0,
+        "cursorsWithPage": 1,
+        "cursorsWithSync": 2,
+        "calendarsRemaining": 1
+      },
+      "laterEvidence": [
+        "background-v13-later-jobs-20261105.txt",
+        "background-v13-later-filtered-native.log",
+        "background-v13-later-native-audit.json",
+        "background-v13-progress-native-audit.json"
+      ],
+      "laterLimits": "Earlier aggregate progress counts covered all DB subjects. Audit70 matched natural OS execution and both enabled domains completed with current-owner pending counts0. No synthetic mutation, real change/undo delivery, same-owner two-phone convergence or iOS background proof. Completion occurred on original v13, before later cancellation fix was delivered.",
+      "finalNaturalRun": {
+        "id": 70,
+        "startedAt": "2026-11-05T11:49:24.935Z",
+        "finishedAt": "2026-11-05T11:50:16.758Z",
+        "durationMs": 51823,
+        "release": true,
+        "sharing": "success",
+        "personalGoogleCalendar": "success",
+        "personal": "skipped",
+        "privateCalendar": "skipped",
+        "nativeLogMatched": true,
+        "mainApplicationStartedByProbe": false,
+        "workerForced": false
+      },
+      "currentOwnerProgress": {
+        "scope": "current-control-subject",
+        "lastSyncAt": "2026-11-05T11:49:35.691Z",
+        "calendarCount": 3,
+        "syncCursors": 3,
+        "pageCursors": 0,
+        "calendarsRemaining": 0,
+        "inboxReady": 0,
+        "inboxWaiting": 0,
+        "pendingExpansions": 0,
+        "pendingWrites": 0,
+        "conflictLinks": 0,
+        "evidence": "background-v13-progress-owner-native-audit.json / background-v13-final-filtered-native.log"
+      }
+    },
+    "iosCurrentResume20261105": {
+      "status": "normal-v13-preserving-update-and-two-readonly-routes-pass",
+      "mainBundle": "jp.jphacks.tkb2633",
+      "dataReset": false,
+      "newCalendarEvent": false,
+      "completionMutation": false,
+      "limits": "No Google two-way live change, same-owner two-phone concurrency,1s latency or OS background execution proof.",
+      "isolatedSqlite": {
+        "status": "PASS",
+        "checks": 6,
+        "hermes": true,
+        "sqliteVersion": "3.53.3",
+        "cleaned": true,
+        "normalLiFlowRetained": true,
+        "evidence": "sqlite-js-isolated-ios-result.json / ios-sqlite-after-cleanup-apps.json",
+        "limits": "Empty separate sandbox; no real account revocation or normal business DB opened. Earlier harness failures retained; output-only TSX differs from Android pin."
+      }
+    },
+    "backgroundDiagnosticClassification": {
+      "status": "reproduced-and-fixed-local-native-update-pending",
+      "reproduced": "Both OS screens labeled a framework-success row complete despite two pending domains; failing regression retained.",
+      "fix": "Derive visible status from all4 domain outcomes; unknown/unrecorded/pending are never complete, all-skipped is no sync target. Stored audit rows and synchronization behavior unchanged.",
+      "affectedTestsPassed": 36,
+      "lint": "PASS",
+      "typecheck": "PASS",
+      "registry": "480 contracts/104 Cloud references PASS",
+      "evidence": "background-diagnostics-before-fix.log / background-diagnostics-affected-final.log",
+      "deliveredToPhones": true,
+      "deliveredToAndroidV14": true,
+      "androidPreservingInstall": "owner-v14-android-preserving-install.json",
+      "iOSV14": "build in progress; normal iPhone remains v13",
+      "nativeAndroidVerification": {
+        "status": "PASS",
+        "readOnly": true,
+        "rows": "audit70 complete;69/68/67/66 pending",
+        "evidence": "owner-v14-android-diagnostics-ui.json / owner-v14-android-diagnostics.png",
+        "earlierHarnessLimit": "First capture exposed only top visible row; scrolled and verified pending rows; no storage assertion changed."
+      },
+      "iOSV15": "preserving install and diagnostic screen PASS; native payload reused from verified v13 with current production Hermes"
+    },
+    "calendarNativeCancellation": {
+      "status": "reproduced-and-fixed-local-native-update-pending",
+      "beforeFixFailures": 4,
+      "affectedTestsPassed": 129,
+      "lint": "PASS",
+      "typecheck": "PASS",
+      "deliveredToPhones": true,
+      "evidence": "docs/security/calendar-native-cancellation-2026-11-05.md",
+      "limits": "Does not identify the cause of earlier Android pending. Real SQLite unknown-POST recovery verified locally; new real provider interruption test not claimed.",
+      "deliveredToAndroidV14": true,
+      "androidPreservingInstall": "owner-v14-android-preserving-install.json",
+      "iOSV14": "build in progress; normal iPhone remains v13",
+      "iOSV15": "preserving install and diagnostic screen PASS; native payload reused from verified v13 with current production Hermes"
+    },
+    "calendarIdentityCancellation": {
+      "status": "reproduced-fixed-local-current-native-candidate-building",
+      "cases": [
+        "initial guard",
+        "transaction-entry identity",
+        "uncommitted page final identity fence"
+      ],
+      "beforeFix": "All3 cases plus parent test failed; identity never returned by deadline",
+      "affectedTestsPassed": 98,
+      "lint": "PASS",
+      "typecheck": "PASS",
+      "guarantee": "Only readonly native identity awaits race deadline; wait for SQLite rollback before queue release, late reply cannot commit, next synchronization recovers",
+      "evidence": "calendar-identity-budget-before-fix.log / calendar-identity-budget-affected-final.log",
+      "nativeDelivered": true,
+      "deliveredToAndroidV15": true,
+      "iosDelivery": "verified production Hermes over v13 native; preserving install and read-only native screen PASS",
+      "crossDomainValidation": {
+        "passed": 61,
+        "failed": 0,
+        "skipped": 0,
+        "evidence": "calendar-identity-cross-domain.log",
+        "scope": "Calendar integration/loopback plus native shared Google/workspace acceptance; separate from98 changed-area tests and older full3294"
+      },
+      "deliveredToIosV15": true
+    },
+    "currentNativeCandidate": {
+      "version": "v15",
+      "clientInputs": 699,
+      "status": "both physical normal v15 installed with data preserved; affected UI smoke PASS",
+      "androidInstalled": "v15",
+      "iosInstalled": "v15",
+      "v14IosIntermediate": "cancelled safely before native install to include reproduced coordinator fix; not a successful build or product failure",
+      "androidEvidence": "owner-v15-android-preserving-install.json / owner-v15-android-home-smoke.json",
+      "iosBuildMethod": "Full native rebuild deliberately cancelled before install; only4TS source changes, native/config/assets/dependencies unchanged. Re-export current production Hermes JS over independently verified full v13 native copy, then existing certificate resign/deepverify. Do not claim full v15 native Xcode build PASS.",
+      "iosArtifact": "startup-v15-ios-artifact.json",
+      "iosNativePayloadSectionsUnchanged": 57,
+      "iosBundledPinnedSources": 638,
+      "iosNativeRebuildPassed": false,
+      "iosPhysicalVerification": {
+        "passed": true,
+        "test": "testCurrentReleaseBackgroundDiagnosticsReadOnly",
+        "durationSeconds": 13.364,
+        "source4ChangedModulesVerified": true,
+        "nativeSectionsUnchanged": 57,
+        "dataReset": false,
+        "testHostAbsentAfter": true,
+        "evidence": "owner-v15-ios-preserving-install.json / owner-v15-ios-diagnostics-test.log / owner-v15-ios-diagnostics-attachments",
+        "limits": "Not1s launch timing, current-v15 OS background execution, live deliberate provider interruption or same-owner two-phone synchronization. Oldv14 attachment label is historical only."
+      }
+    }
+  },
+  "accountSelectionFollowup": {
+    "status": "v18-live-connection-user-confirmed-two-device-followup",
+    "userDecision": "Use Android current Google account on both phones",
+    "relatedTests": 201,
+    "lint": "PASS",
+    "typecheck": "PASS",
+    "registryFeatures": 482,
+    "registryCloudTests": 104,
+    "fullSuiteAfterSelection": {
+      "passed": 3343,
+      "failed": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "log": "final-v18-unit-20261105.log"
+    },
+    "normalDevicesCurrently": {
+      "android": "v18",
+      "ios": "v18"
+    },
+    "candidateClientInputs": 703,
+    "dataReset": false,
+    "published": false,
+    "androidPreservingInstall": "v18 PASS",
+    "iosPreservingInstall": "v18 PASS",
+    "iosNativeReuseVerifiedSections": 57,
+    "accountChanged": "Explicit common Gmail selection performed; successful Google Tasks connection confirmed by user",
+    "testsE2E": "pending-new-account-membership-and-live-sync",
+    "v17": {
+      "accountArchive": "Tasks mappings/state and legacy busy-day cache retained per Google subject; pending create intents untouched",
+      "calendarControls": "Saved per Google subject; restoring advances generation and retains cursors/pending edits/imported events",
+      "sameAccount": "keeps workspace selection",
+      "ui": "shared operation lock and same-user settings refresh",
+      "nativeStatus": "not delivered yet",
+      "lint": "PASS",
+      "typecheck": "PASS",
+      "requiredContracts": "PASS",
+      "schedulerContracts": "PASS"
+    },
+    "v18": {
+      "settingsGenerationFence": "PASS both OS screen regression; no broad planner-event reload",
+      "localBatching": "100 rows; <=900 bind parameters per restore statement",
+      "relatedTests": 201,
+      "latestNarrowRecheck": 38,
+      "lint": "PASS zero warnings",
+      "typecheck": "PASS",
+      "native": {
+        "androidPreservingInstall": "PASS",
+        "androidLaunchSmoke": "PASS",
+        "ios": "PASS preserving install; deep signature, profile,703 inputs,57 native payload sections match original native build",
+        "sourceInputs": 703,
+        "iosConnection": "User performed Google connection successfully; independently observed Tasks接続済み. The earlier OCR timeout is not a failed app login."
+      },
+      "fullSuite": "3343 PASS",
+      "androidIdentityMapping": "Installed Nitro library prefers uniqueId/JWT sub, so Google subject matches Firebase google.com provider UID across OS; no native change required",
+      "evidence": [
+        "owner-v18-android-preserving-install.json",
+        "owner-v18-android-launch-smoke.json",
+        "owner-v18-ios-preserving-install.json",
+        "step011-ios.xcresult",
+        "step012-ios.xcresult"
+      ]
+    }
+  },
+  "sameAccountGroupRestore": {
+    "status": "verified-both-physical-release-auto-restore-and-restart",
+    "unitPass": 3370,
+    "cloudPass": 151,
+    "lintWarnings": 0,
+    "typecheck": "PASS",
+    "nativeVersion": 19,
+    "nativeSourcePins": 709,
+    "physicalAutoRestore": {
+      "version": 19,
+      "android": "preserving-install-and-normal-launch-PASS",
+      "ios": "preserving-install-and-normal-launch-PASS",
+      "signedRosterRevisionBefore": 10,
+      "signedRosterRevisionAfter": 11,
+      "sameAccountDevicesBefore": 1,
+      "sameAccountDevicesAfter": 2,
+      "ownerUnchanged": true,
+      "sponsorWasApproved": true,
+      "targetIsNew": true,
+      "distinctDeviceKeys": true,
+      "recipientSignedAck": "acknowledged-after-durable-keys-and-registry-activation",
+      "invitationOrOwnerApprovalUsed": false,
+      "renderAndRestart": "PASS Android10 and iPhone12/iOS26.7.2 normal Release v19",
+      "signedAckGrantDeleted": true,
+      "rosterStableAfterBothRestarts": 11,
+      "cryptographicRosterTransitionVerified": true
+    },
+    "serviceDeployed": true,
+    "productionRulesReadback": "034af937493e67ea2c13ec7a16c08b6118929343a9cf944924ab44850dcc5e0b",
+    "evidence": "/tmp/liflow-resume-20261104/auto-account-device-checkpoint-20261106.md",
+    "gitPublished": false,
+    "uiObstruction": {
+      "xctest": "step017 and step018 each failed before test body: UI automation initialization timeout; iPhone Home and restart verified through QuickTime USB screen instead",
+      "deviceHub": "physical phone View Screen unavailable: requires iOS27 or above; physical phone is iOS26.7.2"
+    },
+    "evidenceFiles": [
+      "account-device-real-roster-proof.json",
+      "account-device-request-observation-current.json",
+      "owner-v19-android-preserving-install.json",
+      "owner-v19-ios-preserving-install.json",
+      "step017-ios.log",
+      "account-device-real-after-restarts.json",
+      "auto-account-device-v19-android-restart-proof.json",
+      "auto-account-device-v19-ios-visual-restart-proof.json"
+    ],
+    "limits": [
+      "Existing approved same-account device must become available to supply encrypted keys; no private-key escrow",
+      "One account4-device limit preserved",
+      "No natural background or R66 Tasks simultaneous-create pass inferred",
+      "Other prior audit tasks remain pending; no Git commit/push"
+    ],
+    "installedSourcePinsFinalCheck": {
+      "count": 709,
+      "allMatch": true
+    }
+  },
+  "physicalConvergence20261106": {
+    "candidate": "normal-v34",
+    "completed": true,
+    "report": "docs/physical-convergence-2026-11-06.md",
+    "unitPass": 3477,
+    "cloudPass": 153,
+    "realisticCorpus": {
+      "developmentCases": 840,
+      "holdoutCases": 840,
+      "directedPerSplit": 21,
+      "multiStepScenarios": 9,
+      "multiStepSQLiteOperations": 135,
+      "report": "docs/qa-assets/realistic-2026-11-06/results/RUN-RESULTS.md",
+      "notTestedConditionsSeparated": true,
+      "finalCoverage": "docs/qa-assets/realistic-2026-11-06/results/final-coverage.json",
+      "phaseErrorSummary": "docs/qa-assets/realistic-2026-11-06/results/phase-error-summary.json",
+      "phaseSummaryParentReproductionMatched": true,
+      "fullCorpusEveryInvariantPassed": false
+    },
+    "pending": [],
+    "iphoneHandoff": "Final normal34 observation ended with worker65: signed completion444/Undo445 accepted durably, ACK445 inside worker; no app activation or forced callback; public holiday Calendar remains foreground-required.",
+    "additionalStartupOptimization": "deferred to separate discussion",
+    "evidence": "docs/qa-assets/google-tasks-2026-11-06/full-regression-v34.json",
+    "calendarCrossOs": {
+      "result": "PASS",
+      "evidence": "docs/qa-assets/google-calendar-2026-11-06/cross-os-conflict-recovery.json"
+    },
+    "nativeCombined": {
+      "android": "PASS 6",
+      "iphone": "PASS 6",
+      "scope": "Real Hermes/SQLite on both OS; synthetic shared projection; close/reopen, not OS restart",
+      "evidence": [
+        "docs/qa-assets/native-combined-2026-11-06/android-v21-result.json",
+        "docs/qa-assets/native-combined-2026-11-06/ios-v29-result.json"
+      ],
+      "currentSourceApplicability": "docs/qa-assets/native-combined-2026-11-06/current-v34-source-applicability.json"
+    },
+    "displayFix": {
+      "candidate": 31,
+      "affectedPass": 81,
+      "regressionsRedBeforeFix": 4,
+      "semantics": "Coalesce own prepared display reads and retain explicit retry during restore; committed gestures no longer mask later remote completion/Undo",
+      "physical": "iPhone completion422 displayed on Android31, Android Undo423 displayed on iPhone31",
+      "backgroundProof": false
+    },
+    "googleTasks": {
+      "result": "PASS",
+      "evidence": "docs/qa-assets/google-tasks-2026-11-06/two-phone-fresh-creation-v31.json",
+      "providerTasks": 25,
+      "duplicate": 0,
+      "missing": 0,
+      "sameIdsAfterRestore": true,
+      "limits": "Normal foreground requests overlapped; actual concurrent HTTP POST or live Cloud CAS contention was not established. True CAS races were separately tested with two SQLite stores and isolated Firestore.",
+      "normalAndroidRestart": "PASS, group retained,8 total0 done/current Laundry unchecked; native job had completed before restart; normal Home button used afterwards."
+    },
+    "iphoneNaturalSetup": {
+      "status": "Historical v31 actual C/U send and receive; current v34 actual C/U receive independently verified, not current outgoing",
+      "lastDeliveredPair": [
+        434,
+        435
+      ],
+      "lastPairSource": "Android foreground completion and Undo",
+      "lastPairNatural": false,
+      "networkIssue": "Turning both mobile data and WiFi OFF invalidated the continuous XCTest session; a new helper launch was refused as untrusted while offline. No new iPhone completion was added.",
+      "requestedAction": "Owner restored WiFi ON and mobile-data primary; no pending owner radio action.",
+      "dataReset": false,
+      "backgroundObservationStarted": false,
+      "observationStartedAt": "2026-11-06T05:00:42.997946+00:00",
+      "observationEvidence": "docs/qa-assets/google-tasks-2026-11-06/natural-background-observation-v31.json",
+      "lastIphoneAck": 445,
+      "expectedIphoneAck": 445,
+      "latestObservedWorker": 65,
+      "latestWorkerSharing": "success; personal Google Calendar remains pending",
+      "iPhoneOutgoingVerified": true,
+      "radioOffMethodRetired": true,
+      "localHelperSignatureVerified": true,
+      "helperProfileExpiresAt": "2026-11-12T02:28:10Z",
+      "receiveOnlyWindowEndedAt": "2026-11-06T05:12:04.419245Z"
+    },
+    "backgroundCadenceFollowup": {
+      "candidate": 32,
+      "affectedPass": 85,
+      "fullUnitPass": 3452,
+      "networkConfigurationRestored": true,
+      "v31RawAuditChanged": false,
+      "nativeAcceptancePending": false,
+      "latestObservedWorker": 61,
+      "savedTasksErrorRecoveredBy": "ordinary explicit sync;25 links retained,pending statuses1->0",
+      "recoveryEvidence": "docs/qa-assets/google-tasks-2026-11-06/natural-v32-recovery.json",
+      "scope": "Historical v32 recovery; current34 sharing receive success recorded separately, aggregate Calendar incomplete"
+    },
+    "completionMeaning": "Requested validation work executed and documented with the per-scenario version, direction and coverage limits; not every unobserved corpus condition or background domain is a PASS.",
+    "knownLimits": [
+      "Actual outgoing C/U naturally sent on31; current34 natural C/U receive verified independently, no new34outgoing scenario prepared.",
+      "Public holiday feed returns410 even immediately after a fresh full read; remains foreground-required, aggregate background not complete.",
+      "Main-corpus NOT_TESTED/NA counts and three directed partials are preserved; limited regressions do not increase840-case PASS counts.",
+      "Additional startup optimization remains deferred; store purchase and independent external security audit are outside this campaign."
+    ],
+    "githubPublishedWhenCaptured": false
+  },
+  "verificationHistory": [
+    {
+      "recordedAs": "previous-finalVerificationCurrent",
+      "data": {
+        "status": "v15-full-current-unit-and-both-native-deliveries-pass-real-account-cross-device-work-continues",
+        "unit": {
+          "passed": 3307,
+          "failed": 0,
+          "skipped": 0,
+          "cancelled": 0,
+          "log": "final-v15-unit-20261105.log",
+          "execution": "All standard unit test files with concurrency2 after successful npm pretest; current4-file client fix source frozen",
+          "scope": "Current local source checkpoint; remaining real same-owner two-device/OS background/public AI/store gates are separate."
+        },
+        "lint": "calendar-identity-budget-lint.log PASS",
+        "typecheck": "calendar-identity-budget-typecheck.log PASS",
+        "initialFailedCandidate": "final-unit-candidate-20261105.log retained:33 failures including old fixture assumptions, missing new native mocks, real removed legacy custom-history repair and a fake-global-timer deadlock. Only the owned stalled test worker was terminated. No failure reclassified as PASS.",
+        "corrections": "Scoped maintenance timers without blocking real cryptographic yields; explicit frozen fixtures for Scheduler1; actual catalogue rounds in Home Undo; actual known regional IDs; isolated startup native boundaries; real private settings port in route tests; development preview reads active catalogue. Restored one-time custom/appliance legacy-state repair after retired standard rows are removed. New exhaustive activation tests cover each periodic recipe in all3 modes.",
+        "cloud": {
+          "passed": 142,
+          "failed": 0,
+          "skipped": 0,
+          "log": "final-v13-cloud-java25-20261105.log",
+          "environment": "Isolated demo project, Auth9299/Firestore8385, clean automatic shutdown; negative permission denials expected. Java17 preflight failure ran no tests, then JBR25 PATH correction passed.",
+          "scope": "142 isolated Cloud tests passed before current client-only changes; no Rules/server changes after that pass; not unnecessarily rerun."
+        },
+        "android": {
+          "status": "normal-release-readonly-navigation-pass-performance-incomplete",
+          "artifact": "liflow-current-v7-normal-arm64.apk",
+          "sha256": "26c066722c2c07c2ede60263c5d98c11fe71c7a699c2c27423e78e5c211ee83b",
+          "clientInputCount": 696,
+          "trace": false,
+          "noCache": false,
+          "preservingInstall": true,
+          "signature": "matches existing signer",
+          "log": "startup-v7-normal-interaction.log",
+          "runs": 3,
+          "launchToChoreAvailableMs": [
+            3228,
+            3134,
+            3098
+          ],
+          "tapToExplanationMs": [
+            1595,
+            1587,
+            1554
+          ],
+          "limit": "Read-only UI navigation is successful. One-second startup is not met; metrics include accessibility query overhead. No completion or setting was changed.",
+          "visualReview": {
+            "home": "Header icons and all four bottom tabs visible; no business mutations.",
+            "calendar": "Month, selected detail list and7 expanded chore rows render. No dots/bars reintroduced.",
+            "timeWrapping": "Fixed in v8: actual Android font scale1.15 retained,09:00 and10:45 visually fit one line. Affected12 navigation/date UI tests and lint pass. No spacing/font-size contract added."
+          },
+          "currentArtifact": "/Volumes/DockerExternal/LiFlowBuildCache/owner-release-review-20261105/liflow-current-v15-normal-arm64.apk",
+          "currentSha256": "42f33686091a08564415da337ba596ccacf07472d1013a09ad89515f0d6cd17d",
+          "installedByteHashMatches": true,
+          "historicalObservationOnly": true,
+          "currentClientInputs": 699,
+          "currentNativeSmoke": "owner-v15-android-preserving-install.json / owner-v15-android-home-smoke.json"
+        },
+        "ios": "Normal v15 JS-only production Hermes over verified v13 native;4 changed modules and638 source-map contents match current pins;57 native payload sections match v13; deep signature/profile/live-existing-app/source699 verify and preserving install PASS; diagnostic/Home read-only XCTest PASS13.364s. Not a full v15 native recompile or startup latency proof.",
+        "currentAndroidArtifact": {
+          "file": "liflow-current-v13-normal-arm64.apk",
+          "sha256": "18ed2623a98460fb03769b759094ae1aa44f4440a0bc45f967ace3753e7383fc",
+          "clientInputs": 699,
+          "trace": false,
+          "noCache": false,
+          "preservingInstall": true,
+          "settingsNavigation": "3 cold read-only flows PASS; manual retry false",
+          "calendar": "owned real Google round-trip and cleanup PASS",
+          "evidence": "owner-date-v13-android-install.log / owner-date-v13-android-settings-current.log / calendar-v13-provider-*.log"
+        }
+      }
+    },
+    {
+      "status": "normal-v29-unit3442-cloud153-pass-four-physical-conditions-pending",
+      "unit": {
+        "passed": 3442,
+        "failed": 0,
+        "skipped": 0,
+        "cancelled": 0,
+        "log": "/tmp/liflow-realistic-20261106/full-check-v29-after-harness-fix.log",
+        "scope": "All standard current unit files through npm run check; includes retained behavior and security contracts"
+      },
+      "cloud": {
+        "passed": 153,
+        "failed": 0,
+        "skipped": 0,
+        "cancelled": 0,
+        "log": "/tmp/liflow-realistic-20261106/full-cloud-v29.log",
+        "environment": "Isolated demo project; Auth9299/Firestore8385; unchanged emulator1.22 with JVM en-US; owned processes automatically cleaned",
+        "scope": "Current full registered Cloud integration command; not production attack traffic"
+      },
+      "lint": "PASS through npm run check",
+      "typecheck": "PASS through npm run check",
+      "android": {
+        "candidate": "normal-v29",
+        "dataPreservingInstall": true,
+        "startupTrace": false,
+        "latestObservedExistingTasksCandidate": "normal-v29",
+        "existingTasksMatched": 23,
+        "duplicateMarkers": 0,
+        "missingLinks": 0
+      },
+      "ios": {
+        "candidatePrepared": "normal-v29",
+        "sourceInputs": 710,
+        "bundledSourcesVerified": 649,
+        "nativePayloadSectionsUnchanged": 57,
+        "codesignVerified": true,
+        "installed": false,
+        "installedOldNormal": "v19",
+        "reason": "Owner Google warning/consent handoff pending; no UI or installation while owner handoff pending"
+      },
+      "overallAcceptance": "INCOMPLETE",
+      "evidence": "docs/qa-assets/google-tasks-2026-11-06/full-regression-v29.json",
+      "report": "docs/physical-convergence-2026-11-06.md",
+      "githubPublished": false
+    },
+    {
+      "status": "normal-v32-unit3452-cloud153-pass-natural-sharing-recheck-after-foreground-recovery",
+      "unit": {
+        "passed": 3452,
+        "failed": 0,
+        "skipped": 0,
+        "cancelled": 0,
+        "log": "/tmp/liflow-realistic-20261106/full-final-v32-check.log"
+      },
+      "cloud": {
+        "passed": 153,
+        "failed": 0,
+        "skipped": 0,
+        "cancelled": 0,
+        "log": "/tmp/liflow-realistic-20261106/full-cloud-v32.log",
+        "environment": "Isolated Auth9299 and Firestore8385; owned processes cleaned; unrelated emulators unchanged"
+      },
+      "lint": "PASS",
+      "typecheck": "PASS",
+      "android": {
+        "candidate": "normal-v32",
+        "dataPreservingInstall": true,
+        "startupTrace": false,
+        "normalUiObserved": true
+      },
+      "ios": {
+        "candidate": "normal-v32",
+        "installed": true,
+        "sourceInputs": 710,
+        "bundledSourcesVerified": 649,
+        "nativePayloadSectionsUnchanged": 57,
+        "codesignVerified": true,
+        "freshFullNativeBuild": false,
+        "normalUiObserved": true
+      },
+      "overallAcceptance": "INCOMPLETE",
+      "evidence": "docs/qa-assets/google-tasks-2026-11-06/full-regression-v32.json",
+      "report": "docs/physical-convergence-2026-11-06.md",
+      "githubPublished": false
+    }
+  ],
+  "backgroundDeltaContinuation20261106": {
+    "candidate": "normal-v34",
+    "status": "Both normal34 installed; iPhone33 actual442/443 natural receive verified with Calendar foreground-required; final34 observation pending",
+    "affectedTestsPass": 267,
+    "lint": "PASS",
+    "typecheck": "PASS",
+    "sourceInputs": 710,
+    "sourceManifestSha256": "89e05e88f2186c7a1ba57e10e38d12a5049f2508835a97bfb2b1e193ff9c3176",
+    "naturalV32": "incoming440/441 accepted in worker62; sharing failed and pending Task status retained",
+    "naturalV33Acceptance": false,
+    "evidence": "docs/qa-assets/google-tasks-2026-11-06/full-regression-v34.json",
+    "policy": "Background: mapped status pushes and resumable cursor deltas. Initial, invalid-cursor and periodic full inventories: foreground. Valid deltas continue when periodic full refresh is overdue. No larger deadline.",
+    "githubPublished": false,
+    "unit33": 3472,
+    "cloud33": 153,
+    "android33": "25 mapped IDs; duplicate0; missing0; prior timeout backoff retained",
+    "followup34": {
+      "cause": "Deleted Google task or invalid first-page cursor needs foreground repair, and optional absent batch transport must remain absent",
+      "targetedPass": 123,
+      "lint": "PASS",
+      "typecheck": "PASS",
+      "manifestSha256": "89e05e88f2186c7a1ba57e10e38d12a5049f2508835a97bfb2b1e193ff9c3176"
+    },
+    "currentPhones": "Android34 and iPhone34",
+    "observerScope": "Final normal34 exact444/445; iPhone locked, no activation; current aggregate pending remains pending. Earlier31 outgoing is separate.",
+    "unitPass": 3477,
+    "cloudPass": 153,
+    "naturalV33Incoming": true
+  },
+  "backgroundNaturalAndroidV34Worker83": {
+    "evidence": "docs/qa-assets/google-tasks-2026-11-06/android-v34-natural-worker83.json",
+    "aggregateComplete": false,
+    "sharing": "success",
+    "personalGoogleCalendar": "pending",
+    "validSavedDeltas": 2,
+    "expiredSavedDelta": 1,
+    "normalAppDataPreserved": true,
+    "investigationPending": false,
+    "resolvedBoundary": "The two valid feeds complete after foreground recovery; the remaining public holiday feed returns410 even after fresh full read; do not mark aggregate success."
+  },
+  "backgroundNaturalIphoneV33Worker64": {
+    "evidence": "docs/qa-assets/google-tasks-2026-11-06/natural-v33-worker64.json",
+    "actualIncomingCompleteAndUndo": true,
+    "aggregateComplete": false,
+    "sharing": "success",
+    "personalGoogleCalendar": "pending",
+    "remainingExpiredCalendarCount": 1,
+    "normalAppOpenedDuringObservation": false,
+    "observerStoppedAfterResult": true
+  },
+  "physicalConvergence20261106History": [
+    {
+      "candidate": "normal-v32",
+      "completed": false,
+      "report": "docs/physical-convergence-2026-11-06.md",
+      "unitPass": 3452,
+      "cloudPass": 153,
+      "realisticCorpus": {
+        "developmentCases": 840,
+        "holdoutCases": 840,
+        "directedPerSplit": 21,
+        "multiStepScenarios": 9,
+        "multiStepSQLiteOperations": 135,
+        "report": "docs/qa-assets/realistic-2026-11-06/results/RUN-RESULTS.md",
+        "notTestedConditionsSeparated": true
+      },
+      "pending": [
+        "Finish frozen iPhone33 natural observation without app activation; then preserving iPhone34 update and normal-screen verification"
+      ],
+      "iphoneHandoff": "Locked/charging with normalv32; no unlock request until signedv33 is ready.",
+      "additionalStartupOptimization": "deferred to separate discussion",
+      "githubPublished": false,
+      "evidence": "docs/qa-assets/google-tasks-2026-11-06/full-regression-v32.json",
+      "calendarCrossOs": {
+        "result": "PASS",
+        "evidence": "docs/qa-assets/google-calendar-2026-11-06/cross-os-conflict-recovery.json"
+      },
+      "nativeCombined": {
+        "android": "PASS 6",
+        "iphone": "PASS 6",
+        "scope": "Real Hermes/SQLite on both OS; synthetic shared projection; close/reopen, not OS restart",
+        "evidence": [
+          "docs/qa-assets/native-combined-2026-11-06/android-v21-result.json",
+          "docs/qa-assets/native-combined-2026-11-06/ios-v29-result.json"
+        ]
+      },
+      "displayFix": {
+        "candidate": 31,
+        "affectedPass": 81,
+        "regressionsRedBeforeFix": 4,
+        "semantics": "Coalesce own prepared display reads and retain explicit retry during restore; committed gestures no longer mask later remote completion/Undo",
+        "physical": "iPhone completion422 displayed on Android31, Android Undo423 displayed on iPhone31",
+        "backgroundProof": false
+      },
+      "googleTasks": {
+        "result": "PASS",
+        "evidence": "docs/qa-assets/google-tasks-2026-11-06/two-phone-fresh-creation-v31.json",
+        "providerTasks": 25,
+        "duplicate": 0,
+        "missing": 0,
+        "sameIdsAfterRestore": true,
+        "limits": "Normal foreground requests overlapped; actual concurrent HTTP POST or live Cloud CAS contention was not established. True CAS races were separately tested with two SQLite stores and isolated Firestore.",
+        "normalAndroidRestart": "PASS, group retained,8 total0 done/current Laundry unchecked; native job had completed before restart; normal Home button used afterwards."
+      },
+      "iphoneNaturalSetup": {
+        "status": "v31 actual natural C/U send and receive verified; v32 worker61 remained pending until later foreground recovery",
+        "lastDeliveredPair": [
+          434,
+          435
+        ],
+        "lastPairSource": "Android foreground completion and Undo",
+        "lastPairNatural": false,
+        "networkIssue": "Turning both mobile data and WiFi OFF invalidated the continuous XCTest session; a new helper launch was refused as untrusted while offline. No new iPhone completion was added.",
+        "requestedAction": "Owner restored WiFi ON and mobile-data primary; no pending owner radio action.",
+        "dataReset": false,
+        "backgroundObservationStarted": false,
+        "observationStartedAt": "2026-11-06T05:00:42.997946+00:00",
+        "observationEvidence": "docs/qa-assets/google-tasks-2026-11-06/natural-background-observation-v31.json",
+        "lastIphoneAck": 439,
+        "expectedIphoneAck": 439,
+        "latestObservedWorker": 61,
+        "latestWorkerSharing": "pending; original Tasks error retained, not acceptance",
+        "iPhoneOutgoingVerified": true,
+        "radioOffMethodRetired": true,
+        "localHelperSignatureVerified": true,
+        "helperProfileExpiresAt": "2026-11-12T02:28:10Z",
+        "receiveOnlyWindowEndedAt": "2026-11-06T05:12:04.419245Z"
+      },
+      "backgroundCadenceFollowup": {
+        "candidate": 32,
+        "affectedPass": 85,
+        "fullUnitPass": 3452,
+        "networkConfigurationRestored": true,
+        "v31RawAuditChanged": false,
+        "nativeAcceptancePending": true,
+        "latestObservedWorker": 61,
+        "savedTasksErrorRecoveredBy": "ordinary explicit sync;25 links retained,pending statuses1->0",
+        "recoveryEvidence": "docs/qa-assets/google-tasks-2026-11-06/natural-v32-recovery.json"
+      }
+    }
+  ],
+  "calendarPublicHolidayProviderBoundary20261106": {
+    "evidence": "docs/qa-assets/google-tasks-2026-11-06/public-holiday-provider-sync-token.json",
+    "freshReadPages": 4,
+    "events": 317,
+    "sameUnusableTokenReissued": true,
+    "freshDeltaHttp": 410,
+    "errorReason": "fullSyncRequired",
+    "appDataMutatedByProbe": false,
+    "backgroundFullScanAdded": false
+  },
+  "backgroundNaturalIphoneV34Worker65": {
+    "evidence": "docs/qa-assets/google-tasks-2026-11-06/natural-v34-worker65.json",
+    "actualIncomingCompleteAndUndo": true,
+    "actualOutgoingOnV34": false,
+    "acceptedAndDurable": true,
+    "undoTargetsExactCompletion": true,
+    "ackAdvancedInsideWorker": true,
+    "aggregateComplete": false,
+    "sharing": "success",
+    "personalGoogleCalendar": "pending",
+    "remainingExpiredCalendarCount": 1,
+    "normalAppOpenedDuringObservation": false,
+    "observerStoppedAfterResult": true
+  },
+  "requestedCampaignClosedAt": "2026-11-06T13:03:22.513474+00:00"
+}

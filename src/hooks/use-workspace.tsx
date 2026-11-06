@@ -28,6 +28,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [group, setGroup] = useState<SharingWorkspaceRecord | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [sessionStarted, setSessionStarted] = useState(false);
+  const [restoration, setRestoration] = useState<'waiting' | 'failed' | null>(null);
   const [ready, setReady] = useState(false); const [error, setError] = useState<string | null>(null);
   const alive = useRef(true); const revision = useRef(0);
   const refreshSharing = useCallback(async function refresh(): Promise<void> {
@@ -42,6 +43,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (!await check()) return;
       if (activeRef.current?.userId !== user?.uid) {
         activeRef.current = null; setActive(null);
+        setRestoration(null);
         // A verified cache for this same account remains visible while its live
         // workspace restores. Do not briefly remove the tab/route hierarchy.
         setStartupDisplay(previous => previous?.record.userId === user?.uid ? previous : null);
@@ -123,6 +125,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       }
       try { subscriptions.push(startPrivateCalendarForeground(userId)); } catch { /* Private failure does not block the group. */ }
       try {
+        const module = await import('@/platform/sharing/account-device-runtime');
+        if (live()) {
+          const update = () => { if (live()) setRestoration(module.accountDeviceRestoreStatus(userId)?.phase ?? null); };
+          subscriptions.push(module.subscribeAccountDeviceRestoreStatus(update), module.startAccountDeviceForeground(userId)); update();
+        }
+      } catch { /* Account restoration retries independently of the existing group. */ }
+      try {
         const record = await currentSharingWorkspace();
         if (!live()) return;
         if (record) {
@@ -145,7 +154,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     });
     return () => { stopped = true; stop(); subscription.remove(); };
   }, [active, displayGate, groupKey, ready, sessionStarted, userId]);
-  const value = useMemo(() => ({ active, group, userId, ready, error, refreshSharing, completeInitialDisplay, startupDisplay }), [active, group, userId, ready, error, refreshSharing, completeInitialDisplay, startupDisplay]);
+  const value = useMemo(() => ({ active, group, userId, ready, error, refreshSharing, completeInitialDisplay, startupDisplay, restoration }), [active, group, userId, ready, error, refreshSharing, completeInitialDisplay, startupDisplay, restoration]);
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }
 

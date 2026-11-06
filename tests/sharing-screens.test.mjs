@@ -40,6 +40,7 @@ test('sharing screen keeps login optional and exposes only the current group wit
   assert.equal(context.group, group);
 });
 
+
 test('sharing screen prevents duplicate creation while the first local commit is still running and allows retry after failure', async () => {
   let release; let count = 0;
   const context = { active: null, userId: 'owner', group: null, ready: true, refreshSharing: async () => {} };

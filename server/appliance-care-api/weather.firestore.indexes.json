@@ -1,0 +1,8 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    { "collectionGroup": "serverWeatherRegionsV1", "fieldPath": "cache", "indexes": [] },
+    { "collectionGroup": "serverWeatherControlV1", "fieldPath": "leases", "indexes": [] },
+    { "collectionGroup": "serverWeatherControlV1", "fieldPath": "starts", "indexes": [] }
+  ]
+}

@@ -20,7 +20,8 @@ import { manualDocumentDrafts } from './manual-documents.ts';
 
 export interface V2ApplianceReview { reviewed: true; result: ProductVerifiedResponse; addTaskNames: readonly string[];
   manual?: UploadedManualInput; selection?: V2ApplianceSelection; resolveOperationIds?: readonly string[]; restorePresence?: boolean; reviewedDisplayName?: string }
-export interface V2ApplianceReviewResult { operations: SharedOperation[]; applianceId: string; createdChoreIds: string[]; preservedTaskNames: string[] }
+export interface V2ApplianceReviewResult { operations: SharedOperation[]; applianceId: string; createdChoreIds: string[]; preservedTaskNames: string[];
+  personalRetentionPending?: boolean }
 export class V2ApplianceAlreadyExistsError extends Error {
   readonly code = 'sharing/v2-appliance-exists';
   readonly applianceId: string;

@@ -1,0 +1,217 @@
+{
+  "scope": "one Android physical phone; foreground manual shared Tasks; other phone and OS-natural background not counted",
+  "baseline": {
+    "observedAt": "2026-11-05T18:11:31.409386+00:00",
+    "normalRelease": 19,
+    "readOnlyMetadataAndProviderGet": true,
+    "evidence": [
+      {
+        "accountDigest": "CVVkaArWJLRcOTocJBSq-2RcxWQbd2t0JXvD2uGCzX0",
+        "taskListDigest": "1u7hE1t8WqfRTqpr6S-0cnApL3OpKdFW8MMpYawtdBc",
+        "localLinks": 22,
+        "localLinkDigest": "FNOfEB_jBsQ1jAjAI6aNDzAhkI9cgR8D68p35-OohZQ",
+        "matchedLinks": 22,
+        "missingLinks": 0,
+        "providerLiveTasks": 22,
+        "providerCompletedTasks": 0,
+        "providerMarkerCount": 22,
+        "duplicateLiveMarkers": 0,
+        "providerDigest": "L8DcNC_C8L1hsFtnsr50hBmsHNkcSXs4vziXPsm5EMI",
+        "providerPages": 1,
+        "localStatus": "idle",
+        "localErrorCode": ""
+      }
+    ]
+  },
+  "completion": {
+    "observedAt": "2026-11-05T19:12:19.876344+00:00",
+    "normalRelease": 20,
+    "manualForegroundSync": true,
+    "readOnlyMetadataAndProviderGet": true,
+    "evidence": [
+      {
+        "accountDigest": "CVVkaArWJLRcOTocJBSq-2RcxWQbd2t0JXvD2uGCzX0",
+        "taskListDigest": "1u7hE1t8WqfRTqpr6S-0cnApL3OpKdFW8MMpYawtdBc",
+        "localLinks": 22,
+        "localLinkDigest": "FNOfEB_jBsQ1jAjAI6aNDzAhkI9cgR8D68p35-OohZQ",
+        "matchedLinks": 22,
+        "missingLinks": 0,
+        "providerLiveTasks": 22,
+        "providerCompletedTasks": 1,
+        "providerMarkerCount": 22,
+        "duplicateLiveMarkers": 0,
+        "providerDigest": "rujgKMinFGAvpamGlqNY4wgbOCU1IZXrr-OwUio6Zdc",
+        "providerPages": 1,
+        "localStatus": "idle",
+        "localErrorCode": ""
+      }
+    ],
+    "sameMappingAndProviderTaskCountAsBaseline": true
+  },
+  "undo": {
+    "observedAt": "2026-11-05T19:43:34.300916+00:00",
+    "normalRelease": 23,
+    "trace": false,
+    "manualSyncSinceUndo": true,
+    "readOnlyMetadataAndProviderGet": true,
+    "same22MappingsAndFullProviderDigestAsOriginalBaseline": true,
+    "evidence": [
+      {
+        "accountDigest": "CVVkaArWJLRcOTocJBSq-2RcxWQbd2t0JXvD2uGCzX0",
+        "taskListDigest": "1u7hE1t8WqfRTqpr6S-0cnApL3OpKdFW8MMpYawtdBc",
+        "localLinks": 22,
+        "localLinkDigest": "FNOfEB_jBsQ1jAjAI6aNDzAhkI9cgR8D68p35-OohZQ",
+        "matchedLinks": 22,
+        "missingLinks": 0,
+        "providerLiveTasks": 22,
+        "providerCompletedTasks": 0,
+        "providerMarkerCount": 22,
+        "duplicateLiveMarkers": 0,
+        "providerDigest": "L8DcNC_C8L1hsFtnsr50hBmsHNkcSXs4vziXPsm5EMI",
+        "providerPages": 1,
+        "localStatus": "idle",
+        "localErrorCode": "",
+        "lastAttemptAt": "2026-11-05T19:40:59.701Z",
+        "lastSuccessfulSyncAt": "2026-11-05T19:40:59.701Z",
+        "nextRetryAt": "",
+        "retryCount": 0,
+        "watchedControls": [
+          {
+            "control": "laundry",
+            "entryDigest": "yoso6rtVZVDlboO4upjpols53T34QWyREL8EmEHoAHo",
+            "taskDigest": "lDTMHd2vdG_jX7CAl_SRD7gegUk76Fzhoo9ZwHCAiDQ",
+            "linkedDueDate": "2026-11-12",
+            "lastSyncedStatus": "needsAction",
+            "pendingStatus": "",
+            "providerStatus": "needsAction",
+            "providerDueDate": "2026-11-12T00:00:00.000Z"
+          },
+          {
+            "control": "laundry",
+            "entryDigest": "czbta5Z5zT8z3O7nG4gG7vK2upVpb1FccUOTSE0ECvA",
+            "taskDigest": "J6QwWpvuROVJ7XSsiC4TaqL7qRClm8zWVxY-BSLnnKQ",
+            "linkedDueDate": "2026-11-09",
+            "lastSyncedStatus": "needsAction",
+            "pendingStatus": "",
+            "providerStatus": "needsAction",
+            "providerDueDate": "2026-11-09T00:00:00.000Z"
+          },
+          {
+            "control": "laundry",
+            "entryDigest": "UixXCZvz1Zw6PDqyJKRVCdFcjO1W22DlBnK1xIPsERU",
+            "taskDigest": "UyvzVuUwDiwsRJhosVw5C61bzpCFjY0FhnY397Z3KuQ",
+            "linkedDueDate": "2026-11-16",
+            "lastSyncedStatus": "needsAction",
+            "pendingStatus": "",
+            "providerStatus": "needsAction",
+            "providerDueDate": "2026-11-16T00:00:00.000Z"
+          },
+          {
+            "control": "laundry",
+            "entryDigest": "TLfYaMXR5YSLkGkCdaY7vawNQPxoCe-Eh0mTEkk3H3A",
+            "taskDigest": "ENqVpR8EAEcD-rvWEYFIsDjM_D59LmgoPEU1cjQFKWE",
+            "linkedDueDate": "2026-11-18",
+            "lastSyncedStatus": "needsAction",
+            "pendingStatus": "",
+            "providerStatus": "needsAction",
+            "providerDueDate": "2026-11-18T00:00:00.000Z"
+          },
+          {
+            "control": "laundry",
+            "entryDigest": "3xyMtm4C9WeZ9EHHizG2Tq599R9PJlT95L-nBbvU6zA",
+            "taskDigest": "IX3cxStsMVkkOfDvydlBViDc_wFR_PQLOg32hMe6nVo",
+            "linkedDueDate": "2026-11-14",
+            "lastSyncedStatus": "needsAction",
+            "pendingStatus": "",
+            "providerStatus": "needsAction",
+            "providerDueDate": "2026-11-14T00:00:00.000Z"
+          },
+          {
+            "control": "laundry",
+            "entryDigest": "WevijbWbhf0pmazwvmpETBMP0Sw3x8kKWJLg5Xi21co",
+            "taskDigest": "V6LbUnhg8Ua-zJ3lcPzHCBocTsq0lI7x3SRJI1IVdsU",
+            "linkedDueDate": "2026-11-07",
+            "lastSyncedStatus": "needsAction",
+            "pendingStatus": "",
+            "providerStatus": "needsAction",
+            "providerDueDate": "2026-11-07T00:00:00.000Z"
+          },
+          {
+            "control": "washbasin",
+            "entryDigest": "PlzSQSNy8kDhT-8oH9hiy3YACHJN82dgQGmbQ_lsi68",
+            "taskDigest": "5WFwYX9Ia9Pl31KastFG5UisI96C5jH4CmVOZ7T408o",
+            "linkedDueDate": "2026-11-06",
+            "lastSyncedStatus": "needsAction",
+            "pendingStatus": "",
+            "providerStatus": "needsAction",
+            "providerDueDate": "2026-11-06T00:00:00.000Z"
+          },
+          {
+            "control": "laundry",
+            "entryDigest": "duxJRlfx9-cQbPuz25zVVi5q34PToSR801ohpN2k4zY",
+            "taskDigest": "-JrAOWciBZWDqGEWV4_AdVUbtoo9A_tal3kb9sp3omI",
+            "linkedDueDate": "2026-11-08",
+            "lastSyncedStatus": "needsAction",
+            "pendingStatus": "",
+            "providerStatus": "needsAction",
+            "providerDueDate": "2026-11-08T00:00:00.000Z"
+          },
+          {
+            "control": "washbasin",
+            "entryDigest": "4S9eCiJFlOFdIx14fl0COkE6GHOD2XS_UGlzwfe6u6A",
+            "taskDigest": "DM4YrBnYGy_L5n91b6IDtK-51Q8tsrK0hbzscNCPEpI",
+            "linkedDueDate": "2026-11-19",
+            "lastSyncedStatus": "needsAction",
+            "pendingStatus": "",
+            "providerStatus": "needsAction",
+            "providerDueDate": "2026-11-19T00:00:00.000Z"
+          },
+          {
+            "control": "washbasin",
+            "entryDigest": "Afi3R4e3EQ2RrqTaHZ9chAPiw5boDCaOm-_jGSigkuI",
+            "taskDigest": "1H8hEieGn6npvgXsS8hpVobSEUbgqUuyKz0S_mZTSIw",
+            "linkedDueDate": "2026-11-12",
+            "lastSyncedStatus": "needsAction",
+            "pendingStatus": "",
+            "providerStatus": "needsAction",
+            "providerDueDate": "2026-11-12T00:00:00.000Z"
+          }
+        ]
+      }
+    ]
+  },
+  "diagnosticOnlyCandidate": 22,
+  "phaseTimings": [
+    {
+      "phase": "googleOperation.wait",
+      "durationMs": 9418,
+      "atMs": 713297188
+    },
+    {
+      "phase": "sharedTasks.control",
+      "durationMs": 972,
+      "atMs": 713298181
+    },
+    {
+      "phase": "sharedTasks.preparePlan",
+      "durationMs": 7939,
+      "atMs": 713306121
+    },
+    {
+      "phase": "sharedTasks.today",
+      "durationMs": 586,
+      "atMs": 713306882
+    },
+    {
+      "phase": "googleOperation.run",
+      "durationMs": 9702,
+      "atMs": 713306890
+    }
+  ],
+  "finalNormalCandidate": 23,
+  "sameTaskIdsAndFullProviderStateRestored": true,
+  "freshConcurrentCreationVerified": false,
+  "iosTasksVerified": false,
+  "cloudChangeAndUndoReceivedByBothPhones": true,
+  "cloudReceptionIsBackgroundProof": false
+}

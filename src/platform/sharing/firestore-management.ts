@@ -1,6 +1,6 @@
 import { collection, doc, documentId, getDocFromServer, getDocsFromServer, limit, orderBy, query, runTransaction, serverTimestamp,
   setDoc, startAfter, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
-import type { DocumentReference } from 'firebase/firestore';
+import type { DocumentData, DocumentReference, QueryDocumentSnapshot } from 'firebase/firestore';
 import { assertSharedIdentifier, canonicalJson } from '../../features/sharing/operations.ts';
 import { boundedSharingCloudBatches, parseSharedCloudGroup, rosterCloudFields, SharingCloudChangedError } from '../../features/sharing/cloud-contract.ts';
 import { sharedRosterDigest, validateSharedRoster, verifySharedRosterTransition } from '../../features/sharing/roster.ts';
@@ -59,6 +59,23 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
     checkAccount(); const result = await getDocFromServer(inviteRef(inviteId)); checkAccount();
     return invitationData(result.data());
   };
+  const readSnapshotManifest = async (groupId: string, snapshotId: string, trustedArchive: readonly VerifiedSharedRoster[]): Promise<SignedSharedSnapshotManifest> => {
+    const guard = sharingSequenceGuard(checkAccount);
+      assertSharedIdentifier(snapshotId); guard();
+      const response = await getDocFromServer(doc(reference(groupId), 'snapshots', snapshotId)); guard();
+      const raw = response.data();
+      if (typeof raw?.manifestJson !== 'string' || raw.manifestJson.length > 100_000) throw new Error('Snapshot manifest is missing');
+      const manifest = JSON.parse(raw.manifestJson) as SignedSharedSnapshotManifest;
+      if (manifest.body.snapshotId !== snapshotId || manifest.body.groupId !== groupId || manifest.body.keyVersion !== raw.keyVersion
+        || manifest.body.throughSequence !== raw.throughSequence || manifest.body.retentionCutoff !== raw.retentionCutoff
+        || manifest.body.retentionThroughSequence !== raw.retentionThroughSequence || manifest.body.retentionKeyVersion !== raw.retentionKeyVersion
+        || !Array.isArray(manifest.body.chunks) || manifest.body.chunks.length > 512) throw new Error('Invalid snapshot metadata');
+      // Cloud membership alone is not a trust anchor. Require the caller's verified chain.
+      const roster = trustedArchive?.find(epoch => sharedRosterDigest(epoch) === manifest.body.rosterDigest);
+      if (!roster) throw new Error('Snapshot membership is not trusted');
+      verifySharedSnapshotManifest(manifest, roster);
+      return manifest;
+  };
   return {
     readInvitation,
     async createInvitation(input: SignedSharedInvitation): Promise<void> {
@@ -93,17 +110,23 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
         transaction.set(ref, { userId, deviceId: request.body.identity.deviceId, requestJson: canonicalJson(request), createdAt: serverTimestamp() });
       }); checkAccount();
     },
-    async listInvitations(groupId: string) {
-      const guard = sharingSequenceGuard(checkAccount); const invitations = []; let after: string | undefined;
+    async listInvitations(groupId: string, options: { activeAtMs?: number } = {}) {
+      const activeAt = options.activeAtMs;
+      if (activeAt !== undefined && (!Number.isSafeInteger(activeAt) || activeAt < 0 || activeAt > 253402300799999)) throw new Error('Invalid invitation query time');
+      const guard = sharingSequenceGuard(checkAccount); const invitations = []; let after: QueryDocumentSnapshot<DocumentData> | undefined;
       for (;;) {
-        guard(); const result = await getDocsFromServer(query(collection(firestore, 'sharingInvites'), where('groupId', '==', groupId), orderBy(documentId()), ...(after ? [startAfter(after)] : []), limit(100))); guard();
+        guard(); const result = await getDocsFromServer(query(collection(firestore, 'sharingInvites'), where('groupId', '==', groupId),
+          ...(activeAt === undefined ? [] : [where('status', '==', 'open'), where('expiresAt', '>', Timestamp.fromMillis(activeAt)), orderBy('expiresAt')]),
+          orderBy(documentId()), ...(after ? [startAfter(after)] : []), limit(100))); guard();
         invitations.push(...result.docs.map(item => ({ id: item.id, ...invitationData(item.data()) })));
         if (result.docs.length < 100) return invitations;
-        after = result.docs.at(-1)!.id;
+        after = result.docs.at(-1)!;
       }
     },
-    async listJoinRequests(invitation: SignedSharedInvitation) {
-      checkAccount(); const result = await getDocsFromServer(query(collection(inviteRef(invitation.body.inviteId), 'requests'), limit(100)));
+    async listJoinRequests(invitation: SignedSharedInvitation, after?: string) {
+      if (after !== undefined) assertSharedIdentifier(after);
+      checkAccount(); const result = await getDocsFromServer(query(collection(inviteRef(invitation.body.inviteId), 'requests'),
+        orderBy(documentId()), ...(after ? [startAfter(after)] : []), limit(100)));
       checkAccount(); const requests: SharedJoinRequest[] = []; const invalidUserIds: string[] = [];
       for (const item of result.docs) {
         try {
@@ -114,10 +137,18 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
           requests.push(request);
         } catch { invalidUserIds.push(item.id); }
       }
-      return { requests, invalidUserIds };
+      return { requests, invalidUserIds, nextCursor: result.docs.length === 100 ? result.docs.at(-1)!.id : null };
     },
     async withdrawOrRejectJoinRequest(inviteId: string, requestUserId: string): Promise<void> {
       assertSharedIdentifier(requestUserId); checkAccount();
+      // Owners can delete this invitation's request, but must never inspect
+      // a former applicant's current membership in an unrelated household.
+      if (requestUserId !== userId) {
+        await runTransaction(firestore, async transaction => {
+          checkAccount(); const ref = doc(inviteRef(inviteId), 'requests', requestUserId);
+          await transaction.get(ref); checkAccount(); transaction.delete(ref);
+        }); checkAccount(); return;
+      }
       await runTransaction(firestore, async transaction => {
         checkAccount(); const membershipRef = doc(firestore, 'sharingUsers', requestUserId, 'memberships', 'current');
         const membership = await transaction.get(membershipRef);
@@ -203,7 +234,21 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
       }
       await runTransaction(firestore, async (transaction) => {
         checkAccount(); const ref = reference(groupId); const current = parseSharedCloudGroup((await transaction.get(ref)).data(), groupId);
-        if (current.group.rosterJson === canonicalJson(next)) return;
+        if (current.group.rosterJson === canonicalJson(next)) {
+          // The signed roster does not commit to a randomly generated group key.
+          // A timed-out earlier attempt may have committed the same roster using
+          // another key. Only this exact preparation is an acknowledged retry.
+          if (!next.body.closed) {
+            const own = keys.find(key => key.recipientUserId === userId);
+            if (!own || !manifest || current.group.snapshotId !== manifest.body.snapshotId) throw new SharingCloudChangedError('共有鍵の更新結果を受信してから再試行してください。');
+            const savedKey = await transaction.get(doc(ref, 'keyEnvelopes', `${own.keyVersion}_${own.recipientDeviceId}`));
+            const savedSnapshot = await transaction.get(doc(ref, 'snapshots', manifest.body.snapshotId)); checkAccount();
+            if (savedKey.data()?.wrappedKeyJson !== canonicalJson(own) || savedSnapshot.data()?.manifestJson !== canonicalJson(manifest)) {
+              throw new SharingCloudChangedError('別の試行で共有鍵が更新されています。最新の共有状態を受信してください。');
+            }
+          }
+          return;
+        }
         if (current.group.rosterJson !== canonicalJson(previous) || current.group.headSequence !== expectedHead
           || current.group.ownerUserId !== userId) throw new SharingCloudChangedError('メンバー情報を更新してから再試行してください。');
         if (manifest) assertRetentionAdvance(current.group, manifest);
@@ -261,26 +306,15 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
         transaction.set(ref, { userId, sequence: Math.max(sequence, old?.sequence ?? 0), updatedAt: serverTimestamp() });
       }); checkAccount();
     },
+    readSnapshotManifest,
     async readSnapshot(groupId: string, snapshotId: string, trustedArchive: readonly VerifiedSharedRoster[]): Promise<EncryptedSharedSnapshot> {
-      const guard = sharingSequenceGuard(checkAccount);
-      assertSharedIdentifier(snapshotId); guard();
-      const response = await getDocFromServer(doc(reference(groupId), 'snapshots', snapshotId)); guard();
-      const raw = response.data();
-      if (typeof raw?.manifestJson !== 'string' || raw.manifestJson.length > 100_000) throw new Error('Snapshot manifest is missing');
-      const manifest = JSON.parse(raw.manifestJson) as SignedSharedSnapshotManifest;
-      if (manifest.body.snapshotId !== snapshotId || manifest.body.groupId !== groupId || manifest.body.keyVersion !== raw.keyVersion
-        || manifest.body.throughSequence !== raw.throughSequence || manifest.body.retentionCutoff !== raw.retentionCutoff
-        || manifest.body.retentionThroughSequence !== raw.retentionThroughSequence || manifest.body.retentionKeyVersion !== raw.retentionKeyVersion
-        || !Array.isArray(manifest.body.chunks) || manifest.body.chunks.length > 512) throw new Error('Invalid snapshot metadata');
-      // Cloud membership alone is not a trust anchor. Require the caller's verified chain.
-      const roster = trustedArchive?.find(epoch => sharedRosterDigest(epoch) === manifest.body.rosterDigest);
-      if (!roster) throw new Error('Snapshot membership is not trusted');
-      verifySharedSnapshotManifest(manifest, roster);
+      const guard = sharingSequenceGuard(checkAccount); guard();
+      const manifest = await readSnapshotManifest(groupId, snapshotId, trustedArchive); guard();
       const chunks: EncryptedSharedSnapshotChunk[] = await boundedReads(manifest.body.chunks, async descriptor => {
         assertSharedIdentifier(descriptor.id); const result = await getDocFromServer(doc(reference(groupId), 'snapshotChunks', descriptor.id)); guard();
         const data = result.data();
         if (typeof data?.envelopeJson !== 'string' || data.envelopeJson.length > 800_000 || new TextEncoder().encode(data.envelopeJson).length !== descriptor.bytes
-          || data.snapshotId !== snapshotId || data.keyVersion !== raw.keyVersion) throw new Error('Snapshot chunk is missing');
+          || data.snapshotId !== snapshotId || data.keyVersion !== manifest.body.keyVersion) throw new Error('Snapshot chunk is missing');
         const chunk = JSON.parse(data.envelopeJson) as EncryptedSharedSnapshotChunk;
         if (sharedDocumentDigest(chunk) !== descriptor.digest) throw new Error('Snapshot chunk hash mismatch'); return chunk;
       }, guard);
@@ -308,7 +342,11 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
       const removals: DocumentReference[] = [];
       const maintenanceRef = doc(ref, 'maintenance', 'keyCleanup'); let nextKeyProgress: number | undefined;
       const eventPosition = eventCleanupPositions.get(groupId) ?? 0;
-      const covered = await getDocsFromServer(query(collection(ref, 'events'), where('uploadSequence', '<=', group.snapshotThroughSequence),
+      // V2 receipts and post-retention events remain until the next certified cut.
+      // Normal maintenance may still trim covered ciphertext, snapshots and old keys.
+      const removableThrough = group.schemaVersion === 2 && group.retentionThroughSequence !== undefined
+        ? Math.min(group.snapshotThroughSequence, group.retentionThroughSequence) : group.snapshotThroughSequence;
+      const covered = await getDocsFromServer(query(collection(ref, 'events'), where('uploadSequence', '<=', removableThrough),
         ...(eventPosition ? [where('uploadSequence', '>', eventPosition)] : []), orderBy('uploadSequence'), limit(100))); guard();
       const lastEvent = covered.docs.at(-1);
       if (covered.size === 100 && lastEvent) eventCleanupPositions.set(groupId, lastEvent.data().uploadSequence); else eventCleanupPositions.delete(groupId);

@@ -13,6 +13,8 @@ import {
 import type { CalendarAvailabilityDay, CalendarAvailabilityState, CalendarQueryRange } from './calendar-availability';
 import { classifyGoogleSyncFailure } from './error-classification';
 import { notifyGooglePlannerChanges } from './planner-change-events';
+import { withinGoogleOperationBudget } from './operation-budget.ts';
+import type { GoogleOperationBudget } from './operation-budget';
 
 export interface CalendarCoordinatorPort {
   loadState(): Promise<CalendarAvailabilityState | null>;
@@ -26,7 +28,7 @@ export interface CalendarCoordinatorPort {
 }
 
 export async function refreshCalendarWithDependencies(
-  port: CalendarCoordinatorPort, options: { now: Date; range: CalendarQueryRange; force?: boolean },
+  port: CalendarCoordinatorPort, options: { now: Date; range: CalendarQueryRange; force?: boolean; budget?: GoogleOperationBudget },
 ): Promise<{ kind: string; plannerChanged: boolean; days?: number; busyDays?: number }> {
   let state = await port.loadState();
   if (!state?.enabled) return { kind: 'disabled', plannerChanged: false };
@@ -39,9 +41,12 @@ export async function refreshCalendarWithDependencies(
     state = { ...state, status: 'syncing', lastAttemptAt: timestamp, nextRetryAt: undefined, updatedAt: timestamp };
     await port.saveState(state);
     try {
-      const token = await port.getAccessToken();
-      const busy = await port.client.query(token, options.range);
+      const wait = <T>(work: () => Promise<T>) => options.budget ? withinGoogleOperationBudget(options.budget, work) : work();
+      const token = await wait(port.getAccessToken);
+      const busy = await wait(() => port.client.query(token, options.range, options.budget
+        ? { signal: options.budget.signal, timeoutMs: options.budget.remaining() } : undefined));
       days = aggregateBusyMinutes(busy, options.range, timestamp);
+      options.budget?.assert();
       await port.commitSuccess(days, { ...state, status: 'idle', retryCount: 0,
         lastSuccessfulSyncAt: timestamp, nextRetryAt: undefined, lastErrorCode: undefined, updatedAt: timestamp });
       kind = 'success';
@@ -70,6 +75,7 @@ export async function refreshCalendarWithDependencies(
         lastErrorCode: permission ? 'calendar_permission_required' : failure.code, updatedAt: timestamp });
     }
   }
+  if (options.budget) try { options.budget.assert(); } catch { return { kind, plannerChanged: false }; }
   // Fresh cache may survive a failure; stale/missing cache is omitted by the repository.
   const signatures = await port.readPlanningSignatures();
   const plannerChanged = signatures.current === signatures.applied ? false : await port.regeneratePlanner();
@@ -78,7 +84,7 @@ export async function refreshCalendarWithDependencies(
 
 /** Called inside the existing Google sync mutex, before Tasks reconciliation. */
 export async function refreshGoogleCalendarAvailability(
-  database: SQLiteDatabase, options: { now: Date; today: LocalDate; force: boolean },
+  database: SQLiteDatabase, options: { now: Date; today: LocalDate; force: boolean; budget?: GoogleOperationBudget },
 ): Promise<{ plannerChanged: boolean }> {
   const startedAt = Date.now();
   let requests = 0;
@@ -100,7 +106,7 @@ export async function refreshGoogleCalendarAvailability(
       const snapshot = await loadPlannerSnapshot(database, options.today, options.now, range.timeZone);
       const completedIds = new Set(snapshot.completions.filter((completion) => completion.outcome === 'completed')
         .map((completion) => completion.scheduleEntryId));
-      const after = snapshot.scheduleEntries.filter((entry) => entry.status !== 'initialPending' && !completedIds.has(entry.id));
+      const after = snapshot.scheduleEntries.filter((entry) => (entry.status !== 'initialPending' || entry.id.startsWith('personal-round.')) && !completedIds.has(entry.id));
       const beforeDates = new Map(before.filter((item) => !item.completedAt).map(({ entry }) => [entry.id, entry.suggestedDate]));
       const links = new Map((await listGoogleTaskLinks(database)).map((link) => [link.scheduleEntryId, link]));
       const changed = beforeDates.size !== after.length || after.some((entry) =>
@@ -115,7 +121,7 @@ export async function refreshGoogleCalendarAvailability(
       }
       return changed;
     },
-  }, { now: options.now, range, force: options.force });
+  }, { now: options.now, range, force: options.force, budget: options.budget });
   if (typeof __DEV__ !== 'undefined' && __DEV__) {
     console.info('[google-calendar]', { result: result.kind, durationMs: Date.now() - startedAt, requests,
       days: result.days ?? 0, busyDays: result.busyDays ?? 0,

@@ -71,7 +71,7 @@ test('a scheduling failure does not remove all existing reminders', async () => 
   const client = gateway();
   await syncDailyHouseworkDigest(client, snapshot(), now);
   client.schedule = async () => { throw new Error('OS unavailable'); };
-  await assert.rejects(syncDailyHouseworkDigest(client, snapshot({ chores: [{ id: 'one', name: '変更' }] }), now), /OS unavailable/);
+  await assert.rejects(syncDailyHouseworkDigest(client, snapshot({ chores: [{ id: 'one', name: '変更' }] }), now), error => error.result.failed === 3 && /OS unavailable/.test(error.cause.message));
   assert.equal(client.requests.size, 3);
   assert.deepEqual(client.cancelled, []);
 });
@@ -87,7 +87,7 @@ test('a failed new reminder still reconciles other dates and cancels obsolete re
     return schedule(request);
   };
   const moved = { ...entry, windowStart: '2026-11-01', windowEnd: '2026-11-03', suggestedDate: '2026-11-02', cycleBaseDate: '2026-11-02' };
-  await assert.rejects(syncDailyHouseworkDigest(client, snapshot({ scheduleEntries: [moved] }), now), /OS rejected/);
+  await assert.rejects(syncDailyHouseworkDigest(client, snapshot({ scheduleEntries: [moved] }), now), error => error.result.failed === 1 && /OS rejected/.test(error.cause.message));
   assert.equal(attempted.length, 3);
   assert.deepEqual(client.cancelled, oldKeys);
   assert.equal(client.requests.size, 2);
@@ -107,7 +107,7 @@ test('one cancellation failure does not retain every obsolete reminder or poison
     await cancel(key);
   };
   const disabled = snapshot({ settings: { ...snapshot().settings, notificationsEnabled: false } });
-  await assert.rejects(syncDailyHouseworkDigest(client, disabled, now), /OS cancellation failed/);
+  await assert.rejects(syncDailyHouseworkDigest(client, disabled, now), error => error.result.failed === 1 && /OS cancellation failed/.test(error.cause.message));
   assert.equal(attempted.length, 3);
   assert.equal(client.requests.size, 1);
   await syncDailyHouseworkDigest(client, disabled, now);
@@ -129,4 +129,14 @@ test('daily cycles notify each chore once and skip a day already completed', () 
   const after = createDailyHouseworkDigestRequests(snapshot({ scheduleEntries: entries, completions: [done] }), now);
   assert.equal(after.some((request) => request.data.date === '2026-10-24'), false);
   assert.equal(after.some((request) => request.data.date === '2026-10-25'), true);
+});
+
+test('digest indexing leaves reminders identical while old schedule rows are not rescanned for every future date', () => {
+  const expected = createDailyHouseworkDigestRequests(snapshot(), now); let reads = 0;
+  const old = Array.from({ length: 1000 }, (_, index) => ({ ...entry, id: `old-${index}`, choreId: `old-${index}`,
+    get windowStart() { reads++; return '2020-01-01'; }, windowEnd: '2020-01-02', suggestedDate: '2020-01-01' }));
+  const actual = createDailyHouseworkDigestRequests(snapshot({ scheduleEntries: [...old, entry],
+    chores: [...old.map(row => ({ id: row.choreId, name: row.id })), ...snapshot().chores],
+    completions: old.map(row => ({ id: `done-${row.id}`, choreId: row.choreId, completedAt: '2020-01-01T00:00:00Z', outcome: 'completed', scheduleEntryId: row.id })) }), now);
+  assert.deepEqual(actual, expected); assert.ok(reads < 5000, 'the 31-day digest must not walk every historic schedule entry for each date');
 });

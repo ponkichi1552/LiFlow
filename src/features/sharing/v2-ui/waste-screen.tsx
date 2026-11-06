@@ -112,8 +112,7 @@ export function V2WasteScreen({ model, actions, busy, perform, onBack, header }:
       </Card>}
       ListFooterComponent={waste ? <AccordionSection title="次の収集日" expanded={upcomingOpen} onToggle={() => setUpcomingOpen(value => !value)}>
         {waste.occurrences.filter(entry => entry.occurrence.date >= model.plan.range.asOfDate).slice(0, 30).map(entry => <View key={entry.key} style={{ gap: 4 }}>
-          <Text style={styles.caption}>{entry.occurrence.date}</Text><V2WasteOccurrence entry={entry} compact busy={locked} actions={actions}
-            run={run} />
+          <Text style={styles.caption}>{entry.occurrence.date}</Text><V2WasteOccurrence entry={entry} compact editing={{ busy: locked, actions, run }} />
         </View>)}
         {!waste.occurrences.some(entry => entry.occurrence.date >= model.plan.range.asOfDate) ? <Text style={styles.caption}>確定した収集日はありません。</Text> : null}
         {waste.occurrences.filter(entry => entry.occurrence.date >= model.plan.range.asOfDate).length > 30 ? <Text style={styles.caption}>直近30件を表示しています。各日付はカレンダーでも確認できます。</Text> : null}

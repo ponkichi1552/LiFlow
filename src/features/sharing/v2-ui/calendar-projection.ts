@@ -17,10 +17,15 @@ export function v2CalendarMonth(day: LocalDate, offset = 0) {
 }
 
 /** Local display only. Personal recommendations never change the common plan or another member's date. */
-export function v2CalendarProjection(model: V2GroupScreenModel, personal?: V2PersonalPlan, completionValues?: ReadonlyMap<string, boolean>, recommendedOnly = false) {
+export function v2CalendarProjection(model: V2GroupScreenModel, personal?: V2PersonalPlan, completionValues?: ReadonlyMap<string, boolean>, recommendedOnly = false,
+  displayRange: { from: LocalDate; through: LocalDate } = model.plan.range) {
   if (personal && (personal.viewerUserId !== model.viewerUserId || personal.groupId !== model.plan.groupId || personal.commonPlanHash !== model.plan.planHash)) {
     throw new Error('本人と現在の共有予定に対応する推奨を取得してください。');
   }
+  parseLocalDate(displayRange.from); parseLocalDate(displayRange.through);
+  if (displayRange.from > displayRange.through) throw new Error('表示する日付の範囲を確認してください。');
+  const fromDate = displayRange.from > model.plan.range.from ? displayRange.from : model.plan.range.from;
+  const throughDate = displayRange.through < model.plan.range.through ? displayRange.through : model.plan.range.through;
   const recommendations = new Map(personal?.recommendations.map((entry) => [entry.subjectOccurrenceId, entry]) ?? []);
   const visibility = createV2RoundVisibility(model);
   const entries = model.plan.occurrences.flatMap((round) => round.subjects.filter((subject) => (subject.subjectUserId === null || subject.subjectUserId === model.viewerUserId) && (subject.required || subject.completed || subject.pendingCompletionIds.length > 0)).map((subject) => {
@@ -37,12 +42,12 @@ export function v2CalendarProjection(model: V2GroupScreenModel, personal?: V2Per
     const dates: LocalDate[] = [];
     if (recommendedOnly) dates.push(entry.completedDate ?? entry.date);
     else {
-      const from = entry.windowStart > model.plan.range.from ? entry.windowStart : model.plan.range.from;
-      const through = entry.windowEnd < model.plan.range.through ? entry.windowEnd : model.plan.range.through;
+      const from = entry.windowStart > fromDate ? entry.windowStart : fromDate;
+      const through = entry.windowEnd < throughDate ? entry.windowEnd : throughDate;
       for (let date = from; date <= through; date = addDays(date, 1)) dates.push(date);
       if (entry.completedDate && !dates.includes(entry.completedDate)) dates.push(entry.completedDate);
     }
-    for (const date of dates) if (date >= model.plan.range.from && date <= model.plan.range.through) {
+    for (const date of dates) if (date >= fromDate && date <= throughDate) {
       const list = byDate.get(date) ?? []; list.push(entry); byDate.set(date, list);
     }
   }

@@ -70,5 +70,18 @@ export function createPrivateCalendarRootSetupStorage(port: PrivateCalendarRootS
         await db.runAsync("UPDATE private_calendar_root_setup SET status = 'ready' WHERE id = ? AND intent_digest = ?", 'root', digest); return true;
       });
     },
+    /** Public, unaccepted proposal only. Protected trust, keys and cached ciphertext are never removed. */
+    discardUnaccepted(digest: string) {
+      hexBytes(digest, 32);
+      return locked(async (db, state) => {
+        const row = await record(db); if (!row || row.intent_digest !== digest) return false;
+        const intent = decode(row, state);
+        if (intent.status !== 'pending' || state.authority || state.hasStoredKeys) return false;
+        const table = await db.getFirstAsync('SELECT name FROM sqlite_master WHERE type = ? AND name = ?', 'table', 'private_calendar_cache');
+        if (table && await db.getFirstAsync('SELECT id FROM private_calendar_cache LIMIT 1')) return false;
+        const deleted = await db.runAsync("DELETE FROM private_calendar_root_setup WHERE id = 'root' AND intent_digest = ? AND status = 'pending'", digest);
+        return deleted.changes === 1;
+      });
+    },
   };
 }

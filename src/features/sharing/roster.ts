@@ -18,6 +18,8 @@ export interface SharedRosterBody {
   previousDigest: string | null;
   closed: boolean;
   members: SharedGroupMember[];
+  /** Adds a device to an existing principal; the group secret is continuous across this transport epoch only. */
+  accountDeviceRestore?: { userId: string; deviceId: string; requestDigest: string };
 }
 export interface SignedSharedRoster { body: SharedRosterBody; signer: DevicePublicIdentity; signature: string }
 declare const verifiedRoster: unique symbol;
@@ -42,7 +44,7 @@ export function validateSharedRoster(input: SignedSharedRoster): SignedSharedRos
   exactKeys(input, ['body', 'signer', 'signature']);
   const { body } = input;
   exactKeys(body, ['schemaVersion', 'groupId', 'revision', 'keyVersion', 'ownerUserId', 'ownerDeviceId',
-    'schedulerVersion', 'previousDigest', 'closed', 'members']);
+    'schedulerVersion', 'previousDigest', 'closed', 'members', ...(body.accountDeviceRestore === undefined ? [] : ['accountDeviceRestore'])]);
   if (![1, 2].includes(body.schemaVersion) || typeof body.closed !== 'boolean') throw new Error('Unsupported roster schema');
   for (const id of [body.groupId, body.ownerUserId, body.ownerDeviceId]) assertSharedIdentifier(id);
   positive(body.revision); positive(body.keyVersion);
@@ -68,6 +70,13 @@ export function validateSharedRoster(input: SignedSharedRoster): SignedSharedRos
   }
   const owner = body.members.find((member) => member.userId === body.ownerUserId);
   if (!body.closed && !owner?.devices.some((device) => device.identity.deviceId === body.ownerDeviceId)) throw new Error('Owner signing device is missing');
+  if (body.accountDeviceRestore) {
+    const restored = body.accountDeviceRestore; exactKeys(restored, ['userId', 'deviceId', 'requestDigest']);
+    assertSharedIdentifier(restored.userId); assertSharedIdentifier(restored.deviceId);
+    if (body.schemaVersion !== 2 || body.closed || body.revision < 2 || !/^[a-f0-9]{64}$/u.test(restored.requestDigest)
+      || !body.members.find(member => member.userId === restored.userId)?.devices.some(device => device.identity.deviceId === restored.deviceId
+        && device.joinedKeyVersion === body.keyVersion)) throw new Error('Invalid account device restoration epoch');
+  }
   const signer = publicOnly(input.signer);
   if (body.revision === 1 && signer.deviceId !== body.ownerDeviceId) throw new Error('Initial roster needs its owner signature');
   verifySharedDocument({ domain: 'liflow-shared-roster-v1', body }, input.signature, signer);
@@ -108,7 +117,8 @@ export function verifySharedRosterTransition(previousInput: VerifiedSharedRoster
   const previous = validateSharedRoster(previousInput); const next = validateSharedRoster(nextInput);
   const priorOwner = previous.body.members.find((member) => member.userId === previous.body.ownerUserId)?.devices
     .find((device) => device.identity.deviceId === previous.body.ownerDeviceId)?.identity;
-  if (previous.body.closed || !priorOwner || canonicalJson(priorOwner) !== canonicalJson(next.signer)
+  if (next.body.accountDeviceRestore && !sameAccountDeviceAddition(previous, next)) throw new Error('Account restoration cannot change another membership or group setting');
+  if (previous.body.closed || !priorOwner || (canonicalJson(priorOwner) !== canonicalJson(next.signer) && !sameAccountDeviceAddition(previous, next))
     || next.body.groupId !== previous.body.groupId || next.body.previousDigest !== sharedRosterDigest(previous)
     || next.body.revision !== previous.body.revision + 1 || next.body.keyVersion !== previous.body.keyVersion + 1) {
     throw new Error('Untrusted roster transition or rollback');
@@ -153,10 +163,47 @@ export function verifySharedRosterTransition(previousInput: VerifiedSharedRoster
   return next as VerifiedSharedRoster;
 }
 
+/** Structural restriction only; use after signature/chain verification, never as standalone authority. */
+export function sameAccountDeviceAddition(previous: SignedSharedRoster, next: SignedSharedRoster): { userId: string; deviceId: string } | null {
+  const marker = next.body.accountDeviceRestore;
+  if (!marker || previous.body.schemaVersion !== 2 || next.body.schemaVersion !== 2 || previous.body.closed || next.body.closed) return null;
+  const sponsor = previous.body.members.find(member => member.devices.some(device => canonicalJson(device.identity) === canonicalJson(next.signer)));
+  const member = next.body.members.find(member => member.userId === sponsor?.userId);
+  if (!sponsor || !member || member.devices.length !== sponsor.devices.length + 1) return null;
+  const added = member.devices.filter(device => !sponsor.devices.some(old => old.identity.deviceId === device.identity.deviceId));
+  if (added.length !== 1 || added[0].joinedKeyVersion !== next.body.keyVersion || marker.userId !== sponsor.userId
+    || marker.deviceId !== added[0].identity.deviceId || !/^[a-f0-9]{64}$/u.test(marker.requestDigest)) return null;
+  const expected = JSON.parse(canonicalJson(previous.body)) as SharedRosterBody;
+  expected.revision++; expected.keyVersion++; expected.previousDigest = sharedRosterDigest(previous);
+  expected.accountDeviceRestore = marker;
+  expected.members.find(member => member.userId === sponsor.userId)!.devices.push(added[0]);
+  for (const item of expected.members) item.devices.sort((a, b) => compareOperationIds(a.identity.deviceId, b.identity.deviceId));
+  expected.members.sort((a, b) => compareOperationIds(a.userId, b.userId));
+  return canonicalJson(expected) === canonicalJson(next.body) ? { userId: sponsor.userId, deviceId: added[0].identity.deviceId } : null;
+}
+
+/** The authenticated account and its approved device co-sign a new, distinct device identity. */
+export function approveOwnSharedDevice(previous: VerifiedSharedRoster, sponsor: DeviceSecretIdentity, userId: string,
+  publicIdentity: DevicePublicIdentity, requestDigest: string): VerifiedSharedRoster {
+  assertSharedIdentifier(userId); const identity = validateDevicePublicIdentity(publicIdentity);
+  if (!/^[a-f0-9]{64}$/u.test(requestDigest)) throw new Error('A bound device request is required');
+  const member = previous.body.members.find(item => item.userId === userId);
+  if (previous.body.schemaVersion !== 2 || previous.body.closed || !member?.devices.some(device => canonicalJson(device.identity) === canonicalJson(validateDevicePublicIdentity(sponsor)))) {
+    throw new Error('An approved device of this same account is required');
+  }
+  if (previous.body.members.some(item => item.devices.some(device => device.identity.deviceId === identity.deviceId))) throw new Error('Device is already approved');
+  const body = JSON.parse(canonicalJson(previous.body)) as SharedRosterBody;
+  body.revision++; body.keyVersion++; body.previousDigest = sharedRosterDigest(previous);
+  body.accountDeviceRestore = { userId, deviceId: identity.deviceId, requestDigest };
+  body.members.find(item => item.userId === userId)!.devices.push({ identity, joinedKeyVersion: body.keyVersion });
+  return verifySharedRosterTransition(previous, signRoster(body, sponsor));
+}
+
 function updateRoster(previous: VerifiedSharedRoster, owner: DeviceSecretIdentity, change: (body: SharedRosterBody) => void): VerifiedSharedRoster {
   validateSharedRoster(previous);
   if (previous.body.closed || previous.body.ownerDeviceId !== owner.deviceId) throw new Error('Only the current owner device can change membership');
   const body = JSON.parse(canonicalJson(previous.body)) as SharedRosterBody;
+  delete body.accountDeviceRestore;
   body.revision++; body.keyVersion++; body.previousDigest = sharedRosterDigest(previous);
   change(body);
   return verifySharedRosterTransition(previous, signRoster(body, owner));

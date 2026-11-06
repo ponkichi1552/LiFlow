@@ -16,8 +16,8 @@ async function receive(device, facts) { const checkpoint = await readSharingChec
   await applyReceivedSharedFacts(device.database, groupId, facts, String(facts.length), device.repository.project, checkpoint.cursor, now().getTime(), device.repository.evidenceForServerReceipts(receiptsFor(facts))); }
 async function setup() {
   const base = await fixture(); const device = await base.device(); await device.repository.commit(seeds()); const c = controller(device);
-  let preferences = 0; let requests = []; let implementation = async () => applianceResult(); let failRead = false; let failAfterSave = false; const mounts = [];
-  const decorated = { ...c, actions: { ...c.actions, reviewAppliance: async input => { const value = await c.actions.reviewAppliance(input); if (failAfterSave) { failAfterSave = false; failRead = true; } return value; } } };
+  let preferences = 0; let requests = []; let implementation = async () => applianceResult(); let failRead = false; let failAfterSave = false; let retentionPending = false; const mounts = [];
+  const decorated = { ...c, actions: { ...c.actions, reviewAppliance: async input => { const value = await c.actions.reviewAppliance(input); if (failAfterSave) { failAfterSave = false; failRead = true; } return retentionPending ? { ...value, personalRetentionPending: true } : value; } } };
   const source = createV2ScreenSession({ controller: decorated, groupId, userId: 'owner', now, readPreferences: () => { preferences++; throw new Error('No private planning in asset management'); } });
   const session = { ...source, readModel: options => { if (failRead) { failRead = false; throw new Error('injected view failure'); } return source.readModel(options); } };
   async function mount(platform, view = 'applianceReview', applianceId, bottomInset = 0, screenProps = {}) {
@@ -38,7 +38,7 @@ async function setup() {
       refresh: async () => { leave(); leave = focus(); await screen.flush(); }, leave: () => { leave(); effects.forEach(cleanup => cleanup()); } };
   }
   const read = id => c.readModel(range, { appliances: true, applianceId: id });
-  return { base, device, c, mount, read, preferences: () => preferences, requests: () => requests, analyzeWith: fn => { implementation = fn; }, failAfterNextSave: () => { failAfterSave = true; },
+  return { base, device, c, mount, read, preferences: () => preferences, requests: () => requests, analyzeWith: fn => { implementation = fn; }, failAfterNextSave: () => { failAfterSave = true; }, failPersonalRetention: () => { retentionPending = true; },
     async seed() { const result = applianceResult(); return c.actions.reviewAppliance({ reviewed: true, result, addTaskNames: result.analysis.tasks.map(task => task.name) }); },
     close() { mounts.forEach(cleanup => cleanup()); device.connection.close(); } };
 }
@@ -90,6 +90,19 @@ for (const platform of ['ios', 'android']) {
       assert.equal(screen.button('選択したPDFを解析する').props.accessibilityState.disabled, true);
       await screen.press('保存済みの家電を再読込'); await settle(screen, () => !screen.text().includes('端末に保存済みです'));
       assert.deepEqual(await listSharingOutbox(f.device.database, groupId), before); assert.equal(screen.nodes().some(node => node.children?.join('') === '確認した解析結果を共有する'), false);
+    } finally { f.close(); }
+  });
+
+  test(`${platform} a shared appliance saved with a pending personal copy stays saved and never invites a second analysis`, async () => {
+    const f = await setup();
+    try {
+      const { screen } = await f.mount(platform); await analyze(screen); await checkbox(screen, reviewLabel).props.onPress(); await screen.flush();
+      f.failPersonalRetention(); await screen.press('確認した解析結果を共有する');
+      await settle(screen, () => screen.text().includes('個人側への保存は次回同期時に再試行'));
+      assert.equal(f.requests().length, 1);
+      assert.equal(screen.button('選択したPDFを解析する').props.accessibilityState.disabled, true);
+      assert.equal(screen.nodes().some(node => node.children?.join('') === '確認した解析結果を共有する'), false);
+      assert.ok(screen.button('保存した共有家電を開く'));
     } finally { f.close(); }
   });
 

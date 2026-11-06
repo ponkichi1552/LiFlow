@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { loadNativeModule } from './helpers/native-module.mjs';
+import { AdaptiveOwnerInputsChangedError } from '../src/platform/storage/adaptive-owner-inputs.ts';
 
 const loadedSnapshot = { household: { name: '家族' }, settings: { notificationsEnabled: true } };
 for (const [platform, snapshot, name] of [
@@ -33,6 +34,7 @@ for (const [platform, snapshot, name] of [
         '@/features/appliance-care/library-changes': { subscribeApplianceLibraryChanges: () => () => {} },
         '@/features/google-sync/background-task': {}, '@/features/google-sync/coordinator': {},
         '@/features/planner/refresh-controller': { createPlannerRefreshController: () => controller },
+        '@/platform/storage/adaptive-owner-inputs': { AdaptiveOwnerInputsChangedError },
         '@/platform/storage/shared-repository-adapter': { sharedRepositoryAdapter: () => shared },
         '@/features/google-sync/workspace-policy': { sharedGoogleNamespace: (userId, groupId) => {
           assert.equal(userId, shared.userId); assert.equal(groupId, shared.groupId); return scope;

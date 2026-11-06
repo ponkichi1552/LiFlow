@@ -345,6 +345,12 @@ service cloud.firestore {
     }
     // No document is written here. A successful read proves only the caller's
     // own signed revocation; active/unpaid/unrelated users receive no information.
+    // Only a wake-up hint is visible to the account. Requests and encrypted key
+    // grants remain Admin-only so expired or retired grants cannot bypass the API.
+    match /sharingUsers/{userId}/deviceRestoreSignals/current {
+      allow get: if signedIn() && request.auth.uid == userId;
+      allow list, write: if false;
+    }
     match /sharingUsers/{userId}/revocations/{groupId} {
       allow get: if signedIn() && request.auth.uid == userId && safeId(groupId)
         && exists(membershipPath(userId)) && get(membershipPath(userId)).data.groupId == groupId
@@ -528,6 +534,30 @@ service cloud.firestore {
       }
     }
     // AI jobs, quota counters and worker leases are exclusively accessed through the authenticated server.
+    function validPrivateTaskClaim(d, claimId) {
+      return d.keys().hasOnly(['schemaVersion','scopeHash','occurrenceHash','revision','phase','attemptId','taskHash','createdAt','updatedAt'])
+        && d.keys().hasAll(['schemaVersion','scopeHash','occurrenceHash','revision','phase','attemptId','taskHash','createdAt','updatedAt'])
+        && d.schemaVersion == 1 && validProofDigest(d.scopeHash) && validProofDigest(d.occurrenceHash) && d.occurrenceHash == claimId
+        && d.revision is int && d.revision >= 1 && d.revision <= 9007199254740991
+        && d.attemptId is string && d.attemptId.size() > 0 && d.attemptId.size() <= 512
+        && d.phase in ['reserved','linked','released']
+        && ((d.phase == 'linked' && validProofDigest(d.taskHash)) || (d.phase != 'linked' && d.taskHash == null))
+        && d.createdAt is timestamp && d.updatedAt is timestamp;
+    }
+    match /privateGoogleTaskClaims/{userId}/occurrences/{claimId} {
+      // Independent of group member privileges. These are only this user's private Google write receipts.
+      allow get: if signedIn() && request.auth.uid == userId;
+      allow list, delete: if false;
+      allow create: if signedIn() && request.auth.uid == userId && validPrivateTaskClaim(request.resource.data, claimId)
+        && request.resource.data.revision == 1 && request.resource.data.phase in ['reserved','linked']
+        && request.resource.data.createdAt == request.time && request.resource.data.updatedAt == request.time;
+      allow update: if signedIn() && request.auth.uid == userId && validPrivateTaskClaim(request.resource.data, claimId)
+        && request.resource.data.scopeHash == resource.data.scopeHash && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time && request.resource.data.revision == resource.data.revision + 1
+        && ((resource.data.phase == 'reserved' && request.resource.data.phase in ['linked','released'] && request.resource.data.attemptId == resource.data.attemptId)
+          || (resource.data.phase == 'linked' && request.resource.data.phase == 'released' && request.resource.data.attemptId == resource.data.attemptId)
+          || (resource.data.phase == 'released' && request.resource.data.phase in ['reserved','linked'] && request.resource.data.attemptId != resource.data.attemptId));
+    }
     match /applianceApi/{document=**} { allow read, write: if false; }
     match /{document=**} { allow read, write: if false; }
   }

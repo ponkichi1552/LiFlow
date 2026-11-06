@@ -13,7 +13,7 @@ import { addDays, formatJapaneseDate, monthDates, parseLocalDate } from '../../d
 import type { LocalDate } from '../../domain/shared/types';
 import type { WeeklyWasteSchedule } from '../waste/contracts';
 import { wasteCalendarLabels } from '../waste/calendar-labels';
-import { calendarEventsInTimeZone, calendarMonth, categoryColor, dateInMonth, minuteLabel, newEventDraft, occurrencesOnDate } from './events';
+import { calendarEventsInTimeZone, calendarMonth, categoryColor, dateInMonth, indexCalendarOccurrences, minuteLabel, newEventDraft } from './events';
 import { projectPrivateCalendarEvents } from './private-event-projection';
 import type { CalendarOccurrence } from './events';
 import { CalendarEditor } from './calendar-editor';
@@ -38,6 +38,8 @@ export interface PlannerCalendarProps {
   onSelectDate?: (date: LocalDate) => void; onMonth?: (month: LocalDate) => void; monthLoaded?: (month: LocalDate) => boolean;
   dayInfo: (date: LocalDate) => CalendarDayInfo; renderChores: (date: LocalDate) => ReactNode; renderWaste?: (date: LocalDate) => ReactNode;
   wasteSchedules?: readonly WeeklyWasteSchedule[]; hiddenWasteKeys?: readonly string[];
+  /** Shared rules alone do not prove that date-specific exceptions were read. */
+  wasteLoaded?: (date: LocalDate) => boolean;
   notice?: ReactNode; footer?: ReactNode;
   onNavigate?: (tab: 'home' | 'calendar' | 'chores' | 'appliances') => void; existingChores?: readonly ExistingCalendarChore[];
   repeatReturnTo?: 'personal' | 'group';
@@ -96,16 +98,13 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     catch (error) { return { events: [] as CalendarOccurrence[], error: error instanceof Error ? error.message : '予定を表示できません。' }; }
   }, [source.events, source.exceptions, range.from, range.through, timeZone]);
   const colors = useMemo(() => new Map(source.categories.map(category => [category.id, categoryColor(category.color, scheme === 'dark')])), [source.categories, scheme]);
-  const byDate = useMemo(() => {
-    const values = new Map<LocalDate, CalendarOccurrence[]>();
-    for (let day = range.from; day <= range.through; day = addDays(day, 1)) values.set(day, occurrencesOnDate(projection.events, day));
-    return values;
-  }, [projection.events, range.from, range.through]);
+  const byDate = useMemo(() => indexCalendarOccurrences(projection.events, range.from, range.through), [projection.events, range.from, range.through]);
   const eventsOn = (day: LocalDate) => byDate.get(day) ?? [];
   const waste = useMemo(() => wasteCalendarLabels(props.wasteSchedules ?? [], range.from, range.through, props.hiddenWasteKeys), [props.wasteSchedules, props.hiddenWasteKeys, range.from, range.through]);
+  const wasteKnown = (day: LocalDate) => props.wasteLoaded?.(day) !== false;
   const dateLabel = (day: LocalDate) => {
-    const info = props.dayInfo(day); const labels = waste.byDate.get(day) ?? []; const hidden = waste.hiddenWeeklyByDate.get(day) ?? []; const events = eventsOn(day);
-    return `${formatJapaneseDate(day, { year: true })}、${info.accessibilityCountLabel ?? (info.loaded ? `実施期間内の家事${info.total ?? info.pending ?? 0}件、未完了${info.pending ?? 0}件${info.partial ? '、一部は未取得' : ''}` : busy ? '家事は読み込み中' : '家事は未取得')}${labels.length ? `、${labels.join('・')}` : ''}${hidden.length ? `、非表示の収集：${hidden.join('・')}` : ''}${events.length ? `、予定${events.length}件` : ''}`;
+    const info = props.dayInfo(day); const labels = wasteKnown(day) ? waste.byDate.get(day) ?? [] : []; const hidden = wasteKnown(day) ? waste.hiddenWeeklyByDate.get(day) ?? [] : []; const events = eventsOn(day);
+    return `${formatJapaneseDate(day, { year: true })}、${info.accessibilityCountLabel ?? (info.loaded ? `実施期間内の家事${info.total ?? info.pending ?? 0}件、未完了${info.pending ?? 0}件${info.partial ? '、一部は未取得' : ''}` : busy ? '家事は読み込み中' : '家事は未取得')}${!wasteKnown(day) ? '、収集日は未取得' : ''}${labels.length ? `、${labels.join('・')}` : ''}${hidden.length ? `、非表示の収集：${hidden.join('・')}` : ''}${events.length ? `、予定${events.length}件` : ''}`;
   };
   const navigateMonth = (next: LocalDate, day = preferred.current, destination: CalendarView = 'month') => {
     monthDragged.current = false; monthPositioned.current = '';
@@ -167,15 +166,15 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     ? <Text style={styles.overlapNotice}>終日予定がある日の家事です</Text> : null}{expanded.has(day) ? <View style={styles.choreList}>{props.renderChores(day)}</View> : null}</View>;
   const summary = (day: LocalDate) => <View>{summaryToggle(day)}{summaryDetails(day)}</View>;
   const eventRow = (event: CalendarOccurrence, day: LocalDate) => <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${event.title}を編集`} onPress={() => openEvent(event)} style={styles.eventRow}>
-    <Text style={styles.eventTime}>{event.allDay ? '終日' : event.startDate < day ? '継続' : minuteLabel(event.startMinute)}</Text><View style={[styles.eventStripe, { backgroundColor: colors.get(event.categoryId) ?? palette.muted }]} />
+    <Text numberOfLines={1} style={styles.eventTime}>{event.allDay ? '終日' : event.startDate < day ? '継続' : minuteLabel(event.startMinute)}</Text><View style={[styles.eventStripe, { backgroundColor: colors.get(event.categoryId) ?? palette.muted }]} />
     <View style={styles.eventText}><Text style={styles.eventTitle}>{event.title}</Text>{event.location ? <Text style={styles.caption}>{event.location}</Text> : null}
-      {event.timeIssue ? <Text style={styles.error}>時刻の確認が必要</Text> : event.original ? <Text style={styles.caption}>元の地域：{event.original.timeZone}</Text> : event.timeZone !== timeZone ? <Text style={styles.caption}>{event.timeZone}</Text> : null}</View><Chevron />
+      {event.timeIssue ? <Text style={styles.error} accessibilityLabel={`${event.timeZone}の夏時間により${event.timeIssue === 'gap' ? '存在しない' : '重複する'}時刻です。時刻を確認してください。`}>時刻要確認 · {event.timeZone}</Text> : event.original ? <Text style={styles.caption}>元の地域：{event.original.timeZone}</Text> : event.timeZone !== timeZone ? <Text style={styles.caption}>{event.timeZone}</Text> : null}</View><Chevron />
   </Pressable>;
   const dayHeading = (day: LocalDate) => <View style={styles.dayHeading}><Text accessibilityLabel={dateLabel(day)} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={.85} style={[styles.dayTitle, day === today && { color: palette.accent }]}>{formatJapaneseDate(day, { weekday: true }).replace(/[（(]/gu, ' ').replace(/[）)]/gu, '')}</Text>
     {eventsOn(day).filter(event => event.birthday).map(event => <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${event.title}を編集`} onPress={() => openEvent(event)} style={styles.birthday}>
       <SymbolView name={{ ios: 'birthday.cake', android: 'cake' }} size={16} tintColor={colors.get(event.categoryId) ?? palette.muted} /><Text numberOfLines={1} style={styles.caption}>{event.title}</Text></Pressable>)}
-    {waste.weeklyByColumn[parseLocalDate(day).getUTCDay()].map(name => <WasteTypeLabel key={name} label={name} size={14} />)}
-    {(waste.byDate.get(day) ?? []).map(name => <WasteTypeLabel key={name} label={name} size={14} />)}</View>;
+    {wasteKnown(day) ? <>{waste.weeklyByColumn[parseLocalDate(day).getUTCDay()].map(name => <WasteTypeLabel key={name} label={name} size={14} />)}
+    {(waste.byDate.get(day) ?? []).map(name => <WasteTypeLabel key={name} label={name} size={14} />)}</> : null}</View>;
   const dayList = view === 'two' ? [date, addDays(date, 1)] : [date];
   const positionTime = () => {
     const key = `${view}:${date}`; if (positioned.current === key || timelineTop.current === null || timelineViewport.current <= 0) return;
@@ -226,7 +225,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     </View> : null}
     <View style={[styles.week, item.monthStartColumn !== null && styles.monthFirstWeek, { height: rowHeight }]}>{item.days.map((day, column) => {
     if (!day) return <View key={`empty:${column}`} pointerEvents="none" style={styles.monthColumn} />;
-    const info = props.dayInfo(day); const dailyEvents = eventsOn(day); const labels = waste.byDate.get(day) ?? []; const hidden = waste.hiddenWeeklyByDate.get(day) ?? [];
+    const info = props.dayInfo(day); const dailyEvents = eventsOn(day); const labels = wasteKnown(day) ? waste.byDate.get(day) ?? [] : []; const hidden = wasteKnown(day) ? waste.hiddenWeeklyByDate.get(day) ?? [] : [];
     const total = info.total ?? info.pending ?? 0;
     const hasSummary = !info.loaded || total > 0 || Boolean(info.partial);
     const slots = Math.max(1, Math.min(3, Math.floor((rowHeight - 36 - (hasSummary ? 25 : 0) - (labels.length ? 17 : 0)) / 18))); const shown = dailyEvents.slice(0, slots);
@@ -237,6 +236,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
       <View style={styles.dayNumberRow}><Text style={[styles.dayNumber,
         day === today && styles.todayNumber, day === date && day !== today && styles.selectedNumber]}>{Number(day.slice(-2))}</Text></View>
       {labels.slice(0, 1).map(label => <WasteTypeLabel key={label} label={label} size={13} textStyle={styles.gridWasteText} />)}
+      {!wasteKnown(day) ? <Text numberOfLines={1} adjustsFontSizeToFit style={styles.caption}>収集未取得</Text> : null}
       {shown.map(event => <View key={event.id} style={[styles.monthEvent, { borderLeftColor: colors.get(event.categoryId) ?? palette.muted, backgroundColor: (colors.get(event.categoryId) ?? '#718299') + '1C' }]}>
         <Text numberOfLines={1} style={[styles.monthEventText, { flex: 1 }]}>{event.title}</Text>{event.id === shown.at(-1)?.id && dailyEvents.length > slots ? <Text style={styles.more}>+{dailyEvents.length - slots}</Text> : null}</View>)}
       {hasSummary ? info.loaded ? <View style={styles.monthCount}><Text numberOfLines={1} adjustsFontSizeToFit style={styles.monthCountText}>{total > 0 ? <>家事 <Text style={styles.monthCountNumber}>{total}</Text>件{info.partial ? '+' : ''}</> : '一部未取得'}</Text></View>
@@ -351,7 +351,7 @@ const styles = StyleSheet.create({
   dayHeading: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, paddingTop: 9, paddingBottom: 5 }, dayTitle: { ...typography.subheading, color: palette.ink, fontWeight: '700', textAlign: 'center' },
   birthday: { flexDirection: 'row', gap: 3, alignItems: 'center', maxWidth: '65%' }, dayColumns: { flexDirection: 'row' }, dayColumn: { flex: 1, minWidth: 0, borderRightWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
   eventRow: { minHeight: 48, paddingVertical: 8, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
-  eventTime: { ...typography.caption, color: palette.muted, width: 39 }, eventStripe: { width: 3, alignSelf: 'stretch', borderRadius: 2 }, eventText: { flex: 1, gap: 1 }, eventTitle: { ...typography.body, color: palette.ink, fontWeight: '600' },
+  eventTime: { ...typography.caption, color: palette.muted, minWidth: 39, flexShrink: 0 }, eventStripe: { width: 3, alignSelf: 'stretch', borderRadius: 2 }, eventText: { flex: 1, gap: 1 }, eventTitle: { ...typography.body, color: palette.ink, fontWeight: '600' },
   agendaDay: { paddingBottom: 10, borderBottomWidth: 1, borderColor: palette.border }, empty: { ...typography.caption, color: palette.muted, paddingHorizontal: 12, paddingVertical: 8 },
   alignedDayColumns: { marginLeft: timeGutter, borderLeftWidth: 1, borderLeftColor: palette.border },
   fixedDayHeader: { backgroundColor: palette.background, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },

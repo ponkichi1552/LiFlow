@@ -74,3 +74,28 @@ test('shared calendar reuses collation within each projection while preserving n
     assert.equal(JSON.stringify(model), before);
   } finally { Intl.Collator = NativeCollator; String.prototype.localeCompare = nativeCompare; d.connection.close(); }
 });
+
+test('home projection of a warmed wide calendar builds only its visible weeks with identical dates completion choices and counts', async () => {
+  const f = await fixture(); const d = await f.device();
+  try {
+    await d.repository.commit(seeds());
+    const controller = createV2GroupController(d.repository, { makeId: () => 'home-cost', now, sync: async () => {} });
+    const model = await controller.readModel({ from: '2026-10-01', through: '2027-03-29', asOfDate: '2026-10-27' });
+    const template = model.plan.occurrences[0]; assert.ok(template);
+    model.plan.occurrences = Array.from({ length: 6 }, (_, index) => ({ ...template, id: `wide.${index}`, choreId: `chore.${index}`,
+      subjects: [{ ...template.subjects[0], id: `subject.${index}`, suggestedDate: '2026-10-28', executionWindowStart: '2026-10-01', executionWindowEnd: '2027-03-29' }] }));
+    const before = JSON.stringify(model); const range = { from: '2026-10-27', through: '2026-11-08' };
+    for (const recommendedOnly of [false, true]) for (const values of [undefined, new Map([['shared:subject.0', true]])]) {
+      const full = v2CalendarProjection(model, undefined, values, recommendedOnly);
+      const Original = globalThis.Date; let dates = 0;
+      globalThis.Date = class extends Original { constructor(...args) { super(...args); dates++; } };
+      let part;
+      try { part = v2CalendarProjection(model, undefined, values, recommendedOnly, range); }
+      finally { globalThis.Date = Original; }
+      assert.deepEqual([...part.byDate], [...full.byDate].filter(([date]) => date >= range.from && date <= range.through));
+      assert.deepEqual([...part.counts], [...full.counts].filter(([date]) => date >= range.from && date <= range.through));
+      assert.ok(dates < 200, `home must not expand the entire cached calendar, observed ${dates}`);
+      assert.equal(JSON.stringify(model), before);
+    }
+  } finally { d.connection.close(); }
+});

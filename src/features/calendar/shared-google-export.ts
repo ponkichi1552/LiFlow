@@ -1,14 +1,14 @@
 import { createGoogleOperationBudget } from '../google-sync/operation-budget.ts';
 import { withGoogleSyncOperation } from '../google-sync/operation-lock.ts';
 import { GoogleAccountMismatchError } from '../google-sync/account-binding.ts';
-import { GoogleCalendarHttpError } from '../../platform/google-calendar/calendar-api.ts';
-import type { GoogleCalendarApi, GoogleCalendarListEntry } from '../../platform/google-calendar/calendar-api';
-import type { SharedCalendarExportControl, SharedCalendarExportStore } from '../../platform/storage/sharing-v2-calendar-export';
+import { canWriteGoogleCalendar, GoogleCalendarHttpError } from '../../platform/google-calendar/calendar-api.ts';
+import type { GoogleCalendarApi, GoogleCalendarListEntry, GoogleCalendarEvent } from '../../platform/google-calendar/calendar-api';
+import type { SharedCalendarExportControl, SharedCalendarExportStore, SharedCalendarExportLink, SharedCalendarExportIntent } from '../../platform/storage/sharing-v2-calendar-export';
 import type { GoogleOperationBudget } from '../google-sync/operation-budget';
 import { sharedDocumentDigest } from '../sharing/crypto.ts';
-import { sharedLocalDate } from '../sharing/group-clock.ts';
 import { googleEventBody } from './google-event-mapping.ts';
-import { addDays } from '../../domain/scheduling/local-date.ts';
+import { googleOwnedFields } from './google-owned-fields.ts';
+import { findGoogleCalendarInstance } from './google-instance.ts';
 import { projectCalendarEvents } from '../../domain/calendar/events.ts';
 
 export function createSharedGoogleCalendarExport(input: { store: SharedCalendarExportStore; scope: { userId: string; groupId: string };
@@ -23,10 +23,10 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
   let activeInteractive = false;
   type Review = { revision: number; account: { subject: string; label: string }; calendars: GoogleCalendarListEntry[] };
   const reviews = new WeakMap<Review, { revision: number; subject: string; label: string; calendars: Map<string, GoogleCalendarListEntry> }>();
-  const prepareConnection = () => withGoogleSyncOperation(async (): Promise<Review> => {
+  const prepareConnection = (options: { replaceAccount?: boolean } = {}) => withGoogleSyncOperation(async (): Promise<Review> => {
     await input.assertAccess(); const control = await input.store.readControl();
     // Reading and approving Google's consent screen is a human action, not HTTP time.
-    const account = await input.authorize(control.subject ?? undefined);
+    const account = await input.authorize(options.replaceAccount === true ? undefined : control.subject ?? undefined);
     const budget = createGoogleOperationBudget(20_000);
     try {
       const guard = async () => { budget.assert(); await input.assertAccess(); if (await input.currentSubject() !== account.subject) throw new GoogleAccountMismatchError(); };
@@ -34,7 +34,7 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
       const calendars: GoogleCalendarListEntry[] = []; let page: string | undefined; const seen = new Set<string>();
       do {
         await guard(); const result = await api.calendars(page); await guard();
-        for (const value of result.items ?? []) if (typeof value.id === 'string' && value.id.length <= 1024 && ['owner', 'writer'].includes(value.accessRole)) calendars.push({ ...value });
+        for (const value of result.items ?? []) if (typeof value.id === 'string' && value.id.length <= 1024 && canWriteGoogleCalendar(value)) calendars.push({ ...value });
         page = result.nextPageToken; if (page && (seen.has(page) || seen.size >= 10)) throw new Error('カレンダー一覧を取得しきれません。'); if (page) seen.add(page);
       } while (page);
       const review: Review = { revision: control.revision, account: { ...account }, calendars };
@@ -65,66 +65,113 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
         let sent = 0; let calls = 0;
         const guard = async () => { budget.assert(); await assertControl(control); };
         const api = input.createApi({ subject: control.subject!, assertCurrent: guard, signal: budget.signal });
-        const request = async <T>(fn: () => Promise<T>): Promise<T> => { if (++calls > 100) throw Object.assign(new Error('続きは次の同期で送信します。'), { code: 'batch_limit' }); await guard(); return fn(); };
+        const request = async <T>(fn: () => Promise<T>): Promise<T> => { if (++calls > 100) throw Object.assign(new Error('続きは次の同期で送信します。'), { code: 'batch_limit' }); await guard(); const value = await fn(); await guard(); return value; };
         try {
           await guard(); const items = await input.store.readItems(); const links = new Map((await input.store.readLinks(control.subject!, control.calendarId!)).map(link => [link.sourceId, link]));
+          const itemsById = new Map(items.map(item => [item.sourceId, item]));
+          const save = async (link: SharedCalendarExportLink) => {
+            await input.store.saveLink(control.subject!, control.calendarId!, link); links.set(link.sourceId, link);
+          };
+          const knownSeries = async (link: SharedCalendarExportLink, current: GoogleCalendarEvent) => {
+            const marker = current.extendedProperties?.private;
+            if (current.id !== link.pending!.googleId || !current.etag || marker?.liflowShared !== '1'
+              || marker.liflowSource !== sharedDocumentDigest([input.scope, link.sourceId]) || !marker.liflowRevision) return null;
+            const proof = await input.store.knownSeriesRevision?.(link.sourceId, marker.liflowRevision);
+            if (!proof || proof.fields !== googleOwnedFields(current)) return null;
+            if (proof.currentRevision !== itemsById.get(link.sourceId)?.revision) throw Object.assign(new Error('共有予定が更新されました。'), { code: 'export_source_changed' });
+            return { sourceId: link.sourceId, googleId: current.id, etag: current.etag, revision: marker.liflowRevision, deleted: false };
+          };
+          const send = async (link: SharedCalendarExportLink) => {
+            const intent = link.pending!; let result;
+            if (intent.method === 'delete') {
+              try { await request(() => api.remove(control.calendarId!, intent.googleId, intent.etag)); }
+              catch (cause) {
+                if (!(cause instanceof GoogleCalendarHttpError)) throw cause;
+                if (cause.status === 412) {
+                  const current = await request(() => api.get(control.calendarId!, intent.googleId));
+                  if (current.status !== 'cancelled') {
+                    const known = await knownSeries(link, current); if (!known) throw cause;
+                    if (intent.revision !== itemsById.get(link.sourceId)?.revision) { await save(known); sent++; return known; }
+                    const pending = { ...intent, etag: known.etag }; await save({ ...link, pending });
+                    await request(() => api.remove(control.calendarId!, pending.googleId, pending.etag));
+                  }
+                } else if (![404, 410].includes(cause.status)) throw cause;
+              }
+            } else {
+              try {
+                result = intent.method === 'patch'
+                  ? await request(() => api.patch(control.calendarId!, intent.googleId, intent.payload!, intent.etag))
+                  : await request(() => api.insert(control.calendarId!, { ...intent.payload!, id: intent.googleId }));
+              } catch (cause) {
+                if (!(cause instanceof GoogleCalendarHttpError && cause.status === (intent.method === 'insert' ? 409 : 412))) throw cause;
+                const current = await request(() => api.get(control.calendarId!, intent.googleId));
+                const expected = intent.payload as { extendedProperties?: { private?: Record<string, string> } };
+                if (current.id !== intent.googleId) throw new GoogleCalendarHttpError(502);
+                if (current.extendedProperties?.private?.liflowSource !== expected.extendedProperties?.private?.liflowSource
+                  || intent.method === 'insert' && current.extendedProperties?.private?.liflowRevision !== intent.revision
+                  || googleOwnedFields(current) !== googleOwnedFields(intent.payload!)) {
+                  const known = await knownSeries(link, current); if (!known) throw new GoogleCalendarHttpError(412);
+                  if (intent.revision !== itemsById.get(link.sourceId)?.revision) { await save(known); sent++; return known; }
+                  const pending = { ...intent, method: 'patch' as const, etag: known.etag };
+                  await save({ ...link, pending });
+                  result = await request(() => api.patch(control.calendarId!, pending.googleId, pending.payload!, pending.etag));
+                } else result = current;
+              }
+              if (!result.id || !result.etag) throw new Error('Googleの保存結果を確認できません。次の同期で照合します。');
+            }
+            const accepted: SharedCalendarExportLink = { sourceId: link.sourceId, googleId: result?.id ?? intent.googleId,
+              etag: result?.etag ?? intent.etag, revision: intent.revision, deleted: intent.method === 'delete' };
+            await save(accepted); sent++; return accepted;
+          };
+          let waiting = false; let heldConflict: GoogleCalendarHttpError | null = null;
           for (const item of items) {
-            budget.assert(); const prior = links.get(item.sourceId); if (prior?.revision === item.revision) continue;
-            if (sent >= 100) throw Object.assign(new Error('続きは次の同期で送信します。'), { code: 'batch_limit' });
-            const sourceTag = sharedDocumentDigest([input.scope, item.sourceId]);
-            let value = item.value; let remoteId = prior?.googleId; let etag = prior?.etag;
-            if (item.parentId) {
-              const parent = links.get(item.parentId); if (!parent || parent.deleted) continue;
-              if (item.reset && !prior) continue;
-              if (item.reset && value) value = projectCalendarEvents([{ ...value, id: item.parentId, revision: 1 }], [], item.anchorDate!, item.anchorDate!)[0] ?? null;
-              if (prior && item.reset && value === null) { remoteId = prior.googleId; etag = prior.etag; }
-              else {
-                let page: string | undefined; let found; const seen = new Set<string>();
-                do {
-                  const result = await request(() => api.instances(control.calendarId!, parent.googleId, { timeMin: `${addDays(item.anchorDate!, -2)}T00:00:00Z`, timeMax: `${addDays(item.anchorDate!, 3)}T00:00:00Z`, pageToken: page }));
-                  found = result.items?.find(event => event.recurringEventId === parent.googleId && (event.originalStartTime?.date
-                    ?? (event.originalStartTime?.dateTime ? sharedLocalDate(new Date(event.originalStartTime.dateTime), items.find(row => row.sourceId === item.parentId)?.value?.timeZone ?? event.originalStartTime.timeZone ?? 'UTC') : undefined)) === item.anchorDate);
-                  page = result.nextPageToken; if (page && seen.has(page)) throw new Error('Googleの繰り返し予定を読み直してください。'); if (page) seen.add(page);
-                } while (!found && page);
-                if (!found?.id || !found.etag) throw new Error('Google側の対象回を確認できません。変更は送信待ちです。');
-                remoteId = found.id; etag = prior?.googleId === found.id ? prior.etag : found.etag;
+            if (item.blocked) { waiting = true; continue; }
+            try {
+              budget.assert(); let prior = links.get(item.sourceId);
+              // Resolve the exact previous request before considering a newer source
+              // revision. Its payload and ETag survived response loss or process exit.
+              if (prior?.pending) prior = await send(prior);
+              if (prior?.revision === item.revision) continue;
+              if (sent >= 100) throw Object.assign(new Error('続きは次の同期で送信します。'), { code: 'batch_limit' });
+              const sourceTag = sharedDocumentDigest([input.scope, item.sourceId]);
+              let value = item.value; let remoteId = prior?.googleId; let etag = prior?.etag;
+              if (item.parentId) {
+                const parent = links.get(item.parentId);
+                if (!parent || parent.deleted || parent.pending || itemsById.get(item.parentId)?.blocked) { waiting = true; continue; }
+                if (item.reset && !prior) continue;
+                if (item.reset && value) value = projectCalendarEvents([{ ...value, id: item.parentId, revision: 1 }], [], item.anchorDate!, item.anchorDate!)[0] ?? null;
+                if (prior && item.reset && value === null) { remoteId = prior.googleId; etag = prior.etag; }
+                else {
+                  const series = itemsById.get(item.parentId)?.value;
+                  const found = await findGoogleCalendarInstance({ api, request, calendarId: control.calendarId!, parentId: parent.googleId,
+                    anchorDate: item.anchorDate!, series, knownId: prior?.googleId });
+                  if (!found.etag) throw new Error('Google側の対象回を確認できません。変更は送信待ちです。');
+                  remoteId = found.id;
+                  // A successful earlier delete has a pre-delete ETag. Only a verified
+                  // tombstone of that exact occurrence may supply a restoration ETag.
+                  etag = prior?.googleId === found.id && !(prior.deleted && item.reset && found.status === 'cancelled') ? prior.etag : found.etag;
+                }
               }
-            }
-            const body = value ? googleEventBody(value, Boolean(item.parentId)) : null;
-            if (body === null) {
-              if (remoteId && etag && !prior?.deleted) try { await request(() => api.remove(control.calendarId!, remoteId!, etag!)); }
-              catch (cause) { if (!(cause instanceof GoogleCalendarHttpError && [404, 410].includes(cause.status))) throw cause; }
-              const link = { sourceId: item.sourceId, googleId: remoteId ?? '', etag: etag ?? '', revision: item.revision, deleted: true };
-              await input.store.saveLink(control.subject!, control.calendarId!, link); links.set(item.sourceId, link); sent++; continue;
-            }
-            const payload = { ...body, ...(item.reset ? { status: 'confirmed' } : {}),
-              extendedProperties: { private: { liflowSource: sourceTag, liflowShared: '1', liflowRevision: item.revision } } };
-            let result;
-            if (remoteId && etag && (!prior?.deleted || item.parentId)) {
-              try { result = await request(() => api.patch(control.calendarId!, remoteId!, payload, etag!)); }
-              catch (cause) {
-                if (!(cause instanceof GoogleCalendarHttpError && cause.status === 412)) throw cause;
-                const received = await request(() => api.get(control.calendarId!, remoteId!));
-                if (JSON.stringify(ownedFields(received)) !== JSON.stringify(ownedFields(payload))) throw cause;
-                result = received;
+              const body = value ? googleEventBody(value, Boolean(item.parentId)) : null;
+              if (body === null && (!remoteId || !etag || prior?.deleted)) {
+                await save({ sourceId: item.sourceId, googleId: remoteId ?? '', etag: etag ?? '', revision: item.revision, deleted: true }); sent++; continue;
               }
+              const payload = body === null ? null : { ...body, ...(item.reset ? { status: 'confirmed' } : {}),
+                extendedProperties: { private: { liflowSource: sourceTag, liflowShared: '1', liflowRevision: item.revision } } };
+              const method = body === null ? 'delete' : remoteId && etag && (!prior?.deleted || item.parentId) ? 'patch' : 'insert';
+              if (method === 'insert') remoteId = `cf${sharedDocumentDigest([input.scope, control.subject, control.calendarId, item.sourceId, prior?.deleted ? item.revision : 'initial'])}`;
+              const intent: SharedCalendarExportIntent = { method, googleId: remoteId!, etag: etag ?? '', revision: item.revision, payload };
+              const reserved: SharedCalendarExportLink = { sourceId: item.sourceId, googleId: prior?.googleId ?? '', etag: prior?.etag ?? '', revision: prior?.revision ?? '', deleted: prior?.deleted ?? false, pending: intent };
+              await save(reserved); await send(reserved);
+            } catch (cause) {
+              if (cause instanceof GoogleCalendarHttpError && [400, 404, 409, 410, 412].includes(cause.status)) { heldConflict ??= cause; waiting = true; continue; }
+              if (cause instanceof Error && 'code' in cause && cause.code === 'export_source_changed') { waiting = true; continue; }
+              throw cause;
             }
-            else {
-              remoteId = `cf${sharedDocumentDigest([input.scope, control.subject, control.calendarId, item.sourceId, prior?.deleted ? item.revision : 'initial'])}`;
-              try { result = await request(() => api.insert(control.calendarId!, { ...payload, id: remoteId })); }
-              catch (cause) {
-                if (!(cause instanceof GoogleCalendarHttpError && cause.status === 409)) throw cause;
-                result = await request(() => api.get(control.calendarId!, remoteId!));
-                if (result.extendedProperties?.private?.liflowSource !== sourceTag || result.extendedProperties.private.liflowRevision !== item.revision
-                  || JSON.stringify(ownedFields(result)) !== JSON.stringify(ownedFields(payload))) throw new GoogleCalendarHttpError(412);
-              }
-            }
-            if (!result.id || !result.etag) throw new Error('Googleの保存結果を確認できません。次の同期で照合します。');
-            const link = { sourceId: item.sourceId, googleId: result.id, etag: result.etag, revision: item.revision, deleted: false };
-            await input.store.saveLink(control.subject!, control.calendarId!, link); links.set(item.sourceId, link); sent++;
           }
-          await input.store.saveStatus(control.revision, { error: null, retryAt: null, retryCount: 0, lastSyncAt: now(), pending: false });
-          return { kind: 'success' as const, sent };
+          await input.store.saveStatus(control.revision, { error: heldConflict?.message ?? null, retryAt: heldConflict ? now() + 60_000 : null, retryCount: heldConflict ? control.retryCount + 1 : 0,
+            ...(!waiting ? { lastSyncAt: now() } : {}), pending: waiting });
+          return { kind: heldConflict ? 'error' as const : waiting ? 'pending' as const : 'success' as const, sent };
         } catch (cause) {
           const limited = cause instanceof Error && ('code' in cause && cause.code === 'batch_limit' || cause.name === 'AbortError');
           const delay = cause instanceof GoogleCalendarHttpError && cause.retryAfterMs || Math.min(6 * 3600_000, 30_000 * 2 ** Math.min(control.retryCount, 9)) * (.75 + random() * .5);
@@ -145,23 +192,5 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
     },
     async disable(revision: number) { cancel?.(); await input.assertAccess(); return input.store.configure({ enabled: false }, revision); },
   };
-}
-function ownedFields(value: Record<string, unknown>) {
-  const result: Record<string, unknown> = {
-    summary: value.summary ?? '', location: value.location ?? '', description: value.description ?? '',
-    start: value.start, end: value.end, transparency: value.transparency ?? 'opaque', status: value.status ?? 'confirmed',
-    recurrence: (Array.isArray(value.recurrence) ? value.recurrence : []).map(rule => {
-      if (typeof rule !== 'string' || !rule.startsWith('RRULE:')) return rule;
-      const parts = new Map(rule.slice(6).split(';').map(part => { const [key, contents] = part.split('='); return [key, contents?.split(',').sort().join(',')]; }));
-      if (!parts.has('INTERVAL')) parts.set('INTERVAL', '1');
-      if (!parts.has('WKST')) parts.set('WKST', 'MO');
-      return [...parts].sort(([a], [b]) => a.localeCompare(b));
-    }).sort(),
-  };
-  for (const key of ['start', 'end']) {
-    const raw = result[key] as { date?: string; dateTime?: string; timeZone?: string } | undefined;
-    if (raw?.dateTime) result[key] = { instant: Date.parse(raw.dateTime), timeZone: raw.timeZone };
-  }
-  return result;
 }
 export type SharedGoogleCalendarExport = ReturnType<typeof createSharedGoogleCalendarExport>;

@@ -1,0 +1,125 @@
+{
+  "normalVersion": 31,
+  "sameGoogleAccount": true,
+  "baseline": 23,
+  "firstFreshTask": {
+    "creation": "iPhone normal UI: added1, updated5",
+    "androidAdoption": {
+      "localLinks": 24,
+      "matchedLinks": 24,
+      "missingLinks": 0,
+      "providerLiveTasks": 24,
+      "providerCompletedTasks": 0,
+      "duplicateLiveMarkers": 0,
+      "localLinkDigest": "xOW2b2BveWIUTvqWu2WWM3D9aGh4kKi8IakAk5NnptA",
+      "taskListDigest": "1u7hE1t8WqfRTqpr6S-0cnApL3OpKdFW8MMpYawtdBc",
+      "baselineMappingCount": 23,
+      "baselineMappingDigest": "gxnvUFZLv8P-Q22tLk1EJ9aPj-nkd4hTivbzoFFk-zY",
+      "newMappings": [
+        {
+          "mappingDigest": "EqXagmvkOVhzJxRigSn72WNDIts_qEVOlPre0lQKP-Q",
+          "createdAt": "2026-11-06T02:06:56.208Z",
+          "linkedDueDate": "2026-11-20",
+          "providerStatus": "needsAction",
+          "providerDueDate": "2026-11-20T00:00:00.000Z",
+          "providerDeleted": false
+        }
+      ]
+    },
+    "concurrent": false,
+    "reason": "Android account chooser delayed the first attempt"
+  },
+  "secondFreshTask": {
+    "requestTiming": {
+      "iphoneConnectTapObservedAt": "2026-11-06T02:17:07.444726+00:00",
+      "androidPreparedAccountSelectedAt": "2026-11-06T02:17:09.312497+00:00",
+      "normalVersion": 31,
+      "baselineLinks": 24,
+      "targetAnchor": "2026-12-01",
+      "targetDate": "2026-11-19",
+      "kind": "two normal foreground sync requests; live provider result pending"
+    },
+    "creation": "iPhone normal UI step069: added1, updated5",
+    "androidDeferred": "Normal connect returned retry before a new successful attempt; does not prove concurrent HTTP POST or Cloud CAS contention",
+    "androidRecovery": {
+      "localLinks": 25,
+      "matchedLinks": 25,
+      "missingLinks": 0,
+      "providerLiveTasks": 25,
+      "providerCompletedTasks": 0,
+      "duplicateLiveMarkers": 0,
+      "localLinkDigest": "IVB11Rx0qvmVbGAzpBJAMwG2poQcKcIn5SL0wFlYULM",
+      "taskListDigest": "1u7hE1t8WqfRTqpr6S-0cnApL3OpKdFW8MMpYawtdBc",
+      "baselineMappingCount": 24,
+      "baselineMappingDigest": "xOW2b2BveWIUTvqWu2WWM3D9aGh4kKi8IakAk5NnptA",
+      "newMappings": [
+        {
+          "mappingDigest": "dESihypkOf7vLnZv8kivLsxPIwVgiUccoe-9F4J9pBE",
+          "createdAt": "2026-11-06T02:21:10.761Z",
+          "linkedDueDate": "2026-11-19",
+          "providerStatus": "needsAction",
+          "providerDueDate": "2026-11-19T00:00:00.000Z",
+          "providerDeleted": false
+        }
+      ]
+    },
+    "original24IdsRetained": true,
+    "providerCreatedExactlyOne": true
+  },
+  "completionUndo": {
+    "iphoneComplete": 422,
+    "androidUndo": 423,
+    "bothNormalUiReflected": true,
+    "sameProviderIds": true,
+    "laterNormalIphonePair": {
+      "completion": 432,
+      "undo": 433,
+      "bothDevicesAck": 433,
+      "providerCompletedAfter": 0,
+      "idsUnchanged": true,
+      "notOfflineOrNatural": true
+    }
+  },
+  "normalIphoneRestart": {
+    "dataPreserved": true,
+    "groupRestored": true,
+    "observed": "step071"
+  },
+  "cleanup": {
+    "signedReceiptSequences": [
+      428,
+      429,
+      430,
+      431
+    ],
+    "sameAccountIphoneRestoredAndroidCommands": true,
+    "bothDevicesAck": 431,
+    "scope": "only two once-only date commands and their two own claims; existing settings/history preserved",
+    "providerDueFinalConfirmation": {
+      "same25TaskIds": true,
+      "count": 25,
+      "duplicates": 0,
+      "missing": 0,
+      "completed": 0,
+      "afterNormalSynchronization": true,
+      "firstRoundRestoredDue": "2026-11-22",
+      "secondRoundRestoredDue": "2026-11-29",
+      "firstTaskDigest": "n4KW4FxT2sXHNYaSpWC77-23O0tb1mvlZWhMoK9xOzM",
+      "secondTaskDigest": "HSjLKjCp4_cEiKnOVDhAuQqoMS2BeGx_vJ6DHqv3rOY"
+    }
+  },
+  "backgroundProof": false,
+  "allFourGatesComplete": false,
+  "normalAndroidRestart": {
+    "at": "2026-11-06T02:58:10.693836+00:00",
+    "normalVersion": 31,
+    "normalRestart": true,
+    "sameGroupHomeRestored": true,
+    "todayTotal": 8,
+    "completed": 0,
+    "currentLaundryUnchecked": true,
+    "dataReset": false,
+    "workerForced": false
+  },
+  "result": "PASS for two-phone creation/adoption, completion/Undo, restart and preserved IDs; not a claim of simultaneous HTTP POST"
+}

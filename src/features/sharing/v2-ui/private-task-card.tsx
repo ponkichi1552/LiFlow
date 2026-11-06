@@ -32,6 +32,7 @@ export function V2PrivateTaskCard({ row, source, busy, run, feedback, today = ro
   const queueable = feedback?.supports?.('personal') && feedback.request;
   return <View style={{ gap: 6 }}>
     <TaskCheckboxRow chore={{ ...chore, category: `本人のみ${chore.category ? ` · ${chore.category}` : ''}` }} completed={completed} source="personal" home={home} compact={compact} mixedSources={mixedSources} detailsExpanded={onOpen ? undefined : open}
+      seasonalWork={row.seasonalWork}
       executionWindow={row.windowStart && row.windowEnd ? { start: row.windowStart, end: row.windowEnd } : undefined}
       urgent={isTaskUrgent({ completed, load: chore.load, recommendedDate: row.suggestedDate, windowEnd: row.windowEnd }, today)}
       onOpen={onOpen ?? (() => setOpen((value) => !value))}

@@ -106,7 +106,7 @@ export async function createV2GoogleTasksPreview() {
         await remote(async (api, token, listId) => {
           const all = await api.listTasks(token, listId);
           for (const link of links) { const task = all.find(task => task.id === link.googleTaskId); if (!task || task.deleted) continue;
-            if (task.notes !== sharedGoogleOccurrenceNote(namespace, link.scheduleEntryId)) fail('cleanup-scope'); await api.deleteTask(token, listId, task.id); }
+            if (task.notes !== sharedGoogleOccurrenceNote(namespace, link.scheduleEntryId) || !task.etag) fail('cleanup-scope'); await api.deleteTask(token, listId, task.id, task.etag!); }
         }); return 'Tasks片付け検査 PASS：合成3件だけ削除・個人データ保持';
       },
     };

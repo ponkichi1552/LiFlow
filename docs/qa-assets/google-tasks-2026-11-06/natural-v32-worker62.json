@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "candidate": "normal-v32",
+  "method": "Unforced OS Release worker; allowlisted read-only audit and cloud receipt metadata; iPhone app not opened during window",
+  "worker": {
+    "id": 62,
+    "startedAt": "2026-11-06T09:19:50.119Z",
+    "finishedAt": "2026-11-06T09:20:19.921Z",
+    "release": true,
+    "outcome": "failed",
+    "personal": "skipped",
+    "sharing": "failed",
+    "privateCalendar": "skipped",
+    "personalGoogleCalendar": "success"
+  },
+  "actualIncoming": {
+    "accepted": true,
+    "source": "Android normal foreground completion and Undo",
+    "receiptSequence": [
+      440,
+      441
+    ],
+    "iphonePriorAck": 439,
+    "iphoneAck": 441,
+    "ackUpdatedAt": "2026-11-06T09:20:00.741Z",
+    "ackInsideWorker": true
+  },
+  "actualNewOutgoingOnV32": false,
+  "aggregateAcceptance": false,
+  "postWorkerTasks": {
+    "state": {
+      "enabled": true,
+      "disconnected": false,
+      "status": "syncing",
+      "lastAttemptAt": "2026-11-06T09:20:04.243Z",
+      "lastSuccessfulSyncAt": "2026-11-06T08:32:50.159Z",
+      "retryCount": 0,
+      "updatedAt": "2026-11-06T09:20:04.243Z"
+    },
+    "readCache": {
+      "revision": 24,
+      "complete": true,
+      "watermark": "2026-11-06T09:20:13.000Z",
+      "lastFullAt": "2026-11-06T01:04:29.836Z",
+      "scan": null,
+      "scanHasPageToken": false
+    },
+    "cacheItems": 27,
+    "stagingItems": 0,
+    "links": 25,
+    "pendingLinkStatuses": 1,
+    "rawDatabaseRetained": false
+  },
+  "interpretation": "Sharing receipt application succeeded; later Tasks synchronization did not finish. No claim of OS expiration or the cause of the older generic error. App caps remain shared30s and Tasks15s.",
+  "rawEvidenceSha256": {
+    "natural-v32-recovered-20261106-0837/result.json": "34680f121adb72ad9b1bc59f8bc3b6894a91303a4c05e61af9103af6628e2ea1",
+    "v32-worker62-cloud.json": "46d809d4cc76febd4fb1d7fdb71fbfacbdc327bad91a57c37e99639e2d905db0",
+    "ios-v32-task-phase-after-natural62.json": "c9a033f656d2700fe4614eee26dd340e51c2086334f570274345b5adae76e287"
+  }
+}

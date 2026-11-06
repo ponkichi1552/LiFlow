@@ -14,8 +14,13 @@ function NextChoreWidget(props: NextChoreWidgetDisplayProps) {
   // This is an isolated native widget render, without React hooks; a stale OS snapshot must still check its deadline.
   // eslint-disable-next-line react-hooks/purity
   const locked = props.subscriptionLocked || props.accessUntil !== undefined && !(Date.now() < props.accessUntil);
-  const chores = locked ? [] : props.chores ?? [];
-  const remainingCount = locked ? 0 : props.remainingCount ?? 0;
+  const currentDate = new Date();
+  const localDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+  const stale = props.contentStale || props.contentUntil !== undefined && currentDate.getTime() >= props.contentUntil
+    || props.displayTimeZone !== undefined && !Number.isFinite(props.contentUntil)
+    || props.displayTimeZone === undefined && props.displayDate !== undefined && props.displayDate !== localDate;
+  const chores = locked || stale ? [] : props.chores ?? [];
+  const remainingCount = locked || stale ? 0 : props.remainingCount ?? 0;
 
   return (
     <Column
@@ -25,7 +30,7 @@ function NextChoreWidget(props: NextChoreWidgetDisplayProps) {
     >
       <Text color="#292C3B" style={{ fontSize: 17, fontWeight: '700' }}>今日の家事</Text>
       {chores.length === 0 ? (
-        <Text color="#68718B" style={{ fontSize: 13 }}>{locked ? 'アプリで契約を確認' : '予定はありません'}</Text>
+        <Text color="#68718B" style={{ fontSize: 13 }}>{locked ? 'アプリで契約を確認' : stale ? 'アプリで更新' : '予定はありません'}</Text>
       ) : chores.map((chore) => {
         // Only code inside this function is serialized into the widget runtime.
         const content = (
@@ -53,6 +58,8 @@ function NextChoreWidget(props: NextChoreWidgetDisplayProps) {
             onClick={() => props.accessUntil !== undefined && !(Date.now() < props.accessUntil) ? ({
               chores: [], subscriptionLocked: true, remainingCount: 0,
               pendingWidgetCompletionIds: props.pendingWidgetCompletionIds ?? [],
+            }) : props.contentUntil !== undefined && Date.now() >= props.contentUntil || props.displayTimeZone !== undefined && !Number.isFinite(props.contentUntil) || props.displayTimeZone === undefined && props.displayDate !== undefined && props.displayDate !== `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}` ? ({
+              chores: [], contentStale: true, remainingCount: 0, pendingWidgetCompletionIds: props.pendingWidgetCompletionIds ?? [],
             }) : ({
               chores: (props.chores ?? []).map((item) => item.id === chore.id ? { ...item, completed: true } : item),
               pendingWidgetCompletionIds: [...new Set([...(props.pendingWidgetCompletionIds ?? []), chore.id])],

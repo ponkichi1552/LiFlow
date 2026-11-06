@@ -15,6 +15,8 @@ import { canonicalJson } from '../operations.ts';
 import { recoveryArrayDigest } from './recovery-content.ts';
 import { sharedRosterDigest } from '../roster.ts';
 import { readV2RecoveryEvidence } from './recovery-evidence.ts';
+import { sharedDocumentDigest } from '../crypto.ts';
+import { createV2RecoveryEvidenceProgress } from '../../../platform/storage/sharing-v2-recovery-evidence.ts';
 import { preserveV2RecoveryOriginalsInside } from '../../../platform/storage/sharing-v2-recovery.ts';
 import { V2RecoveryInProgressError, verifyV2RecoveryLock } from './recovery-lock.ts';
 
@@ -51,7 +53,11 @@ export function createV2Synchronizer(dependencies: Omit<SharedSyncDependencies, 
     const facts = new Map(snapshot.facts.filter((fact) => fact.operation.schemaVersion === 2).map((fact) => [fact.operation.operationId, fact]));
     const preservedReceipts = new Map<string, V2ServerReceipt>();
     const recoveries = verifyV2RecoveryWitnesses(snapshot.base.recoveryWitnesses ?? [], archive, deps.groupId);
-    const recoveryOriginals = recoveries.length ? await readV2RecoveryEvidence(deps.cloud, deps.groupId, recoveries, assertCurrentAccount, deadline) : [];
+    const recoveryOriginals = recoveries.length ? await readV2RecoveryEvidence(deps.cloud, deps.groupId, recoveries, assertCurrentAccount, deadline, {
+      now, progress: createV2RecoveryEvidenceProgress({ database: deps.database, serialized: deps.serialized, assertCurrentAccount,
+        keyVersion: archive.at(-1)!.body.keyVersion, scopeDigest: sharedDocumentDigest({ groupId: deps.groupId, userId: deps.userId,
+          deviceId: deps.identity.deviceId, rosterDigest: sharedRosterDigest(archive.at(-1)!), retention: sharedDocumentDigest(snapshot.base.retention ?? null) }) }),
+    }) : [];
     const index = new Map(snapshot.base.operationIndex.map(item => [item.operationId, item]));
     for (const recovery of recoveries) {
       if (recovery.body.throughSequence === snapshot.throughSequence && sharedRosterDigest(archive.at(-1)!) === recovery.body.nextRosterDigest

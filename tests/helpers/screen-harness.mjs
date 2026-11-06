@@ -114,9 +114,16 @@ export function screenHarness(filename, options = {}) {
     // Personal-screen tests isolate the separately tested group controller and native identity runtime.
     '@/features/sharing/v2-ui/workspace-route': { V2WorkspaceRoute: props => jsx('V2WorkspaceRoute', props) },
     '@/hooks/use-planner-data': { usePlannerData: (scope) => scope?.personal && options.personalData ? options.personalData() : ({ loading: false, error: null, refresh: options.refresh ?? (async () => {}), database: options.database, snapshot: options.snapshot?.(), readSnapshot: options.snapshot ?? (() => null), readError }) },
+    // General screen fixtures supply the settings port. Its native lightweight
+    // read, sharing of concurrent consumers and refresh behavior are tested separately.
+    '@/hooks/use-personal-settings-data': { usePersonalSettingsData: () => options.personalData ? options.personalData()
+      : ({ loading: false, error: null, refresh: options.refresh ?? (async () => {}), database: options.database,
+        snapshot: options.snapshot?.(), readSnapshot: options.snapshot ?? (() => null), readError }) },
     '@/features/weather/use-municipality-suggestions': { useMunicipalitySuggestions: () => ({ status: 'idle', candidates: [] }) },
     '@/platform/notifications/expo-local-notification-gateway': { ExpoLocalNotificationGateway: class { async requestPermission() { return false; } } },
     '@/features/google-sync/coordinator': { syncGoogleTasksAfterLocalCompletion: () => {} },
+    // Account/native boundaries have dedicated real-SQLite and identity tests.
+    '@/features/google-sync/account-switch': { activateCurrentGoogleTaskAccount: async () => {} },
     // Identity and the system file provider are tested independently; screen tests never open real sign-in or Files.
     '../../appliance-care/ai-account': { ApplianceAiAccount: props => { props.onReady?.(true); return jsx('Text', { children: '検査用の正規端末・本人確認を注入済み' }); } },
     '@/features/appliance-care/ai-account': { ApplianceAiAccount: props => { props.onReady?.(true); return jsx('Text', { children: '検査用の正規端末・本人確認を注入済み' }); } },

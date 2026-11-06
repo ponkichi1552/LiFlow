@@ -5,24 +5,24 @@ import type { WasteCollectionOccurrence } from '@/features/waste/contracts';
 import { GroupIcon, PersonIcon } from './group-icon';
 import { WasteTypeIcon } from './waste-type-icon';
 
-/** Home uses a leading check; calendar keeps its aligned trailing check. */
+/** Collection reminders are display-only; management can explicitly offer visibility controls. */
 export function WasteOccurrenceCard({ occurrence, compact = false, hidden = false, busy = false, onToggle, home = false, source }: {
   occurrence: WasteCollectionOccurrence;
   compact?: boolean;
   hidden?: boolean;
   busy?: boolean;
-  onToggle: () => void;
+  onToggle?: () => void;
   home?: boolean;
   source?: 'personal' | 'shared';
 }) {
-  const action = <Pressable accessibilityRole="checkbox"
+  const action = onToggle ? <Pressable accessibilityRole="checkbox"
     accessibilityLabel={`${occurrence.label}${source ? `（${source === 'personal' ? '個人' : '共有'}）` : ''}の${occurrence.date}のゴミ出しを${hidden ? '再表示' : '非表示'}`}
     accessibilityState={{ checked: hidden, disabled: busy }} disabled={busy} hitSlop={8} onPress={onToggle} style={styles.action}>
     {compact ? <Text style={styles.caption}>ゴミ出し非表示</Text> : null}
     <View style={styles.checkboxColumn}><View style={[styles.checkbox, compact && styles.compactCheckbox, hidden && styles.checked]}>
       {hidden ? <Text style={styles.checkmark}>✓</Text> : null}
     </View></View>
-  </Pressable>;
+  </Pressable> : null;
   return (
     <View style={[styles.row, compact && styles.compactRow, home && styles.homeRow]}>
       {home ? action : null}

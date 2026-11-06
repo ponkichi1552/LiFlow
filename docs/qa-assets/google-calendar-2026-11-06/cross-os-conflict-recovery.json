@@ -1,0 +1,116 @@
+{
+  "result": "PASS",
+  "normalVersions": [
+    30,
+    31
+  ],
+  "bothPhonesSameGoogleAccount": true,
+  "testTitle": "LiFlow-QA-20261106-8dde994c5e",
+  "baselineOnBothPhones": "Android-baseline",
+  "androidOfflineDraft": "Android-baselineA",
+  "iphoneConcurrentDraft": "Android-baselineI",
+  "offlineNetworkRestored": true,
+  "providerBeforeResolution": {
+    "localRevision": 2,
+    "localDeleted": false,
+    "localEventDigest": "k5X5C8vw2gNzbsuRDxBuxE2IbvHwkVMmu99os6MKjPo",
+    "startDate": "2026-11-10",
+    "endDate": "2026-11-10",
+    "startMinute": 540,
+    "endMinute": 600,
+    "allDay": false,
+    "timeZone": "Asia/Tokyo",
+    "recurrence": "none",
+    "untilDate": null,
+    "localEtagDigest": "XoGEVe9bGYJh5OWcJZIpxKQx-l3qsIdqBpYwFKz7_-4",
+    "syncedRevision": 1,
+    "conflict": false,
+    "pending": false,
+    "providerStatus": 200,
+    "providerEventDigest": "BFfuJEK5Q5cj3YV712UM3nVemxhVS7h0XeIsetK2MIk",
+    "providerEtagDigest": "rGU0xSBKLCAh4ASkaRGKiBUfUYypEbmd3qf97y9e8p0",
+    "providerStart": {
+      "dateTime": "2026-11-10T09:00:00+09:00",
+      "timeZone": "Asia/Tokyo"
+    },
+    "providerEnd": {
+      "dateTime": "2026-11-10T10:00:00+09:00",
+      "timeZone": "Asia/Tokyo"
+    },
+    "providerCancelled": false,
+    "providerLocation": "Android-baselineI",
+    "providerNotes": "QA-only",
+    "readOnly": true
+  },
+  "conflictOnAndroid": {
+    "localRevision": 2,
+    "localDeleted": false,
+    "localEventDigest": "k5X5C8vw2gNzbsuRDxBuxE2IbvHwkVMmu99os6MKjPo",
+    "startDate": "2026-11-10",
+    "endDate": "2026-11-10",
+    "startMinute": 540,
+    "endMinute": 600,
+    "allDay": false,
+    "timeZone": "Asia/Tokyo",
+    "recurrence": "none",
+    "untilDate": null,
+    "localEtagDigest": "rGU0xSBKLCAh4ASkaRGKiBUfUYypEbmd3qf97y9e8p0",
+    "syncedRevision": 1,
+    "conflict": true,
+    "pending": false,
+    "providerStatus": 200,
+    "providerEventDigest": "BFfuJEK5Q5cj3YV712UM3nVemxhVS7h0XeIsetK2MIk",
+    "providerEtagDigest": "rGU0xSBKLCAh4ASkaRGKiBUfUYypEbmd3qf97y9e8p0",
+    "providerStart": {
+      "dateTime": "2026-11-10T09:00:00+09:00",
+      "timeZone": "Asia/Tokyo"
+    },
+    "providerEnd": {
+      "dateTime": "2026-11-10T10:00:00+09:00",
+      "timeZone": "Asia/Tokyo"
+    },
+    "providerCancelled": false,
+    "providerLocation": "Android-baselineI",
+    "providerNotes": "QA-only",
+    "readOnly": true
+  },
+  "explicitChoice": "keep preserved LiFlow/Android edit",
+  "resolvedProviderAndAndroid": {
+    "localRevision": 2,
+    "localDeleted": false,
+    "localEventDigest": "k5X5C8vw2gNzbsuRDxBuxE2IbvHwkVMmu99os6MKjPo",
+    "startDate": "2026-11-10",
+    "endDate": "2026-11-10",
+    "startMinute": 540,
+    "endMinute": 600,
+    "allDay": false,
+    "timeZone": "Asia/Tokyo",
+    "recurrence": "none",
+    "untilDate": null,
+    "localEtagDigest": "J349cbdSMsdO9gpoUCRQWJfmMUeWxdUS6l3mHDl4-Dc",
+    "syncedRevision": 2,
+    "conflict": false,
+    "pending": false,
+    "providerStatus": 200,
+    "providerEventDigest": "BFfuJEK5Q5cj3YV712UM3nVemxhVS7h0XeIsetK2MIk",
+    "providerEtagDigest": "J349cbdSMsdO9gpoUCRQWJfmMUeWxdUS6l3mHDl4-Dc",
+    "providerStart": {
+      "dateTime": "2026-11-10T09:00:00+09:00",
+      "timeZone": "Asia/Tokyo"
+    },
+    "providerEnd": {
+      "dateTime": "2026-11-10T10:00:00+09:00",
+      "timeZone": "Asia/Tokyo"
+    },
+    "providerCancelled": false,
+    "providerLocation": "Android-baselineA",
+    "providerNotes": "QA-only",
+    "readOnly": true
+  },
+  "iphoneFinalEditorValue": "Android-baselineA",
+  "iphoneFinalObservation": "XCTest step057, normal v31 editor field value, no new save",
+  "syntheticEventIdUnchanged": true,
+  "otherUserEventsModified": false,
+  "backgroundProof": false,
+  "providerOnlyProbeDuringOffline": "UnknownHostException retained as incomplete, not passed"
+}

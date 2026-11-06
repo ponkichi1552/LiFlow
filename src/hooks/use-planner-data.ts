@@ -21,6 +21,8 @@ import { sharedGoogleNamespace, sharedPlannerChangeScope } from '@/features/goog
 import { millisecondsUntilNextSharedDay } from '@/features/sharing/group-clock';
 import { subscribeSharingChanges } from '@/platform/sharing/workspaces';
 import { PlannerIssuesContext } from '@/contexts/planner-issues-context';
+import { waitForInitialFrame } from '@/features/planner/initial-display-gate';
+import { AdaptiveOwnerInputsChangedError } from '@/platform/storage/adaptive-owner-inputs';
 
 type PlannerController = ReturnType<typeof createPlannerRefreshController<PlannerSnapshot>>;
 type PlannerBinding = { database: SQLiteDatabase; controller: PlannerController };
@@ -45,22 +47,28 @@ export function PlannerDataProvider({ children, databaseOverride }: { children: 
   const database = databaseOverride ?? personalDatabase;
   const shared = sharedRepositoryAdapter(database);
   const controller = useMemo(() => createPlannerRefreshController<PlannerSnapshot>({
+    retryLoadOnError: (error) => error instanceof AdaptiveOwnerInputsChangedError,
     discardSnapshotOnError: (error) => Boolean(shared && error && typeof error === 'object' && 'code' in error
       && ['sharing/scheduler-version-mismatch', 'sharing/access-denied'].includes(String(error.code))),
     load: (ids, force) => shared ? loadPlannerSnapshot(database).then((snapshot) => ({ snapshot, canPublishWidget: false }))
       : refreshPlannerFromWidget(database, ids, { publish: false, preferCached: !force }),
     weather: (snapshot, canCommit) => snapshot.settings.weatherLocation
       ? applyWeatherToPlannerSnapshot(database, snapshot, canCommit) : Promise.resolve(null),
-    publish: (snapshot, canPublishWidget) => {
-      if (!shared && canPublishWidget) publishTodayWidgetSnapshot(snapshot);
-      return syncDailyHouseworkDigest(expoLocalNotificationGateway, shared ? { ...snapshot,
-        notificationScope: sharedGoogleNamespace(shared.userId, shared.groupId), notificationTitle: `${snapshot.household.name}の家事` } : snapshot).then(() => undefined);
+    publish: async (snapshot, canPublishWidget) => {
+      const results = await Promise.allSettled([
+        !shared && canPublishWidget ? publishTodayWidgetSnapshot(snapshot) : Promise.resolve(),
+        syncDailyHouseworkDigest(expoLocalNotificationGateway, shared ? { ...snapshot,
+          notificationScope: sharedGoogleNamespace(shared.userId, shared.groupId), notificationTitle: `${snapshot.household.name}の家事` } : snapshot),
+      ]);
+      const failed = results.find(result => result.status === 'rejected');
+      if (failed?.status === 'rejected') throw failed.reason;
     },
   }), [database, shared]);
 
   useEffect(() => {
     let live = true;
     let appState = AppState.currentState;
+    let activation = 0;
     let midnightTimer: ReturnType<typeof setTimeout> | undefined;
     const syncGoogleIfDue = async () => {
       const state = await loadGoogleSyncState(database, LOCAL_HOUSEHOLD_ID);
@@ -74,13 +82,21 @@ export function PlannerDataProvider({ children, databaseOverride }: { children: 
       midnightTimer = setTimeout(() => {
         void controller.refresh({ force: true });
         scheduleMidnight();
-      }, (shared && controller.getSnapshot().snapshot?.timeZone
+      }, (controller.getSnapshot().snapshot?.timeZone
         ? millisecondsUntilNextSharedDay(new Date(), controller.getSnapshot().snapshot!.timeZone!) : millisecondsUntilNextLocalDay(new Date())) + 100);
     };
     const resume = () => {
+      const current = ++activation;
       // Native/background work can use another SQLite connection, so bypass the JS cache on resume.
-      void controller.refresh({ force: true }).then(scheduleMidnight);
-      void syncGoogleIfDue().catch(() => undefined);
+      // Remote imports must not invalidate or occupy the database before its first local result.
+      void waitForInitialFrame().then(async () => {
+        // A saved home is already usable. Let it paint before protected-owner
+        // restoration and cold plan validation occupy the JS runtime.
+        if (!live || current !== activation || appState === 'background' || appState === 'inactive') return;
+        await controller.refresh({ force: true });
+        scheduleMidnight(); await waitForInitialFrame();
+        if (live && current === activation && appState === 'active') await syncGoogleIfDue();
+      }).catch(() => undefined);
       scheduleMidnight();
     };
     if (appState !== 'background' && appState !== 'inactive') resume();
@@ -99,6 +115,7 @@ export function PlannerDataProvider({ children, databaseOverride }: { children: 
     const subscription = AppState.addEventListener('change', (next) => {
       if (next === 'active' && appState !== 'active') resume();
       else if (next !== 'active') {
+        activation++;
         clearTimeout(midnightTimer);
         controller.invalidate();
       }
@@ -143,5 +160,6 @@ export function usePlannerData(options?: { personal?: boolean }) {
   const readError = useCallback(() => context.controller.getSnapshot().error, [context.controller]);
   const readSnapshot = useCallback(() => context.controller.getSnapshot().snapshot, [context.controller]);
   const state = useSyncExternalStore(context.controller.subscribe, context.controller.getSnapshot, context.controller.getSnapshot);
-  return { ...state, database: context.database, refresh: context.controller.refresh, readError, readSnapshot };
+  return { ...state, database: context.database, refresh: context.controller.refresh,
+    waitForInitialRead: context.controller.waitForInitialRead, readError, readSnapshot };
 }

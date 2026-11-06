@@ -66,7 +66,8 @@ test('real loopback HTTP exports 1052 events in bounded coalesced passes and unc
 
 test('real HTTP disconnection after Google-like commit retries insert patch and delete without duplicate events or source changes', async t => {
   const f = await fixture(t, 1); const source = JSON.stringify(f.items); f.lose('insert');
-  assert.equal((await f.open().synchronize()).kind, 'error'); assert.equal(f.remote.size, 1); assert.equal(f.links.size, 0);
+  assert.equal((await f.open().synchronize()).kind, 'error'); assert.equal(f.remote.size, 1); assert.equal(f.links.size, 1);
+  assert.ok([...f.links.values()][0].pending); assert.equal([...f.links.values()][0].revision, '');
   assert.deepEqual(await f.open().synchronize({ force: true }), { kind: 'success', sent: 1 }); assert.equal(f.remote.size, 1);
   f.items[0] = { ...f.items[0], revision: 'two', value: { ...f.items[0].value, title: 'Synthetic updated' } }; f.lose('patch');
   assert.equal((await f.open().synchronize({ force: true })).kind, 'error');

@@ -84,9 +84,9 @@ test('notification reconciliation cancels old reservations beyond the verified s
 });
 
 test('paid widget expiry timeline preserves current pending actions and does not replay old generations', async () => {
-  const updates = []; let entries = [];
+  const updates = []; let entries = []; const lockedState = { phase: 'locked', userId: 'person-a' };
   const value = load('src/platform/widgets/expo-widget-gateway.ts', {
-    'react-native': { Platform: { OS: 'ios' } }, '../subscription/runtime': { subscriptionRequired: true, subscriptionAccessDeadline: async () => Date.now() + 3600_000 },
+    'react-native': { Platform: { OS: 'ios' } }, '../subscription/runtime': { subscriptionRequired: true, subscriptionAccessDeadline: async () => Date.now() + 3600_000, subscriptionSnapshot: () => lockedState },
     '@/platform/widgets/NextChoreWidget': { __esModule: true, default: { updateSnapshot: props => updates.push(props), updateTimeline: next => { entries = next; }, getTimeline: async () => entries } },
   });
   value.expoWidgetGateway.updateNextChore({ chores: [{ id: 'current', name: '検査', completed: false }], remainingCount: 0, updatedAt: '2030-01-01T00:00:00Z' });

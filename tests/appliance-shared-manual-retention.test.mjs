@@ -7,7 +7,7 @@ import { applianceResult } from './helpers/sharing-v2-appliance.mjs';
 import { fixture, seeds, groupId, now, receiptsFor } from './helpers/sharing-v2-repository-fixture.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { loadNativeModule } from './helpers/native-module.mjs';
-import { prepareManualDocument, restoreManualDocument, validateManualChunk, decodeManualBytes, MAX_MANUAL_BYTES, MANUAL_CHUNK_BYTES } from '../src/features/appliance-care/manual-document.ts';
+import { prepareManualDocument, verifyManualContent, restoreManualDocument, validateManualChunk, decodeManualBytes, MAX_MANUAL_BYTES, MANUAL_CHUNK_BYTES } from '../src/features/appliance-care/manual-document.ts';
 import { createV2GroupController } from '../src/features/sharing/v2/controller.ts';
 import { readV2ManualDocument } from '../src/features/sharing/v2/manual-documents.ts';
 import { v2ReadPoint } from '../src/features/sharing/v2/view-point.ts';
@@ -26,6 +26,21 @@ export function uploadedResult(bytes = syntheticPdf()) {
   for (const task of result.analysis.tasks) task.evidence = [{ url: reference, pageOrSection: '1ページ' }];
   return { result, manual: { base64: bytes.toString('base64'), rightsConfirmed: true } };
 }
+
+test('local PDF identity validation preserves full-size and boundary bytes without requiring shared network chunks', () => {
+  for (const size of [syntheticPdf().length, MANUAL_CHUNK_BYTES, MANUAL_CHUNK_BYTES + 1, MAX_MANUAL_BYTES]) {
+    const bytes = Buffer.alloc(size, 0x5a); syntheticPdf().copy(bytes);
+    const digest = createHash('sha256').update(bytes).digest('hex'); const encoded = bytes.toString('base64');
+    const checked = verifyManualContent(encoded, digest);
+    assert.equal(checked.sha256, digest); assert.equal(checked.byteLength, size);
+    assert.deepEqual(checked.bytes, Uint8Array.from(bytes));
+    assert.equal(prepareManualDocument(encoded, digest).document.sha256, digest);
+    assert.throws(() => verifyManualContent(encoded, '0'.repeat(64)));
+  }
+  for (const encoded of ['AB==', 'https://attacker.invalid/manual', Buffer.from('not a PDF'.repeat(20)).toString('base64')]) {
+    assert.throws(() => verifyManualContent(encoded));
+  }
+});
 const range = { from: '2026-10-27', through: '2026-11-10', asOfDate: '2026-10-27' };
 const controller = device => { let n = 0; return createV2GroupController(device.repository, { makeId: () => `pdf-${device.options.userId}-${++n}`, now, sync: async () => {} }); };
 async function receive(device, facts) {
@@ -146,7 +161,9 @@ test('retained appliance metadata refreshes the cached library without recalcula
     await initializeLocalDatabase(h.database); const input = uploadedResult();
     const saved = await saveReviewedApplianceCare(h.database, { ...input.result.product, manualUrl: input.result.officialSources.manualUrl }, input.result.analysis, [], input.manual);
     await h.database.runAsync('UPDATE appliances SET display_name=? WHERE id=?', '居間の掃除機', saved.applianceId);
-    const previous = await loadPlannerSnapshot(h.database);
+    await repository.completeFirstSetup(h.database, { frequencyMode: 'balanced', restDays: [], enabledChoreIds: [], previousDates: {}, weatherLocation: { region: '横浜市', displayName: '横浜市', latitude: 35.44, longitude: 139.64 } });
+    let evaluations = 0; const optimize = async input => { evaluations++; return { schedule: input.schedule, outcome: 'current', adjustmentCount: 0 }; };
+    const previous = await repository.applyWeatherToPlannerSnapshot(h.database, await loadPlannerSnapshot(h.database), () => true, optimize);
     const appliance = { ...previous.appliances[0], id: 'shared-copy', householdId: `shared:${groupId}`, displayName: 'グループの掃除機',
       productName: '共有側の製品情報', updatedAt: new Date().toISOString() };
     assert.equal(await retainSharedApplianceCopies(h.database, groupId, [{ appliance, manual: input.manual.base64 }], () => {}), true);
@@ -157,7 +174,30 @@ test('retained appliance metadata refreshes the cached library without recalcula
     assert.equal(cached.appliances[0].displayName, '居間の掃除機'); assert.equal(cached.appliances[0].productName, '共有側の製品情報');
     assert.equal(cached.scheduleEntries, previous.scheduleEntries); assert.equal(cached.chores, previous.chores);
     assert.equal(cached.completions, previous.completions); assert.equal(cached.states, previous.states);
+    const afterWeather = await repository.applyWeatherToPlannerSnapshot(h.database, cached, () => true, optimize);
+    assert.equal(afterWeather.appliances, cached.appliances); assert.equal(afterWeather.appliances[0].productName, '共有側の製品情報');
+    assert.equal(evaluations, 1, 'metadata refresh cannot re-request weather or prolong its expiry');
+    assert.equal(afterWeather.scheduleEntries, previous.scheduleEntries);
   } finally { h.connection.close(); }
+});
+
+for (const override of [undefined, 60]) test(`personal copied appliance details show the registered ${override ?? 30} day cadence separately from a newer ninety day analysis`, async t => {
+  const repository = await import('../src/platform/storage/repository.ts');
+  const { screenHarness } = await import('./helpers/screen-harness.mjs');
+  const { generateHouseworkSchedule } = await import('../src/domain/scheduling/engine.ts');
+  const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database); const input = uploadedResult();
+  const saved = await saveReviewedApplianceCare(h.database, { ...input.result.product, manualUrl: input.result.officialSources.manualUrl }, input.result.analysis,
+    [{ task: input.result.analysis.tasks[0], ...(override ? { userIntervalDays: override } : {}) }], input.manual);
+  const before = await loadPlannerSnapshot(h.database); const appliance = { ...before.appliances[0], id: 'shared-copy', householdId: `shared:${groupId}`,
+    analysis: { ...before.appliances[0].analysis, tasks: before.appliances[0].analysis.tasks.map((task, index) => index ? task : { ...task, recommendedIntervalDays: 90 }) } };
+  await retainSharedApplianceCopies(h.database, groupId, [{ appliance, manual: input.manual.base64 }], () => {});
+  const context = await repository.loadApplianceCareReviewContext(h.database, saved.applianceId); const chore = context.chores[0];
+  const screen = screenHarness('src/features/appliance-care/appliance-detail-content.tsx', { exportName: 'MaintenanceTaskCard', props: { task: context.appliance.analysis.tasks[0], chore, frequencyMode: context.frequencyMode, index: 0 } });
+  assert.ok(screen.text().includes('メーカー推奨：90日')); assert.ok(screen.text().includes(`予定周期：${override ?? 30}日`));
+  const entries = generateHouseworkSchedule({ chores: [chore], states: [{ choreId: chore.id, lastCompletedDate: '2026-10-01' }], completions: [], dependencies: [], assignments: [],
+    settings: { frequencyMode: 'balanced', restDays: [], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 2 } }, today: '2026-10-02', from: '2026-10-02', through: '2026-12-31' });
+  assert.equal(entries[0].cycleBaseDate, override ? '2026-11-30' : '2026-10-31');
+  assert.equal(h.connection.prepare('SELECT count(*) AS n FROM chore_completions').get().n, 0);
 });
 
 test('a PDF received after unchanged appliance metadata is retained without duplicating the product or private chores', async () => {
@@ -201,6 +241,34 @@ test('native appliance retention coalesces copies skips ordinary chore changes a
     assert.equal(await readApplianceManual(personal.database, input.result.analysis.manualSource.sha256), input.manual.base64);
     await retention.refresh(); assert.equal(opened, 1); assert.equal(notices, 1);
     allowed = false; await assert.rejects(retention.refresh(), /account changed/); assert.equal(opened, 1);
+  } finally { owner.connection.close(); personal.connection.close(); }
+});
+
+test('a committed appliance review reports a retryable personal-copy failure without replaying the signed save or another paid analysis', async () => {
+  const base = await fixture(); const owner = await base.device(); const personal = createDatabase();
+  let writable = true; let failOpen = true; let opened = 0; let reviewed = 0;
+  try {
+    await owner.repository.commit(seeds()); const input = uploadedResult(); const c = controller(owner);
+    const guard = () => { if (!writable) throw new Error('account changed'); };
+    const module = loadNativeModule('src/platform/sharing/appliance-retention.ts', {
+      'expo-sqlite': { openDatabaseAsync: async () => { opened++; if (failOpen) throw new Error('private storage unavailable'); return { ...personal.database, closeAsync: async () => {} }; } },
+      '../storage/repository': { initializeLocalDatabase }, '../storage/appliance-manuals': { retainSharedApplianceCopies },
+      '../../features/sharing/v2/appliance-state': await import('../src/features/sharing/v2/appliance-state.ts'),
+      '../../features/sharing/v2/manual-documents': { readV2ManualDocument }, '../../features/sharing/v2/view-point': { v2ReadPoint },
+      '../../features/appliance-care/library-changes': { notifyApplianceLibraryChanges() {} },
+    });
+    const retention = module.createNativeApplianceRetention({ database: owner.database, repository: owner.repository, assertAccess: guard });
+    const saved = await module.reviewWithPersonalApplianceRetention(async () => { reviewed++; return c.actions.reviewAppliance({ reviewed: true, ...input, addTaskNames: [] }); }, retention, guard);
+    assert.equal(saved.personalRetentionPending, true); assert.ok(saved.applianceId);
+    assert.equal((await c.readModel(range, { appliances: true })).appliances.rows.length, 1);
+    const pending = await listSharingOutbox(owner.database, groupId);
+    failOpen = false; await retention.refresh();
+    assert.equal(await readApplianceManual(personal.database, input.result.analysis.manualSource.sha256), input.manual.base64);
+    assert.equal(reviewed, 1); assert.equal(opened, 2); assert.deepEqual(await listSharingOutbox(owner.database, groupId), pending);
+    await assert.rejects(module.reviewWithPersonalApplianceRetention(async () => { throw new Error('before shared commit'); }, retention, guard), /before shared commit/);
+    assert.equal(opened, 2);
+    const ordinary = { operations: [], applianceId: saved.applianceId, createdChoreIds: [], preservedTaskNames: [] };
+    await assert.rejects(module.reviewWithPersonalApplianceRetention(async () => ordinary, { refresh: async () => { writable = false; throw new Error('account changed'); } }, guard), /account changed/);
   } finally { owner.connection.close(); personal.connection.close(); }
 });
 

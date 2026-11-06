@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "candidate": "normal-v33",
+  "unit": {
+    "pass": 3472,
+    "fail": 0,
+    "skipped": 0
+  },
+  "cloud": {
+    "pass": 153,
+    "fail": 0,
+    "skipped": 0
+  },
+  "lint": "PASS",
+  "typecheck": "PASS",
+  "requiredFeatures": 491,
+  "requiredCloudReferences": 115,
+  "clientInputs": 710,
+  "sourceManifestSha256": "151f53e91104d8817b38f9fb60a466d02857c37e23f8452f7e35f96e0a21ba08",
+  "logsSha256": {
+    "full-final-v33-test.log": "4be7a6af6a7315f61c4f0e00f0b74cb365e9825287550c27aefb8e197484bf76",
+    "full-cloud-v33.log": "bc9319a1255454374a104ff41e41f2e80579b16543ed9119802c1e52ee8c2dab",
+    "delta-only-lint.log": "61a9d32eb3c4115dc12845d19f1aa33fba63f897152fa6dd51052b284bd25da3",
+    "delta-only-typecheck.log": "6cb6a659dafff15e79c4a37d4c2735755e7b002f61d2871bc0165257bb2b6598",
+    "delta-only-final-area.log": "d4a2e9b53213813a2afa7a41eb3e3b1190583da6a7f78d52ca8d4c5cc25b8baa"
+  },
+  "normalUpdates": {
+    "android": "installed33; source and installed APK hash checked; existing signature retained",
+    "ios": "installed33; existing signature and57 native sections verified; data preserved"
+  },
+  "startupTrace": false,
+  "noCacheMode": false,
+  "naturalBackgroundAcceptance": false,
+  "scope": "Code/artifact checks only. Current33 OS observation is still in progress. New34 deletion/cursor repair followup is separately checked; this is not its full pass."
+}

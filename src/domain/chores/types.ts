@@ -48,7 +48,16 @@ export interface ChoreDefinition {
   manufacturerRecommendedConditions?: string[];
   /** No fixed cadence was supplied (product, usage, season or municipal conditions), and none was chosen by the user. */
   requiresCycleSelection?: boolean;
-  frequencyDaysByMode: Record<FrequencyMode, number>;
+  /** Non-periodic modes have no numeric entry; never substitute zero or one day. */
+  frequencyDaysByMode: Partial<Record<FrequencyMode, number>>;
+  /** Explicit new-catalog identity; no legacy-name matching or migration heuristic. */
+  personalRecipeId?: string;
+  personalSchedulingKind?: 'personal' | 'seasonal';
+  cadenceLabelsByMode?: Record<FrequencyMode, string>;
+  /** Absent means the adaptive period supplies its default width. */
+  userWindowRadiusDays?: number;
+  /** Immutable creation defaults, without duplicating guide text or importing the full catalog for a reset. */
+  personalScheduleDefaults?: Pick<ChoreDefinition, 'frequencyDaysByMode' | 'load' | 'windowRadiusDays' | 'maxShiftDays' | 'holidayPriority' | 'everyday' | 'requiresCycleSelection' | 'laundryDryingPreference'>;
   /** Explains provisional or condition-based intervals in the current recurring model. */
   schedulingNotes?: string;
   /** Radius around the target date; 1 means target ±1 day. */
@@ -102,6 +111,7 @@ export interface ChoreScheduleEntry {
   suggestedDate: LocalDate;
   status: ChoreStatus;
   assignedMemberIds: EntityId[];
+  seasonalWork?: 'winterStorage' | 'summerStorage';
   overdueDays?: number;
   overdueCycles?: number;
 }
@@ -111,8 +121,12 @@ export interface ChoreCompletion {
   householdId: EntityId;
   choreId: EntityId;
   completedAt: ISODateTime;
-  /** Shared workspaces freeze the recording day in the group's common timezone. */
+  /** Freeze the recording day; a later timezone change never rewrites source history. */
   completedLocalDate?: LocalDate;
+  completedTimeZone?: string;
+  /** Exact immutable completion action; a stale Undo cannot cancel a subsequent redo. */
+  adaptiveOperationId?: string;
+  seasonalWork?: 'winterStorage' | 'summerStorage';
   completedByMemberId?: EntityId;
   outcome: 'completed' | 'incomplete';
   source?: 'inApp' | 'notification' | 'widget' | 'googleTasks';

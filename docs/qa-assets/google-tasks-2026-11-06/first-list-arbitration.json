@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "status": "PASS_SYNTHETIC_AND_ISOLATED_ONLY",
+  "before": {
+    "scope": "two independent synthetic SQLite stores and one fake provider; no network or real phone",
+    "sameNamespace": true,
+    "listsCreated": 2,
+    "sameListTitle": true,
+    "tasksCreated": 6,
+    "duplicateMarkersAcrossLists": 3,
+    "localLinkCounts": [
+      3,
+      3
+    ],
+    "results": [
+      {
+        "created": 3,
+        "updated": 0
+      },
+      {
+        "created": 3,
+        "updated": 0
+      }
+    ],
+    "status": "REPRODUCED_DUPLICATE_FIRST_LIST"
+  },
+  "providerApiCapability": {
+    "status": "OBSERVED_PROVIDED_LIST_ID_IGNORED",
+    "newEmptyOwnedLists": 2,
+    "cleanupVerified": true,
+    "normalUserListsModified": false
+  },
+  "after": {
+    "unitRegression": "two independent SQLite clients starting with no Google list create one list and converge on the same task IDs",
+    "listsCreated": 1,
+    "tasksCreated": 3,
+    "sameTaskIdsBothStores": true,
+    "duplicateMarkers": 0,
+    "isolatedFirestoreTests": 9,
+    "unitListAndNativeTests": 11
+  },
+  "productionSourceInputs": 710,
+  "normalAndroidUpdated": 28,
+  "iosPhysicalPending": true,
+  "limits": [
+    "Synthetic provider concurrency is not actual two-phone Google creation.",
+    "Only hashes are stored in private owner-authorized Firestore receipts.",
+    "A lost non-idempotent POST or unprovable deletion remains pending instead of opening another POST.",
+    "Old conflicting lists are preserved, never automatically merged or deleted."
+  ],
+  "normalAndroidArtifact": {
+    "sha256": "92110ba4c85dec482473e909b882697fb6cefa6c58673f8e63ef6ce071630b34",
+    "sourceInputs": 710,
+    "trace": false,
+    "installedDataPreserving": true
+  },
+  "sourceManifestSha256": "af9420d4dad961f4b85e0694bdd7626843ba8e7f2215443958fb8c4deb23aab8",
+  "existingListPhysicalCheck": {
+    "os": "Android10",
+    "normalRelease": 28,
+    "scope": "foreground manual synchronization of existing data; not first two-phone creation",
+    "evidence": {
+      "accountDigest": "CVVkaArWJLRcOTocJBSq-2RcxWQbd2t0JXvD2uGCzX0",
+      "taskListDigest": "1u7hE1t8WqfRTqpr6S-0cnApL3OpKdFW8MMpYawtdBc",
+      "localLinkDigest": "gxnvUFZLv8P-Q22tLk1EJ9aPj-nkd4hTivbzoFFk-zY",
+      "localLinks": 23,
+      "matchedLinks": 23,
+      "missingLinks": 0,
+      "providerLiveTasks": 23,
+      "providerCompletedTasks": 0,
+      "duplicateLiveMarkers": 0,
+      "localStatus": "idle",
+      "lastSuccessfulSyncAt": "2026-11-05T21:26:57.247Z",
+      "localErrorCode": "",
+      "baselineMappingCount": 23,
+      "baselineMappingDigest": "gxnvUFZLv8P-Q22tLk1EJ9aPj-nkd4hTivbzoFFk-zY"
+    },
+    "same23IdsAsV27": true,
+    "helperRemoved": true,
+    "dataReset": false
+  }
+}

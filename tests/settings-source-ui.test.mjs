@@ -273,6 +273,36 @@ test('v2 Settings keeps both chore audiences and routes waste management to its 
   } finally { await f.close(); }
 });
 
+for (const platform of ['ios', 'android']) test(`${platform} early settings adds a private holiday on the owners local date rather than the unfinished device planner date`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-05T00:30:00Z') });
+  const h = createDatabase(); const effects = [], cleanups = [];
+  t.after(() => { for (const stop of cleanups.reverse()) stop?.(); h.connection.close(); });
+  await repository.initializeLocalDatabase(h.database);
+  const snapshot = await repository.loadPlannerSnapshot(h.database, '2026-11-05');
+  // Lightweight metadata can precede the root planner's authenticated owner clock.
+  const metadata = { settings: snapshot.settings, chores: snapshot.chores };
+  let saved = { schemaVersion: 1, ownerUserId: 'owner', revision: 1, timeZone: 'Pacific/Honolulu',
+    restDays: [], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 2 }, allowedBands: [], dayOverrides: [] };
+  const store = { read: async () => saved, readLocalProjection: async () => null,
+    save: async (expected, value) => { assert.equal(expected, saved.revision); saved = { ...saved, ...value, revision: expected + 1 }; return saved; } };
+  const screen = screenHarness('src/app/settings.tsx', { platform, database: h.database, snapshot: () => metadata,
+    effect: callback => effects.push(callback), effectDependencies: true, mocks: {
+      '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { userId: 'owner', active: null } } },
+      '@/platform/sharing/workspaces': { sharingSessionUser: async () => ({ uid: 'owner' }), hasOtherGoogleWorkspaceConnections: async () => false },
+      '@/features/google-sync/background-task': {},
+      '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: false }) },
+      '@/platform/google-tasks/google-sign-in-gateway': {},
+      '@/platform/sharing/private-calendar-secrets': { nativePrivatePlannerPreferences: () => store },
+    } });
+  const settle = async () => { for (let i = 0; i < 12; i++) { cleanups.push(...effects.splice(0).map(effect => effect())); await screen.flush(); } };
+  await settle(); await screen.press('生活リズムを開く'); await settle();
+  await screen.press('日付を追加'); await settle();
+  const field = screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '1日の家事時間上限');
+  assert.ok(field); field.props.onBlur(); await settle();
+  assert.equal(saved.timeZone, 'Pacific/Honolulu');
+  assert.deepEqual(saved.dayOverrides, [{ date: '2026-11-04', holiday: true }]);
+});
+
 for (const platform of ['ios', 'android']) test(`${platform} ordinary settings waits for the restored account before reading protected rhythm and rejects a changed identity`, async () => {
   const h = createDatabase();
   try {

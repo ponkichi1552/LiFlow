@@ -43,19 +43,13 @@ function RetainedEditor({ model, choreId, controller, onSaved, onBack }: Paramet
 
 function Editor({ configuration, earliestFrom, today, choreId, controller, onSaved, onBack, blocked }: { configuration: SharedChoreConfiguration;
   earliestFrom: LocalDate; today: LocalDate; choreId: string; controller: V2GroupController; onSaved: () => Promise<void>; onBack?: () => void; blocked: boolean }) {
-  const [from, setFrom] = useState<LocalDate>(today > earliestFrom ? today : earliestFrom); const [fromError, setFromError] = useState<string | null>(null);
-  const [fromBasis, setFromBasis] = useState(earliestFrom);
-  const autosave = useV2ConfigurationAutosave({ configuration, effectiveFrom: from,
+  const autosave = useV2ConfigurationAutosave({ configuration, effectiveFrom: today > earliestFrom ? today : earliestFrom,
     save: (edits, date) => { if (blocked) return Promise.reject(new V2StaleSettingsError()); return controller.actions.patchChoreConfigurationFields(choreId, edits, date); }, onSaved }, `configuration:${choreId}`);
   const saving = autosave.status.phase === 'pending' || autosave.status.phase === 'saving';
-  if (fromBasis !== earliestFrom && !autosave.hasDraft() && !saving) {
-    setFromBasis(earliestFrom); if (!fromError && from < earliestFrom) setFrom(earliestFrom);
-  }
-  const date = (text: string) => {
-    try { parseLocalDate(text as LocalDate); if (text < earliestFrom) throw new Error('Boundary'); setFromError(null); }
-    catch { setFromError(`適用開始日は${earliestFrom}以降の日付にしてください。`); }
-    setFrom(text as LocalDate);
-  };
+  const from = autosave.effectiveFrom;
+  const fromError = (() => { try { parseLocalDate(from); if (from < earliestFrom) throw new Error('Boundary'); return null; }
+    catch { return `適用開始日は${earliestFrom}以降の日付にしてください。`; } })();
+  const date = (text: string) => autosave.changeEffectiveFrom(text as LocalDate);
   return <View style={styles.container}>
     {onBack ? <BackButton disabled={autosave.leaving} onPress={() => void autosave.navigateAfterSave(onBack)} /> : null}
     <Card>

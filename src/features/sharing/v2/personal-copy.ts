@@ -48,7 +48,7 @@ function selected(source: V2PersonalCopySource, context: V2PersonalCopyContext, 
     fields.enabled = chore.requiresCycleSelection === true ? false : chore.enabled;
     fields.archived = false;
     const interval = chore.requiresCycleSelection ? null : chore.userIntervalDays ?? chore.recommendedCycleDays
-      ?? chore.manufacturerRecommendedIntervalDays ?? chore.frequencyDaysByMode[source.frequencyMode];
+      ?? chore.manufacturerRecommendedIntervalDays ?? chore.frequencyDaysByMode[source.frequencyMode] ?? null;
     if (interval !== null && (!Number.isSafeInteger(interval) || interval < 1 || interval > 3650)) throw new Error('コピーする周期を確認してください。');
     const radius = chore.everyday === true && interval === 1 ? 0 : chore.windowRadiusDays;
     if (typeof chore.enabled !== 'boolean' || typeof chore.everyday !== 'boolean' || !Number.isSafeInteger(radius) || radius < 0 || radius > 14) throw new Error('コピーする実施期間を確認してください。');

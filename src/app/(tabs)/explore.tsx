@@ -15,7 +15,6 @@ import type { LocalDate } from '@/domain/shared/types';
 import { usePlannerData } from '@/hooks/use-planner-data';
 import { useTaskCompletion } from '@/hooks/use-task-completion';
 import { generateWasteCollectionDates } from '@/features/waste/weekly-scheduler';
-import { useWasteOccurrenceToggle } from '@/features/waste/use-waste-occurrence-toggle';
 import { PlannerCalendar } from '@/features/calendar/planner-calendar';
 import { useLocalCalendar } from '@/features/calendar/use-local-calendar';
 import { personalCalendarTasks } from '@/features/calendar/personal-projection';
@@ -29,7 +28,7 @@ function PersonalCalendarScreen() {
   const local = useLocalCalendar(database);
   const today = snapshot?.today ?? localDateFromDate(new Date());
   const [selectedDate, setSelectedDate] = useState<LocalDate>(today);
-  const completion = useTaskCompletion(database, refresh, readError, undefined, snapshot?.household); const waste = useWasteOccurrenceToggle(database, refresh);
+  const completion = useTaskCompletion(database, refresh, readError, undefined, snapshot?.household);
   const tasksFor = snapshot ? personalCalendarTasks(snapshot, today, completion.project) : () => [] as DateTask[];
   if (!snapshot) return <PlannerLoadState title="カレンダー" message="予定を読み込んでいます。" error={error} retry={refresh} />;
   const chores = new Map(snapshot.chores.map(chore => [chore.id, chore])); const hidden = new Set(snapshot.hiddenWasteOccurrenceKeys);
@@ -37,7 +36,7 @@ function PersonalCalendarScreen() {
   const open = (choreId: string) => router.navigate({ pathname: '/(tabs)/guide', params: { choreId, returnTo: 'calendar' } });
   const renderTask = (task: DateTask, date: LocalDate) => {
     const chore = chores.get(task.choreId); if (!chore) return null;
-    return <Animated.View key={`${chore.id}:${date}`} layout={LinearTransition.duration(240)}><TaskCheckboxRow compact chore={chore} completed={task.completed} source="personal" executionWindow={task.entry ? { start: task.entry.windowStart, end: task.entry.windowEnd } : task.completion?.scheduledWindowStart && task.completion?.scheduledWindowEnd ? { start: task.completion.scheduledWindowStart, end: task.completion.scheduledWindowEnd } : undefined}
+    return <Animated.View key={`${task.id}:${date}`} layout={LinearTransition.duration(240)}><TaskCheckboxRow compact chore={chore} completed={task.completed} source="personal" seasonalWork={task.entry?.seasonalWork ?? task.completion?.seasonalWork} executionWindow={task.entry ? { start: task.entry.windowStart, end: task.entry.windowEnd } : task.completion?.scheduledWindowStart && task.completion?.scheduledWindowEnd ? { start: task.completion.scheduledWindowStart, end: task.completion.scheduledWindowEnd } : undefined}
       onOpen={() => open(chore.id)} onToggle={completion.canToggle(task) ? () => void completion.toggle(task) : undefined} /></Animated.View>;
   };
   return <SafeAreaView edges={['top']} style={styles.safe}>
@@ -47,9 +46,10 @@ function PersonalCalendarScreen() {
       dayInfo={date => ({ loaded: date <= addDays(today, 180), pending: tasksFor(date).filter(task => !task.completed).length, total: tasksFor(date).length,
         minutes: tasksFor(date).filter(task => !task.completed).reduce((sum, task) => sum + (chores.get(task.choreId)?.estimatedMinutes ?? 0), 0) })}
       existingChores={snapshot.chores.filter(chore => chore.enabled && !chore.archived).map(chore => ({ id: chore.id, name: chore.name, minutes: chore.estimatedMinutes, onOpen: () => open(chore.id) }))}
-      notice={error || completion.error || waste.error ? <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{waste.error ?? completion.error ?? error}</Text><AppButton title="表示を再読込" variant="quiet" compact disabled={completion.pending.size > 0 || completion.reading} onPress={() => void completion.retryRead()} /></View> : null}
-      renderWaste={date => <View style={styles.waste}>{snapshot.wasteSchedules.flatMap(schedule => generateWasteCollectionDates(schedule, date, date)).map(item => {
-        const key = `${item.scheduleId}:${item.date}`; return <WasteOccurrenceCard key={key} occurrence={item} compact hidden={hidden.has(key)} busy={waste.busyKeys.has(key)} onToggle={() => void waste.toggle(item, hidden.has(key))} />;
+      notice={error || completion.error ? <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{completion.error ?? error}</Text><AppButton title={completion.recoveryLabel ?? '表示を再読込'} variant="quiet" compact disabled={completion.pending.size > 0 || completion.reading} onPress={() => void completion.retryRead()} /></View> : null}
+      renderWaste={date => <View style={styles.waste}>{snapshot.wasteSchedules.flatMap(schedule => generateWasteCollectionDates(schedule, date, date))
+        .filter(item => !hidden.has(`${item.scheduleId}:${item.date}`)).map(item => {
+        const key = `${item.scheduleId}:${item.date}`; return <WasteOccurrenceCard key={key} occurrence={item} compact />;
       })}</View>}
       renderChores={date => {
         const tasks = tasksFor(date);

@@ -6,7 +6,7 @@ import { SettingsSwitch } from '../../../components/settings-switch';
 import type { V2WorkspaceSession } from './workspace-session';
 
 type Recovery = V2WorkspaceSession['recovery'];
-type Saved = Awaited<ReturnType<Recovery['read']>>;
+type Saved = Awaited<ReturnType<Recovery['readSummary']>>;
 export function V2RecoveryPanel({ groupId, recovery, isOwner, devices, busy, run, initiallyExpanded = false }: {
   groupId: string; recovery: Recovery; isOwner: boolean; devices: { deviceId: string; displayName: string }[];
   busy: boolean; run: (work: () => Promise<void>) => Promise<boolean>; initiallyExpanded?: boolean;
@@ -16,7 +16,7 @@ export function V2RecoveryPanel({ groupId, recovery, isOwner, devices, busy, run
   const [error, setError] = useState<string | null>(null); const mounted = useRef(false);
   const [showEvidence, setShowEvidence] = useState(false); const [page, setPage] = useState(0);
   const refresh = useCallback(async () => {
-    const value = await recovery.read();
+    const value = await recovery.readSummary();
     if (value && value.draft.review.groupId !== groupId) throw new Error('復旧確認のグループが一致しません。');
     if (mounted.current) { setSaved(value); setAcknowledged(false); setPage(0); }
   }, [recovery, groupId]);

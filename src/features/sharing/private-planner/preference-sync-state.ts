@@ -2,7 +2,7 @@ import { exactRecord, positiveInteger } from '../private-calendar/validation.ts'
 import { canonicalJson } from '../operations.ts';
 import { privatePreferenceCursor, samePrivatePreferenceCursor, snapshotEncryptedPrivatePreferences, snapshotPrivatePreferenceCursor } from './preference-crypto.ts';
 import type { EncryptedPrivatePreferences, PrivatePreferenceCursor } from './preference-crypto.ts';
-import { snapshotPrivatePlannerPreferences, snapshotSavedPrivatePlannerPreferences } from './preferences.ts';
+import { snapshotPrivatePlannerPreferences, snapshotSavedPrivatePlannerPreferences, privatePlannerPreferenceValues } from './preferences.ts';
 import type { PrivatePlannerPreferences, SavedPrivatePlannerPreferences } from './preferences.ts';
 
 export interface AcceptedPrivatePreferences { cursor: PrivatePreferenceCursor; preferences: PrivatePlannerPreferences }
@@ -12,8 +12,7 @@ export interface PrivatePreferenceSyncState {
   pending: { localRevision: number; encrypted: EncryptedPrivatePreferences } | null;
   retry: { localRevision: number; digest: string | null; count: number; attemptedAt: number; nextAt: number } | null;
 }
-export const preferenceValues = (value: PrivatePlannerPreferences): PrivatePlannerPreferences => snapshotPrivatePlannerPreferences({
-  timeZone: value.timeZone, restDays: value.restDays, loadLimits: value.loadLimits, allowedBands: value.allowedBands });
+export const preferenceValues = privatePlannerPreferenceValues;
 export const samePreferenceValues = (a: PrivatePlannerPreferences | null, b: PrivatePlannerPreferences | null) =>
   a === null ? b === null : b !== null && canonicalJson(preferenceValues(a)) === canonicalJson(preferenceValues(b));
 export function emptyPrivatePreferenceSyncState(ownerUserId: string): PrivatePreferenceSyncState {

@@ -43,6 +43,49 @@ function harness(platform, { scopes = [tasksScope, calendarScope], cold = false,
 }
 
 for (const platform of ['ios', 'android']) {
+  test(`${platform} Google Tasks connection status verifies its bound account without opening consent`, async () => {
+    const h = harness(platform);
+    assert.equal(await h.gateway.hasGoogleTasksSession('fixture-user'), true);
+    assert.equal(await h.gateway.hasGoogleTasksSession('another-user'), false);
+    assert.equal(h.events.includes('consent'), false); assert.equal(h.events.includes('tokens'), false);
+  });
+  test(`${platform} explicit Google account selection opens the account picker and returns only the selected identity`, async () => {
+    const h = harness(platform, { scopes: [] });
+    h.sdk.presentExplicitSignIn = async () => { h.events.push('explicit-picker'); h.changeAccount('selected-user'); return { type: 'success', data: h.sdk.getCurrentUser() }; };
+    h.sdk.getTokens = async () => { h.events.push('identity-tokens'); return { idToken: 'selected-id-token', accessToken: 'must-not-be-returned' }; };
+    assert.deepEqual(await h.gateway.authorizeGoogleSharingIdentity({ selectAccount: true }), {
+      idToken: platform === 'android' ? h.identityToken : 'selected-id-token', googleUserId: 'selected-user',
+    });
+    assert.equal(h.events.filter(value => value === 'explicit-picker').length, 1);
+    assert.equal(h.events.includes('consent'), false); assert.equal(h.events.includes('restore'), false);
+  });
+  test(`${platform} cancelling explicit Google account selection keeps the saved account and never falls back to silently logging it in`, async () => {
+    const h = harness(platform, { scopes: [] });
+    h.sdk.presentExplicitSignIn = async () => { h.events.push('explicit-picker'); return { type: 'cancelled' }; };
+    await assert.rejects(h.gateway.authorizeGoogleSharingIdentity({ selectAccount: true }), h.gateway.GoogleAuthorizationCancelledError);
+    assert.equal(h.sdk.getCurrentUser().user.id, 'fixture-user');
+    assert.equal(h.events.includes('tokens'), false); assert.equal(h.events.includes('restore'), false);
+    assert.equal(h.events.includes('consent'), false);
+  });
+  test(`${platform} an explicit Google picker result cannot authenticate a different current native account`, async () => {
+    const h = harness(platform, { scopes: [] });
+    h.sdk.presentExplicitSignIn = async () => ({ type: 'success', data: { ...h.sdk.getCurrentUser(), user: { id: 'substituted-result' } } });
+    await assert.rejects(h.gateway.authorizeGoogleSharingIdentity({ selectAccount: true }), accountBinding.GoogleAccountMismatchError);
+    assert.equal(h.events.includes('tokens'), false);
+  });
+  test(`${platform} explicit account selection is unavailable from a background worker`, async () => {
+    const h = harness(platform, { state: 'background' });
+    await assert.rejects(h.gateway.authorizeGoogleSharingIdentity({ selectAccount: true }), h.gateway.GoogleSignInRequiredError);
+    assert.deepEqual(h.events, []);
+  });
+  test(`${platform} account selection stops if the app backgrounds while native sign-in services are loading`, async () => {
+    const h = harness(platform); let release;
+    h.sdk.checkPlayServices = () => new Promise(resolve => { release = resolve; });
+    const pending = h.gateway.authorizeGoogleSharingIdentity({ selectAccount: true });
+    for (let i = 0; i < 20 && !release; i++) await new Promise(setImmediate);
+    assert.equal(typeof release, 'function'); h.appState.currentState = 'background'; release();
+    await assert.rejects(pending, h.gateway.GoogleSignInRequiredError);
+  });
   test(`${platform} private Calendar consent after identity-only login adds only freebusy for the explicitly selected account`, async () => {
     const h = harness(platform, { scopes: [] }); const account = await h.gateway.getCurrentGoogleCalendarAccount();
     assert.equal(account.subject, 'fixture-user'); assert.deepEqual(Object.keys(account).sort(), ['label','subject']);

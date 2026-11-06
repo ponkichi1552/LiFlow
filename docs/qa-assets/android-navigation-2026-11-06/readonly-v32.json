@@ -1,0 +1,126 @@
+{
+  "candidate": "normal-v32",
+  "os": "Android10",
+  "device": "SonyI4293",
+  "normalProcessUnchanged": true,
+  "dataReset": false,
+  "paidRequests": false,
+  "flows": "Two observed four-tab cycles, Home to merged shared guide and Back to Home; three warm four-tab cycles without UI query or capture between inputs",
+  "bottomTabsRetained": true,
+  "backResult": "Home restored; the initial automation expected visible Back text instead of its actual accessible label; corrected observer, no application patch",
+  "calendarSelectedDateRetained": "2026-11-06 across the two observed cycles",
+  "cloud": {
+    "beforeSequence": 439,
+    "afterSequence": 439,
+    "newOperations": 0
+  },
+  "frameObservation": {
+    "candidate": "normal-v32",
+    "before": {
+      "total": 359,
+      "janky": 68
+    },
+    "after": {
+      "total": 638,
+      "janky": 141
+    },
+    "renderedFrameDelta": 279,
+    "jankyFrameDelta": 73,
+    "newUnflaggedFramesRetained": 34,
+    "frameDurationMs": {
+      "median": 15.494646,
+      "p95": 59.232666,
+      "max": 89.005454
+    },
+    "framesOver100ms": 0,
+    "framesOver700ms": 0,
+    "method": "three warm four-tab cycles, with no UI dump or screen capture between taps; OS native frame diagnostics",
+    "tapToUsableLatencyMeasured": false,
+    "causalDiagnosis": false,
+    "retainedFrameRingOnly": true,
+    "fullWindowHistogram": {
+      "totalDelta": 279,
+      "bucketsAtOrAbove100ms": 0,
+      "bucketsAtOrAbove700ms": 0,
+      "largestNonemptyBucketLabelMs": 89,
+      "delta": {
+        "5": 1,
+        "6": 12,
+        "7": 15,
+        "8": 32,
+        "9": 43,
+        "10": 28,
+        "11": 17,
+        "12": 14,
+        "13": 12,
+        "14": 16,
+        "15": 9,
+        "16": 8,
+        "17": 5,
+        "18": 2,
+        "19": 1,
+        "20": 1,
+        "21": 1,
+        "22": 2,
+        "23": 1,
+        "24": 2,
+        "25": 2,
+        "28": 1,
+        "29": 1,
+        "30": 4,
+        "31": 2,
+        "34": 4,
+        "36": 5,
+        "38": 10,
+        "40": 4,
+        "42": 3,
+        "44": 3,
+        "46": 3,
+        "48": 5,
+        "53": 2,
+        "57": 2,
+        "61": 1,
+        "65": 1,
+        "73": 1,
+        "85": 2,
+        "89": 1
+      }
+    }
+  },
+  "nativeTrace": {
+    "seconds": 16,
+    "profilingOverheadPresent": true,
+    "traceSha256": "9170cb62f22678e43b6b4dadd973e056283f55909ae06475cf89935a78dee1ea",
+    "rawTracePublished": false,
+    "ownAppThreadCpuMs": {
+      "mqt_v_js": 3273.87,
+      "RenderThread": 1806.21,
+      "main": 1076.62
+    },
+    "threadMembershipVerifiedUsingLivePs": true,
+    "exactJavaScriptFunctionSymbolsAvailable": false,
+    "causalDiagnosis": false
+  },
+  "limits": [
+    "No tap-to-usable time claim; UIAutomator observation time includes tool overhead",
+    "Frame ring retains34 unflagged frames, while before/after histograms cover all279 newly rendered frames",
+    "CPU time summed over16 seconds is not user-facing latency",
+    "No new startup optimization; current natural iOS background observation left untouched"
+  ],
+  "evidenceSha256": {
+    "observations.json": "7cd989ad162a03284a453f60fe529fb8da893ee3aafb627c2d5f8a5225ff6e6d",
+    "guide-back-confirmed.json": "c425b266458657e839182434f8bee34ab2a2c2b117aa3ca8763321d0a0cbf92b",
+    "warm-only-actions.json": "6c8d04bed5df449e583ad38636e55dedff9a6d285a3597fd9924e07652707158",
+    "warm-frame-summary.json": "debb41372644bdc375b9ee374c26ec52691f0b47154b26b617d92f199b73ee9a",
+    "cpu-by-verified-tid.txt": "1f0bd32e717bc12e36abce467043b235c0d19d78a864ad3610911a96c6f7d3ef",
+    "tracing-restored.json": "7e582dd3553b7a22d654b70115934c1de92095b90ff033a1a00dd7b5da1b0836"
+  },
+  "twoDayChores": {
+    "observed": "compact rows within the selected day; date headers and timelines retain the same column boundary",
+    "previousExtremeNarrowTextOverflowReproduced": false,
+    "noCompletionChanged": true,
+    "expandedThenCollapsed": true,
+    "originalListPreferenceRestored": true,
+    "finalHome": "8 total0 completed"
+  }
+}

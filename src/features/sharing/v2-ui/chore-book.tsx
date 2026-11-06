@@ -45,7 +45,7 @@ export function V2ChoreBook({ model, personal, selectedId, source = 'shared', on
       const display = { ...chore, ...(isPersonal || !configuration ? {} : { userIntervalDays: configuration.intervalDays, requiresCycleSelection: false }) };
       const round = model.plan.occurrences.find(row => row.choreId === id && row.subjects.some(subject => subject.subjectUserId === null || subject.subjectUserId === model.viewerUserId));
       const subject = round?.subjects.find(row => row.subjectUserId === null || row.subjectUserId === model.viewerUserId);
-      return <View style={{ gap: 12 }}><ChoreGuide chore={display} mode={isPersonal ? personal!.snapshot.settings.frequencyMode : 'balanced'} procedureAction={<ChorePlanToggle name={chore.name} enabled={chore.enabled}
+      return <View style={{ gap: 12 }}><ChoreGuide chore={display} mode={isPersonal ? personal!.snapshot.settings.frequencyMode : 'balanced'} cadenceLabel={isPersonal ? personal!.snapshot.personalCadences?.[id]?.label : undefined} procedureAction={<ChorePlanToggle name={chore.name} enabled={chore.enabled}
           readOnly={!isPersonal && model.viewerUserId !== model.adminUserId} requiresCycleSelection={isPersonal ? chore.requiresCycleSelection : !configuration}
           onConfigure={() => { if (isPersonal) router.push({ pathname: '/chores/[id]', params: { id, source: 'personal' } }); else onConfiguration(id); }}
           retryRead={async () => { if (isPersonal) { await personal!.refresh(); return !personal!.readError?.(); } return (await perform(async () => {})).refreshed; }} save={async enabled => {

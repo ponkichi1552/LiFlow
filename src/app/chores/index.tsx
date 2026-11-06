@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AppButton, BackButton, Card, ChoiceChip, Page, ScreenHeading, SectionHeading, StatusBadge, palette, typography } from '@/components/planner-ui';
 import type { ChoreDefinition } from '@/domain/chores/types';
+import { choreCadenceLabel } from '@/domain/chores/cycle-policy';
 import { PlannerLoadState } from '@/components/planner-load-state';
 import { usePlannerData } from '@/hooks/use-planner-data';
 import { setChoreEnabled } from '@/platform/storage/repository';
@@ -95,9 +96,7 @@ export default function ChoresScreen() {
               <Text style={styles.choreName}>{chore.name}</Text>
               {chore.enabled ? <StatusBadge status={statusByChore.get(chore.id) ?? 'initialPending'} /> : <Text style={styles.offTag}>OFF</Text>}
             </View>
-            <Text style={styles.meta}>{chore.category} · {chore.requiresCycleSelection
-              ? '周期未設定'
-              : `${chore.recommendedCycleDays ?? chore.manufacturerRecommendedIntervalDays ?? chore.frequencyDaysByMode[snapshot.settings.frequencyMode]}日ごと`}{chore.estimatedMinutes ? ` · 約${chore.estimatedMinutes}分` : ''}</Text>
+            <Text style={styles.meta}>{chore.category} · {choreCadenceLabel(chore, snapshot.settings.frequencyMode)}{chore.estimatedMinutes ? ` · 約${chore.estimatedMinutes}分` : ''}</Text>
             {chore.enabled ? <Text style={styles.period}>{scheduleLabel(snapshot.scheduleEntries.find((entry) => entry.choreId === chore.id))}</Text> : null}
           </Pressable>
           <View style={styles.footer}>

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "candidate": "normal-v34",
+  "dataPreservingInstall": true,
+  "sourceInputs": 710,
+  "sourceManifestSha256": "89e05e88f2186c7a1ba57e10e38d12a5049f2508835a97bfb2b1e193ff9c3176",
+  "normalAppStartedWithoutDevelopmentServer": true,
+  "sameGroupRetained": true,
+  "homeAndFourTabs": true,
+  "choreExplanationRetainsFourTabs": true,
+  "calendarForegroundRecovered": true,
+  "directDataReset": false,
+  "iosSteps": [
+    137,
+    138,
+    140,
+    141,
+    142
+  ],
+  "automationFailure": {
+    "step": 139,
+    "cause": "Harness requested the short tab label; actual iOS accessible label includes tab position. Corrected to the existing exact label, then140 passed. Application source unchanged."
+  },
+  "calendarDisplayLimit": "The first immediate tab snapshot was blank below the weekday strip. The141 snapshot after2 seconds showed actual populated month rows. This does not prove instant Calendar rendering or the separately deferred1-second startup target.",
+  "rawLogsSha256": {
+    "step137-ios.log": "6cfc8be43fd030d2f3c3cf66f44f0d43025915ddfc344f0b6c91b2f8800bb361",
+    "step138-ios.log": "4b5441f7b94cb18ae12412da99f7f41f8bd710221ed5538e45cb5c62b4eaa210",
+    "step139-ios.log": "43da8c1de85e56bbbbc52d929dc6fdd3c2f0e76fbde11f7d93850a2d90dc3c3b",
+    "step140-ios.log": "71d1516a1d91775c4c398182e7036a0705e0439b5021d7a53f707e35acd7489d",
+    "step141-ios.log": "50d8767083c4820b73fcb2c0fc0bb76a99199270926c501a953ad4e3a3570169",
+    "step142-ios.log": "6581073ed651d063b8245aeb47fab88655ee9d977e2f4c03c1a34798479b79da"
+  },
+  "screenshotsPrivateNotPublished": true
+}

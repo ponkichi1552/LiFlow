@@ -1,39 +1,11 @@
 import assert from 'node:assert/strict';
-import { DatabaseSync } from 'node:sqlite';
+import { createDatabase } from './helpers/sqlite.mjs';
 import './helpers/typescript-loader.mjs';
 import test from 'node:test';
 
 const repository = await import('../src/platform/storage/repository.ts');
 const { createPlannerRefreshController } = await import('../src/features/planner/refresh-controller.ts');
 
-function createDatabase() {
-  const connection = new DatabaseSync(':memory:');
-  const database = {
-    async execAsync(sql) {
-      connection.exec(sql);
-    },
-    async runAsync(sql, ...params) {
-      return connection.prepare(sql).run(...params);
-    },
-    async getFirstAsync(sql, ...params) {
-      return connection.prepare(sql).get(...params) ?? null;
-    },
-    async getAllAsync(sql, ...params) {
-      return connection.prepare(sql).all(...params);
-    },
-    async withTransactionAsync(callback) {
-      connection.exec('BEGIN');
-      try {
-        await callback();
-        connection.exec('COMMIT');
-      } catch (error) {
-        connection.exec('ROLLBACK');
-        throw error;
-      }
-    },
-  };
-  return { connection, database };
-}
 
 function task(name, intervalDays, evidenceUrl, step) {
   return {

@@ -51,12 +51,17 @@ export function readSharedCalendar(view: V2HistoryView, at?: SharedOperation): S
     const create = operations.find(operation => operation.operationId === id); if (!create) return [];
     const reset = new Set(operations.flatMap(operation => body(operation).resetExceptionIds));
     const exceptions = new Map<LocalDate, SharedOperation[]>();
-    for (const operation of operations) if (body(operation).scope === 'one' && !reset.has(operation.operationId)) {
+    for (const operation of operations) if (body(operation).scope === 'one') {
       const date = body(operation).anchorDate!; const list = exceptions.get(date) ?? []; list.push(operation); exceptions.set(date, list);
     }
     return [{ id, creatorUserId: create.authorUserId,
       heads: maximalCausalFacts(operations.filter(operation => body(operation).scope === 'series')),
-      exceptions: [...exceptions].map(([anchorDate, values]) => ({ anchorDate, heads: maximalCausalFacts(values) })) }];
+      // Determine causal heads before removing reset heads. Filtering first
+      // would resurrect an older edit that the reset head had superseded.
+      exceptions: [...exceptions].flatMap(([anchorDate, values]) => {
+        const heads = maximalCausalFacts(values).filter(operation => !reset.has(operation.operationId));
+        return heads.length ? [{ anchorDate, heads }] : [];
+      }) }];
   }).sort((a, b) => a.id.localeCompare(b.id));
 }
 

@@ -4,11 +4,11 @@ import { ChoreMeta } from '../../components/chore-meta';
 import { ProcedureStep } from '../../components/procedure-step';
 import type { ChoreDefinition } from '../../domain/chores/types';
 import type { ReactNode } from 'react';
-export function ChoreGuide({ chore, mode, procedureAction }: { chore: ChoreDefinition; mode: import('@/domain/chores/types').FrequencyMode; procedureAction?: ReactNode }) {
+export function ChoreGuide({ chore, mode, procedureAction, cadenceLabel }: { chore: ChoreDefinition; mode: import('@/domain/chores/types').FrequencyMode; procedureAction?: ReactNode; cadenceLabel?: string }) {
   return (
     <>
       <ScreenHeading title={chore.name} />
-      <ChoreMeta chore={chore} mode={mode} />
+      <ChoreMeta chore={chore} mode={mode} cadenceLabel={cadenceLabel} />
       {chore.schedulingNotes ? <Text style={styles.notes}>{chore.schedulingNotes}</Text> : null}
       {chore.description ? <Text style={styles.body}>{chore.description}</Text> : null}
       <Card>

@@ -13,7 +13,7 @@ import type { PersonalCompletionTarget } from '../features/planner/completion-co
 import type { CompletionIntentState } from '../features/planner/completion-intents';
 import type { Household } from '../domain/shared/types';
 
-const emptyIntents: CompletionIntentState = { values: new Map(), pending: new Set(), restored: false, error: null };
+const emptyIntents: CompletionIntentState = { values: new Map(), pending: new Set(), failed: new Set(), restored: false, error: null };
 const noChanges = () => () => {};
 const noIntents = () => emptyIntents;
 
@@ -69,13 +69,14 @@ export function useTaskCompletion(database: SQLiteDatabase, refresh: () => Promi
     runtime?.queue.retryRead();
     return () => { stop?.(); setQueuedUndo(null); };
   }, [runtime, refresh, readError]));
-  if (!runtime) return { ...state, ...binding };
+  if (!runtime) return { ...state, ...binding, recoveryLabel: '表示を再読込' };
   const original = (task: DateTask) => originals.get(task) ?? task;
   const keyFor = (task: DateTask) => personalCompletionKey(dateTaskRevision(original(task)));
   const canToggle = (task: DateTask) => {
     try { return Boolean((original(task).entry || original(task).completion) && keyFor(task)); } catch { return false; }
   };
   return { ...state, ...binding, pending: intents.pending, reading: false, error: intents.error, requiresReload: false,
+    recoveryLabel: intents.failed.size ? '保存を再試行' : '表示を再読込',
     undoAvailable: Boolean(queuedUndo), canToggle,
     project: (tasks: readonly DateTask[]) => tasks.map(task => {
       let key: string; try { key = keyFor(task); } catch { return task; }
@@ -87,9 +88,9 @@ export function useTaskCompletion(database: SQLiteDatabase, refresh: () => Promi
       const source = original(task); const revision = dateTaskRevision(source); const key = personalCompletionKey(revision);
       const target: PersonalCompletionTarget = { kind: 'personal', command: { date: source.suggestedDate, graceDays: 3, choreId: source.choreId, revision } };
       const completed = !(runtime.queue.getSnapshot().values.get(key) ?? source.completed);
-      runtime.queue.request(key, target, completed); setQueuedUndo(completed ? { key, target } : null);
+      if (runtime.queue.request(key, target, completed)) setQueuedUndo(completed ? { key, target } : null);
     },
     async undoLast() { if (!queuedUndo) return; runtime.queue.request(queuedUndo.key, queuedUndo.target, false); setQueuedUndo(null); },
-    async retryRead() { await refresh(); runtime.queue.retryRead(); },
+    async retryRead() { runtime.queue.retryFailed(); await refresh(); runtime.queue.retryRead(); },
   };
 }

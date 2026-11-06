@@ -20,6 +20,7 @@ import { createRestoringSessionGate, restoringDisplaySession } from '../../plann
 import { startupDisplayCache } from '../../../platform/sharing/startup-display';
 import { personalCompletionIntents, sharedCompletionIntents } from '../../../platform/storage/completion-intents';
 import type { CompletionIntentRuntime } from '../../../platform/storage/completion-intents';
+import { readPersonalScheduleSettings } from '../../../platform/storage/personal-schedule-settings';
 
 interface WorkspaceDisplayBinding {
   workspace: Extract<SharedWorkspace, { protocol: 2 }> | null;
@@ -41,11 +42,11 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
   const restoring = useMemo(() => ({ ...createRestoringSessionGate(), scope: { userId: context.userId, groupId } }), [context.userId, groupId]);
   const onInitialDisplay = context.completeInitialDisplay;
   const completeInitialDisplay = useCallback(() => { if (active) onInitialDisplay?.(active); }, [active, onInitialDisplay]);
-  const current = useRef<{ active: typeof active; userId: string | null; database: typeof personalDatabase; settings: NonNullable<typeof personalSnapshot>['settings'] | undefined } | null>({ active, userId: context.userId, database: personalDatabase, settings: personalSnapshot?.settings });
+  const current = useRef<{ active: typeof active; userId: string | null; database: typeof personalDatabase } | null>({ active, userId: context.userId, database: personalDatabase });
   useLayoutEffect(() => {
-    current.current = { active, userId: context.userId, database: personalDatabase, settings: personalSnapshot?.settings };
+    current.current = { active, userId: context.userId, database: personalDatabase };
     return () => { current.current = null; };
-  }, [active, context.userId, personalDatabase, personalSnapshot?.settings]);
+  }, [active, context.userId, personalDatabase]);
   const assertWorkspaceAccess = useCallback(async () => {
     const matches = () => active && current.current?.active === active && current.current.userId === active.userId && current.current.database === personalDatabase;
     if (!matches()) throw new Error('個人家事を操作するアカウント・グループが変わりました。');
@@ -85,6 +86,7 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
         catch { throw new Error('個人家事は保存済みです。表示を更新するため再読込してください。'); }
       } });
     const session = createV2ScreenSession({ groupId: active.groupId, userId: active.userId, now: () => new Date(),
+      sharedLoadFirst: true,
       privateTasks,
       calendar: {
         readForPlan: async () => { const calendar = await openCalendar(); const value = await calendar.readForPlan(); await assertWorkspaceAccess(); return value; },
@@ -95,7 +97,8 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
       readPreferences: async () => {
         await active.record();
         const calendar = await openCalendar(); const own = await calendar.readPlannerPreferences?.(); await assertWorkspaceAccess();
-        return v2OwnerScheduleSettings(active.userId, current.current?.settings, own);
+        const settings = await readPersonalScheduleSettings(personalDatabase); await assertWorkspaceAccess();
+        return v2OwnerScheduleSettings(active.userId, settings, own);
       } });
     retainedSession.current = { active, database: personalDatabase, session }; return session;
   }, [active, context.userId, personalDatabase, refreshPersonal, assertWorkspaceAccess, openCalendar]);

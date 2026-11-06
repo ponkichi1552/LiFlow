@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-11-06T12:45:20.889659+00:00",
+  "currentCandidate": "normal-v34",
+  "normalInputs": 710,
+  "normalManifestSha256": "89e05e88f2186c7a1ba57e10e38d12a5049f2508835a97bfb2b1e193ff9c3176",
+  "allNormalInputHashesUnchanged": true,
+  "combinedPhysicalFixtures": {
+    "android": {
+      "applicationSources": 41,
+      "changedSources": [],
+      "artifactReceiptSha256": "a023200196e7cfb5e6f05e870b23655078a7bbc82db0458daa8315375c0f4893",
+      "result": "same source, existing six physical scenarios remain applicable",
+      "rerun": false
+    },
+    "ios": {
+      "applicationSources": 41,
+      "changedSources": [],
+      "artifactReceiptSha256": "273e563c03c14aaf157e28810c220e4ac847a2715dc7b15a2a5de9f5c3fd189e",
+      "result": "same source, existing six physical scenarios remain applicable",
+      "rerun": false
+    }
+  },
+  "limits": [
+    "This is source applicability verification; it is not another physical execution.",
+    "The six fixtures use synthetic shared projection and close/reopen SQLite; they are not an OS restart or a real-network end-to-end weather run."
+  ]
+}

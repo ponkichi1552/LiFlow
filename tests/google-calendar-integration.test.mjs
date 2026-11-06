@@ -74,7 +74,7 @@ test('v14 upgrade and repeated migration preserve mappings and Google completion
   await h.sync();const history=h.history();const links=await repository.listGoogleTaskLinks(h.database);
   h.connection.exec('DROP TABLE calendar_availability_days; DROP TABLE calendar_availability_state; PRAGMA user_version=14;');
   await migrateLocalDatabase(h.database);await migrateLocalDatabase(h.database);
-  assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version,21);
+  assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version,27);
   assert.deepEqual(h.history(),history);assert.deepEqual(await repository.listGoogleTaskLinks(h.database),links);
   assert.equal(h.history().filter((c)=>c.schedule_entry_id===entry.id).length,1);
   assert.equal(h.connection.prepare('PRAGMA foreign_key_check').all().length,0);
@@ -119,7 +119,8 @@ test('Calendar reschedule preserves schedule and Google task IDs and patches onl
   assert.equal(updated.googleTaskId,link.googleTaskId);
   const writes=h.calls.filter((c)=>c.method!=='GET');
   assert.deepEqual(writes.map((w)=>w.method),['PATCH']);
-  assert.deepEqual(writes[0].body,{due:'2026-10-26T00:00:00.000Z'});
+  assert.match(writes[0].body.notes, /^LiFlow personal occurrence: [a-f0-9]{64}$/u);
+  assert.deepEqual({...writes[0].body,notes:undefined},{due:'2026-10-26T00:00:00.000Z',notes:undefined});
   assert.equal((await calendar.refresh()).kind,'skipped');assert.equal(calendar.calls(),1);
   await repository.setCalendarAvailabilityEnabled(h.database,false,now);
   await h.snapshot();h.calls.length=0;await h.sync();

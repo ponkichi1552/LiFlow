@@ -19,6 +19,36 @@ async function paired(t) {
   await f.a.approveConfirmedRequest(request.request); await f.b.acceptApproval(); return f;
 }
 
+test('a conflicting unaccepted first-device proposal can use the existing reviewed pairing flow without deleting trust or generating a second identity', async t => {
+  const f = fixture(t); const first = await f.a.initializeFirstDevice();
+  await assert.rejects(() => f.b.initializeFirstDevice(), { code: 'private-calendar/conflict' });
+  const intent = await f.recipient.roots.read(); const identity = await f.recipient.secrets.identity(userId);
+  assert.equal((await f.b.read()).phase, 'firstPending'); assert.equal((await f.recipient.readProtected()).hasStoredKeys, false);
+  const restarted = session(f.recipient, f.cloud);
+  const prepared = await restarted.prepareConfirmedReference(first.reference);
+  assert.equal(prepared.phase, 'pairing'); assert.equal(prepared.deviceId, identity.deviceId); assert.ok(prepared.request);
+  assert.equal(await f.recipient.roots.read(), null); assert.equal((await f.recipient.readProtected()).authority, null);
+  assert.equal(await f.recipient.roots.discardUnaccepted(intent.digest), false);
+  await f.a.approveConfirmedRequest(prepared.request); const approved = await restarted.acceptApproval();
+  assert.equal(approved.phase, 'approved'); assert.equal(approved.keyReady, true);
+});
+
+test('unaccepted first-device recovery preserves proposals on an unknown server stale reference account switch or protected cache', async t => {
+  const f = fixture(t); const first = await f.a.initializeFirstDevice(); await assert.rejects(() => f.b.initializeFirstDevice());
+  const intent = await f.recipient.roots.read();
+  for (const head of [null, { ...(await f.cloud.readHead()), rootDigest: '0'.repeat(64) }]) {
+    const unknown = session(f.recipient, { ...f.cloud, readHead: async () => head });
+    await assert.rejects(() => unknown.prepareConfirmedReference(first.reference)); assert.equal((await f.recipient.roots.read()).digest, intent.digest);
+  }
+  const switched = session(f.recipient, { ...f.cloud, async readHead() { const head = await f.cloud.readHead(); f.recipient.state.currentUser = 'other'; return head; } });
+  await assert.rejects(() => switched.prepareConfirmedReference(first.reference), /owner changed/); f.recipient.state.currentUser = userId;
+  assert.equal((await f.recipient.roots.read()).digest, intent.digest);
+  f.recipient.connection.exec("CREATE TABLE IF NOT EXISTS private_calendar_cache (id TEXT PRIMARY KEY); INSERT INTO private_calendar_cache VALUES ('retained-ciphertext')");
+  await assert.rejects(() => f.b.prepareConfirmedReference(first.reference), /復旧/u);
+  assert.equal((await f.recipient.roots.read()).digest, intent.digest);
+  assert.equal(f.recipient.connection.prepare('SELECT id FROM private_calendar_cache').get().id, 'retained-ciphertext');
+});
+
 test('private Calendar settings reads and unconfigured sync do not generate any identity pin key or cloud request', async t => {
   const f = fixture(t); let touched = false;
   const cloud = new Proxy(f.cloud, { get() { return () => { touched = true; throw new Error('no network'); }; } }); const screen = session(f.owner, cloud);

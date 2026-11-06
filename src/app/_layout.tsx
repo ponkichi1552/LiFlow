@@ -14,6 +14,7 @@ import { NotificationWorkspaceBridge } from '@/components/notification-workspace
 import { WorkspaceProvider, ActiveWorkspaceScope } from '@/hooks/use-workspace';
 import { WorkspaceNavigator } from '@/components/workspace-navigator';
 import '@/platform/notifications/configure-foreground-notifications';
+import '@/platform/sharing/adaptive-personal-runtime';
 import { plannerColorsForScheme } from '@/components/planner-theme';
 import { WorkspaceDisplayProvider } from '@/features/sharing/v2-ui/workspace-data';
 import { LocalCalendarProvider } from '@/features/calendar/use-local-calendar';

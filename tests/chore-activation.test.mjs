@@ -2,6 +2,7 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createDatabase } from './helpers/sqlite.mjs';
+import { installFrozenSchedulerFixture } from './helpers/frozen-scheduler-fixture.mjs';
 import { addDays, localDateFromDate } from '../src/domain/scheduling/local-date.ts';
 import { selectDateTasks } from '../src/domain/scheduling/date-tasks.ts';
 
@@ -12,6 +13,9 @@ const today = localDateFromDate(new Date());
 
 async function setupDisabled(database) {
   await repository.initializeLocalDatabase(database);
+  // These assertions deliberately cover the preserved Scheduler1 initial-state repair.
+  // The active catalogue and adaptive round lifecycle have their own real-repository coverage.
+  await installFrozenSchedulerFixture(database);
   await repository.completeFirstSetup(database, {
     frequencyMode: 'balanced', restDays: [], enabledChoreIds: [], previousDates: {}, weatherLocation: null,
   });

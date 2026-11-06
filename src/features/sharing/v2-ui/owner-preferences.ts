@@ -3,7 +3,7 @@ import type { SavedPrivatePlannerPreferences } from '../private-planner/preferen
 import type { Weekday } from '../../../domain/shared/types';
 
 /** Screens and native delivery use the same owner-only settings selection. */
-export function v2OwnerScheduleSettings(userId: string, settings: HouseholdPlannerSettings | null | undefined, own: SavedPrivatePlannerPreferences | null | undefined) {
+export function v2OwnerScheduleSettings(userId: string, settings: Pick<HouseholdPlannerSettings, 'frequencyMode' | 'restDays' | 'heavyDailyLimit' | 'normalDailyLimit'> | null | undefined, own: SavedPrivatePlannerPreferences | null | undefined) {
   if (!settings) throw new Error('本人の予定設定を読み込んでいます。しばらくしてから再試行してください。');
   const restDays = settings.restDays.filter((day): day is Weekday => Number.isInteger(day) && day >= 1 && day <= 7);
   if (restDays.length !== settings.restDays.length) throw new Error('本人の休日設定を確認してください。');

@@ -1,0 +1,2181 @@
+{
+  "schema_version": 1,
+  "kind": "post-run phase-stratified forecast-error derivation from immutable saved outputs",
+  "recorded_on": "2026-11-06",
+  "corpus_rerun": false,
+  "runner_or_production_source_changed": false,
+  "provenance": {
+    "input_zip_path": "/Users/hiroki/Downloads/LiFlow_realistic_test_cases_20261104.zip",
+    "input_zip_sha256": "df5a7481859bd9d77a55903084355ceae9ca3457be80a5235dfab95d481e743b",
+    "original_generator_sha256": "d14be412826994ced99670b48e116284ad013a2d830e6a5c489561aab3f7a829",
+    "code_fingerprint": "904387d423e56b28857a92015c14dc9b7f9be1b5013e9ba34675617ed60fcd86",
+    "development_raw_sha256": "696d73714b412e0dae817890072128649dd06e5c1d9b6ce1f1065c626b52c01b",
+    "holdout_raw_sha256": "4afb1493544688daf58e4feef6a316c64409daff0b327c675609cd2084794931",
+    "runner_freeze_sha256": "3c444d6de5c8c508f8ccca98afe82f21e5f4463d72f2f909468b937b260170af",
+    "prediction_sources": [
+      "raw corpus case metrics scored_predictions_detail",
+      "original input clock.initial_now_day and observed_history",
+      "original generator behavior-model rules and lifecycle mode_change day"
+    ],
+    "evaluation_only_hidden_events_used": false
+  },
+  "method": {
+    "prediction_issue_timestamp": "original case start date plus initial_now_day and saved adapter.clock_time (08:00 local)",
+    "preceding_observed_completion": "latest original observed_history completion timestamp at or before issue time; date cross-checked against saved actual_history.last_completion",
+    "observed_target_timestamp": "first original observed_history completion timestamp after issue time; its date cross-checked against saved scored_predictions_detail.next_observed_date",
+    "error_metric": "saved absolute error_days, independently checked as abs(target_date - predicted_date)",
+    "permanent_longer_boundary": "first generator completion timestamp at or after horizon_days//3, when the next interval becomes doubled",
+    "temporary_longer_boundary": "generator interval extension starts at completion index 2 and runs through index 5; start=2*initial_days, recovery after day=8*initial_days, right-censored at the evaluation horizon when not observed; completion clock comes from the input history",
+    "change_settings_boundary": "explicit lifecycle_events mode_change day; because the event has no time-of-day, any issue/completion/target on that date is unidentifiable and unscored",
+    "classification": {
+      "before_change": "issue, preceding observed completion, and next observed target are all before the boundary",
+      "at_or_after_change": "issue, preceding observed completion, and next observed target are all at or after the same boundary/regime",
+      "crossing_or_unidentifiable": "the observation interval crosses a boundary or the saved history cannot establish the phase; retained with no phase MAE contribution",
+      "temporary_longer_subphases": "at_or_after_change is split into temporary_extension_active and after_recovery"
+    },
+    "non_discrete_change_models": "stable, jitter, alternating, gradual, missing_records, recommendation_following, and calendar_rule retain their existing profile/model error breakdowns; no synthetic phase boundary was invented",
+    "unresolved_predictions": "remain separately counted and unscored because no next-observed target timestamp exists"
+  },
+  "existing_error_group_coverage": {
+    "evidence": [
+      "development-final-aggregate.json",
+      "holdout-final-aggregate.json"
+    ],
+    "groups_per_split": {
+      "lifestyle_profiles": 28,
+      "behavior_models": 10,
+      "profile_behavior_model_pairs": 280
+    },
+    "note": "These saved aggregate breakdowns cover all behavior models; phase classification below is restricted to explicit discrete change rules."
+  },
+  "splits": {
+    "development": {
+      "run_summary": {
+        "cases": 840,
+        "scored_predictions": 2926,
+        "unresolved_predictions_without_target_timestamp": 188,
+        "overall_mae_days_scored_only": 7.6537935748462065,
+        "runner_elapsed_ms": 1810703
+      },
+      "source_cross_checks": {
+        "source_case": 0,
+        "identity": 0,
+        "issue_day": 0,
+        "previous_completion": 0,
+        "next_observed_target": 0,
+        "absolute_error": 0,
+        "case_scored_detail_count": 0
+      },
+      "discrete_change_models": [
+        {
+          "behavior_model": "permanent_longer",
+          "unique_cases_with_predictions": 84,
+          "unresolved_predictions_without_target_timestamp": 22,
+          "phases": {
+            "before_change": {
+              "scored_prediction_count": 179,
+              "absolute_error_days_sum": 534,
+              "mean_absolute_error_days_scored_only": 2.98324
+            },
+            "at_or_after_change": {
+              "scored_prediction_count": 48,
+              "absolute_error_days_sum": 274,
+              "mean_absolute_error_days_scored_only": 5.708333
+            },
+            "crossing_or_unidentifiable": {
+              "status": "unscored",
+              "unscored_prediction_count": 57,
+              "unique_case_count": 48,
+              "saved_error_values_excluded_from_phase_mae": 57
+            }
+          }
+        },
+        {
+          "behavior_model": "temporary_longer",
+          "unique_cases_with_predictions": 84,
+          "unresolved_predictions_without_target_timestamp": 18,
+          "phases": {
+            "before_change": {
+              "scored_prediction_count": 40,
+              "absolute_error_days_sum": 63,
+              "mean_absolute_error_days_scored_only": 1.575
+            },
+            "at_or_after_change": {
+              "scored_prediction_count": 227,
+              "absolute_error_days_sum": 2039,
+              "mean_absolute_error_days_scored_only": 8.982379
+            },
+            "crossing_or_unidentifiable": {
+              "status": "unscored",
+              "unscored_prediction_count": 6,
+              "unique_case_count": 5,
+              "saved_error_values_excluded_from_phase_mae": 6
+            }
+          }
+        },
+        {
+          "behavior_model": "change_settings",
+          "unique_cases_with_predictions": 83,
+          "unresolved_predictions_without_target_timestamp": 17,
+          "phases": {
+            "before_change": {
+              "scored_prediction_count": 271,
+              "absolute_error_days_sum": 859,
+              "mean_absolute_error_days_scored_only": 3.169742
+            },
+            "at_or_after_change": {
+              "scored_prediction_count": 0,
+              "absolute_error_days_sum": 0,
+              "mean_absolute_error_days_scored_only": null
+            },
+            "crossing_or_unidentifiable": {
+              "status": "unscored",
+              "unscored_prediction_count": 29,
+              "unique_case_count": 29,
+              "saved_error_values_excluded_from_phase_mae": 29
+            }
+          }
+        }
+      ],
+      "by_profile_and_change_model_columns": [
+        "profile",
+        "behavior_model",
+        "before_n",
+        "before_abs_error_days_sum",
+        "before_mae_days",
+        "at_after_n",
+        "at_after_abs_error_days_sum",
+        "at_after_mae_days",
+        "crossing_unscored_n"
+      ],
+      "by_profile_and_change_model": [
+        [
+          "annual_cleaning",
+          "permanent_longer",
+          7,
+          6,
+          0.857143,
+          1,
+          7,
+          7.0,
+          2
+        ],
+        [
+          "dependant_appointments",
+          "permanent_longer",
+          7,
+          7,
+          1.0,
+          2,
+          9,
+          4.5,
+          3
+        ],
+        [
+          "distributed_cleaning",
+          "permanent_longer",
+          6,
+          7,
+          1.166667,
+          2,
+          14,
+          7.0,
+          2
+        ],
+        [
+          "fixed_early",
+          "permanent_longer",
+          6,
+          4,
+          0.666667,
+          2,
+          10,
+          5.0,
+          3
+        ],
+        [
+          "fixed_evening",
+          "permanent_longer",
+          5,
+          4,
+          0.8,
+          2,
+          9,
+          4.5,
+          3
+        ],
+        [
+          "fragmented_capacity",
+          "permanent_longer",
+          6,
+          6,
+          1.0,
+          2,
+          10,
+          5.0,
+          3
+        ],
+        [
+          "frequent_travel",
+          "permanent_longer",
+          6,
+          6,
+          1.0,
+          2,
+          23,
+          11.5,
+          1
+        ],
+        [
+          "household_delegation",
+          "permanent_longer",
+          7,
+          8,
+          1.142857,
+          2,
+          9,
+          4.5,
+          1
+        ],
+        [
+          "hybrid_work",
+          "permanent_longer",
+          8,
+          10,
+          1.25,
+          2,
+          9,
+          4.5,
+          1
+        ],
+        [
+          "long_absence",
+          "permanent_longer",
+          6,
+          344,
+          57.333333,
+          0,
+          0,
+          null,
+          2
+        ],
+        [
+          "long_commute",
+          "permanent_longer",
+          8,
+          7,
+          0.875,
+          1,
+          7,
+          7.0,
+          2
+        ],
+        [
+          "mixed_shift_household",
+          "permanent_longer",
+          7,
+          9,
+          1.285714,
+          1,
+          7,
+          7.0,
+          1
+        ],
+        [
+          "night_shift",
+          "permanent_longer",
+          6,
+          6,
+          1.0,
+          1,
+          7,
+          7.0,
+          2
+        ],
+        [
+          "no_seasonal_items",
+          "permanent_longer",
+          5,
+          6,
+          1.2,
+          2,
+          9,
+          4.5,
+          3
+        ],
+        [
+          "on_call",
+          "permanent_longer",
+          6,
+          2,
+          0.333333,
+          2,
+          14,
+          7.0,
+          2
+        ],
+        [
+          "outsourced_care",
+          "permanent_longer",
+          6,
+          4,
+          0.666667,
+          1,
+          7,
+          7.0,
+          1
+        ],
+        [
+          "overnight_chore",
+          "permanent_longer",
+          7,
+          6,
+          0.857143,
+          2,
+          14,
+          7.0,
+          2
+        ],
+        [
+          "regular_daytime",
+          "permanent_longer",
+          6,
+          6,
+          1.0,
+          2,
+          9,
+          4.5,
+          2
+        ],
+        [
+          "remote_meetings",
+          "permanent_longer",
+          6,
+          5,
+          0.833333,
+          2,
+          14,
+          7.0,
+          2
+        ],
+        [
+          "rotating_shift",
+          "permanent_longer",
+          7,
+          9,
+          1.285714,
+          1,
+          7,
+          7.0,
+          2
+        ],
+        [
+          "seasonal_items",
+          "permanent_longer",
+          8,
+          8,
+          1.0,
+          2,
+          10,
+          5.0,
+          2
+        ],
+        [
+          "sparse_recording",
+          "permanent_longer",
+          5,
+          22,
+          4.4,
+          2,
+          3,
+          1.5,
+          2
+        ],
+        [
+          "split_shift",
+          "permanent_longer",
+          6,
+          5,
+          0.833333,
+          2,
+          10,
+          5.0,
+          3
+        ],
+        [
+          "student_timetable",
+          "permanent_longer",
+          7,
+          10,
+          1.428571,
+          2,
+          14,
+          7.0,
+          1
+        ],
+        [
+          "two_adults_assigned",
+          "permanent_longer",
+          6,
+          6,
+          1.0,
+          2,
+          10,
+          5.0,
+          2
+        ],
+        [
+          "two_adults_unassigned",
+          "permanent_longer",
+          7,
+          10,
+          1.428571,
+          2,
+          9,
+          4.5,
+          2
+        ],
+        [
+          "variable_days_off",
+          "permanent_longer",
+          5,
+          6,
+          1.2,
+          2,
+          9,
+          4.5,
+          3
+        ],
+        [
+          "weekend_work",
+          "permanent_longer",
+          7,
+          5,
+          0.714286,
+          2,
+          14,
+          7.0,
+          2
+        ],
+        [
+          "annual_cleaning",
+          "temporary_longer",
+          2,
+          5,
+          2.5,
+          9,
+          78,
+          8.666667,
+          0
+        ],
+        [
+          "dependant_appointments",
+          "temporary_longer",
+          2,
+          4,
+          2.0,
+          9,
+          64,
+          7.111111,
+          0
+        ],
+        [
+          "distributed_cleaning",
+          "temporary_longer",
+          2,
+          2,
+          1.0,
+          6,
+          57,
+          9.5,
+          0
+        ],
+        [
+          "fixed_early",
+          "temporary_longer",
+          1,
+          3,
+          3.0,
+          7,
+          57,
+          8.142857,
+          0
+        ],
+        [
+          "fixed_evening",
+          "temporary_longer",
+          2,
+          3,
+          1.5,
+          8,
+          57,
+          7.125,
+          0
+        ],
+        [
+          "fragmented_capacity",
+          "temporary_longer",
+          2,
+          1,
+          0.5,
+          8,
+          57,
+          7.125,
+          0
+        ],
+        [
+          "frequent_travel",
+          "temporary_longer",
+          0,
+          0,
+          null,
+          9,
+          57,
+          6.333333,
+          1
+        ],
+        [
+          "household_delegation",
+          "temporary_longer",
+          2,
+          2,
+          1.0,
+          7,
+          64,
+          9.142857,
+          0
+        ],
+        [
+          "hybrid_work",
+          "temporary_longer",
+          2,
+          4,
+          2.0,
+          9,
+          71,
+          7.888889,
+          0
+        ],
+        [
+          "long_absence",
+          "temporary_longer",
+          1,
+          0,
+          0.0,
+          5,
+          320,
+          64.0,
+          3
+        ],
+        [
+          "long_commute",
+          "temporary_longer",
+          2,
+          4,
+          2.0,
+          8,
+          64,
+          8.0,
+          0
+        ],
+        [
+          "mixed_shift_household",
+          "temporary_longer",
+          1,
+          0,
+          0.0,
+          8,
+          61,
+          7.625,
+          0
+        ],
+        [
+          "night_shift",
+          "temporary_longer",
+          2,
+          3,
+          1.5,
+          7,
+          61,
+          8.714286,
+          0
+        ],
+        [
+          "no_seasonal_items",
+          "temporary_longer",
+          2,
+          5,
+          2.5,
+          8,
+          57,
+          7.125,
+          0
+        ],
+        [
+          "on_call",
+          "temporary_longer",
+          2,
+          0,
+          0.0,
+          9,
+          69,
+          7.666667,
+          0
+        ],
+        [
+          "outsourced_care",
+          "temporary_longer",
+          0,
+          0,
+          null,
+          8,
+          57,
+          7.125,
+          0
+        ],
+        [
+          "overnight_chore",
+          "temporary_longer",
+          2,
+          4,
+          2.0,
+          9,
+          64,
+          7.111111,
+          0
+        ],
+        [
+          "regular_daytime",
+          "temporary_longer",
+          1,
+          2,
+          2.0,
+          9,
+          57,
+          6.333333,
+          0
+        ],
+        [
+          "remote_meetings",
+          "temporary_longer",
+          1,
+          2,
+          2.0,
+          8,
+          57,
+          7.125,
+          0
+        ],
+        [
+          "rotating_shift",
+          "temporary_longer",
+          2,
+          3,
+          1.5,
+          8,
+          61,
+          7.625,
+          0
+        ],
+        [
+          "seasonal_items",
+          "temporary_longer",
+          2,
+          3,
+          1.5,
+          8,
+          64,
+          8.0,
+          0
+        ],
+        [
+          "sparse_recording",
+          "temporary_longer",
+          0,
+          0,
+          null,
+          8,
+          99,
+          12.375,
+          2
+        ],
+        [
+          "split_shift",
+          "temporary_longer",
+          1,
+          3,
+          3.0,
+          8,
+          57,
+          7.125,
+          0
+        ],
+        [
+          "student_timetable",
+          "temporary_longer",
+          2,
+          4,
+          2.0,
+          9,
+          64,
+          7.111111,
+          0
+        ],
+        [
+          "two_adults_assigned",
+          "temporary_longer",
+          1,
+          3,
+          3.0,
+          9,
+          64,
+          7.111111,
+          0
+        ],
+        [
+          "two_adults_unassigned",
+          "temporary_longer",
+          1,
+          2,
+          2.0,
+          8,
+          57,
+          7.125,
+          0
+        ],
+        [
+          "variable_days_off",
+          "temporary_longer",
+          1,
+          0,
+          0.0,
+          9,
+          61,
+          6.777778,
+          0
+        ],
+        [
+          "weekend_work",
+          "temporary_longer",
+          1,
+          1,
+          1.0,
+          9,
+          83,
+          9.222222,
+          0
+        ],
+        [
+          "annual_cleaning",
+          "change_settings",
+          8,
+          6,
+          0.75,
+          0,
+          0,
+          null,
+          2
+        ],
+        [
+          "dependant_appointments",
+          "change_settings",
+          10,
+          10,
+          1.0,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "distributed_cleaning",
+          "change_settings",
+          11,
+          10,
+          0.909091,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "fixed_early",
+          "change_settings",
+          10,
+          7,
+          0.7,
+          0,
+          0,
+          null,
+          2
+        ],
+        [
+          "fixed_evening",
+          "change_settings",
+          9,
+          8,
+          0.888889,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "fragmented_capacity",
+          "change_settings",
+          10,
+          9,
+          0.9,
+          0,
+          0,
+          null,
+          2
+        ],
+        [
+          "frequent_travel",
+          "change_settings",
+          9,
+          8,
+          0.888889,
+          0,
+          0,
+          null,
+          2
+        ],
+        [
+          "household_delegation",
+          "change_settings",
+          8,
+          88,
+          11.0,
+          0,
+          0,
+          null,
+          3
+        ],
+        [
+          "hybrid_work",
+          "change_settings",
+          10,
+          9,
+          0.9,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "long_absence",
+          "change_settings",
+          7,
+          347,
+          49.571429,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "long_commute",
+          "change_settings",
+          9,
+          9,
+          1.0,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "mixed_shift_household",
+          "change_settings",
+          11,
+          12,
+          1.090909,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "night_shift",
+          "change_settings",
+          8,
+          9,
+          1.125,
+          0,
+          0,
+          null,
+          2
+        ],
+        [
+          "no_seasonal_items",
+          "change_settings",
+          9,
+          8,
+          0.888889,
+          0,
+          0,
+          null,
+          2
+        ],
+        [
+          "on_call",
+          "change_settings",
+          11,
+          3,
+          0.272727,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "outsourced_care",
+          "change_settings",
+          8,
+          6,
+          0.75,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "overnight_chore",
+          "change_settings",
+          10,
+          8,
+          0.8,
+          0,
+          0,
+          null,
+          2
+        ],
+        [
+          "regular_daytime",
+          "change_settings",
+          11,
+          12,
+          1.090909,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "remote_meetings",
+          "change_settings",
+          11,
+          10,
+          0.909091,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "rotating_shift",
+          "change_settings",
+          11,
+          12,
+          1.090909,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "seasonal_items",
+          "change_settings",
+          10,
+          8,
+          0.8,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "sparse_recording",
+          "change_settings",
+          10,
+          205,
+          20.5,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "split_shift",
+          "change_settings",
+          11,
+          11,
+          1.0,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "student_timetable",
+          "change_settings",
+          9,
+          10,
+          1.111111,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "two_adults_assigned",
+          "change_settings",
+          10,
+          9,
+          0.9,
+          0,
+          0,
+          null,
+          2
+        ],
+        [
+          "two_adults_unassigned",
+          "change_settings",
+          11,
+          10,
+          0.909091,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "variable_days_off",
+          "change_settings",
+          10,
+          9,
+          0.9,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "weekend_work",
+          "change_settings",
+          9,
+          6,
+          0.666667,
+          0,
+          0,
+          null,
+          0
+        ]
+      ],
+      "temporary_longer_subphases": {
+        "temporary_extension_active": {
+          "scored_prediction_count": 183,
+          "absolute_error_days_sum": 1859,
+          "mean_absolute_error_days_scored_only": 10.15847
+        },
+        "after_recovery": {
+          "scored_prediction_count": 44,
+          "absolute_error_days_sum": 180,
+          "mean_absolute_error_days_scored_only": 4.090909
+        }
+      },
+      "phase_unscored": {
+        "scored_predictions": {
+          "crossing_or_unidentifiable": {
+            "scored_prediction_count": 92,
+            "unique_case_count": 82
+          },
+          "no_discrete_change_point": {
+            "scored_prediction_count": 2048,
+            "unique_case_count": 584
+          },
+          "no_observed_change_boundary": {
+            "scored_prediction_count": 21,
+            "unique_case_count": 21
+          }
+        },
+        "non_discrete_change_models": [
+          "alternating",
+          "calendar_rule",
+          "gradual",
+          "jitter",
+          "missing_records",
+          "recommendation_following",
+          "stable"
+        ],
+        "unresolved_predictions_are_separate_because_they_have_no_target_timestamp": true
+      }
+    },
+    "holdout": {
+      "run_summary": {
+        "cases": 840,
+        "scored_predictions": 2954,
+        "unresolved_predictions_without_target_timestamp": 188,
+        "overall_mae_days_scored_only": 7.157413676371022,
+        "runner_elapsed_ms": 1814755
+      },
+      "source_cross_checks": {
+        "source_case": 0,
+        "identity": 0,
+        "issue_day": 0,
+        "previous_completion": 0,
+        "next_observed_target": 0,
+        "absolute_error": 0,
+        "case_scored_detail_count": 0
+      },
+      "discrete_change_models": [
+        {
+          "behavior_model": "permanent_longer",
+          "unique_cases_with_predictions": 83,
+          "unresolved_predictions_without_target_timestamp": 21,
+          "phases": {
+            "before_change": {
+              "scored_prediction_count": 193,
+              "absolute_error_days_sum": 532,
+              "mean_absolute_error_days_scored_only": 2.756477
+            },
+            "at_or_after_change": {
+              "scored_prediction_count": 46,
+              "absolute_error_days_sum": 280,
+              "mean_absolute_error_days_scored_only": 6.086957
+            },
+            "crossing_or_unidentifiable": {
+              "status": "unscored",
+              "unscored_prediction_count": 53,
+              "unique_case_count": 44,
+              "saved_error_values_excluded_from_phase_mae": 53
+            }
+          }
+        },
+        {
+          "behavior_model": "temporary_longer",
+          "unique_cases_with_predictions": 84,
+          "unresolved_predictions_without_target_timestamp": 17,
+          "phases": {
+            "before_change": {
+              "scored_prediction_count": 44,
+              "absolute_error_days_sum": 61,
+              "mean_absolute_error_days_scored_only": 1.386364
+            },
+            "at_or_after_change": {
+              "scored_prediction_count": 228,
+              "absolute_error_days_sum": 2130,
+              "mean_absolute_error_days_scored_only": 9.342105
+            },
+            "crossing_or_unidentifiable": {
+              "status": "unscored",
+              "unscored_prediction_count": 5,
+              "unique_case_count": 4,
+              "saved_error_values_excluded_from_phase_mae": 5
+            }
+          }
+        },
+        {
+          "behavior_model": "change_settings",
+          "unique_cases_with_predictions": 83,
+          "unresolved_predictions_without_target_timestamp": 19,
+          "phases": {
+            "before_change": {
+              "scored_prediction_count": 271,
+              "absolute_error_days_sum": 689,
+              "mean_absolute_error_days_scored_only": 2.542435
+            },
+            "at_or_after_change": {
+              "scored_prediction_count": 0,
+              "absolute_error_days_sum": 0,
+              "mean_absolute_error_days_scored_only": null
+            },
+            "crossing_or_unidentifiable": {
+              "status": "unscored",
+              "unscored_prediction_count": 29,
+              "unique_case_count": 29,
+              "saved_error_values_excluded_from_phase_mae": 29
+            }
+          }
+        }
+      ],
+      "by_profile_and_change_model_columns": [
+        "profile",
+        "behavior_model",
+        "before_n",
+        "before_abs_error_days_sum",
+        "before_mae_days",
+        "at_after_n",
+        "at_after_abs_error_days_sum",
+        "at_after_mae_days",
+        "crossing_unscored_n"
+      ],
+      "by_profile_and_change_model": [
+        [
+          "annual_cleaning",
+          "permanent_longer",
+          6,
+          4,
+          0.666667,
+          2,
+          14,
+          7.0,
+          3
+        ],
+        [
+          "dependant_appointments",
+          "permanent_longer",
+          8,
+          6,
+          0.75,
+          2,
+          14,
+          7.0,
+          2
+        ],
+        [
+          "distributed_cleaning",
+          "permanent_longer",
+          7,
+          7,
+          1.0,
+          2,
+          10,
+          5.0,
+          3
+        ],
+        [
+          "fixed_early",
+          "permanent_longer",
+          7,
+          8,
+          1.142857,
+          2,
+          9,
+          4.5,
+          1
+        ],
+        [
+          "fixed_evening",
+          "permanent_longer",
+          7,
+          6,
+          0.857143,
+          1,
+          7,
+          7.0,
+          2
+        ],
+        [
+          "fragmented_capacity",
+          "permanent_longer",
+          8,
+          8,
+          1.0,
+          1,
+          7,
+          7.0,
+          1
+        ],
+        [
+          "frequent_travel",
+          "permanent_longer",
+          6,
+          5,
+          0.833333,
+          2,
+          23,
+          11.5,
+          3
+        ],
+        [
+          "household_delegation",
+          "permanent_longer",
+          6,
+          6,
+          1.0,
+          1,
+          7,
+          7.0,
+          1
+        ],
+        [
+          "hybrid_work",
+          "permanent_longer",
+          7,
+          5,
+          0.714286,
+          2,
+          14,
+          7.0,
+          2
+        ],
+        [
+          "long_absence",
+          "permanent_longer",
+          6,
+          282,
+          47.0,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "long_commute",
+          "permanent_longer",
+          8,
+          10,
+          1.25,
+          1,
+          7,
+          7.0,
+          1
+        ],
+        [
+          "mixed_shift_household",
+          "permanent_longer",
+          7,
+          6,
+          0.857143,
+          2,
+          14,
+          7.0,
+          2
+        ],
+        [
+          "night_shift",
+          "permanent_longer",
+          8,
+          9,
+          1.125,
+          1,
+          7,
+          7.0,
+          2
+        ],
+        [
+          "no_seasonal_items",
+          "permanent_longer",
+          6,
+          4,
+          0.666667,
+          2,
+          10,
+          5.0,
+          3
+        ],
+        [
+          "on_call",
+          "permanent_longer",
+          6,
+          2,
+          0.333333,
+          2,
+          14,
+          7.0,
+          4
+        ],
+        [
+          "outsourced_care",
+          "permanent_longer",
+          4,
+          4,
+          1.0,
+          1,
+          7,
+          7.0,
+          1
+        ],
+        [
+          "overnight_chore",
+          "permanent_longer",
+          7,
+          7,
+          1.0,
+          2,
+          9,
+          4.5,
+          1
+        ],
+        [
+          "regular_daytime",
+          "permanent_longer",
+          7,
+          5,
+          0.714286,
+          2,
+          14,
+          7.0,
+          3
+        ],
+        [
+          "remote_meetings",
+          "permanent_longer",
+          8,
+          6,
+          0.75,
+          2,
+          9,
+          4.5,
+          1
+        ],
+        [
+          "rotating_shift",
+          "permanent_longer",
+          8,
+          6,
+          0.75,
+          2,
+          9,
+          4.5,
+          1
+        ],
+        [
+          "seasonal_items",
+          "permanent_longer",
+          8,
+          10,
+          1.25,
+          2,
+          14,
+          7.0,
+          2
+        ],
+        [
+          "sparse_recording",
+          "permanent_longer",
+          7,
+          92,
+          13.142857,
+          2,
+          4,
+          2.0,
+          1
+        ],
+        [
+          "split_shift",
+          "permanent_longer",
+          7,
+          9,
+          1.285714,
+          2,
+          10,
+          5.0,
+          1
+        ],
+        [
+          "student_timetable",
+          "permanent_longer",
+          6,
+          4,
+          0.666667,
+          2,
+          9,
+          4.5,
+          3
+        ],
+        [
+          "two_adults_assigned",
+          "permanent_longer",
+          7,
+          5,
+          0.714286,
+          2,
+          10,
+          5.0,
+          2
+        ],
+        [
+          "two_adults_unassigned",
+          "permanent_longer",
+          8,
+          6,
+          0.75,
+          1,
+          7,
+          7.0,
+          1
+        ],
+        [
+          "variable_days_off",
+          "permanent_longer",
+          6,
+          6,
+          1.0,
+          1,
+          7,
+          7.0,
+          4
+        ],
+        [
+          "weekend_work",
+          "permanent_longer",
+          7,
+          4,
+          0.571429,
+          2,
+          14,
+          7.0,
+          1
+        ],
+        [
+          "annual_cleaning",
+          "temporary_longer",
+          2,
+          3,
+          1.5,
+          8,
+          57,
+          7.125,
+          0
+        ],
+        [
+          "dependant_appointments",
+          "temporary_longer",
+          2,
+          2,
+          1.0,
+          8,
+          64,
+          8.0,
+          0
+        ],
+        [
+          "distributed_cleaning",
+          "temporary_longer",
+          1,
+          0,
+          0.0,
+          9,
+          64,
+          7.111111,
+          0
+        ],
+        [
+          "fixed_early",
+          "temporary_longer",
+          2,
+          4,
+          2.0,
+          8,
+          71,
+          8.875,
+          0
+        ],
+        [
+          "fixed_evening",
+          "temporary_longer",
+          2,
+          6,
+          3.0,
+          7,
+          57,
+          8.142857,
+          0
+        ],
+        [
+          "fragmented_capacity",
+          "temporary_longer",
+          1,
+          1,
+          1.0,
+          9,
+          71,
+          7.888889,
+          0
+        ],
+        [
+          "frequent_travel",
+          "temporary_longer",
+          1,
+          1,
+          1.0,
+          8,
+          57,
+          7.125,
+          1
+        ],
+        [
+          "household_delegation",
+          "temporary_longer",
+          1,
+          0,
+          0.0,
+          9,
+          64,
+          7.111111,
+          0
+        ],
+        [
+          "hybrid_work",
+          "temporary_longer",
+          2,
+          4,
+          2.0,
+          9,
+          64,
+          7.111111,
+          0
+        ],
+        [
+          "long_absence",
+          "temporary_longer",
+          1,
+          2,
+          2.0,
+          5,
+          320,
+          64.0,
+          3
+        ],
+        [
+          "long_commute",
+          "temporary_longer",
+          2,
+          5,
+          2.5,
+          9,
+          71,
+          7.888889,
+          0
+        ],
+        [
+          "mixed_shift_household",
+          "temporary_longer",
+          1,
+          3,
+          3.0,
+          8,
+          68,
+          8.5,
+          0
+        ],
+        [
+          "night_shift",
+          "temporary_longer",
+          2,
+          0,
+          0.0,
+          8,
+          61,
+          7.625,
+          0
+        ],
+        [
+          "no_seasonal_items",
+          "temporary_longer",
+          2,
+          3,
+          1.5,
+          8,
+          64,
+          8.0,
+          0
+        ],
+        [
+          "on_call",
+          "temporary_longer",
+          1,
+          0,
+          0.0,
+          8,
+          69,
+          8.625,
+          0
+        ],
+        [
+          "outsourced_care",
+          "temporary_longer",
+          0,
+          0,
+          null,
+          8,
+          57,
+          7.125,
+          0
+        ],
+        [
+          "overnight_chore",
+          "temporary_longer",
+          2,
+          6,
+          3.0,
+          9,
+          71,
+          7.888889,
+          0
+        ],
+        [
+          "regular_daytime",
+          "temporary_longer",
+          2,
+          3,
+          1.5,
+          8,
+          57,
+          7.125,
+          0
+        ],
+        [
+          "remote_meetings",
+          "temporary_longer",
+          2,
+          3,
+          1.5,
+          7,
+          57,
+          8.142857,
+          0
+        ],
+        [
+          "rotating_shift",
+          "temporary_longer",
+          2,
+          6,
+          3.0,
+          8,
+          61,
+          7.625,
+          0
+        ],
+        [
+          "seasonal_items",
+          "temporary_longer",
+          1,
+          0,
+          0.0,
+          8,
+          57,
+          7.125,
+          0
+        ],
+        [
+          "sparse_recording",
+          "temporary_longer",
+          0,
+          0,
+          null,
+          9,
+          162,
+          18.0,
+          1
+        ],
+        [
+          "split_shift",
+          "temporary_longer",
+          2,
+          1,
+          0.5,
+          9,
+          64,
+          7.111111,
+          0
+        ],
+        [
+          "student_timetable",
+          "temporary_longer",
+          2,
+          2,
+          1.0,
+          8,
+          64,
+          8.0,
+          0
+        ],
+        [
+          "two_adults_assigned",
+          "temporary_longer",
+          2,
+          2,
+          1.0,
+          7,
+          57,
+          8.142857,
+          0
+        ],
+        [
+          "two_adults_unassigned",
+          "temporary_longer",
+          2,
+          1,
+          0.5,
+          9,
+          71,
+          7.888889,
+          0
+        ],
+        [
+          "variable_days_off",
+          "temporary_longer",
+          2,
+          3,
+          1.5,
+          9,
+          61,
+          6.777778,
+          0
+        ],
+        [
+          "weekend_work",
+          "temporary_longer",
+          2,
+          0,
+          0.0,
+          8,
+          69,
+          8.625,
+          0
+        ],
+        [
+          "annual_cleaning",
+          "change_settings",
+          11,
+          12,
+          1.090909,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "dependant_appointments",
+          "change_settings",
+          9,
+          6,
+          0.666667,
+          0,
+          0,
+          null,
+          3
+        ],
+        [
+          "distributed_cleaning",
+          "change_settings",
+          11,
+          9,
+          0.818182,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "fixed_early",
+          "change_settings",
+          10,
+          7,
+          0.7,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "fixed_evening",
+          "change_settings",
+          9,
+          9,
+          1.0,
+          0,
+          0,
+          null,
+          2
+        ],
+        [
+          "fragmented_capacity",
+          "change_settings",
+          9,
+          6,
+          0.666667,
+          0,
+          0,
+          null,
+          3
+        ],
+        [
+          "frequent_travel",
+          "change_settings",
+          9,
+          8,
+          0.888889,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "household_delegation",
+          "change_settings",
+          10,
+          93,
+          9.3,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "hybrid_work",
+          "change_settings",
+          11,
+          12,
+          1.090909,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "long_absence",
+          "change_settings",
+          7,
+          284,
+          40.571429,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "long_commute",
+          "change_settings",
+          10,
+          9,
+          0.9,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "mixed_shift_household",
+          "change_settings",
+          8,
+          9,
+          1.125,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "night_shift",
+          "change_settings",
+          9,
+          12,
+          1.333333,
+          0,
+          0,
+          null,
+          2
+        ],
+        [
+          "no_seasonal_items",
+          "change_settings",
+          10,
+          8,
+          0.8,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "on_call",
+          "change_settings",
+          10,
+          3,
+          0.3,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "outsourced_care",
+          "change_settings",
+          9,
+          6,
+          0.666667,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "overnight_chore",
+          "change_settings",
+          10,
+          7,
+          0.7,
+          0,
+          0,
+          null,
+          2
+        ],
+        [
+          "regular_daytime",
+          "change_settings",
+          10,
+          10,
+          1.0,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "remote_meetings",
+          "change_settings",
+          10,
+          9,
+          0.9,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "rotating_shift",
+          "change_settings",
+          11,
+          12,
+          1.090909,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "seasonal_items",
+          "change_settings",
+          10,
+          9,
+          0.9,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "sparse_recording",
+          "change_settings",
+          10,
+          100,
+          10.0,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "split_shift",
+          "change_settings",
+          9,
+          7,
+          0.777778,
+          0,
+          0,
+          null,
+          2
+        ],
+        [
+          "student_timetable",
+          "change_settings",
+          9,
+          8,
+          0.888889,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "two_adults_assigned",
+          "change_settings",
+          10,
+          10,
+          1.0,
+          0,
+          0,
+          null,
+          1
+        ],
+        [
+          "two_adults_unassigned",
+          "change_settings",
+          11,
+          9,
+          0.818182,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "variable_days_off",
+          "change_settings",
+          11,
+          9,
+          0.818182,
+          0,
+          0,
+          null,
+          0
+        ],
+        [
+          "weekend_work",
+          "change_settings",
+          8,
+          6,
+          0.75,
+          0,
+          0,
+          null,
+          2
+        ]
+      ],
+      "temporary_longer_subphases": {
+        "temporary_extension_active": {
+          "scored_prediction_count": 190,
+          "absolute_error_days_sum": 1950,
+          "mean_absolute_error_days_scored_only": 10.263158
+        },
+        "after_recovery": {
+          "scored_prediction_count": 38,
+          "absolute_error_days_sum": 180,
+          "mean_absolute_error_days_scored_only": 4.736842
+        }
+      },
+      "phase_unscored": {
+        "scored_predictions": {
+          "crossing_or_unidentifiable": {
+            "scored_prediction_count": 87,
+            "unique_case_count": 77
+          },
+          "no_discrete_change_point": {
+            "scored_prediction_count": 2066,
+            "unique_case_count": 584
+          },
+          "no_observed_change_boundary": {
+            "scored_prediction_count": 19,
+            "unique_case_count": 19
+          }
+        },
+        "non_discrete_change_models": [
+          "alternating",
+          "calendar_rule",
+          "gradual",
+          "jitter",
+          "missing_records",
+          "recommendation_following",
+          "stable"
+        ],
+        "unresolved_predictions_are_separate_because_they_have_no_target_timestamp": true
+      }
+    }
+  }
+}

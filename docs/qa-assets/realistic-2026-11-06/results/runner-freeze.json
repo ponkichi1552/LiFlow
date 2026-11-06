@@ -1,0 +1,50 @@
+{
+  "frozen_at": "2026-11-05T20:17:54.326Z",
+  "split": "development",
+  "unique_cases": 840,
+  "completed_case_evaluations": 840,
+  "fingerprint": "904387d423e56b28857a92015c14dc9b7f9be1b5013e9ba34675617ed60fcd86",
+  "code_snapshot": {
+    "code_files": {
+      "tests/helpers/realistic-lifestyle-cases.mjs": "32d55422f001be91cffa9c39933f6d5b8cb1f8667f140c07b32748de6da88ed3",
+      "tests/helpers/sqlite.mjs": "7eda99d44d8c4bc99005dc8a8446c8899f71ea21b4b5bff8288218813ca2bba2",
+      "tests/helpers/typescript-loader.mjs": "927a2cd6093ece24b1cb7bbceb6daee3dd2eec5164c5c86865a4b928b9cbbd3e",
+      "tests/realistic-lifestyle-cases.test.mjs": "193b9e98ebfd4c2973e1cb80774e2b4485704b6bfa33739c8f6216d592bfb66a",
+      "scripts/realistic-lifestyle-benchmark.mjs": "7045420b7409a50d243d0552acc677ea291bb0307808d9c5c0373c44efd9c925",
+      "src/domain/scheduling/local-date.ts": "b7ab3ca6bf46689dcc595b2ee7e96fe1f1a330ce27d800900f9420778c097ccf",
+      "src/domain/scheduling/adaptive/history.ts": "e59dddd08167202a5a55ca3474447c1f0f60fe5210a199cb2e223e4a0dc81415",
+      "src/domain/scheduling/adaptive/models.ts": "5ab25f6f9ce160ec4a32d30ae0cbf11184f2bfb9104e78d422130d89824b2f29",
+      "src/domain/scheduling/adaptive/placement.ts": "d5d883cd75173605fc17d2467c2800d07208e03b6512540738b561ae3ec18197",
+      "src/domain/scheduling/adaptive/seasonal.ts": "eae61de98873bfa05782f3d10e3a23e2570f15a997ec348a018e54b746f363f9",
+      "src/domain/chores/personal-catalog.ts": "b1f4a0a96d13fa6d4ae5c1555fcdadce7b800be8dc1ed6b55ee1212d18660666",
+      "src/features/planner/adaptive-input.ts": "a9ac0a53f53bddd8b82d357e733405e0931efb57774b863909dbcf4899c27869",
+      "src/features/planner/adaptive-rounds.ts": "ec48bdf1753f198b374d94c22a08c6ec48567c366ece4e20f1b7cb08811d1db7",
+      "src/features/planner/shared-adaptive-load.ts": "b9010310fe82effc230229f6290181b267497c4540d8642660884939fa647a4b",
+      "src/features/weather/chore-weather.ts": "2f1a7457cfae6101ec9c19f6260fc1d3f3151cf70a71235f69076149fb01ed6c",
+      "src/features/google-sync/calendar-availability.ts": "96fc38dbe0cca082e19dc6a4d504c64145ad1f9e3a549c61b16547eaeee0d63a",
+      "src/features/sharing/v2/local-time.ts": "c7796cad57d45061b7471c7c5a65d4ed68e2d34541619bfa5560dc524a17d73f",
+      "src/platform/storage/adaptive-personal-chores.ts": "57b18a5bccb50641c5a44d10dfa19229a7182a754def0507cc03a5981ee797e3",
+      "server/appliance-care-api/src/weather/forecast.mjs": "337b024ebe0b21300d456050b2adfd57cb8b22b305ef4238e9b185d6e4182eab"
+    },
+    "code_sha256": "f95fff0ecfd2b2f80c5d51b42edbb285457e0af82f95c0f073ab978dc2533c8d",
+    "asset_files": {
+      "./README.md": "c951cc0438e1c8043a029364e3d85162656d9c1259f94ab9e111197de21b7912",
+      "./case_index.csv": "818f3cf8dd71ad6e362e0023d1ac964276f120f2da665b93507041b2efb5d78a",
+      "./cases.jsonl.gz": "c532da90a0a7a6ccb72c8aefd7d6ebc31b98c74d280b8d2599242878da5027b0",
+      "./directed_cases.json": "0dd2205dc8d82a06a91eadb00fe78d6b85fcc6c6eb3547c5e34ba19cec23a200",
+      "./evidence/housework.md": "f558badba38f467d6527c9277fc162d2011eb4fb30f676171d523ca5a10e67ae",
+      "./evidence/lifestyles.md": "58c0c941c14de9db560ced55a68ecc666419067e476b1f5c696ee9a666e5e033",
+      "./examples.json": "8d69767ca765aad31eee9fa8a431dc06410492055e9716d4abbfa00d1accae07",
+      "./generate.py": "d14be412826994ced99670b48e116284ad013a2d830e6a5c489561aab3f7a829",
+      "./invariants.json": "874c4a94470510c608d0a932837cedba82059fb7a31b703df5d2cca59fa35828",
+      "./make_directed.py": "8d8abe8f62439c653822264c50f5527e325bf114eb4844ea7e6890cd9ea64936",
+      "./sources.json": "5edabba05ca51612c81a052b731e44356c470bab34aa3f32e10b9a817fbf3c80",
+      "./validation.json": "69b6ce664acccfb773ab3372f10c69b7ec832489bec61c95234289f0f0f1f3d4"
+    },
+    "asset_manifest_sha256": "7253e1e2bbab9dcf8e0203277ccd70458ccd381bb963a9583ae5e0bc3b7b0329",
+    "git_head": "e60fa09f1b811277eff27ced29de9fee1c719f31",
+    "fingerprint": "904387d423e56b28857a92015c14dc9b7f9be1b5013e9ba34675617ed60fcd86"
+  },
+  "failures_at_freeze": 0,
+  "instruction": "Holdout may run only while this exact runner, adapter, connected API source, and input-asset fingerprint remain unchanged."
+}

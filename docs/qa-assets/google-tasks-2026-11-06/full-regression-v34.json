@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "candidate": "normal-v34",
+  "unit": {
+    "pass": 3477,
+    "fail": 0,
+    "skipped": 0
+  },
+  "cloud": {
+    "pass": 153,
+    "fail": 0,
+    "skipped": 0
+  },
+  "affectedPass": 123,
+  "lint": "PASS",
+  "typecheck": "PASS",
+  "clientInputs": 710,
+  "manifestSha256": "89e05e88f2186c7a1ba57e10e38d12a5049f2508835a97bfb2b1e193ff9c3176",
+  "logsSha256": {
+    "full-final-v34-test.log": "15ce9bdb1ff9e61e0ca07171be23db6328b35b54e4e2aced45498bf87bf05b02",
+    "full-cloud-v34.log": "745cf4e6998115f6c2f5df00f39bbd1397979ac08e91383e731f23798e63cc8b",
+    "v34-final-area.log": "ca0920b51a7a573e1d112191e6813e0784aa9aafe83a006e423de1989a37bc57",
+    "v34-lint.log": "61a9d32eb3c4115dc12845d19f1aa33fba63f897152fa6dd51052b284bd25da3",
+    "v34-typecheck.log": "6cb6a659dafff15e79c4a37d4c2735755e7b002f61d2871bc0165257bb2b6598",
+    "deleted-status-recovery-red.log": "cc14d84f4c7240ecc325b3192bf33be70c1220ed4736cc6e02263bede3197611"
+  },
+  "redBeforeFollowup": 2,
+  "followup": "A missing provider task or invalid first-page cursor defers repair to foreground; foreground repair cannot re-enter the failed narrow path; optional missing batch APIs retain individual fallback.",
+  "androidInstalled": true,
+  "iosSignedReady": true,
+  "iosInstalled": true,
+  "backgroundObservation": "Final normal34 iPhone worker65 naturally received accepted completion444/Undo445, ACK445 inside worker and durable signed facts checked without app activation. Sharing succeeded; only the public holiday Calendar remains foreground-required, so aggregate is not a pass. Earlier31 actual outgoing is recorded separately.",
+  "utcPlatformMatrix": {
+    "ios": {
+      "pass": 3477,
+      "fail": 0,
+      "skipped": 0
+    },
+    "android": {
+      "pass": 3477,
+      "fail": 0,
+      "skipped": 0
+    },
+    "scope": "HOUSEWORK_TEST_PLATFORM on each OS with TZ=UTC; this is local rehearsal, not the future published commit CI"
+  },
+  "githubPublishedWhenCaptured": false,
+  "codeUnchangedAfterRecordedChecks": true
+}

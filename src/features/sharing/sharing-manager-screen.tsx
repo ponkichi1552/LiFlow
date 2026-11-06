@@ -77,7 +77,8 @@ export default function SharingScreen({ detailOnly = false }: { detailOnly?: boo
         <Text style={styles.caption}>{context.group.status === 'joining' ? '所有者の承認待ち' : context.group.status === 'creating' ? '端末に保存済み · 共有先への作成待ち' : '参加中'}</Text>
         <AppButton title="グループを管理" compact variant="secondary" disabled={busy} onPress={() => router.push({ pathname: '/sharing/group/[groupId]', params: { groupId: context.group!.groupId } })} />
       </Card> : <>
-        <Card><Text style={styles.body}>参加中のグループはありません。</Text></Card>
+        <Card><Text style={styles.body}>{context.restoration === 'waiting' ? 'グループを復元中です。以前の端末が接続すると自動で参加します。'
+          : context.restoration === 'failed' ? 'グループの復元を再試行します。以前の端末も接続してください。' : '参加中のグループはありません。'}</Text></Card>
       <AccordionSection title="グループを作る" expanded={expanded === 'create'} onToggle={() => setExpanded(expanded === 'create' ? null : 'create')}>
         <GroupCreationForm key={context.userId} protocol={creationProtocol} busy={busy} onCreate={(name, kind) => run(async () => {
           const owner = context.userId;
@@ -118,6 +119,8 @@ export function GroupDetail({ workspace, run, busy }: { workspace: SharedWorkspa
   const [loadError, setLoadError] = useState<string | null>(null);
   const [readAttempt, setReadAttempt] = useState(0);
   const [requests, setRequests] = useState<{ invitation: SignedSharedInvitation; request: SharedJoinRequest }[]>([]);
+  const [invalidRequests, setInvalidRequests] = useState<{ invitation: SignedSharedInvitation; userId: string }[]>([]);
+  const [requestCursors, setRequestCursors] = useState<{ invitation: SignedSharedInvitation; after: string }[]>([]);
   const [requestRead, setRequestRead] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestAttempt, setRequestAttempt] = useState(0);
@@ -164,23 +167,27 @@ export function GroupDetail({ workspace, run, busy }: { workspace: SharedWorkspa
   }, [invite]);
   const qr = invite && invite.invitation.body.expiresAt > clock ? preparedQr : null;
   const roster = workspace.roster(); const isOwner = roster?.body.ownerDeviceId === workspace.identity.deviceId;
-  const readRequests = useCallback(async () => {
-    if (!isOwner) return [];
-    const invitations = (await workspace.cloud.listInvitations(workspace.groupId)).filter(entry => entry.status === 'open' && entry.invitation.body.expiresAt > Date.now());
+  const readRequests = useCallback(async (continuation?: typeof requestCursors) => {
+    if (!isOwner) return { next: [], invalid: [], cursors: [] };
+    const sources = continuation ?? (await workspace.cloud.listInvitations(workspace.groupId, { activeAtMs: Date.now() }))
+      .filter(entry => entry.status === 'open' && entry.invitation.body.expiresAt > Date.now()).map(entry => ({ invitation: entry.invitation, after: undefined }));
     const next: { invitation: SignedSharedInvitation; request: SharedJoinRequest }[] = [];
-    for (let offset = 0; offset < invitations.length; offset += 4) {
-      const pages = await Promise.all(invitations.slice(offset, offset + 4).map(async item => {
-        const result = await workspace.cloud.listJoinRequests(item.invitation);
-        return result.requests.map(request => ({ invitation: item.invitation, request }));
-      }));
-      next.push(...pages.flat());
+    const invalid: typeof invalidRequests = []; const cursors: typeof requestCursors = [];
+    for (let offset = 0; offset < sources.length; offset += 4) {
+      const pages = await Promise.all(sources.slice(offset, offset + 4).map(async item => ({ invitation: item.invitation,
+        result: await workspace.cloud.listJoinRequests(item.invitation, item.after) })));
+      for (const { invitation, result } of pages) {
+        next.push(...result.requests.map(request => ({ invitation, request })));
+        invalid.push(...result.invalidUserIds.map(userId => ({ invitation, userId })));
+        if (result.nextCursor) cursors.push({ invitation, after: result.nextCursor });
+      }
     }
-    return next;
+    return { next, invalid, cursors };
   }, [isOwner, workspace]);
   useEffect(() => {
     if (!membersOpen || !isOwner || detail?.record.status !== 'active') return;
     let current = true;
-    void readRequests().then(next => { if (current) { setRequests(next); setRequestRead('loaded'); } })
+    void readRequests().then(({ next, invalid, cursors }) => { if (current) { setRequests(next); setInvalidRequests(invalid); setRequestCursors(cursors); setRequestRead('loaded'); } })
       .catch(cause => { if (current) { setRequestError(userMessage(cause)); setRequestRead('error'); } });
     return () => { current = false; };
   }, [membersOpen, isOwner, detail?.record.status, readRequests, requestAttempt]);
@@ -233,8 +240,28 @@ export function GroupDetail({ workspace, run, busy }: { workspace: SharedWorkspa
       </> : null}
       {requestRead === 'idle' || requestRead === 'loading' ? <ActivityIndicator accessibilityLabel="参加申請を確認中" color={palette.accent} /> : null}
       {requestError ? <Text accessibilityRole="alert" style={styles.error}>{requestError}</Text> : null}
-      {requestRead === 'loaded' && !requests.length ? <Text style={styles.caption}>参加申請はありません。</Text> : null}
+      {requestRead === 'loaded' && !requests.length && !invalidRequests.length && !requestCursors.length ? <Text style={styles.caption}>参加申請はありません。</Text> : null}
       <AppButton title={requestError ? '参加申請を再試行' : '参加申請を再読込'} compact variant="quiet" disabled={busy || requestRead === 'loading'} onPress={reloadRequests} />
+      {requestCursors.length ? <AppButton title="参加申請の続きを取得" compact variant="secondary" disabled={busy || requestRead !== 'loaded'} onPress={() => void run(async () => {
+        const page = await readRequests(requestCursors);
+        if (currentWorkspace.current !== workspace) return;
+        setRequests(previous => [...new Map([...previous, ...page.next].map(item => [`${item.invitation.body.inviteId}:${item.request.body.userId}`, item])).values()]);
+        setInvalidRequests(previous => [...new Map([...previous, ...page.invalid].map(item => [`${item.invitation.body.inviteId}:${item.userId}`, item])).values()]);
+        setRequestCursors(page.cursors);
+      })} /> : null}
+      {invalidRequests.length ? <View><Text accessibilityRole="alert" style={styles.caption}>確認できない参加申請：{invalidRequests.length}件</Text>
+        <AppButton title="確認できない申請を削除" compact variant="quiet" disabled={busy || requestRead !== 'loaded'} onPress={() => void run(async () => {
+          const batch = invalidRequests.slice(0, 100);
+          for (let offset = 0; offset < batch.length; offset += 4) {
+            const slice = batch.slice(offset, offset + 4);
+            const results = await Promise.allSettled(slice.map(item => workspace.cloud.withdrawOrRejectJoinRequest(item.invitation.body.inviteId, item.userId)));
+            if (currentWorkspace.current !== workspace) return;
+            const done = new Set(slice.filter((_, index) => results[index].status === 'fulfilled'));
+            setInvalidRequests(previous => previous.filter(row => !done.has(row)));
+            const failure = results.find(result => result.status === 'rejected');
+            if (failure?.status === 'rejected') throw failure.reason;
+          }
+        })} /></View> : null}
       {requests.map(({ invitation, request }) => <Card key={`${invitation.body.inviteId}:${request.body.userId}`}>
         <Text style={styles.label}>参加申請</Text><Text selectable style={styles.verification}>{sharedJoinVerificationCode(request)}</Text>
         <Text style={styles.caption}>相手の端末にも同じ番号が表示されていることを確認してください。</Text>

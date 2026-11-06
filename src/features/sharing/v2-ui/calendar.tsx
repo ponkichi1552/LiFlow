@@ -81,11 +81,11 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
       && (privateOverlay?.status !== 'ready' || Boolean(privateReady(grid.from) && privateReady(grid.through))); }}
     onNavigate={onNavigate}
     notice={<View>{header}<SharedCalendarConflicts model={model} actions={actions} busy={busy} run={run} /></View>}
-    wasteSchedules={model.waste?.schedules} hiddenWasteKeys={model.waste?.hiddenKeys}
+    wasteSchedules={model.waste?.schedules} hiddenWasteKeys={model.waste?.hiddenKeys} wasteLoaded={date => Boolean(wasteLoaded(date))}
     dayInfo={dayInfo}
     existingChores={existingChores.map(({ round, ...chore }) => ({ ...chore,
       onOpen: () => onGuide ? onGuide(round.choreId, 'shared') : onRound(round.id, chore.id, round.anchorDate) }))}
-    renderWaste={date => <View style={{ paddingHorizontal: 6, gap: 4 }}>{wasteLoaded(date) ? model.waste!.occurrences.filter(entry => entry.occurrence.date === date).map(entry => <V2WasteOccurrence key={entry.key} entry={entry} compact busy={busy} actions={actions} run={run} />)
+    renderWaste={date => <View style={{ paddingHorizontal: 6, gap: 4 }}>{wasteLoaded(date) ? model.waste!.occurrences.filter(entry => entry.occurrence.date === date && entry.hidden !== true).map(entry => <V2WasteOccurrence key={entry.key} entry={entry} compact />)
       : <Text style={caption}>この日の共有収集日は未取得です。</Text>}</View>}
     renderChores={date => <Animated.FlatList testID="calendar-chore-list" data={entriesFor(date)} scrollEnabled={false} itemLayoutAnimation={LinearTransition.duration(240)} keyExtractor={entry => entry.key} initialNumToRender={8}
       ListHeaderComponent={<View style={{ gap: 6 }}>

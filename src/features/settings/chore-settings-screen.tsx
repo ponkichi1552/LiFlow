@@ -10,6 +10,7 @@ import { SettingsAudience } from '@/components/settings-audience';
 
 import { AppButton, BackButton, Card, ChoiceChip, Page, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
 import type { ChoreDefinition, ChoreLoad } from '@/domain/chores/types';
+import { choreCadenceLabel, registeredChoreCycleDays } from '@/domain/chores/cycle-policy';
 import { formatJapaneseDate, localDateFromISODateTime } from '@/domain/scheduling/local-date';
 import { PlannerLoadState } from '@/components/planner-load-state';
 import type { usePlannerData } from '@/hooks/use-planner-data';
@@ -42,7 +43,7 @@ export function ChoreSettingsBook({ choreId, selection, data }: { choreId: strin
       setSaveError(null);
       for (const [id, cache] of caches.entries()) {
         const saved = await cache.flush(); const draft = cache.getSnapshot().draft;
-        const invalid = Boolean(draft.cycleText.trim() && parseSettingInteger(draft.cycleText, 1, 3650) === undefined)
+        const invalid = Boolean(draft.cycleText.trim() && parseSettingInteger(draft.cycleText, 1, Number.MAX_SAFE_INTEGER) === undefined)
           || parseSettingInteger(draft.radiusText, 0, 14) === undefined;
         if (!saved || invalid) {
           setSaveError(invalid ? '数値に入力の誤りがあります。表示中の家事で確認してください。' : '保存できていない変更があります。該当する家事で再試行してください。');
@@ -64,7 +65,7 @@ export function ChoreSettingsBook({ choreId, selection, data }: { choreId: strin
     titleAccessory={visible => <SettingsAudience groupName={snapshot.sharing ? snapshot.household.name : undefined} chore={visible} navigate={leaveAfterSave} />}
     header={saveError || error ? <Text accessibilityRole="alert" style={styles.error}>{saveError ?? error}</Text> : undefined}
     renderChore={item => {
-      const cache = caches.get(item, snapshot.settings.frequencyMode, async (patch, base) => { if (await updateChoreSettings(database, item.id, patch, base)) await refresh(); });
+      const cache = caches.get(item, snapshot.settings.frequencyMode, async (patch, base) => { if (await updateChoreSettings(database, item.id, patch, base)) await refresh(); }, snapshot.personalCadences?.[item.id]);
       return <ChoreSettingsContent key={`${item.id}:${reloadVersion}`} chore={item} snapshot={snapshot} error={null} cache={cache}
         onReload={async () => { await refresh(); caches.forget(item.id); setReloadVersion(version => version + 1); }}
         savePatch={async (patch, base) => { if (await updateChoreSettings(database, item.id, patch, base)) await refresh(); }} />;
@@ -88,6 +89,8 @@ function ChoreSettingsContent({
 }) {
   const autosave = useChoreSettingsAutosave(chore, snapshot.settings.frequencyMode, savePatch, cache);
   const { cycleText, radiusText, load, holidayPriority, dryingPreference, enabled } = autosave.draft;
+  const seasonal = chore.personalSchedulingKind === 'seasonal';
+  const cadence = snapshot.personalCadences?.[chore.id];
 
   const state = snapshot.states.find((item) => item.choreId === chore.id);
   const previousCompletion = snapshot.completions
@@ -107,17 +110,18 @@ function ChoreSettingsContent({
             <Text style={styles.settingTitle}>家事を有効にする</Text>
             <Text style={styles.body}>{chore.requiresCycleSelection ? '周期を設定してから有効にできます。' : '無効にしても完了履歴は残ります。'}</Text>
           </View>
-          <Switch value={enabled} accessibilityLabel="家事を有効にする" onValueChange={autosave.changeEnabled} disabled={chore.requiresCycleSelection && parseSettingInteger(cycleText, 1, 3650) === undefined} />
+          <Switch value={enabled} accessibilityLabel="家事を有効にする" onValueChange={autosave.changeEnabled} disabled={chore.requiresCycleSelection && parseSettingInteger(cycleText, 1, Number.MAX_SAFE_INTEGER) === undefined} />
         </View>
-        <View style={styles.fieldRow}>
+        {seasonal ? <Text style={styles.body}>{choreCadenceLabel(chore, snapshot.settings.frequencyMode)}</Text> : <View style={styles.fieldRow}>
           <View style={styles.settingCopy}>
             <Text style={styles.settingTitle}>周期</Text>
             <Text style={styles.body}>
-              {chore.requiresCycleSelection ? '固定の周期は未設定です。実施条件に合わせて入力してください。' : chore.applianceCareSource && chore.manufacturerRecommendedIntervalDays === undefined
+              {cadence?.automatic && cadence.days !== null ? `${cadence.label} · 自動調整` : chore.requiresCycleSelection ? '固定の周期は未設定です。実施条件に合わせて入力してください。' : chore.applianceCareSource && chore.manufacturerRecommendedIntervalDays === undefined
                 ? 'メーカー指定なし。周期を入力するまでは予定に追加されません。'
                 : chore.manufacturerRecommendedIntervalDays !== undefined
                   ? `メーカー推奨：${chore.manufacturerRecommendedIntervalDays}日${(chore.userIntervalDays ?? chore.recommendedCycleDays) !== undefined && (chore.userIntervalDays ?? chore.recommendedCycleDays) !== chore.manufacturerRecommendedIntervalDays ? ` · あなたの設定：${chore.userIntervalDays ?? chore.recommendedCycleDays}日` : ''}`
-                  : `頻度モードの初期値は${chore.frequencyDaysByMode[snapshot.settings.frequencyMode]}日です。`}
+                  : chore.frequencyDaysByMode[snapshot.settings.frequencyMode] === undefined ? choreCadenceLabel(chore, snapshot.settings.frequencyMode)
+                    : `頻度モードの初期値は${chore.frequencyDaysByMode[snapshot.settings.frequencyMode]}日です。`}
             </Text>
           </View>
           <NumberInputField
@@ -125,9 +129,9 @@ function ChoreSettingsContent({
             onChangeText={autosave.changeCycle}
             onEndEditing={() => void autosave.flush()}
             accessibilityLabel="家事周期の日数"
-            placeholder={chore.requiresCycleSelection ? '入力' : undefined}
+            placeholder={chore.requiresCycleSelection ? '入力' : registeredChoreCycleDays(chore, snapshot.settings.frequencyMode) === undefined ? '—' : undefined}
           />
-        </View>
+        </View>}
         {autosave.cycleError ? <Text style={styles.error}>{autosave.cycleError}</Text> : null}
         {chore.schedulingNotes ? <Text style={styles.body}>{chore.schedulingNotes}</Text> : null}
         {chore.applianceId && chore.manufacturerRecommendedIntervalDays !== undefined
@@ -137,19 +141,19 @@ function ChoreSettingsContent({
           ) : null}
 
         <SectionHeading title="実施スケジュール" level="subsection" />
-        <View style={styles.fieldRow}>
+        {!seasonal ? <View style={styles.fieldRow}>
           <View style={styles.settingCopy}><Text style={styles.settingTitle}>実施期間の幅</Text><Text style={styles.body}>基準日から前後に何日広げるか（0〜14日）</Text></View>
           <NumberInputField prefix="±" value={radiusText} onChangeText={autosave.changeRadius} onEndEditing={() => void autosave.flush()} accessibilityLabel="実施期間の日数幅" />
-        </View>
+        </View> : null}
         {autosave.radiusError ? <Text style={styles.error}>{autosave.radiusError}</Text> : null}
         <View style={styles.settingBlock}>
           <Text style={styles.settingTitle}>負荷</Text>
           <View style={styles.chipRow}>{loadOptions.map((option) => <ChoiceChip key={option.id} label={option.label} selected={load === option.id} onPress={() => autosave.changeLoad(option.id)} />)}</View>
         </View>
-        <View style={styles.settingRow}>
+        {!seasonal ? <View style={styles.settingRow}>
           <View style={styles.settingCopy}><Text style={styles.settingTitle}>休日を優先</Text><Text style={styles.body}>実施期間に設定した休日を含めます。</Text></View>
           <Switch value={holidayPriority} accessibilityLabel="休日を優先" onValueChange={autosave.changeHoliday} />
-        </View>
+        </View> : null}
 
         {chore.category === '洗濯' || chore.laundryDryingPreference !== undefined ? (
           <View style={styles.settingBlock}>

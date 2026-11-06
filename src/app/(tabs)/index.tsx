@@ -16,7 +16,6 @@ import { addDays, formatJapaneseDate, localDateFromDate } from '@/domain/schedul
 import type { LocalDate } from '@/domain/shared/types';
 import type { ChoreCompletion } from '@/domain/chores/types';
 import { usePlannerData } from '@/hooks/use-planner-data';
-import { useWasteOccurrenceToggle } from '@/features/waste/use-waste-occurrence-toggle';
 import { WeatherAttribution } from '@/components/data-credits';
 import { useTaskCompletion } from '@/hooks/use-task-completion';
 import { useHomeClock } from '@/hooks/use-home-clock';
@@ -54,8 +53,6 @@ function PersonalHomeScreen() {
   const refreshHome = useCallback(async () => { await refresh(); const failure = readError?.(); if (failure) throw new Error(failure); await syncCommonHistory(); }, [refresh, readError, syncCommonHistory]);
   const completion = useTaskCompletion(database, refreshHome, readError, combined ? { ...personal, isCurrent: commonHistory.isCurrent, assertAccess: assertUncommonPersonalAccess } : undefined, snapshot?.household);
   const clock = useHomeClock(snapshot?.timeZone);
-  const wasteVisibility = useWasteOccurrenceToggle(database, refresh);
-  const personalWasteVisibility = useWasteOccurrenceToggle(personal.database, personal.refresh);
   const actionError = completion.error;
   const [weekScope, setWeekScope] = useState<HomeWeekScope>('current');
   const today = snapshot?.today ?? localDateFromDate(new Date());
@@ -97,19 +94,19 @@ function PersonalHomeScreen() {
   }
 
   const orderedDueToday = orderHomeTaskRows(sources.flatMap(scope => projectRows(homeTaskRows(
-    selectDateTasks(scope.snapshot.scheduleEntries, scope.snapshot.completions, scope.today, 3, scope.snapshot.chores), scope.snapshot.chores, scope.source, scope.today), scope.snapshot.completions)), today, display.order);
+    selectDateTasks(scope.snapshot.scheduleEntries, scope.snapshot.completions, scope.today, 3, scope.snapshot.chores, true), scope.snapshot.chores, scope.source, scope.today), scope.snapshot.completions)), today, display.order);
   const todayTotal = orderedDueToday.length;
   const todayDone = orderedDueToday.filter(row => row.task.completed).length;
   const summary = homeSummary(todayTotal, todayDone);
   const todayWaste = sources.flatMap(scope => scope.snapshot.upcomingWasteDates.filter(occurrence => occurrence.date === scope.today)
-    .map(occurrence => ({ occurrence, source: scope.source, key: `${scope.snapshot.household.id}:${occurrence.scheduleId}:${occurrence.date}`,
-      visibility: combined && scope.source === 'personal' ? personalWasteVisibility : wasteVisibility })));
+    .map(occurrence => ({ occurrence, source: scope.source, key: `${scope.snapshot.household.id}:${occurrence.scheduleId}:${occurrence.date}` })));
   const groupName = workspace?.active ? workspace.group?.displayName ?? snapshot.household.name : snapshot.household.name;
   const renderTask = (row: HomeTaskRow, last: boolean) => {
     const { task, chore, source } = row;
     const region = combined && source === 'personal' && personal.snapshot?.timeZone !== snapshot.timeZone ? personal.snapshot?.timeZone : undefined;
     return <Animated.View key={row.key} layout={LinearTransition.duration(240)}>
       <TaskCheckboxRow chore={chore} home lastInList={last} completed={task.completed} source={source} mixedSources={combined}
+        seasonalWork={task.entry?.seasonalWork ?? task.completion?.seasonalWork}
         contextLabel={combined ? source === 'personal' ? '個人' : groupName : undefined} detail={region}
         executionWindow={task.entry ? { start: task.entry.windowStart, end: task.entry.windowEnd } : task.completion?.scheduledWindowStart && task.completion?.scheduledWindowEnd ? { start: task.completion.scheduledWindowStart, end: task.completion.scheduledWindowEnd } : undefined}
         urgent={isTaskUrgent({ completed: task.completed, load: chore.load, recommendedDate: task.suggestedDate, windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd }, row.today)}
@@ -122,7 +119,7 @@ function PersonalHomeScreen() {
     <>
       <Tabs.Screen options={{ tabBarStyle: { ...plannerTabBarLayout(insets.bottom), backgroundColor: palette.surface, borderTopColor: palette.border, borderTopWidth: 1 } }} />
       <Page header={<HomeHeader today={today} workspaceName={snapshot.sharing ? groupName : undefined} />} contentStyle={styles.homePage} floatingFooter footerHasTabBar footer={completion.undoAvailable ? <CompletionToast onUndo={() => void completion.undoLast()} /> : undefined}>
-        {error || actionError ? <Card><Text style={styles.error}>{actionError ?? error}</Text><AppButton title="表示を再読込" variant="quiet" compact
+        {error || actionError ? <Card><Text style={styles.error}>{actionError ?? error}</Text><AppButton title={completion.recoveryLabel ?? '表示を再読込'} variant="quiet" compact
           disabled={completion.pending.size > 0 || completion.reading} onPress={() => void completion.retryRead()} /></Card> : null}
 
       <HomeProgress summary={summary} total={todayTotal} done={todayDone} />
@@ -145,13 +142,9 @@ function PersonalHomeScreen() {
         </Card>
       ) : null}
 
-      {todayWaste.map(({ occurrence, visibility, key, source }) => (
-        <WasteOccurrenceCard key={key} occurrence={occurrence} home source={combined ? source : undefined}
-          busy={visibility.busyKeys.has(`${occurrence.scheduleId}:${occurrence.date}`)}
-          onToggle={() => void visibility.toggle(occurrence, false)} />
+      {todayWaste.map(({ occurrence, key, source }) => (
+        <WasteOccurrenceCard key={key} occurrence={occurrence} home source={combined ? source : undefined} />
       ))}
-      {wasteVisibility.error ? <Text style={styles.error}>{wasteVisibility.error}</Text> : null}
-      {combined && personalWasteVisibility.error ? <Text style={styles.error}>{personalWasteVisibility.error}</Text> : null}
 
       <SectionHeading title="今日の家事" trailing={<LoadSortButton order={display.order} onPress={display.toggle} />} />
       {todayTotal > 0 ? <View style={styles.taskList}>{orderedDueToday.map((row, index) => renderTask(row, index === orderedDueToday.length - 1))}</View> : null}

@@ -6,10 +6,9 @@ import { readFileSync } from 'node:fs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { createIntegration, now as googleNow } from './helpers/google-sync-integration.mjs';
-import { localDateFromDate, addDays, daysBetween, formatJapaneseDate } from '../src/domain/scheduling/local-date.ts';
+import { localDateFromDate, addDays, daysBetween } from '../src/domain/scheduling/local-date.ts';
 import { optimizeLaundryScheduleForWeather } from '../src/features/weather/optimize-laundry-schedule.ts';
-import { LaundryWeatherAdjustmentPolicy } from '../src/features/weather/laundry-policy.ts';
-import { applyLaundryWeatherAdjustments, isSuitableLaundryDay } from '../src/features/weather/laundry-policy.ts';
+import { LaundryWeatherAdjustmentPolicy, applyLaundryWeatherAdjustments, isSuitableLaundryDay } from '../src/features/weather/laundry-policy.ts';
 import { recommendedChoreCounts, selectDateTasks } from '../src/domain/scheduling/date-tasks.ts';
 const { getDeviceTimeZone, shouldRefreshCalendar } = await import('../src/features/google-sync/calendar-availability.ts');
 const { syncGoogleTasksWithDependencies } = await import('../src/features/google-sync/coordinator.ts');
@@ -21,8 +20,13 @@ const settings = { frequencyMode: 'balanced', restDays: [], loadLimits: { heavyD
 const sunny = { weatherCode: 0, precipitationProbability: 0, precipitationMm: 0 };
 async function fixture() {
   const h = createDatabase(); await repository.initializeLocalDatabase(h.database);
-  const initial = await repository.loadPlannerSnapshot(h.database, today, now);
-  const chore = initial.chores.find((item) => item.id === 'builtin-chore-10');
+  const { createHouseholdChoreDefinitions } = await import('../src/domain/chores/catalog.ts');
+  // This suite exercises the injected legacy daily-provider compatibility port.
+  // Its explicit custom fixture must not depend on the retired private catalog.
+  const chore = { ...createHouseholdChoreDefinitions(repository.LOCAL_HOUSEHOLD_ID).find(item => item.id === 'builtin-chore-10'), id: 'custom-weather-fixture' };
+  await h.database.runAsync('INSERT INTO chore_definitions(id,household_id,name,enabled,definition_json) VALUES(?,?,?,?,?)',
+    chore.id, chore.householdId, chore.name, 1, JSON.stringify(chore));
+  await h.database.runAsync('INSERT INTO chore_state(chore_id,last_completed_date,last_completed_estimated,initial_pending) VALUES(?,NULL,0,1)', chore.id);
   await repository.completeFirstSetup(h.database, { frequencyMode: 'balanced', restDays: [], enabledChoreIds: [chore.id],
     previousDates: { [chore.id]: { date: addDays(today, -1) } }, weatherLocation: location });
   const snapshot = await repository.loadPlannerSnapshot(h.database, today, now);
@@ -35,6 +39,7 @@ const occurrence = (offset) => ({ id: `laundry:${offset}`, choreId: 'laundry', c
   windowStart: addDays(today, offset), windowEnd: addDays(today, offset), status: 'scheduled', assignedMemberIds: [] });
 const forecastWithSun = (...offsets) => Array.from({ length: 7 }, (_, offset) => ({ date: addDays(today, offset),
   ...(offsets.includes(offset) ? sunny : { weatherCode: 61, precipitationProbability: 90, precipitationMm: 10 }) }));
+
 
 test('weather does not fetch or move a completed legacy occurrence without a schedule id', async () => {
   let requests = 0;

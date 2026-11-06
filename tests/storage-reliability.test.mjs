@@ -2,6 +2,7 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createDatabase } from './helpers/sqlite.mjs';
+import { installFrozenSchedulerFixture } from './helpers/frozen-scheduler-fixture.mjs';
 import { screenHarness } from './helpers/screen-harness.mjs';
 const repository = await import('../src/platform/storage/repository.ts');
 const { addDays, localDateFromDate } = await import('../src/domain/scheduling/local-date.ts');
@@ -11,6 +12,7 @@ const today = localDateFromDate(new Date());
 async function fixture() {
   const h = createDatabase();
   await repository.initializeLocalDatabase(h.database);
+  await installFrozenSchedulerFixture(h.database);
   const snapshot = await repository.loadPlannerSnapshot(h.database, today);
   const chore = snapshot.chores.find((item) => !item.archived);
   await repository.completeFirstSetup(h.database, {
@@ -160,6 +162,12 @@ for (const variant of ['repair', 'estimated', 'initial-pending', 'different-date
   test(`old future-completion repair follows saved history and respects ${variant} state on upgrade`, async () => {
     const h = await fixture();
     try {
+      // Retired built-ins are intentionally removed by catalogue6. A custom
+      // legacy job is retained and must still receive the historical repair.
+      h.chore = { ...h.chore, id: 'retained-custom-legacy-history' };
+      h.connection.prepare('INSERT INTO chore_definitions VALUES(?,?,?,?,?)').run(h.chore.id, h.chore.householdId, h.chore.name, 1, JSON.stringify(h.chore));
+      h.connection.prepare('INSERT INTO chore_state(chore_id, initial_pending) VALUES(?,1)').run(h.chore.id);
+      h.connection.prepare("INSERT INTO chore_assignments VALUES(?,'local-member')").run(h.chore.id);
       const original = { choreId: h.chore.id, lastCompletedDate: addDays(today, -10), lastCompletedEstimated: true, initialPending: false };
       const date = new Date(); date.setHours(12, 0, 0, 0);
       const yesterday = new Date(date); yesterday.setDate(yesterday.getDate() - 1);

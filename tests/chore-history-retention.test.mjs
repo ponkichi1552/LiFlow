@@ -10,7 +10,7 @@ test('chore history uses one calendar month including month ends leap days and y
     assert.equal(choreHistoryCutoff(today), cutoff);
   }
 });
-test('expired personal completion history is physically deleted while its scheduling anchor and calendar events remain', async t => {
+test('personal raw completion history survives the display cutoff for learning and undo while old calendar events and anchors remain', async t => {
   const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database);
   const initial = await loadPlannerSnapshot(h.database, '2026-11-01'); const chore = initial.chores[0];
   h.connection.prepare("INSERT INTO chore_completions(id,household_id,chore_id,completed_at,source,outcome) VALUES(?,?,?,?,?,?)")
@@ -19,9 +19,19 @@ test('expired personal completion history is physically deleted while its schedu
   h.connection.prepare('INSERT INTO calendar_events(id,definition_json,revision,deleted) VALUES(?,?,1,1)').run('old-calendar-event', '{}');
   const snapshot = await loadPlannerSnapshot(h.database, '2026-11-01');
   assert.equal(snapshot.completions.some(record => record.id === 'expired'), false);
-  assert.equal(h.connection.prepare('SELECT id FROM chore_completions WHERE id=?').get('expired'), undefined);
+  assert.ok(h.connection.prepare('SELECT id FROM chore_completions WHERE id=?').get('expired'));
   assert.equal(snapshot.states.find(row => row.choreId === chore.id).lastCompletedDate, '2026-09-01');
   assert.ok(h.connection.prepare('SELECT id FROM calendar_events WHERE id=?').get('old-calendar-event'));
+});
+
+test('early completions of future rounds remain available after the ordinary history display cutoff', async t => {
+  const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database);
+  const initial = await loadPlannerSnapshot(h.database, '2026-11-01'); const chore = initial.chores[0];
+  h.connection.prepare(`INSERT INTO chore_completions(id,household_id,chore_id,completed_at,source,outcome,scheduled_date,scheduled_window_start)
+    VALUES(?,?,?,?,?,'completed',?,?)`).run('future-early', 'local-household', chore.id, '2026-09-01T03:00:00Z', 'inApp', '2026-12-01', '2026-12-01');
+  const snapshot = await loadPlannerSnapshot(h.database, '2026-11-01');
+  assert.ok(snapshot.completions.some(row => row.id === 'future-early'));
+  assert.ok(h.connection.prepare('SELECT id FROM chore_completions WHERE id=?').get('future-early'));
 });
 test('the cutoff day is retained and an unchanged history refresh performs no repeated deletion writes', async t => {
   const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database);

@@ -38,6 +38,37 @@ async function fixture(t, options = {}) {
 }
 function file(t) { const dir = mkdtempSync(join(tmpdir(), 'liflow-control-')); t.after(() => rmSync(dir, { force: true, recursive: true })); return join(dir, 'control.db'); }
 
+test('private Calendar reuses only verified authority prefixes and one work scope while fresh scopes still check the current cloud head', async t => {
+  const { f, cloud, identity } = await fixture(t); let corruptHead = false;
+  const sync = control(f, { ...cloud, async authorityPage(after) {
+    const page = await cloud.authorityPage(after);
+    return corruptHead ? { ...page, head: { ...page.head, authorityRevision: page.head.authorityRevision - 1 } } : page;
+  } });
+  await sync.refresh(); assert.deepEqual(cloud.pages, [0]);
+  for (let n = 0; n < 104; n++) {
+    const before = cloud.current; const next = advancePrivateCalendarAuthority(before, configuration(before), identity, { purpose: 'calendarSourceChange' });
+    await cloud.commitAuthority(before, next);
+  }
+  const signal = new AbortController().signal;
+  const first = await sync.refresh({ signal }); assert.equal(first.history.length, 105); assert.deepEqual(cloud.pages, [0, 1, 101]);
+  assert.throws(() => { first.history[0].body.revision = 999; });
+  first.history.length = 0; const same = await sync.refresh({ signal }); assert.equal(same.history.length, 105);
+  assert.deepEqual(cloud.pages, [0, 1, 101], 'the immediate source check reuses the exact verified work scope');
+  await sync.refresh({ signal: new AbortController().signal }); assert.deepEqual(cloud.pages, [0, 1, 101, 105]);
+  corruptHead = true; await assert.rejects(sync.refresh({ signal: new AbortController().signal }), /署名履歴/);
+  corruptHead = false; f.state.currentUser = 'another-owner'; const calls = cloud.pages.length;
+  await assert.rejects(sync.refresh({ signal })); assert.equal(cloud.pages.length, calls);
+});
+
+test('private Calendar pending authority receipts invalidate a same-work cached head before resolving the committed update', async t => {
+  const { f, cloud, identity, add } = await fixture(t); const sync = control(f, cloud); const signal = new AbortController().signal;
+  await sync.refresh({ signal }); const pending = await f.changes.prepare(add, identity);
+  const result = await sync.resume({ signal }); assert.equal(result.kind, 'accepted'); assert.equal(result.intentDigest, pending.digest);
+  assert.equal(result.authority.digest, cloud.current.digest); assert.equal(result.authority.signed.body.revision, 2);
+  assert.deepEqual(cloud.pages, [0, 1]); assert.equal(await f.changes.readPending(), null);
+  assert.equal((await sync.refresh({ signal })).authority.digest, pending.digest); assert.deepEqual(cloud.pages, [0, 1]);
+});
+
 test('private Calendar authority changes persist one exact signed intent before transport and keep the formal pin unchanged until receipt', async t => {
   const { f, cloud, root, identity, add } = await fixture(t); const pending = await f.changes.prepare(add, identity);
   assert.equal((await f.secrets.authority(f.userId)).digest, root.digest); assert.equal(pending.signed.body.revision, 2);

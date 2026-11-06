@@ -1,0 +1,128 @@
+{
+  "candidate": "normal-v32",
+  "naturalWorker": {
+    "kind": "new-natural-worker-incomplete",
+    "candidate": "normal-v32",
+    "observedAt": "2026-11-06T08:18:55.597075+00:00",
+    "worker": {
+      "id": 61,
+      "started_at": 1793953098854,
+      "finished_at": 1793953114600,
+      "release": 1,
+      "outcome": "success",
+      "personal": "skipped",
+      "private_calendar": "skipped",
+      "sharing": "pending",
+      "personal_google_calendar": "success"
+    },
+    "classificationAccepted": false,
+    "actualNewChangeSendReceiveClaim": false
+  },
+  "savedControlBeforeManualRetry": {
+    "observedAt": "2026-11-06T08:32:18.623410+00:00",
+    "method": "temporary private read-only SQLite copy; exact account label and group checked; allowlisted sync metadata only",
+    "deviceMutated": false,
+    "controlRevision": 5,
+    "state": {
+      "enabled": true,
+      "disconnected": false,
+      "status": "error",
+      "lastAttemptAt": "2026-11-06T05:23:00.343Z",
+      "lastSuccessfulSyncAt": "2026-11-06T05:19:51.403Z",
+      "lastErrorCode": "error",
+      "lastErrorAt": "2026-11-06T05:23:00.343Z",
+      "retryCount": 0,
+      "updatedAt": "2026-11-06T05:23:00.343Z"
+    },
+    "links": 25,
+    "pendingLinkStatuses": 1,
+    "rawDatabaseRetained": false
+  },
+  "savedControlAfterManualRetry": {
+    "observedAt": "2026-11-06T08:33:53.310844+00:00",
+    "method": "temporary private read-only SQLite copy; exact account label and group checked; allowlisted sync metadata only",
+    "deviceMutated": false,
+    "controlRevision": 5,
+    "state": {
+      "enabled": true,
+      "disconnected": false,
+      "status": "idle",
+      "lastAttemptAt": "2026-11-06T08:32:50.159Z",
+      "lastSuccessfulSyncAt": "2026-11-06T08:32:50.159Z",
+      "retryCount": 0,
+      "updatedAt": "2026-11-06T08:32:50.159Z"
+    },
+    "links": 25,
+    "pendingLinkStatuses": 0,
+    "rawDatabaseRetained": false
+  },
+  "actualUi": {
+    "step131": "connected Tasks showed prior sync error",
+    "step132": "explicit ordinary user-level sync succeeded,0 creates/0 updates/0 imports",
+    "step135": "shared Calendar export switch0,unchanged"
+  },
+  "causeBoundary": "The earlier generic Error has no retained original cause. It is not proven to be a native token, network, authority or HTTP error. Pending correctly persisted while the saved Tasks status was error. Manual recovery is foreground and is not natural success.",
+  "naturalRecheckComplete": false,
+  "rawBusinessDataPublished": false,
+  "evidenceSha256": {
+    "result.json": "ba42418614026474d923a480dad1495b5677fed78d025e34e0f61a1689a605ce",
+    "ios-v32-task-control-before-retry.json": "bd58c7a6b6ea7f3348e90d6a4dc72def7e2295530d09db5508f8ba00c2b2b489",
+    "ios-v32-task-control-after-retry.json": "440d3b16f02fe74d4ccec803a85b9a68387876f818eb110b2e36d78e1d29555f",
+    "v32-passive-receive-source.json": "20019c2ad209591d0e80e1ed763da51b2aa883473578b90a2d9e22cab42ebcbb"
+  },
+  "additionalAndroidSourcePair": {
+    "normalVersion": 32,
+    "method": "Android normal foreground checkbox complete and Undo; iPhone remains in system Settings/background with normal network",
+    "baselineHead": 439,
+    "actions": [
+      {
+        "action": "complete",
+        "at": "2026-11-06T08:47:44.442660+00:00"
+      },
+      {
+        "action": "undo",
+        "at": "2026-11-06T08:48:00.722393+00:00"
+      }
+    ],
+    "naturalAndroidClaim": false,
+    "restored": true,
+    "completionReceipt": {
+      "operationDigest": "0adf01e526d21650f9312265a5f86ad00d8d8eb6f1ab273cdd12c8d4e91204d2",
+      "sequence": 440,
+      "author": "android",
+      "sameAccount": true,
+      "acceptedAt": "2026-11-06T08:47:53.051Z"
+    },
+    "iphoneAckAtCompletion": {
+      "deviceDigest": "29774d412062c433272d34fa6e6829d0f19e144d39fb2d0f0b2f2a713fc73484",
+      "sameAccount": true,
+      "sequence": 439,
+      "updatedAt": "2026-11-06T06:21:11.986Z"
+    },
+    "undoReceipt": {
+      "operationDigest": "ef6e1e0eb07cc7d181a100134e62758b3078637652b3622f397c8a924d809853",
+      "sequence": 441,
+      "author": "android",
+      "sameAccount": true,
+      "acceptedAt": "2026-11-06T08:48:32.221Z"
+    },
+    "iphoneAckBeforeNextWorker": {
+      "deviceDigest": "29774d412062c433272d34fa6e6829d0f19e144d39fb2d0f0b2f2a713fc73484",
+      "sameAccount": true,
+      "sequence": 439,
+      "updatedAt": "2026-11-06T06:21:11.986Z"
+    },
+    "restoredUncheckedAt": "2026-11-06T08:48:39.410611+00:00",
+    "normalHomeButtonUsed": true
+  },
+  "scopeExtension": {
+    "sourceReceipts": [
+      440,
+      441
+    ],
+    "iphoneAckBeforeWorker": 439,
+    "iphoneNormalAppOpenedAfterCutoff": false,
+    "noNewIphoneOutgoingPrepared": true,
+    "naturalReceiveNotYetClaimed": true
+  }
+}

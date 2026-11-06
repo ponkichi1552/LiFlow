@@ -1,0 +1,70 @@
+# ウィジェット入力と本人用カレンダーの追加検査
+
+今回の変更は未コミットの作業コピーで検査したもの。アプリ全体の監査、新仕様の家事カタログ・学習・天気対応や、最終版の両実機画面検査が完了したという意味ではない。確認操作を追加する家電共有案は採用していない。
+
+## 保存と反映の境界
+
+AndroidはBroadcastReceiverから完了履歴・家事状態・Google対応表を直接書き換えず、`goAsync`と専用executorから私的な入力キューだけを保存する。利用権、本人アカウント、元の保存先と家事回をアプリ側で確認してから、通常の履歴・Google送信待ちと同一トランザクションで反映する。確認や保存に失敗した場合は入力を保持する。操作IDの受付記録があるので、応答喪失後や取り消し後の再送で同じ操作を再適用しない。
+
+iOSは表示用timelineと別の操作journalを使用する。プロセス間のfile lock、プロセス内のlock、atomic writeとfsyncを用い、iOSでは初回ロック解除後にアクセスできるファイル保護を指定する。SQLiteで処理済みと確認した操作IDだけを削除する。取得後に追加された操作を、表示更新や古いACKで削除しない。読み書きできないjournalを空のキューと解釈しない。新たな入力は一時的なイベントIDだけから完了扱いにしない。
+
+旧iOSのIDだけの保存済み入力は既存経路で回復するが、新しいnative実装はその形式を作らない。利用権・アカウントの再確認は旧経路にも適用する。
+
+## 実測した検査
+
+- JavaScript・実SQLiteの完了／取り消し・Google改訂・失敗時rollback・lost ACKの検査を追加した。関連35件PASS。
+- 実SwiftコードをmacOS上で別プロセスから同時実行した。32件の処理済み入力のACKと同時に追加した32件がすべて残り、古いACKの再送でも消えなかった。期限切れ・古い日付・壊れたJSONなども検査した。
+- ExpoWidgetsのiOS Simulator向けarm64/x86_64コンパイルPASS。これはiPhoneのホーム画面Widgetの実操作PASSではない。
+- Android Release KotlinコンパイルPASS。実際のコンパイル出力を独立した検査APKに入れ、Sony I4293・Android 10/API29のsystem SQLiteで実行し、45項目PASS。LiFlow本体のDBを開かず、検査APK自身の新しい私的ディレクトリとSharedPreferencesのみを使用した。アプリのホーム画面からWidgetを操作した総合試験とは区別する。
+
+Android実機では、当初`execSQL("PRAGMA busy_timeout=250")`が例外になった。PRAGMAの設定でも結果行が返るため、Androidのwrite-only APIでは実行できなかった。`rawQuery`で結果を消費する形へ修正して同じ実機試験を通した。SQLiteの文メタデータを使い、write-only APIへ結果行のある文を渡さない回帰検査も追加した。
+
+実機で通過したbridgeのSHA-256は`e8603fd10c5e839d401b178e9902b1363b59c28b4bbd72804c5c75187b71568e`、生成元KotlinのSHA-256は`c600f1af70304de4790673e6f8afa7db5c16c2d4ded935fd0a5e38c9653619dd`。
+
+## 本人端末の署名履歴
+
+プロセス内で検証した署名履歴だけを再利用する。新しい同期では最新のクラウドheadを照合し、追加された連続する署名履歴を取得・検証する。同じ有効なAbortSignalによる同期内では、直前の検証結果を取得元の確認にも使う。受付待ちの変更がある場合は同じ同期内のキャッシュを無効化して受付結果を再確認する。
+
+105世代の履歴で初回・差分・同一同期内の再利用・次の同期でのhead再確認を検査した。アカウント変更、headの巻き戻り、返した履歴の変更、受付前後の中断でも保護された設定を誤って進めないことを確認した。暗号文やGoogleアカウントの内容をキャッシュの信頼根拠にしない。
+
+## 検査の残り
+
+全3,023件とCloud125件はこの履歴最適化までPASS。その後のAndroid native修正は関連35件と実機45項目で再検査した。lint・型検査もPASS。最終の全件実行、両OSの最終アプリを使った画面操作・Widget操作は残っている。native CIの変更は未公開なので、GitHubでの成功を確認したとはしていない。
+
+native修正前に作成したAPKは誤導入を防ぐため私的な保管先へ隔離した。最終の実機検査には再ビルドが必要。今回、LiFlow本体のインストール・初期化・アンインストールは行っていない。
+
+## 通常Android v12の実ウィジェット操作
+
+Sony I4293の通常ランチャーから「次の家事」を追加し、実際に表示された未完了の1行を1回押した。通常アプリが起動し、端末内の読取専用照合で、対応する完了0→1・source widgetの投影1件・入力受付記録1件・未処理native入力0件を確認した。その後、共有と個人を合わせたホームも8件中1件完了へ進んだ。
+
+ホームで同じ完了行のチェックを押して取り消し、実完了の投影は0件・native未処理0件へ戻った。受付記録は2件を保持する。DBを直接書き換えて元に戻す操作は行っていない。`widget-v12-android-before.log`、`widget-v12-android-after.log`、`widget-v12-android-after-undo.log`と実UIのXMLを保持した。読取専用補助APKだけを削除し、LiFlow本体・既存DBは保持している。
+
+表示が落ち着く前のホームには古い未完了表示が残ったため、瞬時反映や最終速度の合格にはしない。この待機の最適化はユーザーの別途検討へ引き継ぐ。adaptive家事の履歴と従来形式のcompletion journalは別であり、古いjournalだけの件数を新しい学習履歴の欠落とは判断しない。iPhone実ウィジェットは後述の別の検査で確認した。自然なOS背景同期とは区別する。
+
+## 実Expo SQLiteの別接続境界
+
+`tests/native/android/run-expo-sqlite-connections-audit.py`は、既存アプリのAPKハッシュを指定成果物と照合し、そのアプリ内に同梱されたExpo SQLite JNIを検査する。Plannerは起動せず、UUID付きの新規キャッシュDBだけを使用する。既存の同名検査APKがあれば停止し、最後に自分が追加した補助APKだけを削除する。target processを検査用に起動し直すため、利用者の操作・保存が落ち着いてから実行する。
+
+Android10のSQLite3.53.3で、別接続commitのdata_version検知、古いWAL snapshotのwrite昇格拒否、未確定writeの分離、読取専用peerのwrite拒否の4件がPASS。正しいnativeエラーコード5／8、両接続のclose、DB／WAL／SHMの後片付けを照合した。`expo-sqlite-physical-connections-canonical.log`。既存DBを開いていない。
+
+最初の補助コードはnative loaderの初期化不足、次はExpoがエラー値を返す代わりに例外を投げる動作への未対応で失敗した。実SDKの実装へ合わせ、特定の例外型と直後の正確なSQLiteエラーコードを検査した。失敗を通すためにアプリ側の処理を変えていない。これはnative接続境界の証拠であり、Expo JSの非同期呼出経路全体の検査とは区別する。
+
+対象のSQLite nativeソース3ファイルは、lockfileで固定したexpo-sqlite58.0.15のnpm公開物のSHA-512を検査した後、展開内容と手元のファイルのSHA-256を比較し完全一致した。未記録のnode_modules改変をこの検査の前提にはしていない。`expo-sqlite-locked-native-integrity.json`。
+
+## iPhone通常v12の実ウィジェット操作
+
+XCTestのホームボタン操作ではアプリ切替中の画面しか取得できなかったため、利用者がホーム画面へウィジェットを追加した。実際の「今日の家事」と未完了の行をXCTestで認識し、その1行だけを1回押した。通常のLiFlowが開いたことを確認した。`widget-v12-ios-current-home.log`と`widget-v12-ios-complete-tap.log`。
+
+その後アプリを終了・再起動し、同じ家事の完了チェックと8件中1件完了を確認した。通常ホームの同じチェックで取り消すと、その行が未完了へ戻り、8件中0件となった。`widget-v12-ios-restart-undo.log`は15.121秒でPASSし、操作前後の画面と要素情報を保持した。テスト全体の時間をウィジェット単体の反応時間とは扱わない。
+
+これは実ウィジェットからアプリ再起動・通常取り消しまでのUI結合検査であり、生のSQLiteを端末外へ出した検査や、OS自然実行の背景同期ではない。データの初期化・DBの直接編集・アプリの削除は行っていない。
+
+## Hermesからの実Expo SQLite非同期接続
+
+JNIだけでは残っていたQ04のJavaScript経路を、別アプリIDのReleaseアプリで追加検査した。[検査画面と条件](../../tests/native/expo-sqlite/README.md)。通信権限・製品のdeep link・Widget receiverを外し、この画面だけを登録する。通常のLiFlowは背景に置いたまま、別の新規sandboxの使い捨てDBだけを使った。
+
+Android10／Hermes／SQLite3.53.3で、外部commit・非同期read/writeの分離・WAL snapshot昇格拒否・query_only peer・実アプリのexclusiveラッパーのrollback・検査用の本人入力失効時の最終fenceの6件がPASS。DB削除済みを含む画面のJSONを照合した。既存の利用者DBを開いていない。6件目は合成した入力失効をアプリの実保存ラッパーへ渡す検査であり、Firebaseの実端末失効を実測したとは扱わない。
+
+検査用APKの導入前後に通常v13のAPK hashが不変であることを確認した。検査後は同じhashの検査用APKだけを削除した。証拠は`sqlite-js-isolated-result.json`と`sqlite-js-isolated-artifact.json`。検査専用コードのlint・型検査も通過した。最初の検査用ビルドはWidget生成用の参照先が不足して失敗したが、外部の検査用プロジェクトの参照を直してビルドし直した。製品コードを失敗に合わせて変えていない。
+
+iPhoneを取り外す利用者の指示以降は、iPhoneの操作・インストール・追加の実機読取を行っていない。iOSの同等JS接続検査と現行版の自然な背景同期は、この結果には含まれない。現行製品の全体検査3,294件・隔離Cloud142件・lint・型検査は別に通過している。

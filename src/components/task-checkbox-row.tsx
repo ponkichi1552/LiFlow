@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { ChoreDefinition } from '@/domain/chores/types';
+import type { ChoreDefinition, ChoreScheduleEntry } from '@/domain/chores/types';
+import { choreOccurrenceName } from '../domain/chores/occurrence-name';
 import { palette, typography } from '@/components/planner-ui';
 import { GroupIcon, PersonIcon } from './group-icon';
 import { Chevron } from './chevron';
@@ -8,13 +9,15 @@ import { formatJapaneseDate } from '../domain/scheduling/local-date';
 import type { LocalDate } from '../domain/shared/types';
 
 export function TaskCheckboxRow({ chore, completed = false, deemphasized = false, source, urgent = false,
-  onToggle, onOpen, home = false, compact = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow }: {
+  onToggle, onOpen, home = false, compact = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow, seasonalWork }: {
   chore: ChoreDefinition; completed?: boolean; deemphasized?: boolean; source?: 'personal' | 'shared' | 'instructed';
   urgent?: boolean; onToggle?: () => void; onOpen: () => void; home?: boolean; compact?: boolean; mixedSources?: boolean;
   executionWindow?: { start: LocalDate; end: LocalDate };
+  seasonalWork?: ChoreScheduleEntry['seasonalWork'];
   detail?: string; detailsExpanded?: boolean; lastInList?: boolean; contextLabel?: string; action?: ReactNode; footer?: ReactNode; sourceIcon?: 'person' | 'group';
 }) {
-  const actionName = `${chore.name}${contextLabel ? `（${contextLabel}）` : ''}`;
+  const name = choreOccurrenceName(chore.name, seasonalWork);
+  const actionName = `${name}${contextLabel ? `（${contextLabel}）` : ''}`;
   const minutes = Number.isFinite(chore.estimatedMinutes) && chore.estimatedMinutes! > 0 ? `約${chore.estimatedMinutes}分` : '';
   const period = executionWindow && executionWindow.start !== executionWindow.end
     ? `${formatJapaneseDate(executionWindow.start)}〜${formatJapaneseDate(executionWindow.end)}` : undefined;
@@ -27,7 +30,7 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
     <View style={styles.compactCheck}>{checkbox}</View>
     <Pressable accessibilityRole="button" accessibilityLabel={`${actionName}の説明を開く`} accessibilityHint="手順や道具を確認します" onPress={onOpen}
       style={({ pressed }) => [styles.compactOpen, pressed && styles.pressed]}>
-      <Text numberOfLines={2} style={[styles.compactName, completed && styles.completedText]}>{chore.name}</Text>
+      <Text numberOfLines={2} style={[styles.compactName, completed && styles.completedText]}>{name}</Text>
       {executionWindow && executionWindow.start !== executionWindow.end ? <Text style={styles.compactPeriod}>{calendarPeriodLabel(executionWindow.start, executionWindow.end)}</Text> : null}
     </Pressable>
   </View>;
@@ -42,7 +45,7 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
     <View pointerEvents="box-none" style={[styles.content, home && styles.listContent]}>
     {home ? checkbox : null}
     <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.copy}>
-      <Text style={[styles.name, deemphasized && !completed && styles.deemphasizedText, completed && styles.completedText]}>{chore.name}</Text>
+      <Text style={[styles.name, deemphasized && !completed && styles.deemphasizedText, completed && styles.completedText]}>{name}</Text>
       {home ? <View style={styles.metadata}>
         {source === 'shared' || source === 'instructed' ? <View style={styles.sourceIcon}>{sourceIcon === 'person' ? <PersonIcon size={15} /> : <GroupIcon size={22} />}</View> : null}
         {source === 'personal' && mixedSources ? <View style={styles.sourceIcon}><PersonIcon size={15} /></View> : null}

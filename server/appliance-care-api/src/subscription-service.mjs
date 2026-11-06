@@ -40,25 +40,32 @@ export function createSubscriptionService({ store, providers, signer, now = Date
       || !record.purchaseId.length || record.purchaseId.length > 4096 || !statusOrder.includes(record.status)
       || !Number.isSafeInteger(record.expiresAt) || record.expiresAt < 0
       || typeof record.productId !== 'string' || !/^[A-Za-z0-9_.-]{1,200}$/u.test(record.productId)
-      || typeof record.autoRenew !== 'boolean') throw new SubscriptionError(502, 'STORE_RESPONSE_INVALID', 'ストアの契約状態を確認できませんでした。');
+      || typeof record.autoRenew !== 'boolean' || record.retired === true && !['expired', 'revoked'].includes(record.status)) throw new SubscriptionError(502, 'STORE_RESPONSE_INVALID', 'ストアの契約状態を確認できませんでした。');
     return { ...record, key: `${record.store}-${subscriptionHash(record.purchaseId)}` };
   };
-  async function refresh(userId, evidence) {
+  async function refresh(userId, evidence, verifying = false, claimedAcknowledgement) {
     subscriptionUserId(userId);
+    if (verifying && (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)
+      || !['apple', 'google'].includes(evidence.store) || typeof evidence.proof !== 'string'
+      || evidence.proof.length < 8 || evidence.proof.length > 32_768 || Object.keys(evidence).sort().join() !== 'proof,store')) {
+      throw new SubscriptionError(400, 'INVALID_PURCHASE', '購入情報を確認してください。');
+    }
+    if (verifying && !providers[evidence.store]) throw new SubscriptionError(503, 'STORE_NOT_CONFIGURED', 'このストアでの購入はまだ準備中です。');
     const attempt = await store.begin(userId);
     const existing = await store.purchases(userId);
     if (existing.length > 8) throw new SubscriptionError(409, 'SUBSCRIPTION_REVIEW_REQUIRED', '契約の確認が必要です。');
     const verified = [];
     if (evidence) {
-      if (!['apple', 'google'].includes(evidence.store) || typeof evidence.proof !== 'string'
-        || evidence.proof.length < 8 || evidence.proof.length > 32_768 || Object.keys(evidence).sort().join() !== 'proof,store') {
-        throw new SubscriptionError(400, 'INVALID_PURCHASE', '購入情報を確認してください。');
-      }
-      if (!providers[evidence.store]) throw new SubscriptionError(503, 'STORE_NOT_CONFIGURED', 'このストアでの購入はまだ準備中です。');
       verified.push(check(await providers[evidence.store].verify(evidence.proof, attempt.account)));
     }
     for (const current of existing) {
       if (verified.some(record => record.key === current.key)) continue;
+      // A previously authoritative terminal Google purchase is not queryable
+      // after 60 days. Retire its refresh pointer, never its ownership binding.
+      if (current.store === 'google' && ['expired', 'revoked'].includes(current.status)
+        && current.expiresAt < now() - 60 * 86400_000) {
+        verified.push(check({ ...current, retired: true, autoRenew: false })); continue;
+      }
       if (!providers[current.store]) throw new SubscriptionError(503, 'STORE_NOT_CONFIGURED', '契約の確認先が設定されていません。');
       verified.push(check(await providers[current.store].refresh(current, attempt.account)));
     }
@@ -67,7 +74,17 @@ export function createSubscriptionService({ store, providers, signer, now = Date
     // Do not finish an unverified/pending purchase. A failed acknowledgement is retried from the saved purchase.
     const replaced = new Set(verified.filter(record => record.linkedPurchaseId).map(record => `${record.store}-${subscriptionHash(record.linkedPurchaseId)}`));
     for (const record of verified) if (['active', 'grace'].includes(record.status) && record.expiresAt > now() && !replaced.has(record.key)) {
-      await providers[record.store].acknowledge?.(record);
+      if (record.store === 'google' && record.acknowledgementPending === true) {
+        const claim = claimedAcknowledgement?.key === record.key ? claimedAcknowledgement : await store.claimAcknowledgement(record.key, now());
+        if (!claim || !await store.ownsAcknowledgement(claim)) continue;
+        try {
+          await providers.google.acknowledge(record);
+          await store.finishAcknowledgement(claim, true, now());
+        } catch (error) {
+          await store.finishAcknowledgement(claim, false, now());
+          throw error;
+        }
+      } else if (record.store !== 'google' || record.acknowledgementPending !== false) await providers[record.store].acknowledge?.(record);
     }
     return { entitlement: signer.sign(committed), account: {
       appAccountToken: attempt.account.appAccountToken, obfuscatedAccountId: attempt.account.obfuscatedAccountId,
@@ -85,7 +102,27 @@ export function createSubscriptionService({ store, providers, signer, now = Date
       }
       return refresh(userId);
     },
-    refresh: userId => refresh(userId), verify: (userId, evidence) => refresh(userId, evidence),
+    refresh: userId => refresh(userId), verify: (userId, evidence) => refresh(userId, evidence, true),
+    /** Bounded, restartable server job. No client reconnect or in-process timer is required. */
+    async retryAcknowledgements({ limit = 10, budgetMs = 90_000 } = {}) {
+      if (!Number.isInteger(budgetMs) || budgetMs < 1 || budgetMs > 120_000) throw new Error('Invalid acknowledgement budget');
+      const started = now(); const result = { completed: 0, deferred: 0, failed: 0, overdue: 0 };
+      for (const key of await store.dueAcknowledgements(started, limit)) {
+        if (now() - started >= budgetMs) break;
+        const claim = await store.claimAcknowledgement(key, now());
+        if (!claim) { result.deferred++; continue; }
+        // This is an observation deadline, not evidence of a purchase time or permission to grant access.
+        if (now() - claim.firstQueuedAt >= 48 * 60 * 60_000) result.overdue++;
+        try {
+          await refresh(claim.userId, undefined, false, claim);
+          result.completed++;
+        } catch {
+          await store.finishAcknowledgement(claim, false, now());
+          result.failed++;
+        }
+      }
+      return result;
+    },
     async assertActive(userId) {
       const saved = await store.entitlement(subscriptionUserId(userId));
       if (!saved || !['active', 'grace'].includes(saved.status) || saved.expiresAt <= now() || saved.validUntil <= now()) {

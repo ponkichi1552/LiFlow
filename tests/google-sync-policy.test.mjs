@@ -90,3 +90,15 @@ test('HTTP 403 quota limits retry while genuine permission failures remain perma
   assert.equal(classifyGoogleSyncFailure({ status: 403, code: 'insufficientPermissions' }, t0).kind, 'error');
   assert.equal(classifyGoogleSyncFailure({ status: 403, code: 'PERMISSION_DENIED' }, t0).kind, 'error');
 });
+
+test('Firestore transient and quota codes without HTTP status retry while authority and schema failures stay blocked', () => {
+  for (const code of ['unavailable', 'deadline-exceeded', 'aborted', 'resource-exhausted']) {
+    const result = classifyGoogleSyncFailure({ code }, t0);
+    assert.equal(result.kind, 'retry'); assert.equal(result.code, code);
+    assert.equal(result.nextRetryAt.getTime(), t0.getTime() + GOOGLE_SYNC_RETRY_INTERVAL_MS);
+  }
+  assert.equal(classifyGoogleSyncFailure({ code: 'resource-exhausted', retryAfter: '7200' }, t0).nextRetryAt.getTime(), t0.getTime() + 7_200_000);
+  for (const code of ['permission-denied', 'unauthenticated', 'failed-precondition', 'invalid-argument']) {
+    assert.deepEqual(classifyGoogleSyncFailure({ code }, t0), { kind: 'error', code });
+  }
+});

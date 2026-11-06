@@ -6,6 +6,8 @@ import * as rollout from '../src/features/sharing/rollout.ts';
 import * as retentionRuntime from '../src/features/sharing/v2/history-retention-runtime.ts';
 import * as retentionSchema from '../src/features/sharing/v2/history-retention-schema.ts';
 import * as retentionArchives from '../src/platform/storage/retention-archives.ts';
+import * as historyCheckpoint from '../src/platform/storage/history-checkpoint.ts';
+import { workspaceHarness } from './helpers/sharing-workspaces-harness.mjs';
 
 function fixture(options = {}) {
   const events = []; const handles = []; const synchronizers = []; const syncBudgets = [];
@@ -42,6 +44,7 @@ function fixture(options = {}) {
     '../../features/sharing/v2/history-retention-runtime.ts': retentionRuntime,
     '../../features/sharing/v2/history-retention-schema.ts': retentionSchema,
     '../storage/retention-archives.ts': retentionArchives,
+    '../storage/history-checkpoint.ts': historyCheckpoint,
     '../../features/sharing/workspace-protocol.ts': { verifyWorkspaceArchive: (record) => [record.anchor], sharedWorkspaceProtocol: () => 1 },
     '../../features/sharing/v2/workspace-session.ts': {}, '../../features/sharing/v2/view-point.ts': {},
     '../../features/sharing/v2/controller-access.ts': {},
@@ -229,4 +232,16 @@ test('a legacy workspace account switch during native database opening closes th
   options.afterOpen = () => { h.session.userId = 'another-account'; };
   await assert.rejects(h.api.openSharedWorkspace({ userId: 'member', groupId: 'healthy' }), /切り替わり/u);
   assert.equal(h.events.includes('initialize:healthy'), false); assert.ok(h.events.includes('close:healthy'));
+});
+
+test('protected saved presentation opens only registry metadata while normal workspace reads still wait for signature memo initialization', async () => {
+  let starts = 0; let resolve; const memo = new Promise(done => { resolve = done; });
+  const h = await workspaceHarness({ initializeSignatureCache: async () => { starts++; await memo; } });
+  try {
+    const display = await h.api.sharingRegistryDatabase({ presentationOnly: true }); assert.equal(display, h.index.database); assert.equal(starts, 0);
+    let ready = false; const current = h.api.sharingRegistryDatabase().then(value => { ready = true; return value; });
+    await Promise.resolve(); assert.equal(starts, 1); assert.equal(ready, false);
+    assert.equal(await h.api.sharingRegistryDatabase({ presentationOnly: true }), display); assert.equal(ready, false);
+    resolve(); assert.equal(await current, display); assert.equal(ready, true);
+  } finally { resolve(); await h.close(); }
 });

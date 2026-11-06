@@ -2,10 +2,42 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { privateCalendarRuntimeFixture } from './helpers/private-calendar-runtime.mjs';
+import { advancePrivateCalendarAuthority } from '../src/features/sharing/private-calendar/authority.ts';
 
 async function configured(t) {
   const f = privateCalendarRuntimeFixture(t); await f.devices.initializeFirstDevice(); const runtime = f.open(); await f.connect(runtime); return { ...f, runtime };
 }
+
+test('a timed out automatic device refresh stops a 201 revision authority scan before its next page and does not delay source disabling', async t => {
+  const f = await configured(t); const identity = await f.f.secrets.identity(f.userId);
+  let authority = await f.f.secrets.authority(f.userId);
+  while (authority.signed.body.revision < 201) {
+    const body = authority.signed.body;
+    const next = advancePrivateCalendarAuthority(authority, { devices: body.devices, mainDeviceId: body.mainDeviceId, keyVersion: body.keyVersion + 1 }, identity);
+    await f.cloud.commitAuthority(authority, next); await f.f.secrets.acceptAuthorityUpdate(f.userId, next.signed); authority = next;
+  }
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const read = f.cloud.authorityPage; const pages = []; let first; let second;
+  const enteredFirst = new Promise(resolve => { first = resolve; }); const enteredSecond = new Promise(resolve => { second = resolve; });
+  f.cloud.authorityPage = async (after, checkBudget) => {
+    if (checkBudget) {
+      checkBudget(); pages.push(after); if (after === 0) first(); if (after === 100) second();
+      await new Promise(resolve => setTimeout(resolve, 20_000)); checkBudget();
+    }
+    return read(after);
+  };
+  const runtime = f.open(); const updating = runtime.synchronizeAutomatically();
+  const rejected = assert.rejects(updating, error => error.code === 'deadline-exceeded');
+  await enteredFirst; f.state.now += 20_000; t.mock.timers.tick(20_000); await enteredSecond;
+  f.state.now += 5000; t.mock.timers.tick(5000); await rejected;
+  const stopped = await runtime.disableSource(authority.digest); assert.equal(stopped.kind, 'ready');
+  assert.equal((await runtime.readSettings()).connected, false); assert.deepEqual(pages, [0, 100]);
+  f.state.now += 20_000; t.mock.timers.tick(20_000); await new Promise(setImmediate); await new Promise(setImmediate);
+  assert.deepEqual(pages, [0, 100]); assert.equal((await f.f.secrets.authority(f.userId)).digest, stopped.authorityDigest);
+  assert.equal(f.state.googleReads, 0); assert.equal(f.state.uploads, 0);
+  f.cloud.authorityPage = read;
+  assert.equal((await runtime.synchronizeAutomatically()).kind, 'disabled');
+});
 test('private Calendar automatic synchronization does not initialize trust restore login or request scopes on an unconfigured device', async t => {
   const f = privateCalendarRuntimeFixture(t); const runtime = f.open();
   assert.deepEqual(await runtime.synchronizeAutomatically(), { kind: 'unavailable' });
@@ -40,7 +72,8 @@ test('private Calendar automatic follower receives one complete snapshot and ski
 test('private Calendar automatic synchronization preserves key-delivery retry policy rather than using a manual forced device refresh', async t => {
   const f = await configured(t); const observed = []; const sync = f.port.devices.synchronizeDevices;
   f.port.devices = { ...f.port.devices, synchronizeDevices: options => { observed.push(options); return sync(options); } }; const runtime = f.open();
-  await runtime.synchronizeAutomatically(); await runtime.refreshData(); assert.deepEqual(observed, [{ force: false }, { force: true }]);
+  await runtime.synchronizeAutomatically(); await runtime.refreshData(); assert.deepEqual(observed.map(({ force }) => ({ force })), [{ force: false }, { force: true }]);
+  assert.ok(observed.every(options => typeof options.assertBudget === 'function' && options.signal instanceof AbortSignal));
 });
 test('private Calendar automatic synchronization returns within its budget and never queries Google when a delayed control read resumes later', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] }); const f = await configured(t); let release; let enter;

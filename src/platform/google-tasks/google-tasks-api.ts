@@ -1,3 +1,6 @@
+import type { GoogleOperationBudget } from '../../features/google-sync/operation-budget';
+import { googleTaskRequestNotSent } from '../../features/google-sync/task-create-intent.ts';
+
 export const GOOGLE_TASKS_SCOPE = 'https://www.googleapis.com/auth/tasks';
 export const GOOGLE_TASKS_LIST_TITLE = '家事Planner';
 
@@ -15,6 +18,9 @@ export interface GoogleTask {
   completed?: string;
   deleted?: boolean;
   hidden?: boolean;
+  etag?: string;
+  updated?: string;
+  parent?: string;
 }
 
 export interface GoogleTaskDraft {
@@ -35,6 +41,7 @@ export interface GoogleTasksBatchTaskFailure {
   status: number;
   code: string;
   retryAfter?: string;
+  requestNotSent?: true;
 }
 
 export type GoogleTasksBatchItemResult = GoogleTasksBatchTaskResult | GoogleTasksBatchTaskFailure;
@@ -51,6 +58,9 @@ export interface GoogleTaskUpdate {
   taskId: string;
   patch: GoogleTaskPatch;
 }
+
+export interface GoogleTasksPageQuery { pageToken?: string; updatedMin?: string }
+export interface GoogleTasksPage { items: GoogleTask[]; nextPageToken?: string; serverDate?: string }
 
 export class GoogleTasksApiError extends Error {
   readonly status: number;
@@ -77,27 +87,35 @@ export interface GoogleTasksApi {
   listTaskLists(accessToken: string): Promise<GoogleTaskList[]>;
   createTaskList(accessToken: string, title: string): Promise<GoogleTaskList>;
   listTasks(accessToken: string, taskListId: string): Promise<GoogleTask[]>;
+  listTaskPage?(accessToken: string, taskListId: string, query: GoogleTasksPageQuery): Promise<GoogleTasksPage>;
   getTask(accessToken: string, taskListId: string, taskId: string): Promise<GoogleTask>;
   createTask(accessToken: string, taskListId: string, draft: GoogleTaskDraft): Promise<GoogleTask>;
   createTasksBatch?(accessToken: string, taskListId: string, drafts: readonly GoogleTaskDraft[]): Promise<GoogleTasksBatchItemResult[]>;
   patchTasksBatch?(accessToken: string, taskListId: string, updates: readonly GoogleTaskUpdate[]): Promise<GoogleTasksBatchItemResult[]>;
   patchTask(accessToken: string, taskListId: string, taskId: string, patch: GoogleTaskPatch): Promise<GoogleTask>;
-  deleteTask(accessToken: string, taskListId: string, taskId: string): Promise<void>;
+  deleteTask(accessToken: string, taskListId: string, taskId: string, expectedETag: string): Promise<void>;
+}
+/** If-Match cannot use a missing, weak, wildcard or header-injected validator. */
+export function isGoogleTaskETag(value: unknown): value is string {
+  return typeof value === 'string' && /^"[\x21\x23-\x7E]{1,500}"$/u.test(value);
 }
 
 const API_ROOT = 'https://tasks.googleapis.com/tasks/v1';
 const BATCH_ROOT = 'https://tasks.googleapis.com/batch';
 const REQUEST_TIMEOUT_MS = 20_000;
 const BATCH_REQUEST_TIMEOUT_MS = 60_000;
+const TASK_READ_FIELDS = 'id,title,notes,due,status,completed,deleted,hidden,etag,updated,parent';
 export const GOOGLE_TASKS_BATCH_MAX_REQUESTS = 100;
 
 export function createGoogleTasksApi(
   fetcher: typeof fetch = fetch,
   observeRequest?: (method: 'GET' | 'POST' | 'PATCH' | 'DELETE', operationCount?: number) => void,
+  options: { budget?: GoogleOperationBudget } = {},
 ): GoogleTasksApi {
-  const send = <T>(accessToken: string, path: string, init: RequestInit = {}) => {
+  const send = <T>(accessToken: string, path: string, init: RequestInit = {}, receiveHeaders?: (headers: Headers) => void) => {
+    assertUnsentBudget(options.budget);
     observeRequest?.((init.method ?? 'GET') as 'GET' | 'POST' | 'PATCH' | 'DELETE');
-    return request<T>(fetcher, accessToken, path, init);
+    return request<T>(fetcher, accessToken, path, init, options.budget, receiveHeaders);
   };
   const sendBatch = async (accessToken: string, drafts: readonly {
     method: 'POST' | 'PATCH'; path: string; body: GoogleTaskDraft | GoogleTaskPatch;
@@ -106,6 +124,7 @@ export function createGoogleTasksApi(
       throw new RangeError(`Google Tasks batch cannot exceed ${GOOGLE_TASKS_BATCH_MAX_REQUESTS} requests`);
     }
     if (drafts.length === 0) return [];
+    assertUnsentBudget(options.budget);
     const boundary = createBatchBoundary();
     const operations = drafts.map((draft, index) => ({ ...draft, requestId: `request-${index}` }));
     const body = operations.map((operation) => [
@@ -114,15 +133,26 @@ export function createGoogleTasksApi(
       JSON.stringify(operation.body),
     ].join('\r\n')).join('\r\n') + `\r\n--${boundary}--\r\n`;
     observeRequest?.('POST', drafts.length);
-    return requestBatch(fetcher, accessToken, body, boundary, operations.map(({ requestId }) => requestId));
+    return requestBatch(fetcher, accessToken, body, boundary, operations.map(({ requestId }) => requestId), options.budget);
+  };
+  const listTaskPage = async (accessToken: string, taskListId: string, query: GoogleTasksPageQuery): Promise<GoogleTasksPage> => {
+    const params = new URLSearchParams({ maxResults: '100', showCompleted: 'true', showHidden: 'true', showDeleted: 'true',
+      fields: `nextPageToken,items(${TASK_READ_FIELDS})` });
+    if (query.pageToken) params.set('pageToken', query.pageToken);
+    if (query.updatedMin) params.set('updatedMin', query.updatedMin);
+    let serverDate: string | undefined;
+    const page = await send<{ items?: GoogleTask[]; nextPageToken?: string }>(accessToken,
+      `/lists/${encodeURIComponent(taskListId)}/tasks?${params.toString()}`, {}, headers => { serverDate = headers.get('Date') ?? undefined; });
+    return { items: page.items ?? [], ...(page.nextPageToken ? { nextPageToken: page.nextPageToken } : {}), ...(serverDate ? { serverDate } : {}) };
   };
   return {
+    listTaskPage,
     async listTaskLists(accessToken) {
       const items: GoogleTaskList[] = [];
       const visitedTokens = new Set<string>();
       let pageToken: string | undefined;
       do {
-        const params = new URLSearchParams({ maxResults: '100' });
+        const params = new URLSearchParams({ maxResults: '100', fields: 'nextPageToken,items(id,title)' });
         if (pageToken) params.set('pageToken', pageToken);
         const page = await send<{ items?: GoogleTaskList[]; nextPageToken?: string }>(
           accessToken, `/users/@me/lists?${params.toString()}`,
@@ -147,12 +177,8 @@ export function createGoogleTasksApi(
       const visitedTokens = new Set<string>();
       let pageToken: string | undefined;
       do {
-        const params = new URLSearchParams({ maxResults: '100', showCompleted: 'true', showHidden: 'true', showDeleted: 'true' });
-        if (pageToken) params.set('pageToken', pageToken);
-        const page = await send<{ items?: GoogleTask[]; nextPageToken?: string }>(
-          accessToken, `/lists/${encodeURIComponent(taskListId)}/tasks?${params.toString()}`,
-        );
-        items.push(...(page.items ?? []));
+        const page = await listTaskPage(accessToken, taskListId, { pageToken });
+        items.push(...page.items);
         pageToken = page.nextPageToken;
         if (pageToken && visitedTokens.has(pageToken)) throw new Error('Google Tasks returned a repeated page token');
         if (pageToken) visitedTokens.add(pageToken);
@@ -194,9 +220,11 @@ export function createGoogleTasksApi(
       });
     },
 
-    async deleteTask(accessToken, taskListId, taskId) {
+    async deleteTask(accessToken, taskListId, taskId, expectedETag) {
+      if (!isGoogleTaskETag(expectedETag)) throw new GoogleTasksApiError(400, 'task_delete_etag_required', null);
       await send<void>(accessToken, `/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(taskId)}`, {
         method: 'DELETE',
+        headers: { 'If-Match': expectedETag },
       });
     },
   };
@@ -212,19 +240,19 @@ async function requestBatch(
   body: string,
   boundary: string,
   requestIds: readonly string[],
+  budget?: GoogleOperationBudget,
 ): Promise<GoogleTasksBatchItemResult[]> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), BATCH_REQUEST_TIMEOUT_MS);
-  try {
+  return withRequestTimeout(BATCH_REQUEST_TIMEOUT_MS, async signal => {
     const response = await fetcher(BATCH_ROOT, {
       method: 'POST',
-      signal: controller.signal,
+      signal,
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': `multipart/mixed; boundary=${boundary}`,
       },
       body,
     });
+    if (signal.aborted) throw requestTimeoutError();
     if (!response.ok) {
       const payload: unknown = await response.json().catch(() => null);
       throw new GoogleTasksApiError(
@@ -253,9 +281,7 @@ async function requestBatch(
         return { requestId, ok: false, status: 502, code: 'invalid_batch_task' };
       }
     });
-  } finally {
-    clearTimeout(timeout);
-  }
+  }, budget);
 }
 
 function multipartBoundary(contentType: string | null): string | null {
@@ -303,19 +329,20 @@ async function request<T>(
   accessToken: string,
   path: string,
   init: RequestInit = {},
+  budget?: GoogleOperationBudget,
+  receiveHeaders?: (headers: Headers) => void,
 ): Promise<T> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
+  return withRequestTimeout(REQUEST_TIMEOUT_MS, async signal => {
     const response = await fetcher(`${API_ROOT}${path}`, {
       ...init,
-      signal: controller.signal,
+      signal,
       headers: {
         Authorization: `Bearer ${accessToken}`,
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
         ...init.headers,
       },
     });
+    if (signal.aborted) throw requestTimeoutError();
     if (response.status === 404) throw new GoogleTaskNotFoundError();
     if (!response.ok) {
       const payload: unknown = await response.json().catch(() => null);
@@ -326,11 +353,36 @@ async function request<T>(
       );
     }
     if (response.status === 204) return undefined as T;
-    return await response.json() as T;
-  } finally {
-    clearTimeout(timeout);
-  }
+    const payload = await response.json() as T;
+    receiveHeaders?.(response.headers);
+    return payload;
+  }, budget);
 }
+
+/** Abort is advisory: a native fetch or body reader may never reject on its own. */
+async function withRequestTimeout<T>(milliseconds: number, work: (signal: AbortSignal) => Promise<T>, budget?: GoogleOperationBudget): Promise<T> {
+  assertUnsentBudget(budget);
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  budget?.signal.addEventListener('abort', abort, { once: true });
+  if (budget?.signal.aborted) controller.abort();
+  let timeout: ReturnType<typeof setTimeout>;
+  const expiration = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(requestTimeoutError());
+    }, milliseconds);
+  });
+  const cancelled = budget?.expiration.then(() => { controller.abort(); throw requestTimeoutError(); });
+  try {
+    const value = await Promise.race([work(controller.signal), expiration, ...(cancelled ? [cancelled] : [])]);
+    budget?.assert(); return value;
+  } finally { clearTimeout(timeout!); budget?.signal.removeEventListener('abort', abort); }
+}
+function assertUnsentBudget(budget?: GoogleOperationBudget) {
+  try { budget?.assert(); } catch (error) { throw googleTaskRequestNotSent(error); }
+}
+function requestTimeoutError() { return Object.assign(new Error('Google Tasks request timed out'), { name: 'AbortError', code: 'timeout' }); }
 
 function googleErrorCode(payload: unknown): string | undefined {
   if (!payload || typeof payload !== 'object' || !('error' in payload)) return undefined;

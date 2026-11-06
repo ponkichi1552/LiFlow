@@ -228,7 +228,7 @@
     "manualReview": "docs/testing-strategy.md"
   },
   {
-    "feature": "waste-occurrence-checkboxes",
+    "feature": "waste-display-only-reminders-and-management-exceptions",
     "tests": [
       {
         "file": "tests/waste-help-navigation.test.mjs",
@@ -236,11 +236,11 @@
       },
       {
         "file": "tests/waste-help-navigation.test.mjs",
-        "name": "waste check hides only one occurrence on home and calendar can restore all recurrence modes"
+        "name": "waste reminders stay display-only on home and calendar while management exceptions preserve every recurrence"
       },
       {
         "file": "tests/waste-help-navigation.test.mjs",
-        "name": "waste checks reject duplicate taps and remain visible after a failed save"
+        "name": "waste management visibility rejects duplicate taps and remains retryable after a failed save"
       }
     ],
     "manualReview": "docs/testing-strategy.md"
@@ -432,7 +432,7 @@
       },
       {
         "file": "tests/google-sync-reconciliation.test.mjs",
-        "name": "reinitializing local storage adopts an existing same-name, same-date task instead of duplicating it"
+        "name": "reinitializing local storage adopts its exact personal occurrence marker instead of mutable names and dates"
       }
     ]
   },
@@ -735,11 +735,11 @@
     "tests": [
       {
         "file": "tests/municipality-search-recovery.test.mjs",
-        "name": "municipality search presents a Japanese recovery message"
+        "name": "municipality search remains available offline without waiting for network"
       },
       {
         "file": "tests/municipality-search-recovery.test.mjs",
-        "name": "municipality search recovers after editing an offline query and ignores an obsolete in-flight result"
+        "name": "offline municipality hook immediately follows the current query"
       },
       {
         "file": "tests/weather-provider-reliability.test.mjs",
@@ -747,7 +747,7 @@
       },
       {
         "file": "tests/weather-provider-reliability.test.mjs",
-        "name": "changing locations discards expired forecast keys instead of retaining every past search"
+        "name": "changing locations bounds retained public forecast keys instead of retaining every past search"
       },
       {
         "file": "tests/weather-provider-reliability.test.mjs",
@@ -755,7 +755,7 @@
       },
       {
         "file": "tests/weather-provider-reliability.test.mjs",
-        "name": "municipality kana conversion retains"
+        "name": "offline municipality kana search retains"
       }
     ]
   },
@@ -954,6 +954,30 @@
       {
         "file": "tests/sharing-secure-vault.test.mjs",
         "name": "a lost manifest response never deletes chunks already referenced by a successfully committed manifest"
+      },
+      {
+        "file": "tests/sharing-secure-vault.test.mjs",
+        "name": "a failed protected deletion stays unreadable and restart retries every retained chunk instead of losing its location"
+      },
+      {
+        "file": "tests/sharing-secure-vault.test.mjs",
+        "name": "replacing a protected value keeps retryable cleanup metadata until obsolete chunks have actually been deleted"
+      },
+      {
+        "file": "tests/sharing-secure-vault.test.mjs",
+        "name": "an interrupted new credential write retains cleanup intent when unpublished chunks cannot yet be deleted"
+      },
+      {
+        "file": "tests/sharing-secure-vault.test.mjs",
+        "name": "protected deletion survives a lost native reply without leaving a journal or removing another account"
+      },
+      {
+        "file": "tests/sharing-secure-vault.test.mjs",
+        "name": "protected values read legacy hex after upgrade and use compact canonical base64 for subsequent saves"
+      },
+      {
+        "file": "tests/sharing-secure-vault.test.mjs",
+        "name": "secure vault bounds native chunk concurrency and verifies a maximum-sized value before returning it"
       }
     ]
   },
@@ -1237,6 +1261,42 @@
       {
         "file": "tests/widget-completion-sync.test.mjs",
         "name": "cancelling a queued planner refresh preserves durable widget actions for foreground recovery"
+      },
+      {
+        "file": "tests/planner-refresh-controller.test.mjs",
+        "name": "a captured owner-input change retries one local read without an error flash or duplicate weather and native output"
+      },
+      {
+        "file": "tests/planner-refresh-controller.test.mjs",
+        "name": "persistent owner-input drift retries only once and retains an existing usable snapshot"
+      },
+      {
+        "file": "tests/planner-refresh-controller.test.mjs",
+        "name": "owner-read recovery never retries access revocation or an untyped error and still discards revoked content"
+      },
+      {
+        "file": "tests/planner-refresh-controller.test.mjs",
+        "name": "a superseding refresh or invalidation cancels owner-read recovery and never publishes the obsolete attempt"
+      },
+      {
+        "file": "tests/widget-durable-input.test.mjs",
+        "name": "retrying an owner-input read after a committed native widget action does not repeat its completion or Google revision"
+      },
+      {
+        "file": "tests/personal-settings-view.test.mjs",
+        "name": "settings metadata matches the full planner with one read and no history replay or planning writes"
+      },
+      {
+        "file": "tests/personal-settings-view.test.mjs",
+        "name": "native settings reads use an independent read-only WAL snapshot and never display an unfinished planner transaction"
+      },
+      {
+        "file": "tests/personal-settings-view.test.mjs",
+        "name": "missing or damaged settings metadata fails without creating defaults or scheduling a chore"
+      },
+      {
+        "file": "tests/personal-settings-view.test.mjs",
+        "name": "${platform} settings consumers share a metadata read while the full planner remains pending and refresh does not wait for replanning"
       }
     ]
   },
@@ -3725,7 +3785,7 @@
       },
       {
         "file": "tests/sharing-v2-waste-ui.test.mjs",
-        "name": "an unresolved shared waste hide decision keeps its checkbox disabled until an explicit current choice"
+        "name": "an unresolved shared waste hide decision stays read-only on home and is resolved only in management"
       }
     ]
   },
@@ -3734,7 +3794,7 @@
     "tests": [
       {
         "file": "tests/sharing-v2-waste-ui.test.mjs",
-        "name": "shared home hides one waste occurrence and its compact calendar checkbox restores the same date without changing chores"
+        "name": "shared collection reminders are display-only while management hides and restores exactly one date without changing chores"
       },
       {
         "file": "tests/sharing-v2-waste-ui.test.mjs",
@@ -5616,6 +5676,18 @@
       {
         "file": "tests/sharing-v2-google-tasks.test.mjs",
         "name": "v2 Tasks never persists unknown link fields or exposes poisoned private records"
+      },
+      {
+        "file": "tests/sharing-v2-google-tasks.test.mjs",
+        "name": "v2 Google connection guards and private receipts do not replay business history or repeat schema setup but still refuse revoked access"
+      },
+      {
+        "file": "tests/sharing-v2-google-tasks.test.mjs",
+        "name": "v2 Google private schema readiness is not retained after its first transaction rolls back"
+      },
+      {
+        "file": "tests/sharing-v2-google-tasks.test.mjs",
+        "name": "v2 private Google state rolls back when access is revoked after its SQL update"
       }
     ]
   },
@@ -6764,6 +6836,14 @@
       {
         "file": "tests/background-sync-audit.test.mjs",
         "name": "registering the OS worker defers all application synchronization modules and loads Tasks only when enabled=${enabled}"
+      },
+      {
+        "file": "tests/background-sync-audit.test.mjs",
+        "name": "background completion classification preserves interrupted evidence and refuses unknown or unfinished domains"
+      },
+      {
+        "file": "tests/background-sync-audit.test.mjs",
+        "name": "${platform} background diagnostics show pending domains until every enabled synchronization finishes"
       }
     ]
   },
@@ -6781,6 +6861,14 @@
       {
         "file": "tests/sharing-workspace-recovery.test.mjs",
         "name": "a durably reported shared sync failure reaches the worker without attempting other groups"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a delivered native group distinguishes a fresh Tasks cadence from ${status} deferred work"
+      },
+      {
+        "file": "tests/google-sync-coordinator.test.mjs",
+        "name": "a future-clock success marker cannot classify an unverified Tasks skip as a settled cadence"
       }
     ]
   },
@@ -7748,6 +7836,74 @@
       {
         "file": "tests/sharing-secure-vault.test.mjs",
         "name": "protected credential chunks are read concurrently after their committed manifest without skipping missing-chunk verification"
+      },
+      {
+        "file": "tests/planner-refresh-controller.test.mjs",
+        "name": "foreground observers wait for the existing first local read without starting or duplicating it"
+      },
+      {
+        "file": "tests/planner-refresh-controller.test.mjs",
+        "name": "a failed local attempt releases independent recovery while a cancelled stale read does not"
+      },
+      {
+        "file": "tests/sharing-workspace-recovery.test.mjs",
+        "name": "protected saved presentation opens only registry metadata while normal workspace reads still wait for signature memo initialization"
+      },
+      {
+        "file": "tests/calendar-read-cost.test.mjs",
+        "name": "home projection of a warmed wide calendar builds only its visible weeks with identical dates completion choices and counts"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "composing an unchanged owner home and calendar reuses the personal plan without recapturing the shared scheduler"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "a silent protected preference change refuses the old cached overlay and recaptures its actual owner clock"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "an unverified protected-cache read failure cannot fall through to an apparently successful cached personal display"
+      },
+      {
+        "file": "tests/planner-multiconnection.test.mjs",
+        "name": "a reusable personal overlay still observes a completion committed by another native SQLite connection"
+      },
+      {
+        "file": "tests/foreground-first-read.test.mjs",
+        "name": "ios Calendar automatic sync waits for the local read and never starts after its provider departs=false"
+      },
+      {
+        "file": "tests/foreground-first-read.test.mjs",
+        "name": "ios Calendar automatic sync waits for the local read and never starts after its provider departs=true"
+      },
+      {
+        "file": "tests/foreground-first-read.test.mjs",
+        "name": "ios Tasks automatic startup waits for its own forced local refresh and backgrounding cancels the pending launch"
+      },
+      {
+        "file": "tests/foreground-first-read.test.mjs",
+        "name": "android Calendar automatic sync waits for the local read and never starts after its provider departs=false"
+      },
+      {
+        "file": "tests/foreground-first-read.test.mjs",
+        "name": "android Calendar automatic sync waits for the local read and never starts after its provider departs=true"
+      },
+      {
+        "file": "tests/foreground-first-read.test.mjs",
+        "name": "android Tasks automatic startup waits for its own forced local refresh and backgrounding cancels the pending launch"
+      },
+      {
+        "file": "tests/startup-display-platform.test.mjs",
+        "name": "cache-missing startup diagnostics require both opt-in flags and never delete the encrypted saved display"
+      },
+      {
+        "file": "tests/sharing-v2-private-ui.test.mjs",
+        "name": "ios an idle saved shared home does not decode every private calendar command and pending completion aliases remain immediate"
+      },
+      {
+        "file": "tests/sharing-v2-private-ui.test.mjs",
+        "name": "android an idle saved shared home does not decode every private calendar command and pending completion aliases remain immediate"
       }
     ]
   },
@@ -7953,6 +8109,10 @@
       {
         "file": "tests/sharing-workspace-provider.test.mjs",
         "name": "${platform} the same restored account keeps its saved tab hierarchy visible while membership is still loading"
+      },
+      {
+        "file": "tests/settings-source-ui.test.mjs",
+        "name": "${platform} early settings adds a private holiday on the owners local date rather than the unfinished device planner date"
       }
     ]
   },
@@ -8147,7 +8307,7 @@
       },
       {
         "file": "tests/household-care-catalog.test.mjs",
-        "name": "version 3 to 4 updates only untouched fields, preserves history and explicit edits, and adds disabled jobs once"
+        "name": "adopting the new private catalogue removes old built-ins rather than guessing a history or setting migration"
       },
       {
         "file": "tests/household-care-catalog.test.mjs",
@@ -8155,7 +8315,7 @@
       },
       {
         "file": "tests/household-care-catalog.test.mjs",
-        "name": "product and seasonal jobs have explicit provisional cycles while municipal collection still uses its own settings"
+        "name": "personal condition and seasonal entries no longer manufacture provisional day cycles or a municipal completion task"
       },
       {
         "file": "tests/household-care-catalog.test.mjs",
@@ -8248,6 +8408,22 @@
       {
         "file": "tests/calendar-recurrence-oracle.test.mjs",
         "name": "independent daily enumeration agrees with 4096 seeded custom and preset recurrence windows"
+      },
+      {
+        "file": "tests/calendar-event-api-audit.test.mjs",
+        "name": "Calendar cancellation ends an ignored native ${phase} wait and prevents late work"
+      },
+      {
+        "file": "tests/calendar-event-api-audit.test.mjs",
+        "name": "Calendar concurrent requests share one cancellation listener and release it after their final response"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a Calendar deadline with an unacknowledged HTTP insert preserves its intent and later edit without a duplicate after restart"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "Calendar native identity timeouts release the queue and rollback an uncommitted page"
       }
     ]
   },
@@ -8517,6 +8693,50 @@
       {
         "file": "tests/subscription-security.test.mjs",
         "name": "public billing and restore remain available when AI attestation is unavailable while every analysis endpoint stays closed"
+      },
+      {
+        "file": "tests/subscription-runtime-recovery.test.mjs",
+        "name": "subscription initialization retries after a partial auth failure and leaves exactly one observer"
+      },
+      {
+        "file": "tests/subscription-runtime-recovery.test.mjs",
+        "name": "concurrent signed entitlement acceptance cannot roll back a newer persisted revocation"
+      },
+      {
+        "file": "tests/subscription-runtime-recovery.test.mjs",
+        "name": "verified revocation denies local access despite a failed secure write while forged revocation cannot lock an account"
+      },
+      {
+        "file": "tests/subscription-runtime-recovery.test.mjs",
+        "name": "a fresh authenticated server response recovers an accidental future wall clock without accepting an old signed revision"
+      },
+      {
+        "file": "tests/subscription-purchase-recovery.test.mjs",
+        "name": "${platform} a recovered store catalogue can be fetched again without signing out or losing the purchase observer"
+      },
+      {
+        "file": "tests/subscription-purchase-recovery.test.mjs",
+        "name": "${platform} a failed purchase from a previous login cannot clear the current accounts in-flight action"
+      },
+      {
+        "file": "tests/subscription-purchase-recovery.test.mjs",
+        "name": "${platform} a purchase callback cannot resume after signing out and back into the same account"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "a permanently expired Google token cannot block a fresh verified purchase and its ownership stays bound"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "invalid purchase evidence is rejected before changing a durable subscription verification generation"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "Google terminal token responses retire refresh pointers while transient or unrecognized errors preserve them"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "signed Apple TEST notifications need no transaction but never change an entitlement or bypass application checks"
       }
     ]
   },
@@ -8657,6 +8877,2106 @@
       {
         "file": "tests/native-sqlite-config.test.mjs",
         "name": "native SQLite safety defaults preserve encryption and platform-specific build options"
+      }
+    ]
+  },
+  {
+    "feature": "audit-recovery-and-bounded-processing-2026-11-04",
+    "tests": [
+      {
+        "file": "tests/completion-intents-ui.test.mjs",
+        "name": "${platform} personal home and calendar immediately share the last completion gesture while protected persistence is blocked"
+      },
+      {
+        "file": "tests/completion-intents-ui.test.mjs",
+        "name": "${platform} shared home completion and Undo stay immediate and commit one authorized signed intent after the pending save"
+      },
+      {
+        "file": "tests/scheduler-contract-failures.test.mjs",
+        "name": "scheduler compatibility permits only a verified absent prior contract and fails closed on unreadable Git or corrupt JSON"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} a committed shared calendar save survives draft-cleanup failure and restart without duplicating a series"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} shared calendar post-commit cleanup preserves a newer draft saved by another editor"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} a lost shared calendar commit reply retries the persisted command and failed pre-commit saves retain their draft"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} edits and deletion retry the committed shared intent using the projected event identity and original basis"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "shared calendar intent identity rejects a different command and captures nested input before asynchronous access checks"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "shared recurring exception resets refuse changes not included in the originally reviewed exception set"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} deleted shared series have no impossible exception-resolution controls"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} shared calendar conflict candidates expose differing location notes recurrence category and original time zone"
+      },
+      {
+        "file": "tests/api-rate-limit.test.mjs",
+        "name": "API rate windows keep identity limits isolated and free expired capacity without extending active windows"
+      },
+      {
+        "file": "tests/api-rate-limit.test.mjs",
+        "name": "API rate windows match a bounded reference through clock rollback expiry and repeated identities"
+      },
+      {
+        "file": "tests/completion-intents.test.mjs",
+        "name": "failed completion intents retry their original identity after an unknown commit and never repeat successful business history"
+      },
+      {
+        "file": "tests/completion-intents.test.mjs",
+        "name": "a full restored failed queue can recover and accept another chore without reinstalling or silently discarding requests"
+      },
+      {
+        "file": "tests/completion-intents.test.mjs",
+        "name": "retrying a failed completion requires a durable request and retains failures when storage is still unavailable"
+      },
+      {
+        "file": "tests/storage-migrations.test.mjs",
+        "name": "a database from a future app version is refused before any pragma mutation migration or seed write"
+      },
+      {
+        "file": "tests/storage-migrations.test.mjs",
+        "name": "completion intent deduplication schema and per-chore history index are migrated once and used without completion-time DDL"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "mixed-zone calendar events are ordered by their displayed date and time while retaining original editing identities"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "calendar date indexing preserves complete cross-midnight all-day moved and DST coverage without repeated whole-month scans"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-events.test.mjs",
+        "name": "resetting an edited recurring exception never resurrects its superseded ancestor and a later new exception remains valid"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-events.test.mjs",
+        "name": "resetting one concurrent exception preserves a genuinely concurrent alternative instead of an earlier causal version"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "reused AI admissions stay permanently bound to their original job through a lost response failure and server restart"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "steady AI status polls use read-only quota checks while device changes and refunds still synchronize the strict allowance"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "normal AI admissions can durably reuse a successful explicit reanalysis without changing either request identity"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "public AI rejects an invalid admission identity before decoding a PDF and never reserves a paid slot"
+      },
+      {
+        "file": "tests/appliance-manual-upload.test.mjs",
+        "name": "manual base64 validation accepts the full upload limit without recursive regular-expression overflow"
+      },
+      {
+        "file": "tests/appliance-shared-manual-retention.test.mjs",
+        "name": "local PDF identity validation preserves full-size and boundary bytes without requiring shared network chunks"
+      },
+      {
+        "file": "tests/sharing-secure-vault.test.mjs",
+        "name": "a native cleanup rejection without a reason still fails deletion and preserves retry metadata"
+      },
+      {
+        "file": "tests/planner-multiconnection.test.mjs",
+        "name": "independent SQLite connections never publish a stale plan after another connection commits ${mutation}"
+      },
+      {
+        "file": "tests/planner-multiconnection.test.mjs",
+        "name": "late weather from one SQLite connection cannot erase a completion or rewrite another connections newer schedule"
+      },
+      {
+        "file": "tests/planner-multiconnection.test.mjs",
+        "name": "a WAL commit after the planner version check rolls back the stale writer and retries from the new completion"
+      },
+      {
+        "file": "tests/planner-multiconnection.test.mjs",
+        "name": "the personal overlay reuses a verified cache but revalidates a background connections completion before recommending it"
+      },
+      {
+        "file": "tests/planner-repository.test.mjs",
+        "name": "recompleting an old occurrence then undoing ${order.join(' and ')} restores the original anchor without reviving an undone date${sameDay ? ' on the same day' : ''}"
+      },
+      {
+        "file": "tests/planner-repository.test.mjs",
+        "name": "personal completion history freezes its original timezone and undo after travel restores the real prior state"
+      },
+      {
+        "file": "tests/chore-history-retention.test.mjs",
+        "name": "personal raw completion history survives the display cutoff for learning and undo while old calendar events and anchors remain"
+      },
+      {
+        "file": "tests/chore-history-retention.test.mjs",
+        "name": "early completions of future rounds remain available after the ordinary history display cutoff"
+      },
+      {
+        "file": "tests/sharing-completion-intents.test.mjs",
+        "name": "local shared mutation receipts preserve legacy completion identities during the transactional table upgrade"
+      },
+      {
+        "file": "tests/appliance-shared-manual-retention.test.mjs",
+        "name": "a committed appliance review reports a retryable personal-copy failure without replaying the signed save or another paid analysis"
+      },
+      {
+        "file": "tests/sharing-v2-appliance-ui.test.mjs",
+        "name": "${platform} a shared appliance saved with a pending personal copy stays saved and never invites a second analysis"
+      },
+      {
+        "file": "tests/completion-intents-ui.test.mjs",
+        "name": "${platform} a prepared shared display notification acknowledges the committed gesture and does not mask later remote changes"
+      },
+      {
+        "file": "tests/completion-intents-ui.test.mjs",
+        "name": "${platform} restoring a committed gesture before the focused shared display cannot hide a later completion"
+      }
+    ]
+  },
+  {
+    "feature": "audit-calendar-http-receipts-and-task-status-20261105",
+    "tests": [
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "personal Calendar preserves a later ${action} after a lost ${method} reply and runtime restart"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a third party edit after a lost personal insert stays an explicit conflict with the newer local edit intact"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "an unconfirmed personal write is not acknowledged before HTTP succeeds and later offline edits still converge"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "shared Google export durably recovers a lost ${method} before a later ${action}"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "a moved recurring Google copy is found by original start and later edits use its stable id"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "shared Calendar accepts permitted writerWithoutPrivateAccess targets without changing visibility"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "restoring a deleted recurring copy ${externalEdit ? 'preserves a later external edit' : 'uses the verified current tombstone ETag'}"
+      },
+      {
+        "file": "tests/shared-google-calendar-store.test.mjs",
+        "name": "an unsent recurring exception reset survives further receipted series edits in the real private export store"
+      },
+      {
+        "file": "tests/sharing-v2-google-tasks.test.mjs",
+        "name": "a title-only Tasks update preserves an unimported remote undo with ${batch ? 'batch' : 'individual'} HTTP and real signed SQLite history"
+      },
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "a personal lost-create response recovers its original task after a name and recommendation change without adopting a matching manual task"
+      },
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "same-name same-date unmarked Tasks are never silently adopted as personal completions"
+      }
+    ]
+  },
+  {
+    "feature": "audit-retained-settings-and-purchase-acknowledgements-20261105",
+    "tests": [
+      {
+        "file": "tests/owner-rhythm-settings.test.mjs",
+        "name": "a partial rhythm save resumes after editor recreation without replaying a protected revision or hiding the pending local apply"
+      },
+      {
+        "file": "tests/owner-rhythm-settings.test.mjs",
+        "name": "a pending rhythm projection cannot overwrite a newer protected edit or cross into another account"
+      },
+      {
+        "file": "tests/owner-rhythm-settings.test.mjs",
+        "name": "the real SQLite rhythm compare-and-set rejects a stale partial projection and accepts only its exact already-applied value"
+      },
+      {
+        "file": "tests/sharing-v2-autosave.test.mjs",
+        "name": "retained shared setting drafts keep their selected effective date across failure and editor recreation"
+      },
+      {
+        "file": "tests/schedule-reset-and-home-revision.test.mjs",
+        "name": "an appliance reset displays the accepted retained cycle after an in-flight save${newer ? ' without erasing a newer edit' : ''}"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "a stale recurring editor draft can be explicitly discarded without deleting another round or a newer draft"
+      },
+      {
+        "file": "tests/feature-screen-contracts.test.mjs",
+        "name": "committed first-run setup retries only display loading after a refresh failure and cannot replay old choices"
+      },
+      {
+        "file": "tests/appliance-shared-manual-retention.test.mjs",
+        "name": "retained appliance metadata refreshes the cached library without recalculating schedules or altering custom personal names"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-ui.test.mjs",
+        "name": "${platform} a shared monthly waste rule outside loaded exception coverage stays unknown until that month is read"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "a durable Google acknowledgement retries after server restart without client reconnection and never exposes a purchase proof"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "an acknowledgement accepted before a lost reply is observed before retry and never acknowledged twice"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "acknowledgement leases survive process loss prevent concurrent retry and reject stale receipts"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "a revoked queued purchase is reconciled before acknowledgement and cannot grant or acknowledge an invalid purchase"
+      }
+    ]
+  },
+  {
+    "feature": "audit-widget-history-and-cloud-pagination-20261105",
+    "tests": [
+      {
+        "file": "tests/widget-output-recovery.test.mjs",
+        "name": "a delayed expiry widget read cannot overwrite a renewed publication and real expiry invalidates identical content"
+      },
+      {
+        "file": "tests/widget-output-recovery.test.mjs",
+        "name": "a native widget output failure reaches the refresh controller and retries unchanged cached content without hiding the screen"
+      },
+      {
+        "file": "tests/widget-output-recovery.test.mjs",
+        "name": "expiry cancellation attempts independent notifications and widget outputs and retries only remaining native reservations"
+      },
+      {
+        "file": "tests/widget-output-recovery.test.mjs",
+        "name": "a failed notification listing still locks the widget and widget failure does not prevent notification cleanup"
+      },
+      {
+        "file": "tests/widget-output-recovery.test.mjs",
+        "name": "an old expiry cleanup cannot cancel renewed or another accounts notifications after its delayed native read"
+      },
+      {
+        "file": "tests/history-checkpoint.test.mjs",
+        "name": "a blocked WAL truncate stays durably pending and completes only after an independent old reader ends"
+      },
+      {
+        "file": "tests/history-checkpoint.test.mjs",
+        "name": "an invalid checkpoint result never clears pending maintenance and a later retry retains its exact scope"
+      },
+      {
+        "file": "tests/sharing-join-pages.test.mjs",
+        "name": "${platform} group requests retain continuation after failure and never hide valid requests behind an invalid page"
+      },
+      {
+        "file": "tests/sharing-private-calendar-auto.test.mjs",
+        "name": "a timed out automatic device refresh stops a 201 revision authority scan before its next page and does not delay source disabling"
+      }
+    ]
+  },
+  {
+    "feature": "audit-bounded-observation-reservation-and-worker-outcomes-20261105",
+    "tests": [
+      {
+        "file": "tests/processing-efficiency-regressions.test.mjs",
+        "name": "waste recurrence jumps preserve a daily reference across monthly clamps anchors leap years duplicate weekdays and empty ranges"
+      },
+      {
+        "file": "tests/processing-efficiency-regressions.test.mjs",
+        "name": "overlapping laundry windows evaluate each forecast day once and retain the least shifted matching window"
+      },
+      {
+        "file": "tests/processing-efficiency-regressions.test.mjs",
+        "name": "resetting already-default personal schedules preserves the reusable snapshot and writes no definition or schedule rows"
+      },
+      {
+        "file": "tests/processing-efficiency-regressions.test.mjs",
+        "name": "${platform} draft keystrokes read only drafts and a saved event arriving during a draft read still refreshes real availability"
+      },
+      {
+        "file": "tests/local-notification-reconciliation.test.mjs",
+        "name": "notification results distinguish unchanged publication deadline permission and native capacity exclusions without exposing content"
+      },
+      {
+        "file": "tests/daily-housework-digest.test.mjs",
+        "name": "digest indexing leaves reminders identical while old schedule rows are not rescanned for every future date"
+      },
+      {
+        "file": "tests/background-sync-audit.test.mjs",
+        "name": "OS evidence distinguishes private Calendar ${kind} and pending group changes from an actual completed sync"
+      },
+      {
+        "file": "tests/sharing-private-calendar-device-session.test.mjs",
+        "name": "a conflicting unaccepted first-device proposal can use the existing reviewed pairing flow without deleting trust or generating a second identity"
+      },
+      {
+        "file": "tests/sharing-private-calendar-device-session.test.mjs",
+        "name": "unaccepted first-device recovery preserves proposals on an unknown server stale reference account switch or protected cache"
+      },
+      {
+        "file": "tests/waste-management-undo.test.mjs",
+        "name": "waste ${recurrence} Undo does not expire while refresh or failed restoration prevents input"
+      },
+      {
+        "file": "tests/appliance-shared-manual-retention.test.mjs",
+        "name": "personal copied appliance details show the registered ${override ?? 30} day cadence separately from a newer ninety day analysis"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a ${parentState} master with twenty six waiting exceptions never starves a later valid series and resumes after restart"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-cloud.integration.mjs",
+        "name": "an identical membership roster cannot acknowledge a different randomly generated key after a lost commit reply"
+      },
+      {
+        "file": "tests/sharing-cloud.integration.mjs",
+        "name": "rejecting a stale invitation request never reads or changes the applicants unrelated current group"
+      },
+      {
+        "file": "tests/sharing-cloud.integration.mjs",
+        "name": "join request pagination reaches a valid applicant after ${count - 1} invalid documents"
+      },
+      {
+        "file": "tests/subscription-cloud.integration.mjs",
+        "name": "real Firestore acknowledgement queue survives a failed reply and server restart while all client access is denied"
+      }
+    ]
+  },
+  {
+    "feature": "audit-resumable-owner-proof-and-first-dependency-20261105",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-recovery-progress.test.mjs",
+        "name": "owner recovery checkpoints each bounded proof page across SQLite reopen without changing a cursor or outbox"
+      },
+      {
+        "file": "tests/sharing-v2-recovery-progress.test.mjs",
+        "name": "owner recovery never caches missing receipts as proof and rejects a receipt that appears after an interrupted attempt"
+      },
+      {
+        "file": "tests/sharing-v2-recovery-progress.test.mjs",
+        "name": "owner recovery isolates account roster retention key and witness scopes without accepting another scope cache"
+      },
+      {
+        "file": "tests/sharing-v2-recovery-progress.test.mjs",
+        "name": "owner recovery revalidates persisted bytes against the signed witness even if a local attacker also rewrites the cache digest"
+      },
+      {
+        "file": "tests/sharing-v2-recovery-progress.test.mjs",
+        "name": "owner recovery rejects duplicate foreign and incomplete evidence without staging an unverified page"
+      },
+      {
+        "file": "tests/sharing-v2-recovery-progress.test.mjs",
+        "name": "owner recovery account changes after a server reply cannot stage that reply or continue network requests"
+      },
+      {
+        "file": "tests/planner-repository.test.mjs",
+        "name": "adding a dependency re-plans only generated pending first dates while retaining unrelated dates and completed history"
+      },
+      {
+        "file": "tests/planner-repository.test.mjs",
+        "name": "dependency changes invalidate pending transitive successors but reject cycles atomically and preserve completed anchors"
+      },
+      {
+        "file": "tests/met-adaptive-weather.test.mjs",
+        "name": "an HTTP-success ${failure} forecast recovers through the real provider optimizer and repository after the short retry TTL"
+      },
+      {
+        "file": "tests/sharing-v2-recovery-store.test.mjs",
+        "name": "recovery reload batches 201 immutable originals without per-original native reads or changing their signed order"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "a Google pending purchase cancellation without expiry is terminal and never grants access or retires a different account binding"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-v2-owner-recovery.integration.mjs",
+        "name": "owner recovery server proof downloads resume after each deadline without applying a partial snapshot or losing offline edits"
+      },
+      {
+        "file": "tests/sharing-v2-owner-recovery.integration.mjs",
+        "name": "a process interruption after quarantine preparation resumes the confirmed intent with fresh encryption while reusing immutable original protection"
+      },
+      {
+        "file": "tests/sharing-cloud.integration.mjs",
+        "name": "invitation management finds a current invitation after more than one page of retained revoked invitations"
+      }
+    ]
+  },
+  {
+    "feature": "native-durable-widget-input-authorization-20261105",
+    "tests": [
+      {
+        "file": "tests/widget-durable-input.test.mjs",
+        "name": "native widget input survives a missing listener and commits completion journal timestamp timezone and Google revision only after authorization"
+      },
+      {
+        "file": "tests/widget-durable-input.test.mjs",
+        "name": "expired or changing subscription rejects queued widget writes and rolls back completion history Tasks state and acknowledgement together"
+      },
+      {
+        "file": "tests/widget-durable-input.test.mjs",
+        "name": "widget inputs cannot complete a disabled removed re-created or foreign occurrence and never retarget a newer cycle"
+      },
+      {
+        "file": "tests/widget-durable-input.test.mjs",
+        "name": "Android recovery ignores transient callback IDs and another account queued actions while preserving accepted inputs on authorization failure"
+      },
+      {
+        "file": "tests/widget-durable-input.test.mjs",
+        "name": "iOS durable input survives a lost native acknowledgement and cannot replay after local Undo"
+      },
+      {
+        "file": "tests/widget-gateway.test.mjs",
+        "name": "iOS decodes durable native input and acknowledges only exact committed operation IDs without replacing display props"
+      },
+      {
+        "file": "tests/widget-ios-native-journal.test.mjs",
+        "name": "iOS native durable widget journal preserves new taps during exact acknowledgement and refuses stale or expired input"
+      },
+      {
+        "file": "tests/widget-native-security.test.mjs",
+        "name": "Android widget write-only SQLite calls never contain row-returning statements"
+      }
+    ]
+  },
+  {
+    "feature": "verified-private-authority-history-reuse-20261105",
+    "tests": [
+      {
+        "file": "tests/sharing-private-calendar-authority-sync.test.mjs",
+        "name": "private Calendar reuses only verified authority prefixes and one work scope while fresh scopes still check the current cloud head"
+      },
+      {
+        "file": "tests/sharing-private-calendar-authority-sync.test.mjs",
+        "name": "private Calendar pending authority receipts invalidate a same-work cached head before resolving the committed update"
+      }
+    ]
+  },
+  {
+    "feature": "adaptive-cycle-model-formulas-20261105",
+    "tests": [
+      {
+        "file": "tests/adaptive-cycle-models.test.mjs",
+        "name": "adaptive learning chooses its bounded reference count once from the previous rounded representative and does not clip long intervals to initial cadence"
+      },
+      {
+        "file": "tests/adaptive-cycle-models.test.mjs",
+        "name": "adaptive weighted median handles exact half ties and finite exponential mean keeps the oldest and newest weights within 1 to 1.5"
+      },
+      {
+        "file": "tests/adaptive-cycle-models.test.mjs",
+        "name": "adaptive alternating models retain global interval parity through a moving reference window and do not create indistinguishable rounded phases"
+      },
+      {
+        "file": "tests/adaptive-cycle-models.test.mjs",
+        "name": "adaptive weekly candidates use only current-mode dates and choose the latest completed weekday on a weighted tie"
+      },
+      {
+        "file": "tests/adaptive-cycle-models.test.mjs",
+        "name": "adaptive month-end candidates require three positive month gaps and retain the scheduled phase after early late and several-month-late completions"
+      },
+      {
+        "file": "tests/adaptive-cycle-models.test.mjs",
+        "name": "adaptive method comparisons use pairwise prior forecasts in the same epoch and require two wins and both exact improvement thresholds"
+      }
+    ]
+  },
+  {
+    "feature": "personal-adopted-catalog-20261104",
+    "tests": [
+      {
+        "file": "tests/personal-catalog-spec.test.mjs",
+        "name": "personal catalog contains all 81 adopted recipes with source work time load tools steps and cautions and no app reference links"
+      },
+      {
+        "file": "tests/personal-catalog-spec.test.mjs",
+        "name": "personal catalog enables only the eight basic jobs and never creates a numeric surrogate for usage needed seasonal held or collection entries"
+      },
+      {
+        "file": "tests/personal-catalog-spec.test.mjs",
+        "name": "personal catalog explicit splits replace only their known parent without inventing siblings remainder work or inferred shared completion"
+      },
+      {
+        "file": "tests/personal-catalog-spec.test.mjs",
+        "name": "personal catalog alternative net cleaning does not double count its normal target and integrated filters retain their source parent work"
+      },
+      {
+        "file": "tests/personal-catalog-spec.test.mjs",
+        "name": "personal catalog generation rejects an unspecified cadence instead of fabricating a one-day or zero-minute fallback"
+      }
+    ]
+  },
+  {
+    "feature": "paid-ai-durable-worker",
+    "tests": [
+      {
+        "file": "tests/appliance-durable-analysis.test.mjs",
+        "name": "durable AI admission stores the exact uploaded input with its quota transaction and a cold worker alone invokes analysis"
+      },
+      {
+        "file": "tests/appliance-durable-analysis.test.mjs",
+        "name": "independent concurrent AI workers cannot start the same paid job twice and resends keep the same monthly charge"
+      },
+      {
+        "file": "tests/appliance-durable-analysis.test.mjs",
+        "name": "a worker stopped before paid execution can renew its preparation lease while the obsolete claimant is fenced"
+      },
+      {
+        "file": "tests/appliance-durable-analysis.test.mjs",
+        "name": "an AI worker stopped after the paid start or provider response is never rerun and expires as an explicit interrupted job"
+      },
+      {
+        "file": "tests/appliance-durable-analysis.test.mjs",
+        "name": "a staged AI result survives termination and later settlement without rerunning analysis or losing a proved no-result refund"
+      },
+      {
+        "file": "tests/appliance-durable-analysis.test.mjs",
+        "name": "failed AI final writes are observable and a cold worker retries only the persisted result"
+      },
+      {
+        "file": "tests/appliance-durable-analysis.test.mjs",
+        "name": "AI queued work rechecks user authority before the paid start and does not bypass it after a preparation restart"
+      },
+      {
+        "file": "tests/appliance-durable-analysis.test.mjs",
+        "name": "AI input chunks preserve a maximum-size PDF and reject corrupt missing reordered oversized or foreign input without paid work"
+      },
+      {
+        "file": "tests/appliance-durable-analysis.test.mjs",
+        "name": "AI queue encryption binds the account job input and key version and rejects missing keys forged tags and rotated-away keys before paid work"
+      },
+      {
+        "file": "tests/appliance-durable-analysis.test.mjs",
+        "name": "AI admission chunk failure rolls back the job receipt monthly quota and global reservation together"
+      },
+      {
+        "file": "tests/appliance-durable-analysis.test.mjs",
+        "name": "AI admissions without a recently running independent worker fail before reserving quota while old receipts remain readable"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "real Firestore queues a maximum PDF atomically and independent workers claim paid execution once without exposing its chunks"
+      },
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "real Firestore resumes staged AI settlement after a worker restart without another paid invocation or lost no-result refund"
+      },
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "real Firestore replaces an expired preparing claimant but never takes over paid execution before its hard deadline"
+      },
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "real Firestore refuses a new paid admission without a live worker and prunes expired private input without downloading it into the query"
+      }
+    ]
+  },
+  {
+    "feature": "owner-recovery-stale-review-lifecycle",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-recovery-store.test.mjs",
+        "name": "recovery store refuses member mutation stale confirmation another scope secrets and changed original ciphertext"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-v2-owner-recovery.integration.mjs",
+        "name": "an obsolete confirming owner review can be cancelled after another valid recovery without cancelling the committed recovery or losing originals"
+      },
+      {
+        "file": "tests/sharing-v2-owner-recovery.integration.mjs",
+        "name": "cancelling an unacknowledged but committed recovery verifies its own signed witness and marks it applied instead of cancelled"
+      }
+    ]
+  },
+  {
+    "feature": "shared-calendar-export-pending-inputs",
+    "tests": [
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "shared Google export reports pending for conflicted or unreceipted sources without deleting their prior copies or blocking independent changes"
+      },
+      {
+        "file": "tests/shared-google-calendar-store.test.mjs",
+        "name": "shared export sends only server-receipted group events and cannot export unsent or unrelated personal state"
+      },
+      {
+        "file": "tests/shared-google-calendar-store.test.mjs",
+        "name": "real signed SQLite calendar conflicts remain explicit blocked export inputs until an accepted resolution replaces every head"
+      }
+    ]
+  },
+  {
+    "feature": "shared-calendar-explicit-account-reconnect",
+    "tests": [
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "shared Calendar account reconnection is explicit and reviewed while OFF ON background work and old Google links stay account-bound"
+      }
+    ]
+  },
+  {
+    "feature": "audit-durable-tasks-create-and-native-timeout-20261105",
+    "tests": [
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "a durable Tasks insert intent survives restart and a temporarily missing response without another POST"
+      },
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "an uncertain Tasks insert leaves other occurrences synchronizable and a definitive rejection permits retry"
+      },
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "confirmed deletion repairs a journaled task while a stale absence cannot duplicate an already linked insert"
+      },
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "Tasks create receipts fence independent SQLite connections, survive reopening and isolate account and list scopes"
+      },
+      {
+        "file": "tests/google-tasks-api.test.mjs",
+        "name": "partial task reads preserve recovery markers, concurrent-change identity, hidden completions and deletions across pages"
+      },
+      {
+        "file": "tests/google-tasks-api.test.mjs",
+        "name": "a native Tasks fetch that ignores abort still terminates and does not process a late response"
+      },
+      {
+        "file": "tests/google-tasks-api.test.mjs",
+        "name": "Tasks JSON error and success body readers share the request deadline even when abort is ignored"
+      },
+      {
+        "file": "tests/google-tasks-api.test.mjs",
+        "name": "a multipart Tasks response reader that never settles cannot hold the sync worker forever"
+      },
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "a durable Tasks repair never patches an old-list task ID through the new list"
+      },
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "an obsolete task completed after the list snapshot is reread and preserved instead of deleted"
+      }
+    ]
+  },
+  {
+    "feature": "adaptive-causal-completion-settings-replay",
+    "tests": [
+      {
+        "file": "tests/adaptive-history.test.mjs",
+        "name": "adaptive ordered history learns after three actual intervals without manufacturing elapsed-time observations"
+      },
+      {
+        "file": "tests/adaptive-history.test.mjs",
+        "name": "adaptive frozen displayed windows retain current parameters while inside-window observations still inform later learning"
+      },
+      {
+        "file": "tests/adaptive-history.test.mjs",
+        "name": "adaptive Undo removes its learning and preserves later explicit settings and independent completions"
+      },
+      {
+        "file": "tests/adaptive-history.test.mjs",
+        "name": "adaptive mode changes normalize each recipe basis, exclude crossing intervals and preserve exact round trips"
+      },
+      {
+        "file": "tests/adaptive-history.test.mjs",
+        "name": "adaptive fixed release starts a fresh generation and necessary-only modes never acquire a one-day surrogate"
+      },
+      {
+        "file": "tests/adaptive-history.test.mjs",
+        "name": "adaptive same-day units use the earliest active original and never advance twice for duplicate operations or rounds"
+      },
+      {
+        "file": "tests/adaptive-history.test.mjs",
+        "name": "adaptive chronology uses saved civil days across travel and DST without rewriting UTC timestamps"
+      },
+      {
+        "file": "tests/adaptive-history.test.mjs",
+        "name": "shared, seasonal, display and shared-origin records never train an individual model"
+      },
+      {
+        "file": "tests/adaptive-history.test.mjs",
+        "name": "only saved causal prior forecasts count and Undo never backfills retrospective prediction wins"
+      },
+      {
+        "file": "tests/adaptive-history.test.mjs",
+        "name": "genuine month-end forecasts can earn adoption and early or late completion retains the scheduled calendar phase"
+      },
+      {
+        "file": "tests/adaptive-history.test.mjs",
+        "name": "same-day originals carry their first genuine prediction to the next effective unit only while the actual round lineage survives"
+      }
+    ]
+  },
+  {
+    "feature": "adaptive-finite-time-and-load-placement",
+    "tests": [
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "adaptive period boundaries use rounded days and symmetric initial windows without changing their finite expansion limits"
+      },
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "adaptive placement tries both one-day expansions and never invents a reservation for an unavailable fallback"
+      },
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "adaptive heavy windows contain a registered holiday without requiring its recommendation to be on that holiday"
+      },
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "three separate ten-minute gaps cannot reserve a continuous thirty-minute chore"
+      },
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "calendar copies and intersecting busy intervals remove their real union only once"
+      },
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "automatic replacement protects today tomorrow overdue and fixed-daily rounds and cannot refill their dates"
+      },
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "global placement uses constrained candidates before flexible tasks and keeps completed load counted exactly once"
+      },
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "midnight work remains one continuous slot and its minutes respect each actual civil-day capacity"
+      },
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "today cannot reserve time already elapsed while direct edits keep their exact requested date"
+      },
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "a ten-thousand-interval calendar is normalized once and placement remains deterministic without mutating source input"
+      },
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "an explicit disabled holiday preference is preserved rather than overwritten by heavy-chore defaults"
+      }
+    ]
+  },
+  {
+    "feature": "adaptive-personal-sqlite-model-forecast-plan-atomicity",
+    "tests": [
+      {
+        "file": "tests/adaptive-personal-store.test.mjs",
+        "name": "adaptive personal initialization generates a real first round without fake history and display reads do not replay"
+      },
+      {
+        "file": "tests/adaptive-personal-store.test.mjs",
+        "name": "a necessary-only personal definition can be enabled without creating a fake daily round or requiring a cycle input"
+      },
+      {
+        "file": "tests/adaptive-personal-store.test.mjs",
+        "name": "adaptive personal completion atomically saves its next actual round and genuine forecast and exact operation replay cannot duplicate either"
+      },
+      {
+        "file": "tests/adaptive-personal-store.test.mjs",
+        "name": "adaptive personal completion binds the displayed frozen plan rather than a later calendar placement"
+      },
+      {
+        "file": "tests/adaptive-personal-store.test.mjs",
+        "name": "adaptive Undo preserves a later fixed policy and later actual completion instead of restoring an obsolete entire snapshot"
+      },
+      {
+        "file": "tests/adaptive-personal-store.test.mjs",
+        "name": "adaptive stale completion from another SQLite connection cannot close a newer round or replay itself after Undo"
+      },
+      {
+        "file": "tests/adaptive-personal-store.test.mjs",
+        "name": "adaptive model plan forecast and normal sync Outbox roll back as one transaction on failure or stale calculation"
+      },
+      {
+        "file": "tests/adaptive-personal-store.test.mjs",
+        "name": "calendar revalidation uses the saved small model and never learns again or rereads event history"
+      },
+      {
+        "file": "tests/adaptive-personal-store.test.mjs",
+        "name": "switching to necessary-only preserves its current protected round through revalidation completion and Undo without generating another periodic round"
+      },
+      {
+        "file": "tests/adaptive-personal-store.test.mjs",
+        "name": "a later necessary-only setting remains effective when an earlier regular completion is undone"
+      }
+    ]
+  },
+  {
+    "feature": "personal-nonperiodic-catalog-and-unbounded-cycle-input",
+    "tests": [
+      {
+        "file": "tests/personal-catalog-spec.test.mjs",
+        "name": "new catalog definitions preserve non-periodic modes through JSON and reset without inventing daily tasks or losing selection and guide data"
+      },
+      {
+        "file": "tests/settings-autosave.test.mjs",
+        "name": "personal cycle autosave accepts long positive intervals without a product cap and rejects unsafe integers without overwriting the saved value"
+      }
+    ]
+  },
+  {
+    "feature": "adaptive-initial-range-and-real-calendar-geometry",
+    "tests": [
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "initial placement searches the first thirty days before one full long cycle and retains its saved seed only for a true fallback"
+      },
+      {
+        "file": "tests/adaptive-calendar-input.test.mjs",
+        "name": "adaptive Calendar geometry unions Google and local copies and distinct busy periods instead of taking daily maxima"
+      },
+      {
+        "file": "tests/adaptive-calendar-input.test.mjs",
+        "name": "holiday and workday date overrides precede weekdays and only unconfigured holidays receive default hours"
+      },
+      {
+        "file": "tests/adaptive-calendar-input.test.mjs",
+        "name": "adaptive daily geometry preserves 23 and 25 hour civil days and unresolved fold bands remain unavailable"
+      }
+    ]
+  },
+  {
+    "feature": "adaptive-personal-repository-integration",
+    "tests": [
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "actual personal repository generates new-catalog rounds through the adaptive adapter without the legacy repeated schedule or fake completion history"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "actual repository completion immediately publishes one next adaptive round and an exact Undo restores the old round while keeping a later fixed interval"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "actual repository learns a long outside-window pace without treating late screen reads as training observations"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "actual repository rollbacks completion history model next-round cache and Google pending status together on a write failure"
+      },
+      {
+        "file": "tests/personal-adaptive-planner.test.mjs",
+        "name": "a busy interval change only replans the connected candidate dates and cannot move an unrelated distant round"
+      },
+      {
+        "file": "tests/personal-adaptive-planner.test.mjs",
+        "name": "setup previous-date input anchors a first real plan without inventing completion observations"
+      }
+    ]
+  },
+  {
+    "feature": "active-personal-catalog-seasonal-rounds-and-adaptive-appliance-integration",
+    "tests": [
+      {
+        "file": "tests/personal-catalog-spec.test.mjs",
+        "name": "personal first setup offers only the eight basic jobs while explicit alternative bulk activation rejects duplicate work atomically"
+      },
+      {
+        "file": "tests/personal-catalog-storage.test.mjs",
+        "name": "private initialization adopts only the new catalogue with eight defaults and subsequent opens never rewrite its definitions"
+      },
+      {
+        "file": "tests/personal-catalog-storage.test.mjs",
+        "name": "new private catalogue discards approved old built-in settings and history without remapping custom jobs appliances or managed Google IDs"
+      },
+      {
+        "file": "tests/personal-catalog-storage.test.mjs",
+        "name": "failed new-catalogue installation rolls back old-history deletion and version before a safe exact retry"
+      },
+      {
+        "file": "tests/personal-seasonal-policy.test.mjs",
+        "name": "seasonal clothing regions use verified structured prefectures and keep ambiguous legacy locations on the explicit national fallback"
+      },
+      {
+        "file": "tests/personal-seasonal-policy.test.mjs",
+        "name": "seasonal initial dates follow the adopted regional table and the Amami 2026 exception never leaks into the next year"
+      },
+      {
+        "file": "tests/personal-seasonal-policy.test.mjs",
+        "name": "seasonal round identity includes work year and season while region and adopted dates remain changeable attributes"
+      },
+      {
+        "file": "tests/personal-seasonal-policy.test.mjs",
+        "name": "seasonal initialization waits for each next actual fixed date without ordinary cycle windows or a fake completion"
+      },
+      {
+        "file": "tests/personal-seasonal-policy.test.mjs",
+        "name": "seasonal region updates preserve completed today tomorrow and overdue rounds and do not move a future round into the past"
+      },
+      {
+        "file": "tests/personal-seasonal-policy.test.mjs",
+        "name": "a late seasonal completion closes only its work kind and advances to the first later same-kind rule date without fabricating missed-year completions"
+      },
+      {
+        "file": "tests/personal-seasonal-policy.test.mjs",
+        "name": "private adaptive fingerprints preserve persisted optional values without weakening shared canonical validation or concealing invalid numbers"
+      },
+      {
+        "file": "tests/personal-seasonal-store.test.mjs",
+        "name": "seasonal SQLite initialization publishes actual stable work-specific rounds and render or date passage creates no new history or duplicate rounds"
+      },
+      {
+        "file": "tests/personal-seasonal-store.test.mjs",
+        "name": "a late winter-storage completion and exact receipt replay never complete autumn or repeat the next yearly round"
+      },
+      {
+        "file": "tests/personal-seasonal-store.test.mjs",
+        "name": "seasonal Undo restores its own pending work without rolling back a later autumn completion or later region setting"
+      },
+      {
+        "file": "tests/personal-seasonal-store.test.mjs",
+        "name": "cancelling an older seasonal completion keeps a later same-work real completion and its next rule date"
+      },
+      {
+        "file": "tests/personal-seasonal-store.test.mjs",
+        "name": "a failed seasonal final journal write rolls back both pending work states and immutable plan publication"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "actual individual activation and mode edits are saved as ordered adaptive events without waiting for another screen"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "actual first adaptive rounds are Google-sync eligible and completion Undo retains the mapped task and durable pending status"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "an aggregate-only FreeBusy day cannot be turned into an invented continuous free slot by the actual adaptive repository context"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "actual seasonal repository completion and Undo keep spring and autumn independent and never enter normal cycle learning"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "a generic shared seasonal title cannot implicitly complete either personal storage meaning"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "shared-mode personal overlay retains both overdue seasonal meanings with separate command keys and can complete the explicitly selected one"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "actual individual split activation replaces its aggregate without losing original settings history or activating unselected sibling work"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "actual appliance rounds learn beyond their manufacturer starting period with ${minutes === undefined ? 'unknown' : 'documented'} working time and retain an ordered reanalysis boundary"
+      },
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "unknown appliance working time keeps a date-only fallback and consumes conservative capacity without inventing a duration or free slot"
+      },
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "initial light chores share daily time and count load rather than all appearing today and seed identity is stable"
+      }
+    ],
+    "manualReview": "docs/testing-strategy.md"
+  },
+  {
+    "feature": "google-sync-total-budget-and-late-result-fencing-20261105",
+    "tests": [
+      {
+        "file": "tests/google-sync-budget.test.mjs",
+        "name": "all Tasks pages share one caller budget and a late fetch cannot read a body or start another page"
+      },
+      {
+        "file": "tests/google-sync-budget.test.mjs",
+        "name": "the total Tasks budget also bounds an ignored ${kind} body deadline"
+      },
+      {
+        "file": "tests/google-sync-budget.test.mjs",
+        "name": "an expired queued Google sync returns on time and never starts OAuth or changes persisted state later"
+      },
+      {
+        "file": "tests/google-sync-budget.test.mjs",
+        "name": "a credential operation that ignores cancellation cannot continue Tasks work after its budget expires"
+      },
+      {
+        "file": "tests/google-sync-budget.test.mjs",
+        "name": "an expired Calendar ${blocked} wait cannot commit late coverage or regenerate a plan"
+      },
+      {
+        "file": "tests/google-sync-budget.test.mjs",
+        "name": "FreeBusy stops even when its native ${blocked} ignores abort"
+      },
+      {
+        "file": "tests/google-sync-budget.test.mjs",
+        "name": "an expired queued v2 Tasks run never resumes private preparation or authorization after another Google operation ends"
+      }
+    ]
+  },
+  {
+    "feature": "durable-paged-google-task-cache-and-delta-20261105",
+    "tests": [
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "Tasks read checkpoints survive database reopening and a failed later page never reconciles a partial list"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "Tasks delta reads use Google server time, retain unchanged tasks and import hidden completion undo and deletion"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "a 10000-task baseline later receives only changed tasks without rewriting unchanged cache rows"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "a real total-budget timeout keeps committed Tasks pages and the next worker starts at the saved cursor"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "an expired Tasks cursor keeps the committed baseline and restarts a full read without assuming missing tasks were deleted"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "a failed Tasks page transaction rolls back its cursor and rows, while stale independent connections cannot append"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "Tasks checkpoints isolate account and list, preserve the earliest cutoff through pages and refuse a repeated cursor"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "Tasks caches without a server clock stay on full reads and a periodic full scan removes only confirmed absent cache entries"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "a corrected backward device clock forces one full Tasks check and corrupt cache metadata rebuilds only that account and list"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "schema26 adds resumable Google read caches without changing schema25 settings history or task links"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "the actual v2 Tasks store uses a private paged cache and a delta completion reaches the same signed occurrence once"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "the personal SQLite Tasks adapter keeps cached IDs and imports a delta without duplicating completion history"
+      }
+    ]
+  },
+  {
+    "feature": "google-task-unsent-reservation-recovery-20261105",
+    "tests": [
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "a budget exhausted before ${batch ? 'batch' : 'individual'} Tasks transport releases only unsent reservations for a normal retry"
+      },
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "a later failed local Tasks reservation releases earlier unissued intents without marking a lost HTTP reply as safe"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-first-write-and-verified-mirror-coverage-20261105",
+    "tests": [
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "a valid personal event can be saved before the first calendar read without guessing a custom category or replacing later category edits"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "unchanged fresh Google coverage refreshes do not invalidate adaptive placement while actual freshness expiry does"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "a complete account-bound Calendar mirror uses real interval union while unfinished pages or requested-only ranges never grant free time"
+      }
+    ]
+  },
+  {
+    "feature": "shared-google-cross-device-verified-history-recovery-20261105",
+    "tests": [
+      {
+        "file": "tests/shared-google-calendar-store.test.mjs",
+        "name": "shared export can prove an older series revision only from receipted authorized history and reports the current revision without changing group facts"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "a second installation with an old Google ETag can advance a verified intermediate shared revision without creating another event"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "an older pending shared export never rolls a verified newer Google copy back before adopting its receipt"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "a rebased shared export survives a lost successful PATCH reply and recovers the exact new ETag without repeating the change"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "a newer shared source found during conflict recovery defers its stale captured payload and resumes from the new source"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "a stale shared delete can rebase only a verified prior LiFlow series before using the new conditional ETag"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "an unverified Google edit stays pending while independent shared calendar changes still export"
+      }
+    ]
+  },
+  {
+    "feature": "adaptive-alternating-is-not-a-fixed-daily-task-20261105",
+    "tests": [
+      {
+        "file": "tests/adaptive-placement.test.mjs",
+        "name": "a one-day alternating phase uses ordinary next-round placement instead of accidentally becoming an immovable daily task"
+      }
+    ]
+  },
+  {
+    "feature": "met-regional-cache-static-municipalities-and-protected-adaptive-weather",
+    "tests": [
+      {
+        "file": "tests/weather-municipalities.test.mjs",
+        "name": "bundled Japanese municipality index is pinned complete and uses four-decimal public representative points"
+      },
+      {
+        "file": "tests/weather-municipalities.test.mjs",
+        "name": "actual repository preserves the selected municipality through setup saves and seasonal planning without inferring free text"
+      },
+      {
+        "file": "tests/weather-municipalities.test.mjs",
+        "name": "schema 26 to 27 weather migration retains existing settings histories and old unbound location"
+      },
+      {
+        "file": "tests/met-weather-cache.test.mjs",
+        "name": "MET interval conversion retains absent probability and chooses finest complete cover without double counting coarse totals"
+      },
+      {
+        "file": "tests/met-weather-cache.test.mjs",
+        "name": "global durable weather gates apply across concurrent workers and retries with two starts per second and four leases"
+      },
+      {
+        "file": "tests/met-weather-cache.test.mjs",
+        "name": "regional 304 preserves original body generated time fetched time and exact Last-Modified while advancing checked time and revision"
+      },
+      {
+        "file": "tests/met-weather-cache.test.mjs",
+        "name": "403 halts automatic fetching and records operator attention while 429 Retry-After slows all regions"
+      },
+      {
+        "file": "tests/met-weather-cache.test.mjs",
+        "name": "15-second MET deadline settles ignored abort without committing late bodies or releasing an unsettled transport slot"
+      },
+      {
+        "file": "tests/met-adaptive-weather.test.mjs",
+        "name": "weather gaps do not make a normal chore unplaceable and automatic weather changes preserve today tomorrow and overdue rounds"
+      },
+      {
+        "file": "tests/met-adaptive-weather.test.mjs",
+        "name": "real repository atomically stores regional cache with adaptive plans and ignores metadata-only refresh and expired weather as replanning causes"
+      },
+      {
+        "file": "tests/met-adaptive-weather.test.mjs",
+        "name": "late regional cache result cannot overwrite a new completion or write forecasts for an obsolete displayed snapshot"
+      },
+      {
+        "file": "tests/met-adaptive-weather.test.mjs",
+        "name": "a regional-cache plus plan write failure rolls back the cache and retained plans together and ordinary reads never contact a weather server"
+      },
+      {
+        "file": "tests/weather-public-runtime.test.mjs",
+        "name": "weather-only HTTP coalesces concurrent regional reads and keeps conditional replies independent of AI authentication"
+      },
+      {
+        "file": "tests/weather-public-runtime.test.mjs",
+        "name": "weather HTTP rejects unknown regions and writes before cloud reads and forged proxy identities cannot reset admission"
+      },
+      {
+        "file": "tests/weather-public-runtime.test.mjs",
+        "name": "weather HTTP never serves expired or clock-reversed cached forecasts and pending jobs become visible promptly"
+      },
+      {
+        "file": "tests/weather-public-runtime.test.mjs",
+        "name": "weather HTTP bounds cached regions and recovers a failed read without poisoning later requests"
+      },
+      {
+        "file": "tests/weather-public-runtime.test.mjs",
+        "name": "public weather runtime requires its named database valid operator and bounded port instead of inheriting private or emulator data"
+      },
+      {
+        "file": "tests/weather-public-runtime.test.mjs",
+        "name": "scheduled weather request awaits its finite batch refuses overlap and stops new work after termination"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/met-weather-cloud.integration.mjs",
+        "name": "real Firestore coalesces a first regional weather reference across clients and preserves the cache across worker restart"
+      },
+      {
+        "file": "tests/met-weather-cloud.integration.mjs",
+        "name": "real Firestore enforces one global two-starts-per-second four-lease budget for independent weather workers"
+      },
+      {
+        "file": "tests/met-weather-cloud.integration.mjs",
+        "name": "real Firestore rejects stale weather worker results after lease takeover and suspends unreferenced regions without starving new work"
+      },
+      {
+        "file": "tests/met-weather-cloud.integration.mjs",
+        "name": "weather service cannot leak or alter its server-only cache or global budget through any mobile Firebase authentication"
+      }
+    ]
+  },
+  {
+    "feature": "owned-adaptive-inputs-shared-first-capacity-and-necessary-only-appliance-reset",
+    "tests": [
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "shared load reserves own and unassigned subjects once and ignores other assignees cooldown and consumed rounds"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "shared completion canonicalization releases others work without charging it to the owner and only confirmed accepted own work is spent"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "shared interval load uses real instants while date-only work keeps its civil day and matching private copies are suppressed without editing them"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "one repository operation captures owner inputs once across transaction aliases and a later operation refreshes them"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "actual repository uses protected owner timezone allowed hours and limits without writing them into public household settings"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "actual repository shared load is independent of the displayed range and does not double-count a matching private pending round"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "real signed shared one-person and per-member completion policies determine reservation release without rewriting common authority"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "actual owner completion records the configured civil day and later account input drift rolls back every adaptive and completion write"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "a newly assigned shared load replans only connected future private work and a no-op refresh does no further writes"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "a private fixed-period edit is journaled while its shared copy supplies the visible load and returns intact after leaving"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "real signed per-member completion keeps the other required subject reserved without charging someone elses work"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "captured shared-first recommendations stay identical across visible ranges and never accept another owner or shared source revision"
+      },
+      {
+        "file": "tests/adaptive-owner-native.test.mjs",
+        "name": "native owner adapter computes one stable full horizon with shared first and performs only injected local reads"
+      },
+      {
+        "file": "tests/adaptive-owner-native.test.mjs",
+        "name": "native owner adapter invalidates saved projections after settings account or shared-input changes"
+      },
+      {
+        "file": "tests/adaptive-owner-native.test.mjs",
+        "name": "native owner adapter rejects an account switch during a protected read and anonymous use needs no preference or shared lookup"
+      },
+      {
+        "file": "tests/schedule-reset-and-home-revision.test.mjs",
+        "name": "private condition-based appliance reset releases its fixed period and keeps its enabled choice without inheriting a placeholder cadence"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "actual private appliance reset stops nonperiodic forecasts and retains original completions while a new explicit period starts a new learning epoch"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "a historical Google completion keeps its original owner day without capturing a past shared planning horizon for the current sync"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "the owner widget snapshot expires at the selected civil midnight including a 23-hour DST day"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "actual private planning unions protected calendar intervals with local events and keeps incomplete or stale days unknown"
+      },
+      {
+        "file": "tests/adaptive-owner-native.test.mjs",
+        "name": "native owner calendar input also protects private-only planning and rejects silent protected-cache changes before commit"
+      },
+      {
+        "file": "tests/adaptive-owner-native.test.mjs",
+        "name": "native owner snapshot validity ends when its accepted busy cache becomes stale"
+      }
+    ]
+  },
+  {
+    "feature": "tasks-strong-etag-delete-conflict-retains-mapping-and-isolated-service-probe",
+    "tests": [
+      {
+        "file": "tests/google-tasks-api.test.mjs",
+        "name": "Google Tasks deletion requires a strong current ETag and sends the exact If-Match condition without a body"
+      },
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "an obsolete task changed after the fresh GET is held on conditional-delete conflict while independent cleanup continues"
+      },
+      {
+        "file": "tests/google-tasks-conditional-probe.test.mjs",
+        "name": "conditional-delete probe distinguishes enforcement from an ignored header and uses only its newly created synthetic list"
+      },
+      {
+        "file": "tests/google-tasks-conditional-probe.test.mjs",
+        "name": "conditional-delete probe refuses uncertain cleanup after its synthetic list identity changes"
+      }
+    ]
+  },
+  {
+    "feature": "private-optional-date-holidays-minute-budgets-and-serialized-autosave",
+    "tests": [
+      {
+        "file": "tests/personal-capacity-settings.test.mjs",
+        "name": "personal capacity settings preserve zero and explicit empty bands while rejecting invalid dates duplicates and hidden data"
+      },
+      {
+        "file": "tests/personal-capacity-settings.test.mjs",
+        "name": "capacity form autosaves without creating values on open and retains invalid or newer in-flight input"
+      },
+      {
+        "file": "tests/personal-capacity-settings.test.mjs",
+        "name": "capacity date edits preserve per-date caps and bands and cannot save duplicate dates"
+      },
+      {
+        "file": "tests/personal-capacity-settings.test.mjs",
+        "name": "actual anonymous SQLite capacity save is idempotent rejects stale changes and rolls back planning and preferences together"
+      },
+      {
+        "file": "tests/personal-capacity-settings.test.mjs",
+        "name": "owner rhythm and capacity saves serialize through one protected revision and legacy editors retain the new optional settings"
+      },
+      {
+        "file": "tests/personal-capacity-settings.test.mjs",
+        "name": "a capacity edit first recovers a partial rhythm publication rather than orphaning its durable SQLite projection"
+      },
+      {
+        "file": "tests/personal-capacity-settings.test.mjs",
+        "name": "a valid larger private date profile remains recoverable through the bounded rhythm publication journal"
+      },
+      {
+        "file": "tests/personal-capacity-settings.test.mjs",
+        "name": "actual private geometry applies protected date holidays and zero day budgets without rewriting personal completion models"
+      },
+      {
+        "file": "tests/personal-capacity-settings.test.mjs",
+        "name": "encrypted private preference synchronization retains new date and minute settings without exposing them to shared storage"
+      }
+    ]
+  },
+  {
+    "feature": "private-calendar-pinned-day-boundaries-without-native-format-loops",
+    "tests": [
+      {
+        "file": "tests/calendar-day-boundary.test.mjs",
+        "name": "private Calendar day boundaries match independent native civil-date searches across regional offsets and DST"
+      },
+      {
+        "file": "tests/calendar-day-boundary.test.mjs",
+        "name": "midnight folds partial-hour gaps and skipped dates never invent or lose available Calendar time"
+      },
+      {
+        "file": "tests/calendar-day-boundary.test.mjs",
+        "name": "a cold 181-day private Calendar horizon requires no native Intl format-to-parts loops and invalid inputs stay rejected"
+      }
+    ]
+  },
+  {
+    "feature": "shared-display-personal-settings-independent-from-plan",
+    "tests": [
+      {
+        "file": "tests/personal-schedule-settings.test.mjs",
+        "name": "personal presentation settings read current SQLite values without loading or writing a chore plan"
+      },
+      {
+        "file": "tests/personal-schedule-settings.test.mjs",
+        "name": "missing or damaged private schedule settings fail without substituting a plan or another account defaults"
+      },
+      {
+        "file": "tests/sharing-v2-private-ui.test.mjs",
+        "name": "ios shared home reads actual personal settings while the full personal snapshot is still loading"
+      },
+      {
+        "file": "tests/sharing-v2-private-ui.test.mjs",
+        "name": "android shared home reads actual personal settings while the full personal snapshot is still loading"
+      }
+    ]
+  },
+  {
+    "feature": "shared-tasks-cross-device-private-atomic-creation",
+    "tests": [
+      {
+        "file": "tests/shared-google-task-claims.test.mjs",
+        "name": "shared Tasks claims contain only hashed private identities and reject malformed or cross-scope records"
+      },
+      {
+        "file": "tests/shared-google-task-claims.test.mjs",
+        "name": "a reserved shared Tasks POST cannot be granted again by replay or an elapsed device lease"
+      },
+      {
+        "file": "tests/shared-google-task-claims.test.mjs",
+        "name": "shared Tasks acknowledgement and confirmed deletion are fenced to the exact recorded task"
+      },
+      {
+        "file": "tests/shared-google-task-claims.test.mjs",
+        "name": "shared native Tasks reserves at most100 local intents in one transaction and rolls the whole chunk back on its final fence"
+      },
+      {
+        "file": "tests/shared-google-task-claims.test.mjs",
+        "name": "a denied cross-device Tasks claim releases only its unused local reservation and permits later retry"
+      },
+      {
+        "file": "tests/shared-google-task-claims.test.mjs",
+        "name": "a lost Cloud creation-grant response remains held across another attempt and never becomes a second provider POST"
+      },
+      {
+        "file": "tests/shared-google-task-claims.test.mjs",
+        "name": "an expired native Tasks reservation rolls back before Cloud and an explicit Cloud permission rejection remains retryable"
+      },
+      {
+        "file": "tests/sharing-v2-google-native.test.mjs",
+        "name": "Native v2 Tasks remains unconfigured without OAuth, then uses the same owner-only input and existing Google gateway"
+      },
+      {
+        "file": "tests/shared-google-task-list.test.mjs",
+        "name": "two independent SQLite clients starting with no Google list create one list and converge on the same task IDs"
+      },
+      {
+        "file": "tests/shared-google-task-list.test.mjs",
+        "name": "a canonical shared list is recovered by hashed ID after a rename without creating or moving tasks"
+      },
+      {
+        "file": "tests/shared-google-task-list.test.mjs",
+        "name": "list creation rechecks the provider after its grant and adopts an existing list instead of posting again"
+      },
+      {
+        "file": "tests/shared-google-task-list.test.mjs",
+        "name": "ambiguous old shared lists and conflicting saved mappings are preserved without provider writes"
+      },
+      {
+        "file": "tests/shared-google-task-list.test.mjs",
+        "name": "an uncertain list insert or creation grant never opens a second POST on another device or restart"
+      },
+      {
+        "file": "tests/shared-google-task-list.test.mjs",
+        "name": "only definitive list insert rejection releases its exact grant for a fresh retry"
+      },
+      {
+        "file": "tests/shared-google-task-list.test.mjs",
+        "name": "confirmed deletion of the exact canonical list permits one replacement but a lost local ID does not"
+      },
+      {
+        "file": "tests/shared-google-task-list.test.mjs",
+        "name": "account changes and an exhausted budget stop list creation before a provider POST"
+      },
+      {
+        "file": "tests/shared-google-task-list.test.mjs",
+        "name": "a failed list reread before POST releases only the known unused creation grant"
+      },
+      {
+        "file": "tests/shared-google-task-list.test.mjs",
+        "name": "transient Firestore list-claim failures retain retry backoff and recover automatically without duplicate inserts"
+      },
+      {
+        "file": "tests/google-sync-policy.test.mjs",
+        "name": "Firestore transient and quota codes without HTTP status retry while authority and schema failures stay blocked"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/shared-google-task-claims.integration.mjs",
+        "name": "independent v2 device databases with the same empty Google snapshot receive one atomic creation grant and converge on one task ID"
+      },
+      {
+        "file": "tests/shared-google-task-claims.integration.mjs",
+        "name": "private Tasks creation receipts deny other accounts enumeration plaintext payloads forged times and unsafe state rewrites"
+      },
+      {
+        "file": "tests/shared-google-task-claims.integration.mjs",
+        "name": "Cloud Tasks receipts preserve ambiguous grants across a stopped device and release only matching definitive outcomes"
+      },
+      {
+        "file": "tests/shared-google-task-claims.integration.mjs",
+        "name": "a Cloud commit with a lost response or a subsequent owner change never grants another device an unsafe retry"
+      },
+      {
+        "file": "tests/shared-google-task-claims.integration.mjs",
+        "name": "Cloud Tasks reserves one bounded100-item chunk and rejects duplicates or overflow without any claim writes"
+      },
+      {
+        "file": "tests/shared-google-task-claims.integration.mjs",
+        "name": "Cloud Tasks captures caller identities before async waits and cancels a late transaction before writing any grant"
+      },
+      {
+        "file": "tests/shared-google-task-claims.integration.mjs",
+        "name": "private Tasks creation receipts obey paid access expiry without releasing another device reservation"
+      },
+      {
+        "file": "tests/shared-google-task-claims.integration.mjs",
+        "name": "Firestore arbitration covers the first shared Tasks list before independent device databases can insert duplicate tasks"
+      },
+      {
+        "file": "tests/shared-google-task-claims.integration.mjs",
+        "name": "canonical list reads require fresh owner-authorized server data and reject cached grants or a changed account"
+      }
+    ]
+  },
+  {
+    "feature": "weather-selected-region-and-owner-civil-clock-stay-independent",
+    "tests": [
+      {
+        "file": "tests/met-adaptive-weather.test.mjs",
+        "name": "a Japanese forecast evaluates a Honolulu civil-day slot by its actual instants without relabelling either date"
+      }
+    ]
+  },
+  {
+    "feature": "shared-cold-verification-cooperates-with-ui-without-partial-state",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-repository.test.mjs",
+        "name": "cold v2 authentication yields to foreground work but never publishes an unchecked tail proof"
+      },
+      {
+        "file": "tests/sharing-v2-repository.test.mjs",
+        "name": "revocation during a cooperative v2 proof slice aborts the read without changing projection or outbox"
+      }
+    ]
+  },
+  {
+    "feature": "new-catalog-unknown-activation-all-periodic-recipes",
+    "tests": [
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "new-catalog unknown activation and explicit period edits retain one durable round across reload and midnight (frequent)"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "new-catalog unknown activation and explicit period edits retain one durable round across reload and midnight (balanced)"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "new-catalog unknown activation and explicit period edits retain one durable round across reload and midnight (relaxed)"
+      }
+    ]
+  },
+  {
+    "feature": "explicit-google-account-selection-preserves-local-work",
+    "tests": [
+      {
+        "file": "tests/sharing-auth.test.mjs",
+        "name": "explicit Google account switching selects an identity without signing out linking or deleting prior account state"
+      },
+      {
+        "file": "tests/sharing-auth.test.mjs",
+        "name": "cancelled or rejected explicit account switching preserves the old workspace and a running login cannot consume the selection request"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "explicit Google account selection opens the account picker and returns only the selected identity"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "cancelling explicit Google account selection keeps the saved account and never falls back to silently logging it in"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "an explicit Google picker result cannot authenticate a different current native account"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "explicit account selection is unavailable from a background worker"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "account selection stops if the app backgrounds while native sign-in services are loading"
+      },
+      {
+        "file": "tests/account-switch-settings.test.mjs",
+        "name": "personal settings exposes account selection only in account controls and blocks unsaved drafts"
+      },
+      {
+        "file": "tests/account-switch-settings.test.mjs",
+        "name": "account selection saves local settings then drains writes without a logout or group change"
+      },
+      {
+        "file": "tests/account-switch-settings.test.mjs",
+        "name": "cancellation preserves the old account and lets account selection retry"
+      },
+      {
+        "file": "tests/account-switch-settings.test.mjs",
+        "name": "repeated selection taps open one account picker and a stale settings owner cannot authenticate"
+      }
+    ]
+  },
+  {
+    "feature": "explicit-personal-google-account-switch-retains-prior-connection",
+    "tests": [
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "explicit Google account changes keep independent mappings busy days and pending intents and restore them without business-data changes"
+      },
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "account changes rollback every saved row if identity changes before commit and reject mismatched Google or Firebase identity"
+      },
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "selecting the active Google account makes no archive or state change and unbound legacy mappings are never assigned to a new account"
+      },
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "account activation waits for the previous Google operation and archives its final write"
+      },
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "an unreadable archived account rolls back the active connection instead of deleting its mappings"
+      },
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "a stalled native identity at the account commit fence rolls back and late identity cannot change the active connection"
+      },
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "Google Tasks connect can use a different account without reusing the old list or task IDs"
+      },
+      {
+        "file": "tests/sharing-auth.test.mjs",
+        "name": "explicitly selecting the same Google identity preserves the active workspace"
+      },
+      {
+        "file": "tests/account-switch-settings.test.mjs",
+        "name": "account selection shares the Google settings lock and refreshes same-user connection controls after success"
+      },
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "Calendar account controls follow an explicit account change atomically and returning accounts keep pending cursors with a fresh generation"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "Google Tasks connection status verifies its bound account without opening consent"
+      },
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "account changes refresh an already-mounted settings view and discard its older native connection read"
+      }
+    ]
+  },
+  {
+    "feature": "same-account-automatic-group-device-restoration",
+    "tests": [
+      {
+        "file": "tests/sharing-account-device-roster.test.mjs",
+        "name": "an approved member device can add a distinct device only to the same existing account, preserving the owner and every other setting"
+      },
+      {
+        "file": "tests/sharing-account-device-roster.test.mjs",
+        "name": "automatic device authorization cannot add another account or elevate the member to owner"
+      },
+      {
+        "file": "tests/sharing-account-device-roster.test.mjs",
+        "name": "a new device cannot authenticate its own approval or sign another members expansion"
+      },
+      {
+        "file": "tests/sharing-account-device-roster.test.mjs",
+        "name": "same-account enrollment preserves independent device authorship and cannot manufacture earlier operations"
+      },
+      {
+        "file": "tests/sharing-account-device-roster.test.mjs",
+        "name": "automatic authorization is bounded to four devices and a removed sponsor cannot authorize a new device"
+      },
+      {
+        "file": "tests/sharing-account-device-roster.test.mjs",
+        "name": "legacy groups still require the existing owner-mediated approval and cannot opt into automatic enrollment implicitly"
+      },
+      {
+        "file": "tests/sharing-account-device-restore.test.mjs",
+        "name": "same-account restoration wraps the existing snapshot keys and its continuous transport epoch key without sharing either device private key"
+      },
+      {
+        "file": "tests/sharing-account-device-restore.test.mjs",
+        "name": "restoration requests prove possession of the new public key and are scoped to an existing account and group"
+      },
+      {
+        "file": "tests/sharing-account-device-restore.test.mjs",
+        "name": "a restore grant cannot be transplanted to another request, account, device, group or epoch"
+      },
+      {
+        "file": "tests/sharing-account-device-restore.test.mjs",
+        "name": "ciphertext tampering fails authenticated decryption and clears keys already opened in the interrupted grant"
+      },
+      {
+        "file": "tests/sharing-account-device-restore.test.mjs",
+        "name": "new-group admission and administrative changes cannot be smuggled into an account restoration grant even by an owner signer"
+      },
+      {
+        "file": "tests/sharing-account-device-restore.test.mjs",
+        "name": "an already approved device receives keys without another membership revision or another key rotation"
+      },
+      {
+        "file": "tests/sharing-account-device-restore.test.mjs",
+        "name": "a removed device cannot reapprove itself automatically and a missing historical key never produces partial success"
+      },
+      {
+        "file": "tests/sharing-account-device-controller.test.mjs",
+        "name": "same-account automatic restoration needs no invitation or owner and acknowledges only after durable recipient keys and activation"
+      },
+      {
+        "file": "tests/sharing-account-device-controller.test.mjs",
+        "name": "a lost submission response reuses its durable nonce and a restarted recipient retries an unacknowledged grant without another admission"
+      },
+      {
+        "file": "tests/sharing-account-device-controller.test.mjs",
+        "name": "failed secure saves and account switches never acknowledge or activate a new same-account workspace"
+      },
+      {
+        "file": "tests/sharing-account-device-controller.test.mjs",
+        "name": "restoration coalesces simultaneous starts and detects request pins, account changes and removed device grants"
+      },
+      {
+        "file": "tests/sharing-account-device-controller.test.mjs",
+        "name": "an unrelated authenticated account cannot use automatic restoration to join a group and receipt pages remain bounded"
+      },
+      {
+        "file": "tests/sharing-account-device-controller.test.mjs",
+        "name": "continuous account-device keys open earlier owner snapshots but never bridge an owner rotation or authorize a removed device"
+      },
+      {
+        "file": "tests/sharing-account-device-controller.test.mjs",
+        "name": "a member sponsoring their own new device gains neither snapshot ownership nor another members key envelope"
+      },
+      {
+        "file": "tests/sharing-account-device-runtime.test.mjs",
+        "name": "native account restoration persists its pin across reloads and activates only the same account without overwriting personal SQLite"
+      },
+      {
+        "file": "tests/sharing-account-device-runtime.test.mjs",
+        "name": "native restoration fences an account replacement during discovery and never starts a duplicate concurrent request"
+      },
+      {
+        "file": "tests/sharing-account-device-runtime.test.mjs",
+        "name": "same-account automation leaves an existing manual join alone and is disabled without the managed endpoint"
+      },
+      {
+        "file": "tests/sharing-account-device-api.test.mjs",
+        "name": "account restoration HTTP never redirects credentials and rejects foreign malformed or oversized response bodies"
+      },
+      {
+        "file": "tests/sharing-account-device-api.test.mjs",
+        "name": "restoration HTTP has a hard budget even if native fetch ignores abort and a late response is never parsed"
+      },
+      {
+        "file": "tests/sharing-account-device-api.test.mjs",
+        "name": "an account change during token acquisition cannot send its token and transport errors do not reveal token material"
+      },
+      {
+        "file": "tests/sharing-account-device-api.test.mjs",
+        "name": "same-account restoration GET-equivalent reads and uncertain mutations accept only their exact server receipt status"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-account-device-cloud.integration.mjs",
+        "name": "same-account service admits one device transactionally across independent servers and physically clears an acknowledged encrypted grant"
+      },
+      {
+        "file": "tests/sharing-account-device-cloud.integration.mjs",
+        "name": "Rules expose only a same-account restoration signal and never permit direct request grant or root forgery"
+      },
+      {
+        "file": "tests/sharing-account-device-cloud.integration.mjs",
+        "name": "device requests and grants reject cross-account identity privilege tampering stale authentication and slot flooding"
+      },
+      {
+        "file": "tests/sharing-account-device-cloud.integration.mjs",
+        "name": "expired requests revoked members snapshot tampering and active recovery never disclose or accept restoration keys"
+      },
+      {
+        "file": "tests/sharing-account-device-cloud.integration.mjs",
+        "name": "removed device identities cannot reapprove themselves and current device admission limits remain bounded"
+      },
+      {
+        "file": "tests/sharing-account-device-cloud.integration.mjs",
+        "name": "retention removes an undelivered grant and the fifth device cannot allocate another restoration request"
+      },
+      {
+        "file": "tests/sharing-account-device-cloud.integration.mjs",
+        "name": "valid refreshed Firebase sessions need no repeated 24-hour login but malformed entitlements fail closed"
+      },
+      {
+        "file": "tests/sharing-account-device-cloud.integration.mjs",
+        "name": "the metadata HTTP service verifies real Firebase Google tokens with revocation checks without returning credentials"
+      },
+      {
+        "file": "tests/sharing-account-device-cloud.integration.mjs",
+        "name": "independent same-account SQLite devices restore an older owner snapshot and converge offline edits across the new device epoch"
+      }
+    ],
+    "manualReview": "docs/security/same-account-group-restoration-2026-11-06.md"
+  },
+  {
+    "feature": "shared-google-native-identity-timeout-recovery",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "v2 Tasks native identity deadlines release synchronization and fence late replies"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "the shared worker completes group delivery without starting an unconfigured paused or disconnected optional Tasks sync"
+      }
+    ]
+  },
+  {
+    "feature": "portable-native-adaptive-weather-shared-load-and-undo",
+    "tests": [
+      {
+        "file": "tests/adaptive-combined-native-fixture.test.mjs",
+        "name": "portable physical-device fixture exercises actual adaptive store learning calendar weather shared load and Undo"
+      }
+    ]
+  },
+  {
+    "feature": "adaptive-calendar-model-phase-after-adoption",
+    "tests": [
+      {
+        "file": "tests/adaptive-calendar-phase.test.mjs",
+        "name": "adaptive placement and cadence use the adopted calendar phase without overwriting original completion rule dates"
+      },
+      {
+        "file": "tests/adaptive-calendar-phase.test.mjs",
+        "name": "real observed-prefix calendar adoption commits completion forecast and next round atomically and supports Undo"
+      }
+    ]
+  },
+  {
+    "feature": "shared-google-manual-budget-after-automatic-timeout",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "v2 manual Tasks sync waits for an expired automatic pass to settle then uses its own remaining budget"
+      },
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "an ordinary automatic Tasks observer cannot shorten a foreground manual budget"
+      },
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "an expired manual Tasks recovery cannot launch work when older preparation finally returns"
+      },
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "pausing shared Tasks cancels a queued manual recovery without starting another synchronization"
+      },
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "manual Tasks can recover an already expired manual pass without inheriting its old timeout"
+      },
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "an explicit shorter deadline also constrains a coalesced manual Tasks recovery"
+      }
+    ]
+  },
+  {
+    "feature": "shared-google-foreground-automatic-budget",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "foreground automatic Tasks completes after serialized input preparation exceeds fifteen seconds"
+      },
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "explicit worker deadline still bounds foreground automatic Tasks"
+      },
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "background automatic Tasks retains its short default deadline"
+      },
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "longer foreground automatic Tasks budget does not bypass provider backoff or required authentication"
+      },
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "foreground automatic Tasks propagates completion and Undo despite a recent success while retaining remote IDs"
+      }
+    ]
+  },
+  {
+    "feature": "shared-google-first-interrupted-attempt-recovery",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "automatic shared Tasks recovers a fresh interrupted first sync before links exist and sends the queued completion"
+      }
+    ]
+  },
+  {
+    "feature": "realistic-lifestyle-replay-and-evidence-integrity",
+    "tests": [
+      {
+        "file": "tests/realistic-lifestyle-cases.test.mjs",
+        "name": "realistic lifestyle asset hash manifest covers the shipped case inputs"
+      },
+      {
+        "file": "tests/realistic-lifestyle-cases.test.mjs",
+        "name": "realistic lifestyle corpus keeps development and holdout cases disjoint and does not include population weights"
+      },
+      {
+        "file": "tests/realistic-lifestyle-cases.test.mjs",
+        "name": "MODE_BOUNDARY ignores unobserved post-mode periods and fails any observed interval leak"
+      },
+      {
+        "file": "tests/realistic-lifestyle-aggregate.test.mjs",
+        "name": "lifestyle aggregate derives eligibility and frozen-window counts from actual per-case SQLite traces for either split"
+      },
+      {
+        "file": "tests/realistic-lifestyle-aggregate.test.mjs",
+        "name": "lifestyle aggregate rejects per-case counts that disagree with the actual SQLite trace"
+      },
+      {
+        "file": "tests/realistic-lifestyle-aggregate.test.mjs",
+        "name": "lifestyle aggregate rejects empty, missing, duplicate, or mismatched case records even when claimed totals match"
+      },
+      {
+        "file": "tests/realistic-lifestyle-aggregate.test.mjs",
+        "name": "lifestyle aggregate rejects a failing directed result masked by an empty raw failures array"
+      },
+      {
+        "file": "tests/realistic-lifestyle-aggregate.test.mjs",
+        "name": "lifestyle aggregate rejects a failing closed-loop row masked by zero scenario failures"
+      },
+      {
+        "file": "tests/realistic-lifestyle-aggregate.test.mjs",
+        "name": "lifestyle trace summary counts actual fallback plans and calendar replans separately"
+      },
+      {
+        "file": "tests/realistic-lifestyle-feedback-loop.test.mjs",
+        "name": "multi-step feedback consumes actual SQLite proposals at 0, 50, and 100 percent for daily, weekly, and month-end profiles"
+      }
+    ],
+    "manualReview": [
+      "docs/qa-assets/realistic-2026-11-06/results/RUN-RESULTS.md"
+    ]
+  },
+  {
+    "feature": "google-background-deltas-and-status-push-20261106",
+    "tests": [
+      {
+        "file": "tests/google-tasks-local-statuses.test.mjs",
+        "name": "an existing shared completion and Undo fit the worker without re-reading Google list metadata or remote pages"
+      },
+      {
+        "file": "tests/google-tasks-local-statuses.test.mjs",
+        "name": "a partial status batch acknowledges only successful exact revisions and retries the remaining item without an inventory read"
+      },
+      {
+        "file": "tests/google-tasks-local-statuses.test.mjs",
+        "name": "a status-only backlog is sent in batches of at most100 and retains every stable provider ID"
+      },
+      {
+        "file": "tests/google-tasks-local-statuses.test.mjs",
+        "name": "an Undo committed during a status PATCH remains pending until the newer revision is acknowledged"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "a delta-only Tasks worker never starts an initial full scan or a non-paged fallback"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "a delta-only Tasks worker resumes the saved delta page and never repeats the completed page"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "an expired background Tasks delta cursor retains its committed baseline and never falls back to a full HTTP read"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "an aged Tasks baseline still receives background deltas while its periodic full rebuild waits for foreground"
+      },
+      {
+        "file": "tests/google-sync-coordinator.test.mjs",
+        "name": "a background Tasks full-read deferral preserves its checkpoint and is automatically resumed in foreground"
+      },
+      {
+        "file": "tests/google-sync-coordinator.test.mjs",
+        "name": "a recent background Tasks deferral cannot be mistaken for healthy not-due work before foreground recovery"
+      },
+      {
+        "file": "tests/shared-google-task-list.test.mjs",
+        "name": "a status-only shared list check accepts only the current canonical hashed destination without provider inventory or writes"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a background Calendar pass defers its initial full read but sends pending local edits and resumes in foreground"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a background Calendar 410 defers the full rebuild while other calendar deltas and local writes continue"
+      },
+      {
+        "file": "tests/google-tasks-local-statuses.test.mjs",
+        "name": "a Google-deleted task defers its ${transport} status push and an automatic foreground retry repairs only the explicit Undo"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "a first-page background Tasks ${status} preserves data and defers destination or cursor repair to foreground"
       }
     ]
   }

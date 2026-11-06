@@ -8,7 +8,7 @@ import { traceStartup, traceStartupSync } from '@/platform/diagnostics/startup-t
 
 let initialization: Promise<void> | undefined;
 async function database() {
-  const db = await sharingRegistryDatabase();
+  const db = await sharingRegistryDatabase({ presentationOnly: true });
   if (!initialization) {
     initialization = db.execAsync(`CREATE TABLE IF NOT EXISTS sharing_startup_display (
       user_id TEXT NOT NULL, group_id TEXT NOT NULL, encrypted_json TEXT NOT NULL, PRIMARY KEY(user_id, group_id));`);
@@ -43,8 +43,13 @@ async function key(userId: string, create: boolean) {
 export const startupDisplayCache = createStartupDisplayCache({ crypto: { ...nativeSharingCrypto,
   decrypt: (...args) => traceStartup('startup.displayDecrypt', () => nativeSharingCrypto.decrypt(...args)),
 }, key, decryptBase64: (...args) => traceStartup('startup.displayDecrypt', () => decryptNativeBase64(...args)),
-  read: (userId, groupId) => traceStartup('startup.displayRead', async () => (await (await database()).getFirstAsync<{ encrypted_json: string }>(
-    'SELECT encrypted_json FROM sharing_startup_display WHERE user_id=? AND group_id=?', userId, groupId))?.encrypted_json ?? null),
+  read: (userId, groupId) => {
+    // Exercise a genuinely cache-missing startup without deleting any user data.
+    // This switch has no effect in an ordinary (non-diagnostic) Release build.
+    if (process.env.EXPO_PUBLIC_LIFLOW_STARTUP_TRACE === '1' && process.env.EXPO_PUBLIC_LIFLOW_STARTUP_NO_CACHE === '1') return Promise.resolve(null);
+    return traceStartup('startup.displayRead', async () => (await (await database()).getFirstAsync<{ encrypted_json: string }>(
+      'SELECT encrypted_json FROM sharing_startup_display WHERE user_id=? AND group_id=?', userId, groupId))?.encrypted_json ?? null);
+  },
   write: (userId, groupId, value) => serializeWrite(userId, groupId, async () => {
     await withIsolatedSqliteTransaction(await database(), async tx => {
       const current = await readSharingWorkspace(tx, userId, groupId);
@@ -72,7 +77,7 @@ export function clearSharedStartupDisplay(userId: string, groupId: string, keepS
 export async function canShowPersonalStartup() {
   try {
     if (await readSharingSelection()) return false;
-    const db = await sharingRegistryDatabase();
+    const db = await sharingRegistryDatabase({ presentationOnly: true });
     if (await db.getFirstAsync(`SELECT 1 AS present FROM sharing_workspaces
       WHERE json_extract(record_json, '$.status') IS NULL
         OR json_extract(record_json, '$.status') NOT IN ('left','removed') LIMIT 1`)) return false;
@@ -83,7 +88,7 @@ export async function canShowPersonalStartup() {
 /** Restore the last verified local view while Firebase initializes. No live session or authority is created here. */
 export async function readSavedStartupDisplay() {
   const selection = await traceStartup('startup.selection', readSharingSelection); if (!selection) return;
-  const db = await traceStartup('startup.registry', sharingRegistryDatabase);
+  const db = await traceStartup('startup.registry', () => sharingRegistryDatabase({ presentationOnly: true }));
   const current = await db.getFirstAsync<{ group_id: string | null }>('SELECT group_id FROM sharing_current_workspace WHERE user_id=?', selection.userId);
   if (current?.group_id !== selection.groupId) return;
   const record = await traceStartup('startup.record', () => readSharingDisplayCandidate(db, selection.userId, selection.groupId)); if (!record || record.status !== 'active') return;

@@ -138,13 +138,23 @@ export function isGoogleIdentityTokenFresh(token: unknown, now = Date.now()): bo
 }
 
 /** Basic Google identity only. Firebase logout must not sign out or revoke this native Tasks session. */
-export async function authorizeGoogleSharingIdentity(): Promise<{ idToken: string; googleUserId: string }> {
+export async function authorizeGoogleSharingIdentity(options: { selectAccount?: boolean } = {}): Promise<{ idToken: string; googleUserId: string }> {
   if (AppState.currentState !== 'active') throw new GoogleSignInRequiredError();
+  const selectAccount = options.selectAccount === true;
   let module = await loadGoogleSignIn();
-  let user = await getCurrentGoogleUser(module);
+  let user: GoogleUser;
+  if (selectAccount) {
+    await authStep('check-services', () => module.GoogleOneTapSignIn.checkPlayServices());
+    if (AppState.currentState !== 'active') throw new GoogleSignInRequiredError();
+    const selected = await authStep('select-sharing-account', () => module.GoogleOneTapSignIn.presentExplicitSignIn());
+    if (module.isCancelledResponse(selected) || !module.isSuccessResponse(selected)) throw new GoogleAuthorizationCancelledError();
+    user = await getCurrentGoogleUser(module);
+    if (!selected.data.user.id || user?.user.id !== selected.data.user.id) throw new GoogleAccountMismatchError();
+    if (Platform.OS === 'android' && !isGoogleIdentityTokenFresh(user.idToken)) throw new GoogleSignInRequiredError();
+  } else user = await getCurrentGoogleUser(module);
   // Android getTokens refreshes the OAuth token but returns its saved ID token.
   // Credential Manager must issue a fresh ID token after that token expires.
-  if (!user || (Platform.OS === 'android' && !isGoogleIdentityTokenFresh(user.idToken))) {
+  if (!selectAccount && (!user || (Platform.OS === 'android' && !isGoogleIdentityTokenFresh(user.idToken)))) {
     module = await signInForUserAction(); user = await getCurrentGoogleUser(module);
   }
   if (!user) throw new GoogleSignInRequiredError();
@@ -204,11 +214,11 @@ export async function restorePrivateGoogleCalendarAccount(): Promise<{ subject: 
   if (!restored) throw new GoogleSignInRequiredError(); return restored;
 }
 
-export async function hasGoogleTasksSession(): Promise<boolean> {
+export async function hasGoogleTasksSession(expectedSubject?: string): Promise<boolean> {
   try {
     const module = await loadGoogleSignIn();
     const currentUser = await getCurrentGoogleUser(module);
-    return Boolean(currentUser?.scopes.includes(GOOGLE_TASKS_SCOPE));
+    return Boolean(currentUser?.scopes.includes(GOOGLE_TASKS_SCOPE) && (!expectedSubject || currentUser.user.id === expectedSubject));
   } catch {
     return false;
   }

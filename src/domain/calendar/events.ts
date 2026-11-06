@@ -23,6 +23,8 @@ export interface CalendarOccurrence extends EventDraft {
   timeIssue?: 'gap' | 'fold'; original?: CalendarOccurrence;
   readOnly?: boolean; externalUrl?: string; blocksTime?: boolean;
 }
+const compareOccurrences = (a: CalendarOccurrence, b: CalendarOccurrence) => a.startDate.localeCompare(b.startDate)
+  || Number(b.allDay) - Number(a.allDay) || a.startMinute - b.startMinute || a.id.localeCompare(b.id);
 export const RECURRENCE_LABELS: Record<CalendarRecurrence, string> = { none: '繰り返さない', daily: '毎日', weekly: '毎週', biweekly: '隔週', monthly: '毎月', yearly: '毎年', custom: 'カスタム' };
 export function recurrenceLabel(value: EventDraft) { return value.recurrence === 'custom' && value.customRecurrence ? customRecurrenceLabel(value.customRecurrence, value.startDate) : RECURRENCE_LABELS[value.recurrence]; }
 export const CATEGORY_PRESETS = ['#348DC2', '#8459B3', '#3D906A', '#BD7042', '#BA527D', '#71823B', '#727A91', '#BE4E4E'];
@@ -121,7 +123,7 @@ export function projectCalendarEvents(events: readonly CalendarEvent[], exceptio
       if (result.length > 20_000) throw new Error('表示する予定が多すぎます。期間を狭めてください。');
     }
   }
-  return result.sort((a, b) => a.startDate.localeCompare(b.startDate) || Number(b.allDay) - Number(a.allDay) || a.startMinute - b.startMinute || a.id.localeCompare(b.id));
+  return result.sort(compareOccurrences);
 }
 /** Timed events share the display clock; untimed/all-day dates keep their original civil date. */
 export function calendarEventsInTimeZone(events: readonly CalendarOccurrence[], timeZone: string): CalendarOccurrence[] {
@@ -135,10 +137,26 @@ export function calendarEventsInTimeZone(events: readonly CalendarOccurrence[], 
     };
     const start = clock(event.startDate, event.startMinute); const end = clock(event.endDate, event.endMinute);
     return { ...event, startDate: start.date, startMinute: start.minute, endDate: end.date, endMinute: end.minute, timeZone, original: event };
-  });
+  }).sort(compareOccurrences);
 }
 export function occurrencesOnDate(events: readonly CalendarOccurrence[], date: LocalDate) {
   return events.filter(row => row.startDate <= date && (row.endDate > date || row.endDate === date && (row.allDay || row.endMinute > 0)));
+}
+/** Expand actual coverage once, rather than scanning the entire event set for every visible day. */
+export function indexCalendarOccurrences(events: readonly CalendarOccurrence[], from: LocalDate, through: LocalDate) {
+  parseLocalDate(from); parseLocalDate(through);
+  if (from > through || daysBetween(from, through) > 370) throw new Error('表示期間は1年以内にしてください。');
+  const byDate = new Map<LocalDate, CalendarOccurrence[]>();
+  for (const event of events) {
+    const start = event.startDate; const end = event.endDate;
+    const first = start < from ? from : start;
+    let last = end > through ? through : end;
+    if (!event.allDay && event.endMinute === 0 && last === end) last = addDays(last, -1);
+    for (let day = first; day <= last; day = addDays(day, 1)) {
+      const rows = byDate.get(day) ?? []; rows.push(event); byDate.set(day, rows);
+    }
+  }
+  return byDate;
 }
 export function minuteLabel(value: number) { return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`; }
 export function categoryColor(color: string, dark: boolean) {

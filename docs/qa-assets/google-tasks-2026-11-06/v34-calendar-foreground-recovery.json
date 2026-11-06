@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "candidate": "normal-v34",
+  "dataPreservingUpdates": {
+    "android": true,
+    "ios": true
+  },
+  "androidForeground": {
+    "control": {
+      "enabled": true,
+      "hasSubject": true,
+      "hasTarget": true,
+      "calendarCount": 3,
+      "lastSyncAt": "2026-11-06T11:31:39.043Z",
+      "hasError": false,
+      "retryCount": 0
+    },
+    "progress": {
+      "scope": "current-control-subject",
+      "inboxTotal": 690,
+      "linksTotal": 793,
+      "inboxReady": 0,
+      "inboxWaiting": 0,
+      "pendingExpansions": 0,
+      "pendingWrites": 0,
+      "conflictLinks": 0,
+      "cursorsWithPage": 0,
+      "cursorsWithSync": 3,
+      "calendarsRemaining": 0
+    },
+    "method": "Enabled ordinary Calendar settings sync button; disabled old Tasks button first produced no action and is excluded."
+  },
+  "iosForeground": {
+    "observedAt": "2026-11-06T11:34:27.297806+00:00",
+    "readOnly": true,
+    "normalAppOpenedByProbe": false,
+    "rawDatabaseRetained": false,
+    "control": {
+      "enabled": true,
+      "lastSyncAt": "2026-11-06T11:30:54.137Z",
+      "retryAt": 0,
+      "retryCount": 0,
+      "hasError": false,
+      "calendarCount": 3
+    },
+    "calendars": [
+      {
+        "ordinal": 0,
+        "hasSyncToken": true,
+        "hasPageToken": false,
+        "dirty": 0
+      },
+      {
+        "ordinal": 1,
+        "hasSyncToken": true,
+        "hasPageToken": false,
+        "dirty": 0
+      },
+      {
+        "ordinal": 2,
+        "hasSyncToken": true,
+        "hasPageToken": false,
+        "dirty": 0
+      }
+    ],
+    "remainingOrdinals": [],
+    "links": 790,
+    "pendingWrites": 0,
+    "conflicts": 0
+  },
+  "backgroundRecoveryClaim": false,
+  "scope": "Existing app data retained. Foreground complete markers are not a promise that the public holiday provider token remains usable.",
+  "publicHolidayFollowup": "public-holiday-provider-sync-token.json"
+}

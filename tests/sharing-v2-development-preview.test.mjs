@@ -154,7 +154,11 @@ for (const platform of ['ios', 'android']) {
       assert.equal(model.plan.occurrences.find((entry) => entry.id === round.id).completed, true);
       await f.screen.press('直前の完了を元に戻す'); model = await f.preview.readModel();
       assert.equal(model.plan.history.filter(entry => entry.active).length, 0);
-      const again = f.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '室内・床・家具の掃除を完了');
+      // The toast intentionally starts Undo without returning its work promise.
+      // A committed SQLite read does not render this manual React harness.
+      const incomplete = () => f.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '室内・床・家具の掃除を完了');
+      for (let i = 0; i < 30 && !incomplete(); i++) await f.screen.flush();
+      const again = incomplete(); assert.ok(again, 'Undo must render the same incomplete round before it can be completed again');
       await again.props.onPress(); await f.screen.flush(); model = await f.preview.readModel();
       assert.equal(model.plan.history.filter(entry => entry.active).length, 1);
       await f.screen.press('「室内・床・家具の掃除」の設定'); assert.deepEqual(f.navigation.pop(), ['configuration', round.choreId]);

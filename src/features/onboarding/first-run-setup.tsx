@@ -1,17 +1,19 @@
 import { FormTextInput as TextInput } from '../../components/form-text-input';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from '@/components/screen-safe-area';
 import { router } from 'expo-router';
 import { usePlannerData } from '@/hooks/use-planner-data';
 
 import { AppButton, BackButton, Card, ChoiceChip, NavigationHeader, SectionHeading, palette, typography } from '@/components/planner-ui';
 import type { ChoreDefinition, FrequencyMode } from '@/domain/chores/types';
+import { personalOnboardingChores } from '@/domain/chores/personal-catalog';
 import { addDays, formatJapaneseDate, localDateFromDate } from '@/domain/scheduling/local-date';
 import type { Weekday, WeatherLocation } from '@/domain/shared/types';
 import { completeFirstSetup, nextInitialDateChoice } from '@/platform/storage/repository';
 import { ExpoLocalNotificationGateway } from '@/platform/notifications/expo-local-notification-gateway';
-import type { WeatherRegionCandidate } from '@/features/weather/open-meteo-geocoder';
+import { municipalityWeatherLocation } from '@/features/weather/municipality-search';
+import type { WeatherRegionCandidate } from '@/features/weather/municipality-search';
 import { LocationAttribution, WeatherAttribution } from '@/components/data-credits';
 import { useMunicipalitySuggestions } from '@/features/weather/use-municipality-suggestions';
 import type { PlannerSnapshot } from '@/platform/storage/repository';
@@ -40,7 +42,7 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
   const wasteTypeColor = useWasteTypeColor();
 
   const { database } = usePlannerData();
-  const availableChores = snapshot.chores.filter((chore) => !chore.archived && !chore.requiresCycleSelection);
+  const availableChores = personalOnboardingChores(snapshot.chores);
   const [step, setStep] = useState(0);
   const [mode, setMode] = useState(snapshot.settings.frequencyMode);
   const [restDays, setRestDays] = useState<Weekday[]>(snapshot.settings.restDays as Weekday[]);
@@ -58,6 +60,7 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
   const [weatherMessage, setWeatherMessage] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
   const weatherSuggestions = useMunicipalitySuggestions(weatherRegion, weatherSearchEnabled);
   const [saving, setSaving] = useState(false);
+  const [committed, setCommitted] = useState(false);
   const savingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [wasteSchedules, setWasteSchedules] = useState<WasteScheduleInput[]>(() => [...snapshot.wasteSchedules]);
@@ -93,12 +96,7 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
 
   const selectWeatherCandidate = (candidate: WeatherRegionCandidate) => {
     setWeatherCandidate(candidate);
-    setWeatherLocation({
-      region: weatherRegion.trim(),
-      displayName: candidate.label,
-      latitude: candidate.latitude,
-      longitude: candidate.longitude,
-    });
+    setWeatherLocation(municipalityWeatherLocation(candidate, weatherRegion));
     setWeatherMessage({ text: `「${candidate.label}」を天気に使う地域として選択しました。`, kind: 'success' });
   };
 
@@ -122,6 +120,7 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
         weatherLocation,
         wasteSchedules: skipWasteSetup ? [] : wasteSchedules,
       });
+      setCommitted(true);
       await onComplete();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '初回設定を保存できませんでした');
@@ -132,6 +131,14 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
   };
 
   const enabledChores = availableChores.filter((chore) => enabledChoreIds.has(chore.id));
+
+  if (committed) return <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+    <View style={styles.content}>
+      <Text style={styles.body}>初期設定は保存済みです。</Text>
+      {loadError || error ? <Text accessibilityRole="alert" style={styles.error}>{loadError ?? error}</Text> : null}
+      <AppButton title="表示を再読込" disabled={saving} onPress={() => void onComplete().catch(cause => setError(cause instanceof Error ? cause.message : '表示を更新できませんでした。'))} />
+    </View>
+  </SafeAreaView>;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -258,8 +265,7 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
                 accessibilityLabel="天気予報に使う市区町村"
                 returnKeyType="done"
               />
-              {weatherSuggestions.status === 'searching' ? <ActivityIndicator color={palette.accent} /> : null}
-            </View>
+                  </View>
             {weatherSuggestions.candidates.length > 0 ? (
               <View style={styles.regionResults}>
                 <Text style={styles.label}>候補を選択</Text>
@@ -277,12 +283,6 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
             ) : null}
             {weatherSuggestions.status === 'empty'
               ? <Text style={styles.hint}>市区町村が見つかりませんでした。市区町村名を変えてください。</Text>
-              : null}
-            {weatherSuggestions.status === 'error'
-              ? <Text style={styles.error}>{weatherSuggestions.error}</Text>
-              : null}
-            {weatherSuggestions.status === 'debouncing' || weatherSuggestions.status === 'searching'
-              ? <Text style={styles.hint}>市区町村を検索しています…</Text>
               : null}
             {weatherLocation ? <Text style={styles.selectedRegion}>天気に使う地域：{weatherLocation.displayName}</Text> : null}
             <WeatherAttribution />

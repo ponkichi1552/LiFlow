@@ -4,13 +4,27 @@ import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { registerSharedRepositoryAdapter } from '../src/platform/storage/shared-repository-adapter.ts';
-import { calendarEventsInTimeZone, calendarMonth, dateInMonth, newEventDraft, occurrencesOnDate, projectCalendarEvents, validateEventDraft } from '../src/features/calendar/events.ts';
+import { calendarEventsInTimeZone, calendarMonth, dateInMonth, indexCalendarOccurrences, newEventDraft, occurrencesOnDate, projectCalendarEvents, validateEventDraft } from '../src/features/calendar/events.ts';
+import { addDays } from '../src/domain/scheduling/local-date.ts';
 import { calendarSwipe, timelineEvents } from '../src/features/calendar/layout.ts';
 const { initializeLocalDatabase, loadPlannerSnapshot } = await import('../src/platform/storage/repository.ts');
 const { deleteCalendarEvent, readLocalCalendar, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent, subscribeLocalCalendar } = await import('../src/platform/storage/calendar-events.ts');
 
 const draft = (patch = {}) => ({ ...newEventDraft('2026-10-30', 'Asia/Tokyo'), title: '授業', ...patch });
 const event = (patch = {}) => ({ ...draft(patch), id: 'event.test', revision: 1 });
+
+test('a valid personal event can be saved before the first calendar read without guessing a custom category or replacing later category edits', async t => {
+  const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database);
+  assert.equal(h.connection.prepare('SELECT count(*) AS n FROM calendar_categories').get().n, 0);
+  const id = await saveCalendarEvent(h.database, { expectedRevision: 0, value: draft() });
+  assert.equal((await readLocalCalendar(h.database)).events.find(row => row.id === id).title, '授業');
+  await saveCalendarCategory(h.database, { id: 'personal', name: '変更した分類', color: '#123456', expectedRevision: 1 });
+  await saveCalendarEvent(h.database, { expectedRevision: 0, value: draft({ title: '次の予定' }) });
+  const saved = (await readLocalCalendar(h.database)).categories.find(row => row.id === 'personal');
+  assert.equal(saved.name, '変更した分類'); assert.equal(saved.color, '#123456'); assert.equal(saved.revision, 2);
+  await assert.rejects(saveCalendarEvent(h.database, { expectedRevision: 0, value: draft({ categoryId: 'missing-custom' }) }), /分類/);
+  assert.equal((await readLocalCalendar(h.database)).events.length, 2);
+});
 async function fixture(t) { const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database); await readLocalCalendar(h.database); return h; }
 
 test('local calendar validates real dates durations timezones recurrence and bounded fields without accepting ambiguous civil clocks', () => {
@@ -19,6 +33,22 @@ test('local calendar validates real dates durations timezones recurrence and bou
     { timeZone: 'unknown/zone' }, { timeZone: undefined }, { recurrence: '__proto__' }, { recurrence: 'toString' }, { untilDate: '2026-10-01' }, { categoryId: '../group' }, { notes: 'x'.repeat(4001) },
     { startDate: '2026-03-08', endDate: '2026-03-08', startMinute: 150, endMinute: 210, timeZone: 'America/New_York' },
     { startDate: '2026-11-01', endDate: '2026-11-01', startMinute: 90, endMinute: 180, timeZone: 'America/New_York' }]) assert.throws(() => validateEventDraft(draft(patch)));
+});
+
+test('a stale recurring editor draft can be explicitly discarded without deleting another round or a newer draft', async t => {
+  const h = await fixture(t); const { discardCalendarDraftIfUnchanged } = await import('../src/platform/storage/calendar-events.ts');
+  const value = draft({ recurrence: 'weekly' }); const id = await saveCalendarEvent(h.database, { value, expectedRevision: 0 });
+  const a = { eventId: id, scope: 'one', anchorDate: '2026-11-06', revision: 1, exceptionRevision: 0, value: draft({ title: '保留した編集', startDate: '2026-11-06', endDate: '2026-11-06' }) };
+  const b = { ...a, anchorDate: '2026-11-13' }; await saveCalendarDraft(h.database, a); await saveCalendarDraft(h.database, b);
+  await saveCalendarEvent(h.database, { id, value: { ...value, title: '新しい系列名' }, expectedRevision: 1, scope: 'series' });
+  await assert.rejects(saveCalendarEvent(h.database, { id, scope: 'one', anchorDate: a.anchorDate, expectedRevision: a.revision, expectedExceptionRevision: 0, value: a.value }));
+  await discardCalendarDraftIfUnchanged(h.database, a);
+  let current = await readLocalCalendar(h.database); assert.equal(current.drafts.length, 1); assert.equal(current.drafts[0].anchorDate, b.anchorDate);
+  const newer = { ...b, value: { ...b.value, notes: '別の画面で更新' } }; await saveCalendarDraft(h.database, newer);
+  await assert.rejects(discardCalendarDraftIfUnchanged(h.database, b), /別の画面/);
+  assert.equal((await readLocalCalendar(h.database)).drafts[0].value.notes, '別の画面で更新');
+  await saveCalendarEvent(h.database, { id, scope: 'one', anchorDate: a.anchorDate, expectedRevision: 2, expectedExceptionRevision: 0, value: a.value });
+  current = await readLocalCalendar(h.database); assert.equal(current.events[0].title, '新しい系列名'); assert.equal(current.exceptions.length, 1);
 });
 test('local calendar seeks long running daily and biweekly series and honors the inclusive recurrence end without duplicating instances', () => {
   const daily = projectCalendarEvents([event({ startDate: '2010-01-01', endDate: '2010-01-01', recurrence: 'daily' })], [], '2026-10-01', '2026-10-31');
@@ -56,6 +86,35 @@ test('local recurring clocks that enter a DST gap are flagged rather than silent
   const rows = projectCalendarEvents([event({ startDate: '2026-03-01', endDate: '2026-03-01', startMinute: 150, endMinute: 210, recurrence: 'weekly', timeZone: 'America/New_York' })], [], '2026-03-01', '2026-03-31');
   assert.equal(rows.length, 5); assert.equal(rows.find(row => row.startDate === '2026-03-08').timeIssue, 'gap');
   assert.equal(rows.find(row => row.startDate === '2026-03-08').startMinute, 150);
+});
+
+test('mixed-zone calendar events are ordered by their displayed date and time while retaining original editing identities', () => {
+  const sources = [{ ...event({ startMinute: 600, endMinute: 660 }), id: 'japan' },
+    { ...event({ timeZone: 'America/New_York', startMinute: 540, endMinute: 600 }), id: 'new-york' },
+    { ...event({ allDay: true }), id: 'whole-day' }];
+  const original = projectCalendarEvents(sources, [], '2026-10-30', '2026-10-30');
+  const projected = calendarEventsInTimeZone(original, 'Asia/Tokyo');
+  assert.deepEqual(projected.map(row => row.eventId), ['whole-day', 'japan', 'new-york']);
+  assert.deepEqual(projected.map(row => row.startMinute), [540, 600, 1320]);
+  assert.equal(projected[2].original, original.find(row => row.eventId === 'new-york'));
+  assert.equal(projected[2].original.startMinute, 540);
+});
+
+test('calendar date indexing preserves complete cross-midnight all-day moved and DST coverage without repeated whole-month scans', () => {
+  const from = '2026-10-01', through = '2026-11-30';
+  const sources = [{ ...event({ startMinute: 1380, endDate: '2026-10-31', endMinute: 0 }), id: 'overnight' },
+    { ...event({ allDay: true, endDate: '2026-11-02' }), id: 'multi' },
+    { ...event({ startDate: '2026-10-25', endDate: '2026-10-25', startMinute: 90, endMinute: 180, timeZone: 'America/New_York', recurrence: 'weekly' }), id: 'dst' },
+    ...Array.from({ length: 100 }, (_, i) => ({ ...event({ recurrence: 'daily' }), id: `daily-${i}` }))];
+  const exceptions = [{ eventId: 'daily-0', anchorDate: '2026-11-03', override: draft({ startDate: '2026-11-05', endDate: '2026-11-06', title: '移動した予定' }), revision: 1 }];
+  const rows = calendarEventsInTimeZone(projectCalendarEvents(sources, exceptions, from, through), 'Asia/Tokyo');
+  let dateReads = 0;
+  const observed = rows.map(row => ({ ...row, get startDate() { dateReads++; return row.startDate; }, get endDate() { dateReads++; return row.endDate; } }));
+  const indexed = indexCalendarOccurrences(observed, from, through);
+  assert.ok(dateReads <= rows.length * 4, 'each event is indexed once instead of scanned once per day');
+  for (let day = from; day <= through; day = addDays(day, 1)) assert.deepEqual((indexed.get(day) ?? []).map(row => row.id), occurrencesOnDate(rows, day).map(row => row.id));
+  assert.ok(!indexed.get('2026-10-31')?.some(row => row.eventId === 'overnight'));
+  assert.ok(indexed.get('2026-11-06').some(row => row.id === 'daily-0:2026-11-03'));
 });
 test('local calendar SQLite CRUD CAS exceptions and drafts survive reopen while personal chores history and Google links remain independent', async t => {
   const h = await fixture(t); const before = await loadPlannerSnapshot(h.database, '2026-10-30');

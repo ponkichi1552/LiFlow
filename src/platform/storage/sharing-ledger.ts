@@ -408,6 +408,9 @@ export function applySharingSnapshot(db: SQLiteDatabase, groupId: string, snapsh
       await apply(db, result);
       if (retention) {
         // The projection above verifies every member's certificate before any deletion commits.
+        if (await db.getFirstAsync("SELECT name FROM sqlite_master WHERE name='sharing_v2_recovery_evidence_cache'")) {
+          await db.runAsync('DELETE FROM sharing_v2_recovery_evidence_cache');
+        }
         const ids = JSON.stringify(snapshot.facts.map(fact => fact.operation.operationId));
         if (await db.getFirstAsync("SELECT name FROM sqlite_master WHERE name='sharing_v2_server_receipts'")) {
           await db.runAsync(`DELETE FROM sharing_v2_server_receipts WHERE group_id=?

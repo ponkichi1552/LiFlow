@@ -42,7 +42,9 @@ export function createAppleSubscriptionProvider({ client, verifier, bundleId, pr
     async notification(body) {
       if (!body || Object.keys(body).join() !== 'signedPayload' || typeof body.signedPayload !== 'string' || body.signedPayload.length > 100_000) throw invalid();
       const event = await verifier.verifyAndDecodeNotification(body.signedPayload);
-      if (event.data?.bundleId !== bundleId || event.data?.environment !== environment || !event.data?.signedTransactionInfo) throw invalid();
+      if (event.data?.bundleId !== bundleId || event.data?.environment !== environment) throw invalid();
+      if (event.notificationType === 'TEST') return null;
+      if (!event.data?.signedTransactionInfo) throw invalid();
       const transaction = await verifier.verifyAndDecodeTransaction(event.data.signedTransactionInfo);
       if (transaction.bundleId !== bundleId || transaction.productId !== productId || transaction.environment !== environment) throw invalid();
       return id(transaction.originalTransactionId);
@@ -70,14 +72,26 @@ export function createGoogleSubscriptionProvider({ request, packageName, product
       SUBSCRIPTION_STATE_CANCELED: 'active' })[data.subscriptionState];
     if (!status) throw invalid();
     if (['active', 'grace'].includes(status) && !['ACKNOWLEDGEMENT_STATE_PENDING', 'ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED'].includes(data.acknowledgementState)) throw invalid();
-    const expiresAt = line.expiryTime ? milliseconds(line.expiryTime) : status === 'pending' ? 0 : milliseconds(line.expiryTime);
+    const expiresAt = line.expiryTime ? milliseconds(line.expiryTime)
+      : status === 'pending' || data.subscriptionState === 'SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED' ? 0 : milliseconds(line.expiryTime);
     return { store: 'google', purchaseId: proof, proof, productId, status, expiresAt,
       autoRenew: line.autoRenewingPlan?.autoRenewEnabled === true,
       acknowledgementPending: data.acknowledgementState === 'ACKNOWLEDGEMENT_STATE_PENDING',
       ...(data.linkedPurchaseToken ? { linkedPurchaseId: token(data.linkedPurchaseToken) } : {}) };
   }
   return {
-    verify: latest, refresh: (record, account) => latest(record.proof, account),
+    verify: latest,
+    async refresh(record, account) {
+      try { return await latest(record.proof, account); }
+      catch (error) {
+        const reasons = error?.response?.data?.error?.errors;
+        if (error?.response?.status !== 410 || !Array.isArray(reasons) || !reasons.length
+          || !reasons.every(value => ['subscriptionNoLongerAvailable', 'purchaseTokenNoLongerValid'].includes(value?.reason))) throw error;
+        // Only a stored, already-bound purchase can be retired. This response
+        // never verifies a new token, and transient failures never remove one.
+        return { ...record, status: 'expired', autoRenew: false, acknowledgementPending: false, retired: true };
+      }
+    },
     async acknowledge(record) {
       if (!record.acknowledgementPending) return;
       await request({ url: `${base}/purchases/subscriptions/${encodeURIComponent(productId)}/tokens/${encodeURIComponent(token(record.proof))}:acknowledge`,

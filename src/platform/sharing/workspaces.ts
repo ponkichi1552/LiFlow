@@ -20,6 +20,7 @@ import { v2ReadPoint } from '../../features/sharing/v2/view-point.ts';
 import type { SharedWorkspace, LegacyMigrationWorkspace, V2SharedWorkspace, PendingSharedWorkspace } from './workspace-types.ts';
 import type { SharedSyncDependencies, SharingSyncResult } from '../../features/sharing/synchronizer.ts';
 import { createLiveLegacyMigration, v2WorkspaceDatabaseGeneration, verifyKnownLegacyHistory } from '../../features/sharing/v2/live-legacy-migration.ts';
+import { checkpointRetainedHistory } from '../storage/history-checkpoint.ts';
 import { createSharedGroupManager } from '../../features/sharing/group-manager.ts';
 import { sharedAccessDisposition } from '../../features/sharing/access-state.ts';
 import { createSharedJoinRequest, parseSharedInvitation } from '../../features/sharing/invitations.ts';
@@ -34,7 +35,7 @@ import { initializeSharedProjection } from '../storage/sharing-projection.ts';
 import { drainSharingLedger, initializeSharingLedger, loadSharedFacts, loadSharedReplica, readSharingCheckpoint } from '../storage/sharing-ledger.ts';
 import { sharedRepositoryAdapter } from '../storage/shared-repository-adapter.ts';
 import { drainPlannerDatabaseOperations, loadGoogleSyncState, LOCAL_HOUSEHOLD_ID, withPlannerDatabaseOperation } from '../storage/repository.ts';
-import { createNativeApplianceRetention } from './appliance-retention';
+import { createNativeApplianceRetention, reviewWithPersonalApplianceRetention } from './appliance-retention';
 import { createV2HistoryRetentionRuntime } from '../../features/sharing/v2/history-retention-runtime.ts';
 import { validateV2RetentionBody } from '../../features/sharing/v2/history-retention-schema.ts';
 import type { VerifiedSharedSnapshot } from '../../features/sharing/snapshots';
@@ -45,19 +46,24 @@ export type { SharedWorkspace } from './workspace-types.ts';
 export type SharingChange = SharingSelection & { statusOnly?: boolean };
 type Listener = (selection?: SharingChange) => void;
 const listeners = new Set<Listener>();
+let localPlanningRevision = 0;
+export function sharingLocalPlanningRevision() { return localPlanningRevision; }
 export function subscribeSharingChanges(listener: Listener): () => void { listeners.add(listener); return () => { listeners.delete(listener); }; }
-function changed(selection?: SharingChange) { for (const listener of listeners) try { listener(selection); } catch { /* A view cannot invalidate a committed edit. */ } }
+function changed(selection?: SharingChange) { if (!selection?.statusOnly) localPlanningRevision++; for (const listener of listeners) try { listener(selection); } catch { /* A view cannot invalidate a committed edit. */ } }
+export function notifySharingWorkspaceChanged() { changed(); }
 const keyForScope = (selection: SharingSelection) => canonicalJson([selection.userId, selection.groupId]);
 let registryPromise: Promise<SQLiteDatabase> | null = null;
-export function sharingRegistryDatabase(): Promise<SQLiteDatabase> {
+export function sharingRegistryDatabase(options?: { presentationOnly?: boolean }): Promise<SQLiteDatabase> {
   if (!registryPromise) {
     const pending = (async () => { const db = await openDatabaseAsync('sharing-index.db', { useNewConnection: true }, await sharingDatabaseDirectory());
-      try { await initializeSharingRegistry(db); await initializeNativeSignatureCache(db); return db; }
+      try { await initializeSharingRegistry(db); return db; }
       catch (error) { await db.closeAsync().catch(() => undefined); throw error; }
     })(); registryPromise = pending;
     void pending.catch(() => { if (registryPromise === pending) registryPromise = null; });
   }
-  return registryPromise;
+  // An encrypted saved view never supplies authority. Its first frame need not
+  // wait for the independent signature memo used by the verified live session.
+  return options?.presentationOnly ? registryPromise : registryPromise.then(async db => { await initializeNativeSignatureCache(db); return db; });
 }
 export async function sharingSessionUser(): Promise<User | null> {
   if (!isSharingConfigured()) return null;
@@ -123,6 +129,21 @@ export function sharingFailureMessage(error: unknown): string {
 }
 
 const workspacePromises = new Map<string, Promise<SharedWorkspace>>();
+/** Local-only discovery for private allocation. It never falls back to cloud membership lookup or synchronizes. */
+export async function readLocalAdaptiveWorkspace(userId: string): Promise<V2SharedWorkspace | null> {
+  if (getSharingServices().auth.currentUser?.uid !== userId) throw new SharingAccessError('本人のアカウントが変わりました。');
+  const registry = await sharingRegistryDatabase(); const selection = await readSharingSelection();
+  const record = await readCurrentSharingWorkspace(registry, userId, selection?.userId === userId ? selection.groupId : undefined);
+  if (!record || !['active', 'creating'].includes(record.status)) return null;
+  const archive = verifyWorkspaceArchive(record);
+  if (!archive?.length || sharedWorkspaceProtocol(archive.at(-1)!) !== 2) return null;
+  const key = keyForScope(record); let pending = workspacePromises.get(key);
+  if (!pending) { pending = buildWorkspace(record); workspacePromises.set(key, pending);
+    const owned = pending; void owned.catch(() => { if (workspacePromises.get(key) === owned) workspacePromises.delete(key); }); }
+  const workspace = await pending;
+  if (workspace.protocol !== 2 || getSharingServices().auth.currentUser?.uid !== userId) throw new SharingAccessError('本人の共有予定を確認してください。');
+  return workspace;
+}
 export async function openSharedWorkspace(selection: SharingSelection): Promise<SharedWorkspace> {
   const current = await currentSharingWorkspace();
   if (current?.userId !== selection.userId || current.groupId !== selection.groupId) throw new SharingAccessError('現在所属しているグループを確認してください。');
@@ -387,7 +408,7 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
             assertAccess: async () => { await access.readRecord(); access.assertWritable(); } });
         }
       }
-      await database.execAsync('PRAGMA wal_checkpoint(TRUNCATE)');
+      await checkpointRetainedHistory(database, groupId, marker.digest);
     };
     const openedSession = await createV2WorkspaceSession({ ...selection, database, householdId: 'shared-v2', identity, crypto: nativeSharingCrypto, cloud,
       readRecord: access.readRecord, saveArchive: access.saveArchive, archive: () => access.archive() ?? [],
@@ -420,10 +441,8 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
     const retention = createNativeApplianceRetention({ database, repository: openedSession.repository, assertAccess: () => openedSession.assertCurrentAccess(false) });
     const baseController = openedSession.controller;
     const session = { ...openedSession, controller: guardV2GroupController({ ...baseController, actions: { ...baseController.actions,
-      reviewAppliance: async input => {
-        const result = await baseController.actions.reviewAppliance(input);
-        await retention.refresh(); return result;
-      },
+      reviewAppliance: input => reviewWithPersonalApplianceRetention(() => baseController.actions.reviewAppliance(input),
+        retention, () => openedSession.assertCurrentAccess(false)),
     } }, openedSession.assertCurrentAccess) };
     const historyRetention = createV2HistoryRetentionRuntime({ repository: session.repository, manager: session.manager,
       sync: session.synchronizer.sync, readOriginals: () => loadSharedFacts(database, groupId),
@@ -458,11 +477,10 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
           const result = await cloud.compactCertifiedHistory(groupId, body, ids, remaining);
           if (!result.pending) break;
         }
-      } else {
-        const { group } = await cloud.readGroup(groupId); remaining(); if (group.rotationRequired) return;
-        if (group.headSequence - group.snapshotThroughSequence >= 256) await session.manager.publishSnapshot(remaining());
-        remaining(); await cloud.compactHistory(groupId, Date.now(), remaining);
       }
+      const { group } = await cloud.readGroup(groupId); remaining(); if (group.rotationRequired) return;
+      if (group.headSequence - group.snapshotThroughSequence >= 256) await session.manager.publishSnapshot(remaining());
+      remaining(); await cloud.compactHistory(groupId, Date.now(), remaining);
     };
     let reminderPromise: Promise<import('../../features/sharing/v2/reminder-runtime').V2ReminderRuntime> | undefined;
     let taskPromise: Promise<import('../../features/sharing/v2/google-tasks-runtime').V2GoogleTaskRuntime> | undefined;
@@ -695,12 +713,20 @@ export async function requestSharingWorkspace(linkText: string): Promise<SharedW
 }
 
 /** Foreground and the single OS worker call the same bounded coordinator. */
-export async function syncSharingWorkspace(budgetMs = 20_000): Promise<void> {
-  if (!await hasSharingSessionEnabled()) return;
-  const start = Date.now(); const owner = (await sharingSessionUser())?.uid; const record = await currentSharingWorkspace();
-  if ((await sharingSessionUser())?.uid !== owner) throw new SharingAccessError('同期する共有アカウントが変わりました。');
-  if (!owner) return;
+export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOnly?: boolean } = {}): Promise<{ kind: 'success' | 'pending' | 'skipped' }> {
+  if (!await hasSharingSessionEnabled()) return { kind: 'skipped' };
+  const start = Date.now(); const owner = (await sharingSessionUser())?.uid;
   const failures: unknown[] = [];
+  let restoring = false;
+  if (owner && process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL?.trim()) {
+    const { syncAccountDeviceRestoration } = await import('./account-device-runtime');
+    try { const result = await syncAccountDeviceRestoration(Math.min(20_000, budgetMs)); restoring = result === 'waiting'; }
+    catch (error) { failures.push(error); }
+  }
+  const record = await currentSharingWorkspace();
+  if ((await sharingSessionUser())?.uid !== owner) throw new SharingAccessError('同期する共有アカウントが変わりました。');
+  if (!owner) return { kind: 'skipped' };
+  let pending = Boolean(record);
   if (Date.now() - start < budgetMs - 1000) try {
     const { clearInactiveV2Reminders } = await import('./v2-reminders');
     await clearInactiveV2Reminders(record?.status === 'active' ? [record] : [], async () => {
@@ -712,25 +738,33 @@ export async function syncSharingWorkspace(budgetMs = 20_000): Promise<void> {
       if ((await sharingSessionUser())?.uid !== owner) throw new SharingAccessError('同期する共有アカウントが変わりました。');
       const workspace = await openSharedWorkspace(record);
       const syncBudget = budgetMs - (Date.now() - start);
-      if (syncBudget < 1000) { if (failures.length) throw failures[0]; return; }
-      await workspace.sync({ budgetMs: syncBudget }).catch(error => { failures.push(error); });
+      if (syncBudget < 1000) { if (failures.length) throw failures[0]; return { kind: 'pending' }; }
+      const result = await workspace.sync({ budgetMs: syncBudget }).catch(error => { failures.push(error); return null; });
+      pending = !result || !result.complete || result.pending > 0 || result.waitingForApproval;
       if (budgetMs - (Date.now() - start) >= 1000 && workspace.protocol === 2) {
         if (budgetMs - (Date.now() - start) >= 1000) await workspace.reminders().then(runtime => {
           const remaining = budgetMs - (Date.now() - start); if (remaining >= 1000) return runtime.synchronize(Math.min(15_000, remaining));
         }).catch(error => { failures.push(error); });
         const taskBudget = budgetMs - (Date.now() - start);
-        if (taskBudget >= 1000) await workspace.googleTasks().then(runtime => {
+        if (taskBudget >= 1000) await workspace.googleTasks().then(async runtime => {
+          if (budgetMs - (Date.now() - start) < 1000) { pending = true; return; }
+          const { state } = await runtime.readControl();
+          if (!state?.enabled || state.disconnected) return;
           const remaining = budgetMs - (Date.now() - start);
-          if (remaining >= 1000) return runtime.synchronize({ budgetMs: Math.min(15_000, remaining) }).then(result => {
+          if (remaining >= 1000) return runtime.synchronize({ budgetMs: Math.min(15_000, remaining), ...(options.deltaOnly ? { deltaOnly: true } : {}) }).then(result => {
             if (result.kind !== 'success') throw new Error('Google Tasksへの同期を完了できませんでした。接続状態を確認してください。');
+            if (result.skipped && result.skipReason !== 'notDue') pending = true;
+            if (result.foregroundRequired) pending = true;
           });
+          pending = true;
         }).catch(error => { failures.push(error); });
         const calendarBudget = budgetMs - (Date.now() - start);
         if (calendarBudget >= 1000) await workspace.googleCalendar().then(runtime => {
           const remaining = budgetMs - (Date.now() - start);
           return remaining >= 1000 ? runtime.synchronize({ budgetMs: Math.min(15_000, remaining) }) : undefined;
         }).then(result => {
-          if (result && !['success', 'skipped'].includes(result.kind)) throw new Error('共有予定のGoogle追加は未完了です。続きを再送します。');
+          if (result?.kind === 'error') throw new Error('共有予定のGoogle追加を確認できませんでした。続きを再送します。');
+          if (result && !['success', 'skipped'].includes(result.kind)) pending = true;
         }).catch(error => { failures.push(error); });
       }
       const historyBudget = budgetMs - (Date.now() - start);
@@ -738,6 +772,7 @@ export async function syncSharingWorkspace(budgetMs = 20_000): Promise<void> {
     } catch (error) { failures.push(error); }
   }
   if (failures.length) throw failures[0];
+  return { kind: restoring ? 'pending' : !record ? 'skipped' : pending ? 'pending' : 'success' };
 }
 
 /** Native OAuth is shared by the process, while connection settings and Task IDs remain per workspace. */
@@ -761,6 +796,9 @@ export async function hasOtherGoogleWorkspaceConnections(except: SQLiteDatabase)
 export async function isSharedWorkerNeeded(): Promise<boolean> {
   if (!await hasSharingSessionEnabled()) return false;
   if (await currentSharingWorkspace()) return true;
+  const user = await sharingSessionUser();
+  if (user && process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL?.trim()
+    && await sharingSecureVault.getItem(`account-group-restore:${user.uid}`)) return true;
   const { isPrivateCalendarWorkerNeeded } = await import('./private-calendar-sync');
   return isPrivateCalendarWorkerNeeded();
 }

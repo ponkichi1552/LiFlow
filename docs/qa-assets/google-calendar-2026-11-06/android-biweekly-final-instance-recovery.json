@@ -1,0 +1,216 @@
+{
+  "scope": "Android physical normal23; joined group, private calendar only",
+  "baseline": {
+    "observedAt": "2026-11-05T18:21:23.140828+00:00",
+    "normalRelease": 19,
+    "evidence": {
+      "localRevision": 1,
+      "localDeleted": false,
+      "localEventDigest": "PblQ8qiGMa_NqKhmZ-2AkhuFb_EZf9Ki2sBO9FwncA0",
+      "startDate": "2026-11-10",
+      "endDate": "2026-11-10",
+      "startMinute": 540,
+      "endMinute": 600,
+      "allDay": false,
+      "timeZone": "Asia/Tokyo",
+      "recurrence": "biweekly",
+      "untilDate": "2026-11-24",
+      "localEtagDigest": "OA33HPT_OOvZOpEKGkeiXpbvbx4nY_NgADkmDWtxVss",
+      "syncedRevision": 1,
+      "conflict": false,
+      "pending": false,
+      "providerStatus": 200,
+      "providerEventDigest": "WU7nPLDerppJSipWuA0p-8hto4wfbG4Vl6KzH6zLppI",
+      "providerEtagDigest": "OA33HPT_OOvZOpEKGkeiXpbvbx4nY_NgADkmDWtxVss",
+      "providerStart": {
+        "dateTime": "2026-11-10T09:00:00+09:00",
+        "timeZone": "Asia/Tokyo"
+      },
+      "providerEnd": {
+        "dateTime": "2026-11-10T10:00:00+09:00",
+        "timeZone": "Asia/Tokyo"
+      },
+      "providerCancelled": false,
+      "providerLocation": "Android-repeat",
+      "providerNotes": "QA-recurrence-only",
+      "providerRecurrence": [
+        "RRULE:FREQ=WEEKLY;UNTIL=20261124T145959Z;INTERVAL=2"
+      ],
+      "readOnly": true
+    }
+  },
+  "afterProviderWriteBeforeLocalAck": {
+    "localRevision": 1,
+    "localDeleted": false,
+    "localEventDigest": "PblQ8qiGMa_NqKhmZ-2AkhuFb_EZf9Ki2sBO9FwncA0",
+    "startDate": "2026-11-10",
+    "endDate": "2026-11-10",
+    "startMinute": 540,
+    "endMinute": 600,
+    "allDay": false,
+    "timeZone": "Asia/Tokyo",
+    "recurrence": "biweekly",
+    "untilDate": "2026-11-24",
+    "localEtagDigest": "OA33HPT_OOvZOpEKGkeiXpbvbx4nY_NgADkmDWtxVss",
+    "syncedRevision": 1,
+    "conflict": false,
+    "pending": false,
+    "finalExceptionRevision": 1,
+    "finalExceptionCancelled": false,
+    "finalExceptionLocation": "QA-final-instance",
+    "finalExceptionSyncedRevision": 0,
+    "finalExceptionConflict": false,
+    "finalExceptionPending": true,
+    "providerStatus": 200,
+    "providerEventDigest": "WU7nPLDerppJSipWuA0p-8hto4wfbG4Vl6KzH6zLppI",
+    "providerEtagDigest": "0OuSX4kyo-dRIlfubl-yDmI9BFLbK4Kt-MMrwayeZ6w",
+    "providerStart": {
+      "dateTime": "2026-11-10T09:00:00+09:00",
+      "timeZone": "Asia/Tokyo"
+    },
+    "providerEnd": {
+      "dateTime": "2026-11-10T10:00:00+09:00",
+      "timeZone": "Asia/Tokyo"
+    },
+    "providerCancelled": false,
+    "providerLocation": "Android-repeat",
+    "providerNotes": "QA-recurrence-only",
+    "providerRecurrence": [
+      "RRULE:FREQ=WEEKLY;UNTIL=20261124T145959Z;INTERVAL=2"
+    ],
+    "providerInstances": [
+      {
+        "eventDigest": "fDm6HYiO_JYOBGCQiubPGd4SOkFHJLs0TcNNILWLJJU",
+        "cancelled": false,
+        "start": {
+          "dateTime": "2026-11-10T09:00:00+09:00",
+          "timeZone": "Asia/Tokyo"
+        },
+        "end": {
+          "dateTime": "2026-11-10T10:00:00+09:00",
+          "timeZone": "Asia/Tokyo"
+        },
+        "originalStartTime": {
+          "dateTime": "2026-11-10T09:00:00+09:00",
+          "timeZone": "Asia/Tokyo"
+        },
+        "location": "Android-repeat"
+      },
+      {
+        "eventDigest": "A8vzmfpiny2SECcLtumI7RZgeDeFFsE900Mb1ZMaO9w",
+        "cancelled": false,
+        "start": {
+          "dateTime": "2026-11-24T09:00:00+09:00",
+          "timeZone": "Asia/Tokyo"
+        },
+        "end": {
+          "dateTime": "2026-11-24T10:00:00+09:00",
+          "timeZone": "Asia/Tokyo"
+        },
+        "originalStartTime": {
+          "dateTime": "2026-11-24T09:00:00+09:00",
+          "timeZone": "Asia/Tokyo"
+        },
+        "location": "QA-final-instance"
+      }
+    ],
+    "readOnly": true
+  },
+  "recovered": {
+    "observedAt": "2026-11-05T19:58:01.645811+00:00",
+    "normalRelease": 23,
+    "foregroundManualRecovery": true,
+    "evidence": {
+      "localRevision": 1,
+      "localDeleted": false,
+      "localEventDigest": "PblQ8qiGMa_NqKhmZ-2AkhuFb_EZf9Ki2sBO9FwncA0",
+      "startDate": "2026-11-10",
+      "endDate": "2026-11-10",
+      "startMinute": 540,
+      "endMinute": 600,
+      "allDay": false,
+      "timeZone": "Asia/Tokyo",
+      "recurrence": "biweekly",
+      "untilDate": "2026-11-24",
+      "localEtagDigest": "0OuSX4kyo-dRIlfubl-yDmI9BFLbK4Kt-MMrwayeZ6w",
+      "syncedRevision": 1,
+      "conflict": false,
+      "pending": false,
+      "finalExceptionRevision": 1,
+      "finalExceptionCancelled": false,
+      "finalExceptionLocation": "QA-final-instance",
+      "finalExceptionSyncedRevision": 1,
+      "finalExceptionConflict": false,
+      "finalExceptionPending": false,
+      "finalExceptionEtagDigest": "0OuSX4kyo-dRIlfubl-yDmI9BFLbK4Kt-MMrwayeZ6w",
+      "providerStatus": 200,
+      "providerEventDigest": "WU7nPLDerppJSipWuA0p-8hto4wfbG4Vl6KzH6zLppI",
+      "providerEtagDigest": "0OuSX4kyo-dRIlfubl-yDmI9BFLbK4Kt-MMrwayeZ6w",
+      "providerStart": {
+        "dateTime": "2026-11-10T09:00:00+09:00",
+        "timeZone": "Asia/Tokyo"
+      },
+      "providerEnd": {
+        "dateTime": "2026-11-10T10:00:00+09:00",
+        "timeZone": "Asia/Tokyo"
+      },
+      "providerCancelled": false,
+      "providerLocation": "Android-repeat",
+      "providerNotes": "QA-recurrence-only",
+      "providerRecurrence": [
+        "RRULE:FREQ=WEEKLY;UNTIL=20261124T145959Z;INTERVAL=2"
+      ],
+      "providerInstances": [
+        {
+          "eventDigest": "fDm6HYiO_JYOBGCQiubPGd4SOkFHJLs0TcNNILWLJJU",
+          "cancelled": false,
+          "etagDigest": "0OuSX4kyo-dRIlfubl-yDmI9BFLbK4Kt-MMrwayeZ6w",
+          "start": {
+            "dateTime": "2026-11-10T09:00:00+09:00",
+            "timeZone": "Asia/Tokyo"
+          },
+          "end": {
+            "dateTime": "2026-11-10T10:00:00+09:00",
+            "timeZone": "Asia/Tokyo"
+          },
+          "originalStartTime": {
+            "dateTime": "2026-11-10T09:00:00+09:00",
+            "timeZone": "Asia/Tokyo"
+          },
+          "location": "Android-repeat"
+        },
+        {
+          "eventDigest": "A8vzmfpiny2SECcLtumI7RZgeDeFFsE900Mb1ZMaO9w",
+          "cancelled": false,
+          "etagDigest": "0OuSX4kyo-dRIlfubl-yDmI9BFLbK4Kt-MMrwayeZ6w",
+          "start": {
+            "dateTime": "2026-11-24T09:00:00+09:00",
+            "timeZone": "Asia/Tokyo"
+          },
+          "end": {
+            "dateTime": "2026-11-24T10:00:00+09:00",
+            "timeZone": "Asia/Tokyo"
+          },
+          "originalStartTime": {
+            "dateTime": "2026-11-24T09:00:00+09:00",
+            "timeZone": "Asia/Tokyo"
+          },
+          "location": "QA-final-instance"
+        }
+      ],
+      "readOnly": true
+    }
+  },
+  "observedFacts": {
+    "lastDayInclusive": true,
+    "noNextOccurrenceAfterUntil": true,
+    "onlyFinalInstanceLocationChanged": true,
+    "masterAndExceptionEtagsMatchProvider": true,
+    "noPendingOrConflict": true,
+    "sameMasterAndInstanceIds": true,
+    "foregroundManualRecovery": true,
+    "crossOsSimultaneousEditVerified": false,
+    "osNaturalBackgroundVerified": false
+  },
+  "interruptionBoundary": "same-signer read-only instrumentation stops normal process; first observation had provider edit but local ACK pending; no forced network error or OS background claim"
+}

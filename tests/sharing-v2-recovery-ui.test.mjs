@@ -8,7 +8,7 @@ async function fixture(platform, { isOwner = true, enabled = true, status = null
   const calls = []; const alerts = []; const effects = []; let saved = status ? value(status) : null;
   function value(status = 'review') { return { status, draft: { review: { id: 'review-one', groupId: foreign ? 'other-group' : 'test-group', reviewDigest: 'a'.repeat(64),
     retainedChanges: 3, restoredOriginals, unreadableChanges: 1, heldChanges: 0, removeDeviceIds, entries: [] }, preservedFacts: [] } }; }
-  const recovery = { enabled, async read() { calls.push(['read']); return structuredClone(saved); }, async prepare() { calls.push(['prepare']); saved = value(); },
+  const recovery = { enabled, async readSummary() { calls.push(['read']); return structuredClone(saved); }, async read() { assert.fail('overview must not restore all ciphertext'); }, async prepare() { calls.push(['prepare']); saved = value(); },
     async confirm(id, digest) { calls.push(['confirm', id, digest]); saved.status = 'applied'; }, async cancel(id, digest) { calls.push(['cancel', id, digest]); saved.status = 'cancelled'; } };
   const screen = screenHarness('src/features/sharing/v2/recovery-panel.tsx', { exportName: 'V2RecoveryPanel', platform, effect: effect => effects.push(effect),
     alert: (...args) => alerts.push(args), props: { groupId: 'test-group', recovery, isOwner, devices: [{ deviceId: 'device-member', displayName: '確認するメンバー' }],
