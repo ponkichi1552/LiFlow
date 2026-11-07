@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { createGoogleTaskCreateJournal, reserveGoogleTaskCreateInside, rejectGoogleTaskCreateInside, linkGoogleTaskCreateInside, deleteGoogleTaskCreateInside, initializeGoogleTaskCreateIntentsInside } from './google-task-create-intents.ts';
+import { createGoogleTaskCreateJournal, reserveGoogleTaskCreatesInside, rejectGoogleTaskCreatesInside, linkGoogleTaskCreateInside, deleteGoogleTaskCreateInside, initializeGoogleTaskCreateIntentsInside } from './google-task-create-intents.ts';
 import { createGoogleTaskReadCache, initializeGoogleTaskReadCacheInside } from './google-task-read-cache.ts';
 import type { createV2EventRepository } from './sharing-v2-events';
 import type { GoogleSyncState, GoogleTaskLink, GoogleTaskStatus, GoogleTaskStatusChange, GoogleSyncEntry } from '../../features/google-sync/contracts';
@@ -184,9 +184,9 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
     const captured = identities.map(identity => ({ ...identity }));
     if (!captured.length || captured.length > 100) throw new Error('Google家事は100件以内に分けて送信してください。');
     return privateStorage(async transaction => {
-      await initialize(transaction); beforeCommit?.(); const results = [];
-      for (const identity of captured) results.push(await reserveGoogleTaskCreateInside(transaction,
-        { ...identity, attemptId: input.makeId(), startedAt: input.now().toISOString() }));
+      await initialize(transaction); beforeCommit?.();
+      const results = await reserveGoogleTaskCreatesInside(transaction, captured.map(identity =>
+        ({ ...identity, attemptId: input.makeId(), startedAt: input.now().toISOString() })));
       await check(transaction); beforeCommit?.(); return results;
     });
   };
@@ -195,7 +195,7 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
     if (!captured.length || captured.length > 100) throw new Error('Google家事は100件以内に分けて送信してください。');
     return privateStorage(async transaction => {
       await initialize(transaction);
-      for (const intent of captured) await rejectGoogleTaskCreateInside(transaction, intent);
+      await rejectGoogleTaskCreatesInside(transaction, captured);
       await check(transaction);
     });
   };

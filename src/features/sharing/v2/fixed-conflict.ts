@@ -20,7 +20,8 @@ export function fixedConflictAtOperation(view: V2HistoryView, archive: readonly 
   const zone = view.field('settings', 'settings', 'timeZone', operation)?.value;
   if (typeof zone !== 'string') throw new Error('Missing shared timezone');
   const rules = observedDateRules(view, operation, approved);
-  const visited = new Set<string>(); let inspected = 0;
+  const visited = new Set<string>();
+  const contexts = new Map<string, ReturnType<typeof frameAtOperation>>();
   for (const fact of rules.filter((item) => item.rule.mode === 'fixed')) {
     const rule = fact.rule; const previous = fixedInterval(rule.target); if (!previous) throw new Error('Invalid fixed designation');
     if (view.field('chore', rule.choreId, '$alive', operation)?.value !== true) continue;
@@ -41,8 +42,15 @@ export function fixedConflictAtOperation(view: V2HistoryView, archive: readonly 
       anchors = from > through ? [] : commonFrames(view.groupId, rule.choreId, config, from, through).map((frame) => frame.anchorDate);
     }
     for (const anchor of anchors) {
-      if (++inspected > 10_000) throw new V2HistoryConflictError('Fixed-date comparison needs a narrower review range');
-      const context = frameAtOperation(view, archive, operation, rule.choreId, anchor, rule.ruleVersion);
+      // Revisions of the same fixed rule share one authenticated read boundary.
+      // Keep the rule version in this key: an invalid older version must still
+      // fail its own authority check rather than hide behind a newer one.
+      const identity = JSON.stringify([rule.choreId, anchor, rule.ruleVersion]);
+      let context = contexts.get(identity);
+      if (!context) {
+        if (contexts.size >= 10_000) throw new V2HistoryConflictError('Fixed-date comparison needs a narrower review range');
+        context = frameAtOperation(view, archive, operation, rule.choreId, anchor, rule.ruleVersion); contexts.set(identity, context);
+      }
       const key = `${context.frame.id}:${rule.subjectUserId ?? ''}`;
       if (visited.has(key) || context.frame.id === own.occurrenceId && rule.subjectUserId === own.subjectUserId) continue;
       visited.add(key);

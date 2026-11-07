@@ -5,6 +5,7 @@ import type { ClothingRegion, ClothingSeasonalWork, PersonalSeasonalRound } from
 import { CLOTHING_SEASONAL_TABLE_VERSION, completePersonalSeasonalRound, initializePersonalSeasonalRounds,
   updatePersonalSeasonalRegion } from '../../domain/scheduling/adaptive/seasonal.ts';
 import { daysBetween } from '../../domain/scheduling/local-date.ts';
+import { pinnedClockAt } from '../../domain/scheduling/zoned-clock.ts';
 
 const works: readonly ClothingSeasonalWork[] = ['winterStorage', 'summerStorage'];
 interface SeasonalState {
@@ -98,7 +99,7 @@ export async function applyPersonalSeasonalInside(database: SQLiteDatabase, cont
     if (!target || !context.chore.enabled) kind = [...history.active.values()].some(event => event.roundId === operation.roundId) ? 'alreadyCompleted' : 'staleRound';
     else {
       // Both work kinds stay independent, including when their completion dates coincide.
-      new Intl.DateTimeFormat('en', { timeZone: operation.timeZone }).format(0);
+      pinnedClockAt(0, operation.timeZone);
       if (!operation.completionId || !['personal', 'shared'].includes(operation.origin)) throw new Error('季節家事の実施記録を確認してください。');
       state.pending[target.work] = completePersonalSeasonalRound(target, { completedDate: operation.date, region: context.region, fingerprint: context.fingerprint });
       event = { seasonal: true, operationId: operation.operationId, recordedAt: operation.recordedAt, type: 'complete', completionId: operation.completionId, roundId: target.id,

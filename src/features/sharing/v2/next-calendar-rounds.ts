@@ -12,7 +12,17 @@ export function nextLongCalendarRounds(input: {
   readAt(anchor: LocalDate): V2CommonPlan;
 }): V2PlannedOccurrence[] {
   const today = input.plan.range.asOfDate; const result: V2PlannedOccurrence[] = [];
-  const cache = new Map<LocalDate, V2CommonPlan>();
+  const key = (choreId: string, anchor: LocalDate, version: number) => JSON.stringify([choreId, anchor, version]);
+  const indexPlan = (plan: V2CommonPlan) => {
+    const index = new Map<string, V2PlannedOccurrence>();
+    for (const round of plan.occurrences) {
+      const id = key(round.choreId, round.anchorDate, round.ruleVersion);
+      if (!index.has(id)) index.set(id, round);
+    }
+    return index;
+  };
+  const current = indexPlan(input.plan);
+  const cache = new Map<LocalDate, ReturnType<typeof indexPlan>>();
   for (const chore of input.plan.chores) {
     if (!chore.enabled || chore.archived) continue;
     const choices: { round: V2PlannedOccurrence; date: LocalDate }[] = [];
@@ -37,11 +47,11 @@ export function nextLongCalendarRounds(input: {
         for (let attempt = 0; attempt < 32; attempt++, index++) {
           let anchor: LocalDate; try { anchor = addDays(cfg.anchorDate, index * cfg.intervalDays); } catch { break; }
           if (search.through && anchor > search.through || slice.through && anchor > slice.through || anchor < slice.from) break;
-          const matches = (row: V2PlannedOccurrence) => row.choreId === chore.id && row.anchorDate === anchor && row.ruleVersion === cfg.ruleVersion;
-          let round = input.plan.occurrences.find(matches);
+          const identity = key(chore.id, anchor, cfg.ruleVersion);
+          let round = current.get(identity);
           if (!round) {
-            let plan = cache.get(anchor); if (!plan) { plan = input.readAt(anchor); cache.set(anchor, plan); }
-            round = plan.occurrences.find(matches);
+            let plan = cache.get(anchor); if (!plan) { plan = indexPlan(input.readAt(anchor)); cache.set(anchor, plan); }
+            round = plan.get(identity);
           }
           if (!round || !round.activeInPeriod) continue;
           const available = round.subjects.filter(subject => (subject.subjectUserId === null || subject.subjectUserId === input.viewerUserId)

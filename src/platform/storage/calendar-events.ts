@@ -14,7 +14,7 @@ import type { GoogleCalendarListEntry } from '../google-calendar/calendar-api';
 import { readCalendarEventRows } from './calendar-event-rows.ts';
 
 export interface CalendarEditorDraft { audience?: 'personal' | 'group'; groupId?: string; basisRevision?: string; editorCategory?: CalendarCategory; submission?: { id: string; digest: string }; eventId: string | null; anchorDate: LocalDate | null; revision: number; exceptionRevision: number; scope: 'one' | 'series'; value: EventDraft }
-export function calendarDraftKey(draft: CalendarEditorDraft) { const prefix = draft.audience === 'group' ? `group:${draft.groupId}:` : ''; return prefix + (draft.eventId ? `event:${draft.eventId}:${draft.scope}:${draft.scope === 'one' ? draft.anchorDate : ''}` : draft.value.birthday ? 'birthday:new' : 'new'); }
+export function calendarDraftKey(draft: Pick<CalendarEditorDraft, 'audience' | 'groupId' | 'eventId' | 'scope' | 'anchorDate'> & { value: Pick<EventDraft, 'birthday'> }) { const prefix = draft.audience === 'group' ? `group:${draft.groupId}:` : ''; return prefix + (draft.eventId ? `event:${draft.eventId}:${draft.scope}:${draft.scope === 'one' ? draft.anchorDate : ''}` : draft.value.birthday ? 'birthday:new' : 'new'); }
 /** A return route carries this digest, never the private input text. */
 export function calendarDraftVersion(draft: CalendarEditorDraft) { return bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(parseEditorDraft(draft))))); }
 export interface LocalCalendarSnapshot { events: CalendarEvent[]; categories: CalendarCategory[]; exceptions: CalendarException[]; draft: CalendarEditorDraft | null; drafts?: CalendarEditorDraft[]; draftError?: string }
@@ -36,10 +36,11 @@ async function personal(database: SQLiteDatabase) {
   if (sharedRepositoryAdapter(database)) throw new Error('個人のカレンダーは個人の保存先で開いてください。');
   if (!await database.getFirstAsync("SELECT id FROM households WHERE id = 'local-household'")) throw new Error('個人の保存先を確認できません。');
 }
-async function assertEditableGoogleEvent(database: SQLiteDatabase, id: string) {
+async function assertEditableGoogleEvent(database: SQLiteDatabase, id: string, anchorDate?: LocalDate, includeAllExceptions = false) {
   if (!await database.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='calendar_google_links'")) return;
   const links = await database.getAllAsync<{ subject: string; calendar_id: string; read_only: number; active: number }>(
-    'SELECT subject,calendar_id,read_only,active FROM calendar_google_links WHERE event_id=?', id);
+    `SELECT subject,calendar_id,read_only,active FROM calendar_google_links WHERE event_id=?
+      AND (anchor_date='' OR ?=1 OR anchor_date=?)`, id, includeAllExceptions ? 1 : 0, anchorDate ?? '');
   if (!links.length) return;
   const control = await database.getFirstAsync<{ control_json: string }>('SELECT control_json FROM calendar_google_control WHERE singleton=1');
   let writable = false;
@@ -113,7 +114,10 @@ function parseEditorDraft(draft: CalendarEditorDraft): CalendarEditorDraft {
     value: { ...value, title: draft.value.title, allDay: draft.value.allDay, birthday: draft.value.birthday, endDate: draft.value.endDate, untilDate: draft.value.untilDate } };
 }
 async function clearRelatedDrafts(database: SQLiteDatabase, id: string | null, scope?: 'one' | 'series', anchorDate?: LocalDate | null, birthday = false, audience: Pick<CalendarEditorDraft, 'audience' | 'groupId'> = {}, submitted?: CalendarEditorDraft) {
-  const rows = await database.getAllAsync<{ slot: string; draft_json: string }>('SELECT slot,draft_json FROM calendar_drafts LIMIT 51');
+  const exactSlot = scope || id === null ? calendarDraftKey({ ...audience, eventId: id, scope: scope ?? 'series', anchorDate: anchorDate ?? null, value: { birthday } }) : null;
+  const rows = await database.getAllAsync<{ slot: string; draft_json: string }>(exactSlot === null
+    ? 'SELECT slot,draft_json FROM calendar_drafts LIMIT 51'
+    : "SELECT slot,draft_json FROM calendar_drafts WHERE slot IN (?,'editor')", ...(exactSlot === null ? [] : [exactSlot]));
   for (const row of rows) {
     let draft: CalendarEditorDraft;
     try { draft = parseEditorDraft(JSON.parse(row.draft_json)); } catch { continue; }
@@ -146,7 +150,7 @@ export async function saveCalendarEvent(database: SQLiteDatabase, input: {
     anchorDate: input.anchorDate ?? null, exceptionRevision: input.expectedExceptionRevision ?? 0, value: input.value });
   await withPlannerDatabaseOperation(database, async () => { await personal(database);
     await withIsolatedSqliteTransaction(database, async tx => {
-      await assertEditableGoogleEvent(tx, id);
+      await assertEditableGoogleEvent(tx, id, input.scope === 'one' ? input.anchorDate : undefined, input.resetExceptions === true);
       if (!await tx.getFirstAsync('SELECT id FROM calendar_categories WHERE id=?', body.categoryId)) {
         // Creation remains usable before the first calendar read finishes. Only a
         // built-in initial category can be seeded; unknown/deleted custom IDs stay invalid.
@@ -179,7 +183,7 @@ export async function deleteCalendarEvent(database: SQLiteDatabase, input: { id:
   identifier(input.id); if (input.anchorDate !== undefined) parseLocalDate(input.anchorDate);
   await withPlannerDatabaseOperation(database, async () => { await personal(database);
     await withIsolatedSqliteTransaction(database, async tx => {
-      await assertEditableGoogleEvent(tx, input.id);
+      await assertEditableGoogleEvent(tx, input.id, input.anchorDate, input.anchorDate === undefined);
       const row = await tx.getFirstAsync<{ revision: number; deleted: number; definition_json: string }>('SELECT revision,deleted,definition_json FROM calendar_events WHERE id=?', input.id);
       if (!row || row.deleted || row.revision !== input.expectedRevision) throw conflict();
       if (input.anchorDate) {

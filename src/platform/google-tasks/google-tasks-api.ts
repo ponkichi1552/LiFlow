@@ -1,6 +1,7 @@
 import type { GoogleOperationBudget } from '../../features/google-sync/operation-budget';
 import { googleTaskRequestNotSent } from '../../features/google-sync/task-create-intent.ts';
 import { isGoogleETag } from '../google-http/etag.ts';
+import { readGoogleResponseText } from '../google-http/bounded-body.ts';
 
 export const GOOGLE_TASKS_SCOPE = 'https://www.googleapis.com/auth/tasks';
 export const GOOGLE_TASKS_LIST_TITLE = '家事Planner';
@@ -196,8 +197,10 @@ export function createGoogleTasksApi(
       return [...items.values()];
     },
 
-    getTask(accessToken, taskListId, taskId) {
-      return send(accessToken, `/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(taskId)}${TASK_RESPONSE_QUERY}`);
+    async getTask(accessToken, taskListId, taskId) {
+      const task = await send<GoogleTask>(accessToken, `/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(taskId)}${TASK_RESPONSE_QUERY}`);
+      if (!task || task.id !== taskId) throw new GoogleTasksApiError(502, 'task_identity_mismatch', null);
+      return task;
     },
 
     createTask(accessToken, taskListId, draft) {
@@ -223,11 +226,13 @@ export function createGoogleTasksApi(
       })));
     },
 
-    patchTask(accessToken, taskListId, taskId, patch) {
-      return send(accessToken, `/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(taskId)}${TASK_RESPONSE_QUERY}`, {
+    async patchTask(accessToken, taskListId, taskId, patch) {
+      const task = await send<GoogleTask>(accessToken, `/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(taskId)}${TASK_RESPONSE_QUERY}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
       });
+      if (!task || task.id !== taskId) throw new GoogleTasksApiError(502, 'task_identity_mismatch', null);
+      return task;
     },
 
     async deleteTask(accessToken, taskListId, taskId, expectedETag) {
@@ -264,7 +269,7 @@ async function requestBatch(
     });
     if (signal.aborted) throw requestTimeoutError();
     if (!response.ok) {
-      const payload: unknown = await response.json().catch(() => null);
+      const payload: unknown = await readGoogleResponseJson(response, signal).catch(() => null);
       throw new GoogleTasksApiError(
         response.status,
         googleErrorCode(payload) ?? `http_${response.status}`,
@@ -273,7 +278,10 @@ async function requestBatch(
     }
     const responseBoundary = multipartBoundary(response.headers.get('Content-Type'));
     if (!responseBoundary) throw new GoogleTasksApiError(502, 'invalid_batch_response', null);
-    const parts = parseBatchResponse(await response.text(), responseBoundary);
+    let text: string;
+    try { text = await readGoogleResponseText(response, signal); }
+    catch (cause) { if (cause instanceof Error && cause.name === 'AbortError') throw cause; throw new GoogleTasksApiError(502, 'invalid_batch_response', null); }
+    const parts = parseBatchResponse(text, responseBoundary);
     const resultByRequestId = new Map(parts.map((part) => [part.requestId, part]));
     const counts = new Map<string, number>();
     for (const part of parts) counts.set(part.requestId, (counts.get(part.requestId) ?? 0) + 1);
@@ -366,7 +374,7 @@ async function request<T>(
     if (signal.aborted) throw requestTimeoutError();
     if (response.status === 404) throw new GoogleTaskNotFoundError();
     if (!response.ok) {
-      const payload: unknown = await response.json().catch(() => null);
+      const payload: unknown = await readGoogleResponseJson(response, signal).catch(() => null);
       throw new GoogleTasksApiError(
         response.status,
         googleErrorCode(payload) ?? `http_${response.status}`,
@@ -375,7 +383,7 @@ async function request<T>(
     }
     if (response.status === 204) return undefined as T;
     let payload: T;
-    try { payload = await response.json() as T; }
+    try { payload = await readGoogleResponseJson(response, signal) as T; }
     catch (cause) {
       if (cause instanceof Error && cause.name === 'AbortError') throw cause;
       throw new GoogleTasksApiError(502, 'invalid_json_response', null);
@@ -383,6 +391,10 @@ async function request<T>(
     receiveHeaders?.(response.headers);
     return payload;
   }, budget);
+}
+
+async function readGoogleResponseJson(response: Response, signal: AbortSignal): Promise<unknown> {
+  return JSON.parse(await readGoogleResponseText(response, signal));
 }
 
 /** Abort is advisory: a native fetch or body reader may never reject on its own. */

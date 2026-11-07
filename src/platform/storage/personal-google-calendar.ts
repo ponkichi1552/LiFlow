@@ -150,6 +150,13 @@ export async function withPersonalGoogleCalendar<T>(database: SQLiteDatabase, ex
     });
   });
 }
+async function queueCalendarPermissionChanges(tx: SQLiteDatabase, subject: string | null,
+  previous: readonly GoogleCalendarListEntry[], next: readonly GoogleCalendarListEntry[]) {
+  const roles = new Map(previous.map(row => [row.id, row.accessRole]));
+  const changed = next.filter(row => roles.get(row.id) !== row.accessRole).map(row => row.id);
+  if (changed.length) await tx.runAsync(`UPDATE calendar_google_inbox SET dirty=1
+    WHERE subject=? AND calendar_id IN (SELECT value FROM json_each(?)) AND dirty<>1`, subject, JSON.stringify(changed));
+}
 export async function connectPersonalGoogleCalendar(database: SQLiteDatabase, expectedGeneration: number, subject: string,
   calendars: readonly GoogleCalendarListEntry[], targetCalendarId: string | null) {
   if (!subject || subject.length > 256 || new Set(calendars.map(row => row.id)).size !== calendars.length || !calendars.length) throw new Error('Googleアカウントと同期先を確認してください。');
@@ -159,9 +166,7 @@ export async function connectPersonalGoogleCalendar(database: SQLiteDatabase, ex
     return withIsolatedSqliteTransaction(database, async tx => {
       const previous = await readInside(tx); if (previous.generation !== expectedGeneration) throw new Error('接続設定が変更されています。選び直してください。');
       if (previous.subject !== subject) await archiveControlInside(tx, previous);
-      else for (const calendar of calendars) if (previous.calendars.find(row => row.id === calendar.id)?.accessRole !== calendar.accessRole) {
-        await tx.runAsync('UPDATE calendar_google_inbox SET dirty=1 WHERE subject=? AND calendar_id=? AND dirty<>1', subject, calendar.id);
-      }
+      else await queueCalendarPermissionChanges(tx, subject, previous.calendars, calendars);
       const value: PersonalGoogleCalendarControl = { ...EMPTY_PERSONAL_GOOGLE_CALENDAR, subject, generation: previous.generation + 1, enabled: true,
         calendars: normalizeGoogleCalendars(calendars), targetCalendarId };
       await writeInside(tx, value);
@@ -194,9 +199,7 @@ export async function refreshPersonalGoogleCalendars(database: SQLiteDatabase, e
     const removed = await tx.runAsync(`UPDATE calendar_google_links SET active=0 WHERE subject=? AND active<>0 AND calendar_id NOT IN (SELECT value FROM json_each(?))`, current.subject, ids);
     const restored = await tx.runAsync(`UPDATE calendar_google_links SET active=1 WHERE subject=? AND active<>1 AND calendar_id IN (SELECT value FROM json_each(?))`, current.subject, ids);
     projectionChanged = removed.changes > 0 || restored.changes > 0;
-    for (const calendar of calendars) if (current.calendars.find(row => row.id === calendar.id)?.accessRole !== calendar.accessRole) {
-      await tx.runAsync('UPDATE calendar_google_inbox SET dirty=1 WHERE subject=? AND calendar_id=? AND dirty<>1', current.subject, calendar.id);
-    }
+    await queueCalendarPermissionChanges(tx, current.subject, current.calendars, calendars);
     return next;
   });
   return { control, projectionChanged };

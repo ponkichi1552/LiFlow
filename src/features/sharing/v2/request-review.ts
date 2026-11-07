@@ -20,7 +20,7 @@ export function unresolvedRequestReviews(input: { occurrence: SharedOccurrence; 
       || !ruleSelectorMatches(proposal.selector, input.occurrence)) continue;
     const request = input.view.byId(state.requestId); if (!request) continue;
     const possible = new Set([approvedRequestRuleId(request, proposal.proposed),
-      ...input.view.ofType('requestDecision').filter((op) => op.payload.requestId === state.requestId && op.payload.decision === 'counteroffer')
+      ...input.view.requestDecisionsFor(state.requestId).filter((op) => op.payload.decision === 'counteroffer')
         .map((op) => approvedRequestRuleId(request, op.payload.target as unknown as import('./model.ts').DateTarget,
           counterofferDesignationOptions(proposal.proposedOptions, op.payload.allowDuringCooldown)))]);
     let dependsOnDispute = state.kind === 'conflict'; let acknowledged = false;

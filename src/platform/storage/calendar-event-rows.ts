@@ -59,7 +59,7 @@ export async function readCalendarEventRows(database: SQLiteDatabase): Promise<{
     const value = read(row.override_json, row.revision, previous?.exceptions.get(key)); next.exceptions.set(key, value);
     const source = metadata.get(JSON.stringify([row.event_id, row.anchor_date]));
     return { eventId: row.event_id, anchorDate: row.anchor_date, override: value.value ? copy(value.value) : null, revision: row.revision,
-      ...(source ? { blocksTime: source.blocksTime } : {}) };
+      ...(source ? { blocksTime: source.blocksTime, readOnly: source.readOnly, ...(source.externalUrl ? { externalUrl: source.externalUrl } : {}) } : {}) };
   });
   // Publish only after the entire read validates. Removed rows are evicted; no DB writes or migrations are skipped.
   validated.set(database, next);

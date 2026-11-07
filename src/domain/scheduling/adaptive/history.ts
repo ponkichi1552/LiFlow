@@ -3,6 +3,7 @@ import type { LocalDate } from '../../shared/types';
 import { daysBetween, parseLocalDate } from '../local-date.ts';
 import { adaptiveReferenceLimit, adaptiveRepresentativeDays, chooseAdaptiveMethod, fitAdaptiveModels, predictAdaptiveDate } from './models.ts';
 import type { AdaptiveForecastScore, AdaptiveInterval, AdaptiveMethod, AdaptiveModel } from './models';
+import { pinnedClockAt } from '../zoned-clock.ts';
 
 export interface AdaptiveHistoryPolicy {
   choreId: string;
@@ -106,7 +107,7 @@ export function replayAdaptiveHistory(input: {
       parseLocalDate(event.localDate);
       if (!event.completionId || !event.roundId || !event.timeZone || !['personal', 'shared'].includes(event.origin)
         || !modes.includes(event.mode) || !finiteDays(event.initialDays)) throw new Error('家事の実施記録を確認してください。');
-      if (!validatedZones.has(event.timeZone)) { new Intl.DateTimeFormat('en', { timeZone: event.timeZone }).format(0); validatedZones.add(event.timeZone); }
+      if (!validatedZones.has(event.timeZone)) { pinnedClockAt(0, event.timeZone); validatedZones.add(event.timeZone); }
       if (event.ruleDate !== undefined) parseLocalDate(event.ruleDate);
       if (event.displayedWindow && event.displayedWindow !== 'missing') {
         parseLocalDate(event.displayedWindow.from); parseLocalDate(event.displayedWindow.through);

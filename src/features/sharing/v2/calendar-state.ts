@@ -43,8 +43,9 @@ export function validateSharedCalendarPayload(input: Record<string, JsonValue>, 
   if (payload.eventId === operationId && (payload.scope !== 'series' || payload.basisOperationIds.length || payload.value === null)) fail();
 }
 
-export function readSharedCalendar(view: V2HistoryView, at?: SharedOperation): SharedCalendarRecord[] {
-  const facts = at ? view.observed(view.ofType('calendarEvent'), at) : view.ofType('calendarEvent');
+export function readSharedCalendar(view: V2HistoryView, at?: SharedOperation, eventId?: string): SharedCalendarRecord[] {
+  const source = eventId === undefined ? view.ofType('calendarEvent') : view.calendarFactsFor(eventId);
+  const facts = at ? view.observed(source, at) : source;
   const groups = new Map<string, SharedOperation[]>();
   for (const operation of facts) { const id = body(operation).eventId; const list = groups.get(id) ?? []; list.push(operation); groups.set(id, list); }
   return [...groups].flatMap(([id, operations]) => {
@@ -69,19 +70,23 @@ export function readSharedCalendar(view: V2HistoryView, at?: SharedOperation): S
 export function authorizeSharedCalendarOperation(view: V2HistoryView, operation: SharedOperation, admin: boolean): void {
   const payload = body(operation);
   if (payload.eventId === operation.operationId) {
-    if (view.observed(view.ofType('calendarEvent'), operation).some(value => body(value).eventId === payload.eventId)) fail();
+    if (view.observed(view.calendarFactsFor(payload.eventId), operation).length) fail();
     return;
   }
-  const current = readSharedCalendar(view, operation).find(event => event.id === payload.eventId);
+  const current = readSharedCalendar(view, operation, payload.eventId)[0];
   if (!current || !admin && current.creatorUserId !== operation.authorUserId) fail();
   const heads = payload.scope === 'series' ? current.heads : current.exceptions.find(row => row.anchorDate === payload.anchorDate)?.heads ?? [];
   if (!equalIds(heads.map(row => row.operationId), payload.basisOperationIds)) fail();
   const exceptionIds = current.exceptions.flatMap(row => row.heads.map(head => head.operationId));
   if (payload.resetExceptionIds.some(id => !exceptionIds.includes(id))) fail();
-  if (payload.scope === 'series' && payload.value && current.heads.length === 1) {
-    const old = body(current.heads[0]).value; const value = payload.value;
-    if (old && (old.startDate !== value.startDate || old.recurrence !== value.recurrence || old.untilDate !== value.untilDate
-      || JSON.stringify(old.customRecurrence) !== JSON.stringify(value.customRecurrence)) && !equalIds(exceptionIds, payload.resetExceptionIds)) fail();
+  if (payload.scope === 'series' && payload.value) {
+    const value = payload.value;
+    const changed = current.heads.some(head => {
+      const old = body(head).value;
+      return old && (old.startDate !== value.startDate || old.recurrence !== value.recurrence || old.untilDate !== value.untilDate
+        || JSON.stringify(old.customRecurrence) !== JSON.stringify(value.customRecurrence));
+    });
+    if (changed && !equalIds(exceptionIds, payload.resetExceptionIds)) fail();
   }
   if (payload.scope === 'one') {
     if (current.heads.length !== 1 || body(current.heads[0]).value === null) fail();

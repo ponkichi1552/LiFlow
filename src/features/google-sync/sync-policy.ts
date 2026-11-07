@@ -38,6 +38,8 @@ export function shouldSyncGoogleTasks(state: GoogleSyncPolicyState | null, now: 
   if (state.status === 'authRequired' || state.status === 'syncing' || state.status === 'error') return false;
 
   if (state.status === 'retryPending') {
+    const attempted = parseTimestamp(state.lastAttemptAt);
+    if (attempted !== null && attempted > now.getTime()) return true;
     const retryAt = parseTimestamp(state.nextRetryAt);
     return retryAt !== null && retryAt <= now.getTime();
   }

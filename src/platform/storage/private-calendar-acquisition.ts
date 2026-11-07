@@ -50,7 +50,10 @@ export async function beginPrivateCalendarAcquisition(db: SQLiteDatabase, crypto
   authorityDigest: string; rangeDigest: string; now: number; force: boolean; automatic: boolean; randomFraction: number; currentManifestDigest: string | null;
 }) {
   hexBytes(input.authorityDigest, 32); hexBytes(input.rangeDigest, 32); timestamp(input.now);
-  const before = await read(db); const row = before?.authority_digest === input.authorityDigest ? before : null;
+  const before = await read(db);
+  // The same monotonic lease cannot still be valid in a clock epoch before it
+  // began. Its completion is fenced by token and start time after replacement.
+  const row = before?.authority_digest === input.authorityDigest && before.started_at <= input.now ? before : null;
   // An explicit retry may bypass a failure's delay, but must not steal a running query from another VM.
   if (row?.token && row.expires_at! > input.now) return { kind: 'inProgress' as const, retryAt: row.expires_at! };
   if (row?.retry_at !== null && row?.retry_at !== undefined && row.retry_at > input.now && !input.force) return { kind: 'waiting' as const, retryAt: row.retry_at };

@@ -38,9 +38,9 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
   if (!local || !snapshot) return undefined;
   const { recordsById, groupCategories, rawCategories } = projected;
   const allCategories = snapshot.categories;
-  const canEdit = (id: string) => {
+  const canEdit: NonNullable<LocalCalendarBinding['canEditEvent']> = (id, anchorDate) => {
     const record = recordsById.get(id);
-    return record ? record.creatorUserId === model.viewerUserId || model.viewerUserId === model.adminUserId : local.canEditEvent?.(id) !== false;
+    return record ? record.creatorUserId === model.viewerUserId || model.viewerUserId === model.adminUserId : local.canEditEvent?.(id, anchorDate) !== false;
   };
   const mutate = async (work: () => Promise<unknown>) => {
     if (perform) { const result = await perform(work); if (!result.committed) throw result.error ?? new Error('共有予定を保存できませんでした。'); }

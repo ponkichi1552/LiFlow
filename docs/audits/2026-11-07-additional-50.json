@@ -1,0 +1,1331 @@
+{
+  "date": "2026-11-07",
+  "verifiedAt": "2026-11-07T14:43:02.429124+00:00",
+  "base": "1a994401db73dfd220632546176326caf3c24aa6",
+  "status": "verified-local-and-native",
+  "findingsCount": 50,
+  "bugs": 24,
+  "optimizations": 26,
+  "priorFindingsNotRecounted": 172,
+  "counting": "Independent reproduced failures or measured redundant work; all50 fail on the recorded pre-fix source and pass after. No arbitrary padding or scanner duplicates.",
+  "findings": [
+    {
+      "id": "F001",
+      "kind": "optimization",
+      "title": "共有の項目読取が無関係な同一家事の更新履歴まで毎回走査する",
+      "testName": "audit50 shared field reads inspect only writes to that field while later accepted edits and causal cuts remain visible",
+      "testFile": "tests/audit50-storage-work.test.mjs",
+      "before": "storage-work-before.log",
+      "after": "storage-work-after.log",
+      "evidence": "1000 causal candidates reduced to only relevant field writes; append and old causal cut preserved",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/sharing/v2/history-view.ts",
+        "src/features/sharing/v2/field-edit.ts"
+      ],
+      "testSourceSha256": "ed74b10d286adada893e4d8e1f41dba917ff9f49d793974e6b8120232b97bb1f",
+      "sourceSha256": {
+        "src/features/sharing/v2/history-view.ts": "b70ca325dcc67616ef5b1c3666937fbf53825873688509822f1d056c8c8c896a",
+        "src/features/sharing/v2/field-edit.ts": "7ed32fe8ba4b34ba3c5720b9c17d562f2496db965bac564660ec8e885e846cd1"
+      },
+      "beforeEvidenceSha256": "d33d0db79b34516bcfebcf4843ed9c45aab68eac25a5aa95e3b3c86f50949dc9",
+      "afterEvidenceSha256": "e8a75a6f5c8939fbd704e073ead0e6e73906feb8450aa99d51a7ccda27fb8e19"
+    },
+    {
+      "id": "F002",
+      "kind": "optimization",
+      "title": "Google Tasksの作成拒否205件を205回のSQLite呼出しで処理する",
+      "testName": "audit50 rejecting a Tasks creation batch uses bounded exact-attempt SQL and preserves linked or replaced reservations",
+      "testFile": "tests/audit50-storage-work.test.mjs",
+      "before": "storage-work-before.log",
+      "after": "storage-work-after.log",
+      "evidence": "205 DELETE bridge calls reduced to3, preserves linked and newer attempts",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/google-task-create-intents.ts"
+      ],
+      "testSourceSha256": "ed74b10d286adada893e4d8e1f41dba917ff9f49d793974e6b8120232b97bb1f",
+      "sourceSha256": {
+        "src/platform/storage/google-task-create-intents.ts": "57e29c299d4548fd2a4e0b494bd0e9f4fd14a6ba18832de52e6b88e65415a71c"
+      },
+      "beforeEvidenceSha256": "d33d0db79b34516bcfebcf4843ed9c45aab68eac25a5aa95e3b3c86f50949dc9",
+      "afterEvidenceSha256": "e8a75a6f5c8939fbd704e073ead0e6e73906feb8450aa99d51a7ccda27fb8e19"
+    },
+    {
+      "id": "F003",
+      "kind": "optimization",
+      "title": "一つのカレンダー下書き保存のため無関係な49件も読んで検証する",
+      "testName": "audit50 saving one existing calendar draft does not load and validate the other forty nine drafts",
+      "testFile": "tests/audit50-storage-work.test.mjs",
+      "before": "storage-work-before.log",
+      "after": "storage-work-after.log",
+      "evidence": "50 full draft bodies reduced to1; legacy editor slot remains compatible",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/calendar-events.ts"
+      ],
+      "testSourceSha256": "ed74b10d286adada893e4d8e1f41dba917ff9f49d793974e6b8120232b97bb1f",
+      "sourceSha256": {
+        "src/platform/storage/calendar-events.ts": "e1fd9a7592f06839a3e80b3bab0d7487266afaf75e4b57ae0623cb5acfe70b06"
+      },
+      "beforeEvidenceSha256": "d33d0db79b34516bcfebcf4843ed9c45aab68eac25a5aa95e3b3c86f50949dc9",
+      "afterEvidenceSha256": "e8a75a6f5c8939fbd704e073ead0e6e73906feb8450aa99d51a7ccda27fb8e19"
+    },
+    {
+      "id": "F004",
+      "kind": "optimization",
+      "title": "Googleカレンダー1000件の権限照合が二乗走査と個別SQL更新になる",
+      "testName": "audit50 Calendar permission reconciliation indexes prior identities and batches reimports for one thousand changed roles",
+      "testFile": "tests/audit50-storage-work.test.mjs",
+      "before": "storage-work-before.log",
+      "after": "storage-work-after.log",
+      "evidence": "503500 identity accesses before; indexed matching and bounded set update after",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/personal-google-calendar.ts"
+      ],
+      "testSourceSha256": "ed74b10d286adada893e4d8e1f41dba917ff9f49d793974e6b8120232b97bb1f",
+      "sourceSha256": {
+        "src/platform/storage/personal-google-calendar.ts": "0501bbe99a6ea44bc24b578d89cc645c151d9d5e2bb3319de1bc4d1cc06350fc"
+      },
+      "beforeEvidenceSha256": "d33d0db79b34516bcfebcf4843ed9c45aab68eac25a5aa95e3b3c86f50949dc9",
+      "afterEvidenceSha256": "e8a75a6f5c8939fbd704e073ead0e6e73906feb8450aa99d51a7ccda27fb8e19"
+    },
+    {
+      "id": "F005",
+      "kind": "bug",
+      "title": "予約待ち中に通知時刻が過ぎると空いた予約枠を後続の通知へ渡さない",
+      "testName": "audit50 a reminder expiring in the native queue releases its slot for the next future reminder",
+      "testFile": "tests/audit50-notifications.test.mjs",
+      "before": "behavior-before.log",
+      "after": "behavior-after.log",
+      "evidence": "A capacity-one queue loses a future reminder after the earlier reminder expires; now replaces it and does not report canceled existing row as unchanged",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/notifications/reconcile-local-notifications.ts"
+      ],
+      "testSourceSha256": "923f97be8121814a2150db0bcfdfcb325ab0a82e243aaf11cf0ef4e87e6daf80",
+      "sourceSha256": {
+        "src/features/notifications/reconcile-local-notifications.ts": "29b7a68be03bab0b68a50af9852c1b37e20f5457fa5084f717d9b93bc26283aa"
+      },
+      "beforeEvidenceSha256": "755c9a63190bf94ca553abb07748f422d4c7679dc2a097a4f57ca4963f58810d",
+      "afterEvidenceSha256": "94981020eeead61fc26c2623331d9c1d598d3e45d0f71464ec0492d9373fc22e"
+    },
+    {
+      "id": "F006",
+      "kind": "bug",
+      "title": "最新100件へ絞る前の文字列ソートで新しい実施履歴を落とす",
+      "testName": "audit50 the latest hundred history cards retain the newest actual completion across mixed offset spellings",
+      "testFile": "tests/audit50-history.test.mjs",
+      "before": "behavior-before.log",
+      "after": "behavior-after.log",
+      "evidence": "N003 fixed ordering within grouped days; separate pre-truncation selection still omitted actual newest record among101 rows",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/planner/history-selection.ts",
+        "src/features/planner/history-content.tsx",
+        "src/features/settings/chore-settings-screen.tsx"
+      ],
+      "testSourceSha256": "9a6759b8411b57ccd16a49ec9de3c957f470b81052ac1efc898ae939c340e8fa",
+      "sourceSha256": {
+        "src/features/planner/history-selection.ts": "87cbddfaddba7954bc928fc57badcd3a0255b00018f461567fe4ecf41e360be4",
+        "src/features/planner/history-content.tsx": "e61489219ef812aa129471fc76df2fe71c8d0fc252c34f7611cf1874bfe476d1",
+        "src/features/settings/chore-settings-screen.tsx": "9e65dd40dae757a04097c7eabc7fb6246070f986913cf38d537649f63e4a0c90"
+      },
+      "beforeEvidenceSha256": "755c9a63190bf94ca553abb07748f422d4c7679dc2a097a4f57ca4963f58810d",
+      "afterEvidenceSha256": "94981020eeead61fc26c2623331d9c1d598d3e45d0f71464ec0492d9373fc22e"
+    },
+    {
+      "id": "F007",
+      "kind": "bug",
+      "title": "記録日のない旧履歴の見出しと月別件数が本人地域と一致しない",
+      "testName": "audit50 history without a frozen civil date uses the owner region for its month count and day heading",
+      "testFile": "tests/audit50-history.test.mjs",
+      "before": "behavior-before.log",
+      "after": "behavior-after.log",
+      "evidence": "LA 10/31 event was grouped as11/1 and monthly count0 on UTC device; now heading10/31 count1; frozen dates preserved",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/planner/history-selection.ts",
+        "src/features/planner/history-content.tsx",
+        "src/features/settings/chore-settings-screen.tsx"
+      ],
+      "testSourceSha256": "9a6759b8411b57ccd16a49ec9de3c957f470b81052ac1efc898ae939c340e8fa",
+      "sourceSha256": {
+        "src/features/planner/history-selection.ts": "87cbddfaddba7954bc928fc57badcd3a0255b00018f461567fe4ecf41e360be4",
+        "src/features/planner/history-content.tsx": "e61489219ef812aa129471fc76df2fe71c8d0fc252c34f7611cf1874bfe476d1",
+        "src/features/settings/chore-settings-screen.tsx": "9e65dd40dae757a04097c7eabc7fb6246070f986913cf38d537649f63e4a0c90"
+      },
+      "beforeEvidenceSha256": "755c9a63190bf94ca553abb07748f422d4c7679dc2a097a4f57ca4963f58810d",
+      "afterEvidenceSha256": "94981020eeead61fc26c2623331d9c1d598d3e45d0f71464ec0492d9373fc22e"
+    },
+    {
+      "id": "F008",
+      "kind": "bug",
+      "title": "失効したCalendarページが400で拒否されても同じ取得位置を永久に再試行する",
+      "testName": "audit50 an expired Calendar page rejected with400 retires only its cursor and resumes a full read without deleting saved events",
+      "testFile": "tests/audit50-calendar-recovery.test.mjs",
+      "before": "calendar-recovery-before.log",
+      "after": "calendar-recovery-after.log",
+      "evidence": "Invalid persisted page survives400; now retires only cursor and restarts foreground with imported and local data retained",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/calendar/personal-google-sync.ts"
+      ],
+      "testSourceSha256": "c1d26a75b831e501f9021a03c573bae79cd0f924151cdfcacf77123020d7f822",
+      "sourceSha256": {
+        "src/features/calendar/personal-google-sync.ts": "9547d806b2c6268cb4b8c31edfbe914eae6c209a0f99747d766b29fbb37d3d48"
+      },
+      "beforeEvidenceSha256": "1774df6ac663173f70acb749710ec32d29321c4b53e379be8215cfb83135f632",
+      "afterEvidenceSha256": "6109d1e6fe9e527fe245f66f99102bc9c09235ba8caec8a1baf43dbe4e4a6a85"
+    },
+    {
+      "id": "F009",
+      "kind": "bug",
+      "title": "端末の古いIntl地域情報が有効な同梱地域の周期学習と個人表示を拒否する",
+      "testName": "audit50 adaptive history accepts a bundled timezone even when the older native Intl database lacks it",
+      "testFile": "tests/audit50-calendar-recovery.test.mjs",
+      "before": "calendar-recovery-before.log",
+      "after": "calendar-recovery-after.log",
+      "evidence": "Bundled America/Coyhaique remains valid on an older native Intl database in adaptive history, private overlay, and seasonal completion; no device-local substitution",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/domain/scheduling/adaptive/history.ts",
+        "src/features/sharing/v2-ui/private-overlay.ts",
+        "src/platform/storage/personal-seasonal-chores.ts"
+      ],
+      "testSourceSha256": "c1d26a75b831e501f9021a03c573bae79cd0f924151cdfcacf77123020d7f822",
+      "sourceSha256": {
+        "src/domain/scheduling/adaptive/history.ts": "d5b967cb95f446e133613c2bc058ab3052f5358e4ef33db9a3a49c45a10e86c2",
+        "src/features/sharing/v2-ui/private-overlay.ts": "2cea07a0980105b7156b288e83a8b62b558f899c4d084409a248d46f0e3791f1",
+        "src/platform/storage/personal-seasonal-chores.ts": "429059f4ba2439520d9f81bf1cb7e86ee47146e231d23955693a72b773ceb368"
+      },
+      "beforeEvidenceSha256": "1774df6ac663173f70acb749710ec32d29321c4b53e379be8215cfb83135f632",
+      "afterEvidenceSha256": "6109d1e6fe9e527fe245f66f99102bc9c09235ba8caec8a1baf43dbe4e4a6a85"
+    },
+    {
+      "id": "F010",
+      "kind": "optimization",
+      "title": "共有予定1件の権限確認で無関係な1000予定まで因果関係を調べる",
+      "testName": "audit50 authorizing an edit of one shared calendar event does not causally inspect a thousand unrelated events",
+      "testFile": "tests/audit50-calendar-recovery.test.mjs",
+      "before": "calendar-recovery-before.log",
+      "after": "calendar-recovery-after.log",
+      "evidence": "1000 causal candidates reduced to target event facts; full projection and causal cuts preserved",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/sharing/v2/history-view.ts",
+        "src/features/sharing/v2/calendar-state.ts",
+        "src/features/sharing/v2/calendar-actions.ts"
+      ],
+      "testSourceSha256": "c1d26a75b831e501f9021a03c573bae79cd0f924151cdfcacf77123020d7f822",
+      "sourceSha256": {
+        "src/features/sharing/v2/history-view.ts": "b70ca325dcc67616ef5b1c3666937fbf53825873688509822f1d056c8c8c896a",
+        "src/features/sharing/v2/calendar-state.ts": "24b09c4d0db13fa836645c0361c92bb5505a9e018892b8b96597c5ad6c262309",
+        "src/features/sharing/v2/calendar-actions.ts": "9084a51ed755e8c39b7901b55ce916a15052a94e83c702036acc23448103d484"
+      },
+      "beforeEvidenceSha256": "1774df6ac663173f70acb749710ec32d29321c4b53e379be8215cfb83135f632",
+      "afterEvidenceSha256": "6109d1e6fe9e527fe245f66f99102bc9c09235ba8caec8a1baf43dbe4e4a6a85"
+    },
+    {
+      "id": "F011",
+      "kind": "bug",
+      "title": "共有予定の競合を解消するときだけ周期変更で古い例外を残せる",
+      "testName": "audit50 resolving concurrent shared series edits must reset reviewed exceptions before changing recurrence",
+      "testFile": "tests/audit50-calendar-recovery.test.mjs",
+      "before": "calendar-recovery-before.log",
+      "after": "calendar-recovery-after.log",
+      "evidence": "Two concurrent series heads bypassed structural reset; now all observed heads require explicit exception reset",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/sharing/v2/calendar-state.ts"
+      ],
+      "testSourceSha256": "c1d26a75b831e501f9021a03c573bae79cd0f924151cdfcacf77123020d7f822",
+      "sourceSha256": {
+        "src/features/sharing/v2/calendar-state.ts": "24b09c4d0db13fa836645c0361c92bb5505a9e018892b8b96597c5ad6c262309"
+      },
+      "beforeEvidenceSha256": "1774df6ac663173f70acb749710ec32d29321c4b53e379be8215cfb83135f632",
+      "afterEvidenceSha256": "6109d1e6fe9e527fe245f66f99102bc9c09235ba8caec8a1baf43dbe4e4a6a85"
+    },
+    {
+      "id": "F012",
+      "kind": "optimization",
+      "title": "カレンダーの未完了件数が家事ごとに無関係な旧履歴を20万回調べる",
+      "testName": "audit50 pending Calendar counts index legacy completions by chore instead of inspecting unrelated history per entry",
+      "testFile": "tests/audit50-calendar-recovery.test.mjs",
+      "before": "calendar-recovery-before.log",
+      "after": "calendar-recovery-after.log",
+      "evidence": "200 entries and1000 legacy records caused200000 chore lookups; now per-chore lookup preserves exact completion matching",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/domain/calendar/day-entries.ts"
+      ],
+      "testSourceSha256": "c1d26a75b831e501f9021a03c573bae79cd0f924151cdfcacf77123020d7f822",
+      "sourceSha256": {
+        "src/domain/calendar/day-entries.ts": "1e9b952a54378a291c9a41e1adcdf8c9b5e9aa23d8c29e752559ea1c1faffaf9"
+      },
+      "beforeEvidenceSha256": "1774df6ac663173f70acb749710ec32d29321c4b53e379be8215cfb83135f632",
+      "afterEvidenceSha256": "6109d1e6fe9e527fe245f66f99102bc9c09235ba8caec8a1baf43dbe4e4a6a85"
+    },
+    {
+      "id": "F013",
+      "kind": "bug",
+      "title": "検証済みPDFを保存し直しても壊れた既存コピーを修復できない",
+      "testName": "audit50 saving a verified PDF again repairs a corrupt retained row instead of silently preserving unreadable bytes",
+      "testFile": "tests/audit50-appliance-storage.test.mjs",
+      "before": "appliance-storage-before.log",
+      "after": "appliance-storage-after.log",
+      "evidence": "Verified same-digest upload was ignored while local bytes remained corrupt; validated UPSERT repairs only mismatching bytes",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/appliance-manual-storage.ts"
+      ],
+      "testSourceSha256": "2d0930664d2ad434d02cb62e00d04ba09e10551dee5b4e2f3fb51ecf11d4f60b",
+      "sourceSha256": {
+        "src/platform/storage/appliance-manual-storage.ts": "92146a29e0de77b525bbc658b923f251456d3c67d8a228af5b0b5e28821f9dbd"
+      },
+      "beforeEvidenceSha256": "5c1fd8f504f2eacd9b64a83653305184fe41e99698e608cfd9af760c3a84e0b3",
+      "afterEvidenceSha256": "0c7c72f49c770289a95f6358567e5a86d292c522b5cff814a8a0ebfd4c33df53"
+    },
+    {
+      "id": "F014",
+      "kind": "optimization",
+      "title": "変更のないPDFも開くたびに全文をSQLiteから転送する",
+      "testName": "audit50 unchanged PDF reads use a content free SQLite revision fence instead of retransferring the whole document",
+      "testFile": "tests/audit50-appliance-storage.test.mjs",
+      "before": "appliance-storage-before.log",
+      "after": "appliance-storage-after.log",
+      "evidence": "Twelve reads of1MiB document moved16782480 characters; revision fence reduces transfer to one and still detects raw SQL changes",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/appliance-manuals.ts"
+      ],
+      "testSourceSha256": "2d0930664d2ad434d02cb62e00d04ba09e10551dee5b4e2f3fb51ecf11d4f60b",
+      "sourceSha256": {
+        "src/platform/storage/appliance-manuals.ts": "96a51b4a2ac618f309c44a3f8d59a927b9f997fb627d13081cfe78035ad18c8b"
+      },
+      "beforeEvidenceSha256": "5c1fd8f504f2eacd9b64a83653305184fe41e99698e608cfd9af760c3a84e0b3",
+      "afterEvidenceSha256": "0c7c72f49c770289a95f6358567e5a86d292c522b5cff814a8a0ebfd4c33df53"
+    },
+    {
+      "id": "F015",
+      "kind": "optimization",
+      "title": "家電の40項目の保存で1000家事の重複検査を毎回組み直す",
+      "testName": "audit50 a forty task review indexes duplicate names instead of rebuilding and searching one thousand unrelated definitions per task",
+      "testFile": "tests/audit50-appliance-storage.test.mjs",
+      "before": "appliance-storage-before.log",
+      "after": "appliance-storage-after.log",
+      "evidence": "40000 unrelated name lookups reduced to single indexed inventory, preserving duplicate handling",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/appliance-care/persistence-policy.ts"
+      ],
+      "testSourceSha256": "2d0930664d2ad434d02cb62e00d04ba09e10551dee5b4e2f3fb51ecf11d4f60b",
+      "sourceSha256": {
+        "src/features/appliance-care/persistence-policy.ts": "86e3735dfbb78b65380485652238b48ed1091c99fd0b02adbeb7c93c4ec46358"
+      },
+      "beforeEvidenceSha256": "5c1fd8f504f2eacd9b64a83653305184fe41e99698e608cfd9af760c3a84e0b3",
+      "afterEvidenceSha256": "0c7c72f49c770289a95f6358567e5a86d292c522b5cff814a8a0ebfd4c33df53"
+    },
+    {
+      "id": "F016",
+      "kind": "bug",
+      "title": "再解析で家電名の接頭語が付くと同じ家事を重複として無効化する",
+      "testName": "audit50 an AI task gaining the appliance prefix retains its existing chore and overrides instead of retiring it as a duplicate",
+      "testFile": "tests/audit50-appliance-storage.test.mjs",
+      "before": "appliance-storage-before.log",
+      "after": "appliance-storage-after.log",
+      "evidence": "Same generated task title with new raw AI prefix was retired and new chore rejected; unique same-appliance match retains identity and user overrides",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/appliance-care/to-chore-definition.ts"
+      ],
+      "testSourceSha256": "2d0930664d2ad434d02cb62e00d04ba09e10551dee5b4e2f3fb51ecf11d4f60b",
+      "sourceSha256": {
+        "src/features/appliance-care/to-chore-definition.ts": "170033756600abc7baf74b836eaaf8d0f31152ce4d9ee44d7b0ec6adfbc4ebe6"
+      },
+      "beforeEvidenceSha256": "5c1fd8f504f2eacd9b64a83653305184fe41e99698e608cfd9af760c3a84e0b3",
+      "afterEvidenceSha256": "0c7c72f49c770289a95f6358567e5a86d292c522b5cff814a8a0ebfd4c33df53"
+    },
+    {
+      "id": "F017",
+      "kind": "optimization",
+      "title": "Google Tasks100件の作成予約が個別100トランザクションになる",
+      "testName": "audit50 reserving a hundred personal Tasks uses one atomic bounded batch and keeps duplicate or already reserved identities closed",
+      "testFile": "tests/audit50-queue-recovery.test.mjs",
+      "before": "queue-recovery-before.log",
+      "after": "queue-recovery-after.log",
+      "evidence": "100 transactions reduced to one with returned winners; duplicates, foreign scopes and invalid-input rollback checked",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/google-task-create-intents.ts",
+        "src/platform/storage/sharing-v2-google-tasks.ts"
+      ],
+      "testSourceSha256": "a78a71eed14b5a3a68fefe955b7e1c4040e6143a65cc977858dd3ce5aa57bb61",
+      "sourceSha256": {
+        "src/platform/storage/google-task-create-intents.ts": "57e29c299d4548fd2a4e0b494bd0e9f4fd14a6ba18832de52e6b88e65415a71c",
+        "src/platform/storage/sharing-v2-google-tasks.ts": "fea608b2568e8ffff74c27b400e39ca7a4b45ccbbb8e74895727693fe17511bc"
+      },
+      "beforeEvidenceSha256": "b10b41e04d8114bb0a7f0d76b47af0de9de9b82764b4d1b01ec7d7595329ea54",
+      "afterEvidenceSha256": "7203ea8dfe8ae11869614898583f97682ab36970ac8731393a9b34fb3074dbb0"
+    },
+    {
+      "id": "F018",
+      "kind": "bug",
+      "title": "時計が戻ると本人Calendarの取得リースが未来まで残り続ける",
+      "testName": "audit50 a wall clock rollback cannot leave a private Calendar acquisition leased until its former future date",
+      "testFile": "tests/audit50-queue-recovery.test.mjs",
+      "before": "queue-recovery-before.log",
+      "after": "queue-recovery-after.log",
+      "evidence": "One hour rollback left inProgress; replacement token fences late old results while normal live leases remain exclusive",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/private-calendar-acquisition.ts"
+      ],
+      "testSourceSha256": "a78a71eed14b5a3a68fefe955b7e1c4040e6143a65cc977858dd3ce5aa57bb61",
+      "sourceSha256": {
+        "src/platform/storage/private-calendar-acquisition.ts": "43df9c71b30d468a24d06afa16ca7a5d940e720475d6a0ba3ce7964586c6d988"
+      },
+      "beforeEvidenceSha256": "b10b41e04d8114bb0a7f0d76b47af0de9de9b82764b4d1b01ec7d7595329ea54",
+      "afterEvidenceSha256": "7203ea8dfe8ae11869614898583f97682ab36970ac8731393a9b34fb3074dbb0"
+    },
+    {
+      "id": "F019",
+      "kind": "optimization",
+      "title": "同一家事回の過去のリセットごとに共有予定のGoogle送信候補を重複生成する",
+      "testName": "audit50 multiple historical resets of the same shared Calendar occurrence produce one export instruction",
+      "testFile": "tests/audit50-queue-recovery.test.mjs",
+      "before": "queue-recovery-before.log",
+      "after": "queue-recovery-after.log",
+      "evidence": "Ten reset facts produced ten identical source instructions; now one per anchor, live exceptions preserved",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/sharing-v2-calendar-export.ts"
+      ],
+      "testSourceSha256": "a78a71eed14b5a3a68fefe955b7e1c4040e6143a65cc977858dd3ce5aa57bb61",
+      "sourceSha256": {
+        "src/platform/storage/sharing-v2-calendar-export.ts": "73d2c4c08c616bc28aab86578856b96ebb70bd1a95dbdaa773dff005defe4197"
+      },
+      "beforeEvidenceSha256": "b10b41e04d8114bb0a7f0d76b47af0de9de9b82764b4d1b01ec7d7595329ea54",
+      "afterEvidenceSha256": "7203ea8dfe8ae11869614898583f97682ab36970ac8731393a9b34fb3074dbb0"
+    },
+    {
+      "id": "F020",
+      "kind": "bug",
+      "title": "一つのGoogle個別予定のロックが他の回の編集まで拒否し自身のロック表示も失う",
+      "testName": "audit50 a locked Google exception does not block editing a different occurrence and its own lock remains visible",
+      "testFile": "tests/audit50-calendar-permissions.test.mjs",
+      "before": "calendar-permissions-before.log",
+      "after": "calendar-permissions-after.log",
+      "evidence": "Unrelated occurrence rejected by every-link guard; now exact scope permissions and private exception lock/link reach display and editor",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/calendar-events.ts",
+        "src/platform/storage/calendar-event-rows.ts",
+        "src/features/calendar/private-event-projection.ts",
+        "src/features/calendar/use-local-calendar.tsx",
+        "src/features/sharing/v2-ui/use-group-calendar.tsx",
+        "src/features/calendar/calendar-editor.tsx"
+      ],
+      "testSourceSha256": "a95128248213549b89d40fe2eb292177a66676a367080eb73c219f9ed9469b06",
+      "sourceSha256": {
+        "src/platform/storage/calendar-events.ts": "e1fd9a7592f06839a3e80b3bab0d7487266afaf75e4b57ae0623cb5acfe70b06",
+        "src/platform/storage/calendar-event-rows.ts": "e9ff4836ba1f0263da2bc3315f585f0ca6e8b2ee1b2cc7c471cf3384c8897fc0",
+        "src/features/calendar/private-event-projection.ts": "45bca0cb72ea56e00029b39922c48d067be64810ecca3fccf581b69611688c3a",
+        "src/features/calendar/use-local-calendar.tsx": "2cad5ddec06ab0ab7bc533b57d5e9c5d09239c01f97af2cd2487215181bb38e8",
+        "src/features/sharing/v2-ui/use-group-calendar.tsx": "c0474758209397b9260a6cbb0f3b1f8628d57d5bdf7a7f5c01c45c741591d807",
+        "src/features/calendar/calendar-editor.tsx": "3acf5cfed55d5b234064838297aa60e967a7d70c304455adb595a94b6d15a253"
+      },
+      "beforeEvidenceSha256": "e6ed1801152dbd9de6a16756e6ad7bc1a878e38ad1a08aff18d98e6ca72c8ad1",
+      "afterEvidenceSha256": "7f30e7c6e2dbf5e7e29a059a08dcdb17623778f705200a286a04fb813b8ff0f9"
+    },
+    {
+      "id": "F021",
+      "kind": "bug",
+      "title": "複雑な繰り返しの各回取得が失効ページ400から復旧できない",
+      "testName": "audit50 unsupported recurring Calendar instances recover an expired400 page while retaining the imported prefix",
+      "testFile": "tests/audit50-calendar-permissions.test.mjs",
+      "before": "calendar-permissions-before.log",
+      "after": "calendar-permissions-after.log",
+      "evidence": "Independent instance expansion table kept expired token; now resumes only that range and marks old full-scan instances for fresh reconciliation",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/calendar/personal-google-sync.ts"
+      ],
+      "testSourceSha256": "a95128248213549b89d40fe2eb292177a66676a367080eb73c219f9ed9469b06",
+      "sourceSha256": {
+        "src/features/calendar/personal-google-sync.ts": "9547d806b2c6268cb4b8c31edfbe914eae6c209a0f99747d766b29fbb37d3d48"
+      },
+      "beforeEvidenceSha256": "e6ed1801152dbd9de6a16756e6ad7bc1a878e38ad1a08aff18d98e6ca72c8ad1",
+      "afterEvidenceSha256": "7f30e7c6e2dbf5e7e29a059a08dcdb17623778f705200a286a04fb813b8ff0f9"
+    },
+    {
+      "id": "F022",
+      "kind": "optimization",
+      "title": "共有状態の読取境界で全履歴の論理時計を毎回読み直す",
+      "testName": "audit50 repeated shared read boundaries reuse verified frontier without revisiting every historical clock",
+      "testFile": "tests/audit50-indexes.test.mjs",
+      "before": "indexes-before.log",
+      "after": "indexes-after.log",
+      "evidence": "21000 historical clock reads for 21 read points reduced to zero after authority-index acceptance; frontier copies and append behavior verified",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/sharing/v2/history-view.ts",
+        "src/features/sharing/v2/view-point.ts"
+      ],
+      "testSourceSha256": "4f7e1ddcb9350ba28d099f5d531c547db4eb791c5b433ebf1b344a0e426127fa",
+      "sourceSha256": {
+        "src/features/sharing/v2/history-view.ts": "b70ca325dcc67616ef5b1c3666937fbf53825873688509822f1d056c8c8c896a",
+        "src/features/sharing/v2/view-point.ts": "ca569b1502c0d4cb0aec6d0eb28f943fb2dbfdb671ace2b7a9cf68a2b5657ca8"
+      },
+      "beforeEvidenceSha256": "d31a8102b40472ad8c086c255492c643fadc832e2ce5a3f3d374d193b16c9519",
+      "afterEvidenceSha256": "f06c78d5dfbac5140c8a4daec2b0b6fda175b5e50822d082402bde1b1bc34471"
+    },
+    {
+      "id": "F023",
+      "kind": "optimization",
+      "title": "Google送信候補ごとのカレンダー一覧線形探索",
+      "testName": "audit50 a thousand changed Calendar items index calendar membership once without exporting unselected items",
+      "testFile": "tests/audit50-indexes.test.mjs",
+      "before": "indexes-before.log",
+      "after": "indexes-after.log",
+      "evidence": "501500 calendar ID inspections reduced to 1000; unselected calendar entries remain excluded",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/personal-google-store.ts"
+      ],
+      "testSourceSha256": "4f7e1ddcb9350ba28d099f5d531c547db4eb791c5b433ebf1b344a0e426127fa",
+      "sourceSha256": {
+        "src/platform/storage/personal-google-store.ts": "a3779532f0937b0a3fcbc49edfcf9cf79992a78c5e32f815c61582de3c6371bd"
+      },
+      "beforeEvidenceSha256": "d31a8102b40472ad8c086c255492c643fadc832e2ce5a3f3d374d193b16c9519",
+      "afterEvidenceSha256": "f06c78d5dfbac5140c8a4daec2b0b6fda175b5e50822d082402bde1b1bc34471"
+    },
+    {
+      "id": "F024",
+      "kind": "bug",
+      "title": "Google応答の全量読込に実受信バイト数の上限がない",
+      "testName": "audit50 Google transports stop oversized streamed bodies before parsing or retaining their full content",
+      "testFile": "tests/audit50-google-bodies.test.mjs",
+      "before": "google-bodies-before.log",
+      "after": "google-bodies-after.log",
+      "evidence": "Tasks and Calendar bound actual response bytes at8MiB; FreeBusy uses an8MiB minimum up to128MiB according to remaining validated interval capacity, preserving150000 foreground intervals. Streaming reads cancel early; native text-only responses are bounded after native buffering and checked for abort.",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/google-http/bounded-body.ts",
+        "src/platform/google-tasks/google-tasks-api.ts",
+        "src/platform/google-tasks/google-calendar-freebusy-client.ts",
+        "src/platform/google-calendar/calendar-api.ts"
+      ],
+      "testSourceSha256": "e1026602790740c878455ce4cfd06fa10867f548ed4847ea7239e65558a1fe46",
+      "sourceSha256": {
+        "src/platform/google-http/bounded-body.ts": "bbf0f6f748db8afb089108613bf38d858c86fe54bd1a2304fbd57a28faa2ee4a",
+        "src/platform/google-tasks/google-tasks-api.ts": "c22c0564c284e0ee6a1c314c47300750e58ef3cbcef99e89274cfd7bbf73ebbd",
+        "src/platform/google-tasks/google-calendar-freebusy-client.ts": "39b8b003da772187c0a0c1a33ba2012502f3d23847de32c0f69ecac65315c0e8",
+        "src/platform/google-calendar/calendar-api.ts": "9fc239e8619438facded51bc28f7be730a876d47e75d013e28b93b69b6b2d348"
+      },
+      "beforeEvidenceSha256": "e9dea493da6c235c52046da0e1ef364a5245c7a8f7831e572446eae2aa0169dc",
+      "afterEvidenceSha256": "dc34735b065c193efbd8274c192b42ddbeb11d064512645a81b72797cf820b62"
+    },
+    {
+      "id": "F025",
+      "kind": "bug",
+      "title": "Calendarの403利用制限をOAuth権限エラーと誤表示",
+      "testName": "audit50 Calendar403 quota responses are reported as retryable limits rather than requesting OAuth again",
+      "testFile": "tests/audit50-google-bodies.test.mjs",
+      "before": "google-bodies-before.log",
+      "after": "google-bodies-after.log",
+      "evidence": "Structured quota reasons classified as429; forbidden remains403; Retry-After preserved",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/google-calendar/calendar-api.ts"
+      ],
+      "testSourceSha256": "e1026602790740c878455ce4cfd06fa10867f548ed4847ea7239e65558a1fe46",
+      "sourceSha256": {
+        "src/platform/google-calendar/calendar-api.ts": "9fc239e8619438facded51bc28f7be730a876d47e75d013e28b93b69b6b2d348"
+      },
+      "beforeEvidenceSha256": "e9dea493da6c235c52046da0e1ef364a5245c7a8f7831e572446eae2aa0169dc",
+      "afterEvidenceSha256": "dc34735b065c193efbd8274c192b42ddbeb11d064512645a81b72797cf820b62"
+    },
+    {
+      "id": "F026",
+      "kind": "bug",
+      "title": "Google Tasksの単一取得・更新応答が要求したIDと不一致でも通過",
+      "testName": "audit50 Tasks direct replies must retain the requested identity before adoption or completion processing",
+      "testFile": "tests/audit50-input-boundaries.test.mjs",
+      "before": "input-boundaries-before.log",
+      "after": "input-boundaries-after.log",
+      "evidence": "Mismatched resource identity now502 before an unrelated task can be adopted or acknowledged",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/google-tasks/google-tasks-api.ts"
+      ],
+      "testSourceSha256": "4d99803139a547031518d82d997301bb415d532bc60385ddecc3ef8367627483",
+      "sourceSha256": {
+        "src/platform/google-tasks/google-tasks-api.ts": "c22c0564c284e0ee6a1c314c47300750e58ef3cbcef99e89274cfd7bbf73ebbd"
+      },
+      "beforeEvidenceSha256": "93fb8e054dcbe1cf49e3abdd0a28b5b6c58bb2d09112aeba10baf791dbd39441",
+      "afterEvidenceSha256": "81248542ec438dfd2752a7e5319d4da88c300ab76baf5e08903e66ca57cdd7b7"
+    },
+    {
+      "id": "F027",
+      "kind": "bug",
+      "title": "天気workerの途中失敗で取得済みの処理枠と実行中の保存を置き去りにする",
+      "testName": "audit50 weather workers finish already leased work even when a later claim fails",
+      "testFile": "tests/audit50-weather-failures.test.mjs",
+      "before": "weather-failures-before.log",
+      "after": "weather-failures-after.log",
+      "evidence": "Issued leases settle before returning even if a later claim or one commit fails",
+      "status": "fixed-and-verified",
+      "files": [
+        "server/appliance-care-api/src/weather/met-service.mjs"
+      ],
+      "testSourceSha256": "6cb209198522566c43716eb5b485ddcc2999119beae4c0d218da1f39b3195c32",
+      "sourceSha256": {
+        "server/appliance-care-api/src/weather/met-service.mjs": "df4376563d17dfa9e1eee3aec39382be30c2b56053df31b98952b4ec965289e2"
+      },
+      "beforeEvidenceSha256": "6b607daec48a4d97f207600915290af3d14bc3ca0cb8fd23e78fba89faaa1666",
+      "afterEvidenceSha256": "dca888b70abd7b1872a407b880ca19481fedbea8489ba2ba7d19a0bb536bf3dd"
+    },
+    {
+      "id": "F028",
+      "kind": "bug",
+      "title": "天気キャッシュの読取停止が公開HTTP要求を無期限に待たせる",
+      "testName": "audit50 a stalled regional cache read cannot leave public weather requests waiting indefinitely",
+      "testFile": "tests/audit50-weather-failures.test.mjs",
+      "before": "weather-failures-before.log",
+      "after": "weather-failures-after.log",
+      "evidence": "Bounded503 response while the original read stays coalesced to avoid duplicate work",
+      "status": "fixed-and-verified",
+      "files": [
+        "server/appliance-care-api/src/weather/http-handler.mjs"
+      ],
+      "testSourceSha256": "6cb209198522566c43716eb5b485ddcc2999119beae4c0d218da1f39b3195c32",
+      "sourceSha256": {
+        "server/appliance-care-api/src/weather/http-handler.mjs": "241507d414284b8aa5315990658c97b6b78da7b100cf490a1d7e7cd309dfe048"
+      },
+      "beforeEvidenceSha256": "6b607daec48a4d97f207600915290af3d14bc3ca0cb8fd23e78fba89faaa1666",
+      "afterEvidenceSha256": "dca888b70abd7b1872a407b880ca19481fedbea8489ba2ba7d19a0bb536bf3dd"
+    },
+    {
+      "id": "F029",
+      "kind": "bug",
+      "title": "目安時間のない共有家事の正式な開始終了時刻が個人の配分から落ちる",
+      "testName": "audit50 a fixed shared clock reserves its actual interval even when the chore has no estimated duration",
+      "testFile": "tests/audit50-owner-inputs.test.mjs",
+      "before": "owner-inputs-before.log",
+      "after": "owner-inputs-after.log",
+      "evidence": "Fixed intervals reserve actual duration; untimed unknowns stay unknown",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/planner/shared-adaptive-load.ts"
+      ],
+      "testSourceSha256": "b3bff2324d9096e1cbf5a024d6c195ec151d3fd9a71fed0ffc9754f5d94e0ddb",
+      "sourceSha256": {
+        "src/features/planner/shared-adaptive-load.ts": "112c004de4faec2c105290231623eeaa6f3736d02e0c2fa58aa54ec206d40e66"
+      },
+      "beforeEvidenceSha256": "397d8d86bcca56078a10fb1d7258bd2b42cc54ccce3159b9e26c32b91d8dc79b",
+      "afterEvidenceSha256": "750bc89cec284cf2d3d09851b727efa33f785506ea6d572c3495e44c852c5a66"
+    },
+    {
+      "id": "F030",
+      "kind": "optimization",
+      "title": "個人設定に不要な廃止済み家事の大きな説明本文まで読み込む",
+      "testName": "audit50 personal settings do not transfer or parse retired definition bodies that are needed only by history",
+      "testFile": "tests/audit50-owner-inputs.test.mjs",
+      "before": "owner-inputs-before.log",
+      "after": "owner-inputs-after.log",
+      "evidence": "Retired definitions excluded in SQL while disabled active definitions and history are retained",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/personal-settings-view.ts"
+      ],
+      "testSourceSha256": "b3bff2324d9096e1cbf5a024d6c195ec151d3fd9a71fed0ffc9754f5d94e0ddb",
+      "sourceSha256": {
+        "src/platform/storage/personal-settings-view.ts": "9b02cc369c85c6466724ef8f100af31f960617cd8d9c26e0859ef4830c7cc457"
+      },
+      "beforeEvidenceSha256": "397d8d86bcca56078a10fb1d7258bd2b42cc54ccce3159b9e26c32b91d8dc79b",
+      "afterEvidenceSha256": "750bc89cec284cf2d3d09851b727efa33f785506ea6d572c3495e44c852c5a66"
+    },
+    {
+      "id": "F031",
+      "kind": "optimization",
+      "title": "Google Tasksの重複候補ごとに増え続ける配列をコピーする",
+      "testName": "audit50 duplicate Google occurrence markers do not copy an ever growing candidate bucket before reporting ambiguity",
+      "testFile": "tests/audit50-repeated-work.test.mjs",
+      "before": "repeated-work-before.log",
+      "after": "repeated-work-after.log",
+      "evidence": "Mutable private candidate bucket removes quadratic copying and preserves ambiguity checks",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/google-sync/reconcile-google-tasks.ts"
+      ],
+      "testSourceSha256": "c37a9a14f532a69bf8aaf8f13061bae307c54d28fb4c28ecde05bd2f8dfa58e7",
+      "sourceSha256": {
+        "src/features/google-sync/reconcile-google-tasks.ts": "5730576f661a6f6a8cf034b60f92f99640d106b015638c29f465140d0194ea0c"
+      },
+      "beforeEvidenceSha256": "6be41a092c74993896505c0139d266764a193f3893a732a8a9b8b95d24171518",
+      "afterEvidenceSha256": "b22ade8a371e9511daed293c0f189d48f233e11b3fdc1e630b84961d4b690981"
+    },
+    {
+      "id": "F032",
+      "kind": "optimization",
+      "title": "共有の各家事回が無関係な担当変更の因果関係を再確認する",
+      "testName": "audit50 completed round assignment preservation selects observed assignment changes once before indexing their chore and rule version",
+      "testFile": "tests/audit50-assignment-work.test.mjs",
+      "before": "assignment-work-before.log",
+      "after": "assignment-work-after.log",
+      "evidence": "181000 unrelated assignment causal checks reduced to1000; completed-round assignment preservation stays equal; retired legacy engine optimization not adopted",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/sharing/v2/common-plan.ts"
+      ],
+      "testSourceSha256": "ead049b818a77d46a71c82e827bcdffbe084be8e0f985cfcc58197fe12d9c150",
+      "sourceSha256": {
+        "src/features/sharing/v2/common-plan.ts": "d0e8b59c7c3655a4f2a44b607ba7323370475e5aa605f6de012600e3caf87b08"
+      },
+      "beforeEvidenceSha256": "5e28d5455bcec1f3f003c7996f9af9faa510936fd6daa6485b068d3f5a535365",
+      "afterEvidenceSha256": "2a226250c9ce46049c112cb7361f05006193f1b178de375c11d028b20064bac9"
+    },
+    {
+      "id": "F033",
+      "kind": "optimization",
+      "title": "長周期の各回プレビューで全完了履歴を繰り返し照合する",
+      "testName": "audit50 long cycle Calendar previews index exact completion identities rather than comparing every historical completion per round",
+      "testFile": "tests/audit50-repeated-work.test.mjs",
+      "before": "repeated-work-before.log",
+      "after": "repeated-work-after.log",
+      "evidence": "100 rounds x1000 completions reduced to one exact identity index plus legacy fallback",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/calendar/long-cycle-preview.ts"
+      ],
+      "testSourceSha256": "c37a9a14f532a69bf8aaf8f13061bae307c54d28fb4c28ecde05bd2f8dfa58e7",
+      "sourceSha256": {
+        "src/features/calendar/long-cycle-preview.ts": "100ded924ca07cd57dded3712514e29e680ef22a51c1af8ae52bf1050221e554"
+      },
+      "beforeEvidenceSha256": "6be41a092c74993896505c0139d266764a193f3893a732a8a9b8b95d24171518",
+      "afterEvidenceSha256": "b22ade8a371e9511daed293c0f189d48f233e11b3fdc1e630b84961d4b690981"
+    },
+    {
+      "id": "F034",
+      "kind": "optimization",
+      "title": "カレンダー先頭の変更判定にも無関係な全説明を文字列化する",
+      "testName": "audit50 Calendar input retention stops equality work at the first changed record without serializing unrelated descriptions",
+      "testFile": "tests/audit50-repeated-work.test.mjs",
+      "before": "repeated-work-before.log",
+      "after": "repeated-work-after.log",
+      "evidence": "Early structural equality stops at first changed value and retains equal references",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/calendar/observed-snapshot.ts"
+      ],
+      "testSourceSha256": "c37a9a14f532a69bf8aaf8f13061bae307c54d28fb4c28ecde05bd2f8dfa58e7",
+      "sourceSha256": {
+        "src/features/calendar/observed-snapshot.ts": "3f7b80e3ec42c1016a0a164e3d935f3859ac3bf6b049b6c71c7905ad1eb34377"
+      },
+      "beforeEvidenceSha256": "6be41a092c74993896505c0139d266764a193f3893a732a8a9b8b95d24171518",
+      "afterEvidenceSha256": "b22ade8a371e9511daed293c0f189d48f233e11b3fdc1e630b84961d4b690981"
+    },
+    {
+      "id": "F035",
+      "kind": "bug",
+      "title": "読取専用Google接続が送れないローカル予定の多さで停止する",
+      "testName": "audit50 a read only Google connection never loads unlinked personal events into an unusable export inventory",
+      "testFile": "tests/audit50-google-inbound.test.mjs",
+      "before": "google-inbound-before.log",
+      "after": "google-inbound-after.log",
+      "evidence": "No unlinked export inventory is loaded without a writable target",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/personal-google-store.ts"
+      ],
+      "testSourceSha256": "0eff03faa660115d7aa1fbe68ce45b389dc8d33060d5f65b487d60f91be970d3",
+      "sourceSha256": {
+        "src/platform/storage/personal-google-store.ts": "a3779532f0937b0a3fcbc49edfcf9cf79992a78c5e32f815c61582de3c6371bd"
+      },
+      "beforeEvidenceSha256": "5c7b4cb06d9c2c16c1de826dd85855d76c5116f9c273f25a54da32374bb416ac",
+      "afterEvidenceSha256": "c616d1bf9717542f18282b82565e27fe6af3f127fae8b7fa82f4dd09bf65369e"
+    },
+    {
+      "id": "F036",
+      "kind": "optimization",
+      "title": "Google予定の更新ごとに使用しない既定カテゴリを作り直す",
+      "testName": "audit50 updating saved Google appointments preserves their category without repeating discarded category creation",
+      "testFile": "tests/audit50-google-inbound.test.mjs",
+      "before": "google-inbound-before.log",
+      "after": "google-inbound-after.log",
+      "evidence": "Existing categories preserved without100 discarded category SQL calls",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/personal-google-store.ts"
+      ],
+      "testSourceSha256": "0eff03faa660115d7aa1fbe68ce45b389dc8d33060d5f65b487d60f91be970d3",
+      "sourceSha256": {
+        "src/platform/storage/personal-google-store.ts": "a3779532f0937b0a3fcbc49edfcf9cf79992a78c5e32f815c61582de3c6371bd"
+      },
+      "beforeEvidenceSha256": "5c7b4cb06d9c2c16c1de826dd85855d76c5116f9c273f25a54da32374bb416ac",
+      "afterEvidenceSha256": "c616d1bf9717542f18282b82565e27fe6af3f127fae8b7fa82f4dd09bf65369e"
+    },
+    {
+      "id": "F037",
+      "kind": "optimization",
+      "title": "同じGoogle予定の再受信で変更のないリンク行を再更新する",
+      "testName": "audit50 identical Calendar echoes do not rewrite a hundred unchanged local link rows",
+      "testFile": "tests/audit50-google-inbound.test.mjs",
+      "before": "google-inbound-before.log",
+      "after": "google-inbound-after.log",
+      "evidence": "100 identical echoes cause zero link rewrites; changed metadata still persists",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/personal-google-store.ts"
+      ],
+      "testSourceSha256": "0eff03faa660115d7aa1fbe68ce45b389dc8d33060d5f65b487d60f91be970d3",
+      "sourceSha256": {
+        "src/platform/storage/personal-google-store.ts": "a3779532f0937b0a3fcbc49edfcf9cf79992a78c5e32f815c61582de3c6371bd"
+      },
+      "beforeEvidenceSha256": "5c7b4cb06d9c2c16c1de826dd85855d76c5116f9c273f25a54da32374bb416ac",
+      "afterEvidenceSha256": "c616d1bf9717542f18282b82565e27fe6af3f127fae8b7fa82f4dd09bf65369e"
+    },
+    {
+      "id": "F038",
+      "kind": "bug",
+      "title": "時計を戻すとGoogle TasksとCalendarの再試行が未来の試行記録に縛られる",
+      "testName": "audit50 a corrected clock cannot strand Tasks or Calendar retries behind a former future attempt",
+      "testFile": "tests/audit50-policy-edges.test.mjs",
+      "before": "policy-edges-before.log",
+      "after": "policy-edges-after.log",
+      "evidence": "RetryPending with a future last attempt recovers while normal backoff remains",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/google-sync/sync-policy.ts",
+        "src/features/google-sync/calendar-availability.ts"
+      ],
+      "testSourceSha256": "2d2e8ab49d515f2335a12c7117cc8fd7a1bf6c55b3b2bacc1222de6b09b63728",
+      "sourceSha256": {
+        "src/features/google-sync/sync-policy.ts": "e4a40d5f9099c0316fa247d7e6adf196f15d730b7e1a67dab149fffcf3a984ac",
+        "src/features/google-sync/calendar-availability.ts": "c81e46d360814e8533c9815612259a7bc20adbe476960245b65df0e017498f8a"
+      },
+      "beforeEvidenceSha256": "bc2d54475ed0be10ff50dc6edddd13c259df93f97d8788f90546c7788bb0f542",
+      "afterEvidenceSha256": "9db40ce0ca897dc0dcea5df0f958f3eb8b01950b63bc64fe0ba98d97265af728"
+    },
+    {
+      "id": "F039",
+      "kind": "bug",
+      "title": "家電の周期入力だけ全角数字を保存できない",
+      "testName": "audit50 Japanese full width appliance cycle input behaves like the other numeric settings",
+      "testFile": "tests/audit50-policy-edges.test.mjs",
+      "before": "policy-edges-before.log",
+      "after": "policy-edges-after.log",
+      "evidence": "NFKC normalized numeric input matches other numeric settings",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/appliance-care/auto-save-policy.ts"
+      ],
+      "testSourceSha256": "2d2e8ab49d515f2335a12c7117cc8fd7a1bf6c55b3b2bacc1222de6b09b63728",
+      "sourceSha256": {
+        "src/features/appliance-care/auto-save-policy.ts": "b673e24c0c37a01ae91652574e53675018c2ce64d3e2ae30a8d6142242937a8e"
+      },
+      "beforeEvidenceSha256": "bc2d54475ed0be10ff50dc6edddd13c259df93f97d8788f90546c7788bb0f542",
+      "afterEvidenceSha256": "9db40ce0ca897dc0dcea5df0f958f3eb8b01950b63bc64fe0ba98d97265af728"
+    },
+    {
+      "id": "F040",
+      "kind": "bug",
+      "title": "同名の毎週ゴミ予定を一つ隠すと残りの予定の曜日表示も消える",
+      "testName": "audit50 hiding one weekly waste schedule does not hide another visible schedule with the same label",
+      "testFile": "tests/audit50-policy-edges.test.mjs",
+      "before": "policy-edges-before.log",
+      "after": "policy-edges-after.log",
+      "evidence": "Weekly badge remains while any matching schedule is visible",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/waste/calendar-labels.ts"
+      ],
+      "testSourceSha256": "2d2e8ab49d515f2335a12c7117cc8fd7a1bf6c55b3b2bacc1222de6b09b63728",
+      "sourceSha256": {
+        "src/features/waste/calendar-labels.ts": "72a4cdd08705d1bd10e2eb105a4fe4254904b16493c1fdb4862e98c6a6d02b37"
+      },
+      "beforeEvidenceSha256": "bc2d54475ed0be10ff50dc6edddd13c259df93f97d8788f90546c7788bb0f542",
+      "afterEvidenceSha256": "9db40ce0ca897dc0dcea5df0f958f3eb8b01950b63bc64fe0ba98d97265af728"
+    },
+    {
+      "id": "F041",
+      "kind": "bug",
+      "title": "共有予定一件の競合で半年分すべての個人配分を停止する",
+      "testName": "audit50 a shared event conflict reserves every candidate time without blocking unrelated days for six months",
+      "testFile": "tests/audit50-conflict-geometry.test.mjs",
+      "before": "conflict-geometry-before.log",
+      "after": "conflict-geometry-after.log",
+      "evidence": "Reserves union of signed possible event times without resolving the conflict or blocking unrelated days",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/calendar/shared-events.ts",
+        "src/platform/storage/repository-adaptive.ts"
+      ],
+      "testSourceSha256": "b04afa91f6a267b08dc64246b25468ea1a33de1f1075246dbf78bf677b1dfadc",
+      "sourceSha256": {
+        "src/features/calendar/shared-events.ts": "bd524aa938695896319ab50b661c29864ba64c7514d17dd535d9078194842c4c",
+        "src/platform/storage/repository-adaptive.ts": "205b3a3d72943deb6c23c4800e45f220ab12fc39218aa9294200b90d9d9f9604"
+      },
+      "beforeEvidenceSha256": "9674ec5f970f6d7dc99f8d169507e3a0261f98a59ecc846f02523c78d525d1e8",
+      "afterEvidenceSha256": "4d053bcd44d3ec10bcebf83501379e0da5885714385da352f93c3a19722adb65"
+    },
+    {
+      "id": "F042",
+      "kind": "optimization",
+      "title": "カレンダーの日付ごとに完了履歴の表示期間と時刻を再解析する",
+      "testName": "audit50 a reusable day selector computes completion display dates once instead of reparsing old history for every calendar day",
+      "testFile": "tests/audit50-date-selector-work.test.mjs",
+      "before": "date-selector-work-before.log",
+      "after": "date-selector-work-after.log",
+      "evidence": "120000 historical timestamp reads for60 cells reduced to one immutable date-geometry capture",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/domain/scheduling/date-tasks.ts"
+      ],
+      "testSourceSha256": "f56f11bce86f37ab5f9f09e95ef7554b3c555d44b028ecba122b8e4154e98a84",
+      "sourceSha256": {
+        "src/domain/scheduling/date-tasks.ts": "4b77591b9813296eb8e24838b0dd99aa6f8457fe2d9b576852b4c37f93fa8005"
+      },
+      "beforeEvidenceSha256": "e6a60d18f2bcc288c11ce28a7abcb1746e0015faa95f81b15b94164a542c4b88",
+      "afterEvidenceSha256": "a3c5329ce875869b208dae9f8f003bc5af158db52797cf51ce73c315fcd7f1b7"
+    },
+    {
+      "id": "F043",
+      "kind": "optimization",
+      "title": "個人の重い家事の各移動候補で半年分の休日を再走査する",
+      "testName": "audit50 heavy adaptive window expansion indexes holiday dates rather than scanning six months for every candidate",
+      "testFile": "tests/audit50-placement-holidays.test.mjs",
+      "before": "placement-holidays-before.log",
+      "after": "placement-holidays-after.log",
+      "evidence": "47403 holiday flag inspections reduced to one sorted holiday index with range searches",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/domain/scheduling/adaptive/placement.ts"
+      ],
+      "testSourceSha256": "38be19e4b140cbae1209549d0ffd0a0beec14b252756bfae79343479db6fc932",
+      "sourceSha256": {
+        "src/domain/scheduling/adaptive/placement.ts": "02185ecfade5bd75ce0cfa643d56f36c97f7d978a0b0ab7c4635b37fa40e4b71"
+      },
+      "beforeEvidenceSha256": "81794cbccdb92aa92f637775976533d84dc0dc2fb88b3da955955b282c6d0949",
+      "afterEvidenceSha256": "d3ab849012146da824ef3fb59b8a2a6d4d5c84b41593ab34ae7a4fd0cbca60a2"
+    },
+    {
+      "id": "F044",
+      "kind": "optimization",
+      "title": "長周期の共有家事ごとに全期間の家事回を線形検索する",
+      "testName": "audit50 sparse shared long cycle previews index round identities once rather than rescanning the common horizon per chore",
+      "testFile": "tests/audit50-sparse-shared-rounds.test.mjs",
+      "before": "sparse-shared-rounds-before.log",
+      "after": "sparse-shared-rounds-after.log",
+      "evidence": "83240 round identity inspections reduced to1080 on80 chores; exact cached rounds retained",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/sharing/v2/next-calendar-rounds.ts"
+      ],
+      "testSourceSha256": "295a47fc5c588caa0ec03d6ec5c7ce0c152cd77ccaff7ba8cf488bd696eddec1",
+      "sourceSha256": {
+        "src/features/sharing/v2/next-calendar-rounds.ts": "a2b29f08fc95173c34517bd7ba2c87b16512dea0fb72fe7e999e4c8f9fa32bf4"
+      },
+      "beforeEvidenceSha256": "60772831c4555776c66b883b28bc7732199a44b39820dd1ba736a0cebd93c8bd",
+      "afterEvidenceSha256": "2cb614826728db8d51fdc81378b1eb8a991a532cf21febea9b035766514e0814"
+    },
+    {
+      "id": "F045",
+      "kind": "optimization",
+      "title": "コピー済み個人家事の確認画面を開くたびに操作ごとに全署名履歴を探す",
+      "testName": "audit50 reopening a committed personal copy indexes exact signed proof identities without rescanning unrelated history for every draft",
+      "testFile": "tests/audit50-copy-proof.test.mjs",
+      "before": "copy-proof-before.log",
+      "after": "copy-proof-after.log",
+      "evidence": "40000 unrelated history inspections reduced to one index; tampered copied payload still rejected",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/platform/storage/sharing-v2-personal-copy.ts"
+      ],
+      "testSourceSha256": "627a59c578d8d9aa01460ed3bf87b1cfde51cb04072f344a3d9f6f00af35517c",
+      "sourceSha256": {
+        "src/platform/storage/sharing-v2-personal-copy.ts": "636013065f16ed05dc5c10417a433eb355387437b5d127cf67fa579d401bba99"
+      },
+      "beforeEvidenceSha256": "b207c05f598e39fb7e2a9a7d4fb60ec9f62915d17ef66dd0d3c61b91bc345217",
+      "afterEvidenceSha256": "fc289efcfdaf938d89ba6c11a7141a7f449d511357a90d48a1fd34a0e19c14f1"
+    },
+    {
+      "id": "F046",
+      "kind": "bug",
+      "title": "同じ家事回の日時指定履歴の増加だけで別の日時指定が検査上限になる",
+      "testName": "audit50 equivalent fixed rule history counts a compared occurrence once rather than exhausting the safety limit on old revisions",
+      "testFile": "tests/audit50-fixed-comparison.test.mjs",
+      "before": "fixed-comparison-before.log",
+      "after": "fixed-comparison-after.log",
+      "evidence": "10001 old equivalent revisions caused safety-limit rejection despite one compared occurrence; unique versioned frames are checked once",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/sharing/v2/fixed-conflict.ts"
+      ],
+      "testSourceSha256": "a09700774b979a6102d3275dce48e9057b178f3f3f5a68062e2e53f5102e1e16",
+      "sourceSha256": {
+        "src/features/sharing/v2/fixed-conflict.ts": "5dd791272ec6ed78040da3118ebc74d21cd3ef85bac02c02385aaf4a88220d69"
+      },
+      "beforeEvidenceSha256": "d10ca2b5c055a5208f1a7f803f841a8a668cddf011a6a848e8a78a4ad827f1fc",
+      "afterEvidenceSha256": "e6f833c327e79cfcefc06f9a50d80652017c06518ac1526a0ed61f920f951b33"
+    },
+    {
+      "id": "F047",
+      "kind": "optimization",
+      "title": "共有の各家事回が無関係な変更申請を繰り返し確認する",
+      "testName": "audit50 common planning scopes request review and extension work to the relevant chore before walking every round",
+      "testFile": "tests/audit50-common-request-work.test.mjs",
+      "before": "common-request-work-before.log",
+      "after": "common-request-work-after.log",
+      "evidence": "181000 unrelated request identity checks reduced to1000; complete common plan stays equal",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/sharing/v2/common-plan.ts"
+      ],
+      "testSourceSha256": "5a96104601b3ea33dff9a5e9623525b97793553b98a17bc6f08ac4effce52db6",
+      "sourceSha256": {
+        "src/features/sharing/v2/common-plan.ts": "d0e8b59c7c3655a4f2a44b607ba7323370475e5aa605f6de012600e3caf87b08"
+      },
+      "beforeEvidenceSha256": "daffb0406663ef10c2c7067c57b47f267b47dfe2a17d5e59513afd347c9d0a72",
+      "afterEvidenceSha256": "f37bf11478635f5a6506dbaf5e8b3dbfb682af6ca92752a1b419e4d9ac57c6a8"
+    },
+    {
+      "id": "F048",
+      "kind": "optimization",
+      "title": "固定の共有家事を一件予約するたびに予約配列の後続をずらす",
+      "testName": "audit50 initial fixed load reservations are unioned in one pass instead of shifting the growing busy array for each round",
+      "testFile": "tests/audit50-fixed-load-work.test.mjs",
+      "before": "fixed-load-work-before.log",
+      "after": "fixed-load-work-after.log",
+      "evidence": "1200 reverse-order fixed slots moved719400 references; one union removes those moves and conflicting duplicate loads still fail",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/domain/scheduling/adaptive/placement.ts"
+      ],
+      "testSourceSha256": "23270b587009b034d15feb7821b8f53c822d675f4e2d411dc31fbd20f74be456",
+      "sourceSha256": {
+        "src/domain/scheduling/adaptive/placement.ts": "02185ecfade5bd75ce0cfa643d56f36c97f7d978a0b0ab7c4635b37fa40e4b71"
+      },
+      "beforeEvidenceSha256": "2138b0cc5484b4aff8d14f1ebcbd3d7fe503566626811798a9e95970789ef80f",
+      "afterEvidenceSha256": "db48c0876ff1ee4c4b61351e19c6584be3800e59e5dc3929fdbe3651f50488ad"
+    },
+    {
+      "id": "F049",
+      "kind": "optimization",
+      "title": "共有の申請競合確認が無関係な全回答を毎回探す",
+      "testName": "audit50 repeated request conflict reviews inspect only decisions for that request and still include later appended counteroffers",
+      "testFile": "tests/audit50-request-decisions.test.mjs",
+      "before": "request-decisions-before.log",
+      "after": "request-decisions-after.log",
+      "evidence": "20 conflict reads scanned20000 unrelated decisions; request index remains fresh after appended counteroffers",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/features/sharing/v2/request-review.ts",
+        "src/features/sharing/v2/history-view.ts"
+      ],
+      "testSourceSha256": "87a57e940c0691b6c26ad40e985700b4f3cc4f4e153028348a3ca82257053f1a",
+      "sourceSha256": {
+        "src/features/sharing/v2/request-review.ts": "32be90de745e175970de607dfab791bf3efb3c5874f033029c7678f946a06b51",
+        "src/features/sharing/v2/history-view.ts": "b70ca325dcc67616ef5b1c3666937fbf53825873688509822f1d056c8c8c896a"
+      },
+      "beforeEvidenceSha256": "3afe6b778ce8cb96905105540efb38dc429f3269c4e06d9eca656c38fb5c5d90",
+      "afterEvidenceSha256": "d76697c92839b36cda123209dde5a9ced3cdceca1d72b79222c8879502cf500d"
+    },
+    {
+      "id": "F050",
+      "kind": "bug",
+      "title": "端末の言語により個人の同条件家事の配分日が変わる",
+      "testName": "audit50 the personal adaptive allocator assigns identical dates under real English and Danish identifier collation",
+      "testFile": "tests/audit50-personal-determinism.test.mjs",
+      "before": "personal-determinism-before.log",
+      "after": "personal-determinism-after.log",
+      "evidence": "Real English and Danish collation swapped dates for valid ASCII identifiers; binary stable keys now give identical placement",
+      "status": "fixed-and-verified",
+      "files": [
+        "src/domain/scheduling/adaptive/placement.ts",
+        "src/platform/storage/personal-adaptive-planner.ts"
+      ],
+      "testSourceSha256": "5237ec30d11c1db62fd9f9c66afd2a459ed82b23aec056343cc033e3a51a1651",
+      "sourceSha256": {
+        "src/domain/scheduling/adaptive/placement.ts": "02185ecfade5bd75ce0cfa643d56f36c97f7d978a0b0ab7c4635b37fa40e4b71",
+        "src/platform/storage/personal-adaptive-planner.ts": "52ddd1ec78e2c9ecae5a2313b27df70a5a59be4abd03a0c9368aa95ea10b4740"
+      },
+      "beforeEvidenceSha256": "d186795c42bff5b7be8921767b9072fd375c02611f8a9b48cc4e3f42364df3ea",
+      "afterEvidenceSha256": "4dcdb585a26ce080b3514be07b55ca944a10616ff1ce2faaf9c5b0f62b56e4de"
+    }
+  ],
+  "validation": {
+    "featureContracts": 657,
+    "newRegressionTests": 55,
+    "unit": {
+      "pass": 3830,
+      "fail": 0,
+      "skipped": 0,
+      "durationMs": 236356.201833
+    },
+    "cloud": {
+      "pass": 153,
+      "fail": 0,
+      "durationMs": 153844.475875,
+      "isolatedAuthPort": 9195,
+      "isolatedFirestorePort": 8285
+    },
+    "lint": "PASS",
+    "typecheck": "PASS",
+    "dependencyAudits": {
+      "app": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      },
+      "appliance": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      },
+      "account-device": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      }
+    },
+    "semgrep": {
+      "version": "1.183.0",
+      "ruleConfig": "p/default",
+      "changedSourceFiles": 56,
+      "primaryResults": 1,
+      "parserWarnings": 1,
+      "extraFilesResults": 0,
+      "transpiledSupplementResults": 0,
+      "newConfirmedVulnerabilities": 0,
+      "triage": "One audit warning in the existing MIME boundary RegExp. Boundary metacharacters are escaped into a literal and body bytes are bounded; no attacker-controlled regex syntax is inserted. This warning is recorded rather than counted as a newly fixed vulnerability. One pre-existing TS inline import type is unsupported by the scanner parser; TypeScript checking and transpiled JS scan passed."
+    },
+    "native": {
+      "native-android-probe": {
+        "status": "PASS",
+        "checks": {
+          "returning100": true,
+          "duplicateReservationDenied": true,
+          "rejectExactUnlinkedOnly": true,
+          "alignedDuplicateWinners": true,
+          "externalConnectionFence": true,
+          "sameConnectionFence": true,
+          "nativeResponseUTF8": true,
+          "nativeBodyLimit": true,
+          "nativePersonalDeterminism": true
+        },
+        "sqlite": "3.53.3",
+        "disposableDatabaseDeleted": true,
+        "recordedAt": "2026-11-07T14:22:43.344769+00:00",
+        "platform": "android",
+        "androidVersion": "10",
+        "syntheticDataOnly": true,
+        "normalApplicationUntouched": true,
+        "sourcesSha256": {
+          "src/platform/storage/google-task-create-intents.ts": "57e29c299d4548fd2a4e0b494bd0e9f4fd14a6ba18832de52e6b88e65415a71c",
+          "src/platform/google-http/bounded-body.ts": "bbf0f6f748db8afb089108613bf38d858c86fe54bd1a2304fbd57a28faa2ee4a",
+          "src/domain/scheduling/adaptive/placement.ts": "02185ecfade5bd75ce0cfa643d56f36c97f7d978a0b0ab7c4635b37fa40e4b71"
+        },
+        "isolatedProbeUninstalled": true
+      },
+      "android-release-install": {
+        "apkSha256": "85b7bbeaf8c59e91aa421dff7be34f1fc8bec7dd506c79e429204c0bccef3208",
+        "bundleSha256": "e48194e4331397ae98eb2ed73cdace5d2989441120776bd1e41f83138711b44a",
+        "sameSigner": true,
+        "firstInstallTimePreserved": true,
+        "recordedAt": "2026-11-07T14:27:56.098431+00:00",
+        "dataReset": false,
+        "uninstall": false,
+        "nativeRebuilt": false,
+        "existingNativeReleaseReused": true
+      },
+      "iphone-release-install": {
+        "bundleSha256": "6d52ed26521f21a8995240bda67d59ff0419e7562f94de094cb521033674eb64",
+        "sameApprovedSigner": true,
+        "existingProfileExpiration": "2026-11-11T19:54:30",
+        "installedInPlace": true,
+        "newCredentials": false,
+        "recordedAt": "2026-11-07T14:31:54.225094+00:00",
+        "dataReset": false,
+        "uninstall": false,
+        "nativeRebuilt": false,
+        "existingNativeReleaseReused": true
+      },
+      "simulator-release-install": {
+        "bundleSha256": "6d52ed26521f21a8995240bda67d59ff0419e7562f94de094cb521033674eb64",
+        "sameEntitlements": true,
+        "installedInPlace": 2,
+        "recordedAt": "2026-11-07T14:28:05.326910+00:00",
+        "dataReset": false,
+        "uninstall": false,
+        "nativeRebuilt": false,
+        "existingNativeReleaseReused": true
+      },
+      "simulator-ui-observation": {
+        "recordedAt": "2026-11-07T14:30:30.113132+00:00",
+        "platform": "iOS simulator27",
+        "device": "Housework QA",
+        "updatedBundleReceipt": "simulator-release-install.json",
+        "method": "CUA Device Hub screenshot and coordinate clicks",
+        "before": {
+          "total": 4,
+          "completed": 0
+        },
+        "afterComplete": {
+          "total": 4,
+          "completed": 1
+        },
+        "afterUndo": {
+          "total": 4,
+          "completed": 0,
+          "targetPresent": true
+        },
+        "afterCalendarReturn": {
+          "total": 4,
+          "completed": 0,
+          "targetPresent": true
+        },
+        "calendarTwoDayExpanded": {
+          "firstDayTotal": 4,
+          "allFourRowsVisible": true,
+          "internalChoreScrollNeeded": false
+        },
+        "dataReset": false,
+        "newNaturalBackgroundExecutionClaimed": false,
+        "frameTimingMeasured": false
+      },
+      "android-ui-observation": {
+        "recordedAt": "2026-11-07T14:32:48.241429+00:00",
+        "releaseReceipt": "android-release-install.json",
+        "method": "authorized ADB and UIAutomator",
+        "before": {
+          "total": 8,
+          "completed": 0
+        },
+        "afterComplete": {
+          "total": 8,
+          "completed": 1
+        },
+        "afterUndo": {
+          "total": 8,
+          "completed": 0,
+          "targetPresent": true
+        },
+        "privateReadError": false,
+        "calendarOpened": true,
+        "automationNote": "Initial Calendar selector used the iOS tab label; retried with observed Android label without repeating completion.",
+        "frameTimingMeasured": false,
+        "dataReset": false
+      },
+      "iphone-ui-observation": {
+        "recordedAt": "2026-11-07T14:40:16.492881+00:00",
+        "platform": "iPhone12 iOS26.7.2",
+        "releaseReceipt": "iphone-release-install.json",
+        "method": "authorized existing XCTest",
+        "before": {
+          "total": 7,
+          "completed": 0
+        },
+        "afterComplete": {
+          "total": 7,
+          "completed": 1
+        },
+        "afterUndo": {
+          "total": 7,
+          "completed": 0,
+          "targetPresent": true
+        },
+        "privateRowsRetained": true,
+        "privateReadError": false,
+        "calendarMonthVisuallyConfirmed": true,
+        "frameTimingMeasured": false,
+        "dataReset": false,
+        "uninstall": false,
+        "notes": [
+          "An immediate snapshot at the end of navigation preceded the updated frame. A subsequent capture had a different foreground application. Neither was counted as Calendar success. LiFlow was activated explicitly and the Calendar tree and screen were verified in step250.",
+          "No other foreground application was operated."
+        ],
+        "evidenceSha256": {
+          "/tmp/liflow-audit-20261107/step247-ios-attachments/52B2581C-5F54-4A96-9E8D-78ACE05F9FCE.txt": "2c172c7632565bc118e452afd824e42116c98ba8ae4c7ee1f5dc3ae2acbf1a3f",
+          "/tmp/liflow-audit-20261107/step247-ios-attachments/F1CF86D5-BD0C-4F11-9C84-50F76AFCC9E4.png": "a17a483bc99df44fc0a33dc1a1dd2b8ad6089a57776c5ab4c9a6b1cd53473ea9",
+          "/tmp/liflow-audit-20261107/step248-ios-attachments/995B10FF-063C-4D49-8C56-7979949DEC04.txt": "616bcf27bea22950099991b6e0f41b8bd9f5d860454b291b4819d68c2ee363d0",
+          "/tmp/liflow-audit-20261107/step248-ios-attachments/FAD7DD04-E559-4B0A-B3D6-ACF51B7A9AF9.txt": "fcdae73f1828e1521eaeda48f82a711d79a9be150eeb5a26f944296f718e3ca5",
+          "/tmp/liflow-audit-20261107/step250-ios-attachments/B5B9BAC2-C3B1-4DFD-A939-8F1E4FA669F7.txt": "650fb8210a9ff21ec68a080f5edb5bf7ccd8880a51e1d336a3a3d442a08e5a14",
+          "/tmp/liflow-audit-20261107/step250-ios-attachments/9683E326-DA27-41FF-B253-46724A469EC3.png": "a89d2614a8d2c9457cc4749acc0e0289595d08bae7ed14e0316166d28201e0da"
+        }
+      }
+    }
+  },
+  "compatibility": {
+    "sharedScheduler": "liflow-shared-2-draft-51",
+    "previousDraft50Accepted": true,
+    "retiredLegacySchedulerUnchanged": true,
+    "personalDerivedCacheSource": "adaptive-source-v2",
+    "schemaMigrationRequired": false,
+    "noNativeDependenciesChanged": true
+  },
+  "verificationNotes": [
+    "The first full run exposed4 compatibility failures; transport test doubles and the waste-header access bound were corrected. A reservation test gate was moved from runAsync to getAllAsync because the new SQL uses INSERT RETURNING; transaction-cancellation assertions remain unchanged. The final whole suite passed.",
+    "The normal emulator ports were occupied and system Java was too old. The successful Cloud run used a separate loopback configuration and the existing Android Studio JBR25; no other emulator was stopped.",
+    "Native probes use a separate Android application and disposable SQLite database, both removed after the9 checks. Normal applications were updated in place using existing signatures and existing native Release binaries with newly compiled Hermes JS.",
+    "Native screen checks verify the observed completion, undo, and navigation state. They do not establish every-frame latency, new long-duration natural background execution, all Google live account paths, paid AI or store purchases.",
+    "Weather service changes are source/test verified. No production backend deployment was performed in this audit.",
+    "This is development verification, not an independent third-party security audit."
+  ],
+  "evidence": {
+    "localDirectory": "/tmp/liflow-audit50-20261107",
+    "files": {
+      "final-unit-rerun.log": {
+        "sha256": "e2822f88b034813583a9e22d1ada857540b4973d68f5cde247590164aa03f832",
+        "bytes": 466814
+      },
+      "final-cloud-isolated.log": {
+        "sha256": "0c70d02277c8836a3ea2524a9e80d36532868f8b0b7010815ee8f3ca55031533",
+        "bytes": 77562
+      },
+      "final-lint-rerun.log": {
+        "sha256": "61a9d32eb3c4115dc12845d19f1aa33fba63f897152fa6dd51052b284bd25da3",
+        "bytes": 458
+      },
+      "final-typecheck-rerun.log": {
+        "sha256": "6cb6a659dafff15e79c4a37d4c2735755e7b002f61d2871bc0165257bb2b6598",
+        "bytes": 53
+      },
+      "final-compatibility-followup.log": {
+        "sha256": "941479f95c23bafa2015aff2a0fa31d37ce60347026b1152f407e17f204d8dad",
+        "bytes": 16337
+      },
+      "final-claims-compatibility.log": {
+        "sha256": "6f692fa49643fae237580cd44fc4b426c0c665db8091f9d703d9556b800ef007",
+        "bytes": 1212
+      },
+      "native-android-probe.json": {
+        "sha256": "e93d37217b9f753f7e2b00798f579726c12834c7db2c15fb60898906fcf6bcb6",
+        "bytes": 1002
+      },
+      "simulator-ui-observation.json": {
+        "sha256": "19df68387e912740af696406ea0c6957d79ec669599a672762df44331d5b5dda",
+        "bytes": 765
+      },
+      "android-ui-observation.json": {
+        "sha256": "eb5fdfe05427ccb67fe238c3fac3c24116602a62e0cb26d0c101516104566f99",
+        "bytes": 600
+      },
+      "iphone-ui-observation.json": {
+        "sha256": "0eb3163c6a4142a39b956e65447a26b16db440ab1ae3a60e0853f6c0e3ab5e8a",
+        "bytes": 1934
+      }
+    }
+  }
+}

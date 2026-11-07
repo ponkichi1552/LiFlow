@@ -1,5 +1,5 @@
 {
-  "version": "liflow-shared-2-draft-50",
+  "version": "liflow-shared-2-draft-51",
   "timeZoneVersion": "2026e",
   "sourceFiles": [
     "src/features/sharing/v2/model.ts",
@@ -123,5 +123,5 @@
     "src/features/sharing/workspace-protocol.ts",
     "src/features/sharing/v2/input-capture.ts"
   ],
-  "sourceSha256": "d48647f3136325493efbb1637fb9296831fe7815c2a9058be1c44a0ccb7f94fe"
+  "sourceSha256": "53645ba6542b27ca997fc57953250364427af4cd80e8ead135307e7f2a9da2d6"
 }

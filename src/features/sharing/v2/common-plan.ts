@@ -107,6 +107,12 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
     const request = view.byId(op.payload.requestId as string)!; return { choreId: request.payload.choreId, ruleVersion: request.payload.ruleVersion,
       scope: request.payload.scope, fromOccurrenceId: request.payload.occurrenceId, fromAnchorDate: request.payload.anchorDate };
   })();
+  const assignmentChangesByRule = new Map<string, SharedOperation[]>();
+  for (const change of view.observed(assignmentChanges, at)) {
+    const value = assignmentPayload(change); const key = canonicalJson([value.choreId, value.ruleVersion]);
+    const rows = assignmentChangesByRule.get(key) ?? []; rows.push(change); assignmentChangesByRule.set(key, rows);
+  }
+  for (const rows of assignmentChangesByRule.values()) rows.sort((a, b) => a.logicalClock - b.logicalClock || compareOperationIds(a.operationId, b.operationId));
   const issue = (kind: string, choreId: string | null = null, occurrenceId: string | null = null, subjectUserId: string | null = null, operationIds: string[] = []) => {
     issues.push({ kind, choreId, occurrenceId, subjectUserId, operationIds: [...new Set(operationIds)].sort(compareOperationIds) });
   };
@@ -157,6 +163,14 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
   const allRules = observedDateRules(view, at, assessment.approvedRules);
   const rulesByChore = new Map<string, ManualRuleFact[]>();
   for (const fact of allRules) { const rows = rulesByChore.get(fact.rule.choreId) ?? []; rows.push(fact); rulesByChore.set(fact.rule.choreId, rows); }
+  const requestsByChore = new Map<string, typeof assessment.requestStates>();
+  for (const request of assessment.requestStates) {
+    const id = request.proposal.choreId; const rows = requestsByChore.get(id) ?? []; rows.push(request); requestsByChore.set(id, rows);
+  }
+  const approvedByChore = new Map<string, ManualRuleFact[]>();
+  for (const fact of assessment.approvedRules) {
+    const id = fact.rule.choreId; const rows = approvedByChore.get(id) ?? []; rows.push(fact); approvedByChore.set(id, rows);
+  }
   const dependencies: V2Dependency[] = [];
   for (const id of [...new Set(view.ofType('dependency').map((op) => op.entityId))].sort(compareOperationIds)) {
     const data = fields('dependency', id);
@@ -284,9 +298,10 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
       try {
         context = frameContext(at, chore.id, frame.anchorDate, frame.ruleVersion, true);
         // Once a round was complete, a later assignment change does not reopen it for a new person.
-        const changes = view.observed(assignmentChanges, at).filter((op) => { const value = assignmentPayload(op); return value.choreId === chore.id && value.ruleVersion === frame.ruleVersion
-          && (value.scope === 'once' ? value.fromOccurrenceId === frame.id : (value.fromAnchorDate as string) <= frame.anchorDate); })
-          .sort((a, b) => a.logicalClock - b.logicalClock || compareOperationIds(a.operationId, b.operationId));
+        const changes = (assignmentChangesByRule.get(canonicalJson([chore.id, frame.ruleVersion])) ?? []).filter((op) => {
+          const value = assignmentPayload(op);
+          return value.scope === 'once' ? value.fromOccurrenceId === frame.id : (value.fromAnchorDate as string) <= frame.anchorDate;
+        });
         for (const change of changes) {
           try {
             const previous = frameContext(change, chore.id, frame.anchorDate, frame.ruleVersion);
@@ -309,7 +324,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
       if (context.assignmentConflictIds.length) issue('assignmentNeedsReview', chore.id, frame.id, null, context.assignmentConflictIds);
       const records = historyByFrame.get(frame.id) ?? []; const actual = records.filter(usable);
       const retainedRound = retainedIndex.forRound(chore.id, frame.anchorDate, frame.ruleVersion);
-      const window = expandedCommonWindow({ frame, timeZone, view, at, requests: assessment.requestStates, approvedRules: assessment.approvedRules, receiptEpochs: assessment.receiptEpochs });
+      const window = expandedCommonWindow({ frame, timeZone, view, at, requests: requestsByChore.get(chore.id) ?? [], approvedRules: approvedByChore.get(chore.id) ?? [], receiptEpochs: assessment.receiptEpochs });
       if (window.reviews.length) issue('windowExtensionNeedsReview', chore.id, frame.id, null, window.reviews);
       const past = frame.anchorDate < range.asOfDate;
       const originalSubjects = context.subjectUserIds;
@@ -335,7 +350,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
             strict: selected.fact.rule.strict, allowDuringCooldown: selected.fact.rule.allowDuringCooldown === true };
             suggestedDate = selected.fact.rule.mode === 'deadline' ? targetReferenceCivilDate(target.target, selected.fact.rule.timeZoneAtCreation, timeZone) : targetCivilDate(target.target, timeZone); }
         }
-        const reviews = unresolvedRequestReviews({ occurrence: frame, subjectUserId, candidates, allRules, requests: assessment.requestStates, view });
+        const reviews = unresolvedRequestReviews({ occurrence: frame, subjectUserId, candidates, allRules, requests: requestsByChore.get(chore.id) ?? [], view });
         if (reviews.length) issue('requestConflict', chore.id, frame.id, subjectUserId, reviews);
         const last = lastCompletionBySubject.get(subjectUserId);
         const minimumNextExecutionDay = context.config.intervalDays >= 2 && context.config.intervalDays <= 6 && last ? addDays(last, context.config.intervalDays) : null;
@@ -425,7 +440,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
       if (subjects.length && completed.every((instant): instant is number => instant !== null)) {
         const instant = Math.max(...completed); result = { day: sharedLocalDate(new Date(instant), timeZone), instant, occurrenceId: frame.id, completed: true };
       } else if (subjects.length) {
-        const window = expandedCommonWindow({ frame, timeZone, view, at, requests: assessment.requestStates, approvedRules: assessment.approvedRules, receiptEpochs: assessment.receiptEpochs });
+        const window = expandedCommonWindow({ frame, timeZone, view, at, requests: requestsByChore.get(choreId) ?? [], approvedRules: approvedByChore.get(choreId) ?? [], receiptEpochs: assessment.receiptEpochs });
         const endings: { day: LocalDate; instant: number | null }[] = [];
         for (const uid of subjects) {
           const selected = selectManualRule(rulesByChore.get(choreId) ?? [], frame, uid, timeZone);

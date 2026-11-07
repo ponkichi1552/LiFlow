@@ -1,5 +1,6 @@
 import { traceStartup } from '../diagnostics/startup-timing.ts';
 import { isGoogleETag } from '../google-http/etag.ts';
+import { readGoogleResponseText } from '../google-http/bounded-body.ts';
 
 export const GOOGLE_CALENDAR_EVENT_SCOPES = ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'] as const;
 export interface GoogleCalendarListEntry { id: string; summary: string; accessRole: string; primary?: boolean; timeZone?: string; backgroundColor?: string }
@@ -67,10 +68,18 @@ export function createGoogleCalendarApi(input: { token: () => Promise<string>; a
       if (response.status === 401) tokenFlight = undefined;
       const raw = response.headers.get('Retry-After'); const seconds = raw ? Number(raw) : 0;
       const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(raw ?? '') - Date.now();
-      throw new GoogleCalendarHttpError(response.status, Number.isFinite(delay) ? Math.min(24 * 3600_000, Math.max(0, delay)) : 0);
+      let status = response.status;
+      if (status === 403) {
+        try {
+          const payload = JSON.parse(await withinSignal(() => readGoogleResponseText(response, input.signal, 256 * 1024)));
+          if (Array.isArray(payload?.error?.errors) && payload.error.errors.some((value: { reason?: unknown }) =>
+            ['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded', 'dailyLimitExceeded'].includes(String(value?.reason)))) status = 429;
+        } catch (cause) { if (input.signal?.aborted) throw cause; }
+      }
+      throw new GoogleCalendarHttpError(status, Number.isFinite(delay) ? Math.min(24 * 3600_000, Math.max(0, delay)) : 0);
     }
     if (response.status === 204) return undefined as T;
-    const text = await withinSignal(() => response.text()); if (text.length > 2_000_000) throw new Error('Googleカレンダーの応答が大きすぎます。');
+    const text = await withinSignal(() => readGoogleResponseText(response, input.signal)); if (text.length > 2_000_000) throw new Error('Googleカレンダーの応答が大きすぎます。');
     await withinSignal(() => input.assertCurrent());
     let value: T;
     try { value = JSON.parse(text) as T; }

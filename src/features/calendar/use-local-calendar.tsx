@@ -9,6 +9,7 @@ import type { LocalDate } from '../../domain/shared/types';
 import { retainCalendarInputs } from './observed-snapshot';
 import { usePersonalGoogleSync } from './use-personal-google-sync';
 import { usePlannerData } from '@/hooks/use-planner-data';
+import { canEditPrivateCalendarEvent } from './private-event-projection';
 
 const LocalCalendarContext = createContext<LocalCalendarBinding | null>(null);
 /** Loads local events once at app startup and keeps every page on the same subscription. */
@@ -85,13 +86,13 @@ function useObservedLocalCalendar(database?: SQLiteDatabase, includeGroupDrafts 
     return { ...currentSnapshot, drafts, draft: drafts[0] ?? null };
   }, [currentSnapshot, includeGroupDrafts]);
   return { database, snapshot: visible, error, loading: loading || Boolean(database && observedState?.database !== database), refresh,
-    canEditEvent: id => visible.events.find(row => row.id === id)?.readOnly !== true };
+    canEditEvent: (id, anchorDate) => canEditPrivateCalendarEvent(visible, id, anchorDate) };
 }
 export interface LocalCalendarBinding {
   database?: SQLiteDatabase; snapshot: LocalCalendarSnapshot; loading: boolean; error: string | null; refresh: () => Promise<void>;
   shared?: { groupId: string; name: string; enabled: boolean };
   prepareDraft?: (draft: CalendarEditorDraft) => CalendarEditorDraft;
-  canEditEvent?: (eventId: string) => boolean;
+  canEditEvent?: (eventId: string, anchorDate?: LocalDate | null) => boolean;
   requestRange?: (from: LocalDate, through: LocalDate) => void;
   categoriesFor?: (audience: 'personal' | 'group') => readonly CalendarCategory[];
   saveEvent?: (draft: CalendarEditorDraft, resetExceptions: boolean) => Promise<void>;

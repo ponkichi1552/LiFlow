@@ -29,6 +29,7 @@ export interface AdaptivePlacementLoad {
 interface DayLoad { minutes: number; heavy: number; normal: number; count: number }
 interface WindowCandidate { base: LocalDate; from: LocalDate; through: LocalDate }
 const minute = 60_000;
+const compareKey = (left: string, right: string) => left < right ? -1 : left > right ? 1 : 0;
 const validSpan = (span: InstantSpan) => Number.isFinite(span.start) && Number.isFinite(span.end) && span.end > span.start;
 function nonnegative(value: number) { return Number.isFinite(value) && value >= 0; }
 export function unionInstantSpans(input: readonly InstantSpan[]): InstantSpan[] {
@@ -111,7 +112,10 @@ export function placeAdaptiveRounds(input: {
   parseLocalDate(input.today); if (!Number.isFinite(input.now)) throw new Error('予定計算の現在時刻を確認してください。');
   const tomorrow = addDays(input.today, 1); const dayByDate = new Map<LocalDate, AdaptivePlacementDay>();
   const dayLoads = new Map<LocalDate, DayLoad>(); const allLoads = new Map<string, AdaptivePlacementLoad>();
-  const reserved = unionInstantSpans(input.busy); const result = new Map<string, AdaptiveRoundPlacement>();
+  // All pre-existing slots are known together. Normalize them once rather than
+  // repeatedly inserting into a growing sorted array across a long horizon.
+  const reserved = unionInstantSpans([...input.busy, ...input.fixedLoads.flatMap(load => load.slot ? [load.slot] : [])]);
+  const result = new Map<string, AdaptiveRoundPlacement>();
   const weather = createMetWeatherEvaluator(input.weatherForecast);
   for (const day of input.days) {
     parseLocalDate(day.date);
@@ -119,8 +123,14 @@ export function placeAdaptiveRounds(input: {
       || !Number.isSafeInteger(day.heavyLimit) || day.heavyLimit < 0 || !Number.isSafeInteger(day.normalLimit) || day.normalLimit < 0) throw new Error('日別の家事設定を確認してください。');
     unionInstantSpans(day.allowed); dayByDate.set(day.date, day);
   }
-  const configuredDays = [...dayByDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  const configuredDays = [...dayByDate.values()].sort((a, b) => compareKey(a.date, b.date));
   for (let i = 1; i < configuredDays.length; i++) if (configuredDays[i].bounds.start < configuredDays[i - 1].bounds.end) throw new Error('日付の時間範囲が重複しています。');
+  const holidayDates = configuredDays.filter(day => day.holiday).map(day => day.date);
+  function holidayInRange(from: LocalDate, through: LocalDate) {
+    let low = 0; let high = holidayDates.length;
+    while (low < high) { const middle = (low + high) >>> 1; if (holidayDates[middle] < from) low = middle + 1; else high = middle; }
+    return low < holidayDates.length && holidayDates[low] <= through;
+  }
   const allAllowed = unionInstantSpans(configuredDays.flatMap(day => day.allowed));
   function firstAllowedAfter(start: number) {
     let low = 0; let high = allAllowed.length;
@@ -157,7 +167,7 @@ export function placeAdaptiveRounds(input: {
     }
     return portions;
   }
-  function reserve(load: AdaptivePlacementLoad) {
+  function reserve(load: AdaptivePlacementLoad, addBusy = true) {
     const previous = allLoads.get(load.roundId);
     if (previous) {
       if (previous.date !== load.date || previous.minutes !== load.minutes || previous.load !== load.load
@@ -171,7 +181,7 @@ export function placeAdaptiveRounds(input: {
     if (!load.slot && !dayByDate.has(load.date)) total.minutes += load.minutes ?? 0;
     total.heavy += Number(load.load === 'heavy'); total.normal += Number(load.load === 'normal'); total.count++;
     dayLoads.set(load.date, total);
-    if (load.slot) reserveInstantSpan(reserved, load.slot);
+    if (addBusy && load.slot) reserveInstantSpan(reserved, load.slot);
   }
   const taskIds = new Set(input.tasks.map(task => task.id));
   if (taskIds.size !== input.tasks.length || new Set(input.tasks.map(task => task.choreId)).size !== input.tasks.length) throw new Error('同じ家事の未完了回が重複しています。');
@@ -179,7 +189,7 @@ export function placeAdaptiveRounds(input: {
     if (taskIds.has(load.roundId)) throw new Error('再配置対象の古い負荷を先に外してください。');
     if (!load.roundId || load.minutes !== null && (!Number.isFinite(load.minutes) || load.minutes <= 0)
       || load.slot && (!validSpan(load.slot) || load.minutes === null)) throw new Error('既存家事の負荷を確認してください。');
-    reserve(load);
+    reserve(load, false);
   }
   function radiusFor(task: AdaptivePlacementTask) {
     const radius = task.fixedDaily ? 0 : task.windowRadiusDays ?? adaptiveWindowRadius(task.periodDays);
@@ -205,7 +215,7 @@ export function placeAdaptiveRounds(input: {
     const windows = protectedRound ? [] : initialWindows ?? adaptivePlacementWindows(task.baseDate, radius).filter(window => {
       if (task.fixedDaily && window.base !== task.baseDate) return false;
       return task.load !== 'heavy' || task.holidayPriority === false || !radius || !input.holidaysConfigured
-        || configuredDays.some(day => day.holiday && day.date >= window.from && day.date <= window.through);
+        || holidayInRange(window.from, window.through);
     });
     return { ...task, radius, windows };
   });
@@ -230,7 +240,7 @@ export function placeAdaptiveRounds(input: {
       let initialDisplay: WindowCandidate | undefined;
       if (task.purpose === 'initial') for (const window of placementWindowCandidates(day.date, task.radius)) {
         if (day.date >= window.from && day.date <= window.through && (task.load !== 'heavy' || task.holidayPriority === false
-          || !task.radius || !input.holidaysConfigured || configuredDays.some(other => other.holiday && other.date >= window.from && other.date <= window.through))) { initialDisplay = window; break; }
+          || !task.radius || !input.holidaysConfigured || holidayInRange(window.from, window.through))) { initialDisplay = window; break; }
       }
       if (task.purpose === 'initial' && !initialDisplay) return [];
       const load = readLoad(day.date);
@@ -273,7 +283,7 @@ export function placeAdaptiveRounds(input: {
   const initialCounts = new Map(available.map(task => [task.id, optionsFor(task).length]));
   const loadOrder = { heavy: 0, normal: 1, light: 2 };
   available.sort((a, b) => initialCounts.get(a.id)! - initialCounts.get(b.id)! || loadOrder[a.load] - loadOrder[b.load]
-    || (b.minutes ?? 0) - (a.minutes ?? 0) || a.choreId.localeCompare(b.choreId) || a.id.localeCompare(b.id));
+    || (b.minutes ?? 0) - (a.minutes ?? 0) || compareKey(a.choreId, b.choreId) || compareKey(a.id, b.id));
   for (const task of available) {
     const choices = optionsFor(task); let selected: typeof choices[number] | undefined; let chosen: WindowCandidate | undefined;
     for (const window of task.windows) {
@@ -283,7 +293,7 @@ export function placeAdaptiveRounds(input: {
         return Number(task.load === 'heavy' && task.holidayPriority !== false && b.day.holiday) - Number(task.load === 'heavy' && task.holidayPriority !== false && a.day.holiday)
           || Math.abs(daysBetween(task.baseDate, a.day.date)) - Math.abs(daysBetween(task.baseDate, b.day.date))
           || Number(b.day.date === task.previous?.recommendedDate) - Number(a.day.date === task.previous?.recommendedDate)
-          || a.day.date.localeCompare(b.day.date);
+          || compareKey(a.day.date, b.day.date);
       });
       if (candidates.length) { selected = candidates[0]; chosen = window; break; }
     }

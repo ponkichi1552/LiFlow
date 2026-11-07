@@ -1,5 +1,6 @@
 import type { CalendarQueryRange } from '@/features/google-sync/calendar-availability';
 import { parseGoogleCompletedAt } from '@/features/google-sync/google-completion-policy';
+import { readGoogleResponseText } from '../google-http/bounded-body.ts';
 
 export class CalendarFreeBusyError extends Error {
   readonly status: number;
@@ -40,7 +41,10 @@ export function createCalendarFreeBusyClient(fetcher: typeof fetch = fetch, onRe
         body: JSON.stringify({ timeMin: range.timeMin, timeMax: range.timeMax, timeZone: range.timeZone, items: [{ id: 'primary' }] }),
       });
       if (controller.signal.aborted) throw new CalendarFreeBusyError(503, 'calendar_timeout');
-      const payload = await response.json().catch(() => null);
+      // Preserve the supported large foreground interval inventories. Bounded
+      // background queries get the smaller transport ceiling automatically.
+      const bodyLimit = Math.min(128 * 1024 * 1024, Math.max(8 * 1024 * 1024, remainingIntervals * 128 + 1024));
+      const payload = await readGoogleResponseText(response, controller.signal, bodyLimit).then(text => JSON.parse(text)).catch(() => null);
       if (controller.signal.aborted || deadline !== undefined && Date.now() >= deadline) throw new CalendarFreeBusyError(503, 'calendar_timeout');
       if (!response.ok) {
         const errors = payload?.error?.errors;

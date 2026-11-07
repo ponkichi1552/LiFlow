@@ -22,7 +22,7 @@ import { personalChoreUsesWeather } from '../../features/weather/chore-weather.t
 import { readAdaptiveOwnerInputs } from './adaptive-owner-inputs.ts';
 import { sharedAdaptiveLoad } from '../../features/planner/shared-adaptive-load.ts';
 import { sharedLocalDate } from '../../features/sharing/group-clock.ts';
-import { projectSharedCalendarRecords } from '../../features/calendar/shared-events.ts';
+import { projectSharedCalendarPlanningRecords } from '../../features/calendar/shared-events.ts';
 import { privateBusyPlacement } from '../../features/planner/private-busy-input.ts';
 import { snapshotPersonalPlacementPreferences } from '../../features/planner/personal-placement-preferences.ts';
 
@@ -126,7 +126,7 @@ export async function readPersonalAdaptiveContextInside(database: SQLiteDatabase
   const choresById = new Map(chores.map(chore => [chore.id, chore]));
   const shared = owner?.common && owner.ownerUserId ? sharedAdaptiveLoad(owner.common, owner.ownerUserId, today, timeZone, chores, owner.sharedPlanning?.plan)
     : { loads: [], suppressedPersonalChoreIds: new Set<string>() };
-  const sharedCalendar = owner?.common ? projectSharedCalendarRecords(owner.sharedCalendar ?? [], owner.common.groupId) : null;
+  const sharedCalendar = owner?.common ? projectSharedCalendarPlanningRecords(owner.sharedCalendar ?? [], owner.common.groupId) : null;
   const calendarInput = { events: [...calendar.events, ...sharedCalendar?.events ?? []], exceptions: [...calendar.exceptions, ...sharedCalendar?.exceptions ?? []] };
   const assignments = new Map<string, string[]>();
   for (const row of assignmentRows) assignments.set(row.chore_id, [...(assignments.get(row.chore_id) ?? []), row.member_id]);
@@ -182,7 +182,7 @@ export async function readPersonalAdaptiveContextInside(database: SQLiteDatabase
         geometry = { ...geometry, busy: unionInstantSpans([...geometry.busy, ...opaque.map(day => day.bounds)]),
           revision: adaptivePersonalDigest([geometry.revision, opaque.map(day => day.date)]) };
       }
-      if (sharedCalendar?.conflicted) geometry = { ...geometry, busy: unionInstantSpans([...geometry.busy, ...geometry.days.map(day => day.bounds)]),
+      if (sharedCalendar?.unbounded) geometry = { ...geometry, busy: unionInstantSpans([...geometry.busy, ...geometry.days.map(day => day.bounds)]),
         revision: adaptivePersonalDigest([geometry.revision, 'shared-calendar-unresolved']) };
       return geometry;
     },

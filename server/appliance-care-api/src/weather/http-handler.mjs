@@ -4,8 +4,9 @@ import { weatherRegion } from './regional-store.mjs';
 
 /** Shared by the appliance host and the weather-only host; never calls MET. */
 export function createWeatherHttpHandler({ weather, now = Date.now, cacheMs = 30_000, maximumKeys = 256,
-  perAddress = 60, total = 300 } = {}) {
+  perAddress = 60, total = 300, readTimeoutMs = 10_000 } = {}) {
   if (![cacheMs, maximumKeys].every(value => Number.isSafeInteger(value) && value > 0)) throw new Error('Invalid weather HTTP cache');
+  if (!Number.isSafeInteger(readTimeoutMs) || readTimeoutMs < 1 || readTimeoutMs > 20_000) throw new Error('Invalid weather read budget');
   const allowAddress = createFixedWindowRateLimit({ limit: perAddress, now });
   const allowTotal = createFixedWindowRateLimit({ limit: total, maximumKeys: 1, now });
   const saved = new Map(); const pending = new Map();
@@ -35,7 +36,11 @@ export function createWeatherHttpHandler({ weather, now = Date.now, cacheMs = 30
     const id = url.pathname.slice('/v1/weather/regions/'.length);
     if (!weatherRegion(id)) { send(response, 404, { code: 'weather_region_unknown' }); return true; }
     if (!weather) { send(response, 503, { code: 'weather_not_configured' }); return true; }
-    const result = await read(id);
+    let timer; let result;
+    try {
+      result = await Promise.race([read(id), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('weather_read_timeout')), readTimeoutMs); })]);
+    } catch { result = { status: 503, code: 'weather_unavailable' }; }
+    finally { clearTimeout(timer); }
     if (response.destroyed || response.writableEnded) return true;
     if (result.status === 200) {
       const etag = `"${result.value.revision}"`; response.setHeader('etag', etag);

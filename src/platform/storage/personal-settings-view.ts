@@ -34,7 +34,8 @@ export async function readPersonalSettingsView(database: SQLiteDatabase): Promis
     // One statement gives settings and enabled flags from the same read snapshot.
     const rows = await connection.getAllAsync<HouseholdSettingsRow & { chore_id: string | null; chore_enabled: number | null; definition_json: string | null }>(
       `SELECT s.*,d.id AS chore_id,d.enabled AS chore_enabled,d.definition_json FROM household_settings s
-       LEFT JOIN chore_definitions d ON d.household_id=s.household_id WHERE s.household_id=?`, PERSONAL_HOUSEHOLD_ID);
+       LEFT JOIN chore_definitions d ON d.household_id=s.household_id AND COALESCE(json_extract(d.definition_json,'$.archived'),0)<>1
+       WHERE s.household_id=?`, PERSONAL_HOUSEHOLD_ID);
     if (!rows.length) throw new Error('個人設定を読み込めませんでした。');
     const chores = rows.filter(row => row.chore_id !== null).map(row => ({ ...JSON.parse(row.definition_json!) as ChoreDefinition, enabled: Boolean(row.chore_enabled) }))
       .sort((a, b) => comparePersonalChoreOrder(a, b) || compareBuiltInChoreOrder(a, b));

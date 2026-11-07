@@ -27,10 +27,34 @@ export async function reserveGoogleTaskCreateInside(database: SQLiteDatabase, in
     ON CONFLICT(account_subject, task_list_id, occurrence_marker) DO NOTHING`, ...key, intent.attemptId, intent.startedAt);
   return result.changes === 1 ? { ...intent } : null;
 }
+/** One HTTP chunk reserves atomically; the aligned result grants only newly inserted attempts. */
+export async function reserveGoogleTaskCreatesInside(database: SQLiteDatabase, intents: readonly GoogleTaskCreateIntent[]): Promise<(GoogleTaskCreateIntent | null)[]> {
+  if (!intents.length || intents.length > 100) throw new Error('Google家事は100件以内に分けて送信してください。');
+  const captured = intents.map(intent => {
+    const key = values(intent);
+    if (typeof intent.attemptId !== 'string' || !intent.attemptId || intent.attemptId.length > 512 || !Number.isFinite(Date.parse(intent.startedAt))) throw new Error('Google家事の作成記録を確認してください。');
+    return [...key, intent.attemptId, intent.startedAt];
+  });
+  // RETURNING provides the actual winners, including repeated identities in
+  // this input. It never grants an earlier, unresolved attempt another POST.
+  const rows = await database.getAllAsync<{ account_subject: string; task_list_id: string; occurrence_marker: string; attempt_id: string; started_at: string }>(
+    `INSERT INTO private_google_task_create_intents(account_subject,task_list_id,occurrence_marker,attempt_id,started_at)
+      VALUES${captured.map(() => '(?,?,?,?,?)').join(',')} ON CONFLICT(account_subject,task_list_id,occurrence_marker) DO NOTHING
+      RETURNING account_subject,task_list_id,occurrence_marker,attempt_id,started_at`, ...captured.flat());
+  const inserted = new Set(rows.map(row => JSON.stringify([row.account_subject,row.task_list_id,row.occurrence_marker,row.attempt_id,row.started_at])));
+  return intents.map((intent, index) => inserted.delete(JSON.stringify(captured[index])) ? { ...intent } : null);
+}
 export async function rejectGoogleTaskCreateInside(database: SQLiteDatabase, intent: GoogleTaskCreateIntent): Promise<void> {
-  const key = values(intent);
-  await database.runAsync(`DELETE FROM private_google_task_create_intents WHERE account_subject=? AND task_list_id=?
-    AND occurrence_marker=? AND attempt_id=? AND started_at=? AND remote_task_id IS NULL`, ...key, intent.attemptId, intent.startedAt);
+  return rejectGoogleTaskCreatesInside(database, [intent]);
+}
+/** Exact attempt fencing also applies to a batch; linked/newer reservations survive. */
+export async function rejectGoogleTaskCreatesInside(database: SQLiteDatabase, intents: readonly GoogleTaskCreateIntent[]): Promise<void> {
+  const rows = intents.map(intent => [...values(intent), intent.attemptId, intent.startedAt]);
+  for (let offset = 0; offset < rows.length; offset += 100) {
+    const page = rows.slice(offset, offset + 100);
+    await database.runAsync(`DELETE FROM private_google_task_create_intents WHERE remote_task_id IS NULL AND
+      (account_subject,task_list_id,occurrence_marker,attempt_id,started_at) IN (VALUES ${page.map(() => '(?,?,?,?,?)').join(',')})`, ...page.flat());
+  }
 }
 export async function linkGoogleTaskCreateInside(database: SQLiteDatabase, identity: GoogleTaskCreateIdentity, taskId: string, intent?: GoogleTaskCreateIntent): Promise<void> {
   const key = values(identity);
@@ -53,10 +77,16 @@ export async function readGoogleTaskCreateInside(database: SQLiteDatabase, ident
 export function createGoogleTaskCreateJournal(transaction: <T>(work: (database: SQLiteDatabase) => Promise<T>) => Promise<T>,
   makeId: () => string, now: () => Date): GoogleTaskCreateJournal {
   const rejectBatch = (intents: readonly GoogleTaskCreateIntent[]) => transaction(async database => {
-    for (const intent of intents) await rejectGoogleTaskCreateInside(database, intent);
+    await rejectGoogleTaskCreatesInside(database, intents);
   });
   return {
     reserve: identity => transaction(database => reserveGoogleTaskCreateInside(database, { ...identity, attemptId: makeId(), startedAt: now().toISOString() })),
+    reserveBatch: (identities, beforeCommit) => {
+      const intents = identities.map(identity => ({ ...identity, attemptId: makeId(), startedAt: now().toISOString() }));
+      return transaction(async database => {
+        beforeCommit?.(); const result = await reserveGoogleTaskCreatesInside(database, intents); beforeCommit?.(); return result;
+      });
+    },
     reject: intent => rejectBatch([intent]), rejectBatch,
     read: identity => transaction(database => readGoogleTaskCreateInside(database, identity)),
     linked: (identity, taskId, intent) => transaction(database => linkGoogleTaskCreateInside(database, identity, taskId, intent)),

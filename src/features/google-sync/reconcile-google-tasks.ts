@@ -206,7 +206,8 @@ export async function reconcileGoogleTasks(options: {
     if (task.deleted || (task.status !== 'completed' && task.status !== 'needsAction')) continue;
     const key = occurrenceNote(task.notes, Boolean(namespace));
     if (!key) continue;
-    tasksByOccurrence.set(key, [...(tasksByOccurrence.get(key) ?? []), task]);
+    const candidates = tasksByOccurrence.get(key);
+    if (candidates) candidates.push(task); else tasksByOccurrence.set(key, [task]);
   }
   for (const item of beforeEntries.values()) {
     if (item.synchronizationBlocked || !isInSyncWindow(item) || linkedScheduleEntryIds.has(item.entry.id)) continue;

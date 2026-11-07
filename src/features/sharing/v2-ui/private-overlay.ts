@@ -12,6 +12,7 @@ import { commonChoreLinks } from '../../planner/common-chore-links.ts';
 import type { CommonCompletionSource } from '../../planner/common-chore-links';
 import type { CapturedSharedPlanning } from '../../planner/shared-adaptive-load';
 import { personalLongCalendarPreviews } from '../../calendar/long-cycle-preview.ts';
+import { pinnedClockAt } from '../../../domain/scheduling/zoned-clock.ts';
 
 export interface V2PrivateTaskRow {
   source: 'personal'; key: string; revision: string; ownerUserId: string; householdId: string;
@@ -44,7 +45,7 @@ export function projectV2PrivateTasks(input: PrivatePlannerInput, ownerUserId: s
   }
   parseLocalDate(today); parseLocalDate(range.from); parseLocalDate(range.through);
   if (range.from > range.through || addDays(range.from, 366) < range.through) throw new Error('個人家事を表示する期間を確認してください。');
-  new Intl.DateTimeFormat('en', { timeZone }).format(0);
+  pinnedClockAt(0, timeZone);
   const chores = snapshot.chores.filter((chore) => chore.enabled && !chore.archived);
   const buckets = new Map(chores.map((chore) => [chore.id, { chore, entries: [] as ChoreScheduleEntry[], completions: [] as ChoreCompletion[] }]));
   for (const row of [...snapshot.chores, ...snapshot.scheduleEntries, ...snapshot.completions]) {

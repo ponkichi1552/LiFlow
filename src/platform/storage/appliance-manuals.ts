@@ -6,23 +6,31 @@ import { sharedDocumentDigest } from '../../features/sharing/crypto.ts';
 import { withPlannerDatabaseOperation } from './repository.ts';
 import { withIsolatedSqliteTransaction } from './isolated-transaction.ts';
 import { storeApplianceManualInside } from './appliance-manual-storage.ts';
-const verifiedDocuments = new WeakMap<SQLiteDatabase, { values: Map<string, string>; characters: number }>();
+const verifiedDocuments = new WeakMap<SQLiteDatabase, { values: Map<string, { content: string; revision: string | null }>; characters: number }>();
 const MAX_VERIFIED_DOCUMENT_CHARACTERS = 12 * 1024 * 1024;
 export function readApplianceManual(database: SQLiteDatabase, digest: string): Promise<string | null> {
   return withPlannerDatabaseOperation(database, async () => {
     if (!/^[a-f0-9]{64}$/u.test(digest)) throw new Error('説明書の保存先を確認してください。');
+    // data_version detects commits by other connections; total_changes also
+    // detects writes on this connection, including writes outside this module.
+    const version = await database.getFirstAsync<{ data_version: number; local_changes: number }>(
+      'SELECT data_version,total_changes() AS local_changes FROM pragma_data_version');
+    const revision = Number.isSafeInteger(version?.data_version) && Number.isSafeInteger(version?.local_changes)
+      ? `${version!.data_version}:${version!.local_changes}` : null;
+    let checked = verifiedDocuments.get(database);
+    const cached = checked?.values.get(digest);
+    if (revision !== null && cached?.revision === revision) return cached.content;
     const row = await database.getFirstAsync<{ content_base64: string }>('SELECT content_base64 FROM appliance_manual_documents WHERE sha256=?', digest);
     if (!row) return null;
-    let checked = verifiedDocuments.get(database);
-    if (checked?.values.get(digest) !== row.content_base64) {
+    if (cached?.content !== row.content_base64) {
       verifyManualContent(row.content_base64, digest);
       if (!checked) { checked = { values: new Map(), characters: 0 }; verifiedDocuments.set(database, checked); }
-      checked.characters -= checked.values.get(digest)?.length ?? 0;
-      checked.values.delete(digest); checked.values.set(digest, row.content_base64); checked.characters += row.content_base64.length;
+      checked.characters -= checked.values.get(digest)?.content.length ?? 0;
+      checked.values.delete(digest); checked.values.set(digest, { content: row.content_base64, revision }); checked.characters += row.content_base64.length;
       while (checked.characters > MAX_VERIFIED_DOCUMENT_CHARACTERS) {
-        const first = checked.values.keys().next().value!; checked.characters -= checked.values.get(first)!.length; checked.values.delete(first);
+        const first = checked.values.keys().next().value!; checked.characters -= checked.values.get(first)!.content.length; checked.values.delete(first);
       }
-    }
+    } else cached.revision = revision;
     return row.content_base64;
   });
 }

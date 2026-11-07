@@ -37,14 +37,17 @@ export function createV2PersonalCopyStore(input: { repository: Repository; userI
   }
   function proof(state: State, review: V2PersonalCopyReview) {
     const drafts = v2PersonalCopyDrafts(review);
+    const operations = new Map<string, State['replica']['operations'][number]>();
+    for (const operation of state.replica.operations) if (!operations.has(operation.operationId)) operations.set(operation.operationId, operation);
     for (const draft of drafts) {
-      const actual = state.replica.operations.find(op => op.operationId === draft.operationId);
+      const actual = operations.get(draft.operationId);
       if (!actual || actual.authorUserId !== userId || actual.entityType !== draft.entityType || actual.entityId !== draft.entityId
         || actual.operationType !== draft.operationType || canonicalJson(actual.payload) !== canonicalJson(draft.payload)) throw new Error('コピー済みの共有記録を確認できません。');
     }
     const ready = new Set(state.assessment.view.ready.map(op => op.operationId));
     if (drafts.some(draft => !ready.has(draft.operationId))) return 'needsReview' as const;
-    return drafts.some(draft => state.assessment.pendingOutboxIds.includes(draft.operationId)) ? 'pending' as const : 'sent' as const;
+    const pending = new Set(state.assessment.pendingOutboxIds);
+    return drafts.some(draft => pending.has(draft.operationId)) ? 'pending' as const : 'sent' as const;
   }
   async function readInside(state: State, transaction: SQLiteDatabase): Promise<V2PersonalCopyControl> {
     await initialize(transaction);

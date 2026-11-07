@@ -2,7 +2,7 @@ import type { Appliance, ApplianceCareAnalysisDraft, ApplianceCareTaskDraft } fr
 import type { ChoreDefinition } from '../../domain/chores/types';
 import type { EntityId } from '../../domain/shared/types';
 import type { ApprovedApplianceCareTask, ApplianceCareProductIdentity } from './to-chore-definition';
-import { toApplianceCareChore } from './to-chore-definition.ts';
+import { applianceCareChoreName, toApplianceCareChore } from './to-chore-definition.ts';
 import { applianceDisplayName } from './display-name.ts';
 
 export function effectiveApplianceIntervalDays(
@@ -108,29 +108,44 @@ export function planReviewedApplianceSave(options: {
     && chore.applianceCareSource?.manufacturer === product.manufacturer && chore.applianceCareSource.productName === product.productName
     && chore.applianceCareSource.modelNumber === product.modelNumber));
   const matchedIds = new Set<string>(); const definitions = new Map<string, ChoreDefinition>(); const newChoreIds = new Set<string>();
+  const namesById = new Map(allChores.map(chore => [chore.id, chore.name]));
+  const nameCounts = new Map<string, number>();
+  for (const name of namesById.values()) nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
+  const retain = (definition: ChoreDefinition) => {
+    const old = namesById.get(definition.id);
+    if (old !== undefined) nameCounts.set(old, nameCounts.get(old)! - 1);
+    namesById.set(definition.id, definition.name); nameCounts.set(definition.name, (nameCounts.get(definition.name) ?? 0) + 1);
+    definitions.set(definition.id, definition);
+  };
   const approvedByName = new Map(approvedTasks.map((item) => [item.task.name, item]));
   const currentNames = new Set(analysis.tasks.map((task) => task.name));
   let scheduledTaskCount = 0; let duplicateTaskCount = 0; let noCycleTaskCount = 0;
   for (const task of analysis.tasks) {
     const approved = approvedByName.get(task.name);
-    const matched = previous.find((chore) => !matchedIds.has(chore.id)
+    let matched = previous.find((chore) => !matchedIds.has(chore.id)
       && (chore.applianceTaskName === task.name || (!chore.applianceTaskName && chore.name === task.name)));
+    if (!matched) {
+      const expectedName = applianceCareChoreName(product, task.name);
+      const same = previous.filter(chore => !matchedIds.has(chore.id) && namesById.get(chore.id) === expectedName);
+      // A provider may add/remove an already displayed appliance prefix. Only
+      // an unambiguous task of this same product can retain the prior identity.
+      if (same.length === 1) matched = same[0];
+    }
     if (!approved && !matched) continue;
     const { definition, hasCycle } = buildReviewedApplianceChore({ id: matched?.id ?? options.newChoreId(task.name),
       householdId: options.householdId, applianceId, product, analysis, approved: approved ?? { task }, ...(matched ? { existing: matched } : {}) });
     if (matched) matchedIds.add(matched.id);
     if (!approved || !hasCycle) {
       if (approved && !hasCycle) noCycleTaskCount++;
-      if (matched) definitions.set(matched.id, { ...definition, enabled: false });
+      if (matched) retain({ ...definition, enabled: false });
       continue;
     }
-    const candidates = [...allChores.filter((item) => !definitions.has(item.id)), ...definitions.values()];
-    if (hasExactChoreNameDuplicate(candidates, definition.name, matched?.id)) {
+    if ((nameCounts.get(definition.name) ?? 0) - (matched && namesById.get(matched.id) === definition.name ? 1 : 0) > 0) {
       duplicateTaskCount++;
-      if (matched) definitions.set(matched.id, { ...definition, name: matched.name, enabled: false });
+      if (matched) retain({ ...definition, name: matched.name, enabled: false });
       continue;
     }
-    definitions.set(definition.id, definition); if (!matched) newChoreIds.add(definition.id); scheduledTaskCount++;
+    retain(definition); if (!matched) newChoreIds.add(definition.id); scheduledTaskCount++;
   }
   for (const chore of previous) if (!matchedIds.has(chore.id)) definitions.set(chore.id,
     currentNames.has(chore.applianceTaskName ?? chore.name) ? { ...chore, enabled: false } : retireApplianceTaskSnapshot(chore));

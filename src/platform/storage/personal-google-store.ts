@@ -57,6 +57,7 @@ export function personalGoogleBody(item: PersonalGoogleItem) {
   return value ?? { status: 'cancelled' };
 }
 export async function listPersonalGoogleItems(tx: SQLiteDatabase, control: PersonalGoogleCalendarControl): Promise<PersonalGoogleItem[]> {
+  const calendarIds = new Set(control.calendars.map(calendar => calendar.id));
   // Select changed revisions in SQLite before parsing definitions or expanding any occurrence.
   const links = await tx.getAllAsync<PersonalGoogleLink & StoredGoogleItem & { parent_remote_json: string | null }>(`SELECT l.*,parent.remote_json AS parent_remote_json,
     e.definition_json,e.revision,e.deleted,x.override_json,x.revision AS exception_revision FROM calendar_google_links l
@@ -69,15 +70,17 @@ export async function listPersonalGoogleItems(tx: SQLiteDatabase, control: Perso
     ORDER BY l.event_id,l.anchor_date`, control.subject);
   const result: PersonalGoogleItem[] = [];
   for (const link of links) {
-    if (!control.calendars.some(row => row.id === link.calendar_id) || link.read_only || link.conflict_json) continue;
+    if (!calendarIds.has(link.calendar_id) || link.read_only || link.conflict_json) continue;
     const item = projectStoredGoogleItem(link, link.event_id, link.anchor_date); result.push({ ...item, link,
       ...(item.revision < 0 ? { inheritedRemoteJson: link.parent_remote_json } : {}) });
   }
   // A previous account's imports and mappings must never become new exports for another account.
+  if (control.targetCalendarId) {
   const rows = await tx.getAllAsync<StoredGoogleItem & { id: string }>(`SELECT e.id,e.definition_json,e.revision,e.deleted FROM calendar_events e WHERE e.deleted=0
     AND NOT EXISTS(SELECT 1 FROM calendar_google_links l WHERE l.event_id=e.id) ORDER BY e.id LIMIT 10001`);
   if (rows.length > 10000) throw new Error('予定が多すぎます。同期先を確認してください。');
-  if (control.targetCalendarId) for (const row of rows) result.push(projectStoredGoogleItem(row, row.id, ''));
+  for (const row of rows) result.push(projectStoredGoogleItem(row, row.id, ''));
+  }
   // New exceptions are discovered even if the series itself has not changed.
   const exceptions = await tx.getAllAsync<PersonalGoogleLink & StoredGoogleItem & { exception_anchor: string }>(`SELECT l.*,x.anchor_date AS exception_anchor,
     e.definition_json,e.revision,e.deleted,x.override_json,x.revision AS exception_revision FROM calendar_event_exceptions x
@@ -86,12 +89,14 @@ export async function listPersonalGoogleItems(tx: SQLiteDatabase, control: Perso
     WHERE e.deleted=0 AND l.active=1 AND l.read_only=0 AND l.conflict_json IS NULL
       AND NOT EXISTS(SELECT 1 FROM calendar_google_links i WHERE i.subject=l.subject AND i.event_id=x.event_id AND i.anchor_date=x.anchor_date)`, control.subject);
   for (const row of exceptions) {
-    if (!control.calendars.some(calendar => calendar.id === row.calendar_id)) continue;
+    if (!calendarIds.has(row.calendar_id)) continue;
     const item = projectStoredGoogleItem(row, row.event_id, row.exception_anchor); result.push({ ...item, link: { ...row, anchor_date: row.exception_anchor, google_id: '', local_revision: 0, base_json: null, etag: null, remote_json: null } });
   }
   return result;
 }
-export async function writePersonalGoogleLink(tx: SQLiteDatabase, link: PersonalGoogleLink) {
+export async function writePersonalGoogleLink(tx: SQLiteDatabase, link: PersonalGoogleLink, previous?: PersonalGoogleLink | null) {
+  const fields = ['subject','calendar_id','google_id','event_id','anchor_date','etag','base_json','local_base_json','local_revision','remote_json','conflict_json','read_only','pending_json'] as const;
+  if (previous && 'active' in previous && previous.active === 1 && fields.every(field => (previous[field] ?? null) === (link[field] ?? null))) return;
   await tx.runAsync(`INSERT INTO calendar_google_links(subject,calendar_id,google_id,event_id,anchor_date,etag,base_json,local_base_json,local_revision,remote_json,conflict_json,read_only,pending_json)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(subject,calendar_id,google_id) DO UPDATE SET
       event_id=excluded.event_id,anchor_date=excluded.anchor_date,etag=excluded.etag,base_json=excluded.base_json,local_base_json=excluded.local_base_json,local_revision=excluded.local_revision,remote_json=excluded.remote_json,
@@ -178,7 +183,7 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
   const pending = localChanged && remoteBody === known?.base_json;
   let body: EventDraft | null = null;
   if (remote.status !== 'cancelled') {
-    try { body = googleImportedEvent(remote, await category(tx, calendar), calendar.timeZone ?? 'UTC', Boolean(anchor) || options.expanded); }
+    try { body = googleImportedEvent(remote, local?.value?.categoryId ?? await category(tx, calendar), calendar.timeZone ?? 'UTC', Boolean(anchor) || options.expanded); }
     catch (error) { if (error instanceof GoogleEventExpansionRequired && !options.expanded) return 'expand'; throw error; }
     if (local?.value) body = { ...body, categoryId: local.value.categoryId,
       birthday: local.value.birthday && body.allDay && body.recurrence === 'yearly' && body.startDate === body.endDate };
@@ -210,7 +215,7 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
   await writePersonalGoogleLink(tx, { subject: control.subject, calendar_id: calendar.id, google_id: remote.id, event_id: eventId, anchor_date: anchor,
     etag: remote.etag ?? known?.etag ?? null, base_json: remoteBody, local_revision: pending ? known!.local_revision : revision,
     local_base_json: pending ? known!.local_base_json : googleOwnedFields(body ? { ...googleEventBody(body, Boolean(anchor)), ...(source.transparency === 'transparent' ? { transparency: 'transparent' } : {}) } : { status: 'cancelled' }),
-    remote_json: JSON.stringify(source), conflict_json: null, read_only: readOnly ? 1 : 0 });
+    remote_json: JSON.stringify(source), conflict_json: null, read_only: readOnly ? 1 : 0 }, known);
   if (options.parentId) await tx.runAsync('INSERT OR REPLACE INTO calendar_google_expanded(subject,calendar_id,parent_id,google_id) VALUES(?,?,?,?)', control.subject, calendar.id, options.parentId, remote.id);
   return modified ? 'applied' : 'unchanged';
 }

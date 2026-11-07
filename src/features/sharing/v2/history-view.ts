@@ -22,10 +22,14 @@ export function createV2HistoryView(replica: SharedReplica) {
 export function createV2AuthorityIndex(groupId: string, assignmentProjection?: (at: SharedOperation) => V2AssignmentProjection, confirmedContext?: () => VersionVector,
   cancellationProjection?: (at?: SharedOperation) => DateRuleCancellation[], retention?: V2RetentionBody) {
   const ready: SharedOperation[] = []; const byId = new Map<string, SharedOperation>();
+  const headContext: Record<string, number> = { ...retention?.frontier }; let headClock = 0;
   const topics = new Map<string, SharedOperation[]>(); const types = new Map<SharedEntityType, SharedOperation[]>();
+  const topicFields = new Map<string, { length: number; fields: Map<string, SharedOperation[]> }>();
   const occurrences = new Map<string, SharedOperation[]>();
   const configurationVersions = new Map<string, SharedOperation[]>();
   const completionRounds = new Map<string, SharedOperation[]>(); const waitingForCompletion = new Map<string, SharedOperation[]>();
+  const calendarEvents = new Map<string, SharedOperation[]>();
+  const requestDecisions = new Map<string, SharedOperation[]>();
   const indexCompletion = (source: SharedOperation, operation: SharedOperation) => {
     if (source.schemaVersion !== 2 || source.operationType !== 'complete') return;
     const key = `${source.payload.choreId}\0${source.payload.anchorDate}`; const entries = completionRounds.get(key) ?? [];
@@ -34,8 +38,16 @@ export function createV2AuthorityIndex(groupId: string, assignmentProjection?: (
   const accept = (op: SharedOperation) => {
     if (op.groupId !== groupId || byId.has(op.operationId)) throw new Error('Duplicate or foreign authority fact');
     ready.push(op); byId.set(op.operationId, op);
+    headContext[op.authorDeviceId] = Math.max(headContext[op.authorDeviceId] ?? 0, op.deviceSequence);
+    headClock = Math.max(headClock, op.logicalClock);
     const topic = `${op.entityType}:${op.entityId}`; const list = topics.get(topic) ?? []; list.push(op); topics.set(topic, list);
     const type = types.get(op.entityType) ?? []; type.push(op); types.set(op.entityType, type);
+    if (op.entityType === 'calendarEvent' && typeof op.payload.eventId === 'string') {
+      const facts = calendarEvents.get(op.payload.eventId) ?? []; facts.push(op); calendarEvents.set(op.payload.eventId, facts);
+    }
+    if (op.entityType === 'requestDecision' && typeof op.payload.requestId === 'string') {
+      const id = op.payload.requestId; const facts = requestDecisions.get(id) ?? []; facts.push(op); requestDecisions.set(id, facts);
+    }
     if (op.entityType === 'chorePolicy' && op.payload.configuration && typeof op.payload.configuration === 'object') {
       const version = (op.payload.configuration as unknown as SharedChoreConfiguration).ruleVersion;
       const key = `${op.entityId}\0${version}`; const entries = configurationVersions.get(key) ?? [];
@@ -53,6 +65,22 @@ export function createV2AuthorityIndex(groupId: string, assignmentProjection?: (
     }
   };
   const observed = (operations: readonly SharedOperation[], at: SharedOperation) => operations.filter((op) => causallyPrecedes(op, at));
+  // Index authored fields lazily per topic. The receiver can append more verified
+  // facts, so extend from the previous length; never cache a causal-cut result.
+  const fieldTopic = (type: SharedEntityType, id: string, field: string) => {
+    const key = `${type}:${id}`; const operations = topics.get(key) ?? [];
+    if (field === '$alive') return operations;
+    let index = topicFields.get(key);
+    if (!index) { index = { length: 0, fields: new Map() }; topicFields.set(key, index); }
+    for (let offset = index.length; offset < operations.length; offset++) {
+      const op = operations[offset];
+      for (const name of Object.keys(op.payload)) {
+        const rows = index.fields.get(name) ?? []; rows.push(op); index.fields.set(name, rows);
+      }
+    }
+    index.length = operations.length;
+    return index.fields.get(field) ?? [];
+  };
   function fieldValue(operations: readonly SharedOperation[], type: SharedEntityType, field: string, at: SharedOperation,
     filter: (op: SharedOperation) => boolean = () => true): { value: JsonValue; operations: SharedOperation[] } | null {
       const writing = observed(operations, at).filter((op) => filter(op) && (field === '$alive' || Object.hasOwn(op.payload, field)));
@@ -65,9 +93,13 @@ export function createV2AuthorityIndex(groupId: string, assignmentProjection?: (
   }
   const view = {
     groupId, ready,
+    currentHead: () => ({ context: { ...headContext }, clock: headClock }),
     byId: (id: string) => byId.get(id),
     topic: (type: SharedEntityType, id: string) => topics.get(`${type}:${id}`) ?? [],
+    fieldTopic,
     ofType: (type: SharedEntityType) => types.get(type) ?? [],
+    calendarFactsFor: (id: string) => calendarEvents.get(id) ?? [],
+    requestDecisionsFor: (id: string) => requestDecisions.get(id) ?? [],
     forOccurrence: (id: string) => occurrences.get(id) ?? [],
     completionFactsForRound: (choreId: string, anchorDate: string) => completionRounds.get(`${choreId}\0${anchorDate}`) ?? [],
     assignmentsAt: (at: SharedOperation) => assignmentProjection?.(at),
@@ -81,7 +113,7 @@ export function createV2AuthorityIndex(groupId: string, assignmentProjection?: (
     },
     field(type: SharedEntityType, id: string, field: string, at: SharedOperation, filter: (op: SharedOperation) => boolean = () => true):
       { value: JsonValue; operations: SharedOperation[] } | null {
-      return fieldValue(topics.get(`${type}:${id}`) ?? [], type, field, at, filter);
+      return fieldValue(fieldTopic(type, id, field), type, field, at, filter);
     },
   };
   return { view, accept };

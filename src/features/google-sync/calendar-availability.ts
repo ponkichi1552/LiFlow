@@ -128,6 +128,8 @@ export function shouldRefreshCalendar(state: CalendarAvailabilityState | null, n
     return !Number.isFinite(attempted) || attempted > now.getTime() || attempted + 10 * 60 * 1000 <= now.getTime();
   }
   if (state.status === 'retryPending') {
+    const attempted = Date.parse(state.lastAttemptAt ?? '');
+    if (Number.isFinite(attempted) && attempted > now.getTime()) return true;
     const retry = Date.parse(state.nextRetryAt ?? '');
     return !Number.isFinite(retry) || retry <= now.getTime();
   }

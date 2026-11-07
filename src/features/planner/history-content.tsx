@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { AppButton, BackButton, Card, Page, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
-import { localDateFromDate, localDateFromISODateTime, monthKey } from '@/domain/scheduling/local-date';
+import { localDateFromDate, monthKey } from '@/domain/scheduling/local-date';
 import { PlannerLoadState } from '@/components/planner-load-state';
 import type { usePlannerData } from '@/hooks/use-planner-data';
 import { router } from 'expo-router';
@@ -9,6 +9,7 @@ import { parseSharedMirrorEntryId } from '@/features/planner/common-chore-links'
 import { SettingsAudience } from '@/components/settings-audience';
 import { HistoryDayHeading } from '@/components/history-day-heading';
 import { groupHistoryByDay } from './history-groups';
+import { compareCompletionInstants, completionHistoryDay } from './history-selection';
 
 export function PlannerHistoryContent({ data, requestedChoreId }: {
   data: Pick<ReturnType<typeof usePlannerData>, 'snapshot' | 'loading' | 'error' | 'refresh'>; requestedChoreId?: string;
@@ -23,10 +24,10 @@ export function PlannerHistoryContent({ data, requestedChoreId }: {
     : snapshot.completions;
   const thisMonth = monthKey(snapshot.today ?? localDateFromDate(new Date()));
   const completedThisMonth = completions.filter((item) =>
-    item.outcome === 'completed' && monthKey(item.completedLocalDate ?? localDateFromISODateTime(item.completedAt)) === thisMonth,
+    item.outcome === 'completed' && monthKey(completionHistoryDay(item, snapshot.timeZone)) === thisMonth,
   ).length;
-  const recent = [...completions].sort((a, b) => b.completedAt.localeCompare(a.completedAt) || a.id.localeCompare(b.id)).slice(0, 100);
-  const groups = groupHistoryByDay(recent, item => ({ id: item.id, timestamp: item.completedAt, date: item.completedLocalDate ?? localDateFromISODateTime(item.completedAt) }));
+  const recent = [...completions].sort(compareCompletionInstants).slice(0, 100);
+  const groups = groupHistoryByDay(recent, item => ({ id: item.id, timestamp: item.completedAt, date: completionHistoryDay(item, snapshot.timeZone) }));
 
   return (
     <Page header={<BackButton onPress={() => router.back()} />}>

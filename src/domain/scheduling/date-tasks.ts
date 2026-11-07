@@ -1,7 +1,7 @@
 import type { ChoreCompletion, ChoreDefinition, ChoreScheduleEntry } from '@/domain/chores/types';
 import type { LocalDate } from '@/domain/shared/types';
 import { calendarPendingCountsByDate } from '../calendar/day-entries.ts';
-import { completionCycleDate, completionIncludesDate, completionMatchesEntry, completionRecordedDate } from './completion-matching.ts';
+import { completionCycleDate, completionIncludesDate, completionMatchesEntry, completionPeriod, completionRecordedDate, completionWasRecordedBeforeWindow } from './completion-matching.ts';
 import { addDays, daysBetween } from './local-date.ts';
 import { compareTaskKeys, compareTaskMinutes, taskPriority } from './task-priority.ts';
 import type { LoadOrder } from './task-priority.ts';
@@ -44,8 +44,15 @@ export function createDateTaskSelector(entries: readonly ChoreScheduleEntry[], c
     if (id) { if (!bucket.exact.has(id)) bucket.exact.set(id, { completion, index }); }
     else bucket.legacy.push({ completion, index });
   }
+  // The selector belongs to one immutable revision. Freeze date geometry once;
+  // asking for another calendar cell must not reparse every historical instant.
+  const displayPeriods = visibleCompletions.filter(completion => completion.outcome === 'completed').map(completion => ({
+    completion, ...completionPeriod(completion),
+    recordedDate: completionWasRecordedBeforeWindow(completion) ? null : completionRecordedDate(completion),
+  }));
   return (date: LocalDate, graceDays = 0, includeRetainedOverdue = false): DateTask[] => {
-  const relevantCompletions = visibleCompletions.filter((completion) => completionIncludesDate(completion, date));
+  const relevantCompletions = displayPeriods.filter(period => date >= period.start && date <= period.end || period.recordedDate === date)
+    .map(period => period.completion);
   const byChore = new Map<string, DateTask>();
   const meaningKey = (choreId: string, work?: ChoreScheduleEntry['seasonalWork']) => work ? JSON.stringify([choreId, work]) : choreId;
 

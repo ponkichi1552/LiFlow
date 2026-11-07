@@ -35,6 +35,32 @@ export function projectSharedCalendarRecords(records: readonly SharedCalendarRec
   return { recordsById, groupCategories, rawCategories, events, exceptions, conflicted };
 }
 
+/** Private placement reserves the union of every signed candidate. This does
+ * not resolve the shared conflict or publish any candidate as the formal event. */
+export function projectSharedCalendarPlanningRecords(records: readonly SharedCalendarRecord[], groupId: string) {
+  const normal = projectSharedCalendarRecords(records, groupId);
+  if (!normal.conflicted) return { ...normal, unbounded: false };
+  const alternatives: SharedCalendarRecord[] = []; const exceptionEvents: CalendarEvent[] = [];
+  let unbounded = false;
+  for (const record of records) {
+    if (!record.heads.length) { unbounded = true; continue; }
+    if (record.heads.length > 1) for (const head of record.heads) alternatives.push({ ...record,
+      id: `candidate.${sharedDocumentDigest([record.id, head.operationId])}`, heads: [head] });
+    if (!record.heads.some(head => sharedCalendarPayload(head).value !== null)) continue;
+    for (const row of record.exceptions) if (row.heads.length !== 1) {
+      if (!row.heads.length) { unbounded = true; continue; }
+      for (const head of row.heads) {
+        const payload = sharedCalendarPayload(head);
+        if (payload.value) exceptionEvents.push({ ...payload.value, recurrence: 'none', untilDate: null,
+          id: `candidate.${sharedDocumentDigest([groupId, record.id, head.operationId])}`, revision: head.logicalClock });
+      }
+    }
+  }
+  const candidates = projectSharedCalendarRecords(alternatives, groupId);
+  return { ...normal, events: [...normal.events, ...candidates.events, ...exceptionEvents],
+    exceptions: [...normal.exceptions, ...candidates.exceptions], unbounded };
+}
+
 export function sharedCalendarAvailability(records: readonly SharedCalendarRecord[], groupId: string,
   range: { from: LocalDate; through: LocalDate }, timeZone: string): PrivateCalendarAvailability | undefined {
   const projected = projectSharedCalendarRecords(records, groupId);

@@ -194,6 +194,13 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
               let page;
               try { page = await request(() => api.events(calendar.id, { ...(cursor?.sync_token ? { syncToken: cursor.sync_token } : {}), ...(cursor?.page_token ? { pageToken: cursor.page_token } : {}) })); }
               catch (cause) {
+                if (cause instanceof GoogleCalendarHttpError && cause.status === 400 && cursor?.page_token) {
+                  // A persisted page may expire independently of the delta token.
+                  // Keep imported facts and local edits; restart the traversal at
+                  // the next foreground opportunity instead of retrying this page forever.
+                  await transact(tx => tx.runAsync('DELETE FROM calendar_google_cursors WHERE subject=? AND calendar_id=?', control.subject, calendar.id));
+                  throw new CalendarPassPending();
+                }
                 if (!(cause instanceof GoogleCalendarHttpError && cause.status === 410)) throw cause;
                 await transact(tx => tx.runAsync('DELETE FROM calendar_google_cursors WHERE subject=? AND calendar_id=?', control.subject, calendar.id)); continue;
               }
@@ -243,7 +250,16 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
               while (ranges.length) {
               do {
                 if (calls >= 75 || !canReceive()) break incoming;
-                const page = await request(() => api.instances(calendar.id, expansion.parent_id, { ...ranges[0], ...(token ? { pageToken: token } : {}) }));
+                let page;
+                try { page = await request(() => api.instances(calendar.id, expansion.parent_id, { ...ranges[0], ...(token ? { pageToken: token } : {}) })); }
+                catch (cause) {
+                  if (!(cause instanceof GoogleCalendarHttpError && cause.status === 400 && token)) throw cause;
+                  await transact(async tx => {
+                    await tx.runAsync("UPDATE calendar_google_expansion SET page_token=NULL,visited_json='[]' WHERE subject=? AND calendar_id=? AND parent_id=?", control.subject, calendar.id, expansion.parent_id);
+                    if (!expansion.scan_ranges_json) await tx.runAsync('UPDATE calendar_google_expanded SET seen=0 WHERE subject=? AND calendar_id=? AND parent_id=?', control.subject, calendar.id, expansion.parent_id);
+                  });
+                  throw new CalendarPassPending();
+                }
                 if (page.nextPageToken && page.nextPageToken === token) throw new Error('Googleの繰り返し予定を読み直してください。');
                 const nextVisited = advanceCalendarPageHistory(visited, token, page.nextPageToken);
                 await transact(async tx => {

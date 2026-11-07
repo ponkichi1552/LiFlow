@@ -12467,5 +12467,491 @@
         "name": "readPersonalPlannerOverlaySnapshot discards a rejected captured owner before retrying publication"
       }
     ]
+  },
+  {
+    "feature": "audit50-F001",
+    "tests": [
+      {
+        "file": "tests/audit50-storage-work.test.mjs",
+        "name": "audit50 shared field reads inspect only writes to that field while later accepted edits and causal cuts remain visible"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F002",
+    "tests": [
+      {
+        "file": "tests/audit50-storage-work.test.mjs",
+        "name": "audit50 rejecting a Tasks creation batch uses bounded exact-attempt SQL and preserves linked or replaced reservations"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F003",
+    "tests": [
+      {
+        "file": "tests/audit50-storage-work.test.mjs",
+        "name": "audit50 saving one existing calendar draft does not load and validate the other forty nine drafts"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F004",
+    "tests": [
+      {
+        "file": "tests/audit50-storage-work.test.mjs",
+        "name": "audit50 Calendar permission reconciliation indexes prior identities and batches reimports for one thousand changed roles"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F005",
+    "tests": [
+      {
+        "file": "tests/audit50-notifications.test.mjs",
+        "name": "audit50 a reminder expiring in the native queue releases its slot for the next future reminder"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F006",
+    "tests": [
+      {
+        "file": "tests/audit50-history.test.mjs",
+        "name": "audit50 the latest hundred history cards retain the newest actual completion across mixed offset spellings"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F007",
+    "tests": [
+      {
+        "file": "tests/audit50-history.test.mjs",
+        "name": "audit50 history without a frozen civil date uses the owner region for its month count and day heading"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F008",
+    "tests": [
+      {
+        "file": "tests/audit50-calendar-recovery.test.mjs",
+        "name": "audit50 an expired Calendar page rejected with400 retires only its cursor and resumes a full read without deleting saved events"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F009",
+    "tests": [
+      {
+        "file": "tests/audit50-calendar-recovery.test.mjs",
+        "name": "audit50 adaptive history accepts a bundled timezone even when the older native Intl database lacks it"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F010",
+    "tests": [
+      {
+        "file": "tests/audit50-calendar-recovery.test.mjs",
+        "name": "audit50 authorizing an edit of one shared calendar event does not causally inspect a thousand unrelated events"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F011",
+    "tests": [
+      {
+        "file": "tests/audit50-calendar-recovery.test.mjs",
+        "name": "audit50 resolving concurrent shared series edits must reset reviewed exceptions before changing recurrence"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F012",
+    "tests": [
+      {
+        "file": "tests/audit50-calendar-recovery.test.mjs",
+        "name": "audit50 pending Calendar counts index legacy completions by chore instead of inspecting unrelated history per entry"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F013",
+    "tests": [
+      {
+        "file": "tests/audit50-appliance-storage.test.mjs",
+        "name": "audit50 saving a verified PDF again repairs a corrupt retained row instead of silently preserving unreadable bytes"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F014",
+    "tests": [
+      {
+        "file": "tests/audit50-appliance-storage.test.mjs",
+        "name": "audit50 unchanged PDF reads use a content free SQLite revision fence instead of retransferring the whole document"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F015",
+    "tests": [
+      {
+        "file": "tests/audit50-appliance-storage.test.mjs",
+        "name": "audit50 a forty task review indexes duplicate names instead of rebuilding and searching one thousand unrelated definitions per task"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F016",
+    "tests": [
+      {
+        "file": "tests/audit50-appliance-storage.test.mjs",
+        "name": "audit50 an AI task gaining the appliance prefix retains its existing chore and overrides instead of retiring it as a duplicate"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F017",
+    "tests": [
+      {
+        "file": "tests/audit50-queue-recovery.test.mjs",
+        "name": "audit50 reserving a hundred personal Tasks uses one atomic bounded batch and keeps duplicate or already reserved identities closed"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F018",
+    "tests": [
+      {
+        "file": "tests/audit50-queue-recovery.test.mjs",
+        "name": "audit50 a wall clock rollback cannot leave a private Calendar acquisition leased until its former future date"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F019",
+    "tests": [
+      {
+        "file": "tests/audit50-queue-recovery.test.mjs",
+        "name": "audit50 multiple historical resets of the same shared Calendar occurrence produce one export instruction"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F020",
+    "tests": [
+      {
+        "file": "tests/audit50-calendar-permissions.test.mjs",
+        "name": "audit50 a locked Google exception does not block editing a different occurrence and its own lock remains visible"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F021",
+    "tests": [
+      {
+        "file": "tests/audit50-calendar-permissions.test.mjs",
+        "name": "audit50 unsupported recurring Calendar instances recover an expired400 page while retaining the imported prefix"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F022",
+    "tests": [
+      {
+        "file": "tests/audit50-indexes.test.mjs",
+        "name": "audit50 repeated shared read boundaries reuse verified frontier without revisiting every historical clock"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F023",
+    "tests": [
+      {
+        "file": "tests/audit50-indexes.test.mjs",
+        "name": "audit50 a thousand changed Calendar items index calendar membership once without exporting unselected items"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F024",
+    "tests": [
+      {
+        "file": "tests/audit50-google-bodies.test.mjs",
+        "name": "audit50 Google transports stop oversized streamed bodies before parsing or retaining their full content"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F025",
+    "tests": [
+      {
+        "file": "tests/audit50-google-bodies.test.mjs",
+        "name": "audit50 Calendar403 quota responses are reported as retryable limits rather than requesting OAuth again"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F026",
+    "tests": [
+      {
+        "file": "tests/audit50-input-boundaries.test.mjs",
+        "name": "audit50 Tasks direct replies must retain the requested identity before adoption or completion processing"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F027",
+    "tests": [
+      {
+        "file": "tests/audit50-weather-failures.test.mjs",
+        "name": "audit50 weather workers finish already leased work even when a later claim fails"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F028",
+    "tests": [
+      {
+        "file": "tests/audit50-weather-failures.test.mjs",
+        "name": "audit50 a stalled regional cache read cannot leave public weather requests waiting indefinitely"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F029",
+    "tests": [
+      {
+        "file": "tests/audit50-owner-inputs.test.mjs",
+        "name": "audit50 a fixed shared clock reserves its actual interval even when the chore has no estimated duration"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F030",
+    "tests": [
+      {
+        "file": "tests/audit50-owner-inputs.test.mjs",
+        "name": "audit50 personal settings do not transfer or parse retired definition bodies that are needed only by history"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F031",
+    "tests": [
+      {
+        "file": "tests/audit50-repeated-work.test.mjs",
+        "name": "audit50 duplicate Google occurrence markers do not copy an ever growing candidate bucket before reporting ambiguity"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F032",
+    "tests": [
+      {
+        "file": "tests/audit50-assignment-work.test.mjs",
+        "name": "audit50 completed round assignment preservation selects observed assignment changes once before indexing their chore and rule version"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F033",
+    "tests": [
+      {
+        "file": "tests/audit50-repeated-work.test.mjs",
+        "name": "audit50 long cycle Calendar previews index exact completion identities rather than comparing every historical completion per round"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F034",
+    "tests": [
+      {
+        "file": "tests/audit50-repeated-work.test.mjs",
+        "name": "audit50 Calendar input retention stops equality work at the first changed record without serializing unrelated descriptions"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F035",
+    "tests": [
+      {
+        "file": "tests/audit50-google-inbound.test.mjs",
+        "name": "audit50 a read only Google connection never loads unlinked personal events into an unusable export inventory"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F036",
+    "tests": [
+      {
+        "file": "tests/audit50-google-inbound.test.mjs",
+        "name": "audit50 updating saved Google appointments preserves their category without repeating discarded category creation"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F037",
+    "tests": [
+      {
+        "file": "tests/audit50-google-inbound.test.mjs",
+        "name": "audit50 identical Calendar echoes do not rewrite a hundred unchanged local link rows"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F038",
+    "tests": [
+      {
+        "file": "tests/audit50-policy-edges.test.mjs",
+        "name": "audit50 a corrected clock cannot strand Tasks or Calendar retries behind a former future attempt"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F039",
+    "tests": [
+      {
+        "file": "tests/audit50-policy-edges.test.mjs",
+        "name": "audit50 Japanese full width appliance cycle input behaves like the other numeric settings"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F040",
+    "tests": [
+      {
+        "file": "tests/audit50-policy-edges.test.mjs",
+        "name": "audit50 hiding one weekly waste schedule does not hide another visible schedule with the same label"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F041",
+    "tests": [
+      {
+        "file": "tests/audit50-conflict-geometry.test.mjs",
+        "name": "audit50 a shared event conflict reserves every candidate time without blocking unrelated days for six months"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F042",
+    "tests": [
+      {
+        "file": "tests/audit50-date-selector-work.test.mjs",
+        "name": "audit50 a reusable day selector computes completion display dates once instead of reparsing old history for every calendar day"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F043",
+    "tests": [
+      {
+        "file": "tests/audit50-placement-holidays.test.mjs",
+        "name": "audit50 heavy adaptive window expansion indexes holiday dates rather than scanning six months for every candidate"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F044",
+    "tests": [
+      {
+        "file": "tests/audit50-sparse-shared-rounds.test.mjs",
+        "name": "audit50 sparse shared long cycle previews index round identities once rather than rescanning the common horizon per chore"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F045",
+    "tests": [
+      {
+        "file": "tests/audit50-copy-proof.test.mjs",
+        "name": "audit50 reopening a committed personal copy indexes exact signed proof identities without rescanning unrelated history for every draft"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F046",
+    "tests": [
+      {
+        "file": "tests/audit50-fixed-comparison.test.mjs",
+        "name": "audit50 equivalent fixed rule history counts a compared occurrence once rather than exhausting the safety limit on old revisions"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F047",
+    "tests": [
+      {
+        "file": "tests/audit50-common-request-work.test.mjs",
+        "name": "audit50 common planning scopes request review and extension work to the relevant chore before walking every round"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F048",
+    "tests": [
+      {
+        "file": "tests/audit50-fixed-load-work.test.mjs",
+        "name": "audit50 initial fixed load reservations are unioned in one pass instead of shifting the growing busy array for each round"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F049",
+    "tests": [
+      {
+        "file": "tests/audit50-request-decisions.test.mjs",
+        "name": "audit50 repeated request conflict reviews inspect only decisions for that request and still include later appended counteroffers"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-F050",
+    "tests": [
+      {
+        "file": "tests/audit50-personal-determinism.test.mjs",
+        "name": "audit50 the personal adaptive allocator assigns identical dates under real English and Danish identifier collation"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-manual-other-connection",
+    "tests": [
+      {
+        "file": "tests/audit50-appliance-storage.test.mjs",
+        "name": "audit50 another SQLite connection invalidates verified manual content before cached bytes can be returned"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-native-google-text-body",
+    "tests": [
+      {
+        "file": "tests/audit50-google-bodies.test.mjs",
+        "name": "audit50 native text only Google bodies enforce actual UTF8 bytes without requiring stream methods"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-conflicting-occurrence-geometry",
+    "tests": [
+      {
+        "file": "tests/audit50-conflict-geometry.test.mjs",
+        "name": "audit50 conflicting shared occurrence edits reserve their possible times while preserving other recurrence days and deletion candidates"
+      }
+    ]
+  },
+  {
+    "feature": "audit50-seasonal-pinned-zone",
+    "tests": [
+      {
+        "file": "tests/audit50-calendar-recovery.test.mjs",
+        "name": "audit50 seasonal completion also accepts a bundled timezone missing from native Intl"
+      }
+    ]
   }
 ]

@@ -21,6 +21,12 @@ export interface ApprovedApplianceCareTask {
   resetUserInterval?: boolean;
 }
 
+export function applianceCareChoreName(product: Pick<ApplianceCareProductIdentity, 'productName' | 'category'>, taskName: string): string {
+  const category = product.category?.trim() || '家電';
+  const prefix = category === '家電' ? product.productName : applianceCategoryLabel(category) ?? category;
+  return taskName.startsWith(`${prefix}の`) ? taskName : `${prefix}の${taskName}`;
+}
+
 export function toApplianceCareChore(
   id: EntityId,
   householdId: EntityId,
@@ -37,13 +43,7 @@ export function toApplianceCareChore(
   const fallbackCycle = manufacturerCycle ?? 30;
   const selectedUserCycle = userCycle !== undefined && userCycle !== manufacturerCycle ? userCycle : undefined;
   const applianceLabel = `${product.productName}（${product.modelNumber}）`;
-  const choreCategory = product.category?.trim() || '家電';
-  const chorePrefix = choreCategory === '家電'
-    ? product.productName
-    : applianceCategoryLabel(choreCategory) ?? choreCategory;
-  const choreName = approved.task.name.startsWith(`${chorePrefix}の`)
-    ? approved.task.name
-    : `${chorePrefix}の${approved.task.name}`;
+  const choreName = applianceCareChoreName(product, approved.task.name);
 
   return {
     id,

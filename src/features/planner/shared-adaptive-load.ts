@@ -60,8 +60,8 @@ export function sharedAdaptiveLoad(plan: V2CommonPlan, ownerUserId: string, toda
       // An actual interval has an instant and belongs to its owner's starting day.
       const date = slot ? sharedLocalDate(new Date(slot.start), timeZone) : dates.get(subject.id) ?? subject.suggestedDate;
       const roundId = `shared:${plan.groupId}:${subject.id}`;
-      loads.set(roundId, { roundId, date, load: chore.load, minutes: chore.estimatedMinutes ?? null,
-        slot: chore.estimatedMinutes === undefined ? null : slot });
+      loads.set(roundId, { roundId, date, load: chore.load,
+        minutes: chore.estimatedMinutes ?? (slot ? (slot.end - slot.start) / 60_000 : null), slot });
     }
   }
   return { loads: [...loads.values()].sort((a, b) => a.roundId.localeCompare(b.roundId)),

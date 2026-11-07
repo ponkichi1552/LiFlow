@@ -65,13 +65,20 @@ export function createMetWeatherService({ store, userAgent, fetcher = fetch, now
     async tick(maximum = 4) {
       if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 4) throw new Error('Invalid weather concurrency budget');
       if (!configured) return 0;
-      const claims = [];
-      for (let index = 0; index < maximum; index++) { const claim = await store.claim(); if (!claim) break; claims.push(claim); }
-      await Promise.all(claims.map(async claim => {
+      const claims = []; let claimFailure;
+      try {
+        for (let index = 0; index < maximum; index++) { const claim = await store.claim(); if (!claim) break; claims.push(claim); }
+      } catch (cause) { claimFailure = cause; }
+      // A later claim/commit failure must not strand leases already acquired or
+      // let a scheduled HTTP request end while another issued job is running.
+      const outcomes = await Promise.allSettled(claims.map(async claim => {
         const outcome = await request(claim); const committed = await store.finish(claim, outcome);
         if (committed && outcome.code === 'met_forbidden') alert({ code: 'met_forbidden' });
         if (committed && outcome.code === 'met_http_error') alert({ code: outcome.code, httpStatus: outcome.httpStatus });
       }));
+      if (claimFailure !== undefined) throw claimFailure;
+      const failure = outcomes.find(outcome => outcome.status === 'rejected');
+      if (failure) throw failure.reason;
       return claims.length;
     },
   };

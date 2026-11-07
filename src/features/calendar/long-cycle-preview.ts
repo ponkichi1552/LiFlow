@@ -28,7 +28,12 @@ export function personalLongCalendarPreviews(snapshot: PlannerSnapshot, today: L
     const calendarMonths = cadence?.calendarModel?.method === 'monthEnd' ? cadence.calendarModel.months : 0;
     if (days === undefined || days === null || days < LONG_CALENDAR_CYCLE_DAYS && calendarMonths < 3) continue;
     const completed = completionsByChore.get(chore.id) ?? [];
-    const entries = (entriesByChore.get(chore.id) ?? []).filter(row => !completed.some(completion => completionMatchesEntry(completion, row)))
+    const completedIds = new Set<string>(); const legacy: typeof completed = [];
+    for (const completion of completed) {
+      const id = completion.scheduleEntryId;
+      if (id) completedIds.add(id); else legacy.push(completion);
+    }
+    const entries = (entriesByChore.get(chore.id) ?? []).filter(row => !completedIds.has(row.id) && !legacy.some(completion => completionMatchesEntry(completion, row)))
       .sort((a, b) => a.cycleBaseDate.localeCompare(b.cycleBaseDate) || a.id.localeCompare(b.id));
     const actual = entries.find(entry => entry.windowEnd >= today);
     if (actual) { result.push({ chore, entry: actual, provisional: false }); continue; }

@@ -36,7 +36,7 @@ export function editableValueFromOperations(operations: readonly SharedOperation
 }
 
 export function readV2EditableField(view: V2HistoryView, at: SharedOperation, type: SharedEntityType, entityId: string, field: string): V2EditableField {
-  return editableFieldFromOperations(view.observed(view.topic(type, entityId), at), field);
+  return editableFieldFromOperations(view.observed(view.fieldTopic ? view.fieldTopic(type, entityId, field) : view.topic(type, entityId), at), field);
 }
 
 /** Reconstruct a displayed simple or compound value only from this entity's observed, authorized sources. */

@@ -111,8 +111,8 @@ for (const blocked of ['credentials', 'FreeBusy']) test(`an expired Calendar ${b
 
 for (const blocked of ['fetch', 'body']) test(`FreeBusy stops even when its native ${blocked} ignores abort`, async context => {
   context.mock.timers.enable({ apis: ['setTimeout'] }); let finish; let bodyReads = 0; let requests = 0;
-  const response = { ok: true, status: 200, headers: new Headers(), json: () => {
-    bodyReads++; return blocked === 'body' ? new Promise(resolve => { finish = resolve; }) : Promise.resolve({ calendars: { primary: { busy: [] } } });
+  const response = { ok: true, status: 200, headers: new Headers(), text: () => {
+    bodyReads++; return blocked === 'body' ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(JSON.stringify({ calendars: { primary: { busy: [] } } }));
   } };
   const client = createCalendarFreeBusyClient(async () => {
     requests++; return blocked === 'fetch' ? new Promise(resolve => { finish = resolve; }) : response;
@@ -120,6 +120,6 @@ for (const blocked of ['fetch', 'body']) test(`FreeBusy stops even when its nati
   const run = client.query('token', range, { timeoutMs: 1_000 });
   const rejection = assert.rejects(run, error => error.code === 'calendar_timeout');
   await flush(); context.mock.timers.tick(1_000); await rejection;
-  finish(blocked === 'fetch' ? response : { calendars: { primary: { busy: [] } } }); await flush();
+  finish(blocked === 'fetch' ? response : JSON.stringify({ calendars: { primary: { busy: [] } } })); await flush();
   assert.equal(requests, 1); assert.equal(bodyReads, blocked === 'fetch' ? 0 : 1);
 });

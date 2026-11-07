@@ -61,12 +61,12 @@ export function createSharedCalendarExportStore(repository: ReturnType<typeof cr
     knownSeriesRevision: (sourceId: string, revision: string) => repository.readCurrent(async state => {
       if (!text(sourceId, 512) || !text(revision, 128)) return null;
       const view = state.assessment.view; const at = v2ReadPoint(view, state.archive.at(-1)!);
-      const current = readSharedCalendar(view, at).find(row => row.id === sourceId);
+      const current = readSharedCalendar(view, at, sourceId)[0];
       if (!current || current.heads.length !== 1 || !state.receipts.has(current.heads[0].operationId)) return null;
       const currentRevision = sharedDocumentDigest([current.heads[0].operationId, sharedCalendarPayload(current.heads[0])]);
       // A marker alone is not proof. Match actual owned fields to a receipted,
       // authority-validated historical series operation in this same group.
-      for (const operation of view.observed(view.ofType('calendarEvent'), at)) {
+      for (const operation of view.observed(view.calendarFactsFor(sourceId), at)) {
         if (!state.receipts.has(operation.operationId)) continue;
         const payload = sharedCalendarPayload(operation);
         if (payload.eventId === sourceId && payload.scope === 'series' && payload.value
@@ -124,10 +124,13 @@ export function createSharedCalendarExportStore(repository: ReturnType<typeof cr
         }
         // An exception reset remains meaningful after further series edits. The
         // head's reset list alone is not a complete history of external copies.
+        const resetDates = new Set<LocalDate>();
+        const activeDates = new Set(record.exceptions.map(row => row.anchorDate));
         for (const id of resetByEvent.get(record.id) ?? []) {
           const old = state.assessment.view.byId(id); if (!old || old.entityType !== 'calendarEvent') continue;
           const anchorDate = sharedCalendarPayload(old).anchorDate!;
-          if (record.exceptions.some(row => row.anchorDate === anchorDate)) continue;
+          if (activeDates.has(anchorDate) || resetDates.has(anchorDate)) continue;
+          resetDates.add(anchorDate);
           result.push({ sourceId: `${record.id}:${anchorDate}`, parentId: record.id, anchorDate, value: data.value,
             reset: true, revision: sharedDocumentDigest([head.operationId, anchorDate, 'reset']) });
         }

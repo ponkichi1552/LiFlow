@@ -17,6 +17,7 @@ import type { CalendarEditorDraft } from '../../platform/storage/calendar-events
 import { calendarDraftKey, clearCalendarEditorDraft, deleteCalendarEvent, discardCalendarDraftIfUnchanged, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent } from '../../platform/storage/calendar-events';
 import { CalendarOptionPicker } from './calendar-option-picker';
 import { moveCalendarStart } from './event-editing';
+import { privateCalendarReadOnlySource } from './private-event-projection';
 
 export interface ExistingCalendarChore { id: string; name: string; minutes?: number; onOpen: () => void }
 export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, repeatReturnTo = 'personal' }: {
@@ -39,7 +40,8 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const latestRgb = useRef(rgb);
   const setRgb = (next: string[]) => { latestRgb.current = next; setRgbState(next); };
   const original = local.snapshot.events.find(event => event.id === initial.eventId);
-  const readOnly = Boolean(initial.eventId && local.canEditEvent?.(initial.eventId) === false);
+  const googleReadOnly = initial.eventId ? privateCalendarReadOnlySource(local.snapshot, initial.eventId, draft.scope === 'one' ? draft.anchorDate : null) : undefined;
+  const readOnly = Boolean(initial.eventId && local.canEditEvent?.(initial.eventId, draft.scope === 'one' ? draft.anchorDate : null) === false);
   const repeated = original && original.recurrence !== 'none'; const value = draft.value;
   const change = (fn: (before: CalendarEditorDraft) => CalendarEditorDraft) => { const next = fn(latest.current); latest.current = next; setDraft(next); };
   const patch = (patch: Partial<EventDraft>) => change(before => ({ ...before, value: { ...before.value, ...patch } }));
@@ -110,7 +112,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
             <ChoiceChip label="個人" selected={draft.audience !== 'group'} disabled={busy} onPress={() => change(before => ({ ...before, audience: 'personal', groupId: undefined, basisRevision: undefined, value: { ...before.value, categoryId: 'personal' } }))} />
             <ChoiceChip label="グループ共通" selected={draft.audience === 'group'} disabled={busy || !local.shared.enabled} onPress={() => change(before => ({ ...before, audience: 'group', groupId: local.shared!.groupId }))} />
           </View>{!local.shared.enabled ? <Text style={styles.caption}>共有予定は、所有者がグループの互換更新を行うと利用できます。</Text> : <Text style={styles.caption}>{draft.audience === 'group' ? `${local.shared.name}のメンバーに共有します。` : 'この予定はグループへ共有しません。'}</Text>}</View> : initial.eventId && local.shared ? <Text style={styles.caption}>{draft.audience === 'group' ? `${local.shared.name} · グループ共通` : '個人 · 本人のみ'}</Text> : null}
-          {readOnly ? original?.readOnly ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(original.externalUrl ?? 'https://calendar.google.com/calendar/u/0/r')}><Text style={styles.action}>Googleカレンダーで編集 ↗</Text></Pressable>
+          {readOnly ? googleReadOnly ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(googleReadOnly.externalUrl ?? 'https://calendar.google.com/calendar/u/0/r')}><Text style={styles.action}>Googleカレンダーで編集 ↗</Text></Pressable>
             : <Text style={styles.caption}>共有予定は作成者または管理者が変更できます。</Text> : null}
           {error ? <View><Text accessibilityRole="alert" style={styles.error}>{error}</Text><AppButton title="予定を再読込" variant="quiet" compact onPress={() => void local.refresh()} />
             {initial.eventId && local.database ? <AppButton title="下書きを破棄して閉じる" variant="quiet" compact disabled={busy} onPress={() => void work(async () => {

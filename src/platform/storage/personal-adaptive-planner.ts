@@ -223,6 +223,6 @@ export function personalAdaptiveEntries(input: Pick<PersonalAdaptiveContext, 'ch
 /** Dates in the input are intentionally absent: advancing the clock is not a placement trigger. */
 export function personalAdaptiveSourceRevision(input: { mode: FrequencyMode; timeZone: string; preferences: unknown;
   calendarTiming: unknown; sharedLoads: unknown; weatherRevision?: string }, fingerprint: Fingerprint) {
-  return fingerprint(['adaptive-source-v1', input]);
+  return fingerprint(['adaptive-source-v2', input]);
 }
 

@@ -26,7 +26,7 @@ export function createV2CalendarActions(repository: ReturnType<typeof createV2Ev
         { id: input.intentId, digest: v2CalendarCommandDigest(input, repository.scope) }) : repository.commitCurrent;
       return commit(async state => {
       const at = v2ReadPoint(state.assessment.view, state.archive.at(-1)!);
-      const current = input.eventId ? readSharedCalendar(state.assessment.view, at).find(event => event.id === input.eventId) : undefined;
+      const current = input.eventId ? readSharedCalendar(state.assessment.view, at, input.eventId)[0] : undefined;
       if (input.eventId && !current) throw new Error('共有予定が見つかりません。表示を更新してください。');
       const heads = input.scope === 'series' ? current?.heads ?? [] : current?.exceptions.find(row => row.anchorDate === input.anchorDate)?.heads ?? [];
       const basis = heads.map(row => row.operationId).sort();

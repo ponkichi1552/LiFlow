@@ -11,7 +11,8 @@ import { SettingsAudience } from '@/components/settings-audience';
 import { AppButton, BackButton, Card, ChoiceChip, Page, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
 import type { ChoreDefinition, ChoreLoad } from '@/domain/chores/types';
 import { choreCadenceLabel, registeredChoreCycleDays } from '@/domain/chores/cycle-policy';
-import { formatJapaneseDate, localDateFromISODateTime } from '@/domain/scheduling/local-date';
+import { formatJapaneseDate } from '@/domain/scheduling/local-date';
+import { compareCompletionInstants, completionHistoryDay } from '../planner/history-selection';
 import { PlannerLoadState } from '@/components/planner-load-state';
 import type { usePlannerData } from '@/hooks/use-planner-data';
 import { updateChoreSettings } from '@/platform/storage/repository';
@@ -95,8 +96,8 @@ function ChoreSettingsContent({
   const state = snapshot.states.find((item) => item.choreId === chore.id);
   const previousCompletion = snapshot.completions
     .filter((item) => item.choreId === chore.id && item.outcome === 'completed')
-    .sort((left, right) => right.completedAt.localeCompare(left.completedAt))[0];
-  const latestCompletion = state?.lastCompletedDate ?? (previousCompletion ? localDateFromISODateTime(previousCompletion.completedAt) : undefined);
+    .sort(compareCompletionInstants)[0];
+  const latestCompletion = state?.lastCompletedDate ?? (previousCompletion ? completionHistoryDay(previousCompletion, snapshot.timeZone) : undefined);
 
   return (
     <View style={{ gap: 12 }}>

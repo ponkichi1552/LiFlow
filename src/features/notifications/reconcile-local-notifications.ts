@@ -42,8 +42,9 @@ export function reconcileLocalNotifications(gateway: LocalNotificationGateway, i
     if (capacity !== undefined && (!Number.isSafeInteger(capacity) || capacity < 0)) throw new Error('通知の上限を確認してください。');
     const room = capacity === undefined ? Infinity : Math.max(0, capacity - otherCount);
     const eligible = permitted ? desired.filter(request => Date.parse(request.fireAt) < deadline)
-      .sort((a, b) => a.fireAt.localeCompare(b.fireAt) || a.key.localeCompare(b.key)) : [];
+      .sort((a, b) => Date.parse(a.fireAt) - Date.parse(b.fireAt) || a.key.localeCompare(b.key)) : [];
     const requests = eligible.slice(0, room);
+    let nextCandidate = requests.length;
     const result: NotificationReconciliationResult = { scheduled: 0, unchanged: 0, cancelled: 0,
       deadlineExcluded: permitted ? desired.length - eligible.length : 0, capacityExcluded: eligible.length - requests.length,
       permissionExcluded: enabled && !permitted ? desired.length : 0, failed: 0 };
@@ -56,7 +57,7 @@ export function reconcileLocalNotifications(gateway: LocalNotificationGateway, i
     const cancel = async () => {
       for (const request of obsolete) {
         await assertCurrent?.();
-        try { await gateway.cancel(request.key); cancelled++; }
+        try { await gateway.cancel(request.key); cancelled++; byKey.delete(request.key); }
         catch (error) { failures.push(error); }
       }
     };
@@ -77,6 +78,11 @@ export function reconcileLocalNotifications(gateway: LocalNotificationGateway, i
             await assertCurrent?.();
             try { await gateway.cancel(request.key); cancelled++; count--; }
             catch (cancelError) { failures.push(cancelError); }
+          }
+          // The native boundary proved no replacement was issued. Use that
+          // now-free slot for a later eligible reminder instead of dropping it.
+          if (capacity !== undefined && count < capacity && nextCandidate < eligible.length) {
+            requests.push(eligible[nextCandidate++]); result.capacityExcluded--;
           }
         } else failures.push(error);
       }

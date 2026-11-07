@@ -15,8 +15,8 @@ const intent = (attemptId = 'attempt-a') => ({ ...identity, attemptId, startedAt
 test('audit100 a timed out shared Tasks journal cannot release its caller while a SQLite transaction is still running', async () => {
   const h = await googleFixture(); const remote = memoryTaskClaims(h.namespace); const budget = createGoogleOperationBudget(60_000);
   let release; let entered; const started = new Promise(resolve => { entered = resolve; }); const gate = new Promise(resolve => { release = resolve; });
-  const run = h.d.database.runAsync; let settled = false;
-  h.d.database.runAsync = async (sql, ...params) => { if (sql.startsWith('INSERT INTO private_google_task_create_intents')) { entered(); await gate; } return run(sql, ...params); };
+  const read = h.d.database.getAllAsync; let settled = false;
+  h.d.database.getAllAsync = async (sql, ...params) => { if (sql.startsWith('INSERT INTO private_google_task_create_intents')) { entered(); await gate; } return read(sql, ...params); };
   const journal = sharedTaskCreateJournal(h.store.port.taskCreateJournal, remote.cloud, { budget, assertCurrent: async () => {} });
   const result = journal.reserve(identity).then(() => { settled = true; }, () => { settled = true; });
   try {
