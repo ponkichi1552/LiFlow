@@ -7,7 +7,7 @@ export type PlannerRhythm = Pick<HouseholdPlannerSettings, 'frequencyMode' | 're
 export interface LocalPreferenceProjection {
   expected: PlannerRhythm; value: PlannerRhythm; privateRevision: number; preferences: PrivatePlannerPreferences;
 }
-function rhythm(raw: unknown): PlannerRhythm {
+export function snapshotPlannerRhythm(raw: unknown): PlannerRhythm {
   exactRecord(raw, ['frequencyMode', 'restDays', 'heavyDailyLimit', 'normalDailyLimit']);
   if (!['frequent', 'balanced', 'relaxed'].includes(String(raw.frequencyMode)) || !Array.isArray(raw.restDays)
     || raw.restDays.some(day => !Number.isInteger(day) || day < 1 || day > 7) || new Set(raw.restDays).size !== raw.restDays.length
@@ -19,9 +19,9 @@ function rhythm(raw: unknown): PlannerRhythm {
 export function snapshotLocalPreferenceProjection(raw: unknown): LocalPreferenceProjection {
   exactRecord(raw, ['expected', 'value', 'privateRevision', 'preferences']);
   if (!Number.isSafeInteger(raw.privateRevision) || Number(raw.privateRevision) < 0) throw new Error('生活リズムの保存位置を確認してください。');
-  const value = rhythm(raw.value); const preferences = snapshotPrivatePlannerPreferences(raw.preferences as PrivatePlannerPreferences);
+  const value = snapshotPlannerRhythm(raw.value); const preferences = snapshotPrivatePlannerPreferences(raw.preferences as PrivatePlannerPreferences);
   if ([...value.restDays].sort().join() !== preferences.restDays.join()
     || value.heavyDailyLimit !== preferences.loadLimits.heavyDailyLimit
     || value.normalDailyLimit !== preferences.loadLimits.normalDailyLimit) throw new Error('生活リズムの未反映データが一致しません。');
-  return { expected: rhythm(raw.expected), value, privateRevision: raw.privateRevision as number, preferences };
+  return { expected: snapshotPlannerRhythm(raw.expected), value, privateRevision: raw.privateRevision as number, preferences };
 }

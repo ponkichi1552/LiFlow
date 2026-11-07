@@ -49,11 +49,15 @@ export function createV2RecoveryEvidenceProgress(input: { database: SQLiteDataba
       const owned = rows.map(row => { const json = canonicalJson(row.value); if (json.length > 1_000_000) throw new Error('復旧証拠が上限を超えています。');
         return { id: row.id, json, digest: sharedDocumentDigest(row.value) }; });
       return inside(async db => {
-        for (const row of owned) {
-          const old = await db.getFirstAsync<{ content_digest: string }>('SELECT content_digest FROM sharing_v2_recovery_evidence_cache WHERE scope_digest=? AND key_version=? AND witness_digest=? AND part=? AND entity_id=?', scopeDigest, keyVersion, witness, part, row.id);
-          if (old && old.content_digest !== row.digest) throw new Error('同じ復旧証拠の原文が変わっています。以前の内容は保持しています。');
-          if (!old) await db.runAsync('INSERT INTO sharing_v2_recovery_evidence_cache VALUES(?,?,?,?,?,?,?)', scopeDigest, keyVersion, witness, part, row.id, row.digest, row.json);
-        }
+        if (!owned.length) return;
+        const previous = await db.getAllAsync<{ entity_id: string; content_digest: string }>(`SELECT entity_id,content_digest FROM sharing_v2_recovery_evidence_cache
+          WHERE scope_digest=? AND key_version=? AND witness_digest=? AND part=? AND entity_id IN (${owned.map(() => '?').join(',')})`,
+        scopeDigest, keyVersion, witness, part, ...owned.map(row => row.id));
+        const byId = new Map(previous.map(row => [row.entity_id, row.content_digest]));
+        for (const row of owned) if (byId.has(row.id) && byId.get(row.id) !== row.digest) throw new Error('同じ復旧証拠の原文が変わっています。以前の内容は保持しています。');
+        const missing = owned.filter(row => !byId.has(row.id));
+        if (missing.length) await db.runAsync(`INSERT INTO sharing_v2_recovery_evidence_cache VALUES${missing.map(() => '(?,?,?,?,?,?,?)').join(',')}`,
+          ...missing.flatMap(row => [scopeDigest, keyVersion, witness, part, row.id, row.digest, row.json]));
       });
     },
   };

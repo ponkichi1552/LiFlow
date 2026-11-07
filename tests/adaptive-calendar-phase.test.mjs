@@ -53,7 +53,10 @@ test('adaptive placement and cadence use the adopted calendar phase without over
 });
 
 test('real observed-prefix calendar adoption commits completion forecast and next round atomically and supports Undo', async t => {
-  const fixtures = JSON.parse(readFileSync(new URL('./fixtures/adaptive-calendar-phase.json', import.meta.url)));
+  const recorded = JSON.parse(readFileSync(new URL('./fixtures/adaptive-calendar-phase.json', import.meta.url)));
+  const current = JSON.parse(readFileSync(new URL('./fixtures/adaptive-calendar-phase-refs864.json', import.meta.url)));
+  const fixtures = [...current, ...recorded.filter(f => !current.some(value => value.caseId === f.caseId && value.expectedMethod === f.expectedMethod))];
+  assert.deepEqual(fixtures.map(f => f.expectedMethod).sort(), ['monthEnd', 'weekly']);
   for (const f of fixtures) await t.test(f.expectedMethod, async () => {
     const h = createDatabase();
     try {
@@ -62,8 +65,8 @@ test('real observed-prefix calendar adoption commits completion forecast and nex
       const originalEvents = JSON.stringify(f.before.events);
       const previousRevision = f.operation.planRevision;
       assert.equal(previousRevision, fingerprint(['adaptive-plan-v1', id, f.previousPlan]));
-      // Restore the synthetic observed prefix exactly as recorded before the
-      // failure. No later completion or hidden evaluation truth is supplied.
+      // Restore the synthetic observed prefix recorded under its reference
+      // policy. No later completion or hidden evaluation truth is supplied.
       await h.database.runAsync('INSERT INTO personal_adaptive_policies VALUES(?,?)', id, JSON.stringify(f.before.policy));
       for (const event of f.before.events) await h.database.runAsync(`INSERT INTO personal_adaptive_actions
         (sequence,operation_id,chore_id,action_type,completion_id,round_id,target_operation_id,request_digest,event_json,receipt_json)

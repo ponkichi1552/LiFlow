@@ -21,6 +21,32 @@ function enqueue(h, change = {}) {
 const state = h => ({ completions: h.connection.prepare('SELECT * FROM chore_completions').all(), states: h.connection.prepare('SELECT * FROM chore_state').all(),
   google: h.connection.prepare('SELECT * FROM google_task_links').all(), journal: h.connection.prepare('SELECT * FROM chore_completion_actions').all() });
 
+test('distinct old widget inputs cannot complete an undone round but a new published generation can', async t => {
+  const h=await createIntegration();t.after(()=>h.connection.close());
+  const a=enqueue(h), b=enqueue(h);
+  await repository.commitWidgetCompletionOperation(h.database,a,()=>{});
+  const completion=h.connection.prepare('SELECT id FROM chore_completions').get();
+  await repository.undoCompletedChore(h.database,completion.id);
+  const before=state(h);
+  assert.equal(await repository.commitWidgetCompletionOperation(h.database,b,()=>{}),'targetChanged');
+  assert.deepEqual(state(h),before);
+  const generation=h.connection.prepare('SELECT generation FROM widget_completion_generations WHERE schedule_entry_id=?').get(a.entry.id).generation;
+  const fresh=enqueue(h,{completionGeneration:generation});
+  assert.equal(await repository.commitWidgetCompletionOperation(h.database,fresh,()=>{}),'saved');
+});
+
+test('one corrupt or old-household widget input is isolated without preventing independent current operations',async t=>{
+  const h=await createIntegration();t.after(()=>h.connection.close());
+  const old=enqueue(h,{householdCreatedAt:'2000-01-01T00:00:00Z'});const good=enqueue(h);
+  h.connection.prepare('INSERT INTO native_widget_completion_intents VALUES(?,?)').run('broken-input','{broken');
+  const operations=await readNativeWidgetCompletionOperations(h.database);
+  assert.deepEqual(operations.map(op=>op.id),[old.id,good.id]);
+  assert.equal(h.connection.prepare('SELECT raw_json FROM widget_rejected_inputs').get().raw_json,'{broken');
+  assert.equal(await repository.commitWidgetCompletionOperation(h.database,old,()=>{}),'targetChanged');
+  assert.equal(await repository.commitWidgetCompletionOperation(h.database,good,()=>{}),'saved');
+  assert.equal((await readNativeWidgetCompletionOperations(h.database)).length,0);
+});
+
 test('native widget input survives a missing listener and commits completion journal timestamp timezone and Google revision only after authorization', async t => {
   const h = await createIntegration(); t.after(() => h.connection.close()); const before = state(h); const op = enqueue(h);
   assert.deepEqual(state(h), before, 'native acceptance only writes the input queue');
@@ -143,4 +169,17 @@ test('iOS durable input survives a lost native acknowledgement and cannot replay
   brokenRead = true; const before = legacyReads;
   assert.equal((await native(h.database, [operation.entry.id], { publish: false })).canPublishWidget, false);
   assert.equal(legacyReads, before);
+});
+
+test('audit100 corrupt native widget rows are quarantined in bounded batches without one transaction per input', async t => {
+  const h = await createIntegration(); t.after(() => h.connection.close()); const good = enqueue(h);
+  const insert = h.connection.prepare('INSERT INTO native_widget_completion_intents VALUES(?,?)');
+  for (let index = 0; index < 100; index++) insert.run(`bad-${index}`, `{broken-${index}`);
+  const original = h.database.runAsync; let writes = 0;
+  h.database.runAsync = async (...args) => { writes++; return original(...args); };
+  const operations = await readNativeWidgetCompletionOperations(h.database);
+  assert.deepEqual(operations, [good]);
+  assert.equal(h.connection.prepare('SELECT count(*) n FROM widget_rejected_inputs').get().n, 100);
+  assert.equal(h.connection.prepare('SELECT count(*) n FROM native_widget_completion_intents').get().n, 1);
+  assert.ok(writes <= 4, `quarantine writes: ${writes}`);
 });

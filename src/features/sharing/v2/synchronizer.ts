@@ -115,16 +115,17 @@ export function createV2Synchronizer(dependencies: Omit<SharedSyncDependencies, 
   const synchronizer = createSharedSynchronizer(configured);
   return { ...synchronizer,
     sync: async (options: Parameters<typeof synchronizer.sync>[0] = {}) => {
+      const deadline = now() + Math.max(1000, Math.min(options.budgetMs ?? 20_000, 120_000));
       try { return await synchronizer.sync(options); }
       catch (error) {
         assertCurrentAccount();
         const code = error && typeof error === 'object' && 'code' in error ? String(error.code).replace(/^firestore\//u, '') : '';
         // A second request cannot explain transport/auth failures or replace a resumable evidence result.
-        if (deps.cloud.ownerRecoveryEnabled && !(error instanceof V2RecoveryInProgressError) && !unrelatedToRecoveryLock.has(code)) {
+        if (now() < deadline && deps.cloud.ownerRecoveryEnabled && !(error instanceof V2RecoveryInProgressError) && !unrelatedToRecoveryLock.has(code)) {
           try {
-            const lock = await deps.cloud.readRecoveryLock(deps.groupId); assertCurrentAccount();
+            const lock = await diagnosticRead(() => deps.cloud.readRecoveryLock(deps.groupId), deadline, now); assertCurrentAccount();
             if (lock) {
-              const metadata = await deps.cloud.readGroup(deps.groupId); assertCurrentAccount();
+              const metadata = await diagnosticRead(() => deps.cloud.readGroup(deps.groupId), deadline, now); assertCurrentAccount();
               const history = await verifyCloudMembership(configured, metadata.roster); assertCurrentAccount();
               if (lock.body.keyVersion === history.at(-1)!.body.keyVersion) {
                 verifyV2RecoveryLock(lock, history.at(-1)!); throw new V2RecoveryInProgressError();
@@ -138,4 +139,18 @@ export function createV2Synchronizer(dependencies: Omit<SharedSyncDependencies, 
       }
     },
     verifyMembership: (current: SignedSharedRoster) => { assertCurrentAccount(); return verifyCloudMembership(configured, current); } };
+}
+
+/** Only read-only diagnostic requests may be abandoned at the time boundary. */
+async function diagnosticRead<T>(read: () => Promise<T>, deadline: number, now: () => number): Promise<T> {
+  const remaining = deadline - now();
+  if (remaining <= 0) throw new Error('Recovery diagnostic deadline');
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const value = await Promise.race([read(), new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error('Recovery diagnostic deadline')), remaining);
+    })]);
+    if (now() >= deadline) throw new Error('Recovery diagnostic deadline');
+    return value;
+  } finally { clearTimeout(timer); }
 }

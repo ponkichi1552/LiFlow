@@ -9,7 +9,12 @@ function fit(values, change = {}) {
 }
 
 test('adaptive learning chooses its bounded reference count once from the previous rounded representative and does not clip long intervals to initial cadence', () => {
-  assert.deepEqual([30, 30.99, 31, 90, 90.99, 91].map(adaptiveReferenceLimit), [10, 10, 7, 7, 7, 5]);
+  assert.deepEqual([30, 30.99, 31, 90, 90.99, 91].map(adaptiveReferenceLimit), [8, 8, 6, 6, 6, 4]);
+  for (const [previousRepresentativeDays, limit] of [[30, 8], [90, 6], [91, 4]]) {
+    const recent = Array.from({ length: limit }, (_, i) => 91 + i);
+    const numeric = values => fit(values, { previousRepresentativeDays }).filter(model => model.method === 'median' || model.method === 'exponential');
+    assert.deepEqual(numeric([1000, 1000, ...recent]), numeric(recent), 'only the selected recent intervals contribute, using the previous representative');
+  }
   assert.equal(roundedAdaptiveDays(0.99), 1); assert.equal(roundedAdaptiveDays(8.99), 8);
   assert.equal(fit([60, 60, 60])[0].days, 60); assert.equal(fit([14, 14, 180])[0].days, 14);
   assert.deepEqual(fit([60, 60]), []); assert.equal(fit([...Array(10).fill(7), ...Array(5).fill(180)], { previousRepresentativeDays: 91 })[0].days, 180);

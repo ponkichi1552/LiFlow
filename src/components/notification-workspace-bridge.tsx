@@ -10,13 +10,15 @@ export function NotificationWorkspaceBridge() {
   const workspace = useWorkspace(); const latest = useRef(workspace);
   useEffect(() => { latest.current = workspace; }, [workspace]);
   const handled = useRef(new Set<string>()); const tail = useRef<Promise<unknown>>(Promise.resolve());
+  const pending = useRef<NotificationResponse | null>(null);
   useEffect(() => {
     if (!workspace.ready) return;
     let live = true;
     const receive = (response: NotificationResponse | null) => {
-      if (!response) return;
+      if (!response || !isPlannerNotification(response.notification.request.content.data)) return;
+      pending.current = response;
       const work = async () => {
-        if (!live) return;
+        if (!live || pending.current !== response) return;
         const id = `${response.notification.request.identifier}:${response.actionIdentifier}`;
         if (handled.current.has(id)) return;
         const current = latest.current; const data = response.notification.request.content.data;
@@ -25,14 +27,15 @@ export function NotificationWorkspaceBridge() {
         if (selection === undefined) router.replace('/sharing');
         else if (selection === null || selection.groupId === current.active?.groupId) { if (live) router.replace('/'); } else return;
         handled.current.add(id);
+        pending.current = null;
         const saved = getLastNotificationResponse();
         if (saved?.notification.request.identifier === response.notification.request.identifier && saved.actionIdentifier === response.actionIdentifier) clearLastNotificationResponse();
       };
       const next = tail.current.then(work, work); tail.current = next.catch(() => undefined);
     };
     const subscription = addNotificationResponseReceivedListener(receive);
-    receive(getLastNotificationResponse());
+    receive(pending.current ?? getLastNotificationResponse());
     return () => { live = false; subscription.remove(); };
-  }, [workspace.ready]);
+  }, [workspace.ready, workspace.userId, workspace.group?.userId, workspace.group?.groupId, workspace.group?.status, workspace.active?.groupId]);
   return null;
 }

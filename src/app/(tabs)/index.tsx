@@ -109,7 +109,7 @@ function PersonalHomeScreen() {
         seasonalWork={task.entry?.seasonalWork ?? task.completion?.seasonalWork}
         contextLabel={combined ? source === 'personal' ? '個人' : groupName : undefined} detail={region}
         executionWindow={task.entry ? { start: task.entry.windowStart, end: task.entry.windowEnd } : task.completion?.scheduledWindowStart && task.completion?.scheduledWindowEnd ? { start: task.completion.scheduledWindowStart, end: task.completion.scheduledWindowEnd } : undefined}
-        urgent={isTaskUrgent({ completed: task.completed, load: chore.load, recommendedDate: task.suggestedDate, windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd }, row.today)}
+        urgent={isTaskUrgent({ completed: task.completed, load: chore.load, recommendedDate: task.suggestedDate, windowStart: task.entry?.windowStart ?? task.completion?.scheduledWindowStart, windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd }, row.today)}
         onOpen={() => router.navigate({ pathname: '/(tabs)/guide', params: { choreId: chore.id, returnTo: 'home', ...(combined ? { source: source === 'personal' ? 'personal' : undefined } : {}) } })}
         onToggle={completion.canToggle(task) ? () => void completion.toggle(task) : undefined} />
     </Animated.View>;

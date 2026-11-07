@@ -22,7 +22,7 @@ const acceptedProofs = new Map<string, SignedSubscriptionEntitlement>();
 let selecting: { userId: string | null; promise: Promise<void> } | undefined;
 export const subscriptionSnapshot = () => snapshot;
 export function subscribeSubscription(listener: () => void) { observers.add(listener); return () => { observers.delete(listener); }; }
-function publish(next: SubscriptionSnapshot) { snapshot = next; for (const observer of observers) observer(); }
+function publish(next: SubscriptionSnapshot) { snapshot = next; for (const observer of observers) { try { observer(); } catch { /* A disposed view cannot interrupt grant persistence or expiry. */ } } }
 /** Abort also bounds identity-provider promises, which do not accept fetch's AbortSignal themselves. */
 function bounded<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(new Error('契約の確認がタイムアウトしました。'));
@@ -35,6 +35,7 @@ function bounded<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T
 }
 function serverNow() { return serverClock && serverClock.at + Math.max(0, performance.now() - serverClock.monotonicAt); }
 function now() { lastWall = Math.max(Math.floor(serverNow() ?? Date.now()), lastWall); return lastWall; }
+export const subscriptionCurrentTime = () => now();
 function acceptServerTime(entitlement: SignedSubscriptionEntitlement) {
   // Only a fresh response from the authenticated HTTPS request may repair an
   // untrusted wall clock. A saved or caller-provided certificate cannot do so.

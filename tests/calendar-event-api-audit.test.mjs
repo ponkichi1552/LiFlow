@@ -39,7 +39,7 @@ test('Calendar concurrent requests share one cancellation listener and release i
   t.mock.method(signal, 'addEventListener', (...args) => { added++; return add(...args); });
   t.mock.method(signal, 'removeEventListener', (...args) => { removed++; return remove(...args); });
   const api = createGoogleCalendarApi({ signal, assertCurrent: async () => {}, token: async () => 'synthetic',
-    fetch: async () => Response.json({ id: 'synthetic' }) });
+    fetch: async url => Response.json({ id: decodeURIComponent(new URL(url).pathname.split('/').at(-1)) }) });
   await Promise.all(Array.from({ length: 100 }, () => api.get('synthetic-calendar', 'synthetic-event')));
   assert.equal(added, 1); assert.equal(removed, 1);
   await api.get('synthetic-calendar', 'another-event'); assert.equal(added, 2); assert.equal(removed, 2);
@@ -51,7 +51,7 @@ test('one bounded Calendar API pass shares its token acquisition but checks acco
   let tokens = 0, guards = 0, calls = 0, forbidden = false;
   const api = createGoogleCalendarApi({ token: async () => { tokens++; return 'synthetic-token'; },
     assertCurrent: async () => { guards++; if (forbidden) throw new Error('account changed'); },
-    fetch: async () => { calls++; return new Response(JSON.stringify({ id: 'synthetic', etag: 'etag' }), { status: 200 }); } });
+    fetch: async url => { calls++; return new Response(JSON.stringify({ id: decodeURIComponent(new URL(url).pathname.split('/').at(-1)), etag: 'etag' }), { status: 200 }); } });
   await Promise.all(Array.from({ length: 100 }, () => api.get('test', 'event')));
   assert.equal(tokens, 1); assert.equal(calls, 100); assert.equal(guards, 400);
   forbidden = true; await assert.rejects(api.get('test', 'event'), /account changed/); assert.equal(calls, 100);
@@ -85,4 +85,12 @@ test('Google DTSTART is the first real custom occurrence including interval phas
   assert.equal(googleEventBody({ ...base, customRecurrence: { unit: 'week', interval: 2, weekdays: [1, 4] }, untilDate: '2028-11-01' }), null);
   const one = googleEventBody({ ...base, customRecurrence: { unit: 'week', interval: 2, weekdays: [1, 4] } }, true);
   assert.equal(one.start.dateTime.slice(0, 10), '2028-11-01'); assert.equal(one.recurrence, undefined);
+});
+
+test('audit100 Calendar reads and write acknowledgements request only used event fields while keeping cursor privacy and conflict evidence',async()=>{
+ const {createGoogleCalendarApi}=await import('../src/platform/google-calendar/calendar-api.ts');const urls=[];
+ const api=createGoogleCalendarApi({assertCurrent:async()=>{},token:async()=> 'synthetic-token',fetch:async(url,init)=>{urls.push(new URL(url));return Response.json(init?.method==='POST'?{id:'event'}:{id:'event',items:[],nextSyncToken:'next'});}});
+ await api.events('calendar',{});await api.instances('calendar','parent',{});await api.get('calendar','event');await api.insert('calendar',{id:'event',summary:'予定'});await api.patch('calendar','event',{summary:'変更'},'"etag"');
+ for(const url of urls){const fields=url.searchParams.get('fields');assert.ok(fields,`full Calendar response requested: ${url.pathname}`);for(const field of ['etag','status','recurrence','originalStartTime','updated','visibility','locked','htmlLink','extendedProperties'])assert.ok(fields.includes(field),`missing ${field}`);for(const unused of ['attendees','attachments','conferenceData','reminders'])assert.equal(fields.includes(unused),false);}
+ assert.match(urls[0].searchParams.get('fields'),/nextSyncToken/);assert.match(urls[1].searchParams.get('fields'),/nextPageToken/);
 });

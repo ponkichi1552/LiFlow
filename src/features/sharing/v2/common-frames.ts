@@ -18,13 +18,15 @@ export function commonFrames(groupId: string, choreId: string, configuration: Sh
   from: LocalDate, through: LocalDate): SharedOccurrence[] {
   parseLocalDate(from); parseLocalDate(through);
   if (through < from || daysBetween(from, through) > 3650) throw new Error('Invalid common planning horizon');
-  commonFrame(groupId, choreId, configuration, configuration.anchorDate);
-  const first = Math.max(0, Math.ceil(daysBetween(configuration.anchorDate, from) / configuration.intervalDays));
+  const owned = { ...configuration };
+  commonFrame(groupId, choreId, owned, owned.anchorDate);
+  const first = Math.max(0, Math.ceil(daysBetween(owned.anchorDate, from) / owned.intervalDays));
   const result: SharedOccurrence[] = [];
   for (let index = first; ; index++) {
-    const anchor = addDays(configuration.anchorDate, index * configuration.intervalDays);
+    const anchor = addDays(owned.anchorDate, index * owned.intervalDays);
     if (anchor > through) break;
-    result.push(commonFrame(groupId, choreId, configuration, anchor));
+    result.push({ id: v2OccurrenceId(groupId, choreId, anchor), choreId, anchorDate: anchor,
+      windowStart: addDays(anchor, -owned.windowBeforeDays), windowEnd: addDays(anchor, owned.windowAfterDays), ruleVersion: owned.ruleVersion });
   }
   return result;
 }

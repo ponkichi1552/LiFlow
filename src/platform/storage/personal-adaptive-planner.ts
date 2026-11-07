@@ -14,6 +14,8 @@ import { adaptivePersonalRoundId, applyAdaptivePersonalOperationInside, initiali
   readAllAdaptivePersonalInside, readAdaptivePersonalInside, replanAdaptivePersonalInside } from './adaptive-personal-chores.ts';
 import type { AdaptivePersonalOperation, AdaptivePersonalPlanning, AdaptivePersonalReceipt, AdaptivePersonalView } from './adaptive-personal-chores';
 import { personalChoreUsesWeather } from '../../features/weather/chore-weather.ts';
+import { connectedReplanIds } from '../../features/planner/connected-replan-ranges.ts';
+import { weatherChangeDays } from '../../features/planner/weather-change-days.ts';
 import { createMetWeatherEvaluator } from '../../../server/appliance-care-api/src/weather/forecast.mjs';
 
 type Geometry = ReturnType<typeof prepareAdaptivePlacementInput>;
@@ -53,7 +55,8 @@ function requests(input: PersonalAdaptiveContext, views: ReadonlyMap<string, Ada
 function allocate(input: PersonalAdaptiveContext, geometry: Geometry, views: ReadonlyMap<string, AdaptivePersonalView>, tasks: readonly AdaptiveRoundRequest[]) {
   const ids = new Set(tasks.map(task => task.chore.id));
   const fixedLoads = [...input.fixedLoads, ...input.chores.flatMap(chore => {
-    const plan = views.get(chore.id)?.plan; return !input.suppressedChoreIds?.has(chore.id) && !ids.has(chore.id) && plan ? [loadFor(chore, plan)] : [];
+    const view = views.get(chore.id); const plan = view?.plan;
+    return chore.enabled && !chore.archived && view?.state.policy.enabled && !input.suppressedChoreIds?.has(chore.id) && !ids.has(chore.id) && plan ? [loadFor(chore, plan)] : [];
   })];
   return planPersonalAdaptiveRounds({ requests: tasks, geometry, ownerId: input.ownerId, today: input.today, now: Date.parse(input.now),
     fixedLoads, fingerprint: input.fingerprint });
@@ -109,25 +112,18 @@ function affected(input: PersonalAdaptiveContext, views: ReadonlyMap<string, Ada
     }
   }
   const newWeather = createMetWeatherEvaluator(geometry.weatherForecast);
-  const weatherDays = geometry.weatherForecast ? geometry.days.filter(day => {
-    const relevant = (value: Geometry | null) => value?.weatherForecast?.intervals.filter(row => row.start < day.bounds.end && row.end > day.bounds.start) ?? [];
-    return input.fingerprint(relevant(previous?.geometry ?? null)) !== input.fingerprint(relevant(geometry));
-  }).map(day => day.date) : [];
+  const weatherDays = geometry.weatherForecast ? weatherChangeDays(geometry.days, previous?.geometry?.weatherForecast,
+    geometry.weatherForecast, input.fingerprint) : [];
   const candidates = input.chores.flatMap(chore => {
     const view = views.get(chore.id);
-    if (input.suppressedChoreIds?.has(chore.id) || !view?.state.model || !view.plan || !chore.enabled || adaptiveRoundIsProtected(view.plan, input.today, adaptiveModelIsDaily(view.state.model))) return [];
+    if (input.suppressedChoreIds?.has(chore.id) || !view?.state.model || !view.plan || !chore.enabled || chore.archived || adaptiveRoundIsProtected(view.plan, input.today, adaptiveModelIsDaily(view.state.model))) return [];
     const range = searchableDates(view, chore)!;
     return [{ chore, range, changed: explicitlyChanged.has(chore.id) || previous?.definitions[chore.id] !== definitionSignature(chore, input.fingerprint)
       || previous?.suppressedChoreIds?.includes(chore.id) || [...changedDays].some(date => date >= range.from && date <= range.through)
       || personalChoreUsesWeather(chore) && Boolean(view.plan.slot && newWeather?.evaluate(view.plan.slot.start, view.plan.slot.end).known)
         && weatherDays.some(date => date >= range.from && date <= range.through) }];
   });
-  const ids = new Set(candidates.filter(row => row.changed).map(row => row.chore.id));
-  const queue = candidates.filter(row => row.changed);
-  for (let i = 0; i < queue.length; i++) for (const row of candidates) {
-    if (!ids.has(row.chore.id) && row.range.from <= queue[i].range.through && row.range.through >= queue[i].range.from) { ids.add(row.chore.id); queue.push(row); }
-  }
-  return ids;
+  return connectedReplanIds(candidates.map(row => ({ id: row.chore.id, ...row.range, changed: row.changed })));
 }
 async function requireTransaction(database: SQLiteDatabase) {
   if (!await database.isInTransactionAsync()) throw new Error('個人家事と予定は同じトランザクションで保存してください。');

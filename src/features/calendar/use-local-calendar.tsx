@@ -34,7 +34,7 @@ export function useLocalCalendar(database?: SQLiteDatabase, includeGroupDrafts =
 
 /** SQLite observation never requests account or cloud access. */
 function useObservedLocalCalendar(database?: SQLiteDatabase, includeGroupDrafts = false): LocalCalendarBinding {
-  const [snapshot, setSnapshot] = useState<LocalCalendarSnapshot>(EMPTY_LOCAL_CALENDAR);
+  const [observedState, setObservedState] = useState<{ database: SQLiteDatabase; snapshot: LocalCalendarSnapshot } | null>(null);
   const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(false);
   const alive = useRef(true); const current = useRef(database);
   useLayoutEffect(() => { current.current = database; return () => { current.current = undefined; }; }, [database]);
@@ -49,17 +49,28 @@ function useObservedLocalCalendar(database?: SQLiteDatabase, includeGroupDrafts 
     const attempt = { database, promise: Promise.resolve(), again: false, full }; pending.current = attempt;
     const work = (async () => {
       let value = observed.current?.database === database ? observed.current.snapshot : EMPTY_LOCAL_CALENDAR;
+      let failures = 0;
       do { attempt.again = false; const full = attempt.full; attempt.full = false;
-        value = full ? await readLocalCalendar(database) : { ...value, ...await readLocalCalendarDrafts(database) };
-        if (alive.current && current.current === database && !attempt.again) { const drafts = (value.drafts ?? []).filter(draft => includeGroupDrafts || draft.audience !== 'group');
-          const next = { ...value, drafts, draft: drafts[0] ?? null };
-          observed.current = { database, snapshot: next };
-          setSnapshot(previous => retainCalendarInputs(previous, next)); setError(null); }
+        try { value = full ? await readLocalCalendar(database) : { ...value, ...await readLocalCalendarDrafts(database) }; failures = 0; }
+        catch (cause) {
+          if (alive.current && current.current === database) setError(cause instanceof Error ? cause.message : '予定を読み込めません。');
+          // Only an already queued newer request can retry a failed read. Keep
+          // full reads stronger than draft refreshes, and bound persistent errors.
+          attempt.full ||= full;
+          if (++failures >= 2 || !attempt.again) break;
+          continue;
+        }
+        if (alive.current && current.current === database && !attempt.again) {
+          // The retained input arrays must also be the next draft read's baseline.
+          // Otherwise every keystroke serializes the unchanged full event list again.
+          const retained = retainCalendarInputs(observed.current?.database === database ? observed.current.snapshot : EMPTY_LOCAL_CALENDAR, value);
+          observed.current = { database, snapshot: retained };
+          setObservedState({ database, snapshot: retained }); setError(null); }
       } while (attempt.again && alive.current && current.current === database);
     })().catch(cause => { if (alive.current && current.current === database) setError(cause instanceof Error ? cause.message : '予定を読み込めません。'); })
       .finally(() => { if (alive.current && current.current === database) setLoading(false); if (pending.current === attempt) pending.current = null; });
     attempt.promise = work; return work;
-  }, [database, includeGroupDrafts]);
+  }, [database]);
   const refresh = useCallback(() => reload(false), [reload]);
   useEffect(() => {
     if (!database) return;
@@ -67,7 +78,14 @@ function useObservedLocalCalendar(database?: SQLiteDatabase, includeGroupDrafts 
     const appState = AppState.addEventListener('change', state => { if (state === 'active') void refresh(); });
     return () => { unsubscribe(); appState.remove(); };
   }, [database, refresh, reload]);
-  return { database, snapshot, error, loading, refresh, canEditEvent: id => snapshot.events.find(row => row.id === id)?.readOnly !== true };
+  const currentSnapshot = observedState && observedState.database === database ? observedState.snapshot : EMPTY_LOCAL_CALENDAR;
+  const visible = useMemo(() => {
+    if (includeGroupDrafts) return currentSnapshot;
+    const drafts = (currentSnapshot.drafts ?? []).filter(draft => draft.audience !== 'group');
+    return { ...currentSnapshot, drafts, draft: drafts[0] ?? null };
+  }, [currentSnapshot, includeGroupDrafts]);
+  return { database, snapshot: visible, error, loading: loading || Boolean(database && observedState?.database !== database), refresh,
+    canEditEvent: id => visible.events.find(row => row.id === id)?.readOnly !== true };
 }
 export interface LocalCalendarBinding {
   database?: SQLiteDatabase; snapshot: LocalCalendarSnapshot; loading: boolean; error: string | null; refresh: () => Promise<void>;

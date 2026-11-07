@@ -46,7 +46,7 @@ import { assertVerifiedLegacyMigration, verifiedLegacyMigrationKind } from './le
 import type { VerifiedLegacyMigration } from './legacy-migration-source.ts';
 import { verifyV2RecoveryWitnesses } from './recovery-witness.ts';
 import { assertV2RetentionBase, retentionCovered } from './history-retention-certificate.ts';
-import { validateV2RetentionBody, v2RetentionAuthorityState } from './history-retention-schema.ts';
+import { compareRetentionValues, validateV2RetentionBody, v2RetentionAuthorityState } from './history-retention-schema.ts';
 export type { VerifiedLegacyMigration } from './legacy-migration-source.ts';
 type DependencyEvidence = { receipts: ReadonlyMap<string, V2ServerReceipt>; epochs: ReadonlyMap<string, VerifiedSharedRoster> };
 
@@ -116,7 +116,7 @@ export function assessV2BusinessHistory(replica: SharedReplica, archive: readonl
     const current = v2ConfirmedReceiptContext(view.ready, evidence?.receipts ?? new Map());
     return Object.fromEntries([...new Set([...Object.keys(current), ...Object.keys(retention?.frontier ?? {})])].map(device => [device, Math.max(current[device] ?? 0, retention?.frontier[device] ?? 0)]));
   }, cancellationsAt, retention);
-  const certified = new Map(retention ? replica.operations.filter(op => retentionCovered(op, retention)).sort((a, b) => a.operationId.localeCompare(b.operationId))
+  const certified = new Map(retention ? replica.operations.filter(op => retentionCovered(op, retention)).sort((a, b) => compareRetentionValues(retention.format, a.operationId, b.operationId))
     .map((op, index) => [op.operationId, v2RetentionAuthorityState(retention, index)]) : []);
   assignmentsAt = createV2AssignmentHistory(view, archive, evidence);
   const ready = replica.operations.filter((op) => !pending.has(op.operationId))
@@ -345,8 +345,7 @@ function authorizeV2Operation(view: V2HistoryView, archive: readonly VerifiedSha
     }));
     for (const uid of configuration.targetMemberIds ?? []) requireAuthority(memberIds.includes(uid) || historicalSubjects.has(uid), 'Cannot add an unapproved completion subject');
     if (configuration.assignmentSourceVersion) {
-      const source = view.field('chorePolicy', op.entityId, 'configuration', op,
-        (fact) => (fact.payload.configuration as unknown as SharedChoreConfiguration).ruleVersion === configuration.assignmentSourceVersion)?.value as unknown as SharedChoreConfiguration | undefined;
+      const source = view.configurationVersion(op.entityId, configuration.assignmentSourceVersion, op)?.value as unknown as SharedChoreConfiguration | undefined;
       requireAuthority(source && canonicalJson(source.policy) === canonicalJson(normalizeV2Configuration(configuration).policy), 'Assignment inheritance must preserve its original completion and assignment policy');
     }
     requireAuthority(configuration.ruleVersion === maximum + 1, 'Common rule revisions must advance explicitly'); return;

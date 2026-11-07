@@ -5,7 +5,7 @@ import type { AuthenticatedSharedOperation } from '../crypto';
 import { sharedAuthorIdentity, sharedRosterDigest } from '../roster.ts';
 import type { VerifiedSharedRoster } from '../roster';
 import type { SharedReplica, SharedSnapshotBase } from '../replica';
-import { validateV2RetentionBody, validateV2RetentionPayload } from './history-retention-schema.ts';
+import { compareRetentionValues, validateV2RetentionBody, validateV2RetentionPayload } from './history-retention-schema.ts';
 import type { V2RetentionBody } from './history-retention-schema';
 import { bindV2ServerReceipt } from './server-receipts.ts';
 import type { V2ServerReceipt } from './server-receipts';
@@ -17,8 +17,8 @@ export interface V2RetentionWitness {
 }
 export const retentionDigest = (values: readonly unknown[]) => sharedDocumentDigest(Array.from({ length: Math.ceil(values.length / 1000) }, (_, index) => sharedDocumentDigest(values.slice(index * 1000, (index + 1) * 1000))));
 export const retentionCovered = (operation: SharedOperation, body: V2RetentionBody) => operation.deviceSequence <= (body.frontier[operation.authorDeviceId] ?? 0);
-export function retentionOperationsDigest(values: readonly SharedOperation[]) { return retentionDigest([...values].sort((a, b) => a.operationId.localeCompare(b.operationId)).map(sharedDocumentDigest)); }
-export function retentionIndexDigest(values: SharedSnapshotBase['operationIndex']) { return retentionDigest([...values].sort((a, b) => a.operationId.localeCompare(b.operationId))); }
+export function retentionOperationsDigest(values: readonly SharedOperation[], format: V2RetentionBody['format'] = 2) { return retentionDigest([...values].sort((a, b) => compareRetentionValues(format, a.operationId, b.operationId)).map(sharedDocumentDigest)); }
+export function retentionIndexDigest(values: SharedSnapshotBase['operationIndex'], format: V2RetentionBody['format'] = 2) { return retentionDigest([...values].sort((a, b) => compareRetentionValues(format, a.operationId, b.operationId))); }
 function authenticate(fact: AuthenticatedSharedOperation, archive: readonly VerifiedSharedRoster[], groupId: string) {
   const op = fact.operation; const epoch = archive.find(row => row.body.keyVersion === op.keyVersion);
   if (!epoch) throw new Error('Unknown retention signing epoch');
@@ -56,7 +56,7 @@ export function assertV2RetentionBase(replica: Pick<SharedReplica, 'groupId' | '
   const body = verifyV2RetentionWitness(witness, archive, replica.groupId);
   const operations = replica.operations.filter(op => retentionCovered(op, body));
   const receipts = replica.operationIndex.filter(row => row.sequence <= (body.frontier[row.deviceId] ?? 0));
-  if (retentionOperationsDigest(operations) !== body.retainedFactsDigest || retentionIndexDigest(receipts) !== body.indexDigest) throw new Error('Retained state differs from the jointly verified checkpoint');
+  if (retentionOperationsDigest(operations, body.format) !== body.retainedFactsDigest || retentionIndexDigest(receipts, body.format) !== body.indexDigest) throw new Error('Retained state differs from the jointly verified checkpoint');
   if (body.retainedCount !== operations.length) throw new Error('Retained authority index differs from its facts');
   return body;
 }

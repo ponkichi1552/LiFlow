@@ -29,8 +29,7 @@ export function groupPolicyAt(view: V2HistoryView, operation: SharedOperation): 
 export function frameAtOperation(view: V2HistoryView, archive: readonly VerifiedSharedRoster[], operation: SharedOperation,
   choreId: string, anchorDate: LocalDate, ruleVersion?: number, options: { allowAssignmentConflict?: boolean } = {}) {
   if (view.field('chore', choreId, '$alive', operation)?.value !== true) throw new Error('Unknown or deleted shared chore');
-  const configuration = view.field('chorePolicy', choreId, 'configuration', operation, (op) => ruleVersion === undefined
-    || (op.payload.configuration as unknown as SharedChoreConfiguration).ruleVersion === ruleVersion);
+  const configuration = (ruleVersion === undefined ? view.field('chorePolicy', choreId, 'configuration', operation) : view.configurationVersion(choreId, ruleVersion, operation));
   if (!configuration) throw new Error('Missing common chore configuration');
   const config = configuration.value as unknown as SharedChoreConfiguration;
   const frame = commonFrame(view.groupId, choreId, config, anchorDate);

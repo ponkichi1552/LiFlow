@@ -144,10 +144,16 @@ export function createPrivateCalendarCacheStorage(port: PrivateCalendarCacheStor
     async pending(authority: VerifiedPrivateCalendarAuthority, now: number, options: { force?: boolean } = {}) {
       const force = options.force === true;
       timestamp(now);
-      const row = await locked(authority, true, record); if (!row) return null;
-      const cursor = savedCursor(row);
-      // Old encrypted snapshots remain recoverable, but an old main/authority may not publish them.
-      if (cursor.authorityDigest !== authority.digest || !row.pending || !force && row.retry_at !== null && row.retry_at > now) return null;
+      const ready = await locked(authority, true, async db => {
+        const meta = await metadata(db); if (!meta) return null;
+        const cursor = savedCursor(meta);
+        // Retry checks need only the small metadata row. Fetch ciphertext only
+        // after deciding to publish, under this same owner-checked transaction.
+        if (cursor.authorityDigest !== authority.digest || !meta.pending || !force && meta.retry_at !== null && meta.retry_at > now) return null;
+        const row = await record(db); if (!row) throw new Error('本人用Calendarの保存内容を確認できません。');
+        return { row, cursor };
+      });
+      if (!ready) return null; const { row, cursor } = ready;
       const owned = await verifyPrivateCalendarCacheCiphertext(port.crypto, envelope(row, authority), authority);
       await locked(authority, true, async (db) => {
         const current = await metadata(db);

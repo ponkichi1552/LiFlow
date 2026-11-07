@@ -6868,7 +6868,7 @@
       },
       {
         "file": "tests/google-sync-coordinator.test.mjs",
-        "name": "a future-clock success marker cannot classify an unverified Tasks skip as a settled cadence"
+        "name": "a future-clock success marker cannot suppress the next Tasks pass after a clock correction"
       }
     ]
   },
@@ -10977,6 +10977,1494 @@
       {
         "file": "tests/google-tasks-read-cache.test.mjs",
         "name": "a first-page background Tasks ${status} preserves data and defers destination or cursor repair to foreground"
+      }
+    ]
+  },
+  {
+    "feature": "exact-adaptive-undo-and-final-day-warning",
+    "tests": [
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "initial completion and Undo restore the exact published date and window without moving any other chore"
+      },
+      {
+        "file": "tests/home-ux.test.mjs",
+        "name": "a multi-day final date is urgent even on its recommendation while daily work and completed work remain quiet"
+      }
+    ]
+  },
+  {
+    "feature": "audit-2026-11-07-recovery-and-authority",
+    "tests": [
+      {
+        "file": "tests/google-tasks-create-recovery.test.mjs",
+        "name": "inventory adoption cannot borrow a newer reservation or poison its local success receipt"
+      },
+      {
+        "file": "tests/shared-google-task-list.test.mjs",
+        "name": "a received list creation ID survives Cloud acknowledgement failure and its confirmed deletion permits one replacement"
+      },
+      {
+        "file": "tests/widget-durable-input.test.mjs",
+        "name": "distinct old widget inputs cannot complete an undone round but a new published generation can"
+      },
+      {
+        "file": "tests/sharing-v2-completion-notices.test.mjs",
+        "name": "a candidate survives a pre-send interruption and an unrelated shared change, then issues only once"
+      },
+      {
+        "file": "tests/planning-input-revision.test.mjs",
+        "name": "personal planning revisions follow actual committed inputs across SQLite connections, excluding drafts and Google bookkeeping"
+      },
+      {
+        "file": "tests/calendar-observer-recovery.test.mjs",
+        "name": "committed changes cross connections of the same SQLite file and never different files or anonymous databases"
+      },
+      {
+        "file": "tests/calendar-exact-anchor.test.mjs",
+        "name": "exact anchors reject an overlapping previous occurrence and preserve the requested multi-day dates"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "the schema upgrade restores a provable legacy Undo placement while preserving history and later deliberate replanning"
+      }
+    ]
+  },
+  {
+    "feature": "audit-2026-11-07-interaction-and-settings-isolation",
+    "tests": [
+      {
+        "file": "tests/calendar-observer-recovery.test.mjs",
+        "name": "draft notifications after an unchanged full refresh do not repeatedly serialize saved calendar events"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a delta-only shared worker leaves full history maintenance to foreground while preserving all delta domains"
+      },
+      {
+        "file": "tests/appliance-manual-upload.test.mjs",
+        "name": "an inspection deadline is a retryable server failure and never a permanent invalid-PDF verdict or a cached rejection"
+      },
+      {
+        "file": "tests/widget-ios-native-journal.test.mjs",
+        "name": "iOS native durable widget journal preserves new taps during exact acknowledgement and refuses stale or expired input"
+      },
+      {
+        "file": "tests/calendar-editor-inflight.test.mjs",
+        "name": "an in-flight calendar save cannot navigate through an existing chore suggestion"
+      },
+      {
+        "file": "tests/calendar-fixed-heading.test.mjs",
+        "name": "changing day modes keeps an already expanded chore list visible instead of scrolling past it"
+      },
+      {
+        "file": "tests/calendar-recalculation.test.mjs",
+        "name": "a personal calendar keeps the same native row identity across persisted completion and Undo"
+      },
+      {
+        "file": "tests/owner-rhythm-settings.test.mjs",
+        "name": "queued rhythm saves capture the requested value before async waits and keep protected and SQLite values identical"
+      },
+      {
+        "file": "tests/owner-rhythm-settings.test.mjs",
+        "name": "reading rhythm settings returns independent arrays rather than mutable protected baselines"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "short timeline cards reserve their visible extent without changing the actual event times"
+      },
+      {
+        "file": "tests/calendar-fixed-heading.test.mjs",
+        "name": "short calendar cards never cover the next editable event in either day mode"
+      },
+      {
+        "file": "tests/native-calendar.test.mjs",
+        "name": "an unbrowsed month has one scroll owner across notice resizing and browsing alone enables native anchoring"
+      }
+    ],
+    "manualReview": "docs/testing-strategy.md"
+  },
+  {
+    "feature": "calendar-holiday-account-scope-fixed-chores-and-bounded-horizon-20261107",
+    "tests": [
+      {
+        "file": "tests/calendar-visibility-policy.test.mjs",
+        "name": "calendar housework stops at the end of the second following month across year and leap boundaries"
+      },
+      {
+        "file": "tests/calendar-visibility-policy.test.mjs",
+        "name": "the final housework month accepts its clipped range without planning spillover days from the next month"
+      },
+      {
+        "file": "tests/calendar-visibility-policy.test.mjs",
+        "name": "${platform} shared calendar navigation never reloads the housework plan for a distant appointment date"
+      },
+      {
+        "file": "tests/calendar-visibility-policy.test.mjs",
+        "name": "${platform} distant calendars display saved appointments without calculating or requesting housework outside the two-month horizon"
+      },
+      {
+        "file": "tests/calendar-visibility-policy.test.mjs",
+        "name": "${platform} expanded housework stays in its own scrolling pane when the calendar timeline scrolls"
+      },
+      {
+        "file": "tests/calendar-visibility-policy.test.mjs",
+        "name": "${platform} official holidays annotate the date without an all-day appointment card"
+      },
+      {
+        "file": "tests/calendar-visibility-policy.test.mjs",
+        "name": "${platform} start and end time pickers offer five-minute steps without rewriting an existing imported minute on open"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "switching accounts displays one copy of the same accessible Google event and restores the original mapping without new exports"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "official Google holidays are date annotations and never occupy a whole day or change an ordinary all-day appointment"
+      }
+    ],
+    "manualReview": "docs/testing-strategy.md"
+  },
+  {
+    "feature": "calendar-next-long-cycle-preview-after-unfinished-expiry-20261107",
+    "tests": [
+      {
+        "file": "tests/calendar-long-cycle-preview.test.mjs",
+        "name": "long calendar previews keep only the next real round and omit periods below ninety days"
+      },
+      {
+        "file": "tests/calendar-long-cycle-preview.test.mjs",
+        "name": "an expired uncompleted long round shows one tentative next cycle without changing its original pending round or history"
+      },
+      {
+        "file": "tests/calendar-long-cycle-preview.test.mjs",
+        "name": "long preview expiry preserves an adopted month-end phase and never overwrites the learned model"
+      },
+      {
+        "file": "tests/calendar-long-cycle-preview.test.mjs",
+        "name": "a long round remains the current next round through its final day and advances only after expiry"
+      },
+      {
+        "file": "tests/calendar-long-cycle-preview.test.mjs",
+        "name": "long preview does not guess a missing learned cadence and survives unsupported future calendar bounds"
+      },
+      {
+        "file": "tests/calendar-long-cycle-preview.test.mjs",
+        "name": "calendar-only tentative private rounds neither add home load nor become writable commands"
+      },
+      {
+        "file": "tests/calendar-long-cycle-preview.test.mjs",
+        "name": "shared long-round reads query the next real frame and missed deadlines never fabricate completion facts"
+      },
+      {
+        "file": "tests/calendar-long-cycle-preview.test.mjs",
+        "name": "a moved long round stays visible after its original configuration ends and preview reads never re-enable a disabled later policy"
+      },
+      {
+        "file": "tests/calendar-long-cycle-preview.test.mjs",
+        "name": "${platform} personal calendars show only the next long round and preserve the unfinished original after expiry"
+      },
+      {
+        "file": "tests/calendar-long-cycle-preview.test.mjs",
+        "name": "${platform} shared and private next long rounds share one distant day without short chores or another future cycle"
+      },
+      {
+        "file": "tests/calendar-long-cycle-preview.test.mjs",
+        "name": "Japanese holiday labels retain source titles while translating known names and safely labeling unsupported and prototype-like names"
+      },
+      {
+        "file": "tests/calendar-long-cycle-preview.test.mjs",
+        "name": "${platform} holiday annotations use one Japanese line without changing an imported event"
+      },
+      {
+        "file": "tests/calendar-long-cycle-preview.test.mjs",
+        "name": "${platform} a tentative personal calendar row cannot enter a durable completion queue"
+      }
+    ],
+    "manualReview": "docs/testing-strategy.md"
+  },
+  {
+    "feature": "calendar-core-input-draft-privacy-and-civil-clock-audit-20261107",
+    "tests": [
+      {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "calendar drafts retain whitespace-only unfinished titles without trapping the editor on close"
+      },
+      {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "an older local event save cannot erase newer unfinished input for the same editor scope"
+      },
+      {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "an invalid occurrence-only draft or empty deletion anchor cannot become a whole-series command"
+      },
+      {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "an adopted three-calendar-month cycle stays eligible for distant next-round display during an eighty-nine-day quarter"
+      },
+      {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "${platform} disabling recurrence removes a hidden expiry so the event can be moved and saved later"
+      },
+      {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "${platform} a wall-clock time picker cannot change a valid event time merely because the device is on a DST gap date"
+      },
+      {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "${platform} adding an appointment defaults to the personal draft even when a newer group draft is waiting"
+      },
+      {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "${platform} classification save captures the latest typed name before a React repaint"
+      },
+      {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "${platform} classification RGB fields preserve consecutive inputs and a valid preset replaces invalid custom input"
+      },
+      {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "${platform} horizontal year navigation respects the same range as the year buttons"
+      },
+      {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "${platform} a valid classification preset remains saveable after invalid custom RGB input"
+      }
+    ],
+    "manualReview": "docs/testing-strategy.md"
+  },
+  {
+    "feature": "completion-protected-queue-restoration-recovery-20261107",
+    "tests": [
+      {
+        "file": "tests/completion-part-audit.test.mjs",
+        "name": "the displayed retry recovers a transient completion-store read failure without remounting or another gesture"
+      },
+      {
+        "file": "tests/completion-part-audit.test.mjs",
+        "name": "gestures during a full completion restoration drain without losing old requests or exceeding protected storage bounds"
+      }
+    ]
+  },
+  {
+    "feature": "google-calendar-current-projection-authority-deadline-and-trailing-pass-20261107",
+    "tests": [
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "archived account imports cannot exhaust the visible calendar limit or hide current local appointments"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a Google calendar permission downgrade takes effect before its staged events are reimported"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "a stalled native identity check cannot hold shared Calendar export beyond its background deadline"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "a changed shared event requested during an export receives one trailing pass without waiting for the next periodic sync"
+      }
+    ]
+  },
+  {
+    "feature": "google-task-user-notes-and-occurrence-marker-recovery-20261107",
+    "tests": [
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "shared task synchronization preserves user notes and adopts its exact marker line after local mapping recovery"
+      },
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "a full user task note never makes an otherwise valid status update exceed the provider note limit"
+      }
+    ]
+  },
+  {
+    "feature": "settings-autosave-navigation-cycle-and-lost-acknowledgement-20261107",
+    "tests": [
+      {
+        "file": "tests/settings-part-audit.test.mjs",
+        "name": "a failed navigation callback cannot freeze an autosaved settings form or block the next navigation"
+      },
+      {
+        "file": "tests/settings-part-audit.test.mjs",
+        "name": "editing an already saved appliance cycle does not falsely disable the chore while a replacement number is incomplete"
+      },
+      {
+        "file": "tests/owner-rhythm-settings.test.mjs",
+        "name": "a newer rhythm change recovers an already-applied SQLite write whose acknowledgement was lost before replacing its projection"
+      }
+    ]
+  },
+  {
+    "feature": "notification-expired-replacement-and-widget-account-capture-20261107",
+    "tests": [
+      {
+        "file": "tests/notification-expiry-boundary.test.mjs",
+        "name": "a replacement expiring before native scheduling cancels the superseded reminder instead of leaving its old time armed"
+      },
+      {
+        "file": "tests/widget-output-recovery.test.mjs",
+        "name": "a queued widget publication cannot relabel the previous accounts chore data as a newly signed-in account"
+      }
+    ]
+  },
+  {
+    "feature": "regional-weather-newest-durable-cache-and-actual-body-limit-20261107",
+    "tests": [
+      {
+        "file": "tests/weather-provider-reliability.test.mjs",
+        "name": "forecast throttling and joined reads retain a newer durable forecast instead of returning an older attempt cache"
+      },
+      {
+        "file": "tests/weather-provider-reliability.test.mjs",
+        "name": "a regional forecast body cannot bypass its byte limit by omitting or understating Content-Length"
+      }
+    ]
+  },
+  {
+    "feature": "shared-sync-budget-coalescing-completion-and-diagnostics-20261107",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-synchronizer.test.mjs",
+        "name": "a sharing upload that consumes the remaining budget stays incomplete and does not acknowledge a stale receive cursor"
+      },
+      {
+        "file": "tests/sharing-v2-synchronizer.test.mjs",
+        "name": "coalescing another sharing request cannot restart a fresh time budget after the original background budget expires"
+      },
+      {
+        "file": "tests/sharing-v2-synchronizer.test.mjs",
+        "name": "an expired sharing failure does not start optional recovery diagnostics outside its original time budget"
+      }
+    ]
+  },
+  {
+    "feature": "appliance-paid-admission-malformed-result-and-transport-timeout-20261107",
+    "tests": [
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "an unreadable completed paid result retains its original admission for retry instead of starting a second charge"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "appliance timeout settles an unresponsive ${phase} even when native transport ignores abort"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "account usage binding also respects its deadline when ${phase} ignores native abort"
+      }
+    ]
+  },
+  {
+    "feature": "additional40-calendar-boundaries-and-bounded-reads",
+    "tests": [
+      {
+        "file": "tests/calendar-additional-audit.test.mjs",
+        "name": "Google timed recurrence cutoff uses the actual next civil-day boundary across midnight gaps and folds"
+      },
+      {
+        "file": "tests/calendar-additional-audit.test.mjs",
+        "name": "shared local availability counts all-day midnight transitions as actual busy coverage"
+      },
+      {
+        "file": "tests/calendar-additional-audit.test.mjs",
+        "name": "personal placement never treats an unresolved recurring DST clock as an entirely free day"
+      },
+      {
+        "file": "tests/calendar-additional-audit.test.mjs",
+        "name": "bulk Google import reuses bounded clock formatters without changing imported fields"
+      },
+      {
+        "file": "tests/calendar-additional-audit.test.mjs",
+        "name": "calendar display metadata does not transfer complete Google event bodies into JavaScript on every read"
+      },
+      {
+        "file": "tests/calendar-additional-audit.test.mjs",
+        "name": "explicit calendar draft discard cannot delete newer input saved by another editor"
+      }
+    ]
+  },
+  {
+    "feature": "additional40-adaptive-additional-audit",
+    "tests": [
+      {
+        "file": "tests/adaptive-additional-audit.test.mjs",
+        "name": "an expired one-off holiday cannot make every future heavy placement fall back"
+      },
+      {
+        "file": "tests/adaptive-additional-audit.test.mjs",
+        "name": "year-long placement capacity reads scale with nearby bands rather than every day times every band"
+      }
+    ]
+  },
+  {
+    "feature": "additional40-settings-additional-audit",
+    "tests": [
+      {
+        "file": "tests/settings-additional-audit.test.mjs",
+        "name": "discard during an already running autosave follows its committed value instead of showing an unsaved old value"
+      },
+      {
+        "file": "tests/settings-additional-audit.test.mjs",
+        "name": "reversing an edit before debounce does not write unchanged settings or trigger downstream recalculation"
+      },
+      {
+        "file": "tests/settings-additional-audit.test.mjs",
+        "name": "reversing an edit while a different value is already saving still persists the reversal"
+      }
+    ]
+  },
+  {
+    "feature": "additional40-local-data-additional-audit",
+    "tests": [
+      {
+        "file": "tests/local-data-additional-audit.test.mjs",
+        "name": "legacy weather-location resolution does not renormalize every municipality label for each saved-setting read"
+      },
+      {
+        "file": "tests/local-data-additional-audit.test.mjs",
+        "name": "weekly calendar labels do not generate every occurrence when no hidden occurrence can affect the output"
+      },
+      {
+        "file": "tests/local-data-additional-audit.test.mjs",
+        "name": "appliance reanalysis preserves the explicitly chosen adaptive execution-window override"
+      }
+    ]
+  },
+  {
+    "feature": "additional40-home-additional-audit",
+    "tests": [
+      {
+        "file": "tests/home-additional-audit.test.mjs",
+        "name": "completion-only calendar and upcoming cards retain their frozen recording day after region changes"
+      },
+      {
+        "file": "tests/home-additional-audit.test.mjs",
+        "name": "upcoming exact completion matching is linear while preserving first-match and legacy precedence"
+      }
+    ]
+  },
+  {
+    "feature": "additional40-calendar-observer-provenance",
+    "tests": [
+      {
+        "file": "tests/calendar-observer-recovery.test.mjs",
+        "name": "switching calendar databases hides the previous database snapshot before the next read resolves"
+      },
+      {
+        "file": "tests/calendar-observer-recovery.test.mjs",
+        "name": "changing group-draft visibility projects retained drafts immediately without rereading unchanged SQLite input"
+      }
+    ]
+  },
+  {
+    "feature": "additional40-calendar-controls-additional",
+    "tests": [
+      {
+        "file": "tests/calendar-controls-additional.test.mjs",
+        "name": "calendar picker commits the latest native selection once even before React repaints"
+      },
+      {
+        "file": "tests/calendar-controls-additional.test.mjs",
+        "name": "a failed calendar preference observer cannot prevent other subscribers from receiving the committed selection"
+      },
+      {
+        "file": "tests/calendar-controls-additional.test.mjs",
+        "name": "calendar range requested before the global Google observer is ready is retained and delivered once"
+      }
+    ]
+  },
+  {
+    "feature": "additional40-shared-projection-additional",
+    "tests": [
+      {
+        "file": "tests/shared-projection-additional.test.mjs",
+        "name": "shared optimistic Undo places an early completed round back on its recommended calendar date"
+      },
+      {
+        "file": "tests/shared-projection-additional.test.mjs",
+        "name": "calendar completion visibility cannot disclose another assignee early-completion date by moving its row"
+      },
+      {
+        "file": "tests/shared-projection-additional.test.mjs",
+        "name": "shared calendar projection derives each event and repeated category identity once per immutable input batch"
+      }
+    ]
+  },
+  {
+    "feature": "additional40-appliance-additional-audit",
+    "tests": [
+      {
+        "file": "tests/appliance-additional-audit.test.mjs",
+        "name": "unchanged personal PDF reads reuse verified bytes but still reject changed stored content"
+      },
+      {
+        "file": "tests/appliance-additional-audit.test.mjs",
+        "name": "batch retained-appliance matching normalizes existing product identities once instead of once for every incoming appliance"
+      },
+      {
+        "file": "tests/appliance-additional-audit.test.mjs",
+        "name": "native retention retries a PDF when its final chunk arrives after appliance and manifest were already copied"
+      }
+    ]
+  },
+  {
+    "feature": "additional40-private-calendar-deferred-reads",
+    "tests": [
+      {
+        "file": "tests/sharing-private-calendar-cache-store.test.mjs",
+        "name": "private Calendar deferred outbox checks read metadata without transferring the entire ciphertext"
+      }
+    ]
+  },
+  {
+    "feature": "additional40-google-settings-scope",
+    "tests": [
+      {
+        "file": "tests/google-settings-additional.test.mjs",
+        "name": "Google settings ignore delayed control data from a replaced group runtime or personal database"
+      }
+    ]
+  },
+  {
+    "feature": "additional40-final-area-regressions",
+    "tests": [
+      {
+        "file": "tests/appliance-additional-audit.test.mjs",
+        "name": "appliance registration submits the latest native text even before the controlled value repaints"
+      },
+      {
+        "file": "tests/calendar-preview-additional.test.mjs",
+        "name": "distant calendar preview seeks directly to the next unfinished long round without replaying every missed cycle"
+      },
+      {
+        "file": "tests/settings-additional-audit.test.mjs",
+        "name": "an immediate edit queued in a saved observer microtask is not stranded behind the completed writer"
+      },
+      {
+        "file": "tests/settings-additional-audit.test.mjs",
+        "name": "chore history navigation preserves an invalid unsaved numeric draft and succeeds after correction"
+      },
+      {
+        "file": "tests/settings-additional-audit.test.mjs",
+        "name": "a settled chore document follows a new global mode while retaining unsaved drafts during external changes"
+      },
+      {
+        "file": "tests/google-tasks-read-cache.test.mjs",
+        "name": "one hundred Tasks from one response cross the SQLite bridge in bounded batches without changing cache contents"
+      },
+      {
+        "file": "tests/calendar-layout-additional.test.mjs",
+        "name": "dense calendar overlap assigns the same readable lanes without quadratic lane scans"
+      },
+      {
+        "file": "tests/google-tasks-create-recovery.test.mjs",
+        "name": "out-of-range batch Retry-After cannot mask provider failures or discard a valid sibling backoff"
+      },
+      {
+        "file": "tests/calendar-row-geometry-additional.test.mjs",
+        "name": "calendar viewport resizing reuses civil row geometry without reparsing every day"
+      },
+      {
+        "file": "tests/waste-lookup-additional.test.mjs",
+        "name": "waste label icon color and search reuse the bundled normalized aliases instead of scanning and renormalizing them"
+      },
+      {
+        "file": "tests/waste-lookup-additional.test.mjs",
+        "name": "valid custom waste names matching object prototype keys cannot crash calendar labels"
+      },
+      {
+        "file": "tests/notification-additional-audit.test.mjs",
+        "name": "notification reconciliation resolves zoned fire times only for dates with actual reminder content"
+      },
+      {
+        "file": "tests/notification-additional-audit.test.mjs",
+        "name": "a verified access deadline changing during replacement cancels the old unauthorized reminder without sending a new one"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-completion-recovery-history-and-widget-work",
+    "tests": [
+      {
+        "file": "tests/audit100-completion.test.mjs",
+        "name": "audit100 completion cleanup can retry a failed protected acknowledgement without repeating the saved work"
+      },
+      {
+        "file": "tests/audit100-completion.test.mjs",
+        "name": "audit100 a failed planner subscriber cannot block another screen the initial read or widget publication"
+      },
+      {
+        "file": "tests/audit100-completion.test.mjs",
+        "name": "audit100 completion history orders offset timestamps by the actual instant within a saved civil day"
+      },
+      {
+        "file": "tests/audit100-completion.test.mjs",
+        "name": "audit100 recovering a hundred widget inputs indexes schedule and exact completion lookup once"
+      },
+      {
+        "file": "tests/audit100-completion.test.mjs",
+        "name": "audit100 the completion journal freezes legacy and Undo days in their recorded region"
+      },
+      {
+        "file": "tests/audit100-completion.test.mjs",
+        "name": "audit100 seeding a long completion journal batches SQL while retaining every original fact"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-shared-completion-acceptance-and-rejected-undo-recovery",
+    "tests": [
+      {
+        "file": "tests/audit100-shared-completion.test.mjs",
+        "name": "audit100 canonical shared completions compare real instants before choosing the personal mirror and spent workload"
+      },
+      {
+        "file": "tests/audit100-shared-completion.test.mjs",
+        "name": "audit100 a rejected substitution does not block the actual assignee from completing the same round"
+      },
+      {
+        "file": "tests/audit100-completion-ui.test.mjs",
+        "name": "${platform} audit100 a temporarily rejected queued Undo retains its one-tap recovery action"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-google-http-protocol-and-checkpoint-write-work",
+    "tests": [
+      {
+        "file": "tests/audit100-google-http.test.mjs",
+        "name": "audit100 malformed successful Tasks JSON remains retryable instead of permanently stopping automatic sync"
+      },
+      {
+        "file": "tests/audit100-google-http.test.mjs",
+        "name": "audit100 a MIME delimiter inside task notes is data rather than a second batch response"
+      },
+      {
+        "file": "tests/audit100-google-http.test.mjs",
+        "name": "audit100 Calendar modifications require one exact strong ETag before reading credentials or sending"
+      },
+      {
+        "file": "tests/audit100-google-http.test.mjs",
+        "name": "audit100 Calendar acknowledgements cannot replace the exact reserved provider identity"
+      },
+      {
+        "file": "tests/audit100-google-http.test.mjs",
+        "name": "audit100 single Tasks reads and write acknowledgements request only their consumed fields"
+      },
+      {
+        "file": "tests/audit100-google-http.test.mjs",
+        "name": "audit100 a hundred confirmed status replies update the read checkpoint in one bounded batch"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-task-checkpoint-integrity-order-and-unchanged-rows",
+    "tests": [
+      {
+        "file": "tests/audit100-task-checkpoint.test.mjs",
+        "name": "audit100 a corrupt delta checkpoint cannot silently become a background full scan"
+      },
+      {
+        "file": "tests/audit100-task-checkpoint.test.mjs",
+        "name": "audit100 late older Tasks pages and acknowledgements cannot replace a newer observed provider version"
+      },
+      {
+        "file": "tests/audit100-task-checkpoint.test.mjs",
+        "name": "audit100 unchanged acknowledgements and a periodic full inventory do not rewrite cached Tasks or invalidate row reuse"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-calendar-inventory-and-import-bounds",
+    "tests": [
+      {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 repeated CalendarList rows across pages do not block connection or duplicate synchronization"
+      },
+      {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 refreshing a thousand Google calendars stays below Android SQLite variable limits"
+      },
+      {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 staging one hundred Calendar changes uses bounded SQLite batches rather than one bridge call per event"
+      },
+      {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 a delayed older Calendar version cannot roll back an imported personal event"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-calendar-cannot-override-tasks-retry",
+    "tests": [
+      {
+        "file": "tests/google-sync-coordinator.test.mjs",
+        "name": "audit100 Calendar replanning cannot bypass Tasks authentication failure or its retry deadline"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-create-receipts",
+    "tests": [
+      {
+        "file": "tests/audit100-create-receipts.test.mjs",
+        "name": "audit100 recording a hundred Tasks creation outcomes validates and writes one bounded SQLite batch"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-google-stop",
+    "tests": [
+      {
+        "file": "tests/audit100-google-stop.test.mjs",
+        "name": "audit100 stopping Tasks during an active HTTP pass remains OFF after that pass settles"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-calendar-candidates",
+    "tests": [
+      {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 listing a thousand changed local Google events does not reread their master one by one"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-targeted-undo",
+    "tests": [
+      {
+        "file": "tests/audit100-shared-completion.test.mjs",
+        "name": "audit100 targeted shared Undo preserves later unseen work after ${origin} completion"
+      },
+      {
+        "file": "tests/audit100-shared-completion.test.mjs",
+        "name": "audit100 shared Undo keeps its exact queued predecessor through ${phase}"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-028",
+    "tests": [
+      {
+        "file": "tests/sharing-synchronizer.test.mjs",
+        "name": "audit100 a shared worker queued behind maintenance cannot restart after its caller deadline"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-029",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-synchronizer.test.mjs",
+        "name": "audit100 an expired initial sharing metadata read cannot start another receive request"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-030",
+    "tests": [
+      {
+        "file": "tests/audit100-sharing-outbox.test.mjs",
+        "name": "audit100 a deferred first shared Outbox record does not parse the blocked hundred-operation suffix"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-031",
+    "tests": [
+      {
+        "file": "tests/audit100-shared-completion.test.mjs",
+        "name": "audit100 receipt-rejected future work never becomes a completed personal mirror or spent workload"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-032",
+    "tests": [
+      {
+        "file": "tests/audit100-date-selector.test.mjs",
+        "name": "audit100 selecting modern exact completion references does not scan ten thousand records for every occurrence"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-033",
+    "tests": [
+      {
+        "file": "tests/subscription-runtime-recovery.test.mjs",
+        "name": "audit100 a failed subscription observer cannot prevent granting or scheduling the verified expiry"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-034",
+    "tests": [
+      {
+        "file": "tests/subscription-purchase-recovery.test.mjs",
+        "name": "audit100 restoring the paid SKU is not blocked by thirty two unrelated store purchases"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-035",
+    "tests": [
+      {
+        "file": "tests/subscription-purchase-recovery.test.mjs",
+        "name": "audit100 an expired finished purchase is verified again before reporting a restored grant"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-036",
+    "tests": [
+      {
+        "file": "tests/subscription-purchase-recovery.test.mjs",
+        "name": "audit100 store verification uses the authenticated subscription clock after a wall clock correction"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-037",
+    "tests": [
+      {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 Calendar page cycles fail without seventy five repeated requests and remain detected after restart"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-038",
+    "tests": [
+      {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 a full Calendar rebuild queues missing deletions instead of applying an unbounded transaction"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-039",
+    "tests": [
+      {
+        "file": "tests/personal-adaptive-planner.test.mjs",
+        "name": "audit100 disabled personal rounds do not reserve the only remaining slot for another active chore"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-040",
+    "tests": [
+      {
+        "file": "tests/shared-google-task-claims.test.mjs",
+        "name": "audit100 a timed out shared Tasks journal cannot release its caller while a SQLite transaction is still running"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-041",
+    "tests": [
+      {
+        "file": "tests/audit100-server-queues.test.mjs",
+        "name": "audit100 due analysis work cannot be hidden behind three unexpired execution or preparation leases"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-042",
+    "tests": [
+      {
+        "file": "tests/audit100-server-queues.test.mjs",
+        "name": "audit100 concurrent retries prepare and encrypt one uploaded analysis input rather than every duplicate"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-043",
+    "tests": [
+      {
+        "file": "tests/audit100-server-queues.test.mjs",
+        "name": "audit100 repeated weather slot evaluations do not scan the whole nine hundred interval forecast"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-044",
+    "tests": [
+      {
+        "file": "tests/audit100-shared-storage.test.mjs",
+        "name": "audit100 a hundred immutable server receipts use bounded SQLite batches and reject contradictory duplicates atomically"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-045",
+    "tests": [
+      {
+        "file": "tests/audit100-shared-storage.test.mjs",
+        "name": "audit100 reading authenticated shared state reuses the transaction receipt snapshot and avoids duplicated authority probes"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-046",
+    "tests": [
+      {
+        "file": "tests/audit100-shared-storage.test.mjs",
+        "name": "audit100 history retention identifies removed operations without rescanning the retained list for every fact"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-047",
+    "tests": [
+      {
+        "file": "tests/sharing-private-calendar-key-delivery.test.mjs",
+        "name": "audit100 one recipient key delivery failure cannot block an independent approved recipient"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-048",
+    "tests": [
+      {
+        "file": "tests/audit100-rail.test.mjs",
+        "name": "audit100 an old asynchronous rail measurement cannot steer the next drag gesture"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-049",
+    "tests": [
+      {
+        "file": "tests/audit100-rail.test.mjs",
+        "name": "audit100 the first accessible rail increment starts at the first chore when no row is selected"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-050",
+    "tests": [
+      {
+        "file": "tests/audit100-calendar-import.test.mjs",
+        "name": "audit100 every supported custom interval can round trip through Google without becoming read only"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-051",
+    "tests": [
+      {
+        "file": "tests/audit100-calendar-import.test.mjs",
+        "name": "audit100 a Google cutoff on a nonoccurrence day does not disable editing of a representable weekly rule"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-052",
+    "tests": [
+      {
+        "file": "tests/met-weather-cache.test.mjs",
+        "name": "audit100 a late provider response cannot replace a newer generated weather forecast"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-053",
+    "tests": [
+      {
+        "file": "tests/widget-durable-input.test.mjs",
+        "name": "audit100 corrupt native widget rows are quarantined in bounded batches without one transaction per input"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-054",
+    "tests": [
+      {
+        "file": "tests/sharing-private-planner-sync.test.mjs",
+        "name": "audit100 private preference transport receives the caller budget so late transaction stages cannot begin"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-055",
+    "tests": [
+      {
+        "file": "tests/sharing-private-planner-sync.test.mjs",
+        "name": "audit100 repeated private preference polls reuse only an exactly authenticated protected baseline"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-056",
+    "tests": [
+      {
+        "file": "tests/sharing-private-planner-sync.test.mjs",
+        "name": "audit100 a manual private preference retry is not swallowed by an automatic backoff read"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-057",
+    "tests": [
+      {
+        "file": "tests/audit100-projection-work.test.mjs",
+        "name": "audit100 retained completions index targeted undos instead of scanning every undo for each retained round"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-058",
+    "tests": [
+      {
+        "file": "tests/audit100-projection-work.test.mjs",
+        "name": "audit100 common frame expansion validates invariant recurrence input once per range rather than every round"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-059",
+    "tests": [
+      {
+        "file": "tests/audit100-projection-work.test.mjs",
+        "name": "audit100 unchanged retained appliance libraries do not fetch a receipt separately for every product"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-060",
+    "tests": [
+      {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 ordinary Google imports do not run expanded series cleanup for every unrelated event"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-061",
+    "tests": [
+      {
+        "file": "tests/google-sync-policy.test.mjs",
+        "name": "audit100 a backward clock correction cannot pin automatic Tasks synchronization to a future attempt or success timestamp"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-062",
+    "tests": [
+      {
+        "file": "tests/date-tasks.test.mjs",
+        "name": "audit100 date task ordering calculates each priority once rather than in every sorting comparison"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-063",
+    "tests": [
+      {
+        "file": "tests/audit100-calendar-selector.test.mjs",
+        "name": "audit100 a calendar snapshot builds its completed occurrence lookup once for all requested days"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-064",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "audit100 physically compacted completion reports retain their Google completed state and real completion instant"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-065",
+    "tests": [
+      {
+        "file": "tests/audit100-adaptive-work.test.mjs",
+        "name": "audit100 adaptive method selection reads only the latest comparable forecast scores instead of full history"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-066",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "audit100 Google Undo can cancel the owners acknowledged retained completion after the original report was deleted"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-067",
+    "tests": [
+      {
+        "file": "tests/settings-additional-audit.test.mjs",
+        "name": "audit100 a settled settings document follows external enable and load edits without losing a pending draft"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-068",
+    "tests": [
+      {
+        "file": "tests/audit100-replan-work.test.mjs",
+        "name": "audit100 connected replan ranges use an interval sweep rather than repeated pairwise recruitment"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-069",
+    "tests": [
+      {
+        "file": "tests/audit100-replan-work.test.mjs",
+        "name": "audit100 weather revision comparison indexes intervals by day instead of rescanning the full forecast for every day"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-070",
+    "tests": [
+      {
+        "file": "tests/audit100-create-receipts.test.mjs",
+        "name": "audit100 acknowledged Tasks creation receipts are cleaned in one bounded compare-and-delete batch"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-071",
+    "tests": [
+      {
+        "file": "tests/audit100-projection-work.test.mjs",
+        "name": "audit100 current retained round lookups reuse a projection index without scanning every retained completion per occurrence"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-072",
+    "tests": [
+      {
+        "file": "tests/audit100-common-plan-work.test.mjs",
+        "name": "audit100 common planning sends only the current chores rules to per-round selection"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-073",
+    "tests": [
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "audit100 restoring an exported recurring series rebinds its exceptions to the new parent without touching old instances"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-074",
+    "tests": [
+      {
+        "file": "tests/audit100-common-plan-work.test.mjs",
+        "name": "audit100 dependency planning reuses an identical causal frame only within its immutable common projection"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-075",
+    "tests": [
+      {
+        "file": "tests/audit100-task-checkpoint.test.mjs",
+        "name": "audit100 a rejected first delta page in foreground clears its cursor so the next attempt can rebuild instead of repeating it forever"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-076",
+    "tests": [
+      {
+        "file": "tests/audit100-appliance-validation.test.mjs",
+        "name": "audit100 new appliance estimates obey the servers positive whole-minute bounds while old zero estimates remain readable and unscheduled as time slots"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-077",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-google-tasks.test.mjs",
+        "name": "audit100 a moved chores old anchor cannot hide another linked chore on the same out-of-range anchor"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-078",
+    "tests": [
+      {
+        "file": "tests/mobile-ui-recovery.test.mjs",
+        "name": "audit100 a completion settling while its view is inactive cannot strand a pending checkbox after reactivation"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-079",
+    "tests": [
+      {
+        "file": "tests/calendar-event-api-audit.test.mjs",
+        "name": "audit100 Calendar reads and write acknowledgements request only used event fields while keeping cursor privacy and conflict evidence"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-080",
+    "tests": [
+      {
+        "file": "tests/audit100-bulk-settings.test.mjs",
+        "name": "audit100 bulk chore enable changes validate and write bounded sets instead of issuing one SQLite read and write per chore"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-081",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-recovery-progress.test.mjs",
+        "name": "audit100 a verified recovery proof page checks and stores immutable rows in bounded SQLite batches"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-082",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-autosave.test.mjs",
+        "name": "audit100 a shared anchor between the default and chosen effective date is saved instead of silently discarded"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-083",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-autosave.test.mjs",
+        "name": "audit100 untouched shared effective dates follow a new received boundary while explicitly selected dates and pending edits remain fixed"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-084",
+    "tests": [
+      {
+        "file": "tests/audit100-calendar-aggregate-batch.test.mjs",
+        "name": "audit100 a Calendar aggregate replacement writes 181 covered days in bounded SQLite chunks and rolls back a failed chunk"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-085",
+    "tests": [
+      {
+        "file": "tests/audit100-undo-lineage.test.mjs",
+        "name": "audit100 undoing a long invalidated completion lineage uses indexed parents instead of rescanning the journal at each step"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-086",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-completion-notices.test.mjs",
+        "name": "audit100 a completion notice refresh removes obsolete pending subjects in one bounded statement while preserving current notices"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-087",
+    "tests": [
+      {
+        "file": "tests/audit100-pinned-calendar-clock.test.mjs",
+        "name": "audit100 Calendar import display edits and instance anchors use the same pinned zone rules as scheduling on older OS timezone databases"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-088",
+    "tests": [
+      {
+        "file": "tests/audit100-personal-google-import-work.test.mjs",
+        "name": "audit100 a hundred personal Tasks status imports capture mapped rows and transactional conflict state in bounded reads"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-089",
+    "tests": [
+      {
+        "file": "tests/audit100-schedule-cache-batch.test.mjs",
+        "name": "audit100 regenerating a personal schedule stores and removes changed cache rows in bounded statements without rewriting unchanged plans"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-090",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "audit100 shared history certificates and packed authority positions remain identical across real English and Danish collation rules"
+      },
+      {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "audit100 legacy format-one signed history checkpoints still verify and restore without rewriting their certificate"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-091",
+    "tests": [
+      {
+        "file": "tests/audit100-configuration-lookup.test.mjs",
+        "name": "audit100 inherited assignment lookup visits each policy version rather than scanning every policy for each ancestor"
+      },
+      {
+        "file": "tests/audit100-configuration-lookup.test.mjs",
+        "name": "audit100 indexed configuration versions still exclude unseen writes and reject concurrent different configurations"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-092",
+    "tests": [
+      {
+        "file": "tests/google-tasks-local-statuses.test.mjs",
+        "name": "audit100 a shared local status batch acknowledges its successes with one coherent business projection rather than one per task"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-093",
+    "tests": [
+      {
+        "file": "tests/audit100-calendar-live-index.test.mjs",
+        "name": "audit100 visible Calendar reads use the live-row index after many retained deletion tombstones without changing visible events"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-094",
+    "tests": [
+      {
+        "file": "tests/audit100-google-link-read.test.mjs",
+        "name": "audit100 repeated private Google link reads reuse validated unchanged rows while caller mutations corruption and revoked scope remain isolated"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-095",
+    "tests": [
+      {
+        "file": "tests/chore-history-retention.test.mjs",
+        "name": "audit100 personal history display cutoff follows the chosen owner zone instead of the device zone and retains the raw learning records"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-096",
+    "tests": [
+      {
+        "file": "tests/home-common-chores.test.mjs",
+        "name": "audit100 mirrored RFC3339 offset completions respect an instant-based history cutoff before and after an upgrade and store new projections in UTC"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-097",
+    "tests": [
+      {
+        "file": "tests/sharing-private-calendar-observer.test.mjs",
+        "name": "audit100 private Calendar foreground recovery is not postponed for hours after the device clock moves backwards"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-098",
+    "tests": [
+      {
+        "file": "tests/home-common-chores.test.mjs",
+        "name": "audit100 an old same-name mirror can still undo or redo its exact occurrence after renaming without linking new unrelated rounds"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-099",
+    "tests": [
+      {
+        "file": "tests/audit100-calendar-inbox-index.test.mjs",
+        "name": "audit100 Calendar import attempt ordering finds the latest counter without rescanning thousands of already applied inbox rows"
+      }
+    ]
+  },
+  {
+    "feature": "audit100-100",
+    "tests": [
+      {
+        "file": "tests/shared-google-task-list.test.mjs",
+        "name": "audit100 the same Google Tasks list repeated across pages cannot become two canonical destinations for the same account"
+      }
+    ]
+  },
+  {
+    "feature": "toolchain-official-security-fix-compatibility",
+    "tests": [
+      {
+        "file": "tests/toolchain-security-backports.test.mjs",
+        "name": "official toolchain security versions verify without mutation and reject unreviewed replacements"
+      },
+      {
+        "file": "tests/toolchain-security-backports.test.mjs",
+        "name": "every resolved legacy minimatch copy avoids amplification without replacing its callable ESLint API"
+      },
+      {
+        "file": "tests/toolchain-security-backports.test.mjs",
+        "name": "official matchers preserve Expo fingerprint exclusions negated overrides and platform file matching"
+      }
+    ]
+  },
+  {
+    "feature": "shared-calendar-pending-undo-keeps-clicked-day",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-calendar-ui.test.mjs",
+        "name": "a pending shared completion undo keeps the clicked calendar day visible while its personal recommendation is being restored"
+      }
+    ]
+  },
+  {
+    "feature": "shared-completion-private-owner-read-recovery",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-private-ui.test.mjs",
+        "name": "ios a shared completion keeps private home rows when the owner inputs change during the following read"
+      },
+      {
+        "file": "tests/sharing-v2-private-ui.test.mjs",
+        "name": "android a shared completion keeps private home rows when the owner inputs change during the following read"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "loadPlannerSnapshot retries only changed owner reads in fresh scopes and bounds persistent drift without retrying authorization failures"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "loadPlannerSnapshot discards a rejected captured owner before retrying publication"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "readPersonalPlannerOverlaySnapshot retries only changed owner reads in fresh scopes and bounds persistent drift without retrying authorization failures"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "readPersonalPlannerOverlaySnapshot discards a rejected captured owner before retrying publication"
       }
     ]
   }

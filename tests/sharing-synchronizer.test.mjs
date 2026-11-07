@@ -247,3 +247,17 @@ test('concurrent triggers share one upload coordinator and one server event per 
     await Promise.all([first, second]); assert.equal(f.state.events.length, 1); assert.equal((await a.checkpoint()).pendingCount, 0);
   } finally { a.connection.close(); }
 });
+
+test('audit100 a shared worker queued behind maintenance cannot restart after its caller deadline', async () => {
+  const f=await fixture(); const a=await f.device(); let clock=10000,release; a.dependencies.now=()=>clock;
+  const coordinator=createSharedSynchronizer(a.dependencies); let calls=0; const read=f.cloud.readGroup;
+  a.dependencies.cloud={...f.cloud,readGroup:async(...args)=>{calls++;return read(...args);}};
+  const gate=new Promise(resolve=>{release=resolve;});
+  try{
+    await a.edit(); const maintenance=coordinator.withMaintenance(()=>gate); await new Promise(setImmediate);
+    const waiting=coordinator.sync({force:true,budgetMs:1000});
+    clock+=1000; release(); await maintenance;
+    await assert.rejects(waiting,error=>error.code==='unavailable');
+    assert.equal(calls,0);assert.equal((await a.checkpoint()).pendingCount,1);
+  }finally{release?.();a.connection.close();}
+});

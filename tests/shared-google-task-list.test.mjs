@@ -12,6 +12,22 @@ import { sharedTaskCreateJournal } from '../src/features/google-sync/shared-task
 import { GoogleTasksApiError } from '../src/platform/google-tasks/google-tasks-api.ts';
 const { reconcileGoogleTasks } = await import('../src/features/google-sync/reconcile-google-tasks.ts');
 const { createV2GoogleTaskRuntime } = await import('../src/features/sharing/v2/google-tasks-runtime.ts');
+const { createDatabase } = await import('./helpers/sqlite.mjs');
+const { initializeGoogleTaskCreateIntentsInside, createGoogleTaskCreateJournal } = await import('../src/platform/storage/google-task-create-intents.ts');
+
+test('a received list creation ID survives Cloud acknowledgement failure and its confirmed deletion permits one replacement',async()=>{
+  const h=fixture(); const d=createDatabase(); let fail=true;let id=0;
+  try {
+    await initializeGoogleTaskCreateIntentsInside(d.database);
+    const journal=createGoogleTaskCreateJournal(async work=>{let value;await d.database.withTransactionAsync(async()=>{value=await work(d.database);});return value;},()=>`list-attempt-${++id}`,()=>now());
+    const cloud={...h.remote.cloud,linked:async(...args)=>{if(fail)throw new Error('cloud reply unavailable');return h.remote.cloud.linked(...args);}};
+    const resolve=()=>resolveSharedGoogleTaskList({state:h.state,accessToken:'test',api:h.api,title:h.title,lists:structuredClone(h.lists)}, {namespace:h.namespace,cloud:()=>cloud,journal,makeId:()=>assert.fail(),context:h.context});
+    await assert.rejects(resolve(),/unavailable/); assert.equal(h.lists.length,1);fail=false;
+    const recovered=await resolve(); assert.equal(recovered.id,h.lists[0].id);assert.equal(h.calls.filter(row=>row==='create').length,1);
+    h.state.taskListId=recovered.id;h.lists.length=0;
+    const replacement=await resolve(); assert.notEqual(replacement.id,recovered.id);assert.equal(h.calls.filter(row=>row==='create').length,2);
+  }finally{h.close();d.connection.close();}
+});
 
 function fixture() {
   const namespace = 'synthetic-private-namespace'; const accountSubject = 'synthetic-provider-account';
@@ -208,4 +224,11 @@ test('transient Firestore list-claim failures retain retry backoff and recover a
       assert.equal(h.calls.filter(row => row[0] === 'list').length, 1);
     } finally { h.close(); }
   }
+});
+
+test('audit100 the same Google Tasks list repeated across pages cannot become two canonical destinations for the same account',async()=>{
+ const h=fixture();try{const known=await h.resolve();h.state.taskListId=known.id;const {createGoogleTasksApi}=await import('../src/platform/google-tasks/google-tasks-api.ts');let pages=0;
+ const native=createGoogleTasksApi(async()=>Response.json(++pages===1?{items:[known],nextPageToken:'page2'}:{items:[{...known}]}));const lists=await native.listTaskLists('synthetic-token');
+ const result=await h.resolve({lists,api:{...h.api,listTaskLists:native.listTaskLists}});assert.equal(result.id,known.id);assert.equal(lists.length,1);assert.equal(h.calls.filter(row=>row==='create').length,1);
+ }finally{h.close();}
 });

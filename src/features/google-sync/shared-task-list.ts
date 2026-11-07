@@ -8,6 +8,7 @@ import type { SharedTaskClaimCloud, SharedTaskClaimReader } from './shared-task-
 import { sharedTaskIdHash } from './shared-task-claim.ts';
 import { sharedGoogleOccurrenceNote } from './workspace-policy.ts';
 import { googleTaskRequestWasNotSent, isDefinitiveGoogleTaskInsertRejection } from './task-create-intent.ts';
+import type { GoogleTaskCreateJournal } from './task-create-intent';
 
 /** Disjoint from provider list IDs. The receipt uploads only hashes, as for task inserts. */
 export function sharedTaskListIdentity(namespace: string, accountSubject: string) {
@@ -30,7 +31,7 @@ export async function verifySharedTaskListForLocalChanges(state: GoogleSyncState
 
 /** One list-creation grant across independent device databases, before task creation. */
 export async function resolveSharedGoogleTaskList(request: GoogleTaskListResolution, input: {
-  namespace: string; cloud(): SharedTaskClaimCloud & SharedTaskClaimReader; makeId(): string;
+  namespace: string; cloud(): SharedTaskClaimCloud & SharedTaskClaimReader; makeId(): string; journal?: GoogleTaskCreateJournal;
   context: { budget: GoogleOperationBudget; assertCurrent(): Promise<void> };
 }): Promise<GoogleTaskList> {
   const { state, accessToken, api, title } = request;
@@ -40,6 +41,9 @@ export async function resolveSharedGoogleTaskList(request: GoogleTaskListResolut
   const bounded = <T>(work: () => Promise<T>) => withinGoogleOperationBudget(budget, async () => {
     await assertCurrent(); const value = await work(); await assertCurrent(); return value;
   });
+  const storage = async <T>(work: () => Promise<T>): Promise<T> => {
+    await bounded(async () => undefined); const value = await work(); await bounded(async () => undefined); return value;
+  };
   const cloud = input.cloud();
   let lists = request.lists;
   const candidate = () => {
@@ -61,6 +65,17 @@ export async function resolveSharedGoogleTaskList(request: GoogleTaskListResolut
     return selected;
   };
   let claim = await bounded(() => cloud.read(identity));
+  const known = await storage(async () => input.journal?.read?.(identity));
+  if (known?.taskId && state.taskListId === known.taskId && !lists.some(row => row.id === known.taskId)
+    && (claim?.phase === 'released' || claim?.phase === 'linked' && claim.taskHash === sharedTaskIdHash(known.taskId))) {
+    if (claim.phase === 'linked') await bounded(() => cloud.deleted(identity, known.taskId!, known.intent.attemptId));
+    await storage(async () => input.journal?.deleted(identity, known.taskId!));
+    claim = await bounded(() => cloud.read(identity));
+  }
+  if (claim?.phase === 'reserved' && known?.taskId && known.intent.attemptId === claim.attemptId) {
+    const selected = lists.find(row => row.id === known.taskId);
+    if (selected) { await bounded(() => cloud.linked(identity, selected.id, known.intent.attemptId)); return selected; }
+  }
   if (claim?.phase === 'linked') {
     const selected = ready(claim.taskHash); if (selected) return selected;
     // A fresh, complete provider listing can prove deletion only when this
@@ -74,11 +89,19 @@ export async function resolveSharedGoogleTaskList(request: GoogleTaskListResolut
   if (!claim || claim.phase === 'released') {
     const existing = candidate();
     if (existing) { await bounded(() => cloud.linked(identity, existing.id)); return existing; }
-    const intent = { ...identity, attemptId: input.makeId(), startedAt: new Date().toISOString() };
-    const accepted = await bounded(() => cloud.reserveBatch([intent]));
+    const intent = input.journal ? await storage(() => input.journal!.reserve(identity))
+      : { ...identity, attemptId: input.makeId(), startedAt: new Date().toISOString() };
+    if (!intent) throw new GoogleTasksApiError(503, 'task_list_create_result_pending', null);
+    let accepted: readonly boolean[];
+    try { accepted = await bounded(() => cloud.reserveBatch([intent])); }
+    catch (error) {
+      const code = error && typeof error==='object' && 'code' in error ? String(error.code) : '';
+      if (['permission-denied','unauthenticated','invalid-argument'].includes(code)) await input.journal?.reject(intent);
+      throw error;
+    }
     if (accepted.length !== 1 || typeof accepted[0] !== 'boolean') throw new Error('Google家事の保存先の作成許可を確認してください。');
     if (accepted[0]) {
-      let issued = false;
+      let issued = false; let received = false;
       try {
         // The original listing may predate the grant. Recheck before the only POST.
         lists = await bounded(() => api.listTaskLists(accessToken));
@@ -87,17 +110,21 @@ export async function resolveSharedGoogleTaskList(request: GoogleTaskListResolut
           await assertCurrent(); budget.assert();
           issued = true;
           selected = await api.createTaskList(accessToken, title);
+          received = true;
           await assertCurrent(); budget.assert();
           if (!selected.id) throw new GoogleTasksApiError(502, 'missing_task_list_id', null);
         }
-        await bounded(() => cloud.linked(identity, selected.id)); return selected;
+        await storage(async () => input.journal?.linked(identity, selected.id, intent));
+        await bounded(() => cloud.linked(identity, selected.id, intent.attemptId)); return selected;
       } catch (error) {
-        if (!issued || googleTaskRequestWasNotSent(error) || error instanceof GoogleTasksApiError && isDefinitiveGoogleTaskInsertRejection(error.status)) {
+        if (!issued || !received && (googleTaskRequestWasNotSent(error) || error instanceof GoogleTasksApiError && isDefinitiveGoogleTaskInsertRejection(error.status))) {
           await bounded(() => cloud.reject(intent));
+          await storage(async () => input.journal?.reject(intent));
         }
         throw error;
       }
     }
+    else await storage(async () => input.journal?.reject(intent));
   }
   // Another device is finishing its insert. A reservation never expires into
   // permission for a second POST, including after an uncertain provider reply.

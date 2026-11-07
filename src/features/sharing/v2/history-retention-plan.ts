@@ -12,7 +12,7 @@ import { v2ReadPoint } from './view-point.ts';
 import { v2CompletionHistory } from './completion-history.ts';
 import type { V2ServerReceipt } from './server-receipts';
 import { retentionIndexDigest, retentionOperationsDigest } from './history-retention-certificate.ts';
-import { validateV2RetentionBody } from './history-retention-schema.ts';
+import { compareRetentionValues, validateV2RetentionBody } from './history-retention-schema.ts';
 import type { V2RetentionAnchor, V2RetainedRoundState, V2RetentionBody } from './history-retention-schema';
 import { v2RetainedCompletions } from './retained-completions.ts';
 import { frameAtOperation } from './authority-context.ts';
@@ -21,7 +21,8 @@ import { buildV2CommonPlan } from './common-plan.ts';
 /** Pure proposal built only after the caller has authenticated the full original ledger. */
 export function planV2HistoryRetention(input: { replica: SharedReplica; assessment: ReturnType<typeof assessV2BusinessHistory>;
   archive: readonly VerifiedSharedRoster[]; receipts: ReadonlyMap<string, V2ServerReceipt>; cutoff: LocalDate; throughSequence: number;
-  previous?: V2RetentionBody }) {
+  previous?: V2RetentionBody; format?: V2RetentionBody['format'] }) {
+  const format = input.format ?? 2;
   const { replica, assessment, receipts, cutoff } = input; const epoch = input.archive.at(-1)!;
   if (!epoch || replica.pendingOperationIds.length || assessment.provisionalOperationIds.length
     || replica.operations.some(op => op.schemaVersion === 2 && !receipts.has(op.operationId))) throw new Error('Finish synchronization before deleting history');
@@ -60,7 +61,7 @@ export function planV2HistoryRetention(input: { replica: SharedReplica; assessme
       const instant = Math.min(...reports.values());
       rounds.set(key, { ...anchor, suggestedDate: record.schedule?.date ?? frame.anchorDate, windowStart: record.schedule?.windowStart ?? frame.windowStart,
         assignmentCut: prior?.assignmentCut ?? null, strictInstructionUnfulfilled: record.strictInstructionFulfilled === false && (!prior || prior.strictInstructionUnfulfilled),
-        instant, date: sharedLocalDate(new Date(instant), timeZone), reports: [...reports].sort(([a], [b]) => a.localeCompare(b)).map(([recorderUserId, instant]) => ({ recorderUserId, instant })) });
+        instant, date: sharedLocalDate(new Date(instant), timeZone), reports: [...reports].sort(([a], [b]) => compareRetentionValues(format, a, b)).map(([recorderUserId, instant]) => ({ recorderUserId, instant })) });
     }
   }
   const plans = new Map<string, ReturnType<typeof buildV2CommonPlan>>();
@@ -79,17 +80,18 @@ export function planV2HistoryRetention(input: { replica: SharedReplica; assessme
     && !['historyRetention', 'retainedCompletionUndo'].includes(op.entityType)
     && !(op.entityType === 'completion' && op.operationType === 'undo' && expired.has(String(op.payload.targetOperationId)))
     && !(op.entityType === 'completionApproval' && expired.has(String(op.payload.completionOperationId))));
-  const sortAnchors = <T extends V2RetentionAnchor>(values: Iterable<T>) => [...values].sort((a, b) => canonicalJson(a).localeCompare(canonicalJson(b)));
+  const sortAnchors = <T extends V2RetentionAnchor>(values: Iterable<T>) => [...values].sort((a, b) => compareRetentionValues(format, canonicalJson(a), canonicalJson(b)));
   const rejected = new Map(assessment.rejected.map(row => [row.operationId, row.kind]));
-  const states = [...retained].sort((a, b) => a.operationId.localeCompare(b.operationId)).map(op => accepted.has(op.operationId) ? 0 : rejected.get(op.operationId) === 'conflict' ? 2 : rejected.get(op.operationId) === 'unconfirmed' ? 3 : 1);
+  const states = [...retained].sort((a, b) => compareRetentionValues(format, a.operationId, b.operationId)).map(op => accepted.has(op.operationId) ? 0 : rejected.get(op.operationId) === 'conflict' ? 2 : rejected.get(op.operationId) === 'unconfirmed' ? 3 : 1);
   const authorityStates = Array.from({ length: Math.ceil(states.length / 2) }, (_, index) => ((states[index * 2] << 2) | (states[index * 2 + 1] ?? 0)).toString(16)).join('');
-  const body = validateV2RetentionBody({ format: 1, groupId: replica.groupId, rosterDigest: sharedRosterDigest(epoch), keyVersion: epoch.body.keyVersion,
+  const body = validateV2RetentionBody({ format, groupId: replica.groupId, rosterDigest: sharedRosterDigest(epoch), keyVersion: epoch.body.keyVersion,
     cutoff, timeZone, frontier: { ...replica.frontier }, throughSequence: input.throughSequence,
-    sourceFactsDigest: sharedDocumentDigest([retentionOperationsDigest(replica.operations),
+    sourceFactsDigest: sharedDocumentDigest([retentionOperationsDigest(replica.operations, format),
       sharedDocumentDigest(replica.legacyMigrationWitness ?? null), sharedDocumentDigest(replica.recoveryWitnesses ?? []),
       input.previous ? sharedDocumentDigest(input.previous) : null]),
-    retainedFactsDigest: retentionOperationsDigest(retained), indexDigest: retentionIndexDigest(replica.operationIndex),
+    retainedFactsDigest: retentionOperationsDigest(retained, format), indexDigest: retentionIndexDigest(replica.operationIndex, format),
     anchors: sortAnchors(anchors.values()), roundStates: sortAnchors(rounds.values()),
     retainedCount: retained.length, authorityStates });
-  return { body, retained, removedIds: replica.operations.filter(op => !retained.includes(op)).map(op => op.operationId) };
+  const retainedIds = new Set(retained.map(op => op.operationId));
+  return { body, retained, removedIds: replica.operations.filter(op => !retainedIds.has(op.operationId)).map(op => op.operationId) };
 }

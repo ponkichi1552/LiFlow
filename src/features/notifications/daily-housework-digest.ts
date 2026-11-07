@@ -46,11 +46,8 @@ export function createDailyHouseworkDigestRequests(
 
   for (let offset = 0; offset <= SCHEDULE_HORIZON_DAYS; offset += 1) {
     const date = addDays(today, offset);
-    const fireAt = snapshot.timeZone ? sharedDateAtTime(date, snapshot.settings.notificationHour, snapshot.settings.notificationMinute, snapshot.timeZone)
-      : localDateAtTime(date, snapshot.settings.notificationHour, snapshot.settings.notificationMinute);
-    if (fireAt <= now) continue;
-
-    const entries = entriesByDate.get(date) ?? [];
+    const entries = entriesByDate.get(date);
+    if (!entries?.length) continue;
     const choreIds = [...new Set(entries.map(entry => entry.choreId))];
     const completions = choreIds.flatMap(id => completionsByChore.get(id) ?? []);
     const chores = choreIds.flatMap(id => choresById.get(id) ?? []);
@@ -65,6 +62,9 @@ export function createDailyHouseworkDigestRequests(
       })
       .filter((name): name is string => Boolean(name));
     if (names.length === 0) continue;
+    const fireAt = snapshot.timeZone ? sharedDateAtTime(date, snapshot.settings.notificationHour, snapshot.settings.notificationMinute, snapshot.timeZone)
+      : localDateAtTime(date, snapshot.settings.notificationHour, snapshot.settings.notificationMinute);
+    if (fireAt <= now) continue;
 
     const visibleNames = names.slice(0, 4).join('、');
     const remaining = names.length - Math.min(names.length, 4);

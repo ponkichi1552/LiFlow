@@ -69,7 +69,9 @@ export function toApplianceCareChore(
     instructions: [...approved.task.steps],
     tools: [...approved.task.tools],
     cautions: [...approved.task.safetyCautions],
-    ...(approved.task.estimatedMinutes !== undefined ? { estimatedMinutes: approved.task.estimatedMinutes } : {}),
+    // Some older saved analyses used zero for an unknown duration. Such data
+    // stays readable but must not create a zero-duration adaptive task.
+    ...(approved.task.estimatedMinutes !== undefined && approved.task.estimatedMinutes > 0 ? { estimatedMinutes: approved.task.estimatedMinutes } : {}),
     applianceCareSource: {
       manufacturer: product.manufacturer,
       productName: product.productName,

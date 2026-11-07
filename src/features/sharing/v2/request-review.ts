@@ -9,9 +9,12 @@ import { counterofferDesignationOptions } from './date-options.ts';
 /** A valid historical action does not silently acknowledge an as-yet unseen contradictory answer. */
 export function unresolvedRequestReviews(input: { occurrence: SharedOccurrence; subjectUserId: string | null;
   candidates: readonly ManualRuleFact[]; allRules: readonly ManualRuleFact[]; requests: readonly V2DateRequestState[]; view: V2HistoryView }): string[] {
+  const applicable = input.requests.filter(state => state.conflictIds.length && state.proposal.choreId === input.occurrence.choreId
+    && state.proposal.subjectUserId === input.subjectUserId && ruleSelectorMatches(state.proposal.selector, input.occurrence));
+  if (!applicable.length) return [];
   const rules = new Map(input.allRules.map((fact) => [fact.operationId, fact]));
   const result: string[] = [];
-  for (const state of input.requests) {
+  for (const state of applicable) {
     const proposal = state.proposal;
     if (!state.conflictIds.length || proposal.choreId !== input.occurrence.choreId || proposal.subjectUserId !== input.subjectUserId
       || !ruleSelectorMatches(proposal.selector, input.occurrence)) continue;

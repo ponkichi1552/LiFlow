@@ -731,6 +731,8 @@ export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOn
     const { clearInactiveV2Reminders } = await import('./v2-reminders');
     await clearInactiveV2Reminders(record?.status === 'active' ? [record] : [], async () => {
       if ((await sharingSessionUser())?.uid !== owner || Date.now() - start >= budgetMs) throw new Error('通知の更新状態が変わりました。');
+      const latest = await currentSharingWorkspace();
+      if (latest?.groupId !== record?.groupId || latest?.userId !== record?.userId || latest?.status !== record?.status || latest?.localGeneration !== record?.localGeneration || latest?.v2Migration?.databaseGeneration !== record?.v2Migration?.databaseGeneration) throw new Error('通知を更新する所属が変わりました。');
     });
   } catch (error) { failures.push(error); }
   if (record && budgetMs - (Date.now() - start) >= 1000) {
@@ -768,7 +770,9 @@ export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOn
         }).catch(error => { failures.push(error); });
       }
       const historyBudget = budgetMs - (Date.now() - start);
-      if (historyBudget >= 5000) await workspace.maintainHistory(historyBudget).catch(() => undefined);
+      // Full ledger verification and snapshot/retention maintenance run in foreground.
+      // OS callbacks reserve their remaining time for durable outbox and delta work.
+      if (!options.deltaOnly && historyBudget >= 5000) await workspace.maintainHistory(historyBudget).catch(() => undefined);
     } catch (error) { failures.push(error); }
   }
   if (failures.length) throw failures[0];

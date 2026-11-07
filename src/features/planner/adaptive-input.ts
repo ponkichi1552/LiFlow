@@ -72,7 +72,7 @@ export function prepareAdaptivePlacementInput(input: {
       maximumMinutes: override?.maximumMinutes ?? own.maximumMinutes, heavyLimit: own.heavyLimit, normalLimit: own.normalLimit });
   }
   const busy = unionInstantSpans([...localCalendarIntervals(input.events, input.exceptions, input.from, input.through, input.timeZone), ...(input.busy ?? [])]);
-  const holidaysConfigured = own.restDays.length > 0 || own.dayOverrides.some(day => day.holiday === true);
+  const holidaysConfigured = own.restDays.length > 0 || days.some(day => day.holiday);
   // Exact intervals, not daily totals: moving an equally long event can invalidate a slot.
   const revision = input.fingerprint(['adaptive-input-v1', input.timeZone, days, busy, holidaysConfigured]);
   return { days, busy, holidaysConfigured, unresolvedDates, revision, ...(input.weatherForecast ? { weatherForecast: input.weatherForecast } : {}) };

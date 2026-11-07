@@ -14,7 +14,8 @@ export async function publishTodayWidgetSnapshot(snapshot: PlannerSnapshot): Pro
     now.toISOString(), snapshot.timeZone,
   );
   widget.householdCreatedAt = snapshot.household?.createdAt;
-  widget.chores = widget.chores.map(chore => ({ ...chore, entry: snapshot.scheduleEntries.find(entry => entry.id === chore.id) }));
+  widget.chores = widget.chores.map(chore => ({ ...chore, entry: snapshot.scheduleEntries.find(entry => entry.id === chore.id),
+    completionGeneration: snapshot.widgetCompletionGenerations?.[chore.id] ?? 0 }));
   // The refresh controller keeps the screen usable and retries an unfinished output.
   await expoWidgetGateway.updateNextChore(widget);
 }

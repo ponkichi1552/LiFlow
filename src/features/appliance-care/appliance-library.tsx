@@ -20,10 +20,10 @@ export function ApplianceLibrary({ items, joined = false, personalReady = true, 
   const insets = useSafeAreaInsets();
   const [adding, setAdding] = useState(false); const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const continuing = useRef(false);
+  const continuing = useRef(false); const latestName = useRef('');
   const proceed = () => {
     if (continuing.current || busy) return;
-    const productName = name.trim(); if (!productName) { setError('製品名を入力してください。'); return; }
+    const productName = latestName.current.trim(); if (!productName) { setError('製品名を入力してください。'); return; }
     continuing.current = true; setAdding(false); onAdd(joined ? 'shared' : 'personal', productName);
   };
   return <View style={styles.root}>
@@ -44,13 +44,13 @@ export function ApplianceLibrary({ items, joined = false, personalReady = true, 
       </Pressable>}
       ListFooterComponent={footer ? <>{footer}</> : undefined} />
     <View pointerEvents="box-none" style={[styles.add, { bottom: Math.max(insets.bottom, 12) }]}>
-      <AppButton title="家電を追加" disabled={busy} onPress={() => { continuing.current = false; setName(''); setError(null); setAdding(true); }} />
+      <AppButton title="家電を追加" disabled={busy} onPress={() => { continuing.current = false; latestName.current = ''; setName(''); setError(null); setAdding(true); }} />
     </View>
     <Modal visible={adding} transparent animationType="fade" onRequestClose={() => setAdding(false)}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.backdrop}>
         <View style={styles.dialog}><Text style={styles.dialogTitle}>家電を追加</Text>
           <FormTextInput autoFocus accessibilityLabel="家電の製品名" value={name} maxLength={120} placeholder="例：V12 Detect Slim"
-            placeholderTextColor={palette.muted} returnKeyType="done" onChangeText={value => { setName(value); setError(null); }} onSubmitEditing={proceed} style={styles.input} />
+            placeholderTextColor={palette.muted} returnKeyType="done" onChangeText={value => { latestName.current = value; setName(value); setError(null); }} onSubmitEditing={proceed} style={styles.input} />
           {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
           <View style={styles.dialogActions}><AppButton title="キャンセル" compact variant="quiet" onPress={() => setAdding(false)} /><AppButton title="次へ" compact onPress={proceed} /></View>
         </View>

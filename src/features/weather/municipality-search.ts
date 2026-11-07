@@ -17,11 +17,12 @@ const rows = data.regions as RegionRow[];
 const prefectures = data.prefectures as Record<string, string[]>;
 const normalize = (value: string) => value.normalize('NFKC').toLowerCase().replace(/[\u30a1-\u30f6]/gu,
   character => String.fromCharCode(character.charCodeAt(0) - 0x60)).replace(/[\s・,.'’-]/gu, '');
-interface IndexedRegion { row: RegionRow; name: string; kana: string; search: string }
+interface IndexedRegion { row: RegionRow; name: string; kana: string; search: string; label: string }
 let indexed: IndexedRegion[] | undefined;
 let byId: Map<string, RegionRow> | undefined;
 function municipalityIndex() {
   return indexed ??= rows.map(row => ({ row, name: normalize(row[3]), kana: normalize(row[4]),
+    label: normalize(`${row[3]}, ${row[2]}`),
     search: normalize(`${prefectures[row[1]]?.join(' ') ?? row[2]}${row[3]} ${row[4]} ${row[5]}`) }));
 }
 function candidate(row: RegionRow): WeatherRegionCandidate {
@@ -66,7 +67,7 @@ export function resolveWeatherMunicipality(location: WeatherLocation | null | un
   if (!location) return null;
   if (location.municipalityId) return municipalityById(location.municipalityId);
   const label = normalize(location.displayName);
-  const matches = municipalityIndex().filter(({ row }) => normalize(`${row[3]}, ${row[2]}`) === label
+  const matches = municipalityIndex().filter(({ row, label: indexedLabel }) => indexedLabel === label
     && location.latitude >= row[10][0] - 0.015 && location.latitude <= row[10][2] + 0.015
     && location.longitude >= row[10][1] - 0.015 && location.longitude <= row[10][3] + 0.015);
   return matches.length === 1 ? candidate(matches[0].row) : null;

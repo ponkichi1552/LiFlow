@@ -27,7 +27,7 @@ async function fixture(t, count) {
     if (req.method === 'GET') return finish(200, row);
     if (req.headers['if-match'] !== row.etag) return finish(412, {});
     if (req.method === 'PATCH') {
-      const next = { ...row, ...body, etag: row.etag + 'x' };
+      const next = { ...row, ...body, etag: `${row.etag.slice(0, -1)}x"` };
       for (const key of ['location', 'description', 'transparency', 'recurrence']) if (Object.hasOwn(body, key) && !Object.hasOwn(normalize(body), key)) delete next[key];
       remote.set(id, normalize(next));
       if (lose === 'patch') { lose = undefined; res.destroy(); return; } return finish(200, remote.get(id));

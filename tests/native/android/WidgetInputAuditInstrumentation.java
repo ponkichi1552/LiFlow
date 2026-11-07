@@ -54,7 +54,7 @@ public final class WidgetInputAuditInstrumentation extends Instrumentation {
       JSONObject props = new JSONObject().put("widgetAccountScope", "synthetic-owner").put("subscriptionEnforced", true)
         .put("householdCreatedAt", "2026-11-05T00:00:00Z")
         .put("accessUntil", start + 120000).put("contentUntil", start + 120000).put("publishedAtMs", start - 1000).put("displayDate", day)
-        .put("chores", new JSONArray().put(new JSONObject().put("id", "row").put("completed", false).put("entry", entry)));
+        .put("chores", new JSONArray().put(new JSONObject().put("id", "row").put("completed", false).put("completionGeneration", 7).put("entry", entry)));
       String key = "__expo_widgets_NextChoreWidget_props";
       check(preferences.edit().putString(key, props.toString()).commit());
       check(WidgetCompletionDatabase.INSTANCE.enqueue(isolated, "row"));
@@ -67,6 +67,7 @@ public final class WidgetInputAuditInstrumentation extends Instrumentation {
         check(operation.getJSONObject("entry").toString().equals(entry.toString()));
         check(operation.getLong("acceptedAtMs") >= start && operation.getLong("acceptedAtMs") <= System.currentTimeMillis());
         check(operation.getString("completedLocalDate").equals(day));
+        check(operation.getLong("completionGeneration") == 7);
       }
       String[] fields = { "accessUntil", "contentUntil", "publishedAtMs", "displayDate", "widgetAccountScope", "subscriptionLocked", "contentStale", "householdCreatedAt" };
       Object[] values = { start - 1, start - 1, "NaN", "2000-01-01", "", true, true, "2000-01-01T00:00:00Z" };

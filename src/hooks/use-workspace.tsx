@@ -74,6 +74,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (!next) setStartupDisplay(null);
       void import('@/platform/sharing/v2-reminders').then(module => module.clearInactiveV2Reminders(record?.status === 'active' ? [record] : [], async () => {
         if (!await check()) throw new Error('通知を更新するアカウントが変わりました。');
+        const latest = await currentSharingWorkspace();
+        if (latest?.groupId !== record?.groupId || latest?.userId !== record?.userId || latest?.status !== record?.status || latest?.localGeneration !== record?.localGeneration || latest?.v2Migration?.databaseGeneration !== record?.v2Migration?.databaseGeneration) throw new Error('通知を更新する所属が変わりました。');
       })).catch(() => undefined);
     } catch (cause) {
       if (!await check()) return;

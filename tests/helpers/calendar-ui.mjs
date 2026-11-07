@@ -14,7 +14,8 @@ export async function selectCalendarView(screen, label) {
 }
 export async function openCalendarDay(screen, date, { chores = true } = {}) {
   await scrollCalendarToDate(screen, date);
-  const day = screen.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith(`${formatJapaneseDate(date, { year: true })}、`));
+  const label = formatJapaneseDate(date, { year: true });
+  const day = screen.nodes().find(node => node.props.accessibilityRole === 'button' && (node.props.accessibilityLabel === label || node.props.accessibilityLabel?.startsWith(`${label}、`)));
   assert.ok(day, `missing visible calendar date ${date}`); await day.props.onPress(); await screen.flush();
   const expand = `${formatJapaneseDate(date, { year: true })}の家事を開く`;
   if (chores && screen.nodes().some(node => node.props.accessibilityLabel === expand)) await screen.press(expand);

@@ -2,6 +2,8 @@
 
 開発コードの正本は`main`です。[作業とブランチ整理の方針](docs/development-workflow.md)に従って変更を統合します。
 
+2026-11-07の[追加100件と最終検査の修正](docs/audits/2026-11-07-additional-100.md)では、完了・取消し、Google Tasks／Calendar、共有同期、SQLiteと予定計算を検査しました。別途、[開発ツールの依存対策](docs/audits/2026-11-07-toolchain-security.md)でglob／minimatchを公式修正版へ移行し、アプリ・家電API・端末管理APIのnpm auditはすべて0件になりました。検査の範囲と実測値は[監査記録](docs/audits/2026-11-07-additional-100.json)に記載しています。
+
 > **家事を記録するだけではなく、家事を「いつ・何を・どうやるか考える負担」まで減らす。**
 
 周期、家事の負荷、休日、天気、Google Calendarの忙しさを考慮して、家事を行うタイミングを自動で調整する家事Plannerです。

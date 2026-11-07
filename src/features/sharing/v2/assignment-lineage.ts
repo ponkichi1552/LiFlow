@@ -14,8 +14,7 @@ export function v2AssignmentLineage(view: V2HistoryView, at: SharedOperation, ch
     if (versions.has(cfg.ruleVersion)) throw new Error('Cyclic assignment source'); versions.add(cfg.ruleVersion);
     if (!cfg.assignmentSourceVersion) break;
     if (cfg.assignmentSourceVersion >= cfg.ruleVersion) throw new Error('Invalid assignment source revision');
-    const previous = view.field('chorePolicy', choreId, 'configuration', at,
-      (op) => (op.payload.configuration as unknown as SharedChoreConfiguration).ruleVersion === cfg.assignmentSourceVersion)?.value as unknown as SharedChoreConfiguration | undefined;
+    const previous = view.configurationVersion(choreId, cfg.assignmentSourceVersion, at)?.value as unknown as SharedChoreConfiguration | undefined;
     if (!previous || canonicalJson(previous.policy) !== canonicalJson(cfg.policy)) throw new Error('Confirm the inherited assignment policy');
     cfg = previous;
   }

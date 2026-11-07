@@ -11,16 +11,14 @@ import { isTaskUrgent } from '../../../domain/scheduling/task-priority';
 import type { LocalDate } from '../../../domain/shared/types';
 import { sameOccurrenceAfterCompletion } from '../../../domain/scheduling/date-task-reference';
 
-export function V2PrivateTaskNotice({ overlay, sharedTimeZone, date }: { overlay?: V2PrivateOverlayState; sharedTimeZone: string; date?: string }) {
+export function V2PrivateTaskNotice({ overlay, sharedTimeZone }: { overlay?: V2PrivateOverlayState; sharedTimeZone: string; date?: string }) {
   if (!overlay) return null;
   if (overlay.status === 'unavailable') return <Text accessibilityRole="alert" style={styles.caption}>{overlay.message}</Text>;
-  if (overlay.timeZone === sharedTimeZone && overlay.setupCompleted && (!date || date >= overlay.today && date <= overlay.generatedThrough)) return null;
+  if (overlay.timeZone === sharedTimeZone && overlay.setupCompleted) return null;
   return <View style={{ gap: 4 }}>
     {overlay.timeZone !== sharedTimeZone ? <Text style={styles.caption}>個人家事：本人のみ · {overlay.timeZone}</Text> : null}
     {overlay.timeZone !== sharedTimeZone ? <Text style={styles.caption}>個人家事は元の日付で表示しています。地域が異なるため、共有家事の推奨日計算には含めていません。</Text> : null}
-    {!overlay.setupCompleted ? <Text style={styles.caption}>個人家事の初期設定を完了すると、ここにも表示されます。</Text>
-      : date && date > overlay.generatedThrough ? <Text style={styles.caption}>個人予定の通常生成範囲外です。保存済みの予定だけ表示します。</Text>
-        : date && date < overlay.today ? <Text style={styles.caption}>過去の個人家事は、端末に残る予定と実施記録を表示します。</Text> : null}
+    {!overlay.setupCompleted ? <Text style={styles.caption}>個人家事の初期設定を完了すると、ここにも表示されます。</Text> : null}
   </View>;
 }
 
@@ -29,14 +27,15 @@ export function V2PrivateTaskCard({ row, source, busy, run, feedback, today = ro
   onOpen?: () => void; run: (work: () => Promise<unknown>) => Promise<void> }) {
   const [open, setOpen] = useState(false); const chore = row.chore;
   const completed = feedback?.values.get(row.key) ?? row.completed;
-  const queueable = feedback?.supports?.('personal') && feedback.request;
+  const queueable = !row.provisional && feedback?.supports?.('personal') && feedback.request;
   return <View style={{ gap: 6 }}>
     <TaskCheckboxRow chore={{ ...chore, category: `本人のみ${chore.category ? ` · ${chore.category}` : ''}` }} completed={completed} source="personal" home={home} compact={compact} mixedSources={mixedSources} detailsExpanded={onOpen ? undefined : open}
+      provisional={row.provisional} contextLabel={row.provisional ? '次回の仮予定' : undefined}
       seasonalWork={row.seasonalWork}
       executionWindow={row.windowStart && row.windowEnd ? { start: row.windowStart, end: row.windowEnd } : undefined}
-      urgent={isTaskUrgent({ completed, load: chore.load, recommendedDate: row.suggestedDate, windowEnd: row.windowEnd }, today)}
+      urgent={isTaskUrgent({ completed, load: chore.load, recommendedDate: row.suggestedDate, windowStart: row.windowStart, windowEnd: row.windowEnd }, today)}
       onOpen={onOpen ?? (() => setOpen((value) => !value))}
-      onToggle={queueable ? () => feedback!.request!(row.key, !completed, { kind: 'personal',
+      onToggle={row.provisional ? undefined : queueable ? () => feedback!.request!(row.key, !completed, { kind: 'personal',
         command: { date: row.date, graceDays: row.graceDays, choreId: row.chore.id, revision: row.revision } }) : !busy && source && !feedback?.values.has(row.key) ? () => feedback
         ? feedback.run(row.key, !row.completed, async () => {
           const changed = await source.setCompleted(row.key, row.revision, !row.completed);

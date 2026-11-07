@@ -2,14 +2,70 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import test from 'node:test';
+import {loadNativeModule} from './helpers/native-module.mjs';
 
 registerHooks({ resolve(specifier, context, nextResolve) {
   if (specifier === 'react-native') return { url: 'data:text/javascript,export const Platform = { OS: "ios" };', shortCircuit: true };
   if (specifier === '../../platform/appliance-care/auth') return { url: 'data:text/javascript,let sequence=0;export async function authorizeApplianceCareApi(){if(globalThis.syntheticApplianceAuthPause)await globalThis.syntheticApplianceAuthPause;const id="synthetic-request-"+(++sequence);return {headers:async()=>({authorization:"Bearer synthetic-client", "x-idempotency-key":id})}}', shortCircuit: true };
   return nextResolve(specifier, context);
 } });
-const { analyzeApplianceCareRequest } = await import('../src/features/appliance-care/api-client.ts');
+const { analyzeApplianceCareRequest, abortApplianceWait, isApplianceCareUsage } = await import('../src/features/appliance-care/api-client.ts');
 const request = { manufacturer: 'Dyson', productName: 'V12', modelNumber: 'SV20' };
+
+test('an unreadable completed paid result retains its original admission for retry instead of starting a second charge',async()=>{
+  const original=globalThis.fetch;const ids=[];let invalid=true;
+  try{
+    globalThis.fetch=async(_url,options)=>{
+      if(options.method==='POST'){ids.push(options.headers['x-idempotency-key']);return Response.json({jobId:'synthetic-unreadable-result'});}
+      return Response.json({stage:'official_manual_analysis',done:true,result:invalid?{status:'verified',analysis:null}
+        :{status:'not_found',message:'合成した復旧結果'}});
+    };
+    const input={...request,modelNumber:'SYNTHETIC-MALFORMED-DONE',forceReanalysis:true};
+    assert.equal((await analyzeApplianceCareRequest(input,'https://api.example.test')).code,'TEMPORARY_NETWORK_ERROR');
+    invalid=false;assert.equal((await analyzeApplianceCareRequest(input,'https://api.example.test')).status,'not_found');
+    assert.equal(ids[0],ids[1],'retry the same paid admission when its returned result was unreadable');
+    await analyzeApplianceCareRequest(input,'https://api.example.test');assert.notEqual(ids[1],ids[2]);
+  }finally{globalThis.fetch=original;}
+});
+
+for(const phase of ['start-fetch','start-body','poll-fetch','poll-body'])test(`appliance timeout settles an unresponsive ${phase} even when native transport ignores abort`,async t=>{
+  t.mock.timers.enable({apis:['Date','setTimeout'],now:Date.parse('2026-11-07T00:00:00Z')});
+  const original=globalThis.fetch;let release;let settled=false;let answer;
+  try{
+    globalThis.fetch=async(_url,options)=>{
+      const start=options.method==='POST';const target=(start?'start':'poll');
+      if(phase===`${target}-fetch`)return new Promise(resolve=>{release=()=>resolve(Response.json({status:'not_found',message:'遅れた合成応答'}));});
+      if(phase===`${target}-body`)return {ok:true,json:()=>new Promise(resolve=>{release=()=>resolve({status:'not_found',message:'遅れた合成応答'});})};
+      return Response.json({jobId:'synthetic-stalled-transport'});
+    };
+    const run=analyzeApplianceCareRequest({...request,modelNumber:`SYNTHETIC-${phase}`},'https://api.example.test',1000).then(value=>{settled=true;answer=value;return value;});
+    while(!release)await new Promise(resolve=>setImmediate(resolve));
+    t.mock.timers.tick(1000);await new Promise(resolve=>setImmediate(resolve));
+    const timely=settled;release();await run;
+    assert.equal(timely,true,'timeout must settle without waiting for the ignored native cancellation');
+    assert.match(answer.message,/タイムアウト/);assert.notEqual(answer.status,'not_found');
+  }finally{release?.();globalThis.fetch=original;}
+});
+
+for(const phase of ['fetch','body'])test(`account usage binding also respects its deadline when ${phase} ignores native abort`,async t=>{
+  t.mock.timers.enable({apis:['Date','setTimeout'],now:Date.parse('2026-11-07T00:00:00Z')});
+  const original=globalThis.fetch;const previous=process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL;let release;let settled=false;
+  process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL='https://api.example.test';
+  try{
+    const user={uid:'binding-owner',getIdToken:async()=>'synthetic-id-token'};
+    const module=loadNativeModule('src/platform/appliance-care/auth.ts',{
+      'expo-crypto':{randomUUID:()=> 'synthetic-binding-request'},
+      '../sharing/firebase-services':{isSharingConfigured:()=>true,getSharingServices:()=>({auth:{currentUser:user,authStateReady:async()=>{}}})},
+      '../../features/appliance-care/api-client':{abortApplianceWait,isApplianceCareUsage},
+    });
+    const usage={limit:5,used:0,remaining:5,resetsAt:'2026-12-01T00:00:00Z'};
+    globalThis.fetch=async()=>phase==='fetch'?new Promise(resolve=>{release=()=>resolve(Response.json({usage}));})
+      :{ok:true,json:()=>new Promise(resolve=>{release=()=>resolve({usage});})};
+    const pending=module.bindApplianceAccount(user.uid).then(value=>{settled=true;return value;},error=>{settled=true;return error;});
+    while(!release)await new Promise(resolve=>setImmediate(resolve));t.mock.timers.tick(10000);await new Promise(resolve=>setImmediate(resolve));
+    const timely=settled;release();const result=await pending;assert.equal(timely,true);assert.ok(result instanceof Error);
+  }finally{release?.();globalThis.fetch=original;if(previous===undefined)delete process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL;else process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL=previous;}
+});
 
 test('malformed API results are rejected before screens dereference them', async () => {
   const originalFetch = globalThis.fetch;
@@ -55,7 +111,7 @@ test('valid verified analysis still reaches the screen', async () => {
 test('stored analysis compatibility never weakens the review and source requirements for newly received API results', async () => {
   const originalFetch = globalThis.fetch;
   const source = 'https://www.dyson.co.jp/support/SV20';
-  const task = { name: 'フィルター清掃', steps: ['冷水で洗う'], tools: [], safetyCautions: [], evidence: [{ url: source }], estimatedMinutes: 0 };
+  const task = { name: 'フィルター清掃', steps: ['冷水で洗う'], tools: [], safetyCautions: [], evidence: [{ url: source }], estimatedMinutes: 1 };
   const analysis = { manufacturer: 'Dyson', model: 'SV20', analyzedAt: '2026-10-28T00:00:00Z', requiresUserReview: true, tasks: [task] };
   const response = value => ({ status: 'verified', product: request, officialSources: { manualUrl: source }, analysis: value });
   try {

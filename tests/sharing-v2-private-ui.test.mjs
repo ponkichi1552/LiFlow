@@ -9,9 +9,10 @@ import { createV2GroupController } from '../src/features/sharing/v2/controller.t
 import { createV2ScreenSession } from '../src/features/sharing/v2-ui/screen-session.ts';
 import { listSharingOutbox } from '../src/platform/storage/sharing-ledger.ts';
 const repository = await import('../src/platform/storage/repository.ts');
+const { bindAdaptiveOwnerReader, AdaptiveOwnerInputsChangedError } = await import('../src/platform/storage/adaptive-owner-inputs.ts');
 
-async function setup({ common = false } = {}) {
-  const personal = await privateFixture({ commonHistory: common }); const shared = await fixture(common ? { clock: () => new Date() } : undefined); const d = await shared.device(); let id = 0;
+async function setup({ common = false, liveClock = false } = {}) {
+  const personal = await privateFixture({ commonHistory: common }); const shared = await fixture(common || liveClock ? { clock: () => new Date() } : undefined); const d = await shared.device(); let id = 0;
   const initial = seeds(); initial[1].payload.timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   initial[1].payload.anchorDate = privateToday; initial[3].payload.configuration.anchorDate = privateToday;
   if (common) initial[2].payload.name = personal.chore.name;
@@ -31,6 +32,28 @@ function checkbox(screen, name, completed = false) {
 }
 
 for (const platform of ['ios', 'android']) {
+  const recoveryName = platform === 'ios'
+    ? 'ios a shared completion keeps private home rows when the owner inputs change during the following read'
+    : 'android a shared completion keeps private home rows when the owner inputs change during the following read';
+  test(recoveryName, async () => {
+    const f = await setup({ liveClock: true }); let focus; let leave; let unbind; let reads = 0; let screen;
+    try {
+      const model = await f.session.readModel(); const name = model.plan.chores[0].name;
+      screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen', platform,
+        props: { purpose: 'workspace', view: 'home', loadSession: async () => f.session, onBack() {}, onConfiguration() {}, onHistory() {} },
+        focusEffect: fn => { focus = fn; } });
+      leave = focus(); await ready(screen, f.personal.chore.name);
+      unbind = bindAdaptiveOwnerReader(f.personal.database, async () => {
+        if (++reads === 1) throw new AdaptiveOwnerInputsChangedError();
+        return { ownerUserId: 'owner', preferences: null, common: null, assertCurrent() {} };
+      });
+      await checkbox(screen, name).props.onPress(); await screen.flush();
+      assert.ok(screen.text().includes(f.personal.chore.name), 'a retryable read race must not publish a shared-only home');
+      assert.doesNotMatch(screen.text(), /個人家事を取得できません/u);
+      assert.equal(checkbox(screen, name, true).props.accessibilityState.checked, true);
+      assert.equal(reads, 2, 'the second read captures fresh owner inputs instead of reusing the rejected scope');
+    } finally { leave?.(); screen?.unmount(); unbind?.(); f.close(); }
+  });
   test(`${platform} v2 common chores share one row and mirror completion undo and load counts while preserving original private settings`, async () => {
     const f = await setup({ common: true }); let focus;
     try {

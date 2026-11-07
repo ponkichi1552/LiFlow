@@ -33,34 +33,36 @@ export function createPrivatePlannerCloud(firestore: Firestore, ownerUserId: str
     const { createdAt: _createdAt, updatedAt: _updatedAt, ...head } = data;
     assertPrivateCalendarCloudAuthority(parsePrivateCalendarCloudHead(head as unknown as Parameters<typeof parsePrivateCalendarCloudHead>[0], ownerUserId), authority);
   }
-  const read = async (authority: VerifiedPrivateCalendarAuthority) => {
-    check();
+  const read = async (authority: VerifiedPrivateCalendarAuthority, assertBudget: () => void = () => {}) => {
+    const guard = () => { check(); assertBudget(); };
+    guard();
     const result = await runTransaction(firestore, async transaction => {
-      check(); const [head, saved] = await Promise.all([transaction.get(root), transaction.get(reference)]); check(); assertRoot(head.data(), authority);
+      guard(); const [head, saved] = await Promise.all([transaction.get(root), transaction.get(reference)]); guard(); assertRoot(head.data(), authority);
       const value = saved.exists() ? decode(saved.data()) : null;
       if (value && (value.body.ownerUserId !== ownerUserId || value.body.accountGeneration !== authority.anchor.accountGeneration
         || value.body.rootDigest !== authority.anchor.rootDigest || value.body.keyVersion > authority.signed.body.keyVersion)) throw new Error('本人設定の信頼・鍵世代を確認してください。');
       return value;
-    }); check(); return result;
+    }); guard(); return result;
   };
   return sharingCloudWithDeadline({ read,
-    async publish(authority: VerifiedPrivateCalendarAuthority, incoming: EncryptedPrivatePreferences) {
-      check(); const own = verifyEncryptedPrivatePreferences(incoming, authority); const wanted = privatePreferenceCursor(own); const body = content(own);
+    async publish(authority: VerifiedPrivateCalendarAuthority, incoming: EncryptedPrivatePreferences, assertBudget: () => void = () => {}) {
+      const guard = () => { check(); assertBudget(); };
+      guard(); const own = verifyEncryptedPrivatePreferences(incoming, authority); const wanted = privatePreferenceCursor(own); const body = content(own);
       try {
         const result = await runTransaction(firestore, async transaction => {
-          check(); const [head, saved] = await Promise.all([transaction.get(root), transaction.get(reference)]); check(); assertRoot(head.data(), authority);
+          guard(); const [head, saved] = await Promise.all([transaction.get(root), transaction.get(reference)]); guard(); assertRoot(head.data(), authority);
           const previous = saved.exists() ? decode(saved.data()) : null; const cursor = previous ? privatePreferenceCursor(previous) : null;
           if (samePrivatePreferenceCursor(cursor, wanted)) return { published: false };
           if (!samePrivatePreferenceCursor(cursor, own.body.parent)) throw new PrivatePreferenceCloudConflict();
           transaction.set(reference, { ...body, createdAt: saved.exists() ? saved.data().createdAt : serverTimestamp(), updatedAt: serverTimestamp() });
           return { published: true };
-        }); check(); return result;
+        }); guard(); return result;
       } catch (error) {
-        check(); if (error instanceof PrivatePreferenceCloudConflict) throw error;
+        guard(); if (error instanceof PrivatePreferenceCloudConflict) throw error;
         // The server can have committed before a lost reply. Read the exact envelope, never reseal/rebase in a transaction retry.
         if (error && typeof error === 'object' && 'code' in error && ['aborted', 'failed-precondition', 'unavailable', 'deadline-exceeded', 'permission-denied'].includes(String(error.code))) {
-          try { const saved = await read(authority); if (saved && samePrivatePreferenceCursor(privatePreferenceCursor(saved), wanted)) return { published: false }; }
-          catch { check(); }
+          try { const saved = await read(authority, assertBudget); if (saved && samePrivatePreferenceCursor(privatePreferenceCursor(saved), wanted)) return { published: false }; }
+          catch { guard(); }
         }
         throw error;
       }

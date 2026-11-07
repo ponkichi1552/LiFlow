@@ -4,11 +4,18 @@ import type { LocalDate } from '../../domain/shared/types';
 import { projectCalendarEvents } from '../../domain/calendar/events.ts';
 import type { EventDraft } from '../../domain/calendar/events';
 import { googleEventBody } from './google-event-mapping.ts';
+import { calendarImportFormatter } from './import-formatter.ts';
+
+/** A range can contain a preceding multi-day occurrence as well as this anchor. */
+export function calendarOccurrenceAt(series: EventDraft, eventId: string, anchorDate: LocalDate) {
+  return projectCalendarEvents([{ ...series, id: eventId, revision: 1 }], [], anchorDate, anchorDate)
+    .find(row => row.eventId === eventId && row.anchorDate === anchorDate) ?? null;
+}
 
 export function googleOriginalDate(remote: GoogleCalendarEvent, timeZone: string): string | null {
   if (remote.originalStartTime?.date) return remote.originalStartTime.date;
   const at = remote.originalStartTime?.dateTime; if (!at || !Number.isFinite(Date.parse(at))) return null;
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(at)).map(part => [part.type, part.value]));
+  const parts = Object.fromEntries(calendarImportFormatter(timeZone).formatToParts(new Date(at)).map(part => [part.type, part.value]));
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
@@ -22,11 +29,13 @@ export async function findGoogleCalendarInstance(input: {
   if (input.knownId) {
     try {
       const row = await input.request(() => input.api.get(input.calendarId, input.knownId!));
-      if (!matches(row)) throw new Error('Google側の対象回の紐付けを確認してください。');
-      return row;
+      // Restoring a deleted series gives it a new Google ID. Its former
+      // exception can still exist as a tombstone under the old parent.
+      // Never mutate that row: resolve the exact original start on this parent.
+      if (matches(row)) return row;
     } catch (cause) { if (!(cause instanceof GoogleCalendarHttpError && [404, 410].includes(cause.status))) throw cause; }
   }
-  const occurrence = input.series && projectCalendarEvents([{ ...input.series, id: input.parentId, revision: 1 }], [], input.anchorDate, input.anchorDate)[0];
+  const occurrence = input.series && calendarOccurrenceAt(input.series, input.parentId, input.anchorDate);
   const body = occurrence && googleEventBody(occurrence, true);
   const start = body?.start as GoogleCalendarEvent['start'];
   const originalStart = start?.date ?? start?.dateTime;

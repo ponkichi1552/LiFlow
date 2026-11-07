@@ -30,11 +30,34 @@ test('ordinary settings retries a partial durable save without consuming another
   await assert.rejects(h.source.save(next), /local failed/u); const saved = await h.store.read(); assert.equal(saved.revision, 2);
   h.failLocal(false); await h.source.save(next); assert.equal((await h.store.read()).revision, 2); assert.deepEqual(h.source.settings(), next);
 });
+
+test('queued rhythm saves capture the requested value before async waits and keep protected and SQLite values identical', async t => {
+  const h = await fixture(t); let start; let release;
+  const started = new Promise(resolve => { start = resolve; }); const waiting = new Promise(resolve => { release = resolve; });
+  const prepare = h.store.prepareLocalProjection;
+  h.store.prepareLocalProjection = async value => { await prepare(value); start(); await waiting; };
+  const next = { ...local, restDays: [6], heavyDailyLimit: 4 }; const original = structuredClone(next);
+  const saving = h.source.save(next); await started;
+  next.restDays.push(2); next.heavyDailyLimit = 9; release(); await saving;
+  assert.deepEqual(h.calls[0].value, original, 'a changed caller object must never alter the accepted SQLite publication');
+  assert.deepEqual((await h.store.read()).restDays, original.restDays);
+  assert.equal((await h.store.read()).loadLimits.heavyDailyLimit, original.heavyDailyLimit);
+  const requested = { ...local, restDays: [5], heavyDailyLimit: 2 }; const accepted = structuredClone(requested);
+  const queued = h.source.save(requested); requested.restDays.push(1); requested.normalDailyLimit = 19;
+  await queued; assert.deepEqual(h.calls[1].value, accepted, 'serialization must retain the value at the original gesture');
+});
+
+test('reading rhythm settings returns independent arrays rather than mutable protected baselines', async t => {
+  const h = await fixture(t); const first = h.source.settings(); first.restDays.push(5);
+  assert.deepEqual(h.source.settings().restDays, [1]);
+  assert.deepEqual((await h.store.read()).restDays, [1]);
+});
 test('a newer rhythm edit after a partial save uses the accepted protected revision and retains the SQLite baseline', async t => {
   const h = await fixture(t); h.failLocal(true); await assert.rejects(h.source.save({ ...local, heavyDailyLimit: 4 }));
   h.failLocal(false); const newer = { ...local, heavyDailyLimit: 5 }; await h.source.save(newer);
   assert.equal((await h.store.read()).revision, 3); assert.equal((await h.store.read()).loadLimits.heavyDailyLimit, 5);
-  assert.deepEqual(h.calls[1], { value: newer, expected: local });
+  assert.deepEqual(h.calls[1], { value: { ...local, heavyDailyLimit: 4 }, expected: local }, 'recover the exact pending publication before replacing it');
+  assert.deepEqual(h.calls[2], { value: newer, expected: { ...local, heavyDailyLimit: 4 } });
 });
 test('ordinary settings cannot overwrite a concurrent private edit or a different authenticated account', async t => {
   const h = await fixture(t); await h.store.save(1, { ...own, restDays: [2] });
@@ -79,4 +102,16 @@ test('the real SQLite rhythm compare-and-set rejects a stale partial projection 
   assert.equal((await repository.loadPlannerSnapshot(d.database, '2026-11-04')).settings.heavyDailyLimit, 3);
   await repository.updatePlannerSettings(d.database, accepted, expected);
   assert.equal((await repository.loadPlannerSnapshot(d.database, '2026-11-04')).settings.heavyDailyLimit, 3);
+});
+
+test('a newer rhythm change recovers an already-applied SQLite write whose acknowledgement was lost before replacing its projection',async t=>{
+  const h=await fixture(t);let actual=structuredClone(local);let lose=true;
+  const source=createOwnerRhythmSettings({store:h.store,saved:await h.store.read(),local,timeZone:'Asia/Tokyo',saveLocal:async(value,expected)=>{
+    if(JSON.stringify(actual)!==JSON.stringify(expected)&&JSON.stringify(actual)!==JSON.stringify(value))throw new Error('SQLite compare and set conflict');
+    actual=structuredClone(value);if(lose){lose=false;throw new Error('SQLite acknowledgement lost');}
+  }});
+  const first={...local,heavyDailyLimit:4};await assert.rejects(source.save(first),/acknowledgement lost/);
+  const next={...local,heavyDailyLimit:5};await source.save(next);
+  assert.deepEqual(actual,next);assert.deepEqual(source.settings(),next);assert.equal(await h.store.readLocalProjection(),null);
+  assert.equal((await h.store.read()).loadLimits.heavyDailyLimit,5);
 });

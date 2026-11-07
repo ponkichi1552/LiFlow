@@ -1,7 +1,7 @@
 import { doc, getDocFromServer, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore';
 import type { DocumentData, DocumentSnapshot, Firestore, Transaction } from 'firebase/firestore';
 import type { GoogleTaskCreateIdentity, GoogleTaskCreateIntent } from '../../features/google-sync/task-create-intent';
-import { checkedSharedTaskClaim, linkSharedTaskClaim, releaseSharedTaskClaim, reserveSharedTaskClaim, sharedTaskClaimKey } from '../../features/google-sync/shared-task-claim.ts';
+import { checkedSharedTaskClaim, deleteSharedTaskClaim, linkSharedTaskClaim, releaseSharedTaskClaim, reserveSharedTaskClaim, sharedTaskClaimKey } from '../../features/google-sync/shared-task-claim.ts';
 import type { SharedTaskClaim, SharedTaskClaimCloud, SharedTaskClaimReader } from '../../features/google-sync/shared-task-claim';
 import { assertSharedIdentifier } from '../../features/sharing/identifier.ts';
 
@@ -68,7 +68,7 @@ export function createSharedGoogleTaskClaims(input: { firestore: Firestore; user
       await check(); return accepted;
     },
     reject: intent => rejectBatch([intent]), rejectBatch,
-    linked: (identity, taskId) => { const captured = { ...identity }; return update(captured, row => linkSharedTaskClaim(row, key(captured), taskId)); },
-    deleted: (identity, taskId) => update({ ...identity }, row => releaseSharedTaskClaim(row, { taskId })),
+    linked: (identity, taskId, expectedAttemptId) => { const captured = { ...identity }; return update(captured, row => linkSharedTaskClaim(row, key(captured), taskId, expectedAttemptId)); },
+    deleted: (identity, taskId, attemptId) => update({ ...identity }, row => deleteSharedTaskClaim(row, taskId, attemptId)),
   };
 }

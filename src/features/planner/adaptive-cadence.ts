@@ -3,9 +3,10 @@ import type { AdaptiveHistoryState } from '../../domain/scheduling/adaptive/hist
 import { adaptiveNextIntervalDays, adaptiveRepresentativeDays, roundedAdaptiveDays } from '../../domain/scheduling/adaptive/models.ts';
 import { adaptiveWindowRadius } from '../../domain/scheduling/adaptive/placement.ts';
 import { choreCadenceLabel } from '../../domain/chores/cycle-policy.ts';
+import type { AdaptiveModel } from '../../domain/scheduling/adaptive/models';
 
 /** Derived display only. Never persist learned parameters in a user override or a shared definition. */
-export interface PersonalCadenceView { mode: FrequencyMode; days: number | null; label: string; automatic: boolean; windowRadiusDays: number }
+export interface PersonalCadenceView { mode: FrequencyMode; days: number | null; label: string; automatic: boolean; windowRadiusDays: number; calendarModel?: AdaptiveModel }
 export function personalCadenceView(chore: ChoreDefinition, state: AdaptiveHistoryState): PersonalCadenceView {
   const model = state.model; const anchor = state.lastPlanCompletion?.date ?? state.policy.planningAnchorDate;
   const days = model ? roundedAdaptiveDays(anchor ? adaptiveNextIntervalDays(model, anchor) : adaptiveRepresentativeDays(model)) : null;
@@ -14,6 +15,6 @@ export function personalCadenceView(chore: ChoreDefinition, state: AdaptiveHisto
       : model.method === 'monthEnd' ? model.months === 1 ? '毎月末' : `${model.months}か月ごとの月末`
         : model.method === 'alternating' ? `${roundedAdaptiveDays(model.even)}日・${roundedAdaptiveDays(model.odd)}日ごと`
           : days === 1 ? '毎日' : `${days}日ごと`;
-  return { mode: state.policy.mode, days, label, automatic: state.policy.fixedDays === null,
+  return { mode: state.policy.mode, days, label, automatic: state.policy.fixedDays === null, ...(model ? { calendarModel: { ...model } } : {}),
     windowRadiusDays: chore.userWindowRadiusDays ?? (days === null ? 0 : adaptiveWindowRadius(days)) };
 }

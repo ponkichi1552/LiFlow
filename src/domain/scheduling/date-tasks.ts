@@ -1,8 +1,8 @@
 import type { ChoreCompletion, ChoreDefinition, ChoreScheduleEntry } from '@/domain/chores/types';
 import type { LocalDate } from '@/domain/shared/types';
 import { calendarPendingCountsByDate } from '../calendar/day-entries.ts';
-import { completionCycleDate, completionIncludesDate, completionMatchesEntry } from './completion-matching.ts';
-import { addDays, daysBetween, localDateFromISODateTime } from './local-date.ts';
+import { completionCycleDate, completionIncludesDate, completionMatchesEntry, completionRecordedDate } from './completion-matching.ts';
+import { addDays, daysBetween } from './local-date.ts';
 import { compareTaskKeys, compareTaskMinutes, taskPriority } from './task-priority.ts';
 import type { LoadOrder } from './task-priority.ts';
 
@@ -26,14 +26,26 @@ export function selectDateTasks(
   chores?: readonly (Pick<ChoreDefinition, 'id'> & Partial<Pick<ChoreDefinition, 'enabled' | 'archived'>>)[],
   includeRetainedOverdue = false,
 ): DateTask[] {
+  return createDateTaskSelector(entries, completions, chores)(date, graceDays, includeRetainedOverdue);
+}
+
+/** One immutable snapshot/optimistic revision owns this reusable lookup. */
+export function createDateTaskSelector(entries: readonly ChoreScheduleEntry[], completions: readonly ChoreCompletion[],
+  chores?: readonly (Pick<ChoreDefinition, 'id'> & Partial<Pick<ChoreDefinition, 'enabled' | 'archived'>>)[]) {
   const activeIds = chores ? new Set(chores.filter((chore) => chore.enabled !== false && !chore.archived).map((chore) => chore.id)) : undefined;
   const visibleCompletions = activeIds ? completions.filter((completion) => activeIds.has(completion.choreId)) : completions;
-  const relevantCompletions = visibleCompletions.filter((completion) => completionIncludesDate(completion, date));
-  const completionsByChore = new Map<string, ChoreCompletion[]>();
-  for (const completion of visibleCompletions) {
-    const bucket = completionsByChore.get(completion.choreId);
-    if (bucket) bucket.push(completion); else completionsByChore.set(completion.choreId, [completion]);
+  type IndexedCompletion = { completion: ChoreCompletion; index: number };
+  const completionsByChore = new Map<string, { exact: Map<string, IndexedCompletion>; legacy: IndexedCompletion[] }>();
+  for (let index = 0; index < visibleCompletions.length; index++) {
+    const completion = visibleCompletions[index]; if (completion.outcome !== 'completed') continue;
+    let bucket = completionsByChore.get(completion.choreId);
+    if (!bucket) { bucket = { exact: new Map(), legacy: [] }; completionsByChore.set(completion.choreId, bucket); }
+    const id = completion.scheduleEntryId;
+    if (id) { if (!bucket.exact.has(id)) bucket.exact.set(id, { completion, index }); }
+    else bucket.legacy.push({ completion, index });
   }
+  return (date: LocalDate, graceDays = 0, includeRetainedOverdue = false): DateTask[] => {
+  const relevantCompletions = visibleCompletions.filter((completion) => completionIncludesDate(completion, date));
   const byChore = new Map<string, DateTask>();
   const meaningKey = (choreId: string, work?: ChoreScheduleEntry['seasonalWork']) => work ? JSON.stringify([choreId, work]) : choreId;
 
@@ -41,7 +53,9 @@ export function selectDateTasks(
     if (activeIds && !activeIds.has(entry.choreId)) continue;
     const retained = includeRetainedOverdue && entry.status === 'overdue' && (entry.id.startsWith('personal-round.') || entry.id.startsWith('seasonal-round.'));
     if (entry.windowStart > date || !retained && date > (graceDays === 0 ? entry.windowEnd : addDays(entry.windowEnd, graceDays))) continue;
-    const completion = completionsByChore.get(entry.choreId)?.find((candidate) => completionMatchesEntry(candidate, entry));
+    const bucket = completionsByChore.get(entry.choreId); const exact = bucket?.exact.get(entry.id);
+    const legacy = bucket?.legacy.find(candidate => candidate.index < (exact?.index ?? Infinity) && completionMatchesEntry(candidate.completion, entry));
+    const completion = legacy?.completion ?? exact?.completion;
     const task: DateTask = {
       id: entry.id, choreId: entry.choreId, suggestedDate: entry.suggestedDate,
       completed: Boolean(completion), entry, completion,
@@ -55,13 +69,14 @@ export function selectDateTasks(
     if (previous?.completion?.id === completion.id) continue;
     const task: DateTask = {
       id: `completed:${completion.id}`, choreId: completion.choreId,
-      suggestedDate: completion.scheduledDate ?? localDateFromISODateTime(completion.completedAt),
+      suggestedDate: completion.scheduledDate ?? completionRecordedDate(completion),
       completed: true, completion,
     };
     // Today's real completion must remain visible even if recalculation created another overlapping cycle.
     if (!previous || compareOccurrence(task, previous, date) < 0) byChore.set(key, task);
   }
   return [...byChore.values()];
+  };
 }
 
 function compareOccurrence(left: DateTask, right: DateTask, date: LocalDate): number {
@@ -97,10 +112,11 @@ export function orderDateTasks(
   const minutes = new Map(chores.map(chore => [chore.id, chore.estimatedMinutes]));
   const priority = (task: DateTask) => taskPriority({ completed: task.completed,
     load: loadById.get(task.choreId) ?? 'light', recommendedDate: task.suggestedDate,
-    windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd }, today, order);
-  return [...tasks].sort((left, right) => priority(left) - priority(right)
-    || (order ? compareTaskMinutes(minutes.get(left.choreId), minutes.get(right.choreId), order) : 0)
-    || compareTaskKeys(left.choreId, right.choreId));
+    windowStart: task.entry?.windowStart ?? task.completion?.scheduledWindowStart, windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd }, today, order);
+  return tasks.map(task => ({ task, priority: priority(task), minutes: minutes.get(task.choreId) }))
+    .sort((left, right) => left.priority - right.priority
+      || (order ? compareTaskMinutes(left.minutes, right.minutes, order) : 0)
+      || compareTaskKeys(left.task.choreId, right.task.choreId)).map(row => row.task);
 }
 
 export function recommendedChoreCounts(

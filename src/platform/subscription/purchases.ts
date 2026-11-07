@@ -2,7 +2,7 @@ import * as IAP from 'expo-iap';
 import { Linking, Platform } from 'react-native';
 import { createSubscriptionPurchaseFlow } from '../../features/subscription/purchase-flow';
 import type { StorePurchase } from '../../features/subscription/purchase-flow';
-import { acceptSubscription, subscriptionRequest, subscriptionSnapshot } from './runtime';
+import { acceptSubscription, subscriptionCurrentTime, subscriptionRequest, subscriptionSnapshot } from './runtime';
 
 export interface SubscriptionProduct { price: string; productId: string; offerToken?: string }
 export interface PurchaseState { product: SubscriptionProduct | null; busy: boolean; pending: boolean; message: string | null }
@@ -10,7 +10,7 @@ let state: PurchaseState = { product: null, busy: false, pending: false, message
 const listeners = new Set<() => void>();
 export const subscriptionPurchaseSnapshot = () => state;
 export function observeSubscriptionPurchases(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; }
-function publish(next: Partial<PurchaseState>) { state = { ...state, ...next }; for (const listener of listeners) listener(); }
+function publish(next: Partial<PurchaseState>) { state = { ...state, ...next }; for (const listener of listeners) { try { listener(); } catch { /* Store recovery must survive a failed view subscription. */ } } }
 const productId = () => Platform.OS === 'ios' ? process.env.EXPO_PUBLIC_APPLE_SUBSCRIPTION_PRODUCT_ID : process.env.EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_PRODUCT_ID;
 let current: { userId: string; ready: Promise<void>; flow: ReturnType<typeof createSubscriptionPurchaseFlow>;
   identity: object; catalogue: () => Promise<void>;
@@ -27,7 +27,7 @@ export function startSubscriptionPurchases(userId: string): Promise<void> {
   const identity = {};
   const isCurrent = () => current?.identity === identity && subscriptionSnapshot().userId === userId;
   const originals = new Map<string, IAP.Purchase>();
-  const flow = createSubscriptionPurchaseFlow({ userId, productId: sku, currentUserId: () => isCurrent() ? userId : null,
+  const flow = createSubscriptionPurchaseFlow({ userId, productId: sku, currentUserId: () => isCurrent() ? userId : null, now: subscriptionCurrentTime,
     verify: value => subscriptionRequest('verify', { store: value.store, proof: value.proof }), accept: acceptSubscription,
     finish: async value => { const purchase = originals.get(value.id); if (!purchase) throw new Error('復元して購入情報を再確認してください。'); await IAP.finishTransaction({ purchase, isConsumable: false }); },
   });
@@ -81,7 +81,7 @@ export function startSubscriptionPurchases(userId: string): Promise<void> {
     await Promise.allSettled([catalogue(),
     (async () => {
       const pending = await IAP.getAvailablePurchases({ alsoPublishToEventListenerIOS: false });
-      for (const purchase of pending.slice(0, 32)) try { await receive(purchase); } catch {
+      for (const purchase of pending.filter(item => item.productId === sku).slice(0, 32)) try { await receive(purchase); } catch {
         if (current === session && subscriptionSnapshot().phase !== 'active') publish({ message: '未確認の購入があります。購入時のアカウントで復元してください。' });
       }
     })().catch(() => { if (current === session) publish({ message: '購入情報を確認できませんでした。復元から再試行してください。' }); })]);
@@ -99,7 +99,7 @@ export async function recoverSubscriptionPurchases(userId: string): Promise<void
   if (current !== session || subscriptionSnapshot().userId !== userId) return;
   const pending = await IAP.getAvailablePurchases({ alsoPublishToEventListenerIOS: false });
   if (current === session) publish({ pending: false });
-  for (const purchase of pending.slice(0, 32)) {
+  for (const purchase of pending.filter(item => item.productId === productId()).slice(0, 32)) {
     if (current !== session || subscriptionSnapshot().userId !== userId) return;
     try { await session.receive(purchase); } catch { /* Keep unverified transactions unfinished for the next explicit restore. */ }
   }
@@ -137,7 +137,7 @@ export async function restoreSubscription() {
     await IAP.restorePurchases(); if (!isCurrent()) return;
     const purchases = await IAP.getAvailablePurchases({ alsoPublishToEventListenerIOS: true });
     // Explicitly consume this result too: Android does not promise a new purchase callback for restore.
-    for (const purchase of purchases.slice(0, 32)) {
+    for (const purchase of purchases.filter(item => item.productId === productId()).slice(0, 32)) {
       if (!isCurrent()) return;
       try { await session!.receive(purchase); }
       catch { /* A foreign or unverified receipt stays unfinished; continue to this account's receipts. */ }

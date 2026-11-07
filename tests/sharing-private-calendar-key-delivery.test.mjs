@@ -24,6 +24,18 @@ async function fixture(t, options = {}) {
 }
 const delivery = (f, cloud, options = {}) => createPrivateCalendarKeyDelivery({ userId: f.userId, secrets: f.secrets, outbox: f.keyOutbox, cloud, ...options });
 
+test('audit100 one recipient key delivery failure cannot block an independent approved recipient', async t => {
+  const { f, identity, other, authority: before } = await fixture(t); const third = await createDeviceIdentity(crypto);
+  const authority = advancePrivateCalendarAuthority(before, { devices: [identity, other, third], mainDeviceId: identity.deviceId, keyVersion: 1 }, identity);
+  await f.secrets.acceptAuthorityUpdate(f.userId, authority.signed);
+  const attempts = [];
+  const sender = delivery(f, { sendKey: async (_authority, wrapped) => { attempts.push(wrapped.body.recipientDeviceId); if (attempts.length === 1) throw Object.assign(new Error('recipient permission failure'), { code: 'permission-denied' }); } }, { now: () => 1000, randomFraction: () => .5 });
+  await sender.queueApprovedDevices(); const result = await sender.flush();
+  assert.equal(attempts.length, 2); assert.equal(new Set(attempts).size, 2);
+  assert.equal(result.kind, 'deferred'); assert.equal(result.sent, 1);
+  assert.equal((await f.keyOutbox.status(authority)).pending, 1);
+});
+
 test('private Calendar observed key availability rejects tampering wrong candidates and same-sender forks while retaining the original ciphertext', async t => {
   const { f, identity, other, authority: before } = await fixture(t); const third = await createDeviceIdentity(crypto);
   const authority = advancePrivateCalendarAuthority(before, { devices: [identity, other, third], mainDeviceId: identity.deviceId, keyVersion: 1 }, identity);

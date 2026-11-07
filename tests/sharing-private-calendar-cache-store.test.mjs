@@ -45,6 +45,21 @@ async function fixture(t, options = {}) {
   return { ...db, state, cache, input, seal, row, connect, main, accountKey, authority, calendarBinding };
 }
 
+test('private Calendar deferred outbox checks read metadata without transferring the entire ciphertext', async t => {
+  let bodyReads = 0;
+  const f = await fixture(t, { decorate: database => ({ ...database, async getFirstAsync(sql, ...params) {
+    const row = await database.getFirstAsync(sql, ...params);
+    if (row && typeof row.encrypted_json === 'string') bodyReads++;
+    return row;
+  } }) });
+  const encrypted = await f.seal(); await f.ledger.save(encrypted, f.input({ origin: 'local' }));
+  await f.ledger.fail(f.authority, sharedDocumentDigest(encrypted.manifest), 1000, 'offline', 0);
+  bodyReads = 0;
+  for (let n = 0; n < 20; n++) assert.equal(await f.ledger.pending(f.authority, 1001), null);
+  assert.equal(bodyReads, 0);
+  assert.deepEqual((await f.ledger.pending(f.authority, 1001, { force: true })).encrypted, encrypted);
+});
+
 test('private Calendar ciphertext ledger atomically saves one complete cache with its cursor and outbox, and survives reopening SQLite', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'liflow-private-cache-')); t.after(() => rmSync(directory, { recursive: true, force: true }));
   const f = await fixture(t, { path: join(directory, 'cache.db') }); const encrypted = await f.seal();

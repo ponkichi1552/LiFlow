@@ -8,6 +8,21 @@ import { googleSyncRunOptions } from '../src/features/google-sync/sync-policy.ts
 import { migrateLocalDatabase } from '../src/platform/storage/migrations.ts';
 const { syncGoogleTasksWithDependencies } = await import('../src/features/google-sync/coordinator.ts');
 
+test('a coherent native personal status snapshot pushes completion and Undo without an inventory read or advancing the pull checkpoint',async()=>{
+  const h=await createIntegration();
+  try {
+    await h.sync();const last=(await repository.loadGoogleSyncState(h.database)).lastSuccessfulSyncAt;
+    const dependencies={...h.dependencies,readLocalStatusSnapshot:(day,id)=>repository.readPersonalGoogleStatusSnapshot(h.database,day,id),verifyTaskListForLocalChanges:async()=>true};
+    await repository.completeChore(h.database,h.entries[0]);h.calls.length=0;
+    const completed=await syncGoogleTasksWithDependencies(dependencies,{now,recoverInterruptedAttempt:true});
+    assert.equal(completed.localStatusesOnly,true);assert.equal(h.calls.filter(row=>row.method==='GET').length,0);assert.equal(h.calls.filter(row=>row.method==='PATCH').length,1);
+    await repository.undoCompletedChore(h.database,h.history()[0].id);h.calls.length=0;
+    const undone=await syncGoogleTasksWithDependencies(dependencies,{now,recoverInterruptedAttempt:true});
+    assert.equal(undone.localStatusesOnly,true);assert.equal(h.calls.filter(row=>row.method==='GET').length,0);assert.equal(h.calls.filter(row=>row.method==='PATCH').length,1);
+    assert.equal((await repository.loadGoogleSyncState(h.database)).lastSuccessfulSyncAt,last);
+  }finally{h.connection.close();}
+});
+
 test('completion-triggered sync recovers a fresh interrupted marker and updates the same task without forcing Calendar', async () => {
   const h = await createIntegration();
   try {
@@ -91,7 +106,7 @@ test('Android native completion SQL keeps a revision so an older network respons
     const old = (await repository.listGoogleTaskLinks(h.database))[0];
     const completion = h.connection.prepare('SELECT id FROM chore_completions').get();
     await repository.undoCompletedChore(h.database, completion.id);
-    await repository.commitWidgetCompletionOperation(h.database, { ...operation, id: `completion-intent.${randomUUID()}` }, () => {});
+    await repository.commitWidgetCompletionOperation(h.database, { ...operation, completionGeneration: 1, id: `completion-intent.${randomUUID()}` }, () => {});
     const revision = (await repository.listGoogleTaskLinks(h.database))[0].pendingStatusRevision;
     assert.notEqual(revision, old.pendingStatusRevision);
     await repository.acknowledgeGoogleTaskStatus(h.database, old, 'completed');

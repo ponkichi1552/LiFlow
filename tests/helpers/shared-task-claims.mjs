@@ -1,5 +1,5 @@
 import './typescript-loader.mjs';
-import { sharedTaskClaimKey, reserveSharedTaskClaim, linkSharedTaskClaim, releaseSharedTaskClaim } from '../../src/features/google-sync/shared-task-claim.ts';
+import { sharedTaskClaimKey, reserveSharedTaskClaim, linkSharedTaskClaim, releaseSharedTaskClaim, deleteSharedTaskClaim } from '../../src/features/google-sync/shared-task-claim.ts';
 /** Unit-only transport. Actual transaction isolation and Rules are tested with Firestore separately. */
 export function memoryTaskClaims(namespace) {
   const rows = new Map(); let tail = Promise.resolve(); const calls = [];
@@ -17,7 +17,7 @@ export function memoryTaskClaims(namespace) {
       const k = key(intent); const value = releaseSharedTaskClaim(rows.get(k.occurrenceHash) ?? null, { attemptId: intent.attemptId });
       if (value) rows.set(k.occurrenceHash, value);
     } }),
-    linked: (identity, taskId) => update(identity, (row, k) => linkSharedTaskClaim(row, k, taskId)),
-    deleted: (identity, taskId) => update(identity, row => releaseSharedTaskClaim(row, { taskId })),
+    linked: (identity, taskId, expectedAttemptId) => update(identity, (row, k) => linkSharedTaskClaim(row, k, taskId, expectedAttemptId)),
+    deleted: (identity, taskId, attemptId) => update(identity, row => deleteSharedTaskClaim(row, taskId, attemptId)),
   } };
 }

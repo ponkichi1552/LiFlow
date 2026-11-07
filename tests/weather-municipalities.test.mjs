@@ -76,6 +76,6 @@ test('schema 26 to 27 weather migration retains existing settings histories and 
   const { migrateLocalDatabase } = await import('../src/platform/storage/migrations.ts'); await migrateLocalDatabase(h.database);
   const row = h.connection.prepare('SELECT * FROM household_settings').get();
   assert.equal(row.heavy_daily_limit, 7); assert.equal(row.weather_region_name, '東京'); assert.equal(row.weather_municipality_id, null);
-  assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 27);
+  assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 29);
   assert.equal(search.resolveWeatherMunicipality({ region: row.weather_region, displayName: row.weather_region_name, latitude: row.weather_latitude, longitude: row.weather_longitude }), null);
 });

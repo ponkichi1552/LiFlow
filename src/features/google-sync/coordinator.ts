@@ -12,11 +12,9 @@ import {
   hasPendingGoogleTaskChanges,
   saveGoogleSyncState,
   upsertGoogleTaskLink,
-  reserveGoogleTaskCreate,
-  rejectGoogleTaskCreate,
-  linkGoogleTaskCreate,
-  deleteGoogleTaskCreate,
+  personalGoogleTaskCreateJournal,
   personalGoogleTaskReadCache,
+  readPersonalGoogleStatusSnapshot,
 } from '@/platform/storage/repository';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { classifyGoogleSyncFailure } from './error-classification';
@@ -48,6 +46,7 @@ export interface GoogleSyncCoordinatorDependencies extends GoogleSyncRepositoryP
   loadState(): Promise<GoogleSyncState | null>;
   saveState(state: GoogleSyncState): Promise<void>;
   getAccessToken(): Promise<string>;
+  preparePlan?(): Promise<void>;
   hasPendingLocalChanges?(lastSuccessfulSyncAt?: string): Promise<boolean>;
   api: GoogleTasksApi;
   refreshCalendar?(options: { now: Date; today: LocalDate; force: boolean }): Promise<{ plannerChanged: boolean }>;
@@ -57,6 +56,23 @@ const runningSync = new WeakMap<object, Promise<GoogleSyncRunResult>>();
 const runningBudgets = new WeakMap<object, GoogleOperationBudget>();
 const executingSync = new WeakSet<object>();
 const pendingCompletionSyncDatabases = new Set<SQLiteDatabase>();
+
+/** A settings change settles behind the interrupted attempt, so its late status
+ * cannot re-enable a connection the user just paused. Existing facts stay saved. */
+export function configurePersonalGoogleTaskSync(database: SQLiteDatabase, enabled: boolean): Promise<GoogleSyncState> {
+  if (sharedRepositoryAdapter(database)) throw new Error('共有家事の同期設定を使用してください。');
+  if (!enabled) {
+    runningBudgets.get(database)?.cancel();
+    pendingCompletionSyncDatabases.delete(database);
+  }
+  return withGoogleSyncOperation(async () => {
+    const previous = await loadGoogleSyncState(database, 'local-household');
+    const next: GoogleSyncState = { ...(previous ?? { householdId: 'local-household', retryCount: 0 }), enabled, status: 'idle',
+      retryCount: enabled ? previous?.retryCount ?? 0 : 0, nextRetryAt: undefined, lastErrorCode: undefined,
+      lastErrorAt: undefined, updatedAt: new Date().toISOString() };
+    await saveGoogleSyncState(database, next); return next;
+  }, 'googleTasks.configure');
+}
 
 export async function syncGoogleTasks(
   database: SQLiteDatabase,
@@ -109,16 +125,12 @@ export async function syncGoogleTasks(
       },
       listEntriesForGoogleSync: (today, id) => listEntriesForGoogleSync(database, today as LocalDate, id),
       listGoogleTaskLinks: (id) => listGoogleTaskLinks(database, id),
+      ...(!shared ? { readLocalStatusSnapshot: (today: string, id: string) => readPersonalGoogleStatusSnapshot(database, today as LocalDate, id) } : {}),
       upsertGoogleTaskLink: (link) => upsertGoogleTaskLink(database, link),
       acknowledgeGoogleTaskStatus: (link, status) => acknowledgeGoogleTaskStatus(database, link, status),
       deleteGoogleTaskLink: (id) => deleteGoogleTaskLink(database, id),
       taskReadCache: personalGoogleTaskReadCache(database),
-      taskCreateJournal: {
-        reserve: identity => reserveGoogleTaskCreate(database, identity),
-        reject: intent => rejectGoogleTaskCreate(database, intent),
-        linked: (identity, taskId) => linkGoogleTaskCreate(database, identity, taskId),
-        deleted: (identity, taskId) => deleteGoogleTaskCreate(database, identity, taskId),
-      },
+      taskCreateJournal: personalGoogleTaskCreateJournal(database),
     }, {
       ...googleSyncRunOptions(options),
       now,
@@ -149,7 +161,7 @@ export function syncGoogleTasksAfterLocalCompletion(database: SQLiteDatabase): v
     if (executingSync.has(database)) pendingCompletionSyncDatabases.add(database);
     return;
   }
-  void syncGoogleTasks(database, { force: true, trigger: 'completion' }).catch(() => undefined);
+  void syncGoogleTasks(database, { trigger: 'completion' }).catch(() => undefined);
 }
 
 export async function syncGoogleTasksWithDependencies(
@@ -185,7 +197,7 @@ export async function syncGoogleTasksWithDependencies(
       runningSync.delete(scope); runningBudgets.delete(scope);
       const database = scope as SQLiteDatabase;
       if (pendingCompletionSyncDatabases.delete(database)) {
-        void Promise.resolve().then(() => syncGoogleTasks(database, { force: true, trigger: 'completion' })).catch(() => undefined);
+        void Promise.resolve().then(() => syncGoogleTasks(database, { trigger: 'completion' })).catch(() => undefined);
       }
     }
   }).catch(() => undefined);
@@ -216,6 +228,8 @@ async function runSync(
   let state = await dependencies.loadState();
   dependencies.budget?.assert();
   if (!state?.enabled) return { kind: 'success', skipped: true };
+  if (options.force || state.status !== 'authRequired' && state.status !== 'error'
+    && (state.status !== 'retryPending' || shouldSyncGoogleTasks(state, now))) await dependencies.preparePlan?.();
   // Native Android widget actions can commit while JS is stopped. Recover their
   // durable changes on startup/resume without changing Calendar cadence or
   // bypassing an existing retry/auth/permission failure on every foreground.
@@ -243,6 +257,10 @@ async function runSync(
       });
     }
     // Calendar failure is isolated; Tasks completion and retry policy continue.
+  }
+  if (!force && (state.status === 'authRequired' || state.status === 'error'
+    || state.status === 'retryPending' && !shouldSyncGoogleTasks(state, now))) {
+    return { kind: 'success', skipped: true };
   }
   if (!force && !calendarChanged && !staleAttempt && !shouldSyncGoogleTasks(state, now)) {
     if (foregroundRequired) return { kind: 'success', skipped: true, skipReason: 'foregroundRequired', foregroundRequired: true };

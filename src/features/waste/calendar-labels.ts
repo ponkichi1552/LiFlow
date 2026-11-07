@@ -17,7 +17,7 @@ export function wasteCalendarLabels(
         const labels = weeklyByColumn[day % 7];
         if (labels && !labels.includes(schedule.label)) labels.push(schedule.label);
       }
-      for (const occurrence of generateWasteCollectionDates(schedule, from, through)) {
+      for (const occurrence of hidden.size ? generateWasteCollectionDates(schedule, from, through) : []) {
         if (!hidden.has(`${schedule.id}:${occurrence.date}`)) continue;
         const labels = hiddenWeeklyByDate.get(occurrence.date) ?? [];
         if (!labels.includes(schedule.label)) labels.push(schedule.label);

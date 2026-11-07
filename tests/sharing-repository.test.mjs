@@ -291,9 +291,12 @@ test('shared chore autosave advances its own displayed baseline, rejects a stale
       assert.equal((await h.snapshot()).chores.find((c) => c.id === choreId).recommendedCycleDays, Number(value));
       assert.doesNotMatch(screen.text(), /別の端末/);
     }
+    // A settled editor follows new remote settings. A draft already being edited
+    // must instead preserve its baseline and reject overwriting that newer edit.
+    await screen.change('家事周期の日数', '25');
     await repository.updateChoreSettings(h.database, choreId, { cycleDays: 9, load: 'heavy' });
     snapshot = await h.snapshot(); screen.render();
-    await screen.change('家事周期の日数', '25'); await screen.endEditing('家事周期の日数');
+    await screen.endEditing('家事周期の日数');
     assert.equal((await h.snapshot()).chores.find((c) => c.id === choreId).recommendedCycleDays, 9);
     assert.match(screen.text(), /別の端末/);
     await screen.press('最新の設定を読み直す');

@@ -1,0 +1,581 @@
+{
+  "startedAt": "2026-11-06T22:35:36.881984+00:00",
+  "request": "After current native calendar verification, investigate each bounded area thoroughly before moving to the next. Find and fix 30 new reproducible defects.",
+  "state": "complete-for-requested-30-defect-audit",
+  "confirmedNewDefects": 30,
+  "fixedNewDefects": 30,
+  "areas": [
+    {
+      "id": "calendar-core",
+      "scope": [
+        "Datetime editing and duration",
+        "Native one/two/month presentation",
+        "Recurrence and exceptions",
+        "Offline drafts/save/concurrency",
+        "Read range/caches/timezone/DST"
+      ],
+      "state": "affected-tests-passed-native-reviewed",
+      "readScope": [
+        "src/domain/calendar/events.ts",
+        "src/domain/calendar/recurrence.ts",
+        "src/features/calendar/calendar-editor.tsx",
+        "src/features/calendar/calendar-field.tsx",
+        "src/features/calendar/calendar-option-picker.tsx",
+        "src/features/calendar/custom-recurrence-screen.tsx",
+        "src/features/calendar/display-store.ts",
+        "src/features/calendar/event-editing.ts",
+        "src/features/calendar/gesture-control.tsx",
+        "src/features/calendar/layout.ts",
+        "src/features/calendar/long-cycle-preview.ts",
+        "src/features/calendar/month-rows.ts",
+        "src/features/calendar/month-picker.tsx",
+        "src/features/calendar/planner-calendar.tsx",
+        "src/features/calendar/observed-snapshot.ts",
+        "src/features/calendar/use-local-calendar.tsx",
+        "src/features/calendar/calendar-date-strip.tsx",
+        "src/features/calendar/view-menu.tsx",
+        "src/features/calendar/birthday-settings.tsx",
+        "src/platform/storage/calendar-events.ts",
+        "src/platform/storage/calendar-event-rows.ts",
+        "src/app/calendar-repeat.tsx",
+        "src/features/sharing/v2-ui/use-group-calendar.tsx"
+      ],
+      "validation": {
+        "testLog": "private-evidence/part01-calendar-after2.log",
+        "tests": 98,
+        "pass": 98,
+        "fail": 0,
+        "nativeRecheckPending": false
+      }
+    },
+    {
+      "id": "completion-undo",
+      "scope": [
+        "Exact occurrence identity",
+        "Optimistic/durable queue",
+        "Undo and restart",
+        "Cross-day/dedup"
+      ],
+      "state": "affected-tests-passed",
+      "readScope": [
+        "src/features/planner/completion-intents.ts",
+        "src/features/planner/completion-command.ts",
+        "src/features/planner/task-mutations.ts",
+        "src/platform/storage/completion-intent-store.ts",
+        "src/platform/storage/completion-intents.ts",
+        "src/platform/storage/repository.ts completion and Undo section",
+        "src/platform/storage/completion-journal.ts",
+        "src/domain/scheduling/date-tasks.ts",
+        "src/domain/scheduling/date-task-reference.ts",
+        "src/domain/scheduling/completion-matching.ts",
+        "src/hooks/use-task-completion.tsx",
+        "src/features/sharing/v2-ui/workspace-data.tsx",
+        "src/features/sharing/v2-ui/round-card.tsx",
+        "src/features/sharing/v2-ui/private-task-card.tsx",
+        "src/features/sharing/v2-ui/completion-form.tsx",
+        "src/features/sharing/v2/completion-history.ts",
+        "src/features/sharing/v2/retained-completions.ts",
+        "src/features/sharing/v2/actions.ts completion section"
+      ],
+      "validation": {
+        "log": "part02-after2.log",
+        "pass": 65,
+        "fail": 0
+      }
+    },
+    {
+      "id": "google-calendar",
+      "scope": [
+        "Account/calendar scope",
+        "Delta/full recovery",
+        "Concurrent edit and deletes",
+        "Read-only and export privacy"
+      ],
+      "state": "affected-tests-passed",
+      "readScope": [
+        "src/features/calendar/personal-google-sync.ts",
+        "src/features/calendar/google-event-import.ts",
+        "src/features/calendar/google-event-mapping.ts",
+        "src/features/calendar/google-owned-fields.ts",
+        "src/features/calendar/google-instance.ts",
+        "src/features/calendar/private-event-projection.ts",
+        "src/features/calendar/shared-google-export.ts",
+        "src/features/calendar/use-personal-google-sync.tsx",
+        "src/features/calendar/personal-google-settings.tsx",
+        "src/platform/google-calendar/calendar-api.ts",
+        "src/platform/storage/personal-google-calendar.ts",
+        "src/platform/storage/personal-google-store.ts",
+        "src/platform/storage/personal-google-ranges.ts",
+        "src/platform/storage/calendar-event-rows.ts",
+        "src/platform/storage/calendar-events.ts",
+        "src/platform/storage/sharing-v2-calendar-export.ts"
+      ],
+      "validation": {
+        "log": "part03-after2.log",
+        "pass": 139,
+        "fail": 0
+      }
+    },
+    {
+      "id": "google-tasks",
+      "scope": [
+        "Claims/create journal",
+        "Retry/reconcile",
+        "Cross-device cache/receipts"
+      ],
+      "state": "affected-tests-passed",
+      "validation": {
+        "log": "part04-after.log",
+        "passCount": 130,
+        "fail": 0
+      }
+    },
+    {
+      "id": "shared-authority",
+      "scope": [
+        "Membership and permissions",
+        "Causality/conflicts",
+        "Retention/snapshot/recovery"
+      ],
+      "state": "bounded-coordinator-tests-passed",
+      "validation": {
+        "log": "part05-after.log",
+        "passCount": 33,
+        "fail": 0
+      },
+      "auditedBoundaries": [
+        "synchronizer.ts",
+        "v2/synchronizer.ts",
+        "v2/workspace-session.ts",
+        "v2/controller-access.ts",
+        "v2/calendar-actions.ts",
+        "v2/calendar-state.ts",
+        "v2/appliance-actions.ts",
+        "v2/appliance-state.ts",
+        "v2/manual-documents.ts",
+        "v2/owner-recovery.ts"
+      ]
+    },
+    {
+      "id": "settings-onboarding",
+      "scope": [
+        "Autosave/input boundaries",
+        "Navigation/unmount",
+        "Activation/reset/data scope"
+      ],
+      "state": "affected-tests-passed",
+      "validation": {
+        "log": "part06-after2.log",
+        "passCount": 67,
+        "fail": 0
+      }
+    },
+    {
+      "id": "native-workers",
+      "scope": [
+        "Widget/notification journal",
+        "Deadlines/background retries",
+        "No duplicate work"
+      ],
+      "state": "affected-tests-passed",
+      "validation": {
+        "log": "part07-after2.log",
+        "passCount": 41,
+        "fail": 0
+      }
+    },
+    {
+      "id": "api-and-weather-learning",
+      "scope": [
+        "Uploaded manuals/auth/quota",
+        "Weather failures/caches",
+        "Adaptive models and persistence"
+      ],
+      "state": "bounded-provider-and-client-tests-passed",
+      "validation": [
+        {
+          "log": "part08-weather-after.log",
+          "passCount": 48,
+          "fail": 0
+        },
+        {
+          "log": "part08-api-after.log",
+          "passCount": 57,
+          "fail": 0
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "CAL-01",
+      "area": "calendar-core",
+      "title": "空白だけの予定名で下書きの閉じる操作が失敗する",
+      "state": "confirmed-unfixed",
+      "source": "src/platform/storage/calendar-events.ts",
+      "evidence": "private-evidence/part01-calendar-before.log",
+      "regression": {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "calendar drafts retain whitespace-only unfinished titles without trapping the editor on close"
+      },
+      "countAsNew": true,
+      "status": "regression-passed-current-release-reviewed"
+    },
+    {
+      "id": "CAL-02",
+      "area": "calendar-core",
+      "title": "先行した予定保存が同じ編集対象の新しい下書きを削除する",
+      "state": "confirmed-unfixed",
+      "source": "src/platform/storage/calendar-events.ts",
+      "evidence": "private-evidence/part01-calendar-before.log",
+      "regression": {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "an older local event save cannot erase newer unfinished input for the same editor scope"
+      },
+      "countAsNew": true,
+      "status": "regression-passed-current-release-reviewed"
+    },
+    {
+      "id": "CAL-03",
+      "area": "calendar-core",
+      "title": "家事回を指定しない不正な今回だけ下書きと空の削除基準日を受理する",
+      "state": "confirmed-unfixed",
+      "source": "src/platform/storage/calendar-events.ts",
+      "evidence": "private-evidence/part01-calendar-before.log",
+      "regression": {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "an invalid occurrence-only draft or empty deletion anchor cannot become a whole-series command"
+      },
+      "countAsNew": true,
+      "status": "regression-passed-current-release-reviewed"
+    },
+    {
+      "id": "CAL-04",
+      "area": "calendar-core",
+      "title": "実日数89日の3か月周期が遠方表示から抜ける",
+      "state": "confirmed-unfixed",
+      "source": "src/features/calendar/long-cycle-preview.ts",
+      "evidence": "private-evidence/part01-calendar-before.log",
+      "regression": {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "an adopted three-calendar-month cycle stays eligible for distant next-round display during an eighty-nine-day quarter"
+      },
+      "countAsNew": true,
+      "status": "regression-passed-current-release-reviewed"
+    },
+    {
+      "id": "CAL-05",
+      "area": "calendar-core",
+      "title": "繰り返しを解除しても非表示の終了日が残り日付変更後に保存できない",
+      "state": "confirmed-unfixed",
+      "source": "src/features/calendar/calendar-editor.tsx",
+      "evidence": "private-evidence/part01-calendar-before.log",
+      "regression": {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "${platform} disabling recurrence removes a hidden expiry so the event can be moved and saved later"
+      },
+      "countAsNew": true,
+      "status": "regression-passed-current-release-reviewed"
+    },
+    {
+      "id": "CAL-06",
+      "area": "calendar-core",
+      "title": "端末側の夏時間の欠時刻が予定地域の有効な入力時刻を変える",
+      "state": "confirmed-unfixed",
+      "source": "src/features/calendar/calendar-field.tsx",
+      "evidence": "private-evidence/part01-calendar-before.log",
+      "regression": {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "${platform} a wall-clock time picker cannot change a valid event time merely because the device is on a DST gap date"
+      },
+      "countAsNew": true,
+      "status": "regression-passed-current-release-reviewed"
+    },
+    {
+      "id": "CAL-07",
+      "area": "calendar-core",
+      "title": "新規予定が残っている共有下書きを選び初期保存先が個人にならない",
+      "state": "confirmed-unfixed",
+      "source": "src/features/calendar/planner-calendar.tsx",
+      "evidence": "private-evidence/part01-calendar-before.log",
+      "regression": {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "${platform} adding an appointment defaults to the personal draft even when a newer group draft is waiting"
+      },
+      "countAsNew": true,
+      "status": "regression-passed-current-release-reviewed"
+    },
+    {
+      "id": "CAL-08",
+      "area": "calendar-core",
+      "title": "分類の最後に入力した名前が再描画前の保存で欠落する",
+      "state": "confirmed-unfixed",
+      "source": "src/features/calendar/calendar-editor.tsx",
+      "evidence": "private-evidence/part01-calendar-before.log",
+      "regression": {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "${platform} classification save captures the latest typed name before a React repaint"
+      },
+      "countAsNew": true,
+      "status": "regression-passed-current-release-reviewed"
+    },
+    {
+      "id": "CAL-09",
+      "area": "calendar-core",
+      "title": "年表示の横スワイプがボタンの許可する年範囲を越える",
+      "state": "confirmed-unfixed",
+      "source": "src/features/calendar/planner-calendar.tsx",
+      "evidence": "private-evidence/part01-calendar-before.log",
+      "regression": {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "${platform} horizontal year navigation respects the same range as the year buttons"
+      },
+      "countAsNew": true,
+      "status": "regression-passed-current-release-reviewed"
+    },
+    {
+      "id": "CAL-10",
+      "area": "calendar-core",
+      "title": "Androidの2日表示で家事件数の件が折り返す",
+      "state": "fixed-native-verified",
+      "source": "src/features/calendar/planner-calendar.tsx",
+      "evidence": "private-evidence/android-calendar-pane-ui/nov7-expanded.png",
+      "regression": null,
+      "countAsNew": true,
+      "status": "native-regression-passed",
+      "after": "android-new30-ui/verification.json",
+      "nativeEvidence": "android-new30-ui/nov7-expanded.png"
+    },
+    {
+      "id": "CAL-11",
+      "area": "calendar-core",
+      "summary": "Selecting a valid classification preset after invalid custom RGB keeps Save disabled",
+      "before": "part01-preset-before.log: both platforms rejected a valid selected preset",
+      "fix": "Preset selection replaces invalid RGB draft and exits custom mode",
+      "status": "regression-passed"
+    },
+    {
+      "id": "CMP-01",
+      "area": "completion-undo",
+      "summary": "The display retry cannot recover a transient protected journal load failure",
+      "fix": "Retry restoration before presentation refresh and then drain saved intents",
+      "before": "part02-before.log",
+      "after": "part02-after2.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "CMP-02",
+      "area": "completion-undo",
+      "summary": "A new gesture during restoration of 128 saved requests overflows protected storage and remains failed",
+      "fix": "Retain all requests in memory; persist durable requests first within 128 slots; store and drain waiting gestures after acknowledgement frees slots",
+      "before": "part02-before.log",
+      "after": "part02-after2.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "GCAL-01",
+      "area": "google-calendar",
+      "summary": "archived account imports cannot exhaust the visible calendar limit or hide current local appointments",
+      "before": "part03-before.log",
+      "after": "part03-after2.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "GCAL-02",
+      "area": "google-calendar",
+      "summary": "a Google calendar permission downgrade takes effect before its staged events are reimported",
+      "before": "part03-before.log",
+      "after": "part03-after2.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "GCAL-03",
+      "area": "google-calendar",
+      "summary": "a stalled native identity check cannot hold shared Calendar export beyond its background deadline",
+      "before": "part03-before.log",
+      "after": "part03-after2.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "GCAL-04",
+      "area": "google-calendar",
+      "summary": "a changed shared event requested during an export receives one trailing pass without waiting for the next periodic sync",
+      "before": "part03-trailing-before.log",
+      "after": "part03-after2.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "GTS-01",
+      "area": "google-tasks",
+      "summary": "Shared task reconciliation overwrites user-owned notes, breaks marker recovery, and can exceed the provider note limit",
+      "before": "part04-before2.log",
+      "after": "part04-after.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "SET-01",
+      "area": "settings-onboarding",
+      "summary": "A thrown navigation callback freezes an autosaved form",
+      "before": "part06-before.log",
+      "after": "part06-after2.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "SET-02",
+      "area": "settings-onboarding",
+      "summary": "Incomplete cycle input falsely disables an already activated appliance chore",
+      "before": "part06-before.log",
+      "after": "part06-after2.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "SET-03",
+      "area": "settings-onboarding",
+      "summary": "New rhythm edits cannot recover a committed SQLite write with a lost acknowledgement",
+      "before": "part06-before.log",
+      "after": "part06-after2.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "NOTIF-01",
+      "area": "native-workers",
+      "summary": "An expired replacement leaves its superseded future native reminder armed",
+      "before": "part07-before.log",
+      "after": "part07-after2.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "WID-01",
+      "area": "native-workers",
+      "summary": "A queued widget snapshot can relabel old account content under a new account",
+      "before": "part07-widget-before.log",
+      "after": "part07-after2.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "MET-01",
+      "area": "api-and-weather-learning",
+      "summary": "Forecast throttle and joined reads return an older attempt instead of a newer durable forecast",
+      "before": "part08-weather-before.log",
+      "after": "part08-weather-after.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "MET-02",
+      "area": "api-and-weather-learning",
+      "summary": "Regional forecast actual body size can bypass the declared Content-Length check",
+      "before": "part08-weather-before.log",
+      "after": "part08-weather-after.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "SHR-01",
+      "area": "shared-authority",
+      "summary": "Budget exhaustion skips final receiving yet reports complete and acknowledges an outdated cursor",
+      "before": "part05-before.log",
+      "after": "part05-after.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "SHR-02",
+      "area": "shared-authority",
+      "summary": "Joined requests renew the entire sharing time budget in an extra pass",
+      "before": "part05-before.log",
+      "after": "part05-after.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "SHR-03",
+      "area": "shared-authority",
+      "summary": "Optional owner-recovery diagnostics start after the synchronization time budget expires",
+      "before": "part05-before.log",
+      "after": "part05-after.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "AI-01",
+      "area": "api-and-weather-learning",
+      "summary": "Unreadable completed analysis discards a paid admission before validating its result",
+      "before": "part08-api-before.log",
+      "after": "part08-api-after.log",
+      "status": "regression-passed"
+    },
+    {
+      "id": "AI-02",
+      "area": "api-and-weather-learning",
+      "summary": "Abort-ignoring HTTP transport or body reads prevent appliance analysis timeout from settling",
+      "before": "part08-api-before.log",
+      "after": "part08-api-after.log",
+      "status": "regression-passed"
+    }
+  ],
+  "candidates": [],
+  "counting": "Do not count previous fixes, duplicate symptoms of one cause, speculative risks, or deliberate specifications as new defects. Each finding needs reproduction/evidence and a meaningful regression or native check.",
+  "nativeReviewCompletedAt": "2026-11-06T22:37:35.782907+00:00",
+  "validation": {
+    "unit": {
+      "log": "new30-full-unit.log",
+      "pass": 3610,
+      "fail": 0,
+      "skip": 0
+    },
+    "lateAddedCoverage": {
+      "log": "part08-api-binding-after.log",
+      "pass": 18,
+      "newCasesNotInTheFullRun": 2,
+      "fail": 0
+    },
+    "cloud": {
+      "log": "new30-full-cloud.log",
+      "pass": 153,
+      "fail": 0,
+      "skip": 0
+    },
+    "lint": "new30-lint.log",
+    "typecheck": "new30-typecheck.log",
+    "featureContracts": 505,
+    "cloudContracts": 115,
+    "androidNative": "android-new30-ui/verification.json",
+    "iphoneNative": "iphone-new30-ui-verification.json",
+    "simulator": "CUA review: all four rows, completion 4/4 to 3/4 and Undo back to 4/4; five-minute picker; bundle hashes verified",
+    "semgrep": {
+      "primary": {
+        "scanned": 751,
+        "findings": 0,
+        "errors": 5,
+        "log": "new30-semgrep.json"
+      },
+      "supplement": {
+        "scanned": 5,
+        "findings": 0,
+        "errors": 0,
+        "log": "new30-semgrep-supplemental.json"
+      },
+      "transpiledSourceHashesVerified": true
+    },
+    "npm": {
+      "app": {
+        "info": 0,
+        "low": 0,
+        "moderate": 15,
+        "high": 0,
+        "critical": 0,
+        "total": 15
+      },
+      "api": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      }
+    },
+    "published": false,
+    "dataReset": false,
+    "iphoneOverlap": "iphone-new30-overlap.json"
+  },
+  "updatedAt": "2026-11-06T23:33:04.764044+00:00",
+  "completedAt": "2026-11-06T23:34:44.950129+00:00",
+  "nativeReviewInterpretation": "Native checks cover the listed displayed counts, fitting rows, pinned behavior, time pickers and existing overlapping appointments. Automated failure injection/security cases are not all physical-device E2E cases."
+}

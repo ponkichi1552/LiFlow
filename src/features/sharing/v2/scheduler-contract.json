@@ -1,5 +1,5 @@
 {
-  "version": "liflow-shared-2-draft-49",
+  "version": "liflow-shared-2-draft-50",
   "timeZoneVersion": "2026e",
   "sourceFiles": [
     "src/features/sharing/v2/model.ts",
@@ -106,7 +106,22 @@
     "src/domain/chores/cycle-policy.ts",
     "src/features/planner/personal-placement-preferences.ts",
     "src/features/sharing/account-device-key-continuity.ts",
-    "src/features/sharing/account-device-restore.ts"
+    "src/features/sharing/account-device-restore.ts",
+    "src/domain/scheduling/local-day-boundary.ts",
+    "src/features/sharing/identifier.ts",
+    "src/domain/scheduling/zoned-clock.ts",
+    "src/features/sharing/cloud-contract.ts",
+    "src/features/sharing/v2/synchronizer.ts",
+    "src/platform/storage/sharing-v2-recovery.ts",
+    "src/platform/storage/sharing-v2-recovery-evidence.ts",
+    "src/platform/storage/isolated-transaction.ts",
+    "src/platform/storage/adaptive-owner-inputs.ts",
+    "src/features/sharing/v2/retained-round-index.ts",
+    "src/features/sharing/synchronizer.ts",
+    "src/platform/storage/sharing-ledger.ts",
+    "src/platform/storage/isolated-projection-value.ts",
+    "src/features/sharing/workspace-protocol.ts",
+    "src/features/sharing/v2/input-capture.ts"
   ],
-  "sourceSha256": "06378971f1892a5d729887c592e0d30367ef680e7baa654e51861b9060b47b9f"
+  "sourceSha256": "d48647f3136325493efbb1637fb9296831fe7815c2a9058be1c44a0ccb7f94fe"
 }

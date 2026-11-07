@@ -1,3 +1,4 @@
+import { ExpiredNotificationRequestError } from './expired-request.ts';
 import type { LocalNotificationGateway, LocalNotificationRequest } from './contracts';
 
 const queues = new WeakMap<LocalNotificationGateway, Promise<void>>();
@@ -67,7 +68,18 @@ export function reconcileLocalNotifications(gateway: LocalNotificationGateway, i
       if (previous && signature(previous) === signature(request)) { result.unchanged++; continue; }
       if (!previous && capacity !== undefined && count >= capacity) { result.capacityExcluded++; continue; }
       try { await gateway.schedule(request); result.scheduled++; if (!previous) count++; }
-      catch (error) { failures.push(error); }
+      catch (error) {
+        if (error instanceof ExpiredNotificationRequestError) {
+          result.deadlineExcluded++;
+          // This error is raised before issuing a native request. The old time
+          // is no longer wanted, even though its replacement can no longer fire.
+          if (previous) {
+            await assertCurrent?.();
+            try { await gateway.cancel(request.key); cancelled++; count--; }
+            catch (cancelError) { failures.push(cancelError); }
+          }
+        } else failures.push(error);
+      }
     }
     if (capacity === undefined) await cancel();
     await assertCurrent?.();

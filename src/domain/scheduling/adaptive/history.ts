@@ -23,6 +23,8 @@ export type AdaptiveHistoryEvent = HistoryOperation & (
       origin: 'personal' | 'shared'; mode: FrequencyMode; initialDays: number | null;
       /** null is genuinely date-only; missing means its frozen published version is unavailable. */
       displayedWindow: { revision: string; from: LocalDate; through: LocalDate } | null | 'missing';
+      /** The actual published date-only plan also needs an exact Undo target. */
+      planRevision?: string;
       ruleDate?: LocalDate }
   | { type: 'undo'; completionId: string; targetOperationId: string }
 );

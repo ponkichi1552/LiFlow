@@ -143,9 +143,12 @@ test('completion-triggered Tasks sync can force task changes while retaining Cal
 
 test('completion and queued completion use the completion trigger while explicit manual sync still forces Calendar', async () => {
   const source = readFileSync(new URL('../src/features/google-sync/coordinator.ts', import.meta.url), 'utf8');
-  assert.equal((source.match(/syncGoogleTasks\([^\n]+force: true, trigger: 'completion'/g) ?? []).length, 2);
+  assert.equal((source.match(/syncGoogleTasks\([^\n]+\{ trigger: 'completion' \}/g) ?? []).length, 2);
   assert.match(source, /\.\.\.googleSyncRunOptions\(options\)/);
   const { googleSyncRunOptions } = await import('../src/features/google-sync/sync-policy.ts');
+  assert.deepEqual(googleSyncRunOptions({ trigger: 'completion' }), {
+    force: false, forceCalendar: false, recoverInterruptedAttempt: true,
+  });
   assert.deepEqual(googleSyncRunOptions({ force: true, trigger: 'completion' }), {
     force: true, forceCalendar: false, recoverInterruptedAttempt: true,
   });

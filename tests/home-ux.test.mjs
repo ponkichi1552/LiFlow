@@ -8,6 +8,7 @@ import { homeUpcomingTasks } from '../src/features/planner/home-presentation.ts'
 import { createTaskMutations } from '../src/features/planner/task-mutations.ts';
 import { dateTaskRevision, sameOccurrenceAfterCompletion } from '../src/domain/scheduling/date-task-reference.ts';
 import { orderDateTasks } from '../src/domain/scheduling/date-tasks.ts';
+import { isTaskUrgent } from '../src/domain/scheduling/task-priority.ts';
 import { orderTaskRows } from '../src/features/sharing/v2-ui/task-order.ts';
 import { addDays, localDateFromDate } from '../src/domain/scheduling/local-date.ts';
 import { planSharedMutation } from '../src/features/sharing/mutations.ts';
@@ -17,6 +18,15 @@ const row = (id, patch = {}) => ({ id, choreId: id, householdId: 'local-househol
   cycleBaseDate: today, windowStart: today, windowEnd: addDays(today, 2), assignedMemberIds: [], status: 'inWindow', ...patch });
 const done = entry => ({ id: `done-${entry.id}`, householdId: entry.householdId, choreId: entry.choreId,
   scheduleEntryId: entry.id, completedAt: new Date().toISOString(), source: 'inApp', outcome: 'completed', scheduledDate: entry.suggestedDate });
+
+test('a multi-day final date is urgent even on its recommendation while daily work and completed work remain quiet', () => {
+  const task = { completed: false, load: 'normal', recommendedDate: today, windowStart: addDays(today, -2), windowEnd: today };
+  assert.equal(isTaskUrgent(task, today), true);
+  assert.equal(isTaskUrgent({ ...task, completed: true }, today), false);
+  assert.equal(isTaskUrgent({ ...task, windowStart: today }, today), false);
+  assert.equal(isTaskUrgent({ ...task, windowEnd: addDays(today, -1) }, today), false);
+  assert.equal(isTaskUrgent({ ...task, recommendedDate: addDays(today, -1), windowEnd: addDays(today, 2) }, today), true);
+});
 
 test('home load reversal retains urgent and completed tiers for personal and mixed shared rows', () => {
   const tasks = []; const chores = [];

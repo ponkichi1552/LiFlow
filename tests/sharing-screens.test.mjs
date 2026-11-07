@@ -11,6 +11,14 @@ async function chooseFamily(screen) {
   assert.ok(choice); choice.props.onPress(); await screen.flush();
 }
 
+test('a cold group notification retries when the matching workspace opens after ready was already true',async()=>{
+  const context={ready:true,userId:'owner',group:{userId:'owner',groupId:'group-test',status:'active'},active:null};let stored={actionIdentifier:'default',notification:{request:{identifier:'deferred-group',content:{data:{kind:'daily-housework-digest',workspace:sharedGoogleNamespace('owner','group-test')}}}}};
+  const routes=[];const screen=screenHarness('src/components/notification-workspace-bridge.tsx',{exportName:'NotificationWorkspaceBridge',effectDependencies:true,effect:fn=>fn(),navigate:(...args)=>routes.push(args),mocks:{
+    '@/hooks/use-workspace':{useWorkspace:()=>context},'expo-notifications':{addNotificationResponseReceivedListener:()=>({remove(){}}),getLastNotificationResponse:()=>stored,clearLastNotificationResponse:()=>{stored=null;}}}});
+  try{await screen.flush();assert.equal(routes.length,0);context.active={userId:'owner',groupId:'group-test'};screen.render();await screen.flush();assert.deepEqual(routes,[['replace','/']]);assert.equal(stored,null);}
+  finally{screen.unmount();}
+});
+
 test('sharing screen keeps login optional and exposes only the current group without switching or a second join', async () => {
   const calls = []; const group = { userId: 'owner', groupId: 'group-test', displayName: '家族', status: 'active' };
   const context = { active: null, userId: null, group: null, ready: true, refreshSharing: async () => {} };

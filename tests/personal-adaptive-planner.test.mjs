@@ -122,3 +122,20 @@ test('a stale input version rolls back a whole personal planner batch and leaves
     assert.equal((await h.synchronize()).size, 1);
   } finally { h.connection.close(); }
 });
+
+test('audit100 disabled personal rounds do not reserve the only remaining slot for another active chore', async () => {
+  const h = await fixture(all => [{ ...all[0], enabled: true, userIntervalDays: 7, userWindowRadiusDays: 0, estimatedMinutes: 60, load: 'heavy' }]);
+  try {
+    const first = h.context().chores[0]; const second = { ...first, id: createPersonalChoreDefinitions('household')[1].id, personalRecipeId: createPersonalChoreDefinitions('household')[1].id };
+    h.states([{ choreId: first.id, lastCompletedDate: '2026-10-29' }, { choreId: second.id, lastCompletedDate: '2026-10-29' }]);
+    const prepareGeometry = () => prepareAdaptivePlacementInput({ from: '2026-11-01', through: '2026-11-10', timeZone: 'UTC',
+      preferences: { restDays: [], heavyLimit: 1, normalLimit: 1, allowedBands: [], dayOverrides: [{ date: '2026-11-05', allowedBands: [{ startMinute: 540, endMinute: 600 }] }] },
+      events: [], exceptions: [], fingerprint });
+    const initial = await h.synchronize({ prepareGeometry }); assert.ok(initial.get(first.id).plan.slot);
+    h.chores([{ ...first, enabled: false }, second]);
+    const after = await h.synchronize({ prepareGeometry });
+    assert.equal(after.get(first.id).state.policy.enabled, false);
+    assert.ok(after.get(second.id).plan.slot, 'the disabled first chore cannot occupy Nov 5');
+    assert.equal(after.get(second.id).plan.recommendedDate, '2026-11-05');
+  } finally { h.connection.close(); }
+});

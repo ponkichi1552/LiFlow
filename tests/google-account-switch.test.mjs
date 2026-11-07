@@ -11,6 +11,7 @@ import * as lock from '../src/features/google-sync/operation-lock.ts';
 import * as accountEvents from '../src/features/google-sync/account-change-events.ts';
 const repository = await import('../src/platform/storage/repository.ts');
 const archive = await import('../src/platform/storage/google-account-archive.ts');
+const { stagePendingGoogleTaskStatus } = await import('../src/platform/storage/google-task-link-state.ts');
 const calendars = await import('../src/platform/storage/personal-google-calendar.ts');
 const householdId = repository.LOCAL_HOUSEHOLD_ID;
 const now = '2026-11-05T00:00:00.000Z';
@@ -25,6 +26,27 @@ async function fixture() {
   await repository.replaceCalendarAvailabilityDays(h.database, [{ localDate: '2026-11-05', busyMinutes: 300, timeZone: 'Asia/Tokyo', fetchedAt: now }]);
   return h;
 }
+
+test('returning to an archived account sends the latest local completion or Undo, preserving that account task ID', async () => {
+  const h = await fixture();
+  try {
+    await stagePendingGoogleTaskStatus(h.database, 'entry-0', 'needsAction', 'old-undo');
+    await archive.activatePersonalGoogleTaskAccount(h.database, 'b', async () => {});
+    // The new account has no link yet; the local action must still supersede A's queue.
+    await stagePendingGoogleTaskStatus(h.database, 'entry-0', 'completed', 'new-completion');
+    await archive.activatePersonalGoogleTaskAccount(h.database, 'a', async () => {});
+    let [saved] = await repository.listGoogleTaskLinks(h.database);
+    assert.equal(saved.googleTaskId, 'task-a-0'); assert.equal(saved.pendingStatus, 'completed');
+    assert.equal(saved.pendingStatusRevision, 'new-completion');
+    await archive.activatePersonalGoogleTaskAccount(h.database, 'b', async () => {});
+    await repository.upsertGoogleTaskLink(h.database, link('b'));
+    await stagePendingGoogleTaskStatus(h.database, 'entry-0', 'needsAction', 'latest-undo');
+    await archive.activatePersonalGoogleTaskAccount(h.database, 'a', async () => {});
+    [saved] = await repository.listGoogleTaskLinks(h.database);
+    assert.equal(saved.googleTaskId, 'task-a-0'); assert.equal(saved.pendingStatus, 'needsAction');
+    assert.equal(saved.pendingStatusRevision, 'latest-undo');
+  } finally { h.connection.close(); }
+});
 function controller(h, subject = 'b', nativeRead) {
   let native = subject; let firebase = 'firebase-b'; const events = [];
   const module = loadNativeModule('src/features/google-sync/account-switch.ts', {

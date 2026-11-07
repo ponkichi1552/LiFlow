@@ -30,7 +30,7 @@ export function createPlannerRefreshController<Snapshot>(dependencies: {
 
   const update = (next: PlannerViewState<Snapshot>) => {
     state = next;
-    for (const listener of listeners) listener();
+    for (const listener of listeners) try { listener(); } catch { /* One view must not prevent another view or native publication. */ }
     if (!next.loading) finishInitialRead();
   };
   const publish = (snapshot: Snapshot, canPublishWidget: boolean, current: number) => {

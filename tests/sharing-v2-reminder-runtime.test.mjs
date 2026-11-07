@@ -28,6 +28,27 @@ async function setup() {
     runtime: createV2ReminderRuntime(input), close() { d.connection.close(); } };
 }
 
+test('a personal input change while native notification reads are pending discards the old plan before OS writes',async()=>{
+  const h=await setup();let generation=0,reads=0,disposals=0;
+  try{
+    await h.store.save(0,{enabled:true,hour:10,minute:0});
+    const oldRead=h.gateway.getScheduledRequests;h.gateway.getScheduledRequests=async()=>{generation=1;return oldRead();};
+    const schedule=h.gateway.schedule;h.gateway.schedule=async row=>{assert.ok(reads>=2,'old input must not reach the OS');return schedule(row);};
+    const runtime=createV2ReminderRuntime({...h.input,readModel:async()=>{const captured=generation;reads++;return{...await h.readModel(),assertPlanningCurrent:async()=>{if(captured!==generation)throw new Error('personal revision changed');},dispose:()=>{disposals++;}};}});
+    await runtime.synchronize();assert.equal(reads,2);assert.equal(disposals,2);assert.ok(h.stored.size>0);
+  }finally{h.close();}
+});
+
+test('denied notification permission skips personal planning while cleaning old reservations and continuing completion checks',async()=>{
+  const h=await setup();let after=0;
+  try{
+    await h.store.save(0,{enabled:true,hour:10,minute:0});await h.runtime.synchronize();h.gateway.hasPermission=async()=>false;
+    const runtime=createV2ReminderRuntime({...h.input,readModel:async()=>assert.fail('permission denied must not load private plans'),afterSynchronize:async()=>{after++;}});
+    await runtime.synchronize();assert.equal(h.stored.size,0);assert.equal(after,1);
+    h.gateway.hasPermission=async()=>{throw new Error('permission unavailable');};await assert.rejects(runtime.synchronize(),/unavailable/);
+  }finally{h.close();}
+});
+
 test('v2 reminder settings are device-local, bound to real v2 SQLite, revision-checked and restart-compatible', async () => {
   const h = await setup(); try {
     const before = await h.d.repository.readState(); const value = await h.store.read(); assert.deepEqual(value.preferences, { enabled: false, hour: 9, minute: 0 }); assert.equal(value.revision, 0);

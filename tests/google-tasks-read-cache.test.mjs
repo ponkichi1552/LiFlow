@@ -26,6 +26,53 @@ async function setup(path) {
   return { ...h, cache, read: (api, clock = now, key = scope) => readGoogleTasksCheckpointed({ api, cache, scope: key, accessToken: 'test-token', now: clock }) };
 }
 
+test('an unchanged thousand-task delta reads no cached item rows while confirmed writes invalidate the exact inventory',async()=>{
+  const h=await setup();let taskRows=0,pages=0;const read=h.database.getAllAsync;
+  h.database.getAllAsync=async(sql,...args)=>{const rows=await read(sql,...args);if(sql.startsWith('SELECT task_json FROM private_google_task_read_items'))taskRows+=rows.length;return rows;};
+  try{
+    const start=performance.now();await h.read({listTaskPage:async()=>{const page=pages++;return{items:Array.from({length:100},(_,n)=>task(`task-${page*100+n}`)),...(page<9?{nextPageToken:`page-${page+1}`}:{ }),serverDate};}});
+    assert.equal(taskRows,1000);const initialMs=performance.now()-start;taskRows=0;
+    const deltaStart=performance.now();for(let n=0;n<3;n++)assert.equal((await h.read({listTaskPage:async()=>({items:[],serverDate})})).length,1000);
+    assert.equal(taskRows,0);const deltaMs=performance.now()-deltaStart;
+    await h.cache.written(scope,[task('task-0','completed')]);assert.equal((await h.cache.tasks(scope)).find(row=>row.id==='task-0').status,'completed');assert.equal(taskRows,1000);
+    console.log(JSON.stringify({audit:'N02-O01',tasks:1000,initialItemRows:1000,unchangedPasses:3,unchangedItemRows:0,initialMs,threeUnchangedMs:deltaMs}));
+  }finally{h.connection.close();}
+});
+
+test('a confirmed status write discards older staged pages across restart while retaining the baseline delta watermark', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'liflow-task-write-fence-')); const path = join(directory, 'test.db'); let h = await setup(path);
+  try {
+    await h.read({ listTaskPage: async () => ({ items: [task('one', 'completed')], serverDate }) });
+    await assert.rejects(h.read({ listTaskPage: async (_token, _list, query) => {
+      if (query.pageToken) throw new TypeError('offline');
+      return { items: [task('one', 'completed')], nextPageToken: 'old-next', serverDate };
+    } }), TypeError);
+    const old = await h.cache.read(scope); assert.equal(old.scan.pageToken, 'old-next');
+    await h.cache.written(scope, [{ ...task('one'), updated: '2026-11-05T03:01:00Z' }]);
+    await assert.rejects(h.cache.page(scope, old, { items: [task('one', 'completed')], serverDate }, now.toISOString()), { code: 'task_read_checkpoint_changed' });
+    h.connection.close(); h = await setup(path);
+    assert.equal((await h.cache.tasks(scope))[0].status, 'needsAction');
+    const rows = await h.read({ listTaskPage: async (_token, _list, query) => {
+      assert.equal(query.pageToken, undefined); assert.equal(query.updatedMin, '2026-11-05T02:59:55.000Z');
+      return { items: [task('one')], serverDate: 'Thu, 05 Nov 2026 03:02:00 GMT' };
+    } });
+    assert.equal(rows[0].status, 'needsAction');
+  } finally { h.connection.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+for (const corrupt of ['not-json', JSON.stringify({ ...task('one'), status: 'invalid' })]) test(`corrupt Tasks items persist a scope-only rebuild requirement (${corrupt.slice(0, 8)})`, async () => {
+  const h = await setup(); const other = { ...scope, accountSubject: 'unrelated' };
+  try {
+    const api = { listTaskPage: async () => ({ items: [task('one')], serverDate }) };
+    await h.read(api); await h.read(api, now, other);
+    h.connection.prepare('UPDATE private_google_task_read_items SET task_json=? WHERE account_subject=?').run(corrupt, scope.accountSubject);
+    await assert.rejects(h.cache.tasks(scope), { name: 'GoogleTaskFullSyncRequiredError' });
+    assert.equal((await h.cache.read(scope)).complete, false);
+    assert.equal((await h.cache.tasks(other)).length, 1);
+    assert.equal((await h.read({ listTaskPage: async (_token, _list, query) => { assert.equal(query.updatedMin, undefined); return { items: [task('one')], serverDate }; } })).length, 1);
+  } finally { h.connection.close(); }
+});
+
 test('Tasks read checkpoints survive database reopening and a failed later page never reconciles a partial list', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'liflow-task-page-')); const path = join(directory, 'test.db'); let h;
   const queries = [];
@@ -204,7 +251,7 @@ test('schema26 adds resumable Google read caches without changing schema25 setti
     assert.ok(before.history.length);
     h.connection.exec('DROP TABLE private_google_task_read_control; DROP TABLE private_google_task_read_items; DROP TABLE private_google_task_read_staging; PRAGMA user_version=25;');
     await migrateLocalDatabase(h.database); await migrateLocalDatabase(h.database);
-    assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 27);
+    assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 29);
     assert.deepEqual(await repository.listGoogleTaskLinks(h.database), before.links);
     assert.deepEqual(h.history(), before.history);
     assert.deepEqual(h.connection.prepare('SELECT * FROM chore_definitions ORDER BY id').all(), before.settings);
@@ -326,5 +373,16 @@ test('an aged Tasks baseline still receives background deltas while its periodic
     assert.equal(queries[1].updatedMin, previous.watermark); assert.equal((await h.cache.read(scope)).lastFullAt, previous.lastFullAt);
     await h.read(api, later); assert.equal(queries.length, 3); assert.equal(queries[2].updatedMin, undefined);
     assert.equal((await h.cache.read(scope)).lastFullAt, later.toISOString());
+  } finally { h.connection.close(); }
+});
+
+test('one hundred Tasks from one response cross the SQLite bridge in bounded batches without changing cache contents', async t => {
+  const h = await setup(); let stagingWrites = 0;
+  const run = h.database.runAsync;
+  h.database.runAsync = async (sql, ...args) => { if (sql.startsWith('INSERT INTO private_google_task_read_staging')) stagingWrites++; return run(sql, ...args); };
+  try {
+    const items = Array.from({ length: 100 }, (_, n) => task(`batch-${String(n).padStart(3, '0')}`));
+    const rows = await h.read({ listTaskPage: async () => ({ items, serverDate }) });
+    assert.deepEqual(rows, items); t.diagnostic(`staging SQLite calls: ${stagingWrites}`); assert.equal(stagingWrites, 1);
   } finally { h.connection.close(); }
 });

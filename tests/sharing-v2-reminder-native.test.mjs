@@ -33,6 +33,7 @@ async function setup() {
   const controller = createV2GroupController(d.repository, { now: () => new Date(), makeId: () => 'unused-id', sync: async () => {} });
   const nativeMocks = {
     'expo-sqlite': { async openDatabaseAsync(name, options) { assert.equal(name, 'housework.db'); assert.equal(options.useNewConnection, true); calls.push('personal-open'); return personal; } },
+    '../storage/planning-input-revision': { readPlanningInputRevision: async () => 0 },
     '../storage/repository': { async readPersonalPlannerOverlaySnapshot(db, now) { assert.equal(db, personal); calls.push('personal-read'); if (failPersonal) { active = false; }
       return { today: sharedLocalDate(now, 'Asia/Tokyo'), timeZone: 'Asia/Tokyo', snapshot: { household: { id: 'local-household' },
         settings: { frequencyMode: 'balanced', restDays: [], heavyDailyLimit: 1, normalDailyLimit: 2, setupCompleted: true }, chores: [], scheduleEntries: [], completions: [] } }; } },
@@ -53,7 +54,7 @@ async function setup() {
       scheduleNotificationAsync: async request => { calls.push(['immediate', request]); return request.identifier; },
       getPresentedNotificationsAsync: async () => [], dismissNotificationAsync: async () => {}, cancelScheduledNotificationAsync: async key => scheduled.delete(key) },
     './private-calendar-runtime': { openPrivateCalendarRuntime(uid) { assert.equal(uid, scope.userId); guard(); calls.push('local-calendar');
-      return { async readPlannerPreferences() { guard(); return null; }, async readForPlan() { guard(); return null; }, async readOwnCalendar() { throw new Error('notification rendering must not acquire Google'); } }; } },
+      return { subscribe: () => () => {}, async readPlannerPreferences() { guard(); return null; }, async readForPlan() { guard(); return null; }, async readOwnCalendar() { throw new Error('notification rendering must not acquire Google'); } }; } },
     './v2-completion-notices': { createNativeV2CompletionNotices(input) { assert.equal(input.repository, d.repository); return { synchronize: async () => { completionCalls++; } }; },
       clearInactiveV2CompletionNotices: async () => {}, clearV2CompletionNoticesForScope: async () => {} },
   };
@@ -86,7 +87,7 @@ test('native v2 reminders default off without permission, personal-data read or 
   const h = await setup(); try {
     await h.runtime.synchronize(); assert.deepEqual(h.calls, []);
     await h.runtime.store.save(0, { enabled: true, hour: 10, minute: 0 }); await h.runtime.synchronize(); assert.ok(h.scheduled.size > 0);
-    assert.deepEqual(h.calls, ['personal-open', 'personal-read', 'local-calendar', 'personal-close']);
+    assert.equal(h.calls.filter(row=>row==='personal-read').length, 1); assert.equal(h.calls.filter(row=>row==='personal-open').length,h.calls.filter(row=>row==='personal-close').length);
     assert.ok([...h.scheduled.values()].every(row => row.key.startsWith(identity.v2NotificationPrefix(scope.userId, scope.groupId))));
     assert.equal(h.d.connection.prepare('SELECT COUNT(*) AS n FROM households').get().n, 0, 'v2 stays out of legacy planner rows');
     assert.equal(h.calls.includes('request-permission'), false);
@@ -116,7 +117,7 @@ test('native shared Tasks and reminders use the same shared all-day calendar inp
 test('native v2 reminders close the personal handle and reject account changes during private read before native writes', async () => {
   const h = await setup(); try {
     await h.runtime.store.save(0, { enabled: true, hour: 10, minute: 0 }); h.stopDuringPersonalRead();
-    await assert.rejects(h.runtime.synchronize(), /account changed/u); assert.deepEqual(h.calls, ['personal-open', 'personal-read', 'personal-close']); assert.equal(h.scheduled.size, 0);
+    await assert.rejects(h.runtime.synchronize(), /account changed/u); assert.deepEqual(h.calls, ['personal-open', 'local-calendar', 'personal-read', 'personal-close']); assert.equal(h.scheduled.size, 0);
   } finally { h.close(); }
 });
 

@@ -50,8 +50,8 @@ export async function bindApplianceAccount(uid: string): Promise<import('../../f
     if (getSharingServices().auth.currentUser?.uid !== uid) throw failure('利用者が切り替わりました。');
     const headers = await abortApplianceWait(() => session.headers(), controller.signal);
     controller.signal.throwIfAborted();
-    const response = await fetch(`${baseUrl}/api/appliance-care/usage`, { headers, signal: controller.signal, redirect: 'error' });
-    const body: unknown = await response.json();
+    const response = await abortApplianceWait(() => fetch(`${baseUrl}/api/appliance-care/usage`, { headers, signal: controller.signal, redirect: 'error' }), controller.signal);
+    const body: unknown = await abortApplianceWait(() => response.json(), controller.signal);
     if (!response.ok || !body || typeof body !== 'object' || !('usage' in body) || !isApplianceCareUsage(body.usage)) {
       throw failure('正規端末とアカウントの紐づけを確認できません。家電AIは利用できません。');
     }

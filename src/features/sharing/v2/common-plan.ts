@@ -28,6 +28,7 @@ import { showExpiredOnHome } from './completion-state.ts';
 import { maximalCausalFacts } from './causal-facts.ts';
 import { v2Dependency, cyclicV2Dependencies, dependencyLowerBound } from './dependency-constraints.ts';
 import type { V2Dependency } from './dependency-constraints.ts';
+import { indexRetainedRounds } from './retained-round-index.ts';
 import { v2RetainedCompletions } from './retained-completions.ts';
 import type { V2RetainedAssignmentCut } from './history-retention-schema';
 
@@ -40,7 +41,7 @@ export interface V2SubjectPlan {
   id: string; subjectUserId: string | null; required: boolean; assigneeIds: string[]; formalDate: V2FormalDate;
   suggestedDate: LocalDate; executionWindowStart: LocalDate; executionWindowEnd: LocalDate;
   completed: boolean; completionOperationIds: string[]; pendingCompletionIds: string[];
-  retainedCompletion?: { checkpointId: string; recorderUserIds: string[]; completedDate: LocalDate };
+  retainedCompletion?: { checkpointId: string; recorderUserIds: string[]; completedDate: LocalDate; completedAt?: string };
   strictInstructionUnfulfilled: boolean; minimumNextExecutionDay: LocalDate | null; cooldownSuppressed: boolean;
   virtuallyConsumed: boolean; showExpiredOnHome: boolean; requestReviewIds: string[];
   dependencyNotBefore: LocalDate | null; dependencyNotBeforeInstant: number | null; dependencyBlocked: boolean; dependencyAwaitingCompletion: boolean;
@@ -81,7 +82,22 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
   const assessment = input.assessment; const view = assessment.view; const roster = input.archive.at(-1);
   if (!roster || !isSupportedV2Scheduler(roster.body.schedulerVersion)) throw new Error('Unsupported common planner version');
   const at = v2ReadPoint(view, roster); const issues: V2PlanIssue[] = [];
+  // This view/archive is immutable for this one synchronous projection. Never
+  // share cached permissions across later receiver accepts or roster revisions.
+  const frameContexts = new WeakMap<SharedOperation, Map<string, ReturnType<typeof frameAtOperation>>>();
+  const frameContext = (point: SharedOperation, choreId: string, anchorDate: LocalDate, version?: number, allowAssignmentConflict = false) => {
+    let byFrame = frameContexts.get(point); if (!byFrame) { byFrame = new Map(); frameContexts.set(point, byFrame); }
+    const key = canonicalJson([choreId, anchorDate, version ?? null, allowAssignmentConflict]);
+    let result = byFrame.get(key);
+    if (!result && !allowAssignmentConflict) {
+      const reviewed = byFrame.get(canonicalJson([choreId, anchorDate, version ?? null, true]));
+      if (reviewed && !reviewed.assignmentConflictIds.length) result = reviewed;
+    }
+    if (!result) { result = frameAtOperation(view, input.archive, point, choreId, anchorDate, version, { allowAssignmentConflict }); byFrame.set(key, result); }
+    return result;
+  };
   const retention = view.retentionAt(at); const retained = v2RetainedCompletions(view, at);
+  const retainedIndex = indexRetainedRounds(retained);
   const retainedDigest = retention ? sharedDocumentDigest(retention) : '';
   const assignmentProjection = view.assignmentsAt(at);
   const confirmedAssignmentAnswers = new Set((assignmentProjection?.requests ?? [])
@@ -139,6 +155,8 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
     return { userId, displayName: typeof data.displayName === 'string' ? data.displayName : activeMembers.has(userId) ? 'メンバー' : '以前のメンバー', active: activeMembers.has(userId) };
   });
   const allRules = observedDateRules(view, at, assessment.approvedRules);
+  const rulesByChore = new Map<string, ManualRuleFact[]>();
+  for (const fact of allRules) { const rows = rulesByChore.get(fact.rule.choreId) ?? []; rows.push(fact); rulesByChore.set(fact.rule.choreId, rows); }
   const dependencies: V2Dependency[] = [];
   for (const id of [...new Set(view.ofType('dependency').map((op) => op.entityId))].sort(compareOperationIds)) {
     const data = fields('dependency', id);
@@ -169,8 +187,9 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
     return context.config.policy.completion === 'one' ? done(null) : context.subjectUserIds.length > 0 && context.subjectUserIds.every(done);
   }
   for (const chore of chores) {
+    const choreRules = rulesByChore.get(chore.id) ?? [];
     const lastCompletionBySubject = new Map<string | null, LocalDate>();
-    for (const state of [...retention?.anchors ?? [], ...retained.filter(row => row.reports.length)]) if (state.choreId === chore.id) {
+    for (const state of [...retention?.anchors ?? [], ...retainedIndex.forChore(chore.id).filter(row => row.reports.length)]) if (state.choreId === chore.id) {
       const day = sharedLocalDate(new Date(state.instant), timeZone); const prior = lastCompletionBySubject.get(state.subjectUserId);
       if (!prior || day > prior) lastCompletionBySubject.set(state.subjectUserId, day);
     }
@@ -192,7 +211,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
       }
       if (slice.configuration.active === false) continue;
       const bounds = [{ from: range.from, through: range.through }];
-      for (const fact of allRules) {
+      for (const fact of choreRules) {
         const rule = fact.rule; if (rule.choreId !== chore.id || rule.selector.scope === 'once' || rule.ruleVersion !== slice.version) continue;
         try {
           const inverse = v2RuleCalendarAnchorRange(rule, range.from, range.through, timeZone);
@@ -221,18 +240,18 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
       issue('oneOffAssignmentMappingNeedsReview', chore.id, fact.payload.fromOccurrenceId, null, [fact.sourceRequestId ?? fact.operationId]);
     }
     // A moved one-off date stays visible even when its anchor falls outside the displayed date range.
-    for (const fact of allRules.filter((rule) => rule.rule.choreId === chore.id && rule.rule.selector.scope === 'once')) {
+    for (const fact of choreRules.filter((rule) => rule.rule.selector.scope === 'once')) {
       const selector = fact.rule.selector; if (selector.scope !== 'once') continue;
       const targetDate = fact.rule.mode === 'deadline' ? targetReferenceCivilDate(fact.rule.target, fact.rule.timeZoneAtCreation, timeZone) : targetCivilDate(fact.rule.target, timeZone);
       if (targetDate < range.from || targetDate > range.through) continue;
       const source = view.byId(fact.sourceRequestId ?? fact.operationId);
       if (!source) { issue('oneOffMappingNeedsReview', chore.id, selector.occurrenceId, fact.rule.subjectUserId, [fact.operationId]); continue; }
-      try { const frame = frameAtOperation(view, input.archive, source, chore.id, selector.anchorDate, fact.rule.ruleVersion).frame;
+      try { const frame = frameContext(source, chore.id, selector.anchorDate, fact.rule.ruleVersion).frame;
         if (manualRuleMatches(fact, frame)) frames.set(frame.id, frame); }
       catch { issue('oneOffMappingNeedsReview', chore.id, selector.occurrenceId, fact.rule.subjectUserId, [fact.operationId]); }
     }
     const retainedHistoricalFrames = new Set<string>();
-    for (const state of retained) if (state.choreId === chore.id && state.reports.length
+    for (const state of retainedIndex.forChore(chore.id)) if (state.reports.length
       && (state.anchorDate >= range.from && state.anchorDate <= range.through || state.suggestedDate >= range.from && state.suggestedDate <= range.through)) {
       const cfg = view.ofType('chorePolicy').find(op => op.entityId === chore.id && (op.payload.configuration as unknown as SharedChoreConfiguration).ruleVersion === state.ruleVersion)?.payload.configuration as unknown as SharedChoreConfiguration | undefined;
       if (cfg) { const frame = commonFrame(view.groupId, chore.id, cfg, state.anchorDate); frames.set(frame.id, frame); }
@@ -249,7 +268,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
       if (!record.active && frames.has(record.occurrenceId)) continue;
       const source = view.byId(record.operationId)!;
       try {
-        const context = frameAtOperation(view, input.archive, source, chore.id, record.anchorDate, source.payload.ruleVersion as number);
+        const context = frameContext(source, chore.id, record.anchorDate, source.payload.ruleVersion as number);
         const current = frames.get(record.occurrenceId);
         retainedHistoricalFrames.add(record.occurrenceId);
         if (!current || current.ruleVersion !== context.frame.ruleVersion) {
@@ -263,14 +282,14 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
     for (const frame of [...frames.values()].sort((a, b) => compareOperationIds(a.anchorDate, b.anchorDate))) {
       let context: ReturnType<typeof frameAtOperation>; let assignmentCut: V2RetainedAssignmentCut | undefined;
       try {
-        context = frameAtOperation(view, input.archive, at, chore.id, frame.anchorDate, frame.ruleVersion, { allowAssignmentConflict: true });
+        context = frameContext(at, chore.id, frame.anchorDate, frame.ruleVersion, true);
         // Once a round was complete, a later assignment change does not reopen it for a new person.
         const changes = view.observed(assignmentChanges, at).filter((op) => { const value = assignmentPayload(op); return value.choreId === chore.id && value.ruleVersion === frame.ruleVersion
           && (value.scope === 'once' ? value.fromOccurrenceId === frame.id : (value.fromAnchorDate as string) <= frame.anchorDate); })
           .sort((a, b) => a.logicalClock - b.logicalClock || compareOperationIds(a.operationId, b.operationId));
         for (const change of changes) {
           try {
-            const previous = frameAtOperation(view, input.archive, change, chore.id, frame.anchorDate, frame.ruleVersion);
+            const previous = frameContext(change, chore.id, frame.anchorDate, frame.ruleVersion);
             if (completedBefore(frame.id, change, previous)) { context = previous; assignmentCut = { keyVersion: change.keyVersion, context: change.context, receiptContext: change.receiptContext ?? change.context }; break; }
           } catch { /* Resolving a prior ambiguous assignment must not make the now-resolved round disappear. */ }
         }
@@ -279,17 +298,17 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
         if (changes.length) for (const record of historyByFrame.get(frame.id) ?? []) {
           if (!usable(record)) continue; const work = view.byId(record.operationId); if (!work) continue;
           try {
-            const previous = frameAtOperation(view, input.archive, work, chore.id, frame.anchorDate, frame.ruleVersion);
+            const previous = frameContext(work, chore.id, frame.anchorDate, frame.ruleVersion);
             const afterWork = { ...work, context: { ...work.context, [work.authorDeviceId]: work.deviceSequence } };
             if (completedBefore(frame.id, afterWork, previous)) { context = previous; assignmentCut = { keyVersion: work.keyVersion, context: work.context, receiptContext: work.receiptContext ?? work.context }; break; }
           } catch { /* Keep current explicit review when an original assignment cannot be reconstructed. */ }
         }
-        const certifiedCut = retained.find(row => row.choreId === chore.id && row.anchorDate === frame.anchorDate && row.ruleVersion === frame.ruleVersion && row.assignmentCut)?.assignmentCut;
-        if (certifiedCut) { context = frameAtOperation(view, input.archive, { ...at, ...certifiedCut }, chore.id, frame.anchorDate, frame.ruleVersion, { allowAssignmentConflict: true }); assignmentCut = certifiedCut; }
+        const certifiedCut = retainedIndex.forRound(chore.id, frame.anchorDate, frame.ruleVersion).find(row => row.assignmentCut)?.assignmentCut;
+        if (certifiedCut) { context = frameContext({ ...at, ...certifiedCut }, chore.id, frame.anchorDate, frame.ruleVersion, true); assignmentCut = certifiedCut; }
       } catch { issue('assignmentNeedsReview', chore.id, frame.id); continue; }
       if (context.assignmentConflictIds.length) issue('assignmentNeedsReview', chore.id, frame.id, null, context.assignmentConflictIds);
       const records = historyByFrame.get(frame.id) ?? []; const actual = records.filter(usable);
-      const retainedRound = retained.filter(row => row.choreId === chore.id && row.anchorDate === frame.anchorDate && row.ruleVersion === frame.ruleVersion);
+      const retainedRound = retainedIndex.forRound(chore.id, frame.anchorDate, frame.ruleVersion);
       const window = expandedCommonWindow({ frame, timeZone, view, at, requests: assessment.requestStates, approvedRules: assessment.approvedRules, receiptEpochs: assessment.receiptEpochs });
       if (window.reviews.length) issue('windowExtensionNeedsReview', chore.id, frame.id, null, window.reviews);
       const past = frame.anchorDate < range.asOfDate;
@@ -304,13 +323,13 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
         const retainedState = retainedRound.find(row => row.subjectUserId === subjectUserId && row.reports.length);
         const isCompleted = completed.length > 0 || Boolean(retainedState);
         const pending = records.filter((record) => record.subjectUserId === subjectUserId && record.active && record.outcome === 'completed' && !usable(record));
-        const selected = selectManualRule(allRules, { ...frame, ...window }, subjectUserId, timeZone);
+        const selected = selectManualRule(choreRules, { ...frame, ...window }, subjectUserId, timeZone);
         let formalDate: V2FormalDate = { kind: 'automatic' }; let suggestedDate = frame.anchorDate; let candidates: ManualRuleFact[] = [];
         if (selected.kind === 'conflict') {
           candidates = selected.candidates; formalDate = { kind: 'conflict', ruleIds: candidates.map((fact) => fact.operationId) };
           issue('dateConflict', chore.id, frame.id, subjectUserId, formalDate.ruleIds);
         } else if (selected.kind === 'selected') {
-          candidates = allRules.filter((fact) => selected.equivalentOperationIds.includes(fact.operationId)); const target = materializeRuleTarget(selected.fact.rule, frame, timeZone);
+          candidates = choreRules.filter((fact) => selected.equivalentOperationIds.includes(fact.operationId)); const target = materializeRuleTarget(selected.fact.rule, frame, timeZone);
           if (target.kind === 'review') { formalDate = { kind: 'review', reason: target.reason, ruleIds: selected.equivalentOperationIds }; issue(target.reason, chore.id, frame.id, subjectUserId, selected.equivalentOperationIds); }
           else { formalDate = { kind: 'manual', ruleId: selected.fact.operationId, equivalentRuleIds: selected.equivalentOperationIds, mode: selected.fact.rule.mode, target: target.target, timeZone: selected.fact.rule.timeZoneAtCreation,
             strict: selected.fact.rule.strict, allowDuringCooldown: selected.fact.rule.allowDuringCooldown === true };
@@ -333,7 +352,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
           executionWindowStart: retainedState?.windowStart ?? (formalDate.kind === 'manual' && suggestedDate < window.windowStart ? suggestedDate : window.windowStart),
           executionWindowEnd: retainedState?.through ?? (formalDate.kind === 'manual' && suggestedDate > window.windowEnd ? suggestedDate : window.windowEnd),
           completed: isCompleted, completionOperationIds: completed.map((record) => record.operationId), pendingCompletionIds: pending.map((record) => record.operationId),
-          ...(retainedState ? { retainedCompletion: { checkpointId: retainedDigest, recorderUserIds: retainedState.reports.map(report => report.recorderUserId), completedDate: sharedLocalDate(new Date(retainedState.instant), timeZone) } } : {}),
+          ...(retainedState ? { retainedCompletion: { checkpointId: retainedDigest, recorderUserIds: retainedState.reports.map(report => report.recorderUserId), completedDate: sharedLocalDate(new Date(retainedState.instant), timeZone), completedAt: new Date(retainedState.instant).toISOString() } } : {}),
           strictInstructionUnfulfilled: isCompleted && completed.every((record) => record.strictInstructionFulfilled === false) && (!retainedState || retainedState.strictInstructionUnfulfilled), minimumNextExecutionDay,
           cooldownSuppressed: suppressed && !isCompleted, virtuallyConsumed: !isCompleted && (window.windowEnd < range.asOfDate
             || minimumNextExecutionDay !== null && minimumNextExecutionDay > window.windowEnd && !(formalDate.kind === 'manual' && formalDate.allowDuringCooldown)),
@@ -353,7 +372,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
         needsAssignment: context.assignmentConflictIds.length > 0 || context.configuredAssignees.length > 0 && context.assigneeIds.length === 0 || context.config.policy.completion === 'perMember' && requiredSubjects.length === 0,
         completed: planned.some((slot) => slot.required) && planned.filter((slot) => slot.required).every((slot) => slot.completed),
         historical: !currentSlice, activeInPeriod: Boolean((currentSlice?.configuration && currentSlice.configuration.active !== false
-          || allRules.some((fact) => fact.rule.choreId === chore.id && fact.rule.selector.scope === 'once' && manualRuleMatches(fact, frame))) && (past || chore.enabled)),
+          || choreRules.some((fact) => fact.rule.selector.scope === 'once' && manualRuleMatches(fact, frame))) && (past || chore.enabled)),
         extensionRequestIds: window.sources, subjects: planned });
     }
   }
@@ -379,26 +398,26 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
     for (const record of recordsByChore.get(choreId) ?? []) {
       if (record.anchorDate > anchor || !record.active || record.outcome !== 'completed') continue;
       const source = view.byId(record.operationId)!;
-      try { choices.push(frameAtOperation(view, input.archive, source, choreId, record.anchorDate, source.payload.ruleVersion as number).frame); } catch { /* The related round remains a review. */ }
+      try { choices.push(frameContext(source, choreId, record.anchorDate, source.payload.ruleVersion as number).frame); } catch { /* The related round remains a review. */ }
     }
-    for (const fact of allRules) {
+    for (const fact of rulesByChore.get(choreId) ?? []) {
       const selector = fact.rule.selector; if (fact.rule.choreId !== choreId || selector.scope !== 'once' || selector.anchorDate > anchor) continue;
       const origin = view.byId(fact.sourceRequestId ?? fact.operationId);
-      if (origin) try { choices.push(frameAtOperation(view, input.archive, origin, choreId, selector.anchorDate, fact.rule.ruleVersion).frame); } catch { /* An incompatible exception remains a review. */ }
+      if (origin) try { choices.push(frameContext(origin, choreId, selector.anchorDate, fact.rule.ruleVersion).frame); } catch { /* An incompatible exception remains a review. */ }
     }
     let frame = choices.sort((a, b) => compareOperationIds(b.anchorDate, a.anchorDate) || a.ruleVersion - b.ruleVersion)[0] ?? initial;
     const recorded = frame && [...(historyByFrame.get(frame.id) ?? [])].sort((a, b) => view.byId(a.operationId)!.logicalClock - view.byId(b.operationId)!.logicalClock || compareOperationIds(a.operationId, b.operationId))[0];
     if (recorded) {
       const source = view.byId(recorded.operationId)!;
-      try { frame = frameAtOperation(view, input.archive, source, choreId, recorded.anchorDate, source.payload.ruleVersion as number).frame; } catch { /* The related round remains a review. */ }
+      try { frame = frameContext(source, choreId, recorded.anchorDate, source.payload.ruleVersion as number).frame; } catch { /* The related round remains a review. */ }
     }
     let result: { day: LocalDate; instant: number | null; occurrenceId: string; completed: boolean } | null = null;
     if (frame) try {
-      const context = frameAtOperation(view, input.archive, at, choreId, frame.anchorDate, frame.ruleVersion);
+      const context = frameContext(at, choreId, frame.anchorDate, frame.ruleVersion);
       const subjects: (string | null)[] = context.config.policy.completion === 'one' ? [null] : context.subjectUserIds;
       const records = (historyByFrame.get(frame.id) ?? []).filter(usable);
       const completed = subjects.map(uid => {
-        const current = retained.find(row => row.choreId === choreId && row.anchorDate === frame.anchorDate && row.ruleVersion === frame.ruleVersion && row.subjectUserId === uid);
+        const current = retainedIndex.forRound(choreId, frame.anchorDate, frame.ruleVersion).find(row => row.subjectUserId === uid);
         const prior = current ? current.reports.map(report => report.instant) : (retention?.anchors ?? []).filter(row => row.choreId === choreId && row.anchorDate === frame.anchorDate && row.ruleVersion === frame.ruleVersion && row.subjectUserId === uid).map(row => row.instant);
         const instants = [...records.filter(record => record.subjectUserId === uid).map(record => Date.parse(record.performedAt)), ...prior];
         return instants.length ? Math.min(...instants) : null;
@@ -409,7 +428,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
         const window = expandedCommonWindow({ frame, timeZone, view, at, requests: assessment.requestStates, approvedRules: assessment.approvedRules, receiptEpochs: assessment.receiptEpochs });
         const endings: { day: LocalDate; instant: number | null }[] = [];
         for (const uid of subjects) {
-          const selected = selectManualRule(allRules, frame, uid, timeZone);
+          const selected = selectManualRule(rulesByChore.get(choreId) ?? [], frame, uid, timeZone);
           if (selected.kind === 'conflict') break;
           if (selected.kind === 'automatic') endings.push({ day: window.windowEnd, instant: null });
           else {

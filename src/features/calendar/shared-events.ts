@@ -9,17 +9,20 @@ import { createLocalCalendarAvailability } from './private-availability.ts';
 /** One projection for displayed events, recommendation inputs and native integrations. */
 export function projectSharedCalendarRecords(records: readonly SharedCalendarRecord[], groupId: string) {
   const eventId = (id: string) => `group.${sharedDocumentDigest([groupId, id])}`;
-  const recordsById = new Map(records.map(row => [eventId(row.id), row]));
+  const identified = records.map(record => ({ record, id: eventId(record.id) }));
+  const recordsById = new Map(identified.map(({ record, id }) => [id, record]));
   const groupCategories = new Map<string, CalendarCategory>(); const rawCategories = new Map<string, CalendarCategory>();
+  const categoryIds = new Map<string, string>();
   const events: CalendarEvent[] = []; const exceptions: CalendarException[] = [];
   let conflicted = false;
-  for (const record of records) {
+  for (const { record, id } of identified) {
     if (record.heads.length !== 1) { conflicted = true; continue; }
     const payload = sharedCalendarPayload(record.heads[0]); if (!payload.value || !payload.category) continue;
-    const id = eventId(record.id);
     const category = (value: NonNullable<typeof payload.category>) => {
+      const key = JSON.stringify([value.id, value.name, value.color]); const existing = categoryIds.get(key);
+      if (existing) return existing;
       const result = { ...value, id: `gcat.${sharedDocumentDigest([groupId, value])}`, revision: 1 };
-      groupCategories.set(result.id, result); rawCategories.set(result.id, { ...value, revision: 1 }); return result.id;
+      groupCategories.set(result.id, result); rawCategories.set(result.id, { ...value, revision: 1 }); categoryIds.set(key, result.id); return result.id;
     };
     events.push({ ...payload.value, categoryId: category(payload.category), id, revision: record.heads[0].logicalClock });
     for (const row of record.exceptions) {

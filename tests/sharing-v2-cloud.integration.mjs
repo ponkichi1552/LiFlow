@@ -154,6 +154,8 @@ test('v2 workspace sessions restore real encrypted bootstrap and offline edits a
       await member.synchronizer.sync({ force: true }); await owner.synchronizer.sync({ force: true });
       const receivedNotice = await notices.collect(true, new Date()); assert.equal(receivedNotice.keys.length, 1); assert.deepEqual(receivedNotice.names, [privateData.chore.name]);
       const afterNotice = await f.cloud.readGroup(groupId); const restoredNotices = createV2CompletionNoticeStore(noticeInput);
+      const stillPending = await restoredNotices.collect(true, new Date()); assert.deepEqual(stillPending.keys,receivedNotice.keys);
+      assert.equal(await restoredNotices.issue(stillPending,async()=>{}),true); await restoredNotices.settled(stillPending);
       assert.equal(await restoredNotices.collect(true, new Date()), null); assert.equal((await f.cloud.readGroup(groupId)).group.headSequence, afterNotice.group.headSequence);
       await member.controller.actions.undo(copyCompleted.operationId); await member.synchronizer.sync({ force: true }); await owner.synchronizer.sync({ force: true });
       assert.equal(await notices.collect(true, new Date()), null);

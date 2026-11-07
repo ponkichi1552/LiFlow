@@ -10,8 +10,8 @@ export interface SharedTaskClaimCloud {
   reserveBatch(intents: readonly GoogleTaskCreateIntent[]): Promise<readonly boolean[]>;
   reject(intent: GoogleTaskCreateIntent): Promise<void>;
   rejectBatch(intents: readonly GoogleTaskCreateIntent[]): Promise<void>;
-  linked(identity: GoogleTaskCreateIdentity, taskId: string): Promise<void>;
-  deleted(identity: GoogleTaskCreateIdentity, taskId: string): Promise<void>;
+  linked(identity: GoogleTaskCreateIdentity, taskId: string, expectedAttemptId?: string): Promise<void>;
+  deleted(identity: GoogleTaskCreateIdentity, taskId: string, expectedAttemptId?: string): Promise<void>;
 }
 export interface SharedTaskClaimReader {
   /** A server read, never an offline cached grant. */
@@ -52,8 +52,12 @@ export function reserveSharedTaskClaim(row: SharedTaskClaim | null, key: ReturnT
   if (row?.attemptId === intent.attemptId) throw new Error('Google家事の作成試行を使い直すことはできません。');
   return { schemaVersion: 1, ...key, revision: nextRevision(row), phase: 'reserved', attemptId: intent.attemptId, taskHash: null };
 }
-export function linkSharedTaskClaim(row: SharedTaskClaim | null, key: ReturnType<typeof sharedTaskClaimKey>, taskId: string): SharedTaskClaim | null {
+export function linkSharedTaskClaim(row: SharedTaskClaim | null, key: ReturnType<typeof sharedTaskClaimKey>, taskId: string, expectedAttemptId?: string): SharedTaskClaim | null {
   const taskHash = sharedTaskIdHash(taskId);
+  if (expectedAttemptId !== undefined && (!text(expectedAttemptId) || !row || row.phase === 'released' || row.attemptId !== expectedAttemptId)
+    || row?.phase === 'reserved' && expectedAttemptId === undefined) {
+    throw Object.assign(new Error('Google家事の作成予約が変わりました。受信した結果は保持しています。'), { code: 'task_create_result_pending' });
+  }
   if (row?.phase === 'linked') {
     if (row.taskHash !== taskHash) throw Object.assign(new Error('同じ共有家事のGoogle対応記録が異なります。保存内容は保持しています。'), { code: 'ambiguous_task_occurrence' });
     return null;
@@ -68,4 +72,12 @@ export function releaseSharedTaskClaim(row: SharedTaskClaim | null, expected: { 
   const matches = 'attemptId' in expected ? row.phase === 'reserved' && row.attemptId === expected.attemptId
     : row.phase === 'linked' && row.taskHash === sharedTaskIdHash(expected.taskId);
   return matches ? { ...row, phase: 'released', taskHash: null, revision: nextRevision(row) } : null;
+}
+export function deleteSharedTaskClaim(row: SharedTaskClaim | null, taskId: string, expectedAttemptId?: string): SharedTaskClaim | null {
+  sharedTaskIdHash(taskId);
+  if (row?.phase === 'reserved') {
+    if (!expectedAttemptId || row.attemptId !== expectedAttemptId) throw Object.assign(new Error('Google家事の削除と作成試行を確認しています。'), { code: 'task_create_result_pending' });
+    return releaseSharedTaskClaim(row, { attemptId: expectedAttemptId });
+  }
+  return releaseSharedTaskClaim(row, { taskId });
 }

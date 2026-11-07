@@ -29,7 +29,8 @@ test('Google Tasks API encodes IDs and sends date-only due timestamps', async ()
   });
 
   await api.createTask('token', 'list/1', { title: '掃除', due: '2026-10-25T00:00:00.000Z' });
-  assert.match(observed.url, /lists\/list%2F1\/tasks$/u);
+  assert.equal(new URL(observed.url).pathname, '/tasks/v1/lists/list%2F1/tasks');
+  assert.ok(new URL(observed.url).searchParams.get('fields').includes('etag'));
   assert.deepEqual(JSON.parse(observed.init.body), { title: '掃除', due: '2026-10-25T00:00:00.000Z' });
 });
 
@@ -294,4 +295,19 @@ test('Google Tasks deletion requires a strong current ETag and sends the exact I
   await api.deleteTask('synthetic-token', 'list/id', 'task/id', '"version-1"');
   assert.equal(calls, 1); assert.equal(request.init.method, 'DELETE'); assert.equal(request.init.headers['If-Match'], '"version-1"');
   assert.equal(request.init.body, undefined); assert.match(request.url, /list%2Fid\/tasks\/task%2Fid$/u);
+});
+for (const shape of ['duplicate-content-id','unknown-content-id','duplicate-task-id']) test(`ambiguous multipart ${shape} never becomes a definitive creation rejection`,async()=>{
+  const part=(id,status,body)=>['--ambiguous','Content-Type: application/http',`Content-ID: <response-request-${id}>`,'',`HTTP/1.1 ${status}`,'Content-Type: application/json','',JSON.stringify(body)].join('\r\n');
+  const body=shape==='duplicate-content-id'?part(0,'200 OK',{id:'success'})+'\r\n'+part(0,'429 Too Many Requests',{error:{message:'quota'}})
+    :shape==='unknown-content-id'?part(9,'429 Too Many Requests',{error:{message:'quota'}})
+    :part(0,'200 OK',{id:'same'})+'\r\n'+part(1,'200 OK',{id:'same'});
+  const api=createGoogleTasksApi(async()=>new Response(body+'\r\n--ambiguous--',{headers:{'Content-Type':'multipart/mixed; boundary=ambiguous'}}));
+  const results=await api.createTasksBatch('token','list',[{title:'One'},{title:'Two'}]);
+  for(const result of results){assert.equal(result.ok,false);assert.ok(result.status>=500);}
+});
+
+test('audit100 duplicate Task page resources retain the newest explicit updated instant without repeating an occurrence',async()=>{
+ let pages=0;const fresh={id:'same',title:'fresh',status:'completed',completed:'2026-11-07T12:00:00Z',updated:'2026-11-07T12:00:00Z'};
+ const api=createGoogleTasksApi(async()=>Response.json(++pages===1?{items:[fresh],nextPageToken:'page2'}:{items:[{id:'same',title:'stale',status:'needsAction',updated:'2026-11-06T12:00:00Z'},{id:'second',title:'second',status:'needsAction'}]}));
+ const rows=await api.listTasks('synthetic','list');assert.equal(rows.length,2);assert.deepEqual(rows[0],fresh);assert.equal(rows[1].id,'second');
 });

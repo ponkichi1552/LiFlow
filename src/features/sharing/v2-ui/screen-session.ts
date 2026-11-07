@@ -7,6 +7,7 @@ import { buildV2PersonalPlan } from '../v2/personal-plan.ts';
 import type { V2PersonalPlan } from '../v2/personal-plan';
 import { v2CalendarMonth } from './calendar-projection.ts';
 import { v2CalendarDisplayRange } from './calendar-range.ts';
+import { calendarChoreDisplayThrough } from '../../calendar/chore-display-range.ts';
 import type { V2PrivateOverlayState, V2PrivateTaskSource } from './private-overlay';
 import type { PrivateCalendarRuntime } from '../private-calendar/runtime';
 import { v2CommonCompletionSource } from './common-chore-history.ts';
@@ -17,6 +18,7 @@ import { localCalendarTargetRange } from '../../calendar/private-availability.ts
 import type { SharedCalendarRecord } from '../v2/calendar-state';
 import { traceStartup } from '../../../platform/diagnostics/startup-timing.ts';
 import { capturedSharedRecommendations } from '../../planner/shared-adaptive-load.ts';
+import { AdaptiveOwnerInputsChangedError } from '../../../platform/storage/adaptive-owner-inputs.ts';
 
 export interface V2GroupUiSession {
   controller: V2GroupController; groupId: string; userId: string;
@@ -73,12 +75,15 @@ export function createV2ScreenSession(input: { controller: V2GroupController; gr
         if (focus) parseLocalDate(focus);
         const calendar = options?.calendarMonth ? v2CalendarMonth(options.calendarMonth === 'current' ? date : options.calendarMonth as LocalDate) : null;
         if (calendar) {
+          const horizon = calendarChoreDisplayThrough(date);
+          if (calendar.month > horizon) throw new Error('この月は予定のみ表示します。');
           const range = options?.calendarRange ?? v2CalendarDisplayRange(calendar.month);
-          if (range.from > calendar.from || range.through < calendar.through) throw new Error('表示する月が取得期間に含まれていません。');
-          return { ...range, asOfDate: date };
+          const requiredThrough = calendar.through < horizon ? calendar.through : horizon;
+          if (range.from > calendar.from || range.through < requiredThrough) throw new Error('表示する月が取得期間に含まれていません。');
+          return { ...range, through: range.through < horizon ? range.through : horizon, asOfDate: date };
         }
         return { from: addDays(focus ?? date, -14), through: addDays(focus ?? date, 14), asOfDate: date };
-      }, { detailChoreId: options?.detailChoreId, choreSettings: options?.choreSettings, groupPolicy: options?.groupPolicy, permissionsChoreId: options?.permissionsChoreId, waste: options?.waste, appliances: options?.appliances, applianceId: options?.applianceId }));
+      }, { detailChoreId: options?.detailChoreId, choreSettings: options?.choreSettings, groupPolicy: options?.groupPolicy, permissionsChoreId: options?.permissionsChoreId, waste: options?.waste, appliances: options?.appliances, applianceId: options?.applianceId, calendarLong: Boolean(options?.calendarMonth) }));
       if (model.viewerUserId !== input.userId || model.plan.groupId !== input.groupId) throw new Error('表示する共有アカウント・グループが変わりました。');
       planTimeZone = model.plan.timeZone;
       calendarRecords = model.calendar ?? [];
@@ -99,7 +104,12 @@ export function createV2ScreenSession(input: { controller: V2GroupController; gr
         await traceStartup('display.mirror', () => input.privateTasks!.mirrorShared?.(v2CommonCompletionSource(model)));
         privateOverlay = await traceStartup('display.personalOverlay', () => input.privateTasks!.read(model.plan.range, instant, model.plan.chores));
         if (privateOverlay.ownerUserId !== input.userId) throw new Error('本人の個人家事を確認してください。');
-      } catch { privateOverlay = { status: 'unavailable', message: '個人家事を取得できませんでした。個人の状態を確認し、再読込してください。' }; }
+      } catch (cause) {
+        // A changing owner capture is not a verified absence of personal rows.
+        // Keep the current screen until its ordinary display retry can read a coherent model.
+        if (cause instanceof AdaptiveOwnerInputsChangedError) throw cause;
+        privateOverlay = { status: 'unavailable', message: '個人家事を取得できませんでした。個人の状態を確認し、再読込してください。' };
+      }
       const privateLoad = !input.sharedLoadFirst && privateOverlay?.status === 'ready' && privateOverlay.timeZone === model.plan.timeZone
         ? { ownerUserId: input.userId, days: privateOverlay.dailyLoad } : undefined;
       const personal = await traceStartup('display.personalPlan', () => capturedSharedRecommendations(model.plan,

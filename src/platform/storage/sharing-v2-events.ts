@@ -214,15 +214,13 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
       request_states_json=excluded.request_states_json, formal_rules_json=excluded.formal_rules_json`, ...projectionValues);
     await assertCurrentAccess(localIds !== undefined);
     if (sharedRosterDigest(archive().at(-1)!) !== expectedRoster) throw new SharingAccessError('保存中に共有権限が変わりました。');
-    return { ...assessment, pendingOutboxIds: pendingRows.map((row) => row.operation_id) };
+    return { assessment: { ...assessment, pendingOutboxIds: pendingRows.map((row) => row.operation_id) }, receipts };
   }
   async function readStateInside(transaction: SQLiteDatabase, replica?: SharedReplica) {
     options.assertWritable();
     const source = replica ?? await readReplica(transaction, options.groupId);
-    const assessment = await project(transaction, source);
-    const history = archive(); const expected = sharedRosterDigest(history.at(-1)!);
-    const receipts = await readV2ServerReceiptsInside(transaction, options.groupId);
-    await assertCurrentAccess(); if (sharedRosterDigest(archive().at(-1)!) !== expected) throw new SharingAccessError('読み込み中に共有権限が変わりました。');
+    const { assessment, receipts } = await project(transaction, source);
+    const history = archive();
     return { assessment, replica: source, archive: history, receipts };
   }
   type CurrentBuilder = (state: Awaited<ReturnType<typeof readStateInside>>, transaction: SQLiteDatabase) => Promise<readonly SharedOperationDraft[]>;

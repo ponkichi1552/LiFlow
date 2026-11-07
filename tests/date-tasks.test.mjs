@@ -84,3 +84,11 @@ test('grouping uses chore identity and orders pending tasks by load independentl
   assert.equal(recommendedChoreCounts([entry(today), entry(today, { id: 'second-cycle' }),
     entry(today, { id: 'other', choreId: 'other' })]).get(today), 2);
 });
+
+test('audit100 date task ordering calculates each priority once rather than in every sorting comparison', () => {
+  let reads = 0; const tasks = Array.from({ length: 500 }, (_, n) => ({ id: `row-${n}`, choreId: `chore-${n % 17}`, completed: false,
+    get suggestedDate() { reads++; return '2026-10-24'; }, entry: entry(today, { windowStart: '2026-10-23', windowEnd: '2026-10-26' }) }));
+  const chores = Array.from({ length: 17 }, (_, n) => ({ id: `chore-${n}`, load: ['light','normal','heavy'][n % 3] }));
+  const result = orderDateTasks(tasks, today, chores); assert.equal(result.length, 500);
+  assert.ok(reads <= 500, `priority reads: ${reads}`);
+});

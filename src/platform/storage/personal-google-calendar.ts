@@ -1,10 +1,11 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { GoogleCalendarListEntry } from '../google-calendar/calendar-api';
-import { canReadGoogleCalendar, canWriteGoogleCalendar } from '../google-calendar/calendar-api.ts';
+import { canReadGoogleCalendar, canWriteGoogleCalendar, normalizeGoogleCalendars } from '../google-calendar/calendar-api.ts';
 import { sharedRepositoryAdapter } from './shared-repository-adapter.ts';
 import { withPlannerDatabaseOperation } from './repository.ts';
 import { withIsolatedSqliteTransaction } from './isolated-transaction.ts';
-import { notifyCalendarSyncStatusChanged } from './calendar-events.ts';
+import { notifyCalendarSyncChanged, notifyCalendarSyncStatusChanged } from './calendar-events.ts';
+import { changePlanningInputRevisionInside } from './planning-input-revision.ts';
 
 export interface PersonalGoogleCalendarControl {
   subject: string; generation: number; enabled: boolean; calendars: GoogleCalendarListEntry[];
@@ -67,10 +68,16 @@ export function initializePersonalGoogleCalendar(database: SQLiteDatabase): Prom
       if (!columns.some(column => column.name === 'local_base_json')) await tx.execAsync('ALTER TABLE calendar_google_links ADD COLUMN local_base_json TEXT');
       if (!columns.some(column => column.name === 'pending_json')) await tx.execAsync('ALTER TABLE calendar_google_links ADD COLUMN pending_json TEXT');
       const inboxColumns = await tx.getAllAsync<{ name: string }>('PRAGMA table_info(calendar_google_inbox)');
+      const expansionColumns = await tx.getAllAsync<{ name: string }>('PRAGMA table_info(calendar_google_expansion)');
+      const cursorColumns = await tx.getAllAsync<{ name: string }>('PRAGMA table_info(calendar_google_cursors)');
+      if (!cursorColumns.some(column => column.name === 'visited_json')) await tx.execAsync("ALTER TABLE calendar_google_cursors ADD COLUMN visited_json TEXT NOT NULL DEFAULT '[]'");
+      if (!expansionColumns.some(column => column.name === 'visited_json')) await tx.execAsync("ALTER TABLE calendar_google_expansion ADD COLUMN visited_json TEXT NOT NULL DEFAULT '[]'");
+      if (!expansionColumns.some(column => column.name === 'scan_ranges_json')) await tx.execAsync('ALTER TABLE calendar_google_expansion ADD COLUMN scan_ranges_json TEXT');
       if (!inboxColumns.some(column => column.name === 'attempt_order')) await tx.execAsync('ALTER TABLE calendar_google_inbox ADD COLUMN attempt_order INTEGER NOT NULL DEFAULT 0');
       await tx.execAsync(`CREATE INDEX IF NOT EXISTS calendar_google_inbox_attempts ON calendar_google_inbox(
         subject,calendar_id,dirty,CASE WHEN json_extract(event_json,'$.recurringEventId') IS NULL THEN 0 ELSE 1 END,attempt_order,google_id
       )`);
+      await tx.execAsync('CREATE INDEX IF NOT EXISTS calendar_google_inbox_latest_attempt ON calendar_google_inbox(subject,calendar_id,attempt_order DESC)');
       if (await tx.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='calendar_event_exceptions'")) {
         // Repair an earlier import that acknowledged an instance without keeping
         // its independent availability. A negative revision is an inherited
@@ -123,7 +130,8 @@ export async function activatePersonalGoogleCalendarAccountInside(tx: SQLiteData
   const archived = await tx.getFirstAsync<{ control_json: string }>('SELECT control_json FROM calendar_google_account_controls WHERE subject=?', subject);
   const saved = archived ? parseControl(archived.control_json) : { ...EMPTY_PERSONAL_GOOGLE_CALENDAR, subject, calendars: [] };
   if (saved.subject !== subject || !Number.isSafeInteger(previous.generation + 1)) throw new Error('保存済みのGoogleカレンダーの接続先を確認してください。');
-  await writeInside(tx, { ...saved, generation: previous.generation + 1 }); return true;
+  await writeInside(tx, { ...saved, generation: previous.generation + 1 });
+  await changePlanningInputRevisionInside(tx); return true;
 }
 export async function readPersonalGoogleCalendarControl(database: SQLiteDatabase) {
   await initializePersonalGoogleCalendar(database);
@@ -146,18 +154,22 @@ export async function connectPersonalGoogleCalendar(database: SQLiteDatabase, ex
   calendars: readonly GoogleCalendarListEntry[], targetCalendarId: string | null) {
   if (!subject || subject.length > 256 || new Set(calendars.map(row => row.id)).size !== calendars.length || !calendars.length) throw new Error('Googleアカウントと同期先を確認してください。');
   await initializePersonalGoogleCalendar(database);
-  return withPlannerDatabaseOperation(database, async () => {
+  const connected = await withPlannerDatabaseOperation(database, async () => {
     await assertPersonal(database);
     return withIsolatedSqliteTransaction(database, async tx => {
       const previous = await readInside(tx); if (previous.generation !== expectedGeneration) throw new Error('接続設定が変更されています。選び直してください。');
       if (previous.subject !== subject) await archiveControlInside(tx, previous);
+      else for (const calendar of calendars) if (previous.calendars.find(row => row.id === calendar.id)?.accessRole !== calendar.accessRole) {
+        await tx.runAsync('UPDATE calendar_google_inbox SET dirty=1 WHERE subject=? AND calendar_id=? AND dirty<>1', subject, calendar.id);
+      }
       const value: PersonalGoogleCalendarControl = { ...EMPTY_PERSONAL_GOOGLE_CALENDAR, subject, generation: previous.generation + 1, enabled: true,
-        calendars: calendars.map(row => ({ id: row.id, summary: row.summary, accessRole: row.accessRole,
-          ...(row.primary ? { primary: true } : {}),
-          ...(row.timeZone ? { timeZone: row.timeZone } : {}), ...(row.backgroundColor ? { backgroundColor: row.backgroundColor } : {}) })), targetCalendarId };
-      await writeInside(tx, value); return value;
+        calendars: normalizeGoogleCalendars(calendars), targetCalendarId };
+      await writeInside(tx, value);
+      if (previous.subject !== subject || JSON.stringify(previous.calendars.map(row => row.id).sort()) !== JSON.stringify(value.calendars.map(row => row.id).sort())) await changePlanningInputRevisionInside(tx);
+      return value;
     });
   });
+  notifyCalendarSyncChanged(database); return connected;
 }
 export async function updatePersonalGoogleCalendarStatus(database: SQLiteDatabase, expected: PersonalGoogleCalendarControl,
   patch: Partial<Pick<PersonalGoogleCalendarControl, 'lastSyncAt' | 'error' | 'retryAt' | 'retryCount'>>) {
@@ -174,12 +186,13 @@ export async function refreshPersonalGoogleCalendars(database: SQLiteDatabase, e
   const control = await withPersonalGoogleCalendar(database, expected, async (tx, current) => {
     const primary = calendars.find(row => row.primary && canWriteGoogleCalendar(row));
     if (!primary) throw new Error('Googleのメインカレンダーを確認できません。');
-    const next = { ...current, calendars: calendars.map(row => ({ ...row })), targetCalendarId: primary.id };
+    const next = { ...current, calendars: normalizeGoogleCalendars(calendars), targetCalendarId: primary.id };
     if (JSON.stringify(current.calendars) === JSON.stringify(next.calendars) && current.targetCalendarId === primary.id) return current;
     await writeInside(tx, next);
-    const placeholders = calendars.map(() => '?').join(',');
-    const removed = await tx.runAsync(`UPDATE calendar_google_links SET active=0 WHERE subject=? AND active<>0 AND calendar_id NOT IN (${placeholders})`, current.subject, ...calendars.map(row => row.id));
-    const restored = await tx.runAsync(`UPDATE calendar_google_links SET active=1 WHERE subject=? AND active<>1 AND calendar_id IN (${placeholders})`, current.subject, ...calendars.map(row => row.id));
+    if (JSON.stringify(current.calendars.map(row => row.id).sort()) !== JSON.stringify(next.calendars.map(row => row.id).sort())) await changePlanningInputRevisionInside(tx);
+    const ids = JSON.stringify(next.calendars.map(row => row.id));
+    const removed = await tx.runAsync(`UPDATE calendar_google_links SET active=0 WHERE subject=? AND active<>0 AND calendar_id NOT IN (SELECT value FROM json_each(?))`, current.subject, ids);
+    const restored = await tx.runAsync(`UPDATE calendar_google_links SET active=1 WHERE subject=? AND active<>1 AND calendar_id IN (SELECT value FROM json_each(?))`, current.subject, ids);
     projectionChanged = removed.changes > 0 || restored.changes > 0;
     for (const calendar of calendars) if (current.calendars.find(row => row.id === calendar.id)?.accessRole !== calendar.accessRole) {
       await tx.runAsync('UPDATE calendar_google_inbox SET dirty=1 WHERE subject=? AND calendar_id=? AND dirty<>1', current.subject, calendar.id);

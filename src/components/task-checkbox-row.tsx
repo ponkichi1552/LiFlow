@@ -9,9 +9,9 @@ import { formatJapaneseDate } from '../domain/scheduling/local-date';
 import type { LocalDate } from '../domain/shared/types';
 
 export function TaskCheckboxRow({ chore, completed = false, deemphasized = false, source, urgent = false,
-  onToggle, onOpen, home = false, compact = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow, seasonalWork }: {
+  onToggle, onOpen, home = false, compact = false, provisional = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow, seasonalWork }: {
   chore: ChoreDefinition; completed?: boolean; deemphasized?: boolean; source?: 'personal' | 'shared' | 'instructed';
-  urgent?: boolean; onToggle?: () => void; onOpen: () => void; home?: boolean; compact?: boolean; mixedSources?: boolean;
+  urgent?: boolean; onToggle?: () => void; onOpen: () => void; home?: boolean; compact?: boolean; provisional?: boolean; mixedSources?: boolean;
   executionWindow?: { start: LocalDate; end: LocalDate };
   seasonalWork?: ChoreScheduleEntry['seasonalWork'];
   detail?: string; detailsExpanded?: boolean; lastInList?: boolean; contextLabel?: string; action?: ReactNode; footer?: ReactNode; sourceIcon?: 'person' | 'group';
@@ -31,7 +31,9 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
     <Pressable accessibilityRole="button" accessibilityLabel={`${actionName}の説明を開く`} accessibilityHint="手順や道具を確認します" onPress={onOpen}
       style={({ pressed }) => [styles.compactOpen, pressed && styles.pressed]}>
       <Text numberOfLines={2} style={[styles.compactName, completed && styles.completedText]}>{name}</Text>
-      {executionWindow && executionWindow.start !== executionWindow.end ? <Text style={styles.compactPeriod}>{calendarPeriodLabel(executionWindow.start, executionWindow.end)}</Text> : null}
+      {provisional || executionWindow && executionWindow.start !== executionWindow.end ? <Text style={styles.compactPeriod}>{[
+        provisional ? '仮' : '', executionWindow && executionWindow.start !== executionWindow.end ? calendarPeriodLabel(executionWindow.start, executionWindow.end) : '',
+      ].filter(Boolean).join(' · ')}</Text> : null}
     </Pressable>
   </View>;
   return <View style={[styles.row, source && source !== 'personal' && styles.sharedRow, source === 'instructed' && styles.instructedRow,

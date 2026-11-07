@@ -90,7 +90,8 @@ export function useTaskCompletion(database: SQLiteDatabase, refresh: () => Promi
       const completed = !(runtime.queue.getSnapshot().values.get(key) ?? source.completed);
       if (runtime.queue.request(key, target, completed)) setQueuedUndo(completed ? { key, target } : null);
     },
-    async undoLast() { if (!queuedUndo) return; runtime.queue.request(queuedUndo.key, queuedUndo.target, false); setQueuedUndo(null); },
+    async undoLast() { if (!queuedUndo) return; const receipt = queuedUndo;
+      if (runtime.queue.request(receipt.key, receipt.target, false)) setQueuedUndo(current => current === receipt ? null : current); },
     async retryRead() { runtime.queue.retryFailed(); await refresh(); runtime.queue.retryRead(); },
   };
 }

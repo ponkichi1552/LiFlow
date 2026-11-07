@@ -14,9 +14,9 @@ export const V2_ENTITY_TYPES = ['groupPolicy', 'chorePolicy', 'datePermission', 
   'claimResolution', 'assignmentRequest', 'assignmentDecision', 'assignmentCancel', 'designation', 'designationCancel', 'changeRequest', 'requestDecision', 'completionApproval', 'migration', 'calendarEvent', 'manualChunk', 'manualDocument', 'historyRetention', 'retainedCompletionUndo'] as const;
 export type V2EntityType = typeof V2_ENTITY_TYPES[number];
 export const V2_SCHEMA_VERSION = 2;
-export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-49';
+export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-50';
 /** Signed 38/39 histories keep their original epochs until the owner approves an upgrade. */
-export const supportsRetainedManuals = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-48' || version === 'liflow-shared-2-draft-47' || version === 'liflow-shared-2-draft-46' || version === 'liflow-shared-2-draft-45' || version === 'liflow-shared-2-draft-44' || version === 'liflow-shared-2-draft-43' || version === 'liflow-shared-2-draft-42';
+export const supportsRetainedManuals = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-49' || version === 'liflow-shared-2-draft-48' || version === 'liflow-shared-2-draft-47' || version === 'liflow-shared-2-draft-46' || version === 'liflow-shared-2-draft-45' || version === 'liflow-shared-2-draft-44' || version === 'liflow-shared-2-draft-43' || version === 'liflow-shared-2-draft-42';
 export const supportsSharedCalendar = (version: string): boolean => supportsRetainedManuals(version) || version === 'liflow-shared-2-draft-41';
 export const supportsUploadedManuals = (version: string): boolean => supportsSharedCalendar(version) || version === 'liflow-shared-2-draft-40' || version === 'liflow-shared-2-draft-39';
 export const isSupportedV2Scheduler = (version: string): boolean => supportsUploadedManuals(version) || version === 'liflow-shared-2-draft-38';

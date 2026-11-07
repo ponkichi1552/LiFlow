@@ -24,7 +24,13 @@ export function useChoreSettingsAutosave(chore: ChoreDefinition, mode: Frequency
     ...editor, ...state,
     async navigateAfterSave(navigate: () => void) {
       if (leaving.current) return; leaving.current = true;
-      if (await editor.flush()) navigate(); else leaving.current = false;
+      try {
+        if (!await editor.flush()) return;
+        const { cycleText, radiusText } = editor.getSnapshot().draft;
+        if (cycleText.trim() && parseSettingInteger(cycleText, 1, Number.MAX_SAFE_INTEGER) === undefined
+          || parseSettingInteger(radiusText, 0, 14) === undefined) return;
+        navigate();
+      } finally { leaving.current = false; }
     },
     cycleError: state.draft.cycleText.trim() && parseSettingInteger(state.draft.cycleText, 1, Number.MAX_SAFE_INTEGER) === undefined ? '周期は1日以上の整数で入力してください。' : null,
     radiusError: parseSettingInteger(state.draft.radiusText, 0, 14) === undefined ? '期間幅は±0〜±14日の整数で入力してください。' : null,

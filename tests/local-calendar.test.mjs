@@ -153,7 +153,7 @@ test('saving another calendar event never discards an unrelated new or existing 
   await saveCalendarDraft(h.database, pending(a, 'Aの途中'));
   await saveCalendarDraft(h.database, pending(b, 'Bの途中'));
   assert.equal((await readLocalCalendar(h.database)).drafts.length, 3);
-  await saveCalendarEvent(h.database, { id: a, expectedRevision: 1, value: draft({ title: 'Aを保存' }) });
+  await saveCalendarEvent(h.database, { id: a, expectedRevision: 1, value: draft({ title: 'Aの途中' }) });
   assert.deepEqual((await readLocalCalendar(h.database)).drafts.map(row => row.value.title).sort(), ['Bの途中', '新しい予定の途中'].sort());
   await saveCalendarDraft(h.database, null);
   assert.deepEqual((await readLocalCalendar(h.database)).drafts.map(row => row.value.title), ['Bの途中']);
@@ -198,6 +198,36 @@ test('calendar gesture boundaries separate interior date motion from edge naviga
   assert.equal(calendarSwipe(380, 100, 5, 390), null); assert.equal(calendarSwipe(100, 30, 100, 390), null);
   const first = projectCalendarEvents([event(), { ...event({ startMinute: 570, endMinute: 660 }), id: 'other' }, { ...event({ startMinute: 700, endMinute: 730 }), id: 'after' }], [], '2026-10-30', '2026-10-30');
   const layout = timelineEvents(first, '2026-10-30'); assert.equal(layout[0].lanes, 2); assert.equal(layout[1].lanes, 2); assert.equal(layout[2].lanes, 1);
+});
+
+test('short timeline cards reserve their visible extent without changing the actual event times', () => {
+  const day = '2026-10-30';
+  const sources = [
+    { ...event({ startMinute: 540, endMinute: 630 }), id: 'lesson-before' },
+    { ...event({ startMinute: 635, endMinute: 645 }), id: 'short-task' },
+    { ...event({ startMinute: 645, endMinute: 735 }), id: 'lesson-after' },
+    { ...event({ startMinute: 730, endMinute: 740 }), id: 'overlapping-short' },
+    { ...event({ startMinute: 770, endMinute: 771 }), id: 'separate-short' },
+    { ...event({ startMinute: 1435, endDate: '2026-10-31', endMinute: 0 }), id: 'near-midnight' },
+  ];
+  const occurrences = projectCalendarEvents(sources, [], day, '2026-10-31');
+  const before = structuredClone(occurrences);
+  const minimumVisibleMinutes = 30;
+  const layout = timelineEvents(occurrences, day, minimumVisibleMinutes);
+  assert.deepEqual(occurrences, before);
+  assert.deepEqual(layout.map(item => [item.row.eventId, item.start, item.end]), [
+    ['lesson-before', 540, 630], ['short-task', 635, 645], ['lesson-after', 645, 735],
+    ['overlapping-short', 730, 740], ['separate-short', 770, 771], ['near-midnight', 1435, 1440],
+  ]);
+  assert.equal(layout.find(item => item.row.eventId === 'short-task').lanes, 2);
+  assert.equal(layout.find(item => item.row.eventId === 'separate-short').lanes, 1);
+  for (const a of layout) for (const b of layout) {
+    if (a === b || a.start > b.start) continue;
+    if (b.start < Math.max(a.end, a.start + minimumVisibleMinutes)) {
+      assert.equal(a.lanes, b.lanes);
+      assert.notEqual(a.lane, b.lane, `${a.row.eventId} covers ${b.row.eventId}`);
+    }
+  }
 });
 
 test('unchanged local Calendar reads perform no category writes and still restore missing defaults', async () => {

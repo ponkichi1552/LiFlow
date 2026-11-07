@@ -1,3 +1,4 @@
+import { localDayBoundary } from '../scheduling/local-day-boundary.ts';
 import type { LocalDate } from '../shared/types';
 import { monthDates, parseLocalDate } from '../scheduling/local-date.ts';
 
@@ -7,7 +8,6 @@ export function choreHistoryCutoff(today: LocalDate): LocalDate {
   const days = monthDates(previous.getUTCFullYear(), previous.getUTCMonth());
   return days[Math.min(date.getUTCDate(), days.length) - 1];
 }
-export function personalChoreHistoryCutoffInstant(today: LocalDate): string {
-  const date = parseLocalDate(choreHistoryCutoff(today));
-  return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).toISOString();
+export function personalChoreHistoryCutoffInstant(today: LocalDate, timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone): string {
+  return new Date(localDayBoundary(choreHistoryCutoff(today), timeZone)).toISOString();
 }

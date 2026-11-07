@@ -16,8 +16,8 @@ import { getSharingServices } from './firebase-services';
 /** Existing Native OAuth and HTTP client; no v1 repository adapter or personal Google connection is opened. */
 export function createNativeV2GoogleTasks(input: { repository: ReturnType<typeof createV2EventRepository>; userId: string; groupId: string;
   assertAccess(): void | Promise<void>; onImported?(): void | Promise<void>;
-  readPlanning?: (now: Date) => Promise<Pick<Awaited<ReturnType<typeof readV2LocalPlanning>>, 'revision' | 'personalize'>> }) {
-  let local: Pick<Awaited<ReturnType<typeof readV2LocalPlanning>>, 'revision' | 'personalize'> | undefined;
+  readPlanning?: (now: Date) => Promise<Pick<Awaited<ReturnType<typeof readV2LocalPlanning>>, 'revision' | 'personalize'> & Partial<Pick<Awaited<ReturnType<typeof readV2LocalPlanning>>, 'assertCurrent' | 'dispose'>>> }) {
+  let local: Pick<Awaited<ReturnType<typeof readV2LocalPlanning>>, 'revision' | 'personalize'> & Partial<Pick<Awaited<ReturnType<typeof readV2LocalPlanning>>, 'assertCurrent' | 'dispose'>> | undefined;
   const store = createV2GoogleTaskStore({ ...input, makeId: randomUUID, now: () => new Date(),
     planningRevision: () => local?.revision ?? 'unprepared', personalize: (plan, calendar) => {
       if (!local) throw new Error('本人の予定を読み直してください。'); return local.personalize(plan, calendar);
@@ -38,18 +38,20 @@ export function createNativeV2GoogleTasks(input: { repository: ReturnType<typeof
     defaultBudgetMs: () => AppState.currentState === 'active' ? 100_000 : 15_000,
     defaultDeltaOnly: () => AppState.currentState !== 'active',
     restoreAccount: restorePrivateGoogleCalendarAccount, authorizeTasks: authorizeGoogleTasks, token: getGoogleTasksAccessToken,
-    preparePlan: async () => { const now = new Date(); local = await (input.readPlanning ? input.readPlanning(now) : readV2LocalPlanning(input, now)); await input.assertAccess(); },
+    preparePlan: async () => { const now = new Date(); local?.dispose?.(); local = await (input.readPlanning ? input.readPlanning(now) : readV2LocalPlanning(input, now)); await input.assertAccess(); },
+    assertPlanningCurrent: async () => { await local?.assertCurrent?.(); },
+    finishPlan: () => { local?.dispose?.(); },
     resolveTaskList: (request, context) => resolveSharedGoogleTaskList(request, { namespace: store.port.taskNamespace!,
-      cloud: () => cloud(context), makeId: randomUUID, context }),
+      cloud: () => cloud(context), journal: store.port.taskCreateJournal, makeId: randomUUID, context }),
     verifyTaskListForLocalChanges: (state, context) => verifySharedTaskListForLocalChanges(state, {
       namespace: store.port.taskNamespace!, cloud: () => cloud(context), context }),
     wrapCreateJournal: (journal, context) => sharedTaskCreateJournal(journal, {
       reserveBatch: intents => cloud(context).reserveBatch(intents), reject: intent => cloud(context).reject(intent),
       rejectBatch: intents => cloud(context).rejectBatch(intents),
-      linked: (identity, taskId) => cloud(context).linked(identity, taskId), deleted: (identity, taskId) => cloud(context).deleted(identity, taskId),
+      linked: (identity, taskId, attemptId) => cloud(context).linked(identity, taskId, attemptId), deleted: (identity, taskId, attemptId) => cloud(context).deleted(identity, taskId, attemptId),
     }, context),
     createApi: ({ budget, assertCurrent }) => createGoogleTasksApi(async (resource, init) => {
-      try { await assertCurrent(); } catch (error) { throw googleTaskRequestNotSent(error); }
+      try { await assertCurrent(); await local?.assertCurrent?.(); } catch (error) { throw googleTaskRequestNotSent(error); }
       return fetch(resource, init);
     }, undefined, { budget }),
   });

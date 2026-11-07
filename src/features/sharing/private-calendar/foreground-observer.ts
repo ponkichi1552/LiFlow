@@ -23,7 +23,8 @@ export function observePrivateCalendarForeground(port: {
     void pending.finally(() => { if (syncing === pending) { syncing = null; if (dirty && !stopped) synchronize(); } }).catch(() => {});
   }
   function reconcile() {
-    if (stopped || remote || failedAt !== null && now() - failedAt < PRIVATE_CALENDAR_REFRESH_MS) return;
+    const stamp = now();
+    if (stopped || remote || failedAt !== null && stamp >= failedAt && stamp - failedAt < PRIVATE_CALENDAR_REFRESH_MS) return;
     if (checking) { recheck = true; return; }
     recheck = false;
     const pending = (async () => {

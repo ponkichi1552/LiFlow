@@ -16,6 +16,32 @@ async function fixture(t) {
   return { ...h, local };
 }
 for (const platform of ['ios', 'android']) {
+  test(`${platform} an unbrowsed month has one scroll owner across notice resizing and browsing alone enables native anchoring`, async () => {
+    const calls = [];
+    const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
+      today, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, pending: 0 }), renderChores: () => null,
+    } });
+    const list = () => screen.nodes().find(node => node.props.testID === 'calendar-weeks');
+    list().props.ref.current = { scrollToOffset: request => calls.push(request) };
+    list().props.onLayout();
+    assert.equal(Boolean(list().props.maintainVisibleContentPosition), false, 'native anchoring must not add its own offset to explicit initial centering');
+    const viewport = screen.nodes().find(node => typeof node.props.onLayout === 'function' && node.type === 'View');
+    viewport.props.onLayout({ nativeEvent: { layout: { height: 420 } } }); screen.render();
+    list().props.onContentSizeChange();
+    assert.equal(calls.length, 2);
+    assert.equal(Boolean(list().props.maintainVisibleContentPosition), false);
+    list().props.onScrollBeginDrag(); screen.render();
+    assert.ok(list().props.maintainVisibleContentPosition, 'a user-browsed month must retain its visible dates during layout changes and prepends');
+    const count = calls.length;
+    viewport.props.onLayout({ nativeEvent: { layout: { height: 600 } } }); screen.render(); list().props.onContentSizeChange();
+    assert.equal(calls.length, count, 'explicit centering yields to native anchoring after the first user drag');
+    await screen.press('今日');
+    assert.equal(Boolean(list().props.maintainVisibleContentPosition), false, 'Today takes back explicit centering');
+    list().props.onScrollBeginDrag(); screen.render();
+    list().props.onAccessibilityAction({ nativeEvent: { actionName: 'increment' } }); screen.render();
+    assert.equal(Boolean(list().props.maintainVisibleContentPosition), false, 'explicit month navigation also resets native anchoring');
+    screen.unmount();
+  });
   test(`${platform} resizing a browsed month never recenters it on the original date while explicit navigation can center again`, () => {
     const calls = [];
     const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {

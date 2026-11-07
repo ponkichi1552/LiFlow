@@ -44,7 +44,8 @@ export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen,
   // receipt path preserves that distinction; ordinary toggles use the durable queue.
   const queueable = feedback?.supports?.('shared') && feedback.request && !partialUndo;
   const onToggle = queueable && (work || feedback!.values.has(key)) ? () => feedback!.request!(key, !displayedValue,
-    { kind: 'shared', ref, expectedAssigneeIds: subject.subjectUserId === null ? round.assigneeIds : [subject.subjectUserId] })
+    { kind: 'shared', ref, expectedAssigneeIds: subject.subjectUserId === null ? round.assigneeIds : [subject.subjectUserId],
+      observedCompletionIds: undo, ...(retainedUndo ? { retainedUndo } : {}) })
     : busy || feedback?.values.has(key) || !work ? undefined : () => feedback
       ? feedback.run(key, subject.completed ? partialUndo : true, work) : run(work);
   const category = subject.subjectUserId ? nameOf(subject.subjectUserId) : round.assigneeIds.length
@@ -97,7 +98,7 @@ export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen,
       action={canClaim ? <View style={styles.claim}><AppButton title="担う" compact variant="quiet" disabled={busy} onPress={() => run(() => actions.claim(ref))} /></View> : undefined}
       source={formal.kind === 'manual' ? 'instructed' : 'shared'}
       executionWindow={{ start: recordedWindow?.windowStart ?? subject.executionWindowStart, end: recordedWindow?.windowEnd ?? subject.executionWindowEnd }}
-      urgent={isTaskUrgent({ completed: displayCompleted, load: chore.load, recommendedDate, windowEnd: subject.executionWindowEnd }, model.plan.range.asOfDate)}
+      urgent={isTaskUrgent({ completed: displayCompleted, load: chore.load, recommendedDate, windowStart: subject.executionWindowStart, windowEnd: subject.executionWindowEnd }, model.plan.range.asOfDate)}
       deemphasized={subject.cooldownSuppressed || subject.virtuallyConsumed} onOpen={onOpen} onToggle={onToggle} />;
 }
 const styles = StyleSheet.create({

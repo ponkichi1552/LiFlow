@@ -8,6 +8,10 @@ export function mergeGoogleExpansionRanges(a: GoogleExpansionRange, b: GoogleExp
   return { timeMin: a.timeMin < b.timeMin ? a.timeMin : b.timeMin, timeMax: a.timeMax > b.timeMax ? a.timeMax : b.timeMax };
 }
 export function googleRangeContains(a: GoogleExpansionRange, b: GoogleExpansionRange) { return a.timeMin <= b.timeMin && a.timeMax >= b.timeMax; }
+export function missingGoogleExpansionRanges(covered: GoogleExpansionRange, desired: GoogleExpansionRange): GoogleExpansionRange[] {
+  return [...(desired.timeMin < covered.timeMin ? [{ timeMin: desired.timeMin, timeMax: covered.timeMin }] : []),
+    ...(desired.timeMax > covered.timeMax ? [{ timeMin: covered.timeMax, timeMax: desired.timeMax }] : [])];
+}
 export async function desiredGoogleExpansionRange(tx: SQLiteDatabase, subject: string, today: LocalDate): Promise<GoogleExpansionRange> {
   const row = await tx.getFirstAsync<{ range_json: string }>('SELECT range_json FROM calendar_google_requested_ranges WHERE subject=?', subject);
   const initial = googleExpansionRange(today);

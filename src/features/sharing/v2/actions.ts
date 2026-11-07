@@ -86,6 +86,7 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
     return { ...at, authorUserId: scope.userId, authorDeviceId: scope.deviceId, deviceSequence: (at.context[scope.deviceId] ?? 0) + 1 };
   }
   const sameIds = (a: readonly string[], b: readonly string[]) => canonicalJson([...a].sort()) === canonicalJson([...b].sort());
+  const queuedCompletionId = (id: string) => `completion.${sharedDocumentDigest(['liflow-queued-completion-v1', scope.groupId, scope.userId, scope.deviceId, id])}`;
   function expectDisplayedState(state: State, ref: V2RoundReference) {
     if (ref.expectedConfigurationIds && !sameIds(ref.expectedConfigurationIds,
       maximalCausalFacts(state.assessment.view.topic('chorePolicy', ref.choreId)).map((op) => op.operationId))) throw new V2StaleSettingsError();
@@ -127,7 +128,8 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
     const context = frame(state, ref); const at = point(state); const view = state.assessment.view;
     if (input.expectedAssigneeIds && !sameIds(input.expectedAssigneeIds, ref.subjectUserId === null ? context.assigneeIds : [ref.subjectUserId])) throw new V2StaleSettingsError();
     const history = v2CompletionHistory(view, at, state.receipts, ref);
-    if (!input.additionalWork && history.some(record => record.occurrenceId === context.frame.id && record.subjectUserId === ref.subjectUserId && record.active && record.outcome === 'completed')) return [];
+    if (!input.additionalWork && history.some(record => record.occurrenceId === context.frame.id && record.subjectUserId === ref.subjectUserId
+      && record.active && record.outcome === 'completed' && record.acceptance !== 'rejected')) return [];
     if (!input.additionalWork && v2RetainedCompletions(view, at).some(row => row.choreId === ref.choreId && row.anchorDate === ref.anchorDate && row.subjectUserId === ref.subjectUserId && row.reports.length)) return [];
     const instruction = recordedInstructionAt(view, at, context.frame, ref.subjectUserId, state.assessment.formalRulesAt(at));
     const scheduledDate = instruction.kind === 'designated' ? targetCivilDate(instruction.target, instruction.timeZone) : ref.anchorDate;
@@ -291,16 +293,23 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
       const performedAt = input.performedAt ?? options.now().toISOString();
       return repository.commitCurrent(async state => completionDrafts(state, ref, input, performedAt));
     },
-    setCompletedIntent: (intent: V2LocalCompletionIntent, ref: V2RoundReference, completed: boolean, input: { createdAt: string; expectedAssigneeIds?: readonly string[] }) => {
+    setCompletedIntent: (intent: V2LocalCompletionIntent, ref: V2RoundReference, completed: boolean, input: { createdAt: string; expectedAssigneeIds?: readonly string[];
+      observedCompletionIds?: readonly string[]; precedingCompletionIntentIds?: readonly string[]; retainedUndo?: V2RetainedUndoReference }) => {
       if (typeof completed !== 'boolean' || !Number.isFinite(Date.parse(input.createdAt))) throw new Error('保存待ちの完了操作を確認できません。');
       return repository.commitCompletionIntent(intent, async state => {
-        if (completed) return completionDrafts(state, ref, { expectedAssigneeIds: input.expectedAssigneeIds }, input.createdAt);
+        if (completed) return completionDrafts(state, ref, { expectedAssigneeIds: input.expectedAssigneeIds }, input.createdAt)
+          .map(operation => ({ ...operation, operationId: queuedCompletionId(intent.id) }));
         const at = point(state); const view = state.assessment.view;
         const canUndo = (recorder: string) => recorder === scope.userId || state.archive.at(-1)!.body.ownerUserId === scope.userId;
+        const observed = input.observedCompletionIds === undefined ? null : new Set([
+          ...input.observedCompletionIds, ...(input.precedingCompletionIntentIds ?? []).map(queuedCompletionId)]);
         const targets = v2CompletionHistory(view, at, state.receipts, ref).filter(record => record.subjectUserId === ref.subjectUserId
-          && record.active && record.outcome === 'completed' && canUndo(record.recorderUserId));
+          && record.active && record.outcome === 'completed' && canUndo(record.recorderUserId) && (!observed || observed.has(record.operationId)));
         const retained = v2RetainedCompletions(view, at).find(row => row.choreId === ref.choreId && row.anchorDate === ref.anchorDate && row.subjectUserId === ref.subjectUserId);
-        const recorderUserIds = retained?.reports.map(report => report.recorderUserId).filter(canUndo) ?? [];
+        const recorderUserIds = retained?.reports.map(report => report.recorderUserId).filter(uid => canUndo(uid)
+          && (!observed || input.retainedUndo?.recorderUserIds.includes(uid))) ?? [];
+        if (observed && recorderUserIds.length && (input.retainedUndo?.checkpointId !== sharedDocumentDigest(view.retentionAt(at))
+          || input.retainedUndo.choreId !== ref.choreId || input.retainedUndo.anchorDate !== ref.anchorDate || input.retainedUndo.subjectUserId !== ref.subjectUserId)) throw new V2StaleSettingsError();
         return undoDrafts(state, targets.map(record => record.operationId), recorderUserIds.length ? {
           choreId: ref.choreId, anchorDate: ref.anchorDate, subjectUserId: ref.subjectUserId,
           checkpointId: sharedDocumentDigest(view.retentionAt(at)), recorderUserIds,

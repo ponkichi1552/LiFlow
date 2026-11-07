@@ -11,7 +11,7 @@ async function fixture(run, options = {}) {
   const previous = fields.map(key => process.env[key]); const originalFetch = globalThis.fetch;
   const { privateKey } = generateKeyPairSync('ed25519');
   const signer = createSubscriptionSigner(privateKey.export({ format: 'pem', type: 'pkcs8' }));
-  const at = Date.now(); const saved = new Map(); let watcherCount = 0; let failures = options.failures ?? 0;
+  const at = Date.now(); const saved = new Map(); let watcherCount = 0; let failures = options.failures ?? 0; const timers = new Map(); let timerId = 0;
   let write = async (key, value) => saved.set(key, value);
   const proof = (revision, status = 'active', checkedAt = at) => signer.sign({ schemaVersion: 1, userId: 'person-a', revision,
     status, store: 'google', productId: 'monthly', autoRenew: false, checkedAt, expiresAt: at + 86400_000, validUntil: at + 3600_000 });
@@ -27,8 +27,8 @@ async function fixture(run, options = {}) {
       '../sharing/secure-store': { sharingSecureVault: { getItem: async key => saved.get(key) ?? null,
         setItem: (key, value) => write(key, value), removeItem: async key => saved.delete(key) } },
       'firebase/auth': { onAuthStateChanged: () => { watcherCount++; return () => { watcherCount--; }; } },
-    }, { setTimeout: () => 1, clearTimeout() {} });
-    await run({ runtime, proof, saved, auth, at, watcherCount: () => watcherCount,
+    }, { setTimeout: (callback, delay) => { timers.set(++timerId, { callback, delay }); return timerId; }, clearTimeout: id => timers.delete(id) });
+    await run({ runtime, proof, saved, auth, at, timers, watcherCount: () => watcherCount,
       setWrite: fn => { write = fn; }, setReply: fn => { reply = fn; } });
   } finally {
     globalThis.fetch = originalFetch;
@@ -52,6 +52,8 @@ test('concurrent signed entitlement acceptance cannot roll back a newer persiste
     if (revision === 12) await new Promise(done => { release = done; });
     h.saved.set(key, value);
   });
+
+
   const newer = h.runtime.acceptSubscription(h.proof(12, 'revoked'));
   await new Promise(setImmediate);
   const older = h.runtime.acceptSubscription(h.proof(11));
@@ -90,4 +92,15 @@ test('a fresh authenticated server response recovers an accidental future wall c
     await assert.rejects(h.runtime.acceptSubscription(h.proof(10)));
     assert.equal(h.runtime.subscriptionSnapshot().entitlement.body.revision, 12);
   } finally { Date.now = originalNow; }
+}));
+
+test('audit100 a failed subscription observer cannot prevent granting or scheduling the verified expiry', () => fixture(async h => {
+  let updates = 0;
+  h.runtime.subscribeSubscription(() => { throw new Error('disposed view'); });
+  h.runtime.subscribeSubscription(() => { updates++; });
+  await h.runtime.startSubscriptions();
+  assert.equal(h.runtime.subscriptionSnapshot().phase, 'active');
+  assert.equal(h.watcherCount(), 1);
+  assert.ok(updates >= 2);
+  assert.ok([...h.timers.values()].some(timer => timer.delay > 60_000), 'the verified grant must retain its expiry timer');
 }));

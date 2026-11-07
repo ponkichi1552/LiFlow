@@ -3,7 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Household } from '../../domain/shared/types';
 import { createCompletionIntents } from '../../features/planner/completion-intents.ts';
 import type { CompletionIntent } from '../../features/planner/completion-intents';
-import { captureCompletionTarget, completionIntentDigest, personalCompletionKey } from '../../features/planner/completion-command.ts';
+import { captureCompletionTarget, completionIntentDigest, personalCompletionKey, prepareCompletionRequest } from '../../features/planner/completion-command.ts';
 import type { CompletionTarget } from '../../features/planner/completion-command';
 import { protectedCompletionIntentStore } from './completion-intent-store.ts';
 import { LOCAL_HOUSEHOLD_ID, loadPlannerSnapshot, setPersonalDateTaskCompletedIntent } from './repository';
@@ -16,7 +16,7 @@ function completionRuntime(scope: string, apply: (intent: Readonly<CompletionInt
   const current = () => [...owners].some(check => { try { return check(); } catch { return false; } });
   const guard = () => { if (!current()) throw new Error('操作する保存先が変わりました。'); };
   const queue = createCompletionIntents<CompletionTarget>({
-    store: protectedCompletionIntentStore(scope, captureCompletionTarget), capture: captureCompletionTarget,
+    store: protectedCompletionIntentStore(scope, captureCompletionTarget), capture: captureCompletionTarget, prepareRequest: prepareCompletionRequest,
     makeId: () => `completion-intent.${randomUUID()}`, now: () => new Date(), isCurrent: current,
     apply: async intent => { guard(); await apply(intent, guard); },
     refresh: async () => {
@@ -81,6 +81,7 @@ export function sharedCompletionIntents(input: { userId: string; groupId: string
       throw new Error('共有家事の回を確認できません。');
     }
     await session.controller.actions.setCompletedIntent({ id: intent.id, digest: completionIntentDigest(scope, intent) }, target.ref,
-      intent.completed, { createdAt: intent.createdAt, expectedAssigneeIds: target.expectedAssigneeIds });
+      intent.completed, { createdAt: intent.createdAt, expectedAssigneeIds: target.expectedAssigneeIds,
+        observedCompletionIds: target.observedCompletionIds, precedingCompletionIntentIds: target.precedingCompletionIntentIds, retainedUndo: target.retainedUndo });
   });
 }

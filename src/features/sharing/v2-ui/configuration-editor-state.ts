@@ -17,7 +17,7 @@ export interface V2EditorInput { configuration: SharedChoreConfiguration; effect
 /** An external store keeps remote updates and queued drafts coherent without render-time ref writes. */
 export function createV2ConfigurationEditorState(initial: V2EditorInput) {
   let input = initial; let effectiveFrom = initial.effectiveFrom; let draft = texts(initial.configuration); let refreshError: string | null = null;
-  let leaving = false; let removalAllowed = false;
+  let leaving = false; let removalAllowed = false; let effectiveFromEdited = false;
   const listeners = new Set<() => void>();
   const autosave = createV2ConfigurationAutosave({ configuration: initial.configuration, effectiveFrom: () => effectiveFrom,
     save: (edits, from) => input.save(edits, from), onSaved: async () => { refreshError = null; await input.onSaved(); },
@@ -38,7 +38,7 @@ export function createV2ConfigurationEditorState(initial: V2EditorInput) {
   const numberError = (field: NumericField) => {
     const [min, max] = limits[field]; return parseSettingInteger(draft[field], min, max) === undefined ? `${min}〜${max}日の整数で入力してください。` : null;
   };
-  const flush = async () => { const saved = await autosave.flush(); return saved && !snapshot.anchorError && !Object.keys(limits).some((field) => numberError(field as NumericField)); };
+  const flush = async () => { const saved = await autosave.flush(); return saved && !snapshot.hasDraft && !snapshot.anchorError && !Object.keys(limits).some((field) => numberError(field as NumericField)); };
   return {
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     getSnapshot: () => snapshot,
@@ -46,6 +46,7 @@ export function createV2ConfigurationEditorState(initial: V2EditorInput) {
       if (next.configuration.ruleVersion < input.configuration.ruleVersion) {
         input = { ...next, configuration: input.configuration }; return;
       }
+      if (!effectiveFromEdited && !snapshot.hasDraft && !['pending', 'saving', 'error'].includes(autosave.getSnapshot().phase)) effectiveFrom = next.effectiveFrom;
       input = next; autosave.updateDisplayed(next.configuration); const received = texts(next.configuration);
       draft = Object.fromEntries(Object.entries(received).map(([field, value]) => [field, autosave.isDirty(field as keyof typeof received)
         ? draft[field as keyof typeof received] : value])) as typeof draft; publish();
@@ -62,7 +63,7 @@ export function createV2ConfigurationEditorState(initial: V2EditorInput) {
     hasDraft: () => snapshot.hasDraft, numberError,
     changeEffectiveFrom(value: LocalDate) {
       if (snapshot.hasDraft || ['pending', 'saving'].includes(autosave.getSnapshot().phase)) return;
-      effectiveFrom = value; publish();
+      effectiveFrom = value; effectiveFromEdited = value !== input.effectiveFrom; publish();
     },
     changeNumber(field: NumericField, text: string) {
       draft = { ...draft, [field]: text }; const [min, max] = limits[field]; const value = parseSettingInteger(text, min, max);
@@ -70,13 +71,13 @@ export function createV2ConfigurationEditorState(initial: V2EditorInput) {
     },
     changeAnchor(text: string) {
       draft = { ...draft, anchorDate: text as LocalDate };
-      try { parseLocalDate(text as LocalDate); if (text > input.effectiveFrom) throw new Error('Later anchor'); autosave.enqueue('anchorDate', text as LocalDate); }
+      try { parseLocalDate(text as LocalDate); if (text > effectiveFrom) throw new Error('Later anchor'); autosave.enqueue('anchorDate', text as LocalDate); }
       catch { autosave.invalidate('anchorDate'); } publish();
     },
     changeActive(value: boolean) { draft = { ...draft, active: value }; autosave.enqueue('active', value, true); publish(); },
     discard() {
       for (const field of Object.keys(draft)) autosave.discard(field as keyof typeof draft);
-      autosave.updateDisplayed(input.configuration); draft = texts(input.configuration); effectiveFrom = input.effectiveFrom; publish();
+      autosave.updateDisplayed(input.configuration); draft = texts(input.configuration); effectiveFrom = input.effectiveFrom; effectiveFromEdited = false; publish();
     },
   };
 }

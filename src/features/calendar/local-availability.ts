@@ -7,13 +7,22 @@ import { aggregateBusyMinutes, createCalendarQueryRange } from '../google-sync/c
 import { v2WallTimeCandidates } from '../sharing/v2/local-time.ts';
 import type { InstantSpan } from '../../domain/scheduling/adaptive/placement';
 import { unionInstantSpans } from '../../domain/scheduling/adaptive/placement.ts';
+import { localDayBoundary } from './local-day-boundary.ts';
 
 /** Union absolute intervals; wall clocks alone lose the repeated hour at a DST transition. */
 export function localCalendarIntervals(events: readonly CalendarEvent[], exceptions: readonly CalendarException[], from: LocalDate, through: LocalDate, timeZone: string): InstantSpan[] {
   const rows = projectPrivateCalendarEvents(events, exceptions, addDays(from, -2), addDays(through, 2));
   const intervals: InstantSpan[] = [];
   for (const row of rows) {
-    if (row.birthday || row.blocksTime === false || row.timeIssue) continue;
+    if (row.birthday || row.holiday || row.blocksTime === false) continue;
+    if (row.timeIssue) {
+      // An unresolved recurring clock is not evidence of free time. This local
+      // placement boundary conservatively reserves its civil days until edited.
+      const start = localDayBoundary(row.startDate, row.timeZone);
+      const end = localDayBoundary(addDays(row.endDate, 1), row.timeZone);
+      if (start < end) intervals.push({ start, end });
+      continue;
+    }
     if (row.allDay) {
       // All-day dates retain their original civil dates in the viewer's region.
       const range = createCalendarQueryRange(row.startDate, row.endDate, timeZone);

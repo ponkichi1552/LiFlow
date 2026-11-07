@@ -28,7 +28,12 @@ export function createAutosaveQueue<Patch extends object>({ save, delayMs = 450 
     let start!: () => void;
     running = new Promise<boolean>((resolve, reject) => {
       start = () => { void drain().then(resolve, reject); };
-    }).finally(() => { running = undefined; });
+    }).finally(() => {
+      running = undefined;
+      // A committed-state observer may enqueue between drain's return and this
+      // promise settling. An immediate flush must not leave that edit stranded.
+      if (hasPending() && state.phase !== 'error') void flush();
+    });
     start();
     return running;
   };
@@ -64,7 +69,7 @@ export function createAutosaveQueue<Patch extends object>({ save, delayMs = 450 
       for (const key of Object.keys(patch)) discarded.delete(key as keyof Patch);
       pending = { ...pending, ...patch };
       clearTimeout(timer);
-      if (!running) publish('pending');
+      if (!running || state.phase === 'error') publish('pending');
       if (immediate) void flush();
       else timer = setTimeout(() => { void flush(); }, delayMs);
     },

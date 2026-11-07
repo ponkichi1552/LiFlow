@@ -8,6 +8,7 @@ export interface TodayWidgetChore {
   completed: boolean;
   /** Frozen native input target, never displayed. */
   entry?: ChoreScheduleEntry;
+  completionGeneration?: number;
 }
 
 export interface NextChoreWidgetSnapshot {

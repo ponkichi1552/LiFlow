@@ -8,6 +8,7 @@ import { localDateFromDate, weekdayOf } from '../src/domain/scheduling/local-dat
 import { applianceResult } from './helpers/sharing-v2-appliance.mjs';
 
 const repository = await import('../src/platform/storage/repository.ts');
+const { configurePersonalGoogleTaskSync } = await import('../src/features/google-sync/coordinator.ts');
 const today = localDateFromDate(new Date());
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const settingsMocks = {
@@ -153,7 +154,8 @@ test('connected Google settings serialize sync, pause, calendar permissions and 
     const screen = screenHarness('src/app/settings.tsx', { ...h.options, effect: (callback) => effects.push(callback), mocks: {
       '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: true }) },
       '@/features/google-sync/background-task': { registerGoogleSyncBackgroundTask: async () => { registrations++; }, unregisterGoogleSyncBackgroundTask: async () => { unregistrations++; } },
-      '@/features/google-sync/coordinator': { syncGoogleTasks: async () => { syncs++; if (syncs === 2) await pending.promise; return { kind: 'success', created: 1, updated: 2, imported: 1 }; } },
+      '@/features/google-sync/coordinator': { configurePersonalGoogleTaskSync,
+        syncGoogleTasks: async () => { syncs++; if (syncs === 2) await pending.promise; return { kind: 'success', created: 1, updated: 2, imported: 1 }; } },
       '@/platform/google-tasks/google-sign-in-gateway': {
         authorizeGoogleTasks: async () => { connected = true; }, hasGoogleTasksSession: async () => connected,
         getGoogleTasksAccessToken: async () => 'test-token', disconnectGoogleTasksSession: async () => { revoked++; connected = false; },

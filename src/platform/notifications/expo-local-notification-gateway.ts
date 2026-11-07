@@ -9,6 +9,7 @@ import {
   SchedulableTriggerInputTypes,
 } from 'expo-notifications';
 import { Platform } from 'react-native';
+import { ExpiredNotificationRequestError } from '../../features/notifications/expired-request';
 
 import type {
   LocalNotificationGateway,
@@ -73,7 +74,8 @@ export class ExpoLocalNotificationGateway implements LocalNotificationGateway {
     if (Number.isNaN(fireAt.getTime())) {
       throw new RangeError(`Invalid notification date: ${request.fireAt}`);
     }
-    if (fireAt.getTime() >= await this.schedulingDeadline()) throw new Error('契約の確認期限を過ぎる通知は予約できません。');
+    if (fireAt.getTime() >= await this.schedulingDeadline()) throw new ExpiredNotificationRequestError('access');
+    if (fireAt.getTime() <= Date.now()) throw new ExpiredNotificationRequestError();
 
     return scheduleNotificationAsync({
       identifier: request.key,

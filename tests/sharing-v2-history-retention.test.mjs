@@ -18,7 +18,7 @@ import { createV2HistoryRetentionRuntime } from '../src/features/sharing/v2/hist
 import { sharedRosterDigest } from '../src/features/sharing/roster.ts';
 import { readFileSync } from 'node:fs';
 import { loadNativeModule } from './helpers/native-module.mjs';
-async function prepared(t, anchorDate = '2026-09-01', manualCertificate = true) {
+async function prepared(t, anchorDate = '2026-09-01', manualCertificate = true, format = 2) {
   let clock = new Date('2026-09-02T01:00:00Z'); const f = await fixture({ clock: () => clock });
   const owner = await f.device(); const member = await f.device('member', f.member); t.after(() => { owner.connection.close(); member.connection.close(); });
   let uploadSequence = 0; const delivered = new Map(); const receipts = new Map();
@@ -39,7 +39,7 @@ async function prepared(t, anchorDate = '2026-09-01', manualCertificate = true) 
   await deliver(owner, await loadSharedFacts(owner.database, groupId)); await deliver(member, []);
   clock = new Date('2026-11-01T01:00:00Z'); const state = await owner.repository.readState();
   assert.deepEqual(state.assessment.rejected.map(row => [row.operationId, row.error.message]), []);
-  const plan = planV2HistoryRetention({ ...state, archive: f.archive, cutoff: '2026-10-01', throughSequence: uploadSequence });
+  const plan = planV2HistoryRetention({ ...state, archive: f.archive, cutoff: '2026-10-01', throughSequence: uploadSequence, format });
   assert.ok(plan.removedIds.includes('expired-work-report'));
   if (!manualCertificate) return { ...f, owner, member, plan, receipts, deliver, now: () => clock.getTime(), head: () => uploadSequence };
   await owner.repository.commit([draft('retention-proposal', 'historyRetention', 'retention-proposal', { phase: 'proposal', checkpoint: plan.body })]);
@@ -197,4 +197,46 @@ test('legacy archive deletion checks the collective certificate every original i
   events.length = 0; await assert.rejects(removeRetainedLegacyArchive({ ...input, groupId: 'foreign-group' })); assert.deepEqual(events, []);
   const bad = structuredClone(snapshot); bad.base.retention.approvals.pop();
   await assert.rejects(removeRetainedLegacyArchive({ ...input, snapshot: bad }), /every current member/); assert.deepEqual(events, []);
+});
+
+test('audit100 physically compacted completion reports retain their Google completed state and real completion instant', async t => {
+  const h = await prepared(t, '2026-11-05'); const checkpoint = await readSharingCheckpoint(h.owner.database, groupId); const ids = new Set(h.base.operations.map(op => op.operationId));
+  await applySharingSnapshot(h.owner.database, groupId, { base: h.base, facts: h.originals.filter(fact => ids.has(fact.operation.operationId)), snapshotId:'google-retained', throughSequence:h.head() }, h.owner.repository.project, checkpoint.cursor, h.now(), h.owner.repository.evidenceForServerReceipts([...h.receipts.values()]));
+  const state = await h.owner.repository.readState(); const plan = buildV2CommonPlan(state, { from:'2026-11-05', through:'2026-11-05', asOfDate:'2026-11-01' });
+  assert.equal(plan.history.length, 0); const subject = plan.occurrences.find(row => row.anchorDate==='2026-11-05').subjects[0]; assert.equal(subject.completed,true);
+  const { v2GoogleTaskItems } = await import('../src/features/sharing/v2/google-tasks-projection.ts');
+  const item = v2GoogleTaskItems(plan,'owner').find(row => row.target.anchorDate==='2026-11-05');
+  assert.equal(item.completedAt,'2026-09-02T01:00:00.000Z'); assert.ok(item.retainedCompletion);
+});
+
+test('audit100 Google Undo can cancel the owners acknowledged retained completion after the original report was deleted', async t => {
+  const h = await prepared(t, '2026-11-05'); const checkpoint = await readSharingCheckpoint(h.owner.database, groupId); const ids = new Set(h.base.operations.map(op => op.operationId));
+  await applySharingSnapshot(h.owner.database, groupId, { base:h.base, facts:h.originals.filter(fact=>ids.has(fact.operation.operationId)), snapshotId:'google-undo-retained', throughSequence:h.head() }, h.owner.repository.project, checkpoint.cursor, h.now(), h.owner.repository.evidenceForServerReceipts([...h.receipts.values()]));
+  const { createV2GoogleTaskStore } = await import('../src/platform/storage/sharing-v2-google-tasks.ts'); let sequence=0;
+  const store=createV2GoogleTaskStore({repository:h.owner.repository,userId:'owner',groupId,assertAccess(){},makeId:()=>`retained-google-undo-${++sequence}`,now:()=>new Date(h.now())});
+  const control=await store.configure(0,{subject:'owner-google',label:'QA'},true); const namespace=control.state.householdId;
+  const item=(await store.port.listEntriesForGoogleSync('2026-11-01',namespace)).find(row=>row.target.anchorDate==='2026-11-05'); assert.ok(item.completedAt);
+  const link={householdId:namespace,choreId:item.target.choreId,scheduleEntryId:item.entry.id,googleTaskListId:'list',googleTaskId:'task',lastSyncedStatus:'completed',observedLocalRevision:item.localRevision,createdAt:new Date(h.now()).toISOString(),updatedAt:new Date(h.now()).toISOString()};
+  await store.port.upsertGoogleTaskLink(link); await store.port.acknowledgeGoogleTaskStatus(link,'completed');
+  const imported=await store.port.importGoogleTaskChanges([{...link,status:'needsAction'}]); assert.equal(imported,1);
+  const state=await h.owner.repository.readState(); assert.equal(state.assessment.rejected.length,0);
+  const plan=buildV2CommonPlan(state,{from:'2026-11-05',through:'2026-11-05',asOfDate:'2026-11-01'});
+  assert.equal(plan.occurrences.find(row=>row.anchorDate==='2026-11-05').subjects[0].completed,false);
+  assert.equal(state.replica.operations.filter(op=>op.entityType==='retainedCompletionUndo').length,1);
+  assert.equal(await store.port.importGoogleTaskChanges([{...link,status:'needsAction'}]),0);
+});
+
+test('audit100 shared history certificates and packed authority positions remain identical across real English and Danish collation rules',async t=>{
+ const h=await prepared(t,'2026-09-01',false);
+ await h.owner.repository.commit([draft('Case.a','chore','floor',{name:'lower case'})]);await h.owner.repository.commit([draft('Case.A','chore','floor',{name:'upper case'})]);await h.deliver(h.owner,await loadSharedFacts(h.owner.database,groupId));
+ const state=await h.owner.repository.readState();const input={...state,archive:h.archive,cutoff:'2026-10-01',throughSequence:h.head()};
+ const original=String.prototype.localeCompare;const english=new Intl.Collator('en').compare,danish=new Intl.Collator('da').compare;
+ try{String.prototype.localeCompare=function(other){return english(String(this),String(other));};const first=planV2HistoryRetention(input);
+ String.prototype.localeCompare=function(other){return danish(String(this),String(other));};const next=planV2HistoryRetention(input);assert.deepEqual(next.body,first.body);assert.equal(next.body.format,2);
+ }finally{String.prototype.localeCompare=original;}
+});
+
+test('audit100 legacy format-one signed history checkpoints still verify and restore without rewriting their certificate',async t=>{
+ const h=await prepared(t,'2026-09-01',true,1);assert.equal(h.plan.body.format,1);assert.deepEqual(assertV2RetentionBase(h.replica,h.witness,h.archive),h.plan.body);
+ const assessment=buildV2CommonPlan({replica:h.replica,assessment:(await h.owner.repository.readState()).assessment,archive:h.archive,receipts:h.receipts},{from:'2026-11-01',through:'2026-11-05',asOfDate:'2026-11-01'});assert.ok(assessment.initialized);
 });

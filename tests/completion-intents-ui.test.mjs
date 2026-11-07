@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createCompletionIntents } from '../src/features/planner/completion-intents.ts';
-import { captureCompletionTarget, completionIntentDigest } from '../src/features/planner/completion-command.ts';
+import { captureCompletionTarget, completionIntentDigest, prepareCompletionRequest } from '../src/features/planner/completion-command.ts';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { openCalendarDay } from './helpers/calendar-ui.mjs';
 import { localDateFromDate } from '../src/domain/scheduling/local-date.ts';
@@ -17,7 +17,7 @@ const repository = await import('../src/platform/storage/repository.ts');
 function runtimeFixture({ apply, refresh, at, initialSaved = [] }) {
   let release; let first = true; let saved = structuredClone(initialSaved); const readers = new Set();
   const blocked = new Promise(resolve => { release = resolve; });
-  const queue = createCompletionIntents({ capture: captureCompletionTarget, makeId: () => `completion-intent.${randomUUID()}`,
+  const queue = createCompletionIntents({ capture: captureCompletionTarget, prepareRequest: prepareCompletionRequest, makeId: () => `completion-intent.${randomUUID()}`,
     now: at, isCurrent: () => true, apply,
     store: { load: async () => saved, save: async rows => { if (first) { first = false; await blocked; } saved = structuredClone(rows); } },
     refresh: async () => { const visible = [...readers].filter(reader => reader.active()); if (!visible.length) return false;
@@ -70,7 +70,7 @@ for (const platform of ['ios', 'android']) {
       store = createWorkspaceDisplayStore(async () => source, now);
       const session = { ...source, invalidate: store.invalidate, readModel: async options => (await store.read(options)).model };
       runtime = runtimeFixture({ at: now, apply: intent => controller.actions.setCompletedIntent({ id: intent.id, digest: completionIntentDigest('display-ack', intent) },
-        intent.target.ref, intent.completed, { createdAt: intent.createdAt, expectedAssigneeIds: intent.target.expectedAssigneeIds }) });
+        intent.target.ref, intent.completed, { createdAt: intent.createdAt, expectedAssigneeIds: intent.target.expectedAssigneeIds, observedCompletionIds: intent.target.observedCompletionIds, precedingCompletionIntentIds: intent.target.precedingCompletionIntentIds, retainedUndo: intent.target.retainedUndo }) });
       await runtime.queue.activate();
       screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen', platform,
         effectDependencies: true, focusDependencies: true, effect: callback => callback(), layoutEffect: callback => callback(),
@@ -118,10 +118,14 @@ for (const platform of ['ios', 'android']) {
         'ordinary completion must not open a confirmation modal');
       calendar = screenHarness('src/app/(tabs)/explore.tsx', options); await openCalendarDay(calendar, localDateFromDate(new Date()));
       assert.equal(checkbox(calendar).props.accessibilityState.checked, true);
+      const announcedPending = () => calendar.nodes().find(node => node.type === 'Text' && /家事\d+件、未完了\d+件/u.test(node.props.accessibilityLabel ?? ''))?.props.accessibilityLabel;
+      assert.match(announcedPending(), /家事1件、未完了0件/u);
       checkbox(calendar).props.onPress(); calendar.render(); home.render();
       assert.equal(checkbox(home).props.accessibilityState.checked, false); assert.equal(businessWrites, 0);
+      assert.match(announcedPending(), /家事1件、未完了1件/u, 'the date announcement must follow the same optimistic Undo as the checkmark');
       checkbox(home).props.onPress(); home.render(); calendar.render();
       assert.equal(checkbox(calendar).props.accessibilityState.checked, true);
+      assert.match(announcedPending(), /家事1件、未完了0件/u);
       runtime.release(); await runtime.queue.settled(); await home.flush(); await calendar.flush();
       assert.equal(businessWrites, 1, 'superseded queued gestures never write contradictory history');
       assert.equal(snapshot.completions.filter(row => row.outcome === 'completed').length, 1);
@@ -146,7 +150,7 @@ for (const platform of ['ios', 'android']) {
         readPreferences: async () => ({ ownerUserId: 'owner', settings: { frequencyMode: 'balanced', restDays: [], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 3 } } }) });
       const model = await session.readModel();
       runtime = runtimeFixture({ at: now, apply: intent => controller.actions.setCompletedIntent({ id: intent.id, digest: completionIntentDigest('shared-ui', intent) },
-        intent.target.ref, intent.completed, { createdAt: intent.createdAt, expectedAssigneeIds: intent.target.expectedAssigneeIds }) });
+        intent.target.ref, intent.completed, { createdAt: intent.createdAt, expectedAssigneeIds: intent.target.expectedAssigneeIds, observedCompletionIds: intent.target.observedCompletionIds, precedingCompletionIntentIds: intent.target.precedingCompletionIntentIds, retainedUndo: intent.target.retainedUndo }) });
       await runtime.queue.activate();
       screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen', platform,
         effectDependencies: true, focusDependencies: true, effect: callback => callback(), layoutEffect: callback => callback(),

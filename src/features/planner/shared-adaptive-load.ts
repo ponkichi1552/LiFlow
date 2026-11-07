@@ -7,6 +7,7 @@ import { fixedInterval } from '../sharing/v2/date-target.ts';
 import { commonChoreLinks } from './common-chore-links.ts';
 import type { V2PersonalPlan } from '../sharing/v2/personal-plan';
 import { sharedDocumentDigest } from '../sharing/crypto.ts';
+import { sharedCompletionTimeReviewIds } from './shared-completion-evidence.ts';
 
 export interface CapturedSharedPlanning {
   ownerUserId: string; groupId: string; sourceHash: string; plan: V2PersonalPlan;
@@ -32,10 +33,12 @@ export function sharedAdaptiveLoad(plan: V2CommonPlan, ownerUserId: string, toda
   // Canonicalize concurrent completions by the subject occurrence first. Another
   // member's completion releases the reservation but never becomes the owner's work.
   const completed = new Map<string, V2CommonPlan['history'][number]>();
+  const review = sharedCompletionTimeReviewIds(plan);
   for (const record of plan.history) {
-    if (!record.active || record.acceptance !== 'accepted' || record.outcome !== 'completed' || record.approvalConflictIds.length) continue;
+    if (!record.active || record.acceptance !== 'accepted' || record.outcome !== 'completed' || record.approvalConflictIds.length || review.has(record.operationId)) continue;
     const previous = completed.get(record.subjectOccurrenceId);
-    if (!previous || record.performedAt < previous.performedAt || record.performedAt === previous.performedAt && record.operationId < previous.operationId) completed.set(record.subjectOccurrenceId, record);
+    if (!previous || Date.parse(record.performedAt) < Date.parse(previous.performedAt)
+      || Date.parse(record.performedAt) === Date.parse(previous.performedAt) && record.operationId < previous.operationId) completed.set(record.subjectOccurrenceId, record);
   }
   for (const record of completed.values()) {
     const chore = chores.get(record.choreId);

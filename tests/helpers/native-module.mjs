@@ -17,6 +17,8 @@ export function loadNativeModule(filename, mocks, timers = {}) {
     };
     if (!(name in mocks) && name === '../google-calendar/calendar-api') return calendarApi();
     if (!(name in mocks) && name === '../../features/widgets/completion-operation') return require('../../src/features/widgets/completion-operation.ts');
+    if (!(name in mocks) && name === '../../features/notifications/notice-delivery') return require('../../src/features/notifications/notice-delivery.ts');
+    if (!(name in mocks) && name === '../../features/notifications/expired-request') return require('../../src/features/notifications/expired-request.ts');
     if (!(name in mocks) && name === '@/platform/diagnostics/startup-timing') return require('../../src/platform/diagnostics/startup-timing.ts');
     if (!(name in mocks) && name === '@/platform/sharing/adaptive-personal-runtime') return {};
     if (!(name in mocks) && name === './src/platform/diagnostics/startup-clock') return require('../../src/platform/diagnostics/startup-clock.ts');

@@ -1,4 +1,4 @@
-import { normalizeWasteTypeText, WASTE_TYPES } from './waste-types.ts';
+import { normalizeWasteTypeText, wasteTypeIndex, WASTE_TYPES } from './waste-types.ts';
 
 // Stable by waste name, never by schedule id, recurrence, weekday, or list order.
 // Dark colors keep names readable on the calendar's white background.
@@ -13,11 +13,7 @@ const typeColors: Readonly<Record<string, string>> = {
   '生ごみ': '#A45C3B', '陶磁器・ガラス': '#487785', '発泡スチロール': '#64739C', '使用済み食用油': '#857127',
 };
 
-function knownTypeIndex(label: string): number {
-  const key = normalizeWasteTypeText(label);
-  return WASTE_TYPES.findIndex((type) => [type.label, ...type.aliases]
-    .some((term) => normalizeWasteTypeText(term) === key));
-}
+const knownTypeIndex = wasteTypeIndex;
 
 export function canonicalWasteType(label: string): string {
   const index = knownTypeIndex(label);
@@ -65,5 +61,5 @@ export function calendarWasteLabel(label: string): string {
     '陶磁器・ガラス': '陶器・ガラス', '発泡スチロール': '発泡材', '使用済み食用油': '食用油',
   };
   // Only calendar captions are shortened. Stored names, settings and colors remain canonical.
-  return (compact[canonical] ?? canonical).replace(/[ごゴ][みミ]/gu, '').trim();
+  return (Object.hasOwn(compact, canonical) ? compact[canonical] : canonical).replace(/[ごゴ][みミ]/gu, '').trim();
 }

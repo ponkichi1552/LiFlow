@@ -8,6 +8,9 @@ export interface GoogleTaskCreateIntent extends GoogleTaskCreateIdentity {
   attemptId: string;
   startedAt: string;
 }
+export type GoogleTaskCreateResult = { intent: GoogleTaskCreateIntent } & (
+  | { kind: 'created'; taskId: string }
+  | { kind: 'rejected' });
 export interface GoogleTaskCreateJournal {
   /** Only the caller that durably inserted this attempt may issue the HTTP insert. */
   reserve(identity: GoogleTaskCreateIdentity): Promise<GoogleTaskCreateIntent | null>;
@@ -17,7 +20,11 @@ export interface GoogleTaskCreateJournal {
   reject(intent: GoogleTaskCreateIntent): Promise<void>;
   rejectBatch?(intents: readonly GoogleTaskCreateIntent[]): Promise<void>;
   /** Keep a durable receipt after saving the link; a stale concurrent read must not open another insert. */
-  linked(identity: GoogleTaskCreateIdentity, taskId: string): Promise<void>;
+  linked(identity: GoogleTaskCreateIdentity, taskId: string, intent?: GoogleTaskCreateIntent): Promise<void>;
+  read?(identity: GoogleTaskCreateIdentity): Promise<{ intent: GoogleTaskCreateIntent; taskId: string | null } | null>;
+  received?(results: readonly GoogleTaskCreateResult[]): Promise<void>;
+  pending?(scope: { accountSubject: string; taskListId: string }): Promise<GoogleTaskCreateResult[]>;
+  settled?(results: readonly GoogleTaskCreateResult[]): Promise<void>;
   /** A fresh explicit deletion of this exact recorded task permits its normal repair. */
   deleted(identity: GoogleTaskCreateIdentity, taskId: string): Promise<void>;
 }

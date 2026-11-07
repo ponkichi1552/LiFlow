@@ -4,6 +4,7 @@ import type { LocalDate } from '../../domain/shared/types';
 import { addDays, daysBetween, monthDates, parseLocalDate } from '../../domain/scheduling/local-date.ts';
 import { calendarWeekday, customRecurrenceDates } from '../../domain/calendar/recurrence.ts';
 import { v2WallTimeCandidates } from '../sharing/v2/local-time.ts';
+import { localDayBoundary } from './local-day-boundary.ts';
 
 const days = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 export function googleEventDateTime(date: LocalDate, minute: number, timeZone: string): string {
@@ -45,7 +46,7 @@ export function googleEventBody(input: EventDraft, instance = false): Record<str
   if ('on' in rule && rule.on === 'weekday') parts.push(`BYDAY=${rule.ordinal}${days[rule.weekday]}`);
   if (value.untilDate) {
     const until = value.allDay ? value.untilDate.replaceAll('-', '')
-      : new Date(Date.parse(googleEventDateTime(addDays(value.untilDate, 1), 0, value.timeZone)) - 1000).toISOString().replaceAll(/[-:]/gu, '').replace('.000', '');
+      : new Date(localDayBoundary(addDays(value.untilDate, 1), value.timeZone) - 1000).toISOString().replaceAll(/[-:]/gu, '').replace('.000', '');
     parts.push(`UNTIL=${until}`);
   }
   body.recurrence = [`RRULE:${parts.join(';')}`]; return body;

@@ -13,7 +13,8 @@ export function toolchainSecurityInventory(root = resolve(import.meta.dirname, '
       if (!existsSync(packagePath)) throw new Error('Missing audited dependency: ' + relative(root, directory));
       const pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
       if (pkg.version !== installed.version) throw new Error('Audited dependency differs from its lockfile');
-      const files = pkg.name === 'glob' ? ['dist/commonjs/walker.js', 'dist/esm/walker.js']
+      const files = pkg.name === 'glob' ? ['dist/commonjs/walker.js', 'dist/esm/walker.js',
+        'dist/commonjs/index.min.js', 'dist/esm/index.min.js']
         : pkg.version === '3.1.5' ? ['minimatch.js'] : ['dist/commonjs/index.js', 'dist/esm/index.js'];
       rows.push({ path: relative(root, directory), name: pkg.name, version: pkg.version,
         files: files.map(file => ({ path: file, sha256: createHash('sha256').update(readFileSync(resolve(directory, file))).digest('hex') })) });

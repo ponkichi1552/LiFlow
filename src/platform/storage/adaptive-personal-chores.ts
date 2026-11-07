@@ -88,6 +88,32 @@ export async function readAdaptivePersonalInside(database: SQLiteDatabase, chore
   const row = await database.getFirstAsync<AdaptiveViewRow>(`${viewQuery} WHERE s.chore_id=?`, choreId);
   return row ? viewFromRow(row) : null;
 }
+
+/** Repair only a provable legacy Undo publication. Later replanning/settings
+ * changes and original completion/history rows remain untouched. */
+export async function repairLegacyAdaptiveUndoInside(database: SQLiteDatabase) {
+  const rows = await database.getAllAsync<{ chore_id: string; active_round_id: string; revision: number; plan_revision: string; event_json: string; completed_json: string }>(`SELECT s.chore_id,s.active_round_id,s.revision,s.plan_revision,u.event_json,c.event_json AS completed_json
+    FROM personal_adaptive_state s JOIN personal_adaptive_actions u ON u.sequence=(SELECT MAX(sequence) FROM personal_adaptive_actions WHERE chore_id=s.chore_id)
+    JOIN personal_adaptive_actions c ON c.operation_id=u.target_operation_id AND c.chore_id=s.chore_id
+    JOIN personal_adaptive_plans p ON p.round_id=s.active_round_id AND p.revision=s.plan_revision
+    WHERE u.action_type='undo' AND c.action_type='complete' AND c.round_id=s.active_round_id
+      AND json_extract(c.event_json,'$.planRevision') IS NULL AND p.published_at=json_extract(u.event_json,'$.recordedAt')`);
+  for (const row of rows) {
+    const completed = JSON.parse(row.completed_json) as Extract<AdaptiveHistoryEvent, { type: 'complete' }>;
+    const proof = await database.getFirstAsync<{ scheduled_date: string | null; scheduled_window_start: string | null; scheduled_window_end: string | null }>("SELECT scheduled_date,scheduled_window_start,scheduled_window_end FROM chore_completions WHERE id=? AND outcome='incomplete' AND adaptive_operation_id=?", completed.completionId, completed.operationId);
+    if (!proof?.scheduled_date) continue;
+    const plan = await database.getFirstAsync<{ revision: string; plan_json: string }>(`SELECT revision,plan_json FROM personal_adaptive_plans
+      WHERE chore_id=? AND round_id=? AND published_at<=? AND json_extract(plan_json,'$.recommendedDate')=?
+        AND COALESCE(json_extract(plan_json,'$.displayedWindow.from'),json_extract(plan_json,'$.recommendedDate'))=?
+        AND COALESCE(json_extract(plan_json,'$.displayedWindow.through'),json_extract(plan_json,'$.recommendedDate'))=?
+      ORDER BY published_at DESC,rowid DESC LIMIT 1`, row.chore_id, row.active_round_id, completed.recordedAt, proof.scheduled_date,
+      proof.scheduled_window_start ?? proof.scheduled_date, proof.scheduled_window_end ?? proof.scheduled_date);
+    if (!plan || plan.revision === row.plan_revision) continue;
+    const original = JSON.parse(plan.plan_json) as AdaptiveRoundPlacement;
+    if (original.id !== row.active_round_id || proof?.scheduled_date !== original.recommendedDate) continue;
+    await database.runAsync('UPDATE personal_adaptive_state SET plan_revision=?,revision=revision+1 WHERE chore_id=? AND revision=? AND plan_revision=?', plan.revision, row.chore_id, row.revision, row.plan_revision);
+  }
+}
 /** One bounded projection read for a screen; no history, forecast or per-chore query fanout. */
 export async function readAllAdaptivePersonalInside(database: SQLiteDatabase): Promise<Map<string, AdaptivePersonalView>> {
   const rows = await database.getAllAsync<AdaptiveViewRow>(`${viewQuery} ORDER BY s.chore_id`);
@@ -101,13 +127,14 @@ function roundIdFor(choreId: string, policyVersion: string, operationId: string 
 }
 async function publishInside(database: SQLiteDatabase, choreId: string, state: AdaptiveHistoryState, previous: AdaptivePersonalView | null,
   planning: AdaptivePersonalPlanning, trigger: 'initial' | 'replan' | AdaptivePersonalOperation['type'], fingerprint: Fingerprint,
-  restoreNonPeriodicRoundId?: string) {
+  restoreNonPeriodicRoundId?: string, undoPlan?: AdaptiveRoundPlacement) {
   parseLocalDate(planning.today);
   if (!planning.inputRevision || !Number.isFinite(Date.parse(planning.now))) throw new Error('個人予定の計算版を確認してください。');
   const candidateRoundId = adaptivePersonalRoundId(choreId, state, fingerprint);
   const priorTarget = previous?.plan?.id !== candidateRoundId ? await database.getFirstAsync<{ plan_json: string }>(
     'SELECT plan_json FROM personal_adaptive_plans WHERE chore_id=? AND round_id=? ORDER BY rowid DESC LIMIT 1', choreId, candidateRoundId) : null;
-  const restored = priorTarget ? JSON.parse(priorTarget.plan_json) as AdaptiveRoundPlacement : previous?.plan ?? null;
+  const restored = undoPlan?.id === candidateRoundId ? undoPlan
+    : priorTarget ? JSON.parse(priorTarget.plan_json) as AdaptiveRoundPlacement : previous?.plan ?? null;
   const alreadyHeld = previous?.state.model === null && previous.plan?.id === candidateRoundId;
   const newlyProtected = trigger === 'settings' && previous?.plan?.id === candidateRoundId
     && previous.plan.recommendedDate >= planning.today && previous.plan.recommendedDate <= addDays(planning.today, 1);
@@ -115,7 +142,9 @@ async function publishInside(database: SQLiteDatabase, choreId: string, state: A
   const protectedNonPeriodic = state.policy.enabled && state.model === null && (alreadyHeld || newlyProtected || restoringHeld);
   const canPlan = state.policy.enabled && (state.model !== null || protectedNonPeriodic);
   const roundId = canPlan ? candidateRoundId : null;
-  const plan = roundId ? protectedNonPeriodic ? restored! : await planning.plan({ roundId, state,
+  // Undo reopens the displayed round; ordinary next-round allocation would move
+  // a distributed initial recommendation back to its seed date.
+  const plan = roundId ? protectedNonPeriodic || undoPlan?.id === roundId ? restored! : await planning.plan({ roundId, state,
     previous: restored?.id === roundId ? restored : null, trigger }) : null;
   if (plan) {
     for (const date of [plan.originalBaseDate, plan.placedBaseDate, plan.recommendedDate]) parseLocalDate(date);
@@ -187,6 +216,7 @@ export async function applyAdaptivePersonalOperationInside(database: SQLiteDatab
       VALUES(?,?,'receipt',?,?)`, operation.operationId, choreId, digest, JSON.stringify(receipt)); return receipt;
   }
   let event: Omit<AdaptiveHistoryEvent, 'sequence'>; let restoreNonPeriodicRoundId: string | undefined;
+  let undoPlan: AdaptiveRoundPlacement | undefined;
   if (operation.type === 'complete') {
     if (!operation.completionId || !operation.roundId || !operation.planRevision) throw new Error('実施対象の家事回を確認してください。');
     if (!current.plan || current.plan.id !== operation.roundId) {
@@ -201,6 +231,7 @@ export async function applyAdaptivePersonalOperationInside(database: SQLiteDatab
       roundId: operation.roundId, localDate: operation.date, timeZone: operation.timeZone, origin: operation.origin,
       mode: current.state.policy.mode, initialDays: current.state.policy.initialDays[current.state.policy.mode],
       displayedWindow: plan ? plan.displayedWindow ? { revision: operation.planRevision, ...plan.displayedWindow } : null : 'missing',
+      ...(plan ? { planRevision: operation.planRevision } : {}),
       ...(plan ? { ruleDate: plan.originalBaseDate } : {}) } as Omit<AdaptiveHistoryEvent, 'sequence'>;
   } else if (operation.type === 'undo') {
     const target = await database.getFirstAsync<{ completion_id: string; round_id: string; event_json: string; undone: number }>(`SELECT a.completion_id,a.round_id,a.event_json,
@@ -209,7 +240,14 @@ export async function applyAdaptivePersonalOperationInside(database: SQLiteDatab
     choreId, operation.targetOperationId);
     if (!target || target.completion_id !== operation.completionId) throw new Error('取り消す個人家事を確認してください。');
     if (target.undone) return finishWithoutEvent('alreadyUndone', operation.completionId);
-    if (JSON.parse(target.event_json).initialDays === null) restoreNonPeriodicRoundId = target.round_id;
+    const completed = JSON.parse(target.event_json) as Extract<AdaptiveHistoryEvent, { type: 'complete' }>;
+    if (completed.initialDays === null) restoreNonPeriodicRoundId = target.round_id;
+    const revision = completed.planRevision ?? (completed.displayedWindow && completed.displayedWindow !== 'missing' ? completed.displayedWindow.revision : undefined);
+    const frozen = revision
+      ? await database.getFirstAsync<{ plan_json: string }>('SELECT plan_json FROM personal_adaptive_plans WHERE chore_id=? AND round_id=? AND revision=?', choreId, target.round_id, revision)
+      : await database.getFirstAsync<{ plan_json: string }>(`SELECT plan_json FROM personal_adaptive_plans WHERE chore_id=? AND round_id=?
+        AND published_at<=? ORDER BY rowid DESC LIMIT 1`, choreId, target.round_id, completed.recordedAt);
+    if (frozen) undoPlan = JSON.parse(frozen.plan_json) as AdaptiveRoundPlacement;
     event = { ...operation };
   } else event = { ...operation };
   const inserted = await database.runAsync(`INSERT INTO personal_adaptive_actions(operation_id,chore_id,action_type,completion_id,round_id,
@@ -221,7 +259,7 @@ export async function applyAdaptivePersonalOperationInside(database: SQLiteDatab
   const history = await historyInside(database, choreId);
   const state = replayAdaptiveHistory({ ...history, fingerprint, capture: { afterOperationId: operation.operationId,
     forRoundId: operationId => roundIdFor(choreId, history.policy.version, operationId, fingerprint), createdAt: planning.now } });
-  const next = await publishInside(database, choreId, state, current, planning, operation.type, fingerprint, restoreNonPeriodicRoundId);
+  const next = await publishInside(database, choreId, state, current, planning, operation.type, fingerprint, restoreNonPeriodicRoundId, undoPlan);
   if (next.roundId) {
     const captured = state.forecast;
     if (captured && captured.forRoundId !== next.roundId) throw new Error('次回予定と事前予測の対応を確認してください。');

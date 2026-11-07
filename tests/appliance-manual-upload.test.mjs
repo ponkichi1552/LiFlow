@@ -34,6 +34,18 @@ test('manual base64 validation accepts the full upload limit without recursive r
   }
 });
 
+test('an inspection deadline is a retryable server failure and never a permanent invalid-PDF verdict or a cached rejection', async t => {
+  const bytes = syntheticPdf(2);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const checking = inspectUploadedManual(bytes);
+    const rejected = assert.rejects(checking, error => error.status === 503 && error.code === 'TEMPORARY_NETWORK_ERROR');
+    t.mock.timers.tick(5000);
+    await rejected;
+  } finally { t.mock.timers.reset(); }
+  assert.equal(await inspectUploadedManual(bytes), 2, 'a subsequent attempt inspects the same valid document normally');
+});
+
 test('uploaded analysis sends only submitted bytes with no search or URL fetch and validates exact digest-only provenance', async () => {
   const manual = decodeUploadedManual(syntheticManual()); let sent; let calls = 0;
   const task = { name: 'フィルターのお手入れ', recommendedIntervalDays: null, recommendedConditions: ['汚れが目立った時'],

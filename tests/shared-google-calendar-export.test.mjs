@@ -368,3 +368,46 @@ for (const externalEdit of [false, true]) test(`restoring a deleted recurring co
   assert.equal((await f.runtime.synchronize()).kind, externalEdit ? 'error' : 'success');
   assert.equal(f.remote.get('instance').summary, externalEdit ? 'Google側の復元' : '共有0');
 });
+
+test('a stalled native identity check cannot hold shared Calendar export beyond its background deadline',async t=>{
+  let armed=false,release;const never=new Promise(resolve=>{release=resolve;});
+  const control={enabled:true,revision:1,subject:'google-user',calendarId:'cal',retryAt:null,retryCount:0};
+  const runtime=createSharedGoogleCalendarExport({scope:{userId:'owner',groupId:'home'},assertAccess:async()=>{},
+    currentSubject:()=>armed?never:Promise.resolve('google-user'),authorize:async()=>({subject:'google-user',label:'QA'}),
+    store:{readControl:async()=>control,readItems:async()=>[],readLinks:async()=>[],saveStatus:async()=>{},saveLink:async()=>{}},createApi:()=>({})});
+  t.mock.timers.enable({apis:['setTimeout']});armed=true;let result;
+  const pending=runtime.synchronize({budgetMs:1000}).then(value=>result=value);
+  try {
+    for(let i=0;i<20;i++)await new Promise(setImmediate);
+    t.mock.timers.tick(1000);for(let i=0;i<20;i++)await new Promise(setImmediate);
+    assert.equal(result?.kind,'pending');assert.equal(result.sent,0);
+  } finally {release('google-user');await pending;t.mock.timers.reset();}
+});
+
+test('a changed shared event requested during an export receives one trailing pass without waiting for the next periodic sync',async()=>{
+  let release,started;const held=new Promise(resolve=>{release=resolve;});const inserting=new Promise(resolve=>{started=resolve;});
+  const f=fixture();await f.connect();f.afterInsert(async()=>{started();await held;});
+  const first=f.runtime.synchronize();await inserting;
+  f.items[0]={...f.items[0],revision:'two',value:{...f.items[0].value,title:'送信中に変更した予定'}};
+  const again=f.runtime.synchronize({force:true});const joined=f.runtime.synchronize({force:true});
+  release();await Promise.all([first,again,joined]);
+  assert.equal([...f.remote.values()][0].summary,'送信中に変更した予定');assert.equal(f.remote.size,1);
+  assert.equal(f.calls.filter(x=>x==='patch').length,1,'new requests coalesce one trailing update');
+});
+
+test('audit100 restoring an exported recurring series rebinds its exceptions to the new parent without touching old instances',async()=>{
+ const f=fixture(1,{tombstones:true,instances:({id,range,remote})=>{
+   const key=`instance-${id}`;if(!remote.has(key))remote.set(key,{id:key,recurringEventId:id,originalStartTime:{date:range.originalStart},etag:'instance-etag',summary:'original'});
+   return{items:[structuredClone(remote.get(key))]};
+ }});
+ const series={...f.items[0].value,allDay:true,recurrence:'daily'};f.items[0].value=series;
+ const exception={sourceId:'event-0:2026-11-01',parentId:'event-0',anchorDate:'2026-11-01',revision:'exception-1',value:{...series,recurrence:'none',startDate:'2026-11-01',endDate:'2026-11-01',title:'changed instance'}};
+ f.items.push(exception);await f.connect();assert.equal((await f.runtime.synchronize()).kind,'success');
+ const oldParent=[...f.links.values()].find(row=>row.value.sourceId==='event-0').value.googleId;
+ const oldInstance=structuredClone(f.remote.get(`instance-${oldParent}`));
+ f.items.splice(1);f.items[0]={sourceId:'event-0',revision:'deleted',value:null};assert.equal((await f.runtime.synchronize()).kind,'success');
+ f.items[0]={sourceId:'event-0',revision:'restored',value:series};f.items.push({...exception,revision:'exception-2'});
+ assert.equal((await f.runtime.synchronize({force:true})).kind,'success');
+ const newParent=[...f.links.values()].find(row=>row.value.sourceId==='event-0').value.googleId;assert.notEqual(newParent,oldParent);
+ assert.equal(f.remote.get(`instance-${newParent}`).summary,'changed instance');assert.deepEqual(f.remote.get(`instance-${oldParent}`),oldInstance);
+});

@@ -1,10 +1,11 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { initializeGoogleTaskCreateIntentsInside } from './google-task-create-intents.ts';
-import { initializeAdaptivePersonalSchemaInside } from './adaptive-personal-chores.ts';
+import { initializeAdaptivePersonalSchemaInside, repairLegacyAdaptiveUndoInside } from './adaptive-personal-chores.ts';
 import { initializeGoogleTaskReadCacheInside } from './google-task-read-cache.ts';
+import { initializePlanningInputRevisionInside } from './planning-input-revision.ts';
 
 const INITIAL_SCHEMA_VERSION = 1;
-const CURRENT_SCHEMA_VERSION = 27;
+const CURRENT_SCHEMA_VERSION = 29;
 
 function assertReadableVersion(version: number) {
   if (!Number.isSafeInteger(version) || version < 0 || version > CURRENT_SCHEMA_VERSION) throw new Error('新しいバージョンで保存されたデータです。LiFlowを更新してください。');
@@ -469,6 +470,22 @@ async function migrateSchema(database: SQLiteDatabase): Promise<void> {
       region_id TEXT PRIMARY KEY NOT NULL, revision TEXT NOT NULL, cache_json TEXT NOT NULL
     );`);
     version = 27;
+  }
+  if (version < 28) {
+    await database.execAsync(`CREATE TABLE IF NOT EXISTS widget_completion_generations (
+      schedule_entry_id TEXT PRIMARY KEY NOT NULL, generation INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS widget_rejected_inputs (
+      digest TEXT PRIMARY KEY NOT NULL, raw_json TEXT NOT NULL, reason TEXT NOT NULL);`);
+    await initializePlanningInputRevisionInside(database);
+    await initializeGoogleTaskReadCacheInside(database);
+    await repairLegacyAdaptiveUndoInside(database);
+    version = 28;
+  }
+  if (version < 29) {
+    // Deleted Google/local events remain as synchronization tombstones. Display
+    // reads should visit live rows, even after years of edits or account changes.
+    await database.execAsync('CREATE INDEX IF NOT EXISTS idx_calendar_events_visible ON calendar_events(deleted,id)');
+    version = 29;
   }
   if (startingVersion < CURRENT_SCHEMA_VERSION) {
     await database.execAsync(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);

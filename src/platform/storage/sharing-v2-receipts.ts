@@ -11,14 +11,26 @@ export async function initializeV2ReceiptTable(transaction: SQLiteDatabase): Pro
 /** This is transaction-local evidence from the server adapter, never a server timestamp copied from an owner snapshot. */
 export async function persistV2ServerReceiptsInside(transaction: SQLiteDatabase, groupId: string, input: readonly V2ServerReceipt[]): Promise<boolean> {
   if (input.length > 10_000) throw new Error('Receipt page exceeds the local recovery budget');
-  let changed = false;
+  const unique = new Map<string, string>();
   for (const raw of input) {
     const receipt = validateV2ServerReceipt(raw); if (receipt.groupId !== groupId) throw new Error('Foreign receipt');
     const encoded = canonicalJson(receipt);
-    const existing = await transaction.getFirstAsync<{ receipt_json: string }>('SELECT receipt_json FROM sharing_v2_server_receipts WHERE group_id=? AND operation_id=?', groupId, receipt.operationId);
-    if (existing && existing.receipt_json !== encoded) throw new Error('An immutable server receipt changed');
-    if (existing) continue;
-    await transaction.runAsync('INSERT INTO sharing_v2_server_receipts VALUES (?, ?, ?)', groupId, receipt.operationId, encoded); changed = true;
+    if (unique.has(receipt.operationId) && unique.get(receipt.operationId) !== encoded) throw new Error('An immutable server receipt changed');
+    unique.set(receipt.operationId, encoded);
+  }
+  let changed = false; const entries = [...unique];
+  for (let offset = 0; offset < entries.length; offset += 300) {
+    const batch = entries.slice(offset, offset + 300);
+    const stored = new Map((await transaction.getAllAsync<{ operation_id: string; receipt_json: string }>(
+      `SELECT operation_id,receipt_json FROM sharing_v2_server_receipts WHERE group_id=? AND operation_id IN (${batch.map(() => '?').join(',')})`, groupId, ...batch.map(([id]) => id)))
+      .map(row => [row.operation_id, row.receipt_json]));
+    const missing = batch.filter(([id, encoded]) => {
+      if (!stored.has(id)) return true;
+      if (stored.get(id) !== encoded) throw new Error('An immutable server receipt changed'); return false;
+    });
+    if (!missing.length) continue;
+    await transaction.runAsync(`INSERT INTO sharing_v2_server_receipts VALUES ${missing.map(() => '(?,?,?)').join(',')}`,
+      ...missing.flatMap(([id, encoded]) => [groupId, id, encoded])); changed = true;
   }
   return changed;
 }

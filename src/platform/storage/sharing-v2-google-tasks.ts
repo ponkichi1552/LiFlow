@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { reserveGoogleTaskCreateInside, rejectGoogleTaskCreateInside, linkGoogleTaskCreateInside, deleteGoogleTaskCreateInside, initializeGoogleTaskCreateIntentsInside } from './google-task-create-intents.ts';
+import { createGoogleTaskCreateJournal, reserveGoogleTaskCreateInside, rejectGoogleTaskCreateInside, linkGoogleTaskCreateInside, deleteGoogleTaskCreateInside, initializeGoogleTaskCreateIntentsInside } from './google-task-create-intents.ts';
 import { createGoogleTaskReadCache, initializeGoogleTaskReadCacheInside } from './google-task-read-cache.ts';
 import type { createV2EventRepository } from './sharing-v2-events';
 import type { GoogleSyncState, GoogleTaskLink, GoogleTaskStatus, GoogleTaskStatusChange, GoogleSyncEntry } from '../../features/google-sync/contracts';
@@ -66,7 +66,9 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
       singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL CHECK(revision>0), label TEXT, state_json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sharing_v2_private_google_links (
         schedule_entry_id TEXT PRIMARY KEY, link_json TEXT NOT NULL, target_json TEXT NOT NULL,
-        baseline_revision TEXT, acknowledged_ids_json TEXT NOT NULL);`);
+        baseline_revision TEXT, acknowledged_ids_json TEXT NOT NULL);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_v2_google_remote_identity ON sharing_v2_private_google_links
+        (json_extract(link_json,'$.googleTaskListId'),json_extract(link_json,'$.googleTaskId'));`);
   }
   function validateState(state: GoogleSyncState): GoogleSyncState {
     fieldsOnly(state, stateFields);
@@ -86,9 +88,17 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
     if (!Number.isSafeInteger(row.revision) || row.revision < 1 || row.label !== null && !boundedText(row.label, 320)) throw new Error('Google家事の接続版を確認してください。');
     return { revision: row.revision, label: row.label, state: validateState(JSON.parse(row.state_json)) };
   }
-  async function rowsInside(transaction: SQLiteDatabase): Promise<LinkRecord[]> {
+  type RawLinkRecord = { schedule_entry_id: string; link_json: string; target_json: string; baseline_revision: string | null; acknowledged_ids_json: string };
+  const rowCache = new Map<string, { raw: RawLinkRecord; value: LinkRecord }>();
+  const copyRow = (row: LinkRecord): LinkRecord => ({ link: { ...row.link }, target: { ...row.target },
+    baselineRevision: row.baselineRevision, acknowledgedCompletionIds: [...row.acknowledgedCompletionIds] });
+  async function rowsInside(transaction: SQLiteDatabase, entryId?: string): Promise<LinkRecord[]> {
     await initialize(transaction);
-    return (await transaction.getAllAsync<{ schedule_entry_id: string; link_json: string; target_json: string; baseline_revision: string | null; acknowledged_ids_json: string }>('SELECT * FROM sharing_v2_private_google_links ORDER BY schedule_entry_id')).map(row => {
+    return (await transaction.getAllAsync<RawLinkRecord>(
+      `SELECT * FROM sharing_v2_private_google_links${entryId === undefined ? '' : ' WHERE schedule_entry_id=?'} ORDER BY schedule_entry_id`, ...entryId === undefined ? [] : [entryId])).map(row => {
+      const known = rowCache.get(row.schedule_entry_id);
+      if (known && known.raw.link_json === row.link_json && known.raw.target_json === row.target_json
+        && known.raw.baseline_revision === row.baseline_revision && known.raw.acknowledged_ids_json === row.acknowledged_ids_json) return copyRow(known.value);
       const link = JSON.parse(row.link_json) as GoogleTaskLink; const target = validateV2GoogleTaskTarget(JSON.parse(row.target_json), userId, groupId);
       fieldsOnly(link, linkFields);
       const ids: unknown = JSON.parse(row.acknowledged_ids_json);
@@ -101,7 +111,10 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
         || link.lastSyncedStatus !== undefined && !['completed', 'needsAction'].includes(link.lastSyncedStatus)
         || !Array.isArray(ids) || ids.some(id => !boundedText(id, 512)) || new Set(ids).size !== ids.length) throw new Error('Google家事の対応記録を確認してください。');
       if (link.lastSyncedDueDate !== undefined) parseLocalDate(link.lastSyncedDueDate);
-      return { link, target, baselineRevision: row.baseline_revision, acknowledgedCompletionIds: ids as string[] };
+      const value = { link, target, baselineRevision: row.baseline_revision, acknowledgedCompletionIds: ids as string[] };
+      rowCache.delete(row.schedule_entry_id); rowCache.set(row.schedule_entry_id, { raw: row, value });
+      while (rowCache.size > 2048) rowCache.delete(rowCache.keys().next().value!);
+      return copyRow(value);
     });
   }
   async function writeRow(transaction: SQLiteDatabase, row: LinkRecord) {
@@ -119,13 +132,16 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
     return sharedLocalDate(input.now(), zone);
   }
   async function catalog(state: State, transaction: SQLiteDatabase, rows: LinkRecord[]) {
-    const today = localToday(state); const anchors = [...new Set(rows.map(row => row.target.anchorDate))].sort();
+    const today = localToday(state); const from = addDays(today, -5); const through = addDays(today, 14);
+    const anchors = [...new Set(rows.map(row => row.target.anchorDate).filter(date => date < from || date > through))].sort();
     const projection = await transaction.getFirstAsync<{ fact_hash: string }>('SELECT fact_hash FROM sharing_v2_projection WHERE singleton=1');
     const key = sharedDocumentDigest(JSON.stringify([projection?.fact_hash, today, anchors, input.planningRevision?.() ?? 'common']));
     if (cached?.key === key) return cached;
-    const main = buildV2CommonPlan(state, { from: addDays(today, -5), through: addDays(today, 14), asOfDate: today });
-    const plans = [main]; const visibleAnchors = new Set(main.occurrences.map(row => row.anchorDate));
-    for (const anchor of anchors) if (!visibleAnchors.has(anchor) && (anchor < main.range.from || anchor > main.range.through)) {
+    const main = buildV2CommonPlan(state, { from, through, asOfDate: today });
+    const plans = [main];
+    // A moved exception may bring one chore's old anchor into the main view.
+    // That does not project the other linked chores sharing that anchor.
+    for (const anchor of anchors) if (anchor < main.range.from || anchor > main.range.through) {
       plans.push(buildV2CommonPlan(state, { from: anchor, through: anchor, asOfDate: today }));
     }
     const calendar = readSharedCalendar(state.assessment.view, v2ReadPoint(state.assessment.view, state.archive.at(-1)!));
@@ -143,8 +159,8 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
       entry: { id: row.link.scheduleEntryId, householdId: namespace, choreId: row.target.choreId, cycleBaseDate: row.target.anchorDate,
         windowStart: row.target.anchorDate, windowEnd: row.target.anchorDate, suggestedDate: row.link.lastSyncedDueDate ?? row.target.anchorDate, status: 'scheduled', assignedMemberIds: [] } };
   }
-  async function stageRows(state: State, transaction: SQLiteDatabase) {
-    const rows = await rowsInside(transaction); const projected = await catalog(state, transaction, rows);
+  async function stageRows(state: State, transaction: SQLiteDatabase, entryId?: string) {
+    const rows = await rowsInside(transaction, entryId); const projected = await catalog(state, transaction, rows);
     for (const row of rows) {
       const item = projected.items.get(row.link.scheduleEntryId); if (!item || item.synchronizationBlocked) continue;
       const link = { ...row.link, observedLocalRevision: item.localRevision };
@@ -183,17 +199,37 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
       await check(transaction);
     });
   };
+  async function acknowledgeStatuses(changes: readonly { link: GoogleTaskLink; status: GoogleTaskStatus }[]) {
+    if (!changes.length) return;
+    const captured = snapshot(changes);
+    await repository.readCurrent(async (state, transaction) => {
+      const { rows, projected } = await stageRows(state, transaction, captured.length === 1 ? captured[0].link.scheduleEntryId : undefined);
+      const byId = new Map(rows.map(row => [row.link.scheduleEntryId, row]));
+      for (const { link: sent, status: remoteStatus } of captured) {
+        const row = byId.get(sent.scheduleEntryId);
+        if (!row || row.link.googleTaskId !== sent.googleTaskId || row.link.googleTaskListId !== sent.googleTaskListId || !validRevision(sent.observedLocalRevision)) continue;
+        const current = projected.items.get(sent.scheduleEntryId); const observed = issuedItems.get(sent.scheduleEntryId);
+        row.link.lastSyncedStatus = remoteStatus; row.baselineRevision = sent.observedLocalRevision;
+        if (observed?.localRevision === sent.observedLocalRevision) row.acknowledgedCompletionIds = [...observed.undoCompletionIds];
+        if (current?.localRevision === sent.observedLocalRevision && status(current) === remoteStatus) {
+          row.acknowledgedCompletionIds = [...current.undoCompletionIds]; row.link.pendingStatus = undefined; row.link.pendingStatusRevision = undefined;
+        }
+        await writeRow(transaction, row);
+      }
+    });
+  }
   const port: GoogleSyncRepositoryPort = {
     taskNamespace: namespace,
     taskReadCache: createGoogleTaskReadCache(work => privateStorage(async transaction => {
       await initialize(transaction); const result = await work(transaction); await check(transaction); return result;
     })),
     taskCreateJournal: {
+      ...createGoogleTaskCreateJournal(work => privateStorage(async transaction => { await initialize(transaction); const result = await work(transaction); await check(transaction); return result; }), input.makeId, input.now),
       reserve: async identity => (await reserveCreates([identity]))[0],
       reserveBatch: reserveCreates,
       reject: intent => rejectCreates([intent]), rejectBatch: rejectCreates,
-      linked: (identity, taskId) => privateStorage(async transaction => {
-        await initialize(transaction); await linkGoogleTaskCreateInside(transaction, identity, taskId); await check(transaction);
+      linked: (identity, taskId, intent) => privateStorage(async transaction => {
+        await initialize(transaction); await linkGoogleTaskCreateInside(transaction, identity, taskId, intent); await check(transaction);
       }),
       deleted: (identity, taskId) => privateStorage(async transaction => {
         await initialize(transaction); await deleteGoogleTaskCreateInside(transaction, identity, taskId); await check(transaction);
@@ -219,10 +255,13 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
     async upsertGoogleTaskLink(value) {
       const link = snapshot(value);
       await privateStorage(async transaction => {
-        const rows = await rowsInside(transaction); const previous = rows.find(row => row.link.scheduleEntryId === link.scheduleEntryId);
+        const rows = await rowsInside(transaction, link.scheduleEntryId); const previous = rows[0];
+        const duplicate = await transaction.getFirstAsync<{ schedule_entry_id: string }>(`SELECT schedule_entry_id FROM sharing_v2_private_google_links
+          WHERE json_extract(link_json,'$.googleTaskListId')=? AND json_extract(link_json,'$.googleTaskId')=? AND schedule_entry_id<>?`,
+        link.googleTaskListId, link.googleTaskId, link.scheduleEntryId);
         const item = issuedItems.get(link.scheduleEntryId); const target = item?.target ?? previous?.target;
         if (!target || link.choreId !== target.choreId || link.householdId !== namespace || !boundedText(link.googleTaskListId) || !boundedText(link.googleTaskId)
-          || !validRevision(link.observedLocalRevision) || rows.some(row => row.link.scheduleEntryId !== link.scheduleEntryId && row.link.googleTaskListId === link.googleTaskListId && row.link.googleTaskId === link.googleTaskId)) throw new Error('Google家事の対応先を確認してください。');
+          || !validRevision(link.observedLocalRevision) || duplicate) throw new Error('Google家事の対応先を確認してください。');
         if (previous) await writeRow(transaction, { ...previous, target, link: { ...previous.link, ...link,
           pendingStatus: previous.link.pendingStatus, pendingStatusRevision: previous.link.pendingStatusRevision,
           ...(previous.link.googleTaskId === link.googleTaskId && previous.link.googleTaskListId === link.googleTaskListId ? { lastSyncedStatus: previous.link.lastSyncedStatus } : { lastSyncedStatus: undefined }) } });
@@ -230,42 +269,37 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
       });
     },
     deleteGoogleTaskLink: id => privateStorage(async transaction => {
-      const row = (await rowsInside(transaction)).find(row => row.link.scheduleEntryId === id); if (row) { await check(transaction); await transaction.runAsync('DELETE FROM sharing_v2_private_google_links WHERE schedule_entry_id=?', id); await check(transaction); }
+      const row = (await rowsInside(transaction, id))[0]; if (row) { await check(transaction); await transaction.runAsync('DELETE FROM sharing_v2_private_google_links WHERE schedule_entry_id=?', id); await check(transaction); }
     }),
-    async acknowledgeGoogleTaskStatus(sent, remoteStatus) {
-      await repository.readCurrent(async (state, transaction) => {
-        const { rows, projected } = await stageRows(state, transaction); const row = rows.find(row => row.link.scheduleEntryId === sent.scheduleEntryId);
-        if (!row || row.link.googleTaskId !== sent.googleTaskId || row.link.googleTaskListId !== sent.googleTaskListId || !validRevision(sent.observedLocalRevision)) return;
-        const current = projected.items.get(sent.scheduleEntryId); const observed = issuedItems.get(sent.scheduleEntryId);
-        row.link.lastSyncedStatus = remoteStatus; row.baselineRevision = sent.observedLocalRevision;
-        if (observed?.localRevision === sent.observedLocalRevision) row.acknowledgedCompletionIds = [...observed.undoCompletionIds];
-        if (current?.localRevision === sent.observedLocalRevision && status(current) === remoteStatus) {
-          row.acknowledgedCompletionIds = [...current.undoCompletionIds]; row.link.pendingStatus = undefined; row.link.pendingStatusRevision = undefined;
-        }
-        await writeRow(transaction, row);
-      });
-    },
+    acknowledgeGoogleTaskStatus: (sent, remoteStatus) => acknowledgeStatuses([{ link: sent, status: remoteStatus }]),
+    acknowledgeGoogleTaskStatuses: acknowledgeStatuses,
     async importGoogleTaskChanges(changes: readonly GoogleTaskStatusChange[]) {
       let imported = 0;
       for (const change of snapshot(changes)) {
         if (change.status === 'completed' && !parseGoogleCompletedAt(change.completedAt)) continue;
         // These objects are private to this single command; the normal action fills its reference from the transaction's current plan.
         const ref = {} as V2GoogleTaskTarget; const targets: string[] = [];
+        const observed = issuedItems.get(change.scheduleEntryId);
+        const savedRetained = observed?.retainedCompletion;
+        const retained = savedRetained?.recorderUserIds.includes(userId) ? { ...observed!.target,
+          checkpointId: savedRetained.checkpointId, recorderUserIds: [userId] } : undefined;
         const actions = createV2PlannerActions({ ...repository, commitCurrent: build => repository.commitCurrent(async (state, transaction) => {
-          const { rows, projected } = await stageRows(state, transaction);
+          const { rows, projected } = await stageRows(state, transaction, change.scheduleEntryId);
           const row = rows.find(row => row.link.scheduleEntryId === change.scheduleEntryId && row.link.googleTaskId === change.googleTaskId && row.link.googleTaskListId === change.googleTaskListId);
           const item = projected.items.get(change.scheduleEntryId); if (!row || !item || item.synchronizationBlocked) return [];
           const action = googleTaskImportAction(row.link, item.completedAt ? 'completed' : item.locallyIncomplete ? 'incomplete' : undefined, change.status);
           if (action === 'ignore') return [];
           Object.assign(ref, item.target); targets.push(...row.acknowledgedCompletionIds.filter(id => item.undoCompletionIds.includes(id)));
-          if (action === 'undo' && !targets.length) return [];
+          if (action === 'undo' && !targets.length && !retained) return [];
+          if (action === 'undo' && retained && (item.retainedCompletion?.checkpointId !== retained.checkpointId
+            || !item.retainedCompletion.recorderUserIds.includes(userId) || row.baselineRevision !== item.localRevision)) return [];
           const drafts = await build(state, transaction); if (!drafts.length) return [];
           const after = v2GoogleRevisionAfterImport(item, drafts);
           row.baselineRevision = after.revision; row.acknowledgedCompletionIds = after.undoCompletionIds;
           row.link = { ...row.link, lastSyncedStatus: change.status, observedLocalRevision: after.revision, pendingStatus: undefined, pendingStatusRevision: undefined };
           await writeRow(transaction, row); return drafts;
         }) }, { makeId: input.makeId, now: input.now });
-        const operations = change.status === 'completed' ? await actions.complete(ref, { performedAt: change.completedAt }) : await actions.undoMany(targets);
+        const operations = change.status === 'completed' ? await actions.complete(ref, { performedAt: change.completedAt }) : await actions.undoMany(targets, retained);
         imported += operations.length ? 1 : 0;
       }
       return imported;

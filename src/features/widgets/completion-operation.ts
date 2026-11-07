@@ -8,9 +8,11 @@ import { canonicalJson } from '../sharing/operations.ts';
 export interface WidgetCompletionOperation {
   id: string; accountScope: string; householdCreatedAt: string; acceptedAtMs: number;
   completedLocalDate: LocalDate; timeZone: string; entry: ChoreScheduleEntry;
+  completionGeneration?: number;
 }
 export function validateWidgetCompletionOperation(value: WidgetCompletionOperation): WidgetCompletionOperation {
-  if (!value || typeof value !== 'object' || Object.keys(value).sort().join(',') !== 'acceptedAtMs,accountScope,completedLocalDate,entry,householdCreatedAt,id,timeZone'
+  if (!value || typeof value !== 'object' || Object.keys(value).filter(key => key !== 'completionGeneration').sort().join(',') !== 'acceptedAtMs,accountScope,completedLocalDate,entry,householdCreatedAt,id,timeZone'
+    || value.completionGeneration !== undefined && (!Number.isSafeInteger(value.completionGeneration) || value.completionGeneration < 0)
     || !/^completion-intent\.[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(value.id)
     || typeof value.accountScope !== 'string' || !value.accountScope.length || value.accountScope.length > 160
     || typeof value.householdCreatedAt !== 'string' || !Number.isFinite(Date.parse(value.householdCreatedAt)) || !Number.isSafeInteger(value.acceptedAtMs) || value.acceptedAtMs < 0

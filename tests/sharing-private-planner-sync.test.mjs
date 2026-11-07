@@ -152,3 +152,27 @@ test('private preference synchronization rejects a foreign bound store before re
   await assert.rejects(() => wrong.resolve(1, { revision: 1, digest: '0'.repeat(64) }, 'remote'), /本人設定の保存先/u);
   assert.equal(h.wire.reads, 0); assert.equal(h.wire.writes, 0); assert.equal((await store.read()).revision, 1);
 });
+
+test('audit100 private preference transport receives the caller budget so late transaction stages cannot begin', async t => {
+  const h = await privatePlannerSyncFixture(t); await h.left.store.save(0, input()); let allowed = true; const guards = [];
+  const service = h.service(h.left.f, { cloud: { ...h.cloud, async read(authority, guard) {
+    guards.push(guard); allowed = false; guard?.(); return h.cloud.read(authority);
+  } } });
+  await assert.rejects(service.sync.synchronize(false, () => { if (!allowed) throw new Error('expired budget'); }), /expired budget/);
+  assert.equal(typeof guards[0], 'function'); assert.equal(h.wire.writes, 0);
+});
+test('audit100 repeated private preference polls reuse only an exactly authenticated protected baseline', async t => {
+  const h = await privatePlannerSyncFixture(t); await h.left.store.save(0, input()); await h.left.sync.synchronize();
+  let decryptions = 0; const service = h.service(h.right.f, { crypto: { ...crypto, async decrypt(...args) { decryptions++; return crypto.decrypt(...args); } } });
+  await service.sync.synchronize(); assert.equal(decryptions, 1);
+  for (let i = 0; i < 20; i++) await service.sync.synchronize();
+  assert.equal(decryptions, 1);
+  h.wire.current.signature = '0'.repeat(128);
+  await assert.rejects(service.sync.synchronize()); assert.equal(decryptions, 1);
+});
+test('audit100 a manual private preference retry is not swallowed by an automatic backoff read', async t => {
+  const h = await privatePlannerSyncFixture(t); await h.left.store.save(0, input()); h.wire.unavailable = true;
+  await assert.rejects(h.left.sync.synchronize()); h.wire.unavailable = false;
+  const automatic = h.left.sync.synchronize(); const manual = h.left.sync.synchronize(true);
+  assert.equal((await automatic).kind, 'waiting'); assert.equal((await manual).kind, 'sent'); assert.equal(h.wire.writes, 1);
+});

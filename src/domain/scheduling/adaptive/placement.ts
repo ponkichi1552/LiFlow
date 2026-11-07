@@ -122,10 +122,26 @@ export function placeAdaptiveRounds(input: {
   const configuredDays = [...dayByDate.values()].sort((a, b) => a.date.localeCompare(b.date));
   for (let i = 1; i < configuredDays.length; i++) if (configuredDays[i].bounds.start < configuredDays[i - 1].bounds.end) throw new Error('日付の時間範囲が重複しています。');
   const allAllowed = unionInstantSpans(configuredDays.flatMap(day => day.allowed));
-  const capacityByDate = new Map(configuredDays.map(day => [day.date, day.maximumMinutes ?? allAllowed
-    .reduce((sum, span) => sum + Math.max(0, Math.min(span.end, day.bounds.end) - Math.max(span.start, day.bounds.start)) / minute, 0)]));
+  function firstAllowedAfter(start: number) {
+    let low = 0; let high = allAllowed.length;
+    while (low < high) { const mid = (low + high) >>> 1; if (allAllowed[mid].end <= start) low = mid + 1; else high = mid; }
+    return low;
+  }
+  const capacityByDate = new Map(configuredDays.map(day => {
+    if (day.maximumMinutes !== undefined) return [day.date, day.maximumMinutes] as const;
+    const { start, end } = day.bounds; let minutes = 0;
+    for (let i = firstAllowedAfter(start); i < allAllowed.length && allAllowed[i].start < end; i++) {
+      minutes += (Math.min(allAllowed[i].end, end) - Math.max(allAllowed[i].start, start)) / minute;
+    }
+    return [day.date, minutes] as const;
+  }));
   const capacity = (day: AdaptivePlacementDay) => capacityByDate.get(day.date)!;
   const readLoad = (date: LocalDate) => dayLoads.get(date) ?? { minutes: 0, heavy: 0, normal: 0, count: 0 };
+  function firstDayEndingAfter(start: number) {
+    let low = 0; let high = configuredDays.length;
+    while (low < high) { const mid = (low + high) >>> 1; if (configuredDays[mid].bounds.end <= start) low = mid + 1; else high = mid; }
+    return low;
+  }
   function charges(load: AdaptivePlacementLoad): { day: AdaptivePlacementDay; minutes: number }[] {
     if (!load.slot) {
       const day = dayByDate.get(load.date);
@@ -133,10 +149,8 @@ export function placeAdaptiveRounds(input: {
       // capacity conservatively; never claim a made-up continuous free slot.
       return day ? [{ day, minutes: load.minutes ?? capacity(day) }] : [];
     }
-    let low = 0; let high = configuredDays.length;
-    while (low < high) { const mid = (low + high) >>> 1; if (configuredDays[mid].bounds.end <= load.slot!.start) low = mid + 1; else high = mid; }
     const portions: { day: AdaptivePlacementDay; minutes: number }[] = [];
-    for (let i = low; i < configuredDays.length && configuredDays[i].bounds.start < load.slot.end; i++) {
+    for (let i = firstDayEndingAfter(load.slot.start); i < configuredDays.length && configuredDays[i].bounds.start < load.slot.end; i++) {
       const day = configuredDays[i];
       const overlap = Math.max(0, Math.min(day.bounds.end, load.slot!.end) - Math.max(day.bounds.start, load.slot!.start));
       if (overlap) portions.push({ day, minutes: overlap / minute });
@@ -221,17 +235,21 @@ export function placeAdaptiveRounds(input: {
       if (task.purpose === 'initial' && !initialDisplay) return [];
       const load = readLoad(day.date);
       if (load.heavy + Number(task.load === 'heavy') > day.heavyLimit || load.normal + Number(task.load === 'normal') > day.normalLimit) return [];
-      const windows = allAllowed.flatMap(span => {
+      const windows: InstantSpan[] = [];
+      for (let i = firstAllowedAfter(day.bounds.start); i < allAllowed.length && allAllowed[i].start < day.bounds.end; i++) {
+        const span = allAllowed[i];
         const start = Math.max(span.start, day.bounds.start, day.date === input.today ? input.now : -Infinity);
-        return start < span.end && start < day.bounds.end ? [{ start, end: span.end }] : [];
-      });
+        if (start < span.end && start < day.bounds.end) windows.push({ start, end: span.end });
+      }
       const choices = [];
       for (const free of subtractInstantSpans(windows, reserved)) {
         // A continuous band may cross midnight. Daily caps can make a later
         // start feasible even when its first 30 minutes do not fit today's cap.
-        const starts = new Set([free.start, ...configuredDays.filter(other => other.bounds.end > free.start
-          && other.bounds.start < Math.min(free.end, day.bounds.end + minutes * minute))
-          .map(other => other.bounds.end - Math.max(0, capacity(other) - readLoad(other.date).minutes) * minute)]);
+        const starts = new Set([free.start]); const through = Math.min(free.end, day.bounds.end + minutes * minute);
+        for (let i = firstDayEndingAfter(free.start); i < configuredDays.length && configuredDays[i].bounds.start < through; i++) {
+          const other = configuredDays[i];
+          starts.add(other.bounds.end - Math.max(0, capacity(other) - readLoad(other.date).minutes) * minute);
+        }
         if (task.weatherSensitive && weather) for (const boundary of weather.boundaries) if (boundary >= free.start && boundary < free.end) starts.add(boundary);
         for (const start of [...starts].sort((a, b) => a - b)) {
         const slot = { start, end: start + minutes * minute };

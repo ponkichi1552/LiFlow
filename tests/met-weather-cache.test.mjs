@@ -29,6 +29,16 @@ function fixture(clock = () => now) {
     due: async stamp => [...records].filter(([, row]) => row.nextAttemptAt !== null && row.nextAttemptAt <= stamp).sort((a, b) => a[1].nextAttemptAt - b[1].nextAttemptAt).slice(0, 32).map(([key]) => key) });
   return { store, records, global: () => global, counts: () => ({ reads, writes }), service: (fetcher, extra = {}) => createMetWeatherService({ store, now: clock, userAgent, fetcher, ...extra }) };
 }
+
+test('audit100 a late provider response cannot replace a newer generated weather forecast', async () => {
+  let stamp = now; const h = fixture(() => stamp); let calls = 0;
+  const service = h.service(async () => { calls++; return response(body({ start: calls === 1 ? now : now - HOUR, mm: calls === 1 ? 0 : 10 })); });
+  await service.read(id); await service.tick(); const first = (await service.read(id)).value;
+  stamp += 26 * HOUR; await service.tick(); const after = (await service.read(id)).value;
+  assert.equal(after.forecast.generatedAt, first.forecast.generatedAt);
+  assert.deepEqual(after.forecast.intervals, first.forecast.intervals);
+  assert.equal(after.checkedAt, first.checkedAt, 'a stale upstream version cannot renew freshness');
+});
 test('MET interval conversion retains absent probability and chooses finest complete cover without double counting coarse totals', () => {
   const forecast = parseMetForecast(body({ mm: 0.1 })); assert.equal(validMetForecast(forecast), true);
   const result = metWeatherForWindow(forecast, now + HOUR / 2, now + HOUR * 2.5);

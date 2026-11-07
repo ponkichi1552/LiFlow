@@ -1,3 +1,4 @@
+import { compareOperationIds } from '../operations.ts';
 import type { GoogleSyncEntry } from '../../google-sync/contracts';
 import type { V2CommonPlan } from './common-plan';
 import type { V2PersonalPlan } from './personal-plan';
@@ -14,11 +15,12 @@ export interface V2GoogleTaskTarget extends V2RoundReference {
 export interface V2GoogleTaskItem extends GoogleSyncEntry {
   target: V2GoogleTaskTarget; localRevision: string; undoCompletionIds: string[];
   completionRevisionRecords: { operationId: string; active: boolean; acceptance: string; outcome: string }[];
+  retainedCompletion?: { checkpointId: string; recorderUserIds: string[] };
 }
-const completionRevision = (records: V2GoogleTaskItem['completionRevisionRecords']) => {
-  const ordered = records.map(row => [row.operationId, row.active, row.acceptance, row.outcome]).sort(([a], [b]) => String(a).localeCompare(String(b)));
+const completionRevision = (records: V2GoogleTaskItem['completionRevisionRecords'], retained?: V2GoogleTaskItem['retainedCompletion']) => {
+  const ordered = records.map(row => [row.operationId, row.active, row.acceptance, row.outcome]).sort(([a], [b]) => compareOperationIds(String(a), String(b)));
   const pages: string[] = []; for (let offset = 0; offset < ordered.length; offset += 1000) pages.push(sharedDocumentDigest(ordered.slice(offset, offset + 1000)));
-  return sharedDocumentDigest(pages);
+  return sharedDocumentDigest(retained?.recorderUserIds.length ? [pages, retained.checkpointId, [...retained.recorderUserIds].sort()] : pages);
 };
 /** The normal completion authorizer still validates these drafts before this private metadata can commit. */
 export function v2GoogleRevisionAfterImport(item: V2GoogleTaskItem, drafts: readonly SharedOperationDraft[]) {
@@ -26,7 +28,10 @@ export function v2GoogleRevisionAfterImport(item: V2GoogleTaskItem, drafts: read
   const added = drafts.filter(row => row.operationType === 'complete').map(row => row.operationId);
   const records = [...item.completionRevisionRecords.map(row => ({ ...row, active: row.active && !undone.has(row.operationId) })),
     ...added.map(operationId => ({ operationId, active: true, acceptance: 'accepted', outcome: 'completed' }))];
-  return { revision: completionRevision(records), undoCompletionIds: [...item.undoCompletionIds.filter(id => !undone.has(id)), ...added].sort() };
+  const removedRecorders = new Set(drafts.filter(row => row.entityType === 'retainedCompletionUndo' && row.payload.checkpointId === item.retainedCompletion?.checkpointId)
+    .flatMap(row => row.payload.recorderUserIds as string[]));
+  const retained = item.retainedCompletion && { ...item.retainedCompletion, recorderUserIds: item.retainedCompletion.recorderUserIds.filter(id => !removedRecorders.has(id)) };
+  return { revision: completionRevision(records, retained), undoCompletionIds: [...item.undoCompletionIds.filter(id => !undone.has(id)), ...added].sort() };
 }
 export function validateV2GoogleTaskTarget(value: V2GoogleTaskTarget, ownerUserId: string, groupId: string): V2GoogleTaskTarget {
   if (!value || value.ownerUserId !== ownerUserId || value.groupId !== groupId
@@ -61,12 +66,15 @@ export function v2GoogleTaskItems(plan: V2CommonPlan, ownerUserId: string, perso
       const target = validateV2GoogleTaskTarget({ ownerUserId, groupId: plan.groupId, choreId: round.choreId, anchorDate: round.anchorDate,
         ruleVersion: round.ruleVersion, subjectUserId: subject.subjectUserId, occurrenceId: round.id, subjectOccurrenceId: subject.id }, ownerUserId, plan.groupId);
       const completionRevisionRecords = records.map(({ operationId, active, acceptance, outcome }) => ({ operationId, active, acceptance, outcome }));
-      const localRevision = completionRevision(completionRevisionRecords);
-      result.push({ target, localRevision, completionRevisionRecords, undoCompletionIds: accepted.filter(row => row.recorderUserId === ownerUserId).map(row => row.operationId).sort(),
+      const retainedCompletion = subject.retainedCompletion && { checkpointId: subject.retainedCompletion.checkpointId, recorderUserIds: [...subject.retainedCompletion.recorderUserIds] };
+      const localRevision = completionRevision(completionRevisionRecords, retainedCompletion);
+      const completedAt = [...accepted.map(row => row.performedAt), ...(subject.retainedCompletion?.completedAt ? [subject.retainedCompletion.completedAt] : [])]
+        .sort((a, b) => Date.parse(a) - Date.parse(b))[0];
+      result.push({ target, localRevision, completionRevisionRecords, ...(retainedCompletion ? { retainedCompletion } : {}), undoCompletionIds: accepted.filter(row => row.recorderUserId === ownerUserId).map(row => row.operationId).sort(),
         entry: { id: subject.id, householdId: namespace, choreId: chore.id, cycleBaseDate: round.anchorDate,
           windowStart: subject.executionWindowStart, windowEnd: subject.executionWindowEnd, suggestedDate: recommended?.date ?? subject.suggestedDate,
           status: subject.executionWindowEnd < plan.range.asOfDate ? 'overdue' : 'scheduled', assignedMemberIds: [...subject.assigneeIds] }, choreName: chore.name,
-        ...(accepted.length ? { completedAt: accepted.map(row => row.performedAt).sort()[0] } : {}),
+        ...(completedAt ? { completedAt } : {}),
         ...(records.some(row => !row.active) ? { locallyIncomplete: true } : {}), ...(blocked ? { synchronizationBlocked: true } : {}) });
     }
   }

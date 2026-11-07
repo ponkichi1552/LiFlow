@@ -132,3 +132,12 @@ test('owner recovery account changes after a server reply cannot stage that repl
   await assert.rejects(f.read(f.progress(h.database)), /account changed/);
   assert.equal(f.calls.length, 1); assert.equal(h.connection.prepare('SELECT count(*) n FROM sharing_v2_recovery_evidence_cache').get().n, 0);
 });
+
+test('audit100 a verified recovery proof page checks and stores immutable rows in bounded SQLite batches',async t=>{
+ const h=createDatabase();t.after(()=>h.connection.close());const progress=createV2RecoveryEvidenceProgress({database:h.database,scopeDigest:'1'.repeat(64),keyVersion:1,assertCurrentAccount(){},serialized:work=>work()});
+ const rows=Array.from({length:30},(_,n)=>({id:`proof-${n}`,value:{operationId:`proof-${n}`,encrypted:'retained-evidence'}}));let calls=0;
+ for(const name of ['getFirstAsync','getAllAsync','runAsync']){const original=h.database[name];h.database[name]=async(...args)=>{calls++;return original(...args);};}
+ await progress.save('2'.repeat(64),'record',rows);assert.ok(calls<=3,`proof page bridge calls: ${calls}`);
+ await assert.rejects(progress.save('2'.repeat(64),'record',[{id:'new-proof',value:{data:'new'}},{...rows[0],value:{data:'altered'}}]));
+ const saved=await progress.read('2'.repeat(64),'record',[rows[0].id,'new-proof']);assert.deepEqual(saved.get(rows[0].id),rows[0].value);assert.equal(saved.has('new-proof'),false);
+});

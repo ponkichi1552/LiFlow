@@ -45,7 +45,7 @@ export function classifyGoogleSyncFailure(
     return {
       kind: 'retry',
       code,
-      nextRetryAt: new Date(now.getTime() + GOOGLE_SYNC_RETRY_INTERVAL_MS),
+      nextRetryAt: new Date(Math.max(now.getTime() + GOOGLE_SYNC_RETRY_INTERVAL_MS, parseRetryAfter(failure.retryAfter, now) ?? 0)),
     };
   }
 

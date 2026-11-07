@@ -28,8 +28,16 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const [busy, setBusy] = useState(false); const lock = useRef(false); const scrollTop = useRef(0);
   const [modalRevision, setModalRevision] = useState(0);
   const [error, setError] = useState<string | null>(null); const [repeatOpen, setRepeatOpen] = useState(false); const [categoryOpen, setCategoryOpen] = useState(false); const scheme = useColorScheme();
-  const [categoryEdit, setCategoryEdit] = useState<{ id?: string; revision: number; name: string; color: string } | null>(null);
-  const [custom, setCustom] = useState(false); const [rgb, setRgb] = useState(['52', '141', '194']);
+  type CategoryEdit = { id?: string; revision: number; name: string; color: string } | null;
+  const [categoryEdit, setCategoryEditState] = useState<CategoryEdit>(null);
+  const latestCategory = useRef(categoryEdit);
+  const setCategoryEdit = (next: CategoryEdit | ((previous: CategoryEdit) => CategoryEdit)) => {
+    const current = typeof next === 'function' ? next(latestCategory.current) : next;
+    latestCategory.current = current; setCategoryEditState(current);
+  };
+  const [custom, setCustom] = useState(false); const [rgb, setRgbState] = useState(['52', '141', '194']);
+  const latestRgb = useRef(rgb);
+  const setRgb = (next: string[]) => { latestRgb.current = next; setRgbState(next); };
   const original = local.snapshot.events.find(event => event.id === initial.eventId);
   const readOnly = Boolean(initial.eventId && local.canEditEvent?.(initial.eventId) === false);
   const repeated = original && original.recurrence !== 'none'; const value = draft.value;
@@ -118,7 +126,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           <View style={styles.inputGroup}>
           {/* Native text stays authoritative while typing; JS still captures every change for saving. */}
           <CalendarTextInput icon={{ ios: 'text.alignleft', android: 'title' }} key={`${textKey}:title`} accessibilityLabel="予定名" defaultValue={value.title} placeholder={value.birthday ? '名前・誕生日' : '予定名・家事名'} style={[styles.textInput, styles.titleInput]} maxLength={160} editable={!busy && !readOnly} onChangeText={title => patch({ title })} />
-          {matches.length && !value.birthday && !initial.eventId ? <View style={styles.existing}><Text style={styles.label}>登録済みの家事</Text>{matches.map(chore => <Pressable key={chore.id} accessibilityRole="button" accessibilityLabel={`${chore.name}の既存の予定を開く`} onPress={() => { onClose(); chore.onOpen(); }} style={styles.existingRow}>
+          {matches.length && !value.birthday && !initial.eventId ? <View style={styles.existing}><Text style={styles.label}>登録済みの家事</Text>{matches.map(chore => <Pressable key={chore.id} accessibilityRole="button" accessibilityLabel={`${chore.name}の既存の予定を開く`} disabled={busy || readOnly} onPress={() => { if (lock.current) return; onClose(); chore.onOpen(); }} style={styles.existingRow}>
             <Text style={styles.value}>{chore.name}{chore.minutes ? ` · 約${chore.minutes}分` : ''}</Text><Chevron /></Pressable>)}<Text style={styles.caption}>家事を選ぶと、登録済みの家事回が開きます。</Text></View> : null}
           {!value.birthday ? <CalendarTextInput icon={{ ios: 'mappin', android: 'location_on' }} key={`${textKey}:location`} accessibilityLabel="予定の場所" autoCorrect={false} defaultValue={value.location} style={styles.textInput} maxLength={300} placeholder="場所（任意）" editable={!busy && !readOnly} onChangeText={location => patch({ location })} /> : null}
           <CalendarTextInput icon={{ ios: 'note.text', android: 'notes' }} key={`${textKey}:notes`} accessibilityLabel="予定のメモ" multiline defaultValue={value.notes} style={[styles.textInput, styles.notesInput]} maxLength={4000} placeholder="メモ（任意）" editable={!busy && !readOnly} onChangeText={notes => patch({ notes })} />
@@ -149,30 +157,35 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
               {selectedCategory ? <AppButton title="分類の色を編集" variant="quiet" compact disabled={busy} onPress={() => { setCategoryOpen(false); setCategoryEdit({ ...selectedCategory }); setCustom(false); }} /> : null}</View></View> : null}
           </View>
           {categoryEdit ? <View style={styles.colorPanel}><Text style={styles.heading}>{categoryEdit.id ? '分類の色' : '新しい分類'}</Text>
-            <FormTextInput accessibilityLabel="分類名" value={categoryEdit.name} placeholder="例：学校" maxLength={40} onChangeText={name => setCategoryEdit(before => before && ({ ...before, name }))} />
+            <FormTextInput accessibilityLabel="分類名" value={categoryEdit.name} placeholder="例：学校" maxLength={40} editable={!busy} onChangeText={name => setCategoryEdit(before => before && ({ ...before, name }))} />
             <View style={styles.wrap}>{CATEGORY_PRESETS.map(color => <Pressable key={color} accessibilityRole="button" accessibilityLabel={`色 ${color}`} accessibilityState={{ selected: categoryEdit.color === color }}
-              style={[styles.swatch, { backgroundColor: color }, categoryEdit.color === color && styles.swatchSelected]} onPress={() => setCategoryEdit(before => before && ({ ...before, color }))} />)}</View>
-            <Pressable accessibilityRole="button" onPress={() => { setCustom(v => !v); setRgb(categoryEdit.color.slice(1).match(/../g)!.map(v => String(parseInt(v, 16)))); }} style={styles.select}><Text style={styles.action}>カスタムカラー</Text><Chevron direction={custom ? 'up' : 'down'} /></Pressable>
-            {custom ? <View style={styles.row}>{['R', 'G', 'B'].map((name, i) => <View key={name} style={styles.rgb}><Text style={styles.label}>{name}（0〜255）</Text><FormTextInput accessibilityLabel={`カラー${name}`} keyboardType="number-pad" value={rgb[i]} maxLength={3} onChangeText={text => {
-              const next = rgb.map((v, n) => n === i ? text.replace(/[^0-9]/g, '') : v); setRgb(next);
+              disabled={busy} style={[styles.swatch, { backgroundColor: color }, categoryEdit.color === color && styles.swatchSelected]} onPress={() => {
+                setCategoryEdit(before => before && ({ ...before, color })); setRgb(color.slice(1).match(/../g)!.map(v => String(parseInt(v, 16)))); setCustom(false);
+              }} />)}</View>
+            <Pressable accessibilityRole="button" disabled={busy} onPress={() => { setCustom(v => !v); setRgb(categoryEdit.color.slice(1).match(/../g)!.map(v => String(parseInt(v, 16)))); }} style={styles.select}><Text style={styles.action}>カスタムカラー</Text><Chevron direction={custom ? 'up' : 'down'} /></Pressable>
+            {custom ? <View style={styles.row}>{['R', 'G', 'B'].map((name, i) => <View key={name} style={styles.rgb}><Text style={styles.label}>{name}（0〜255）</Text><FormTextInput accessibilityLabel={`カラー${name}`} keyboardType="number-pad" value={rgb[i]} maxLength={3} editable={!busy} onChangeText={text => {
+              const next = latestRgb.current.map((v, n) => n === i ? text.normalize('NFKC').replace(/[^0-9]/g, '') : v); setRgb(next);
               if (next.every(v => v !== '' && Number(v) <= 255)) setCategoryEdit(before => before && ({ ...before, color: '#' + next.map(v => Number(v).toString(16).padStart(2, '0')).join('').toUpperCase() }));
             }} /></View>)}</View> : null}
             <View style={[styles.colorPreview, { borderColor: categoryColor(categoryEdit.color, scheme === 'dark') }]}><View style={[styles.swatchSmall, { backgroundColor: categoryEdit.color }]} /><Text style={styles.value}>{categoryEdit.name || 'プレビュー'} · {categoryEdit.color}</Text></View>
-            <View style={styles.row}><AppButton title="閉じる" compact variant="quiet" onPress={() => setCategoryEdit(null)} />
+            <View style={styles.row}><AppButton title="閉じる" compact variant="quiet" disabled={busy} onPress={() => setCategoryEdit(null)} />
               <AppButton title="分類を保存" compact variant="secondary" disabled={busy || custom && !rgb.every(v => v !== '' && Number(v) <= 255)} onPress={() => void work(async () => {
                 if (!local.database) throw new Error('保存先を確認してください。');
-                const body = { id: categoryEdit.id, expectedRevision: categoryEdit.revision, name: categoryEdit.name, color: categoryEdit.color };
+                if (custom && !latestRgb.current.every(v => v !== '' && Number(v) <= 255)) throw new Error('RGBを0〜255で入力してください。');
+                const category = latestCategory.current; if (!category) throw new Error('保存する分類を選び直してください。');
+                const body = { id: category.id, expectedRevision: category.revision, name: category.name, color: category.color };
                 const id = await (local.saveCategory ? local.saveCategory(body, draft.audience) : saveCalendarCategory(local.database, body));
                 await local.refresh(); patch({ categoryId: id }); setCategoryEdit(null);
               })} /></View>
           </View> : null}
-          {!readOnly && initial.eventId ? <AppButton title={repeated && draft.scope === 'one' ? 'この回を削除' : '予定を削除'} variant="danger" disabled={busy} onPress={remove} /> : !readOnly ? <AppButton title="入力を破棄" variant="quiet" disabled={busy} onPress={() => void work(async () => { if (local.database) await clearCalendarEditorDraft(local.database, latest.current); onClose(); })} /> : null}
+          {!readOnly && initial.eventId ? <AppButton title={repeated && draft.scope === 'one' ? 'この回を削除' : '予定を削除'} variant="danger" disabled={busy} onPress={remove} /> : !readOnly ? <AppButton title="入力を破棄" variant="quiet" disabled={busy} onPress={() => void work(async () => { if (local.database) await clearCalendarEditorDraft(local.database, initial); onClose(); })} /> : null}
           </View>
         </ScrollView>
       </View>
     </KeyboardAvoidingView>
     {repeatOpen ? <CalendarOptionPicker title="繰り返し" value={value.recurrence} options={(Object.keys(RECURRENCE_LABELS) as CalendarRecurrence[]).map(recurrence => ({ value: recurrence, label: RECURRENCE_LABELS[recurrence] }))}
-      onClose={() => setRepeatOpen(false)} onCustom={openCustomRecurrence} onSelect={recurrence => { if (recurrence !== 'custom' && Object.hasOwn(RECURRENCE_LABELS, recurrence)) patch({ recurrence: recurrence as CalendarRecurrence, customRecurrence: undefined }); }} /> : null}
+      onClose={() => setRepeatOpen(false)} onCustom={openCustomRecurrence} onSelect={recurrence => { if (recurrence !== 'custom' && Object.hasOwn(RECURRENCE_LABELS, recurrence)) patch({ recurrence: recurrence as CalendarRecurrence, customRecurrence: undefined,
+        ...(recurrence === 'none' ? { untilDate: null } : {}) }); }} /> : null}
   </Modal>;
 }
 function CalendarTextInput({ icon, style, ...props }: TextInputProps & { icon: SymbolViewProps['name'] }) {

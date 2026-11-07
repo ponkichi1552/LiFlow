@@ -5,7 +5,7 @@ import { canReadGoogleTaskDelta, GoogleTaskFullSyncRequiredError, googleTaskFull
 import type { GoogleTaskReadCache, GoogleTaskReadScope, GoogleTaskReadState } from '../../features/google-sync/task-read-cache';
 
 export async function initializeGoogleTaskReadCacheInside(database: SQLiteDatabase) {
-  await database.execAsync(`CREATE TABLE IF NOT EXISTS private_google_task_read_control (
+  let schema = `CREATE TABLE IF NOT EXISTS private_google_task_read_control (
     account_subject TEXT NOT NULL, task_list_id TEXT NOT NULL, revision INTEGER NOT NULL, state_json TEXT NOT NULL,
     PRIMARY KEY(account_subject,task_list_id));
     CREATE TABLE IF NOT EXISTS private_google_task_read_items (
@@ -13,7 +13,15 @@ export async function initializeGoogleTaskReadCacheInside(database: SQLiteDataba
       PRIMARY KEY(account_subject,task_list_id,task_id));
     CREATE TABLE IF NOT EXISTS private_google_task_read_staging (
       account_subject TEXT NOT NULL, task_list_id TEXT NOT NULL, task_id TEXT NOT NULL, task_json TEXT NOT NULL,
-      PRIMARY KEY(account_subject,task_list_id,task_id));`);
+      PRIMARY KEY(account_subject,task_list_id,task_id));`;
+  schema += `CREATE TABLE IF NOT EXISTS private_google_task_item_revisions(account_subject TEXT NOT NULL,task_list_id TEXT NOT NULL,revision INTEGER NOT NULL,PRIMARY KEY(account_subject,task_list_id));`;
+  for (const action of ['INSERT','UPDATE','DELETE']) {
+    const row=action==='DELETE'?'OLD':'NEW';
+    schema += `CREATE TRIGGER IF NOT EXISTS google_task_items_${action.toLowerCase()} AFTER ${action} ON private_google_task_read_items BEGIN
+      INSERT INTO private_google_task_item_revisions VALUES(${row}.account_subject,${row}.task_list_id,1)
+      ON CONFLICT(account_subject,task_list_id) DO UPDATE SET revision=revision+1; END;`;
+  }
+  await database.execAsync(schema);
 }
 
 const initial = (): GoogleTaskReadState => ({ revision: 0, complete: false, watermark: null, lastFullAt: null, scan: null });
@@ -30,6 +38,7 @@ function sanitize(task: GoogleTask): GoogleTask {
   }
   const result: Record<string, string | boolean> = { id: task.id };
   for (const name of ['title', 'notes', 'due', 'status', 'completed', 'etag', 'updated', 'parent'] as const) if (task[name] !== undefined) {
+    if (name === 'completed' && task[name] === null && task.status === 'needsAction') continue;
     if (typeof task[name] !== 'string' || task[name]!.length > (name === 'notes' ? 8192 : 2048)) throw new GoogleTasksApiError(502, 'task_read_invalid_item', null);
     result[name] = task[name]!;
   }
@@ -40,21 +49,44 @@ function sanitize(task: GoogleTask): GoogleTask {
   return result as unknown as GoogleTask;
 }
 
+async function writeTaskBatch(database: SQLiteDatabase, table: 'staging' | 'items', scope: GoogleTaskReadScope, tasks: readonly GoogleTask[]) {
+  // Four bound values per row; remain below old Android SQLite parameter limits.
+  for (let offset = 0; offset < tasks.length; offset += 100) {
+    const page = tasks.slice(offset, offset + 100);
+    await database.runAsync(`INSERT INTO private_google_task_read_${table} VALUES${page.map(() => '(?,?,?,?)').join(',')}
+      ON CONFLICT(account_subject,task_list_id,task_id) DO UPDATE SET task_json=excluded.task_json
+      WHERE ${taskUpdateCondition(`private_google_task_read_${table}`)}`,
+    ...page.flatMap(task => [...key(scope), task.id, JSON.stringify(task)]));
+  }
+}
+
+function taskUpdateCondition(table: string) {
+  // Google timestamps may use different UTC offsets. Unknown timestamps retain
+  // the old compatibility behavior; known older replies cannot roll state back.
+  return `${table}.task_json<>excluded.task_json AND COALESCE(
+    julianday(json_extract(excluded.task_json,'$.updated')) >= julianday(json_extract(${table}.task_json,'$.updated')),1)`;
+}
+
 function readableState(value: unknown, revision: number): value is GoogleTaskReadState {
   if (!value || typeof value !== 'object') return false;
   const state = value as GoogleTaskReadState;
   const stamp = (text: unknown) => text === null || typeof text === 'string' && Number.isFinite(Date.parse(text));
   const token = (text: unknown) => text === null || typeof text === 'string' && text.length > 0 && text.length <= 8192;
+  const scan = state.scan;
   return state.revision === revision && Number.isSafeInteger(revision) && revision > 0 && revision < Number.MAX_SAFE_INTEGER
     && typeof state.complete === 'boolean' && stamp(state.watermark) && stamp(state.lastFullAt)
-    && (state.scan === null || Boolean(state.scan && ['full', 'delta'].includes(state.scan.mode) && stamp(state.scan.updatedMin)
-      && stamp(state.scan.cutoff) && token(state.scan.pageToken) && Number.isSafeInteger(state.scan.pages) && state.scan.pages >= 0
-      && Array.isArray(state.scan.visitedTokens) && state.scan.visitedTokens.every(value => typeof value === 'string' && token(value))
-      && new Set(state.scan.visitedTokens).size === state.scan.visitedTokens.length));
+    && (scan === null || Boolean(scan && ['full', 'delta'].includes(scan.mode) && stamp(scan.updatedMin)
+      && (scan.mode === 'full' ? scan.updatedMin === null : state.complete && state.watermark !== null && scan.updatedMin === state.watermark)
+      && stamp(scan.cutoff) && token(scan.pageToken) && Number.isSafeInteger(scan.pages) && scan.pages >= 0
+      && Array.isArray(scan.visitedTokens) && scan.visitedTokens.every(value => typeof value === 'string' && token(value))
+      && new Set(scan.visitedTokens).size === scan.visitedTokens.length
+      && (scan.pages === 0 ? scan.pageToken === null && scan.cutoff === null && scan.visitedTokens.length === 0
+        : scan.pages === scan.visitedTokens.length && scan.pageToken === scan.visitedTokens.at(-1))));
 }
 
 /** Every callback runs in the existing personal/v2 authorized SQLite transaction; no HTTP is performed while it is open. */
 export function createGoogleTaskReadCache(transaction: <T>(work: (database: SQLiteDatabase) => Promise<T>) => Promise<T>): GoogleTaskReadCache {
+  const inventories = new Map<string, { revision: number; tasks: GoogleTask[] }>();
   async function readInside(database: SQLiteDatabase, scope: GoogleTaskReadScope): Promise<GoogleTaskReadState> {
     const row = await database.getFirstAsync<{ revision: number; state_json: string }>(
       'SELECT revision,state_json FROM private_google_task_read_control WHERE account_subject=? AND task_list_id=?', ...key(scope));
@@ -98,12 +130,15 @@ export function createGoogleTaskReadCache(transaction: <T>(work: (database: SQLi
       const next = await save(database, scope, expected, page.nextPageToken ? { ...expected, scan } : {
         ...expected, complete: true, watermark: cutoff, lastFullAt: scan.mode === 'full' ? now : expected.lastFullAt, scan: null,
       });
-      for (const task of tasks) await database.runAsync(`INSERT INTO private_google_task_read_staging VALUES(?,?,?,?)
-        ON CONFLICT(account_subject,task_list_id,task_id) DO UPDATE SET task_json=excluded.task_json`, ...key(scope), task.id, JSON.stringify(task));
+      await writeTaskBatch(database, 'staging', scope, tasks);
       if (!page.nextPageToken) {
-        if (scan.mode === 'full') await database.runAsync('DELETE FROM private_google_task_read_items WHERE account_subject=? AND task_list_id=?', ...key(scope));
+        if (scan.mode === 'full') await database.runAsync(`DELETE FROM private_google_task_read_items
+          WHERE account_subject=? AND task_list_id=? AND NOT EXISTS(SELECT 1 FROM private_google_task_read_staging AS staged
+            WHERE staged.account_subject=private_google_task_read_items.account_subject
+              AND staged.task_list_id=private_google_task_read_items.task_list_id AND staged.task_id=private_google_task_read_items.task_id)`, ...key(scope));
         await database.runAsync(`INSERT INTO private_google_task_read_items SELECT * FROM private_google_task_read_staging WHERE account_subject=? AND task_list_id=?
-          ON CONFLICT(account_subject,task_list_id,task_id) DO UPDATE SET task_json=excluded.task_json`, ...key(scope));
+          ON CONFLICT(account_subject,task_list_id,task_id) DO UPDATE SET task_json=excluded.task_json
+          WHERE ${taskUpdateCondition('private_google_task_read_items')}`, ...key(scope));
         await database.runAsync('DELETE FROM private_google_task_read_staging WHERE account_subject=? AND task_list_id=?', ...key(scope));
       }
       return next;
@@ -112,11 +147,36 @@ export function createGoogleTaskReadCache(transaction: <T>(work: (database: SQLi
       await save(database, scope, expected, { ...expected, watermark: null, scan: null });
       await database.runAsync('DELETE FROM private_google_task_read_staging WHERE account_subject=? AND task_list_id=?', ...key(scope));
     }),
-    tasks: scope => transaction(async database => {
+    async tasks(scope) {
+      const result = await transaction(async database => {
       const state = await readInside(database, scope); if (!state.complete || state.scan) throw conflict();
+      const inventoryKey=JSON.stringify(key(scope));
+      const revision=(await database.getFirstAsync<{ revision: number }>('SELECT revision FROM private_google_task_item_revisions WHERE account_subject=? AND task_list_id=?',...key(scope)))?.revision ?? 0;
+      const saved=inventories.get(inventoryKey); if (saved?.revision===revision) return [...saved.tasks];
       const rows = await database.getAllAsync<{ task_json: string }>(
         'SELECT task_json FROM private_google_task_read_items WHERE account_subject=? AND task_list_id=? ORDER BY task_id', ...key(scope));
-      return rows.map(row => sanitize(JSON.parse(row.task_json)));
+      try { const tasks=rows.map(row => Object.freeze(sanitize(JSON.parse(row.task_json))));
+        if (inventories.size>=4) inventories.delete(inventories.keys().next().value!);
+        inventories.set(inventoryKey,{revision,tasks}); return [...tasks]; }
+      catch {
+        // Commit the cache-only invalidation before reporting the need to read
+        // again. Throwing inside this transaction would roll the repair back.
+        await save(database, scope, state, { ...state, complete: false, watermark: null, lastFullAt: null, scan: null });
+        for (const table of ['items', 'staging']) await database.runAsync(
+          `DELETE FROM private_google_task_read_${table} WHERE account_subject=? AND task_list_id=?`, ...key(scope));
+        return null;
+      }
+      });
+      if (result === null) throw new GoogleTaskFullSyncRequiredError();
+      return result;
+    },
+    written: (scope, values) => transaction(async database => {
+      const tasks = values.map(sanitize); const state = await readInside(database, scope);
+      // Keep the last committed watermark. Restart only the unfinished scan so
+      // its old staging rows and late HTTP replies cannot undo this known write.
+      await save(database, scope, state, { ...state, scan: null });
+      await database.runAsync('DELETE FROM private_google_task_read_staging WHERE account_subject=? AND task_list_id=?', ...key(scope));
+      await writeTaskBatch(database, 'items', scope, tasks);
     }),
   };
 }

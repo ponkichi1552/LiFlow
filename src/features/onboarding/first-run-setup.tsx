@@ -1,5 +1,5 @@
 import { FormTextInput as TextInput } from '../../components/form-text-input';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from '@/components/screen-safe-area';
 import { router } from 'expo-router';
@@ -22,6 +22,7 @@ import { WasteScheduleEditor } from '@/features/waste/waste-schedule-editor';
 import { wasteScheduleDescription } from '@/features/waste/schedule-policy';
 import { generateWasteCollectionDates } from '@/features/waste/weekly-scheduler';
 import { useWasteTypeColor } from '@/features/waste/use-waste-type-color';
+import { finishStartupDisplay } from '@/platform/diagnostics/startup-splash';
 
 const modeOptions: { id: FrequencyMode; title: string }[] = [
   { id: 'frequent', title: 'こまめ' },
@@ -39,6 +40,7 @@ const setupStepCount = 6;
 type PreviousChoice = 'today' | 'week' | 'month' | 'unknown';
 
 export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: PlannerSnapshot; onComplete: () => Promise<void>; loadError?: string | null }) {
+  useLayoutEffect(() => { finishStartupDisplay(); }, []);
   const wasteTypeColor = useWasteTypeColor();
 
   const { database } = usePlannerData();
@@ -132,7 +134,7 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
 
   const enabledChores = availableChores.filter((chore) => enabledChoreIds.has(chore.id));
 
-  if (committed) return <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+  if (committed) return <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']} onLayout={finishStartupDisplay}>
     <View style={styles.content}>
       <Text style={styles.body}>初期設定は保存済みです。</Text>
       {loadError || error ? <Text accessibilityRole="alert" style={styles.error}>{loadError ?? error}</Text> : null}
@@ -141,7 +143,7 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
   </SafeAreaView>;
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']} onLayout={finishStartupDisplay}>
       {step > 0 ? <NavigationHeader><BackButton accessibilityLabel="戻る" onPress={() => setStep(current => current - 1)} disabled={saving} /></NavigationHeader> : null}
       <ScrollView
         style={styles.scroll}

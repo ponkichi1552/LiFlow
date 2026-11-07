@@ -41,7 +41,7 @@ import type { PersonalSettingsView } from '@/platform/storage/personal-settings-
 import { ExpoLocalNotificationGateway } from '@/platform/notifications/expo-local-notification-gateway';
 import { getGoogleSyncOAuthConfig } from '@/features/google-sync/google-oauth-config';
 import type { GoogleSyncState } from '@/features/google-sync/contracts';
-import { syncGoogleTasks } from '@/features/google-sync/coordinator';
+import { configurePersonalGoogleTaskSync, syncGoogleTasks } from '@/features/google-sync/coordinator';
 import { registerGoogleSyncBackgroundTask, unregisterGoogleSyncBackgroundTask } from '@/features/google-sync/background-task';
 import { authorizeGoogleCalendarAvailability, authorizeGoogleTasks, disconnectGoogleTasksSession, getGoogleTasksAccessToken, hasGoogleTasksSession } from '@/platform/google-tasks/google-sign-in-gateway';
 import type { CalendarAvailabilityState } from '@/features/google-sync/calendar-availability';
@@ -271,17 +271,8 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
         await activateCurrentGoogleTaskAccount(database);
         previous = await loadGoogleSyncState(database, LOCAL_HOUSEHOLD_ID) ?? previous;
       }
-      await saveGoogleSyncState(database, {
-        ...previous,
-        enabled,
-        status: 'idle',
-        retryCount: enabled ? previous.retryCount : 0,
-        nextRetryAt: undefined,
-        lastErrorCode: undefined,
-        lastErrorAt: undefined,
-        updatedAt: now,
-      });
-      setGoogleSyncState({ ...previous, enabled, status: 'idle', retryCount: enabled ? previous.retryCount : 0, nextRetryAt: undefined, lastErrorCode: undefined, lastErrorAt: undefined, updatedAt: now });
+      const saved = await configurePersonalGoogleTaskSync(database, enabled);
+      setGoogleSyncState(saved);
       if (enabled) {
         try { await registerGoogleSyncBackgroundTask(); } catch { /* Foreground sync remains available. */ }
         const result = await syncGoogleTasks(database, { force: true });

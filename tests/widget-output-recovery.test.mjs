@@ -19,10 +19,22 @@ function widgetFixture() {
       updateTimeline(entries) { if (fail) throw new Error('synthetic native failure'); writes.push({ entries }); },
     } },
   });
-  return { ...module, locked, writes, active() { state = { phase: 'active', userId: 'owner' }; }, lock() { state = locked; },
+  return { ...module, locked, writes, active(userId = 'owner') { state = { phase: 'active', userId }; }, lock() { state = locked; },
     read(next) { read = next; }, fail(next) { fail = next; } };
 }
 const snapshot = { chores: [{ id: 'round', name: '家事', completed: false }], remainingCount: 0, updatedAt: '2026-11-05T00:00:00Z' };
+
+test('a queued widget publication cannot relabel the previous accounts chore data as a newly signed-in account',async()=>{
+  const h=widgetFixture();let enter;let release;
+  const entered=new Promise(resolve=>{enter=resolve;});const gate=new Promise(resolve=>{release=resolve;});
+  h.read(async()=>{enter();await gate;return[];});const locking=h.lockSubscriptionWidget();await entered;
+  h.active('owner');const oldPublication=h.expoWidgetGateway.updateNextChore(snapshot);
+  h.active('another');release();await Promise.all([locking,oldPublication]);
+  assert.equal(h.writes.length,0,'old content must not acquire the new account scope while waiting in the native queue');
+  await h.expoWidgetGateway.updateNextChore({...snapshot,chores:[{id:'new-round',name:'別の家事',completed:false}]});
+  assert.equal(h.writes.length,1);assert.equal(h.writes[0].entries[0].props.widgetAccountScope,'another');
+  assert.equal(h.writes[0].entries[0].props.chores[0].id,'new-round');
+});
 
 test('a delayed expiry widget read cannot overwrite a renewed publication and real expiry invalidates identical content', async () => {
   const h = widgetFixture(); let enter; let release;

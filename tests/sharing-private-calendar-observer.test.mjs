@@ -47,3 +47,9 @@ test('private Calendar foreground observer does not spin or retain an orphan sub
   const stop = f.start(); await flush(); assert.equal(f.state.watches, 1); assert.equal(f.state.stops, 1); assert.equal(f.state.syncs, 1);
   f.state.local(); await flush(); assert.equal(f.state.watches, 1); stop();
 });
+
+test('audit100 private Calendar foreground recovery is not postponed for hours after the device clock moves backwards',async()=>{
+ const f=fixture();f.state.now=10_000_000;const stop=f.start();try{await flush();f.state.error();await flush();const count=f.state.watches;f.state.local();await flush();assert.equal(f.state.watches,count,'a normal error still honors its cooldown');
+ f.state.now-=3_600_000;f.state.local();await flush();assert.equal(f.state.watches,count+1);assert.equal(f.state.stops,1);
+ }finally{stop();}
+});

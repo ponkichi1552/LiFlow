@@ -28,6 +28,43 @@ async function personal(t, now = '2026-11-05T01:00:00Z', anchor) {
   return { ...h, chore };
 }
 
+for (const [method, retryName, publicationName] of [
+  ['loadPlannerSnapshot',
+    'loadPlannerSnapshot retries only changed owner reads in fresh scopes and bounds persistent drift without retrying authorization failures',
+    'loadPlannerSnapshot discards a rejected captured owner before retrying publication'],
+  ['readPersonalPlannerOverlaySnapshot',
+    'readPersonalPlannerOverlaySnapshot retries only changed owner reads in fresh scopes and bounds persistent drift without retrying authorization failures',
+    'readPersonalPlannerOverlaySnapshot discards a rejected captured owner before retrying publication'],
+]) {
+  test(retryName, async t => {
+    const h = await personal(t); let reads = 0; let unbind;
+    const stable = () => ({ ownerUserId: 'owner', preferences: null, common: null, assertCurrent() {} });
+    try {
+      unbind = bindAdaptiveOwnerReader(h.database, async () => {
+        if (++reads === 1) throw new AdaptiveOwnerInputsChangedError(); return stable();
+      });
+      await repository[method](h.database); assert.equal(reads, 2);
+      unbind(); reads = 0;
+      unbind = bindAdaptiveOwnerReader(h.database, async () => { reads++; throw new AdaptiveOwnerInputsChangedError(); });
+      await assert.rejects(repository[method](h.database), AdaptiveOwnerInputsChangedError); assert.equal(reads, 3);
+      unbind(); reads = 0;
+      unbind = bindAdaptiveOwnerReader(h.database, async () => { reads++; throw new Error('account access revoked'); });
+      await assert.rejects(repository[method](h.database), /account access revoked/u); assert.equal(reads, 1);
+      assert.equal(h.connection.prepare('SELECT COUNT(*) AS n FROM chore_completions').get().n, 0);
+    } finally { unbind?.(); }
+  });
+  test(publicationName, async t => {
+    const h = await personal(t); let reads = 0;
+    const unbind = bindAdaptiveOwnerReader(h.database, async () => {
+      const generation = ++reads;
+      return { ownerUserId: 'owner', preferences: null, common: null, assertCurrent() {},
+        async assertCommitCurrent() { if (generation === 1) throw new AdaptiveOwnerInputsChangedError(); } };
+    });
+    try { await repository[method](h.database); assert.equal(reads, 2); }
+    finally { unbind(); }
+  });
+}
+
 test('shared load reserves own and unassigned subjects once and ignores other assignees cooldown and consumed rounds', () => {
   const common = plan([occurrence('open'), occurrence('own', { assigneeIds: ['owner'] }), occurrence('other', { assigneeIds: ['member'] }),
     occurrence('each', { subjects: [subject('owner-sub', { subjectUserId: 'owner' }), subject('member-sub', { subjectUserId: 'member' })] }),

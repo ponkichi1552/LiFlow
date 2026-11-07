@@ -191,7 +191,7 @@ test('Cloud Tasks receipts preserve ambiguous grants across a stopped device and
   assert.deepEqual(await right.cloud.reserveBatch([{ ...intent('right'), startedAt: '2099-01-01T00:00:00Z' }]), [false]);
   await right.cloud.reject(intent('not-the-sender')); assert.deepEqual(await right.cloud.reserveBatch([intent('right')]), [false]);
   await left.cloud.reject(intent('left')); assert.deepEqual(await right.cloud.reserveBatch([intent('right')]), [true]);
-  await right.cloud.linked(identity, 'actual-task');
+  await right.cloud.linked(identity, 'actual-task', intent('right').attemptId);
   await assert.rejects(left.cloud.linked(identity, 'different-task'), /対応記録/u);
   await left.cloud.deleted(identity, 'different-task'); assert.deepEqual(await left.cloud.reserveBatch([intent('third')]), [false]);
   await right.cloud.deleted(identity, 'actual-task'); assert.deepEqual(await left.cloud.reserveBatch([intent('third')]), [true]);

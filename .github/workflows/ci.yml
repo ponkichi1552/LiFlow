@@ -63,10 +63,10 @@ jobs:
         run: npm run api:install
       - name: Install same-account device service dependencies
         run: npm --prefix server/account-device-api ci --ignore-scripts
-      - name: Audit dependencies for high and critical vulnerabilities
-        run: npm audit --audit-level=high
+      - name: Audit dependencies for moderate and higher vulnerabilities
+        run: npm audit --audit-level=moderate
       - name: Audit API runtime dependencies
-        run: npm --prefix server/appliance-care-api audit --audit-level=high
+        run: npm --prefix server/appliance-care-api audit --audit-level=moderate
       - name: Audit same-account device service dependencies
         run: npm --prefix server/account-device-api audit --audit-level=moderate
       - name: Verify sharing authorization and encrypted transport against local Firestore

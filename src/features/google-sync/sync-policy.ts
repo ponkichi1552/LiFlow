@@ -27,7 +27,7 @@ export function googleSyncRunOptions(options: GoogleSyncTriggerOptions) {
     forceCalendar: options.force === true && options.trigger !== 'completion',
     // Live attempts are joined by the coordinator's in-memory promise/operation
     // queue. A persisted marker on a forced run may belong to a killed process.
-    recoverInterruptedAttempt: options.force === true,
+    recoverInterruptedAttempt: options.force === true || options.trigger === 'completion',
     ...(options.deltaOnly ? { deltaOnly: true } : {}),
   };
 }
@@ -43,13 +43,13 @@ export function shouldSyncGoogleTasks(state: GoogleSyncPolicyState | null, now: 
   }
 
   const lastSuccess = parseTimestamp(state.lastSuccessfulSyncAt);
-  return lastSuccess === null || lastSuccess + GOOGLE_SYNC_INTERVAL_MS <= now.getTime();
+  return lastSuccess === null || lastSuccess > now.getTime() || lastSuccess + GOOGLE_SYNC_INTERVAL_MS <= now.getTime();
 }
 
 export function isGoogleSyncAttemptStale(state: GoogleSyncPolicyState, now: Date): boolean {
   if (state.status !== 'syncing') return false;
   const lastAttempt = parseTimestamp(state.lastAttemptAt);
-  return lastAttempt === null || lastAttempt + GOOGLE_SYNC_STALE_ATTEMPT_MS <= now.getTime();
+  return lastAttempt === null || lastAttempt > now.getTime() || lastAttempt + GOOGLE_SYNC_STALE_ATTEMPT_MS <= now.getTime();
 }
 
 function parseTimestamp(value: string | null | undefined): number | null {

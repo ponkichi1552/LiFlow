@@ -7,6 +7,18 @@ const { createV2GoogleTaskRuntime } = await import('../src/features/sharing/v2/g
 const { withGoogleSyncOperation } = await import('../src/features/google-sync/operation-lock.ts');
 const turn = () => new Promise(setImmediate);
 
+test('manual synchronization joining a background full-scan deferral gets its own foreground pass',async()=>{
+  const h=await googleFixture();let release,entered;let prepared=0;
+  const gate=new Promise(resolve=>{release=resolve;}),start=new Promise(resolve=>{entered=resolve;});
+  const runtime=createV2GoogleTaskRuntime({store:h.store,now,assertAccess:h.scope.assertAccess,
+    currentSubject:async()=> 'synthetic-google-subject',token:async()=> 'test',restoreAccount:async()=>assert.fail(),authorizeTasks:async()=>assert.fail(),
+    preparePlan:async()=>{if(++prepared===1){entered();await gate;}},createApi:()=>h.api});
+  try{await h.connect();const background=runtime.synchronize({deltaOnly:true});await start;
+    const manual=runtime.synchronize({force:true,deltaOnly:false});release();
+    assert.equal((await background).foregroundRequired,true);const result=await manual;assert.equal(result.kind,'success');assert.equal(result.created,3);assert.equal(prepared,2);
+  }finally{release?.();await withGoogleSyncOperation(async()=>{});h.close();}
+});
+
 for (const scenario of [
   { name: 'foreground automatic Tasks completes after serialized input preparation exceeds fifteen seconds', foreground: true, elapsed: 28_000, success: true },
   { name: 'explicit worker deadline still bounds foreground automatic Tasks', foreground: true, elapsed: 20_000, explicitBudget: 15_000, success: false },
@@ -32,16 +44,16 @@ for (const scenario of [
 
 test('longer foreground automatic Tasks budget does not bypass provider backoff or required authentication', async () => {
   for (const status of ['retryPending', 'authRequired']) {
-    const h = await googleFixture(); let tokenReads = 0;
+    const h = await googleFixture(); let tokenReads = 0; let preparations = 0;
     const runtime = createV2GoogleTaskRuntime({ store: h.store, now, defaultBudgetMs: () => 100_000, assertAccess: h.scope.assertAccess,
       currentSubject: async () => 'synthetic-google-subject', token: async () => { tokenReads++; return 'synthetic-token'; },
       restoreAccount: async () => { throw new Error('no interactive selection'); },
-      authorizeTasks: async () => { throw new Error('no interactive consent'); }, createApi: () => h.api });
+      authorizeTasks: async () => { throw new Error('no interactive consent'); }, preparePlan:async()=>{preparations++;}, createApi: () => h.api });
     try {
       await h.connect(); const control = await h.store.readControl();
       await h.store.saveSyncState({ ...control.state, status, nextRetryAt: new Date(now().getTime() + 60_000).toISOString() }, control.revision);
       assert.deepEqual(await runtime.synchronize({ localChange: true }), { kind: 'success', skipped: true });
-      assert.equal(tokenReads, 0); assert.equal(h.tasks.size, 0); assert.equal((await h.store.readControl()).state.status, status);
+      assert.equal(tokenReads, 0); assert.equal(preparations,0); assert.equal(h.tasks.size, 0); assert.equal((await h.store.readControl()).state.status, status);
     } finally { await withGoogleSyncOperation(async () => {}); h.close(); }
   }
 });

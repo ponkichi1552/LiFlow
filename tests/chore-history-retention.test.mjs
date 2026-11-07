@@ -42,3 +42,11 @@ test('the cutoff day is retained and an unchanged history refresh performs no re
   const before = h.writes.length; await loadPlannerSnapshot(h.database, '2026-11-01');
   assert.equal(h.writes.length, before);
 });
+
+test('audit100 personal history display cutoff follows the chosen owner zone instead of the device zone and retains the raw learning records',async t=>{
+ const previous=process.env.TZ;process.env.TZ='Asia/Tokyo';t.after(()=>{if(previous===undefined)delete process.env.TZ;else process.env.TZ=previous;});
+ const h=createDatabase();t.after(()=>h.connection.close());await initializeLocalDatabase(h.database);const now=new Date('2026-11-07T16:00:00Z');const initial=await loadPlannerSnapshot(h.database,'2026-11-07',now,'America/New_York');const chore=initial.chores[0];
+ const insert=h.connection.prepare("INSERT INTO chore_completions(id,household_id,chore_id,completed_at,source,outcome) VALUES(?,?,?,?,?,'completed')");insert.run('before-owner-midnight','local-household',chore.id,'2026-10-07T02:00:00.000Z','inApp');insert.run('after-owner-midnight','local-household',chore.id,'2026-10-07T05:00:00.000Z','inApp');
+ const snapshot=await loadPlannerSnapshot(h.database,'2026-11-07',now,'America/New_York');assert.equal(snapshot.completions.some(row=>row.id==='before-owner-midnight'),false);assert.equal(snapshot.completions.some(row=>row.id==='after-owner-midnight'),true);assert.equal(h.connection.prepare('SELECT count(*) AS n FROM chore_completions').get().n,2);
+ const {personalChoreHistoryCutoffInstant}=await import('../src/domain/chores/history-retention.ts');assert.equal(personalChoreHistoryCutoffInstant('2026-04-08','America/Havana'),'2026-03-08T05:00:00.000Z');
+});

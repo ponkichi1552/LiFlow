@@ -17,8 +17,8 @@ export function adaptiveModelIsDaily(model: AdaptiveModel): boolean {
   return model.method === 'median' || model.method === 'exponential' ? roundedAdaptiveDays(model.days) === 1
     : model.method === 'alternating' && roundedAdaptiveDays(model.even) === 1 && roundedAdaptiveDays(model.odd) === 1;
 }
-export function adaptiveReferenceLimit(previousRepresentativeDays: number): 5 | 7 | 10 {
-  const days = roundedAdaptiveDays(previousRepresentativeDays); return days <= 30 ? 10 : days <= 90 ? 7 : 5;
+export function adaptiveReferenceLimit(previousRepresentativeDays: number): 4 | 6 | 8 {
+  const days = roundedAdaptiveDays(previousRepresentativeDays); return days <= 30 ? 8 : days <= 90 ? 6 : 4;
 }
 // Integer units are proportional to 1..1.5; half-weight ties never depend on floating-point accumulation.
 function recencyUnits(length: number) {
@@ -130,7 +130,12 @@ export function chooseAdaptiveMethod(current: AdaptiveMethod, scores: readonly A
   const candidates: { method: AdaptiveMethod; mean: number; maximum: number }[] = [];
   for (const method of methods) {
     if (method === current || !available.includes(method)) continue;
-    const common = scores.filter(row => row.epoch === epoch && row.errors[current] !== undefined && row.errors[method] !== undefined).slice(-3);
+    const common: AdaptiveForecastScore[] = [];
+    for (let index = scores.length - 1; index >= 0 && common.length < 3; index--) {
+      const row = scores[index];
+      if (row.epoch === epoch && row.errors[current] !== undefined && row.errors[method] !== undefined) common.push(row);
+    }
+    common.reverse();
     if (common.length !== 3 || new Set(common.map(row => row.completionId)).size !== 3) continue;
     const observed = common.map(row => [row.errors[current]!, row.errors[method]!] as const);
     if (observed.some(pair => pair.some(error => !Number.isFinite(error) || error < 0))) throw new RangeError('予測誤差を確認してください。');

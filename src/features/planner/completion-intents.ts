@@ -25,6 +25,7 @@ export interface CompletionIntentState {
 export function createCompletionIntents<T>(options: {
   store: CompletionIntentStore<T>;
   capture(target: T): T;
+  prepareRequest?(target: T, previous: Readonly<CompletionIntent<T>> | undefined): T;
   makeId(): string;
   now(): Date;
   isCurrent(): boolean;
@@ -32,6 +33,7 @@ export function createCompletionIntents<T>(options: {
   refresh(): Promise<void | boolean>;
 }) {
   const requests = new Map<string, CompletionIntent<T>>();
+  const acknowledged = new Map<string, CompletionIntent<T>>();
   const durable = new Set<string>();
   const touched = new Set<string>();
   const listeners = new Set<() => void>();
@@ -82,7 +84,14 @@ export function createCompletionIntents<T>(options: {
       await initialize();
       if (savedRevision === revision) return;
       const writingRevision = revision;
-      const snapshot = [...requests.values()].map(copy);
+      const values = [...requests.values()];
+      // A gesture can arrive before a full protected journal is restored. Keep
+      // both in memory, but never evict an older durable request to store it.
+      // Acknowledging the restored batch frees space for the waiting gesture.
+      const snapshot = (values.length <= 128 ? values : [
+        ...values.filter(item => durable.has(item.id)),
+        ...values.filter(item => !durable.has(item.id)),
+      ].slice(0, 128)).map(copy);
       await options.store.save(snapshot);
       savedRevision = writingRevision;
       for (const item of snapshot) if (requests.get(item.key)?.id === item.id) durable.add(item.id);
@@ -100,12 +109,26 @@ export function createCompletionIntents<T>(options: {
         if (await options.refresh() === false) return;
         if (!current()) return;
         refreshed = true;
+        const clearing: CompletionIntent<T>[] = [];
         for (const [key, id] of confirmed) if (requests.get(key)?.id === id && requests.get(key)?.status === 'committed') {
+          const item = requests.get(key)!; clearing.push(item);
+          acknowledged.delete(key); acknowledged.set(key, copy(item));
+          if (acknowledged.size > 128) acknowledged.delete(acknowledged.keys().next().value!);
           requests.delete(key); durable.delete(id);
           revision++;
         }
-        await persist(); emit(null);
+        try { await persist(); }
+        catch (cause) {
+          // Keep the read-only recovery path when protected acknowledgement
+          // storage fails. A newer gesture for the same key always wins.
+          for (const item of clearing) if (!requests.has(item.key)) {
+            requests.set(item.key, item); durable.add(item.id); revision++;
+          }
+          throw cause;
+        }
+        emit(null); drain();
       } catch {
+        refreshed = false;
         // Successful history is never undone or repeated because a read failed.
         emit('保存済みです。表示の更新を再試行してください。');
       }
@@ -167,7 +190,9 @@ export function createCompletionIntents<T>(options: {
       try {
         const id = options.makeId();
         if (!id || id.length > 200) throw new Error('操作を準備できませんでした。');
-        item = { id, key, target: options.capture(target), completed, createdAt: options.now().toISOString(), status: 'queued' };
+        const previous = requests.get(key) ?? acknowledged.get(key);
+        const captured = options.capture(target);
+        item = { id, key, target: options.capture(options.prepareRequest ? options.prepareRequest(captured, previous ? copy(previous) : undefined) : captured), completed, createdAt: options.now().toISOString(), status: 'queued' };
       } catch { emit('操作を準備できませんでした。'); return false; }
       if (!state.restored) touched.add(key);
       const previous = requests.get(key); if (previous) durable.delete(previous.id);
@@ -196,6 +221,11 @@ export function createCompletionIntents<T>(options: {
       });
     },
     retryRead() {
+      if (!state.restored && current()) {
+        void initialize().then(() => { if (current()) { emit(null); drain(); refreshCommitted(); } })
+          .catch(() => emit('保存待ちの家事を読み込めませんでした。再試行してください。'));
+        return;
+      }
       // A display can mount while the previous read is still discovering that
       // no screen is focused. Keep that explicit retry until the read settles.
       if (reading) readAgain = true;

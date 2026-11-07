@@ -1,8 +1,8 @@
 import type { ChoreCompletion, ChoreDefinition, ChoreScheduleEntry } from '../../domain/chores/types';
 import type { LocalDate } from '../../domain/shared/types';
 import type { DateTask } from '../../domain/scheduling/date-tasks';
-import { completionMatchesEntry } from '../../domain/scheduling/completion-matching.ts';
-import { addDays, localDateFromISODateTime, weekdayOf } from '../../domain/scheduling/local-date.ts';
+import { completionMatchesEntry, completionRecordedDate } from '../../domain/scheduling/completion-matching.ts';
+import { addDays, weekdayOf } from '../../domain/scheduling/local-date.ts';
 import { scopedDateTaskKey } from './task-mutations.ts';
 import { orderTaskRows } from '../../domain/scheduling/task-row-order.ts';
 import type { LoadOrder } from '../../domain/scheduling/task-priority';
@@ -30,23 +30,35 @@ export function homeTaskRows(tasks: readonly DateTask[], chores: readonly ChoreD
 
 export function orderHomeTaskRows(rows: readonly HomeTaskRow[], today: LocalDate, order: LoadOrder) {
   return orderTaskRows(rows, today, row => ({ completed: row.task.completed, load: row.chore.load, estimatedMinutes: row.chore.estimatedMinutes,
-    recommendedDate: row.task.suggestedDate, windowEnd: row.task.entry?.windowEnd ?? row.task.completion?.scheduledWindowEnd, asOfDate: row.today }), order);
+    recommendedDate: row.task.suggestedDate, windowStart: row.task.entry?.windowStart ?? row.task.completion?.scheduledWindowStart, windowEnd: row.task.entry?.windowEnd ?? row.task.completion?.scheduledWindowEnd, asOfDate: row.today }), order);
 }
 
 /** A window describes one occurrence, not one new chore on every available day. */
 export function homeUpcomingTasks(entries: readonly ChoreScheduleEntry[], completions: readonly ChoreCompletion[],
   from: LocalDate, through: LocalDate, chores: readonly ChoreDefinition[]): DateTask[] {
   const active = new Map(chores.filter(chore => chore.enabled && !chore.archived).map(chore => [chore.id, chore.householdId]));
+  type IndexedCompletion = { record: ChoreCompletion; index: number };
+  const exact = new Map<string, IndexedCompletion>(); const legacy = new Map<string, IndexedCompletion[]>();
+  completions.forEach((record, index) => {
+    if (record.outcome !== 'completed') return;
+    if (record.scheduleEntryId) {
+      const key = JSON.stringify([record.choreId, record.scheduleEntryId]); if (!exact.has(key)) exact.set(key, { record, index });
+    } else {
+      const rows = legacy.get(record.choreId) ?? []; rows.push({ record, index }); legacy.set(record.choreId, rows);
+    }
+  });
   const occurrences = new Map<string, DateTask>();
   for (const entry of entries) {
     if (active.get(entry.choreId) !== entry.householdId || entry.suggestedDate < from || entry.suggestedDate > through) continue;
-    const completion = completions.find(record => completionMatchesEntry(record, entry));
+    const candidate = exact.get(JSON.stringify([entry.choreId, entry.id]));
+    const older = legacy.get(entry.choreId)?.find(row => (!candidate || row.index < candidate.index) && completionMatchesEntry(row.record, entry));
+    const completion = (older ?? candidate)?.record;
     occurrences.set(entry.id, { id: entry.id, choreId: entry.choreId, suggestedDate: entry.suggestedDate, entry, completion, completed: Boolean(completion) });
   }
   const recorded = new Set([...occurrences.values()].map(task => task.completion?.id));
   for (const completion of completions) {
     if (completion.outcome !== 'completed' || active.get(completion.choreId) !== completion.householdId || recorded.has(completion.id)) continue;
-    const date = completion.scheduledDate ?? localDateFromISODateTime(completion.completedAt);
+    const date = completion.scheduledDate ?? completionRecordedDate(completion);
     const key = completion.scheduleEntryId ?? `completed:${completion.id}`;
     if (date < from || date > through || occurrences.has(key)) continue;
     occurrences.set(key, { id: `completed:${completion.id}`, choreId: completion.choreId, suggestedDate: date, completed: true, completion });

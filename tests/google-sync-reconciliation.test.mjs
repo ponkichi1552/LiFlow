@@ -8,7 +8,7 @@ import { join } from 'node:path';
 
 const { reconcileGoogleTasks } = await import('../src/features/google-sync/reconcile-google-tasks.ts');
 const { GoogleTaskNotFoundError, GoogleTasksApiError } = await import('../src/platform/google-tasks/google-tasks-api.ts');
-const { personalGoogleOccurrenceNote } = await import('../src/features/google-sync/workspace-policy.ts');
+const { personalGoogleOccurrenceNote, sharedGoogleOccurrenceNote } = await import('../src/features/google-sync/workspace-policy.ts');
 const intents = await import('../src/platform/storage/google-task-create-intents.ts');
 const { createGoogleOperationBudget } = await import('../src/features/google-sync/operation-budget.ts');
 const { createGoogleTasksApi } = await import('../src/platform/google-tasks/google-tasks-api.ts');
@@ -387,7 +387,7 @@ test('partial update failures acknowledge successes and retry only the failed li
     return results;
   };
 
-  await assert.rejects(reconcile(harness), (error) => error.status === 429 && error.retryAfter === '3600');
+  await assert.rejects(reconcile(harness), (error) => error.status === 429 && Date.parse(error.retryAfter) >= Date.now() + 3_590_000);
   assert.equal(harness.repository.links.find((link) => link.scheduleEntryId === 'one').lastSyncedDueDate, '2026-10-28');
   assert.equal(harness.repository.links.find((link) => link.scheduleEntryId === 'two').lastSyncedDueDate, '2026-10-26');
   assert.equal(harness.repository.links.find((link) => link.scheduleEntryId === 'three').lastSyncedDueDate, '2026-10-28');
@@ -494,7 +494,7 @@ test('unvalidated remote completion is not reverted; obsolete open tasks are del
   await reconcile(harness);
   assert.deepEqual(harness.api.calls.deleted, ['task-open']);
   assert.equal(harness.repository.links.some((item) => item.scheduleEntryId === 'obsolete-open'), false);
-  assert.equal(harness.repository.links.some((item) => item.scheduleEntryId === 'obsolete-done'), false);
+  assert.equal(harness.repository.links.some((item) => item.scheduleEntryId === 'obsolete-done'), true, 'retain the exact link until its invalid completion timestamp can be recovered');
   assert.equal(harness.api.tasks.get(`${taskListId}/task-done`).status, 'completed');
   assert.equal(harness.api.tasks.get(`${taskListId}/task-remote-done`).status, 'completed');
   assert.equal(harness.api.calls.patch.some(({ patch }) => patch.status === 'needsAction'), false);
@@ -559,4 +559,23 @@ test('an obsolete task changed after the fresh GET is held on conditional-delete
 for (const etag of [null, '*', 'W/"old"', '"bad\nvalue"']) test(`obsolete cleanup retains a mapping when its fresh ETag is unsafe ${JSON.stringify(etag)}`, async () => {
   const h = createHarness({ links: [link('obsolete', 'remote')], tasks: [{ id: 'remote', taskListId, title: '残す', status: 'needsAction', etag }] });
   const result = await reconcile(h); assert.equal(result.removed, 0); assert.deepEqual(h.api.calls.deleted, []); assert.equal(h.repository.links.length, 1);
+});
+
+test('shared task synchronization preserves user notes and adopts its exact marker line after local mapping recovery',async()=>{
+  const namespace='group-private-namespace';const marker=sharedGoogleOccurrenceNote(namespace,'notes-round');
+  const notes=`${marker}\n\nGoogle側で追記した持ち物`;
+  const h=createHarness({entries:[entry('notes-round')],tasks:[{id:'old-task',taskListId,title:'家事 notes-round',due:'2026-10-26T00:00:00.000Z',status:'needsAction',notes}]});
+  h.repository.taskNamespace=namespace;
+  await reconcile(h);assert.equal(h.api.calls.create,0,'a private user note cannot hide the stable occurrence identity');
+  assert.equal(h.repository.links[0].googleTaskId,'old-task');assert.equal(h.api.tasks.get(`${taskListId}/old-task`).notes,notes);
+  h.repository.entries[0].choreName='変更した名前';await reconcile(h);
+  assert.equal(h.api.tasks.get(`${taskListId}/old-task`).notes,notes);
+});
+
+test('a full user task note never makes an otherwise valid status update exceed the provider note limit',async()=>{
+  const notes='a'.repeat(8192);const h=createHarness({entries:[entry('full-note',{completedAt:now.toISOString()})],
+    links:[link('full-note','full-task',{lastSyncedStatus:'needsAction',pendingStatus:'completed'})],
+    tasks:[{id:'full-task',taskListId,title:'家事 full-note',due:'2026-10-26T00:00:00.000Z',status:'needsAction',notes}]});
+  await reconcile(h);const patched=h.api.tasks.get(`${taskListId}/full-task`);
+  assert.equal(patched.notes.length,notes.length);assert.equal(patched.notes,notes);assert.equal(patched.status,'completed');
 });

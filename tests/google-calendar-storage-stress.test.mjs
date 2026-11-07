@@ -103,7 +103,7 @@ test('a failed Calendar row insert rolls back the entire 181-day replacement and
     const rows = await repository.listCalendarAvailabilityDays(h.database);
     const before = await repository.loadCalendarAvailabilityState(h.database); let inserts = 0;
     h.database.runAsync = async (sql, ...params) => {
-      if (sql.includes('INSERT INTO calendar_availability_days') && ++inserts === 90) throw new Error('fixture storage failure');
+      if (sql.includes('INSERT INTO calendar_availability_days') && ++inserts === 2) throw new Error('fixture storage failure');
       return original(sql, ...params);
     };
     assert.equal((await c.refresh({ force: true, now: new Date(now.getTime() + 60_000) })).kind, 'error');

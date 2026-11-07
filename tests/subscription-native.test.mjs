@@ -109,7 +109,7 @@ for (const platform of ['ios', 'android']) test(`${platform} store purchase uses
   try {
     const module = load('src/platform/subscription/purchases.ts', {
       'react-native': { Platform: { OS: platform }, Linking: { openURL: async () => {} } }, '../../features/subscription/purchase-flow': purchaseFlow,
-      './runtime': { subscriptionSnapshot: () => state, acceptSubscription: async () => { state.phase = 'active'; }, subscriptionRequest: async path => { if (path === 'verify') verify++; return { body }; } },
+      './runtime': { subscriptionSnapshot: () => state, subscriptionCurrentTime: () => Date.now(), acceptSubscription: async () => { state.phase = 'active'; }, subscriptionRequest: async path => { if (path === 'verify') verify++; return { body }; } },
       'expo-iap': { initConnection: async () => { init++; return true; }, purchaseUpdatedListener: () => ({ remove() {} }), purchaseErrorListener: () => ({ remove() {} }),
         fetchProducts: async () => [product], getAvailablePurchases: async () => { queries++; return available; }, requestPurchase: async value => { purchases.push(value); return null; },
         finishTransaction: async ({ isConsumable }) => { assert.equal(isConsumable, false); finish++; }, ErrorCode: { UserCancelled: 'user-cancelled' } },
@@ -133,7 +133,7 @@ for (const platform of ['ios', 'android']) test(`${platform} a product catalogue
   try {
     const module = load('src/platform/subscription/purchases.ts', {
       'react-native': { Platform: { OS: platform }, Linking: {} }, '../../features/subscription/purchase-flow': purchaseFlow,
-      './runtime': { subscriptionSnapshot: () => state, acceptSubscription: async () => { state.phase = 'active'; }, subscriptionRequest: async (_path, value) => {
+      './runtime': { subscriptionSnapshot: () => state, subscriptionCurrentTime: () => Date.now(), acceptSubscription: async () => { state.phase = 'active'; }, subscriptionRequest: async (_path, value) => {
         if (value.proof === 'another-account-proof') throw new Error('wrong account');
         return { body: { userId: 'person-a', status: 'active', checkedAt: Date.now(), validUntil: Date.now() + 60_000, expiresAt: Date.now() + 60_000 } };
       } },
@@ -170,7 +170,7 @@ for (const platform of ['ios', 'android']) test(`${platform} explicit restore co
   try {
     const module = load('src/platform/subscription/purchases.ts', {
       'react-native': { Platform: { OS: platform }, Linking: {} }, '../../features/subscription/purchase-flow': purchaseFlow,
-      './runtime': { subscriptionSnapshot: () => state, acceptSubscription: async () => { state.phase = 'active'; }, subscriptionRequest: async (path, value) => {
+      './runtime': { subscriptionSnapshot: () => state, subscriptionCurrentTime: () => Date.now(), acceptSubscription: async () => { state.phase = 'active'; }, subscriptionRequest: async (path, value) => {
         if (path === 'status') return {};
         verified.push(value.proof); if (value.proof === 'foreign-proof') throw new Error('owned by another account');
         return { body: { userId: state.userId, status: 'active', checkedAt: Date.now(), validUntil: Date.now() + 60_000, expiresAt: Date.now() + 60_000 } };

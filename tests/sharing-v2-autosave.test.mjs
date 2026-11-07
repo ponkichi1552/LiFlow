@@ -125,3 +125,19 @@ test('v2 editor failed or invalid drafts prevent leaving and remain retryable in
     assert.equal(editor.getSnapshot().draft.intervalDays, ''); editor.discard();
   } finally { d.connection.close(); }
 });
+
+test('audit100 a shared anchor between the default and chosen effective date is saved instead of silently discarded',async t=>{
+ const d=await setup();t.after(()=>d.connection.close());const input={configuration:await d.configuration(),effectiveFrom:'2026-10-27',save:(edits,from)=>d.actions.patchChoreConfigurationFields('floor',edits,from),onSaved:async()=>{}};
+ const editor=createV2ConfigurationEditorState(input);editor.changeEffectiveFrom('2026-11-10');editor.changeAnchor('2026-11-05');
+ assert.equal(editor.getSnapshot().anchorError,null);assert.equal(await editor.flush(),true);
+ const facts=await(await import('../src/platform/storage/sharing-ledger.ts')).loadSharedFacts(d.database,groupId);
+ assert.ok(facts.some(row=>row.operation.payload.configuration?.anchorDate==='2026-11-05'));assert.equal(editor.hasDraft(),false);
+});
+
+test('audit100 untouched shared effective dates follow a new received boundary while explicitly selected dates and pending edits remain fixed',async t=>{
+ const d=await setup();t.after(()=>d.connection.close());const input={configuration:await d.configuration(),effectiveFrom:'2026-10-27',save:(edits,from)=>d.actions.patchChoreConfigurationFields('floor',edits,from),onSaved:async()=>{}};
+ const editor=createV2ConfigurationEditorState(input);editor.updateInput({...input,configuration:{...input.configuration,ruleVersion:2,effectiveFrom:'2026-11-05'},effectiveFrom:'2026-11-05'});
+ assert.equal(editor.getSnapshot().effectiveFrom,'2026-11-05');editor.changeEffectiveFrom('2026-12-01');
+ editor.updateInput({...input,configuration:{...input.configuration,ruleVersion:3,effectiveFrom:'2026-11-10'},effectiveFrom:'2026-11-10'});
+ assert.equal(editor.getSnapshot().effectiveFrom,'2026-12-01');
+});

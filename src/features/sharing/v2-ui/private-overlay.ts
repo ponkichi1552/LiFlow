@@ -2,7 +2,7 @@ import type { ChoreCompletion, ChoreDefinition, ChoreScheduleEntry } from '../..
 import type { LocalDate } from '../../../domain/shared/types';
 import { addDays, parseLocalDate } from '../../../domain/scheduling/local-date.ts';
 import { completionIncludesDate, completionMatchesEntry, completionPeriod, completionRecordedDate } from '../../../domain/scheduling/completion-matching.ts';
-import { orderDateTasks, selectDateTasks } from '../../../domain/scheduling/date-tasks.ts';
+import { orderDateTasks, selectDateTasks, createDateTaskSelector } from '../../../domain/scheduling/date-tasks.ts';
 import { calendarPendingCountsByDate } from '../../../domain/calendar/day-entries.ts';
 import { dateTaskRevision } from '../../../domain/scheduling/date-task-reference.ts';
 import type { PersonalDateTaskCommand } from '../../../domain/scheduling/date-task-reference';
@@ -11,11 +11,13 @@ import type { V2PersonalDayLoad } from '../v2/personal-plan';
 import { commonChoreLinks } from '../../planner/common-chore-links.ts';
 import type { CommonCompletionSource } from '../../planner/common-chore-links';
 import type { CapturedSharedPlanning } from '../../planner/shared-adaptive-load';
+import { personalLongCalendarPreviews } from '../../calendar/long-cycle-preview.ts';
 
 export interface V2PrivateTaskRow {
   source: 'personal'; key: string; revision: string; ownerUserId: string; householdId: string;
   date: LocalDate; graceDays: 0 | 3; chore: ChoreDefinition; completed: boolean; completedDate?: LocalDate; suggestedDate: LocalDate; windowStart?: LocalDate; windowEnd?: LocalDate;
   seasonalWork?: ChoreScheduleEntry['seasonalWork'];
+  provisional?: boolean; calendarNext?: boolean;
 }
 export interface V2PrivateOverlay {
   status: 'ready'; ownerUserId: string; householdId: string; timeZone: string; today: LocalDate; setupCompleted: boolean;
@@ -23,6 +25,8 @@ export interface V2PrivateOverlay {
   home: V2PrivateTaskRow[]; byDate: Map<LocalDate, V2PrivateTaskRow[]>; counts: Map<LocalDate, number>;
   dailyLoad: Partial<Record<LocalDate, V2PersonalDayLoad>>;
   sharedPlanning?: CapturedSharedPlanning;
+  calendarLongDates?: LocalDate[];
+  calendarLongRows?: V2PrivateTaskRow[];
 }
 export type V2PrivateOverlayState = V2PrivateOverlay | { status: 'unavailable'; message: string };
 export interface V2PrivateTaskSource {
@@ -69,7 +73,8 @@ export function projectV2PrivateTasks(input: PrivatePlannerInput, ownerUserId: s
       if (completion) needed.add(completion);
     }
     const relevant = completions.filter((completion) => needed.has(completion));
-    const rows = (date: LocalDate, graceDays: 0 | 3) => selectDateTasks(entries, relevant, date, graceDays, [chore], graceDays === 3).map((task): V2PrivateTaskRow => ({
+    const select = createDateTaskSelector(entries, relevant, [chore]);
+    const rows = (date: LocalDate, graceDays: 0 | 3) => select(date, graceDays, graceDays === 3).map((task): V2PrivateTaskRow => ({
       source: 'personal', key: `personal:${JSON.stringify([ownerUserId, snapshot.household.id, date, graceDays, chore.id,
         ...((task.entry?.seasonalWork ?? task.completion?.seasonalWork) ? [task.entry?.seasonalWork ?? task.completion?.seasonalWork] : [])])}`,
       revision: dateTaskRevision(task), ownerUserId, householdId: snapshot.household.id, date, graceDays, chore,
@@ -86,6 +91,19 @@ export function projectV2PrivateTasks(input: PrivatePlannerInput, ownerUserId: s
       if (chore.load !== 'light') day[chore.load] += count; dailyLoad[date] = day;
     }
   }
+  const calendarLongDates: LocalDate[] = []; const calendarLongRows: V2PrivateTaskRow[] = [];
+  if (snapshot.settings.setupCompleted) for (const preview of personalLongCalendarPreviews(snapshot, today)) {
+    const date = preview.entry.suggestedDate;
+    const [task] = selectDateTasks([preview.entry], preview.provisional ? [] : snapshot.completions, date, 0, [preview.chore]);
+    if (!task) continue;
+    calendarLongDates.push(date);
+    const existing = byDate.get(date)?.find(row => row.chore.id === preview.chore.id && !preview.provisional && row.revision === dateTaskRevision(task));
+    if (existing) calendarLongRows.push({ ...existing, calendarNext: true });
+    else calendarLongRows.push({ source: 'personal', key: `personal:${JSON.stringify([ownerUserId, snapshot.household.id, date, 0, preview.chore.id])}`,
+      revision: preview.provisional ? '' : dateTaskRevision(task), ownerUserId, householdId: snapshot.household.id,
+      date, graceDays: 0, chore: preview.chore, completed: false, suggestedDate: date, windowStart: preview.entry.windowStart, windowEnd: preview.entry.windowEnd,
+      provisional: preview.provisional, calendarNext: true });
+  }
   const order = (rows: V2PrivateTaskRow[], date: LocalDate) => {
     const byKey = new Map(rows.map((row) => [row.key, row]));
     return orderDateTasks(rows.map((row) => ({ id: row.key, choreId: row.chore.id, suggestedDate: row.suggestedDate, completed: row.completed })), date, chores)
@@ -94,7 +112,7 @@ export function projectV2PrivateTasks(input: PrivatePlannerInput, ownerUserId: s
   for (const [date, rows] of byDate) { byDate.set(date, order(rows, date)); counts.set(date, rows.filter(row => !row.completed).length); }
   return { status: 'ready', ownerUserId, householdId: snapshot.household.id, today, timeZone, range: { ...range },
     ...(snapshot.personalSharedPlanning?.ownerUserId === ownerUserId ? { sharedPlanning: snapshot.personalSharedPlanning } : {}),
-    generatedThrough: addDays(today, 180), setupCompleted: snapshot.settings.setupCompleted, home: order(home, today), byDate, counts, dailyLoad };
+    generatedThrough: addDays(today, 180), setupCompleted: snapshot.settings.setupCompleted, home: order(home, today), byDate, counts, dailyLoad, calendarLongDates, calendarLongRows };
 }
 
 /** Display counts use the same execution-period rows as home and the selected day. */
@@ -133,7 +151,8 @@ export function createV2PrivateTaskSource(input: { ownerUserId: string; assertAc
       const value = projectV2PrivateTasks({ ...data, snapshot: { ...data.snapshot, chores: data.snapshot.chores.filter(chore => !common.has(chore.id)) } }, input.ownerUserId, range);
       await input.assertAccess();
       if (generation === reading) {
-        for (const row of [...value.home, ...[...value.byDate.values()].flat()]) {
+        for (const row of [...value.home, ...[...value.byDate.values()].flat(), ...value.calendarLongRows ?? []]) {
+          if (row.provisional) continue;
           selected.delete(row.key); selected.set(row.key, { date: row.date, graceDays: row.graceDays, choreId: row.chore.id, revision: row.revision, completed: row.completed });
         }
         // Cached visible months can still issue their exact, CAS-checked command after a different month is read.

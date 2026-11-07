@@ -1,8 +1,9 @@
 import type { GoogleCalendarEvent } from '../../platform/google-calendar/calendar-api';
 import type { EventDraft } from '../../domain/calendar/events';
 import type { LocalDate } from '../../domain/shared/types';
-import { validateEventDraft } from '../../domain/calendar/events.ts';
+import { isCalendarAnchor, validateEventDraft } from '../../domain/calendar/events.ts';
 import { addDays, parseLocalDate } from '../../domain/scheduling/local-date.ts';
+import { calendarImportFormatter } from './import-formatter.ts';
 
 export class GoogleEventExpansionRequired extends Error {}
 const dayNames = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
@@ -15,7 +16,7 @@ function clock(value: NonNullable<GoogleCalendarEvent['start']>, fallbackZone: s
   // Seconds/folds cannot be represented losslessly in the current minute editor.
   if (at % 60_000 !== 0) throw unsupported();
   const zone = value.timeZone ?? fallbackZone;
-  const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const formatter = calendarImportFormatter(zone, true);
   const parts = Object.fromEntries(formatter.formatToParts(at).map(part => [part.type, part.value]));
   return { date: `${parts.year}-${parts.month}-${parts.day}` as LocalDate, minute: Number(parts.hour) * 60 + Number(parts.minute), allDay: false, zone };
 }
@@ -31,14 +32,14 @@ function recurrence(lines: string[] | undefined, startDate: LocalDate, zone: str
   const rule: Record<string, string> = Object.fromEntries(entries);
   if (Object.keys(rule).some(key => !['FREQ', 'INTERVAL', 'UNTIL', 'BYDAY', 'WKST'].includes(key))) throw unsupported();
   const interval = rule.INTERVAL === undefined ? 1 : Number(rule.INTERVAL);
-  if (!Number.isInteger(interval) || interval < 1 || interval > 365) throw unsupported();
+  if (!Number.isInteger(interval) || interval < 1 || interval > 999) throw unsupported();
   let untilDate: LocalDate | null = null;
   if (rule.UNTIL) {
     if (/^\d{8}$/u.test(rule.UNTIL)) untilDate = `${rule.UNTIL.slice(0, 4)}-${rule.UNTIL.slice(4, 6)}-${rule.UNTIL.slice(6, 8)}` as LocalDate;
     else if (/^\d{8}T\d{6}Z$/u.test(rule.UNTIL)) {
       const value = rule.UNTIL;
       const iso = `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T${value.slice(9, 11)}:${value.slice(11, 13)}:${value.slice(13, 15)}Z`;
-      const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(iso)).map(part => [part.type, part.value]));
+      const parts = Object.fromEntries(calendarImportFormatter(zone).formatToParts(new Date(iso)).map(part => [part.type, part.value]));
       untilDate = `${parts.year}-${parts.month}-${parts.day}` as LocalDate;
       // A cutoff earlier than the occurrence's local clock needs server expansion.
       // The imported rule must not invent its last occurrence.
@@ -86,7 +87,7 @@ function importRepresentableEvent(event: GoogleCalendarEvent, categoryId: string
     if (match && !value.allDay) {
       const raw = match[1]; const at = Date.parse(`${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}T${raw.slice(9, 11)}:${raw.slice(11, 13)}:${raw.slice(13, 15)}Z`);
       const untilClock = clock({ dateTime: new Date(at - at % 60_000).toISOString(), timeZone: value.timeZone }, value.timeZone);
-      if (untilClock.minute < value.startMinute) throw unsupported();
+      if (untilClock.minute < value.startMinute && isCalendarAnchor({ ...value, id: event.id, revision: 1 }, value.untilDate)) throw unsupported();
     }
   }
   return value;

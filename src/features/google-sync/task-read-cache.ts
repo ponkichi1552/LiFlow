@@ -16,6 +16,8 @@ export interface GoogleTaskReadCache {
   page(scope: GoogleTaskReadScope, expected: GoogleTaskReadState, page: GoogleTasksPage, now: string): Promise<GoogleTaskReadState>;
   reset(scope: GoogleTaskReadScope, expected: GoogleTaskReadState): Promise<void>;
   tasks(scope: GoogleTaskReadScope): Promise<GoogleTask[]>;
+  /** A confirmed write fences pages that were fetched before that write. */
+  written?(scope: GoogleTaskReadScope, tasks: readonly GoogleTask[]): Promise<void>;
 }
 export const TASK_CACHE_FULL_REFRESH_MS = 7 * 24 * 60 * 60 * 1000;
 const retryRead = () => new GoogleTasksApiError(503, 'task_read_restart', null);
@@ -49,8 +51,8 @@ export async function readGoogleTasksCheckpointed(input: { api: GoogleTasksApi; 
       ...(state.scan.pageToken ? { pageToken: state.scan.pageToken } : {}),
       ...(state.scan.updatedMin ? { updatedMin: state.scan.updatedMin } : {}),
     }); } catch (error) {
-      if (input.deltaOnly && (error instanceof GoogleTaskNotFoundError || error instanceof GoogleTasksApiError && [400, 410].includes(error.status))) {
-        await input.cache.reset(input.scope, state); throw new GoogleTaskFullSyncRequiredError();
+      if (state.scan.mode === 'delta' && (error instanceof GoogleTaskNotFoundError || error instanceof GoogleTasksApiError && [400, 410].includes(error.status))) {
+        await input.cache.reset(input.scope, state); throw input.deltaOnly ? new GoogleTaskFullSyncRequiredError() : retryRead();
       }
       // Page tokens are opaque and may expire. Never treat an incomplete traversal as remote deletion.
       if (state.scan.pageToken && (error instanceof GoogleTasksApiError && [400, 410].includes(error.status)

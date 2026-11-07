@@ -245,3 +245,19 @@ for (const platform of ['ios', 'android']) test(`${platform} home list has a lea
     assert.equal(stroke.props.style.find(style => style?.borderColor).borderColor, plannerLightColors.accent);
   } finally { h.connection.close(); }
 });
+
+test('audit100 mirrored RFC3339 offset completions respect an instant-based history cutoff before and after an upgrade and store new projections in UTC',async()=>{
+ const h=await fixture();try{const source={...h.input,completions:[{...h.fact,id:'before-cutoff',scheduleEntryId:'before',completedAt:'2026-10-07T16:00:00+14:00',scheduledDate:'2026-10-07',scheduledWindowStart:'2026-10-07',scheduledWindowEnd:'2026-10-07'},{...h.fact,id:'after-cutoff',scheduleEntryId:'after',completedAt:'2026-10-07T00:30:00-04:00',scheduledDate:'2026-10-07',scheduledWindowStart:'2026-10-07',scheduledWindowEnd:'2026-10-07'}]};
+ assert.equal(await h.apply(source),2);const at=new Date('2026-11-07T16:00:00Z');let view=await repository.loadPlannerSnapshot(h.database,'2026-11-07',at,'America/New_York');assert.equal(view.completions.length,1);assert.equal(parseSharedMirrorEntryId(view.completions[0].scheduleEntryId).occurrenceId,'after');
+ const all=h.connection.prepare('SELECT * FROM chore_completions').all();assert.ok(all.every(row=>row.completed_at.endsWith('.000Z')));
+ for(const row of all){const occurrence=parseSharedMirrorEntryId(row.schedule_entry_id).occurrenceId;h.connection.prepare('UPDATE chore_completions SET completed_at=? WHERE id=?').run(source.completions.find(item=>item.scheduleEntryId===occurrence).completedAt,row.id);}
+ view=await repository.loadPlannerSnapshot(h.database,'2026-11-07',at,'America/New_York');assert.equal(view.completions.length,1);assert.equal(parseSharedMirrorEntryId(view.completions[0].scheduleEntryId).occurrenceId,'after');assert.equal(h.connection.prepare('SELECT COUNT(*) AS n FROM chore_completions').get().n,2);
+ }finally{h.connection.close();}
+});
+
+test('audit100 an old same-name mirror can still undo or redo its exact occurrence after renaming without linking new unrelated rounds',async()=>{
+ const h=await fixture();try{await h.apply();const renamed={...h.input,chores:[{...h.shared,name:'an unrelated different chore'}],completions:[{...h.fact,outcome:'incomplete'},{...h.fact,id:'new-completion',scheduleEntryId:'new-unrelated-round'}]};
+ assert.equal(await h.apply(renamed),1);assert.equal(h.connection.prepare('SELECT COUNT(*) AS n FROM chore_completions').get().n,1);assert.equal(h.connection.prepare('SELECT outcome FROM chore_completions').get().outcome,'incomplete');
+ assert.equal(await h.apply({...renamed,completions:[h.fact]}),1);assert.equal(h.connection.prepare('SELECT COUNT(*) AS n FROM chore_completions').get().n,1);assert.equal(h.connection.prepare('SELECT outcome FROM chore_completions').get().outcome,'completed');
+ }finally{h.connection.close();}
+});

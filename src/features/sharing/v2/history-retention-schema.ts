@@ -17,7 +17,7 @@ export interface V2RetainedRoundState extends V2RetentionAnchor {
   strictInstructionUnfulfilled: boolean;
 }
 export interface V2RetentionBody {
-  format: 1; groupId: string; rosterDigest: string; keyVersion: number; cutoff: LocalDate; timeZone: string;
+  format: 1 | 2; groupId: string; rosterDigest: string; keyVersion: number; cutoff: LocalDate; timeZone: string;
   frontier: Record<string, number>; throughSequence: number;
   sourceFactsDigest: string; retainedFactsDigest: string; indexDigest: string;
   anchors: V2RetentionAnchor[];
@@ -38,7 +38,7 @@ function vector(value: unknown, maximum?: Record<string, number>): asserts value
 }
 export function validateV2RetentionBody(value: unknown): V2RetentionBody {
   record(value, ['format', 'groupId', 'rosterDigest', 'keyVersion', 'cutoff', 'timeZone', 'frontier', 'throughSequence', 'sourceFactsDigest', 'retainedFactsDigest', 'indexDigest', 'anchors', 'roundStates', 'retainedCount', 'authorityStates']);
-  if (value.format !== 1 || !isSharedTimeZone(String(value.timeZone))) throw new Error('Invalid history-retention format or region');
+  if (![1, 2].includes(Number(value.format)) || typeof value.format !== 'number' || !isSharedTimeZone(String(value.timeZone))) throw new Error('Invalid history-retention format or region');
   assertSharedIdentifier(value.groupId); hash(value.rosterDigest); hash(value.sourceFactsDigest); hash(value.retainedFactsDigest); hash(value.indexDigest);
   count(value.keyVersion, 1); count(value.throughSequence); parseLocalDate(value.cutoff as LocalDate);
   vector(value.frontier);
@@ -88,4 +88,9 @@ export function validateV2RetentionPayload(value: unknown) {
 export function v2RetentionAuthorityState(body: V2RetentionBody, index: number): number {
   if (!Number.isSafeInteger(index) || index < 0 || index >= body.retainedCount) throw new Error('Invalid retained authority position');
   const value = parseInt(body.authorityStates[Math.floor(index / 2)], 16); return index % 2 ? value & 3 : value >> 2;
+}
+
+/** Format 1 keeps its original signed ordering; new certificates never depend on device locale. */
+export function compareRetentionValues(format: V2RetentionBody['format'], left: string, right: string): number {
+  return format === 1 ? left.localeCompare(right) : left < right ? -1 : left > right ? 1 : 0;
 }

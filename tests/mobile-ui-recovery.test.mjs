@@ -122,3 +122,14 @@ for (const platform of ['ios', 'android']) {
     } finally { h.connection.close(); }
   });
 }
+
+test('audit100 a completion settling while its view is inactive cannot strand a pending checkbox after reactivation',async()=>{
+ for(const fail of [false,true]){
+  const held=deferred();let reads=0;const controller=createTaskMutations({isCurrent:()=>true,write:()=>held.promise,refresh:async()=>{reads++;}});
+  const task={id:'inactive-round',choreId:'floor',completed:false,entry:{id:'inactive-round',householdId:'local-household',choreId:'floor'}};
+  const work=controller.toggle(task);controller.deactivate();if(fail)held.reject(new Error('offline'));else held.resolve();await work;
+  assert.equal(controller.getSnapshot().pending.size,0);controller.activate();
+  for(let n=0;n<12;n++)await Promise.resolve();
+  assert.equal(controller.canToggle(task),true);assert.equal(controller.getSnapshot().overrides.size,0);assert.equal(reads,fail?0:1);
+ }
+});

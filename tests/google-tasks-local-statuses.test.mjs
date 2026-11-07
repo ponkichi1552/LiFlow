@@ -158,3 +158,14 @@ for (const transport of ['batch', 'individual']) test(`a Google-deleted task def
     await runtime.synchronize({ force: true }); assert.equal(h.tasks.size, 4);
   } finally { await withGoogleSyncOperation(async () => {}); h.close(); }
 });
+
+test('audit100 a shared local status batch acknowledges its successes with one coherent business projection rather than one per task',async()=>{
+ const {seeds}=await import('./helpers/sharing-v2-repository-fixture.mjs');const {createV2GoogleTaskStore}=await import('../src/platform/storage/sharing-v2-google-tasks.ts');
+ const seed=seeds();for(let i=1;i<20;i++)seed.push({...seed[2],operationId:`chore-${i}`,entityId:`chore-${i}`},{...seed[3],operationId:`policy-${i}`,entityId:`chore-${i}`});
+ const h=await googleFixture({seed});try{await h.connect();await h.sync();const items=(await h.entries()).filter(row=>row.target.anchorDate==='2026-10-27');assert.equal(items.length,20);
+ for(const item of items)await h.actions.complete(item.target);
+ let projections=0;const store=createV2GoogleTaskStore({...h.scope,repository:{...h.d.repository,readCurrent:async(...args)=>{projections++;return h.d.repository.readCurrent(...args);}}});
+ const state=(await store.readControl()).state;const result=await reconcileLocalGoogleTaskStatuses({accessToken:'token',state,repository:{...store.port,verifyTaskListForLocalChanges:async()=>true},api:h.api,today:'2026-10-27'});
+ assert.equal(result.updated,20);assert.ok(projections<=4,`shared acknowledgement projections ${projections}`);assert.ok((await store.readSavedLinks()).filter(row=>items.some(item=>item.entry.id===row.scheduleEntryId)).every(row=>row.lastSyncedStatus==='completed'&&!row.pendingStatus));
+ }finally{h.close();}
+});

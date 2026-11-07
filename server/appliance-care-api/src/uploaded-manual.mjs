@@ -41,12 +41,15 @@ async function inspect(bytes) {
     let ended = false;
     const finish = (error, pages) => {
       if (ended) return; ended = true; clearTimeout(timer); void worker.terminate();
-      if (error) reject(invalid('このPDFは読み取れません。パスワードなし・100ページ以内の取扱説明書を選択してください。'));
+      if (error) reject(error);
       else resolve(pages);
     };
-    const timer = setTimeout(() => finish(true), 5000);
-    worker.once('message', result => finish(!Number.isInteger(result.pages) || result.pages < 1 || result.pages > MAX_MANUAL_PAGES, result.pages));
-    worker.once('error', () => finish(true)); worker.once('exit', () => { if (!ended) finish(true); });
+    const unreadable = () => invalid('このPDFは読み取れません。パスワードなし・100ページ以内の取扱説明書を選択してください。');
+    // A busy or suspended host has not established that the submitted PDF is invalid.
+    // Keep the execution bound and let the client retry before any paid admission.
+    const timer = setTimeout(() => finish(new PublicApiError(503, 'TEMPORARY_NETWORK_ERROR', '説明書の検査が時間内に終わりませんでした。時間をおいて再試行してください。')), 5000);
+    worker.once('message', result => finish(!Number.isInteger(result.pages) || result.pages < 1 || result.pages > MAX_MANUAL_PAGES ? unreadable() : null, result.pages));
+    worker.once('error', () => finish(unreadable())); worker.once('exit', () => { if (!ended) finish(unreadable()); });
   });
 }
 

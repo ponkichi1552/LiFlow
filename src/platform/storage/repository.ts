@@ -1,13 +1,14 @@
+import { writeScheduleCacheDiffInside, saveScopedScheduleCacheInside } from './schedule-cache-diff.ts';
 import { normalizeStoredWeatherLocation, resolveWeatherMunicipality } from '../../features/weather/municipality-search.ts';
 import { MetServerForecastProvider, weatherCacheFreshness } from '../../features/weather/met-server-provider.ts';
 import { readRegionalWeatherInside, saveRegionalWeatherInside } from './regional-weather.ts';
 import { personalChoreUsesWeather } from '../../features/weather/chore-weather.ts';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { reserveGoogleTaskCreateInside, rejectGoogleTaskCreateInside, linkGoogleTaskCreateInside, deleteGoogleTaskCreateInside } from './google-task-create-intents.ts';
+import { createGoogleTaskCreateJournal, reserveGoogleTaskCreateInside, rejectGoogleTaskCreateInside, linkGoogleTaskCreateInside, deleteGoogleTaskCreateInside } from './google-task-create-intents.ts';
 import type { GoogleTaskCreateIdentity, GoogleTaskCreateIntent } from '../../features/google-sync/task-create-intent';
 import { createGoogleTaskReadCache } from './google-task-read-cache.ts';
 import { withIsolatedSqliteTransaction } from './isolated-transaction.ts';
-import { actionCycleDate, appendCompletionActionInside, appendCompletionUndoInside, readCompletionJournalInside, seedCompletionJournalInside } from './completion-journal.ts';
+import { actionCycleDate, previousCompletionState, appendCompletionActionInside, appendCompletionUndoInside, readCompletionJournalInside, seedCompletionJournalInside } from './completion-journal.ts';
 import { personalChoreHistoryCutoffInstant } from '../../domain/chores/history-retention.ts';
 
 import { compareBuiltInChoreOrder } from '@/domain/chores/catalog';
@@ -58,6 +59,7 @@ import { CALENDAR_AVAILABILITY_MAX_AGE_MS, calendarAvailabilitySignature, freshC
 import { sharedRepositoryAdapter } from './shared-repository-adapter';
 import type { SharedRepositoryMutation } from './shared-repository-adapter';
 import { stagePendingGoogleTaskStatus } from './google-task-link-state';
+import { readPlanningInputRevision } from './planning-input-revision';
 import { commonChoreLinks, sharedMirrorEntryId, parseSharedMirrorEntryId } from '../../features/planner/common-chore-links.ts';
 import type { CommonCompletionSource } from '../../features/planner/common-chore-links';
 import { validateWidgetCompletionOperation } from '../../features/widgets/completion-operation.ts';
@@ -203,6 +205,16 @@ function serializeDatabaseOperation<Args extends unknown[], Result>(
   });
 }
 
+/** Retrying a captured owner read must start a new operation scope. Never replay a mutation here. */
+function retryOwnerRead<Args extends unknown[], Result>(read: (database: SQLiteDatabase, ...args: Args) => Promise<Result>) {
+  return async (database: SQLiteDatabase, ...args: Args): Promise<Result> => {
+    for (let attempt = 0; ; attempt++) {
+      try { return await read(database, ...args); }
+      catch (error) { if (attempt >= 2 || !(error instanceof AdaptiveOwnerInputsChangedError)) throw error; }
+    }
+  };
+}
+
 export function withPlannerDatabaseOperation<T>(database: SQLiteDatabase, work: () => Promise<T>): Promise<T> {
   return runDatabaseOperation(database, work);
 }
@@ -217,6 +229,8 @@ export interface PlannerSnapshot {
   settings: HouseholdPlannerSettings;
   chores: ChoreDefinition[];
   personalCadences?: Record<string, PersonalCadenceView>;
+  widgetCompletionGenerations?: Record<string, number>;
+  planningInputRevision?: number;
   personalSharedPlanning?: CapturedSharedPlanning;
   appliances: Appliance[];
   states: ChoreState[];
@@ -494,7 +508,7 @@ async function loadPlannerSnapshotImpl(
   if (!sharedRepositoryAdapter(database)) ({ today, timeZone } = await adaptiveOwnerClock(database, calendarNow, { today, timeZone }));
   for (let attempt = 0; ; attempt++) {
     try { return await loadPlannerSnapshotOnce(database, today, calendarNow, timeZone); }
-    catch (error) { if (attempt >= 2 || !isPlannerReadRace(error)) throw error; }
+    catch (error) { if (attempt >= 2 || error instanceof AdaptiveOwnerInputsChangedError || !isPlannerReadRace(error)) throw error; }
   }
 }
 async function loadPlannerSnapshotOnce(database: SQLiteDatabase, today: LocalDate, calendarNow: Date, timeZone: string): Promise<PlannerSnapshot> {
@@ -538,8 +552,8 @@ async function loadPlannerSnapshotOnce(database: SQLiteDatabase, today: LocalDat
       `SELECT id, household_id, chore_id, completed_at, completed_local_date, completed_time_zone, adaptive_operation_id, seasonal_work, completed_by_member_id, source, schedule_entry_id,
               scheduled_date, scheduled_window_start, scheduled_window_end, outcome
        FROM chore_completions WHERE household_id = ? AND
-         (completed_at >= ? OR scheduled_date >= ? OR scheduled_window_start >= ?) ORDER BY completed_at DESC`,
-      LOCAL_HOUSEHOLD_ID, personalChoreHistoryCutoffInstant(today), today, today,
+         (julianday(completed_at) >= julianday(?) OR scheduled_date >= ? OR scheduled_window_start >= ?) ORDER BY julianday(completed_at) DESC`,
+      LOCAL_HOUSEHOLD_ID, personalChoreHistoryCutoffInstant(today, timeZone), today, today,
     ),
     database.getAllAsync<ScheduleEntryRow>(
       'SELECT entry_json FROM chore_schedule_entries WHERE household_id = ?', LOCAL_HOUSEHOLD_ID,
@@ -707,6 +721,7 @@ async function loadPlannerSnapshotOnce(database: SQLiteDatabase, today: LocalDat
   const hiddenOccurrenceKeys = new Set(hiddenWasteRows.map((row) => `${row.schedule_id}:${row.occurrence_date}`));
   const { visible: upcomingWasteDates, hidden: hiddenWasteDates } = splitWasteOccurrencesByVisibility(generatedWasteDates, hiddenOccurrenceKeys);
 
+  const widgetGenerations = await database.getAllAsync<{ schedule_entry_id: string; generation: number }>('SELECT * FROM widget_completion_generations');
   const snapshot: PlannerSnapshot = {
     household,
     settings,
@@ -719,6 +734,7 @@ async function loadPlannerSnapshotOnce(database: SQLiteDatabase, today: LocalDat
     dependencies,
     scheduleEntries,
     completions,
+    widgetCompletionGenerations: Object.fromEntries(widgetGenerations.map(row => [row.schedule_entry_id, row.generation])),
     wasteSchedules,
     upcomingWasteDates,
     hiddenWasteDates,
@@ -729,6 +745,7 @@ async function loadPlannerSnapshotOnce(database: SQLiteDatabase, today: LocalDat
   };
   const calendarState = googleAvailability ? await loadCalendarAvailabilityStateImpl(database) : null;
   const fetchedAt = calendarState?.lastSuccessfulSyncAt ? Date.parse(calendarState.lastSuccessfulSyncAt) : NaN;
+  snapshot.planningInputRevision = await readPlanningInputRevision(database);
   await assertPlannerDataVersion(database, dataVersion);
   snapshotVersions.set(snapshot, plannerVersions.get(database) ?? 0); snapshotDataVersions.set(snapshot, dataVersion);
   const owner = await readAdaptiveOwnerInputs(database, calendarNow); owner?.assertCurrent();
@@ -910,26 +927,8 @@ async function replaceGeneratedSchedule(
     const previous = await database.getAllAsync<{ id: string; entry_json: string }>(
       'SELECT id, entry_json FROM chore_schedule_entries WHERE household_id = ?', householdId,
     );
-    const previousById = new Map(previous.map((row) => [row.id, row.entry_json]));
-    const nextById = new Map(materialized.map((entry) => [entry.id, JSON.stringify(entry)]));
-    const removed = previous.filter((row) => !nextById.has(row.id));
-    const changed = materialized.filter((entry) => previousById.get(entry.id) !== nextById.get(entry.id));
     for (const state of guard?.repairedStates ?? []) await restoreChoreState(database, state.choreId, state);
-    for (const row of removed) {
-      await database.runAsync('DELETE FROM chore_schedule_entries WHERE household_id = ? AND id = ?', householdId, row.id);
-    }
-    for (const entry of changed) {
-      await database.runAsync(
-        `INSERT INTO chore_schedule_entries
-         (id, household_id, chore_id, window_start, window_end, suggested_date, status, entry_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET window_start = excluded.window_start,
-         window_end = excluded.window_end, suggested_date = excluded.suggested_date,
-         status = excluded.status, entry_json = excluded.entry_json`,
-        entry.id, entry.householdId, entry.choreId, entry.windowStart, entry.windowEnd,
-        entry.suggestedDate, entry.status, nextById.get(entry.id)!,
-      );
-    }
+    await writeScheduleCacheDiffInside(database, householdId, previous, materialized);
     for (const entry of missingInitialDates) {
       await database.runAsync(
         `UPDATE chore_state SET initial_scheduled_date = ?
@@ -1266,8 +1265,10 @@ async function setChoresEnabledImpl(database: SQLiteDatabase, choreIds: string[]
   // Validate the complete group before writing. Unknown appliance cycles must never be invented.
   await withAdaptiveOwnerTransaction(database, async () => {
     const changes: { chore: ChoreDefinition; wasEnabled: boolean }[] = [];
+    const rows = await database.getAllAsync<DefinitionRow>('SELECT id, enabled, definition_json FROM chore_definitions WHERE household_id=? AND id IN (SELECT value FROM json_each(?))', LOCAL_HOUSEHOLD_ID, JSON.stringify(choreIds));
+    const byId = new Map(rows.map(row => [row.id, row]));
     for (const id of choreIds) {
-      const row = await database.getFirstAsync<DefinitionRow>('SELECT id, enabled, definition_json FROM chore_definitions WHERE id = ? AND household_id = ?', id, LOCAL_HOUSEHOLD_ID);
+      const row = byId.get(id);
       if (!row) throw new Error('家事が見つかりません。最新の一覧を読み直してください。');
       const chore = { ...JSON.parse(row.definition_json) as ChoreDefinition, enabled };
       if (chore.archived) throw new Error('削除済みの家事は変更できません。');
@@ -1275,11 +1276,13 @@ async function setChoresEnabledImpl(database: SQLiteDatabase, choreIds: string[]
       if (Boolean(row.enabled) !== enabled) changes.push({ chore, wasEnabled: Boolean(row.enabled) });
     }
     const alternativesChanged = enabled ? await disablePersonalCatalogAlternativesInside(database, choreIds) : false;
-    for (const { chore } of changes) {
-      await database.runAsync('UPDATE chore_definitions SET enabled = ?, definition_json = ? WHERE id = ? AND household_id = ?', enabled ? 1 : 0, JSON.stringify(chore), chore.id, LOCAL_HOUSEHOLD_ID);
-      await database.runAsync('DELETE FROM chore_schedule_entries WHERE chore_id = ?', chore.id);
-      if (enabled) await database.runAsync(`UPDATE chore_state SET initial_pending = 1, initial_scheduled_date = NULL,
-        unknown_reason = COALESCE(unknown_reason, 'unknown') WHERE chore_id = ? AND last_completed_date IS NULL`, chore.id);
+    if (changes.length) {
+      const ids = JSON.stringify(changes.map(({ chore }) => chore.id));
+      await database.runAsync(`UPDATE chore_definitions SET enabled=?, definition_json=json_set(definition_json,'$.enabled',json(?))
+        WHERE household_id=? AND id IN (SELECT value FROM json_each(?))`, enabled ? 1 : 0, enabled ? 'true' : 'false', LOCAL_HOUSEHOLD_ID, ids);
+      await database.runAsync('DELETE FROM chore_schedule_entries WHERE chore_id IN (SELECT value FROM json_each(?))', ids);
+      if (enabled) await database.runAsync(`UPDATE chore_state SET initial_pending=1, initial_scheduled_date=NULL,
+        unknown_reason=COALESCE(unknown_reason,'unknown') WHERE last_completed_date IS NULL AND chore_id IN (SELECT value FROM json_each(?))`, ids);
     }
     if (alternativesChanged || changes.some(row => usesPersonalAdaptivePlanner(row.chore))) await synchronizeAdaptiveRepositoryInside(database);
   });
@@ -1328,7 +1331,7 @@ async function commitWidgetCompletionOperationImpl(database: SQLiteDatabase, raw
   await withAdaptiveOwnerTransaction(database, async () => {
     await assertAccess();
     const home = await database.getFirstAsync<HouseholdRow>('SELECT id,name,created_at FROM households WHERE id=?', LOCAL_HOUSEHOLD_ID);
-    if (!home || home.created_at !== operation.householdCreatedAt) throw new Error('ウィジェットの保存先が変わりました。');
+    const sameHome = home?.created_at === operation.householdCreatedAt;
     const received = await database.getFirstAsync<{ target_digest: string }>('SELECT target_digest FROM planner_completion_intents WHERE intent_id=?', operation.id);
     if (received && received.target_digest !== digest) throw new Error('ウィジェット操作の内容が変わっています。');
     if (received) outcome = 'alreadyApplied';
@@ -1336,7 +1339,8 @@ async function commitWidgetCompletionOperationImpl(database: SQLiteDatabase, raw
       const row = await database.getFirstAsync<{ entry_json: string }>('SELECT entry_json FROM chore_schedule_entries WHERE id=? AND household_id=? AND chore_id=?',
         operation.entry.id, LOCAL_HOUSEHOLD_ID, operation.entry.choreId);
       const entry = row ? JSON.parse(row.entry_json) as ChoreScheduleEntry : undefined;
-      if (entry && entry.id === operation.entry.id && entry.choreId === operation.entry.choreId
+      const generation = await database.getFirstAsync<{ generation: number }>('SELECT generation FROM widget_completion_generations WHERE schedule_entry_id=?', operation.entry.id);
+      if (sameHome && (operation.completionGeneration ?? 0) === (generation?.generation ?? 0) && entry && entry.id === operation.entry.id && entry.choreId === operation.entry.choreId
         && entry.cycleBaseDate === operation.entry.cycleBaseDate && await isActiveChoreEntry(database, entry)) {
         const changed = await persistChoreCompletion(database, operation.entry, new Date(operation.acceptedAtMs).toISOString(), 'widget', undefined,
           { localDate: operation.completedLocalDate, timeZone: operation.timeZone });
@@ -1392,11 +1396,16 @@ async function mirrorSharedChoreCompletionsImpl(database: SQLiteDatabase, input:
     const links = commonChoreLinks(personal, input.chores);
     const existing = await database.getAllAsync<{ id: string; chore_id: string; schedule_entry_id: string; outcome: ChoreCompletion['outcome'] }>(
       "SELECT id,chore_id,schedule_entry_id,outcome FROM chore_completions WHERE household_id=? AND schedule_entry_id LIKE 'shared-home:%'", LOCAL_HOUSEHOLD_ID);
-    // Existing mirrors remain addressable for explicit undo even after a rename or disable.
+    // A prior name match keeps only its exact mirrored occurrence addressable.
+    // Renaming/disabling shared work must not subscribe an old personal chore
+    // to every new occurrence of a now-unrelated definition.
+    const priorByOccurrence = new Map<string, typeof links>();
     for (const row of existing) {
       const key = parseSharedMirrorEntryId(row.schedule_entry_id);
-      if (key?.groupId === input.groupId && key.personalChoreId === row.chore_id && ids.has(row.chore_id)
-        && !links.some(link => link.personalChoreId === row.chore_id && link.sharedChoreId === key.sharedChoreId)) links.push(key);
+      if (key?.groupId === input.groupId && key.personalChoreId === row.chore_id && ids.has(row.chore_id)) {
+        const occurrence = JSON.stringify([key.sharedChoreId, key.occurrenceId]);
+        const previous = priorByOccurrence.get(occurrence) ?? []; previous.push(key); priorByOccurrence.set(occurrence, previous);
+      }
     }
     const known = new Map(existing.map(row => [row.schedule_entry_id, row]));
     const bySharedChore = new Map<string, typeof links>();
@@ -1405,7 +1414,9 @@ async function mirrorSharedChoreCompletionsImpl(database: SQLiteDatabase, input:
       if (!fact.scheduleEntryId) continue;
       if (!Number.isFinite(Date.parse(fact.completedAt))) throw new Error('共有家事の実施日時を確認してください。');
       for (const date of [fact.scheduledDate, fact.scheduledWindowStart, fact.scheduledWindowEnd]) if (date) parseLocalDate(date);
-      for (const link of bySharedChore.get(fact.choreId) ?? []) {
+      const matches = new Map([...(bySharedChore.get(fact.choreId) ?? []),
+        ...(priorByOccurrence.get(JSON.stringify([fact.choreId, fact.scheduleEntryId])) ?? [])].map(link => [link.personalChoreId, link]));
+      for (const link of matches.values()) {
         const entryId = sharedMirrorEntryId(input.groupId, fact.choreId, fact.scheduleEntryId, link.personalChoreId);
         const stored = known.get(entryId);
         if (fact.outcome === 'completed') {
@@ -1558,12 +1569,7 @@ async function saveAdaptiveChoreCacheInside(database: SQLiteDatabase, context: N
   prepared?: Awaited<ReturnType<typeof readAdaptivePersonalInside>>) {
   const view = prepared ?? await readAdaptivePersonalInside(database, choreId); if (!view) return;
   const entry = personalAdaptiveEntries(context, new Map([[choreId, view]]))[0];
-  const rows = await database.getAllAsync<{ id: string; entry_json: string }>('SELECT id,entry_json FROM chore_schedule_entries WHERE household_id=? AND chore_id=?', context.householdId, choreId);
-  for (const row of rows) if (row.id !== entry?.id) await database.runAsync('DELETE FROM chore_schedule_entries WHERE household_id=? AND id=?', context.householdId, row.id);
-  if (entry && rows.find(row => row.id === entry.id)?.entry_json !== JSON.stringify(entry)) await database.runAsync(`INSERT INTO chore_schedule_entries(id,household_id,chore_id,window_start,window_end,suggested_date,status,entry_json)
-    VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET window_start=excluded.window_start,window_end=excluded.window_end,
-    suggested_date=excluded.suggested_date,status=excluded.status,entry_json=excluded.entry_json`, entry.id, entry.householdId, entry.choreId,
-  entry.windowStart, entry.windowEnd, entry.suggestedDate, entry.status, JSON.stringify(entry));
+  await saveScopedScheduleCacheInside(database, context.householdId, [choreId], entry ? [entry] : []);
 }
 
 async function synchronizeAdaptiveRepositoryInside(database: SQLiteDatabase, now = new Date(), assertInputsCurrent: () => void | Promise<void> = () => {}) {
@@ -1571,10 +1577,9 @@ async function synchronizeAdaptiveRepositoryInside(database: SQLiteDatabase, now
     now, timeZone: getDeviceTimeZone(), assertInputsCurrent });
   if (!context) return;
   const seasonal = await synchronizeSeasonalRepositoryInside(database, context);
-  for (const chore of context.chores.filter(chore => chore.personalSchedulingKind === 'seasonal')) await saveSeasonalChoreCacheInside(database,
-    chore.id, seasonal.filter(entry => entry.choreId === chore.id));
   const views = await synchronizePersonalAdaptiveInside(database, context);
-  for (const [choreId, view] of views) await saveAdaptiveChoreCacheInside(database, context, choreId, view);
+  const choreIds = [...new Set([...views.keys(), ...context.chores.filter(chore => chore.personalSchedulingKind === 'seasonal').map(chore => chore.id)])];
+  await saveScopedScheduleCacheInside(database, context.householdId, choreIds, [...seasonal, ...personalAdaptiveEntries(context, views)]);
 }
 
 type AdaptiveRepositoryContext = NonNullable<Awaited<ReturnType<typeof readPersonalAdaptiveContextInside>>>;
@@ -1596,13 +1601,7 @@ async function synchronizeSeasonalRepositoryInside(database: SQLiteDatabase, con
   return entries;
 }
 async function saveSeasonalChoreCacheInside(database: SQLiteDatabase, choreId: string, entries: readonly ChoreScheduleEntry[]) {
-  const old = await database.getAllAsync<{ id: string; entry_json: string }>('SELECT id,entry_json FROM chore_schedule_entries WHERE household_id=? AND chore_id=?', LOCAL_HOUSEHOLD_ID, choreId);
-  const next = new Map(entries.map(entry => [entry.id, entry]));
-  for (const row of old) if (!next.has(row.id)) await database.runAsync('DELETE FROM chore_schedule_entries WHERE household_id=? AND id=?', LOCAL_HOUSEHOLD_ID, row.id);
-  for (const entry of entries) if (old.find(row => row.id === entry.id)?.entry_json !== JSON.stringify(entry)) await database.runAsync(
-    `INSERT INTO chore_schedule_entries(id,household_id,chore_id,window_start,window_end,suggested_date,status,entry_json) VALUES(?,?,?,?,?,?,?,?)
-     ON CONFLICT(id) DO UPDATE SET window_start=excluded.window_start,window_end=excluded.window_end,suggested_date=excluded.suggested_date,status=excluded.status,entry_json=excluded.entry_json`,
-    entry.id, entry.householdId, entry.choreId, entry.windowStart, entry.windowEnd, entry.suggestedDate, entry.status, JSON.stringify(entry));
+  await saveScopedScheduleCacheInside(database, LOCAL_HOUSEHOLD_ID, [choreId], entries);
 }
 
 async function applyAdaptiveCompletionInside(database: SQLiteDatabase, entry: CompletionTarget, completionId: string,
@@ -1657,6 +1656,11 @@ async function persistChoreCompletion(
   memberId?: EntityId,
   recorded?: { localDate: LocalDate; timeZone: string },
 ): Promise<boolean> {
+  const instant = Date.parse(completedAt);
+  if (!Number.isFinite(instant)) throw new Error('家事の実施日時を確認してください。');
+  // Mirror reports can contain a valid RFC3339 offset. Keep the stored local
+  // projection canonical while the signed source retains its original bytes.
+  completedAt = new Date(instant).toISOString();
   let clock = recorded;
   if (!clock) {
     // A historical Google timestamp determines the completion day, not the
@@ -1749,6 +1753,16 @@ async function importGoogleTaskChangesImpl(
 ): Promise<number> {
   const links = await listGoogleTaskLinksImpl(database, LOCAL_HOUSEHOLD_ID);
   const linksByTask = new Map(links.map((link) => [JSON.stringify([link.googleTaskListId, link.googleTaskId]), link]));
+  const captureIds = [...new Set(changes.flatMap(change => {
+    const link = linksByTask.get(JSON.stringify([change.googleTaskListId, change.googleTaskId]));
+    return link && link.scheduleEntryId === change.scheduleEntryId ? [link.scheduleEntryId] : [];
+  }))];
+  const capturedRows = captureIds.length ? await database.getAllAsync<{ schedule_entry_id: string; entry_json: string | null }>(
+    `SELECT l.schedule_entry_id,s.entry_json FROM google_task_links l
+     JOIN chore_definitions d ON d.id=l.chore_id AND d.household_id=l.household_id
+     LEFT JOIN chore_schedule_entries s ON s.id=l.schedule_entry_id AND s.chore_id=d.id AND s.household_id=d.household_id
+     WHERE l.household_id=? AND l.schedule_entry_id IN (SELECT value FROM json_each(?))`, LOCAL_HOUSEHOLD_ID, JSON.stringify(captureIds)) : [];
+  const capturedById = new Map(capturedRows.map(row => [row.schedule_entry_id, row]));
   const targets: { entry: CompletionTarget; change: GoogleTaskStatusChange }[] = [];
   const seenEntries = new Set<string>();
   // Capture every mapped occurrence before saving any completion or regenerating schedules.
@@ -1756,12 +1770,7 @@ async function importGoogleTaskChangesImpl(
     const completedAt = completion.status === 'completed' ? parseGoogleCompletedAt(completion.completedAt) : undefined;
     const link = linksByTask.get(JSON.stringify([completion.googleTaskListId, completion.googleTaskId]));
     if ((completion.status === 'completed' && !completedAt) || !link || link.scheduleEntryId !== completion.scheduleEntryId || seenEntries.has(link.scheduleEntryId)) continue;
-    const row = await database.getFirstAsync<{ entry_json: string | null }>(
-      `SELECT s.entry_json FROM chore_definitions d
-       LEFT JOIN chore_schedule_entries s ON s.id = ? AND s.chore_id = d.id AND s.household_id = d.household_id
-       WHERE d.id = ? AND d.household_id = ?`,
-      link.scheduleEntryId, link.choreId, LOCAL_HOUSEHOLD_ID,
-    );
+    const row = capturedById.get(link.scheduleEntryId);
     if (!row) continue;
     const saved = row.entry_json ? parseJson<ChoreScheduleEntry | null>(row.entry_json, null) : null;
     const entry: CompletionTarget = saved?.id === link.scheduleEntryId && saved.choreId === link.choreId && saved.householdId === link.householdId
@@ -1775,17 +1784,17 @@ async function importGoogleTaskChangesImpl(
     - (right.change.status === 'completed' ? Date.parse(right.change.completedAt) : 0));
   let imported = 0;
   await withAdaptiveOwnerTransaction(database, async () => {
+    const currentRows = await database.getAllAsync<{ schedule_entry_id: string; google_task_list_id: string; google_task_id: string;
+      last_synced_status: string | null; pending_status: string | null; completion_id: string | null; outcome: string | null }>(
+      `SELECT l.schedule_entry_id,l.google_task_list_id,l.google_task_id,l.last_synced_status,l.pending_status,c.id AS completion_id,c.outcome
+       FROM google_task_links l LEFT JOIN chore_completions c ON c.schedule_entry_id=l.schedule_entry_id
+       WHERE l.household_id=? AND l.schedule_entry_id IN (SELECT value FROM json_each(?))`, LOCAL_HOUSEHOLD_ID, JSON.stringify(targets.map(row => row.entry.id)));
+    const currentById = new Map(currentRows.map(row => [row.schedule_entry_id, row]));
     for (const { entry, change } of targets) {
       // Recheck inside the same transaction as the import. A local action during network I/O wins.
-      const currentLink = await database.getFirstAsync<{ last_synced_status: string | null; pending_status: string | null }>(
-        `SELECT last_synced_status, pending_status FROM google_task_links
-         WHERE schedule_entry_id = ? AND google_task_list_id = ? AND google_task_id = ?`,
-        entry.id, change.googleTaskListId, change.googleTaskId,
-      );
-      if (!currentLink || currentLink.pending_status) continue;
-      const current = await database.getFirstAsync<{ id: string; outcome: string }>(
-        'SELECT id, outcome FROM chore_completions WHERE schedule_entry_id = ?', entry.id,
-      );
+      const currentLink = currentById.get(entry.id);
+      if (!currentLink || currentLink.google_task_list_id !== change.googleTaskListId || currentLink.google_task_id !== change.googleTaskId || currentLink.pending_status) continue;
+      const current = currentLink.completion_id ? { id: currentLink.completion_id, outcome: currentLink.outcome ?? undefined } : undefined;
       const action = googleTaskImportAction({ pendingStatus: currentLink.pending_status, lastSyncedStatus: currentLink.last_synced_status }, current?.outcome, change.status);
       if (action === 'complete' && change.status === 'completed') {
         if (await persistChoreCompletion(database, entry, change.completedAt, 'googleTasks')) imported += 1;
@@ -1826,6 +1835,11 @@ async function undoCompletedChoreImpl(database: SQLiteDatabase, completionId: En
   return undone;
 }
 
+async function invalidateWidgetCompletionGeneration(database: SQLiteDatabase, entryId: string | null) {
+  if (entryId) await database.runAsync(`INSERT INTO widget_completion_generations VALUES(?,1)
+    ON CONFLICT(schedule_entry_id) DO UPDATE SET generation=generation+1`, entryId);
+}
+
 async function undoCompletionInTransaction(
   database: SQLiteDatabase, completionId: EntityId, source: 'inApp' | 'googleTasks', today: LocalDate,
 ): Promise<boolean> {
@@ -1860,6 +1874,7 @@ async function undoCompletionInTransaction(
     await restoreChoreState(database, chore.id, { choreId: chore.id, lastCompletedDate: remaining?.date ?? undefined,
       lastCompletedEstimated: false, initialPending: !remaining?.date });
     await saveSeasonalChoreCacheInside(database, chore.id, personalSeasonalEntries(chore, await readPersonalSeasonalInside(database, chore.id), context.today, context.assignedMemberIds(chore.id)));
+    await invalidateWidgetCompletionGeneration(database, completion.schedule_entry_id);
     return true;
   }
   if (completion.adaptive_operation_id) {
@@ -1879,6 +1894,7 @@ async function undoCompletionInTransaction(
       lastCompletedEstimated: Boolean(!view.state.lastPlanCompletion && original?.lastCompletedDate === date && original?.lastCompletedEstimated),
       initialPending: !date, ...(date ? {} : { initialScheduledDate: view.plan?.recommendedDate, unknownReason: 'unknown' }) });
     await saveAdaptiveChoreCacheInside(database, context, completion.chore_id);
+    await invalidateWidgetCompletionGeneration(database, completion.schedule_entry_id);
     return true;
   }
   await seedCompletionJournalInside(database, completion.chore_id, getDeviceTimeZone());
@@ -1902,6 +1918,7 @@ async function undoCompletionInTransaction(
     completedLocalDate: targetAction.completed_local_date, scheduledDate: targetAction.scheduled_date ?? undefined,
     scheduledWindowStart: targetAction.scheduled_window_start ?? undefined });
   if (wasCheckedEarly && completionDate > today) {
+    await invalidateWidgetCompletionGeneration(database, completion.schedule_entry_id);
     return true;
   }
   const datedHistory = actionHistory.map(row => ({ ...row,
@@ -1914,27 +1931,7 @@ async function undoCompletionInTransaction(
       scheduledDate: row.scheduled_date ?? undefined, scheduledWindowStart: row.scheduled_window_start ?? undefined })))
     .sort((left, right) => right.cycleDate.localeCompare(left.cycleDate))[0];
   if (targetAction.previous_chore_state_json !== null) {
-    let previousState = JSON.parse(targetAction.previous_chore_state_json) as ChoreState | null;
-    let prior = targetAction;
-    while (prior.action !== 'legacy' && prior.previous_action_sequence !== null) {
-      const parent = actionHistory.find(row => row.sequence === prior.previous_action_sequence);
-      if (!parent || parent.sequence >= prior.sequence) throw new Error('完了操作の順序を確認できません。');
-      const current = heads.get(parent.completion_id);
-      if (current?.outcome === 'completed' && current.sequence === parent.sequence) break;
-      previousState = parent.previous_chore_state_json === null ? null : JSON.parse(parent.previous_chore_state_json);
-      prior = parent;
-    }
-    let beforeSequence = prior.sequence;
-    // A saved prior state may itself point at a completion that was undone earlier.
-    while (prior.action === 'legacy' && previousState?.lastCompletedDate) {
-      const previousDate = previousState.lastCompletedDate;
-      const undonePrevious = datedHistory.find((row) => row.sequence < beforeSequence
-        && row.outcome === 'incomplete' && row.previous_chore_state_json !== null
-        && row.cycleDate === previousDate);
-      if (!undonePrevious) break;
-      previousState = JSON.parse(undonePrevious.previous_chore_state_json!) as ChoreState | null;
-      beforeSequence = undonePrevious.sequence;
-    }
+    let previousState = previousCompletionState(targetAction, actionHistory, heads, datedHistory);
     const remainingDate = latestRemaining?.cycleDate;
     if (remainingDate && (!previousState?.lastCompletedDate || remainingDate >= previousState.lastCompletedDate)) {
       previousState = { choreId: completion.chore_id, lastCompletedDate: remainingDate, lastCompletedEstimated: false, initialPending: false };
@@ -1950,6 +1947,7 @@ async function undoCompletionInTransaction(
   } else {
     await restoreLegacyChoreState(database, completion.chore_id, completion.schedule_entry_id, completion.scheduled_date);
   }
+  await invalidateWidgetCompletionGeneration(database, completion.schedule_entry_id);
   return true;
 }
 
@@ -2575,10 +2573,11 @@ async function replaceCalendarAvailabilityRows(
     }
   }
   await database.runAsync('DELETE FROM calendar_availability_days WHERE household_id = ?', householdId);
-  for (const day of days) {
+  for (let offset = 0; offset < days.length; offset += 100) {
+    const chunk = days.slice(offset, offset + 100);
     await database.runAsync(
-      'INSERT INTO calendar_availability_days (household_id, local_date, busy_minutes, time_zone, fetched_at) VALUES (?, ?, ?, ?, ?)',
-      householdId, day.localDate, day.busyMinutes, day.timeZone, day.fetchedAt,
+      `INSERT INTO calendar_availability_days (household_id, local_date, busy_minutes, time_zone, fetched_at) VALUES ${chunk.map(() => '(?,?,?,?,?)').join(',')}`,
+      ...chunk.flatMap(day => [householdId, day.localDate, day.busyMinutes, day.timeZone, day.fetchedAt]),
     );
   }
 }
@@ -2613,7 +2612,7 @@ export const initializeLocalDatabase = serializePlannerOperation(initializeLocal
 export const bindGoogleSyncAccount = serializeDatabaseOperation(bindGoogleSyncAccountImpl);
 export const ensureLocalHousehold = serializePlannerOperation(ensureLocalHouseholdImpl);
 export const loadApplianceCareReviewContext = serializeDatabaseOperation(loadApplianceCareReviewContextImpl);
-export const loadPlannerSnapshot = serializePlannerOperation(loadPlannerSnapshotImpl);
+export const loadPlannerSnapshot = retryOwnerRead(serializePlannerOperation(loadPlannerSnapshotImpl));
 export const completeFirstSetup = serializePlannerOperation(completeFirstSetupImpl, 'completeFirstSetup');
 export const updatePlannerSettings = serializePlannerOperation(updatePlannerSettingsImpl, 'updatePlannerSettings');
 export const updateCalendarCountDisplay = serializePlannerOperation(updateCalendarCountDisplayImpl);
@@ -2631,7 +2630,7 @@ export const completeChoreWithReceipt = serializePlannerOperation(completeChoreW
 export const commitWidgetCompletionOperation = serializePlannerOperation(commitWidgetCompletionOperationImpl);
 export const undoCompletionReceipt = serializePlannerOperation(undoCompletionReceiptImpl, 'undoCompletionReceipt');
 export const mirrorSharedChoreCompletions = serializeDatabaseOperation(mirrorSharedChoreCompletionsImpl);
-export const readPersonalPlannerOverlaySnapshot = serializeDatabaseOperation(readPersonalPlannerOverlaySnapshotImpl);
+export const readPersonalPlannerOverlaySnapshot = retryOwnerRead(serializeDatabaseOperation(readPersonalPlannerOverlaySnapshotImpl));
 export const readPersonalChoreCopySource = serializeDatabaseOperation(readPersonalChoreCopySourceImpl);
 export const setPersonalDateTaskCompleted = serializePlannerOperation(setPersonalDateTaskCompletedImpl);
 export const setPersonalDateTaskCompletedIntent = serializePlannerOperation((database: SQLiteDatabase, command: PersonalDateTaskCommand,
@@ -2664,6 +2663,22 @@ export const rejectGoogleTaskCreate = serializeDatabaseOperation((database: SQLi
 export const linkGoogleTaskCreate = serializeDatabaseOperation((database: SQLiteDatabase, identity: GoogleTaskCreateIdentity, taskId: string) => linkGoogleTaskCreateInside(database, identity, taskId));
 export const deleteGoogleTaskCreate = serializeDatabaseOperation((database: SQLiteDatabase, identity: GoogleTaskCreateIdentity, taskId: string) => deleteGoogleTaskCreateInside(database, identity, taskId));
 
+const personalTaskReadCaches = new WeakMap<SQLiteDatabase, ReturnType<typeof createGoogleTaskReadCache>>();
 export function personalGoogleTaskReadCache(database: SQLiteDatabase) {
-  return createGoogleTaskReadCache(work => withPlannerDatabaseOperation(database, () => withIsolatedSqliteTransaction(database, work)));
+  let cache = personalTaskReadCaches.get(database);
+  if (!cache) { cache = createGoogleTaskReadCache(work => withPlannerDatabaseOperation(database, () => withIsolatedSqliteTransaction(database, work))); personalTaskReadCaches.set(database, cache); }
+  return cache;
+}
+export function readPersonalGoogleStatusSnapshot(database: SQLiteDatabase, today: LocalDate, householdId = LOCAL_HOUSEHOLD_ID) {
+  return withPlannerDatabaseOperation(database, () => withIsolatedSqliteTransaction(database, async tx => {
+    const entries = await listEntriesForGoogleSyncImpl(tx, today, householdId);
+    const links = await listGoogleTaskLinksImpl(tx, householdId);
+    const revisions = new Map(links.filter(link => link.pendingStatusRevision).map(link => [link.scheduleEntryId,link.pendingStatusRevision!]));
+    return { entries: entries.map(item => ({ ...item, ...(revisions.has(item.entry.id) ? { localRevision: revisions.get(item.entry.id) } : {}) })),
+      links: links.map(link => ({ ...link, ...(revisions.has(link.scheduleEntryId) ? { observedLocalRevision: revisions.get(link.scheduleEntryId) } : {}) })) };
+  }));
+}
+export function personalGoogleTaskCreateJournal(database: SQLiteDatabase) {
+  return createGoogleTaskCreateJournal(work => withPlannerDatabaseOperation(database, () => withIsolatedSqliteTransaction(database, work)),
+    () => createId('google-create'), () => new Date());
 }

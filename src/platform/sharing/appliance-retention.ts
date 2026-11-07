@@ -32,7 +32,7 @@ export function createNativeApplianceRetention(input: { database: SQLiteDatabase
     const work = async () => {
       do {
         again = false; await guard();
-        const rows = await input.database.getAllAsync<{ operation_id: string }>("SELECT operation_id FROM sharing_operations WHERE group_id=? AND CASE WHEN json_valid(operation_json) THEN json_extract(operation_json, '$.entityType') ELSE NULL END IN (?, ?) ORDER BY operation_id", input.repository.scope.groupId, 'appliance', 'manualDocument');
+        const rows = await input.database.getAllAsync<{ operation_id: string }>("SELECT operation_id FROM sharing_operations WHERE group_id=? AND CASE WHEN json_valid(operation_json) THEN json_extract(operation_json, '$.entityType') ELSE NULL END IN (?, ?, ?) ORDER BY operation_id", input.repository.scope.groupId, 'appliance', 'manualDocument', 'manualChunk');
         const snapshot = await input.database.getFirstAsync<{ snapshot_id: string }>('SELECT snapshot_id FROM sharing_snapshot_state WHERE group_id=?', input.repository.scope.groupId);
         if (!rows.length && !snapshot) { completed = '[]'; continue; }
         const projection = await input.database.getFirstAsync<{ accepted_ids_json: string }>('SELECT accepted_ids_json FROM sharing_v2_projection WHERE singleton=1');

@@ -5,8 +5,8 @@ import { createWidgetCompletionSync } from '@/features/widgets/widget-completion
 import { publishTodayWidgetSnapshot } from '@/features/widgets/publish-today-widget-snapshot';
 import { commitWidgetCompletionOperation, completeChore, loadPlannerSnapshot, readCachedPlannerSnapshot } from '@/platform/storage/repository';
 import type { PlannerSnapshot } from '@/platform/storage/repository';
-import { expoWidgetGateway, readIOSWidgetCompletionOperations, acknowledgeIOSWidgetCompletionOperations } from '@/platform/widgets/expo-widget-gateway';
-import { readNativeWidgetCompletionOperations } from '../storage/widget-completion-intents';
+import { expoWidgetGateway, readIOSWidgetCompletionBatch, readIOSWidgetCompletionOperations, acknowledgeIOSWidgetCompletionOperations } from '@/platform/widgets/expo-widget-gateway';
+import { readNativeWidgetCompletionOperations, quarantineWidgetCompletionInput } from '../storage/widget-completion-intents';
 
 const synchronizers = new WeakMap<SQLiteDatabase, ReturnType<typeof createWidgetCompletionSync<PlannerSnapshot>>>();
 
@@ -21,12 +21,23 @@ export async function refreshPlannerFromWidget(database: SQLiteDatabase, _reques
       if (subscription.subscriptionRequired && subscription.subscriptionSnapshot().userId !== scope) throw new Error('ウィジェットのアカウントが変わりました。');
     };
     try {
-      const operations = Platform.OS === 'android' ? await readNativeWidgetCompletionOperations(database) : await readIOSWidgetCompletionOperations();
+      const acknowledged: string[] = [];
+      const batch = Platform.OS === 'ios' && readIOSWidgetCompletionBatch ? await readIOSWidgetCompletionBatch() : null;
+      for (const raw of batch?.rejected ?? []) {
+        await assertAccess(); await quarantineWidgetCompletionInput(database, raw, 'invalidInput');
+        const id = (raw as { id?: unknown } | null)?.id;
+        if (typeof id === 'string' && id.startsWith('completion-intent.') && id.length <= 80) acknowledged.push(id);
+      }
+      const operations = Platform.OS === 'android' ? await readNativeWidgetCompletionOperations(database) : batch?.operations ?? await readIOSWidgetCompletionOperations();
       for (const operation of operations) {
         if (operation.accountScope !== scope) continue;
-        await commitWidgetCompletionOperation(database, operation, assertAccess);
-        if (Platform.OS === 'ios') await acknowledgeIOSWidgetCompletionOperations([operation.id]);
+        try {
+          const result = await commitWidgetCompletionOperation(database, operation, assertAccess);
+          if (result === 'targetChanged') await quarantineWidgetCompletionInput(database, operation, 'targetChanged');
+          if (Platform.OS === 'ios') acknowledged.push(operation.id);
+        } catch { await assertAccess(); nativeFailed = true; }
       }
+      if (Platform.OS === 'ios' && acknowledged.length) { await assertAccess(); await acknowledgeIOSWidgetCompletionOperations([...new Set(acknowledged)]); }
     } catch { nativeFailed = true; }
   }
   let synchronize = synchronizers.get(database);

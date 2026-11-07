@@ -9,6 +9,7 @@ import { v2CompletionNoticeCandidates, v2CompletionNoticePrefix } from '../src/f
 import { applyReceivedSharedFacts, loadSharedFacts, readSharingCheckpoint, listSharingOutbox } from '../src/platform/storage/sharing-ledger.ts';
 import { loadNativeModule } from './helpers/native-module.mjs';
 import { v2ReadPoint } from '../src/features/sharing/v2/view-point.ts';
+import { sharedDocumentDigest } from '../src/features/sharing/crypto.ts';
 import { sharedLocalDate } from '../src/features/sharing/group-clock.ts';
 
 const range = { from: '2026-10-27', through: '2026-11-10', asOfDate: '2026-10-27' };
@@ -28,7 +29,7 @@ async function setup({ push = false, selectedOwner = false, show = true } = {}) 
   const options = { repository: owner.repository, userId: 'owner', groupId, assertAccess };
   const store = createV2CompletionNoticeStore(options); const notices = []; const permissionReads = []; let permitted = true;
   const runtimeInput = { userId: 'owner', groupId, store, now, assertAccess, hasPermission: async () => { permissionReads.push(true); return permitted; },
-    present: async notice => { notices.push(structuredClone(notice)); } };
+    present: async (notice, guard, issue) => { await guard(); if (await issue()) notices.push(structuredClone(notice)); } };
   return { f, owner, member, a, b, store, options, notices, permissionReads, runtimeInput,
     runtime: createV2CompletionNoticeRuntime(runtimeInput), async receivedCompletion(target = ref) { const done = await b.actions.complete(target); await receive(owner, await loadSharedFacts(member.database, groupId)); return done; },
     permission(value) { permitted = value; }, stop() { access = false; }, close() { owner.connection.close(); member.connection.close(); } };
@@ -95,11 +96,62 @@ test('v2 notification delivery uncertainty keeps a durable claim instead of repe
   const h = await setup({ push: true }); let attempts = 0;
   try {
     await h.runtime.synchronize(); await h.receivedCompletion();
-    const failing = createV2CompletionNoticeRuntime({ ...h.runtimeInput, present: async () => { attempts++; throw new Error('OS reply lost'); } });
+    const failing = createV2CompletionNoticeRuntime({ ...h.runtimeInput, present: async (_notice, guard, issue) => { await guard(); if (await issue()) { attempts++; throw new Error('OS reply lost'); } } });
     await assert.rejects(failing.synchronize(), /OS reply lost/u);
     const restarted = createV2CompletionNoticeRuntime({ ...h.runtimeInput, store: createV2CompletionNoticeStore(h.options) }); await restarted.synchronize();
     assert.equal(attempts, 1); assert.equal(h.notices.length, 0, 'delivery is best effort, not falsely recorded as delivered');
   } finally { h.close(); }
+});
+
+test('a known pre-request abort requeues a notice, while another collector cannot refund the active issuer', async () => {
+  const h = await setup({ push: true });
+  try {
+    await h.runtime.synchronize(); await h.receivedCompletion();
+    const stale = await h.store.collect(true, now()); const active = await h.store.collect(true, now());
+    assert.notEqual(stale.issueToken, active.issueToken);
+    assert.equal(await h.store.issue(active, async () => {}), true);
+    await h.store.notIssued(stale);
+    assert.equal(h.owner.connection.prepare('SELECT claimed FROM sharing_v2_private_notice_seen').get().claimed, 1);
+    assert.equal(await h.store.collect(true, now()), null, 'an unrelated collector cannot cause duplicate delivery');
+    await h.store.notIssued(active);
+    const retry = await h.store.collect(true, now()); assert.ok(retry);
+    assert.equal(await h.store.issue(retry, async () => {}), true);
+    await h.store.notIssued(active); await h.store.settled(active);
+    assert.equal(h.owner.connection.prepare('SELECT claimed FROM sharing_v2_private_notice_seen').get().claimed, 1);
+    assert.equal(await h.store.collect(true, now()), null, 'a late abort cannot undo a newer issuance');
+    await h.store.settled(retry);
+    assert.equal(h.owner.connection.prepare('SELECT count(*) n FROM sharing_v2_private_notice_issued').get().n, 0);
+  } finally { h.close(); }
+});
+
+test('a native request known not to have started remains available after runtime restart', async () => {
+  const h = await setup({ push: true });
+  try {
+    await h.runtime.synchronize(); await h.receivedCompletion(); let attempts = 0;
+    const interrupted = createV2CompletionNoticeRuntime({ ...h.runtimeInput, present: async (_notice, guard, issue) => {
+      await guard(); assert.equal(await issue(), true); attempts++; return false;
+    } });
+    await interrupted.synchronize(); assert.equal(attempts, 1);
+    assert.equal(h.owner.connection.prepare('SELECT count(*) n FROM sharing_v2_private_notice_pending').get().n, 1);
+    const restored = createV2CompletionNoticeRuntime({ ...h.runtimeInput, store: createV2CompletionNoticeStore(h.options) });
+    await restored.synchronize(); await restored.synchronize(); assert.equal(h.notices.length, 1);
+  } finally { h.close(); }
+});
+
+test('a candidate survives a pre-send interruption and an unrelated shared change, then issues only once',async()=>{
+  const h=await setup({push:true});
+  try {
+    await h.runtime.synchronize();await h.receivedCompletion();
+    const batch=await h.store.collect(true,now());assert.ok(batch);
+    assert.equal(h.owner.connection.prepare('SELECT claimed FROM sharing_v2_private_notice_seen').get().claimed,0);
+    await h.a.actions.patchGroupPolicy({showCompletionStatus:false});
+    assert.equal(await h.store.current(batch),false);
+    await assert.rejects(h.store.issue(batch,async()=>{throw new Error('before-send deadline');}),/deadline/);
+    const restarted=createV2CompletionNoticeRuntime({...h.runtimeInput,store:createV2CompletionNoticeStore(h.options)});
+    await restarted.synchronize();await restarted.synchronize();
+    assert.equal(h.notices.length,1);assert.equal(h.owner.connection.prepare('SELECT claimed FROM sharing_v2_private_notice_seen').get().claimed,1);
+    assert.equal(h.owner.connection.prepare('SELECT count(*) n FROM sharing_v2_private_notice_pending').get().n,0);
+  }finally{h.close();}
 });
 test('v2 notice permissions policy and workspace are rechecked before a native presentation', async () => {
   for (const change of ['policy', 'account', 'revision']) {
@@ -131,7 +183,7 @@ test('v2 completion notice projection handles thousands of received subjects wit
     await h.receivedCompletion(); const model = await h.a.readModel(range); const base = model.plan.history[0];
     const history = Array.from({ length: 5000 }, (_, index) => ({ ...base, subjectOccurrenceId: `subject-${index}`, operationId: `complete-${index}` }));
     const rows = v2CompletionNoticeCandidates({ ...model.plan, history }, 'owner', 'owner'); assert.equal(rows.length, 5000);
-    let consumed = false; const store = { scope: { userId: 'owner', groupId }, enabled: async () => true, current: async () => true,
+    let consumed = false; const store = { scope: { userId: 'owner', groupId }, enabled: async () => true, current: async () => true, issue: async () => true,
       collect: async () => consumed ? null : (consumed = true, { revision: 'a'.repeat(64), keys: rows.map(row => row.key), names: rows.map(row => row.name) }) };
     const runtime = createV2CompletionNoticeRuntime({ ...h.runtimeInput, store }); await runtime.synchronize(); await runtime.synchronize();
     assert.equal(h.notices.length, 1); assert.equal(h.notices[0].count, 5000); assert.match(h.notices[0].body, /ほか4996件/u);
@@ -145,7 +197,7 @@ test('v2 notice baseline batches five thousand private claims by100 and a budget
     const module = loadNativeModule('src/platform/storage/sharing-v2-completion-notices.ts', {
       '../../features/sharing/v2/common-plan.ts': { buildV2CommonPlan: () => ({ ...model.plan, history }) },
       '../../features/sharing/v2/view-point.ts': { v2ReadPoint }, '../../features/sharing/group-clock.ts': { sharedLocalDate },
-      '../../features/sharing/v2/completion-notices.ts': { v2CompletionNoticeCandidates },
+      '../../features/sharing/v2/completion-notices.ts': { v2CompletionNoticeCandidates }, '../../features/sharing/crypto.ts': {sharedDocumentDigest},
     });
     const store = module.createV2CompletionNoticeStore(h.options); const batches = [];
     h.owner.database.runAsync = async (sql, ...args) => { if (sql.startsWith('INSERT INTO sharing_v2_private_notice_seen')) batches.push(args.length / 2); return run(sql, ...args); };
@@ -155,4 +207,13 @@ test('v2 notice baseline batches five thousand private claims by100 and a budget
     assert.deepEqual(batches, Array(50).fill(100)); assert.equal(h.owner.connection.prepare('SELECT COUNT(*) AS n FROM sharing_v2_private_notice_seen').get().n, 5000);
     assert.equal(h.notices.length, 0, 'an initial baseline never floods the OS with historical work');
   } finally { h.owner.database.runAsync = run; h.close(); }
+});
+
+test('audit100 a completion notice refresh removes obsolete pending subjects in one bounded statement while preserving current notices',async()=>{
+ const h=await setup({push:true});try{
+  await h.store.collect(true,now());await h.receivedCompletion();const current=await h.store.collect(true,now());assert.equal(current.keys.length,1);
+  for(let i=0;i<200;i++)h.owner.connection.prepare('INSERT INTO sharing_v2_private_notice_pending VALUES(?,?)').run(sharedDocumentDigest(['obsolete',i]),'old completion');
+  const run=h.owner.database.runAsync;let deletes=0;h.owner.database.runAsync=async(sql,...args)=>{if(sql.startsWith('DELETE FROM sharing_v2_private_notice_pending'))deletes++;return run(sql,...args);};
+  const next=await h.store.collect(true,now());assert.deepEqual(next.keys,current.keys);assert.equal(h.owner.connection.prepare('SELECT COUNT(*) AS n FROM sharing_v2_private_notice_pending').get().n,1);assert.ok(deletes<=2,`obsolete notice deletes ${deletes}`);
+ }finally{h.close();}
 });

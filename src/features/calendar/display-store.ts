@@ -22,7 +22,7 @@ export function createCalendarDisplayStore(storage: { getItemSync(key: string): 
       let error: string | null = null;
       try { storage.setItemSync(CALENDAR_DISPLAY_KEY, JSON.stringify({ version: 1, view, detail })); }
       catch { error = '表示形式を保存できませんでした。次回の起動時には元の表示に戻る場合があります。'; }
-      state = { view, detail, error }; for (const listener of listeners) listener();
+      state = { view, detail, error }; for (const listener of listeners) try { listener(); } catch { /* A closed view cannot block other subscribers or undo persistence. */ }
     },
   };
 }

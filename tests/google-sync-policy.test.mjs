@@ -102,3 +102,9 @@ test('Firestore transient and quota codes without HTTP status retry while author
     assert.deepEqual(classifyGoogleSyncFailure({ code }, t0), { kind: 'error', code });
   }
 });
+
+test('audit100 a backward clock correction cannot pin automatic Tasks synchronization to a future attempt or success timestamp', () => {
+  const future = new Date(t0.getTime() + 86400_000).toISOString();
+  assert.equal(isGoogleSyncAttemptStale(state({ status: 'syncing', lastAttemptAt: future }), t0), true);
+  assert.equal(shouldSyncGoogleTasks(state({ lastSuccessfulSyncAt: future }), t0), true);
+});

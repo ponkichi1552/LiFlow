@@ -51,6 +51,7 @@ import { groupHistoryByDay } from '../../planner/history-groups';
 import { HistoryDayHeading } from '../../../components/history-day-heading';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
 import type { PlannerCalendarProps } from '../../calendar/planner-calendar';
+import { calendarChoreDisplayThrough } from '../../calendar/chore-display-range';
 import type { ChoreAudienceSelection } from '../../chores/audience-selection';
 import { personalCompletionKey } from '../../planner/completion-command';
 import type { CompletionIntentState } from '../../planner/completion-intents';
@@ -229,7 +230,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         if (!runtime) throw new Error('完了操作の保存先を確認できません。');
         const targetKey = target.kind === 'shared' ? key : personalCompletionKey(target.command.revision);
         const accepted = runtime.queue.request(targetKey, target, completed);
-        if (accepted && view === 'home') setLastUndo(completed ? { queued: true, undo: async () => { runtime.queue.request(targetKey, target, false); } } : null);
+        if (accepted && view === 'home') setLastUndo(completed ? { queued: true, undo: async () => runtime.queue.request(targetKey, target, false) } : null);
       } catch { setError('完了操作の保存先を確認できません。'); }
     },
     run: async (key, completed, work) => {
@@ -331,11 +332,17 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         const next = v2CalendarMonth(day); setCalendarMonth(next.month);
         // Browsing another month never changes the selected day to its first day.
         if (selectedDate) setCalendarDay(selectedDate);
-        const covered = model.plan.range.from <= next.from && next.through <= model.plan.range.through
-          && model.waste && model.waste.range.from <= next.from && next.through <= model.waste.range.through
-          && (privateOverlay?.status !== 'ready' || privateOverlay.range.from <= next.from && next.through <= privateOverlay.range.through);
+        const through = calendarChoreDisplayThrough(model.plan.range.asOfDate);
+        // Appointments are already in the independent calendar cache. Browsing
+        // them must not request a distant shared/private Scheduler projection.
+        if (next.month > through) return;
+        const requiredThrough = next.through < through ? next.through : through;
+        const covered = model.plan.range.from <= next.from && requiredThrough <= model.plan.range.through
+          && model.waste && model.waste.range.from <= next.from && requiredThrough <= model.waste.range.through
+          && (privateOverlay?.status !== 'ready' || privateOverlay.range.from <= next.from && requiredThrough <= privateOverlay.range.through);
         if (covered) return;
-        readOptions.current = { calendarMonth: next.month, calendarRange: v2CalendarDisplayRange(next.month, model.plan.range), waste: true };
+        const range = v2CalendarDisplayRange(next.month, model.plan.range);
+        readOptions.current = { calendarMonth: next.month, calendarRange: { ...range, through: range.through < through ? range.through : through }, waste: true };
         if (running.current) { refreshQueued.current = true; return; }
         await perform(async () => {}, false);
       } catch (cause) { setError(cause instanceof Error ? cause.message : '表示する月を確認してください。'); }
@@ -392,9 +399,9 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     .map(entry => ({ source: 'waste' as const, key: `waste:${entry.key}`, entry })),
     ...today.map((entry) => ({ source: 'shared' as const, key: `shared:${entry.subject.id}`, ...entry })),
     ...(privateOverlay?.status === 'ready' ? privateOverlay.home : []).map((row) => ({ source: 'personal' as const, key: row.key, row }))], model.plan.range.asOfDate, item => item.source === 'personal'
-      ? { completed: completionValues.get(item.key) ?? item.row.completed, load: item.row.chore.load, estimatedMinutes: item.row.chore.estimatedMinutes, recommendedDate: item.row.suggestedDate, windowEnd: item.row.windowEnd, asOfDate: privateOverlay?.status === 'ready' ? privateOverlay.today : undefined }
+      ? { completed: completionValues.get(item.key) ?? item.row.completed, load: item.row.chore.load, estimatedMinutes: item.row.chore.estimatedMinutes, recommendedDate: item.row.suggestedDate, windowStart: item.row.windowStart, windowEnd: item.row.windowEnd, asOfDate: privateOverlay?.status === 'ready' ? privateOverlay.today : undefined }
       : item.source === 'shared' ? { completed: visibility(item.round, item.subject).showStatus && (completionValues.get(item.key) ?? item.subject.completed),
-        load: choreById.get(item.round.choreId)?.load ?? 'light', estimatedMinutes: choreById.get(item.round.choreId)?.estimatedMinutes, recommendedDate: recommendations.get(item.subject.id)?.date ?? item.subject.suggestedDate, windowEnd: item.subject.executionWindowEnd }
+        load: choreById.get(item.round.choreId)?.load ?? 'light', estimatedMinutes: choreById.get(item.round.choreId)?.estimatedMinutes, recommendedDate: recommendations.get(item.subject.id)?.date ?? item.subject.suggestedDate, windowStart: item.subject.executionWindowStart, windowEnd: item.subject.executionWindowEnd }
         : { completed: false, load: 'light', recommendedDate: model.plan.range.asOfDate }, display.order);
   const upcoming = v2HomeUpcomingRows(model, projection, privateOverlay, homeUpcomingRange(model.plan.range.asOfDate, weekScope), display.order, completionValues);
   const expired = entries.filter(({ subject }) => subject.showExpiredOnHome);
@@ -443,7 +450,11 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
           <AppButton key={entry.choreId} title={`「${model.plan.chores.find((chore) => chore.id === entry.choreId)?.name ?? '家事'}」の設定`} variant="quiet" disabled={busy} onPress={() => onConfiguration(entry.choreId)} />)}</Card> : null}
       </View>} />
     {lastUndo ? <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: Math.max(insets.bottom, 8) }}><CompletionToast busy={busy && !lastUndo.queued} onUndo={() => {
-      if ((!lastUndo.queued && running.current) || !alive.current) return; const receipt = lastUndo; setLastUndo(null); if (receipt.queued) void receipt.undo(); else void perform(receipt.undo);
+      if ((!lastUndo.queued && running.current) || !alive.current) return; const receipt = lastUndo;
+      if (receipt.queued) void receipt.undo().then(accepted => {
+        if (accepted !== false && alive.current) setLastUndo(current => current === receipt ? null : current);
+      }).catch(() => { if (alive.current) setError('取り消しを保存できませんでした。もう一度お試しください。'); });
+      else { setLastUndo(null); void perform(receipt.undo); }
     }} /></View> : null}
   </V2ScreenFrame>;
 }

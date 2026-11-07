@@ -24,10 +24,10 @@ function pendingIds(entries: Awaited<ReturnType<typeof NextChoreWidget.getTimeli
 export const expoWidgetGateway: WidgetGateway = {
   updateNextChore(snapshot: NextChoreWidgetSnapshot): Promise<void> {
     const captured = ++revision;
+    const account = subscriptionRequired ? subscriptionSnapshot() : undefined;
     const owned = { ...snapshot, chores: snapshot.chores.map(chore => ({ ...chore })) };
     return ordered(async () => {
-      if (captured !== revision) return;
-      const account = subscriptionRequired ? subscriptionSnapshot() : undefined;
+      if (captured !== revision || subscriptionRequired && subscriptionSnapshot() !== account) return;
       const deadline = subscriptionRequired ? await subscriptionAccessDeadline() : Infinity;
       if (captured !== revision || deadline <= Date.now() || subscriptionRequired && subscriptionSnapshot() !== account) return;
       const scope = subscriptionRequired ? account?.userId : 'local-development';
@@ -69,6 +69,20 @@ export async function readIOSWidgetCompletionOperations(): Promise<readonly Widg
   const values = operations.map(validateWidgetCompletionOperation);
   if (new Set(values.map(value => value.id)).size !== values.length) throw new Error('ウィジェット操作が重複しています。');
   return values;
+}
+
+/** Broken rows are isolated individually; an unreadable whole journal is an error. */
+export async function readIOSWidgetCompletionBatch() {
+  const entries = await NextChoreWidget.getTimeline();
+  if (!entries.length) return { operations: [] as WidgetCompletionOperation[], rejected: [] as unknown[] };
+  if (entries.some(entry => entry.props.nativeWidgetInputVersion !== 1)) throw new Error('ウィジェットの更新が必要です。');
+  const rows = entries.reduce((a,b) => a.date > b.date ? a : b).props.nativeWidgetCompletionOperations;
+  if (!Array.isArray(rows) || rows.length > 1000) throw new Error('ウィジェット操作を読み込めません。');
+  const counts = new Map<unknown, number>(); for (const row of rows) counts.set(row?.id, (counts.get(row?.id) ?? 0) + 1);
+  const operations: WidgetCompletionOperation[] = []; const rejected: unknown[] = [];
+  for (const row of rows) try { const value = validateWidgetCompletionOperation(row); if (counts.get(value.id) !== 1) throw new Error('duplicate'); operations.push(value); }
+  catch { rejected.push(row); }
+  return { operations, rejected };
 }
 
 export function acknowledgeIOSWidgetCompletionOperations(ids: readonly string[]): Promise<void> {

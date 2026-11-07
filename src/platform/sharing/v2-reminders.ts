@@ -19,9 +19,11 @@ export function createNativeV2Reminders(input: { database: SQLiteDatabase; userI
   const notices = createNativeV2CompletionNotices(input);
   const readModel = async (now: Date) => {
         const local = await readV2LocalPlanning(input, now);
+        try {
         const session = createV2ScreenSession({ controller: input.controller, userId: input.userId, groupId: input.groupId, now: () => now,
           readPreferences: () => local.preferences, privateTasks: local.privateTasks, calendar: local.calendar, localCalendar: local.localCalendar });
-        const model = await session.readModel({ reminders: true }); await input.assertAccess(); return model;
+        const model = await session.readModel({ reminders: true }); await input.assertAccess(); return { ...model, assertPlanningCurrent: local.assertCurrent, dispose: local.dispose };
+        } catch (error) { local.dispose(); throw error; }
     };
   return createV2ReminderRuntime({ ...input, store, gateway: expoLocalNotificationGateway, readModel,
     afterSynchronize: remaining => notices.synchronize(remaining) });

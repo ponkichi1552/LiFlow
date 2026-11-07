@@ -34,6 +34,7 @@ export function createPrivateCalendarKeyDelivery(port: { userId: string; secrets
     assertPrivateCalendarWork(control);
     const authority = await secrets.authority(userId); if (!authority) throw new Error('本人端末の信頼を先に確認してください。');
     const entries = await outbox.pending(authority, now(), { force }); let sent = 0; let available = 0;
+    let failure: ReturnType<typeof privateCalendarDeliveryFailureCode> | undefined;
     for (const entry of entries) {
       try { await privateCalendarWork(() => cloud.sendKey(authority, entry.wrapped, control.assertBudget), control); }
       catch (error) {
@@ -47,12 +48,13 @@ export function createPrivateCalendarKeyDelivery(port: { userId: string; secrets
         assertPrivateCalendarWork(control);
         const code = privateCalendarDeliveryFailureCode(error);
         await outbox.fail(authority, entry.recipientDeviceId, entry.envelopeDigest, now(), code, randomFraction());
-        return { kind: 'deferred' as const, sent, code };
+        failure ??= code; continue;
       }
       assertPrivateCalendarWork(control);
       if (!await outbox.acknowledge(authority, entry.recipientDeviceId, entry.envelopeDigest)) throw new Error('配布鍵の確認中に本人端末の設定が変わりました。');
       sent++;
     }
+    if (failure) return { kind: 'deferred' as const, sent, code: failure };
     const status = await outbox.status(authority);
     return status.pending ? { kind: 'waiting' as const, sent, pending: status.pending, nextRetryAt: status.retryAt, ...(available ? { available } : {}) }
       : { kind: 'sent' as const, sent, pending: 0, ...(available ? { available } : {}) };

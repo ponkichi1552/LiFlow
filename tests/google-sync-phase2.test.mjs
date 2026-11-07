@@ -33,7 +33,7 @@ test('180 tasks use all pages and import the final first-party hidden completion
     assert.equal((await h.sync()).imported, 0);
     assert.equal(h.history().length, 1);
     assert.equal(h.state().last_completed_estimated, 0);
-    assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 27);
+    assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 29);
   } finally { h.connection.close(); }
 });
 

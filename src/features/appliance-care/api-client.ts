@@ -69,14 +69,14 @@ export async function analyzeApplianceCareRequest(
       while (pendingAdmissions.size > 32) pendingAdmissions.delete(pendingAdmissions.keys().next().value!);
     }
     admissionId = startHeaders['x-idempotency-key'];
-    const startResponse = await fetch(`${baseUrl}/api/appliance-care/jobs`, {
+    const startResponse = await abortApplianceWait(() => fetch(`${baseUrl}/api/appliance-care/jobs`, {
       method: 'POST',
       redirect: 'error',
       headers: { 'content-type': 'application/json', ...startHeaders },
       body: JSON.stringify(normalized),
       signal: controller.signal,
-    });
-    const startPayload: unknown = await readJson(startResponse);
+    }), controller.signal);
+    const startPayload: unknown = await abortApplianceWait(() => readJson(startResponse), controller.signal);
     if (controller.signal.aborted) return temporaryError(signal?.aborted ? '解析の通信を中断しました。' : '解析がタイムアウトしました。時間をおいて再試行してください。');
     if (isApiResponse(startPayload)) { finishAttempt(); return startPayload; }
     if (!startResponse.ok || !isJobAccepted(startPayload)) {
@@ -88,13 +88,13 @@ export async function analyzeApplianceCareRequest(
     while (!controller.signal.aborted) {
       const headers = await abortApplianceWait(() => session.headers(), controller.signal);
       if (controller.signal.aborted) return temporaryError('解析の通信を中断しました。');
-      const statusResponse = await fetch(`${baseUrl}/api/appliance-care/jobs/${encodeURIComponent(startPayload.jobId)}`, {
+      const statusResponse = await abortApplianceWait(() => fetch(`${baseUrl}/api/appliance-care/jobs/${encodeURIComponent(startPayload.jobId)}`, {
         method: 'GET',
         redirect: 'error',
         headers,
         signal: controller.signal,
-      });
-      const statusPayload: unknown = await readJson(statusResponse);
+      }), controller.signal);
+      const statusPayload: unknown = await abortApplianceWait(() => readJson(statusResponse), controller.signal);
       if (controller.signal.aborted) return temporaryError(signal?.aborted ? '解析の通信を中断しました。' : '解析がタイムアウトしました。時間をおいて再試行してください。');
       if (isApiResponse(statusPayload)) {
         if (statusPayload.status === 'error' && statusPayload.code === 'JOB_NOT_FOUND') finishAttempt();
@@ -109,10 +109,9 @@ export async function analyzeApplianceCareRequest(
         onStage?.(lastStage);
       }
       if (statusPayload.done) {
+        if (!isApiResponse(statusPayload.result)) return temporaryError('解析結果を読み取れませんでした。時間をおいて再試行してください。');
         finishAttempt();
-        return isApiResponse(statusPayload.result)
-          ? { ...statusPayload.result, ...(isApplianceCareUsage(statusPayload.usage) ? { usage: statusPayload.usage } : {}) }
-          : temporaryError('解析結果を読み取れませんでした。もう一度検索してください。');
+        return { ...statusPayload.result, ...(isApplianceCareUsage(statusPayload.usage) ? { usage: statusPayload.usage } : {}) };
       }
       await waitForAppliancePoll(applianceCarePollDelay(pollAttempt++, statusPayload.pollAfterMs), controller.signal);
     }

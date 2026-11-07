@@ -57,10 +57,11 @@ test('disabled, not-due, and retry-not-due syncs make no API calls', async () =>
   assert.equal(disabled.counters.api + notDue.counters.api + retryNotDue.counters.api, 0);
 });
 
-test('a future-clock success marker cannot classify an unverified Tasks skip as a settled cadence', async () => {
+test('a future-clock success marker cannot suppress the next Tasks pass after a clock correction', async () => {
   const h = setup({ lastSuccessfulSyncAt: new Date(now.getTime() + 60_000).toISOString() });
-  assert.deepEqual(await syncGoogleTasksWithDependencies(h.dependencies, { now }), { kind: 'success', skipped: true });
-  assert.equal(h.counters.api, 0);
+  const result = await syncGoogleTasksWithDependencies(h.dependencies, { now });
+  assert.equal(result.kind, 'success'); assert.equal(result.skipped, undefined);
+  assert.equal(h.counters.api, 2); assert.equal(h.currentState.lastSuccessfulSyncAt, now.toISOString());
 });
 
 test('successful manual sync bypasses the 24-hour interval and clears retry state', async () => {
@@ -205,4 +206,12 @@ test('new dependency wrappers for the same SQLite scope still coalesce one hundr
   const pending = Array.from({ length: 100 }, () => syncGoogleTasksWithDependencies({ ...h.dependencies, syncScope: scope }, { now, force: true }));
   const results = await Promise.all(pending);
   assert.ok(results.every((result) => result.kind === 'success')); assert.equal(h.counters.api, 2);
+});
+
+test('audit100 Calendar replanning cannot bypass Tasks authentication failure or its retry deadline', async () => {
+  for (const state of [{ status: 'authRequired' }, { status: 'error' }, { status: 'retryPending', nextRetryAt: new Date(now.getTime() + 3600_000).toISOString() }]) {
+    const h = setup(state); h.dependencies.refreshCalendar = async () => ({ plannerChanged: true });
+    const result = await syncGoogleTasksWithDependencies(h.dependencies, { now });
+    assert.equal(result.skipped, true, state.status); assert.equal(h.counters.api, 0); assert.equal(h.currentState.status, state.status);
+  }
 });

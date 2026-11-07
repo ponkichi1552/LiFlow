@@ -8,6 +8,7 @@ import { waitForInitialFrame } from '../planner/initial-display-gate';
 /** Navigation and editor commits never wait on Google. Only the global provider installs this observer. */
 export function usePersonalGoogleSync(database: SQLiteDatabase, waitForInitialRead: () => Promise<void>) {
   const request = useRef<((from: LocalDate, through: LocalDate) => void) | null>(null);
+  const earlyRange = useRef<[LocalDate, LocalDate] | null>(null);
   useEffect(() => {
     let alive = true; let pending = false; let running = false; let timer: ReturnType<typeof setTimeout> | undefined;
     const run = async () => {
@@ -27,11 +28,15 @@ export function usePersonalGoogleSync(database: SQLiteDatabase, waitForInitialRe
         if (alive && await nativePersonalGoogleCalendar(database).requestRange(from, through)) schedule();
       }).catch(() => { /* Offline range requests must not block a calendar gesture. */ });
     };
+    if (earlyRange.current) { const range = earlyRange.current; earlyRange.current = null; request.current(...range); }
     schedule();
     const unsubscribe = subscribeLocalCalendar(database, change => { if (change === 'events') schedule(); });
     const state = AppState.addEventListener('change', value => { if (value === 'active') schedule(); });
     const periodic = setInterval(() => void run(), 10 * 60_000);
     return () => { alive = false; request.current = null; clearTimeout(timer); clearInterval(periodic); unsubscribe(); state.remove(); };
   }, [database, waitForInitialRead]);
-  return useCallback((from: LocalDate, through: LocalDate) => request.current?.(from, through), []);
+  return useCallback((from: LocalDate, through: LocalDate) => {
+    if (request.current) request.current(from, through);
+    else earlyRange.current = [from, through];
+  }, []);
 }

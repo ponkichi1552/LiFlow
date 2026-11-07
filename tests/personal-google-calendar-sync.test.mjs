@@ -267,6 +267,26 @@ test('a previous account import never becomes a new export after switching Googl
   const h = await harness(t); await h.connect(); h.put(h.remote()); await h.sync.sync(); h.events.clear(); h.subject('google-two'); await h.connect();
   await h.sync.sync(); assert.equal(h.calls.filter(row => row[0] === 'insert').length, 0);
 });
+test('switching accounts displays one copy of the same accessible Google event and restores the original mapping without new exports', async t => {
+  const { readPlanningInputRevision } = await import('../src/platform/storage/planning-input-revision.ts');
+  const { subscribeLocalCalendar } = await import('../src/platform/storage/calendar-events.ts');
+  const h = await harness(t); await h.connect(); h.put(h.remote('same-shared-calendar-event'));
+  await h.sync.sync(); const first = (await readLocalCalendar(h.database)).events;
+  assert.equal(first.length, 1);
+  const changes = []; const stop = subscribeLocalCalendar(h.database, kind => changes.push(kind)); t.after(stop);
+  const before = await readPlanningInputRevision(h.database);
+  h.subject('google-two'); await h.connect();
+  assert.ok(await readPlanningInputRevision(h.database) > before, 'another native SQLite connection must observe the availability change');
+  assert.deepEqual(changes, ['sync'], 'the visible event scope must invalidate observers immediately on account change');
+  assert.equal((await readLocalCalendar(h.database)).events.length, 0, 'the archived account must not remain visible before the new account imports');
+  await h.sync.sync(); const second = (await readLocalCalendar(h.database)).events;
+  assert.equal(second.length, 1); assert.notEqual(second[0].id, first[0].id);
+  assert.equal(h.connection.prepare('SELECT count(*) n FROM calendar_events WHERE deleted=0').get().n, 2, 'account archives remain intact');
+  assert.equal(h.calls.some(call => ['insert', 'patch', 'remove'].includes(call[0])), false);
+  h.subject('google-one'); await h.connect(); await h.sync.sync();
+  assert.deepEqual((await readLocalCalendar(h.database)).events.map(row => row.id), [first[0].id]);
+  assert.equal(h.events.size, 1); assert.equal(h.calls.some(call => ['insert', 'patch', 'remove'].includes(call[0])), false);
+});
 test('a single pass never exceeds 100 Google requests and a later pass continues the durable queue', async t => {
   const h = await harness(t); await h.connect(); for (let i = 0; i < 105; i++) await h.local({ title: `予定${i}` });
   const first = await h.sync.sync({ force: true }); assert.equal(first.kind, 'pending'); assert.equal(h.calls.length, 100); assert.equal(h.events.size, 98);
@@ -304,6 +324,56 @@ test('a stale conflict review never overwrites a newer offline edit', async t =>
   await saveCalendarEvent(h.database, { id: event.id, expectedRevision: 1, value: { ...event, title: '端末版' } }); h.put({ ...h.events.get(id), summary: 'Google版' }); await h.sync.sync();
   const [conflict] = await h.sync.readConflicts(); await saveCalendarEvent(h.database, { id: event.id, expectedRevision: 2, value: { ...event, title: '追加の編集' } });
   await assert.rejects(h.sync.resolveConflict(conflict, 'google'), /再び変更/); assert.equal((await readLocalCalendar(h.database)).events[0].title, '追加の編集');
+  const [fresh] = await h.makeSync().readConflicts(); assert.equal(fresh.local.title, '追加の編集');
+  await h.sync.resolveConflict(fresh, 'google'); await h.sync.sync();
+  assert.equal((await readLocalCalendar(h.database)).events[0].title, 'Google版');
+});
+
+for (const role of ['owner', 'reader']) test(`regular, expanded, then regular Google series converge without lost exceptions, false conflicts or duplicates (${role})`, async t => {
+  const h = await harness(t); const primary = { id:'owned', summary:'個人', primary:true, accessRole:'owner', timeZone:'Asia/Tokyo' };
+  const calendar = { id:'series-calendar', summary:'Series', accessRole:role, timeZone:'Asia/Tokyo' };
+  h.api.calendars = async () => ({ items:[primary,calendar] });
+  h.api.events = async (id, cursor) => id === primary.id ? { items:[], nextSyncToken:'owned-token' } : { items:[...h.events.values()].map(clone), nextSyncToken:'series-token' };
+  const master = h.remote('series', { recurrence:['RRULE:FREQ=DAILY'] });
+  const instance = h.remote('instance', { recurringEventId:'series', originalStartTime:{ date:'2026-11-04' } });
+  h.put(master); h.put(instance); await h.connect(); await h.sync.sync();
+  let local = await readLocalCalendar(h.database); assert.equal(projectCalendarEvents(local.events,local.exceptions,'2026-11-04','2026-11-04').length,1);
+  h.api.instances = async (_id,_parent,range) => { h.calls.push(['instances',clone(range)]); return { items:[clone(instance)] }; };
+  h.put({ ...master, recurrence:['RRULE:FREQ=DAILY;COUNT=2'] }); await h.sync.sync();
+  local = await readLocalCalendar(h.database); assert.equal(projectCalendarEvents(local.events,local.exceptions,'2026-11-04','2026-11-04').length,1);
+  h.connection.prepare("UPDATE calendar_google_links SET local_revision=0,local_base_json=NULL WHERE google_id='series'").run(); // exact legacy hidden-parent state
+  h.put({ ...master, summary:'Changed while expanded', recurrence:['RRULE:FREQ=DAILY;COUNT=2'] });
+  await h.sync.sync(); assert.equal((await h.sync.readConflicts()).length,0);
+  h.put({ ...master, summary:'Normal again' }); await h.sync.sync();
+  local = await readLocalCalendar(h.database); assert.equal(projectCalendarEvents(local.events,local.exceptions,'2026-11-04','2026-11-04').length,1);
+  const calls = h.calls.filter(row => row[0]==='instances').length;
+  await h.sync.requestRange('2028-11-01','2028-11-30'); await h.sync.sync();
+  assert.equal(h.calls.filter(row => row[0]==='instances').length,calls,'retired expansions must not restart');
+  assert.equal((await h.sync.readConflicts()).length,0);
+});
+
+for(const choice of ['local','google'])test(`a conflict resolved during another outbound HTTP request gets a trailing ${choice} synchronization`,async t=>{
+  const h=await harness(t);await h.connect();const event=await h.local();await h.sync.sync();const id=h.links()[0].google_id;
+  await saveCalendarEvent(h.database,{id:event.id,expectedRevision:1,value:{...event,title:'Local conflict'}});h.put({...h.events.get(id),summary:'Google conflict'});await h.sync.sync();
+  const [review]=await h.sync.readConflicts();const another=await h.local({title:'Other edit'});await h.sync.sync();
+  await saveCalendarEvent(h.database,{id:another.id,expectedRevision:1,value:{...another,title:'Other pending edit'}});
+  let enter,release;const gate=new Promise(resolve=>{release=resolve;}),entered=new Promise(resolve=>{enter=resolve;});const patch=h.api.patch;
+  h.api.patch=async(...args)=>{enter();await gate;return patch(...args);};
+  const active=h.sync.sync();await entered;await h.sync.resolveConflict(review,choice);const following=h.sync.sync({force:true});release();
+  await active;const result=await following;assert.equal(result.kind,'success');
+  assert.equal(h.events.get(id).summary,choice==='local'?'Local conflict':'Google conflict');assert.equal((await h.sync.readConflicts()).length,0);
+  assert.equal((await readLocalCalendar(h.database)).events.find(row=>row.id===event.id).title,choice==='local'?'Local conflict':'Google conflict');
+});
+
+test('reconnecting with changed Calendar permissions dirties cached events before the saved role replaces its predecessor', async t => {
+  const h = await harness(t); const primary={ id:'owned',summary:'Mine',accessRole:'owner',primary:true };
+  const shared={ id:'shared-role',summary:'Shared',accessRole:'writer' };
+  h.api.calendars=async()=>({items:[primary,shared]});
+  h.api.events=async id=>({items:id==='shared-role'?[h.remote('role-event')]:[],nextSyncToken:'same'});
+  await h.connect(); await h.sync.sync(); shared.accessRole='reader';
+  await h.sync.connect(await h.sync.prepareConnection());
+  assert.equal(h.connection.prepare("SELECT dirty FROM calendar_google_inbox WHERE calendar_id='shared-role'").get().dirty,1);
+  await h.sync.sync(); assert.equal((await readLocalCalendar(h.database)).events[0].readOnly,true);
 });
 test('keeping a locally edited event after a Google deletion creates one recoverable replacement instead of reviving a tombstone', async t => {
   const h = await harness(t); await h.connect(); const event = await h.local(); await h.sync.sync(); const oldId = h.links()[0].google_id;
@@ -336,6 +406,27 @@ test('transparent Google events retain their availability and do not echo an opa
   assert.equal(h.calls.filter(row => row[0] === 'patch').length, 0);
   await saveCalendarEvent(h.database, { id: event.id, expectedRevision: event.revision, value: { ...event, title: '内容だけ変更' } }); await h.sync.sync();
   assert.equal(h.events.get('transparent').transparency, 'transparent');
+});
+test('official Google holidays are date annotations and never occupy a whole day or change an ordinary all-day appointment', async t => {
+  const h = await harness(t);
+  const owned = { id: 'owned', summary: '個人', accessRole: 'owner', primary: true, timeZone: 'Asia/Tokyo' };
+  const holiday = { id: 'ja.japanese#holiday@group.v.calendar.google.com', summary: '日本の祝日', accessRole: 'reader', timeZone: 'Asia/Tokyo' };
+  h.api.calendars = async () => ({ items: [owned, holiday] });
+  h.api.events = async id => ({ items: [h.remote(id, { summary: id === holiday.id ? '文化の日' : '旅行', start: { date: id === holiday.id ? '2026-11-03' : '2026-11-04' }, end: { date: id === holiday.id ? '2026-11-04' : '2026-11-05' }, transparency: 'opaque' })], nextSyncToken: `token-${id}` });
+  await h.connect(); await h.sync.sync();
+  const snapshot = await readLocalCalendar(h.database);
+  const official = snapshot.events.find(row => row.title === '文化の日');
+  assert.equal(official.holiday, true); assert.equal(official.blocksTime, false);
+  const ordinary = snapshot.events.find(row => row.title === '旅行');
+  assert.equal(Boolean(ordinary.holiday), false); assert.equal(ordinary.blocksTime, true);
+  const { projectPrivateCalendarEvents } = await import('../src/features/calendar/private-event-projection.ts');
+  const projected = projectPrivateCalendarEvents(snapshot.events, snapshot.exceptions, '2026-11-03', '2026-11-04');
+  assert.equal(projected.find(row => row.title === '文化の日').holiday, true);
+  const { localCalendarAvailability } = await import('../src/features/calendar/local-availability.ts');
+  const availability = localCalendarAvailability(snapshot.events, snapshot.exceptions, '2026-11-03', '2026-11-04', 'Asia/Tokyo');
+  assert.equal(availability?.['2026-11-03']?.busyMinutes ?? 0, 0);
+  assert.equal(availability?.['2026-11-04']?.busyMinutes, 1440);
+  assert.equal(h.calls.some(call => ['insert', 'patch', 'remove'].includes(call[0])), false);
 });
 test('Google recurring instance availability overrides only that private occurrence in both personal and joined planning', async t => {
   const { projectPrivateCalendarEvents } = await import('../src/features/calendar/private-event-projection.ts');
@@ -478,7 +569,7 @@ test('a distant display range expands unsupported series durably and retains pre
   await h.sync.sync(); assert.equal((await readLocalCalendar(h.database)).events.length, 1);
   assert.equal(await h.sync.requestRange('2028-01-01', '2028-02-01'), true);
   await h.sync.sync(); assert.equal((await readLocalCalendar(h.database)).events.length, 2);
-  assert.equal(ranges.length, 2); assert.ok(ranges[1].timeMin <= ranges[0].timeMin); assert.ok(ranges[1].timeMax > '2028-02-01');
+  assert.equal(ranges.length, 2); assert.equal(ranges[1].timeMin, ranges[0].timeMax, 'range extension does not repeat previously covered dates'); assert.ok(ranges[1].timeMax > '2028-02-01');
   assert.equal(await h.sync.requestRange('2028-01-02', '2028-01-03'), false);
   await h.sync.sync(); assert.equal(ranges.length, 2, 'unchanged coverage must not repeatedly ask Google to expand a series');
 });
@@ -591,4 +682,29 @@ for (const parentState of ['missing', 'deleting']) test(`a ${parentState} master
   assert.equal(result.kind, 'success'); assert.equal(h.connection.prepare('SELECT count(*) n FROM calendar_google_inbox WHERE dirty<>0').get().n, 0);
   assert.equal((await h.sync.readControl()).error, null);
   assert.ok((await readLocalCalendar(h.database)).events.some(row => row.title === 'Googleの予定'));
+});
+
+test('archived account imports cannot exhaust the visible calendar limit or hide current local appointments', async t => {
+  const h = await harness(t); await h.connect(); const visible = await h.local({ title: '現在の個人予定' });
+  const insert = h.connection.prepare('INSERT INTO calendar_events(id,definition_json,revision,deleted) VALUES(?,?,1,0)');
+  const link = h.connection.prepare('INSERT INTO calendar_google_links(subject,calendar_id,google_id,event_id) VALUES(?,?,?,?)');
+  h.connection.exec('BEGIN');
+  try {
+    for (let i=0;i<10001;i++) { const id=`archived-${i}`; insert.run(id,JSON.stringify({...newEventDraft('2026-11-03','Asia/Tokyo'),title:'以前のアカウント'}));link.run('previous-account','owned',id,id); }
+    h.connection.exec('COMMIT');
+  } catch (cause) { h.connection.exec('ROLLBACK');throw cause; }
+  const current = await readLocalCalendar(h.database);
+  assert.deepEqual(current.events.map(row=>row.id),[visible.id]);
+  assert.equal(h.connection.prepare("SELECT count(*) n FROM calendar_google_links WHERE subject='previous-account'").get().n,10001,'archived data remains intact');
+});
+
+test('a Google calendar permission downgrade takes effect before its staged events are reimported', async t => {
+  const h = await harness(t); await h.connect(); h.put(h.remote('restricted')); await h.sync.sync();
+  const imported=(await readLocalCalendar(h.database)).events[0]; assert.equal(imported.readOnly,false);
+  const {refreshPersonalGoogleCalendars}=await import('../src/platform/storage/personal-google-calendar.ts');
+  const old=await h.sync.readControl();
+  await refreshPersonalGoogleCalendars(h.database,old,[...old.calendars.map(row=>({...row,primary:false,accessRole:'reader'})),{id:'new-primary',summary:'新しいメイン',primary:true,accessRole:'owner'}]);
+  const current=await readLocalCalendar(h.database); assert.equal(current.events[0].readOnly,true);
+  await assert.rejects(saveCalendarEvent(h.database,{id:imported.id,expectedRevision:imported.revision,value:{...imported,title:'変更できない予定'}}),/Google/);
+  assert.equal((await readLocalCalendar(h.database)).events[0].title,imported.title);
 });

@@ -182,7 +182,7 @@ test('adding the sharing ledger leaves all legacy SQLite tables and personal Goo
       .map(({ name }) => [name, h.connection.prepare(`SELECT * FROM ${name}`).all()]);
     await ledger.initializeSharingLedger(h.database); await ledger.initializeSharingLedger(h.database);
     for (const [name, rows] of before) assert.deepEqual(h.connection.prepare(`SELECT * FROM ${name}`).all(), rows, name);
-    assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 27);
+    assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 29);
   } finally { h.connection.close(); }
 });
 

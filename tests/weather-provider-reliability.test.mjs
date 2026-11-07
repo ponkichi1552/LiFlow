@@ -15,6 +15,25 @@ function cache(regionId, checkedAt) {
   const value = { schemaVersion: 1, regionId, checkedAt: new Date(checkedAt).toISOString(), fetchedAt: new Date(checkedAt).toISOString(), expiresAt: null, lastModified: null, forecast };
   return { ...value, revision: weatherCacheRevision(value) };
 }
+test('forecast throttling and joined reads retain a newer durable forecast instead of returning an older attempt cache',async()=>{
+  let stamp=start;let resolve;let calls=0;
+  const old=cache(location.municipalityId,start-37*3_600_000);const newer=cache(location.municipalityId,start);
+  const provider=new MetServerForecastProvider({baseUrl:'https://weather.liflow.invalid',now:()=>stamp,
+    fetcher:()=>{calls++;return new Promise(done=>{resolve=done;});}});
+  const first=provider.refresh(location,old);await Promise.resolve();
+  const joined=provider.refresh(location,newer);resolve(new Response(null,{status:304}));
+  assert.deepEqual(await first,old);
+  assert.deepEqual(await joined,newer,'a parallel lifecycle already saved a newer valid forecast');
+  stamp++;assert.deepEqual(await provider.refresh(location,newer),newer);assert.equal(calls,1);
+});
+test('a regional forecast body cannot bypass its byte limit by omitting or understating Content-Length',async()=>{
+  const old=cache(location.municipalityId,start-1000);const incoming={...cache(location.municipalityId,start),extra:'x'.repeat(513*1024)};
+  for(const headers of [{},{'content-length':'1'}]){
+    const provider=new MetServerForecastProvider({baseUrl:'https://weather.liflow.invalid',now:()=>start,
+      fetcher:async()=>new Response(JSON.stringify(incoming),{headers})});
+    assert.deepEqual(await provider.refresh(location,old),old,'oversized untrusted HTTP data is not accepted as a new forecast');
+  }
+});
 test('forecast caching expires at the boundary and invalidates data from a clock rollback', async () => {
   let clock = start; let calls = 0;
   const provider = new MetServerForecastProvider({ baseUrl: 'https://weather.liflow.invalid', now: () => clock,

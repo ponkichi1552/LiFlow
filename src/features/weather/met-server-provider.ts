@@ -24,6 +24,34 @@ function copyCache(value: RegionalWeatherCache | null): RegionalWeatherCache | n
       intervals: value.forecast.intervals.map(row => ({ start: row.start, end: row.end, precipitationMm: row.precipitationMm,
         precipitationProbability: row.precipitationProbability, symbol: row.symbol })) } } : null;
 }
+function newestCache(a: RegionalWeatherCache | null, b: RegionalWeatherCache | null) {
+  return copyCache(!a || b && Date.parse(b.checkedAt) > Date.parse(a.checkedAt) ? b : a);
+}
+const MAX_FORECAST_BYTES = 512 * 1024;
+async function forecastJson(response: Response, signal: AbortSignal): Promise<unknown> {
+  // Streaming is optional on native Fetch implementations. The text fallback
+  // still enforces the actual UTF-8 payload limit before parsing JSON.
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    const text = await response.text();
+    if (signal.aborted || text.length > MAX_FORECAST_BYTES || new TextEncoder().encode(text).length > MAX_FORECAST_BYTES) throw new Error('Forecast body too large or expired');
+    return JSON.parse(text);
+  }
+  const parts: Uint8Array[] = []; let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (signal.aborted) throw new Error('Forecast expired');
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_FORECAST_BYTES) throw new Error('Forecast body too large');
+      parts.push(value);
+    }
+    const body = new Uint8Array(bytes); let offset = 0;
+    for (const part of parts) { body.set(part, offset); offset += part.byteLength; }
+    return JSON.parse(new TextDecoder().decode(body));
+  } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
+}
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 interface ProviderOptions { baseUrl?: string; fetcher?: FetchLike; now?: () => number; timeoutMs?: number }
 export class MetServerForecastProvider {
@@ -42,8 +70,8 @@ export class MetServerForecastProvider {
     if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) return saved;
     const key = `${base.href}:${region.id}`;
     const prior = this.attempts.get(key);
-    if (prior && now >= prior.at && now < prior.retryAt) return copyCache(prior.value);
-    const existing = this.pending.get(key); if (existing) return copyCache(await existing);
+    if (prior && now >= prior.at && now < prior.retryAt) return newestCache(prior.value, saved);
+    const existing = this.pending.get(key); if (existing) return newestCache(await existing, saved);
     const request = this.request(new URL(`${base.pathname.replace(/\/$/u, '')}/v1/weather/regions/${region.id}`, base).href,
       region.id, saved).then(value => {
       const stamp = this.options.now?.() ?? Date.now();
@@ -60,8 +88,8 @@ export class MetServerForecastProvider {
         headers: { Accept: 'application/json', ...(cached ? { 'If-None-Match': `"${cached.revision}"` } : {}) } });
       if (controller.signal.aborted) return cached;
       if (response.status === 304) return cached;
-      if (response.status !== 200 || Number(response.headers.get('content-length') ?? 0) > 512 * 1024) return cached;
-      const value: unknown = await response.json();
+      if (response.status !== 200 || Number(response.headers.get('content-length') ?? 0) > MAX_FORECAST_BYTES) return cached;
+      const value: unknown = await forecastJson(response, controller.signal);
       if (controller.signal.aborted || !isRegionalWeatherCache(value, regionId)) return cached;
       return copyCache(value);
     })();

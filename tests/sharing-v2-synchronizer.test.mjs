@@ -70,6 +70,38 @@ async function fixture() {
   return { owner, member, first, roster, archive, keys, state, cloud, device };
 }
 
+test('a sharing upload that consumes the remaining budget stays incomplete and does not acknowledge a stale receive cursor',async()=>{
+  const f=await fixture();const owner=await f.device();let acknowledgements=0;
+  const upload=f.cloud.upload;f.cloud.upload=async(...args)=>{const result=await upload(...args);f.state.clock+=1000;return result;};
+  f.cloud.acknowledge=async()=>{acknowledgements++;};
+  try{
+    await owner.repository.commit(seeds());const result=await owner.sync.sync({force:true,budgetMs:1000});
+    assert.equal(result.sent,1);assert.equal(result.complete,false,'the final receive pass did not run');
+    assert.equal(acknowledgements,0);assert.equal(result.pending,3);
+  }finally{owner.connection.close();}
+});
+
+test('coalescing another sharing request cannot restart a fresh time budget after the original background budget expires',async()=>{
+  const f=await fixture();const owner=await f.device();let finish;let reads=0;const pull=f.cloud.pull;
+  f.cloud.pull=async(...args)=>{reads++;if(reads===1)await new Promise(resolve=>{finish=resolve;});return pull(...args);};
+  try{
+    await owner.repository.commit(seeds());const first=owner.sync.sync({force:true,budgetMs:1000});
+    while(!finish)await new Promise(resolve=>setImmediate(resolve));
+    const joined=owner.sync.sync({force:true,budgetMs:1000});f.state.clock+=1000;finish();
+    const [result]=await Promise.all([first,joined]);
+    assert.equal(f.state.events.length,0,'no followup may start with a renewed deadline');
+    assert.equal(reads,1);assert.equal(result.complete,false);assert.equal(result.pending,4);
+  }finally{owner.connection.close();}
+});
+
+test('an expired sharing failure does not start optional recovery diagnostics outside its original time budget',async()=>{
+  const f=await fixture();const owner=await f.device();let probes=0;const failure=new Error('corrupt transport');
+  f.cloud.ownerRecoveryEnabled=true;f.cloud.readGroup=async()=>{f.state.clock+=1000;throw failure;};
+  f.cloud.readRecoveryLock=async()=>{probes++;return null;};
+  try{await assert.rejects(owner.sync.sync({force:true,budgetMs:1000}),error=>error===failure);assert.equal(probes,0);}
+  finally{owner.connection.close();}
+});
+
 test('v2 coordinator delivers signed facts and independent receipts between two isolated users and converges without changing v1 defaults', async () => {
   const f = await fixture(); const owner = await f.device(); const member = await f.device('member', f.member);
   try {
@@ -178,4 +210,13 @@ test('v2 snapshot receipt recovery checkpoints bounded progress across restarts 
     assert.equal(JSON.parse(member.projection().accepted_ids_json).length, 2005);
     assert.deepEqual(JSON.parse(member.projection().rejected_json), []);
   } finally { owner.connection.close(); member.connection.close(); }
+});
+
+test('audit100 an expired initial sharing metadata read cannot start another receive request',async()=>{
+  const f=await fixture();const owner=await f.device();let pulls=0;const read=f.cloud.readGroup,pull=f.cloud.pull;
+  f.cloud.readGroup=async(...args)=>{const result=await read(...args);f.state.clock+=1000;return result;};
+  f.cloud.pull=async(...args)=>{pulls++;return pull(...args);};
+  try{await owner.repository.commit(seeds());const result=await owner.sync.sync({force:true,budgetMs:1000});
+    assert.equal(result.complete,false);assert.equal(pulls,0);assert.equal(result.sent,0);assert.equal(result.pending,4);
+  }finally{owner.connection.close();}
 });

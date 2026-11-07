@@ -12,6 +12,24 @@ const namespace = 'private-namespace';
 const identity = { accountSubject: 'private-account', taskListId: 'private-list', occurrenceMarker: sharedGoogleOccurrenceNote(namespace, 'round') };
 const intent = (attemptId = 'attempt-a') => ({ ...identity, attemptId, startedAt: '2026-11-05T00:00:00Z' });
 
+test('audit100 a timed out shared Tasks journal cannot release its caller while a SQLite transaction is still running', async () => {
+  const h = await googleFixture(); const remote = memoryTaskClaims(h.namespace); const budget = createGoogleOperationBudget(60_000);
+  let release; let entered; const started = new Promise(resolve => { entered = resolve; }); const gate = new Promise(resolve => { release = resolve; });
+  const run = h.d.database.runAsync; let settled = false;
+  h.d.database.runAsync = async (sql, ...params) => { if (sql.startsWith('INSERT INTO private_google_task_create_intents')) { entered(); await gate; } return run(sql, ...params); };
+  const journal = sharedTaskCreateJournal(h.store.port.taskCreateJournal, remote.cloud, { budget, assertCurrent: async () => {} });
+  const result = journal.reserve(identity).then(() => { settled = true; }, () => { settled = true; });
+  try {
+    await started; budget.cancel(); await new Promise(setImmediate);
+    assert.equal(settled, false, 'caller must await SQLite commit or rollback even after the network budget expires');
+  } finally {
+    release(); await result; await new Promise(setImmediate); budget.close();
+    assert.equal(await h.d.database.isInTransactionAsync(), false);
+    assert.equal(h.d.connection.prepare('SELECT count(*) n FROM private_google_task_create_intents').get().n, 0);
+    assert.equal(remote.calls.length, 0); h.close();
+  }
+});
+
 test('shared Tasks claims contain only hashed private identities and reject malformed or cross-scope records', () => {
   const key = sharedTaskClaimKey(namespace, identity); const row = reserveSharedTaskClaim(null, key, intent());
   assert.deepEqual(checkedSharedTaskClaim(row, key), row);
@@ -33,12 +51,23 @@ test('a reserved shared Tasks POST cannot be granted again by replay or an elaps
 
 test('shared Tasks acknowledgement and confirmed deletion are fenced to the exact recorded task', () => {
   const key = sharedTaskClaimKey(namespace, identity); const reserved = reserveSharedTaskClaim(null, key, intent());
-  const linked = linkSharedTaskClaim(reserved, key, 'task-a'); assert.equal(linked.phase, 'linked'); assert.equal(linked.attemptId, intent().attemptId);
+  const linked = linkSharedTaskClaim(reserved, key, 'task-a', intent().attemptId); assert.equal(linked.phase, 'linked'); assert.equal(linked.attemptId, intent().attemptId);
   assert.equal(linkSharedTaskClaim(linked, key, 'task-a'), null); assert.throws(() => linkSharedTaskClaim(linked, key, 'task-b'));
   assert.equal(releaseSharedTaskClaim(linked, { attemptId: intent().attemptId }), null);
   assert.equal(releaseSharedTaskClaim(linked, { taskId: 'task-b' }), null);
   assert.equal(releaseSharedTaskClaim(linked, { taskId: 'task-a' }).phase, 'released');
   assert.equal(JSON.stringify(linked).includes('task-a'), false);
+});
+
+test('an old adoption or creation acknowledgement cannot consume a newer shared reservation', () => {
+  const key = sharedTaskClaimKey(namespace, identity);
+  const a = reserveSharedTaskClaim(null, key, intent('old'));
+  const linked = linkSharedTaskClaim(a, key, 'task-x', 'old');
+  const released = releaseSharedTaskClaim(linked, { taskId: 'task-x' });
+  const newer = reserveSharedTaskClaim(released, key, intent('new'));
+  assert.throws(() => linkSharedTaskClaim(newer, key, 'task-x'), { code: 'task_create_result_pending' });
+  assert.throws(() => linkSharedTaskClaim(newer, key, 'task-x', 'old'), { code: 'task_create_result_pending' });
+  assert.equal(linkSharedTaskClaim(newer, key, 'task-y', 'new').attemptId, 'new');
 });
 
 test('shared native Tasks reserves at most100 local intents in one transaction and rolls the whole chunk back on its final fence', async () => {
@@ -63,7 +92,7 @@ test('a denied cross-device Tasks claim releases only its unused local reservati
     assert.equal(await journal.reserve(pending), null);
     assert.equal(h.d.connection.prepare('SELECT COUNT(*) AS n FROM private_google_task_create_intents').get().n, 0);
     await remote.cloud.reject(other); const accepted = await journal.reserve(pending); assert.ok(accepted);
-    await journal.linked(pending, 'one-google-task'); assert.equal(await journal.reserve(pending), null);
+    await journal.linked(pending, 'one-google-task', accepted); assert.equal(await journal.reserve(pending), null);
     assert.equal([...remote.rows.values()][0].phase, 'linked'); assert.deepEqual(remote.calls.map(call => call[1]), [1, 1, 1]);
   } finally { budget.close(); h.close(); }
 });

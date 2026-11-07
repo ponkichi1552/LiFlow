@@ -16,11 +16,11 @@ export function createChoreSettingsEditor(chore: ChoreDefinition, mode: Frequenc
     holidayPriority: chore.holidayPriority, dryingPreference: chore.laundryDryingPreference ?? 'either',
   };
   let enabledTouched = false; let emptyCyclePending = false; let displayedBase = chore;
-  let revision = 0; const draftRevisions = new Map<keyof typeof draft, number>();
+  let revision = 0; let persistedRevision = 0; const draftRevisions = new Map<keyof typeof draft, number>();
   let resetDraft: { generation: number; revisions: Map<keyof typeof draft, number> } | undefined;
   type PendingPatch = ChoreSettingsPatch & { resetGeneration?: number };
   const queue = createAutosaveQueue<PendingPatch>({ save: async pending => {
-    const { resetGeneration, ...patch } = pending;
+    const { resetGeneration, ...patch } = pending; const writingRevision = revision;
     await savePatch(patch, displayedBase); displayedBase = applyChoreSettingsPatch(displayedBase, patch);
     if (patch.resetSchedule && resetDraft && resetDraft.generation === resetGeneration) {
       const result = { cycleText: cycleTextFor(displayedBase, mode),
@@ -30,6 +30,7 @@ export function createChoreSettingsEditor(chore: ChoreDefinition, mode: Frequenc
       }
       resetDraft = undefined;
     }
+    persistedRevision = writingRevision;
   } });
   let state = { draft, status: queue.getSnapshot() };
   const listeners = new Set<() => void>();
@@ -45,6 +46,9 @@ export function createChoreSettingsEditor(chore: ChoreDefinition, mode: Frequenc
   const flush = () => { if (emptyCyclePending) resetCycle(); return queue.flush(); };
   return {
     getSnapshot: () => state,
+    canReload: () => revision === persistedRevision && !emptyCyclePending && ['idle', 'saved'].includes(queue.getSnapshot().phase)
+      && (!draft.cycleText.trim() || parseSettingInteger(draft.cycleText, 1, Number.MAX_SAFE_INTEGER) !== undefined)
+      && parseSettingInteger(draft.radiusText, 0, 14) !== undefined,
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     flush, resetCycle,
     resetSchedule() {
@@ -58,10 +62,10 @@ export function createChoreSettingsEditor(chore: ChoreDefinition, mode: Frequenc
     },
     changeCycle(text: string) {
       emptyCyclePending = !text.trim(); const value = parseSettingInteger(text, 1, Number.MAX_SAFE_INTEGER);
-      const autoEnable = value !== undefined && chore.requiresCycleSelection && !enabledTouched;
+      const autoEnable = value !== undefined && displayedBase.requiresCycleSelection && !enabledTouched;
       update({ cycleText: text, ...(autoEnable ? { enabled: true } : {}) });
       if (value !== undefined) queue.enqueue({ cycleDays: value, ...(autoEnable ? { enabled: true } : {}) });
-      else { queue.remove('cycleDays'); if (!enabledTouched && chore.requiresCycleSelection) { queue.remove('enabled'); update({ enabled: false }); } }
+      else { queue.remove('cycleDays'); if (!enabledTouched && displayedBase.requiresCycleSelection) { queue.remove('enabled'); update({ enabled: false }); } }
     },
     changeRadius(text: string) {
       update({ radiusText: text }); const value = parseSettingInteger(text, 0, 14);
@@ -76,15 +80,22 @@ export function createChoreSettingsEditor(chore: ChoreDefinition, mode: Frequenc
 export type ChoreSettingsEditor = ReturnType<typeof createChoreSettingsEditor>;
 
 export function createChoreSettingsDocument(scope: unknown) {
-  const editors = new Map<string, ChoreSettingsEditor>();
+  const editors = new Map<string, { signature: string; editor: ChoreSettingsEditor }>();
   return {
     scope,
-    entries: () => [...editors.entries()],
+    entries: () => [...editors.entries()].map(([id, value]): [string, ChoreSettingsEditor] => [id, value.editor]),
     forget: (id: string) => { editors.delete(id); },
     get(chore: ChoreDefinition, mode: FrequencyMode, save: Parameters<typeof createChoreSettingsEditor>[2], current?: PersonalCadenceView) {
-      let editor = editors.get(chore.id);
-      if (!editor) { editor = createChoreSettingsEditor(chore, mode, save, current); editors.set(chore.id, editor); }
-      return editor;
+      const signature = JSON.stringify([mode, current, chore.enabled, chore.load, chore.windowRadiusDays,
+        chore.holidayPriority, chore.laundryDryingPreference, chore.requiresCycleSelection, chore.recommendedCycleDays,
+        chore.userIntervalDays, chore.manufacturerRecommendedIntervalDays, chore.frequencyDaysByMode, chore.personalSchedulingKind]);
+      let value = editors.get(chore.id);
+      // Remote or bulk settings and an adopted cadence can replace a settled editor. Never
+      // discard invalid input, a pending patch, or a failed write while doing so.
+      if (!value || value.signature !== signature && value.editor.canReload()) {
+        value = { signature, editor: createChoreSettingsEditor(chore, mode, save, current) }; editors.set(chore.id, value);
+      }
+      return value.editor;
     },
   };
 }

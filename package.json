@@ -59,10 +59,12 @@
   "overrides": {
     "@grpc/grpc-js": "^1.14.6",
     "node-forge": "1.4.1",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "glob": "14.0.4",
+    "minimatch@>=7": "11.0.5"
   },
   "scripts": {
-    "postinstall": "node ./scripts/patch-hermes-podspec-encoding.cjs && node ./scripts/patch-expo-widget-open-app.cjs && node ./scripts/patch-expo-widget-durable-input.cjs && node ./scripts/patch-google-signin-silent-tokens.cjs && node ./scripts/patch-expo-task-manager-headless.cjs && node ./scripts/patch-expo-symbols-android-alignment.cjs && node ./scripts/patch-glob-security.cjs && node ./scripts/patch-firestore-auth-network.cjs",
+    "postinstall": "node ./scripts/patch-hermes-podspec-encoding.cjs && node ./scripts/patch-expo-widget-open-app.cjs && node ./scripts/patch-expo-widget-durable-input.cjs && node ./scripts/patch-google-signin-silent-tokens.cjs && node ./scripts/patch-expo-task-manager-headless.cjs && node ./scripts/patch-expo-symbols-android-alignment.cjs && node ./scripts/verify-glob-security.cjs && node ./scripts/patch-firestore-auth-network.cjs",
     "start": "expo start --dev-client",
     "android": "expo run:android",
     "ios": "XCODE_XCCONFIG_FILE=./ios-build.xcconfig expo run:ios",

@@ -1,0 +1,764 @@
+{
+  "date": "2026-11-07",
+  "sourceCommit": "f4b7da83a86081c4f84323527dbd90ebd65d6960",
+  "sourcePdf": "LiFlow 新版監査01｜共有Tasks・作成予約と復旧｜f4b7da8｜2026-11-06.pdf",
+  "complete": false,
+  "issues": [
+    {
+      "id": "N01-R01",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "保存先作成の既知応答を保管し、クラウド確認だけを再開する",
+      "tests": [
+        "tests/shared-google-task-list.test.mjs"
+      ]
+    },
+    {
+      "id": "N01-R02",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "削除したGoogle Taskの作成記録を同じリスト・試行世代で解除する",
+      "tests": [
+        "tests/google-tasks-create-recovery.test.mjs",
+        "tests/shared-google-task-list.test.mjs"
+      ]
+    },
+    {
+      "id": "N01-R03",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "背景同期へ合流した手動要求を、独立した前景同期へ引き継ぐ",
+      "tests": [
+        "tests/sharing-v2-google-runtime.test.mjs"
+      ]
+    },
+    {
+      "id": "N02-R01",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "確認済み書き込みを取得キャッシュへ反映し、古い進行中ページを破棄する",
+      "tests": [
+        "tests/google-tasks-read-cache.test.mjs"
+      ]
+    },
+    {
+      "id": "N02-R02",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "破損キャッシュだけを無効化し、前景での再取得へ移る",
+      "tests": [
+        "tests/google-tasks-read-cache.test.mjs"
+      ]
+    },
+    {
+      "id": "N03-R01",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "一括応答の全項目をSQLiteへ保存し、後処理失敗後も成功・拒否を回収する",
+      "tests": [
+        "tests/google-tasks-create-recovery.test.mjs"
+      ]
+    },
+    {
+      "id": "N03-R02",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "全項目のRetry-Afterを集約し、最も遅い再試行時刻を守る",
+      "tests": [
+        "tests/google-sync-reconciliation.test.mjs"
+      ]
+    },
+    {
+      "id": "N03-R03",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "重複Content-IDやTask IDの矛盾は結果不明として保持する",
+      "tests": [
+        "tests/google-tasks-api.test.mjs"
+      ]
+    },
+    {
+      "id": "N04-R01",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "成功確認を実際に送信した作成試行へ固定し、新しい予約を消費させない",
+      "tests": [
+        "tests/shared-google-task-claims.test.mjs",
+        "tests/shared-google-task-claims.integration.mjs"
+      ]
+    },
+    {
+      "id": "N05-R01",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "Widget入力へ取消し世代を付け、Undo前の入力を再適用させない",
+      "tests": [
+        "tests/widget-durable-input.test.mjs"
+      ]
+    },
+    {
+      "id": "N05-R02",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "処理不能なWidget入力は原文を隔離し、独立した後続を処理する",
+      "tests": [
+        "tests/widget-durable-input.test.mjs"
+      ]
+    },
+    {
+      "id": "N06-R01",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "通知候補を未送信・送信開始済みへ分け、送信前失敗だけを再試行する",
+      "tests": [
+        "tests/sharing-v2-completion-notices.test.mjs"
+      ]
+    },
+    {
+      "id": "N06-R02",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "通知掃除を所属・DB世代の現在性で保護する",
+      "tests": [
+        "tests/sharing-v2-reminder-native.test.mjs",
+        "tests/sharing-v2-reminder-runtime.test.mjs"
+      ]
+    },
+    {
+      "id": "N07-R01",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "起動復元後も最後の通知タップを一度だけ再処理する",
+      "tests": [
+        "tests/native-platform-gateways.test.mjs"
+      ]
+    },
+    {
+      "id": "N07-R02",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "個人予定入力の永続revisionを通知公開の直前まで検査する",
+      "tests": [
+        "tests/planning-input-revision.test.mjs",
+        "tests/sharing-v2-reminder-native.test.mjs"
+      ]
+    },
+    {
+      "id": "N08-R01",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "同じSQLiteファイルの別接続更新を表示購読へ通知する",
+      "tests": [
+        "tests/calendar-observer-recovery.test.mjs"
+      ]
+    },
+    {
+      "id": "N08-R02",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "読み込み失敗中に追加された再読込要求を保持し、再試行回数を制限する",
+      "tests": [
+        "tests/calendar-observer-recovery.test.mjs"
+      ]
+    },
+    {
+      "id": "N09-R01",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "競合確認を最新ローカルrevisionへ結び、新しい確認画面から解決できるようにする",
+      "tests": [
+        "tests/personal-google-calendar-sync.test.mjs"
+      ]
+    },
+    {
+      "id": "N09-R02",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "再接続前の権限差分を比較し、権限変更時に取得位置を無効化する",
+      "tests": [
+        "tests/personal-google-calendar-sync.test.mjs"
+      ]
+    },
+    {
+      "id": "N10-R01",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "表示のため隠した親予定と、利用者の削除を区別する",
+      "tests": [
+        "tests/personal-google-calendar-sync.test.mjs"
+      ]
+    },
+    {
+      "id": "N10-R02",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "閲覧専用カレンダーが通常表示へ戻る際も旧展開を終了する",
+      "tests": [
+        "tests/personal-google-calendar-sync.test.mjs"
+      ]
+    },
+    {
+      "id": "N11-R01",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "個別変更の各回を安定IDで移し、親予定へ上書きしない",
+      "tests": [
+        "tests/personal-google-calendar-sync.test.mjs"
+      ]
+    },
+    {
+      "id": "N11-R02",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "終了した各回展開の走査記録を削除し、範囲拡張で再開させない",
+      "tests": [
+        "tests/personal-google-calendar-sync.test.mjs"
+      ]
+    },
+    {
+      "id": "N12-R01",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "表示日ではなく、指定したanchorDateに一致する家事回を選ぶ",
+      "tests": [
+        "tests/calendar-exact-anchor.test.mjs"
+      ]
+    },
+    {
+      "id": "N13-R01",
+      "status": "implemented-regression-pass-final-native-review-pending",
+      "change": "送信待ちrevisionとリンクを同じ読取トランザクションから取得する",
+      "tests": [
+        "tests/google-sync-completion-recovery.test.mjs"
+      ]
+    },
+    {
+      "id": "N01-O01",
+      "status": "adopted-local-checks-pass",
+      "decision": "採用",
+      "change": "Google対応表を対象行だけ読み書きする。1000行で1行読取を確認。"
+    },
+    {
+      "id": "N01-O02",
+      "status": "adopted-local-checks-pass",
+      "decision": "採用",
+      "change": "認証待ち・バックオフの判定を個人予定の読取より先に行う。"
+    },
+    {
+      "id": "N02-O01",
+      "status": "adopted-local-checks-pass",
+      "decision": "採用",
+      "change": "変更のない取得キャッシュは永続revisionを照合し、全JSONの再解析を避ける。"
+    },
+    {
+      "id": "N03-O01",
+      "status": "adopted-local-checks-pass",
+      "decision": "採用",
+      "change": "確定拒否を最大100件のクラウド・ローカル処理へまとめる。隔離Rulesでも100件を検査。"
+    },
+    {
+      "id": "N04-O01",
+      "status": "retained-authority-checks",
+      "decision": "維持",
+      "change": "非同期境界ごとの本人・権限検査は維持。同じ呼出回数だけを根拠に検査を削らない。追加の実機速度改善は未認定。"
+    },
+    {
+      "id": "N05-O01",
+      "status": "adopted-local-checks-pass",
+      "decision": "採用",
+      "change": "iOS Widgetの確認応答をまとめ、同時に到着した新しい入力は残す。"
+    },
+    {
+      "id": "N06-O01",
+      "status": "adopted-local-checks-pass",
+      "decision": "採用",
+      "change": "通知の既知キーは候補に絞って100件ずつ照合する。"
+    },
+    {
+      "id": "N07-O01",
+      "status": "adopted-local-checks-pass",
+      "decision": "採用",
+      "change": "通知権限がない場合は個人予定の計算を省略し、掃除は維持する。"
+    },
+    {
+      "id": "N08-O01",
+      "status": "adopted-local-checks-pass",
+      "decision": "採用",
+      "change": "同一参照のカレンダー配列はJSON比較を省略する。"
+    },
+    {
+      "id": "N09-O01",
+      "status": "adopted-local-checks-pass",
+      "decision": "採用",
+      "change": "CalendarListの取得・保存を必要な6フィールドへ限定する。"
+    },
+    {
+      "id": "N10-O01",
+      "status": "adopted-local-checks-pass",
+      "decision": "採用",
+      "change": "各回展開の範囲拡張は、未取得の左右の区間だけを走査する。"
+    },
+    {
+      "id": "N11-O01",
+      "status": "adopted-local-checks-pass",
+      "decision": "採用",
+      "change": "表示対象の予定へ結合し、削除済み・孤立したリンクのJSON解析を避ける。"
+    },
+    {
+      "id": "N12-O01",
+      "status": "adopted-local-checks-pass",
+      "decision": "採用",
+      "change": "明示的な個別変更がある場合は、不要な元予定の展開を省略する。"
+    },
+    {
+      "id": "N13-O01",
+      "status": "adopted-local-checks-pass",
+      "decision": "採用",
+      "change": "個人の完了・取消しは状態変更だけを送信し、全件取得・Calendar取得を伴わせない。"
+    }
+  ],
+  "reportedCompletionBugs": {
+    "initialUndo": "fixed-sqlite-regression-and-release-simulator-pass",
+    "finalDayWarning": "fixed-targeted-tests-pass",
+    "simulatorRecheck": "home-checkbox-undo-toast-undo-double-tap-and-calendar-undo-pass",
+    "evidence": [
+      "tests/personal-adaptive-repository.test.mjs",
+      "tests/home-ux.test.mjs",
+      "/tmp/liflow-audit-20261107/simulator-data-after.json"
+    ],
+    "legacyUndoRepair": "schema28-restores-proven-original-placement-without-deleting-history"
+  },
+  "questions": [
+    {
+      "id": "N02-Q01",
+      "status": "retained-specific-error-handling",
+      "decision": "先頭400を一律にsync token失効とは扱わない。背景での全件再取得禁止は維持。"
+    },
+    {
+      "id": "N04-Q01",
+      "status": "safety-policy-retained",
+      "decision": "結果不明な作成予約を時間経過だけで解放しない。保管期限を理由に重複作成しない。"
+    },
+    {
+      "id": "N05-Q01",
+      "status": "guard-and-regressions-pass",
+      "decision": "OSへの実送信直前に期限を再検査し、過去になった通知を除外する。実OSでの過去通知配信の確認は別。"
+    },
+    {
+      "id": "N09-Q01",
+      "status": "reproduced-fixed-regressions-pass",
+      "decision": "競合解決後の同期要求は実行中の送信終了後に一度だけ引き継ぐ。"
+    }
+  ],
+  "verification": {
+    "unitBaseline": {
+      "tests": 3516,
+      "pass": 3510,
+      "failed": 6,
+      "status": "failures-fixed-targeted-checks-pass-final-full-run-pending"
+    },
+    "cloudBaseline": {
+      "tests": 153,
+      "pass": 152,
+      "failed": 1,
+      "status": "expectation-updated-affected23-pass-final-full-run-pending"
+    },
+    "lint": "pass-current-source",
+    "typecheck": "pass-current-source",
+    "gitPublished": false,
+    "dataReset": false,
+    "releaseSimulator": "updated-preserving-data-schema28",
+    "physicalDevices": "Current Release updated preserving data on Android and iPhone; native pane, holiday and picker checks recorded separately. Earlier real-account/background evidence is not reclassified as current-build natural execution.",
+    "unitExpanded": {
+      "tests": 3528,
+      "pass": 3528,
+      "failed": 0,
+      "latestNativeBoundaryChanges": "targeted-checks-pass-final-rerun-pending"
+    },
+    "cloudExpanded": {
+      "tests": 153,
+      "pass": 152,
+      "failed": 1,
+      "issue": "One initial HTTP400 was not reproduced in isolated authentication rerun. A separate deterministic deadline regression proved timeout misclassification; fixed. Do not infer the exact original cause without its unrecorded response body."
+    },
+    "androidNativeWidget": {
+      "status": "pass",
+      "api": 29,
+      "checks": 68,
+      "method": "separate APK with exact Release-compiled Widget bridge, isolated fixture only; helper removed; normal app data not modified",
+      "log": "/tmp/liflow-audit-20261107/android-widget-native.log"
+    },
+    "cloudFinal": {
+      "tests": 153,
+      "pass": 153,
+      "failed": 0,
+      "log": "/tmp/liflow-audit-20261107/full-cloud-final.log"
+    },
+    "unitFinalBeforeCAL01": {
+      "tests": 3531,
+      "pass": 3531,
+      "failed": 0,
+      "skipped": 0,
+      "log": "/tmp/liflow-audit-20261107/full-unit-final.log"
+    },
+    "androidInteraction": {
+      "source": "c5dae261",
+      "runs": 3,
+      "launchToAccessibleChoreMs": [
+        3064,
+        2999,
+        3048
+      ],
+      "tapToExplanationMs": [
+        1651,
+        1676,
+        1698
+      ],
+      "includesShellAndAccessibilityWaits": true,
+      "oneSecondTargetMet": false,
+      "firstMeasurement": "launch timing unavailable, not accepted as success",
+      "extraStartupOptimization": "deferred per user request",
+      "log": "/tmp/liflow-audit-20261107/android-final-interaction-retry.log"
+    },
+    "unitFinalBeforeCAL02": {
+      "tests": 3534,
+      "pass": 3534,
+      "failed": 0,
+      "skipped": 0,
+      "log": "/tmp/liflow-audit-20261107/full-unit-overlap-final.log"
+    },
+    "androidCompleteUndo": {
+      "apk": "cc7423e7713b3de50a1896519aeb037f9aade3a445c496a99ce189f314b4266f",
+      "totalBefore": 8,
+      "completedAfterCheck": 1,
+      "totalAfterUndo": 8,
+      "completedAfterUndo": 0,
+      "log": "/tmp/liflow-audit-20261107/android-completion-native/summary.json",
+      "cloudConvergenceClaim": false
+    },
+    "unitCurrent": {
+      "tests": 3610,
+      "pass": 3610,
+      "failed": 0,
+      "skipped": 0,
+      "log": "/tmp/liflow-audit-20261107/new30-full-unit.log",
+      "additionalTargetedCoverage": {
+        "tests": 18,
+        "newCasesAfterFullRun": 2,
+        "pass": 18,
+        "failed": 0,
+        "log": "/tmp/liflow-audit-20261107/part08-api-binding-after.log"
+      }
+    },
+    "cloudCurrent": {
+      "tests": 153,
+      "pass": 153,
+      "failed": 0,
+      "skipped": 0,
+      "log": "/tmp/liflow-audit-20261107/new30-full-cloud.log"
+    },
+    "currentNativeEvidence": {
+      "android": "/tmp/liflow-audit-20261107/android-new30-ui/verification.json",
+      "iphone": "/tmp/liflow-audit-20261107/iphone-new30-ui-verification.json",
+      "iphoneOverlappingAppointments": "/tmp/liflow-audit-20261107/iphone-new30-overlap.json",
+      "simulatorBundleSha256": "9ac22e989a4ab4be94dbc080013448516ad06fbe7db5ffb1a510b4c5ae900119",
+      "dataReset": false,
+      "simulatorCheck": "CUA: four full cards, complete/undo 4->3->4 unfinished, five-minute picker; both installed bundles match current Release hash"
+    }
+  },
+  "extendedAudit": {
+    "requested": "all-features-code-runtime-animation-and-navigation",
+    "complete": false,
+    "areas": [
+      {
+        "name": "完了・取消し・ホーム・カレンダー",
+        "status": "in-progress"
+      },
+      {
+        "name": "Google Tasks・Calendarの回復と権限境界",
+        "status": "in-progress"
+      },
+      {
+        "name": "初回設定・個別設定・全体設定・ゴミ収集日・履歴",
+        "status": "pending"
+      },
+      {
+        "name": "共有グループ参加・所属復元・承認・担当・退出",
+        "status": "pending"
+      },
+      {
+        "name": "家電・PDF・解析認証・利用上限・課金",
+        "status": "pending"
+      },
+      {
+        "name": "Widget・通知・自然な背景同期",
+        "status": "pending"
+      },
+      {
+        "name": "天気・周期学習・共有負荷の組合せ",
+        "status": "pending"
+      },
+      {
+        "name": "画面遷移・明暗・拡大文字・ジェスチャー・アニメーション",
+        "status": "pending"
+      }
+    ],
+    "additionalFindings": [
+      {
+        "id": "UI-01",
+        "issue": "展開した家事一覧が1日から2日への切替で時計へスクロールされ画面外へ隠れる",
+        "status": "fixed-regression-and-release-simulator-pass"
+      },
+      {
+        "id": "AX-01",
+        "issue": "取消し後の読み上げ用未完了件数が一時的に古い状態で観測された",
+        "status": "fixed-regressions-and-release-simulator-pass",
+        "evidence": "2026-11-07 native calendar completion 4/3 then Undo 4/4 on the same heading"
+      },
+      {
+        "id": "SET-01",
+        "issue": "非同期保存の待機中に呼出元の値が変化すると、保護ストレージとSQLiteの生活リズムが一致しない",
+        "status": "reproduced-fixed-34-affected-tests-pass",
+        "tests": [
+          "tests/owner-rhythm-settings.test.mjs",
+          "tests/personal-capacity-settings.test.mjs"
+        ]
+      },
+      {
+        "id": "SET-02",
+        "issue": "生活リズムの読取結果の配列を変更すると内部の保存基準値まで変更される",
+        "status": "reproduced-fixed-regression-pass",
+        "tests": [
+          "tests/owner-rhythm-settings.test.mjs"
+        ]
+      },
+      {
+        "id": "UI-02",
+        "issue": "予定保存中にも登録済み家事の候補から遷移でき、保存完了時の遷移と競合する",
+        "status": "fixed-50-affected-tests-pass-release-simulator-pass",
+        "tests": [
+          "tests/calendar-editor-inflight.test.mjs"
+        ]
+      },
+      {
+        "id": "ANIM-01",
+        "issue": "個人カレンダーの同一家事回が保存後に別の表示キーへ変わり、ネイティブ行が再作成される",
+        "status": "fixed-50-affected-tests-pass-release-simulator-pass",
+        "tests": [
+          "tests/calendar-recalculation.test.mjs"
+        ]
+      },
+      {
+        "id": "WID-01",
+        "issue": "iOS Widgetの記録は各入力と件数の上限内でもJSONの全体サイズが読取上限を越え、次回読めなくなる",
+        "status": "reproduced-with-real-swift-fixed-native-test-pass",
+        "tests": [
+          "tests/widget-ios-native-journal.test.mjs"
+        ]
+      },
+      {
+        "id": "PDF-01",
+        "issue": "PDF検査の実行期限切れを不正PDFとして400で返すため、正常な説明書でも再選択を促してしまう",
+        "status": "reproduced-fixed-51-affected-tests-pass",
+        "tests": [
+          "tests/appliance-manual-upload.test.mjs"
+        ]
+      },
+      {
+        "id": "AX-02",
+        "issue": "推奨日だけのカレンダー件数を実施期間内の件数と読み上げていた",
+        "status": "corrected-neutral-housework-count-label"
+      },
+      {
+        "id": "OPT-01",
+        "issue": "変更のない全件再読込後、下書き更新ごとに保存済み予定を再度JSON変換して比較する",
+        "status": "reproduced-fixed-99-affected-tests-pass",
+        "tests": [
+          "tests/calendar-observer-recovery.test.mjs"
+        ]
+      },
+      {
+        "id": "OPT-02",
+        "issue": "差分専用のOS workerでも残り時間次第で全履歴の検証とコンパクションを開始する",
+        "status": "reproduced-fixed-99-affected-tests-pass",
+        "tests": [
+          "tests/sharing-v2-native-workspace.test.mjs"
+        ]
+      },
+      {
+        "id": "CAL-01",
+        "issue": "実機で1分の予定が後続の予定へ重なる。カードの最低表示高さを時間帯の衝突判定へ反映していなかった。",
+        "status": "reproduced-on-physical-iphone-fixed-affected-tests-pass-final-native-review-pending",
+        "change": "実際の開始・終了日時は維持し、カードの表示上の占有範囲で列を割り当てる。個人・共有の共通カレンダーへ適用。",
+        "tests": [
+          "tests/local-calendar.test.mjs",
+          "tests/calendar-fixed-heading.test.mjs"
+        ],
+        "evidence": [
+          "/tmp/liflow-audit-20261107/step201-ios-attachments",
+          "/tmp/liflow-audit-20261107/step202-ios-attachments",
+          "/tmp/liflow-audit-20261107/timeline-overlap-before.log",
+          "/tmp/liflow-audit-20261107/timeline-overlap-screen-after.log"
+        ]
+      },
+      {
+        "id": "CAL-02",
+        "issue": "通信エラーの帯が消えた後、2026年11月ヘッダーのまま2027年6〜7月の本文が表示された。実機Androidで再現。",
+        "status": "reproduced-on-physical-android-fixed-35-affected-tests-pass-final-native-review-pending",
+        "change": "明示的な初期位置調整とNativeの可視位置維持を同時に使わない。利用者のドラッグ後だけNativeに位置を任せ、今日・月移動・月表示へ戻るで明示的な位置調整へ切り替える。",
+        "tests": [
+          "tests/native-calendar.test.mjs"
+        ],
+        "evidence": [
+          "/tmp/liflow-audit-20261107/android-calendar-current/after-reconnect-jump.xml",
+          "/tmp/liflow-audit-20261107/android-calendar-current/after-reconnect-jump.png",
+          "/tmp/liflow-audit-20261107/month-anchor-before.log",
+          "/tmp/liflow-audit-20261107/month-anchor-after.log"
+        ]
+      }
+    ],
+    "runtimeChecks": {
+      "personalReleaseSimulator": [
+        "complete and Undo preserve four cards",
+        "reading count restores 4 after Undo",
+        "one and two day expanded lists remain visible",
+        "guide direct chapter entry and persistent bottom tabs",
+        "settings direct chapter entry and Back",
+        "waste kana search monthly save hide and undo; only own test schedule removed"
+      ],
+      "sharedReleaseSimulator": [
+        "final-day urgent labels visible on 4 current chores; expired rows have no urgent label",
+        "calendar list count4 /85minutes; complete one ->4 /60; Undo ->4 /85",
+        "all four occurrences and uncompleted states retained"
+      ]
+    },
+    "latestCalendarRequest": {
+      "status": "release-pane-pickers-holiday-native-reviewed-all-unit-and-cloud-pass",
+      "scope": [
+        "Current Google account imports only; archived links retained; no Google deletion or re-export",
+        "Official holiday source IDs become non-blocking date annotations; ordinary all-day appointments unchanged",
+        "Independent pinned scrolling housework pane in one and two day views",
+        "Compact hourly grid and five-minute native start/end time choices; existing imported minutes preserved",
+        "Housework display and Scheduler reads end at the second following month-end; appointments use their independent saved cache"
+      ],
+      "evidence": "/tmp/liflow-audit-20261107/calendar-latest-affected-final.log",
+      "pending": [
+        "No current-build repeat of switching real Google identities; archived-account regression is tested with SQLite and previous native account evidence remains separate."
+      ],
+      "longCycleCalendarPreview": {
+        "status": "implemented-regressions-pass-native-pane-reviewed",
+        "minimumCycleDays": 90,
+        "futureRoundsPerChore": 1,
+        "expiry": "After the original window ends, show a calendar-only tentative next personal round without fabricating completion or advancing learned history. Shared rounds keep real signed configuration identities.",
+        "preserved": [
+          "Original unfinished occurrence and history",
+          "Private/shared write authority and exact occurrence identities",
+          "Shared dependency and designated-date rules",
+          "No distant full daily Scheduler range",
+          "No automatic Google export, notification or home-load allocation from a tentative preview"
+        ],
+        "japaneseHolidayDisplay": "One Japanese line; known source names translated locally; unsupported foreign holiday names use the Japanese fallback label 祝日. Imported source records are unchanged.",
+        "expandedChorePane": "Initial measured height was still shrunk by native flex layout; reproduced on current simulator. Fixed the flex shrink boundary and timeline sizing. The four-row personal two-day pane now displays every full card without scrolling; visually verified and confirmed by user. Larger content remains independently scrollable.",
+        "targetedTests": {
+          "count": 72,
+          "passed": 72,
+          "failed": 0,
+          "log": "/tmp/liflow-audit-20261107/next-cycle-affected4.log"
+        },
+        "postVisualCorrectionTests": {
+          "count": 37,
+          "passed": 37,
+          "failed": 0,
+          "log": "/tmp/liflow-audit-20261107/holiday-pane-affected.log"
+        },
+        "fullUnitBeforeFinalPaneStyle": {
+          "passed": 3569,
+          "failed": 0,
+          "skipped": 0,
+          "log": "/tmp/liflow-audit-20261107/full-unit-calendar-preview.log"
+        },
+        "sparseReadProfile": {
+          "chores": 21,
+          "coldMs": 241.174,
+          "cachedMs": 4.826,
+          "sameResult": true,
+          "environment": "Node SQLite under concurrent build/test load; not native UI latency",
+          "fullYearDailyPlan": false
+        },
+        "staticAnalysis": {
+          "engine": "Semgrep CE 1.184.0",
+          "rules": 212,
+          "files": 11,
+          "findings": 0,
+          "parserErrors": 0
+        }
+      },
+      "nativeCurrent": {
+        "iosBundleSha256": "737dd118134ae7a67d1268bd0b4f02965d23f64079c07c7d4150895953fa3fb3",
+        "androidApkSha256": "c8a959620afaf4ec8cafb44faa6fa1bb36e0df2f9f3e30e3658b9ed2c70abb8c",
+        "preservedExistingData": true,
+        "simulator": "Updated production iOS bundle, four personal cards fully visible without a chore-pane scroll; user confirmed.",
+        "android": "Updated normal Release; Japanese single-line month/day holidays; five full shared/private cards visible without pane scroll; timeline swipe preserves all checkbox rectangles. Native minute spinner 55/00/05 verified in preceding same-field implementation.",
+        "iphone": "Updated normal Release; Japanese single-line date holidays and two whole shared cards verified; unchanged chore rectangles through a timeline swipe. Three real simultaneous appointments have non-overlapping x-ranges in both day and two-day views.",
+        "evidence": [
+          "/tmp/liflow-audit-20261107/iphone-calendar-pane-pinned.json",
+          "/tmp/liflow-audit-20261107/iphone-calendar-native-overlap-current.json",
+          "/tmp/liflow-audit-20261107/android-calendar-pane-ui/pinned-five-rows.json"
+        ],
+        "notClaimed": [
+          "New natural background execution",
+          "The currently absent original one-minute native fixture",
+          "A new one-second cold-start achievement",
+          "All-features audit complete"
+        ]
+      }
+    },
+    "partByPart30": {
+      "confirmedNewDefects": 30,
+      "fixedNewDefects": 30,
+      "status": "complete-for-requested-30-defect-audit",
+      "report": "docs/audits/2026-11-07-30-defects.md",
+      "ledger": "docs/audits/2026-11-07-30-defects.json",
+      "completedAt": "2026-11-06T23:34:44.950129+00:00",
+      "githubUpdated": false
+    }
+  },
+  "securityScan": {
+    "tool": "Semgrep Community Edition",
+    "version": "1.184.0",
+    "rules": 207,
+    "scannedFiles": 786,
+    "findings": 0,
+    "partialParsingFiles": [
+      "src/features/sharing/v2/confirmation.ts",
+      "src/platform/storage/sharing-v2-google-tasks.ts"
+    ],
+    "supplementalCheck": {
+      "status": "no-findings-no-parsing-errors",
+      "files": 2,
+      "rules": 120,
+      "transformation": "TypeScript type erasure; scanner-only local unique identifier alpha-renamed to avoid its parser ambiguity",
+      "appSourceChangedForScanner": false,
+      "errors": 0
+    },
+    "metrics": "off",
+    "sourceUpload": false,
+    "independentHumanAudit": false,
+    "nativeCheck": {
+      "rules": 47,
+      "files": 7,
+      "errors": 0,
+      "findings": 0,
+      "log": "/tmp/liflow-audit-20261107/semgrep-native-final.log"
+    },
+    "latestCalendarScope": {
+      "version": "1.184.0",
+      "scannedFiles": 762,
+      "rawFindings": 2,
+      "confirmedVulnerabilities": 0,
+      "rulesets": [
+        "p/default",
+        "p/secrets"
+      ],
+      "sourceUpload": false,
+      "metrics": "off",
+      "parserErrors": 2,
+      "evidence": "/tmp/liflow-audit-20261107/semgrep-calendar-final.json",
+      "reviewedFindings": [
+        {
+          "file": "server/appliance-care-api/src/manual-resolver.mjs",
+          "line": 247,
+          "disposition": "Fixed allowlist of seven HTML tag names; cursor advances after every match; arbitrary input cannot enter RegExp source."
+        },
+        {
+          "file": "src/features/sharing/v2/waste-state.ts",
+          "line": 70,
+          "disposition": "Only normalized wasteCollectionRule output with four fixed keys reaches Object.assign; other payload fields and prototype keys are discarded before assignment."
+        }
+      ]
+    }
+  },
+  "dependencyAudit": {
+    "high": 0,
+    "critical": 0,
+    "moderate": 15,
+    "status": "compatible-backport-tests-pass",
+    "automaticForceUpdates": false
+  }
+}

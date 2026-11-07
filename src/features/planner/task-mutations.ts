@@ -64,7 +64,6 @@ export function createTaskMutations(dependencies: {
         undoTimer = setTimeout(() => { clearUndo(); if (current()) emit(); }, 6500);
       }
     } catch (cause) {
-      if (!current()) return;
       const overrides = new Map(state.overrides);
       // A failed read must not undo a successful write on screen or repeat that write.
       if (!saved) { overrides.delete(key); targets.delete(key); }
@@ -73,11 +72,21 @@ export function createTaskMutations(dependencies: {
         ? '保存済みですが、表示を更新できませんでした。再読込してください。'
         : cause instanceof Error ? cause.message : '保存できませんでした。もう一度お試しください。' };
     } finally {
-      if (current()) { const pending = new Set(state.pending); pending.delete(key); state = { ...state, pending }; emit(); }
+      const pending = new Set(state.pending); pending.delete(key);
+      state = { ...state, pending, ...(!current() && saved ? { requiresReload: true,
+        error: '保存済みですが、表示を更新できませんでした。再読込してください。' } : {}) };
+      if (current()) emit();
     }
   }
+  async function retryRead() {
+    if (!current() || state.pending.size || state.reading) return;
+    state = { ...state, reading: true }; emit();
+    try { await dependencies.refresh(); if (current()) { targets.clear(); state = { ...state, overrides: new Map(), error: null, requiresReload: false }; } }
+    catch { /* Retain the saved overlay and its retry message. */ }
+    finally { state = { ...state, reading: false }; if (current()) emit(); }
+  }
   return {
-    activate: () => { live = true; }, deactivate: () => { live = false; command++; clearUndo(); },
+    activate: () => { live = true; if (state.requiresReload) void retryRead(); else if (current()) emit(); }, deactivate: () => { live = false; command++; clearUndo(); },
     getSnapshot: () => state,
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
     dismissUndo() { command++; clearUndo(); emit(); },
@@ -104,12 +113,6 @@ export function createTaskMutations(dependencies: {
       const receipt = undoReceipt;
       await perform(receipt.undoTask, receipt.undo, receipt.keepChecked);
     },
-    async retryRead() {
-      if (!current() || state.pending.size || state.reading) return;
-      state = { ...state, reading: true }; emit();
-      try { await dependencies.refresh(); if (current()) { targets.clear(); state = { ...state, overrides: new Map(), error: null, requiresReload: false }; } }
-      catch { /* Retain the saved overlay and its retry message. */ }
-      finally { if (current()) { state = { ...state, reading: false }; emit(); } }
-    },
+    retryRead,
   };
 }

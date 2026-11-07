@@ -45,12 +45,16 @@ export function normalizeWasteTypeText(value: string): string {
     .replace(/[\s・･、]/gu, '').replace(/ごみ/gu, '');
 }
 
+const indexedWasteTypes = WASTE_TYPES.map((item, index) => ({ item, index, terms: [item.label, ...item.aliases].map(normalizeWasteTypeText) }));
+const exactWasteTypes = new Map<string, number>();
+for (const { terms, index } of indexedWasteTypes) for (const term of terms) if (!exactWasteTypes.has(term)) exactWasteTypes.set(term, index);
+export function wasteTypeIndex(label: string): number { return exactWasteTypes.get(normalizeWasteTypeText(label)) ?? -1; }
+
 export function searchWasteTypes(query: string): readonly WasteType[] {
   const normalized = normalizeWasteTypeText(query.trim());
   if (!query.trim()) return [];
   if (!normalized) return WASTE_TYPES;
-  return WASTE_TYPES.flatMap((item, index) => {
-    const terms = [item.label, ...item.aliases].map(normalizeWasteTypeText);
+  return indexedWasteTypes.flatMap(({ item, index, terms }) => {
     const rank = terms.some((term) => term === normalized) ? 0
       : terms.some((term) => term.startsWith(normalized)) ? 1
         : terms.some((term) => term.includes(normalized)) ? 2 : -1;

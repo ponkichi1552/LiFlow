@@ -23,6 +23,7 @@ function Loader({ load, onBack, notice, retry }: { load(): Promise<V2GoogleTaskU
       <AppButton title="Google連携を再読込" onPress={retry} /></Card> : <ActivityIndicator />}</Page>;
 }
 function resultMessage(result: GoogleSyncRunResult) {
+  if (result.kind === 'success' && result.foregroundRequired) return 'Googleの予定一覧の再取得が必要です。アプリを表示したまま、今すぐ同期を押してください。';
   if (result.kind === 'success') return result.skipped ? '今回は同期を見送りました。接続状態と再試行時刻を確認してください。'
     : `同期しました。追加${result.created ?? 0}件・更新${result.updated ?? 0}件・完了と取消の取込${result.imported ?? 0}件。`;
   if (result.kind === 'retry') return '今回は反映が完了していません。送信待ちは保持し、次の同期で再試行します。';

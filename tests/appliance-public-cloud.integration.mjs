@@ -194,7 +194,7 @@ test('real Firebase Admin authentication accepts an emulator Google user and rej
     await store.heartbeatAnalysisWorker();
     const response = await fetch(base + '/api/appliance-care/jobs', { method: 'POST',
       headers: { authorization: `Bearer ${a.token}`, 'x-idempotency-key': 'synthetic-integration-job', 'content-type': 'application/json' }, body });
-    assert.equal(response.status, 202); const receipt = await response.json(); assert.equal(receipt.usage.used, 1);
+    assert.equal(response.status, 202, await response.clone().text()); const receipt = await response.json(); assert.equal(receipt.usage.used, 1);
     assert.equal((await fetch(base + '/api/appliance-care/jobs/' + receipt.jobId, { headers: { authorization: `Bearer ${b.token}` } })).status, 404);
     assert.equal(calls, 0);
     assert.equal((await runAnalysisQueueBatch({ store: createFirestoreUsageStore({ firestore }), authorize: async () => {}, createDependencies: () => dependencies })).settled, 1);

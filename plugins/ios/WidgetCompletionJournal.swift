@@ -23,6 +23,9 @@ enum LiflowWidgetInputJournal {
     guard old.count <= 24_000_000, var rows = try JSONSerialization.jsonObject(with: old) as? [[String: Any]], rows.count <= 1000 else { throw Failure.invalid }
     let result = try body(&rows)
     let next = try JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys])
+    // Separators and JSON escaping count toward the same limit used by read().
+    // Reject before replacing the file so a full queue remains recoverable.
+    guard rows.count <= 1000, next.count <= 24_000_000 else { throw Failure.full }
     if old != next {
       #if os(iOS)
       try next.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
@@ -80,7 +83,7 @@ enum LiflowWidgetInputJournal {
       let chore = chores.first(where: { $0["id"] as? String == id && $0["completed"] as? Bool != true }),
       let entry = chore["entry"] as? [String: Any], entry["id"] as? String == id, entry["householdId"] as? String == "local-household" else { return false }
     try append(["id": "completion-intent.\(UUID().uuidString.lowercased())", "accountScope": scope, "householdCreatedAt": household,
-      "acceptedAtMs": Int(milliseconds), "completedLocalDate": day, "timeZone": selectedZone.identifier, "entry": entry], at: directory)
+      "acceptedAtMs": Int(milliseconds), "completedLocalDate": day, "timeZone": selectedZone.identifier, "entry": entry, "completionGeneration": chore["completionGeneration"] as? Int ?? 0], at: directory)
     return true
   }
 }

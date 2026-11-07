@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { Host, Picker } from '@expo/ui';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -10,16 +10,18 @@ export function CalendarOptionPicker({ title, value, options, onSelect, onClose,
   onSelect: (value: string) => void; onClose: () => void; onCustom?: () => void;
 }) {
   const [selected, setSelected] = useState(value); const [initialValue] = useState(value); const scheme = useColorScheme(); const insets = useSafeAreaInsets();
+  const latest = useRef(value); const closed = useRef(false);
+  const close = () => { if (closed.current) return false; closed.current = true; onClose(); return true; };
   const choose = (next: string) => {
-    if (!options.some(option => option.value === next)) return;
-    setSelected(next);
-    if (next === 'custom' && onCustom) { if (next !== selected) { onClose(); onCustom(); } return; }
-    onSelect(next); if (Platform.OS !== 'ios') onClose();
+    if (closed.current || !options.some(option => option.value === next)) return;
+    latest.current = next; setSelected(next);
+    if (next === 'custom' && onCustom) { if (close()) onCustom(); return; }
+    onSelect(next); if (Platform.OS !== 'ios') close();
   };
-  return <Modal transparent animationType="fade" onRequestClose={onClose}><View style={styles.overlay}>
-    <Pressable accessibilityRole="button" accessibilityLabel={`${title}の選択を閉じる`} onPress={onClose} style={StyleSheet.absoluteFill} />
+  return <Modal transparent animationType="fade" onRequestClose={() => { close(); }}><View style={styles.overlay}>
+    <Pressable accessibilityRole="button" accessibilityLabel={`${title}の選択を閉じる`} onPress={close} style={StyleSheet.absoluteFill} />
     <View style={[styles.panel, { paddingBottom: Math.max(12, insets.bottom) }]}>
-      <View style={styles.header}><Text style={styles.title}>{title}</Text><Pressable accessibilityRole="button" accessibilityLabel={`${title}の選択を完了`} onPress={() => { onClose(); if (selected === 'custom') onCustom?.(); }} style={styles.done}><Text style={styles.action}>{selected === 'custom' && onCustom ? '次へ' : '完了'}</Text></Pressable></View>
+      <View style={styles.header}><Text style={styles.title}>{title}</Text><Pressable accessibilityRole="button" accessibilityLabel={`${title}の選択を完了`} onPress={() => { if (close() && latest.current === 'custom') onCustom?.(); }} style={styles.done}><Text style={styles.action}>{selected === 'custom' && onCustom ? '次へ' : '完了'}</Text></Pressable></View>
       {Platform.OS === 'ios' ? <Host colorScheme={scheme === 'dark' ? 'dark' : 'light'} seedColor={palette.accent} style={styles.wheel}>
         {/* Feeding intermediate JS events back into SwiftUI interrupts its wheel motion. */}
         <Picker testID="calendar-option-wheel" appearance="wheel" selectedValue={initialValue} onValueChange={choose}>{options.map(option => <Picker.Item key={option.value} value={option.value} label={option.label} />)}</Picker>

@@ -163,5 +163,8 @@ test('same-zone private load changes only the personal recommendation and cannot
     assert.deepEqual(await listSharingOutbox(d.database, input.groupId), before);
     const unavailable = await createV2ScreenSession({ ...input, privateTasks: { read: async () => { throw new Error('private failure'); } } }).readModel();
     assert.equal(unavailable.privateOverlay.status, 'unavailable'); assert.deepEqual(unavailable.plan, base.plan);
+    const { AdaptiveOwnerInputsChangedError } = await import('../src/platform/storage/adaptive-owner-inputs.ts');
+    await assert.rejects(createV2ScreenSession({ ...input, privateTasks: { read: async () => { throw new AdaptiveOwnerInputsChangedError(); } } }).readModel(),
+      AdaptiveOwnerInputsChangedError, 'an unsettled owner capture must not publish a misleading shared-only model');
   } finally { f.connection.close(); d.connection.close(); }
 });

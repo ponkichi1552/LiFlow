@@ -72,13 +72,13 @@ export async function verifyCloudMembership(deps: SharedSyncDependencies, curren
 /** One coordinator per workspace. Process exits leave events, never a persisted "syncing" lock. */
 export function createSharedSynchronizer(deps: SharedSyncDependencies) {
   const now = deps.now ?? Date.now; let running: Promise<SharingSyncResult> | null = null; let requested = false; let forceRequested = false;
+  let deadline = 0;
   let maintenance: Promise<unknown> | null = null;
   const keyFor = (epoch: VerifiedSharedRoster, archive: readonly VerifiedSharedRoster[]) => resolveSharedGroupKey({
     crypto: deps.crypto, identity: deps.identity, userId: deps.userId, epoch, archive, readKey: deps.readKey, saveKey: deps.saveKey,
     readEnvelope: version => deps.cloud.readGroupKey(deps.groupId, version, deps.identity.deviceId),
   });
   async function perform(options: { force?: boolean; budgetMs?: number }): Promise<SharingSyncResult> {
-    const deadline = now() + Math.max(1000, Math.min(options.budgetMs ?? 20_000, 120_000));
     let sent = 0; let received = 0; let metadata;
     const waiting = async (): Promise<SharingSyncResult> => ({ sent, received,
       pending: (await readSharingCheckpoint(deps.database, deps.groupId)).pendingCount, waitingForApproval: true, complete: false });
@@ -88,6 +88,7 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
         && ['permission-denied', 'sharing/access-denied'].includes(String(error.code))) return waiting();
       throw error;
     }
+    if (now() >= deadline) return { ...await waiting(), waitingForApproval: (await deps.readRecord()).status === 'joining' };
     let archive = await verifyCloudMembership(deps, metadata.roster); let roster = archive.at(-1)!;
     if (metadata.group.deviceOwners[deps.identity.deviceId] !== deps.userId && (await deps.readRecord()).status === 'joining') return waiting();
     assertSharedCloudAccess(metadata.group, deps.userId, deps.identity.deviceId);
@@ -131,6 +132,7 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
     try {
       await getKey(roster); await adoptSnapshot(metadata.group);
       const pull = async () => {
+        if (now() >= deadline) return false;
         let races = 0;
         do {
           const checkpoint = await readSharingCheckpoint(deps.database, deps.groupId); let page;
@@ -205,8 +207,9 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
         await flushAcceptedV2();
       }
       if (now() < deadline) complete = await pull();
+      else complete = false;
       const checkpoint = await readSharingCheckpoint(deps.database, deps.groupId);
-      if (complete && !(await loadSharedReplica(deps.database, deps.groupId)).pendingOperationIds.length) await deps.cloud.acknowledge(deps.groupId, deps.identity.deviceId, checkpoint.sequence);
+      if (complete && now() < deadline && !(await loadSharedReplica(deps.database, deps.groupId)).pendingOperationIds.length) await deps.cloud.acknowledge(deps.groupId, deps.identity.deviceId, checkpoint.sequence);
       return { sent, received, pending: checkpoint.pendingCount, waitingForApproval: false, complete };
     } finally {
       try { await flushAcceptedV2(); }
@@ -214,11 +217,27 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
     }
   }
   function sync(options: { force?: boolean; budgetMs?: number } = {}): Promise<SharingSyncResult> {
-    if (maintenance) return maintenance.then(() => sync(options), () => sync(options));
-    if (running) { requested = true; forceRequested ||= Boolean(options.force); return running; }
+    const requestedDeadline = now() + Math.max(1000, Math.min(options.budgetMs ?? 20_000, 120_000));
+    if (maintenance) {
+      const active = maintenance;
+      const expired = () => Object.assign(new Error('共有同期の待機時間を超えました。未送信の変更は保持しています。'), { code: 'unavailable' });
+      return (async () => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([active.catch(() => undefined), new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(expired()), Math.max(1, requestedDeadline - now()));
+          })]);
+          const left = Math.floor(requestedDeadline - now());
+          if (left < 1000) throw expired();
+          return await sync({ ...options, budgetMs: left });
+        } finally { clearTimeout(timer); }
+      })();
+    }
+    if (running) { requested = true; forceRequested ||= Boolean(options.force); deadline = Math.min(deadline, requestedDeadline); return running; }
+    deadline = requestedDeadline;
     const pending = (async () => {
       let result = await perform(options);
-      if (requested) { const force = forceRequested; requested = false; forceRequested = false;
+      if (requested && now() < deadline) { const force = forceRequested; requested = false; forceRequested = false;
         const next = await perform({ ...options, force: options.force || force }); result = { ...next, sent: result.sent + next.sent, received: result.received + next.received }; }
       return result;
     })(); running = pending;

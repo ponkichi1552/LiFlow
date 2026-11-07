@@ -265,14 +265,22 @@ export function applyReceivedSharedOperations(
 }
 
 export function listSharingOutbox(db: SQLiteDatabase, groupId: string, now = Date.now()): Promise<SharingOutboxItem[]> {
-  return serial(db, async () => (await db.getAllAsync<{
+  return serial(db, async () => {
+    const rows = await db.getAllAsync<{
     operation_json: string; encrypted_envelope: string | null; attempts: number; next_attempt_at: number;
   }>(`SELECT o.operation_json, q.encrypted_envelope, q.attempts, q.next_attempt_at FROM sharing_outbox q
     JOIN sharing_operations o USING(operation_id) WHERE o.group_id = ?
-    ORDER BY o.logical_clock, o.operation_id LIMIT 100`, groupId))
-    .map((row) => ({ operation: validateSharedOperation(JSON.parse(row.operation_json), groupId),
-      encryptedEnvelope: row.encrypted_envelope, attempts: row.attempts, nextAttemptAt: row.next_attempt_at }))
-    .filter((item, index, all) => all.slice(0, index + 1).every((earlier) => earlier.nextAttemptAt <= now)));
+    ORDER BY o.logical_clock, o.operation_id LIMIT 100`, groupId);
+    const result: SharingOutboxItem[] = [];
+    for (const row of rows) {
+      // Later operations can depend on the first deferred fact. Do not skip it
+      // or spend work parsing and validating a suffix that cannot be uploaded.
+      if (!(row.next_attempt_at <= now)) break;
+      result.push({ operation: validateSharedOperation(JSON.parse(row.operation_json), groupId),
+        encryptedEnvelope: row.encrypted_envelope, attempts: row.attempts, nextAttemptAt: row.next_attempt_at });
+    }
+    return result;
+  });
 }
 
 export function saveSharingEnvelope(db: SQLiteDatabase, operationId: string, envelope: string): Promise<void> {

@@ -36,9 +36,15 @@ test('mobile onboarding back control retains selections when moving backward and
   try {
     await repository.initializeLocalDatabase(h.database);
     const snapshot = await repository.loadPlannerSnapshot(h.database, localDateFromDate(new Date()));
+    let splashRevealed = 0;
     const screen = screenHarness('src/features/onboarding/first-run-setup.tsx', {
       exportName: 'FirstRunSetup', database: h.database, props: { snapshot, onComplete: async () => {} },
+      mocks: { '@/platform/diagnostics/startup-splash': { finishStartupDisplay: () => { splashRevealed++; } } },
     });
+    const initialSurface = screen.nodes().find(node => node.props.onLayout);
+    assert.ok(initialSurface, 'first-run screen exposes its ready surface');
+    initialSurface.props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 700 } } });
+    assert.equal(splashRevealed, 1, 'first-run screen reveals itself from the native splash');
     const firstPage = screen.text();
     await screen.press('次へ');
     assert.ok(screen.text().includes('休日'));

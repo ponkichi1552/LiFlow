@@ -20,6 +20,8 @@ import { buildV2WastePlan } from './waste-state.ts';
 import { buildV2ApplianceModel } from './appliance-state.ts';
 import type { LegacyCompletionRecord } from './legacy-history.ts';
 import { traceStartup, traceStartupSync } from '../../../platform/diagnostics/startup-timing.ts';
+import { nextLongCalendarRounds } from './next-calendar-rounds.ts';
+import { v2ConfigurationTimeline } from './configuration-timeline.ts';
 type V2ModelRange = { from: LocalDate; through: LocalDate; asOfDate: LocalDate };
 
 /** Injected transport keeps the screen independent of production, Emulator, and offline test workspaces. */
@@ -28,6 +30,7 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
 }) {
   const actions = createV2PlannerActions(repository, options);
   const recentPlans = new Map<string, V2CommonPlan>();
+  let longCalendarCache: { key: string; rounds: ReturnType<typeof nextLongCalendarRounds> } | undefined;
   return {
     actions, sync: options.sync,
     // Date reviews need current shared events, not another scheduler/overlay run.
@@ -37,7 +40,7 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
       if (typeof timeZone !== 'string') throw new Error('グループの地域を確認してください。');
       return { groupId: repository.scope.groupId, viewerUserId: repository.scope.userId, timeZone, records: readSharedCalendar(state.assessment.view, at) };
     }),
-    async readModel(inputRange: V2ModelRange | ((context: { timeZone: string }) => V2ModelRange), readOptions: { detailChoreId?: string; choreSettings?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; appliances?: boolean; applianceId?: string } = {}) {
+    async readModel(inputRange: V2ModelRange | ((context: { timeZone: string }) => V2ModelRange), readOptions: { detailChoreId?: string; choreSettings?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; appliances?: boolean; applianceId?: string; calendarLong?: boolean } = {}) {
       const state = await traceStartup('display.repository', () => repository.readState());
       const at = v2ReadPoint(state.assessment.view, state.archive.at(-1)!);
       let range: V2ModelRange;
@@ -90,8 +93,17 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
       const waste = readOptions.waste ? buildV2WastePlan(state.assessment.view, at, range) : undefined;
       const appliances = readOptions.appliances ? buildV2ApplianceModel(state.assessment.view, at, readOptions.applianceId) : undefined;
       const recoveryHistory = state.replica.recoveryWitnesses ?? [];
+      let calendarLong: ReturnType<typeof nextLongCalendarRounds> | undefined;
+      if (readOptions.calendarLong) {
+        const key = JSON.stringify([plan.sourceHash, range.asOfDate, repository.scope.userId]);
+        if (longCalendarCache?.key !== key) longCalendarCache = { key, rounds: nextLongCalendarRounds({ plan, viewerUserId: repository.scope.userId,
+          dateRules: observedDateRules(state.assessment.view, at, state.assessment.approvedRules),
+          timeline: choreId => v2ConfigurationTimeline(state.assessment.view, choreId, at),
+          readAt: anchor => buildV2CommonPlan(state, { from: anchor, through: anchor, asOfDate: range.asOfDate }) }) };
+        calendarLong = isolatedProjectionValue(longCalendarCache.rounds);
+      }
       const manualStorageSupported = supportsRetainedManuals(state.archive.at(-1)!.body.schedulerVersion);
-      return { manualStorageSupported, calendar: readSharedCalendar(state.assessment.view, at), calendarSupported: supportsSharedCalendar(state.archive.at(-1)!.body.schedulerVersion), plan, configurations, choreDetails, ...(readOptions.choreSettings ? { choreDateRights } : {}), ...(groupPolicy ? { groupPolicy } : {}), ...(groupSettings ? { groupSettings } : {}), ...(dateRights ? { dateRights } : {}), ...(waste ? { waste } : {}), ...(appliances ? { appliances } : {}), viewerUserId: repository.scope.userId, adminUserId: state.archive.at(-1)!.body.ownerUserId,
+      return { manualStorageSupported, calendar: readSharedCalendar(state.assessment.view, at), calendarSupported: supportsSharedCalendar(state.archive.at(-1)!.body.schedulerVersion), plan, configurations, choreDetails, ...(calendarLong ? { calendarLong } : {}), ...(readOptions.choreSettings ? { choreDateRights } : {}), ...(groupPolicy ? { groupPolicy } : {}), ...(groupSettings ? { groupSettings } : {}), ...(dateRights ? { dateRights } : {}), ...(waste ? { waste } : {}), ...(appliances ? { appliances } : {}), viewerUserId: repository.scope.userId, adminUserId: state.archive.at(-1)!.body.ownerUserId,
         ...(recoveryHistory.length ? { recoverySummary: { heldChanges: recoveryHistory.reduce((sum, witness) => sum
           + witness.body.entries.filter(entry => entry.classification === 'blockedCausality').length, 0), recoveries: recoveryHistory.length } } : {}),
         requests: state.assessment.requestStates, requestReviews: reviews.date, assignmentReviews: reviews.assignment,

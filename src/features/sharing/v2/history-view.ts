@@ -24,6 +24,7 @@ export function createV2AuthorityIndex(groupId: string, assignmentProjection?: (
   const ready: SharedOperation[] = []; const byId = new Map<string, SharedOperation>();
   const topics = new Map<string, SharedOperation[]>(); const types = new Map<SharedEntityType, SharedOperation[]>();
   const occurrences = new Map<string, SharedOperation[]>();
+  const configurationVersions = new Map<string, SharedOperation[]>();
   const completionRounds = new Map<string, SharedOperation[]>(); const waitingForCompletion = new Map<string, SharedOperation[]>();
   const indexCompletion = (source: SharedOperation, operation: SharedOperation) => {
     if (source.schemaVersion !== 2 || source.operationType !== 'complete') return;
@@ -35,6 +36,11 @@ export function createV2AuthorityIndex(groupId: string, assignmentProjection?: (
     ready.push(op); byId.set(op.operationId, op);
     const topic = `${op.entityType}:${op.entityId}`; const list = topics.get(topic) ?? []; list.push(op); topics.set(topic, list);
     const type = types.get(op.entityType) ?? []; type.push(op); types.set(op.entityType, type);
+    if (op.entityType === 'chorePolicy' && op.payload.configuration && typeof op.payload.configuration === 'object') {
+      const version = (op.payload.configuration as unknown as SharedChoreConfiguration).ruleVersion;
+      const key = `${op.entityId}\0${version}`; const entries = configurationVersions.get(key) ?? [];
+      entries.push(op); configurationVersions.set(key, entries);
+    }
     const occurrenceId = op.entityType === 'completion' ? op.entityId : op.payload.occurrenceId;
     if (typeof occurrenceId === 'string') { const facts = occurrences.get(occurrenceId) ?? []; facts.push(op); occurrences.set(occurrenceId, facts); }
     if (op.entityType === 'completion' && op.operationType === 'complete') {
@@ -47,6 +53,16 @@ export function createV2AuthorityIndex(groupId: string, assignmentProjection?: (
     }
   };
   const observed = (operations: readonly SharedOperation[], at: SharedOperation) => operations.filter((op) => causallyPrecedes(op, at));
+  function fieldValue(operations: readonly SharedOperation[], type: SharedEntityType, field: string, at: SharedOperation,
+    filter: (op: SharedOperation) => boolean = () => true): { value: JsonValue; operations: SharedOperation[] } | null {
+      const writing = observed(operations, at).filter((op) => filter(op) && (field === '$alive' || Object.hasOwn(op.payload, field)));
+      const latest = maximalCausalFacts(writing);
+      if (!latest.length) return null;
+      const value = (op: SharedOperation): JsonValue => field === '$alive' ? op.operationType !== 'delete'
+        : type === 'chorePolicy' && field === 'configuration' ? normalizeV2Configuration(op.payload[field] as unknown as SharedChoreConfiguration) as unknown as JsonValue : op.payload[field];
+      if (new Set(latest.map((op) => canonicalJson(value(op)))).size > 1) throw new V2HistoryConflictError(`Unresolved ${type}.${field}`);
+      return { value: value(latest[0]), operations: latest };
+  }
   const view = {
     groupId, ready,
     byId: (id: string) => byId.get(id),
@@ -60,16 +76,12 @@ export function createV2AuthorityIndex(groupId: string, assignmentProjection?: (
     retainedFrontier: () => retention?.frontier,
     retentionAt: (at: SharedOperation) => retention && Object.entries(retention.frontier).every(([device, count]) => (at.context[device] ?? 0) >= count) ? retention : undefined,
     observed,
+    configurationVersion(choreId: string, version: number, at: SharedOperation) {
+      return fieldValue(configurationVersions.get(`${choreId}\0${version}`) ?? [], 'chorePolicy', 'configuration', at);
+    },
     field(type: SharedEntityType, id: string, field: string, at: SharedOperation, filter: (op: SharedOperation) => boolean = () => true):
       { value: JsonValue; operations: SharedOperation[] } | null {
-      const writing = observed(topics.get(`${type}:${id}`) ?? [], at).filter((op) => filter(op)
-        && (field === '$alive' || Object.hasOwn(op.payload, field)));
-      const latest = maximalCausalFacts(writing);
-      if (!latest.length) return null;
-      const value = (op: SharedOperation): JsonValue => field === '$alive' ? op.operationType !== 'delete'
-        : type === 'chorePolicy' && field === 'configuration' ? normalizeV2Configuration(op.payload[field] as unknown as SharedChoreConfiguration) as unknown as JsonValue : op.payload[field];
-      if (new Set(latest.map((op) => canonicalJson(value(op)))).size > 1) throw new V2HistoryConflictError(`Unresolved ${type}.${field}`);
-      return { value: value(latest[0]), operations: latest };
+      return fieldValue(topics.get(`${type}:${id}`) ?? [], type, field, at, filter);
     },
   };
   return { view, accept };

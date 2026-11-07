@@ -1,0 +1,2534 @@
+{
+  "date": "2026-11-07",
+  "status": "verified-local-and-native",
+  "findingsCount": 100,
+  "bugs": 56,
+  "optimizations": 44,
+  "priorFindingsNotRecounted": 70,
+  "counting": "Independent root causes only; reproduced behavior failures or measured avoided work; no hypothetical candidates counted",
+  "findings": [
+    {
+      "id": "N001",
+      "kind": "bug",
+      "title": "完了後の保護ストレージの確認保存が失敗すると再読込ボタンで復旧できない",
+      "status": "fixed",
+      "files": [
+        "src/features/planner/completion-intents.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-completion.test.mjs",
+        "name": "audit100 completion cleanup can retry a failed protected acknowledgement without repeating the saved work"
+      },
+      "evidence": "Saved work was applied once, but cleanup failure removed the only in-memory committed record; retry left durable old input and an undismissable error",
+      "before": "completion-first-before.log",
+      "after": "completion-first-after.log"
+    },
+    {
+      "id": "N002",
+      "kind": "bug",
+      "title": "Plannerの画面通知先の例外が他画面・初回読込完了・Widget出力を止める",
+      "status": "fixed",
+      "files": [
+        "src/features/planner/refresh-controller.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-completion.test.mjs",
+        "name": "audit100 a failed planner subscriber cannot block another screen the initial read or widget publication"
+      },
+      "evidence": "A throwing subscriber rejected refresh and blocked second view and native publication; display-store A19 was a different independently implemented channel",
+      "before": "completion-first-before.log",
+      "after": "completion-first-after.log"
+    },
+    {
+      "id": "N003",
+      "kind": "bug",
+      "title": "時差表記の異なる履歴が実際の実施時刻順にならない",
+      "status": "fixed",
+      "files": [
+        "src/features/planner/history-groups.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-completion.test.mjs",
+        "name": "audit100 completion history orders offset timestamps by the actual instant within a saved civil day"
+      },
+      "evidence": "11:00+09:00 sorted ahead of later 06:00Z within the same saved date",
+      "before": "completion-first-before.log",
+      "after": "completion-first-after.log"
+    },
+    {
+      "id": "N004",
+      "kind": "optimization",
+      "title": "Widgetの未送信操作ごとに予定全件・完了履歴全件を検索する",
+      "status": "fixed",
+      "files": [
+        "src/features/widgets/widget-completion-sync.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-completion.test.mjs",
+        "name": "audit100 recovering a hundred widget inputs indexes schedule and exact completion lookup once"
+      },
+      "evidence": "100 inputs against 1000 schedules read schedule IDs 95150 times; one index retains first-match and legacy date matching",
+      "before": "completion-first-before.log",
+      "after": "completion-first-after.log"
+    },
+    {
+      "id": "N005",
+      "kind": "bug",
+      "title": "完了ジャーナルの旧履歴・取消しの日付が記録された地域と一致しない",
+      "status": "fixed",
+      "files": [
+        "src/platform/storage/completion-journal.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-completion.test.mjs",
+        "name": "audit100 the completion journal freezes legacy and Undo days in their recorded region"
+      },
+      "evidence": "03:00Z with Pacific/Honolulu was incorrectly stored as Nov7 instead of Nov6 on a Tokyo device",
+      "before": "completion-first-before.log",
+      "after": "completion-first-after.log"
+    },
+    {
+      "id": "N006",
+      "kind": "optimization",
+      "title": "旧完了履歴の初回取り込みが1件ずつSQLiteへ書き込む",
+      "status": "fixed",
+      "files": [
+        "src/platform/storage/completion-journal.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-completion.test.mjs",
+        "name": "audit100 seeding a long completion journal batches SQL while retaining every original fact"
+      },
+      "evidence": "500 original facts required 500 bridge calls; now 10 batches, each below 999 binds, second seed writes zero",
+      "before": "completion-first-before.log",
+      "after": "completion-first-after.log"
+    },
+    {
+      "id": "N007",
+      "kind": "bug",
+      "title": "共有の同時完了の時差表記によって個人への反映対象・本人の負荷が変わる",
+      "status": "fixed",
+      "files": [
+        "src/features/sharing/v2-ui/common-chore-history.ts",
+        "src/features/planner/shared-adaptive-load.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-shared-completion.test.mjs",
+        "name": "audit100 canonical shared completions compare real instants before choosing the personal mirror and spent workload"
+      },
+      "evidence": "Chronologically first owner work was replaced by later member work when RFC3339 offsets differed",
+      "before": "completion-second-before.log",
+      "after": "completion-second-after.log"
+    },
+    {
+      "id": "N008",
+      "kind": "bug",
+      "title": "却下された代理実施が本来の担当者の完了保存を妨げる",
+      "status": "fixed",
+      "files": [
+        "src/features/sharing/v2/actions.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-shared-completion.test.mjs",
+        "name": "audit100 a rejected substitution does not block the actual assignee from completing the same round"
+      },
+      "evidence": "Actual signed SQLite actions kept the round incomplete and emitted no completion after an explicit rejected substitution",
+      "before": "completion-second-before.log",
+      "after": "completion-second-after.log"
+    },
+    {
+      "id": "N009",
+      "kind": "bug",
+      "title": "取り消しを保存キューが拒否しても元に戻す操作が消える",
+      "status": "fixed",
+      "files": [
+        "src/hooks/use-task-completion.tsx",
+        "src/features/sharing/v2-ui/group-screen.tsx"
+      ],
+      "test": {
+        "file": "tests/audit100-completion-ui.test.mjs",
+        "name": "${platform} audit100 a temporarily rejected queued Undo retains its one-tap recovery action"
+      },
+      "evidence": "Both real Home screen harnesses discarded the still-unused Undo after the request was declined",
+      "before": "completion-second-before.log",
+      "after": "completion-second-after.log"
+    },
+    {
+      "id": "N010",
+      "kind": "bug",
+      "title": "Tasksの一時的なJSON応答不良が自動同期を恒久エラーへ変える",
+      "status": "fixed",
+      "files": [
+        "src/platform/google-tasks/google-tasks-api.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-google-http.test.mjs",
+        "name": "audit100 malformed successful Tasks JSON remains retryable instead of permanently stopping automatic sync"
+      },
+      "before": "google-http-before.log",
+      "after": "google-http-after.log",
+      "evidence": "All six regressions failed before changes; 102 affected tests passed after changes. HTTP cases use isolated mock responses, not live Google mutation or load testing."
+    },
+    {
+      "id": "N011",
+      "kind": "bug",
+      "title": "Google Tasksのメモ内にMIME境界の文字列があると正常な作成応答を読めない",
+      "status": "fixed",
+      "files": [
+        "src/platform/google-tasks/google-tasks-api.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-google-http.test.mjs",
+        "name": "audit100 a MIME delimiter inside task notes is data rather than a second batch response"
+      },
+      "before": "google-http-before.log",
+      "after": "google-http-after.log",
+      "evidence": "All six regressions failed before changes; 102 affected tests passed after changes. HTTP cases use isolated mock responses, not live Google mutation or load testing."
+    },
+    {
+      "id": "N012",
+      "kind": "bug",
+      "title": "Calendarの変更・削除が空やワイルドカードのETagでも送信される",
+      "status": "fixed",
+      "files": [
+        "src/platform/google-calendar/calendar-api.ts",
+        "src/platform/google-http/etag.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-google-http.test.mjs",
+        "name": "audit100 Calendar modifications require one exact strong ETag before reading credentials or sending"
+      },
+      "before": "google-http-before.log",
+      "after": "google-http-after.log",
+      "evidence": "All six regressions failed before changes; 102 affected tests passed after changes. HTTP cases use isolated mock responses, not live Google mutation or load testing."
+    },
+    {
+      "id": "N013",
+      "kind": "bug",
+      "title": "Calendarの応答が予約した予定IDと異なっても紐付けに使える",
+      "status": "fixed",
+      "files": [
+        "src/platform/google-calendar/calendar-api.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-google-http.test.mjs",
+        "name": "audit100 Calendar acknowledgements cannot replace the exact reserved provider identity"
+      },
+      "before": "google-http-before.log",
+      "after": "google-http-after.log",
+      "evidence": "All six regressions failed before changes; 102 affected tests passed after changes. HTTP cases use isolated mock responses, not live Google mutation or load testing."
+    },
+    {
+      "id": "N014",
+      "kind": "optimization",
+      "title": "Tasksの単件取得・変更応答が利用しない付加情報まで転送する",
+      "status": "fixed",
+      "files": [
+        "src/platform/google-tasks/google-tasks-api.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-google-http.test.mjs",
+        "name": "audit100 single Tasks reads and write acknowledgements request only their consumed fields"
+      },
+      "before": "google-http-before.log",
+      "after": "google-http-after.log",
+      "evidence": "All six regressions failed before changes; 102 affected tests passed after changes. HTTP cases use isolated mock responses, not live Google mutation or load testing."
+    },
+    {
+      "id": "N015",
+      "kind": "optimization",
+      "title": "100件のTasks確認応答を1件ずつキャッシュ確定する",
+      "status": "fixed",
+      "files": [
+        "src/features/google-sync/reconcile-google-tasks.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-google-http.test.mjs",
+        "name": "audit100 a hundred confirmed status replies update the read checkpoint in one bounded batch"
+      },
+      "before": "google-http-before.log",
+      "after": "google-http-after.log",
+      "evidence": "All six regressions failed before changes; 102 affected tests passed after changes. HTTP cases use isolated mock responses, not live Google mutation or load testing."
+    },
+    {
+      "id": "N016",
+      "kind": "bug",
+      "title": "壊れたTasks差分取得位置を背景処理が全件取得へ読み替える",
+      "status": "fixed",
+      "files": [
+        "src/platform/storage/google-task-read-cache.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-task-checkpoint.test.mjs",
+        "name": "audit100 a corrupt delta checkpoint cannot silently become a background full scan"
+      },
+      "before": "task-checkpoint-before.log",
+      "after": "task-checkpoint-after.log",
+      "evidence": "Three independent SQLite reproductions failed before fixes; 63 affected tests pass. Unchanged 500-item inventory now keeps all item revisions and cached row reuse."
+    },
+    {
+      "id": "N017",
+      "kind": "bug",
+      "title": "遅着した古いTasks応答で新しい完了状態が巻き戻る",
+      "status": "fixed",
+      "files": [
+        "src/platform/storage/google-task-read-cache.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-task-checkpoint.test.mjs",
+        "name": "audit100 late older Tasks pages and acknowledgements cannot replace a newer observed provider version"
+      },
+      "before": "task-checkpoint-before.log",
+      "after": "task-checkpoint-after.log",
+      "evidence": "Three independent SQLite reproductions failed before fixes; 63 affected tests pass. Unchanged 500-item inventory now keeps all item revisions and cached row reuse."
+    },
+    {
+      "id": "N018",
+      "kind": "optimization",
+      "title": "変更のないTasks確認応答と全体照合でも保存済み全件を再書込みする",
+      "status": "fixed",
+      "files": [
+        "src/platform/storage/google-task-read-cache.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-task-checkpoint.test.mjs",
+        "name": "audit100 unchanged acknowledgements and a periodic full inventory do not rewrite cached Tasks or invalidate row reuse"
+      },
+      "before": "task-checkpoint-before.log",
+      "after": "task-checkpoint-after.log",
+      "evidence": "Three independent SQLite reproductions failed before fixes; 63 affected tests pass. Unchanged 500-item inventory now keeps all item revisions and cached row reuse."
+    },
+    {
+      "id": "N019",
+      "kind": "bug",
+      "title": "CalendarListの重複行が接続を妨げ、同じカレンダーを重複処理する",
+      "status": "fixed",
+      "files": [
+        "src/platform/google-calendar/calendar-api.ts",
+        "src/features/calendar/personal-google-sync.ts",
+        "src/features/calendar/shared-google-export.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 repeated CalendarList rows across pages do not block connection or duplicate synchronization"
+      },
+      "before": "calendar-transport-before.log",
+      "after": "calendar-transport-after.log",
+      "evidence": "Independent before-fix reproduction and affected-suite verification. Calendar staging bridge writes: 100 to 2; Android variable limit guarded at 999."
+    },
+    {
+      "id": "N020",
+      "kind": "bug",
+      "title": "1000カレンダーのアクセス更新がAndroidのSQL変数上限を超える",
+      "status": "fixed",
+      "files": [
+        "src/platform/storage/personal-google-calendar.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 refreshing a thousand Google calendars stays below Android SQLite variable limits"
+      },
+      "before": "calendar-transport-before.log",
+      "after": "calendar-transport-after.log",
+      "evidence": "Independent before-fix reproduction and affected-suite verification. Calendar staging bridge writes: 100 to 2; Android variable limit guarded at 999."
+    },
+    {
+      "id": "N021",
+      "kind": "optimization",
+      "title": "Calendar受信100件を1件ずつ端末DBへ送信する",
+      "status": "fixed",
+      "files": [
+        "src/features/calendar/personal-google-sync.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 staging one hundred Calendar changes uses bounded SQLite batches rather than one bridge call per event"
+      },
+      "before": "calendar-transport-before.log",
+      "after": "calendar-transport-after.log",
+      "evidence": "Independent before-fix reproduction and affected-suite verification. Calendar staging bridge writes: 100 to 2; Android variable limit guarded at 999."
+    },
+    {
+      "id": "N022",
+      "kind": "bug",
+      "title": "遅着した古いCalendar予定が最新の内容を巻き戻す",
+      "status": "fixed",
+      "files": [
+        "src/platform/storage/personal-google-store.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 a delayed older Calendar version cannot roll back an imported personal event"
+      },
+      "before": "calendar-transport-before.log",
+      "after": "calendar-transport-after.log",
+      "evidence": "Independent before-fix reproduction and affected-suite verification. Calendar staging bridge writes: 100 to 2; Android variable limit guarded at 999."
+    },
+    {
+      "id": "N023",
+      "kind": "bug",
+      "title": "Calendarの再配分がTasksの認証エラーや再試行待ちを無視する",
+      "status": "fixed",
+      "files": [
+        "src/features/google-sync/coordinator.ts"
+      ],
+      "test": {
+        "file": "tests/google-sync-coordinator.test.mjs",
+        "name": "audit100 Calendar replanning cannot bypass Tasks authentication failure or its retry deadline"
+      },
+      "before": "coordinator-before.log",
+      "after": "coordinator-after.log",
+      "evidence": "Independent before-fix reproduction and affected-suite verification. Calendar staging bridge writes: 100 to 2; Android variable limit guarded at 999."
+    },
+    {
+      "id": "N024",
+      "kind": "optimization",
+      "title": "Tasks作成100件の確定結果を保存するためにSQLiteを300回呼ぶ",
+      "status": "fixed",
+      "files": [
+        "src/platform/storage/google-task-create-intents.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-create-receipts.test.mjs",
+        "name": "audit100 recording a hundred Tasks creation outcomes validates and writes one bounded SQLite batch"
+      },
+      "before": "create-receipts-before.log",
+      "after": "create-receipts-after.log",
+      "evidence": "100 confirmed/rejected outcomes used 300 bridge calls; now 2 with the same exact-intent and contradiction checks. 70 affected tests pass."
+    },
+    {
+      "id": "N025",
+      "kind": "bug",
+      "title": "Tasksの通信中にOFFにしても遅着した保存が同期をONへ戻す",
+      "status": "fixed",
+      "files": [
+        "src/features/google-sync/coordinator.ts",
+        "src/app/settings.tsx"
+      ],
+      "test": {
+        "file": "tests/audit100-google-stop.test.mjs",
+        "name": "audit100 stopping Tasks during an active HTTP pass remains OFF after that pass settles"
+      },
+      "before": "google-stop-before.log",
+      "after": "google-stop-after.log",
+      "evidence": "Real SQLite reproduced enabled=true after pause. Settings now cancel and serialize behind cleanup, then persist OFF. Affected tests pass."
+    },
+    {
+      "id": "N026",
+      "kind": "optimization",
+      "title": "Calendarの送信候補1000件を選ぶ際に予定本体を1000回読み直す",
+      "status": "fixed",
+      "files": [
+        "src/platform/storage/personal-google-store.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "names": [
+          "audit100 listing a thousand changed local Google events does not reread their master one by one"
+        ]
+      },
+      "before": "calendar-candidates-before.log",
+      "after": "calendar-candidates-after.log",
+      "evidence": "Measured candidate queries: 1003 to 3, joined master/exception rows preserve exported content and revisions. 89 affected tests pass."
+    },
+    {
+      "id": "N027",
+      "kind": "bug",
+      "title": "共有の取り消しが操作時に見えていない後続の実施まで消す",
+      "status": "fixed",
+      "files": [
+        "src/features/planner/completion-command.ts",
+        "src/features/planner/completion-intents.ts",
+        "src/platform/storage/completion-intents.ts",
+        "src/features/sharing/v2/actions.ts",
+        "src/features/sharing/v2-ui/round-card.tsx"
+      ],
+      "test": {
+        "file": "tests/audit100-shared-completion.test.mjs",
+        "names": [
+          "audit100 targeted shared Undo preserves later unseen work after ${origin} completion",
+          "audit100 shared Undo keeps its exact queued predecessor through ${phase}"
+        ]
+      },
+      "before": "targeted-undo-before.log",
+      "after": "targeted-undo-after.log",
+      "evidence": "Two signed-SQLite cases failed before change. Four scenarios now protect later work: displayed IDs, queued local fact, post-ack Undo and protected journal restart. 61 affected tests pass; regression variants count as one root cause."
+    },
+    {
+      "id": "N028",
+      "kind": "bug",
+      "title": "共有メンテナンス待ちで呼出元の制限時間が切れても新しいworker枠で同期を再開する",
+      "status": "fixed",
+      "files": [
+        "src/features/sharing/synchronizer.ts"
+      ],
+      "test": {
+        "file": "tests/sharing-synchronizer.test.mjs",
+        "name": "audit100 a shared worker queued behind maintenance cannot restart after its caller deadline"
+      },
+      "before": "shared-maintenance-before.log",
+      "after": "shared-maintenance-after.log",
+      "evidence": "Caller deadline now survives waiting behind maintenance; 24 affected tests pass."
+    },
+    {
+      "id": "N029",
+      "kind": "bug",
+      "title": "共有メタデータ読取で時間枠を使い切っても追加の取得を開始する",
+      "status": "fixed",
+      "files": [
+        "src/features/sharing/v2/synchronizer.ts"
+      ],
+      "test": {
+        "file": "tests/sharing-v2-synchronizer.test.mjs",
+        "name": "audit100 an expired initial sharing metadata read cannot start another receive request"
+      },
+      "before": "shared-bounds-before.log",
+      "after": "shared-bounds-after.log",
+      "evidence": "Expired initial metadata returns incomplete without a new pull. 39 affected tests pass."
+    },
+    {
+      "id": "N030",
+      "kind": "optimization",
+      "title": "共有Outboxの先頭が再送待ちでも後続100件を解析する",
+      "status": "fixed",
+      "files": [
+        "src/platform/storage/sharing-ledger.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-sharing-outbox.test.mjs",
+        "name": "audit100 a deferred first shared Outbox record does not parse the blocked hundred-operation suffix"
+      },
+      "before": "shared-bounds-before.log",
+      "after": "shared-bounds-after.log",
+      "evidence": "A causally blocked page now parses 0 rather than 100 payloads; preserves ordered due prefix."
+    },
+    {
+      "id": "N031",
+      "kind": "bug",
+      "title": "受付時刻検証で除外された未来の実施が個人の完了と実施済み負荷へ流入する",
+      "status": "fixed",
+      "files": [
+        "src/features/planner/shared-completion-evidence.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-shared-completion.test.mjs",
+        "name": "audit100 receipt-rejected future work never becomes a completed personal mirror or spent workload"
+      },
+      "before": "selector-and-future-before.log",
+      "after": "selector-and-future-after.log",
+      "evidence": "Real signed plan excludes reportedTimeNeedsReview from completed mirror and spent load while keeping normal reservations. 97 affected tests pass."
+    },
+    {
+      "id": "N032",
+      "kind": "optimization",
+      "title": "表示対象500家事の選択で1万件の完了履歴を繰り返し走査する",
+      "status": "fixed",
+      "files": [
+        "src/domain/scheduling/date-tasks.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-date-selector.test.mjs",
+        "name": "audit100 selecting modern exact completion references does not scan ten thousand records for every occurrence"
+      },
+      "before": "selector-and-future-before.log",
+      "after": "selector-and-future-after.log",
+      "evidence": "Exact occurrence index removes 9750500 repeated history ID reads while preserving earlier legacy-match precedence. 97 affected tests pass."
+    },
+    {
+      "kind": "bug",
+      "title": "契約状態の画面通知先の例外で認証初期化と有効期限タイマーが止まる",
+      "files": [
+        "src/platform/subscription/runtime.ts",
+        "src/platform/subscription/purchases.ts"
+      ],
+      "test": {
+        "file": "tests/subscription-runtime-recovery.test.mjs",
+        "name": "audit100 a failed subscription observer cannot prevent granting or scheduling the verified expiry"
+      },
+      "before": "subscription-before.log",
+      "after": "subscription-after.log",
+      "evidence": "A disposed observer interrupted initialization and expiry setup; isolated observers preserve grant lifecycle. 50 affected tests pass.",
+      "id": "N033",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "対象外の商品が32件先にあると購入済み契約を復元できない",
+      "files": [
+        "src/platform/subscription/purchases.ts"
+      ],
+      "test": {
+        "file": "tests/subscription-purchase-recovery.test.mjs",
+        "name": "audit100 restoring the paid SKU is not blocked by thirty two unrelated store purchases"
+      },
+      "before": "subscription-before.log",
+      "after": "subscription-after.log",
+      "evidence": "Filters requested SKU before the bounded 32-receipt recovery; 50 affected tests pass. Store sandbox purchase remains unavailable without developer registration.",
+      "id": "N034",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "処理済み購入の有効期限が切れても再検証せず復元成功を返す",
+      "files": [
+        "src/features/subscription/purchase-flow.ts"
+      ],
+      "test": {
+        "file": "tests/subscription-purchase-recovery.test.mjs",
+        "name": "audit100 an expired finished purchase is verified again before reporting a restored grant"
+      },
+      "before": "subscription-before.log",
+      "after": "subscription-after.log",
+      "evidence": "Grant memo now expires at verified deadline and compares exact proof, preserving in-flight coalescing.",
+      "id": "N035",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "補正済みの認証時刻とは別に端末時計で正しい購入確認を拒否する",
+      "files": [
+        "src/platform/subscription/runtime.ts",
+        "src/platform/subscription/purchases.ts"
+      ],
+      "test": {
+        "file": "tests/subscription-purchase-recovery.test.mjs",
+        "name": "audit100 store verification uses the authenticated subscription clock after a wall clock correction"
+      },
+      "before": "subscription-before.log",
+      "after": "subscription-after.log",
+      "evidence": "A future wall clock rejected paid receipt despite trusted runtime clock; verification now shares that clock. 50 affected tests pass.",
+      "id": "N036",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "CalendarのページがA→B→Aと循環しても同じ取得を75回繰り返す",
+      "files": [
+        "src/features/calendar/page-history.ts",
+        "src/features/calendar/personal-google-sync.ts",
+        "src/platform/storage/personal-google-calendar.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 Calendar page cycles fail without seventy five repeated requests and remain detected after restart"
+      },
+      "before": "calendar-pages-before.log",
+      "after": "calendar-pages-adaptive-after.log",
+      "evidence": "Persisted page-token hashes reject a cycle in 3 requests, and 1 on retry; covers events and expansion streams. Native schema adds optional/default history non-destructively.",
+      "id": "N037",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "Calendarの全件再取得で不在になった予定を無制限の1トランザクションで削除する",
+      "files": [
+        "src/features/calendar/personal-google-sync.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 a full Calendar rebuild queues missing deletions instead of applying an unbounded transaction"
+      },
+      "before": "calendar-pages-before.log",
+      "after": "calendar-pages-adaptive-after.log",
+      "evidence": "100 missing events formerly applied immediately; now one set-based queue write and at most25 imports per chunk, resumable to all100. 133 affected tests pass.",
+      "id": "N038",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "無効にした個人家事が次の作業枠を占有したままになる",
+      "files": [
+        "src/platform/storage/personal-adaptive-planner.ts"
+      ],
+      "test": {
+        "file": "tests/personal-adaptive-planner.test.mjs",
+        "name": "audit100 disabled personal rounds do not reserve the only remaining slot for another active chore"
+      },
+      "before": "adaptive-reservations-before.log",
+      "after": "calendar-pages-adaptive-after.log",
+      "evidence": "Real SQLite retained the disabled plan as fixed load and forced the active chore to fallback; now inactive/archived plans are excluded, exact restoration data remains. 133 affected tests pass.",
+      "id": "N039",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "共有Tasksの時間切れでSQLite保存中なのに呼出元へ終了を返す",
+      "files": [
+        "src/features/google-sync/shared-task-create-journal.ts",
+        "src/features/google-sync/shared-task-list.ts"
+      ],
+      "test": {
+        "file": "tests/shared-google-task-claims.test.mjs",
+        "name": "audit100 a timed out shared Tasks journal cannot release its caller while a SQLite transaction is still running"
+      },
+      "before": "shared-journal-before.log",
+      "after": "shared-journal-after.log",
+      "evidence": "Real SQLite transaction was still open when timed-out caller settled; local storage now completes commit/rollback before releasing serialized caller, while remote waits remain bounded. 30 affected tests pass.",
+      "id": "N040",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "家電解析workerが期限内の3件を先に取得し期限切れの復旧対象を見落とす",
+      "files": [
+        "server/appliance-care-api/src/firestore-usage-store.mjs",
+        "firestore.indexes.json"
+      ],
+      "test": {
+        "file": "tests/audit100-server-queues.test.mjs",
+        "name": "audit100 due analysis work cannot be hidden behind three unexpired execution or preparation leases"
+      },
+      "before": "server-queues-before.log",
+      "after": "server-queues-after.log",
+      "evidence": "Filter due execution/preparation leases before limiting; real query indexes supplied. 64 affected isolated tests pass; production index deployment remains a final gate.",
+      "id": "N041",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "同じ家電解析の同時再送16回でPDF変換と暗号化を16回繰り返す",
+      "files": [
+        "server/appliance-care-api/src/firestore-usage-store.mjs"
+      ],
+      "test": {
+        "file": "tests/audit100-server-queues.test.mjs",
+        "name": "audit100 concurrent retries prepare and encrypt one uploaded analysis input rather than every duplicate"
+      },
+      "before": "server-queues-before.log",
+      "after": "server-queues-after.log",
+      "evidence": "16 duplicate admissions now encode/encrypt one input; one immutable job and one quota charge retained.",
+      "id": "N042",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "天気による作業枠の評価で毎回9百区間の予報全体を走査する",
+      "files": [
+        "server/appliance-care-api/src/weather/forecast.mjs"
+      ],
+      "test": {
+        "file": "tests/audit100-server-queues.test.mjs",
+        "name": "audit100 repeated weather slot evaluations do not scan the whole nine hundred interval forecast"
+      },
+      "before": "server-queues-before.log",
+      "after": "server-queues-after.log",
+      "evidence": "One sorted index skips unrelated days by binary search; 1000 slot evaluations formerly visited900000 full-list elements. Finest complete coverage is preserved; 64 affected tests pass.",
+      "id": "N043",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "共有の受付記録100件を端末DBへ保存するために200回呼び出す",
+      "files": [
+        "src/platform/storage/sharing-v2-receipts.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-shared-storage.test.mjs",
+        "name": "audit100 a hundred immutable server receipts use bounded SQLite batches and reject contradictory duplicates atomically"
+      },
+      "before": "shared-storage-before.log",
+      "after": "shared-storage-after.log",
+      "evidence": "100 validated immutable receipts use2 bridge calls rather than200; input/previous contradictions still roll back. All chunks stay within999 variables.",
+      "id": "N044",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "共有状態の同じトランザクションで受付記録の全件読取と権限照合を重複する",
+      "files": [
+        "src/platform/storage/sharing-v2-events.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-shared-storage.test.mjs",
+        "name": "audit100 reading authenticated shared state reuses the transaction receipt snapshot and avoids duplicated authority probes"
+      },
+      "before": "shared-storage-before.log",
+      "after": "shared-storage-after.log",
+      "evidence": "Receipt table reads2 to1; removed consecutive identical authority probe while retaining every phase boundary and final membership check. 55 affected tests pass.",
+      "id": "N045",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "共有履歴整理で全記録ごとに保持予定リストを再走査する",
+      "files": [
+        "src/features/sharing/v2/history-retention-plan.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-shared-storage.test.mjs",
+        "name": "audit100 history retention identifies removed operations without rescanning the retained list for every fact"
+      },
+      "before": "shared-storage-before.log",
+      "after": "shared-storage-after.log",
+      "evidence": "304 signed facts required92416 retained-reference comparisons; stable-ID set makes removal selection linear. Certificate/authority/retention55 affected tests pass.",
+      "id": "N046",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "一端末への鍵配信失敗で他の承認済み端末への配信も停止する",
+      "files": [
+        "src/features/sharing/private-calendar/key-delivery.ts"
+      ],
+      "test": {
+        "file": "tests/sharing-private-calendar-key-delivery.test.mjs",
+        "name": "audit100 one recipient key delivery failure cannot block an independent approved recipient"
+      },
+      "before": "interaction-import-weather-before.log",
+      "after": "interaction-import-weather-after.log",
+      "evidence": "First recipient denied; the second now receives its envelope while the failed delivery retains retry/backoff.",
+      "id": "N047",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "終了したドラッグの非同期計測結果が次のレール操作を動かす",
+      "files": [
+        "src/components/chore-category-rail.tsx"
+      ],
+      "test": {
+        "file": "tests/audit100-rail.test.mjs",
+        "name": "audit100 an old asynchronous rail measurement cannot steer the next drag gesture"
+      },
+      "before": "interaction-import-weather-before.log",
+      "after": "interaction-import-weather-after.log",
+      "evidence": "Reversed native measurement callbacks reproduced a wrong selection; generation guards reject stale callback.",
+      "id": "N048",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "選択なしのアクセシビリティ増加操作で最初の家事を飛ばす",
+      "files": [
+        "src/components/chore-category-rail.tsx"
+      ],
+      "test": {
+        "file": "tests/audit100-rail.test.mjs",
+        "name": "audit100 the first accessible rail increment starts at the first chore when no row is selected"
+      },
+      "before": "interaction-import-weather-before.log",
+      "after": "interaction-import-weather-after.log",
+      "evidence": "Initial index -1 now selects the first available chore.",
+      "id": "N049",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "アプリで設定可能な長い繰り返し間隔がGoogle経由で編集不可になる",
+      "files": [
+        "src/features/calendar/google-event-import.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-calendar-import.test.mjs",
+        "name": "audit100 every supported custom interval can round trip through Google without becoming read only"
+      },
+      "before": "interaction-import-weather-before.log",
+      "after": "interaction-import-weather-after.log",
+      "evidence": "App-supported 500 day/week/month/year intervals round trip instead of incorrectly requiring read-only expansion.",
+      "id": "N050",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "発生日でない日に設定したGoogle繰り返し終了時刻を誤って非対応と扱う",
+      "files": [
+        "src/features/calendar/google-event-import.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-calendar-import.test.mjs",
+        "name": "audit100 a Google cutoff on a nonoccurrence day does not disable editing of a representable weekly rule"
+      },
+      "before": "interaction-import-weather-before.log",
+      "after": "interaction-import-weather-after.log",
+      "evidence": "An early clock cutoff on a Friday no longer disables a Monday-only recurring event.",
+      "id": "N051",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "配信元で生成時刻が古い予報に逆戻りすると新予報と鮮度を上書きする",
+      "files": [
+        "server/weather/met-service.mjs"
+      ],
+      "test": {
+        "file": "tests/met-weather-cache.test.mjs",
+        "name": "audit100 a late provider response cannot replace a newer generated weather forecast"
+      },
+      "before": "interaction-import-weather-before.log",
+      "after": "interaction-import-weather-after.log",
+      "evidence": "Rejects regressing provider generatedAt; retains latest forecast and checkedAt with normal retry.",
+      "id": "N052",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "壊れたウィジェット入力を一件ずつ個別トランザクションで隔離する",
+      "files": [
+        "src/platform/storage/widget-completion-intents.ts"
+      ],
+      "test": {
+        "file": "tests/widget-durable-input.test.mjs",
+        "name": "audit100 corrupt native widget rows are quarantined in bounded batches without one transaction per input"
+      },
+      "before": "widget-quarantine-before.log",
+      "after": "widget-quarantine-after.log",
+      "evidence": "100 malformed native queue rows: 200 SQLite writes reduced to 2, exact raw input retained and compare-and-delete protects newer rows. Independent valid completion remains queued.",
+      "id": "N053",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "個人設定同期のクラウド処理に呼出元の時間枠が渡らず後続処理が始まる",
+      "files": [
+        "src/features/sharing/private-planner/preference-sync.ts",
+        "src/platform/sharing/private-planner-cloud.ts"
+      ],
+      "test": {
+        "file": "tests/sharing-private-planner-sync.test.mjs",
+        "name": "audit100 private preference transport receives the caller budget so late transaction stages cannot begin"
+      },
+      "before": "private-prefs-before.log",
+      "after": "private-prefs-after.log",
+      "evidence": "Propagates the existing caller budget through cloud reads, transaction retries, writes and lost-reply recovery; does not claim cancellation of an already committed write.",
+      "id": "N054",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "認証済みの同じ個人設定を受信確認のたびに復号し直す",
+      "files": [
+        "src/features/sharing/private-planner/preference-sync.ts"
+      ],
+      "test": {
+        "file": "tests/sharing-private-planner-sync.test.mjs",
+        "name": "audit100 repeated private preference polls reuse only an exactly authenticated protected baseline"
+      },
+      "before": "private-prefs-before.log",
+      "after": "private-prefs-after.log",
+      "evidence": "20 unchanged polls no longer perform20 redundant decryptions; exact protected envelope digest required, changed signature rejected.",
+      "id": "N055",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "自動再送待ちの確認中に手動同期すると再試行の意図が捨てられる",
+      "files": [
+        "src/features/sharing/private-planner/preference-sync.ts"
+      ],
+      "test": {
+        "file": "tests/sharing-private-planner-sync.test.mjs",
+        "name": "audit100 a manual private preference retry is not swallowed by an automatic backoff read"
+      },
+      "before": "private-prefs-before.log",
+      "after": "private-prefs-after.log",
+      "evidence": "Manual retry requested during automatic backoff now performs one serialized forced retry without concurrent writes or a fresh background time budget.",
+      "id": "N056",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "共有履歴の保持済み家事回ごとに全取消し操作を再走査する",
+      "files": [
+        "src/features/sharing/v2/retained-completions.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-projection-work.test.mjs",
+        "name": "audit100 retained completions index targeted undos instead of scanning every undo for each retained round"
+      },
+      "before": "projection-work-before.log",
+      "after": "projection-work-after.log",
+      "evidence": "500 retained rounds and100 targeted undos: matching reads50000 to100, same recorder-specific cancellation and independent remaining reports.",
+      "id": "N057",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "共有家事回の展開で変化しない周期設定を毎回検証し直す",
+      "files": [
+        "src/features/sharing/v2/common-frames.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-projection-work.test.mjs",
+        "name": "audit100 common frame expansion validates invariant recurrence input once per range rather than every round"
+      },
+      "before": "projection-work-before.log",
+      "after": "projection-work-after.log",
+      "evidence": "365 daily rounds: invariant anchor accesses1100 to1; exact occurrence IDs/window bounds preserved; invalid cadence still rejected.",
+      "id": "N058",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "変更のない共有家電一覧でも製品ごとに保存済み照合記録をSQL取得する",
+      "files": [
+        "src/platform/storage/appliance-manuals.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-projection-work.test.mjs",
+        "name": "audit100 unchanged retained appliance libraries do not fetch a receipt separately for every product"
+      },
+      "before": "projection-work-before.log",
+      "after": "projection-work-after.log",
+      "evidence": "100 unchanged products:101 individual metadata reads reduced to1 plus one bounded receipt batch; retained PDFs and private names/data remain tested.",
+      "id": "N059",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "通常のGoogle予定100件の取込でも展開済み繰り返しの清掃を毎回実行する",
+      "files": [
+        "src/platform/storage/personal-google-store.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-calendar-transport.test.mjs",
+        "name": "audit100 ordinary Google imports do not run expanded series cleanup for every unrelated event"
+      },
+      "before": "calendar-priority-before.log",
+      "after": "calendar-priority-after.log",
+      "evidence": "100 ordinary imports no longer issue300 expanded-series cleanup writes; actual previously expanded read-only parents still retire through covered paths.",
+      "id": "N060",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "時計の巻き戻りでGoogle Tasksの自動同期が未来の保存時刻まで止まる",
+      "files": [
+        "src/features/google-sync/sync-policy.ts"
+      ],
+      "test": {
+        "file": "tests/google-sync-policy.test.mjs",
+        "name": "audit100 a backward clock correction cannot pin automatic Tasks synchronization to a future attempt or success timestamp"
+      },
+      "before": "calendar-priority-before.log",
+      "after": "calendar-priority-after.log",
+      "evidence": "Future persisted syncing/last-success markers after clock correction now become recoverable; normal10minute and24hour boundaries remain intact.",
+      "id": "N061",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "個人家事の並び替えで比較のたびに優先順位を再計算する",
+      "files": [
+        "src/domain/scheduling/date-tasks.ts"
+      ],
+      "test": {
+        "file": "tests/date-tasks.test.mjs",
+        "name": "audit100 date task ordering calculates each priority once rather than in every sorting comparison"
+      },
+      "before": "calendar-priority-before.log",
+      "after": "calendar-priority-after.log",
+      "evidence": "500 rows calculate priority once each rather than repeated sort comparator evaluations; urgency/load/duration/completion tie ordering retained.",
+      "id": "N062",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "カレンダーの各日付で同じ完了履歴索引を再構築する",
+      "files": [
+        "src/domain/scheduling/date-tasks.ts",
+        "src/features/calendar/personal-projection.ts",
+        "src/features/sharing/v2-ui/private-overlay.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-calendar-selector.test.mjs",
+        "name": "audit100 a calendar snapshot builds its completed occurrence lookup once for all requested days"
+      },
+      "before": "calendar-selector-before.log",
+      "after": "calendar-selector-after.log",
+      "evidence": "One snapshot with1000 historical completions over30 displayed days: entry-ID reads30000 to1000, same date selection and private/shared overlay behaviors covered.",
+      "id": "N063",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "共有履歴を物理削除した後に保持中の完了がGoogle側だけ未完了へ戻る",
+      "files": [
+        "src/features/sharing/v2/common-plan.ts",
+        "src/features/sharing/v2/google-tasks-projection.ts"
+      ],
+      "test": {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "audit100 physically compacted completion reports retain their Google completed state and real completion instant"
+      },
+      "before": "retained-google-corrected-before.log",
+      "after": "retained-google-after.log",
+      "evidence": "A signed member-approved compaction deletes the old report but retains a future round completed state. Google export now uses the certified actual completion instant and a revision containing the retained checkpoint; no invented history.",
+      "id": "N064",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "周期学習の方式選択で直近3件の比較のために全予測履歴を繰り返し走査する",
+      "files": [
+        "src/domain/scheduling/adaptive/models.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-adaptive-work.test.mjs",
+        "name": "audit100 adaptive method selection reads only the latest comparable forecast scores instead of full history"
+      },
+      "before": "retained-google-before.log",
+      "after": "retained-google-after.log",
+      "evidence": "2000 scores:8000 epoch reads to12. Reverse seek retains chronological weighting, same-epoch comparable selection and the existing three-distinct-completion rule.",
+      "id": "N065",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "元の共有完了記録が削除された後にGoogleから本人の完了取消しを取り込めない",
+      "files": [
+        "src/platform/storage/sharing-v2-google-tasks.ts",
+        "src/features/sharing/v2/google-tasks-projection.ts"
+      ],
+      "test": {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "audit100 Google Undo can cancel the owners acknowledged retained completion after the original report was deleted"
+      },
+      "before": "retained-undo-before.log",
+      "after": "retained-undo-after.log",
+      "evidence": "Real signed compaction and private Google link acknowledgement reproduced ignored Undo. Imports now target only the owners previously observed retained report using the normal signed Undo authority; duplicate input remains idempotent.",
+      "id": "N066",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "保存済みの家事詳細が同周期の外部設定変更を反映しない",
+      "files": [
+        "src/features/settings/chore-settings-editor.ts"
+      ],
+      "test": {
+        "file": "tests/settings-additional-audit.test.mjs",
+        "name": "audit100 a settled settings document follows external enable and load edits without losing a pending draft"
+      },
+      "before": "settings-external-before.log",
+      "after": "settings-external-after.log",
+      "evidence": "同周期のまま有効状態・負荷・期間幅を外部変更すると旧値のまま残る。設定入力の署名を拡張し、未保存・無効な入力を破棄しない条件を維持。以前の全体モード切替の検査とは別の外部フィールド更新を検証。",
+      "id": "N067",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "再配分対象の連結範囲を全組み合わせで再走査する",
+      "files": [
+        "src/platform/storage/personal-adaptive-planner.ts",
+        "src/features/planner/connected-replan-ranges.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-replan-work.test.mjs",
+        "name": "audit100 connected replan ranges use an interval sweep rather than repeated pairwise recruitment"
+      },
+      "before": "replan-work-before.log",
+      "after": "replan-work-after.log",
+      "evidence": "元の区間連結アルゴリズムを抽出し500家事の推移的連結を検査。ID参照250500回を5000回未満へ削減。未変更の橋渡し区間と離れた家事の保護も維持。",
+      "id": "N068",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "天気変更日の検出が全予報を日数分繰り返し走査する",
+      "files": [
+        "src/platform/storage/personal-adaptive-planner.ts",
+        "src/features/planner/weather-change-days.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-replan-work.test.mjs",
+        "name": "audit100 weather revision comparison indexes intervals by day instead of rescanning the full forecast for every day"
+      },
+      "before": "replan-work-before.log",
+      "after": "replan-work-after.log",
+      "evidence": "181日・300時間予報の変更検出で参照54600回。日別の交差インデックスにより5000回未満。区間の元の順序と同日差分を保持。N043のスロット評価とは異なる再配分の変更検出経路。",
+      "id": "N069",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "Google Tasks作成結果の確定後に1件ずつSQLiteトランザクションを繰り返す",
+      "files": [
+        "src/platform/storage/google-task-create-intents.ts",
+        "src/features/google-sync/reconcile-google-tasks.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-create-receipts.test.mjs",
+        "name": "audit100 acknowledged Tasks creation receipts are cleaned in one bounded compare-and-delete batch"
+      },
+      "before": "create-cleanup-before.log",
+      "after": "create-cleanup-after.log",
+      "evidence": "100件の結果削除100ステートメントを1件に集約。新規作成・復旧経路でも1件毎の確定をチャンク単位へ変更。保存が途中で失敗したときは確定済みだけ削除し、未確定結果は残す既存障害検査も通過。",
+      "id": "N070",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "共有予定の各家事回が全ての保持済み完了状態を検索する",
+      "files": [
+        "src/features/sharing/v2/common-plan.ts",
+        "src/features/sharing/v2/retained-round-index.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-projection-work.test.mjs",
+        "name": "audit100 current retained round lookups reuse a projection index without scanning every retained completion per occurrence"
+      },
+      "before": "retained-index-before.log",
+      "after": "retained-index-after.log",
+      "evidence": "保持済み1000家事回・100検索で参照101000回を5000回未満へ削減。取消し済みの空報告も残して旧アンカーへ戻らない仕様を維持。署名付き履歴整理・Google連携の実SQLite検査を再通過。",
+      "id": "N071",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "共有の日時指定の選択が別家事の全ルールを毎回走査する",
+      "files": [
+        "src/features/sharing/v2/common-plan.ts",
+        "src/features/sharing/v2/request-review.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-common-plan-work.test.mjs",
+        "name": "audit100 common planning sends only the current chores rules to per-round selection"
+      },
+      "before": "common-rules-before.log",
+      "after": "common-rules-after.log",
+      "evidence": "11家事・10日時指定の検査で選択器に渡すルール総数550を50へ削減。紛争がない場合の不要な全ルールMapも抑制。実際の署名付き事実からの予定全体が既存結果と一致し、受信権限テストも通過。",
+      "id": "N072",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "削除した共有の繰り返し予定を復元すると以前の例外IDで同期が止まる",
+      "files": [
+        "src/features/calendar/google-instance.ts"
+      ],
+      "test": {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "audit100 restoring an exported recurring series rebinds its exceptions to the new parent without touching old instances"
+      },
+      "before": "calendar-parent-before.log",
+      "after": "calendar-parent-after.log",
+      "evidence": "Googleへ送信したシリーズを削除・復元して新しい親IDを得た際、旧例外が残っていると同期errorになる。旧例外へ書かず、現行親と正確な元開始日で再照合。共有・個人Calendar98テスト通過。",
+      "id": "N073",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "依存家事の計算で同一の権限・家事回を重複して復元する",
+      "files": [
+        "src/features/sharing/v2/common-plan.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-common-plan-work.test.mjs",
+        "name": "audit100 dependency planning reuses an identical causal frame only within its immutable common projection"
+      },
+      "before": "causal-frame-before.log",
+      "after": "causal-frame-after.log",
+      "evidence": "20家事回の検査で同じ計算内の因果フレーム復元30回を20回へ削減。キャッシュは一度の同期的計算内かつ同一観測点のみ。紛争のある寛容読取を厳格読取へ流用しない。計算結果・履歴整理の回帰検査を再通過。",
+      "id": "N074",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "前景同期の最初の差分ページが失効しても取得位置が復旧しない",
+      "files": [
+        "src/features/google-sync/task-read-cache.ts"
+      ],
+      "test": {
+        "file": "tests/audit100-task-checkpoint.test.mjs",
+        "name": "audit100 a rejected first delta page in foreground clears its cursor so the next attempt can rebuild instead of repeating it forever"
+      },
+      "before": "task-first-cursor-before.log",
+      "after": "task-first-cursor-after.log",
+      "evidence": "最初の差分リクエストが410を返すと背景処理以外では同じ取得位置を繰り返す。保存済み一覧を保って取得位置をリセットし、次の前景処理で再構築。背景では全件走査を開始しない条件を維持。",
+      "id": "N075",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "家電解析の所要時間のクライアント検査がサーバー・予定計算と一致しない",
+      "files": [
+        "src/features/appliance-care/analysis-validation.ts",
+        "src/features/appliance-care/to-chore-definition.ts",
+        "tests/appliance-care-client.test.mjs"
+      ],
+      "test": {
+        "file": "tests/audit100-appliance-validation.test.mjs",
+        "name": "audit100 new appliance estimates obey the servers positive whole-minute bounds while old zero estimates remain readable and unscheduled as time slots"
+      },
+      "before": "appliance-duration-before.log",
+      "after": "appliance-duration-after.log",
+      "evidence": "0分・小数・1440分超を新規の検証済み結果として受理できた。サーバーの1〜1440分の整数と統一。過去の0分データは読めるまま、予定登録時は未知の所要時間として扱い0分タスクを作らない。既存正常系の0分fixtureは有効な1分へ修正。",
+      "id": "N076",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "移動した共有家事と基準日が同じ別家事のGoogle完了が保留される",
+      "files": [
+        "src/platform/storage/sharing-v2-google-tasks.ts"
+      ],
+      "test": {
+        "file": "tests/sharing-v2-google-tasks.test.mjs",
+        "name": "audit100 a moved chores old anchor cannot hide another linked chore on the same out-of-range anchor"
+      },
+      "before": "shared-anchor-before.log",
+      "after": "shared-anchor-after.log",
+      "evidence": "一方の旧基準日が日時変更で現表示へ現れると、その日を使う別のGoogle連携済み家事の投影まで済んだと扱っていた。対象範囲外の連携基準日を個別に投影し、別家事の完了も元のGoogle IDへ送信できることを実SQLiteで確認。",
+      "id": "N077",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "画面が非アクティブな間に完了保存が終わるとチェックが処理中のまま残る",
+      "files": [
+        "src/features/planner/task-mutations.ts"
+      ],
+      "test": {
+        "file": "tests/mobile-ui-recovery.test.mjs",
+        "name": "audit100 a completion settling while its view is inactive cannot strand a pending checkbox after reactivation"
+      },
+      "before": "inactive-completion-before.log",
+      "after": "inactive-completion-after.log",
+      "evidence": "完了操作中にcontrollerを非アクティブ化すると、成功・失敗ともpendingが削除されず再開後も操作不能。保留解除は描画の有無から独立させ、保存成功時の表示再取得を再開時へ繰り越す。失敗した仮表示も除去。",
+      "id": "N078",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "Google Calendarが使用しない参加者・添付・会議・通知設定まで取得する",
+      "files": [
+        "src/platform/google-calendar/calendar-api.ts",
+        "tests/calendar-event-api-audit.test.mjs"
+      ],
+      "test": {
+        "file": "tests/calendar-event-api-audit.test.mjs",
+        "name": "audit100 Calendar reads and write acknowledgements request only used event fields while keeping cursor privacy and conflict evidence"
+      },
+      "before": "calendar-fields-before.log",
+      "after": "calendar-fields-after.log",
+      "evidence": "一覧・各回・GET・INSERT/PATCH応答にfieldsを指定。利用する日時・例外・取得位置・ETag・visibility・locked・htmlLink・private拡張情報は維持。Google公式のpartial response仕様を確認。新しいID検査に合わせ旧API fixtureを実際に要求したIDで応答する形へ修正。",
+      "id": "N079",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "個人家事の一括有効切替が家事数に比例したSQLite照合・更新を行う",
+      "files": [
+        "src/platform/storage/repository.ts",
+        "tests/audit100-bulk-settings.test.mjs"
+      ],
+      "test": {
+        "file": "tests/audit100-bulk-settings.test.mjs",
+        "name": "audit100 bulk chore enable changes validate and write bounded sets instead of issuing one SQLite read and write per chore"
+      },
+      "before": "bulk-settings-before.log",
+      "after": "bulk-settings-after.log",
+      "evidence": "40家事を1件ずつ読み書きしていた経路をjson_eachによる集合照合・集合更新へ変更。全対象の所有範囲を更新前に確認し、不正ID混在時の全件ロールバックを検証。31テスト通過。",
+      "id": "N080",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "共有復旧証明のページ保存が1行ずつ不変性を照合して書き込む",
+      "files": [
+        "src/platform/storage/sharing-v2-recovery-evidence.ts",
+        "tests/sharing-v2-recovery-progress.test.mjs"
+      ],
+      "test": {
+        "file": "tests/sharing-v2-recovery-progress.test.mjs",
+        "name": "audit100 a verified recovery proof page checks and stores immutable rows in bounded SQLite batches"
+      },
+      "before": "proof-batch-before.log",
+      "after": "proof-batch-after.log",
+      "evidence": "30行60回の照合・挿入を一括照合・一括挿入へ変更。既存署名証明の書換えを拒否し、競合と新規行の混在でも新規行を残さないことを実SQLiteで検証。7テスト通過。",
+      "id": "N081",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "共有家事の基準日検証が選択済み適用日でなく既定日を使い未保存変更を破棄できる",
+      "files": [
+        "src/features/sharing/v2-ui/configuration-editor-state.ts",
+        "tests/sharing-v2-autosave.test.mjs"
+      ],
+      "test": {
+        "file": "tests/sharing-v2-autosave.test.mjs",
+        "name": "audit100 a shared anchor between the default and chosen effective date is saved instead of silently discarded"
+      },
+      "before": "config-boundary-before.log",
+      "after": "config-boundary-after.log",
+      "evidence": "既定適用日と選択済み適用日の間に基準日を置く再現。実際の選択日を使って保存し、flushは未保存draftが残る場合に成功を返さない。実SQLiteで新基準日が保存されることを確認。",
+      "id": "N082",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "共有設定の未編集の適用日が新しい受信境界へ追従しない",
+      "files": [
+        "src/features/sharing/v2-ui/configuration-editor-state.ts",
+        "tests/sharing-v2-autosave.test.mjs"
+      ],
+      "test": {
+        "file": "tests/sharing-v2-autosave.test.mjs",
+        "name": "audit100 untouched shared effective dates follow a new received boundary while explicitly selected dates and pending edits remain fixed"
+      },
+      "before": "config-boundary-before.log",
+      "after": "config-boundary-after.log",
+      "evidence": "利用者が選択していない適用日のみ受信した新境界へ更新。明示選択・編集中・保存中・失敗中の値は保持し、破棄時に追従へ戻す。関連16テスト通過。",
+      "id": "N083",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "Google Calendar空き時間の181日分の保存が181回の個別INSERTになる",
+      "files": [
+        "src/platform/storage/repository.ts",
+        "tests/audit100-calendar-aggregate-batch.test.mjs",
+        "tests/google-calendar-storage-stress.test.mjs"
+      ],
+      "test": {
+        "file": "tests/audit100-calendar-aggregate-batch.test.mjs",
+        "name": "audit100 a Calendar aggregate replacement writes 181 covered days in bounded SQLite chunks and rolls back a failed chunk"
+      },
+      "before": "aggregate-batch-before.log",
+      "after": "aggregate-batch-after.log",
+      "evidence": "181回から100行単位2回へ削減。第二chunk失敗のロールバック、旧集約・最終成功時刻保持を検証。旧障害注入は90件目の個別INSERTから2番目のchunkへ移して同じ原子性条件を維持。27テスト通過。",
+      "id": "N084",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "多数の取り消し済み完了を遡る取消し処理が履歴を二乗走査する",
+      "files": [
+        "src/platform/storage/completion-journal.ts",
+        "src/platform/storage/repository.ts",
+        "tests/audit100-undo-lineage.test.mjs"
+      ],
+      "test": {
+        "file": "tests/audit100-undo-lineage.test.mjs",
+        "name": "audit100 undoing a long invalidated completion lineage uses indexed parents instead of rescanning the journal at each step"
+      },
+      "before": "undo-lineage-before.log",
+      "after": "undo-lineage-after.log",
+      "evidence": "既存の復元算法をhelperへ等価抽出して500段の無効化済み親系列で再現。sequence索引と旧形式日付索引で親の反復全走査を除去。有効な親で止める挙動を保持。関連31テスト通過。",
+      "id": "N085",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "完了通知の無効になった送信待ち記録を1件ずつ削除する",
+      "files": [
+        "src/platform/storage/sharing-v2-completion-notices.ts",
+        "tests/sharing-v2-completion-notices.test.mjs"
+      ],
+      "test": {
+        "file": "tests/sharing-v2-completion-notices.test.mjs",
+        "name": "audit100 a completion notice refresh removes obsolete pending subjects in one bounded statement while preserving current notices"
+      },
+      "before": "notice-prune-before.log",
+      "after": "notice-prune-after.log",
+      "evidence": "200件の不要な送信待ちの200回DELETEを、検証済み現行subject集合に対する1回の集合DELETEへ変更。現在の通知は保持し、発行前中断・不確実配信・再送防止の関連33件も通過。",
+      "id": "N086",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "OSのタイムゾーン情報と同梱tzdbが異なるとCalendarの取込・表示・編集で1時間ずれる",
+      "files": [
+        "src/domain/scheduling/zoned-clock.ts",
+        "src/domain/calendar/events.ts",
+        "src/features/calendar/import-formatter.ts",
+        "src/features/calendar/event-editing.ts",
+        "src/features/calendar/planner-calendar.tsx",
+        "tests/audit100-pinned-calendar-clock.test.mjs",
+        "tests/calendar-read-cost.test.mjs"
+      ],
+      "test": {
+        "file": "tests/audit100-pinned-calendar-clock.test.mjs",
+        "name": "audit100 Calendar import display edits and instance anchors use the same pinned zone rules as scheduling on older OS timezone databases"
+      },
+      "before": "pinned-calendar-before.log",
+      "after": "pinned-calendar-after.log",
+      "evidence": "Android10実機の隔離Hermesアプリで597地域×4日時=2388件を比較し4件の1時間差を実測。Winnipeg 12Zを06:00と取り込み、逆変換はtzdb2026eの07:00となる問題。取込・表示・編集・originalStartTime日付・現在時刻を同梱tzdbへ統一。修正後実機2388件差異0、4実経路PASS。通常LiFlowのインストール時刻・版保持、隔離アプリ削除。45自動テストPASS。",
+      "id": "N087",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "個人Google Tasksの状態取り込みで対象と競合状態を1件ずつSQLite照合する",
+      "files": [
+        "src/platform/storage/repository.ts",
+        "tests/audit100-personal-google-import-work.test.mjs"
+      ],
+      "test": {
+        "file": "tests/audit100-personal-google-import-work.test.mjs",
+        "name": "audit100 a hundred personal Tasks status imports capture mapped rows and transactional conflict state in bounded reads"
+      },
+      "before": "personal-import-before.log",
+      "after": "personal-import-after.log",
+      "evidence": "100件の変更なし取り込みで323読取を再現。対象entryの結合取得とトランザクション内のリンク・完了状態照合を集合読取へ変更。Googleの対応ID・個人所有範囲・ローカル未送信優先を維持。実SQLiteで完了と取消しも検証、関連13件通過。",
+      "id": "N088",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "予定キャッシュ更新が家事数だけ個別SQLを書き重複した更新実装を持つ",
+      "files": [
+        "src/platform/storage/repository.ts",
+        "src/platform/storage/schedule-cache-diff.ts",
+        "tests/audit100-schedule-cache-batch.test.mjs"
+      ],
+      "test": {
+        "file": "tests/audit100-schedule-cache-batch.test.mjs",
+        "name": "audit100 regenerating a personal schedule stores and removes changed cache rows in bounded statements without rewriting unchanged plans"
+      },
+      "before": "schedule-cache-before.log",
+      "after": "schedule-cache-after.log",
+      "evidence": "家事一括有効化で26回の予定キャッシュ変更SQLを再現。生成予定・学習予定・季節家事の同じ差分保存を共通化し、100行ずつのINSERTと集合DELETEへ変更。対象家事だけの照合・未変更の無書込・既存トランザクションを維持。関連23件通過。",
+      "id": "N089",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "端末の言語によって履歴整理の検証値と完了同期の版番号が変わる",
+      "files": [
+        "src/features/sharing/v2/history-retention-schema.ts",
+        "src/features/sharing/v2/history-retention-certificate.ts",
+        "src/features/sharing/v2/history-retention-plan.ts",
+        "src/features/sharing/v2/history-retention-runtime.ts",
+        "src/features/sharing/v2/receiver-authority.ts",
+        "src/features/sharing/v2/google-tasks-projection.ts",
+        "tests/sharing-v2-history-retention.test.mjs",
+        "tests/audit100-projection-work.test.mjs"
+      ],
+      "test": {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "names": [
+          "audit100 shared history certificates and packed authority positions remain identical across real English and Danish collation rules",
+          "audit100 legacy format-one signed history checkpoints still verify and restore without rewriting their certificate"
+        ]
+      },
+      "before": "retention-collation-before.log",
+      "after": "retention-collation-after.log",
+      "evidence": "実際のen/da照合順を切り替え、同じ署名操作集合から異なるsource/retained/index digestができることを再現。新規証明format2の並びと権限ビット位置を固定、format1署名証明は旧方式のまま検証・復元。取消し用Google版番号にも同じ問題を再現(locale-task-before/after)して固定。追加31件、履歴署名互換12件通過。",
+      "id": "N090",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "共有担当の継承設定が各世代ごとに全設定履歴を再走査する",
+      "files": [
+        "src/features/sharing/v2/history-view.ts",
+        "src/features/sharing/v2/assignment-lineage.ts",
+        "src/features/sharing/v2/authority-context.ts",
+        "src/features/sharing/v2/receiver-authority.ts",
+        "tests/audit100-configuration-lookup.test.mjs"
+      ],
+      "test": {
+        "file": "tests/audit100-configuration-lookup.test.mjs",
+        "names": [
+          "audit100 inherited assignment lookup visits each policy version rather than scanning every policy for each ancestor",
+          "audit100 indexed configuration versions still exclude unseen writes and reject concurrent different configurations"
+        ]
+      },
+      "before": "configuration-index-before.log",
+      "after": "configuration-index-after.log",
+      "evidence": "400世代の担当継承で160402回の版番号参照を再現。受信時に家事・版ごとに索引化し、既存fieldと同じ因果観測・正規化・競合検出を共通経路に保持。関連104件と未観測／競合の追加2件通過。",
+      "id": "N091",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "共有Google完了の一括送信後に1件ずつ共有状態を読み直して応答を確定する",
+      "files": [
+        "src/features/google-sync/reconcile-google-tasks.ts",
+        "src/platform/storage/sharing-v2-google-tasks.ts",
+        "tests/google-tasks-local-statuses.test.mjs"
+      ],
+      "test": {
+        "file": "tests/google-tasks-local-statuses.test.mjs",
+        "name": "audit100 a shared local status batch acknowledges its successes with one coherent business projection rather than one per task"
+      },
+      "before": "shared-ack-before.log",
+      "after": "shared-ack-after.log",
+      "evidence": "20件の完了PATCH後に共有状態を21回投影する経路を再現。100件以下の成功応答を1トランザクション・1共有投影で確定。送信中の取消し・不一致応答・部分失敗で新しい未送信変更を消さないCASを維持。64件通過。",
+      "id": "N092",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "Calendar表示が大量の削除済み同期記録を読み飛ばすために全予定を走査する",
+      "files": [
+        "src/platform/storage/migrations.ts",
+        "tests/audit100-calendar-live-index.test.mjs"
+      ],
+      "test": {
+        "file": "tests/audit100-calendar-live-index.test.mjs",
+        "name": "audit100 visible Calendar reads use the live-row index after many retained deletion tombstones without changing visible events"
+      },
+      "before": "calendar-live-index-before.log",
+      "after": "calendar-live-index-after.log",
+      "evidence": "削除済40000・表示20件で実表示SQLが全行走査することをEXPLAINと実測で確認。非破壊のschema29でdeleted,id索引追加。実測中央値0.93→0.014ms（当Mac上の隔離SQLite・端末速度の保証ではない）。関連25件通過。既存の移行テストの到達版期待値を29へ更新し、元のデータ保持の検査を維持。",
+      "id": "N093",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "変更のない共有Google対応表を読むたびに同じJSONと識別子ハッシュを再検証する",
+      "files": [
+        "src/platform/storage/sharing-v2-google-tasks.ts",
+        "tests/audit100-google-link-read.test.mjs"
+      ],
+      "test": {
+        "file": "tests/audit100-google-link-read.test.mjs",
+        "name": "audit100 repeated private Google link reads reuse validated unchanged rows while caller mutations corruption and revoked scope remain isolated"
+      },
+      "before": "link-read-before.log",
+      "after": "link-read-after.log",
+      "evidence": "同一対応表の50回読取で再検証が累積することを再現。接続・グループ限定かつ2048行までのraw値比較メモ化を導入。返却は複製し、書換え・同じ版の破損・アカウント失効は毎回適切に検出。38件通過。",
+      "id": "N094",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "個人履歴の1か月表示境界が本人の設定地域でなく端末地域で計算される",
+      "files": [
+        "src/domain/chores/history-retention.ts",
+        "src/platform/storage/repository.ts",
+        "tests/chore-history-retention.test.mjs"
+      ],
+      "test": {
+        "file": "tests/chore-history-retention.test.mjs",
+        "name": "audit100 personal history display cutoff follows the chosen owner zone instead of the device zone and retains the raw learning records"
+      },
+      "before": "history-owner-zone-before.log",
+      "after": "history-owner-zone-after.log",
+      "evidence": "東京の端末・本人NY地域で、NYでは前日の古い履歴が表示される境界誤りを再現。同梱tzdbのその地域の実際の日境界で切り、午前0時の夏時間欠落も検査。学習用の元履歴は削除しない。29件通過。",
+      "id": "N095",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "UTC以外の有効な共有実施時刻を個人へ反映すると履歴の新旧が逆に判定される",
+      "files": [
+        "src/platform/storage/repository.ts",
+        "tests/home-common-chores.test.mjs"
+      ],
+      "test": {
+        "file": "tests/home-common-chores.test.mjs",
+        "name": "audit100 mirrored RFC3339 offset completions respect an instant-based history cutoff before and after an upgrade and store new projections in UTC"
+      },
+      "before": "history-offset-before.log",
+      "after": "history-offset-after.log",
+      "evidence": "+14:00と-04:00の実共有完了を個人へ反映し、保持すべき04:30Zの代わりに古い02:00Zだけが表示されることを再現。新規個人投影をUTCへ正規化し、既存のoffset履歴も実時刻で検索・整列。署名付き共有原文は変更せず、元個人履歴も保持。19件通過。",
+      "id": "N096",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "端末時計が戻ると本人用Calendarの前景再接続が数時間抑止される",
+      "files": [
+        "src/features/sharing/private-calendar/foreground-observer.ts",
+        "tests/sharing-private-calendar-observer.test.mjs"
+      ],
+      "test": {
+        "file": "tests/sharing-private-calendar-observer.test.mjs",
+        "name": "audit100 private Calendar foreground recovery is not postponed for hours after the device clock moves backwards"
+      },
+      "before": "observer-rollback-before.log",
+      "after": "observer-rollback-after.log",
+      "evidence": "接続失敗の後に時計を1時間戻すと、存在しない接続の再監視も再開されないケースを再現。過去の失敗時刻が未来になった場合は再接続を認め、通常の失敗の待機時間と所有者の再確認は保持。17件通過。",
+      "id": "N097",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "一度同名で結び付いた家事は改名後も新しい無関係な回が個人へ反映され続ける",
+      "files": [
+        "src/platform/storage/repository.ts",
+        "tests/home-common-chores.test.mjs"
+      ],
+      "test": {
+        "file": "tests/home-common-chores.test.mjs",
+        "name": "audit100 an old same-name mirror can still undo or redo its exact occurrence after renaming without linking new unrelated rounds"
+      },
+      "before": "mirror-rename-before.log",
+      "after": "mirror-rename-after.log",
+      "evidence": "同名家事を一度共有反映し、別名にした後の新しい回まで個人履歴へ追加されることを再現。現在の同名対応と過去の回だけの対応を分離。改名前のその回の取消し・再完了は維持し、新しい無関係な回には旧対応を使わない。42件通過。",
+      "id": "N098",
+      "status": "fixed"
+    },
+    {
+      "kind": "optimization",
+      "title": "Calendarの25件取込ごとに既に適用済みの受信記録を全走査して試行番号を決める",
+      "files": [
+        "src/platform/storage/personal-google-calendar.ts",
+        "tests/audit100-calendar-inbox-index.test.mjs"
+      ],
+      "test": {
+        "file": "tests/audit100-calendar-inbox-index.test.mjs",
+        "name": "audit100 Calendar import attempt ordering finds the latest counter without rescanning thousands of already applied inbox rows"
+      },
+      "before": "inbox-index-corrected-before.log",
+      "after": "inbox-index-after.log",
+      "evidence": "実際の本番SQLを抽出して20000行で計測。アカウント・カレンダー・attempt_order索引により100000 VMステップから100未満へ削減（計測粒度100）。別アカウントの大きい番号は参照しない。背景の25件処理枠でも同じSQLを使用。関連64件通過。",
+      "id": "N099",
+      "status": "fixed"
+    },
+    {
+      "kind": "bug",
+      "title": "Google Tasksのページ間で同じリストが重なると同一アカウントの正規同期先を曖昧と誤判定する",
+      "files": [
+        "src/platform/google-tasks/google-tasks-api.ts",
+        "tests/shared-google-task-list.test.mjs",
+        "tests/google-tasks-api.test.mjs"
+      ],
+      "test": {
+        "file": "tests/shared-google-task-list.test.mjs",
+        "name": "audit100 the same Google Tasks list repeated across pages cannot become two canonical destinations for the same account"
+      },
+      "before": "tasks-page-duplicates-before.log",
+      "after": "tasks-page-duplicates-after.log",
+      "evidence": "2ページで同じリストIDが返ると共有の正規リスト検証がambiguous_task_listで停止する再現。リストをIDで一意化し、通常Tasks一覧も同じIDを重複返却しない。新しいupdated実時刻を古いページの状態で戻さない。2つの独立した実リストの曖昧さは引き続き拒否。64件通過。",
+      "id": "N100",
+      "status": "fixed"
+    }
+  ],
+  "additionalDependencyFixes": {
+    "glob": "14.0.4",
+    "minimatchModern": "11.0.5",
+    "minimatchLegacy": "3.1.5",
+    "publicExportRegressionReproduced": true,
+    "audit": {
+      "root": 0,
+      "applianceApi": 0,
+      "accountDeviceApi": 0
+    },
+    "securityTestsPassed": 9,
+    "notCountedAmong100": true
+  },
+  "verification": {
+    "cloud": {
+      "passed": 153,
+      "failed": 0,
+      "log": "final-cloud.log"
+    },
+    "targetedFollowup": {
+      "passed": 61,
+      "failed": 0,
+      "log": "final-followup.log"
+    },
+    "lint": "PASS",
+    "typecheck": "PASS",
+    "native": "PASS for the explicitly described Release update and foreground UI paths; no new background claim",
+    "dependencySecurity": {
+      "root": 0,
+      "applianceApi": 0,
+      "accountDeviceApi": 0,
+      "securityCompatibilityCases": 9
+    },
+    "staticAnalysis": {
+      "files": 798,
+      "findings": 0,
+      "originalParserLimitations": 2,
+      "supplementalTranspiledFiles": 2,
+      "supplementalFindings": 0,
+      "finalChangedProductionFiles": {
+        "version": "1.183.0",
+        "files": 4,
+        "rules": 210,
+        "findings": 0,
+        "parserErrors": 0,
+        "log": "final-semgrep-r102.json"
+      }
+    },
+    "indexesReady": 2,
+    "unit": {
+      "passed": 3775,
+      "failed": 0,
+      "skipped": 0,
+      "log": "final-unit6.log"
+    },
+    "android": {
+      "releaseBuilt": true,
+      "inPlaceUpdate": true,
+      "originalSignerMatched": true,
+      "originalFirstInstallTimeUnchanged": true,
+      "completionAndUndoCycles": 2,
+      "calendarSettledCountBeforeAndAfter": 5,
+      "twoDayFiveExpandedChoresVisibleWithoutClipping": true,
+      "foregroundSharedSync": "no unsent changes; last success 2026-11-07 19:06:57",
+      "phoneFontScalePreserved": 1.15,
+      "latestReleaseApkSha256": "cb9940cefb55cb43bcaf3258f9cd07c4bd725b903de35464f67f7a43b774eb42",
+      "finalSharedCompletionAndUndo": "8/0 ->8/1 ->8/0; same bedding row present",
+      "inPlaceUpdateAfterFinalConditionRefinement": true,
+      "latestObservation": "android-r102-ui-observation.json",
+      "privateRowsRetainedDuringSharedCompletion": true
+    },
+    "featureContracts": 603,
+    "simulator": {
+      "nativeReleaseBuilt": true,
+      "sameSimulatorEntitlementsVerified": true,
+      "inPlaceUpdates": 2,
+      "latestHermesBundle": "03ea8900837151609025bacb5c1baf134dd29f415ead95b74edb519c782580b9",
+      "sharedCompletionUndoR101": "PASS",
+      "sharedHomeCountAfterUndo": 4,
+      "sharedHomeCompletedAfterUndo": 0,
+      "personalCompletionUndoBeforeR101": "PASS",
+      "manualGuideAndRailNavigation": "PASS",
+      "frameByFrameLatencyMeasured": false,
+      "finalR101SourceRechecked": true,
+      "recoverySourcesSha256": {
+        "src/platform/storage/repository.ts": "e5f6fe42325e1c388a6f5ea83a02598cd9dfb05811866888a1ded6f871215fe0",
+        "src/features/sharing/v2-ui/screen-session.ts": "6dadf3b5620b5d32fd8fc836b4ba93facb50426afe10f3b9d30b43ff2490a100",
+        "src/features/sharing/v2-ui/workspace-data.tsx": "59cfe9b9e98b9d01c4a58cae8ff9573a40cb6adace9109575c961a57fb1d96c3"
+      }
+    },
+    "targetedRuntimeFollowup": {
+      "passed": 39,
+      "failed": 0,
+      "log": "extra-calendar-undo-after3.log"
+    },
+    "iphone": {
+      "nativeReleaseBuilt": true,
+      "installedInPlace": true,
+      "signatureVerifiedWithExistingIdentity": true,
+      "latestHermesBundle": "03ea8900837151609025bacb5c1baf134dd29f415ead95b74edb519c782580b9",
+      "originalGroupAndPersonalDataRetained": true,
+      "homeSharedCompletionAndUndo": "7/0 ->7/1 ->7/0; target row retained",
+      "twoDayExpandedChores": 6,
+      "allSixVisibleWithoutClipping": true,
+      "automationInitializationTimeoutRecovered": true,
+      "observation": "iphone-final-ui-observation.json",
+      "repeatedSharedCompletionUndoCycles": 2,
+      "privateRowsRetainedDuringCompletion": true,
+      "privateReadErrorAfterFix": false,
+      "priorForegroundSyncProof": "step240, 2026/11/7 20:12:02, no unsent changes (before owner-read-only fix)"
+    },
+    "targetedOwnerReadRecovery": {
+      "passed": 61,
+      "failed": 0,
+      "log": "extra-private-read-after5.log"
+    }
+  },
+  "evidenceLogManifest": {
+    "completion-first-before.log": {
+      "sha256": "04059778f257c0c62d66d6d1e6751c0bf37a6aa67b4b4f315d3aa4497b548e89",
+      "bytes": 6459
+    },
+    "completion-first-after.log": {
+      "sha256": "247df23b6e75a32a3de3e7a999f663e5e877144409cda23b432ff2ddeb83f006",
+      "bytes": 4987
+    },
+    "completion-second-before.log": {
+      "sha256": "bf17d542b0e9cc80e7de91eda24a9bf4e9af9ff6d8932549349709abe620d843",
+      "bytes": 3814
+    },
+    "completion-second-after.log": {
+      "sha256": "19aa0723f11a6c531af4104945e12faf3da1181b2054f2b63ef56aa5f81e3cd4",
+      "bytes": 8968
+    },
+    "google-http-before.log": {
+      "sha256": "5e8036088f3cf259eaea826f5aff2f69bb76ad1bb6c54a499a180cead7d62ee7",
+      "bytes": 8093
+    },
+    "google-http-after.log": {
+      "sha256": "7880b1f8477c3d93e5d21c672bcbe7c666e7d8faa5902a89fbddeafb99aa5b03",
+      "bytes": 11966
+    },
+    "task-checkpoint-before.log": {
+      "sha256": "3d108054883c6bd980cdf59a64e5ca5ae4795a8d66d043c0d48a3ec2cdfad5aa",
+      "bytes": 2793
+    },
+    "task-checkpoint-after.log": {
+      "sha256": "7896fa4372bcb23199de75f2ae416dfe98c53f1cfdaf8581e7a212798f75b738",
+      "bytes": 9887
+    },
+    "calendar-transport-before.log": {
+      "sha256": "53d69064c239b2d5c7141b611d5c1002de9d01ce3d39c78f4404f6a4ec0f94da",
+      "bytes": 5250
+    },
+    "calendar-transport-after.log": {
+      "sha256": "7a76dfca1aa3910c85d60b3e522e428cf4e884223d9f148487b72a1ec6064e98",
+      "bytes": 17787
+    },
+    "coordinator-before.log": {
+      "sha256": "63e2825a49a17f1e8e043929954a49e637f7088ae46d8eece3a2bf51b3d918e0",
+      "bytes": 1558
+    },
+    "coordinator-after.log": {
+      "sha256": "e3c3b5e61f40654edd1dd1677805609ccae5dcc64d769af3030ca69f766a4f71",
+      "bytes": 6830
+    },
+    "create-receipts-before.log": {
+      "sha256": "efe2e6e818d48bc12de722ea240bdb2a354472f64b4512bc1c970c2b0bcd98d8",
+      "bytes": 1531
+    },
+    "create-receipts-after.log": {
+      "sha256": "4532560040f37974bd19dbc0dd6626b738ff271b7ee216372634859431f48724",
+      "bytes": 11400
+    },
+    "google-stop-before.log": {
+      "sha256": "ad96648349ef3dc330612029c3dc28df3bf64206bba37c9e12acf8d89888e4a2",
+      "bytes": 1526
+    },
+    "google-stop-after.log": {
+      "sha256": "42b5cd28e036756a4ec3a28e632673c6c695917625cf694867bc6c0c941bcf25",
+      "bytes": 9814
+    },
+    "calendar-candidates-before.log": {
+      "sha256": "0cdcec49b17c1a0303cd9c725f26a6c60d0aa057a570a94d67ffd3cba358cb8a",
+      "bytes": 1519
+    },
+    "calendar-candidates-after.log": {
+      "sha256": "8d100c93fa40f7460435b4a0dfc4f0178731f4d3f7f66591ca36aa985e296796",
+      "bytes": 13031
+    },
+    "targeted-undo-before.log": {
+      "sha256": "ea30a12acfd5bde364d9596eb260d872d959abb02833096785ef722740862e01",
+      "bytes": 2575
+    },
+    "targeted-undo-after.log": {
+      "sha256": "1456ac72a1231276a34c954f113a33c1069aed5d44d23228b79c2cae6e7f7635",
+      "bytes": 11116
+    },
+    "shared-maintenance-before.log": {
+      "sha256": "73eaf652f5c6c2bdbbe6e264c23a61fbb6aa5d38709fb376cc93adf1176d3297",
+      "bytes": 1488
+    },
+    "shared-maintenance-after.log": {
+      "sha256": "3cae93b16111f8d73ac17944c0b762142b2766b96efbc0f2ea2064ff9fec2006",
+      "bytes": 4296
+    },
+    "shared-bounds-before.log": {
+      "sha256": "a94983c3580cdb18f9f6aac3c4947d4e3163043998c7b4994f8a2601ab5c707d",
+      "bytes": 3044
+    },
+    "shared-bounds-after.log": {
+      "sha256": "4c650537791e3d92cd83b63138521c373e29c4fc8329a87fb74ca91f068ba0ed",
+      "bytes": 7282
+    },
+    "selector-and-future-before.log": {
+      "sha256": "e21f3f2558c13941b01ff041266ced0589d91cc7289de8b9dbf1d841e4f5e23a",
+      "bytes": 3229
+    },
+    "selector-and-future-after.log": {
+      "sha256": "1278dae110a6079a28069397bbeb0a5dcfea9f13bb2a997c43bee45134d6187e",
+      "bytes": 16426
+    },
+    "subscription-before.log": {
+      "sha256": "f03662eec304cc6a34d649281604b46fb5f83a29f1fcf2b15ee18c9c1fbd94f3",
+      "bytes": 5638
+    },
+    "subscription-after.log": {
+      "sha256": "27a80d023c3ef62177c253632edb7b83eb3be159196960710cf3cdee937490c0",
+      "bytes": 6406
+    },
+    "calendar-pages-before.log": {
+      "sha256": "93f920890177bbd7d859c9c546c47187eb73c18529615317eeb8deaed6fc352e",
+      "bytes": 2522
+    },
+    "calendar-pages-adaptive-after.log": {
+      "sha256": "46723b2873228599e3b48ab8913d383c4f810bab34c6c7ef047bbc3388c3ae46",
+      "bytes": 15364
+    },
+    "adaptive-reservations-before.log": {
+      "sha256": "42b0da9c9a4b6327d7e1f8f31df913e16873ddbc303ac5205fda4c7a534f55ed",
+      "bytes": 1730
+    },
+    "shared-journal-before.log": {
+      "sha256": "8d65e90fe0d5d081ae926b8886738752f145ea9fb1eac78067029a6a4a93ee55",
+      "bytes": 2032
+    },
+    "shared-journal-after.log": {
+      "sha256": "1af4d90baca7c53d8f4c9b7ac8372cea5c67a8d5ff346315f52988eaabcaf61b",
+      "bytes": 3961
+    },
+    "server-queues-before.log": {
+      "sha256": "eb990395849a439b742e69a10c3e9d54969fb005ae33513fb0de2d61d2ab6a41",
+      "bytes": 2976
+    },
+    "server-queues-after.log": {
+      "sha256": "a24a8a00d9d5f8d7393f3333f4e44bc3a051edb8602c550557e50d08a7dbb1ec",
+      "bytes": 8693
+    },
+    "shared-storage-before.log": {
+      "sha256": "8123a85980bda048fa3150d965fa464fed33277e337fc6ed9833a114b7a1c88d",
+      "bytes": 3007
+    },
+    "shared-storage-after.log": {
+      "sha256": "53a8dadb3410321d00231548a0e980f170013e4abdd3247678f37497d738eefb",
+      "bytes": 7257
+    },
+    "interaction-import-weather-before.log": {
+      "sha256": "46a0036874ed364e7800b15263316b6ed18d16e121afa0e91a562b77b00f4b07",
+      "bytes": 10598
+    },
+    "interaction-import-weather-after.log": {
+      "sha256": "5926dfc073ab3ca261c9ad340f459ca20289329243aa40da9d9565cfb689e4a5",
+      "bytes": 10234
+    },
+    "widget-quarantine-before.log": {
+      "sha256": "9e925fa645d0ef25912a9aa74e01c1354ff7a3bafbc5fc2271874be94b8e433e",
+      "bytes": 2131
+    },
+    "widget-quarantine-after.log": {
+      "sha256": "b94a06df8aec346b017c93f45c8c5d6b6bc458fefa5bfe9810b9a5943ed5a22e",
+      "bytes": 1321
+    },
+    "private-prefs-before.log": {
+      "sha256": "a80d9fef695c32b8b3371be72366ef2f64fb5a6fff5fddc49c22a5b9223b2a3a",
+      "bytes": 5493
+    },
+    "private-prefs-after.log": {
+      "sha256": "8e9eed85bac6dbdd97e8c12a5ba9221a0c6bf92e2083279f10196abe55acf746",
+      "bytes": 4826
+    },
+    "projection-work-before.log": {
+      "sha256": "3cad9825d2fd114f1adfe9fb35c5ffe861dfd596cf912bf5e3051227cb52611e",
+      "bytes": 3021
+    },
+    "projection-work-after.log": {
+      "sha256": "7df19f7aace3673a0ed9043400f923ae221f73ac52abc75df00a595750bc7394",
+      "bytes": 6489
+    },
+    "calendar-priority-before.log": {
+      "sha256": "083f05a1d4559cab8852f74c55b0be427c070e53e6db7ab0f0ba2f325b251513",
+      "bytes": 5410
+    },
+    "calendar-priority-after.log": {
+      "sha256": "6664bc0336e024ed6f9eb0976278dd92b7108c901f9bd38db78af70146849356",
+      "bytes": 13267
+    },
+    "calendar-selector-before.log": {
+      "sha256": "640076740b8bb64fa91375f9051b0e80d363b36b33244298de0c9a7652e4f353",
+      "bytes": 1068
+    },
+    "calendar-selector-after.log": {
+      "sha256": "55af5ef61f0ad3f207611995639444914f2be4f5c09a1ed71a47762c83e12c7d",
+      "bytes": 2008
+    },
+    "retained-google-corrected-before.log": {
+      "sha256": "bf803d68a8f52d4c4254fb943bd51d5261f61bf905af5bff153efbd641bd9262",
+      "bytes": 2287
+    },
+    "retained-google-after.log": {
+      "sha256": "f7e68812e1b32d3101362eca1b947bd1d78a3699a5cf7035861dc8544707c3f0",
+      "bytes": 4142
+    },
+    "retained-google-before.log": {
+      "sha256": "411a971310e6bede17f0d1e744907beaf38988dffe4d0c2627b8d875546169c3",
+      "bytes": 3159
+    },
+    "retained-undo-before.log": {
+      "sha256": "b98ef13003980208a590cf58decb7ceb3b08fc9a23d50346e6d6457b8988ca6f",
+      "bytes": 2334
+    },
+    "retained-undo-after.log": {
+      "sha256": "1937440c27e13da999015a7efb4bd32bcf01b333ae58fb6e649e2a2561776069",
+      "bytes": 4153
+    },
+    "settings-external-before.log": {
+      "sha256": "c3b22d7e442d1a20eb3b1241fa3fe4a1906b7c25c2be94cc6105eb2e55708460",
+      "bytes": 1721
+    },
+    "settings-external-after.log": {
+      "sha256": "49fa0cd16f0c9e5a21f7b0607b85ed22d96239e3c76eec652815d2ee75578afc",
+      "bytes": 1199
+    },
+    "replan-work-before.log": {
+      "sha256": "821052d69bf20ce7451d55462cdeb68b9ea80eda089368d59e1cad642a7040f8",
+      "bytes": 2154
+    },
+    "replan-work-after.log": {
+      "sha256": "f104085492327669427eecb45fcb0eeb709ea8a7d6f3717d804aa304bfee4a15",
+      "bytes": 2051
+    },
+    "create-cleanup-before.log": {
+      "sha256": "830bcc09aa350de0d5ebf302189d8d3ea53b9cf349dbaf1531d0108035f451a0",
+      "bytes": 3435
+    },
+    "create-cleanup-after.log": {
+      "sha256": "ab86c5df2174b5fd556b3fc99cc83bc2777defd95a76bed6be28acb6f5c1ddbf",
+      "bytes": 5177
+    },
+    "retained-index-before.log": {
+      "sha256": "34dcd0ab374f08a7abd4cd39cab89630d91750fd99aa937c638137fde9d99769",
+      "bytes": 1370
+    },
+    "retained-index-after.log": {
+      "sha256": "e8240b8fdced5979c899c4c30133b85cf1e51e51e21048d49bb6e039f79105bf",
+      "bytes": 6804
+    },
+    "common-rules-before.log": {
+      "sha256": "5921204058191d1d9b125f3f21ebd04cedcb5a0651d976a3efeab6036c38190c",
+      "bytes": 1013
+    },
+    "common-rules-after.log": {
+      "sha256": "958b1412e793afa57f59b1c7064775aef13cec45a69a6ae6bda18f58f9013e2b",
+      "bytes": 5047
+    },
+    "calendar-parent-before.log": {
+      "sha256": "e7e20a819f66758e753845752f01f2fb9cda33f0658666f56c07885f500b6247",
+      "bytes": 4958
+    },
+    "calendar-parent-after.log": {
+      "sha256": "86bffeaa00e0fa9946ef6f2800b52212822f59dcd7d9387fc645719c625c699d",
+      "bytes": 11556
+    },
+    "causal-frame-before.log": {
+      "sha256": "7a11b9f2392e69c2b6820e6dba2bfc5613052f57a94dab401b9e5959afa95863",
+      "bytes": 1164
+    },
+    "causal-frame-after.log": {
+      "sha256": "23b81011b353f51c82cc2c4d09609b265148c15a1e5fadc5ad387f55d412535b",
+      "bytes": 6525
+    },
+    "task-first-cursor-before.log": {
+      "sha256": "5a83f181b6d1708a05923898d8465b414030f0df11be602d99e63f786b6cfc67",
+      "bytes": 1704
+    },
+    "task-first-cursor-after.log": {
+      "sha256": "b14646ede85815cdf327258fcfe90bc1f85f288f4e8739263dbe421530c77975",
+      "bytes": 3750
+    },
+    "appliance-duration-before.log": {
+      "sha256": "2fe188cee165921fbbf1fe3753e00d060c25fce7fb8e0fc87d2e50da52e52aeb",
+      "bytes": 1281
+    },
+    "appliance-duration-after.log": {
+      "sha256": "fd55ba7ee5be942ab03f4b494c28126a402c07628887d288826d54517c054644",
+      "bytes": 4240
+    },
+    "shared-anchor-before.log": {
+      "sha256": "d1045ae546c85ea98c9fcbc2635fa42403340a068fa0ea3a01baf943ba19dacf",
+      "bytes": 1104
+    },
+    "shared-anchor-after.log": {
+      "sha256": "efbc2f8289a2312cb531e6a4bbde3e062b3a3a3eaa9b81a317a1c481290a2aa5",
+      "bytes": 4390
+    },
+    "inactive-completion-before.log": {
+      "sha256": "0c307d747c54f3219b8dd3689705e9fb1624ebda19135dc0cc62c879d26e9f4a",
+      "bytes": 2014
+    },
+    "inactive-completion-after.log": {
+      "sha256": "ea1253df88bdade56415aae034cce31ced7c20791605a542d90fe68c6ff2c18a",
+      "bytes": 4669
+    },
+    "calendar-fields-before.log": {
+      "sha256": "2ed5ebe400b839f92b0743d274d4154d7a3f91e8bf1bfb908c3cef0c0fe0da0d",
+      "bytes": 3732
+    },
+    "calendar-fields-after.log": {
+      "sha256": "ae9310214f483337ec965020373e3dae341f003e2c3086e694fefce5ba6f17a7",
+      "bytes": 12466
+    },
+    "bulk-settings-before.log": {
+      "sha256": "af31e52c3f2d339335fadcf52e0163633fd3c856210e6a024cc54ffebf126b38",
+      "bytes": 998
+    },
+    "bulk-settings-after.log": {
+      "sha256": "1a08599b71fc6db5ee7e1cdfd7e21b91f82b1d07d20bb0435959536460707fd6",
+      "bytes": 3327
+    },
+    "proof-batch-before.log": {
+      "sha256": "5d7f0620699f6559605519d6fc1635e7c40ccee542a8d0f5793e5c4bfe929fef",
+      "bytes": 1824
+    },
+    "proof-batch-after.log": {
+      "sha256": "70d241e54768849614abc215305ae3050df7a075db428a068b39adf837b60890",
+      "bytes": 1006
+    },
+    "config-boundary-before.log": {
+      "sha256": "0d0b5e822596a6da02e970a53897b65c36463995b12688f6e69a5ae344b2ce9a",
+      "bytes": 3288
+    },
+    "config-boundary-after.log": {
+      "sha256": "b4b750973519b19bd1db76acde1c0f7181a7bc35b0538de2bfc08f3a03d5a9d1",
+      "bytes": 2228
+    },
+    "aggregate-batch-before.log": {
+      "sha256": "c764d5536e7f095e0758cd1e54ed5cfce73892024f0cd6e0a66ab30241fd4de2",
+      "bytes": 1016
+    },
+    "aggregate-batch-after.log": {
+      "sha256": "a0b63297bd249f51b7b9ab7d5af928db53e79f3323d21d27ee501e005dc2b3bf",
+      "bytes": 2944
+    },
+    "undo-lineage-before.log": {
+      "sha256": "16b053eb0b1f12d2381f12b0ace75d549cddbc253b8beafa4db1dde6ef5c7ee8",
+      "bytes": 1105
+    },
+    "undo-lineage-after.log": {
+      "sha256": "b14dcc8ffa381c24c63af793940206d5ff2935488fdc38d9637d8ce29ff7c61d",
+      "bytes": 3946
+    },
+    "notice-prune-before.log": {
+      "sha256": "68117f3f0f7506a0ee2036a7d1c23cf0f6f9b0921ef5aeaea09b5c622185df7e",
+      "bytes": 2802
+    },
+    "notice-prune-after.log": {
+      "sha256": "3303c847d43c03a25c4423e428e02c15b3a4abe347b2e86889491dbd70b0fc64",
+      "bytes": 4284
+    },
+    "pinned-calendar-before.log": {
+      "sha256": "556e18ed6a21042f63c480f951fd49e8e6f90c6e08d329b2be6966ded6489e85",
+      "bytes": 1271
+    },
+    "pinned-calendar-after.log": {
+      "sha256": "b116170775e7dec17c2dd3bac5640a27c41a4c954bd9f8975825c721b7e35497",
+      "bytes": 5475
+    },
+    "personal-import-before.log": {
+      "sha256": "7aae0c23bf0b2c80ce6df71829d79f6532c214b9e8c623d372ace268e2179a85",
+      "bytes": 1104
+    },
+    "personal-import-after.log": {
+      "sha256": "6c7f34985b02901bf8ce8062e4a5183aed2952e6c8741fcd2f0eec7f52d62fa1",
+      "bytes": 1819
+    },
+    "schedule-cache-before.log": {
+      "sha256": "bed313c70f201e4fe53444a3c93741911b21562e4390fba8e2175f30587b5be5",
+      "bytes": 1038
+    },
+    "schedule-cache-after.log": {
+      "sha256": "c084b8c76a6ee3f3c3b849f74cf7bc554e6b86adb2ee39a8b9b336814cfab4b4",
+      "bytes": 3449
+    },
+    "retention-collation-before.log": {
+      "sha256": "33a7a5e561fbd78011e1d8129e11a4cd400421e332e0a2f8ae1e49c6e14a7b83",
+      "bytes": 4707
+    },
+    "retention-collation-after.log": {
+      "sha256": "4e90c6027cd6c1853016fa91ceafca23e2ffe7a7fd4dcb1dfc694b61a2b51544",
+      "bytes": 1757
+    },
+    "configuration-index-before.log": {
+      "sha256": "90f093c913a83299a2ffc0e6b880b73fb88d446bdef9986dcf3c1d62593ddade",
+      "bytes": 1095
+    },
+    "configuration-index-after.log": {
+      "sha256": "f6adae48646461fab375a7b6824e8b8ae4adacfc181b75a3955f84111deacf8c",
+      "bytes": 13593
+    },
+    "shared-ack-before.log": {
+      "sha256": "a4c67d2818e1c6039c3aeec3b96a8952708e7845fc00d14c35bd8037fc9dce3e",
+      "bytes": 2362
+    },
+    "shared-ack-after.log": {
+      "sha256": "49c92f22efc998392ac378764882e11c465875e1f21bcd38fc9abf19bc9752ff",
+      "bytes": 7265
+    },
+    "calendar-live-index-before.log": {
+      "sha256": "c3ae196a714175f3bac5aeb55b6fbe98d672f0a90ff7570e35de513adeb2b9c0",
+      "bytes": 1290
+    },
+    "calendar-live-index-after.log": {
+      "sha256": "17e1d3972933b6b12892f554f516340a6670318ede05fcf712dff9918b6c6151",
+      "bytes": 3231
+    },
+    "link-read-before.log": {
+      "sha256": "02e7bc9cb6bee3b80acb593262d21c4a1d12725feca0eea831ba6b2db7034a3e",
+      "bytes": 1139
+    },
+    "link-read-after.log": {
+      "sha256": "c01ec0a054ea433e3061d982208ee7e7731a851abd3beb16e0abe6427868a56d",
+      "bytes": 4536
+    },
+    "history-owner-zone-before.log": {
+      "sha256": "f807290017b662b3f18438e129a6f3f871f55ec8698ff917263fa2c98282eb27",
+      "bytes": 1630
+    },
+    "history-owner-zone-after.log": {
+      "sha256": "911af5ad173eb2d8611665a5532526353b5b628280cd02b319d0d8c7af3dcca8",
+      "bytes": 4155
+    },
+    "history-offset-before.log": {
+      "sha256": "d857e2ab4978418b0503e5c993cb51d46671e5e01c913b43058967a2b24bd707",
+      "bytes": 2790
+    },
+    "history-offset-after.log": {
+      "sha256": "ec518128f59a53f05ef6c0af79a36b71738d84c8daf4f936c97bf26ecd471df3",
+      "bytes": 2598
+    },
+    "observer-rollback-before.log": {
+      "sha256": "245a58defc66fbde8c41f8fac0072fc8dcbd2fb2ea5c956f49a5c5d308697512",
+      "bytes": 1894
+    },
+    "observer-rollback-after.log": {
+      "sha256": "bafc6198d9d2650319550263c23ab71cd7b7f853e1e7d2f8497666e69afb375b",
+      "bytes": 2514
+    },
+    "mirror-rename-before.log": {
+      "sha256": "0cedfa699d7a89b6dafc2425b05075a7d78586c572314ddb01f3b7f1069c8aba",
+      "bytes": 2890
+    },
+    "mirror-rename-after.log": {
+      "sha256": "9b528bc0f269dee10ec38e9763056cd11817dfc8888a2254f16f2d722d9ec384",
+      "bytes": 5838
+    },
+    "inbox-index-corrected-before.log": {
+      "sha256": "865c6aeaf771def0d3fd080da89e26a1b427b6d85115a59197fe357d2a89fcba",
+      "bytes": 1085
+    },
+    "inbox-index-after.log": {
+      "sha256": "27c40ae1d2479feaf57ff2b41653a177b8797a3b4446d32bf9f297febb927592",
+      "bytes": 7614
+    },
+    "tasks-page-duplicates-before.log": {
+      "sha256": "8dd05ea8381f64d054ce7810c57c6c8c607255e668ae325367ac7d205cc0d8fb",
+      "bytes": 5638
+    },
+    "tasks-page-duplicates-after.log": {
+      "sha256": "1f1f5b30553d43cd2f5a73caedad05d32d1cccf37ba15462ab8ef9abc7d2446f",
+      "bytes": 7183
+    },
+    "extra-calendar-undo-before2.log": {
+      "sha256": "ecc3125f69ae72882b2b9f7b3fd4c044da48a09c77b8d3a2252762d9eecdb3b0",
+      "bytes": 1068
+    },
+    "extra-calendar-undo-after2.log": {
+      "sha256": "74e38909a581bdc4e464e3585de984eeffb0e07e3a3d735af1eb16cee8d60769",
+      "bytes": 4578
+    },
+    "extra-calendar-undo-after3.log": {
+      "sha256": "a276c6d428fcf0a5829e9d11aea8cc2712ce9a7a7b513e5acc7143bd8fcc82cc",
+      "bytes": 4929
+    },
+    "final-unit5.log": {
+      "sha256": "f6f8fd18c8c6e80ec5f1528914434db54710e46b9dca0ec00822a85c0c5f09d1",
+      "bytes": 457983
+    },
+    "final-pretest5.log": {
+      "sha256": "55b8ab97bc898ea36c342e9c20357679b65caa9eba986b36c173ff75d9d72305",
+      "bytes": 433
+    },
+    "final-lint5.log": {
+      "sha256": "61a9d32eb3c4115dc12845d19f1aa33fba63f897152fa6dd51052b284bd25da3",
+      "bytes": 458
+    },
+    "final-typecheck5.log": {
+      "sha256": "6cb6a659dafff15e79c4a37d4c2735755e7b002f61d2871bc0165257bb2b6598",
+      "bytes": 53
+    },
+    "simulator-r101-final-installed.json": {
+      "sha256": "4b6141b4195a03c21083986f49dfe852aa22f3b2c625eeec5002af7ec6299ae5",
+      "bytes": 375
+    },
+    "simulator-r101-ui-observation.json": {
+      "sha256": "29fbaddaf59d6f4dae2adad17e9d3a68e893906a5a9d5e4245152a5913c17e62",
+      "bytes": 1110
+    },
+    "android-r101-verified-install.json": {
+      "sha256": "e93881c4907cac67985e4b13e27f8bf06bbbd989b1a27400745ea3af0ea7c24f",
+      "bytes": 289
+    },
+    "android-r101-final-ui-observation.json": {
+      "sha256": "19fa4793ccc4ac19902ce362741a663c28472476a12597084694ab3f2749a8e2",
+      "bytes": 452
+    },
+    "iphone-r101-final-install.json": {
+      "sha256": "a2e7d7241bd9b1872c41e838d52a94bce9e6773192fc114bfc2eba09e2fee69d",
+      "bytes": 507
+    },
+    "extra-private-read-before2.log": {
+      "sha256": "c1cb2981303691d14a000614a550042ccce4502ac92238ec506a452df7419095",
+      "bytes": 9714
+    },
+    "extra-private-read-before-source-proof.json": {
+      "sha256": "5596ed51d765ac74ad207d5f0b5b7bf2fdd50a6239f6ba075e1fd49c5d676c47",
+      "bytes": 867
+    },
+    "extra-private-read-after5.log": {
+      "sha256": "e2c9fd451165cc851dab5bdfd94a73ceb67fd7de8f1801609d13812c001d2113",
+      "bytes": 8114
+    },
+    "iphone-final-ui-observation.json": {
+      "sha256": "b8654fedbf07cf98bf69de12501901aef49ffbc0eaadbd5714cd50f170ef0d01",
+      "bytes": 1852
+    },
+    "iphone-final-home.txt": {
+      "sha256": "36b5e9d6ad0a461019edd5b54f6ceea72e02b3d831fa2ad9e8d832439cec056e",
+      "bytes": 19416
+    },
+    "iphone-final-completed.txt": {
+      "sha256": "613d6d7263fc39fea0bd28879eb7f2f88d19e6f770d717db0d838072c935011d",
+      "bytes": 20404
+    },
+    "iphone-final-undone.txt": {
+      "sha256": "3a24452b7835f09122543583ee8bb299815e76c5dedd776dc5c43974875c4388",
+      "bytes": 19294
+    },
+    "iphone-final-calendar-expanded.txt": {
+      "sha256": "8b5c00364387379df25c69d75374070a2c26917c6a4d26dcbb3c4488fbc7ecab",
+      "bytes": 29590
+    },
+    "iphone-final-calendar-expanded.png": {
+      "sha256": "d4de2bb580e1d0053d9743c715faf83274099a392d8282b0f8be22eb692eed0a",
+      "bytes": 226680
+    },
+    "iphone-final-returned-home.txt": {
+      "sha256": "7d71631df9dbd5607396387d2c920b4be9375c94b0fdcdea9d4df96b085616f0",
+      "bytes": 19526
+    },
+    "final-cloud.log": {
+      "sha256": "dc290d89038174af843711a434426edda0453d522c64cac4636814b4d04197f5",
+      "bytes": 76113
+    },
+    "final-semgrep2.json": {
+      "sha256": "f6f332ffd8a9e6de42acf7f7c034d558176bc5a177730d70661b9993d4e97d18",
+      "bytes": 40820
+    },
+    "final-semgrep-supplemental.json": {
+      "sha256": "084df9e7f6a267947235efd3f2a73dd8f1b234033a6dc3aa357637f16a0ea339",
+      "bytes": 1621
+    },
+    "final-npm-audit-fixed.json": {
+      "sha256": "909b84a6c08197b9cc46c6ee42125685d360c58ccd148648a328b02632a67903",
+      "bytes": 365
+    },
+    "final-api-audit.json": {
+      "sha256": "f6ee0e733853b2be1f675af653de825b103f50c4515efb40fcc4664ed7462c30",
+      "bytes": 362
+    },
+    "final-account-audit.json": {
+      "sha256": "924c0a4441002d5ac1bb9a6b8ee9c4e4b15628307fe383cabf61898d24663b72",
+      "bytes": 362
+    },
+    "android-r101-final-home-restored.xml": {
+      "sha256": "293bdee83c6309f210e015fec7c63fbe1a1045d566108671b2c06e307698c51b",
+      "bytes": 46057
+    },
+    "android-r101-final-home-restored.png": {
+      "sha256": "9fb11c274ea114fb545092168ae711cbcf23e4a619f1a02b484d6ac258acc386",
+      "bytes": 265788
+    },
+    "final-unit6.log": {
+      "sha256": "6e9b84c76f4cb94da1bc23afcffecb3632e04215c96ed36bf349062df6d50dca",
+      "bytes": 458593
+    },
+    "final-lint6.log": {
+      "sha256": "61a9d32eb3c4115dc12845d19f1aa33fba63f897152fa6dd51052b284bd25da3",
+      "bytes": 458
+    },
+    "final-typecheck6.log": {
+      "sha256": "6cb6a659dafff15e79c4a37d4c2735755e7b002f61d2871bc0165257bb2b6598",
+      "bytes": 53
+    },
+    "final-pretest6.log": {
+      "sha256": "a8e59a56923abbfa8eb97d5c6f87cd5e9126c5ff2ae68725bc58760b27648cb4",
+      "bytes": 433
+    },
+    "final-semgrep-r102.json": {
+      "sha256": "a20d52da9e30010724a05cb0f0c9760edce4dc4abbe2d2559a46e53920b3afb9",
+      "bytes": 1915
+    },
+    "iphone-r102-install.json": {
+      "sha256": "d5b5ad2c2a7ef188a425cfcb62f268ea1609e375eddc466c302cfc21a559bc77",
+      "bytes": 891
+    },
+    "simulator-r102-installed.json": {
+      "sha256": "8fef3aa03121a090c57ba60e6a25823687125f7fbd52b8bcef29b053ffc124af",
+      "bytes": 759
+    },
+    "android-r102-final-install.json": {
+      "sha256": "66db0a6568a33b569712862a1c0ef31a74e2cb2caeae984da76b264042dc1b6a",
+      "bytes": 289
+    },
+    "android-r102-ui-observation.json": {
+      "sha256": "eb7cd5a5b1edd779512c6a228fcc31a36f0e807933f95a9e00134a22417643f0",
+      "bytes": 392
+    },
+    "iphone-r102-before-completed.txt": {
+      "sha256": "09c8f90ef75a4f2b871559930a658d33255a0e3b9a6a53f9b1cec880c3c492db",
+      "bytes": 18871
+    },
+    "iphone-r102-before-completed.png": {
+      "sha256": "bca8fdfe74b64f5e18c70ca67bfcaa2a6a1c31bdd4c0a0e56bb6f61a9926cb7a",
+      "bytes": 325888
+    },
+    "iphone-r102-step243-1.txt": {
+      "sha256": "613d6d7263fc39fea0bd28879eb7f2f88d19e6f770d717db0d838072c935011d",
+      "bytes": 20404
+    },
+    "iphone-r102-step243-1.png": {
+      "sha256": "51686b129f53eea9142c384387bfbeab8159fd3f98ab00e9f0cb8605a82c3668",
+      "bytes": 301356
+    },
+    "iphone-r102-step243-5.txt": {
+      "sha256": "3a24452b7835f09122543583ee8bb299815e76c5dedd776dc5c43974875c4388",
+      "bytes": 19294
+    },
+    "iphone-r102-step243-5.png": {
+      "sha256": "8cab5c0abe44c05a23fb39eaefe293f7101a88606b3c7378b60a5b3817e013e8",
+      "bytes": 276397
+    },
+    "iphone-r102-step244-1.txt": {
+      "sha256": "82049be0079327ef643c6ec9e37b05a58af716fead108cb775a0b7ce08abf0a9",
+      "bytes": 20404
+    },
+    "iphone-r102-step244-1.png": {
+      "sha256": "6dc754dee665696a4c40ed0fd8ea5e96e5732f285f455b135aa74849d84258c7",
+      "bytes": 301630
+    },
+    "iphone-r102-step244-5.txt": {
+      "sha256": "113a73b70a7811806103b907ba5738ebca91d954abb391dd5613ef269ca346bf",
+      "bytes": 19294
+    },
+    "iphone-r102-step244-5.png": {
+      "sha256": "cfb381d95e0c28fd4706382a78eca21bcc328b307663d33cd199fc5026e31f6d",
+      "bytes": 276972
+    }
+  },
+  "publication": {
+    "remote": "https://github.com/ponkichi1552/LiFlow",
+    "branch": "main",
+    "tracking": "Commit history and GitHub Actions record the published revision and CI result."
+  },
+  "limitations": [
+    "No new long-duration natural background execution acceptance is claimed by this audit.",
+    "Semgrep original TypeScript parser has two documented limitations; supplementary JavaScript scans are separate evidence.",
+    "No paid appliance AI requests or store billing purchases were made.",
+    "Existing paused personal Google Tasks auto-sync setting was preserved; new live Tasks send/receive is not claimed by these Android smoke observations."
+  ],
+  "additionalRuntimeFindings": [
+    {
+      "id": "R101",
+      "kind": "bug",
+      "status": "fixed",
+      "title": "共有家事の完了取消し直後に個人推奨日との差で表示行と件数が一時的に消える",
+      "cause": "完了日による表示を取り消した瞬間、個人推奨日が再取得されるまで共通推奨日へ戻っていた。",
+      "fix": "保存中の取消し表示だけは実施日に維持し、署名付き予定や履歴を変更しない。保持済み完了証明にも対応する。",
+      "regression": {
+        "file": "tests/sharing-v2-calendar-ui.test.mjs",
+        "name": "a pending shared completion undo keeps the clicked calendar day visible while its personal recommendation is being restored"
+      },
+      "before": "extra-calendar-undo-before2.log",
+      "after": "extra-calendar-undo-after3.log",
+      "nativeRecheck": {
+        "simulator": "PASS: same shared bedding on Nov7;4 rows before/after and first screenshot after undo;home4/0",
+        "evidence": "simulator-r101-ui-observation.json"
+      },
+      "preservesExistingBehavior": "Without a completed personal recommendation, Undo returns to the unchanged common suggested date, including early completions."
+    },
+    {
+      "id": "R102",
+      "kind": "bug",
+      "status": "fixed",
+      "title": "共有家事を完了すると設定の読取競合を恒久的な取得失敗として扱い個人家事が一時的に消える",
+      "observedBefore": "iPhone home7/0 ->4/1 with private-read error ->7/0 after Undo",
+      "fix": "本人の入力変更だけを対象に、新しいDB操作・入力スコープで読取を最大3回試す。更新が続く場合も共有だけの部分表示を公開せず通常の表示再試行へ渡す。完了・編集コマンドと権限エラーは再実行しない。",
+      "before": "extra-private-read-before2.log",
+      "sourceProof": "extra-private-read-before-source-proof.json",
+      "after": "extra-private-read-after5.log",
+      "targetedCasesPassed": 61,
+      "nativeRecheck": {
+        "iphone": "PASS twice:7/0 ->7/1 ->7/0, private rows retained, no private read error",
+        "android": "PASS:8/0 ->8/1 ->8/0, private rows retained, no private read error"
+      }
+    }
+  ],
+  "confirmedTotalIncludingRuntimeFollowup": {
+    "findings": 102,
+    "bugs": 58,
+    "optimizations": 44,
+    "dependencyAdvisoriesCounted": false,
+    "prior70Counted": false
+  }
+}

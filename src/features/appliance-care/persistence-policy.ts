@@ -57,8 +57,10 @@ export function buildReviewedApplianceChore(options: {
       enabled: hasCycle && (existing.enabled || Boolean(existing.requiresCycleSelection)),
       load: existing.load,
       windowRadiusDays: existing.windowRadiusDays,
+      ...(existing.userWindowRadiusDays !== undefined ? { userWindowRadiusDays: existing.userWindowRadiusDays } : {}),
       maxShiftDays: existing.maxShiftDays,
       holidayPriority: existing.holidayPriority,
+      ...(existing.laundryDryingPreference !== undefined ? { laundryDryingPreference: existing.laundryDryingPreference } : {}),
       ...(!hasCycle ? { requiresCycleSelection: true } : {}),
     },
   };

@@ -1,5 +1,6 @@
 import type { GoogleOperationBudget } from '../../features/google-sync/operation-budget';
 import { googleTaskRequestNotSent } from '../../features/google-sync/task-create-intent.ts';
+import { isGoogleETag } from '../google-http/etag.ts';
 
 export const GOOGLE_TASKS_SCOPE = 'https://www.googleapis.com/auth/tasks';
 export const GOOGLE_TASKS_LIST_TITLE = '家事Planner';
@@ -97,7 +98,7 @@ export interface GoogleTasksApi {
 }
 /** If-Match cannot use a missing, weak, wildcard or header-injected validator. */
 export function isGoogleTaskETag(value: unknown): value is string {
-  return typeof value === 'string' && /^"[\x21\x23-\x7E]{1,500}"$/u.test(value);
+  return isGoogleETag(value, 502);
 }
 
 const API_ROOT = 'https://tasks.googleapis.com/tasks/v1';
@@ -105,6 +106,7 @@ const BATCH_ROOT = 'https://tasks.googleapis.com/batch';
 const REQUEST_TIMEOUT_MS = 20_000;
 const BATCH_REQUEST_TIMEOUT_MS = 60_000;
 const TASK_READ_FIELDS = 'id,title,notes,due,status,completed,deleted,hidden,etag,updated,parent';
+const TASK_RESPONSE_QUERY = `?fields=${encodeURIComponent(TASK_READ_FIELDS)}`;
 export const GOOGLE_TASKS_BATCH_MAX_REQUESTS = 100;
 
 export function createGoogleTasksApi(
@@ -148,7 +150,7 @@ export function createGoogleTasksApi(
   return {
     listTaskPage,
     async listTaskLists(accessToken) {
-      const items: GoogleTaskList[] = [];
+      const items = new Map<string, GoogleTaskList>();
       const visitedTokens = new Set<string>();
       let pageToken: string | undefined;
       do {
@@ -157,12 +159,15 @@ export function createGoogleTasksApi(
         const page = await send<{ items?: GoogleTaskList[]; nextPageToken?: string }>(
           accessToken, `/users/@me/lists?${params.toString()}`,
         );
-        items.push(...(page.items ?? []));
+        for (const item of page.items ?? []) {
+          if (typeof item?.id !== 'string' || !item.id || typeof item.title !== 'string') throw new GoogleTasksApiError(502, 'invalid_task_list_resource', null);
+          items.set(item.id, item);
+        }
         pageToken = page.nextPageToken;
         if (pageToken && visitedTokens.has(pageToken)) throw new Error('Google Tasks returned a repeated page token');
         if (pageToken) visitedTokens.add(pageToken);
       } while (pageToken);
-      return items;
+      return [...items.values()];
     },
 
     createTaskList(accessToken, title) {
@@ -173,25 +178,30 @@ export function createGoogleTasksApi(
     },
 
     async listTasks(accessToken, taskListId) {
-      const items: GoogleTask[] = [];
+      const items = new Map<string, GoogleTask>();
       const visitedTokens = new Set<string>();
       let pageToken: string | undefined;
       do {
         const page = await listTaskPage(accessToken, taskListId, { pageToken });
-        items.push(...page.items);
+        for (const item of page.items) {
+          if (typeof item?.id !== 'string' || !item.id) throw new GoogleTasksApiError(502, 'invalid_task_resource', null);
+          const previous = items.get(item.id);
+          const priorAt = Date.parse(previous?.updated ?? ''); const nextAt = Date.parse(item.updated ?? '');
+          if (!previous || !Number.isFinite(priorAt) || Number.isFinite(nextAt) && nextAt >= priorAt) items.set(item.id, item);
+        }
         pageToken = page.nextPageToken;
         if (pageToken && visitedTokens.has(pageToken)) throw new Error('Google Tasks returned a repeated page token');
         if (pageToken) visitedTokens.add(pageToken);
       } while (pageToken);
-      return items;
+      return [...items.values()];
     },
 
     getTask(accessToken, taskListId, taskId) {
-      return send(accessToken, `/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(taskId)}`);
+      return send(accessToken, `/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(taskId)}${TASK_RESPONSE_QUERY}`);
     },
 
     createTask(accessToken, taskListId, draft) {
-      return send(accessToken, `/lists/${encodeURIComponent(taskListId)}/tasks`, {
+      return send(accessToken, `/lists/${encodeURIComponent(taskListId)}/tasks${TASK_RESPONSE_QUERY}`, {
         method: 'POST',
         body: JSON.stringify(draft),
       });
@@ -214,7 +224,7 @@ export function createGoogleTasksApi(
     },
 
     patchTask(accessToken, taskListId, taskId, patch) {
-      return send(accessToken, `/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(taskId)}`, {
+      return send(accessToken, `/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(taskId)}${TASK_RESPONSE_QUERY}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
       });
@@ -265,7 +275,11 @@ async function requestBatch(
     if (!responseBoundary) throw new GoogleTasksApiError(502, 'invalid_batch_response', null);
     const parts = parseBatchResponse(await response.text(), responseBoundary);
     const resultByRequestId = new Map(parts.map((part) => [part.requestId, part]));
-    return requestIds.map((requestId) => {
+    const counts = new Map<string, number>();
+    for (const part of parts) counts.set(part.requestId, (counts.get(part.requestId) ?? 0) + 1);
+    const unknown = parts.some(part => !requestIds.includes(part.requestId));
+    const results: GoogleTasksBatchItemResult[] = requestIds.map((requestId) => {
+      if (unknown || (counts.get(requestId) ?? 0) > 1) return { requestId, ok: false, status: 502, code: 'ambiguous_batch_response' };
       const part = resultByRequestId.get(requestId);
       if (!part) return { requestId, ok: false, status: 502, code: 'missing_batch_response' };
       if (part.status < 200 || part.status >= 300) {
@@ -275,12 +289,16 @@ async function requestBatch(
       if (!part.body) return { requestId, ok: false, status: 502, code: 'missing_batch_task' };
       try {
         const task = JSON.parse(part.body) as GoogleTask;
-        if (!task.id) return { requestId, ok: false, status: 502, code: 'missing_batch_task_id' };
+        if (typeof task.id !== 'string' || !task.id.length || task.id.length > 2048 || /[\u0000-\u001f]/u.test(task.id)) return { requestId, ok: false, status: 502, code: 'missing_batch_task_id' };
         return { requestId, ok: true, task };
       } catch {
         return { requestId, ok: false, status: 502, code: 'invalid_batch_task' };
       }
     });
+    const taskCounts = new Map<string, number>();
+    for (const result of results) if (result.ok) taskCounts.set(result.task.id, (taskCounts.get(result.task.id) ?? 0) + 1);
+    return results.map(result => result.ok && taskCounts.get(result.task.id)! > 1
+      ? { requestId: result.requestId, ok: false, status: 502, code: 'duplicate_batch_task_id' } : result);
   }, budget);
 }
 
@@ -296,7 +314,10 @@ function parseBatchResponse(body: string, boundary: string): {
   retryAfter?: string;
   body?: string;
 }[] {
-  return body.split(`--${boundary}`).flatMap((rawPart) => {
+  const literal = boundary.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  // MIME delimiters occupy their own line. Task notes may contain the same
+  // substring in ordinary JSON text without starting another response part.
+  return body.split(new RegExp(`(?:^|\\r?\\n)--${literal}(?=(?:--)?(?:[ \\t]*\\r?\\n|$))`, 'u')).flatMap((rawPart) => {
     const part = rawPart.trim();
     if (!part || part === '--') return [];
     const partSeparator = part.indexOf('\r\n\r\n');
@@ -353,7 +374,12 @@ async function request<T>(
       );
     }
     if (response.status === 204) return undefined as T;
-    const payload = await response.json() as T;
+    let payload: T;
+    try { payload = await response.json() as T; }
+    catch (cause) {
+      if (cause instanceof Error && cause.name === 'AbortError') throw cause;
+      throw new GoogleTasksApiError(502, 'invalid_json_response', null);
+    }
     receiveHeaders?.(response.headers);
     return payload;
   }, budget);

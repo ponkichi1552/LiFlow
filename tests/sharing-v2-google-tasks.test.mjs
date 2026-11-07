@@ -305,3 +305,28 @@ test('v2 Tasks never persists unknown link fields or exposes poisoned private re
     await assert.rejects(h.store.readSavedLinks(), /形式/u);
   } finally { h.close(); }
 });
+test('saving one shared Task link reads only that mapping even with a thousand unrelated historical links',async()=>{
+  const h=await googleFixture();
+  try{
+    await h.connect();await h.sync();const [link]=await h.links();
+    const source=h.d.connection.prepare('SELECT * FROM sharing_v2_private_google_links WHERE schedule_entry_id=?').get(link.scheduleEntryId);
+    const insert=h.d.connection.prepare('INSERT INTO sharing_v2_private_google_links(schedule_entry_id,link_json,target_json,baseline_revision,acknowledged_ids_json) VALUES(?,?,?,?,?)');
+    h.d.connection.exec('BEGIN');for(let n=0;n<1000;n++){const id=`historical-${n}`;insert.run(id,JSON.stringify({...JSON.parse(source.link_json),scheduleEntryId:id,googleTaskId:`historical-task-${n}`}),JSON.stringify({...JSON.parse(source.target_json),subjectOccurrenceId:id}),source.baseline_revision,source.acknowledged_ids_json);}h.d.connection.exec('COMMIT');
+    let rows=0;const read=h.d.database.getAllAsync;h.d.database.getAllAsync=async(sql,...args)=>{const result=await read(sql,...args);if(sql.startsWith('SELECT * FROM sharing_v2_private_google_links'))rows+=result.length;return result;};
+    const start=performance.now();await h.store.port.upsertGoogleTaskLink({...link,updatedAt:new Date().toISOString()});
+    assert.equal(rows,1);console.log(JSON.stringify({audit:'N01-O01',historicalLinks:1000,mappingRowsForOneSave:rows,elapsedMs:performance.now()-start}));
+  }finally{h.close();}
+});
+
+
+test('audit100 a moved chores old anchor cannot hide another linked chore on the same out-of-range anchor',async()=>{
+ let clock=new Date('2026-10-27T01:00:00Z');const source=seeds();source.push({...structuredClone(source[2]),operationId:'second-chore',entityId:'second',payload:{name:'二番目の家事',enabled:true}},{...structuredClone(source[3]),operationId:'second-config',entityId:'second'});
+ const h=await googleFixture({seed:source,clock:()=>clock});
+ try{await h.connect();await h.sync();const entries=await h.entries();const item=entries.find(row=>row.entry.choreId==='second'&&row.target.anchorDate==='2026-10-27');assert.ok(item);
+ const link=(await h.links()).find(row=>row.scheduleEntryId===item.entry.id);await h.actions.complete(item.target);
+ clock=new Date('2026-11-27T01:00:00Z');const moved=entries.find(row=>row.entry.choreId==='floor'&&row.target.anchorDate==='2026-10-27');
+ await h.actions.changeDate(moved.target,{mode:'day',target:{precision:'date',date:'2026-11-27'},confirmHighLoad:true,confirmExtension:true});
+ const after=await h.entries();const retained=after.find(row=>row.entry.id===item.entry.id);assert.ok(retained?.completedAt,'the second completed chore must retain its independently projected Google status');
+ assert.notEqual(retained.synchronizationBlocked,true);await h.sync();assert.equal(h.tasks.get(link.googleTaskId).status,'completed');
+ }finally{h.close();}
+});

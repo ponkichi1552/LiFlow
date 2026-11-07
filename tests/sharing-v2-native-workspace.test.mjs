@@ -14,6 +14,26 @@ import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
 import { createV2WorkspaceSession } from '../src/features/sharing/v2/workspace-session.ts';
 const { syncGoogleTasksWithDependencies } = await import('../src/features/google-sync/coordinator.ts');
 
+test('a delta-only shared worker leaves full history maintenance to foreground while preserving all delta domains', async () => {
+  const h = await workspaceHarness({ deferWorkspaceTimers: true });
+  try {
+    const workspace = await h.api.openSharedWorkspace(h.record);
+    await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, row => ({ ...row, status: 'active' }));
+    await workspace.record(); h.vault.set('sharing-enabled', 'true');
+    const calls = [];
+    workspace.sync = async () => { calls.push('delta'); return { complete: true, pending: 0, waitingForApproval: false }; };
+    workspace.reminders = async () => ({ synchronize: async () => { calls.push('reminders'); } });
+    workspace.googleTasks = async () => ({ readControl: async () => ({ state: null }) });
+    workspace.googleCalendar = async () => ({ synchronize: async () => { calls.push('calendar'); return { kind: 'skipped' }; } });
+    workspace.maintainHistory = async () => { calls.push('full-history'); };
+    assert.deepEqual(await h.api.syncSharingWorkspace(30_000, { deltaOnly: true }), { kind: 'success' });
+    assert.deepEqual(calls, ['delta', 'reminders', 'calendar']);
+    calls.length = 0;
+    await h.api.syncSharingWorkspace(30_000);
+    assert.deepEqual(calls, ['delta', 'reminders', 'calendar', 'full-history'], 'ordinary foreground maintenance remains available');
+  } finally { await h.close(); }
+});
+
 for (const status of ['idle', 'retryPending', 'authRequired', 'syncing']) {
   test(`a delivered native group distinguishes a fresh Tasks cadence from ${status} deferred work`, async () => {
     const h = await workspaceHarness({ deferWorkspaceTimers: true });

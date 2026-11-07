@@ -49,6 +49,42 @@ test('v2 calendar recommendation binding refuses another account, another group 
   } finally { f.close(); }
 });
 
+test('a pending shared completion undo keeps the clicked calendar day visible while its personal recommendation is being restored', async () => {
+  const f = await setup('ios', '2026-10-25');
+  try {
+    const range = { from: '2026-10-01', through: '2026-10-31', asOfDate: '2026-10-27' };
+    const ref = { choreId: 'floor', anchorDate: '2026-10-25', ruleVersion: 1, subjectUserId: null };
+    let model = await f.controller.readModel(range);
+    const personalFor = model => buildV2PersonalPlan(model.plan, { viewerUserId: model.viewerUserId, now: now().getTime(),
+      settings: { frequencyMode: 'balanced', restDays: [], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 3 } } });
+    const first = model.plan.occurrences.find(round => round.anchorDate === ref.anchorDate).subjects[0];
+    const personal = personalFor(model);
+    personal.recommendations.find(value => value.subjectOccurrenceId === first.id).date = '2026-10-27';
+    assert.equal(v2CalendarProjection(model, personal, undefined, true).byDate.get('2026-10-27').length, 1);
+    await f.controller.actions.complete(ref); model = await f.controller.readModel(range);
+    const settledPersonal = personalFor(model);
+    const settledRecommendation = settledPersonal.recommendations.find(value => value.subjectOccurrenceId === first.id);
+    assert.equal(settledRecommendation.state, 'completed');
+    assert.equal(settledRecommendation.date, '2026-10-25', 'completed work falls back to its common suggestion');
+    const saved = JSON.stringify(model);
+    const pendingUndo = v2CalendarProjection(model, settledPersonal, new Map([[`shared:${first.id}`, false]]), true);
+    const restored = pendingUndo.byDate.get('2026-10-27')?.find(value => value.id === first.id);
+    assert.ok(restored, 'the pending undo must not temporarily move this row back to the old common suggestion');
+    assert.equal(restored.completed, false); assert.equal(restored.completedDate, undefined);
+    assert.equal(JSON.stringify(model), saved, 'placement feedback never edits the signed common plan or history');
+    const commonUndo = v2CalendarProjection(model, undefined, new Map([[`shared:${first.id}`, false]]), true);
+    assert.ok(commonUndo.byDate.get('2026-10-25')?.some(value => value.id === first.id),
+      'without a personal recommendation to restore, undo returns directly to the unchanged common suggestion');
+    const retained = structuredClone(model); retained.plan.history = [];
+    retained.plan.occurrences.find(round => round.anchorDate === ref.anchorDate).subjects[0].retainedCompletion = {
+      completedDate: '2026-10-27', recorderUserIds: [model.viewerUserId],
+    };
+    assert.equal(v2CalendarProjection(retained, settledPersonal, new Map([[`shared:${first.id}`, false]]), true)
+      .byDate.get('2026-10-27')?.find(value => value.id === first.id)?.completed, false,
+      'a compacted completion keeps the same temporary placement without requiring deleted raw history');
+  } finally { f.close(); }
+});
+
 test('v2 calendar never applies the viewers private recommendation to another assigned member', async () => {
   const f = await setup();
   try {
@@ -148,10 +184,10 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} v2 unloaded calendar months show a retry state rather than falsely claiming an empty day`, async () => {
     const f = await setup(platform);
     try {
-      await openCalendarDay(f.screen, '2027-03-01');
+      await openCalendarDay(f.screen, '2026-12-01');
       assert.ok(f.screen.text().includes('この月の共有予定を取得できていません'));
       assert.equal(f.screen.text().includes('この日の共有家事はありません'), false);
-      assert.ok(f.screen.nodes().some((node) => node.props.accessibilityLabel === '2027年3月1日、予定は未取得、収集日は未取得'));
+      assert.ok(f.screen.nodes().some((node) => node.props.accessibilityLabel === '2026年12月1日、予定は未取得、収集日は未取得'));
       assert.equal(f.screen.button('この月を再読込').props.disabled, false);
     } finally { f.close(); }
   });
@@ -168,7 +204,7 @@ for (const platform of ['ios', 'android']) test(`${platform} a shared monthly wa
   const props = { ...f.props, model: partial, selectedDate: '2027-03-15', month: '2027-03-01' };
   const screen = screenHarness('src/features/sharing/v2-ui/calendar.tsx', { exportName: 'V2Calendar', props, platform });
   await scrollCalendarToDate(screen, '2027-03-15');
-  const day = () => screen.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2027年3月15日、'));
+  const day = () => screen.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2027年3月15日'));
   assert.match(day().props.accessibilityLabel, /収集日は未取得/); assert.doesNotMatch(day().props.accessibilityLabel, /粗大/);
   assert.ok(screen.text().includes('収集未取得'));
   screen.render(); assert.match(day().props.accessibilityLabel, /収集日は未取得/, 'a failed refresh cannot replace unknown with a guessed mark');

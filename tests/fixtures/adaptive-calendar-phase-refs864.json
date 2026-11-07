@@ -1,0 +1,755 @@
+[
+  {
+    "caseId": "night_shift-v05-h90-r0",
+    "expectedMethod": "weekly",
+    "provenance": {
+      "sourceCase": {
+        "relative_path": "cases.jsonl.gz",
+        "sha256": "c532da90a0a7a6ccb72c8aefd7d6ebc31b98c74d280b8d2599242878da5027b0",
+        "source_manifest_sha256": "7253e1e2bbab9dcf8e0203277ccd70458ccd381bb963a9583ae5e0bc3b7b0329"
+      },
+      "referenceCounts": [
+        8,
+        6,
+        4
+      ],
+      "onlyObservedPrefix": true,
+      "sourceModuleSha256": "5bd1f355d004e6013ab541a0217b379d59a6c79e4644c940f91fce99feb5b420",
+      "extractedFixtureSha256": "0ddf4ce020c30ab7a0ad4947da0e54b3b17a2a118b2be998c4aa5793f415cac9",
+      "evidence": "Captured from one development case with the current 8/6/4 limits. Original 10/7/5 fixture retained separately."
+    },
+    "definition": {
+      "id": "laundry",
+      "kind": "days",
+      "initial_days": 2,
+      "duration_minutes": 20,
+      "load": "normal"
+    },
+    "before": {
+      "policy": {
+        "choreId": "realistic-sqlite:night_shift-v05-h90-r0:laundry",
+        "kind": "personal",
+        "mode": "balanced",
+        "initialDays": {
+          "frequent": 2,
+          "balanced": 2,
+          "relaxed": 2
+        },
+        "enabled": true,
+        "fixedDays": null,
+        "version": "realistic-chronology-v1:laundry"
+      },
+      "state": {
+        "policy": {
+          "choreId": "realistic-sqlite:night_shift-v05-h90-r0:laundry",
+          "kind": "personal",
+          "mode": "balanced",
+          "initialDays": {
+            "frequent": 2,
+            "balanced": 2,
+            "relaxed": 2
+          },
+          "enabled": true,
+          "fixedDays": null,
+          "version": "realistic-chronology-v1:laundry"
+        },
+        "model": {
+          "method": "median",
+          "days": 6
+        },
+        "revision": "883c8a6cdc6827f09f3731b4b00adb54ef60cd984431124b3aac85202b76b6cb",
+        "epoch": "initial:realistic-chronology-v1:laundry",
+        "lastCompletedDate": "2026-03-07",
+        "lastPlanCompletion": {
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:15",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:15",
+          "roundId": "personal-round.93b494eff04c006b3d8025d323291cd73b6861726b4577b3612565a5e2a4e04e",
+          "date": "2026-03-07",
+          "origin": "personal",
+          "ruleDate": "2026-03-05"
+        },
+        "validUnitCount": 16,
+        "validIntervalCount": 15,
+        "scores": [
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:1",
+            "errors": {
+              "median": 0
+            }
+          },
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:2",
+            "errors": {
+              "median": 0
+            }
+          },
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:3",
+            "errors": {
+              "median": 1
+            }
+          },
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:4",
+            "errors": {
+              "median": 1,
+              "exponential": 1,
+              "weekly": 4
+            }
+          },
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:5",
+            "errors": {
+              "median": 0,
+              "exponential": 1,
+              "weekly": 1
+            }
+          },
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:6",
+            "errors": {
+              "median": 1,
+              "exponential": 2,
+              "weekly": 4
+            }
+          },
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:7",
+            "errors": {
+              "median": 1,
+              "exponential": 2,
+              "weekly": 3
+            }
+          },
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:8",
+            "errors": {
+              "median": 1,
+              "exponential": 1,
+              "weekly": 3
+            }
+          },
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:9",
+            "errors": {
+              "median": 2,
+              "exponential": 2,
+              "weekly": 5,
+              "alternating": 2
+            }
+          },
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:10",
+            "errors": {
+              "median": 1,
+              "exponential": 2,
+              "weekly": 2
+            }
+          },
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:11",
+            "errors": {
+              "median": 1,
+              "exponential": 2,
+              "weekly": 2
+            }
+          },
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:12",
+            "errors": {
+              "median": 2,
+              "exponential": 2,
+              "weekly": 3,
+              "alternating": 2
+            }
+          },
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:13",
+            "errors": {
+              "median": 1,
+              "exponential": 2,
+              "weekly": 1
+            }
+          },
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:14",
+            "errors": {
+              "median": 1,
+              "exponential": 2,
+              "weekly": 2
+            }
+          },
+          {
+            "epoch": "initial:realistic-chronology-v1:laundry",
+            "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:15",
+            "errors": {
+              "median": 2,
+              "exponential": 2,
+              "weekly": 0,
+              "alternating": 2
+            }
+          }
+        ],
+        "forecast": null,
+        "issues": []
+      },
+      "events": [
+        {
+          "sequence": 3,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:0",
+          "recordedAt": "2026-01-01T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:0",
+          "roundId": "personal-round.588278418777b7b23ca12718bc3e663450596bc89b025d5e1e1c4b00f00c5f46",
+          "localDate": "2026-01-01",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-01-01"
+        },
+        {
+          "sequence": 5,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:1",
+          "recordedAt": "2026-01-03T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:1",
+          "roundId": "personal-round.a70bce3c7d7b204575512d5423790bdf7f6aebfbea1908b443b0ae5973aaf492",
+          "localDate": "2026-01-03",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-01-03"
+        },
+        {
+          "sequence": 6,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:2",
+          "recordedAt": "2026-01-05T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:2",
+          "roundId": "personal-round.1f1a46d454b02b3fa64f298c85ba4438b8dd033c6e67aed5d9a8bdddbfe34f7a",
+          "localDate": "2026-01-05",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-01-05"
+        },
+        {
+          "sequence": 8,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:3",
+          "recordedAt": "2026-01-08T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:3",
+          "roundId": "personal-round.1c11788761397707fdb825a5907789aa1205994f87cdc2a93ab39d60d26c517a",
+          "localDate": "2026-01-08",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-01-07"
+        },
+        {
+          "sequence": 9,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:4",
+          "recordedAt": "2026-01-11T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:4",
+          "roundId": "personal-round.d25ecda0dc6a6b55e6bafdcfb333572546e5fd3ea3b244f62e8ca90046ab7513",
+          "localDate": "2026-01-11",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-01-10"
+        },
+        {
+          "sequence": 10,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:5",
+          "recordedAt": "2026-01-14T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:5",
+          "roundId": "personal-round.cc6c3c00997ad7dff51cd7f190303b3d63401e04aaef12abc7d732000a122438",
+          "localDate": "2026-01-14",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-01-14"
+        },
+        {
+          "sequence": 13,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:6",
+          "recordedAt": "2026-01-18T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:6",
+          "roundId": "personal-round.d031298ab0334d40095189d21eb736caefc051c95a70ff1754d68758dbfcdc38",
+          "localDate": "2026-01-18",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-01-17"
+        },
+        {
+          "sequence": 14,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:7",
+          "recordedAt": "2026-01-22T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:7",
+          "roundId": "personal-round.72e054808685d9ad8cab2e18765f527a8cd2cdbe09a0985c6494368785ad35b8",
+          "localDate": "2026-01-22",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-01-21"
+        },
+        {
+          "sequence": 16,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:8",
+          "recordedAt": "2026-01-26T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:8",
+          "roundId": "personal-round.88f3ec9940c45596850fd6a0aa003bc1fd3d15d00b9eb0ac3ab2045c86c4fa23",
+          "localDate": "2026-01-26",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-01-25"
+        },
+        {
+          "sequence": 19,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:9",
+          "recordedAt": "2026-01-31T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:9",
+          "roundId": "personal-round.263186b18e2bb8434ee2e9b7935785635504713a701221ea4cb1f78e88df69be",
+          "localDate": "2026-01-31",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-01-29"
+        },
+        {
+          "sequence": 20,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:10",
+          "recordedAt": "2026-02-05T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:10",
+          "roundId": "personal-round.4c3be733656835f155edb14339ef7fb8810101ba8b9385d2090f61b568ae1406",
+          "localDate": "2026-02-05",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-02-04"
+        },
+        {
+          "sequence": 22,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:11",
+          "recordedAt": "2026-02-10T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:11",
+          "roundId": "personal-round.8462bfdf3909cffcb5da0e0fe5ac3e4f52bedc97b3102cb4cc75014fc8307768",
+          "localDate": "2026-02-10",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-02-09"
+        },
+        {
+          "sequence": 28,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:12",
+          "recordedAt": "2026-02-16T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:12",
+          "roundId": "personal-round.d62932dec153fdecc56bc195e1452f34bed51ca4c932ef5260979c4bbd1040d3",
+          "localDate": "2026-02-16",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-02-14"
+        },
+        {
+          "sequence": 30,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:13",
+          "recordedAt": "2026-02-22T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:13",
+          "roundId": "personal-round.3d414a2e2e34f1269e0d5504b9bce230800ad618063ac3f3b6615aeb6ef25788",
+          "localDate": "2026-02-22",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-02-21"
+        },
+        {
+          "sequence": 33,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:14",
+          "recordedAt": "2026-02-28T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:14",
+          "roundId": "personal-round.78b785f85b0fad6168acd16a2d356d4dfe57327ea74df9b26e442dc66427b7ea",
+          "localDate": "2026-02-28",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-02-27"
+        },
+        {
+          "sequence": 35,
+          "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:15",
+          "recordedAt": "2026-03-07T18:00:00+09:00",
+          "type": "complete",
+          "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:15",
+          "roundId": "personal-round.93b494eff04c006b3d8025d323291cd73b6861726b4577b3612565a5e2a4e04e",
+          "localDate": "2026-03-07",
+          "timeZone": "Asia/Tokyo",
+          "origin": "personal",
+          "mode": "balanced",
+          "initialDays": 2,
+          "displayedWindow": null,
+          "ruleDate": "2026-03-05"
+        }
+      ],
+      "forecasts": [
+        {
+          "source_sequence": 3,
+          "id": "57c6de5fa04c95889460c763ac317daaef01928cfe745c43fac4a650d1bcb634",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:0",
+          "sourceSequence": 3,
+          "sourceRevision": "79356724ad2226012d3b9e4bdfa8e7a106a7b19b90ad60345c22ad990c72b1fb",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.a70bce3c7d7b204575512d5423790bdf7f6aebfbea1908b443b0ae5973aaf492",
+          "createdAt": "2026-01-01T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:0",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-01-03"
+          }
+        },
+        {
+          "source_sequence": 5,
+          "id": "663e33019c18d861d77e40d674faf8bab8f57956350a7c5de3afd64f45c5531e",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:1",
+          "sourceSequence": 5,
+          "sourceRevision": "b7369576da7c00a737b74fd84015ac04be22bfd0ea3b51e0e2231e22238b9745",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.1f1a46d454b02b3fa64f298c85ba4438b8dd033c6e67aed5d9a8bdddbfe34f7a",
+          "createdAt": "2026-01-03T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:1",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-01-05"
+          }
+        },
+        {
+          "source_sequence": 6,
+          "id": "ca8fed196b8bca839ad8dafc93cf6f818fc257df41c701771819cd44e5a0e77b",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:2",
+          "sourceSequence": 6,
+          "sourceRevision": "fa5e2db2d4656336810986a64c6c39adce19033ebdd89fd5c0247a25dbf7d016",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.1c11788761397707fdb825a5907789aa1205994f87cdc2a93ab39d60d26c517a",
+          "createdAt": "2026-01-05T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:2",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-01-07"
+          }
+        },
+        {
+          "source_sequence": 8,
+          "id": "3075033dfe03d17931280b7d4374e3a614944159665d7e548182a1a31398f94c",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:3",
+          "sourceSequence": 8,
+          "sourceRevision": "ccdc9c7993e254e69f5560fe849ff1340571cc9b4a1a1f6904c35b73becb6ae0",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.d25ecda0dc6a6b55e6bafdcfb333572546e5fd3ea3b244f62e8ca90046ab7513",
+          "createdAt": "2026-01-08T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:3",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-01-10",
+            "exponential": "2026-01-10",
+            "weekly": "2026-01-15"
+          }
+        },
+        {
+          "source_sequence": 9,
+          "id": "0f170c9d5d93b1592d37de6e2d8481b0a0f09d30e7eecc9df7c1108a54e39af6",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:4",
+          "sourceSequence": 9,
+          "sourceRevision": "083b535130197c59da12850da09cdde63decdc4f71f39d6def5af526c13d6280",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.cc6c3c00997ad7dff51cd7f190303b3d63401e04aaef12abc7d732000a122438",
+          "createdAt": "2026-01-11T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:4",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-01-14",
+            "exponential": "2026-01-13",
+            "weekly": "2026-01-15"
+          }
+        },
+        {
+          "source_sequence": 10,
+          "id": "10644a51eca7e69776d88bacb0fbbafc8a514dfb80caeffee6be416714eb90f6",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:5",
+          "sourceSequence": 10,
+          "sourceRevision": "f65a2accb7accce75e7ff9d9f9a7508edc257bdcebed031479d8dc67ac5d83db",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.d031298ab0334d40095189d21eb736caefc051c95a70ff1754d68758dbfcdc38",
+          "createdAt": "2026-01-14T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:5",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-01-17",
+            "exponential": "2026-01-16",
+            "weekly": "2026-01-22"
+          }
+        },
+        {
+          "source_sequence": 13,
+          "id": "7e92d1e009d11dd3755fa2463b3c05e836ed190204fb62d65a46f5849eba8ab2",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:6",
+          "sourceSequence": 13,
+          "sourceRevision": "f9bd4525ab52c74d264def893f239022d1e0d4793df8d75624f3291d0ebfc426",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.72e054808685d9ad8cab2e18765f527a8cd2cdbe09a0985c6494368785ad35b8",
+          "createdAt": "2026-01-18T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:6",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-01-21",
+            "exponential": "2026-01-20",
+            "weekly": "2026-01-25"
+          }
+        },
+        {
+          "source_sequence": 14,
+          "id": "19bc677677e4fa6264eafd6f79d230bfe26781377c49d822800d637efc6b298a",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:7",
+          "sourceSequence": 14,
+          "sourceRevision": "7466737aebb135a50b0f57aad3d5a783664034c4c75072bc8802a161bb284ff6",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.88f3ec9940c45596850fd6a0aa003bc1fd3d15d00b9eb0ac3ab2045c86c4fa23",
+          "createdAt": "2026-01-22T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:7",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-01-25",
+            "exponential": "2026-01-25",
+            "weekly": "2026-01-29"
+          }
+        },
+        {
+          "source_sequence": 16,
+          "id": "57befe112f2b75a532a9f2f19c40c522dfbe1f2c018566315cf7921424d07a7f",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:8",
+          "sourceSequence": 16,
+          "sourceRevision": "071dc125856730ea7ebf07aa44b55f15bddd2c100c52299314c42363ff9a4142",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.263186b18e2bb8434ee2e9b7935785635504713a701221ea4cb1f78e88df69be",
+          "createdAt": "2026-01-26T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:8",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-01-29",
+            "exponential": "2026-01-29",
+            "weekly": "2026-02-05",
+            "alternating": "2026-01-29"
+          }
+        },
+        {
+          "source_sequence": 19,
+          "id": "d8fb742d1bcfa6962dda274c04b8d779eef9b271775359daaa7b42eff2486f35",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:9",
+          "sourceSequence": 19,
+          "sourceRevision": "c37d4c7cb2fb21ce0d25a0291df5896110f20e8bdf7cd2c8f9d04a82fc8170d7",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.4c3be733656835f155edb14339ef7fb8810101ba8b9385d2090f61b568ae1406",
+          "createdAt": "2026-01-31T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:9",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-02-04",
+            "exponential": "2026-02-03",
+            "weekly": "2026-02-07"
+          }
+        },
+        {
+          "source_sequence": 20,
+          "id": "5a107bc29c6f0acb544dd7e9a234bb95cf7c51630341ad9fa96c1bddd8a7e16f",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:10",
+          "sourceSequence": 20,
+          "sourceRevision": "57ae233abd6944699786966061eb8d4d09dd9d3ae80667ffbd3c6b4ec8b1df6f",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.8462bfdf3909cffcb5da0e0fe5ac3e4f52bedc97b3102cb4cc75014fc8307768",
+          "createdAt": "2026-02-05T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:10",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-02-09",
+            "exponential": "2026-02-08",
+            "weekly": "2026-02-12"
+          }
+        },
+        {
+          "source_sequence": 22,
+          "id": "a0a4389b1579d77116928c169999b77f45f45370c73a36fcf405722feab7bd35",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:11",
+          "sourceSequence": 22,
+          "sourceRevision": "041964ff32a893a24f34be4b6429545c9bf6ecf9a0298abed336e0b2c0f9d0fa",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.d62932dec153fdecc56bc195e1452f34bed51ca4c932ef5260979c4bbd1040d3",
+          "createdAt": "2026-02-10T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:11",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-02-14",
+            "exponential": "2026-02-14",
+            "weekly": "2026-02-19",
+            "alternating": "2026-02-14"
+          }
+        },
+        {
+          "source_sequence": 28,
+          "id": "44a9c25610c5779f6a416c1b52d55c63318933706be318fc9f1493a46fce7f07",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:12",
+          "sourceSequence": 28,
+          "sourceRevision": "e8b032ab5390a6c741fd6b093c5ca64fefe92eafdea943fd15c1d6efbf51d314",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.3d414a2e2e34f1269e0d5504b9bce230800ad618063ac3f3b6615aeb6ef25788",
+          "createdAt": "2026-02-16T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:12",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-02-21",
+            "exponential": "2026-02-20",
+            "weekly": "2026-02-23"
+          }
+        },
+        {
+          "source_sequence": 30,
+          "id": "2c4dc6253f30f0002fe86132101ec85f2eea43bbc5a8ae21caa4c6fce0590828",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:13",
+          "sourceSequence": 30,
+          "sourceRevision": "01165cfb42cdc50659c4f9ba4f7996633a1bec82f16ea53a7a3b61f8e880db5f",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.78b785f85b0fad6168acd16a2d356d4dfe57327ea74df9b26e442dc66427b7ea",
+          "createdAt": "2026-02-22T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:13",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-02-27",
+            "exponential": "2026-02-26",
+            "weekly": "2026-03-02"
+          }
+        },
+        {
+          "source_sequence": 33,
+          "id": "31f8935a8d61eee157138c4a0c62070af71e5f3e4a4c262959198de91b53bcb6",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:14",
+          "sourceSequence": 33,
+          "sourceRevision": "f17af8d8ce1ac3c8814331480884ff49480e0a8e7d88f8e9de8b096a8ded5637",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.93b494eff04c006b3d8025d323291cd73b6861726b4577b3612565a5e2a4e04e",
+          "createdAt": "2026-02-28T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:14",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-03-05",
+            "exponential": "2026-03-05",
+            "weekly": "2026-03-07",
+            "alternating": "2026-03-05"
+          }
+        },
+        {
+          "source_sequence": 35,
+          "id": "9416f9939b35c5cb14c0ebe8b77322166e2b7f374519199def99b02899ad982d",
+          "sourceOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:15",
+          "sourceSequence": 35,
+          "sourceRevision": "883c8a6cdc6827f09f3731b4b00adb54ef60cd984431124b3aac85202b76b6cb",
+          "epoch": "initial:realistic-chronology-v1:laundry",
+          "forRoundId": "personal-round.67614314cc5082e0d13682999b0ad0645a768c3388f8e3b296abbf076ba1be1a",
+          "createdAt": "2026-03-07T18:00:00+09:00",
+          "sourceUnitOperationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:15",
+          "adoptedMethod": "median",
+          "dates": {
+            "median": "2026-03-13",
+            "exponential": "2026-03-12",
+            "weekly": "2026-03-14"
+          }
+        }
+      ]
+    },
+    "previousPlan": {
+      "id": "personal-round.67614314cc5082e0d13682999b0ad0645a768c3388f8e3b296abbf076ba1be1a",
+      "originalBaseDate": "2026-03-13",
+      "placedBaseDate": "2026-03-13",
+      "recommendedDate": "2026-03-13",
+      "basicWindow": null,
+      "displayedWindow": null,
+      "slot": {
+        "start": 1773385200000,
+        "end": 1773386400000
+      },
+      "fallback": false
+    },
+    "operation": {
+      "operationId": "night_shift-v05-h90-r0:operation:laundry:night_shift-v05-h90-r0:laundry:observed:16",
+      "recordedAt": "2026-03-14T18:00:00+09:00",
+      "type": "complete",
+      "completionId": "night_shift-v05-h90-r0:completion:laundry:night_shift-v05-h90-r0:laundry:completion:16",
+      "roundId": "personal-round.67614314cc5082e0d13682999b0ad0645a768c3388f8e3b296abbf076ba1be1a",
+      "planRevision": "59657edd78adb3912771f56b624aafbcee29fa84a2e089f378fe355890932566",
+      "date": "2026-03-14",
+      "timeZone": "Asia/Tokyo",
+      "origin": "personal"
+    },
+    "expectedModel": {
+      "method": "weekly",
+      "weeks": 1,
+      "weekday": 6,
+      "anchor": "2026-03-14"
+    }
+  }
+]

@@ -31,21 +31,30 @@ export function v2CalendarProjection(model: V2GroupScreenModel, personal?: V2Per
   const entries = model.plan.occurrences.flatMap((round) => round.subjects.filter((subject) => (subject.subjectUserId === null || subject.subjectUserId === model.viewerUserId) && (subject.required || subject.completed || subject.pendingCompletionIds.length > 0)).map((subject) => {
     const visible = visibility(round, subject);
     const candidate = recommendations.get(subject.id); const recommendation = candidate && visible.owns ? candidate : undefined;
-    const completion = visible.relatedWork.find(record => record.active && record.outcome === 'completed' && record.acceptance === 'accepted');
-    return { id: subject.id, round, subject, recommendation, date: recommendation?.date ?? subject.suggestedDate,
-      completedDate: completion ? sharedLocalDate(new Date(completion.performedAt), model.plan.timeZone) : subject.retainedCompletion?.completedDate,
+    const override = completionValues?.get(`shared:${subject.id}`);
+    const completed = visible.showStatus && (override ?? subject.completed);
+    const pendingUndo = visible.showStatus && subject.completed && override === false && recommendation?.state === 'completed';
+    const completion = completed || pendingUndo ? visible.relatedWork.find(record => record.active && record.outcome === 'completed' && record.acceptance === 'accepted') : undefined;
+    const observedCompletionDate = completion ? sharedLocalDate(new Date(completion.performedAt), model.plan.timeZone) : subject.retainedCompletion?.completedDate;
+    return { id: subject.id, round, subject, recommendation, completed, date: recommendation?.date ?? subject.suggestedDate,
+      completedDate: completed ? observedCompletionDate : undefined,
+      // Completed subjects temporarily carry their common suggestion instead of
+      // a personal recommendation. Keep the clicked day until the undo and its
+      // recommendation are read together, without treating the row as completed.
+      pendingUndoDate: pendingUndo ? observedCompletionDate : undefined,
       windowStart: completion?.schedule?.windowStart ?? subject.executionWindowStart, windowEnd: completion?.schedule?.windowEnd ?? subject.executionWindowEnd,
-      counted: visible.showStatus && subject.required && !(completionValues?.get(`shared:${subject.id}`) ?? subject.completed) };
+      counted: visible.showStatus && subject.required && !completed };
   }));
   const byDate = new Map<LocalDate, typeof entries>(); const counts = new Map<LocalDate, number>();
   for (const entry of entries) {
     const dates: LocalDate[] = [];
-    if (recommendedOnly) dates.push(entry.completedDate ?? entry.date);
+    if (recommendedOnly) dates.push(entry.pendingUndoDate ?? entry.completedDate ?? entry.date);
     else {
       const from = entry.windowStart > fromDate ? entry.windowStart : fromDate;
       const through = entry.windowEnd < throughDate ? entry.windowEnd : throughDate;
       for (let date = from; date <= through; date = addDays(date, 1)) dates.push(date);
       if (entry.completedDate && !dates.includes(entry.completedDate)) dates.push(entry.completedDate);
+      if (entry.pendingUndoDate && !dates.includes(entry.pendingUndoDate)) dates.push(entry.pendingUndoDate);
     }
     for (const date of dates) if (date >= fromDate && date <= throughDate) {
       const list = byDate.get(date) ?? []; list.push(entry); byDate.set(date, list);
@@ -57,8 +66,9 @@ export function v2CalendarProjection(model: V2GroupScreenModel, personal?: V2Per
   for (const [date, list] of byDate) {
     const selected = new Map<string, typeof entries[number]>();
     const choice = (entry: typeof entries[number]) => ({ id: entry.id, suggestedDate: entry.date,
-      completed: completionValues?.get(`shared:${entry.id}`) ?? entry.subject.completed,
-      completedOnDate: entry.completedDate === date, inWindow: entry.windowStart <= date && date <= entry.windowEnd });
+      completed: entry.completed,
+      completedOnDate: entry.completedDate === date || entry.pendingUndoDate === date,
+      inWindow: entry.windowStart <= date && date <= entry.windowEnd });
     for (const entry of list) {
       const key = JSON.stringify([entry.round.choreId, entry.subject.subjectUserId]); const previous = selected.get(key);
       if (!previous || compareDateOccurrence(choice(entry), choice(previous), date) < 0) selected.set(key, entry);

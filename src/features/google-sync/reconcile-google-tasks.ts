@@ -6,12 +6,25 @@ import { addDays } from '@/domain/scheduling/local-date';
 import type { LocalDate } from '@/domain/shared/types';
 import { personalGoogleOccurrenceNote, sharedGoogleListTitle, sharedGoogleOccurrenceNote } from './workspace-policy';
 import { isDefinitiveGoogleTaskInsertRejection, googleTaskRequestWasNotSent } from './task-create-intent.ts';
-import type { GoogleTaskCreateIntent, GoogleTaskCreateJournal } from './task-create-intent';
+import type { GoogleTaskCreateIntent, GoogleTaskCreateJournal, GoogleTaskCreateResult } from './task-create-intent';
 import { GoogleTaskFullSyncRequiredError, readGoogleTasksCheckpointed } from './task-read-cache.ts';
 import type { GoogleTaskReadCache } from './task-read-cache';
+import { googleTaskBatchFailure } from './batch-failure.ts';
 
 /** Keep the Google list useful by synchronizing a rolling two-week planner window. */
 export const GOOGLE_TASK_SYNC_WINDOW_DAYS = 14;
+
+function occurrenceNote(notes: string | undefined, shared: boolean): string | undefined {
+  const pattern = shared ? /^LiFlow occurrence: [a-f0-9]{64}$/u : /^LiFlow personal occurrence: [a-f0-9]{64}$/u;
+  const markers = new Set(notes?.split(/\r?\n/u).filter(line => pattern.test(line)) ?? []);
+  return markers.size === 1 ? [...markers][0] : undefined;
+}
+function appendOccurrenceNote(notes: string | undefined, marker: string): string | undefined {
+  if (notes?.split(/\r?\n/u).includes(marker)) return undefined;
+  const value = [notes, marker].filter(Boolean).join('\n\n');
+  // A provider-side user note is never truncated to make room for metadata.
+  return value.length <= 8192 ? value : undefined;
+}
 
 export interface GoogleTaskListResolution {
   state: GoogleSyncState;
@@ -38,6 +51,7 @@ export interface GoogleSyncRepositoryPort {
   deleteGoogleTaskLink(scheduleEntryId: string): Promise<void>;
   importGoogleTaskChanges(changes: readonly GoogleTaskStatusChange[], today: string): Promise<number>;
   acknowledgeGoogleTaskStatus(link: GoogleTaskLink, status: GoogleTaskStatus): Promise<void>;
+  acknowledgeGoogleTaskStatuses?(changes: readonly { link: GoogleTaskLink; status: GoogleTaskStatus }[]): Promise<void>;
 }
 
 export interface GoogleReconciliationResult {
@@ -84,7 +98,11 @@ export async function reconcileLocalGoogleTaskStatuses(options: {
     const results = api.patchTasksBatch
       ? await api.patchTasksBatch(accessToken, state.taskListId, chunk.map(({ link, patch }) => ({ taskId: link.googleTaskId, patch })))
       : await runTaskRequestsSequentially(chunk, ({ link, patch }) => api.patchTask(accessToken, state.taskListId!, link.googleTaskId, patch));
-    let failure: GoogleTasksApiError | undefined;
+    let failure = googleTaskBatchFailure(results);
+    const confirmed = results.flatMap((result, index) => result.ok && chunk[index]
+      && result.task.id === chunk[index].link.googleTaskId && !result.task.deleted && result.task.status === chunk[index].patch.status ? [result.task] : []);
+    if (confirmed.length) await repository.taskReadCache?.written?.({ accountSubject: state.accountSubject ?? state.householdId, taskListId: state.taskListId }, confirmed);
+    const acknowledgements: { link: GoogleTaskLink; status: GoogleTaskStatus }[] = [];
     for (const [index, candidate] of chunk.entries()) {
       const result = results[index];
       if (!result || !result.ok) {
@@ -95,7 +113,12 @@ export async function reconcileLocalGoogleTaskStatuses(options: {
       if (result.task.id !== candidate.link.googleTaskId || result.task.deleted || result.task.status !== candidate.patch.status) {
         failure ??= new GoogleTasksApiError(502, 'mismatched_batch_task_status', null); continue;
       }
-      await repository.acknowledgeGoogleTaskStatus(candidate.link, candidate.patch.status!); updated++;
+      acknowledgements.push({ link: candidate.link, status: candidate.patch.status! });
+    }
+    if (acknowledgements.length) {
+      if (repository.acknowledgeGoogleTaskStatuses) await repository.acknowledgeGoogleTaskStatuses(acknowledgements);
+      else for (const acknowledgement of acknowledgements) await repository.acknowledgeGoogleTaskStatus(acknowledgement.link, acknowledgement.status);
+      updated += acknowledgements.length;
     }
     if (failure?.status === 404) throw new GoogleTaskFullSyncRequiredError();
     if (failure) throw failure;
@@ -137,6 +160,27 @@ export async function reconcileGoogleTasks(options: {
     const journal = repository.taskCreateJournal; if (!journal || !intents.length) return;
     if (journal.rejectBatch) await journal.rejectBatch(intents); else for (const intent of intents) await journal.reject(intent);
   };
+  const recoverResults = async () => {
+    const journal = repository.taskCreateJournal;
+    if (!journal?.pending) return;
+    for (;;) {
+      const pending = await journal.pending({ accountSubject: state.accountSubject ?? state.householdId, taskListId: taskList.id });
+      if (!pending.length) return;
+      let failure: unknown;
+      const rejected = pending.filter(result => result.kind === 'rejected');
+      if (rejected.length) try {
+        await rejectReservations(rejected.map(result => result.intent)); await journal.settled?.(rejected);
+      } catch (error) { failure = error; }
+      const acknowledged: GoogleTaskCreateResult[] = [];
+      for (const result of pending) if (result.kind === 'created') try {
+        await journal.linked(result.intent, result.taskId, result.intent); acknowledged.push(result);
+      } catch (error) { failure ??= error; }
+      if (acknowledged.length) try { await journal.settled?.(acknowledged); } catch (error) { failure ??= error; }
+      if (failure) throw failure;
+      if (!journal.settled) return;
+    }
+  };
+  await recoverResults();
 
   let remoteTasksRead = 0; let hiddenCompletionsRead = 0;
   const observePage = (tasks: readonly GoogleTask[]) => {
@@ -160,7 +204,7 @@ export async function reconcileGoogleTasks(options: {
   const tasksByOccurrence = new Map<string, GoogleTask[]>();
   for (const task of remoteTasks) {
     if (task.deleted || (task.status !== 'completed' && task.status !== 'needsAction')) continue;
-    const key = namespace ? task.notes : task.notes?.split('\n').find(line => /^LiFlow personal occurrence: [a-f0-9]{64}$/u.test(line));
+    const key = occurrenceNote(task.notes, Boolean(namespace));
     if (!key) continue;
     tasksByOccurrence.set(key, [...(tasksByOccurrence.get(key) ?? []), task]);
   }
@@ -168,8 +212,14 @@ export async function reconcileGoogleTasks(options: {
     if (item.synchronizationBlocked || !isInSyncWindow(item) || linkedScheduleEntryIds.has(item.entry.id)) continue;
     const candidates = (tasksByOccurrence.get(marker(item.entry.id)) ?? []).filter(task => !usedTaskIds.has(task.id));
     if (candidates.length > 1) throw new GoogleTasksApiError(409, 'ambiguous_task_occurrence', null);
-    const existingTask = candidates[0];
+    let existingTask = candidates[0];
     if (!existingTask) continue;
+    if (namespace && repository.taskCreateJournal) {
+      try { existingTask = await api.getTask(accessToken, taskList.id, existingTask.id); }
+      catch (error) { if (error instanceof GoogleTaskNotFoundError) continue; throw error; }
+      if (existingTask.deleted || occurrenceNote(existingTask.notes, true) !== marker(item.entry.id)) continue;
+      tasksById.set(existingTask.id, existingTask);
+    }
     const adoptedLink = {
       scheduleEntryId: item.entry.id,
       householdId: state.householdId,
@@ -182,8 +232,8 @@ export async function reconcileGoogleTasks(options: {
       updatedAt: now.toISOString(),
       ...(item.localRevision ? { observedLocalRevision: item.localRevision } : {}),
     };
-    await repository.upsertGoogleTaskLink(adoptedLink);
     await repository.taskCreateJournal?.linked(createIdentity(item.entry.id), existingTask.id);
+    await repository.upsertGoogleTaskLink(adoptedLink);
     links = [...links, adoptedLink];
     usedTaskIds.add(existingTask.id);
     linkedScheduleEntryIds.add(item.entry.id);
@@ -224,7 +274,7 @@ export async function reconcileGoogleTasks(options: {
     });
   }
   // Pull actual remote state changes in one transaction before writing to Google.
-  const imported = changes.length ? await repository.importGoogleTaskChanges(changes, today) : 0;
+  let imported = changes.length ? await repository.importGoogleTaskChanges(changes, today) : 0;
   const after = imported ? repository.readLocalStatusSnapshot ? await repository.readLocalStatusSnapshot(today, state.householdId)
     : { entries: await repository.listEntriesForGoogleSync(today, state.householdId), links: await repository.listGoogleTaskLinks(state.householdId) }
     : { entries: local.entries, links };
@@ -256,7 +306,9 @@ export async function reconcileGoogleTasks(options: {
       const results = api.patchTasksBatch
         ? await api.patchTasksBatch(accessToken, taskList.id, chunk.map(({ task, patch }) => ({ taskId: task.id, patch })))
         : await runTaskRequestsSequentially(chunk, ({ task, patch }) => api.patchTask(accessToken, taskList.id, task.id, patch));
-      let firstFailure: GoogleTasksApiError | undefined;
+      let firstFailure = googleTaskBatchFailure(results);
+      const confirmed = results.flatMap((result, index) => result.ok && chunk[index] && result.task.id === chunk[index].task.id ? [result.task] : []);
+      if (confirmed.length) await repository.taskReadCache?.written?.({ accountSubject: state.accountSubject ?? state.householdId, taskListId: taskList.id }, confirmed);
       for (const [index, candidate] of chunk.entries()) {
         const result = results[index];
         if (!result || !result.ok) {
@@ -323,7 +375,8 @@ export async function reconcileGoogleTasks(options: {
     // A completion may have committed just after the entry read. Its queued follow-up has the exact timestamp.
     if (desiredStatus === 'completed' && !item.completedAt) continue;
     const patch: GoogleTaskPatch = {};
-    if (namespace && task.notes !== marker(entry.id)) patch.notes = marker(entry.id);
+    const appendedNote = appendOccurrenceNote(task.notes, marker(entry.id));
+    if (namespace && appendedNote !== undefined) patch.notes = appendedNote;
     if (task.title !== item.choreName) patch.title = item.choreName;
     if (googleDueLocalDate(task.due) !== entry.suggestedDate) patch.due = googleDueDate(entry.suggestedDate);
     if (desiredStatus === 'completed' && task.status !== 'completed') {
@@ -335,7 +388,7 @@ export async function reconcileGoogleTasks(options: {
     }
     // Upgrade mapped legacy tasks alongside a real change instead of spending
     // hundreds of requests only to decorate old notes.
-    if (!namespace && Object.keys(patch).length && !task.notes?.split('\n').includes(marker(entry.id))) patch.notes = [task.notes, marker(entry.id)].filter(Boolean).join('\n\n');
+    if (!namespace && Object.keys(patch).length && appendedNote !== undefined) patch.notes = appendedNote;
     if (Object.keys(patch).length > 0) {
       pendingPatches.push({ item, task, link, patch });
     } else await persistSyncedEntry(item, link, task.status);
@@ -383,41 +436,58 @@ export async function reconcileGoogleTasks(options: {
       }
       throw error;
     }
-    let firstFailure: GoogleTasksApiError | undefined;
-    for (let index = 0; index < chunk.length; index += 1) {
-      const item = chunk[index];
-      const result = results[index];
-      if (!item || !result || !result.ok) {
+    const responseFailure = googleTaskBatchFailure(results);
+    const received: GoogleTaskCreateResult[] = reserved.flatMap((row, index): GoogleTaskCreateResult[] => {
+      const result = results[index]; if (!row.intent || !result) return [];
+      if (result.ok && typeof result.task.id === 'string' && result.task.id) return [{ intent: row.intent, kind: 'created' as const, taskId: result.task.id }];
+      if (!result.ok && (result.requestNotSent || isDefinitiveGoogleTaskInsertRejection(result.status))) return [{ intent: row.intent, kind: 'rejected' as const }];
+      return [];
+    });
+    if (received.length) await repository.taskCreateJournal?.received?.(received);
+    const rejected = received.filter(result => result.kind === 'rejected');
+    // Rejections are independent of link saves and are released together.
+    await rejectReservations(rejected.map(result => result.intent));
+    await repository.taskCreateJournal?.settled?.(rejected);
+    let firstFailure = responseFailure;
+    const acknowledged: GoogleTaskCreateResult[] = [];
+    try {
+      for (let index = 0; index < chunk.length; index += 1) {
+        const item = chunk[index];
+        const result = results[index];
+        if (!item || !result || !result.ok) {
+          firstFailure ??= result && !result.ok
+            ? new GoogleTasksApiError(result.status, result.code, result.retryAfter ?? null)
+            : new GoogleTasksApiError(502, 'missing_batch_response', null);
+          continue;
+        }
+        const task = result.task;
+        if (!task.id) {
+          firstFailure ??= new GoogleTasksApiError(502, 'missing_batch_task_id', null);
+          continue;
+        }
+        const link: GoogleTaskLink = {
+          scheduleEntryId: item.entry.id,
+          householdId: state.householdId,
+          choreId: item.entry.choreId,
+          googleTaskListId: taskList.id,
+          googleTaskId: task.id,
+          lastSyncedTitle: item.choreName,
+          lastSyncedDueDate: item.entry.suggestedDate,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          ...(item.localRevision ? { observedLocalRevision: item.localRevision } : {}),
+        };
+        // Persist each successful response immediately so a later failed chunk resumes safely.
         const intent = reserved[index]?.intent;
-        if (intent && result && !result.ok && (result.requestNotSent || isDefinitiveGoogleTaskInsertRejection(result.status))) await repository.taskCreateJournal?.reject(intent);
-        firstFailure ??= result && !result.ok
-          ? new GoogleTasksApiError(result.status, result.code, result.retryAfter ?? null)
-          : new GoogleTasksApiError(502, 'missing_batch_response', null);
-        continue;
+        await repository.taskCreateJournal?.linked(createIdentity(item.entry.id), task.id, intent ?? undefined);
+        await repository.upsertGoogleTaskLink(link);
+        acknowledged.push(...received.filter(result => result.intent.attemptId === intent?.attemptId));
+        linksById.set(item.entry.id, link);
+        newlyCreated.push({ item, task, link });
+        created += 1;
       }
-      const task = result.task;
-      if (!task.id) {
-        firstFailure ??= new GoogleTasksApiError(502, 'missing_batch_task_id', null);
-        continue;
-      }
-      const link: GoogleTaskLink = {
-        scheduleEntryId: item.entry.id,
-        householdId: state.householdId,
-        choreId: item.entry.choreId,
-        googleTaskListId: taskList.id,
-        googleTaskId: task.id,
-        lastSyncedTitle: item.choreName,
-        lastSyncedDueDate: item.entry.suggestedDate,
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-        ...(item.localRevision ? { observedLocalRevision: item.localRevision } : {}),
-      };
-      // Persist each successful response immediately so a later failed chunk resumes safely.
-      await repository.upsertGoogleTaskLink(link);
-      await repository.taskCreateJournal?.linked(createIdentity(item.entry.id), task.id);
-      linksById.set(item.entry.id, link);
-      newlyCreated.push({ item, task, link });
-      created += 1;
+    } finally {
+      if (acknowledged.length) await repository.taskCreateJournal?.settled?.(acknowledged);
     }
     if (firstFailure) throw firstFailure;
   }
@@ -438,7 +508,17 @@ export async function reconcileGoogleTasks(options: {
     if (!linksById.has(link.scheduleEntryId)) continue;
     if (entriesById.has(link.scheduleEntryId) && link.googleTaskListId === taskList.id) continue;
     const task = link.googleTaskListId === taskList.id ? tasksById.get(link.googleTaskId) ?? null : undefined;
-    if (!await removeObsoleteLink(accessToken, link, api, task)) continue;
+    const cleanup = await removeObsoleteLink(accessToken, link, api, task);
+    if (cleanup.kind === 'deferred') continue;
+    if (cleanup.kind === 'completed' && link.lastSyncedStatus !== 'completed') {
+      const completedAt = parseGoogleCompletedAt(cleanup.task.completed);
+      if (!completedAt || link.pendingStatus) continue;
+      const saved = await repository.importGoogleTaskChanges([{ scheduleEntryId: link.scheduleEntryId, googleTaskId: link.googleTaskId,
+        googleTaskListId: link.googleTaskListId, status: 'completed', completedAt }], today);
+      if (!saved) continue;
+      imported += saved;
+    }
+    if (cleanup.kind === 'deleted') await repository.taskCreateJournal?.deleted({ ...createIdentity(link.scheduleEntryId), taskListId: link.googleTaskListId }, link.googleTaskId);
     const currentLink = linksById.get(link.scheduleEntryId);
     if (currentLink?.googleTaskListId === link.googleTaskListId && currentLink.googleTaskId === link.googleTaskId) {
       await repository.deleteGoogleTaskLink(link.scheduleEntryId);
@@ -474,27 +554,28 @@ async function runTaskRequestsSequentially<T>(
   return results;
 }
 
-async function removeObsoleteLink(accessToken: string, link: GoogleTaskLink, api: GoogleTasksApi, knownTask?: GoogleTask | null): Promise<boolean> {
-  if (knownTask?.deleted || knownTask?.status === 'completed') return true;
+async function removeObsoleteLink(accessToken: string, link: GoogleTaskLink, api: GoogleTasksApi, knownTask?: GoogleTask | null): Promise<{ kind: 'deleted' | 'deferred' } | { kind: 'completed'; task: GoogleTask }> {
+  if (knownTask?.deleted) return { kind: 'deleted' };
+  if (knownTask?.status === 'completed') return { kind: 'completed', task: knownTask };
   // A full list is a read snapshot, not permission to delete a task that may
   // have completed while earlier batches were being reconciled.
   let task: GoogleTask;
   try {
     task = await api.getTask(accessToken, link.googleTaskListId, link.googleTaskId);
   } catch (error) {
-    if (error instanceof GoogleTaskNotFoundError) return true;
+    if (error instanceof GoogleTaskNotFoundError) return { kind: 'deleted' };
     throw error;
   }
   if (task && !task.deleted && task.status !== 'completed') {
     try {
-      if (!isGoogleTaskETag(task.etag)) return false;
+      if (!isGoogleTaskETag(task.etag)) return { kind: 'deferred' };
       await api.deleteTask(accessToken, link.googleTaskListId, link.googleTaskId, task.etag);
     } catch (error) {
-      if (error instanceof GoogleTasksApiError && error.status === 412) return false;
+      if (error instanceof GoogleTasksApiError && error.status === 412) return { kind: 'deferred' };
       if (!(error instanceof GoogleTaskNotFoundError)) throw error;
     }
   }
-  return true;
+  return task.status === 'completed' && !task.deleted ? { kind: 'completed', task } : { kind: 'deleted' };
 }
 
 function googleDueDate(localDate: string): string {

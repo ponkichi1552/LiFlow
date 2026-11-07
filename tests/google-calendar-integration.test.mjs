@@ -74,7 +74,7 @@ test('v14 upgrade and repeated migration preserve mappings and Google completion
   await h.sync();const history=h.history();const links=await repository.listGoogleTaskLinks(h.database);
   h.connection.exec('DROP TABLE calendar_availability_days; DROP TABLE calendar_availability_state; PRAGMA user_version=14;');
   await migrateLocalDatabase(h.database);await migrateLocalDatabase(h.database);
-  assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version,27);
+  assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version,29);
   assert.deepEqual(h.history(),history);assert.deepEqual(await repository.listGoogleTaskLinks(h.database),links);
   assert.equal(h.history().filter((c)=>c.schedule_entry_id===entry.id).length,1);
   assert.equal(h.connection.prepare('PRAGMA foreign_key_check').all().length,0);

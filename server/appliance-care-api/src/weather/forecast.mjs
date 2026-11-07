@@ -60,13 +60,22 @@ export function metWeatherForWindow(forecast, start, end) {
 }
 export function createMetWeatherEvaluator(forecast) {
   if (!validMetForecast(forecast)) return null;
-  const checked = { ...forecast, intervals: forecast.intervals.map(row => ({ ...row })) };
+  const checked = { ...forecast, intervals: forecast.intervals.map(row => ({ ...row })).sort((a, b) => a.start - b.start) };
   return { boundaries: [...new Set(checked.intervals.flatMap(row => [row.start, row.end]))].sort((a, b) => a - b),
-    evaluate: (start, end) => weatherForCheckedWindow(checked, start, end) };
+    evaluate: (start, end) => weatherForCheckedWindow(checked, start, end, true) };
 }
-function weatherForCheckedWindow(forecast, start, end) {
+function weatherForCheckedWindow(forecast, start, end, indexed = false) {
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start >= end) return unknown();
-  const intervals = forecast.intervals.filter(row => row.start < end && row.end > start);
+  let rows = forecast.intervals;
+  if (indexed) {
+    // The validated provider periods are at most12 hours. A binary search skips
+    // unrelated forecast days before building this window's exact cover.
+    let low = 0; let high = rows.length;
+    while (low < high) { const mid = (low + high) >>> 1; if (rows[mid].start <= start - 12 * HOUR) low = mid + 1; else high = mid; }
+    let through = low; while (through < rows.length && rows[through].start < end) through++;
+    rows = rows.slice(low, through);
+  }
+  const intervals = rows.filter(row => row.start < end && row.end > start);
   const byStart = new Map();
   for (const row of intervals) { const list = byStart.get(row.start) ?? []; list.push(row); byStart.set(row.start, list); }
   const memo = new Map();

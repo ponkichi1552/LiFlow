@@ -6,6 +6,7 @@ export interface TaskPriority {
   completed: boolean;
   load: ChoreLoad;
   recommendedDate: LocalDate;
+  windowStart?: LocalDate;
   windowEnd?: LocalDate;
 }
 export type LoadOrder = 'heavy' | 'light';
@@ -21,7 +22,8 @@ export const compareTaskKeys = (left: string, right: string) => left < right ? -
 
 /** Presentation only. The shared Scheduler's dates and occurrence identities stay unchanged. */
 export function isTaskUrgent(task: TaskPriority, today: LocalDate): boolean {
-  return !task.completed && task.recommendedDate < today && task.windowEnd !== undefined
+  const finalWindowDay = task.windowEnd === today && task.windowStart !== undefined && task.windowStart < today;
+  return !task.completed && (task.recommendedDate < today || finalWindowDay) && task.windowEnd !== undefined
     && task.windowEnd >= today
     && daysBetween(today, task.windowEnd) <= 2;
 }

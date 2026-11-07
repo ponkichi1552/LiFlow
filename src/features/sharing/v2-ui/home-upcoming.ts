@@ -26,10 +26,10 @@ export function v2HomeUpcomingRows(model: V2GroupScreenModel, projection: Projec
     ];
     if (rows.length) groups.push({ date, rows: orderTaskRows(rows, model.plan.range.asOfDate, item => item.source === 'personal'
       ? { completed: values?.get(item.key) ?? item.row.completed, load: item.row.chore.load, estimatedMinutes: item.row.chore.estimatedMinutes,
-        recommendedDate: item.row.suggestedDate, windowEnd: item.row.windowEnd, asOfDate: overlay?.status === 'ready' ? overlay.today : undefined }
+        recommendedDate: item.row.suggestedDate, windowStart: item.row.windowStart, windowEnd: item.row.windowEnd, asOfDate: overlay?.status === 'ready' ? overlay.today : undefined }
       : { completed: visible(item.round, item.subject).showStatus && (values?.get(item.key) ?? item.subject.completed),
         load: chores.get(item.round.choreId)?.load ?? 'light', estimatedMinutes: chores.get(item.round.choreId)?.estimatedMinutes,
-        recommendedDate: item.date, windowEnd: item.subject.executionWindowEnd }, order) });
+        recommendedDate: item.date, windowStart: item.subject.executionWindowStart, windowEnd: item.subject.executionWindowEnd }, order) });
   }
   return groups;
 }

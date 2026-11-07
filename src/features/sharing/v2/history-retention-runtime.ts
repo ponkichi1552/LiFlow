@@ -44,7 +44,7 @@ export function createV2HistoryRetentionRuntime(input: {
   const derive = async (body: V2RetentionBody) => {
     remaining(); const cut = await input.repository.readRetentionCut(body); remaining();
     const previous = cut.replica.retention?.proposal.operation.payload.checkpoint as unknown as V2RetentionBody | undefined;
-    const plan = planV2HistoryRetention({ ...cut, cutoff: body.cutoff, throughSequence: body.throughSequence, previous });
+    const plan = planV2HistoryRetention({ ...cut, cutoff: body.cutoff, throughSequence: body.throughSequence, previous, format: body.format });
     if (canonicalJson(plan.body) !== canonicalJson(body)) throw new Error('履歴整理の内容が各端末で一致しません。');
     return plan;
   };

@@ -1,3 +1,4 @@
+import { pinnedClockAt } from '../scheduling/zoned-clock.ts';
 import { addDays, daysBetween, monthDates, parseLocalDate } from '../scheduling/local-date.ts';
 import type { LocalDate } from '../shared/types.ts';
 import { v2WallTimeCandidates } from '../../features/sharing/v2/local-time.ts';
@@ -59,7 +60,7 @@ export function validateEventDraft(value: EventDraft): EventDraft {
   if (value.untilDate !== null) { parseLocalDate(value.untilDate); if (value.untilDate < value.startDate) throw new Error('繰り返しの終了日は開始日以降にしてください。'); }
   if (value.birthday && (!value.allDay || value.recurrence !== 'yearly' || value.startDate !== value.endDate)) throw new Error('誕生日は1日・終日・毎年の予定です。');
   if (typeof value.timeZone !== 'string' || !value.timeZone || value.timeZone.length > 100) throw new Error('予定のタイムゾーンを確認してください。');
-  new Intl.DateTimeFormat('en', { timeZone: value.timeZone }).format(0);
+  pinnedClockAt(0, value.timeZone);
   if (!value.allDay) {
     const start = v2WallTimeCandidates({ date: value.startDate, hour: Math.floor(value.startMinute / 60), minute: value.startMinute % 60, timeZone: value.timeZone });
     const end = v2WallTimeCandidates({ date: value.endDate, hour: Math.floor(value.endMinute / 60), minute: value.endMinute % 60, timeZone: value.timeZone });
@@ -127,13 +128,12 @@ export function projectCalendarEvents(events: readonly CalendarEvent[], exceptio
 }
 /** Timed events share the display clock; untimed/all-day dates keep their original civil date. */
 export function calendarEventsInTimeZone(events: readonly CalendarOccurrence[], timeZone: string): CalendarOccurrence[] {
-  const formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  pinnedClockAt(0, timeZone);
   return events.map(event => {
     if (event.allDay || event.timeIssue || event.timeZone === timeZone) return event;
     const clock = (date: LocalDate, minute: number) => {
       const at = v2WallTimeCandidates({ date, hour: Math.floor(minute / 60), minute: minute % 60, timeZone: event.timeZone })[0];
-      const parts = Object.fromEntries(formatter.formatToParts(at).map(part => [part.type, part.value]));
-      return { date: `${parts.year}-${parts.month}-${parts.day}` as LocalDate, minute: Number(parts.hour) * 60 + Number(parts.minute) };
+      return pinnedClockAt(at, timeZone);
     };
     const start = clock(event.startDate, event.startMinute); const end = clock(event.endDate, event.endMinute);
     return { ...event, startDate: start.date, startMinute: start.minute, endDate: end.date, endMinute: end.minute, timeZone, original: event };

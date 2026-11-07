@@ -21,6 +21,7 @@ import { startupDisplayCache } from '../../../platform/sharing/startup-display';
 import { personalCompletionIntents, sharedCompletionIntents } from '../../../platform/storage/completion-intents';
 import type { CompletionIntentRuntime } from '../../../platform/storage/completion-intents';
 import { readPersonalScheduleSettings } from '../../../platform/storage/personal-schedule-settings';
+import { AdaptiveOwnerInputsChangedError } from '../../../platform/storage/adaptive-owner-inputs';
 
 interface WorkspaceDisplayBinding {
   workspace: Extract<SharedWorkspace, { protocol: 2 }> | null;
@@ -83,7 +84,10 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
       afterChange: async () => {
         await assertPersonalAccess(); syncGoogleTasksAfterLocalCompletion(personalDatabase);
         try { await refreshPersonal({ force: true }); }
-        catch { throw new Error('個人家事は保存済みです。表示を更新するため再読込してください。'); }
+        catch (cause) {
+          if (cause instanceof AdaptiveOwnerInputsChangedError) throw cause;
+          throw new Error('個人家事は保存済みです。表示を更新するため再読込してください。');
+        }
       } });
     const session = createV2ScreenSession({ groupId: active.groupId, userId: active.userId, now: () => new Date(),
       sharedLoadFirst: true,

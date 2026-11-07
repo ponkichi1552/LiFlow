@@ -1,0 +1,488 @@
+{
+  "requestedAt": "2026-11-06T23:37:20.081577+00:00",
+  "target": 40,
+  "counting": "Forty additional root findings after NEW-AUDIT-30. Distinguish reproduced bugs from measured optimizations; do not recount prior findings or hypothetical issues. Read each bounded implementation before editing it.",
+  "status": "completed",
+  "confirmed": 40,
+  "fixed": 40,
+  "findings": [
+    {
+      "id": "A01",
+      "kind": "bug",
+      "title": "Timed Google RRULE UNTIL fails at a midnight DST gap or fold",
+      "status": "fixed",
+      "evidence": "Havana midnight gap/fold; Google export throws before fix",
+      "tests": "tests/calendar-additional-audit.test.mjs",
+      "titleJa": "Google出力の繰り返し終了日が夏時間の切り替えで計算できない"
+    },
+    {
+      "id": "A02",
+      "kind": "bug",
+      "title": "Shared local all-day availability becomes unknown at a midnight DST gap",
+      "status": "fixed",
+      "evidence": "Havana all-day expected 1380 busy minutes returned unknown",
+      "tests": "tests/calendar-additional-audit.test.mjs",
+      "titleJa": "共有推奨計算で終日予定のある日を取得不能と扱う"
+    },
+    {
+      "id": "A03",
+      "kind": "bug",
+      "title": "Personal planning silently treats unresolved recurring DST appointments as free",
+      "status": "fixed",
+      "evidence": "Weekly New York 02:30 occurrence during spring gap had no busy coverage",
+      "tests": "tests/calendar-additional-audit.test.mjs",
+      "titleJa": "未解決の夏時間の予定を個人家事の空き時間と扱う"
+    },
+    {
+      "id": "A04",
+      "kind": "optimization",
+      "title": "Repeated Google import clock formatter construction",
+      "status": "fixed",
+      "evidence": "100 imports: 200 clock formatter constructors reduced to 1; same date/minutes",
+      "tests": "tests/calendar-additional-audit.test.mjs",
+      "titleJa": "Google予定の取り込みで時計フォーマッターを毎回生成する"
+    },
+    {
+      "id": "A05",
+      "kind": "optimization",
+      "title": "Calendar reads transport complete remote descriptions for three metadata fields",
+      "status": "fixed",
+      "evidence": "One 4000-character note: observed relevant rows 4637 bytes reduced to 609 bytes",
+      "tests": "tests/calendar-additional-audit.test.mjs",
+      "titleJa": "表示に不要なGoogle予定の長い本文までSQLiteから読み出す"
+    },
+    {
+      "id": "A06",
+      "kind": "bug",
+      "title": "Explicit discard from an older calendar editor deletes a newer persisted draft",
+      "status": "fixed",
+      "evidence": "Concurrent same-scope draft overwritten by old discard; now CAS refusal preserves newer draft",
+      "tests": "tests/calendar-additional-audit.test.mjs",
+      "titleJa": "古い編集画面の破棄操作が新しい下書きを消す"
+    },
+    {
+      "id": "A07",
+      "kind": "bug",
+      "title": "Expired one-off holiday prevents future heavy chores from finding a valid slot",
+      "status": "fixed",
+      "evidence": "Historical holiday outside placement range reproduced fallback despite available time",
+      "tests": "tests/adaptive-additional-audit.test.mjs",
+      "titleJa": "過去の単発休日が今後の重い家事の配置を妨げる"
+    },
+    {
+      "id": "A08",
+      "kind": "optimization",
+      "title": "Adaptive capacity and placement rescan every day and every allowed band",
+      "status": "fixed",
+      "evidence": "365-day input: boundary reads 365083 before; nearby interval searches now pass less than 30000 with identical recommendation",
+      "tests": "tests/adaptive-additional-audit.test.mjs",
+      "titleJa": "家事の配分時に全日付・全時間帯を繰り返し走査する"
+    },
+    {
+      "id": "A09",
+      "kind": "bug",
+      "title": "Discard during an in-flight autosave leaves raw form behind committed baseline",
+      "status": "fixed",
+      "evidence": "Saved n=2 with discard during write previously displayed n=1 while reporting no draft",
+      "tests": "tests/settings-additional-audit.test.mjs",
+      "titleJa": "保存中に入力を破棄すると画面と保存済み値がずれる"
+    },
+    {
+      "id": "A10",
+      "kind": "optimization",
+      "title": "Reversed pre-debounce edits still persist unchanged settings",
+      "status": "fixed",
+      "evidence": "Return to original value: one write reduced to zero; in-flight reversal still writes both",
+      "tests": "tests/settings-additional-audit.test.mjs",
+      "titleJa": "入力を元へ戻しても不要な保存・再計算が走る"
+    },
+    {
+      "id": "A11",
+      "kind": "bug",
+      "title": "Calendar database change exposes prior database snapshot while reading new DB",
+      "status": "fixed",
+      "evidence": "Switch with stalled next read reproduced previous private calendar title",
+      "tests": "tests/calendar-observer-recovery.test.mjs",
+      "titleJa": "DBを切り替えると前のDBの予定が一時表示される"
+    },
+    {
+      "id": "A12",
+      "kind": "bug",
+      "title": "Changing group-draft visibility loses retained drafts and rereads unchanged DB",
+      "status": "fixed",
+      "evidence": "Toggle could not reveal existing shared draft before another full read; now instant retained projection",
+      "tests": "tests/calendar-observer-recovery.test.mjs",
+      "titleJa": "共有下書きの表示切り替えで保存済み下書きが消えて見える"
+    },
+    {
+      "id": "A13",
+      "kind": "optimization",
+      "title": "Legacy weather resolution renormalizes every bundled municipality per read",
+      "status": "fixed",
+      "evidence": "20 settings resolutions: 38300 normalizations reduced to 20",
+      "tests": "tests/local-data-additional-audit.test.mjs",
+      "titleJa": "地域設定の照合で全自治体名を繰り返し正規化する"
+    },
+    {
+      "id": "A14",
+      "kind": "optimization",
+      "title": "Weekly calendar headers enumerate all occurrences even with no hidden dates",
+      "status": "fixed",
+      "evidence": "One year weekly labels: 54 label reads reduced to 2; hidden-date behavior retained",
+      "tests": "tests/local-data-additional-audit.test.mjs",
+      "titleJa": "非表示の収集日がなくても1年分の収集回を列挙する"
+    },
+    {
+      "id": "A15",
+      "kind": "bug",
+      "title": "Appliance reanalysis drops adaptive execution-window and drying overrides",
+      "status": "fixed",
+      "evidence": "Explicit userWindowRadiusDays=4 disappeared after reanalysis; now retained with local drying choice",
+      "tests": "tests/local-data-additional-audit.test.mjs",
+      "titleJa": "家電の再解析で本人の実施期間幅・干し方が失われる"
+    },
+    {
+      "id": "A16",
+      "kind": "bug",
+      "title": "Completion-only cards recompute a frozen recording day in the current region",
+      "status": "fixed",
+      "evidence": "New York November 6 completion vanished from that day after Tokyo projection",
+      "tests": "tests/home-additional-audit.test.mjs",
+      "titleJa": "地域変更後に記録済みの完了日が別の日へ移る"
+    },
+    {
+      "id": "A17",
+      "kind": "optimization",
+      "title": "Upcoming cards scan the complete completion history for every entry",
+      "status": "fixed",
+      "evidence": "800 exact records: 321200 outcome reads reduced below 5000; legacy precedence maintained",
+      "tests": "tests/home-additional-audit.test.mjs",
+      "titleJa": "今後の家事一覧で各家事から全完了履歴を検索する"
+    },
+    {
+      "id": "A18",
+      "kind": "bug",
+      "title": "Calendar sub-pickers use stale render state for immediate confirmation and allow duplicate custom navigation",
+      "status": "fixed",
+      "evidence": "Real native callbacks before repaint reproduced old year/month and double custom navigation",
+      "tests": "tests/calendar-controls-additional.test.mjs",
+      "titleJa": "予定の補助Pickerが直前の選択を取りこぼす"
+    },
+    {
+      "id": "A19",
+      "kind": "bug",
+      "title": "A throwing calendar display subscriber prevents healthy subscribers from seeing committed preferences",
+      "status": "fixed",
+      "evidence": "Throwing first observer caused select to throw and second listener was never called",
+      "tests": "tests/calendar-controls-additional.test.mjs",
+      "titleJa": "表示設定の通知先1つの例外で他の画面更新が止まる"
+    },
+    {
+      "id": "A20",
+      "kind": "bug",
+      "title": "Initial viewport expansion range is dropped before Google observer effect initialization",
+      "status": "fixed",
+      "evidence": "Request before passive observer setup disappeared; latest early range now delivered once",
+      "tests": "tests/calendar-controls-additional.test.mjs",
+      "titleJa": "Google監視の準備前に要求した最初の表示範囲が失われる"
+    },
+    {
+      "id": "A21",
+      "kind": "bug",
+      "title": "Shared optimistic Undo retains early completion day instead of reopening recommended date",
+      "status": "fixed",
+      "evidence": "Undo override false kept October 28 round on October 27; now follows effective state",
+      "tests": "tests/shared-projection-additional.test.mjs",
+      "titleJa": "早めに完了した共有家事を取り消しても日付が戻らない"
+    },
+    {
+      "id": "A22",
+      "kind": "bug",
+      "title": "Shared calendar hidden completion status leaks through a changed row date",
+      "status": "fixed",
+      "evidence": "Non-owner status-hidden view moved row to early performed day after completion",
+      "tests": "tests/shared-projection-additional.test.mjs",
+      "titleJa": "他担当者の完了を隠す表示でも日付変化から状態が分かる"
+    },
+    {
+      "id": "A23",
+      "kind": "optimization",
+      "title": "Deferred private Calendar outbox checks transfer full ciphertext before checking backoff",
+      "status": "fixed",
+      "evidence": "20 deferred checks: full ciphertext reads reduced from 20 to 0; force still verifies ciphertext",
+      "tests": "tests/sharing-private-calendar-cache-store.test.mjs",
+      "titleJa": "再送待機中も本人用Calendarの暗号文全体を読み出す"
+    },
+    {
+      "id": "A24",
+      "kind": "optimization",
+      "title": "Unchanged personal PDF reads repeat bounded but expensive full base64 and SHA verification",
+      "status": "fixed",
+      "evidence": "20 unchanged reads: verification calls reduced from 20 to 1; modified content still rejected",
+      "tests": "tests/appliance-additional-audit.test.mjs",
+      "titleJa": "同じ保存済みPDFを開くたびに全内容を再検証する"
+    },
+    {
+      "id": "A25",
+      "kind": "optimization",
+      "title": "Shared appliance copy batch repeatedly normalizes every existing product identity",
+      "status": "fixed",
+      "evidence": "30 incoming and 30 existing products: 2790 normalizations reduced below 300; same 30 appliance IDs",
+      "tests": "tests/appliance-additional-audit.test.mjs",
+      "titleJa": "家電の一括保存で既存製品の同一性を何度も照合する"
+    },
+    {
+      "id": "A26",
+      "kind": "bug",
+      "title": "Late manual chunks do not invalidate a completed native appliance-retention token",
+      "status": "fixed",
+      "evidence": "Appliance and manifest copied without PDF; final chunk arrived but no retry before fix",
+      "tests": "tests/appliance-additional-audit.test.mjs",
+      "titleJa": "PDFの最後の断片が遅れて届くと個人側への保持を再試行しない"
+    },
+    {
+      "id": "A27",
+      "kind": "optimization",
+      "title": "Shared calendar projection repeats event/category canonical digest requests",
+      "status": "fixed",
+      "evidence": "100 events with common category: 300 digest/canonicalization requests reduced to 101, identical IDs",
+      "tests": "tests/shared-projection-additional.test.mjs",
+      "titleJa": "共有予定のID・同じ分類のIDを重複して導出する"
+    },
+    {
+      "id": "A28",
+      "kind": "bug",
+      "title": "Google settings accept responses from a replaced runtime and retain prior database controls",
+      "status": "fixed",
+      "evidence": "Delayed old shared read overwrote new account, and personal old calendar remained while new database read was pending; both reproduced before fix",
+      "tests": "tests/google-settings-additional.test.mjs",
+      "titleJa": "切り替え前のGoogle接続設定が後から現在の表示へ混ざる"
+    },
+    {
+      "id": "A29",
+      "kind": "bug",
+      "title": "Native appliance admission uses the last rendered product name instead of the latest text",
+      "status": "fixed",
+      "evidence": "Immediate native text and submit callbacks produced no onAdd; latest trimmed name now reaches one registration",
+      "tests": "tests/appliance-additional-audit.test.mjs",
+      "titleJa": "製品名入力直後の確定で最新の文字列が渡らない"
+    },
+    {
+      "id": "A30",
+      "kind": "optimization",
+      "title": "Long-cycle calendar preview replays every missed cycle",
+      "status": "fixed",
+      "evidence": "Ten-year 90-day preview: 45 predictions reduced to 1; alternating uses 2, same adopted dates and immutable input",
+      "tests": "tests/calendar-preview-additional.test.mjs",
+      "titleJa": "長周期家事の次回表示まで過去の周期を逐次計算する"
+    },
+    {
+      "id": "A31",
+      "kind": "bug",
+      "title": "An immediate autosave edit in a completion microtask is stranded behind a settled writer",
+      "status": "fixed",
+      "evidence": "Saved observer microtask queued n=2 but only n=1 was persisted before fix",
+      "tests": "tests/settings-additional-audit.test.mjs",
+      "titleJa": "保存完了直後の追加編集が未処理のまま残る"
+    },
+    {
+      "id": "A32",
+      "kind": "bug",
+      "title": "Chore history navigation leaves an invalid unsaved numeric draft",
+      "status": "fixed",
+      "evidence": "Invalid radius x still navigated to history; now stays until corrected",
+      "tests": "tests/settings-additional-audit.test.mjs",
+      "titleJa": "不正な数値の下書きを残したまま家事の履歴へ移動できる"
+    },
+    {
+      "id": "A33",
+      "kind": "optimization",
+      "title": "Tasks response cache saves each row with a separate SQLite bridge call",
+      "status": "fixed",
+      "evidence": "100 returned Tasks: 100 staging inserts reduced to one; exact cached list retained",
+      "tests": "tests/google-tasks-read-cache.test.mjs",
+      "titleJa": "取得したTasksを1件ごとにSQLiteへ保存する"
+    },
+    {
+      "id": "A34",
+      "kind": "optimization",
+      "title": "Dense calendar timeline lane assignment performs quadratic scans",
+      "status": "fixed",
+      "evidence": "2000 overlapping events: 1999000 linear probes reduced to zero, same lane assignments",
+      "tests": "tests/calendar-layout-additional.test.mjs",
+      "titleJa": "大量に重なる予定の横位置を二重ループで探索する"
+    },
+    {
+      "id": "A35",
+      "kind": "bug",
+      "title": "Out-of-range batch Retry-After masks the original provider failure",
+      "status": "fixed",
+      "evidence": "Retry-After 1e14 caused RangeError and discarded a valid sibling 3600-second backoff",
+      "tests": "tests/google-tasks-create-recovery.test.mjs",
+      "titleJa": "範囲外のRetry-Afterで本来のGoogleエラーと待機時間が失われる"
+    },
+    {
+      "id": "A36",
+      "kind": "optimization",
+      "title": "Calendar viewport resizing regenerates unchanged civil row geometry",
+      "status": "fixed",
+      "evidence": "521-week window reuses its day/month geometry on height changes, returning isolated day arrays",
+      "tests": "tests/calendar-row-geometry-additional.test.mjs",
+      "titleJa": "画面サイズ変更のたびにカレンダー全日付を再計算する"
+    },
+    {
+      "id": "A37",
+      "kind": "bug",
+      "title": "Retained chore editor ignores new global frequency mode or adopted cadence",
+      "status": "fixed",
+      "evidence": "Balanced 7 to relaxed 14 stayed at 7; settled editors now follow mode/cadence changes, while invalid drafts and same-mode conflict baselines remain intact",
+      "tests": "tests/settings-additional-audit.test.mjs",
+      "titleJa": "保持した家事設定が新しい頻度モード・採用周期へ追従しない"
+    },
+    {
+      "id": "A38",
+      "kind": "optimization",
+      "title": "Waste icon color label and search repeatedly normalize the entire alias table",
+      "status": "fixed",
+      "evidence": "400 lookups now normalize inputs once each while retaining aliases and search ranking",
+      "tests": "tests/waste-lookup-additional.test.mjs",
+      "titleJa": "ゴミ名・アイコン・色・検索で全別名を繰り返し正規化する"
+    },
+    {
+      "id": "A39",
+      "kind": "optimization",
+      "title": "Daily digest resolves zoned times for days without reminder content",
+      "status": "fixed",
+      "evidence": "31 zoned fire-time resolutions reduced to 3 for three real reminders, and zero when empty",
+      "tests": "tests/notification-additional-audit.test.mjs",
+      "titleJa": "通知のない日まで時差を含む通知時刻を計算する"
+    },
+    {
+      "id": "A40",
+      "kind": "bug",
+      "title": "A valid custom waste name matching an Object prototype member crashes calendar rendering",
+      "status": "fixed",
+      "evidence": "Accepted constructor / __proto__ labels caused TypeError at compact-name replacement; own-property lookup now renders them literally",
+      "tests": "tests/waste-lookup-additional.test.mjs",
+      "titleJa": "特殊な独自ゴミ名でカレンダー表示が例外終了する"
+    }
+  ],
+  "areas": [
+    {
+      "name": "Calendar projection, recurrence expansion and event identity",
+      "state": "reviewed"
+    },
+    {
+      "name": "Personal SQLite history, adaptive model and retained plans",
+      "state": "reviewed"
+    },
+    {
+      "name": "Shared read projection and derivation",
+      "state": "reviewed"
+    },
+    {
+      "name": "Appliance API retry and persistence",
+      "state": "reviewed"
+    },
+    {
+      "name": "Screen loading, autosave and local cache lifecycle",
+      "state": "reviewed"
+    },
+    {
+      "name": "Notifications and widgets native boundaries",
+      "state": "reviewed"
+    }
+  ],
+  "baseline": {
+    "priorNewFindings": 30,
+    "priorFullUnit": 3610,
+    "lateAddedCases": 2,
+    "priorCloudPass": 153,
+    "commit": "f4b7da83a86081c4f84323527dbd90ebd65d6960",
+    "uncommittedWorkPreserved": true,
+    "githubPublishDeferred": true,
+    "extraStartupOptimizationDeferredToOtherChat": true
+  },
+  "supplemental": [
+    {
+      "finding": "NOTIF-01 followup",
+      "evidence": "An access deadline shortened between reconciliation and native scheduling left the prior unauthorized reminder armed; definitive not-issued cancellation now covers access expiry too",
+      "tests": "tests/notification-additional-audit.test.mjs",
+      "countedAsNew": false
+    }
+  ],
+  "verification": {
+    "lint": "passed",
+    "typecheck": "passed",
+    "fullUnit": "passed",
+    "cloudEmulator": "passed",
+    "nativeRelease": "passed within recorded screen verification scope",
+    "semgrep": "completed with recorded original parser limitations and supplemental scans",
+    "sourceFiles": 1241,
+    "unit": {
+      "tests": 3658,
+      "pass": 3658,
+      "fail": 0,
+      "skipped": 0,
+      "log": "additional40-unit-final-corrected.log"
+    },
+    "cloud": {
+      "tests": 153,
+      "pass": 153,
+      "fail": 0,
+      "skipped": 0,
+      "log": "additional40-cloud-final.log"
+    },
+    "static": {
+      "scanner": "Semgrep CE 1.184.0",
+      "scannedFiles": 775,
+      "findings": 0,
+      "originalPartialParses": 2,
+      "supplementalRemainingPartialParses": 1,
+      "finalAlphaRenamedTargetErrors": 0,
+      "sourceHashesVerified": true,
+      "note": "The confirmation local identifier was alpha-renamed only in scanner input after type erasure; product source is unchanged. Original parser limitations retained in evidence."
+    },
+    "gitDiffCheck": "passed",
+    "featureContracts": 517,
+    "requiredCloudTests": 115,
+    "native": {
+      "physicalIos": {
+        "releaseUpdatedInPlace": true,
+        "navigation": "passed",
+        "productNameInputAndCancel": "passed",
+        "overlappingAppointmentsInOneAndTwoDayViews": "passed"
+      },
+      "physicalAndroid": {
+        "releaseUpdatedInPlace": true,
+        "navigation": "passed",
+        "productNameInputAndCancel": "passed",
+        "overlappingAppointmentsInOneAndTwoDayViews": "passed",
+        "sharedCompletionAndUndo": "passed (0 to 1 to 0 out of 8)"
+      },
+      "simulator": {
+        "updatedInPlace": 2,
+        "completionAndUndo": "passed (0 to 1 to 0 out of 4)",
+        "expandedChoresFullyVisible": "passed for 4 chores",
+        "bottomNavigationRetained": true
+      },
+      "dataReset": false,
+      "paidAiCalls": false,
+      "details": "additional40-native-verification.json",
+      "simulatorDetails": "additional40-simulator-verification.json",
+      "notClaimed": [
+        "new Google-account-switch E2E on this build",
+        "OS natural background run on this build",
+        "all calendar personal counts loaded",
+        "one-second startup",
+        "independent security audit"
+      ]
+    },
+    "sourceManifest": {
+      "files": 1241,
+      "mismatches": 0,
+      "manifest": "additional40-source-manifest.json"
+    }
+  },
+  "completedAt": "2026-11-07T00:44:20.161241+00:00"
+}

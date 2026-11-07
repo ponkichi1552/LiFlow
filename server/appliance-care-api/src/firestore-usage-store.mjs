@@ -165,14 +165,14 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
       const principal = Object.freeze({ uid: input.principal?.uid, anonymous: input.principal?.anonymous,
         deviceId: input.principal?.deviceId, installationId: input.principal?.installationId });
       checkPrincipal(principal);
-      const queuedInput = input.analysisRequest ? prepareAnalysisQueueInput(input.analysisRequest, input.requestKey, queueKeys,
-        { owner: principal.uid, jobId: publicJobId(principal, input.idempotencyKey), requestDigest: publicKey(input.requestKey) }) : undefined;
       const captured = { principal, requestKey: input.requestKey, forceReanalysis: input.forceReanalysis === true, idempotencyKey: input.idempotencyKey,
-        ...(queuedInput ? { queuedInput } : {}) };
+      };
       const key = publicKey(JSON.stringify({ principal, requestKey: captured.requestKey, forceReanalysis: captured.forceReanalysis, idempotencyKey: captured.idempotencyKey }));
       const existing = admitting.get(key);
       if (existing) { const receipt = await existing; return { jobId: receipt.jobId, created: false, usage: receipt.usage }; }
       if (admitting.size >= 256) throw new PublicApiError(429, 'RATE_LIMITED', '受付が混み合っています。少し待ってください。');
+      if (input.analysisRequest) captured.queuedInput = prepareAnalysisQueueInput(input.analysisRequest, input.requestKey, queueKeys,
+        { owner: principal.uid, jobId: publicJobId(principal, input.idempotencyKey), requestDigest: publicKey(input.requestKey) });
       const pending = store.reserve(captured); admitting.set(key, pending);
       try { return await pending; } finally { if (admitting.get(key) === pending) admitting.delete(key); }
     },
@@ -279,7 +279,10 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10) throw new Error('Invalid worker limit');
       const work = new Map();
       for (const state of ['resultReady', 'queued', 'preparing', 'executing']) {
-        const snapshot = await root.collection('jobs').where('executionState', '==', state).limit(Math.max(limit, policy.maxConcurrent))
+        let query = root.collection('jobs').where('executionState', '==', state);
+        const dueField = state === 'executing' ? 'deadlineAt' : state === 'preparing' ? 'claimExpiresAt' : null;
+        if (dueField) query = query.where(dueField, '<=', now()).orderBy(dueField);
+        const snapshot = await query.limit(Math.max(limit, policy.maxConcurrent))
           .select('executionState', 'deadlineAt', 'claimExpiresAt', 'queueVersion', 'done').get();
         for (const doc of snapshot.docs) {
           const job = doc.data();

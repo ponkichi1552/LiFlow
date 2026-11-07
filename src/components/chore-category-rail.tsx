@@ -13,6 +13,7 @@ function createRailControl() {
   let targets: readonly RailTarget[] = [], selectedId = '', height = 0, top: number | null = null, active = false, pageY = 0, lastId = '';
   let onSelect = (_id: string) => {}, onScrubChange = (_active: boolean) => {};
   let onPreview = (_value: RailPreview) => {};
+  let gestureGeneration = 0;
   const select = () => {
     if (!active || top === null || height <= 0 || !targets.length) return;
     const progress = Math.max(0, Math.min(1, (pageY - top - 8) / Math.max(1, height - 16)));
@@ -20,14 +21,15 @@ function createRailControl() {
     onPreview({ target, progress });
     if (target.id !== lastId) { lastId = target.id; onSelect(target.id); }
   };
-  const end = () => { active = false; lastId = ''; onPreview(null); onScrubChange(false); };
+  const end = () => { gestureGeneration++; active = false; lastId = ''; onPreview(null); onScrubChange(false); };
   const pan = PanResponder.create({
     onStartShouldSetPanResponder: (_event, state) => state.numberActiveTouches === 1,
     onMoveShouldSetPanResponderCapture: (_event, state) => state.numberActiveTouches === 1 && Math.abs(state.dy) > 3,
     onPanResponderGrant: (event, state) => {
       active = true; lastId = ''; pageY = state.moveY || event.nativeEvent.pageY; top = null; onScrubChange(true);
+      const generation = ++gestureGeneration;
       // Measure the parent, rather than trusting locationY from one of its small child ticks.
-      element?.measureInWindow((_x, y, _width, measuredHeight) => { if (!active) return; top = y; height = measuredHeight; select(); });
+      element?.measureInWindow((_x, y, _width, measuredHeight) => { if (!active || generation !== gestureGeneration) return; top = y; height = measuredHeight; select(); });
     },
     onPanResponderMove: (_event, state) => { if (state.numberActiveTouches === 1) { pageY = state.moveY; select(); } },
     onPanResponderRelease: end, onPanResponderTerminate: end, onPanResponderTerminationRequest: () => true,
@@ -41,8 +43,8 @@ function createRailControl() {
     layout: (event: LayoutChangeEvent) => { height = event.nativeEvent.layout.height; top = null; },
     accessibilityAction: (event: AccessibilityActionEvent) => {
       const name = event.nativeEvent.actionName; if (name !== 'increment' && name !== 'decrement') return;
-      const chores = targets.filter(target => target.kind === 'chore'); const current = Math.max(0, chores.findIndex(target => target.id === selectedId));
-      const target = chores[Math.max(0, Math.min(chores.length - 1, current + (name === 'increment' ? 1 : -1)))]; if (target) onSelect(target.id);
+      const chores = targets.filter(target => target.kind === 'chore'); const current = chores.findIndex(target => target.id === selectedId);
+      const target = chores[Math.max(0, Math.min(chores.length - 1, current < 0 ? 0 : current + (name === 'increment' ? 1 : -1)))]; if (target) onSelect(target.id);
     },
   };
 }

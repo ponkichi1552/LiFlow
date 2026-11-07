@@ -31,6 +31,27 @@ test('SQLite draft and category notifications update observers without invalidat
 });
 
 for (const platform of ['ios', 'android']) {
+  test(`${platform} a personal calendar keeps the same native row identity across persisted completion and Undo`, async () => {
+    const { privateFixture } = await import('./helpers/sharing-v2-private-fixture.mjs');
+    const { openCalendarDay } = await import('./helpers/calendar-ui.mjs');
+    const { localDateFromDate } = await import('../src/domain/scheduling/local-date.ts');
+    const repository = await import('../src/platform/storage/repository.ts');
+    const h = await privateFixture(); let screen;
+    try {
+      let snapshot = await repository.loadPlannerSnapshot(h.database); const date = localDateFromDate(new Date());
+      screen = screenHarness('src/app/(tabs)/explore.tsx', { platform, database: h.database, snapshot: () => snapshot });
+      await openCalendarDay(screen, date);
+      const identity = () => screen.nodes().find(node => node.type === 'AnimatedView')?.key;
+      const original = identity(); assert.ok(original);
+      const entry = snapshot.scheduleEntries.find(row => row.choreId === h.chore.id);
+      const receipt = await repository.completeChoreWithReceipt(h.database, entry);
+      snapshot = await repository.loadPlannerSnapshot(h.database); screen.render();
+      assert.equal(identity(), original, 'committing an optimistic check must not replace its native animated row');
+      await repository.undoCompletionReceipt(h.database, receipt);
+      snapshot = await repository.loadPlannerSnapshot(h.database); screen.render();
+      assert.equal(identity(), original, 'Undo restores the same occurrence, not a newly mounted row');
+    } finally { screen?.unmount(); h.connection.close(); }
+  });
   test(`${platform} replacing the restored session binding cannot erase or duplicate a pending completion`, async () => {
     const { fixture, seeds, now } = await import('./helpers/sharing-v2-repository-fixture.mjs');
     const { createV2GroupController } = await import('../src/features/sharing/v2/controller.ts');

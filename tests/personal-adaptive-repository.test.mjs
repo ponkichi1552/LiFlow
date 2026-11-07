@@ -15,11 +15,11 @@ const { saveCalendarEvent } = await import('../src/platform/storage/calendar-eve
 const { newEventDraft } = await import('../src/domain/calendar/events.ts');
 const house = repository.LOCAL_HOUSEHOLD_ID;
 
-async function fixture(t, select = values => values.slice(0, 8), initialDay = '2026-11-01') {
+async function fixture(t, select = values => values.slice(0, 8), initialDay = '2026-11-01', restDays = [1, 2, 3, 4, 5, 6, 7]) {
   t.mock.timers.enable({ apis: ['Date'], now: Date.parse(`${initialDay}T01:00:00Z`) });
   const h = createDatabase(); t.after(() => h.connection.close()); await repository.initializeLocalDatabase(h.database);
   const definitions = select(createPersonalChoreDefinitions(house)).map(chore => ({ ...chore, enabled: true }));
-  await repository.completeFirstSetup(h.database, { frequencyMode: 'balanced', restDays: [1, 2, 3, 4, 5, 6, 7],
+  await repository.completeFirstSetup(h.database, { frequencyMode: 'balanced', restDays,
     enabledChoreIds: definitions.map(chore => chore.id), previousDates: {}, weatherLocation: null });
   const snapshot = () => repository.loadPlannerSnapshot(h.database);
   const clock = day => t.mock.timers.setTime(Date.parse(`${day}T01:00:00Z`));
@@ -56,6 +56,45 @@ test('actual repository completion immediately publishes one next adaptive round
   const redo = await repository.completeChoreWithReceipt(h.database, redoEntry); assert.ok(redo);
   assert.notEqual(redo.adaptiveOperationId, receipt.adaptiveOperationId);
   assert.equal(await repository.undoCompletionReceipt(h.database, receipt), false, 'same-clock stale Undo cannot cancel a later redo');
+});
+
+test('initial completion and Undo restore the exact published date and window without moving any other chore', async t => {
+  const h = await fixture(t, values => values.slice(0, 8), '2026-11-07', [6, 7]); const initial = await h.snapshot();
+  assert.ok(initial.scheduleEntries.some(entry => entry.suggestedDate !== entry.cycleBaseDate), 'exercise a distributed initial recommendation');
+  for (const original of initial.scheduleEntries) {
+    h.clock(original.suggestedDate);
+    for (let repeat = 0; repeat < 3; repeat++) {
+      const before = await h.snapshot(); const entry = before.scheduleEntries.find(row => row.choreId === original.choreId);
+      const receipt = await repository.completeChoreWithReceipt(h.database, entry); assert.ok(receipt);
+      const completed = await h.snapshot();
+      assert.deepEqual(completed.scheduleEntries.filter(row => row.choreId !== entry.choreId), before.scheduleEntries.filter(row => row.choreId !== entry.choreId));
+      assert.equal(await repository.undoCompletionReceipt(h.database, receipt), true);
+      const restored = await h.snapshot();
+      assert.deepEqual(restored.scheduleEntries, before.scheduleEntries, `${entry.choreId} Undo ${repeat + 1} restores the displayed round exactly`);
+      const visible = selectDateTasks(restored.scheduleEntries, restored.completions, original.suggestedDate, 3, restored.chores, true);
+      assert.equal(visible.filter(row => row.choreId === original.choreId).length, 1);
+      assert.equal(visible.find(row => row.choreId === original.choreId).completed, false);
+    }
+  }
+});
+
+test('the schema upgrade restores a provable legacy Undo placement while preserving history and later deliberate replanning',async t=>{
+  const h=await fixture(t,values=>values.slice(0,8),'2026-11-07',[6,7]);const snapshot=await h.snapshot();const entry=snapshot.scheduleEntries.find(row=>row.suggestedDate!==row.cycleBaseDate);assert.ok(entry);
+  const original=await readAdaptivePersonalInside(h.database,entry.choreId);h.clock(entry.suggestedDate);
+  const receipt=await repository.completeChoreWithReceipt(h.database,entry);await repository.undoCompletionReceipt(h.database,receipt);
+  const complete=h.connection.prepare('SELECT * FROM personal_adaptive_actions WHERE operation_id=?').get(receipt.adaptiveOperationId);
+  const value=JSON.parse(complete.event_json);delete value.planRevision;h.connection.prepare('UPDATE personal_adaptive_actions SET event_json=? WHERE operation_id=?').run(JSON.stringify(value),complete.operation_id);
+  const undo=h.connection.prepare("SELECT * FROM personal_adaptive_actions WHERE chore_id=? AND action_type='undo' ORDER BY sequence DESC LIMIT 1").get(entry.choreId);
+  const badRevision='a'.repeat(64);const planRow=h.connection.prepare('SELECT * FROM personal_adaptive_plans WHERE round_id=? AND revision=?').get(entry.id,original.planRevision);
+  h.connection.prepare('INSERT INTO personal_adaptive_plans VALUES(?,?,?,?,?,?)').run(entry.id,badRevision,entry.choreId,JSON.stringify({...original.plan,recommendedDate:entry.cycleBaseDate}),planRow.input_revision,JSON.parse(undo.event_json).recordedAt);
+  h.connection.prepare('UPDATE personal_adaptive_state SET plan_revision=? WHERE chore_id=?').run(badRevision,entry.choreId);
+  const actions=h.connection.prepare('SELECT * FROM personal_adaptive_actions ORDER BY sequence').all();const completions=h.connection.prepare('SELECT * FROM chore_completions').all();
+  h.connection.exec('PRAGMA user_version=27');const {migrateLocalDatabase}=await import('../src/platform/storage/migrations.ts');await migrateLocalDatabase(h.database);
+  assert.deepEqual((await readAdaptivePersonalInside(h.database,entry.choreId)).plan,original.plan);
+  assert.deepEqual(h.connection.prepare('SELECT * FROM personal_adaptive_actions ORDER BY sequence').all(),actions);assert.deepEqual(h.connection.prepare('SELECT * FROM chore_completions').all(),completions);
+  h.connection.prepare('UPDATE personal_adaptive_plans SET published_at=? WHERE revision=?').run('2027-11-08T00:00:00.000Z',badRevision);
+  h.connection.prepare('UPDATE personal_adaptive_state SET plan_revision=? WHERE chore_id=?').run(badRevision,entry.choreId);h.connection.exec('PRAGMA user_version=27');await migrateLocalDatabase(h.database);
+  assert.equal((await readAdaptivePersonalInside(h.database,entry.choreId)).planRevision,badRevision,'a later replan is outside the legacy repair proof');
 });
 
 test('actual repository learns a long outside-window pace without treating late screen reads as training observations', async t => {
@@ -202,8 +241,8 @@ test('a complete account-bound Calendar mirror uses real interval union while un
     { name: 'paged', sql: "UPDATE calendar_google_cursors SET page_token='next'", cleanup: 'UPDATE calendar_google_cursors SET page_token=NULL' },
     { name: 'unreviewed', sql: `INSERT INTO calendar_google_inbox(subject,calendar_id,google_id,event_json,dirty) VALUES('same-google-account','primary','unreviewed','{}',1)`, cleanup: 'DELETE FROM calendar_google_inbox' },
     { name: 'remaining calendars', sql: `INSERT INTO calendar_google_progress VALUES('same-google-account','["primary"]')`, cleanup: 'DELETE FROM calendar_google_progress' },
-    { name: 'unfinished expansion', sql: `INSERT INTO calendar_google_expansion VALUES('same-google-account','primary','series',NULL,'{"timeMin":"2026-01-01T00:00:00Z","timeMax":"2028-01-01T00:00:00Z"}',1)`, cleanup: 'DELETE FROM calendar_google_expansion' },
-    { name: 'short expansion', sql: `INSERT INTO calendar_google_expansion VALUES('same-google-account','primary','series',NULL,'{"timeMin":"2026-11-01T00:00:00Z","timeMax":"2026-11-03T00:00:00Z"}',0)`, cleanup: 'DELETE FROM calendar_google_expansion' },
+    { name: 'unfinished expansion', sql: `INSERT INTO calendar_google_expansion(subject,calendar_id,parent_id,page_token,range_json,active) VALUES('same-google-account','primary','series',NULL,'{"timeMin":"2026-01-01T00:00:00Z","timeMax":"2028-01-01T00:00:00Z"}',1)`, cleanup: 'DELETE FROM calendar_google_expansion' },
+    { name: 'short expansion', sql: `INSERT INTO calendar_google_expansion(subject,calendar_id,parent_id,page_token,range_json,active) VALUES('same-google-account','primary','series',NULL,'{"timeMin":"2026-11-01T00:00:00Z","timeMax":"2026-11-03T00:00:00Z"}',0)`, cleanup: 'DELETE FROM calendar_google_expansion' },
     { name: 'new unread calendar', control: { ...JSON.parse(original), calendars: [...JSON.parse(original).calendars, { id: 'unread', summary: '未取得', accessRole: 'reader' }] } },
     { name: 'different account', control: { ...JSON.parse(original), subject: 'another-google-account' } },
     { name: 'stale mirror', control: { ...JSON.parse(original), lastSyncAt: '2026-10-01T00:00:00Z' } },

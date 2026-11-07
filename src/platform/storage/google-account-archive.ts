@@ -3,7 +3,7 @@ import { withIsolatedSqliteTransaction } from './isolated-transaction';
 import { LOCAL_HOUSEHOLD_ID, invalidateLocalCalendarPlan, withPlannerDatabaseOperation } from './repository';
 import { sharedRepositoryAdapter } from './shared-repository-adapter';
 import { activatePersonalGoogleCalendarAccountInside } from './personal-google-calendar';
-import { notifyCalendarSyncStatusChanged } from './calendar-events';
+import { notifyCalendarSyncChanged } from './calendar-events';
 
 const tables = ['google_sync_state', 'calendar_availability_state', 'calendar_availability_days', 'google_task_links'] as const;
 type Row = Record<string, string | number | null>;
@@ -83,7 +83,7 @@ export async function activatePersonalGoogleTaskAccount(database: SQLiteDatabase
     }
     await assertCurrent(); return true;
   }));
-  if (changed) invalidateLocalCalendarPlan(database);
-  if (calendarChanged) notifyCalendarSyncStatusChanged(database);
+  if (calendarChanged) notifyCalendarSyncChanged(database);
+  else if (changed) invalidateLocalCalendarPlan(database);
   return changed;
 }

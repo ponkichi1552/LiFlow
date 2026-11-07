@@ -2,13 +2,14 @@ import { dateTaskOccurrenceReference } from '../../domain/scheduling/date-task-r
 import type { PersonalDateTaskCommand } from '../../domain/scheduling/date-task-reference';
 import { parseLocalDate } from '../../domain/scheduling/local-date.ts';
 import { assertSharedIdentifier } from '../sharing/identifier.ts';
-import type { V2RoundReference } from '../sharing/v2/actions';
+import type { V2RoundReference, V2RetainedUndoReference } from '../sharing/v2/actions';
 import type { CompletionIntent } from './completion-intents';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 
 export type PersonalCompletionTarget = { kind: 'personal'; command: Omit<PersonalDateTaskCommand, 'completed'> };
-export type SharedCompletionTarget = { kind: 'shared'; ref: V2RoundReference; expectedAssigneeIds: string[] };
+export type SharedCompletionTarget = { kind: 'shared'; ref: V2RoundReference; expectedAssigneeIds: string[];
+  observedCompletionIds?: string[]; precedingCompletionIntentIds?: string[]; retainedUndo?: V2RetainedUndoReference };
 export type CompletionTarget = PersonalCompletionTarget | SharedCompletionTarget;
 
 function record(value: unknown): Record<string, unknown> {
@@ -41,7 +42,23 @@ export function captureCompletionTarget(value: CompletionTarget): CompletionTarg
     ruleVersion: Number(ref.ruleVersion), subjectUserId: ref.subjectUserId,
     ...(ref.expectedConfigurationIds !== undefined ? { expectedConfigurationIds: identifiers(ref.expectedConfigurationIds) } : {}),
     ...(ref.expectedTimeZone !== undefined ? { expectedTimeZone: ref.expectedTimeZone as string } : {}) },
-    expectedAssigneeIds: identifiers(target.expectedAssigneeIds) };
+    expectedAssigneeIds: identifiers(target.expectedAssigneeIds),
+    ...(target.observedCompletionIds !== undefined ? { observedCompletionIds: identifiers(target.observedCompletionIds) } : {}),
+    ...(target.precedingCompletionIntentIds !== undefined ? { precedingCompletionIntentIds: identifiers(target.precedingCompletionIntentIds) } : {}),
+    ...(target.retainedUndo !== undefined ? { retainedUndo: captureRetainedUndo(target.retainedUndo, ref) } : {}) };
+}
+function captureRetainedUndo(value: unknown, ref: Record<string, unknown>): V2RetainedUndoReference {
+  const retained = record(value);
+  if (retained.choreId !== ref.choreId || retained.anchorDate !== ref.anchorDate || retained.subjectUserId !== ref.subjectUserId
+    || typeof retained.checkpointId !== 'string' || !/^[a-f0-9]{64}$/u.test(retained.checkpointId)) throw new Error('取り消す履歴を確認してください。');
+  return { choreId: ref.choreId as string, anchorDate: ref.anchorDate as V2RoundReference['anchorDate'], subjectUserId: ref.subjectUserId as string | null,
+    checkpointId: retained.checkpointId, recorderUserIds: identifiers(retained.recorderUserIds) };
+}
+/** Keep causal local lineage through rapid toggles and protected restart recovery. */
+export function prepareCompletionRequest(target: CompletionTarget, previous: Readonly<CompletionIntent<CompletionTarget>> | undefined): CompletionTarget {
+  if (target.kind !== 'shared' || previous?.target.kind !== 'shared') return target;
+  return { ...target, precedingCompletionIntentIds: [...new Set([...(target.precedingCompletionIntentIds ?? []),
+    ...(previous.target.precedingCompletionIntentIds ?? []), ...(previous.completed ? [previous.id] : [])])] };
 }
 export function personalCompletionKey(revision: string) {
   const reference = dateTaskOccurrenceReference(revision);

@@ -13,7 +13,7 @@ export function createPrivatePreferenceSync(port: { ownerUserId: string; assertO
   store: PrivatePlannerPreferenceStore; secrets: ReturnType<typeof createPrivateCalendarSecretStore>; crypto: SharingCryptoGateway;
   cloud: ReturnType<typeof createPrivatePlannerCloud>; now?: () => number; randomFraction?: () => number }) {
   const { ownerUserId, store, secrets, crypto, cloud, now = Date.now, randomFraction = Math.random } = port;
-  let running: Promise<PrivatePreferenceSyncResult> | null = null;
+  let running: { force: boolean; promise: Promise<PrivatePreferenceSyncResult> } | null = null;
   async function ownedState() {
     await port.assertOwner(); const state = await store.readSyncState(); await port.assertOwner();
     if (state.ownerUserId !== ownerUserId || state.local && state.local.ownerUserId !== ownerUserId) throw new Error('本人設定の保存先が別のアカウントです。'); return state;
@@ -29,7 +29,7 @@ export function createPrivatePreferenceSync(port: { ownerUserId: string; assertO
     assertBudget(); const a = await authority(); if (!a) return { kind: 'unavailable' }; let state = await ownedState(); assertBudget();
     if (!force && state.retry && state.retry.attemptedAt <= now() && state.retry.nextAt > now()) return { kind: 'waiting' };
     let incoming;
-    try { incoming = await cloud.read(a); }
+    try { incoming = await cloud.read(a, assertBudget); }
     catch (error) {
       if (state.local) await store.recordDeliveryFailure(state.local.revision, state.pending ? privatePreferenceCursor(state.pending.encrypted).digest : null, now(), randomFraction()).catch(() => undefined);
       throw error;
@@ -42,10 +42,11 @@ export function createPrivatePreferenceSync(port: { ownerUserId: string; assertO
       if (!state.baseline || !samePrivatePreferenceCursor(state.baseline.cursor, remoteCursor)) return { kind: 'awaitingReencryption' };
       if (state.review) return { kind: 'conflict' }; rollover = true;
     } else {
-      const key = incoming ? await secrets.currentKey(ownerUserId, a) : null;
+      const known = incoming && [state.baseline, state.review].find(value => value && samePrivatePreferenceCursor(value.cursor, remoteCursor));
+      const key = incoming && !known ? await secrets.currentKey(ownerUserId, a) : null;
       try {
-        if (incoming && !key) return { kind: 'unavailable' };
-        const preferences = incoming ? await openPrivatePreferences(crypto, incoming, a, key!) : null; await ensureAuthority(a, assertBudget);
+        if (incoming && !known && !key) return { kind: 'unavailable' };
+        const preferences = known ? known.preferences : incoming ? await openPrivatePreferences(crypto, incoming, a, key!) : null; await ensureAuthority(a, assertBudget);
         state = await store.observeRemote(incoming ? { cursor: remoteCursor!, preferences: preferences! } : null);
       } finally { key?.fill(0); }
     }
@@ -63,7 +64,7 @@ export function createPrivatePreferenceSync(port: { ownerUserId: string; assertO
     }
     const pending = state.pending!; const digest = privatePreferenceCursor(pending.encrypted).digest;
     try {
-      await ensureAuthority(a, assertBudget); await cloud.publish(a, pending.encrypted); await ensureAuthority(a, assertBudget);
+      await ensureAuthority(a, assertBudget); await cloud.publish(a, pending.encrypted, assertBudget); await ensureAuthority(a, assertBudget);
       const key = await secrets.currentKey(ownerUserId, a);
       try {
         if (!key) return { kind: 'unavailable' };
@@ -78,13 +79,12 @@ export function createPrivatePreferenceSync(port: { ownerUserId: string; assertO
       await store.recordDeliveryFailure(pending.localRevision, digest, now(), randomFraction()).catch(() => undefined); throw error;
     }
   }
-  return {
-    cloud, store,
-    synchronize(force = false, assertBudget: () => void = () => {}): Promise<PrivatePreferenceSyncResult> {
-      if (running) return running;
-      const pending = execute(force, assertBudget); running = pending;
-      void pending.finally(() => { if (running === pending) running = null; }).catch(() => undefined); return pending;
-    },
+  function synchronize(force = false, assertBudget: () => void = () => {}): Promise<PrivatePreferenceSyncResult> {
+      if (running) { const current = running; return force && !current.force ? current.promise.then(result => result.kind === 'waiting' ? (assertBudget(), synchronize(true, assertBudget)) : result) : current.promise; }
+      const pending = execute(force, assertBudget); running = { force, promise: pending };
+      void pending.finally(() => { if (running?.promise === pending) running = null; }).catch(() => undefined); return pending;
+  }
+  return { cloud, store, synchronize,
     async readStatus() {
       const state = await ownedState(); const configured = Boolean(await authority()); await port.assertOwner();
       return { configured, local: state.local, baseline: state.baseline?.cursor ?? null, review: state.review,

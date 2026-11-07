@@ -19,7 +19,7 @@ export function createV2GoogleTaskRuntime(input: { store: V2GoogleTaskStore; ass
   wrapCreateJournal?(journal: GoogleTaskCreateJournal, context: { budget: GoogleOperationBudget; assertCurrent(): Promise<void> }): GoogleTaskCreateJournal;
   resolveTaskList?(request: GoogleTaskListResolution, context: { budget: GoogleOperationBudget; assertCurrent(): Promise<void> }): Promise<GoogleTaskList>;
   verifyTaskListForLocalChanges?(state: GoogleSyncState, context: { budget: GoogleOperationBudget; assertCurrent(): Promise<void> }): Promise<boolean>;
-  preparePlan?(): Promise<void>; now?: () => Date; budgetNow?: () => number; defaultBudgetMs?(): number; defaultDeltaOnly?(): boolean; onImported?(): void | Promise<void> }) {
+  preparePlan?(): Promise<void>; assertPlanningCurrent?(): Promise<void>; finishPlan?(): void; now?: () => Date; budgetNow?: () => number; defaultBudgetMs?(): number; defaultDeltaOnly?(): boolean; onImported?(): void | Promise<void> }) {
   const now = input.now ?? (() => new Date()); const scope = {}; let action: Promise<unknown> | null = null;
   let running: { promise: Promise<GoogleSyncRunResult>; operation: Promise<GoogleSyncRunResult>; budget: GoogleOperationBudget; force: boolean } | null = null;
   let manualRecovery: { promise: Promise<GoogleSyncRunResult>; budget: GoogleOperationBudget } | null = null;
@@ -42,7 +42,7 @@ export function createV2GoogleTaskRuntime(input: { store: V2GoogleTaskStore; ass
     const assertSession = async () => { await assertBinding(); if (await currentSubject() !== boundSubject) throw new GoogleAccountMismatchError(); budget.assert(); };
     const context = { budget, assertCurrent: assertSession }; const api = input.createApi(context);
     const guarded = Object.fromEntries(Object.entries(api).filter(([, method]) => typeof method === 'function').map(([key, method]) => [key, async (...args: unknown[]) => {
-      try { await assertSession(); } catch (error) { throw googleTaskRequestNotSent(error); }
+      try { await assertSession(); await input.assertPlanningCurrent?.(); } catch (error) { throw googleTaskRequestNotSent(error); }
       const result = await Reflect.apply(method, api, args); await assertSession(); return result;
     }])) as unknown as GoogleTasksApi;
     const port = { ...input.store.port,
@@ -54,11 +54,11 @@ export function createV2GoogleTaskRuntime(input: { store: V2GoogleTaskStore; ass
       ...port, syncScope: scope, budget,
       loadState: async () => {
         await input.assertAccess(); const value = await traceStartup('sharedTasks.control', input.store.readControl); revision = value.revision; boundSubject = value.state?.accountSubject;
-        if (value.state?.enabled && !value.state.disconnected) {
-          budget.assert(); await traceStartup('sharedTasks.preparePlan', async () => input.preparePlan?.()); await assertBinding();
-          dependencies.today = await traceStartup('sharedTasks.today', input.store.readToday); await assertBinding();
-        }
         return value.state;
+      },
+      preparePlan: async () => {
+        budget.assert(); await traceStartup('sharedTasks.preparePlan', async () => input.preparePlan?.()); await assertBinding();
+        dependencies.today = await traceStartup('sharedTasks.today', input.store.readToday); await assertBinding();
       },
       saveState: async (state: GoogleSyncState) => { await input.assertAccess(); if (revision === undefined) throw new Error('Google家事の接続を読み直してください。'); await input.store.saveSyncState(state, revision); },
       hasPendingLocalChanges: () => traceStartup('sharedTasks.pendingChanges', input.store.hasPendingLocalChanges),
@@ -79,11 +79,12 @@ export function createV2GoogleTaskRuntime(input: { store: V2GoogleTaskStore; ass
       for (let pass = 0; pass < 3; pass++) {
         requested = false; const nextForce = force || forceRequested; forceRequested = false;
         result = await syncGoogleTasksWithDependencies(dependencies, { now: now(), force: nextForce, forceCalendar: false, recoverInterruptedAttempt: true, deltaOnly });
+        if (deltaOnly && result.kind === 'success' && result.foregroundRequired) return result;
         if (!requested || result.kind !== 'success') return result;
         budget.assert();
       }
       return result;
-    } finally { await waitForGoogleSyncAttemptSettlement(scope); }
+    } finally { await waitForGoogleSyncAttemptSettlement(scope); input.finishPlan?.(); }
   }
   function synchronize(options: { force?: boolean; budgetMs?: number; localChange?: boolean; deltaOnly?: boolean } = {}): Promise<GoogleSyncRunResult> {
     // Foreground automatic work can wait behind Calendar preparation. An
@@ -103,7 +104,8 @@ export function createV2GoogleTaskRuntime(input: { store: V2GoogleTaskStore; ass
         const promise = (async (): Promise<GoogleSyncRunResult> => {
           try {
             const result = await withinGoogleOperationBudget(budget, () => active.promise);
-            if (result.kind !== 'retry' || result.code !== 'timeout') return result;
+            if (!(result.kind === 'retry' && result.code === 'timeout')
+              && !(result.kind === 'success' && result.foregroundRequired)) return result;
             // The public timeout can precede an outstanding SQLite/HTTP cleanup.
             // Do not start beside it or revive the request after its own deadline.
             await withinGoogleOperationBudget(budget, () => active.operation.then(() => undefined, () => undefined));

@@ -25,9 +25,21 @@ export function createWidgetCompletionSync<Snapshot extends WidgetPlannerData>(d
       }
       let snapshot = await dependencies.load(pendingIds.length || requestedIds.length ? false : options.preferCached);
       let attempted = false;
-      for (const id of new Set([...pendingIds, ...requestedIds])) {
-        const entry = snapshot.scheduleEntries.find((candidate) => candidate.id === id);
-        if (!entry || snapshot.completions.some((completion) => completionMatchesEntry(completion, entry))) continue;
+      const ids = new Set([...pendingIds, ...requestedIds]);
+      const byId = new Map<string, ChoreScheduleEntry>();
+      const completed = new Set<string>();
+      const legacy = new Map<string, ChoreCompletion[]>();
+      if (ids.size) {
+        for (const entry of snapshot.scheduleEntries) if (!byId.has(entry.id)) byId.set(entry.id, entry);
+        for (const fact of snapshot.completions) if (fact.outcome === 'completed') {
+          if (fact.scheduleEntryId) completed.add(JSON.stringify([fact.choreId, fact.scheduleEntryId]));
+          else { const rows = legacy.get(fact.choreId) ?? []; rows.push(fact); legacy.set(fact.choreId, rows); }
+        }
+      }
+      for (const id of ids) {
+        const entry = byId.get(id);
+        if (!entry || completed.has(JSON.stringify([entry.choreId, entry.id]))
+          || legacy.get(entry.choreId)?.some(fact => completionMatchesEntry(fact, entry))) continue;
         attempted = true;
         try {
           await dependencies.complete(entry);

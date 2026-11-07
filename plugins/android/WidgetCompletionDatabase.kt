@@ -65,7 +65,7 @@ internal object WidgetCompletionDatabase {
         val id = "completion-intent.${UUID.randomUUID()}"
         val operation = JSONObject().put("id", id).put("accountScope", scope).put("householdCreatedAt", target.second)
           .put("acceptedAtMs", now).put("completedLocalDate", localDate).put("timeZone", selectedZone.id)
-          .put("entry", capturedEntry)
+          .put("entry", capturedEntry).put("completionGeneration", chore.optLong("completionGeneration", 0))
         database.execSQL("INSERT INTO native_widget_completion_intents(operation_id,operation_json) VALUES (?,?)", arrayOf(id, operation.toString()))
         database.setTransactionSuccessful()
       } finally { database.endTransaction() }

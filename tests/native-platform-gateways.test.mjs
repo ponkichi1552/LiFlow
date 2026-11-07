@@ -27,7 +27,8 @@ for (const platform of ['ios', 'android']) {
     assert.equal(await third, true); assert.equal(events.filter((event) => event === 'ask').length, 2);
   });
 
-  test(`${platform} notification schedule round trip retains date, identity, subtitle and metadata without duplicates`, async () => {
+  test(`${platform} notification schedule round trip retains date, identity, subtitle and metadata without duplicates`, async t => {
+    t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-26T00:00:00Z') });
     const saved = new Map();
     const { ExpoLocalNotificationGateway } = load('src/platform/notifications/expo-local-notification-gateway.ts', {
       'react-native': { Platform: { OS: platform } },

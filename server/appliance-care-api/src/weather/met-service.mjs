@@ -41,6 +41,7 @@ export function createMetWeatherService({ store, userAgent, fetcher = fetch, now
       if (controller.signal.aborted) throw new Error('met_timeout');
       const forecast = parseMetForecast(body);
       if (!validMetForecast(forecast) || Date.parse(forecast.generatedAt) > now() + 5 * 60_000) return { code: 'met_invalid_forecast' };
+      if (claim.cache && Date.parse(forecast.generatedAt) < Date.parse(claim.cache.forecast.generatedAt)) return { code: 'met_regressing_forecast' };
       if (response.status === 203) alert({ code: 'met_deprecated' });
       return { cache: { forecast, body, fetchedAt: new Date(stamp).toISOString(), checkedAt: new Date(stamp).toISOString(),
         expiresAt, lastModified } };
