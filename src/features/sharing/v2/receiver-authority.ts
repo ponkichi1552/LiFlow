@@ -1,5 +1,5 @@
 import { authorizeSharedCalendarOperation } from './calendar-state.ts';
-import { supportsRetainedManuals, supportsUploadedManuals, supportsSharedCalendar, V2_SCHEDULER_VERSION } from './payload-schema.ts';
+import { supportsRetainedManuals, supportsUploadedManuals, supportsSharedCalendar, supportsChoreRotation, supportsMonthlyChores, V2_SCHEDULER_VERSION } from './payload-schema.ts';
 import { readV2ManualDocument } from './manual-documents.ts';
 import { restoreManualDocument } from '../../appliance-care/manual-document.ts';
 import type { ManualDocument, ManualChunk } from '../../appliance-care/manual-document';
@@ -115,7 +115,7 @@ export function assessV2BusinessHistory(replica: SharedReplica, archive: readonl
   const { view, accept } = createV2AuthorityIndex(replica.groupId, (at) => assignmentsAt(at), () => {
     const current = v2ConfirmedReceiptContext(view.ready, evidence?.receipts ?? new Map());
     return Object.fromEntries([...new Set([...Object.keys(current), ...Object.keys(retention?.frontier ?? {})])].map(device => [device, Math.max(current[device] ?? 0, retention?.frontier[device] ?? 0)]));
-  }, cancellationsAt, retention);
+  }, cancellationsAt, retention, evidence?.receipts);
   const certified = new Map(retention ? replica.operations.filter(op => retentionCovered(op, retention)).sort((a, b) => compareRetentionValues(retention.format, a.operationId, b.operationId))
     .map((op, index) => [op.operationId, v2RetentionAuthorityState(retention, index)]) : []);
   assignmentsAt = createV2AssignmentHistory(view, archive, evidence);
@@ -335,7 +335,15 @@ function authorizeV2Operation(view: V2HistoryView, archive: readonly VerifiedSha
   if (op.entityType === 'chorePolicy') {
     adminOnly(); requireAuthority(view.field('chore', op.entityId, '$alive', op)?.value === true, 'Configure an existing shared chore');
     const configuration = op.payload.configuration as unknown as SharedChoreConfiguration;
+    if (Object.hasOwn(configuration, 'monthly')) requireAuthority(supportsMonthlyChores(epoch.body.schedulerVersion), '毎月指定を使うにはグループを最新版へ更新してください。');
     configuration.policy.assignment.memberIds.forEach(member);
+    if (configuration.policy.assignment.rotation) {
+      requireAuthority(supportsChoreRotation(epoch.body.schedulerVersion), 'Upgrade the group before using rotating assignments');
+      let old: SharedChoreConfiguration | undefined;
+      try { old = view.field('chorePolicy', op.entityId, 'configuration', op)?.value as unknown as SharedChoreConfiguration | undefined; } catch { /* A resolved policy starts a new rotation. */ }
+      const same = old?.policy.assignment.rotation && canonicalJson(old.policy.assignment.rotation) === canonicalJson(configuration.policy.assignment.rotation);
+      requireAuthority(configuration.rotationSourceVersion === (same ? old!.rotationSourceVersion : configuration.ruleVersion), 'A rotation epoch must follow its displayed policy');
+    }
     const previous = view.observed(view.topic('chorePolicy', op.entityId), op);
     const maximum = previous.reduce((value, fact) => Math.max(value, (fact.payload.configuration as unknown as SharedChoreConfiguration).ruleVersion), 0);
     const historicalSubjects = new Set(maximalCausalFacts(previous).flatMap((fact) => {

@@ -14,6 +14,7 @@ export function createAutosaveQueue<Patch extends object>({ save, delayMs = 450 
   let state: AutosaveState = { phase: 'idle', error: null };
   const listeners = new Set<() => void>();
   const discarded = new Set<keyof Patch>();
+  let activeKeys: (keyof Patch)[] = [];
   const hasPending = () => Object.keys(pending).length > 0;
   const publish = (phase: AutosaveState['phase'], error: string | null = null) => {
     state = { phase, error };
@@ -41,6 +42,7 @@ export function createAutosaveQueue<Patch extends object>({ save, delayMs = 450 
     while (true) {
       while (hasPending()) {
         const batch = pending as Patch;
+        activeKeys = Object.keys(batch) as (keyof Patch)[];
         pending = {};
         publish('saving');
         try { await save(batch); }
@@ -77,6 +79,11 @@ export function createAutosaveQueue<Patch extends object>({ save, delayMs = 450 
       discarded.add(key);
       delete pending[key];
       if (!hasPending() && !running) { clearTimeout(timer); publish('idle'); }
+    },
+    discard() {
+      for (const key of [...activeKeys, ...Object.keys(pending) as (keyof Patch)[]]) discarded.add(key);
+      pending = {}; clearTimeout(timer);
+      if (!running) publish('idle');
     },
     flush,
   };

@@ -83,8 +83,9 @@ for (const platform of ['ios', 'android']) {
       for (let i = 0; i < 20 && props.model.configurations[0].configuration.ruleVersion === 1; i++) await screen.flush();
       assert.equal(props.model.configurations[0].configuration.intervalDays, 17); assert.equal(props.model.configurations[0].configuration.windowAfterDays, 4);
       assert.equal(props.model.configurations[0].configuration.ruleVersion, 2); assert.throws(() => screen.button('個別設定を保存'), /missing button/);
-      const toggle = screen.nodes().find((node) => node.type === 'Switch' && node.props.accessibilityLabel === '共有家事を有効にする');
-      toggle.props.onValueChange(false);
+      const toggle = screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '共有家事を有効にする');
+      assert.equal(toggle.props.accessibilityState.checked, true); assert.equal(toggle.props.disabled, false);
+      toggle.props.onPress();
       for (let i = 0; i < 20 && props.model.configurations[0].configuration.active !== false; i++) await screen.flush();
       assert.equal(props.model.configurations[0].configuration.active, false); assert.equal(props.model.plan.chores[0].enabled, false);
       assert.equal((await controller.readModel(range)).configurations[0].configuration.intervalDays, 17);
@@ -132,10 +133,11 @@ test('v2 a remote unresolved setting keeps the mounted input draft and prevents 
   try {
     await d.repository.commit(seeds()); const controller = ctrl(d); const effects = [];
     const props = { model: await controller.readModel(range), choreId: 'floor', controller, onSaved: async () => {} };
-    const screen = screenHarness('src/features/sharing/v2-ui/configuration-editor.tsx', { exportName: 'V2ConfigurationEditor', props, effect: (callback) => effects.push(callback) });
+    const screen = screenHarness('src/features/sharing/v2-ui/configuration-editor.tsx', { exportName: 'V2ConfigurationEditor', props, effectDependencies: true, effect: (callback) => effects.push(callback) });
+    effects.splice(0).forEach(effect => effect());
     await screen.change('共有家事の周期', '17');
     props.model = { ...props.model, configurations: props.model.configurations.map((entry) => ({ ...entry, configuration: null })) }; screen.render();
-    effects.at(-2)(); // Commit the hook's latest external-store input, as React does after this prop update.
+    effects.splice(0).forEach(effect => effect()); // React commits every changed effect; their ordinal is not part of the feature.
     const numeric = () => screen.nodes().find((node) => node.props.accessibilityLabel === '共有家事の周期');
     assert.equal(numeric().props.value, '17'); assert.equal(numeric().props.editable, false); assert.ok(screen.text().includes('入力は保持しています'));
     await screen.endEditing('共有家事の周期'); assert.equal((await controller.readModel(range)).configurations[0].configuration.intervalDays, 7);
@@ -149,14 +151,14 @@ test('v2 common cadence controls are absent for non-administrators and conflicti
     await d.repository.commit(seeds()); const controller = ctrl(d); const model = await controller.readModel(range);
     const props = { model: { ...model, viewerUserId: 'member' }, choreId: 'floor', controller, onSaved: async () => {} };
     const screen = screenHarness('src/features/sharing/v2-ui/configuration-editor.tsx', { exportName: 'V2ConfigurationEditor', props });
-    assert.equal(screen.nodes().some((node) => node.type === 'Switch' || node.type === 'TextInput'), false); assert.ok(screen.text().includes('管理者'));
+    assert.equal(screen.nodes().some(node => node.type === 'Switch' || node.type === 'TextInput' || node.props.accessibilityRole === 'checkbox'), false); assert.ok(screen.text().includes('管理者'));
     props.model = { ...model, configurations: model.configurations.map((entry) => ({ ...entry, configuration: null })) }; screen.render();
     assert.ok(screen.text().includes('設定が競合')); assert.equal(screen.nodes().some((node) => node.type === 'TextInput'), false);
   } finally { d.connection.close(); }
 });
 
 for (const platform of ['ios', 'android']) {
-  test(`${platform} v2 fixed-assignee cards send a deliberate release request and the administrator's approval waits for its server receipt`, async () => {
+  for (const embedded of [false, true]) test(`${platform} v2 fixed-assignee cards send a deliberate release request and the administrator's approval waits for its server receipt embedded=${embedded}`, async () => {
     const f = await fixture(); const owner = await f.device(); const member = await f.device('member', f.member);
     try {
       await owner.repository.commit(seeds()); const controller = ctrl(owner); await controller.actions.assign(ref, ['member'], 'this', true);
@@ -169,7 +171,7 @@ for (const platform of ['ios', 'android']) {
       assert.equal(memberCard.props.model.assignmentRequests[0].kind, 'pendingDelivery'); assert.equal(memberCard.screen.button('担当変更を申請中').props.disabled, true);
       assert.deepEqual(memberCard.props.round.assigneeIds, ['member']);
       const req = (await loadSharedFacts(member.database, groupId)).find((fact) => fact.operation.entityType === 'assignmentRequest'); await receive([req], 6);
-      const props = { model: await controller.readModel(range), actions: controller.actions, busy: false,
+      const props = { model: await controller.readModel(range), actions: controller.actions, busy: false, embedded,
         run: async (work) => { await work(); props.model = await controller.readModel(range); } };
       const screen = screenHarness('src/features/sharing/v2-ui/assignment-requests.tsx', { exportName: 'V2AssignmentRequests', platform, props });
       await screen.press('担当変更を承認'); assert.ok(screen.text().includes('回答の送信待ち')); assert.equal(screen.button('担当変更を承認').props.disabled, true);

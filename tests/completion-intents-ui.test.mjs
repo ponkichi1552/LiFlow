@@ -8,7 +8,7 @@ import { screenHarness } from './helpers/screen-harness.mjs';
 import { openCalendarDay } from './helpers/calendar-ui.mjs';
 import { localDateFromDate } from '../src/domain/scheduling/local-date.ts';
 import { privateFixture } from './helpers/sharing-v2-private-fixture.mjs';
-import { fixture as sharedFixture, seeds, now } from './helpers/sharing-v2-repository-fixture.mjs';
+import { fixture as sharedFixture, seeds, now, draft } from './helpers/sharing-v2-repository-fixture.mjs';
 import { createV2GroupController } from '../src/features/sharing/v2/controller.ts';
 import { createV2ScreenSession } from '../src/features/sharing/v2-ui/screen-session.ts';
 import { createWorkspaceDisplayStore } from '../src/features/sharing/v2-ui/workspace-display-store.ts';
@@ -32,6 +32,38 @@ const checkbox = screen => {
 };
 
 for (const platform of ['ios', 'android']) {
+  test(`${platform} expired shared Undo stays in the expanded expired section while persistence and refreshed recommendations are pending`, async () => {
+    const f = await sharedFixture(); const d = await f.device(); let screen; let runtime;
+    try {
+      const initial = seeds(); Object.assign(initial[3].payload.configuration, { anchorDate: '2026-10-14', intervalDays: 30 });
+      await d.repository.commit([...initial, draft('other-chore', 'chore', 'other', { name: '別の期限切れ家事', enabled: true }),
+        draft('other-policy', 'chorePolicy', 'other', { configuration: structuredClone(initial[3].payload.configuration) })]);
+      let sequence = 0;
+      const controller = createV2GroupController(d.repository, { now, makeId: () => `expired-undo-${++sequence}`, sync: async () => {} });
+      await controller.actions.complete({ choreId: 'floor', anchorDate: '2026-10-14', ruleVersion: 1, subjectUserId: null });
+      const session = createV2ScreenSession({ controller, groupId: d.options.groupId, userId: 'owner', now,
+        readPreferences: async () => ({ ownerUserId: 'owner', settings: { frequencyMode: 'balanced', restDays: [], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 3 } } }) });
+      runtime = runtimeFixture({ at: now, apply: intent => controller.actions.setCompletedIntent({ id: intent.id, digest: completionIntentDigest('expired-ui', intent) },
+        intent.target.ref, intent.completed, { createdAt: intent.createdAt, expectedAssigneeIds: intent.target.expectedAssigneeIds, observedCompletionIds: intent.target.observedCompletionIds, precedingCompletionIntentIds: intent.target.precedingCompletionIntentIds, retainedUndo: intent.target.retainedUndo }) });
+      await runtime.queue.activate();
+      screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen', platform,
+        effectDependencies: true, focusDependencies: true, effect: callback => callback(), layoutEffect: callback => callback(),
+        props: { purpose: 'workspace', view: 'home', lifecycleManaged: true, initialDisplay: { session, model: await session.readModel() }, loadSession: async () => session,
+          sharedCompletion: runtime, onBack() {}, onConfiguration() {}, onHistory() {} } });
+      await screen.flush(); await screen.press('期限を過ぎた家事（1件）を開く');
+      const undo = screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '床を掃除するを未完了に戻す');
+      assert.ok(undo?.props.onPress); undo.props.onPress(); screen.render();
+      const placement = () => screen.nodes().find(node => node.type === 'FlatList').props.data
+        .filter(row => row.item?.source === 'shared' && row.item.round.choreId === 'floor').map(row => row.kind);
+      assert.deepEqual(placement(), ['expired'], 'optimistic Undo must never detour through Today');
+      assert.equal(screen.button('期限を過ぎた家事（2件）を閉じる').props.accessibilityState.expanded, true);
+      runtime.release(); await runtime.queue.settled(); await screen.flush();
+      assert.deepEqual(placement(), ['expired']);
+      assert.equal(screen.button('期限を過ぎた家事（2件）を閉じる').props.accessibilityState.expanded, true);
+      assert.equal((await session.readModel()).plan.history.find(row => row.choreId === 'floor').active, false);
+    } finally { runtime?.release(); await runtime?.queue.settled(); screen?.unmount(); d.connection.close(); }
+  });
+
   test(`${platform} restoring a committed gesture before the focused shared display cannot hide a later completion`, async () => {
     const f = await sharedFixture(); const d = await f.device(); let screen; let runtime; let store;
     try {

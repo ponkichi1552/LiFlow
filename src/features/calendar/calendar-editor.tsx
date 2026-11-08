@@ -111,7 +111,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           {local.shared && !initial.eventId && !value.birthday ? <View style={styles.field}><Text style={styles.label}>保存先</Text><View style={styles.row}>
             <ChoiceChip label="個人" selected={draft.audience !== 'group'} disabled={busy} onPress={() => change(before => ({ ...before, audience: 'personal', groupId: undefined, basisRevision: undefined, value: { ...before.value, categoryId: 'personal' } }))} />
             <ChoiceChip label="グループ共通" selected={draft.audience === 'group'} disabled={busy || !local.shared.enabled} onPress={() => change(before => ({ ...before, audience: 'group', groupId: local.shared!.groupId }))} />
-          </View>{!local.shared.enabled ? <Text style={styles.caption}>共有予定は、所有者がグループの互換更新を行うと利用できます。</Text> : <Text style={styles.caption}>{draft.audience === 'group' ? `${local.shared.name}のメンバーに共有します。` : 'この予定はグループへ共有しません。'}</Text>}</View> : initial.eventId && local.shared ? <Text style={styles.caption}>{draft.audience === 'group' ? `${local.shared.name} · グループ共通` : '個人 · 本人のみ'}</Text> : null}
+          </View>{!local.shared.enabled ? <Text style={styles.caption}>共有予定は、管理者がグループの互換更新を行うと利用できます。</Text> : <Text style={styles.caption}>{draft.audience === 'group' ? `${local.shared.name}のメンバーに共有します。` : 'この予定はグループへ共有しません。'}</Text>}</View> : initial.eventId && local.shared ? <Text style={styles.caption}>{draft.audience === 'group' ? `${local.shared.name} · グループ共通` : '個人 · 本人のみ'}</Text> : null}
           {readOnly ? googleReadOnly ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(googleReadOnly.externalUrl ?? 'https://calendar.google.com/calendar/u/0/r')}><Text style={styles.action}>Googleカレンダーで編集 ↗</Text></Pressable>
             : <Text style={styles.caption}>共有予定は作成者または管理者が変更できます。</Text> : null}
           {error ? <View><Text accessibilityRole="alert" style={styles.error}>{error}</Text><AppButton title="予定を再読込" variant="quiet" compact onPress={() => void local.refresh()} />
@@ -153,19 +153,24 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
             </Pressable>
             {categoryOpen ? <View style={styles.categoryMenu}><ScrollView nestedScrollEnabled style={styles.categoryOptions} keyboardShouldPersistTaps="handled">
               {categoryOptions.map(category => <Pressable key={category.id} accessibilityRole="button" accessibilityLabel={`${category.name}の分類を選択`} accessibilityState={{ selected: category.id === value.categoryId }} disabled={busy || readOnly}
-                style={[styles.categoryOption, category.id === value.categoryId && { backgroundColor: palette.accentSoft }]} onPress={() => { patch({ categoryId: category.id }); setCategoryOpen(false); }}>
+                style={[styles.categoryOption, category.id === value.categoryId && { backgroundColor: palette.accentSoft }]} onPress={() => {
+                  const birthday = !initial.eventId && draft.audience !== 'group' && category.id === 'birthday';
+                  patch({ categoryId: category.id, ...(!initial.eventId && draft.audience !== 'group' ? { birthday } : {}),
+                    ...(birthday ? { allDay: true, recurrence: 'yearly', untilDate: null, endDate: value.startDate, customRecurrence: undefined } : {}) });
+                  setCategoryOpen(false);
+                }}>
                 <View style={[styles.swatchSmall, { backgroundColor: category.color }]} /><Text style={[styles.value, { flex: 1 }]}>{category.name}</Text>{category.id === value.categoryId ? <Text style={styles.action}>✓</Text> : null}</Pressable>)}
             </ScrollView><View style={styles.categoryActions}><AppButton title="分類を追加" variant="quiet" compact disabled={busy} onPress={() => { setCategoryOpen(false); setCategoryEdit({ revision: 0, name: '', color: CATEGORY_PRESETS[0] }); setCustom(false); }} />
               {selectedCategory ? <AppButton title="分類の色を編集" variant="quiet" compact disabled={busy} onPress={() => { setCategoryOpen(false); setCategoryEdit({ ...selectedCategory }); setCustom(false); }} /> : null}</View></View> : null}
           </View>
           {categoryEdit ? <View style={styles.colorPanel}><Text style={styles.heading}>{categoryEdit.id ? '分類の色' : '新しい分類'}</Text>
-            <FormTextInput accessibilityLabel="分類名" value={categoryEdit.name} placeholder="例：学校" maxLength={40} editable={!busy} onChangeText={name => setCategoryEdit(before => before && ({ ...before, name }))} />
+            <FormTextInput accessibilityLabel="分類名" style={styles.categoryInput} value={categoryEdit.name} placeholder="例：学校" maxLength={40} editable={!busy} onChangeText={name => setCategoryEdit(before => before && ({ ...before, name }))} />
             <View style={styles.wrap}>{CATEGORY_PRESETS.map(color => <Pressable key={color} accessibilityRole="button" accessibilityLabel={`色 ${color}`} accessibilityState={{ selected: categoryEdit.color === color }}
               disabled={busy} style={[styles.swatch, { backgroundColor: color }, categoryEdit.color === color && styles.swatchSelected]} onPress={() => {
                 setCategoryEdit(before => before && ({ ...before, color })); setRgb(color.slice(1).match(/../g)!.map(v => String(parseInt(v, 16)))); setCustom(false);
               }} />)}</View>
             <Pressable accessibilityRole="button" disabled={busy} onPress={() => { setCustom(v => !v); setRgb(categoryEdit.color.slice(1).match(/../g)!.map(v => String(parseInt(v, 16)))); }} style={styles.select}><Text style={styles.action}>カスタムカラー</Text><Chevron direction={custom ? 'up' : 'down'} /></Pressable>
-            {custom ? <View style={styles.row}>{['R', 'G', 'B'].map((name, i) => <View key={name} style={styles.rgb}><Text style={styles.label}>{name}（0〜255）</Text><FormTextInput accessibilityLabel={`カラー${name}`} keyboardType="number-pad" value={rgb[i]} maxLength={3} editable={!busy} onChangeText={text => {
+            {custom ? <View style={styles.row}>{['R', 'G', 'B'].map((name, i) => <View key={name} style={styles.rgb}><Text style={styles.label}>{name}（0〜255）</Text><FormTextInput accessibilityLabel={`カラー${name}`} style={[styles.categoryInput, { textAlign: 'center' }]} keyboardType="number-pad" value={rgb[i]} maxLength={3} editable={!busy} onChangeText={text => {
               const next = latestRgb.current.map((v, n) => n === i ? text.normalize('NFKC').replace(/[^0-9]/g, '') : v); setRgb(next);
               if (next.every(v => v !== '' && Number(v) <= 255)) setCategoryEdit(before => before && ({ ...before, color: '#' + next.map(v => Number(v).toString(16).padStart(2, '0')).join('').toUpperCase() }));
             }} /></View>)}</View> : null}
@@ -210,6 +215,7 @@ const styles = StyleSheet.create({
   select: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: palette.inputBorder, borderRadius: 12, paddingHorizontal: 12, minHeight: 46 },
   categoryValue: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }, categoryMenu: { borderWidth: 1, borderColor: palette.border, borderRadius: 12, overflow: 'hidden' }, categoryOptions: { maxHeight: 220 }, categoryOption: { minHeight: 44, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border }, categoryActions: { flexDirection: 'row', flexWrap: 'wrap', borderTopWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
   swatchSmall: { width: 14, height: 14, borderRadius: 7, borderWidth: 1, borderColor: palette.inputBorder }, swatch: { width: 38, height: 38, borderRadius: 19, borderWidth: 2, borderColor: palette.border }, swatchSelected: { borderColor: palette.ink, borderWidth: 4 },
-  colorPanel: { padding: 12, gap: 12, borderWidth: 1, borderColor: palette.border, borderRadius: 14 }, rgb: { flex: 1, gap: 4 }, colorPreview: { minHeight: 42, borderWidth: 2, borderRadius: 10, padding: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  categoryInput: { ...typography.body, color: palette.ink, backgroundColor: palette.surface, borderWidth: 0, borderRadius: 10, paddingHorizontal: 12, minHeight: 48, minWidth: 0 },
+  colorPanel: { padding: 12, gap: 12, backgroundColor: palette.elevated, borderRadius: 14 }, rgb: { flex: 1, gap: 4 }, colorPreview: { minHeight: 42, borderWidth: 2, borderRadius: 10, padding: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
   existing: { padding: 12, gap: 8, borderWidth: 1, borderColor: palette.border, borderRadius: 12 }, existingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: 44 },
 });

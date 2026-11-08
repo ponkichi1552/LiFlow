@@ -20,7 +20,7 @@ export function V2NativePairRoute() {
   }, [load]);
   if (!__DEV__) return <Text>この画面は開発ビルド専用です。</Text>;
   if (view === 'audit') return <V2NativePairAudit load={load} onBack={() => router.back()} onOpen={() => navigate('home')}
-    onEdit={() => navigate('details', { choreId: `development-v2-pair-${run}.builtin-chore-08` })} onRecovery={() => navigate('recovery')} />;
+    onEdit={() => navigate('details', { choreId: `development-v2-pair-${run}.liflow-catalog-6.001` })} onRecovery={() => navigate('recovery')} />;
   if (view === 'recovery') return <V2NativeRecovery load={load} onBack={() => router.back()} />;
   if (!views.has(view as V2GroupScreenProps['view'])) return <Text>検査する画面を選んでください。</Text>;
   function navigate(next: string, extra: Record<string, string> = {}) {

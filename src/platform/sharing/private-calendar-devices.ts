@@ -1,8 +1,9 @@
 import { getSharingServices } from './firebase-services';
 import { createPrivateCalendarCloud } from './private-calendar-cloud';
+import { createPrivateCalendarConnectionCloud } from './private-calendar-connection-cloud';
 import { nativePrivateCalendarCrypto } from './native-private-calendar-crypto';
 import { nativePrivateCalendarSecrets, nativePrivateCalendarRootSetup, nativePrivateCalendarAuthorityIntents,
-  nativePrivateCalendarPairing, nativePrivateCalendarKeyOutbox, nativePrivateCalendarCache } from './private-calendar-secrets';
+  nativePrivateCalendarPairing, nativePrivateCalendarConnections, nativePrivateCalendarKeyOutbox, nativePrivateCalendarCache } from './private-calendar-secrets';
 import { createPrivateCalendarDeviceSession } from '../../features/sharing/private-calendar/device-session';
 import type { PrivateCalendarDeviceSession } from '../../features/sharing/private-calendar/device-session';
 import { assertSharedIdentifier } from '../../features/sharing/identifier';
@@ -16,6 +17,8 @@ export function openPrivateCalendarDevices(userId: string): PrivateCalendarDevic
   const session = createPrivateCalendarDeviceSession({ userId, assertOwner, secrets: nativePrivateCalendarSecrets,
     roots: nativePrivateCalendarRootSetup(userId), intents: nativePrivateCalendarAuthorityIntents(userId),
     candidates: nativePrivateCalendarPairing(userId), outbox: nativePrivateCalendarKeyOutbox(userId), cache: nativePrivateCalendarCache(userId),
-    cloud: createPrivateCalendarCloud(firestore, userId, () => auth.currentUser?.uid ?? null, nativePrivateCalendarCrypto) });
+    cloud: createPrivateCalendarCloud(firestore, userId, () => auth.currentUser?.uid ?? null, nativePrivateCalendarCrypto),
+    connections: { store: nativePrivateCalendarConnections(userId), crypto: nativePrivateCalendarCrypto,
+      cloud: createPrivateCalendarConnectionCloud(firestore, userId, () => auth.currentUser?.uid ?? null) } });
   sessions.set(userId, session); return session;
 }

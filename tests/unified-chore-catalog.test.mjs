@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { guideCatalogSelection, unifiedGuideCatalog } from '../src/features/chores/guide-catalog.ts';
 
-const chore = (id, name = '浴室全体を掃除する', extra = {}) => ({ id, name, enabled: true, archived: false, ...extra });
+const chore = (id, name = '浴室全体を掃除する', extra = {}) => ({ id, name, enabled: true, archived: false, description: '浴室を掃除します。', ...extra });
 test('unified guides show one common chore, restore the original personal source when shared work is inactive, and never rewrite either source', () => {
   const personal = [chore('p', undefined, { userIntervalDays: 17 })];
   const shared = [chore('s', undefined, { userIntervalDays: 7 })];

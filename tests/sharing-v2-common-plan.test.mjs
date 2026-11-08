@@ -62,12 +62,12 @@ test('v2 seven-to3650-day recurrences retain the same future anchors after diffe
     assert.equal(next.history.length, 2, 'narrowing the visible horizon never removes actual work');
   }
 });
-test('v2 common planner keeps expired rounds and virtual consumption distinct from actual completion and the five-day home window', async () => {
+test('v2 common planner keeps one oldest expired backlog visible without inventing completion after five days', async () => {
   const f = await fixture({ before: 0, after: 0 });
   for (let age = 0; age <= 6; age++) {
     const asOfDate = age <= 4 ? `2026-10-${27 + age}` : `2026-11-0${age - 4}`;
     const plan = f.plan({ asOfDate }); const s = slot(plan);
-    assert.equal(s.virtuallyConsumed, age > 0); assert.equal(s.showExpiredOnHome, age >= 1 && age <= 5);
+    assert.equal(s.virtuallyConsumed, false); assert.equal(s.automaticBacklog, 'pending'); assert.equal(s.showExpiredOnHome, age >= 1);
     assert.equal(s.completed, false); assert.equal(plan.history.length, 0);
   }
 });
@@ -161,7 +161,9 @@ test('v2 common dependency matching uses dates across different cycles and a com
     originalAssigneeIds: [], ruleVersion: 1, outcome: 'completed' }, { actor: 'a', entityId: v2OccurrenceId('v2-plan-test', 'monthly', '2026-10-25'), operationType: 'complete' });
   f.make('dependency', { predecessorChoreId: 'monthly', successorChoreId: 'floor', policyData: { required: true } }, { entityId: 'monthly-before-daily' }); accepted(f);
   const plan = f.plan({ from: '2026-10-26', through: '2026-11-01' }); assert.equal(plan.dependencies.length, 1);
-  const daily = plan.occurrences.filter((entry) => entry.choreId === 'floor'); assert.equal(daily.length, 7);
+  const daily = plan.occurrences.filter((entry) => entry.choreId === 'floor');
+  assert.equal(daily.filter(entry => entry.anchorDate >= plan.range.from && entry.anchorDate <= plan.range.through).length, 7);
+  assert.equal(daily.find(entry => entry.subjects.some(subject => subject.automaticBacklog === 'pending')).anchorDate, '2026-10-25');
   for (const occurrence of daily) { assert.equal(occurrence.subjects[0].dependencyBlocked, false); assert.equal(occurrence.subjects[0].suggestedDate, occurrence.anchorDate); }
 });
 test('v2 mandatory dependency violations stay visible for review while optional order and unrelated chores remain usable', async () => {

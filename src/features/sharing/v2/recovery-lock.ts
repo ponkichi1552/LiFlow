@@ -40,5 +40,5 @@ export function verifyV2RecoveryLock(raw: SignedV2RecoveryLock, roster: Verified
 }
 export class V2RecoveryInProgressError extends Error {
   readonly code = 'sharing/recovery-in-progress';
-  constructor() { super('所有者が共有の復旧を進めています。変更はこの端末に保存され、復旧後に送信されます。'); }
+  constructor() { super('管理者が共有の復旧を進めています。変更はこの端末に保存され、復旧後に送信されます。'); }
 }

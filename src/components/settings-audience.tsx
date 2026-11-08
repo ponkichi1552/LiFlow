@@ -27,9 +27,10 @@ export function SettingsAudience({ groupName, chore, navigate }: {
           return current?.userId === group.userId && current.group?.userId === group.userId && current.group.groupId === group.groupId
             && ['active', 'creating'].includes(current.group.status);
         };
-        await navigate(() => router.replace(audience === 'personal'
-            ? { pathname: '/settings/chore/[id]', params: { ...target, source: 'personal' } }
-            : { pathname: '/sharing/chore-settings/[id]', params: { ...target, groupId: group.groupId } }), canNavigate);
+        await navigate(() => router.replace({ pathname: '/settings/chore/[id]', params: {
+          ...target, source: audience, documentTransition: audience === 'personal' ? 'left' : 'right',
+          ...(audience === 'shared' ? { groupId: group.groupId } : {}),
+        } }), canNavigate);
       } finally { running.current = false; setBusy(false); }
     }} />;
   if (groupName === undefined && !joined) return null;

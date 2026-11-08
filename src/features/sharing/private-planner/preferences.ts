@@ -7,6 +7,8 @@ import { mergeInstantRanges } from '../v2/private-availability.ts';
 import type { InstantRange } from '../v2/model.ts';
 import type { AdaptiveDayOverride } from '../../planner/adaptive-input';
 import { snapshotPersonalPlacementPreferences } from '../../planner/personal-placement-preferences.ts';
+import type { DayTypeCapacity } from '../../planner/day-type-capacity';
+import { defaultDayTypeBands } from '../../planner/day-type-capacity.ts';
 
 export interface PrivateAllowedBand { weekday: Weekday; startMinute: number; endMinute: number }
 export interface PrivatePlannerPreferences {
@@ -15,6 +17,7 @@ export interface PrivatePlannerPreferences {
   allowedBands: PrivateAllowedBand[];
   maximumMinutes?: number;
   dayOverrides?: AdaptiveDayOverride[];
+  dayTypes?: DayTypeCapacity;
 }
 export interface SavedPrivatePlannerPreferences extends PrivatePlannerPreferences {
   schemaVersion: 1; ownerUserId: string; revision: number;
@@ -23,14 +26,15 @@ const fields = (value: unknown, keys: string[]): value is Record<string, unknown
   && !Array.isArray(value) && Object.keys(value).sort().join(',') === keys.sort().join(','));
 const weekday = (value: unknown): value is Weekday => Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 7;
 const preferenceFields = ['timeZone', 'restDays', 'loadLimits', 'allowedBands'];
-const optionalFields = ['maximumMinutes', 'dayOverrides'];
+const optionalFields = ['maximumMinutes', 'dayOverrides', 'dayTypes'];
 const preferenceRecord = (value: unknown, required: string[]) => Boolean(value && typeof value === 'object' && !Array.isArray(value)
   && required.every(key => Object.hasOwn(value, key)) && Object.keys(value).every(key => [...required, ...optionalFields].includes(key)));
 
 /** Select only private preference fields, retaining optional fields across old editor/rhythm paths. */
 export function privatePlannerPreferenceValues(value: PrivatePlannerPreferences): PrivatePlannerPreferences {
   return snapshotPrivatePlannerPreferences({ timeZone: value.timeZone, restDays: value.restDays, loadLimits: value.loadLimits, allowedBands: value.allowedBands,
-    ...(value.maximumMinutes !== undefined ? { maximumMinutes: value.maximumMinutes } : {}), ...(value.dayOverrides !== undefined ? { dayOverrides: value.dayOverrides } : {}) });
+    ...(value.maximumMinutes !== undefined ? { maximumMinutes: value.maximumMinutes } : {}), ...(value.dayOverrides !== undefined ? { dayOverrides: value.dayOverrides } : {}),
+    ...(value.dayTypes !== undefined ? { dayTypes: value.dayTypes } : {}) });
 }
 
 /** Private input only. No group operation, shared hash, token or Google account belongs here. */
@@ -55,11 +59,13 @@ export function snapshotPrivatePlannerPreferences(value: PrivatePlannerPreferenc
     else merged.push({ ...band });
   }
   const placement = snapshotPersonalPlacementPreferences({ allowedBands: merged, dayOverrides: value.dayOverrides ?? [],
-    ...(value.maximumMinutes !== undefined ? { maximumMinutes: value.maximumMinutes } : {}) });
+    ...(value.maximumMinutes !== undefined ? { maximumMinutes: value.maximumMinutes } : {}),
+    ...(value.dayTypes !== undefined ? { dayTypes: value.dayTypes } : {}) });
   const result: PrivatePlannerPreferences = { timeZone: value.timeZone, restDays: [...new Set(value.restDays)].sort((a, b) => a - b),
     loadLimits: { heavyDailyLimit: Number(value.loadLimits.heavyDailyLimit), normalDailyLimit: Number(value.loadLimits.normalDailyLimit) }, allowedBands: merged,
     ...(placement.maximumMinutes !== undefined ? { maximumMinutes: placement.maximumMinutes } : {}),
-    ...(placement.dayOverrides.length ? { dayOverrides: [...placement.dayOverrides] } : {}) };
+    ...(placement.dayOverrides.length ? { dayOverrides: [...placement.dayOverrides] } : {}),
+    ...(placement.dayTypes !== undefined ? { dayTypes: placement.dayTypes } : {}) };
   // Accepted local input must fit the existing authenticated envelope as well.
   if (new TextEncoder().encode(JSON.stringify(result)).length > 9000) throw new Error('日別設定が多すぎます。不要な日付を削除してください。');
   return result;
@@ -73,7 +79,7 @@ export function snapshotSavedPrivatePlannerPreferences(value: SavedPrivatePlanne
     ...privatePlannerPreferenceValues(value) };
 }
 
-/** Empty means no permission. Gap/fold boundaries remain unresolved instead of choosing an instant. */
+/** Explicit empty day/type bands forbid work; DST gaps/folds never choose an instant. */
 export function privatePlannerAllowedWindows(value: PrivatePlannerPreferences, from: LocalDate, through: LocalDate): {
   windows: InstantRange[]; unresolvedDates: LocalDate[];
 } {
@@ -81,7 +87,12 @@ export function privatePlannerAllowedWindows(value: PrivatePlannerPreferences, f
   if (from > through || daysBetween(from, through) > 366) throw new Error('時間帯を確認する期間を確認してください。');
   const windows: InstantRange[] = []; const unresolvedDates: LocalDate[] = [];
   for (let date = from; date <= through; date = addDays(date, 1)) {
-    const day = weekdayOf(date); const selected = own.dayOverrides?.find(row => row.date === date)?.allowedBands ?? own.allowedBands.filter(band => band.weekday === day); const daily: InstantRange[] = [];
+    const day = weekdayOf(date); const override = own.dayOverrides?.find(row => row.date === date);
+    const holiday = override?.holiday ?? own.restDays.includes(day);
+    const weekly = own.allowedBands.filter(band => band.weekday === day);
+    const selected = override?.allowedBands ?? own.dayTypes?.[holiday ? 'holiday' : 'workday'].allowedBands
+      ?? (weekly.length ? weekly : own.allowedBands.length ? [] : defaultDayTypeBands(holiday ? 'holiday' : 'workday'));
+    const daily: InstantRange[] = [];
     let unresolved = false;
     for (const band of selected) {
       const at = (minute: number) => v2WallTimeCandidates({ date: minute === 1440 ? addDays(date, 1) : date,

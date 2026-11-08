@@ -100,7 +100,7 @@ export function createLiveLegacyMigration(deps: LiveLegacyMigrationDependencies)
       createGroupPolicy(kind); await deps.catchUp(); deps.assertAccess();
       const record = await deps.readRecord(); const archive = [...deps.archive()]; const previous = archive.at(-1)!;
       if (record.status !== 'active' || previous.body.schemaVersion !== 1 || previous.body.ownerUserId !== deps.userId
-        || previous.body.ownerDeviceId !== deps.identity.deviceId) throw new Error('旧グループの所有者端末で移行してください。');
+        || previous.body.ownerDeviceId !== deps.identity.deviceId) throw new Error('旧グループの管理者端末で移行してください。');
       const checkpoint = await readSharingCheckpoint(deps.database, deps.groupId);
       const metadata = await deps.cloud.readGroup(deps.groupId); deps.assertAccess();
       if (checkpoint.pendingCount || !checkpoint.lastSuccessfulSyncAt || checkpoint.sequence !== metadata.group.headSequence
@@ -190,7 +190,7 @@ export async function verifyKnownLegacyHistory(database: SQLiteDatabase, groupId
     const facts = await transaction.getAllAsync<{ operation_json: string }>('SELECT operation_json FROM sharing_operations WHERE group_id=?', groupId);
     const incoming = new Map(snapshot.base.operationIndex.map(entry => [entry.operationId, entry]));
     const pending = await transaction.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM sharing_outbox q JOIN sharing_operations o USING(operation_id) WHERE o.group_id=?', groupId);
-    if (pending?.count) throw new Error('移行前の未送信変更がこの端末に残っています。保持した内容を所有者と確認してください。');
+    if (pending?.count) throw new Error('移行前の未送信変更がこの端末に残っています。保持した内容を管理者と確認してください。');
     for (const row of facts) {
       const operation = JSON.parse(row.operation_json); const receipt = incoming.get(operation.operationId);
       if (!receipt || receipt.deviceId !== operation.authorDeviceId || receipt.sequence !== operation.deviceSequence || receipt.digest !== sharedOperationDigest(operation)) throw new Error('受信済みの元の履歴が移行データに含まれていません。元の保存先を保持しています。');

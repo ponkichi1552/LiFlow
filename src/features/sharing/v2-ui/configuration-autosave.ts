@@ -6,7 +6,7 @@ import type { LocalDate } from '../../../domain/shared/types.ts';
 
 type Field = keyof V2ConfigurationPatch;
 type PendingFields = Partial<Record<Field, { value: V2ConfigurationPatch[Field]; token: number; effectiveFrom: LocalDate }>>;
-const fields: Field[] = ['policy', 'anchorDate', 'intervalDays', 'windowBeforeDays', 'windowAfterDays', 'active'];
+const fields: Field[] = ['policy', 'anchorDate', 'intervalDays', 'monthly', 'windowBeforeDays', 'windowAfterDays', 'active'];
 
 /** Per-field displayed bases survive queue batching, in-flight edits and unrelated remote changes. */
 export function createV2ConfigurationAutosave(input: { configuration: SharedChoreConfiguration; effectiveFrom: () => LocalDate;

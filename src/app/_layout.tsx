@@ -20,8 +20,10 @@ import { WorkspaceDisplayProvider } from '@/features/sharing/v2-ui/workspace-dat
 import { LocalCalendarProvider } from '@/features/calendar/use-local-calendar';
 import { traceStartup } from '@/platform/diagnostics/startup-timing';
 import { SubscriptionBoundary } from '@/features/subscription/subscription-boundary';
+import { initializeAppAppearance } from '@/hooks/use-app-appearance';
 
 const initialize = (database: Parameters<typeof initializeLocalDatabase>[0]) => traceStartup('database.initialize', () => initializeLocalDatabase(database));
+initializeAppAppearance();
 prepareStartupDisplay(SplashScreen);
 
 function WidgetInteractionBridge() {

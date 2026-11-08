@@ -21,7 +21,7 @@ export function createV2LegacyMigrationStager(database: SQLiteDatabase, options:
   const plan = validateLegacyMigrationPlan(options.plan, options.checkpoint);
   const source = readVerifiedLegacyMigrationSource(options.checkpoint);
   if (plan.userId !== options.userId || plan.groupId !== options.groupId || options.identity.deviceId !== source.roster.body.ownerDeviceId
-    || options.userId !== source.roster.body.ownerUserId) throw new Error('移行する所有者の端末と保存先を確認してください。');
+    || options.userId !== source.roster.body.ownerUserId) throw new Error('移行する管理者の端末と保存先を確認してください。');
   const drafts = legacyMigrationDrafts(plan, options.checkpoint);
   const assertAccess = () => {
     options.assertAccess();

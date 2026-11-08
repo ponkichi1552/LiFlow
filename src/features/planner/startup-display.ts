@@ -7,7 +7,9 @@ import { hexToBytes } from '@noble/hashes/utils.js';
 import { fromByteArray, toByteArray } from 'base64-js';
 
 type Model = Awaited<ReturnType<V2GroupUiSession['readModel']>>;
-const VERSION = 1;
+// Earlier saved plans lack the automatic-backlog target and can queue a
+// checkbox against a newer missed slot before the authenticated refresh.
+const VERSION = 2;
 const MAX_BYTES = 2 * 1024 * 1024;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });

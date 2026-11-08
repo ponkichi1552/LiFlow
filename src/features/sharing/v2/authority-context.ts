@@ -13,6 +13,7 @@ import { v2AssignmentLineage } from './assignment-lineage.ts';
 import { maximalConfirmedFacts } from './confirmed-facts.ts';
 import type { V2AssignmentFact } from './assignment-state.ts';
 import { observedV2AssignmentCancellations } from './assignment-state.ts';
+import { v2RotationAssignee } from './rotation.ts';
 
 export function rosterAtOperation(archive: readonly VerifiedSharedRoster[], operation: SharedOperation): VerifiedSharedRoster {
   const epoch = archive[operation.keyVersion - 1];
@@ -59,7 +60,8 @@ export function frameAtOperation(view: V2HistoryView, archive: readonly Verified
   const valueConflict = new Set(assignments.map((fact) => canonicalJson({ memberIds: [...fact.payload.memberIds].sort(), fixed: fact.payload.fixed }))).size > 1;
   let assignmentConflict = assignmentReviews.length > 0 || valueConflict || unmapped.length > 0;
   const configuredAssignees = valueConflict ? [...new Set(assignments.flatMap((fact) => fact.payload.memberIds as string[]))]
-    : assignments.length ? assignments[0].payload.memberIds as string[] : base;
+    : assignments.length ? assignments[0].payload.memberIds as string[]
+      : config.policy.assignment.rotation ? [v2RotationAssignee(view, operation, choreId, config, anchorDate)] : base;
   const assigneeIds = configuredAssignees.filter((uid) => activeMemberIds.includes(uid)).sort();
   const facts = view.observed(view.forOccurrence(frame.id), operation);
   const ignoredClaims = new Set(facts.filter((fact) => fact.entityType === 'claim' && assignments.some((assignment) => causallyPrecedes(fact, assignment))).map((fact) => fact.operationId));

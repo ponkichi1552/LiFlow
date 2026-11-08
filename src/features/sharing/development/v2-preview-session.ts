@@ -35,7 +35,7 @@ export async function createV2DevelopmentPreview(input: {
       timeZone: 'Asia/Tokyo', anchorDate: today, kind: 'family' }));
     const plan = await controller.actions.readPlan({ from: today, through: today, asOfDate: today });
     for (const [id, preset, anchorDate, intervalDays] of [
-      ['builtin-chore-08', 'common', today, 7], ['builtin-chore-07', 'eachMember', today, 7], ['builtin-chore-01', 'common', addDays(today, -7), 30],
+      ['liflow-catalog-6.001', 'common', today, 7], ['liflow-catalog-6.004', 'eachMember', today, 7], ['liflow-catalog-6.002', 'common', addDays(today, -7), 30],
     ] as const) {
       const chore = plan.chores.find((entry) => entry.id === `${groupId}.${id}`); if (!chore) throw new Error('開発用の家事を準備できませんでした。');
       await controller.actions.configureChore(chore.id, { policy: chorePolicyFromPreset(preset), anchorDate, intervalDays,

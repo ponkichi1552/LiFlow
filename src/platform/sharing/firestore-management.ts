@@ -291,7 +291,7 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
       checkAccount();
       await runTransaction(firestore, async (transaction) => {
         checkAccount(); const ref = reference(groupId); const { group } = parseSharedCloudGroup((await transaction.get(ref)).data(), groupId);
-        if (group.ownerUserId === userId) throw new Error('退出する前に所有者を引き継いでください。');
+        if (group.ownerUserId === userId) throw new Error('退出する前に管理者権限を引き継いでください。');
         const membershipRef = doc(firestore, 'sharingUsers', userId, 'memberships', 'current'); const membership = await transaction.get(membershipRef);
         transaction.update(ref, { revokedUserIds: [...new Set([...group.revokedUserIds, userId])], rotationRequired: true, updatedAt: serverTimestamp() });
         if (membership.data()?.groupId === groupId) transaction.delete(membershipRef);

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
 import { createStartupDisplayCache } from '../src/features/planner/startup-display.ts';
 import { createRestoringSessionGate, restoringDisplaySession } from '../src/features/planner/restoring-session.ts';
+import { sharedDocumentDigest } from '../src/features/sharing/crypto.ts';
 
 async function fixture() {
   let now = new Date('2026-10-31T10:00:00Z'); const values = new Map(); const key = await crypto.randomBytes(32);
@@ -21,6 +22,18 @@ test('a restarted home restores authenticated encrypted presentation including p
   const restored = await createStartupDisplayCache(f.dependencies).read(f.record);
   assert.deepEqual(restored, f.model); assert.ok(restored.privateOverlay.byDate instanceof Map);
   assert.equal(restored.privateOverlay.counts.get('2026-10-31'), 0);
+});
+test('startup display refuses an authenticated pre-backlog plan instead of queueing a completion against its obsolete round target', async () => {
+  const f = await fixture(); const scope = sharedDocumentDigest({ version: 1, userId: f.record.userId, groupId: f.record.groupId,
+    historyRetention: null, generation: f.record.localGeneration, status: f.record.status, anchor: f.record.anchor, archive: f.record.rosterArchive });
+  const nonce = await crypto.randomBytes(12);
+  const legacy = { ...f.model, privateOverlay: undefined };
+  const plaintext = new TextEncoder().encode(JSON.stringify({ savedAt: f.dependencies.now().getTime(), model: legacy }));
+  const ciphertext = await crypto.encrypt(f.key, nonce, plaintext, new TextEncoder().encode(scope));
+  const raw = JSON.stringify({ version: 1, scope, encoding: 'base64', nonce: Buffer.from(nonce).toString('base64'), ciphertext: Buffer.from(ciphertext).toString('base64') });
+  f.values.set('owner:house', raw);
+  assert.equal(await f.cache.read(f.record), undefined); assert.equal(f.values.get('owner:house'), raw, 'rejecting an old presentation never edits source data');
+  await f.cache.write(f.record, f.model); assert.deepEqual(await f.cache.read(f.record), f.model);
 });
 test('compact encrypted display bytes retain older hex caches and reject malformed encodings without changing saved content', async () => {
   const f = await fixture(); await f.cache.write(f.record, f.model);

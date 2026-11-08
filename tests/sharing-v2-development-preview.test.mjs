@@ -86,7 +86,7 @@ test('v2 development fixture uses a fresh synthetic scope and real signed SQLite
     openDatabase: async (userId, groupId) => { opened = { userId, groupId }; return { database: h.database, close: async () => h.connection.close() }; } });
   try {
     assert.ok(opened.userId.startsWith('qa-v2-owner-')); assert.ok(opened.groupId.startsWith('qa-v2-')); assert.notEqual(opened.userId, 'owner');
-    let model = await preview.readModel(); assert.equal(model.plan.chores.length, 36); assert.equal(model.plan.chores.filter((chore) => chore.enabled).length, 3);
+    let model = await preview.readModel(); assert.equal(model.plan.chores.length, 79); assert.equal(model.plan.chores.filter((chore) => chore.enabled).length, 3);
     assert.equal(h.connection.prepare('SELECT count(*) AS n FROM sharing_v2_server_receipts').get().n, 0);
     const round = model.plan.occurrences.find((entry) => entry.anchorDate === model.plan.range.asOfDate && entry.configuration.policy.completion === 'one');
     const ref = { choreId: round.choreId, anchorDate: round.anchorDate, ruleVersion: round.ruleVersion, subjectUserId: null };
@@ -109,15 +109,21 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} v2 isolated round navigation records explicit past work in its original group and history instead of routing the ID into a personal chore`, async () => {
     const f = await screenFixture(platform);
     try {
-      await f.screen.press('室内・床・家具の掃除の説明を開く'); const [kind, occurrenceId, subjectId] = f.navigation.pop(); assert.equal(kind, 'round');
+      await f.screen.press('部屋の清掃の説明を開く'); const [kind, occurrenceId, subjectId] = f.navigation.pop(); assert.equal(kind, 'round');
       Object.assign(f.props, { view: 'round', occurrenceId, subjectId }); f.screen.render();
       assert.ok(f.screen.text().includes('実施を記録'));
       const choice = f.screen.nodes().find((node) => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === '以前実施した'); choice.props.onPress(); await f.screen.flush();
       await f.screen.change('実施日', '2026-10-27'); await f.screen.change('実施時刻', '08:00'); await f.screen.press('実施を記録する');
       const model = await f.preview.readModel(); assert.equal(model.plan.history.length, 1); assert.equal(model.plan.history[0].performedAt, '2026-10-26T23:00:00.000Z');
       assert.equal(model.plan.history[0].recordedAt, '2026-10-27T01:00:00.000Z');
-      f.props.view = 'history'; f.screen.render(); assert.ok(f.screen.text().includes('実施者：検査ユーザー')); assert.ok(f.screen.text().includes('登録者：検査ユーザー'));
-      await f.screen.press('この完了を取り消す'); assert.equal((await f.preview.readModel()).plan.history[0].active, false);
+      f.props.view = 'history'; f.screen.render(); await f.screen.press('部屋の清掃の記録の詳細');
+      assert.ok(f.screen.text().includes('実施者：検査ユーザー')); assert.ok(f.screen.text().includes('当時の担当者：'));
+      assert.equal(f.screen.text().includes('登録者：'), false);
+      assert.throws(() => f.screen.button('この完了を取り消す'), /missing button/);
+      f.props.view = 'home'; f.screen.render();
+      const undo = f.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '部屋の清掃を未完了に戻す');
+      assert.ok(undo); assert.equal(undo.props.disabled, false); await undo.props.onPress(); await f.screen.flush();
+      assert.equal((await f.preview.readModel()).plan.history[0].active, false);
       Object.assign(f.props, { view: 'round', subjectId: 'another-group-round' }); f.screen.render();
       assert.ok(f.screen.text().includes('対象の家事回を表示できません')); assert.equal(f.screen.nodes().some((node) => node.type === 'TextInput'), false);
     } finally { f.leave(); await f.preview.close(); }
@@ -128,56 +134,64 @@ for (const platform of ['ios', 'android']) {
       const before = await f.preview.readModel(); instant = new Date('2026-10-27T15:01:00Z');
       f.leave(); const leave = f.focus();
       for (let i = 0; i < 25 && !f.screen.text().includes('10月28日'); i++) await f.screen.flush();
-      const after = await f.preview.readModel(); const floor = after.plan.chores.find((entry) => entry.id.endsWith('.builtin-chore-08'));
+      const after = await f.preview.readModel(); const floor = after.plan.chores.find((entry) => entry.id.endsWith('.liflow-catalog-6.001'));
       const round = after.plan.occurrences.find((entry) => entry.choreId === floor.id && entry.anchorDate === '2026-10-27');
       assert.equal(round.subjects[0].suggestedDate, '2026-10-27');
       assert.equal(after.personal.recommendations.find((entry) => entry.occurrenceId === round.id).date, '2026-10-28');
-      assert.ok(f.screen.text().includes('室内・床・家具の掃除')); assert.equal(f.screen.text().includes('推奨日：'), false);
+      assert.ok(f.screen.text().includes('部屋の清掃')); assert.equal(f.screen.text().includes('推奨日：'), false);
       assert.equal(after.pendingChanges, before.pendingChanges); leave();
     } finally { f.leave(); await f.preview.close(); }
   });
-  test(`${platform} v2 isolated native preview connects home, always-visible expired rounds, configuration navigation and targeted history undo to actual SQLite`, async () => {
+  test(`${platform} v2 isolated native preview connects home, collapsible expired rounds, configuration navigation and home undo to actual SQLite`, async () => {
     const f = await screenFixture(platform);
     try {
-      assert.ok(f.screen.text().includes('今日の家事')); assert.ok(f.screen.text().includes('室内・床・家具の掃除'));
+      assert.ok(f.screen.text().includes('今日の家事')); assert.ok(f.screen.text().includes('部屋の清掃'));
       assert.ok(f.screen.nodes().find((node) => node.type === 'FlatList').props.itemLayoutAnimation, 'shared Home must animate the virtualized cells');
-      assert.equal(f.screen.nodes().filter((node) => node.props.accessibilityRole === 'checkbox').length, 3);
+      assert.equal(f.screen.nodes().filter((node) => node.props.accessibilityRole === 'checkbox').length, 2);
       assert.ok(f.screen.text().indexOf('期限を過ぎた家事') < f.screen.text().indexOf('今週'));
-      assert.ok(!f.screen.nodes().some(node => node.props.accessibilityLabel === '期限を過ぎた家事（1件）を開く'));
+      assert.equal(f.screen.button('期限を過ぎた家事（1件）を開く').props.accessibilityState.expanded, false);
+      await f.screen.press('期限を過ぎた家事（1件）を開く');
+      assert.equal(f.screen.nodes().filter(node => node.props.accessibilityRole === 'checkbox').length, 3);
       await f.screen.press('担う');
       let model = await f.preview.readModel(); const today = model.plan.range.asOfDate;
       const round = model.plan.occurrences.find((entry) => entry.anchorDate === today && entry.configuration.policy.completion === 'one');
       assert.deepEqual(round.assigneeIds, [f.preview.userId]);
-      const checkbox = f.screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '室内・床・家具の掃除を完了');
+      const checkbox = f.screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '部屋の清掃を完了');
       await checkbox.props.onPress(); await f.screen.flush(); model = await f.preview.readModel();
       assert.equal(model.plan.history.length, 1); assert.equal(model.plan.history[0].active, true);
       assert.equal(model.plan.occurrences.find((entry) => entry.id === round.id).completed, true);
+      assert.equal(f.screen.button('期限を過ぎた家事（1件）を閉じる').props.accessibilityState.expanded, true);
       await f.screen.press('直前の完了を元に戻す'); model = await f.preview.readModel();
       assert.equal(model.plan.history.filter(entry => entry.active).length, 0);
       // The toast intentionally starts Undo without returning its work promise.
       // A committed SQLite read does not render this manual React harness.
-      const incomplete = () => f.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '室内・床・家具の掃除を完了');
+      const incomplete = () => f.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '部屋の清掃を完了');
       for (let i = 0; i < 30 && !incomplete(); i++) await f.screen.flush();
       const again = incomplete(); assert.ok(again, 'Undo must render the same incomplete round before it can be completed again');
       await again.props.onPress(); await f.screen.flush(); model = await f.preview.readModel();
       assert.equal(model.plan.history.filter(entry => entry.active).length, 1);
-      await f.screen.press('「室内・床・家具の掃除」の設定'); assert.deepEqual(f.navigation.pop(), ['configuration', round.choreId]);
+      await f.screen.press('「部屋の清掃」の設定'); assert.deepEqual(f.navigation.pop(), ['configuration', round.choreId]);
       await f.screen.press('実施履歴'); assert.deepEqual(f.navigation.pop(), ['history']);
-      f.props.view = 'history'; f.screen.render(); assert.ok(f.screen.text().includes('実施済み')); await f.screen.press('この完了を取り消す');
-      model = await f.preview.readModel(); assert.equal(model.plan.history[0].active, false); assert.ok(f.screen.text().includes('取消済み'));
+      f.props.view = 'history'; f.screen.render(); assert.ok(f.screen.text().includes('部屋の清掃'));
+      assert.throws(() => f.screen.button('この完了を取り消す'), /missing button/);
+      f.props.view = 'home'; f.screen.render();
+      const undo = f.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '部屋の清掃を未完了に戻す');
+      assert.ok(undo); assert.equal(undo.props.disabled, false); await undo.props.onPress(); await f.screen.flush();
+      model = await f.preview.readModel(); assert.equal(model.plan.history[0].active, false);
+      f.props.view = 'history'; f.screen.render(); assert.ok(f.screen.text().includes('表示する実施記録はありません'));
       assert.equal(model.plan.occurrences.find((entry) => entry.id === round.id).completed, false);
     } finally { f.leave(); await f.preview.close(); }
   });
 }
 
 for (const platform of ['ios', 'android']) {
-  test(`${platform} v2 calendar routes register an actual past round beyond the home cutoff and preserve its performed and recorded dates`, async () => {
+  test(`${platform} v2 calendar routes register an actual past backlog round and preserve its performed and recorded dates`, async () => {
     const f = await screenFixture(platform); let cleanup;
     try {
       const [chore] = await f.preview.controller.actions.addChore('過去の家事');
       await f.preview.controller.actions.configureChore(chore.entityId, { policy: { completion: 'one', assignment: { mode: 'open', memberIds: [] } },
         anchorDate: '2026-10-12', intervalDays: 30, windowBeforeDays: 2, windowAfterDays: 2, effectiveFrom: '2026-10-12', active: true });
-      assert.equal((await f.preview.readModel()).plan.occurrences.some((round) => round.choreId === chore.entityId), false);
+      assert.equal((await f.preview.readModel()).plan.occurrences.find(round => round.choreId === chore.entityId).subjects[0].automaticBacklog, 'pending');
       const navigation = []; let { screen, leave } = await openRoute(f.preview, platform, 'calendar', {}, navigation, '共有カレンダー'); cleanup = leave;
       const day = screen.nodes().find((node) => node.props.accessibilityLabel === '2026年10月12日、確認できる未完了の共有家事1件'); assert.ok(day);
       await openCalendarDay(screen, '2026-10-12');

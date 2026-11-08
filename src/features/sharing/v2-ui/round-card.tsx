@@ -11,8 +11,9 @@ import type { V2Recommendation } from '../v2/personal-plan';
 import { v2TargetLabel } from './target-form';
 import { isTaskUrgent } from '../../../domain/scheduling/task-priority';
 import type { CompletionFeedback } from './completion-feedback';
+import { v2BacklogTarget } from './backlog-target';
 
-export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen, onDate, onAssignment, onPast, onAssignmentRequest, showActions = false, recommendation, feedback, home = false, compact = false }: {
+export function V2RoundCard({ model, round: displayedRound, subject: displayedSubject, actions, busy, run, onOpen, onDate, onAssignment, onPast, onAssignmentRequest, showActions = false, recommendation: displayedRecommendation, feedback, home = false, compact = false }: {
   model: V2GroupScreenModel; round: V2PlannedOccurrence; subject: V2SubjectPlan; actions: V2GroupController['actions']; busy: boolean;
   run: (work: () => Promise<unknown>) => Promise<void>; onOpen: () => void; onDate?: () => void; onAssignment?: () => void;
   onPast?: () => void; onAssignmentRequest?: () => void; showActions?: boolean;
@@ -20,6 +21,8 @@ export function V2RoundCard({ model, round, subject, actions, busy, run, onOpen,
   feedback?: CompletionFeedback;
   home?: boolean; compact?: boolean;
 }) {
+  const { round, subject } = showActions ? { round: displayedRound, subject: displayedSubject } : v2BacklogTarget(model.plan.occurrences, displayedRound, displayedSubject, model.plan.range.asOfDate);
+  const recommendation = subject.id === displayedSubject.id ? displayedRecommendation : undefined;
   const chore = model.plan.chores.find((entry) => entry.id === round.choreId); if (!chore) return null;
   const viewer = model.viewerUserId;
   const { admin, owns, relatedWork, showStatus } = createV2RoundVisibility(model)(round, subject);

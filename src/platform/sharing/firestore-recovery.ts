@@ -55,7 +55,7 @@ export function createSharingRecovery({ firestore, userId, checkAccount: checkCu
     async readRawRecoveryPage(groupId: string, after: number, through: number, count = 20): Promise<RawV2RecoveryEvent[]> {
       if (![after, through, count].every(Number.isSafeInteger) || after < 0 || through < after || count < 1 || count > 100) throw new Error('Invalid recovery query window');
       checkAccount(); const { group } = await readGroup(groupId); checkAccount();
-      if (group.schemaVersion !== 2 || group.ownerUserId !== userId) throw new SharingAccessError('復旧の検査は所有者の端末で行ってください。');
+      if (group.schemaVersion !== 2 || group.ownerUserId !== userId) throw new SharingAccessError('復旧の検査は管理者の端末で行ってください。');
       const result = await getDocsFromServer(query(collection(reference(groupId), 'events'), where('uploadSequence', '>', after),
         where('uploadSequence', '<=', through), orderBy('uploadSequence'), limit(count))); checkAccount();
       return result.docs.map(item => rawV2RecoveryEvent(item.data(), groupId, item.id));
@@ -95,7 +95,7 @@ export function createSharingRecovery({ firestore, userId, checkAccount: checkCu
       const lock = validateV2RecoveryLock(input); checkAccount();
       await runTransaction(firestore, async transaction => {
         const current = parseSharedCloudGroup((await transaction.get(reference(lock.body.groupId))).data(), lock.body.groupId); checkAccount();
-        if (current.group.ownerUserId !== userId) throw new SharingAccessError('復旧の中断は所有者が行ってください。');
+        if (current.group.ownerUserId !== userId) throw new SharingAccessError('復旧の中断は管理者が行ってください。');
         const stored = await transaction.get(lockRef(lock.body.groupId));
         const cancellation = await transaction.get(cancelRef(lock.body.groupId, lock.body.id)); checkAccount();
         if (sharedRosterDigest(current.roster) !== lock.body.rosterDigest) throw new SharingCloudChangedError('復旧の状態が変わりました。最新の状態を確認してください。');

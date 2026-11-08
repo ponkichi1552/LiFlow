@@ -59,7 +59,7 @@ test('personal catalog contains all 81 adopted recipes with source work time loa
 });
 test('personal catalog enables only the eight basic jobs and never creates a numeric surrogate for usage needed seasonal held or collection entries', () => {
   assert.deepEqual(initialPersonalChoreSelection().map(id => recipes.find(row => row.id === id).name),
-    ['部屋の清掃', '浴室の清掃', 'トイレの清掃', '洗面台の清掃', 'シンクの清掃', '玄関の清掃', '衣類・タオルの洗濯', '寝具カバーの交換・洗濯']);
+    ['部屋の清掃', '浴室の清掃', 'トイレの清掃', '洗面台の清掃', 'シンクの清掃', '玄関の床掃除', '衣類・タオルの洗濯', '寝具カバーの交換・洗濯']);
   for (const name of ['ごみ・資源の収集日に合わせたごみ出し', '追いだき配管の洗浄', '枕本体の洗濯', '調理後の片付け', '加湿器タンクの手入れ', '季節衣類のしまい洗い・収納']) {
     for (const mode of ['frequent', 'balanced', 'relaxed']) assert.equal(personalRecipeInitialDays(recipe(name), mode), undefined);
     assert.equal(recipe(name).initialEnabled, false);
@@ -77,7 +77,10 @@ test('personal catalog explicit splits replace only their known parent without i
   assert.equal(next.includes(recipe('衣類だけの洗濯').id), false);
   const restored = togglePersonalCatalogSelection(next, parent.id, true); assert.deepEqual(new Set(restored), new Set(before));
   const shoe = togglePersonalCatalogSelection(before, recipe('靴箱内部の清掃').id, true);
-  assert.ok(shoe.includes(recipe('玄関の清掃').id));
+  assert.ok(shoe.includes(recipe('玄関の床掃除').id));
+  assert.equal(recipe('靴箱内部の清掃').splitParentId, null);
+  const entrance = createPersonalChoreDefinitions('private').find(chore => chore.id === recipe('玄関の床掃除').id);
+  assert.equal(personalChoreHistoryPolicy(entrance, 'balanced').version, `catalog-6:${entrance.id}`, 'the catalogue7 label change must not invalidate cadence learning');
   const covers = recipe('寝具カバーの交換・洗濯'); const pillow = recipe('枕カバーの交換・洗濯');
   assert.equal(covers.estimatedMinutes, 20); assert.equal(pillow.estimatedMinutes, 5);
   assert.equal(recipe('シーツの交換・洗濯').estimatedMinutes + recipe('掛け布団カバーの交換・洗濯').estimatedMinutes + pillow.estimatedMinutes, 25);

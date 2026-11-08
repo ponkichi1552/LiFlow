@@ -1,12 +1,15 @@
 import { builtInChoreCatalogEntry } from './catalog.ts';
 import type { ChoreDefinition } from './types';
 import { isPersonalConditionBasedAppliance } from './cycle-policy.ts';
+import { bundledChoreScheduleDefaults } from './personal-catalog.ts';
 
 export type ChoreScheduleDefaults = Pick<ChoreDefinition, 'frequencyDaysByMode' | 'load' | 'windowRadiusDays' | 'maxShiftDays' | 'holidayPriority' | 'everyday' | 'requiresCycleSelection'>;
 /** Stable catalog IDs survive renames and a group's ID prefix. Never match an editable display name. */
-export function choreScheduleDefaults(chore: Pick<ChoreDefinition, 'id' | 'applianceId' | 'applianceCareSource' | 'manufacturerRecommendedIntervalDays' | 'personalRecipeId' | 'personalScheduleDefaults'> & { householdId?: string }): ChoreScheduleDefaults | null {
-  if (chore.personalRecipeId && chore.personalScheduleDefaults) return { ...chore.personalScheduleDefaults,
+export function choreScheduleDefaults(chore: Pick<ChoreDefinition, 'id' | 'applianceId' | 'applianceCareSource' | 'manufacturerRecommendedIntervalDays' | 'personalRecipeId' | 'personalScheduleDefaults' | 'customPersonal'> & { householdId?: string }): ChoreScheduleDefaults | null {
+  if ((chore.personalRecipeId || chore.customPersonal) && chore.personalScheduleDefaults) return { ...chore.personalScheduleDefaults,
     frequencyDaysByMode: { ...chore.personalScheduleDefaults.frequencyDaysByMode } };
+  const standard = bundledChoreScheduleDefaults(chore.id);
+  if (standard) return standard;
   const builtIn = builtInChoreCatalogEntry(chore.id);
   if (builtIn) return { frequencyDaysByMode: { ...builtIn.frequencyDaysByMode }, load: builtIn.load, windowRadiusDays: builtIn.windowRadiusDays,
     maxShiftDays: builtIn.maxShiftDays, holidayPriority: builtIn.holidayPriority, everyday: builtIn.everyday, requiresCycleSelection: builtIn.requiresCycleSelection };
@@ -25,6 +28,7 @@ export function resetChoreSchedule(chore: ChoreDefinition): ChoreDefinition {
   const keepCycle = defaults.requiresCycleSelection || Boolean(chore.applianceId || chore.applianceCareSource)
     && chore.manufacturerRecommendedIntervalDays === undefined && !isPersonalConditionBasedAppliance(chore);
   return { ...chore, ...defaults, ...(keepCycle ? { requiresCycleSelection: chore.requiresCycleSelection } : {}),
+    ...(chore.customPersonal ? { userWindowRadiusDays: defaults.windowRadiusDays } : {}),
     ...(chore.personalRecipeId || chore.applianceId || chore.applianceCareSource ? { userWindowRadiusDays: undefined } : {}),
     laundryDryingPreference: chore.personalScheduleDefaults?.laundryDryingPreference ?? builtInChoreCatalogEntry(chore.id)?.laundryDryingPreference,
     ...(!keepCycle ? { recommendedCycleDays: undefined, userIntervalDays: undefined } : {}) };

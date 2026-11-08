@@ -71,6 +71,8 @@ import { notifyGooglePlannerChanges } from '../../features/google-sync/planner-c
 import { choreOccurrenceName } from '../../domain/chores/occurrence-name.ts';
 import { planPersonalCatalogToggles, comparePersonalChoreOrder, PERSONAL_CHORE_CATALOG_VERSION, usesPersonalAdaptivePlanner } from '../../domain/chores/personal-catalog.ts';
 import { installPersonalCatalogInside } from './personal-catalog.ts';
+import { createCustomPersonalChore } from '../../domain/chores/custom-chore.ts';
+import type { CustomChoreOptions } from '../../domain/chores/custom-chore';
 import { personalCadenceView } from '../../features/planner/adaptive-cadence.ts';
 import type { PersonalCadenceView } from '../../features/planner/adaptive-cadence';
 import { readPersonalAdaptiveContextInside } from './repository-adaptive.ts';
@@ -1137,6 +1139,22 @@ async function resetAllChoreSchedulesImpl(database: SQLiteDatabase): Promise<voi
   if (changed) plannerVersions.set(database, (plannerVersions.get(database) ?? 0) + 1);
 }
 
+async function addPersonalChoreImpl(database: SQLiteDatabase, input: { name: string; intervalDays: number } & CustomChoreOptions): Promise<ChoreDefinition> {
+  if (sharedRepositoryAdapter(database)) throw new Error('個人用の保存先を確認してください。');
+  const chore = createCustomPersonalChore(createId('custom-chore'), LOCAL_HOUSEHOLD_ID, input.name, input.intervalDays, input);
+  await ensureLocalHouseholdImpl(database);
+  await withAdaptiveOwnerTransaction(database, async () => {
+    const { today } = await adaptiveOwnerClock(database, new Date(), { today: localDateFromDate(new Date()), timeZone: getDeviceTimeZone() });
+    await database.runAsync('INSERT INTO chore_definitions(id,household_id,name,enabled,definition_json) VALUES(?,?,?,?,?)',
+      chore.id, chore.householdId, chore.name, 1, JSON.stringify(chore));
+    await database.runAsync('INSERT INTO chore_state(chore_id,initial_pending,initial_scheduled_date) VALUES(?,1,?)', chore.id, today);
+    await database.runAsync('INSERT INTO chore_assignments(chore_id,member_id) VALUES(?,?)', chore.id, LOCAL_MEMBER_ID);
+    await synchronizeAdaptiveRepositoryInside(database);
+  });
+  notifyGooglePlannerChanges();
+  return chore;
+}
+
 async function updateChoreDefinitionImpl(
   database: SQLiteDatabase,
   definition: ChoreDefinition,
@@ -1147,6 +1165,8 @@ async function updateChoreDefinitionImpl(
   );
   if (!previous) throw new Error('Chore not found');
   const savedDefinition = JSON.parse(previous.definition_json) as ChoreDefinition;
+  if (savedDefinition.customPersonal && (definition.customPersonal !== true || definition.personalSchedulingKind !== savedDefinition.personalSchedulingKind
+    || JSON.stringify(definition.personalScheduleDefaults) !== JSON.stringify(savedDefinition.personalScheduleDefaults))) throw new Error('追加した家事の初期設定を上書きできません。');
   if (savedDefinition.personalRecipeId && (definition.personalRecipeId !== savedDefinition.personalRecipeId || definition.personalSchedulingKind !== savedDefinition.personalSchedulingKind
     || JSON.stringify(definition.personalScheduleDefaults) !== JSON.stringify(savedDefinition.personalScheduleDefaults))) throw new Error('家事の初期設定を上書きできません。');
   if (definition.enabled && definition.requiresCycleSelection) throw new Error('周期を設定してから有効にしてください。');
@@ -1190,7 +1210,7 @@ async function disablePersonalCatalogAlternativesInside(database: SQLiteDatabase
 
 function choreScheduleSignature(chore: ChoreDefinition): string {
   return JSON.stringify([
-    chore.enabled, chore.load, chore.everyday, chore.requiresCycleSelection,
+    chore.enabled, chore.load, chore.everyday, chore.requiresCycleSelection, chore.estimatedMinutes,
     chore.frequencyDaysByMode.frequent, chore.frequencyDaysByMode.balanced, chore.frequencyDaysByMode.relaxed,
     chore.recommendedCycleDays, chore.userIntervalDays, chore.manufacturerRecommendedIntervalDays,
     chore.windowRadiusDays, chore.userWindowRadiusDays, chore.maxShiftDays, chore.holidayPriority, chore.laundryDryingPreference,
@@ -2620,6 +2640,7 @@ export const setNotificationsEnabled = serializePlannerOperation(setNotification
 export const saveWeatherLocation = serializePlannerOperation(saveWeatherLocationImpl);
 export const clearWeatherLocation = serializePlannerOperation(clearWeatherLocationImpl);
 export const updateChoreDefinition = serializePlannerOperation(updateChoreDefinitionImpl, 'updateChoreDefinition');
+export const addPersonalChore = serializePlannerOperation(addPersonalChoreImpl);
 export const updateChoreSettings = serializeDatabaseOperation(updateChoreSettingsImpl, 'updateChoreSettings');
 export const resetAllChoreSchedules = serializeDatabaseOperation(resetAllChoreSchedulesImpl);
 export const saveReviewedApplianceCare = serializePlannerOperation(saveReviewedApplianceCareImpl, 'saveReviewedApplianceCare');

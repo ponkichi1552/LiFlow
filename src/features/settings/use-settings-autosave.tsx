@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExter
 import { AppState } from 'react-native';
 import { useFocusEffect, usePreventRemove } from 'expo-router';
 import { createAutosaveQueue } from './autosave-queue';
+import { createDraftNavigation } from './draft-navigation';
 
 /** A single retained writer also flushes a last tap before navigation/background. */
 export function useSettingsAutosave<Patch extends object>(save: (patch: Patch) => Promise<unknown>) {
@@ -9,24 +10,23 @@ export function useSettingsAutosave<Patch extends object>(save: (patch: Patch) =
   useLayoutEffect(() => { writer.current = save; }, [save]);
   // The writer is invoked by an event/timer, never by the initializer.
   // eslint-disable-next-line react-hooks/refs
-  const [queue] = useState(() => createAutosaveQueue<Patch>({ save: patch => writer.current(patch) }));
+  const [queue] = useState(() => {
+    const queue = createAutosaveQueue<Patch>({ save: patch => writer.current(patch) });
+    const navigation = createDraftNavigation({ flush: queue.flush, discard: queue.discard, invalid: () => false,
+      failed: () => queue.getSnapshot().phase === 'error', publish() {} });
+    return { ...queue, ...navigation };
+  });
   const status = useSyncExternalStore(queue.subscribe, queue.getSnapshot, queue.getSnapshot);
-  const leaving = useRef(false);
   const unsettled = !['idle', 'saved'].includes(status.phase);
   const disablePrevention = usePreventRemove(unsettled, ({ repeat }) => {
-    if (leaving.current) return;
-    leaving.current = true;
-    void queue.flush().then(ok => { leaving.current = false; if (ok) repeat(); });
+    void queue.navigateAfterSave(repeat);
   });
-  useFocusEffect(useCallback(() => { leaving.current = false; return () => { void queue.flush(); }; }, [queue]));
+  useFocusEffect(useCallback(() => { queue.resumeNavigation(); return () => { void queue.navigateAfterSave(() => {}); }; }, [queue]));
   useEffect(() => {
     const subscription = AppState.addEventListener('change', state => { if (state !== 'active') void queue.flush(); });
-    return () => { subscription.remove(); void queue.flush(); };
+    return () => { subscription.remove(); void queue.navigateAfterSave(() => {}); };
   }, [queue]);
   return { ...queue, status, async navigate(navigate: () => void) {
-    if (leaving.current) return;
-    leaving.current = true;
-    const ok = await queue.flush(); leaving.current = false;
-    if (ok) { disablePrevention(); navigate(); }
+    return queue.navigateAfterSave(() => { disablePrevention(); navigate(); });
   } };
 }

@@ -22,9 +22,13 @@ function targetOf(key: string): { userId: string; expectedMembershipStart: numbe
   if (!Array.isArray(value) || value.length !== 2 || typeof value[0] !== 'string' || !Number.isSafeInteger(value[1]) || value[1] < 1) throw new Error('メンバーの参加状態を確認してください。');
   return { userId: value[0], expectedMembershipStart: value[1] };
 }
+function RightsMemberSection({ unfolded, title, expanded, onToggle, children }: { unfolded?: boolean; title: string; expanded: boolean; onToggle(): void; children: ReactNode }) {
+  return unfolded ? <View style={{ gap: 12 }}><Text style={styles.label}>{title}</Text>{children}</View>
+    : <AccordionSection title={title} expanded={expanded} onToggle={onToggle}>{children}</AccordionSection>;
+}
 
 export function V2DateRightsEditor(props: { model: V2GroupScreenModel; choreId: string; controller: V2GroupController;
-  onSaved: () => Promise<void>; onBack: () => void; onGroupPolicy?: () => void; header?: ReactNode; embedded?: boolean }) {
+  onSaved: () => Promise<void>; onBack: () => void; onGroupPolicy?: () => void; header?: ReactNode; embedded?: boolean; unfolded?: boolean }) {
   const { model, choreId, onBack, header } = props;
   if (model.viewerUserId !== model.adminUserId) return <V2FormScrollView contentContainerStyle={{ padding: 16, gap: 14 }} header={<BackButton onPress={onBack} />}>{header}
     <ScreenHeading title="日時変更の権限" /><Text style={styles.caption}>メンバーへの権限は管理者が設定します。</Text></V2FormScrollView>;
@@ -34,7 +38,7 @@ export function V2DateRightsEditor(props: { model: V2GroupScreenModel; choreId: 
   return <Editor key={`${model.viewerUserId}:${model.plan.groupId}:${choreId}`} {...props} source={source} />;
 }
 
-function Editor({ model, source, choreId, controller, onSaved, onBack, onGroupPolicy, header, embedded }: Parameters<typeof V2DateRightsEditor>[0] & { source: NonNullable<V2GroupScreenModel['dateRights']> }) {
+function Editor({ model, source, choreId, controller, onSaved, onBack, onGroupPolicy, header, embedded, unfolded }: Parameters<typeof V2DateRightsEditor>[0] & { source: NonNullable<V2GroupScreenModel['dateRights']> }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({}); const nameOf = v2MemberLabels(model.plan.members);
   const policy = model.groupPolicy; const delegation = model.plan.policy?.delegationEnabled === true;
   const displayedPolicy = useRef<readonly string[] | null>(null);
@@ -55,15 +59,15 @@ function Editor({ model, source, choreId, controller, onSaved, onBack, onGroupPo
   const Container = embedded ? View : V2FormScrollView;
   return <Container {...(embedded ? { style: { gap: 14 } } : { contentContainerStyle: { padding: 16, gap: 16, paddingBottom: 40 }, header: <BackButton disabled={autosave.leaving} onPress={() => void autosave.navigateAfterSave(onBack)} /> })}>{header}
     {!embedded ? <><ScreenHeading title="日時変更の権限" />
-    <Text style={styles.body}>{chore?.name}</Text></> : null}<Text style={styles.caption}>この家事だけに適用します。日時厳守・固定・本人承認などの条件は引き続き適用されます。</Text>
+    <Text style={styles.body}>{chore?.name}</Text><Text style={styles.caption}>この家事だけに適用します。日時厳守・固定・本人承認などの条件は引き続き適用されます。</Text></> : null}
     {blocked ? <Text accessibilityRole="alert" style={styles.error}>家事またはグループのルールの確認が必要です。入力は保持しています。</Text> : null}
-    {!delegation ? <Text style={styles.caption}>グループの委譲機能はOFFです。保存済みの権限は適用されません。個別の権限を解除することはできます。</Text> : null}
-    {targets.length === 0 ? <Card><Text style={styles.body}>権限を設定するメンバーはいません。</Text></Card> : null}
+    {!delegation && targets.length > 0 ? <Text style={styles.caption}>グループの委譲機能はOFFです。保存済みの権限は適用されません。個別の権限を解除することはできます。</Text> : null}
+    {targets.length === 0 ? embedded ? <Text style={styles.caption}>設定できるメンバーがいません。</Text> : <Card><Text style={styles.body}>権限を設定するメンバーはいません。</Text></Card> : null}
     {targets.map(key => {
       const { userId } = targetOf(key); const field = autosave.fields[key]; const active = Object.hasOwn(fields, key); const disabled = blocked || autosave.leaving || !active;
       if (!field) return <Card key={key}><Text style={styles.caption}>{nameOf(userId)}の設定を読み込んでいます。</Text></Card>;
       const value = autosave.raw[key] as unknown as V2DateRightsValue;
-      return <AccordionSection key={key} title={`${nameOf(userId)}の権限${active ? '' : '（以前の参加）'}`} expanded={expanded[key] === true}
+      return <RightsMemberSection key={key} unfolded={unfolded} title={`${nameOf(userId)}の権限${active ? '' : '（以前の参加）'}`} expanded={expanded[key] === true}
         onToggle={() => setExpanded(current => ({ ...current, [key]: !current[key] }))}>
         {!active ? <Text style={styles.error}>参加状態が変わったため保存できません。入力は保持しています。</Text> : null}
         {field.kind === 'conflict' ? <View style={styles.group}><Text style={styles.error}>付与と取消の候補を確認してください。候補同士を自動で組み合わせません。</Text>
@@ -87,9 +91,9 @@ function Editor({ model, source, choreId, controller, onSaved, onBack, onGroupPo
           <Text style={styles.caption}>「日時を指定できる」がOFFの場合、他の2項目も適用されません。</Text>
         </View>}
         {!active && autosave.isDirty(key) ? <AppButton title="このメンバーの入力を戻す" variant="quiet" onPress={() => autosave.discard(key)} /> : null}
-      </AccordionSection>;
+      </RightsMemberSection>;
     })}
-    <V2AutosaveFeedback status={autosave.status} refreshError={autosave.refreshError} hasDraft={autosave.hasDraft()} flush={autosave.flush}
+    <V2AutosaveFeedback concise={embedded} status={autosave.status} refreshError={autosave.refreshError} hasDraft={autosave.hasDraft()} flush={autosave.flush}
       discard={autosave.discard} discardTitle="入力を最新の権限に戻す" disabled={autosave.leaving} />
     {onGroupPolicy ? <AppButton title="グループのルールへ" variant="secondary" disabled={autosave.leaving}
       onPress={() => void autosave.navigateAfterSave(onGroupPolicy)} /> : null}

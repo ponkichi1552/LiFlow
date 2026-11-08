@@ -12,7 +12,8 @@ export function WorkspaceNavigator() {
     </Stack.Protected>
     <Stack.Protected guard={v2} redirectTo="/sharing"><Stack.Screen name="group-v2" options={{ headerShown: false }} /></Stack.Protected>
     <Stack.Screen name="settings" />
-    <Stack.Screen name="settings/chore/[id]" options={{ headerShown: false }} />
+    <Stack.Screen name="settings/add-chore" options={{ headerShown: false }} />
+    <Stack.Screen name="settings/chore/[id]" options={{ headerShown: false, animation: 'none' }} />
     <Stack.Screen name="history" />
     <Stack.Screen name="help" options={{ headerShown: false }} />
     <Stack.Screen name="calendar-repeat" options={{ headerShown: false }} />

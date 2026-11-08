@@ -1,11 +1,15 @@
 import { Chevron } from '../../components/chevron';
 import { FormTextInput as TextInput } from '../../components/form-text-input';
 import { useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { NumberInputField } from '@/components/number-input-field';
 
-import { AppButton, Card, ChoiceChip, SectionHeading, palette, typography } from '@/components/planner-ui';
-import { addDays, daysBetween, formatJapaneseDate, localDateFromDate } from '@/domain/scheduling/local-date';
+import { AppButton, ChoiceChip, palette, typography } from '@/components/planner-ui';
+import { SettingsPanel, SettingsSegments, SettingsAction } from '../../components/settings-controls';
+import { CalendarDayPicker } from '../../components/calendar-day-picker';
+import { WasteTypeIcon } from '../../components/waste-type-icon';
+import { plannerColorsForScheme } from '../../components/planner-theme';
+import { addDays, daysBetween, formatJapaneseDate, localDateFromDate, parseLocalDate } from '@/domain/scheduling/local-date';
 import type { LocalDate, Weekday } from '@/domain/shared/types';
 import type { WasteRecurrence, WasteScheduleInput } from './contracts';
 import { nextWasteWeekday, normalizeWasteSchedule, wasteWeekdays } from './schedule-policy';
@@ -21,6 +25,7 @@ export function WasteScheduleEditor({ initial, onSubmit, onCancel, disabled = fa
   referenceDate?: LocalDate;
 }) {
   const wasteTypeColor = useWasteTypeColor();
+  const colors = plannerColorsForScheme(useColorScheme());
 
   const today = referenceDate ?? localDateFromDate(new Date());
   const [form, setForm] = useState(() => ({ query: initial?.label ?? '', label: initial?.label ?? null as string | null,
@@ -72,83 +77,84 @@ export function WasteScheduleEditor({ initial, onSubmit, onCancel, disabled = fa
   };
 
   return (
-    <Card>
-      <SectionHeading title={initial ? '収集日を編集' : '収集日を追加'} />
-      <TextInput accessibilityLabel="ゴミの種類" value={query} editable={!locked}
+    <View style={styles.editor}>
+      {initial ? <Text style={[styles.label, { color: colors.ink }]}>収集日を編集</Text> : null}
+      <SettingsPanel><View style={styles.fields}>
+      <View style={[styles.inputShell, { borderColor: colors.inputBorder, backgroundColor: colors.surface }]}>
+        <WasteTypeIcon label={label ?? 'その他'} size={20} color={label ? wasteTypeColor(label) : colors.muted} />
+        <TextInput accessibilityLabel="ゴミの種類" value={query} editable={!locked}
         onChangeText={(value) => { update({ query: value, label: null }); setError(null); }} maxLength={80}
-        placeholder="ゴミの種類（例：可燃ゴミ）" placeholderTextColor={palette.muted} style={styles.input} returnKeyType="done" />
-      {label ? (
-        <View style={[styles.selection, { borderColor: wasteTypeColor(label) }]}><Text style={[styles.selectionText, { color: wasteTypeColor(label) }]}>{label}</Text><AppButton title="選び直す" onPress={() => update({ label: null })} variant="quiet" compact disabled={locked} /></View>
-      ) : query.trim() ? (
+        placeholder="ゴミの種類を検索" placeholderTextColor={colors.muted} style={[styles.input, { color: colors.ink }]} returnKeyType="done" />
+      </View>
+      {!label && query.trim() ? (
         <View style={styles.suggestions}>
-          <Text style={styles.label}>候補を選択</Text>
           {candidates.map((candidate) => <Pressable key={candidate.label} accessibilityRole="button" accessibilityLabel={`${candidate.label}を選択`} disabled={locked}
-            onPress={() => update({ query: candidate.label, label: candidate.label })} style={styles.candidate}>
-            <Text style={[styles.candidateText, { color: wasteTypeColor(candidate.label) }]}>{candidate.label}</Text><Chevron />
+            onPress={() => update({ query: candidate.label, label: candidate.label })} style={[styles.candidate, { borderBottomColor: colors.border }]}>
+            <WasteTypeIcon label={candidate.label} size={20} /><Text style={[styles.candidateText, { color: wasteTypeColor(candidate.label) }]}>{candidate.label}</Text><Chevron color={colors.accent} />
           </Pressable>)}
-          {!candidates.length ? <Pressable accessibilityRole="button" disabled={locked} onPress={() => update({ query: query.trim(), label: query.trim() })} style={styles.candidate}>
-            <Text style={styles.candidateText}>「{query.trim()}」を使う</Text><Chevron />
+          {!candidates.length ? <Pressable accessibilityRole="button" disabled={locked} onPress={() => update({ query: query.trim(), label: query.trim() })} style={[styles.candidate, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.candidateText, { color: colors.ink }]}>「{query.trim()}」を使う</Text><Chevron color={colors.accent} />
           </Pressable> : null}
         </View>
       ) : null}
-      <Text style={styles.body}>ひらがな・カタカナでも検索できます。自治体の収集区分に合わせて選んでください。</Text>
-      <Text style={styles.label}>収集周期</Text>
-      <View style={styles.chips}>
-        {([['weekly', '毎週'], ['biweekly', '隔週'], ['monthly', '毎月']] as const).map(([id, name]) => (
-          <ChoiceChip key={id} label={name} selected={recurrence === id} onPress={() => { if (!locked) changeRecurrence(id); }} />
-        ))}
+      <View style={[styles.row, { borderTopColor: colors.border }]}><Text style={[styles.label, { color: colors.ink }]}>繰り返し</Text>
+        <SettingsSegments options={[{ id: 'weekly', label: '毎週' }, { id: 'biweekly', label: '隔週' }, { id: 'monthly', label: '毎月' }] as const}
+          value={recurrence} onValueChange={changeRecurrence} disabled={locked} />
       </View>
       {recurrence === 'monthly' ? (
         <>
-          <View style={styles.monthlyRow}><Text style={styles.label}>毎月の収集日</Text>
-            <NumberInputField accessibilityLabel="毎月の収集日" value={monthlyDay} editable={!locked} onChangeText={value => update({ monthlyDay: value })} maxLength={2} />
+          <View style={[styles.row, { borderTopColor: colors.border }]}><Text style={[styles.label, { color: colors.ink }]}>毎月の収集日</Text>
+            <NumberInputField accessibilityLabel="毎月の収集日" value={monthlyDay} editable={!locked} onChangeText={value => update({ monthlyDay: value })} maxLength={2} inputWidth={24} borderless />
           </View>
-          <Text style={styles.body}>指定した日がない月は、月末に表示します。</Text>
+          <CalendarDayPicker today={today} label="収集日カレンダー" disabled={locked} selected={date => {
+            if (!validMonthlyDay) return false;
+            const parsed = parseLocalDate(date); const last = new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, 0)).getUTCDate();
+            return Number(date.slice(8, 10)) === Math.min(Number(monthlyDay), last);
+          }} onSelect={date => { if (!locked) update({ monthlyDay: String(Number(date.slice(8, 10))) }); }} />
+          {Number(monthlyDay) > 28 ? <Text style={[styles.body, { color: colors.muted }]}>指定日がない月は月末に表示</Text> : null}
         </>
       ) : (
         <>
-          <Text style={styles.label}>{recurrence === 'biweekly' ? '隔週の曜日（1つ）' : '収集曜日'}</Text>
+          <Text style={[styles.label, { color: colors.ink }]}>{recurrence === 'biweekly' ? '隔週の曜日（1つ）' : '収集曜日'}</Text>
           <View style={styles.weekdays}>
             {wasteWeekdays.map((day) => <Pressable key={day.id} accessibilityRole="button" accessibilityLabel={`${day.label}曜`}
               accessibilityState={{ selected: weekdays.includes(day.id), disabled: locked }} disabled={locked}
-              onPress={() => toggleWeekday(day.id)} style={[styles.weekday, weekdays.includes(day.id) && styles.weekdaySelected]}>
-              <Text style={[styles.weekdayText, weekdays.includes(day.id) && styles.weekdaySelectedText]}>{day.label}</Text>
+              onPress={() => toggleWeekday(day.id)} style={[styles.weekday, { borderColor: weekdays.includes(day.id) ? colors.accent : colors.border,
+                backgroundColor: weekdays.includes(day.id) ? colors.accentSoft : colors.surface }]}>
+              <Text style={[styles.weekdayText, { color: weekdays.includes(day.id) ? colors.accent : colors.muted }]}>{day.label}</Text>
             </Pressable>)}
           </View>
         </>
       )}
       {recurrence === 'biweekly' && nextDate ? (
         <>
-          <Text style={styles.label}>次に収集する週</Text>
+          <Text style={[styles.label, { color: colors.ink }]}>次の収集日</Text>
           <View style={styles.chips}>{[nextDate, addDays(nextDate, 7)].map((date) => <ChoiceChip key={date}
             label={formatJapaneseDate(date, { weekday: true })} selected={Boolean(anchorDate && daysBetween(anchorDate, date) % 14 === 0)}
             onPress={() => { if (!locked) update({ anchorDate: date }); }} />)}</View>
-          <Text style={styles.body}>選んだ日を基準に、2週間ごとに表示します。</Text>
         </>
       ) : null}
+      </View></SettingsPanel>
       {error ? <Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text> : null}
       <AppButton title={saving ? '保存中…' : initial ? '変更を保存' : '収集日を追加'} onPress={() => void save()} disabled={locked || !canSave} />
-      {onCancel ? <AppButton title="編集をやめる" onPress={onCancel} variant="quiet" compact disabled={locked} /> : null}
-    </Card>
+      {onCancel ? <SettingsAction title="編集をやめる" onPress={onCancel} placement="page" disabled={locked} /> : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  input: { ...typography.body, minHeight: 54, borderWidth: 1, borderColor: palette.border, borderRadius: 13, paddingHorizontal: 13, color: palette.ink, backgroundColor: palette.background },
-  label: { ...typography.label, color: palette.ink, fontWeight: '700' },
+  editor: { gap: 12 }, fields: { gap: 10, paddingVertical: 12 },
+  inputShell: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderRadius: 11, paddingHorizontal: 12 },
+  input: { ...typography.control, flex: 1, minWidth: 0, minHeight: 46, padding: 0, textAlignVertical: 'center', includeFontPadding: false },
+  label: { ...typography.label, fontWeight: '500' },
   body: { ...typography.caption, color: palette.muted },
   error: { ...typography.label, color: palette.warning },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   weekdays: { flexDirection: 'row', gap: 5 },
   weekday: { flex: 1, minHeight: 44, borderWidth: 1, borderColor: palette.border, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  weekdaySelected: { backgroundColor: palette.accentSoft, borderColor: palette.accent },
   weekdayText: { ...typography.label, color: palette.muted, fontWeight: '700' },
-  weekdaySelectedText: { color: palette.accent },
-  monthlyRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  selection: { borderRadius: 13, borderWidth: 1.5, backgroundColor: palette.surface, paddingHorizontal: 13, minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  selectionText: { ...typography.body, flex: 1, color: palette.ink, fontWeight: '700' },
-  suggestions: { gap: 8 },
-  candidate: { minHeight: 46, borderWidth: 1, borderColor: palette.border, borderRadius: 13, paddingHorizontal: 13, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  row: { minHeight: 56, borderTopWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingTop: 8 },
+  suggestions: { gap: 0 },
+  candidate: { minHeight: 46, borderBottomWidth: 1, paddingHorizontal: 6, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
   candidateText: { ...typography.label, color: palette.ink, flex: 1, fontWeight: '600' },
-  arrow: { color: palette.accent, fontSize: 23, lineHeight: 25 },
 });

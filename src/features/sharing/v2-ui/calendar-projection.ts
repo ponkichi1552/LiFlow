@@ -5,6 +5,7 @@ import type { V2PersonalPlan } from '../v2/personal-plan.ts';
 import { compareDateOccurrence } from '../../../domain/scheduling/date-tasks.ts';
 import { sharedLocalDate } from '../group-clock.ts';
 import { createV2RoundVisibility } from './round-visibility.ts';
+import { v2BacklogTarget } from './backlog-target.ts';
 
 export function v2CalendarMonth(day: LocalDate, offset = 0) {
   if (!Number.isSafeInteger(offset)) throw new RangeError('表示する月の移動量を確認してください。');
@@ -28,21 +29,26 @@ export function v2CalendarProjection(model: V2GroupScreenModel, personal?: V2Per
   const throughDate = displayRange.through < model.plan.range.through ? displayRange.through : model.plan.range.through;
   const recommendations = new Map(personal?.recommendations.map((entry) => [entry.subjectOccurrenceId, entry]) ?? []);
   const visibility = createV2RoundVisibility(model);
-  const entries = model.plan.occurrences.flatMap((round) => round.subjects.filter((subject) => (subject.subjectUserId === null || subject.subjectUserId === model.viewerUserId) && (subject.required || subject.completed || subject.pendingCompletionIds.length > 0)).map((subject) => {
+  const entries = model.plan.occurrences.flatMap((round) => round.subjects.filter((subject) => subject.automaticBacklog !== 'covered'
+    && (subject.subjectUserId === null || subject.subjectUserId === model.viewerUserId) && (subject.required || subject.completed || subject.pendingCompletionIds.length > 0)).map((subject) => {
     const visible = visibility(round, subject);
     const candidate = recommendations.get(subject.id); const recommendation = candidate && visible.owns ? candidate : undefined;
-    const override = completionValues?.get(`shared:${subject.id}`);
+    const target = v2BacklogTarget(model.plan.occurrences, round, subject, model.plan.range.asOfDate);
+    const override = completionValues?.get(`shared:${target.subject.id}`) ?? completionValues?.get(`shared:${subject.id}`);
     const completed = visible.showStatus && (override ?? subject.completed);
     const pendingUndo = visible.showStatus && subject.completed && override === false && recommendation?.state === 'completed';
     const completion = completed || pendingUndo ? visible.relatedWork.find(record => record.active && record.outcome === 'completed' && record.acceptance === 'accepted') : undefined;
     const observedCompletionDate = completion ? sharedLocalDate(new Date(completion.performedAt), model.plan.timeZone) : subject.retainedCompletion?.completedDate;
+    const windowStart = completion?.schedule?.windowStart ?? subject.executionWindowStart;
+    const windowEnd = completion?.schedule?.windowEnd ?? subject.executionWindowEnd;
     return { id: subject.id, round, subject, recommendation, completed, date: recommendation?.date ?? subject.suggestedDate,
       completedDate: completed ? observedCompletionDate : undefined,
       // Completed subjects temporarily carry their common suggestion instead of
       // a personal recommendation. Keep the clicked day until the undo and its
-      // recommendation are read together, without treating the row as completed.
-      pendingUndoDate: pendingUndo ? observedCompletionDate : undefined,
-      windowStart: completion?.schedule?.windowStart ?? subject.executionWindowStart, windowEnd: completion?.schedule?.windowEnd ?? subject.executionWindowEnd,
+      // recommendation are read together. Expired work returns straight to its
+      // original window instead of briefly appearing in today's list.
+      pendingUndoDate: pendingUndo && windowEnd >= model.plan.range.asOfDate ? observedCompletionDate : undefined,
+      windowStart, windowEnd,
       counted: visible.showStatus && subject.required && !completed };
   }));
   const byDate = new Map<LocalDate, typeof entries>(); const counts = new Map<LocalDate, number>();

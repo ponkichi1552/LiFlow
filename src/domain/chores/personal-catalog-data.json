@@ -1,8 +1,9 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": 6,
+  "catalogVersion": 7,
+  "schedulingVersion": 6,
   "specificationVersion": "2026-11-04",
-  "sourceSha256": "d4983185b141ae868d50300a18330b84733ead980337506e0125156a4dc19390",
+  "sourceSha256": "335b6dfb5546c667f4f5e7d1e638595c55170c45ca1ec21bbbc1191432a67f23",
   "recipes": [
     {
       "id": "liflow-catalog-6.001",
@@ -306,7 +307,7 @@
     },
     {
       "id": "liflow-catalog-6.006",
-      "name": "玄関の清掃",
+      "name": "玄関の床掃除",
       "category": "基本の8件とごみ出し",
       "scope": "一人暮らしの玄関床。砂・ごみの除去と必要な拭き取り。靴箱の全出し清掃は別",
       "estimatedMinutes": 10,
@@ -4568,7 +4569,7 @@
     {
       "id": "liflow-catalog-6.081",
       "name": "靴箱内部の清掃",
-      "category": "分割した場合の初期値",
+      "category": "その他の清掃と布製品",
       "scope": "靴箱内部の清掃",
       "estimatedMinutes": 15,
       "load": "normal",
@@ -4594,7 +4595,7 @@
       },
       "initialEnabled": false,
       "availability": "available",
-      "splitParentId": "liflow-catalog-6.006",
+      "splitParentId": null,
       "exclusiveWithParent": false,
       "replacesRecipeIds": [],
       "integratedInto": [],

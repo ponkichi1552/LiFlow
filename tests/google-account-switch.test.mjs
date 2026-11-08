@@ -174,7 +174,7 @@ for(const platform of ['ios','android'])test(`${platform} Google Tasks connect c
   const h=await fixture();
   try{
     const snapshot=await repository.loadPlannerSnapshot(h.database,'2026-11-05');const c=controller(h);let synced=0;
-    const screen=screenHarness('src/app/settings.tsx',{platform,database:h.database,snapshot:()=>snapshot,refresh:async()=>{},mocks:{
+    const screen=screenHarness('src/app/settings.tsx',{params:{section:'tasks'},effect:callback=>callback(),effectDependencies:true,platform,database:h.database,snapshot:()=>snapshot,refresh:async()=>{},mocks:{
       '@/features/google-sync/account-switch':c.module,
       '@/features/google-sync/background-task':{registerGoogleSyncBackgroundTask:async()=>{}},
       '@/features/google-sync/google-oauth-config':{getGoogleSyncOAuthConfig:()=>({configured:true})},
@@ -184,7 +184,7 @@ for(const platform of ['ios','android'])test(`${platform} Google Tasks connect c
         return{kind:'success',created:0,updated:0,imported:0};
       }},
     }});
-    await screen.press('Google連携を開く');await screen.press('Googleと接続');
+    await screen.flush();await screen.press('Googleと接続');
     assert.equal(synced,1);assert.match(screen.text(),/接続し、同期しました/);assert.equal((await repository.loadGoogleSyncState(h.database)).accountSubject,'b');
     await archive.activatePersonalGoogleTaskAccount(h.database,'a',async()=>{});assert.equal((await repository.listGoogleTaskLinks(h.database))[0].googleTaskId,'task-a-0');
   }finally{h.connection.close();}
@@ -194,7 +194,7 @@ for(const platform of ['ios','android'])test(`${platform} account changes refres
   const h=await fixture();let release;
   try {
     const snapshot=await repository.loadPlannerSnapshot(h.database,'2026-11-05');let reads=0;
-    const screen=screenHarness('src/app/settings.tsx',{platform,database:h.database,snapshot:()=>snapshot,refresh:async()=>{},
+    const screen=screenHarness('src/app/settings.tsx',{params:{section:'tasks'},effect:callback=>callback(),effectDependencies:true,platform,database:h.database,snapshot:()=>snapshot,refresh:async()=>{},
       effectDependencies:true,effect:callback=>callback(),layoutEffect:callback=>callback(),mocks:{
         '@/features/google-sync/background-task':{},
         '@/features/google-sync/google-oauth-config':{getGoogleSyncOAuthConfig:()=>({configured:true})},
@@ -204,8 +204,8 @@ for(const platform of ['ios','android'])test(`${platform} account changes refres
       }});
     for(let i=0;i<30&&!release;i++)await new Promise(setImmediate);assert.equal(typeof release,'function');
     await controller(h).module.changeGoogleAccount(h.database);await screen.flush();
-    assert.equal(screen.button('Google連携を開く').props.accessibilityValue.text,'未接続');
-    release(true);await screen.flush();assert.equal(screen.button('Google連携を開く').props.accessibilityValue.text,'未接続');
+    assert.equal(screen.button('Googleと接続').props.disabled,false);
+    release(true);await screen.flush();assert.equal(screen.button('Googleと接続').props.disabled,false);
     screen.unmount();
   }finally{release?.(true);h.connection.close();}
 });

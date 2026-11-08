@@ -62,7 +62,8 @@ export function v2GoogleTaskItems(plan: V2CommonPlan, ownerUserId: string, perso
       const recommended = recommendations.get(subject.id);
       const blocked = !round.activeInPeriod || round.needsAssignment || round.assignmentConflictIds.length > 0 || round.assignmentMappingReviewIds.length > 0
         || subject.pendingCompletionIds.length > 0 || subject.requestReviewIds.length > 0 || subject.dependencyBlocked || subject.dependencyAwaitingCompletion
-        || ['conflict', 'review'].includes(subject.formalDate.kind) || Boolean(recommended && !['completed', 'manual', 'recommended'].includes(recommended.state));
+        || ['conflict', 'review'].includes(subject.formalDate.kind) || Boolean(recommended && !['completed', 'manual', 'recommended'].includes(recommended.state)
+          && !(recommended.state === 'expired' && subject.automaticBacklog === 'pending'));
       const target = validateV2GoogleTaskTarget({ ownerUserId, groupId: plan.groupId, choreId: round.choreId, anchorDate: round.anchorDate,
         ruleVersion: round.ruleVersion, subjectUserId: subject.subjectUserId, occurrenceId: round.id, subjectOccurrenceId: subject.id }, ownerUserId, plan.groupId);
       const completionRevisionRecords = records.map(({ operationId, active, acceptance, outcome }) => ({ operationId, active, acceptance, outcome }));

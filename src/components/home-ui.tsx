@@ -4,11 +4,16 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { LoadOrder } from '../domain/scheduling/task-priority';
 import { formatJapaneseDate } from '../domain/scheduling/local-date';
 import type { LocalDate } from '../domain/shared/types';
-import { ActionLabel, palette, typography } from './planner-ui';
+import { ActionLabel, navigationHeaderMetrics, palette, typography } from './planner-ui';
 import { GroupIcon } from './group-icon';
+import { Chevron } from './chevron';
 import type { homeSummary } from '../features/planner/home-summary';
 import type { HomeWeekScope } from '../features/planner/home-presentation';
 import { recordHomeFirstLayout } from '../platform/diagnostics/startup-clock';
+
+export function homeHeaderContainerStyle(workspaceName?: string) {
+  return [styles.headerFrame, !workspaceName && styles.singleLineHeaderFrame];
+}
 
 export function HomeWeekSwitcher({ scope, onChange }: { scope: HomeWeekScope; onChange: (scope: HomeWeekScope) => void }) {
   return <View style={styles.weekSwitcher}>{(['current', 'next'] as const).map(value => <Pressable key={value} accessibilityRole="button"
@@ -18,6 +23,13 @@ export function HomeWeekSwitcher({ scope, onChange }: { scope: HomeWeekScope; on
 }
 export function HomeUpcomingDate({ date }: { date: LocalDate }) {
   return <Text style={styles.upcomingDate}>{formatJapaneseDate(date, { weekday: true }).replace(/^\d+月/, '')}のおすすめ</Text>;
+}
+
+export function HomeExpiredHeading({ count, expanded, onToggle }: { count: number; expanded: boolean; onToggle: () => void }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={`期限を過ぎた家事（${count}件）を${expanded ? '閉じる' : '開く'}`}
+    accessibilityState={{ expanded }} onPress={onToggle} style={styles.expiredHeading}>
+    <Text style={styles.expiredTitle}>期限を過ぎた家事（{count}件）</Text><Chevron direction={expanded ? 'up' : 'down'} />
+  </Pressable>;
 }
 
 export function HomeHeader({ today, workspaceName, onGroup = () => router.push('/sharing') }: {
@@ -72,8 +84,12 @@ const styles = StyleSheet.create({
   weekOption: { flex: 1, minHeight: 44, borderRadius: 11, alignItems: 'center', justifyContent: 'center' }, weekSelected: { backgroundColor: palette.surface },
   weekText: { ...typography.caption, color: palette.muted, fontWeight: '600' }, weekSelectedText: { color: palette.accent, fontWeight: '800' },
   upcomingDate: { ...typography.caption, color: palette.muted, fontWeight: '600', marginTop: 8 },
+  headerFrame: { ...navigationHeaderMetrics, justifyContent: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
+  singleLineHeaderFrame: { minHeight: 0, paddingBottom: 0 },
   header: { flexDirection: 'row', gap: 6, alignItems: 'center' }, identity: { flex: 1, minWidth: 0, gap: 2 },
-  date: { ...typography.caption, color: palette.muted }, workspace: { ...typography.label, color: palette.ink, fontWeight: '600' },
+  date: { ...typography.subheading, color: palette.ink, fontWeight: '600' }, workspace: { ...typography.caption, color: palette.muted },
+  expiredHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, minHeight: 44, marginTop: 6 },
+  expiredTitle: { ...typography.label, color: palette.muted, fontWeight: '600', flexShrink: 1 },
   actions: { flexDirection: 'row', gap: 2 }, iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   progress: { gap: 5, paddingVertical: 6 },
   progressRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, count: { ...typography.caption, color: palette.muted },

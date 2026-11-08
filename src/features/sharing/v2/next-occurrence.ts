@@ -1,4 +1,5 @@
-import { addDays, daysBetween } from '../../../domain/scheduling/local-date.ts';
+import { addDays } from '../../../domain/scheduling/local-date.ts';
+import { v2AnchorAtIndex, v2AnchorIndexOnOrAfter } from './cadence.ts';
 import type { LocalDate } from '../../../domain/shared/types.ts';
 import type { SharedOperation } from '../operations.ts';
 import type { V2HistoryView } from './history-view.ts';
@@ -13,8 +14,8 @@ export function nextV2CommonOccurrence(view: V2HistoryView, at: SharedOperation,
     if (slice.review || !slice.configuration) throw new Error('次回の周期設定が競合しています。先に共通設定を確認してください。');
     const configuration = slice.configuration; if (configuration.active === false) continue;
     const first = [tomorrow, slice.from, configuration.anchorDate].sort().at(-1)!;
-    const index = Math.max(0, Math.ceil(daysBetween(configuration.anchorDate, first) / configuration.intervalDays));
-    const anchor = addDays(configuration.anchorDate, index * configuration.intervalDays);
+    const index = v2AnchorIndexOnOrAfter(configuration, first);
+    const anchor = v2AnchorAtIndex(configuration, index);
     if (slice.through !== null && anchor > slice.through) continue;
     return commonFrame(view.groupId, choreId, configuration, anchor);
   }

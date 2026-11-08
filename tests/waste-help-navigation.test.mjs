@@ -88,7 +88,6 @@ test('waste management visibility rejects duplicate taps and remains retryable a
         writes++; await new Promise((resolve) => { release = resolve; }); throw new Error('write failed');
       } } },
     });
-    await screen.press('次の収集日を開く');
     const control = screen.button('今回は表示しない');
     control.props.onPress(); control.props.onPress(); await screen.flush();
     assert.equal(writes, 1, 'in-flight guard must work before a rerender');
@@ -123,12 +122,12 @@ test('settings retain working weather and location attribution', async () => {
       mocks: settingsMocks });
     // Inspect and exercise the shared credit links with the actual linking API mocked at its boundary.
     const credits = screenHarness('src/components/data-credits.tsx', { exportName: 'DataCredits',
-      mocks: { 'react-native': { Text: 'Text', View: 'View', Pressable: 'Pressable', StyleSheet: { create: (value) => value }, Linking: { openURL: async (url) => { urls.push(url); } } } } });
+      mocks: { 'react-native': { Text: 'Text', View: 'View', Pressable: 'Pressable', useColorScheme: () => 'light', StyleSheet: { create: (value) => value }, Linking: { openURL: async (url) => { urls.push(url); } } } } });
     assert.equal(credits.nodes().filter((node) => node.props.accessibilityRole === 'link').length, 0);
     await credits.press('クレジットを開く');
     for (const link of credits.nodes().filter((node) => node.props.accessibilityRole === 'link')) await link.props.onPress();
     assert.deepEqual(urls, ['https://www.met.no/en/free-meteorological-data/Licensing-and-crediting', 'https://geolonia.github.io/japanese-addresses/', 'https://creativecommons.org/licenses/by/4.0/']);
-    screen.button('クレジットを開く');
+    screen.button('一般');
     const setup = screenHarness('src/features/onboarding/first-run-setup.tsx', { exportName: 'FirstRunSetup', database: h.database, props: { snapshot, onComplete() {} } });
     await setup.press('次へ'); await setup.press('次へ'); await setup.press('選択をすべて外す');
     await setup.press('次へ'); await setup.press('前回の時期はスキップ');
@@ -151,7 +150,7 @@ test('appliance details virtualize long instructions and return by popping to th
     await screen.press('一覧へ戻る');
     assert.deepEqual(calls, [['dismissTo', returnTo]], 'return must pop rather than push/replace');
     const last = screenHarness('src/features/appliance-care/appliance-detail-content.tsx', { exportName: 'ApplianceDetailContent', props: { context, returnTo },
-      mocks: { 'react-native': { Platform: { OS: 'ios' }, FlatList: (props) => props.renderItem({ item: props.data.at(-1), index: 9 }), Text: 'Text', View: 'View', Pressable: 'Pressable', StyleSheet: { create: (value) => value }, Linking: {} } } });
+      mocks: { 'react-native': { Platform: { OS: 'ios' }, useColorScheme: () => 'light', FlatList: (props) => props.renderItem({ item: props.data.at(-1), index: 9 }), Text: 'Text', View: 'View', Pressable: 'Pressable', StyleSheet: { create: (value) => value }, Linking: {} } } });
     assert.ok(last.text().includes('作業9'), 'all items remain available when the list renders them');
     last.button('一覧へ戻る');
     const analysis = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { params: { returnTo }, navigate: (...args) => calls.push(args), mocks: { '@/features/appliance-care/api-client': {} } });

@@ -16,7 +16,8 @@ function service(f, overrides = {}) {
 }
 
 test('private planner empty allowed times never imply all-day or guessed evening permission', () => {
-  assert.deepEqual(privatePlannerAllowedWindows(input(), '2026-10-26', '2026-11-01'), { windows: [], unresolvedDates: [] });
+  assert.deepEqual(privatePlannerAllowedWindows({ ...input(), dayTypes: { workday: { allowedBands: [] }, holiday: { allowedBands: [] } } },
+    '2026-10-26', '2026-11-01'), { windows: [], unresolvedDates: [] });
 });
 
 test('private planner normalizes explicit weekly bands without mutating caller input and preserves an exact midnight end', () => {

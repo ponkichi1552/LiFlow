@@ -27,7 +27,7 @@ import { privateBusyPlacement } from '../../features/planner/private-busy-input.
 import { snapshotPersonalPlacementPreferences } from '../../features/planner/personal-placement-preferences.ts';
 
 /** Serialized private settings stay local and never enter a shared event or Google payload. */
-export type PersonalAdaptivePreferences = Pick<AdaptiveLocalPreferences, 'allowedBands' | 'dayOverrides' | 'maximumMinutes'>;
+export type PersonalAdaptivePreferences = Pick<AdaptiveLocalPreferences, 'allowedBands' | 'dayOverrides' | 'maximumMinutes' | 'dayTypes'>;
 const timing = (event: EventDraft & { blocksTime?: boolean }) => [event.startDate, event.endDate, event.allDay, event.startMinute,
   event.endMinute, event.timeZone, event.recurrence, event.untilDate, event.customRecurrence, event.birthday, event.blocksTime];
 export function adaptiveCalendarTiming(events: readonly CalendarEvent[], exceptions: readonly CalendarException[]) {
@@ -118,7 +118,7 @@ export async function readPersonalAdaptiveContextInside(database: SQLiteDatabase
     heavyLimit: owner?.preferences?.loadLimits.heavyDailyLimit ?? settings.heavy_daily_limit,
     normalLimit: owner?.preferences?.loadLimits.normalDailyLimit ?? settings.normal_daily_limit,
     ...(owner?.preferences ? { allowedBands: owner.preferences.allowedBands, dayOverrides: owner.preferences.dayOverrides ?? [],
-      maximumMinutes: owner.preferences.maximumMinutes } : {}) };
+      maximumMinutes: owner.preferences.maximumMinutes, dayTypes: owner.preferences.dayTypes } : {}) };
   const now = input.now.toISOString();
   const clothingRegion = clothingRegionFor(municipality);
   const states: ChoreState[] = stateRows.map(row => ({ choreId: row.chore_id, lastCompletedDate: row.last_completed_date ?? undefined,

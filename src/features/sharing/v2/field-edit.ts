@@ -13,7 +13,7 @@ export interface V2FieldEdit { field: string; value: JsonValue; basisOperationId
   /** An explicit resolution must still include every currently conflicting source. */
   resolveOperationIds?: readonly string[] }
 export interface V2FieldSaveResult { operations: SharedOperation[]; fields: Record<string, V2EditableField> }
-export const V2_CHORE_DETAIL_FIELDS = ['name', 'description', 'instructions', 'procedureSections', 'tools', 'cautions'] as const;
+export const V2_CHORE_DETAIL_FIELDS = ['name', 'description', 'instructions', 'procedureSections', 'tools', 'cautions', 'estimatedMinutes'] as const;
 export type V2ChoreDetailField = typeof V2_CHORE_DETAIL_FIELDS[number];
 const clone = (value: JsonValue) => JSON.parse(canonicalJson(value)) as JsonValue;
 const sameIds = (a: readonly string[], b: readonly string[]) => canonicalJson([...a].sort()) === canonicalJson([...b].sort());

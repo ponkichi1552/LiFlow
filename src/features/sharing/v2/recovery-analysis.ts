@@ -101,7 +101,7 @@ export async function analyzeV2Recovery(input: {
   if (entries.size > MAX_V2_RECOVERY_ENTRIES) throw new V2RecoveryLimitError('確認が必要な変更が256件を超えています。元の証拠を残して復旧を停止しました。');
   const ordered = [...entries.values()].sort((a, b) => a.uploadSequence - b.uploadSequence);
   if (ordered.some(entry => entry.authorDeviceId === roster.body.ownerDeviceId && entry.classification !== 'restoredOriginal')) {
-    throw new V2RecoveryOriginalRequiredError('所有者端末の元の署名付き変更を確認できません。この端末の鍵を解除したり、変更を消して復旧することはできません。');
+    throw new V2RecoveryOriginalRequiredError('管理者端末の元の署名付き変更を確認できません。この端末の鍵を解除したり、変更を消して復旧することはできません。');
   }
   const readyFacts = [...good.values()].filter(fact => !pending.has(fact.operation.operationId));
   const retained = buildSharedReplica(baseline.groupId, readyFacts.map(fact => fact.operation), base);

@@ -2,20 +2,26 @@ import { v2MemberLabels } from './member-labels';
 import { useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { FlatList, Text, View } from 'react-native';
-import { AppButton, Card, SectionHeading } from '../../../components/planner-ui';
+import { Card, SectionHeading } from '../../../components/planner-ui';
+import { SettingsAction } from '../../../components/settings-controls';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import { v2FormStyles as styles } from './form-controls';
 import { v2TargetLabel } from './target-form';
 
-type Props = { model: V2GroupScreenModel; actions: V2GroupController['actions']; busy: boolean; header?: ReactElement;
+type Props = { model: V2GroupScreenModel; actions: V2GroupController['actions']; busy: boolean; header?: ReactElement; embedded?: boolean;
   run: (work: () => Promise<unknown>) => Promise<void>; onResolve?: (occurrenceId: string) => void };
 const labels = { pendingDelivery: '端末に保存済み · 申請の送信待ち', awaiting: '管理者の回答待ち', approved: '承認済み', rejected: '拒否されました',
   expired: '期限切れ', tooLate: '受付時に申請期限を過ぎていました', conflict: '回答が競合しています' };
 
 export function V2AssignmentRequests(props: Props) {
+  const [visibleCount, setVisibleCount] = useState(8);
   const closed = (request: Props['model']['assignmentRequests'][number]) => request.cancelled || ['approved', 'rejected', 'expired', 'tooLate'].includes(request.kind);
   const entries = props.model.assignmentRequests.filter((request) => props.model.viewerUserId === props.model.adminUserId
     || request.proposal.requesterUserId === props.model.viewerUserId).reverse().sort((a, b) => Number(closed(a)) - Number(closed(b)));
+  if (props.embedded) return <View style={{ gap: 12 }}>
+    {!entries.length ? <Text style={styles.caption}>申請はありません。</Text> : entries.slice(0, visibleCount).map(request => <AssignmentRequestCard key={request.requestId} {...props} requestId={request.requestId} />)}
+    {entries.length > visibleCount ? <SettingsAction placement="page" title="担当変更の申請をさらに表示" compact onPress={() => setVisibleCount(value => value + 8)} /> : null}
+  </View>;
   return <FlatList data={entries} keyExtractor={(request) => request.requestId} initialNumToRender={8}
     ListHeaderComponent={props.header} ListEmptyComponent={<Card><Text style={styles.body}>担当の変更申請はありません。</Text></Card>}
     contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12 }}
@@ -59,15 +65,15 @@ function AssignmentRequestCard({ model, actions, busy, run, requestId, onResolve
     {liveReview.pendingAnswer ? <Text style={styles.caption}>回答の送信待ちです。回答を端末に保存しています。正式な担当は受付確認後に判定します。期限後に届いた承認で元の申請を自動確定しません。</Text> : null}
     {saved ? <Text accessibilityLiveRegion="polite" style={styles.body}>回答を端末に保存しました。受付確認までは元の担当を維持します。</Text> : null}
     {stale ? <Text accessibilityRole="alert" style={styles.error}>回答・担当・日時・周期または権限が変わっています。現在の状態：{labels[liveRequest.kind]}。最新の内容を確認してください。</Text> : null}
-    {stale || saved ? <AppButton title="最新の担当申請を表示" variant="secondary" disabled={busy || saving} onPress={() => {
+    {stale || saved ? <SettingsAction placement="page" title="最新の担当申請を表示" disabled={busy || saving} onPress={() => {
       if (inFlight.current) return; setDisplayed({ request: liveRequest, review: liveReview }); setSaved(false); setError(null);
     }} /> : null}
     {review.canVote ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-      <AppButton title="担当変更を承認" disabled={disabled} onPress={() => answer('approve')} />
-      <AppButton title="担当変更を拒否" variant="secondary" disabled={disabled} onPress={() => answer('reject')} />
+      <SettingsAction placement="page" title="担当変更を承認" intent="primary" disabled={disabled} onPress={() => answer('approve')} />
+      <SettingsAction placement="page" title="担当変更を拒否" intent="destructive" disabled={disabled} onPress={() => answer('reject')} />
     </View> : null}
     {review.canResolve && !resolved ? <><Text style={styles.error}>異なる回答を保持しています。管理者が対象の家事回で正式な担当を確認して解決します。</Text>
-      {onResolve ? <AppButton title="家事回で担当の競合を解決" disabled={disabled || !model.plan.occurrences.some((round) => round.id === p.occurrenceId)} onPress={() => onResolve(p.occurrenceId)} /> : null}
+      {onResolve ? <SettingsAction placement="page" title="家事回で担当の競合を解決" disabled={disabled || !model.plan.occurrences.some((round) => round.id === p.occurrenceId)} onPress={() => onResolve(p.occurrenceId)} /> : null}
       {!model.plan.occurrences.some((round) => round.id === p.occurrenceId) ? <Text style={styles.caption}>対象の家事回が表示期間外です。期間を変えて確認してください。</Text> : null}</> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
   </Card>;

@@ -37,7 +37,7 @@ export function createV2OwnerRecovery(deps: Omit<SharedSyncDependencies, 'v2' | 
     guard(); const metadata = await deps.cloud.readGroup(deps.groupId); guard();
     const archive = await deps.verifyMembership(metadata.roster); guard(); const roster = archive.at(-1)!;
     if (roster.body.schemaVersion !== 2 || roster.body.ownerUserId !== deps.userId || roster.body.ownerDeviceId !== deps.identity.deviceId) {
-      throw new SharingAccessError('復旧の確認は所有者の端末で行ってください。');
+      throw new SharingAccessError('復旧の確認は管理者の端末で行ってください。');
     }
     return { ...metadata, archive, roster };
   }

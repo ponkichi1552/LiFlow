@@ -72,7 +72,7 @@ export function buildV2PersonalPlan(common: V2CommonPlan, input: {
     else if (subject.completed) state = 'completed';
     else if (subject.dependencyBlocked || subject.requestReviewIds.length || subject.pendingCompletionIds.length || !occurrence.activeInPeriod
       || subject.formalDate.kind === 'conflict' || subject.formalDate.kind === 'review' || occurrence.needsAssignment) state = 'review';
-    else if (subject.cooldownSuppressed) state = 'cooldown';
+    else if (subject.cooldownSuppressed || subject.automaticBacklog === 'covered') state = 'cooldown';
     else if (subject.executionWindowEnd < common.range.asOfDate) state = 'expired';
     else if (subject.formalDate.kind === 'manual' && subject.formalDate.mode !== 'deadline') {
       state = 'manual'; calendar = availability(subject.formalDate.target).conflict; reserve(date, load);
@@ -88,7 +88,7 @@ export function buildV2PersonalPlan(common: V2CommonPlan, input: {
         const current = loads.get(candidate) ?? { heavy: 0, normal: 0, total: 0 }; const busy = dayAvailability(candidate);
         const overflow = load === 'heavy' ? Math.max(0, current.heavy + 1 - limits.heavyDailyLimit) * 100
           : load === 'normal' ? Math.max(0, current.normal + 1 - limits.normalDailyLimit) * 20 : 0;
-        const score = [overflow, chores.get(occurrence.choreId)?.holidayPriority && input.settings.restDays.length && !input.settings.restDays.includes(weekdayOf(candidate)) ? 1 : 0,
+        const score = [overflow, input.settings.restDays.length && !input.settings.restDays.includes(weekdayOf(candidate)) ? 1 : 0,
           calendarPenaltyForChore(load, busy.busyMinutes ?? undefined) + Math.abs(daysBetween(occurrence.anchorDate, candidate)), current.total,
           Math.abs(daysBetween(occurrence.anchorDate, candidate))];
         if (!best || score.some((value, index) => value < best!.score[index] && score.slice(0, index).every((prior, offset) => prior === best!.score[offset]))) best = { date: candidate, score };

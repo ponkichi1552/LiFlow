@@ -5,6 +5,7 @@ import { fixture, seeds, now, draft, groupId } from './helpers/sharing-v2-reposi
 import { createV2PlannerActions } from '../src/features/sharing/v2/actions.ts';
 import { chorePolicyFromPreset } from '../src/features/sharing/v2/model.ts';
 import { v2GroupBootstrap } from '../src/features/sharing/v2/bootstrap.ts';
+import { createPersonalChoreDefinitions } from '../src/domain/chores/personal-catalog.ts';
 import { applyReceivedSharedFacts, loadSharedFacts, listSharingOutbox, readSharingCheckpoint, withSharingLedgerTransaction } from '../src/platform/storage/sharing-ledger.ts';
 import { receiptsFor } from './helpers/sharing-v2-repository-fixture.mjs';
 const ref = { choreId: 'floor', anchorDate: '2026-10-27', ruleVersion: 1, subjectUserId: null };
@@ -28,7 +29,7 @@ test('v2 actions keep bootstrap separate, require explicit activation and protec
   try {
     const operations = v2GroupBootstrap({ groupId, ownerUserId: 'owner', ownerDisplayName: '所有者', name: '検査', timeZone: 'Asia/Tokyo', anchorDate: '2026-10-27', kind: 'roommates' });
     await owner.repository.commit(operations); const a = actions(owner); let plan = await a.readPlan(range);
-    assert.equal(plan.chores.length, 36); assert.equal(plan.chores.some((chore) => chore.enabled), false); assert.equal(plan.occurrences.length, 0);
+    assert.equal(plan.chores.length, createPersonalChoreDefinitions('catalog').length); assert.equal(plan.chores.some((chore) => chore.enabled), false); assert.equal(plan.occurrences.length, 0);
     assert.equal(plan.policy.kind, 'roommates'); const choreId = plan.chores[0].id;
     await a.configureChore(choreId, { policy: chorePolicyFromPreset('eachMember'), anchorDate: '2026-10-29', intervalDays: 3, windowBeforeDays: 0, windowAfterDays: 1, effectiveFrom: '2026-10-29', active: true });
     plan = await a.readPlan(range); assert.equal(plan.occurrences[0].anchorDate, '2026-10-29');
@@ -145,6 +146,7 @@ test('v2 members may add disabled chores and procedures without gaining activati
     const plan = await a.readPlan(range); const chore = plan.chores.find((entry) => entry.id === added.entityId);
     assert.equal(chore.enabled, false); assert.equal(plan.occurrences.some((entry) => entry.choreId === chore.id), false);
     assert.deepEqual(chore.instructions, ['道具を用意する']);
+    assert.equal(chore.category, '追加した家事');
     await assert.rejects(a.patchChore(chore.id, { enabled: true }), { code: 'sharing/v2-authority-denied' });
   } finally { owner.connection.close(); member.connection.close(); }
 });

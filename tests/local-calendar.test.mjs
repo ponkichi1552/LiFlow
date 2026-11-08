@@ -160,7 +160,7 @@ test('saving another calendar event never discards an unrelated new or existing 
   await deleteCalendarEvent(h.database, { id: b, expectedRevision: 1 });
   assert.equal((await readLocalCalendar(h.database)).draft, null);
 });
-test('birthday and ordinary event drafts remain independent when saved discarded and resumed from settings', async t => {
+test('birthday and ordinary event drafts remain independent when saved discarded and resumed from calendar', async t => {
   const h = await fixture(t);
   const ordinary = { eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series', value: draft({ title: '入力途中の予定' }) };
   const birthday = { ...ordinary, value: { ...newEventDraft('2026-10-30', 'Asia/Tokyo', true), title: '入力途中の誕生日' } };
@@ -171,9 +171,7 @@ test('birthday and ordinary event drafts remain independent when saved discarded
   await saveCalendarDraft(h.database, birthday); await saveCalendarDraft(h.database, null);
   assert.equal((await readLocalCalendar(h.database)).draft.value.title, birthday.value.title);
   const local = { database: h.database, snapshot: await readLocalCalendar(h.database), loading: false, error: null, refresh: async () => {} };
-  const screen = screenHarness('src/features/calendar/birthday-settings.tsx', { exportName: 'BirthdaySettings', database: h.database, snapshot: () => ({ today: '2026-10-30', timeZone: 'Asia/Tokyo' }),
-    mocks: { './use-local-calendar': { useLocalCalendar: () => local } } });
-  await screen.press('誕生日を追加');
+  const screen = screenHarness('src/features/calendar/calendar-editor.tsx', { exportName: 'CalendarEditor', props: { initial: birthday, local, onClose() {}, onSaved() {} } });
   assert.equal(screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '予定名').props.defaultValue, birthday.value.title);
   await screen.press('入力を破棄'); for (let n = 0; n < 15 && (await readLocalCalendar(h.database)).draft; n++) await screen.flush();
   assert.equal((await readLocalCalendar(h.database)).draft, null);

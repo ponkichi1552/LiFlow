@@ -22,7 +22,15 @@ async function context() {
   return { ...h, chore, options, refresh, snapshot: () => snapshot };
 }
 const input = (screen, name) => screen.nodes().find((node) => node.type === 'TextInput' && node.props.accessibilityLabel === name);
-const switchFor = (screen, name) => screen.nodes().find((node) => node.type === 'Switch' && node.props.accessibilityLabel === name);
+const checkboxFor = (screen, name) => {
+  const node = screen.nodes().find(item => item.props.accessibilityRole === 'checkbox' && item.props.accessibilityLabel === name);
+  assert.ok(node, `missing checkbox: ${name}`); return node;
+};
+const setChecked = async (screen, name, value) => {
+  const node = checkboxFor(screen, name); assert.equal(node.props.disabled, false);
+  if (node.props.accessibilityState.checked !== value) node.props.onPress();
+  await screen.flush();
+};
 
 test('autosave validates integer drafts including full-width digits without accepting partial or scientific input', () => {
   assert.equal(parseSettingInteger(' １７ ', 1, 3650), 17);
@@ -150,9 +158,9 @@ test('individual settings save numeric edits automatically without a save button
     await screen.change('家事周期の日数', '17');
     await delay(500); await screen.flush();
     assert.equal(h.snapshot().chores.find((item) => item.id === h.chore.id).recommendedCycleDays, 17);
-    switchFor(screen, '家事を有効にする').props.onValueChange(true); await screen.flush();
+    await setChecked(screen, '家事を有効にする', true);
     await screen.press('重い'); await screen.press('外干し');
-    switchFor(screen, '休日を優先').props.onValueChange(true); await screen.flush();
+    await setChecked(screen, '休日を優先', true);
     await screen.change('実施期間の日数幅', '3'); await screen.endEditing('実施期間の日数幅');
     const reopened = screenHarness('src/app/chores/[id].tsx', h.options);
     assert.equal(input(reopened, '家事周期の日数').props.value, '17');
@@ -180,7 +188,7 @@ test('individual settings keep invalid drafts out of the DB while saving indepen
     const screen = screenHarness('src/app/chores/[id].tsx', h.options);
     await screen.change('家事周期の日数', '1e2');
     await screen.change('実施期間の日数幅', '999');
-    switchFor(screen, '家事を有効にする').props.onValueChange(true); await screen.flush();
+    await setChecked(screen, '家事を有効にする', true);
     const saved = h.snapshot().chores.find((item) => item.id === h.chore.id);
     assert.equal(saved.enabled, true); assert.equal(saved.windowRadiusDays, h.chore.windowRadiusDays); assert.equal(saved.recommendedCycleDays, h.chore.recommendedCycleDays);
     assert.ok(screen.text().includes('周期は1日以上') && screen.text().includes('期間幅は±0〜±14'));
@@ -267,21 +275,22 @@ for (const manufacturerDays of [undefined, 30]) {
   }
 }
 
-test('individual settings show failed saves and retry the retained draft', async () => {
+test('individual settings allow retry while editing and discard a failed draft when leaving', async () => {
   const h = await context();
   try {
     let fail = true; const navigation = [];
     const screen = screenHarness('src/app/chores/[id].tsx', { ...h.options, navigate: (...args) => navigation.push(args), mocks: { '@/platform/storage/repository': { ...repository, updateChoreSettings: async (...args) => {
       if (fail) throw new Error('保存失敗'); return repository.updateChoreSettings(...args);
     } } } });
-    switchFor(screen, '家事を有効にする').props.onValueChange(true); await screen.flush();
+    await setChecked(screen, '家事を有効にする', true);
     assert.equal(h.snapshot().chores.find((item) => item.id === h.chore.id).enabled, false);
-    assert.equal(switchFor(screen, '家事を有効にする').props.value, true);
+    assert.equal(checkboxFor(screen, '家事を有効にする').props.accessibilityState.checked, true);
     assert.ok(screen.text().includes('保存失敗'));
-    await screen.press('前の画面に戻る'); assert.deepEqual(navigation, [], 'failed writes must keep the draft on screen');
     fail = false; await screen.press('保存を再試行');
     assert.equal(h.snapshot().chores.find((item) => item.id === h.chore.id).enabled, true);
+    fail = true; await screen.change('家事周期の日数', '17'); await screen.endEditing('家事周期の日数');
     await screen.press('前の画面に戻る'); assert.deepEqual(navigation, [['back']]);
+    assert.equal(h.snapshot().chores.find(item => item.id === h.chore.id).recommendedCycleDays, h.chore.recommendedCycleDays);
   } finally { h.connection.close(); }
 });
 
@@ -295,10 +304,10 @@ test('private appliance autosave supports necessary-only reset and preserves exp
     await h.refresh(); const chore = h.snapshot().chores.find((item) => item.applianceId === saved.applianceId);
     await repository.updateChoreSettings(h.database, chore.id, { cycleDays: null }); await h.refresh();
     const screen = screenHarness('src/app/chores/[id].tsx', { ...h.options, params: { id: chore.id } });
-    assert.equal(switchFor(screen, '家事を有効にする').props.disabled, false);
+    assert.equal(checkboxFor(screen, '家事を有効にする').props.disabled, false);
     await screen.change('家事周期の日数', '14'); await screen.endEditing('家事周期の日数');
     assert.equal(h.snapshot().chores.find((item) => item.id === chore.id).enabled, true);
-    switchFor(screen, '家事を有効にする').props.onValueChange(false); await screen.flush();
+    await setChecked(screen, '家事を有効にする', false);
     await screen.change('家事周期の日数', '21'); await screen.endEditing('家事周期の日数');
     assert.equal(h.snapshot().chores.find((item) => item.id === chore.id).enabled, false);
     await screen.change('家事周期の日数', ''); await screen.endEditing('家事周期の日数');
@@ -326,7 +335,7 @@ test('clearing a built-in cycle restores its frequency-mode default and preserve
   try {
     const screen = screenHarness('src/app/chores/[id].tsx', h.options);
     await screen.change('家事周期の日数', '17'); await screen.endEditing('家事周期の日数');
-    switchFor(screen, '家事を有効にする').props.onValueChange(false); await screen.flush();
+    await setChecked(screen, '家事を有効にする', false);
     await screen.change('家事周期の日数', ''); await screen.endEditing('家事周期の日数');
     const saved = h.snapshot().chores.find((item) => item.id === h.chore.id);
     assert.equal(saved.recommendedCycleDays, undefined); assert.equal(saved.enabled, false);
@@ -344,7 +353,7 @@ test('appliance autosave restores manufacturer cycles without changing steps or 
     await h.refresh(); const chore = h.snapshot().chores.find((item) => item.applianceId === saved.applianceId);
     const screen = screenHarness('src/app/chores/[id].tsx', { ...h.options, params: { id: chore.id } });
     await screen.change('家事周期の日数', '17'); await screen.endEditing('家事周期の日数');
-    switchFor(screen, '家事を有効にする').props.onValueChange(false); await screen.flush();
+    await setChecked(screen, '家事を有効にする', false);
     await screen.change('家事周期の日数', ''); await screen.endEditing('家事周期の日数');
     const actual = h.snapshot().chores.find((item) => item.id === chore.id);
     assert.equal(actual.manufacturerRecommendedIntervalDays, 30); assert.equal(actual.userIntervalDays, undefined); assert.equal(actual.recommendedCycleDays, undefined);

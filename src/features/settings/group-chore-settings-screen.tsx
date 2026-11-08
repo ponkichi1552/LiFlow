@@ -19,11 +19,13 @@ export function GroupChoreSettingsScreen() {
   }
   const selection = typeof params.matchName === 'string' && typeof params.matchCategory === 'string'
     ? { name: params.matchName, category: params.matchCategory } : undefined;
-  return <SelectedGroupChoreSettings key={`${context.userId}:${params.groupId}`} userId={context.userId} groupId={params.groupId} choreId={params.id} selection={selection} />;
+  const opened = context.active?.userId === context.userId && context.active.groupId === params.groupId ? context.active : undefined;
+  return <SelectedGroupChoreSettings key={`${context.userId}:${params.groupId}`} userId={context.userId} groupId={params.groupId} choreId={params.id} selection={selection} initialWorkspace={opened} />;
 }
-export function SelectedGroupChoreSettings({ userId, groupId, choreId, selection, initialView = 'details' }: { userId: string; groupId: string; choreId: string; selection?: ChoreAudienceSelection; initialView?: 'details' | 'history' }) {
+export function SelectedGroupChoreSettings({ userId, groupId, choreId, selection, initialView = 'details', initialWorkspace }: { userId: string; groupId: string; choreId: string; selection?: ChoreAudienceSelection; initialView?: 'details' | 'history'; initialWorkspace?: SharedWorkspace }) {
   const display = useOptionalWorkspaceDisplay();
-  const [workspace, setWorkspace] = useState<SharedWorkspace | null>(display?.workspace?.userId === userId && display.workspace.groupId === groupId ? display.workspace : null);
+  const [workspace, setWorkspace] = useState<SharedWorkspace | null>(display?.workspace?.userId === userId && display.workspace.groupId === groupId ? display.workspace
+    : initialWorkspace?.userId === userId && initialWorkspace.groupId === groupId ? initialWorkspace : null);
   const [error, setError] = useState<string | null>(null); const [retry, setRetry] = useState(0);
   useEffect(() => {
     let current = true;

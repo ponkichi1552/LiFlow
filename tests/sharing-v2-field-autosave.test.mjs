@@ -136,17 +136,16 @@ test('v2 field input binds the value actually rendered when a remote store updat
   } finally { d.connection.close(); }
 });
 
-test('v2 field autosave keeps invalid input out of SQLite and prevents leaving until correction or explicit discard', async () => {
+test('v2 field autosave keeps invalid input out of SQLite and discards it automatically on departure', async () => {
   const d = await setup();
   try {
     const options = { fields: await d.fields(), codecs, delayMs: 60000,
       save: (edits) => d.c.actions.patchChoreDetails('floor', edits), onSaved: async () => {} };
     const store = createV2FieldEditorState(options); let left = 0;
     store.change('name', 'valid'); store.change('name', ' '); assert.equal(await store.flush(), false);
-    assert.equal(await store.navigateAfterSave(() => { left++; }), false); assert.equal(left, 0);
-    assert.equal((await listSharingOutbox(d.database, groupId)).length, 4);
-    assert.equal(store.getSnapshot().raw.name, ' '); store.discard('name'); assert.equal(store.hasDraft(), false);
     assert.equal(await store.navigateAfterSave(() => { left++; }), true); assert.equal(left, 1);
+    assert.equal((await listSharingOutbox(d.database, groupId)).length, 4);
+    assert.equal(store.getSnapshot().raw.name, options.fields.name.value); assert.equal(store.hasDraft(), false);
     assert.equal(await store.navigateAfterSave(() => { left++; }), false); assert.equal(left, 1);
   } finally { d.connection.close(); }
 });

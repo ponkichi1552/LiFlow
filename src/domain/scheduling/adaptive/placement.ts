@@ -1,9 +1,10 @@
 import type { ChoreLoad } from '../../chores/types';
 import type { LocalDate } from '../../shared/types';
 import { addDays, daysBetween, parseLocalDate } from '../local-date.ts';
-import { roundedAdaptiveDays } from './models.ts';
+import { adaptiveWindowRadius, roundedAdaptiveDays } from './models.ts';
 import { createMetWeatherEvaluator } from '../../../../server/appliance-care-api/src/weather/forecast.mjs';
 import type { MetForecast } from '../../../../server/appliance-care-api/src/weather/forecast.mjs';
+export { adaptiveWindowRadius } from './models.ts';
 
 export interface InstantSpan { start: number; end: number }
 export interface AdaptivePlacementDay {
@@ -63,10 +64,6 @@ function reserveInstantSpan(union: InstantSpan[], span: InstantSpan) {
   let end = low; const merged = { ...span };
   while (end < union.length && union[end].start <= merged.end) { merged.start = Math.min(merged.start, union[end].start); merged.end = Math.max(merged.end, union[end].end); end++; }
   union.splice(low, end - low, merged);
-}
-export function adaptiveWindowRadius(period: number): number {
-  const days = roundedAdaptiveDays(period);
-  return days <= 7 ? 0 : days <= 13 ? 1 : days <= 29 ? 2 : days <= 59 ? 3 : days <= 89 ? 5 : days <= 179 ? 7 : 14;
 }
 /** Saved once with the first real round; this seed is never a fabricated completion. */
 export function initialAdaptiveBaseDate(input: { today: LocalDate; periodDays: number; ownerId: string; choreId: string;

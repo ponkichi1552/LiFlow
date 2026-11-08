@@ -12,6 +12,11 @@ export interface AdaptiveInterval { days: number; ordinal: number }
 const methods: readonly AdaptiveMethod[] = ['median', 'exponential', 'weekly', 'monthEnd', 'alternating'];
 const positive = (value: number) => { if (!Number.isFinite(value) || value <= 0) throw new RangeError('周期の正の数値が必要です。'); return value; };
 export const roundedAdaptiveDays = (value: number) => Math.max(1, Math.floor(positive(value)));
+/** Pure catalogue defaults do not need weather or placement dependencies. */
+export function adaptiveWindowRadius(period: number): number {
+  const days = roundedAdaptiveDays(period);
+  return days <= 7 ? 0 : days <= 13 ? 1 : days <= 29 ? 2 : days <= 59 ? 3 : days <= 89 ? 5 : days <= 179 ? 7 : 14;
+}
 /** A one-day phase of an alternating rule is not an everyday chore. */
 export function adaptiveModelIsDaily(model: AdaptiveModel): boolean {
   return model.method === 'median' || model.method === 'exponential' ? roundedAdaptiveDays(model.days) === 1

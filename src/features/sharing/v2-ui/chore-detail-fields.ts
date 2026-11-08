@@ -1,5 +1,6 @@
 import type { JsonValue } from '../operations';
 import type { V2FieldCodec } from './field-editor-state';
+import { parseSettingInteger } from '../../../domain/chores/settings-patch.ts';
 
 export interface V2SectionDraft { title: string; text: string }
 const text = (raw: JsonValue): string => { if (typeof raw !== 'string') throw new Error('文章を入力してください。'); return raw; };
@@ -9,6 +10,9 @@ const lines = (raw: JsonValue): string[] => {
 };
 const lineCodec: V2FieldCodec = { format: (value) => Array.isArray(value) ? value.join('\n') : '', parse: lines };
 export const v2ChoreDetailCodecs: Record<string, V2FieldCodec> = {
+  estimatedMinutes: { format: value => typeof value === 'number' ? String(value) : '', parse: raw => {
+    const minutes = parseSettingInteger(text(raw), 1, 1440); if (minutes === undefined) throw new Error('目安時間は1〜1440分で入力してください。'); return minutes;
+  } },
   name: { format: (value) => typeof value === 'string' ? value : '', parse: (raw) => {
     const value = text(raw).trim(); if (!value || value.length > 500) throw new Error('家事名は1〜500文字で入力してください。'); return value;
   } },

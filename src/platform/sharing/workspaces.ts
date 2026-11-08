@@ -122,8 +122,8 @@ export function sharingFailureMessage(error: unknown): string {
   if (code === 'permission-denied' || code === 'sharing/access-denied') return '参加状態またはログインを確認してください。端末内の変更は保持しています。';
   if (code === 'resource-exhausted') return '共有先の利用上限に達しました。時間をおいて再送します。';
   if (code === 'unauthenticated' || code.startsWith('auth/')) return '共有アカウントでログインし直してください。';
-  if (code === 'sharing/key-version-changed') return '共有鍵の更新を待っています。所有者の端末で同期してください。';
-  if (code === 'sharing/recovery-in-progress') return '所有者が共有の復旧を進めています。変更はこの端末に保存され、復旧後に送信されます。';
+  if (code === 'sharing/key-version-changed') return '共有鍵の更新を待っています。管理者の端末で同期してください。';
+  if (code === 'sharing/recovery-in-progress') return '管理者が共有の復旧を進めています。変更はこの端末に保存され、復旧後に送信されます。';
   if (code === 'sharing/scheduler-version-mismatch') return 'この共有グループの計算ルールに対応するLiFlowへ更新してください。';
   return '同期を完了できませんでした。端末内の変更は保持し、再送します。';
 }
@@ -270,7 +270,7 @@ async function buildLegacyMigrationWorkspace(context: WorkspaceOpenContext): Pro
       } });
     return { ...selection, protocol: 'migration', database, cloud, identity, manager: null, migration,
       record: readRecord, drain: () => drainPlannerDatabaseOperations(database),
-      readOverview: async () => { throw new Error('履歴・設定を引き継ぐため、所有者によるv2への移行が必要です。'); },
+      readOverview: async () => { throw new Error('履歴・設定を引き継ぐため、管理者によるv2への移行が必要です。'); },
       roster: () => roster, checkpoint: () => readSharingCheckpoint(database, groupId),
       watch: (callback, failed) => cloud.watch(groupId, callback, failed),
       cancelJoinRequest: async () => { throw new Error('移行する参加状態を確認してください。'); }, maintainHistory: async () => {},

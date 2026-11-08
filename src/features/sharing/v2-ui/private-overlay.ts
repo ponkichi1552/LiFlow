@@ -80,7 +80,9 @@ export function projectV2PrivateTasks(input: PrivatePlannerInput, ownerUserId: s
         ...((task.entry?.seasonalWork ?? task.completion?.seasonalWork) ? [task.entry?.seasonalWork ?? task.completion?.seasonalWork] : [])])}`,
       revision: dateTaskRevision(task), ownerUserId, householdId: snapshot.household.id, date, graceDays, chore,
       seasonalWork: task.entry?.seasonalWork ?? task.completion?.seasonalWork,
-      completed: task.completed, completedDate: task.completion ? completionRecordedDate(task.completion) : undefined, suggestedDate: task.suggestedDate, windowStart: task.entry?.windowStart ?? task.completion?.scheduledWindowStart, windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd,
+      completed: task.completed, completedDate: task.completion ? completionRecordedDate(task.completion) : undefined,
+      suggestedDate: task.completion?.scheduledDate ?? task.suggestedDate,
+      windowStart: task.completion?.scheduledWindowStart ?? task.entry?.windowStart, windowEnd: task.completion?.scheduledWindowEnd ?? task.entry?.windowEnd,
     }));
     home.push(...rows(today, 3));
     for (let date = range.from; date <= range.through; date = addDays(date, 1)) {

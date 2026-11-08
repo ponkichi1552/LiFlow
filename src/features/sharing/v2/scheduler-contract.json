@@ -1,5 +1,5 @@
 {
-  "version": "liflow-shared-2-draft-51",
+  "version": "liflow-shared-2-draft-55",
   "timeZoneVersion": "2026e",
   "sourceFiles": [
     "src/features/sharing/v2/model.ts",
@@ -121,7 +121,17 @@
     "src/platform/storage/sharing-ledger.ts",
     "src/platform/storage/isolated-projection-value.ts",
     "src/features/sharing/workspace-protocol.ts",
-    "src/features/sharing/v2/input-capture.ts"
+    "src/features/sharing/v2/input-capture.ts",
+    "src/features/sharing/v2/automatic-backlog.ts",
+    "src/domain/chores/personal-catalog-data.json",
+    "src/domain/chores/personal-catalog.ts",
+    "src/domain/scheduling/adaptive/models.ts",
+    "src/features/sharing/v2/standard-catalog.ts",
+    "src/domain/chores/custom-chore.ts",
+    "src/domain/chores/settings-patch.ts",
+    "src/features/sharing/v2/rotation-progress.ts",
+    "src/features/sharing/v2/rotation.ts",
+    "src/features/sharing/v2/cadence.ts"
   ],
-  "sourceSha256": "53645ba6542b27ca997fc57953250364427af4cd80e8ead135307e7f2a9da2d6"
+  "sourceSha256": "b777e785612c71b845c75f19f2c23adf2a1c3aa6aa0aac6f31b3541e77b2d86c"
 }

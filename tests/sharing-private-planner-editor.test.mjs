@@ -21,15 +21,16 @@ test('private preference editor does not save defaults or invent permitted hours
   assert.equal(await editor.navigateAfterSave(() => moves++), true); assert.equal(moves, 1); assert.equal(f.calls.length, 0); assert.equal(await f.actual.read(), null);
 });
 
-test('private preference editor saves only complete explicit clock bands and blocks navigation for incomplete input', async t => {
+test('private preference editor saves only complete explicit clock bands and discards incomplete input on departure', async t => {
   const f = fixture(t); const editor = f.create(); let moves = 0;
   editor.addBand(1); assert.equal(await editor.flush(), false); assert.equal(f.calls.length, 0);
   editor.change(value => ({ ...value, bands: [{ ...value.bands[0], start: '19:' }] }));
-  assert.equal(await editor.navigateAfterSave(() => moves++), false); assert.equal(editor.getSnapshot().navigationBlocked, true); assert.equal(moves, 0);
+  assert.equal(await editor.navigateAfterSave(() => moves++), true); assert.equal(editor.getSnapshot().navigationBlocked, false); assert.equal(moves, 1);
+  assert.equal(editor.getSnapshot().raw.bands.length, 0); editor.resumeNavigation(); editor.addBand(1);
   editor.change(value => ({ ...value, bands: [{ ...value.bands[0], start: '19:00', end: '20:30' }] }));
   assert.equal(await editor.flush(), true); assert.equal(f.calls.length, 1); assert.equal(editor.getSnapshot().hasDraft, false);
   assert.deepEqual((await f.actual.read()).allowedBands, [{ weekday: 1, startMinute: 1140, endMinute: 1230 }]);
-  assert.equal(await editor.navigateAfterSave(() => moves++), true); assert.equal(moves, 1);
+  assert.equal(await editor.navigateAfterSave(() => moves++), true); assert.equal(moves, 2);
 });
 
 test('private preference editor handles a midnight end and fullwidth input without accepting an overnight inversion', async t => {
@@ -60,12 +61,12 @@ test('private preference editor retains incomplete latest input when an earlier 
   editor.discardDraft(); assert.equal(await editor.flush(), true); assert.equal(editor.getSnapshot().raw.heavy, '3');
 });
 
-test('private preference editor refuses stale conflicting updates and discards only explicitly uncommitted input', async t => {
+test('private preference editor refuses stale conflicting updates and abandons rejected edits on departure', async t => {
   const f = fixture(t); const initial = await f.actual.save(0, defaults()); const editor = f.create({ saved: initial });
   await f.actual.save(1, { ...defaults(), restDays: [3] }); editor.change(value => ({ ...value, restDays: [4] }));
   assert.equal(await editor.flush(), false); assert.match(editor.getSnapshot().status.error, /別の操作/u);
-  let moves = 0; assert.equal(await editor.navigateAfterSave(() => moves++), false); assert.equal(moves, 0);
-  editor.discardDraft(); assert.equal(await editor.navigateAfterSave(() => moves++), true); assert.equal(moves, 1);
+  let moves = 0; assert.equal(await editor.navigateAfterSave(() => moves++), true); assert.equal(moves, 1);
+  assert.equal(editor.getSnapshot().hasDraft, false); await editor.flush();
   assert.deepEqual((await f.actual.read()).restDays, [3]);
 });
 

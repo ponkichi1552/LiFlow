@@ -23,8 +23,6 @@ for (const platform of ['ios', 'android']) {
     const selected = [];
     const sections = {
       common: [['グループ名・ルール', '/group-v2/group-rules']],
-      requests: [['日時変更の申請', '/group-v2/requests'], ['担当変更の申請', '/group-v2/assignment-requests']],
-      chores: [['個人家事から追加', '/group-v2/personal-copy'], ['ゴミ収集日', '/group-v2/waste']],
       google: [['共有家事のGoogle Tasks連携', '/group-v2/google-tasks'], ['共有予定のGoogle表示', '/group-v2/google-calendar']],
       notifications: [['共有家事の通知', '/group-v2/notifications']],
     };

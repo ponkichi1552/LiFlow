@@ -15,7 +15,7 @@ for (const line of table.split('\n')) {
 }
 const guides = [...document.matchAll(/^### ([^\n]+)\n([\s\S]*?)(?=^#{1,3} |$(?![\s\S]))/gmu)].map(match => ({ name: match[1].trim(), body: match[2] }));
 if (rows.length !== 81 || guides.length !== 81 || new Set(rows.map(row => row.cells[0])).size !== 81) throw new Error('The adopted catalog must have exactly 81 unique rows and guides.');
-const basic = ['部屋の清掃', '浴室の清掃', 'トイレの清掃', '洗面台の清掃', 'シンクの清掃', '玄関の清掃', '衣類・タオルの洗濯', '寝具カバーの交換・洗濯'];
+const basic = ['部屋の清掃', '浴室の清掃', 'トイレの清掃', '洗面台の清掃', 'シンクの清掃', '玄関の床掃除', '衣類・タオルの洗濯', '寝具カバーの交換・洗濯'];
 const numeric = new Map(Object.entries({ '2日に1回': 2, '3日に1回': 3, '週1回': 7, '2週間に1回': 14,
   '月1回': 30, '2か月に1回': 60, '3か月に1回': 90, '半年に1回': 180, '年1回': 365 }));
 const needed = new Set(['必要時', '収納前・汚れ時', '汗が染みた時・汚れやにおい時', '使用前又は洗濯後の必要時', 'カビを見つけた時', '通常清掃で落ちない汚れがある時']);
@@ -52,8 +52,9 @@ const splitParents = {
   '衣類だけの洗濯': '衣類・タオルの洗濯', 'タオルだけの洗濯': '衣類・タオルの洗濯',
   '枕カバーの交換・洗濯': '寝具カバーの交換・洗濯', 'シーツの交換・洗濯': '寝具カバーの交換・洗濯', '掛け布団カバーの交換・洗濯': '寝具カバーの交換・洗濯',
   '食器・調理器具の洗浄': '調理後の片付け', '調理台・コンロの軽い清掃': '調理後の片付け',
-  '厚手カーテンの洗濯': 'カーテンの洗濯', 'レースカーテンの洗濯': 'カーテンの洗濯', '靴箱内部の清掃': '玄関の清掃',
+  '厚手カーテンの洗濯': 'カーテンの洗濯', 'レースカーテンの洗濯': 'カーテンの洗濯',
 };
+const standaloneCategories = { '靴箱内部の清掃': 'その他の清掃と布製品' };
 const integrated = {
   '洗濯機の糸くずフィルター清掃': ['衣類・タオルの洗濯', '衣類だけの洗濯', 'タオルだけの洗濯'],
   '洗濯機の乾燥フィルター清掃': ['衣類・タオルの洗濯', '衣類だけの洗濯', 'タオルだけの洗濯'],
@@ -73,20 +74,19 @@ const recipes = rows.map(({ tableGroup, cells }, index) => {
   const tips = end[1] ? items(end[1]).map((body, i) => ({ id: `${ids.get(name)}.tip-${i + 1}`, body })) : [];
   const modes = { frequent: cadence(frequent), balanced: cadence(balanced), relaxed: cadence(relaxed) };
   const held = Object.values(modes).some(value => value.kind === 'held');
-  if (tableGroup === '分割した場合の初期値' && !splitParents[name]) throw new Error(`Unspecified split relation: ${name}`);
-  const recipe = { id: ids.get(name), name, category: tableGroup, scope: scope ?? name,
+  if (tableGroup === '分割した場合の初期値' && !splitParents[name] && !standaloneCategories[name]) throw new Error(`Unspecified split relation: ${name}`);
+  const recipe = { id: ids.get(name), name, category: standaloneCategories[name] ?? tableGroup, scope: scope ?? name,
     estimatedMinutes: Number(match[2]), load: { 軽い: 'light', 普通: 'normal', 重い: 'heavy' }[match[1]],
     loadExplanation: plain(match[3]), modes, cadenceLabels: { frequent, balanced, relaxed },
     initialEnabled: basic.includes(name), availability: held ? 'held' : 'available',
     splitParentId: splitParents[name] ? refs([splitParents[name]])[0] : null,
-    // The entry's normal scope is the entrance floor; the optional shoe cabinet is already separate.
-    exclusiveWithParent: Boolean(splitParents[name]) && name !== '靴箱内部の清掃',
+    exclusiveWithParent: Boolean(splitParents[name]),
     replacesRecipeIds: name === '網戸を外して行う清掃' ? refs(['窓まわりの清掃', '網戸の通常清掃']) : [],
     integratedInto: refs(integrated[name]), tools: items(match[4]), instructions: items(match[5], true), cautions: items(end[0]), trivia: tips };
   if (!recipe.tools.length || !recipe.instructions.length || !recipe.cautions.length || !Number.isSafeInteger(recipe.estimatedMinutes) || recipe.estimatedMinutes <= 0) throw new Error(`Incomplete recipe: ${name}`);
   return recipe;
 });
-const value = JSON.stringify({ schemaVersion: 1, catalogVersion: 6, specificationVersion: '2026-11-04',
+const value = JSON.stringify({ schemaVersion: 1, catalogVersion: 7, schedulingVersion: 6, specificationVersion: '2026-11-04',
   sourceSha256: createHash('sha256').update(document).digest('hex'), recipes }, null, 2) + '\n';
 if (process.argv.includes('--check')) {
   if (readFileSync(output, 'utf8') !== value) throw new Error('The personal catalog is stale. Regenerate it from the adopted specification.');

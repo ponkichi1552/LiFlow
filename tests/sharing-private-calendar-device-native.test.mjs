@@ -7,10 +7,11 @@ import { assertSharedIdentifier } from '../src/features/sharing/identifier.ts';
 test('private device Native session composition is lazy UID scoped coalesced and never selects a QA Firebase app or group store', async()=>{
   let uid=null; let authReads=0; const calls=[]; const ports=[]; const auth={get currentUser(){return uid?{uid}:null;}}; const firestore={name:'authenticated-live-service'};
   const native={nativePrivateCalendarSecrets:{name:'private-secrets'}};
-  for(const [name,kind] of [['RootSetup','roots'],['AuthorityIntents','intents'],['Pairing','candidates'],['KeyOutbox','outbox'],['Cache','cache']]) native['nativePrivateCalendar'+name]=owner=>{calls.push([kind,owner]);return{kind,owner};};
+  for(const [name,kind] of [['RootSetup','roots'],['AuthorityIntents','intents'],['Pairing','candidates'],['Connections','connection-store'],['KeyOutbox','outbox'],['Cache','cache']]) native['nativePrivateCalendar'+name]=owner=>{calls.push([kind,owner]);return{kind,owner};};
   const module=loadNativeModule('src/platform/sharing/private-calendar-devices.ts',{
     './firebase-services':{getSharingServices:()=>{authReads++;return{auth,firestore};}}, './private-calendar-cloud':{createPrivateCalendarCloud:(db,owner,current)=>{
       assert.equal(db,firestore);assert.equal(current(),owner);calls.push(['cloud',owner]);return{kind:'cloud',owner};}}, './native-private-calendar-crypto':{nativePrivateCalendarCrypto:{}},
+    './private-calendar-connection-cloud':{createPrivateCalendarConnectionCloud:()=>({kind:'connection-cloud'})},
     './private-calendar-secrets':native,'../../features/sharing/private-calendar/device-session':{createPrivateCalendarDeviceSession:port=>{ports.push(port);return{read:async()=>{await port.assertOwner();return port.userId;}};}},
     '../../features/sharing/identifier':{assertSharedIdentifier},
   });
@@ -18,7 +19,7 @@ test('private device Native session composition is lazy UID scoped coalesced and
   uid='owner-a';const first=module.openPrivateCalendarDevices(uid);assert.equal(first,module.openPrivateCalendarDevices(uid));assert.equal(ports.length,1);assert.equal(await first.read(),'owner-a');
   uid='owner-b';await assert.rejects(()=>first.read(),/アカウント/u);assert.throws(()=>module.openPrivateCalendarDevices('owner-a'),/アカウント/u);
   const other=module.openPrivateCalendarDevices(uid);assert.notEqual(other,first);assert.equal(ports.length,2);assert.equal(await other.read(),'owner-b');
-  assert.equal(calls.length,12);assert.ok(calls.every(([,owner])=>['owner-a','owner-b'].includes(owner)));uid='owner-a';assert.equal(module.openPrivateCalendarDevices(uid),first);
+  assert.equal(calls.length,14);assert.ok(calls.every(([,owner])=>['owner-a','owner-b'].includes(owner)));uid='owner-a';assert.equal(module.openPrivateCalendarDevices(uid),first);
 });
 
 test('private device settings physical preview rejects release and foreign UID contexts before composing a session', async()=>{

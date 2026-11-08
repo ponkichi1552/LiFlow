@@ -18,7 +18,7 @@ import { ensureV2CatalogCurrent } from './catalog-update.ts';
 
 export class V2WorkspaceMigrationRequiredError extends Error {
   readonly code = 'sharing/v2-migration-required';
-  constructor() { super('旧グループを保持したまま、所有者が確認した移行データを準備する必要があります。'); }
+  constructor() { super('旧グループを保持したまま、管理者が確認した移行データを準備する必要があります。'); }
 }
 
 /** This factory cannot receive a private/v1 planner adapter or invent server receipts. */

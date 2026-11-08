@@ -1,7 +1,7 @@
 import type { ChoreCompletion, ChoreDefinition, ChoreScheduleEntry } from '../../domain/chores/types';
 import type { LocalDate } from '../../domain/shared/types';
-import type { DateTask } from '../../domain/scheduling/date-tasks';
-import { completionMatchesEntry, completionRecordedDate } from '../../domain/scheduling/completion-matching.ts';
+import { compareDateOccurrence, type DateTask } from '../../domain/scheduling/date-tasks.ts';
+import { completionCycleDate, completionMatchesEntry, completionRecordedDate, completionPeriod } from '../../domain/scheduling/completion-matching.ts';
 import { addDays, weekdayOf } from '../../domain/scheduling/local-date.ts';
 import { scopedDateTaskKey } from './task-mutations.ts';
 import { orderTaskRows } from '../../domain/scheduling/task-row-order.ts';
@@ -11,6 +11,10 @@ export interface HomeTaskRow {
   key: string; source: 'personal' | 'shared'; task: DateTask; chore: ChoreDefinition; today: LocalDate;
 }
 export type HomeWeekScope = 'current' | 'next';
+/** Today includes the final execution day. Undo uses the original window even before the refreshed plan arrives. */
+export function isHomeTaskExpired(completed: boolean, windowEnd: LocalDate | undefined, today: LocalDate): boolean {
+  return !completed && windowEnd !== undefined && windowEnd < today;
+}
 export function homeUpcomingRange(today: LocalDate, scope: HomeWeekScope) {
   const end = addDays(today, 7 - weekdayOf(today));
   return scope === 'current' ? { from: addDays(today, 1), through: end }
@@ -49,11 +53,15 @@ export function homeUpcomingTasks(entries: readonly ChoreScheduleEntry[], comple
   });
   const occurrences = new Map<string, DateTask>();
   for (const entry of entries) {
-    if (active.get(entry.choreId) !== entry.householdId || entry.suggestedDate < from || entry.suggestedDate > through) continue;
+    if (active.get(entry.choreId) !== entry.householdId) continue;
     const candidate = exact.get(JSON.stringify([entry.choreId, entry.id]));
     const older = legacy.get(entry.choreId)?.find(row => (!candidate || row.index < candidate.index) && completionMatchesEntry(row.record, entry));
     const completion = (older ?? candidate)?.record;
-    occurrences.set(entry.id, { id: entry.id, choreId: entry.choreId, suggestedDate: entry.suggestedDate, entry, completion, completed: Boolean(completion) });
+    // A later recommendation must not move an already recorded occurrence or
+    // display it again beside the completion's original day in the group Home.
+    const suggestedDate = completion?.scheduledDate ?? entry.suggestedDate;
+    if (suggestedDate < from || suggestedDate > through) continue;
+    occurrences.set(entry.id, { id: entry.id, choreId: entry.choreId, suggestedDate, entry, completion, completed: Boolean(completion) });
   }
   const recorded = new Set([...occurrences.values()].map(task => task.completion?.id));
   for (const completion of completions) {
@@ -63,5 +71,21 @@ export function homeUpcomingTasks(entries: readonly ChoreScheduleEntry[], comple
     if (date < from || date > through || occurrences.has(key)) continue;
     occurrences.set(key, { id: `completed:${completion.id}`, choreId: completion.choreId, suggestedDate: date, completed: true, completion });
   }
-  return [...occurrences.values()];
+  // Like the day selector, Home shows one occurrence per chore/meaning/day.
+  // A precompleted round and the real next round may share a recommendation;
+  // retain both in storage, but never show two adjacent copies of that chore.
+  const selected = new Map<string, DateTask>();
+  const choice = (task: DateTask) => {
+    const date = task.suggestedDate;
+    const period = task.completion ? completionPeriod(task.completion) : task.entry ? { start: task.entry.windowStart, end: task.entry.windowEnd } : undefined;
+    return { id: task.id, suggestedDate: date, completed: task.completed,
+      completedOnDate: Boolean(task.completion && completionCycleDate(task.completion) === date),
+      inWindow: Boolean(period && period.start <= date && date <= period.end) };
+  };
+  for (const task of occurrences.values()) {
+    const key = JSON.stringify([task.choreId, task.suggestedDate, task.entry?.seasonalWork ?? task.completion?.seasonalWork ?? null]);
+    const prior = selected.get(key);
+    if (!prior || compareDateOccurrence(choice(task), choice(prior), task.suggestedDate) < 0) selected.set(key, task);
+  }
+  return [...selected.values()];
 }

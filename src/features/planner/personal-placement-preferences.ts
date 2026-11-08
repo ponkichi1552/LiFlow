@@ -1,8 +1,9 @@
 import type { AdaptiveLocalPreferences, AdaptiveAllowedBand, AdaptiveDayOverride } from './adaptive-input';
 import { parseLocalDate } from '../../domain/scheduling/local-date.ts';
 import type { LocalDate } from '../../domain/shared/types';
+import { snapshotDayTypeCapacity } from './day-type-capacity.ts';
 
-export type PersonalPlacementPreferences = Pick<AdaptiveLocalPreferences, 'allowedBands' | 'dayOverrides' | 'maximumMinutes'>;
+export type PersonalPlacementPreferences = Pick<AdaptiveLocalPreferences, 'allowedBands' | 'dayOverrides' | 'maximumMinutes' | 'dayTypes'>;
 const record = (value: unknown, required: string[], optional: string[] = []): value is Record<string, unknown> => Boolean(value
   && typeof value === 'object' && !Array.isArray(value) && required.every(key => Object.hasOwn(value, key))
   && Object.keys(value).every(key => required.includes(key) || optional.includes(key)));
@@ -25,7 +26,7 @@ function bands(values: unknown): AdaptiveAllowedBand[] {
 
 /** Canonical device/private settings; an explicit zero or empty date band is preserved. */
 export function snapshotPersonalPlacementPreferences(value: PersonalPlacementPreferences): PersonalPlacementPreferences {
-  if (!record(value, ['allowedBands', 'dayOverrides'], ['maximumMinutes']) || value.maximumMinutes !== undefined && !minutes(value.maximumMinutes)
+  if (!record(value, ['allowedBands', 'dayOverrides'], ['maximumMinutes', 'dayTypes']) || value.maximumMinutes !== undefined && !minutes(value.maximumMinutes)
     || !Array.isArray(value.allowedBands) || value.allowedBands.length > 56 || !Array.isArray(value.dayOverrides) || value.dayOverrides.length > 3660) throw new Error('家事の時間上限・日別設定を確認してください。');
   const weekly = new Map<number, AdaptiveAllowedBand[]>();
   for (const band of value.allowedBands) {
@@ -44,5 +45,6 @@ export function snapshotPersonalPlacementPreferences(value: PersonalPlacementPre
   }).filter(day => Object.keys(day).length > 1).sort((a, b) => a.date.localeCompare(b.date));
   return { allowedBands: [...weekly].sort(([a], [b]) => a - b).flatMap(([weekday, values]) => bands(values)
     .map(band => ({ weekday: weekday as 1 | 2 | 3 | 4 | 5 | 6 | 7, ...band }))), dayOverrides,
-    ...(value.maximumMinutes !== undefined ? { maximumMinutes: value.maximumMinutes } : {}) };
+    ...(value.maximumMinutes !== undefined ? { maximumMinutes: value.maximumMinutes } : {}),
+    ...(value.dayTypes !== undefined ? { dayTypes: snapshotDayTypeCapacity(value.dayTypes) } : {}) };
 }

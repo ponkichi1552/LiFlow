@@ -1,8 +1,8 @@
 import type { PropsWithChildren, ReactNode } from 'react';
 import { useContext, useLayoutEffect } from 'react';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import type { StyleProp, TextStyle } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
+import type { StyleProp, TextStyle, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from '@/components/screen-safe-area';
 import { typography } from './planner-typography';
@@ -12,16 +12,17 @@ import { PlannerIssuesContext } from '../contexts/planner-issues-context';
 import { palette } from './planner-colors';
 import { Chevron } from './chevron';
 import { finishStartupDisplay } from '../platform/diagnostics/startup-splash';
+import { plannerColorsForScheme } from './planner-theme';
 
 export { typography } from './planner-typography';
 export { palette } from './planner-colors';
 export const navigationHeaderMetrics = { paddingHorizontal: 18, paddingVertical: 6, minHeight: 60 } as const;
 
-export function NavigationHeader({ children }: PropsWithChildren) {
-  return <View style={styles.navigationHeader}>{children}</View>;
+export function NavigationHeader({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
+  return <View style={[styles.navigationHeader, style]}>{children}</View>;
 }
 
-export function Page({ children, contentStyle, keyboardAware = false, footer, header, footerHasTabBar = false, floatingFooter = false, startupReady = true }: PropsWithChildren<{ contentStyle?: object; keyboardAware?: boolean; footer?: ReactNode; header?: ReactNode; footerHasTabBar?: boolean; floatingFooter?: boolean; startupReady?: boolean }>) {
+export function Page({ children, contentStyle, keyboardAware = false, footer, header, headerStyle, footerHasTabBar = false, floatingFooter = false, startupReady = true }: PropsWithChildren<{ contentStyle?: object; keyboardAware?: boolean; footer?: ReactNode; header?: ReactNode; headerStyle?: StyleProp<ViewStyle>; footerHasTabBar?: boolean; floatingFooter?: boolean; startupReady?: boolean }>) {
   const insets = useSafeAreaInsets();
   const workspace = useContext(WorkspaceContext);
   const issues = useContext(PlannerIssuesContext);
@@ -29,7 +30,7 @@ export function Page({ children, contentStyle, keyboardAware = false, footer, he
   const issueCount = workspace?.active?.groupId === issues?.groupId ? issues?.issueCount ?? 0 : 0;
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']} onLayout={startupReady ? finishStartupDisplay : undefined}>
-      {header ? <NavigationHeader>{header}</NavigationHeader> : null}
+      {header ? <NavigationHeader style={headerStyle}>{header}</NavigationHeader> : null}
       <ScrollView keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets={keyboardAware}
         keyboardDismissMode={keyboardAware ? 'on-drag' : 'none'} contentContainerStyle={[styles.page, contentStyle]}>
         {workspace?.error ? <Text accessibilityRole="alert" style={styles.workspaceError}>{workspace.error}</Text> : null}
@@ -56,7 +57,8 @@ export function ScreenHeading({ eyebrow, title, description }: { eyebrow?: strin
 }
 
 export function Card({ children, style }: PropsWithChildren<{ style?: object }>) {
-  return <View style={[styles.card, style]}>{children}</View>;
+  const colors = plannerColorsForScheme(useColorScheme());
+  return <View style={[styles.card, { borderColor: colors.border, backgroundColor: colors.surface }, style]}>{children}</View>;
 }
 
 export function SectionHeading({ title, trailing, level = 'section' }: { title: string; trailing?: ReactNode; level?: 'section' | 'subsection' }) {
@@ -106,11 +108,12 @@ export function AppButton({
 }: {
   title: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'quiet' | 'danger';
+  variant?: 'primary' | 'secondary' | 'outline' | 'surface' | 'quiet' | 'danger' | 'dangerText';
   disabled?: boolean;
   compact?: boolean;
   accessibilityLabel?: string;
 }) {
+  const colors = plannerColorsForScheme(useColorScheme());
   return (
     <Pressable
       accessibilityRole="button"
@@ -122,11 +125,12 @@ export function AppButton({
         styles.button,
         compact && styles.buttonCompact,
         styles[`button_${variant}`],
+        (variant === 'outline' || variant === 'surface') && { borderColor: colors.border, backgroundColor: colors.surface },
         disabled && styles.buttonDisabled,
         pressed && !disabled && styles.buttonPressed,
       ]}>
       {title === '‹' || title === '›' ? <Chevron direction={title === '‹' ? 'left' : 'right'} />
-        : <Text style={[styles.buttonText, compact && styles.buttonTextCompact, styles[`buttonText_${variant}`]]}>{title}</Text>}
+        : <Text style={[styles.buttonText, compact && styles.buttonTextCompact, styles[`buttonText_${variant}`], (variant === 'outline' || variant === 'surface') && { color: colors.muted }]}>{title}</Text>}
     </Pressable>
   );
 }
@@ -142,14 +146,15 @@ export function ChoiceChip({
   onPress: () => void;
   disabled?: boolean;
 }) {
+  const colors = plannerColorsForScheme(useColorScheme());
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected, disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.chip, selected && styles.chipSelected, pressed && styles.buttonPressed]}>
-      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
+      style={({ pressed }) => [styles.chip, { borderColor: selected ? colors.accent : colors.border, backgroundColor: selected ? colors.accentSoft : colors.surface }, pressed && styles.buttonPressed]}>
+      <Text style={[styles.chipText, { color: selected ? colors.accent : colors.muted }, selected && { fontWeight: '700' }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -201,16 +206,22 @@ const styles = StyleSheet.create({
   buttonCompact: { minHeight: 44, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 12 },
   button_primary: { backgroundColor: palette.accent },
   button_secondary: { backgroundColor: palette.accentSoft },
+  button_outline: { borderWidth: 1 },
+  button_surface: {},
   button_quiet: { backgroundColor: 'transparent' },
   button_danger: { backgroundColor: palette.warningSoft },
+  button_dangerText: { backgroundColor: 'transparent' },
   buttonDisabled: { opacity: 0.45 },
   buttonPressed: { opacity: 0.75 },
   buttonText: { ...typography.control, fontWeight: '700', textAlign: 'center' },
   buttonTextCompact: { ...typography.label },
   buttonText_primary: { color: palette.accentInk },
   buttonText_secondary: { color: palette.accent },
+  buttonText_outline: { fontWeight: '500' },
+  buttonText_surface: { fontWeight: '500' },
   buttonText_quiet: { color: palette.muted },
   buttonText_danger: { color: palette.warning },
+  buttonText_dangerText: { color: palette.warning, fontWeight: '500' },
   chip: { minHeight: 44, borderRadius: 999, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, paddingHorizontal: 14, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' },
   chipSelected: { borderColor: palette.accent, backgroundColor: palette.accentSoft },
   chipText: { ...typography.label, color: palette.muted, fontWeight: '600', textAlign: 'center' },

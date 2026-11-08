@@ -41,6 +41,24 @@ test('actual personal repository generates new-catalog rounds through the adapti
   assert.equal(selectDateTasks(overdue.scheduleEntries, overdue.completions, '2027-11-01', 0, overdue.chores).length, 0, 'calendar recommendations do not multiply expired work over future dates');
 });
 
+test('actual two-week personal backlog retains its first missed round and frozen window after a month without treating missed slots as completed', async t => {
+  const h = await fixture(t, values => [values.find(chore => chore.frequencyDaysByMode.balanced === 14)]);
+  const first = (await h.snapshot()).scheduleEntries[0]; assert.ok(first);
+  h.clock(first.suggestedDate); await repository.completeChoreWithReceipt(h.database, first);
+  const oldest = (await h.snapshot()).scheduleEntries[0]; const performed = addDays(first.suggestedDate, 30);
+  h.clock(performed); const late = (await h.snapshot()).scheduleEntries;
+  assert.equal(late.length, 1); assert.equal(late[0].id, oldest.id); assert.equal(late[0].windowEnd, oldest.windowEnd);
+  const receipt = await repository.completeChoreWithReceipt(h.database, late[0]);
+  const record = h.connection.prepare('SELECT scheduled_window_end,completed_local_date FROM chore_completions WHERE schedule_entry_id=?').get(oldest.id);
+  assert.equal(record.scheduled_window_end, oldest.windowEnd); assert.equal(record.completed_local_date, performed);
+  const state = (await readAdaptivePersonalInside(h.database, oldest.choreId)).state;
+  assert.equal(state.validIntervalCount, 1); assert.equal(state.model.days, 14);
+  assert.equal(h.connection.prepare("SELECT count(*) n FROM chore_completions WHERE outcome='completed'").get().n, 2);
+  await repository.undoCompletionReceipt(h.database, receipt);
+  assert.equal((await h.snapshot()).scheduleEntries[0].id, oldest.id);
+  assert.equal((await readAdaptivePersonalInside(h.database, oldest.choreId)).state.validIntervalCount, 0);
+});
+
 test('actual repository completion immediately publishes one next adaptive round and an exact Undo restores the old round while keeping a later fixed interval', async t => {
   const h = await fixture(t, values => [values[0]]); const before = await h.snapshot(); const entry = before.scheduleEntries[0];
   h.clock(entry.suggestedDate);

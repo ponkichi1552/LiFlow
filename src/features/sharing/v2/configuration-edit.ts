@@ -9,6 +9,22 @@ import { normalizeV2Configuration } from './configuration-normalization.ts';
 import { v2AssignmentLineage } from './assignment-lineage.ts';
 import { commonFrame } from './common-frames.ts';
 import { maximalCausalFacts } from './causal-facts.ts';
+import { v2ConfigurationTimeline } from './configuration-timeline.ts';
+import { v2AnchorAtIndex, v2AnchorIndexBefore } from './cadence.ts';
+
+/** Keep the last issued schedule phase when changing only its period. */
+function latestScheduledAnchor(view: V2HistoryView, at: SharedOperation, choreId: string, through: LocalDate): LocalDate | undefined {
+  let latest: LocalDate | undefined;
+  for (const slice of v2ConfigurationTimeline(view, choreId, at)) {
+    const cfg = slice.configuration;
+    if (!cfg || cfg.active === false || slice.from > through) continue;
+    const last = slice.through && slice.through < through ? slice.through : through;
+    if (last < cfg.anchorDate) continue;
+    const date = v2AnchorAtIndex(cfg, v2AnchorIndexBefore(cfg, last));
+    if (date >= slice.from && (!latest || date > latest)) latest = date;
+  }
+  return latest;
+}
 
 export class V2StaleSettingsError extends Error {
   readonly code = 'sharing/v2-stale-settings';
@@ -18,11 +34,11 @@ export class V2AssignmentRemapError extends Error {
   readonly code = 'sharing/v2-assignment-remap-required';
   constructor() { super('変更後の周期では担当の適用回が変わります。担当を今回から変えるか、次回から変えるか確認してください。'); }
 }
-export type V2ConfigurationPatch = Partial<Pick<SharedChoreConfiguration, 'policy' | 'anchorDate' | 'intervalDays' | 'windowBeforeDays' | 'windowAfterDays' | 'active'>>;
+export type V2ConfigurationPatch = Partial<Pick<SharedChoreConfiguration, 'policy' | 'anchorDate' | 'intervalDays' | 'monthly' | 'windowBeforeDays' | 'windowAfterDays' | 'active'>>;
 export type V2ConfigurationFieldEdit = { [Key in keyof V2ConfigurationPatch]: { field: Key; baseRuleVersion: number; value: V2ConfigurationPatch[Key] } }[keyof V2ConfigurationPatch];
 
 export function prepareV2ConfigurationEdit(input: { view: V2HistoryView; archive: readonly VerifiedSharedRoster[]; at: SharedOperation; choreId: string;
-  value: Omit<SharedChoreConfiguration, 'ruleVersion'>; expectedRuleVersion?: number; preserveAssignments?: boolean; resolveConfigurationIds?: string[] }): SharedChoreConfiguration {
+  value: Omit<SharedChoreConfiguration, 'ruleVersion'>; expectedRuleVersion?: number; preserveAssignments?: boolean; resolveConfigurationIds?: string[]; rebaseCadence?: boolean }): SharedChoreConfiguration {
   const facts = input.view.observed(input.view.topic('chorePolicy', input.choreId), input.at);
   const maximum = facts.reduce((value, op) => Math.max(value, (op.payload.configuration as unknown as SharedChoreConfiguration).ruleVersion), 0);
   if (maximum !== (input.expectedRuleVersion ?? 0)) throw new V2StaleSettingsError();
@@ -40,6 +56,14 @@ export function prepareV2ConfigurationEdit(input: { view: V2HistoryView; archive
   if (latestBoundary && input.value.effectiveFrom < latestBoundary) throw new V2StaleSettingsError();
   const { assignmentSourceVersion: _source, ...value } = input.value;
   const configuration = normalizeV2Configuration({ ...value, ruleVersion: maximum + 1 });
+  if (input.rebaseCadence && old && !configuration.monthly && (old.monthly || configuration.intervalDays !== old.intervalDays) && configuration.anchorDate === old.anchorDate) {
+    configuration.anchorDate = latestScheduledAnchor(input.view, input.at, input.choreId, input.value.effectiveFrom) ?? old.anchorDate;
+  }
+  if (configuration.policy.assignment.rotation) {
+    configuration.rotationSourceVersion = old?.policy.assignment.rotation
+      && canonicalJson(old.policy.assignment.rotation) === canonicalJson(configuration.policy.assignment.rotation)
+      ? old.rotationSourceVersion ?? old.ruleVersion : configuration.ruleVersion;
+  } else delete configuration.rotationSourceVersion;
   if (configuration.policy.completion !== 'perMember' || configuration.policy.assignment.mode !== 'all') delete configuration.targetMemberIds;
   if (configuration.policy.completion === 'perMember' && configuration.policy.assignment.mode === 'all' && !configuration.targetMemberIds) {
     const oldSets = old?.policy.completion === 'perMember' && old.policy.assignment.mode === 'all'
@@ -74,13 +98,15 @@ export function mergeV2ConfigurationPatch(input: { view: V2HistoryView; at: Shar
     (op) => version === undefined || (op.payload.configuration as unknown as SharedChoreConfiguration).ruleVersion === version)?.value as unknown as SharedChoreConfiguration | undefined;
   const current = read(); const base = read(input.baseRuleVersion); if (!current || !base) throw new V2StaleSettingsError();
   const same = (left: unknown, right: unknown) => canonicalJson(left ?? null) === canonicalJson(right ?? null);
-  const allowed = new Set(['policy', 'anchorDate', 'intervalDays', 'windowBeforeDays', 'windowAfterDays', 'active']);
+  const allowed = new Set(['policy', 'anchorDate', 'intervalDays', 'monthly', 'windowBeforeDays', 'windowAfterDays', 'active']);
   let changed = false;
   for (const [field, value] of Object.entries(input.patch)) {
     if (!allowed.has(field)) throw new Error('変更する設定を確認してください。');
     const key = field as keyof SharedChoreConfiguration;
-    if (!same(current[key], base[key]) && !same(current[key], value)) throw new V2StaleSettingsError();
-    if (!same(current[key], value)) changed = true;
+    const currentValue = key === 'monthly' ? current.monthly === true : current[key];
+    const baseValue = key === 'monthly' ? base.monthly === true : base[key];
+    if (!same(currentValue, baseValue) && !same(currentValue, value)) throw new V2StaleSettingsError();
+    if (!same(currentValue, value)) changed = true;
   }
   if (!changed) return null;
   return { expectedRuleVersion: current.ruleVersion, value: { ...current, ...input.patch, effectiveFrom: input.effectiveFrom } };

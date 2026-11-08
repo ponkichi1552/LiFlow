@@ -28,7 +28,7 @@ export function nextLongCalendarRounds(input: {
     const choices: { round: V2PlannedOccurrence; date: LocalDate }[] = [];
     for (const slice of input.timeline(chore.id)) {
       const cfg = slice.configuration;
-      if (!cfg || cfg.active === false || cfg.intervalDays < 90) continue;
+      if (!cfg || cfg.active === false || cfg.monthly || cfg.intervalDays < 90) continue;
       const searches: { near: LocalDate; from: LocalDate; through: LocalDate | null }[] = [{ near: today, from: slice.from, through: slice.through }];
       for (const { rule } of input.dateRules ?? []) if (rule.choreId === chore.id && rule.ruleVersion === cfg.ruleVersion) {
         if (rule.selector.scope === 'once') searches.push({ near: rule.selector.anchorDate, from: rule.selector.anchorDate, through: rule.selector.anchorDate });

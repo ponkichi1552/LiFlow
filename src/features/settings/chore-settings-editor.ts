@@ -2,6 +2,7 @@ import type { ChoreDefinition, FrequencyMode } from '../../domain/chores/types';
 import type { ChoreSettingsPatch } from '../../domain/chores/settings-patch';
 import { applyChoreSettingsPatch, parseSettingInteger } from '../../domain/chores/settings-patch.ts';
 import { createAutosaveQueue } from './autosave-queue.ts';
+import { createDraftNavigation } from './draft-navigation.ts';
 import { registeredChoreCycleDays } from '../../domain/chores/cycle-policy.ts';
 import type { PersonalCadenceView } from '../planner/adaptive-cadence';
 
@@ -13,15 +14,29 @@ export function createChoreSettingsEditor(chore: ChoreDefinition, mode: Frequenc
   let draft = {
     cycleText: current?.mode === mode ? current.days === null ? '' : String(current.days) : cycleTextFor(chore, mode),
     radiusText: String(current?.mode === mode ? current.windowRadiusDays : chore.windowRadiusDays), load: chore.load, enabled: chore.enabled,
-    holidayPriority: chore.holidayPriority, dryingPreference: chore.laundryDryingPreference ?? 'either',
+    holidayPriority: chore.holidayPriority, dryingPreference: chore.laundryDryingPreference ?? 'either', minutesText: String(chore.estimatedMinutes ?? ''),
   };
   let enabledTouched = false; let emptyCyclePending = false; let displayedBase = chore;
+  let persistedDraft = { ...draft };
   let revision = 0; let persistedRevision = 0; const draftRevisions = new Map<keyof typeof draft, number>();
   let resetDraft: { generation: number; revisions: Map<keyof typeof draft, number> } | undefined;
   type PendingPatch = ChoreSettingsPatch & { resetGeneration?: number };
   const queue = createAutosaveQueue<PendingPatch>({ save: async pending => {
     const { resetGeneration, ...patch } = pending; const writingRevision = revision;
     await savePatch(patch, displayedBase); displayedBase = applyChoreSettingsPatch(displayedBase, patch);
+    const accepted = {
+      ...('cycleDays' in patch || patch.resetSchedule ? { cycleText: cycleTextFor(displayedBase, mode) } : {}),
+      ...('windowRadiusDays' in patch || patch.resetSchedule ? { radiusText: String(displayedBase.windowRadiusDays) } : {}),
+      ...('estimatedMinutes' in patch ? { minutesText: String(displayedBase.estimatedMinutes ?? '') } : {}),
+      ...('enabled' in patch ? { enabled: displayedBase.enabled } : {}),
+      ...('load' in patch || patch.resetSchedule ? { load: displayedBase.load } : {}),
+      ...('holidayPriority' in patch || patch.resetSchedule ? { holidayPriority: displayedBase.holidayPriority } : {}),
+      ...('laundryDryingPreference' in patch || patch.resetSchedule ? { dryingPreference: displayedBase.laundryDryingPreference ?? 'either' } : {}),
+    };
+    persistedDraft = { ...persistedDraft, ...accepted };
+    for (const field of Object.keys(accepted) as (keyof typeof draft)[]) {
+      if (!draftRevisions.has(field)) draft = { ...draft, [field]: persistedDraft[field] };
+    }
     if (patch.resetSchedule && resetDraft && resetDraft.generation === resetGeneration) {
       const result = { cycleText: cycleTextFor(displayedBase, mode),
         radiusText: String(displayedBase.windowRadiusDays), load: displayedBase.load, holidayPriority: displayedBase.holidayPriority, dryingPreference: displayedBase.laundryDryingPreference ?? 'either' };
@@ -43,14 +58,23 @@ export function createChoreSettingsEditor(chore: ChoreDefinition, mode: Frequenc
     update({ cycleText: cycleTextFor(reset, mode), ...(reset.requiresCycleSelection ? { enabled: false } : {}) });
     queue.enqueue({ cycleDays: null, ...(reset.requiresCycleSelection ? { enabled: false } : {}) }, true);
   };
-  const flush = () => { if (emptyCyclePending) resetCycle(); return queue.flush(); };
+  const minutesValid = () => !chore.customPersonal || parseSettingInteger(draft.minutesText, 1, 1440) !== undefined;
+  const flush = async () => { if (emptyCyclePending) resetCycle(); return await queue.flush() && minutesValid(); };
+  const discard = () => {
+    queue.discard(); draft = { ...persistedDraft }; emptyCyclePending = false; enabledTouched = false;
+    resetDraft = undefined; draftRevisions.clear(); revision = persistedRevision; emit();
+  };
+  const navigation = createDraftNavigation({ flush, discard,
+    invalid: () => Boolean(draft.cycleText.trim() && parseSettingInteger(draft.cycleText, 1, Number.MAX_SAFE_INTEGER) === undefined)
+      || parseSettingInteger(draft.radiusText, 0, 14) === undefined || !minutesValid(),
+    failed: () => queue.getSnapshot().phase === 'error', publish: emit });
   return {
     getSnapshot: () => state,
     canReload: () => revision === persistedRevision && !emptyCyclePending && ['idle', 'saved'].includes(queue.getSnapshot().phase)
       && (!draft.cycleText.trim() || parseSettingInteger(draft.cycleText, 1, Number.MAX_SAFE_INTEGER) !== undefined)
-      && parseSettingInteger(draft.radiusText, 0, 14) !== undefined,
+      && parseSettingInteger(draft.radiusText, 0, 14) !== undefined && minutesValid(),
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
-    flush, resetCycle,
+    flush, resetCycle, discard, navigateAfterSave: navigation.navigateAfterSave, resumeNavigation: navigation.resumeNavigation,
     resetSchedule() {
       const reset = applyChoreSettingsPatch(displayedBase, { resetSchedule: true }); emptyCyclePending = false;
       for (const field of ['cycleDays', 'windowRadiusDays', 'load', 'holidayPriority', 'laundryDryingPreference'] as const) queue.remove(field);
@@ -71,6 +95,10 @@ export function createChoreSettingsEditor(chore: ChoreDefinition, mode: Frequenc
       update({ radiusText: text }); const value = parseSettingInteger(text, 0, 14);
       if (value !== undefined) queue.enqueue({ windowRadiusDays: value }); else queue.remove('windowRadiusDays');
     },
+    changeMinutes(text: string) {
+      update({ minutesText: text }); const value = parseSettingInteger(text, 1, 1440);
+      if (value !== undefined) queue.enqueue({ estimatedMinutes: value }); else queue.remove('estimatedMinutes');
+    },
     changeEnabled(value: boolean) { enabledTouched = true; update({ enabled: value }); queue.enqueue({ enabled: value }, true); },
     changeLoad(value: typeof draft.load) { update({ load: value }); queue.enqueue({ load: value }, true); },
     changeHoliday(value: boolean) { update({ holidayPriority: value }); queue.enqueue({ holidayPriority: value }, true); },
@@ -88,7 +116,7 @@ export function createChoreSettingsDocument(scope: unknown) {
     get(chore: ChoreDefinition, mode: FrequencyMode, save: Parameters<typeof createChoreSettingsEditor>[2], current?: PersonalCadenceView) {
       const signature = JSON.stringify([mode, current, chore.enabled, chore.load, chore.windowRadiusDays,
         chore.holidayPriority, chore.laundryDryingPreference, chore.requiresCycleSelection, chore.recommendedCycleDays,
-        chore.userIntervalDays, chore.manufacturerRecommendedIntervalDays, chore.frequencyDaysByMode, chore.personalSchedulingKind]);
+        chore.userIntervalDays, chore.manufacturerRecommendedIntervalDays, chore.frequencyDaysByMode, chore.personalSchedulingKind, chore.estimatedMinutes]);
       let value = editors.get(chore.id);
       // Remote or bulk settings and an adopted cadence can replace a settled editor. Never
       // discard invalid input, a pending patch, or a failed write while doing so.

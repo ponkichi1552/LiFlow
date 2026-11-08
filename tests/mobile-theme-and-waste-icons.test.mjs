@@ -13,9 +13,13 @@ const { themeResources } = require('../plugins/with-liflow-theme.js');
 const { qualifyThemeStyles } = require('../plugins/with-android-api-styles.js');
 const values = require('../src/components/planner-color-values.js');
 
-test('mobile light and dark themes keep text actions warnings and controls readable', () => {
+test('mobile themes preserve body warning and dark-action contrast while light actions follow the requested brand palette', () => {
   for (const colors of [plannerLightColors, plannerDarkColors]) {
-    for (const [fg, bg] of [['ink', 'background'], ['muted', 'surface'], ['accent', 'surface'], ['accentInk', 'accent'], ['gold', 'goldSoft'], ['warning', 'warningSoft']]) {
+    // The user restored the original light brand blue and white checks on 2026-11-09.
+    // Body/supporting/warning text still meets the contrast contract. Dark actions keep theirs.
+    const pairs = [['ink', 'background'], ['muted', 'surface'], ['gold', 'goldSoft'], ['warning', 'warningSoft']];
+    if (colors === plannerDarkColors) pairs.push(['accent', 'surface'], ['accentInk', 'accent']);
+    for (const [fg, bg] of pairs) {
       assert.ok(contrastRatio(colors[fg], colors[bg]) >= 4.5, `${fg}/${bg}: ${contrastRatio(colors[fg], colors[bg])}`);
     }
   }

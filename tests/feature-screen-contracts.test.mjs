@@ -8,6 +8,7 @@ import { createDatabase } from './helpers/sqlite.mjs';
 import { localDateFromDate, formatJapaneseDate } from '../src/domain/scheduling/local-date.ts';
 
 const repository = await import('../src/platform/storage/repository.ts');
+const { choreDisplayCategory } = await import('../src/domain/chores/chore-presentation.ts');
 const today = localDateFromDate(new Date());
 
 async function initialContext() {
@@ -78,7 +79,7 @@ test('feature screen contract: waste onboarding can be skipped', async () => {
   } finally { h.connection.close(); }
 });
 
-test('feature screen contract: waste settings keep live kana suggestions, recurrence controls and collapsed upcoming list', async () => {
+test('feature screen contract: waste settings keep live kana suggestions, recurrence controls and always visible upcoming list', async () => {
   const h = await initialContext();
   try {
     let snapshot = h.snapshot;
@@ -86,17 +87,18 @@ test('feature screen contract: waste settings keep live kana suggestions, recurr
       database: h.database, snapshot: () => snapshot,
       refresh: async () => { snapshot = await repository.loadPlannerSnapshot(h.database, today); },
     });
-    screen.button('次の収集日を開く');
+    assert.ok(screen.text().includes('未登録'));
+    assert.ok(!screen.text().includes('登録済み'));
+    assert.ok(!screen.text().includes('0種類'));
     assert.ok(!screen.text().includes('例外日について'));
     await screen.change('ゴミの種類', 'かね');
     screen.button('可燃ごみを選択');
     await screen.press('可燃ごみを選択'); await screen.press('火曜'); await screen.press('収集日を追加');
     await screen.press('編集'); await screen.press('毎月'); await screen.change('毎月の収集日', '31'); await screen.press('変更を保存');
     assert.equal(snapshot.wasteSchedules.length, 1); assert.equal(snapshot.wasteSchedules[0].recurrence, 'monthly');
-    await screen.press('次の収集日を開く');
-    screen.button('次の収集日を閉じる'); assert.ok(screen.text().includes('今回は表示しない'));
-    await screen.press('次の収集日を閉じる');
-    screen.button('次の収集日を開く');
+    assert.ok(screen.text().includes('1種類'));
+    screen.button('今回は表示しない');
+    assert.ok(!screen.nodes().some(node => node.props.accessibilityLabel === '次の収集日を開く'));
   } finally { h.connection.close(); }
 });
 
@@ -130,8 +132,9 @@ test('feature screen contract: individual settings enable unknown chores and hom
     const shared = { database: h.database, snapshot: () => snapshot,
       refresh: async () => { snapshot = await repository.loadPlannerSnapshot(h.database, displayedDate); } };
     const settings = screenHarness('src/app/chores/[id].tsx', { ...shared, params: { id: chore.id } });
-    const enabledSwitch = () => settings.nodes().find((node) => node.type === 'Switch');
-    enabledSwitch().props.onValueChange(true); settings.render();
+    const enabledCheckbox = () => settings.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '家事を有効にする');
+    assert.equal(enabledCheckbox().props.accessibilityState.checked, false);
+    enabledCheckbox().props.onPress(); settings.render();
     await settings.change('家事周期の日数', '17'); await settings.endEditing('家事周期の日数');
     const plans = snapshot.scheduleEntries.filter(entry => entry.choreId === chore.id);
     assert.equal(plans.length, 1, 'enabling an unknown chore immediately saves one real first round');
@@ -142,10 +145,12 @@ test('feature screen contract: individual settings enable unknown chores and hom
     assert.ok(checkbox('完了'), 'the distributed first round is usable on its actual scheduled day');
     checkbox('完了').props.onPress(); await home.flush();
     assert.ok(checkbox('未完了に戻す'));
-    enabledSwitch().props.onValueChange(false); await settings.flush();
+    assert.equal(enabledCheckbox().props.accessibilityState.checked, true);
+    enabledCheckbox().props.onPress(); await settings.flush();
     home.render(); assert.ok(!checkbox('完了') && !checkbox('未完了に戻す'), 'disabled chores must disappear from active cards');
     assert.equal(snapshot.completions.length, 1);
-    enabledSwitch().props.onValueChange(true); settings.render(); await settings.change('家事周期の日数', '30'); await settings.endEditing('家事周期の日数');
+    assert.equal(enabledCheckbox().props.accessibilityState.checked, false);
+    enabledCheckbox().props.onPress(); settings.render(); await settings.change('家事周期の日数', '30'); await settings.endEditing('家事周期の日数');
     home.render(); assert.ok(checkbox('未完了に戻す'));
     checkbox('未完了に戻す').props.onPress(); await home.flush();
     assert.ok(checkbox('完了')); assert.ok(!checkbox('未完了に戻す'));
@@ -217,8 +222,8 @@ test('feature screen contract: chore categories, kana heading search and trivia 
     const kitchen = h.snapshot.chores.find(chore => chore.name === 'キッチンマットの洗濯'); assert.ok(kitchen);
     kitchen.trivia = [{ id: 'qa-kitchen-tip', title: '掃除の豆知識', body: '片付けてから作業を始めます。' }];
     const screen = screenHarness('src/app/(tabs)/guide.tsx', { database: h.database, snapshot: () => h.snapshot, flatListItemHeight: 100 });
-    const category = kitchen.category;
-    const count = h.snapshot.chores.filter((chore) => !chore.archived && chore.category === category).length;
+    const category = choreDisplayCategory(kitchen);
+    const count = h.snapshot.chores.filter((chore) => !chore.archived && choreDisplayCategory(chore) === category).length;
     await screen.press(`${category}、${count}件`);
     assert.ok(!screen.text().includes('に分類されている家事です。'), 'redundant category copy stays removed');
     const seen = new Set();

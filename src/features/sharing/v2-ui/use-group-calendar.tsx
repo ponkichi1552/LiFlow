@@ -47,7 +47,7 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
     else await work();
   };
   const assertGroup = (draft: CalendarEditorDraft) => {
-    if (!local.database || draft.groupId !== groupId || !model.calendarSupported) throw new Error('グループの所有者が互換更新を行ってから共有予定を追加してください。');
+    if (!local.database || draft.groupId !== groupId || !model.calendarSupported) throw new Error('グループの管理者が互換更新を行ってから共有予定を追加してください。');
     if (draft.eventId && !canEdit(draft.eventId)) throw new Error('共有予定の作成者または管理者だけが変更できます。');
   };
   const saveGroup = async (draft: CalendarEditorDraft, remove = false, resetExceptions = false) => {

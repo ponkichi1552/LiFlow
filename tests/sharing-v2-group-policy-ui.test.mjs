@@ -38,10 +38,10 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} completion notifications expose an opt-in switch and autosave without changing other group rules`, async () => {
     const f = await setup(); await f.c.actions.patchGroupPolicy({ completionPushEnabled: false }); const ui = await open(f.c, platform);
     try {
-      const before = ui.props.model.groupPolicy.value; await ui.screen.press('担当と完了状況を開く');
-      const flag = ui.screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === 'メンバーの完了を通知');
-      assert.ok(flag); assert.equal(flag.props.value, false); assert.match(ui.screen.text(), /同期で受信した完了/u);
-      flag.props.onValueChange(true); await ui.screen.flush(); await ui.screen.press('戻る'); await ui.settle(() => ui.backs() === 1);
+      const before = ui.props.model.groupPolicy.value;
+      const flag = ui.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === 'メンバーの完了を通知');
+      assert.ok(flag); assert.equal(flag.props.accessibilityState.checked, false); assert.match(ui.screen.text(), /1回だけ通知/u);
+      flag.props.onPress(); await ui.screen.flush(); await ui.screen.press('戻る'); await ui.settle(() => ui.backs() === 1);
       assert.deepEqual((await f.c.readModel(range, { groupPolicy: true })).groupPolicy.value, { ...before, completionPushEnabled: true });
     } finally { await ui.close(); f.close(); }
   });
@@ -69,7 +69,7 @@ for (const platform of ['ios', 'android']) {
       const after = await f.c.readModel(range, { groupPolicy: true }); assert.equal(after.plan.commonSettings.name, '家族の家事'); assert.equal(after.plan.timeZone, 'America/New_York');
       assert.equal(after.configurations[0].configuration.intervalDays, 7); assert.equal(after.plan.history.length, 0);
       const edits = (await listSharingOutbox(f.d.database, groupId)).slice(before.length); assert.equal(edits.length, 1); assert.equal(edits[0].operation.entityType, 'settings');
-      assert.ok(ui.screen.text().includes('既存の指定・申請は元の地域を維持'));
+      assert.ok(ui.screen.text().includes('変更後に指定する日時から適用'));
     } finally { await ui.close(); f.close(); }
   });
 
@@ -114,10 +114,9 @@ for (const platform of ['ios', 'android']) {
     try {
       const before = await listSharingOutbox(f.d.database, groupId); const original = ui.props.model.groupPolicy.value;
       assert.equal((await f.c.readModel(range)).groupPolicy, undefined);
-      await ui.screen.press('日時変更のルールを開く');
-      const switchNode = ui.screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === '担当者の期間後への変更を許可');
+      const switchNode = ui.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '担当者の期間後への変更を許可');
       const kind = ui.screen.nodes().find(node => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === '同居人');
-      kind.props.onPress(); switchNode.props.onValueChange(true); await ui.screen.flush(); await ui.screen.press('戻る');
+      kind.props.onPress(); switchNode.props.onPress(); await ui.screen.flush(); await ui.screen.press('戻る');
       await ui.settle(() => ui.backs() === 1);
       const next = (await f.c.readModel(range, { groupPolicy: true })).groupPolicy.value;
       assert.deepEqual(next, { ...original, kind: 'roommates', allowAfterWindow: true });
@@ -130,14 +129,14 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} group rule edits reject an unseen concurrent change and retain the draft until it is discarded`, async () => {
     const f = await setup(); const ui = await open(f.c, platform);
     try {
-      await ui.screen.press('日時変更のルールを開く'); const old = ui.screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === '前倒しの変更を自動承認');
+      const old = ui.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '前倒しの変更を自動承認');
       await f.c.actions.patchGroupPolicy({ allowSubstitution: false });
       ui.props.model = await f.c.readModel(range, { groupPolicy: true }); ui.screen.render(); ui.commit();
-      old.props.onValueChange(false); await ui.screen.press('戻る'); await ui.settle(() => ui.screen.text().includes('別の変更が届いています'));
+      old.props.onPress(); await ui.screen.press('戻る'); await ui.settle(() => ui.screen.text().includes('別の変更が届いています'));
       assert.equal(ui.backs(), 0); const current = (await f.c.readModel(range, { groupPolicy: true })).groupPolicy.value;
       assert.equal(current.autoApproveEarlier, true); assert.equal(current.allowSubstitution, false);
       await ui.screen.press('入力を最新のルールに戻す'); await ui.settle();
-      const restored = ui.screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === '前倒しの変更を自動承認'); assert.equal(restored.props.value, true);
+      const restored = ui.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '前倒しの変更を自動承認'); assert.equal(restored.props.accessibilityState.checked, true);
     } finally { await ui.close(); f.close(); }
   });
 
@@ -166,7 +165,7 @@ for (const platform of ['ios', 'android']) {
     const f = await setup(); const member = await f.f.device('member', f.f.member); let ui;
     try {
       await receive(member, await loadSharedFacts(f.d.database, groupId)); const c = controller(member); ui = await open(c, platform);
-      assert.match(ui.screen.text(), /管理者が変更/u); assert.equal(ui.screen.nodes().some(node => node.type === 'Switch' || node.props.accessibilityRole === 'radio'), false);
+      assert.match(ui.screen.text(), /管理者が行います/u); assert.equal(ui.screen.nodes().some(node => node.props.accessibilityRole === 'checkbox' || node.props.accessibilityRole === 'radio'), false);
       const before = await listSharingOutbox(member.database, groupId); const source = ui.props.model.groupPolicy;
       await assert.rejects(c.actions.editGroupPolicy({ value: { ...source.value, allowBeforeWindow: true }, basisOperationIds: ids(source) }), { code: 'sharing/v2-authority-denied' });
       assert.deepEqual(await listSharingOutbox(member.database, groupId), before);

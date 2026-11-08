@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { googleFixture } from './helpers/sharing-v2-google.mjs';
+import { now } from './helpers/sharing-v2-repository-fixture.mjs';
 import { loadNativeModule } from './helpers/native-module.mjs';
 import * as storeModule from '../src/platform/storage/sharing-v2-google-tasks.ts';
 import { buildV2PersonalPlan } from '../src/features/sharing/v2/personal-plan.ts';
@@ -13,7 +14,8 @@ import { sharedTaskClaimKey, sharedTaskIdHash } from '../src/features/google-syn
 import * as createIntent from '../src/features/google-sync/task-create-intent.ts';
 const runtimeModule = await import('../src/features/sharing/v2/google-tasks-runtime.ts');
 
-test('Native v2 Tasks remains unconfigured without OAuth, then uses the same owner-only input and existing Google gateway', async () => {
+test('Native v2 Tasks remains unconfigured without OAuth, then uses the same owner-only input and existing Google gateway', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: now().getTime() });
   const h = await googleFixture(); const calls = []; const appState = { currentState: null }; let runtimeOptions;
   const remote = memoryTaskClaims(h.namespace); let cloudInitializations = 0;
   try {

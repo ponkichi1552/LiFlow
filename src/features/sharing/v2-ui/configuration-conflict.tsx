@@ -7,6 +7,7 @@ import type { LocalDate } from '../../../domain/shared/types';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import { V2TextField, v2FormStyles as styles } from './form-controls';
 import { v2MemberLabels } from './member-labels';
+import { v2CadenceLabel } from '../v2/cadence';
 
 export function V2ConfigurationConflict({ model, row, controller, onSaved, onBack }: { model: V2GroupScreenModel;
   row: V2GroupScreenModel['configurations'][number]; controller: V2GroupController; onSaved: () => Promise<void>; onBack?: () => void }) {
@@ -43,7 +44,7 @@ export function V2ConfigurationConflict({ model, row, controller, onSaved, onBac
           <Text style={styles.body}>{policy.completion === 'perMember' ? '対象者ごとに実施' : policy.assignment.mode === 'open' ? '誰か1人が実施' : '指定した担当者が実施'}</Text>
           {policy.assignment.mode === 'selected' ? <Text style={styles.caption}>担当：{policy.assignment.memberIds.map(nameOf).join('・')}</Text>
             : policy.completion === 'perMember' ? <Text style={styles.caption}>対象：{(cfg.targetMemberIds ?? model.plan.members.filter(member => member.active).map(member => member.userId)).map(nameOf).join('・')}</Text> : null}
-          <Text style={styles.body}>{cfg.active === false ? '無効' : '有効'} · 基準日 {cfg.anchorDate} · {cfg.intervalDays}日ごと</Text>
+          <Text style={styles.body}>{cfg.active === false ? '無効' : '有効'} · 開始日 {cfg.anchorDate} · {v2CadenceLabel(cfg)}</Text>
           <Text style={styles.caption}>実施期間：基準日の{cfg.windowBeforeDays}日前〜{cfg.windowAfterDays}日後</Text>
           <Text style={styles.caption}>完了履歴は保持します。既存の回への担当指定は自動で付け替えません。解決後に担当を確認してください。</Text>
           <AppButton title={`設定候補${index + 1}で解決する`} variant="secondary" disabled={busy} onPress={() => void choose(candidate)} />

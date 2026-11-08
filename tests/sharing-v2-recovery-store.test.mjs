@@ -42,7 +42,7 @@ test('recovery store captures a private review atomically survives restart and d
 test('recovery store refuses member mutation stale confirmation another scope secrets and changed original ciphertext', async t => {
   const f = await setup(); const member = await f.openDevice('member', f.member);
   t.after(() => { f.device.connection.close(); member.connection.close(); });
-  await assert.rejects(createV2RecoveryStore(member.repository).save(f.draft), /所有者/u);
+  await assert.rejects(createV2RecoveryStore(member.repository).save(f.draft), /管理者/u);
   await assert.rejects(f.store.save({ ...f.draft, groupKey: 'must never enter SQLite' }), /Unknown/);
   await assert.rejects(f.store.save({ ...f.draft, review: { ...f.draft.review, groupId: 'private-or-other-group' } }), /scope/);
   await f.store.save(f.draft);

@@ -42,7 +42,7 @@ for (const [kind, name] of [
   assert.equal(ui.button('グループを作成').props.disabled, true);
   await ui.button('グループを作成').props.onPress(); assert.deepEqual(calls, []);
   await choose(ui, kind === 'family' ? '家族' : '同居人');
-  assert.match(ui.text(), kind === 'family' ? /初期ON.*管理者が家事ごとに付与/u : /初期OFF/u);
+  assert.equal(ui.nodes().find(node => node.props.accessibilityLabel === (kind === 'family' ? '家族' : '同居人')).props.accessibilityState.checked, true);
   await ui.press('グループを作成'); assert.deepEqual(calls, [['検査グループ', kind]]);
   assert.equal(input(ui).props.value, '');
   assert.equal(ui.nodes().filter(node => node.props.accessibilityRole === 'radio' && node.props.accessibilityState.checked).length, 0);
@@ -85,7 +85,7 @@ for (const [platform, name] of [
       createSharingWorkspace: () => assert.fail('v2 choice must not create a legacy group'),
       createV2SharingWorkspace: async (...args) => { calls.push(['create', ...args]); return new Promise(done => { resolve = done; }); } },
   } });
-  await ui.press('グループを作るを開く'); await ui.change('グループ名', '旧アカウントのグループ'); await choose(ui, '同居人');
+  await ui.press('作成する'); await ui.change('グループ名', '旧アカウントのグループ'); await choose(ui, '同居人');
   const pending = ui.button('グループを作成').props.onPress();
   assert.deepEqual(calls, [['create', '旧アカウントのグループ', 'roommates']]);
   context.userId = 'next-account'; await ui.flush();
@@ -115,7 +115,7 @@ test('a saved group creation remains successful when refreshing the group list f
     '@/platform/sharing/workspaces': { enableSharingSession: async () => {}, sharingFailureMessage: () => '一覧を再取得してください。',
       createV2SharingWorkspace: async () => { count++; return { userId: 'owner', groupId: 'already-saved-group' }; } },
   } });
-  await ui.press('グループを作るを開く');
+  await ui.press('作成する');
   assert.equal(await create('保存済み', 'family'), true, 'a refresh failure must not invite a duplicate creation retry');
   await ui.flush(); assert.equal(count, 1); assert.match(ui.text(), /一覧を再取得/u);
 });

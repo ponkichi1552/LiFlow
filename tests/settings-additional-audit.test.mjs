@@ -35,7 +35,7 @@ test('an immediate edit queued in a saved observer microtask is not stranded beh
   assert.deepEqual(writes, [1, 2]); assert.equal(queue.getSnapshot().phase, 'saved');
 });
 
-test('chore history navigation preserves an invalid unsaved numeric draft and succeeds after correction', async () => {
+test('chore settings back navigation discards invalid numeric input without changing saved values', async () => {
   const { screenHarness } = await import('./helpers/screen-harness.mjs');
   const calls = [];
   const chore = { id: 'chore', householdId: 'local-household', name: '掃除', enabled: true, load: 'normal', windowRadiusDays: 2,
@@ -44,10 +44,10 @@ test('chore history navigation preserves an invalid unsaved numeric draft and su
   const screen = screenHarness('src/app/chores/[id].tsx', { snapshot: () => snapshot, database: {}, params: { id: chore.id }, navigate: (...args) => calls.push(args),
     mocks: { '@/platform/storage/repository': { updateChoreSettings: async () => false } } });
   try {
-    await screen.change('実施期間の日数幅', 'x'); await screen.press('この家事の履歴を見る');
-    assert.equal(calls.length, 0); assert.match(screen.text(), /整数で入力/);
-    await screen.change('実施期間の日数幅', '2'); await screen.press('この家事の履歴を見る');
-    assert.equal(calls.length, 1); assert.equal(calls[0][0], 'push');
+    await screen.change('実施期間の日数幅', 'x'); await screen.press('前の画面に戻る');
+    assert.equal(calls.length, 1); assert.equal(calls[0][0], 'back');
+    assert.equal(screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '実施期間の日数幅').props.value, '2');
+    assert.equal(snapshot.chores[0].windowRadiusDays, 2);
   } finally { screen.unmount(); }
 });
 

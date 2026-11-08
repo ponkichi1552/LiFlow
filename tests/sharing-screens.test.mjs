@@ -34,10 +34,11 @@ test('sharing screen keeps login optional and exposes only the current group wit
       subscribeSharingChanges: () => () => {}, sharingFailureMessage: () => '通信を確認してください。' },
     'expo-image': { Image: 'Image' },
   } });
-  assert.match(screen.text(), /個人データは共有されません/); assert.equal(calls.length, 0);
+  assert.match(screen.text(), /個人の家事・予定は共有されません/); assert.equal(calls.length, 0);
   await screen.press('Googleで続ける'); assert.deepEqual(calls, [['google']]);
-  assert.equal(screen.nodes().filter((n) => n.type === 'TextInput').length, 0);
-  await screen.press('グループを作るを開く'); await screen.change('グループ名', '家族'); await chooseFamily(screen); await screen.press('グループを作成');
+  assert.ok(screen.nodes().some(n => n.type === 'TextInput' && n.props.accessibilityLabel === '招待リンク'));
+  assert.ok(!screen.nodes().some(n => n.type === 'TextInput' && n.props.accessibilityLabel === 'グループ名'));
+  await screen.press('作成する'); await screen.change('グループ名', '家族'); await chooseFamily(screen); await screen.press('グループを作成');
   assert.ok(calls.some(call => call[0] === 'create' && call[1] === '家族' && call[2] === 'family'));
   assert.deepEqual(calls.at(-1), ['navigate', 'push', { pathname: '/sharing/group/[groupId]', params: { groupId: group.groupId } }]);
   assert.equal(screen.text().includes('グループを作る'), false);
@@ -60,7 +61,7 @@ test('sharing screen prevents duplicate creation while the first local commit is
       createSharingWorkspace: () => assert.fail('normal new groups must not use the legacy creator'),
       createV2SharingWorkspace: async () => { count++; await new Promise((resolve) => { release = resolve; }); throw new Error('synthetic'); } },
   } });
-  await screen.press('グループを作るを開く'); await screen.change('グループ名', '家族');
+  await screen.press('作成する'); await screen.change('グループ名', '家族');
   await chooseFamily(screen);
   const handler = screen.button('グループを作成').props.onPress;
   handler(); handler(); assert.equal(count, 1); release(); await screen.flush();

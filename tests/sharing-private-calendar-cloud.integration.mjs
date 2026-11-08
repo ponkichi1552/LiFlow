@@ -20,6 +20,12 @@ import { createPrivateCalendarKeyDelivery } from '../src/features/sharing/privat
 import { createPrivateCalendarPairingController } from '../src/features/sharing/private-calendar/pairing-controller.ts';
 import { privateCalendarPairingReference } from '../src/features/sharing/private-calendar/pairing.ts';
 import { createPrivateCalendarDeviceSession } from '../src/features/sharing/private-calendar/device-session.ts';
+import { createPrivateCalendarConnectionCloud } from '../src/platform/sharing/private-calendar-connection-cloud.ts';
+import { createConnectionCode, decodeConnectionCode, connectionClaim } from '../src/features/sharing/private-calendar/connection-code.ts';
+import { createPrivateCalendarPairingRequest } from '../src/features/sharing/private-calendar/pairing.ts';
+import { createPrivatePlannerCloud } from '../src/platform/sharing/private-planner-cloud.ts';
+import { sealPrivatePreferences, openPrivatePreferences, privatePreferenceCursor } from '../src/features/sharing/private-planner/preference-crypto.ts';
+import { privatePreferenceInput } from './helpers/private-planner-sync.mjs';
 import { createPrivateCalendarSourceController, privateCalendarSourceBinding } from '../src/features/sharing/private-calendar/source-controller.ts';
 import { createPrivateCalendarSourceStorage } from '../src/platform/storage/private-calendar-source.ts';
 import { privateCalendarRuntimeFixture } from './helpers/private-calendar-runtime.mjs';
@@ -61,6 +67,72 @@ async function joined() {
   const h = await fixture(); const authority = advancePrivateCalendarAuthority(h.root, { mainDeviceId: h.main.deviceId, devices: [h.main, h.other], keyVersion: 1 }, h.main);
   await h.left.cloud.commitAuthority(h.root, authority); return { ...h, authority };
 }
+
+test('single-use connection-code Rules isolate accounts and atomically bind exactly one recipient without exposing the bearer secret', async () => {
+  const h = await fixture(); const cloud = createPrivateCalendarConnectionCloud(h.left.firestore, userId, () => userId);
+  const text = await createConnectionCode(crypto, h.root, h.main, Date.now()), code = decodeConnectionCode(text);
+  await cloud.create(code.grant); const target = doc(h.left.firestore, 'privateCalendars', userId, 'connectionCodes', code.grant.body.codeId);
+  const raw = (await getDocFromServer(target)).data(); assert.equal(JSON.stringify(raw).includes(code.secret), false);
+  for (const context of [env.unauthenticatedContext(), env.authenticatedContext('outsider')]) await assert.rejects(getDocFromServer(doc(context.firestore(), target.path)), { code: 'permission-denied' });
+  await assert.rejects(getDocsFromServer(collection(h.left.firestore, 'privateCalendars', userId, 'connectionCodes')), { code: 'permission-denied' });
+  const identities = [await createDeviceIdentity(crypto), await createDeviceIdentity(crypto)];
+  const claims = await Promise.all(identities.map(async identity => connectionClaim(code, await createPrivateCalendarPairingRequest(crypto, code.grant.body.reference, identity))));
+  const results = await Promise.allSettled(claims.map(value => cloud.claim(code.grant, value)));
+  assert.equal(results.filter(value => value.status === 'fulfilled').length, 1); const winner = results.findIndex(value => value.status === 'fulfilled');
+  assert.equal((await cloud.claim(code.grant, claims[winner])).state, 'claimed');
+  await assert.rejects(updateDoc(target, { requestJson: canonicalJson(claims[1 - winner].request), updatedAt: serverTimestamp() }), { code: 'permission-denied' });
+  await cloud.complete(code.grant, sharedDocumentDigest(claims[winner].request)); assert.equal((await cloud.read(code.grant.body.codeId)).state, 'complete');
+  await assert.rejects(cloud.claim(code.grant, claims[1 - winner])); await assert.rejects(deleteDoc(target), { code: 'permission-denied' });
+});
+
+test('single-use connection-code Rules refuse expired changed and unregistered-issuer grants', async () => {
+  const h = await fixture(); const cloud = createPrivateCalendarConnectionCloud(h.left.firestore, userId, () => userId);
+  const expired = decodeConnectionCode(await createConnectionCode(crypto, h.root, h.main, Date.now() - 11 * 60_000));
+  await assert.rejects(cloud.create(expired.grant), { code: 'permission-denied' });
+  const code = decodeConnectionCode(await createConnectionCode(crypto, h.root, h.main, Date.now())); await cloud.create(code.grant);
+  const target = doc(h.left.firestore, 'privateCalendars', userId, 'connectionCodes', code.grant.body.codeId);
+  await assert.rejects(updateDoc(target, { expiresAt: firestoreSdk.Timestamp.fromMillis(Date.now() + 24 * 60 * 60_000), updatedAt: serverTimestamp() }), { code: 'permission-denied' });
+  await assert.rejects(updateDoc(target, { grantJson: '{}', updatedAt: serverTimestamp() }), { code: 'permission-denied' });
+  const invalid = structuredClone(code.grant); invalid.body.issuerDeviceId = h.other.deviceId; invalid.body.codeId = 'ab'.repeat(32);
+  await assert.rejects(cloud.create(invalid), { code: 'permission-denied' });
+  const expiredTarget = doc(h.left.firestore, 'privateCalendars', userId, 'connectionCodes', expired.grant.body.codeId);
+  await env.withSecurityRulesDisabled(async context => { await setDoc(doc(context.firestore(), expiredTarget.path), {
+    schemaVersion: 1, issuerDeviceId: h.main.deviceId, authorityDigest: h.root.digest, grantJson: canonicalJson(expired.grant),
+    expiresAt: firestoreSdk.Timestamp.fromMillis(expired.grant.body.expiresAt), state: 'open', requestJson: null, proof: null, claimedAt: null,
+    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  }); });
+  const request = await createPrivateCalendarPairingRequest(crypto, expired.grant.body.reference, h.other);
+  await assert.rejects(cloud.claim(expired.grant, connectionClaim(expired, request)), { code: 'permission-denied' });
+});
+
+test('single-use connection-code SDK listeners complete two real SQLite devices with automatic approval and detach afterward', async t => {
+  const cloud = client(userId); const transport = createPrivateCalendarConnectionCloud(cloud.firestore, userId, () => userId);
+  const a = privateCalendarSetupFixture(t, { userId }), b = privateCalendarSetupFixture(t, { userId });
+  const session = f => createPrivateCalendarDeviceSession({ userId, assertOwner: () => assert.equal(f.state.currentUser, userId),
+    secrets: f.secrets, roots: f.roots, intents: f.changes, candidates: f.pairing, outbox: f.keyOutbox, cache: f.cache, cloud: cloud.cloud,
+    connections: { store: f.connections, cloud: transport, crypto } });
+  const left = session(a), right = session(b); await left.initializeFirstDevice();
+  const stopLeft = left.observeConnections(), stopRight = right.observeConnections();
+  try {
+    const code = await left.issueConnectionCode(); await right.connectWithCode(code);
+    const end = Date.now() + 10_000; while (!(await right.read()).keyReady && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal((await right.read()).phase, 'approved'); assert.equal((await right.read()).keyReady, true);
+    assert.equal((await transport.read(decodeConnectionCode(code).grant.body.codeId)).state, 'complete');
+    assert.equal((await cloud.cloud.readHead()).authorityRevision, 2);
+    const authority = await b.secrets.authority(userId), leftKey = await a.secrets.currentKey(userId, await a.secrets.authority(userId));
+    const rightKey = await b.secrets.currentKey(userId, authority);
+    try {
+      const prefs = createPrivatePlannerCloud(cloud.firestore, userId, () => userId);
+      const initial = await sealPrivatePreferences(crypto, { preferences: privatePreferenceInput(), authority, author: await a.secrets.identity(userId), accountKey: leftKey, parent: null });
+      await prefs.publish(authority, initial);
+      assert.deepEqual(await openPrivatePreferences(crypto, await prefs.read(authority), authority, rightKey), privatePreferenceInput());
+      const modified = { ...privatePreferenceInput(), restDays: [2] };
+      const reply = await sealPrivatePreferences(crypto, { preferences: modified, authority, author: await b.secrets.identity(userId), accountKey: rightKey, parent: privatePreferenceCursor(initial) });
+      await prefs.publish(authority, reply);
+      assert.deepEqual(await openPrivatePreferences(crypto, await prefs.read(authority), authority, leftKey), modified);
+    } finally { leftKey?.fill(0); rightKey?.fill(0); }
+  } finally { stopLeft(); stopRight(); }
+});
 
 test('private Calendar foreground watch emits the server-confirmed initial head and later changes and detaches cleanly', async () => {
   const h = await fixture(); let changes = 0; let failure = false;

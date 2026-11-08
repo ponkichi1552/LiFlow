@@ -7,6 +7,7 @@ import { createPrivateCalendarRootSetupStorage } from '../storage/private-calend
 import { createPrivateCalendarAuthorityIntentStorage } from '../storage/private-calendar-authority-intents.ts';
 import { createPrivateCalendarKeyOutbox } from '../storage/private-calendar-key-outbox.ts';
 import { createPrivateCalendarPairingStorage } from '../storage/private-calendar-pairing.ts';
+import { createPrivateCalendarConnectionStorage } from '../storage/private-calendar-connections.ts';
 import { createPrivateCalendarSourceStorage } from '../storage/private-calendar-source.ts';
 import { createPrivatePlannerPreferenceStore } from '../../features/sharing/private-planner/preference-store.ts';
 import type { SQLiteDatabase } from 'expo-sqlite';
@@ -74,7 +75,8 @@ function nativeStore(development: boolean) {
       exclusive: (owner, work) => exclusive(owner, () => work()) });
     preferencesByOwner.set(userId, store); return store;
   }
-  return { secrets, cache, rootSetup, authorityIntents, keyOutbox, pairing, source, preferences };
+  const connections = (userId: string) => { assertOwner(userId); return createPrivateCalendarConnectionStorage({ ownerUserId: userId, assertOwner, exclusive, vault }); };
+  return { secrets, cache, rootSetup, authorityIntents, keyOutbox, pairing, connections, source, preferences };
 }
 
 /** Importing this module does not initialize Firebase or open any user's database. */
@@ -85,6 +87,7 @@ export const nativePrivateCalendarRootSetup = native.rootSetup;
 export const nativePrivateCalendarAuthorityIntents = native.authorityIntents;
 export const nativePrivateCalendarKeyOutbox = native.keyOutbox;
 export const nativePrivateCalendarPairing = native.pairing;
+export const nativePrivateCalendarConnections = native.connections;
 export const nativePrivateCalendarSource = native.source;
 export const nativePrivatePlannerPreferences = native.preferences;
 let qaStore: ReturnType<typeof nativeStore> | undefined;

@@ -11,6 +11,7 @@ import { bindV2ServerReceipt } from './server-receipts.ts';
 import type { V2ServerReceipt } from './server-receipts';
 import { choreHistoryCutoff } from '../../../domain/chores/history-retention.ts';
 import { sharedLocalDate } from '../group-clock.ts';
+import { supportsChoreRotation } from './payload-schema.ts';
 
 export interface V2RetentionWitness {
   proposal: AuthenticatedSharedOperation; proposalReceipt: V2ServerReceipt; approvals: AuthenticatedSharedOperation[];
@@ -32,6 +33,7 @@ export function verifyV2RetentionWitness(witness: V2RetentionWitness, archive: r
   if (proposal.schemaVersion !== 2 || proposal.entityType !== 'historyRetention' || proposal.payload.phase !== 'proposal') throw new Error('Invalid retention proposal');
   const body = validateV2RetentionBody(proposal.payload.checkpoint);
   const epoch = archive.find(row => row.body.keyVersion === body.keyVersion);
+  if (body.format === 3 && !supportsChoreRotation(epoch?.body.schedulerVersion ?? '')) throw new Error('Rotation progress requires a compatible retention epoch');
   if (!epoch || body.groupId !== groupId || body.rosterDigest !== sharedRosterDigest(epoch) || proposal.keyVersion !== body.keyVersion
     || proposal.authorUserId !== epoch.body.ownerUserId || proposal.deviceSequence !== (body.frontier[proposal.authorDeviceId] ?? 0) + 1) throw new Error('Retention proposal does not bind its membership');
   const frontier = Object.fromEntries(Object.entries(body.frontier).filter(([, number]) => number > 0));

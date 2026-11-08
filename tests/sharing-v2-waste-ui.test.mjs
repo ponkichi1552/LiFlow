@@ -8,12 +8,17 @@ import { createV2GroupController } from '../src/features/sharing/v2/controller.t
 import { createV2ScreenSession } from '../src/features/sharing/v2-ui/screen-session.ts';
 import { loadSharedFacts, applyReceivedSharedFacts, readSharingCheckpoint, listSharingOutbox } from '../src/platform/storage/sharing-ledger.ts';
 import { wasteTypeColor } from '../src/features/waste/type-appearance.ts';
+import { createGroupChoreSettingsSource } from '../src/features/settings/group-chore-settings-source.ts';
 const day = '2026-10-27'; const range = { from: day, through: '2026-11-10', asOfDate: day };
 const weekly = { label: '可燃ごみ', recurrence: 'weekly', collectionWeekdays: [2] };
 const ids = field => field.candidates.map(candidate => candidate.operationId);
 const rule = value => ({ recurrence: value.recurrence, collectionWeekdays: value.collectionWeekdays, anchorDate: value.anchorDate ?? null, monthlyDay: value.monthlyDay ?? null });
 const checkbox = (screen, hidden = false, label = '可燃ごみ') => screen.nodes().find(node => node.props.accessibilityRole === 'checkbox'
   && node.props.accessibilityLabel === `${label}の${day}のゴミ出しを${hidden ? '再表示' : '非表示'}`);
+const typeInput = screen => {
+  const input = screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === 'ゴミの種類');
+  assert.ok(input, 'collection input is available without opening another form'); return input;
+};
 async function settle(screen, predicate) { for (let n = 0; n < 45 && !predicate(); n++) await screen.flush(); assert.ok(predicate(), screen.text()); }
 async function receive(device, facts) { const checkpoint = await readSharingCheckpoint(device.database, groupId);
   await applyReceivedSharedFacts(device.database, groupId, facts, String(facts.length), device.repository.project, checkpoint.cursor, now().getTime(), device.repository.evidenceForServerReceipts(receiptsFor(facts))); }
@@ -29,7 +34,7 @@ async function setup() {
     let focus; const screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen', platform,
       props: { purpose: 'workspace', view, loadSession: async () => session, onBack() {}, onConfiguration() {}, onHistory() {} }, focusEffect: callback => { focus = callback; } });
     const leave = focus(); mounted.push(leave);
-    await settle(screen, () => view === 'calendar' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(view === 'waste' ? '登録した収集日' : '今日の家事'));
+    await settle(screen, () => view === 'calendar' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(view === 'waste' ? '収集日を追加' : '今日の家事'));
     return screen;
   }
   return { base, owner, c, mount, failAfterNextAdd: () => { failAfterAdd = true; }, preferences: () => preferences,
@@ -37,25 +42,57 @@ async function setup() {
 }
 async function selectType(screen, query, label) { await screen.change('ゴミの種類', query); await screen.press(`${label}を選択`); }
 for (const platform of ['ios', 'android']) {
+  test(`${platform} inline group collections and the standalone editor update the same signed schedule without duplicate registration or private planning`, async () => {
+    const f = await setup();
+    const record = { userId: 'owner', groupId, status: 'active', localGeneration: 'inline-waste' };
+    const workspace = { protocol: 2, userId: 'owner', groupId, session: { controller: f.c }, record: async () => record };
+    const source = createGroupChoreSettingsSource(record, async () => workspace, undefined, undefined, true);
+    let screen;
+    try {
+      await source.refresh();
+      screen = screenHarness('src/features/settings/chore-settings-sources.tsx', { exportName: 'ChoreSettingsSources', platform,
+        props: { group: record }, personalData: () => { throw new Error('inline shared waste must not load the personal planner'); }, mocks: {
+          '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { userId: 'owner', group: record } } },
+          './use-group-chore-settings': { useGroupChoreSettings: (_selection, includeWaste) => { assert.equal(includeWaste, true); return { ...source.getSnapshot(), source }; } },
+        } });
+      assert.ok(screen.text().includes('ゴミ収集日')); assert.ok(typeInput(screen));
+      assert.equal(screen.nodes().some(node => ['FlatList', 'ScrollView'].includes(node.type)), false);
+      await selectType(screen, 'かねん', '可燃ごみ'); await screen.press('火曜'); await screen.press('収集日を追加');
+      await settle(screen, () => typeInput(screen).props.value === '' && screen.text().includes('1種類'));
+      let value = await f.read(); const id = value.waste.schedules[0].id;
+      const standalone = await f.mount(platform);
+      await standalone.press('「可燃ごみ」の共有収集日を編集'); await standalone.press('毎月'); await standalone.change('毎月の収集日', '21'); await standalone.press('変更を保存');
+      await settle(standalone, () => typeInput(standalone).props.value === '');
+      await source.refresh(); await screen.flush();
+      value = source.getSnapshot().snapshot.model;
+      assert.equal(value.waste.schedules.length, 1); assert.equal(value.waste.schedules[0].id, id); assert.equal(value.waste.schedules[0].monthlyDay, 21);
+      await screen.press('「可燃ごみ」の共有収集日を編集'); await screen.change('毎月の収集日', '19'); await screen.press('変更を保存');
+      await settle(screen, () => typeInput(screen).props.value === '');
+      const reopened = await f.mount(platform); await reopened.press('「可燃ごみ」の共有収集日を編集');
+      assert.equal(reopened.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '毎月の収集日').props.value, '19');
+      value = await f.read(); assert.equal(value.waste.schedules.length, 1); assert.equal(value.waste.schedules[0].id, id); assert.equal(f.preferences(), 0);
+    } finally { screen?.unmount(); f.close(); }
+  });
   test(`${platform} shared waste management registers all recurrence modes with the group date and never reads private planning`, async () => {
     const f = await setup();
     try {
       const screen = await f.mount(platform); const before = (await listSharingOutbox(f.owner.database, groupId)).length;
       assert.match(screen.text(), /グループ全員に共有/u); assert.equal(f.preferences(), 0);
+      assert.equal(typeInput(screen).props.value, '');
       for (const [mode, query, label] of [['毎週', 'かねん', '可燃ごみ'], ['隔週', 'びん', 'びん'], ['毎月', 'そだい', '粗大ごみ']]) {
-        await screen.press('共有の収集日を追加'); await selectType(screen, query, label);
+        await selectType(screen, query, label);
         if (mode !== '毎週') await screen.press(mode);
         if (mode === '毎月') await screen.change('毎月の収集日', '31'); else await screen.press('火曜');
-        await screen.press('収集日を追加'); await settle(screen, () => !screen.nodes().some(node => node.type === 'TextInput' && node.props.accessibilityLabel === 'ゴミの種類'));
+        await screen.press('収集日を追加'); await settle(screen, () => typeInput(screen).props.value === '');
       }
       const value = await f.read(); const fortnight = value.waste.schedules.find(entry => entry.label === 'びん');
       assert.equal(fortnight.recurrence, 'biweekly'); assert.equal(fortnight.anchorDate, day);
       assert.equal(value.waste.schedules.find(entry => entry.label === '粗大ごみ').monthlyDay, 31);
       assert.equal(value.waste.schedules.length, 3); assert.equal(f.preferences(), 0);
       assert.equal((await listSharingOutbox(f.owner.database, groupId)).length, before + 3);
-      assert.equal(screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'), false);
-      await screen.press('次の収集日を開く'); assert.ok(screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'));
-      await screen.press('次の収集日を閉じる'); assert.equal(screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'), false);
+      assert.ok(screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'));
+      assert.ok(!screen.nodes().some(node => node.props.accessibilityLabel === '次の収集日を開く'));
+      assert.ok(screen.text().includes('3種類'));
     } finally { f.close(); }
   });
 
@@ -66,7 +103,7 @@ for (const platform of ['ios', 'android']) {
       const list = home.nodes().find(node => node.type === 'FlatList'); const todayRows = list.props.data.filter(row => row.kind === 'today').map(row => row.item);
       assert.equal(todayRows[0].source, 'waste'); assert.equal(todayRows[1].source, 'shared');
       assert.equal(checkbox(home), undefined);
-      const management = await f.mount(platform); await management.press('次の収集日を開く');
+      const management = await f.mount(platform);
       assert.ok(checkbox(management)); await checkbox(management).props.onPress(); await settle(management, () => Boolean(checkbox(management, true)));
       const hidden = await f.read();
       for (const field of ['chores', 'occurrences', 'history', 'policy', 'commonSettings']) assert.deepEqual(hidden.plan[field], before.plan[field]);
@@ -116,7 +153,7 @@ for (const platform of ['ios', 'android']) {
       await screen.press('「可燃ごみ」の共有収集日を編集');
       await f.c.actions.editWasteSchedule(base.id, [{ field: 'rule', value: rule({ recurrence: 'monthly', collectionWeekdays: [], monthlyDay: 28 }), basisOperationIds: ids(base.fields.rule) }]);
       await selectType(screen, 'しげん', '資源ごみ'); await screen.press('変更を保存');
-      await settle(screen, () => !screen.nodes().some(node => node.type === 'TextInput' && node.props.accessibilityLabel === 'ゴミの種類'));
+      await settle(screen, () => typeInput(screen).props.value === '');
       let row = (await f.read()).waste.rows[0]; assert.equal(row.schedule.recurrence, 'monthly'); assert.equal(row.schedule.monthlyDay, 28); assert.equal(row.label, '資源ごみ');
       await screen.press('「資源ごみ」の共有収集日を編集');
       await f.c.actions.editWasteSchedule(row.id, [{ field: 'label', value: '缶', basisOperationIds: ids(row.fields.label) }]);
@@ -131,11 +168,11 @@ for (const platform of ['ios', 'android']) {
     const f = await setup();
     try {
       const screen = await f.mount(platform); const before = (await listSharingOutbox(f.owner.database, groupId)).length;
-      await screen.press('共有の収集日を追加'); await selectType(screen, 'かねん', '可燃ごみ'); await screen.press('火曜');
+      await selectType(screen, 'かねん', '可燃ごみ'); await screen.press('火曜');
       f.failAfterNextAdd(); const save = screen.button('収集日を追加'); save.props.onPress(); save.props.onPress();
       await settle(screen, () => screen.text().includes('端末に保存済みです'));
-      assert.equal((await f.read()).waste.schedules.length, 1); assert.equal(screen.button('共有の収集日を追加').props.accessibilityState.disabled, true);
-      assert.equal(screen.nodes().some(node => node.type === 'TextInput' && node.props.accessibilityLabel === 'ゴミの種類'), false);
+      assert.equal((await f.read()).waste.schedules.length, 1); assert.equal(screen.button('収集日を追加').props.disabled, true);
+      assert.equal(typeInput(screen).props.editable, false);
       await screen.press('保存済みの収集日を再読込'); await settle(screen, () => !screen.text().includes('端末に保存済みです'));
       assert.equal((await f.read()).waste.schedules.length, 1); assert.equal((await listSharingOutbox(f.owner.database, groupId)).length, before + 1);
     } finally { f.close(); }
@@ -171,7 +208,7 @@ for (const platform of ['ios', 'android']) {
       await receive(f.owner, await loadSharedFacts(member.database, groupId)); const home = await f.mount(platform, 'home');
       assert.equal(checkbox(home), undefined); assert.match(home.text(), /表示設定が重なっています/u);
       assert.equal(home.nodes().some(node => node.props.accessibilityLabel === 'この収集日を表示する'), false);
-      const screen = await f.mount(platform); await screen.press('次の収集日を開く');
+      const screen = await f.mount(platform);
       assert.equal(checkbox(screen).props.accessibilityState.disabled, true); assert.match(screen.text(), /表示と非表示の変更が重なりました/u);
       await screen.press('この収集日を表示する'); await settle(screen, () => checkbox(screen)?.props.accessibilityState.disabled === false);
       entry = (await f.read()).waste.occurrences[0]; assert.equal(entry.hidden, false);
@@ -185,7 +222,7 @@ for (const platform of ['ios', 'android']) {
       const screen = await f.mount(platform); await screen.press('「粗大ごみ」の共有収集日を編集');
       const save = screen.button('変更を保存'); const input = screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '毎月の収集日');
       input.props.onChangeText('17'); save.props.onPress();
-      await settle(screen, () => !screen.nodes().some(node => node.type === 'TextInput' && node.props.accessibilityLabel === 'ゴミの種類'));
+      await settle(screen, () => typeInput(screen).props.value === '');
       assert.equal((await f.read()).waste.schedules[0].monthlyDay, 17);
     } finally { f.close(); }
   });
@@ -204,7 +241,7 @@ for (const platform of ['ios', 'android']) {
       assert.equal((await f.read()).waste.schedules[0].label, '資源ごみ');
       await screen.press('「資源ごみ」の共有収集日を削除'); const beforeDelete = await listSharingOutbox(f.owner.database, groupId);
       assert.match(screen.text(), /グループ全員の予定から削除/u); assert.deepEqual(await listSharingOutbox(f.owner.database, groupId), beforeDelete);
-      await screen.press('この共有収集日を削除する'); await settle(screen, () => screen.text().includes('共有の収集日はまだありません'));
+      await screen.press('この共有収集日を削除する'); await settle(screen, () => screen.text().includes('未登録') && !screen.text().includes('登録済み'));
       assert.equal((await f.read()).waste.schedules.length, 0);
       assert.ok((await loadSharedFacts(f.owner.database, groupId)).filter(fact => fact.operation.entityId === base.id).length >= 5);
     } finally { member.connection.close(); f.close(); }

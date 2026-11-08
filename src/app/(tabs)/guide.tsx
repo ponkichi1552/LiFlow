@@ -13,7 +13,7 @@ import { GuideChapterActions } from '@/features/chores/guide-chapter-actions';
 import { ChoreBook } from '@/components/chore-book';
 import { ChoreGuide } from '@/features/chores/chore-guide';
 import { groupChores } from '@/domain/chores/chore-groups';
-import { BackButton, Card, Page, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
+import { AppButton, BackButton, Card, Page, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
 import type { ChoreDefinition } from '@/domain/chores/types';
 import { PlannerLoadState } from '@/components/planner-load-state';
 import { usePlannerData } from '@/hooks/use-planner-data';
@@ -117,6 +117,7 @@ function PersonalChoreGuideScreen() {
   }
 
   if (!selectedChoreId) return <SafeAreaView style={{ flex: 1 }} edges={['top']}><ChoreLibrary chores={chores} onOpen={selectChoreFromList} state={libraryState}
+    footer={<AppButton title="家事を追加" accessibilityLabel="新しい個人家事を追加" variant="secondary" onPress={() => router.push('/settings/add-chore')} />}
     header={<><ScreenHeading title="家事一覧" />{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}</>}
     triviaCount={triviaItems.length} onTrivia={() => { setSearchText(''); setIsTriviaCollectionOpen(true); }} /></SafeAreaView>;
 

@@ -26,7 +26,7 @@ export function createSharedGroupManager(deps: SharedSyncDependencies & {
   async function current() {
     const metadata = await deps.cloud.readGroup(deps.groupId); const archive = await verifyMembership(metadata.roster);
     const roster = archive.at(-1)!;
-    if (roster.body.ownerUserId !== deps.userId || roster.body.ownerDeviceId !== deps.identity.deviceId) throw new SharingAccessError('この操作は所有者の端末から行ってください。');
+    if (roster.body.ownerUserId !== deps.userId || roster.body.ownerDeviceId !== deps.identity.deviceId) throw new SharingAccessError('この操作は管理者の端末から行ってください。');
     return { ...metadata, roster, archive };
   }
   async function rotate(change: (roster: VerifiedSharedRoster, revoked: string[]) => VerifiedSharedRoster,
@@ -103,7 +103,7 @@ export function createSharedGroupManager(deps: SharedSyncDependencies & {
     leave: () => serial(async () => {
       const { group } = await deps.cloud.readGroup(deps.groupId);
       if (group.ownerUserId === deps.userId) {
-        if (group.memberIds.length !== 1) throw new Error('退出する前に所有者を別のメンバーへ引き継いでください。');
+        if (group.memberIds.length !== 1) throw new Error('退出する前に管理者権限を別のメンバーへ引き継いでください。');
         await rotate((previous) => removeSharedMembers(previous, deps.identity, [deps.userId]));
       } else await deps.cloud.leaveGroup(deps.groupId);
       await deps.markLeft(); deps.changed();

@@ -12,8 +12,10 @@ import { createPrivateCalendarPairingController } from './pairing-controller.ts'
 import { privateCalendarPairingReference, snapshotPrivateCalendarPairingReference, verifyPrivateCalendarPairingRequest } from './pairing.ts';
 import type { PrivateCalendarPairingReference, PrivateCalendarPairingRequest } from './pairing.ts';
 import { assertSharedIdentifier } from '../identifier.ts';
-import { assertPrivateCalendarWork, privateCalendarWork } from './sync-deadline.ts';
+import { assertPrivateCalendarWork, privateCalendarWork, privateCalendarDeadline, privateCalendarDeadlineError, withinPrivateCalendarDeadline, PRIVATE_CALENDAR_AUTOMATIC_BUDGET_MS, PRIVATE_CALENDAR_MANUAL_BUDGET_MS } from './sync-deadline.ts';
 import type { PrivateCalendarWorkControl } from './sync-deadline.ts';
+import { createPrivateCalendarConnectionController } from './connection-controller.ts';
+import type { PrivateCalendarConnectionPort } from './connection-controller.ts';
 
 export interface PrivateCalendarDeviceSessionPort {
   userId: string; assertOwner(): void | Promise<void>;
@@ -24,6 +26,7 @@ export interface PrivateCalendarDeviceSessionPort {
   outbox: ReturnType<typeof createPrivateCalendarKeyOutbox>;
   cache: ReturnType<typeof createPrivateCalendarCacheStorage>;
   cloud: ReturnType<typeof createPrivateCalendarCloud>;
+  connections?: PrivateCalendarConnectionPort;
 }
 export interface PrivateCalendarDeviceView {
   ownerUserId: string; phase: 'unconfigured' | 'firstPending' | 'pairing' | 'approved' | 'revoked';
@@ -34,6 +37,8 @@ export interface PrivateCalendarDeviceView {
   pendingChange: { digest: string; observedCurrentDigest: string; reviewRequired: boolean } | null;
   pendingKeys: number; keyRetryAt: number | null;
   cache: { sequence: number; authorityCurrent: boolean; pending: boolean } | null;
+  connectionExpiresAt?: number;
+  connectionExpired?: boolean;
 }
 
 /** A public settings facade. No secret identity or plaintext Calendar data may leave this session. */
@@ -43,11 +48,24 @@ export function createPrivateCalendarDeviceSession(port: PrivateCalendarDeviceSe
   const authoritySync = createPrivateCalendarAuthoritySync({ userId, secrets, intents, cloud });
   const delivery = createPrivateCalendarKeyDelivery({ userId, secrets, outbox, cloud });
   const pairing = createPrivateCalendarPairingController({ userId, secrets, candidates, intents, authoritySync, delivery, cloud });
+  const connections = port.connections ? createPrivateCalendarConnectionController({ ...port.connections, userId, assertOwner: port.assertOwner, secrets, pairing, authoritySync,
+    async beforePairing(authority, control) {
+      if (!await secrets.publicState(userId)) return;
+      const pending = await roots.read(); if (pending?.status !== 'pending') return;
+      assertPrivateCalendarWork(control);
+      if (pending.digest === authority.anchor.rootDigest) {
+        await first.resume(control); throw new Error('初回設定は受付済みです。端末設定を再読込してください。');
+      }
+      // The code and its pinned signature history were verified before removing only an unaccepted public proposal.
+      if (!await roots.discardUnaccepted(pending.digest)) throw new Error('保護された端末設定があります。保存データの復旧を確認してください。');
+    } }) : null;
   async function read(): Promise<PrivateCalendarDeviceView> {
     await port.assertOwner(); const state = await secrets.publicState(userId);
+    const pendingConnections = connections ? await connections.pending() : [];
     const empty: PrivateCalendarDeviceView = { ownerUserId: userId, phase: 'unconfigured', deviceId: null, mainDeviceId: null,
       authorityDigest: null, revision: null, keyVersion: null, keyReady: false, devices: [], reference: null, request: null,
-      pendingChange: null, pendingKeys: 0, keyRetryAt: null, cache: null };
+      pendingChange: null, pendingKeys: 0, keyRetryAt: null, cache: null,
+      ...(pendingConnections.length ? { connectionExpiresAt: Math.min(...pendingConnections.map(row => row.expiresAt)), connectionExpired: pendingConnections.every(row => row.expiresAt <= Date.now()) } : {}) };
     if (!state) { await port.assertOwner(); return empty; }
     const root = await roots.read(); const candidate = await candidates.read(); const current = state.authority;
     const approved = current?.signed.body.devices.some(device => device.deviceId === state.identity.deviceId) === true;
@@ -97,6 +115,8 @@ export function createPrivateCalendarDeviceSession(port: PrivateCalendarDeviceSe
     }
     const pending = exclusive(async () => {
       assertPrivateCalendarWork(options);
+      // Interactive handoff is resumed by foreground listeners or explicit retry, never periodic background work.
+      if (force && connections) await connections.synchronize(options);
       const before = await read();
       assertPrivateCalendarWork(options);
       // Merely opening/retrying an unconfigured or unapproved device cannot create trust.
@@ -110,6 +130,53 @@ export function createPrivateCalendarDeviceSession(port: PrivateCalendarDeviceSe
     }, force);
     sync = { force, promise: pending }; void pending.finally(() => { if (sync?.promise === pending) sync = null; }).catch(() => {}); return pending;
   };
+  function connectionWork<T>(work: (control: PrivateCalendarWorkControl) => Promise<T>, budgetMs: number) {
+    const controller = new AbortController(); const deadline = privateCalendarDeadline(Date.now(), budgetMs);
+    const control = { signal: controller.signal, assertBudget: () => { if (controller.signal.aborted || Date.now() >= deadline) throw privateCalendarDeadlineError(); } };
+    return withinPrivateCalendarDeadline(work(control), budgetMs, () => controller.abort());
+  }
+  let connectionObservers = 0, stopConnections: (() => void) | null = null;
+  function observeConnections() {
+    if (!connections) return () => {};
+    if (connectionObservers++ === 0) {
+      let stopped = false, reconciling = false, requested = false, dirty = false, processing = false, bootstrapped = false;
+      let waiting: Promise<unknown> | null = null;
+      let expiry: ReturnType<typeof setTimeout> | undefined;
+      const watches = new Map<string, () => void>();
+      const process = () => {
+        if (stopped) return; dirty = true; if (processing) return;
+        if (mutation) {
+          if (waiting !== mutation) {
+            const active = mutation; waiting = active;
+            void active.finally(() => { if (waiting === active) waiting = null; if (dirty && !stopped) process(); }).catch(() => {});
+          }
+          return;
+        }
+        processing = true; dirty = false;
+        void exclusive(() => connectionWork(async control => { await connections.synchronize(control); return read(); }, PRIVATE_CALENDAR_AUTOMATIC_BUDGET_MS))
+          .catch(() => { /* Keep the encrypted code and exact request for retry; never treat a timeout as completion. */ })
+          .finally(() => { processing = false; if (dirty && !stopped) process(); });
+      };
+      const reconcile = async () => {
+        if (stopped) return; if (reconciling) { requested = true; return; } reconciling = true;
+        try {
+          const pending = await connections.pending(); if (stopped) return;
+          if (!bootstrapped) { bootstrapped = true; if (pending.length) process(); }
+          const ids = new Set(pending.filter(row => row.expiresAt > Date.now()).map(row => row.id));
+          for (const [id, stop] of watches) if (!ids.has(id)) { stop(); watches.delete(id); }
+          for (const id of ids) if (!watches.has(id)) watches.set(id, connections.watch(id, process, () => {}));
+          clearTimeout(expiry); const next = pending.filter(row => row.expiresAt > Date.now()).map(row => row.expiresAt);
+          if (next.length) expiry = setTimeout(() => { process(); void reconcile(); }, Math.max(1, Math.min(...next) - Date.now() + 1));
+        } catch { /* An account change or unavailable transport cannot grant a device. */ }
+        finally { reconciling = false; if (requested && !stopped) { requested = false; void reconcile(); } }
+      };
+      const changed = () => { void reconcile(); if (dirty) process(); };
+      listeners.add(changed); void reconcile();
+      stopConnections = () => { stopped = true; clearTimeout(expiry); listeners.delete(changed); for (const stop of watches.values()) stop(); watches.clear(); };
+    }
+    let live = true;
+    return () => { if (!live) return; live = false; if (--connectionObservers === 0) { stopConnections?.(); stopConnections = null; } };
+  }
   async function change(targetDeviceId: string, expectedDigest: string, remove: boolean) {
     const { authority } = await authoritySync.refresh(); const state = await secrets.publicState(userId);
     if (authority.digest !== expectedDigest) throw new Error('表示後に本人端末の設定が変わりました。再読込して操作を確認してください。');
@@ -122,7 +189,15 @@ export function createPrivateCalendarDeviceSession(port: PrivateCalendarDeviceSe
       keyVersion: authority.signed.body.keyVersion + (remove ? 1 : 0) });
     if (result.kind !== 'review') await deliver(true); return read();
   }
-  return { read, synchronizeDevices, subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
+  return { read, synchronizeDevices, observeConnections,
+    issueConnectionCode: () => exclusive(() => connectionWork(async control => {
+      if (!connections) throw new Error('このビルドでは接続コードを発行できません。'); return connections.issue(control);
+    }, PRIVATE_CALENDAR_MANUAL_BUDGET_MS)),
+    connectWithCode: (code: string) => exclusive(() => connectionWork(async control => {
+      if (!connections) throw new Error('このビルドでは接続コードを使えません。');
+      await connections.connect(code, control); await connections.synchronize(control); return read();
+    }, PRIVATE_CALENDAR_MANUAL_BUDGET_MS)),
+    subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     initializeFirstDevice: () => exclusive(async () => {
       const before = await read();
       if (before.authorityDigest || before.request) throw new Error('本人端末の設定が既にあります。既存の設定を確認してください。');

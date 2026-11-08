@@ -1,7 +1,6 @@
-import { createHouseholdChoreDefinitions } from '../../../domain/chores/catalog.ts';
 import type { LocalDate } from '../../../domain/shared/types.ts';
 import type { SharedOperationDraft } from '../../../platform/storage/sharing-ledger.ts';
-import { sharedPatchFromDefinition } from '../planning.ts';
+import { standardSharedChores } from './standard-catalog.ts';
 import { createGroupPolicy } from './model.ts';
 import type { GroupKind } from './model.ts';
 
@@ -13,10 +12,9 @@ export function v2GroupBootstrap(input: { groupId: string; ownerUserId: string; 
       frequencyMode: 'balanced', restDays: [6, 7], heavyDailyLimit: 1, normalDailyLimit: 2 } },
     { operationId: `${input.groupId}.bootstrap.member`, entityType: 'member', entityId: input.ownerUserId, operationType: 'patch', payload: { userId: input.ownerUserId, displayName: input.ownerDisplayName } },
   ];
-  for (const builtIn of createHouseholdChoreDefinitions('unused-v2-bootstrap')) {
-    const id = `${input.groupId}.${builtIn.id}`;
-    operations.push({ operationId: `${input.groupId}.bootstrap.chore.${operations.length}`, entityType: 'chore', entityId: id,
-      operationType: 'patch', payload: { ...sharedPatchFromDefinition({ ...builtIn, id, enabled: false }), requiresCycleSelection: builtIn.requiresCycleSelection === true } });
+  for (const chore of standardSharedChores(input.groupId)) {
+    operations.push({ operationId: `${input.groupId}.bootstrap.chore.${operations.length}`, entityType: 'chore', entityId: chore.id,
+      operationType: 'patch', payload: chore.payload });
   }
   return operations;
 }

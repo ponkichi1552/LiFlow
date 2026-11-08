@@ -296,15 +296,15 @@ for (const platform of ['ios', 'android']) test(`${platform} shared Calendar set
     await screen.flush(); assert.deepEqual(calls, [], 'mounting never authorizes or synchronizes Google');
     await screen.press('今すぐ追加・更新'); await screen.flush();
     assert.deepEqual(calls, [['sync', { force: true, interactive: true }]]);
-    const toggle = () => screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === '共有予定をGoogleカレンダーに追加');
-    toggle().props.onValueChange(false); await screen.flush(); await screen.flush();
-    assert.equal(toggle().props.value, false); assert.deepEqual(calls.at(-1), ['off']);
+    const toggle = () => screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '共有予定をGoogleカレンダーに追加');
+    toggle().props.onPress(); await screen.flush(); await screen.flush();
+    assert.equal(toggle().props.accessibilityState.checked, false); assert.deepEqual(calls.at(-1), ['off']);
     await screen.press('接続先を変更'); await screen.flush(); assert.deepEqual(calls.at(-1), ['prepare', { replaceAccount: true }]);
-    await screen.press('キャンセル'); await screen.flush(); assert.equal(toggle().props.value, false);
-    toggle().props.onValueChange(true); await screen.flush(); await screen.flush();
+    await screen.press('キャンセル'); await screen.flush(); assert.equal(toggle().props.accessibilityState.checked, false);
+    toggle().props.onPress(); await screen.flush(); await screen.flush();
     assert.deepEqual(calls.at(-1), ['prepare', { replaceAccount: false }]); await screen.press('QA Calendar'); await screen.flush();
     assert.deepEqual(calls.slice(-2), [['connect'], ['sync', { force: true, interactive: true }]]);
-    assert.equal(toggle().props.value, true);
+    assert.equal(toggle().props.accessibilityState.checked, true);
   } finally { screen.unmount(); }
 });
 

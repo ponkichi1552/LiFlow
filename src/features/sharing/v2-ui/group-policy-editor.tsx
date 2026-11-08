@@ -1,13 +1,17 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { Text, View } from 'react-native';
-import { AppButton, BackButton, Card, ScreenHeading } from '../../../components/planner-ui';
+import { StyleSheet, Text, View, useColorScheme } from 'react-native';
+import { Card } from '../../../components/planner-ui';
 import { AccordionSection } from '../../../components/accordion-section';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { JsonValue } from '../operations';
 import type { GroupPolicy } from '../v2/model';
 import { useV2FieldAutosave } from './use-field-autosave';
-import { V2Choices, V2Flag, V2FormScrollView, v2FormStyles as styles } from './form-controls';
+import { V2Choices, V2FormScrollView, v2FormStyles as styles } from './form-controls';
+import { SettingsHeader } from '../../settings/settings-navigation';
+import { SettingsCheckbox } from '../../../components/settings-checkbox';
+import { SettingsAction, SettingsGroup } from '../../../components/settings-controls';
+import { plannerColorsForScheme } from '../../../components/planner-theme';
 import { V2AutosaveFeedback } from './autosave-feedback';
 import { v2MemberLabels } from './member-labels';
 import type { V2FieldCodec } from './field-editor-state';
@@ -26,14 +30,15 @@ const sections = [
 ] as const;
 
 export function V2GroupPolicyEditor(props: { model: V2GroupScreenModel; controller: V2GroupController; onSaved: () => Promise<void>; onBack: () => void; header?: ReactNode }) {
-  if (!props.model.groupPolicy || props.model.groupPolicy.kind === 'missing') return <V2FormScrollView contentContainerStyle={{ padding: 16, gap: 14 }} header={<BackButton onPress={props.onBack} />}>
+  if (!props.model.groupPolicy || props.model.groupPolicy.kind === 'missing') return <V2FormScrollView contentContainerStyle={{ padding: 20, gap: 14 }} header={<SettingsHeader title="グループ名・ルール" onBack={props.onBack} />}>
     {props.header}<Text style={styles.body}>グループのルールを取得できませんでした。</Text>
-    <AppButton title="グループのルールを再読込" variant="secondary" onPress={() => void props.onSaved().catch(() => undefined)} />
+    <SettingsAction title="グループのルールを再読込" placement="page" onPress={() => void props.onSaved().catch(() => undefined)} />
   </V2FormScrollView>;
   return <Editor key={`${props.model.viewerUserId}:${props.model.plan.groupId}:${props.model.adminUserId}`} {...props} source={props.model.groupPolicy} />;
 }
 function Editor({ model, source, controller, onSaved, onBack, header }: Parameters<typeof V2GroupPolicyEditor>[0] & { source: NonNullable<V2GroupScreenModel['groupPolicy']> }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const colors = plannerColorsForScheme(useColorScheme());
   const admin = model.viewerUserId === model.adminUserId; const nameOf = v2MemberLabels(model.plan.members);
   const autosave = useV2FieldAutosave({ fields: { ...model.groupSettings, configuration: source },
     codecs: { name: groupNameCodec, timeZone: groupRegionCodec, configuration: policyCodec },
@@ -41,20 +46,18 @@ function Editor({ model, source, controller, onSaved, onBack, header }: Paramete
   const policy = autosave.fields.configuration.kind === 'conflict' ? null : autosave.raw.configuration as unknown as GroupPolicy;
   const patch = (value: Partial<GroupPolicy>) => autosave.changeWith('configuration', raw => ({ ...raw as object, ...value }) as JsonValue);
   const details = (value: GroupPolicy, editable: boolean) => <View style={styles.group}>
-    {editable ? <V2Choices label="グループの種類" value={value.kind} choices={[{ value: 'family', label: '家族' }, { value: 'roommates', label: '同居人' }]}
+    {editable ? <V2Choices compact label="グループの種類" value={value.kind} choices={[{ value: 'family', label: '家族' }, { value: 'roommates', label: '同居人' }]}
       disabled={autosave.leaving} onChange={kind => patch({ kind })} /> : <Text style={styles.body}>グループの種類：{value.kind === 'family' ? '家族' : '同居人'}</Text>}
-    {sections.map(section => <AccordionSection key={section.key} title={section.title} expanded={expanded[section.key] === true}
-      onToggle={() => setExpanded(current => ({ ...current, [section.key]: !current[section.key] }))}>
-      {section.fields.map(([key, label]) => editable ? <V2Flag key={key} label={label} value={value[key]} disabled={autosave.leaving} onChange={checked => patch({ [key]: checked })} />
+    {sections.map(section => <SettingsGroup key={section.key} title={section.title}>
+      <View>{section.fields.map(([key, label]) => editable ? <View key={key} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 52, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }}><Text style={[styles.body, { flex: 1 }]}>{label}</Text><SettingsCheckbox accessibilityLabel={label} value={value[key]} disabled={autosave.leaving} onValueChange={checked => patch({ [key]: checked })} /></View>
         : <Text key={key} style={styles.caption}>{label}：{value[key] ? 'ON' : 'OFF'}</Text>)}
-      {section.key === 'assignment' ? <Text style={styles.caption}>委譲機能をONにしても、個別の権限は付与されません。家事ごとに管理者が設定します。</Text> : null}
-      {section.key === 'assignment' ? <Text style={styles.caption}>完了状況の表示がOFFでも、自分の担当・実施・登録分と管理者の確認用の情報は表示します。</Text> : null}
-      {section.key === 'assignment' ? <Text style={styles.caption}>完了通知は初期OFFです。ONにすると、同期で受信した完了を通知が許可された端末に表示します。過去分はまとめて通知せず、同じ家事回は1回だけ通知します。即時の受信や配信は保証されず、端末の通知上限で省略される場合もあります。完了履歴は残ります。</Text> : null}
-    </AccordionSection>)}
+      </View>
+      {section.key === 'assignment' ? <Text style={styles.caption}>権限は家事ごとに設定します。完了状況がOFFでも、自分の家事と管理者の確認用情報は表示します。</Text> : null}
+      {section.key === 'assignment' ? <Text style={styles.caption}>完了の受信時に1回だけ通知します。OSの状況で遅延・省略されます。</Text> : null}
+    </SettingsGroup>)}
   </View>;
-  return <V2FormScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 40 }} header={<BackButton disabled={autosave.leaving} onPress={() => void autosave.navigateAfterSave(onBack)} />}>{header}
-    <ScreenHeading title="グループ名・ルール" />
-    <Text style={styles.caption}>{admin ? '変更は全メンバーに適用されます。種類を変えても現在の個別設定は保持します。' : 'ルールは管理者が変更します。'}</Text>
+  return <V2FormScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 14, gap: 16, paddingBottom: 40 }} header={<SettingsHeader title="グループ名・ルール" backDisabled={autosave.leaving} onBack={() => void autosave.navigateAfterSave(onBack)} />}>{header}
+    {!admin ? <Text style={styles.caption}>変更は管理者が行います。</Text> : null}
     {model.groupSettings ? <View>
       <V2GroupSettingsFields autosave={autosave} model={model} admin={admin} />
     </View> : null}
@@ -62,7 +65,7 @@ function Editor({ model, source, controller, onSaved, onBack, header }: Paramete
       {autosave.fields.configuration.candidates.map((candidate, index) => <AccordionSection key={candidate.operationId} title={`ルール候補${index + 1} · ${nameOf(candidate.authorUserId)}`}
         expanded={expanded[candidate.operationId] === true} onToggle={() => setExpanded(current => ({ ...current, [candidate.operationId]: !current[candidate.operationId] }))}>
         {details(candidate.value as unknown as GroupPolicy, false)}
-        {admin ? <AppButton title={`ルール候補${index + 1}で解決する`} variant="secondary" disabled={autosave.leaving}
+        {admin ? <SettingsAction title={`ルール候補${index + 1}で解決する`} placement="page" disabled={autosave.leaving}
           onPress={() => autosave.resolve('configuration', candidate.value)} /> : null}
       </AccordionSection>)}
     </Card>}

@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
-import { INITIAL_CATEGORIES, isCalendarAnchor, validateEventDraft } from '../../features/calendar/events.ts';
+import { INITIAL_CATEGORIES, isCalendarAnchor, newEventDraft, validateEventDraft } from '../../features/calendar/events.ts';
 import type { CalendarEvent, CalendarCategory, CalendarException, EventDraft } from '../../features/calendar/events.ts';
 import type { LocalDate } from '../../domain/shared/types.ts';
 import { parseLocalDate } from '../../domain/scheduling/local-date.ts';
@@ -141,9 +141,17 @@ export async function saveCalendarDraft(database: SQLiteDatabase, input: Calenda
     });
   }); changed(database, 'drafts');
 }
-export async function saveCalendarEvent(database: SQLiteDatabase, input: {
+export const OWN_BIRTHDAY_EVENT_ID = 'self-birthday';
+/** The settings date is one personal event; other people's birthdays keep their own identities. */
+export function saveOwnBirthday(database: SQLiteDatabase, input: { date: LocalDate; timeZone: string; expectedRevision: number }) {
+  return writeCalendarEvent(database, { id: OWN_BIRTHDAY_EVENT_ID, expectedRevision: input.expectedRevision,
+    value: { ...newEventDraft(input.date, input.timeZone, true), title: '誕生日' } }, true);
+}
+type CalendarEventInput = {
   id?: string; expectedRevision: number; value: EventDraft; anchorDate?: LocalDate; expectedExceptionRevision?: number; scope?: 'one' | 'series'; resetExceptions?: boolean;
-}) {
+};
+export function saveCalendarEvent(database: SQLiteDatabase, input: CalendarEventInput) { return writeCalendarEvent(database, input); }
+async function writeCalendarEvent(database: SQLiteDatabase, input: CalendarEventInput, ownBirthday = false) {
   const body = validateEventDraft(input.value); const id = input.id ?? newId('event'); identifier(id);
   if (input.anchorDate !== undefined) parseLocalDate(input.anchorDate);
   const submitted = parseEditorDraft({ eventId: input.id ?? null, revision: input.expectedRevision, scope: input.scope ?? 'series',
@@ -159,7 +167,9 @@ export async function saveCalendarEvent(database: SQLiteDatabase, input: {
         await insertInitialCalendarCategory(tx, initial);
       }
       const prior = await tx.getFirstAsync<{ revision: number; deleted: number; definition_json: string }>('SELECT * FROM calendar_events WHERE id=?', id);
-      if (prior ? prior.deleted || prior.revision !== input.expectedRevision : input.expectedRevision !== 0) throw conflict();
+      // Registering a cleared birthday must keep its identity and revision monotonic.
+      const restoreBirthday = ownBirthday && id === OWN_BIRTHDAY_EVENT_ID && prior?.deleted && input.expectedRevision === 0;
+      if (!restoreBirthday && (prior ? prior.deleted || prior.revision !== input.expectedRevision : input.expectedRevision !== 0)) throw conflict();
       if (input.scope === 'one') {
         if (!prior || !input.anchorDate) throw conflict();
         if (!isCalendarAnchor({ ...validateEventDraft(JSON.parse(prior.definition_json)), id, revision: prior.revision }, input.anchorDate)) throw conflict();
@@ -173,7 +183,7 @@ export async function saveCalendarEvent(database: SQLiteDatabase, input: {
           if (!input.resetExceptions) throw new Error('この繰り返しには個別に変更した回があります。リセットを確認してください。');
           await tx.runAsync('DELETE FROM calendar_event_exceptions WHERE event_id=?', id);
         }
-        await tx.runAsync('INSERT INTO calendar_events(id,definition_json,revision,deleted) VALUES(?,?,?,0) ON CONFLICT(id) DO UPDATE SET definition_json=excluded.definition_json,revision=excluded.revision', id, JSON.stringify(body), input.expectedRevision + 1);
+        await tx.runAsync('INSERT INTO calendar_events(id,definition_json,revision,deleted) VALUES(?,?,?,0) ON CONFLICT(id) DO UPDATE SET definition_json=excluded.definition_json,revision=excluded.revision,deleted=0', id, JSON.stringify(body), (restoreBirthday ? prior!.revision : input.expectedRevision) + 1);
       }
       await clearRelatedDrafts(tx, input.id ?? null, input.scope ?? 'series', input.anchorDate, body.birthday, {}, submitted);
     });

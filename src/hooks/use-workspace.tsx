@@ -13,6 +13,7 @@ import { startPrivateCalendarForeground, syncKnownPrivateCalendar } from '@/plat
 import { traceStartup } from '@/platform/diagnostics/startup-timing';
 import { createInitialDisplayGate, waitForInitialFrame } from '@/features/planner/initial-display-gate';
 import { canShowPersonalStartup, readSavedStartupDisplay, startupDisplayCache } from '@/platform/sharing/startup-display';
+import { sharedPeriodicSyncDue } from '@/features/sharing/foreground-sync-policy';
 
 /** Personal data stays mounted; a membership adds shared data to the same four tabs. */
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
@@ -133,22 +134,36 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           subscriptions.push(module.subscribeAccountDeviceRestoreStatus(update), module.startAccountDeviceForeground(userId)); update();
         }
       } catch { /* Account restoration retries independently of the existing group. */ }
+      let watchedWorkspace: SharedWorkspace | null = null;
+      let sharedRetryNeeded = true;
       try {
         const record = await currentSharingWorkspace();
         if (!live()) return;
         if (record) {
           const workspace = await openSharedWorkspace(record); if (!live()) return;
-          const synchronize = () => { if (live()) void workspace.sync().catch(() => undefined); };
+          watchedWorkspace = workspace;
+          const synchronize = () => {
+            if (live()) void workspace.sync().then(result => {
+              if (live() && (!result.complete || result.pending > 0 || result.waitingForApproval)) sharedRetryNeeded = true;
+            }).catch(() => { if (live()) sharedRetryNeeded = true; });
+          };
           subscriptions.push(workspace.watch(synchronize, synchronize));
         }
       } catch { /* The coordinator records and retries failures. */ }
       if (!live()) return;
-      const synchronize = () => {
+      const synchronize = (periodic = false) => {
         if (!live()) return;
-        void syncSharingWorkspace().catch(() => undefined);
+        void (async () => {
+          if (periodic && !sharedRetryNeeded && watchedWorkspace && !await sharedPeriodicSyncDue(watchedWorkspace)) return;
+          if (live()) {
+            sharedRetryNeeded = true;
+            const result = await syncSharingWorkspace();
+            if (live()) sharedRetryNeeded = result.kind !== 'success';
+          }
+        })().catch(() => { if (live()) sharedRetryNeeded = true; });
         void syncKnownPrivateCalendar().catch(() => undefined);
       };
-      synchronize(); interval = setInterval(synchronize, 10 * 60_000);
+      synchronize(); interval = setInterval(() => synchronize(true), 10 * 60_000);
     };
     if (AppState.currentState === 'active') void start().catch(() => undefined);
     const subscription = AppState.addEventListener('change', state => {

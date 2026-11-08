@@ -17,7 +17,8 @@ export function createOwnerRhythmSettings(input: { store: PrivatePlannerPreferen
   let tail: Promise<unknown> = Promise.resolve();
   const exclusive = <T,>(work: () => Promise<T>): Promise<T> => { const next = tail.then(work, work); tail = next.catch(() => {}); return next; };
   const placement = () => snapshotPersonalPlacementPreferences({ allowedBands: saved?.allowedBands ?? [], dayOverrides: saved?.dayOverrides ?? [],
-    ...(saved?.maximumMinutes !== undefined ? { maximumMinutes: saved.maximumMinutes } : {}) });
+    ...(saved?.maximumMinutes !== undefined ? { maximumMinutes: saved.maximumMinutes } : {}),
+    ...(saved?.dayTypes !== undefined ? { dayTypes: saved.dayTypes } : {}) });
   const resume = async () => {
     const pending = await input.store.readLocalProjection(); if (!pending) return;
     saved = await input.store.save(pending.privateRevision, pending.preferences);
@@ -35,7 +36,7 @@ export function createOwnerRhythmSettings(input: { store: PrivatePlannerPreferen
       if (JSON.stringify(current) !== JSON.stringify(before) && JSON.stringify(current) !== JSON.stringify(own)) throw new Error('家事の時間・日別設定が別の操作で更新されています。');
       const base = saved ? privatePlannerPreferenceValues(saved) : { timeZone: input.timeZone, allowedBands: [],
         restDays: [...local.restDays] as Weekday[], loadLimits: { heavyDailyLimit: local.heavyDailyLimit, normalDailyLimit: local.normalDailyLimit } };
-      const { maximumMinutes: _oldMaximum, dayOverrides: _oldDays, ...retained } = base;
+      const { maximumMinutes: _oldMaximum, dayOverrides: _oldDays, dayTypes: _oldTypes, ...retained } = base;
       saved = await input.store.save(saved?.revision ?? 0, { ...retained, ...own, dayOverrides: [...own.dayOverrides], allowedBands: [...own.allowedBands] });
       });
     },

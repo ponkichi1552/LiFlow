@@ -9,6 +9,7 @@ export interface ChoreSettingsPatch {
   enabled?: boolean;
   cycleDays?: number | null;
   windowRadiusDays?: number;
+  estimatedMinutes?: number;
   load?: ChoreLoad;
   holidayPriority?: boolean;
   laundryDryingPreference?: LaundryDryingPreference;
@@ -40,11 +41,15 @@ export function applyChoreSettingsPatch(chore: ChoreDefinition, patch: ChoreSett
   if (patch.windowRadiusDays !== undefined) {
     if (!Number.isInteger(patch.windowRadiusDays) || patch.windowRadiusDays < 0 || patch.windowRadiusDays > 14) throw new RangeError('期間幅は±0〜±14日の整数で入力してください。');
     next.windowRadiusDays = patch.windowRadiusDays;
-    if (chore.personalRecipeId || chore.applianceId || chore.applianceCareSource) next.userWindowRadiusDays = patch.windowRadiusDays;
+    if (chore.customPersonal || chore.personalRecipeId || chore.applianceId || chore.applianceCareSource) next.userWindowRadiusDays = patch.windowRadiusDays;
   }
   if (patch.load !== undefined) {
     if (!['light', 'normal', 'heavy'].includes(patch.load)) throw new RangeError('負荷を確認してください。');
     next.load = patch.load;
+  }
+  if (patch.estimatedMinutes !== undefined) {
+    if (!chore.customPersonal || !Number.isSafeInteger(patch.estimatedMinutes) || patch.estimatedMinutes < 1 || patch.estimatedMinutes > 1440) throw new RangeError('目安時間は1〜1440分で入力してください。');
+    next.estimatedMinutes = patch.estimatedMinutes;
   }
   if (patch.holidayPriority !== undefined) next.holidayPriority = patch.holidayPriority;
   if (patch.laundryDryingPreference !== undefined) {

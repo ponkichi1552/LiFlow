@@ -91,6 +91,16 @@ test('private Calendar lost approval and key replies recover fixed intents witho
   assert.equal(h.history.length, 2); assert.deepEqual([...h.packets.values()], packets); assert.equal(h.owner.state.generations, generations);
 });
 
+test('private Calendar approval receipt recovers after another runtime already advanced the protected authority', async t => {
+  const h = await fixture(t); const candidate = await h.services(h.recipient).pair.prepareConfirmedReference(h.reference);
+  h.flags.controlReplyLost = true; await assert.rejects(h.services(h.owner).pair.approve(candidate.request), /lost approval/u);
+  await h.services(h.owner).authoritySync.refresh(); assert.ok(await h.owner.changes.readPending());
+  assert.equal((await h.owner.secrets.authority(userId)).signed.body.revision, 2);
+  assert.equal((await h.services(h.owner).pair.approve(candidate.request)).kind, 'approved');
+  assert.equal((await h.services(h.recipient).pair.join()).kind, 'ready');
+  assert.equal(await h.owner.changes.readPending(), null); assert.equal(h.history.length, 2);
+});
+
 test('private Calendar corrupt protected pairing candidates fail closed and cannot replace the original identity or pin', async t => {
   const h = await fixture(t); const candidate = await h.services(h.recipient).pair.prepareConfirmedReference(h.reference); const identity = await h.recipient.secrets.identity(userId);
   const raw = await h.recipient.vault.getItem(`private-calendar-pairing:${userId}`); await h.recipient.vault.setItem(`private-calendar-pairing:${userId}`, '{corrupt'); const generations = h.recipient.state.generations;

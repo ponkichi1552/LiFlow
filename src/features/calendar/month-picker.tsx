@@ -3,10 +3,12 @@ import { FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { palette, typography } from '../../components/planner-ui';
 import type { LocalDate } from '../../domain/shared/types';
+import { usePlannerBorderStyles } from '../../components/use-planner-border-styles';
 
 const years = Array.from({ length: 300 }, (_, index) => 1900 + index);
 /** A bounded year list and all twelve months; choosing a destination does not change the display mode. */
 export function CalendarMonthPicker({ month, onSelect, onClose }: { month: LocalDate; onSelect(month: LocalDate): void; onClose(): void }) {
+  const styles = usePlannerBorderStyles(baseStyles);
   const [year, setYear] = useState(Number(month.slice(0, 4)));
   const [selectedMonth, setMonth] = useState(Number(month.slice(5, 7)));
   const latest = useRef({ year, month: selectedMonth }); const moved = useRef(false);
@@ -32,7 +34,7 @@ export function CalendarMonthPicker({ month, onSelect, onClose }: { month: Local
     </View>
   </Modal>;
 }
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: palette.overlay }, panel: { backgroundColor: palette.elevated, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' },
   header: { flexDirection: 'row', alignItems: 'center', minHeight: 52, paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
   title: { ...typography.subheading, color: palette.ink, flex: 1, textAlign: 'center', fontWeight: '600' }, action: { minWidth: 56, minHeight: 44, justifyContent: 'center', alignItems: 'center' }, actionText: { ...typography.control, color: palette.accent },

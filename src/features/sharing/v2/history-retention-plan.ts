@@ -17,16 +17,30 @@ import type { V2RetentionAnchor, V2RetainedRoundState, V2RetentionBody } from '.
 import { v2RetainedCompletions } from './retained-completions.ts';
 import { frameAtOperation } from './authority-context.ts';
 import { buildV2CommonPlan } from './common-plan.ts';
+import { supportsChoreRotation } from './payload-schema.ts';
+import { markRotationCompletion, rotationProgressIndex, rotationProgressRows } from './rotation-progress.ts';
+import type { SharedChoreConfiguration } from './model';
 
 /** Pure proposal built only after the caller has authenticated the full original ledger. */
 export function planV2HistoryRetention(input: { replica: SharedReplica; assessment: ReturnType<typeof assessV2BusinessHistory>;
   archive: readonly VerifiedSharedRoster[]; receipts: ReadonlyMap<string, V2ServerReceipt>; cutoff: LocalDate; throughSequence: number;
   previous?: V2RetentionBody; format?: V2RetentionBody['format'] }) {
-  const format = input.format ?? 2;
   const { replica, assessment, receipts, cutoff } = input; const epoch = input.archive.at(-1)!;
+  const hasRotation = input.previous?.format === 3 || replica.operations.some(op => op.entityType === 'chorePolicy'
+    && (op.payload.configuration as unknown as SharedChoreConfiguration)?.policy.assignment.rotation);
+  const format = input.format ?? (hasRotation ? 3 : 2);
+  if (format === 3 && !supportsChoreRotation(epoch?.body.schedulerVersion ?? '')) throw new Error('Upgrade before retaining rotation progress');
+  if (format !== 3 && input.previous?.rotationProgress?.length) throw new Error('Cannot discard retained rotation progress');
   if (!epoch || replica.pendingOperationIds.length || assessment.provisionalOperationIds.length
     || replica.operations.some(op => op.schemaVersion === 2 && !receipts.has(op.operationId))) throw new Error('Finish synchronization before deleting history');
   const at = v2ReadPoint(assessment.view, epoch);
+  const rotationProgress = rotationProgressIndex(input.previous?.rotationProgress);
+  const rememberRotation = (choreId: string, version: number, anchorDate: LocalDate) => {
+    const cfg = assessment.view.configurationVersion(choreId, version, at)?.value as unknown as SharedChoreConfiguration | undefined;
+    if (!cfg?.policy.assignment.rotation) return;
+    if (format !== 3) throw new Error('Rotating assignments require a compatible retention format');
+    markRotationCompletion(rotationProgress, choreId, cfg.rotationSourceVersion!, anchorDate);
+  };
   const timeZone = assessment.view.field('settings', 'settings', 'timeZone', at)?.value;
   if (typeof timeZone !== 'string') throw new Error('Missing shared history region');
   if (input.previous && cutoff < input.previous.cutoff) throw new Error('History retention cannot move backwards');
@@ -43,6 +57,7 @@ export function planV2HistoryRetention(input: { replica: SharedReplica; assessme
   };
   for (const anchor of input.previous?.anchors ?? []) save(anchor);
   for (const anchor of v2RetainedCompletions(assessment.view, at)) if (!isRetiredBuiltInChore(anchor.choreId)) {
+    if (anchor.reports.length && anchor.through < cutoff) rememberRotation(anchor.choreId, anchor.ruleVersion, anchor.anchorDate);
     if (anchor.reports.length) save(anchor); if (anchor.through >= cutoff) rounds.set(`${anchor.choreId}\0${anchor.subjectUserId}\0${anchor.anchorDate}`, anchor);
   }
   for (const record of records) if (expired.has(record.operationId) && record.active && record.outcome === 'completed'
@@ -53,6 +68,7 @@ export function planV2HistoryRetention(input: { replica: SharedReplica; assessme
     const anchor: V2RetentionAnchor = { choreId: record.choreId, subjectUserId: record.subjectUserId,
       date: sharedLocalDate(new Date(record.performedAt), timeZone), anchorDate: record.anchorDate,
       ruleVersion: operation.payload.ruleVersion as number, instant: Date.parse(record.performedAt), through: record.schedule?.windowEnd ?? frame.windowEnd };
+    if (anchor.through < cutoff) rememberRotation(anchor.choreId, anchor.ruleVersion, anchor.anchorDate);
     save(anchor);
     if (anchor.through >= cutoff && !isRetiredBuiltInChore(anchor.choreId)) {
       const key = `${anchor.choreId}\0${anchor.subjectUserId}\0${anchor.anchorDate}`;
@@ -91,7 +107,7 @@ export function planV2HistoryRetention(input: { replica: SharedReplica; assessme
       input.previous ? sharedDocumentDigest(input.previous) : null]),
     retainedFactsDigest: retentionOperationsDigest(retained, format), indexDigest: retentionIndexDigest(replica.operationIndex, format),
     anchors: sortAnchors(anchors.values()), roundStates: sortAnchors(rounds.values()),
-    retainedCount: retained.length, authorityStates });
+    retainedCount: retained.length, authorityStates, ...(format === 3 ? { rotationProgress: rotationProgressRows(rotationProgress) } : {}) });
   const retainedIds = new Set(retained.map(op => op.operationId));
   return { body, retained, removedIds: replica.operations.filter(op => !retainedIds.has(op.operationId)).map(op => op.operationId) };
 }

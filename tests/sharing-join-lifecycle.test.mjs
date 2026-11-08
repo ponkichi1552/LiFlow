@@ -11,12 +11,12 @@ for (const platform of ['ios', 'android']) for (const after of ['current', 'acco
     screen = screenHarness('src/app/sharing/join.tsx', { platform, navigate: (action, route) => routes.push([action, route]),
       effectDependencies: true, effect: callback => callback(), mocks: {
         'expo-linking': { useLinkingURL: () => encodeSharedInvitation(h.link) },
-        '@/hooks/use-workspace': { useWorkspace: () => ({ userId: owner, group: null, refreshSharing: async () => {} }) },
+        '@/hooks/use-workspace': { useWorkspace: () => ({ ready: true, userId: owner, group: null, refreshSharing: async () => {} }) },
         '@/platform/sharing/auth': {},
         '@/platform/sharing/workspaces': { enableSharingSession: async () => {}, sharingSessionUser: async () => ({ uid: owner }), sharingFailureMessage: () => '取得に失敗',
           requestSharingWorkspace: async () => { starts++; await new Promise(resolve => { release = resolve; }); return { userId: 'member', groupId: 'joined-group' }; } },
       } });
-    screen.button('この招待から参加を申請').props.onPress(); await screen.flush(); assert.equal(starts, 1);
+    await screen.flush(); assert.equal(starts, 1);
     if (after === 'account-change') { owner = 'other'; screen.render(); }
     if (after === 'unmount') screen.unmount();
     release(); await new Promise(setImmediate); await new Promise(setImmediate);

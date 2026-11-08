@@ -50,7 +50,7 @@ export function screenHarness(filename, options = {}) {
     useContext: (context) => context._currentValue ?? null,
     createElement: (type, props, ...children) => jsx(type, { ...props, children }),
   };
-  const transition = { duration: () => transition, springify: () => transition };
+  const transition = { duration: () => transition, springify: () => transition, reduceMotion: () => transition };
   const mocks = {
     react,
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' },
@@ -65,7 +65,7 @@ export function screenHarness(filename, options = {}) {
             while (low < high) { const middle = Math.ceil((low + high) / 2); if (props.getItemLayout(props.data, middle).offset <= offset) low = middle; else high = middle - 1; }
             setPosition(low);
           } else if (options.flatListItemHeight) setPosition(Math.max(0, Math.floor(offset / options.flatListItemHeight)));
-          props.onScroll?.(event);
+          props.onScroll?.({ ...event, nativeEvent: { layoutMeasurement: { width: options.width ?? 390, height: options.height ?? 844 }, ...event.nativeEvent } });
         }, children: [props.ListHeaderComponent,
           ...((props.data ?? []).length ? props.data.slice(first, first + (props.initialNumToRender ?? 10)).map((item, index) => props.renderItem({ item, index: index + first })) : [props.ListEmptyComponent]), props.ListFooterComponent] });
       },
@@ -80,7 +80,8 @@ export function screenHarness(filename, options = {}) {
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView', useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }) },
     'react-native-reanimated': {
       __esModule: true, default: { View: 'AnimatedView', FlatList: (props) => mocks['react-native'].FlatList(props) }, LinearTransition: transition,
-      useSharedValue: (value) => hook(() => ({ value }))[0], useAnimatedStyle: (fn) => fn(), withTiming: (value) => value,
+      SlideInLeft: transition, SlideInRight: transition, ReduceMotion: { System: 'system' },
+      useSharedValue: (value) => hook(() => ({ value, get() { return this.value; }, set(next) { this.value = typeof next === 'function' ? next(this.value) : next; } }))[0], useAnimatedStyle: (fn) => fn(), withTiming: (value) => value,
     },
     'expo-router': {
       useLocalSearchParams: () => options.params ?? {},
@@ -95,6 +96,9 @@ export function screenHarness(filename, options = {}) {
     },
     'expo-sqlite': { useSQLiteContext: () => options.database },
     'expo-sqlite/kv-store': { __esModule: true, default: { getItemSync: () => null, setItemSync: () => {} } },
+    // The app-only native Appearance bridge is outside category/save-flow tests.
+    '../../hooks/use-app-appearance': { useAppAppearance: () => ({ preference: options.appearancePreference ?? 'system', set: next => options.setAppAppearance?.(next) }) },
+    '../hooks/use-app-appearance': { useAppAppearance: () => ({ preference: options.appearancePreference ?? 'system', set: next => options.setAppAppearance?.(next) }) },
     'expo-symbols': { SymbolView: 'SymbolView' },
     'expo-splash-screen': { preventAutoHideAsync: async () => {}, hideAsync: async () => {} },
     '@expo/ui': { Host: 'NativeUIHost', Picker: Object.assign((props) => jsx('NativePicker', props), { Item: 'NativePickerItem' }) },
@@ -133,6 +137,11 @@ export function screenHarness(filename, options = {}) {
     // The real API client imports Native Platform. Screen tests inject responses explicitly; never start a paid API job implicitly.
     '../../appliance-care/api-client': { analyzeApplianceCareRequest: async () => { throw new Error('Appliance API transport was not injected by this screen test'); } },
     '@/platform/sharing/workspaces': { hasOtherGoogleWorkspaceConnections: async () => false },
+    // Native local-definition reads and signed additions have dedicated SQLite tests.
+    '../../platform/sharing/v2-personal-chore-selection': { createNativeV2PersonalChoreSelection: () => ({
+      read: async () => { throw new Error('Personal chore selection native port was not injected'); },
+      add: async () => { throw new Error('Personal chore selection native port was not injected'); },
+    }) },
     '../../../platform/sharing/startup-display': { startupDisplayCache: { read: async () => undefined, write: async () => {} } },
     '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => undefined, canShowPersonalStartup: async () => false, startupDisplayCache: { read: async () => undefined, write: async () => {} } },
     ...options.mocks,

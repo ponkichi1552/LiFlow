@@ -94,7 +94,7 @@ export function createV2RecoveryStore(repository: Repository) {
   async function transaction<T>(work: (database: SQLiteDatabase, state: Awaited<ReturnType<Repository['readState']>>) => Promise<T>, owner = false): Promise<T> {
     return repository.readCurrent(async (state, database) => {
       const current = state.archive.at(-1)!;
-      if (owner && (current.body.ownerUserId !== userId || current.body.ownerDeviceId !== deviceId)) throw new Error('復旧の確認は所有者の端末で行ってください。');
+      if (owner && (current.body.ownerUserId !== userId || current.body.ownerDeviceId !== deviceId)) throw new Error('復旧の確認は管理者の端末で行ってください。');
       await initialize(database); return work(database, state);
     });
   }

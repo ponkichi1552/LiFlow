@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { Chevron } from './chevron';
 import { Card, palette, typography } from '@/components/planner-ui';
+import { plannerColorsForScheme } from './planner-theme';
 
 const DURATION = 220;
 
@@ -18,15 +19,19 @@ export function SettingsNavigationLink({ title, disabled = false, onPress }: { t
   </Card>;
 }
 
-export function AccordionSection({ title, summary, summaryError = false, expanded, onToggle, children }: {
+export function AccordionSection({ title, summary, summaryError = false, expanded, onToggle, children, plain = false, listRow = false, keepMounted = false }: {
   title: string;
   summary?: string;
   summaryError?: boolean;
   expanded: boolean;
   onToggle: () => void;
   children: ReactNode;
+  plain?: boolean;
+  listRow?: boolean;
+  keepMounted?: boolean;
 }) {
   const height = useSharedValue(0);
+  const colors = plannerColorsForScheme(useColorScheme());
   const [retainContent, setRetainContent] = useState(expanded);
   if (expanded && !retainContent) setRetainContent(true);
   const bodyStyle = useAnimatedStyle(() => ({
@@ -44,16 +49,16 @@ export function AccordionSection({ title, summary, summaryError = false, expande
   }, [expanded]);
 
   return (
-    <Card style={styles.card}>
+    <Card style={[styles.card, (plain || listRow) && styles.plain, listRow && [styles.listRow, { borderBottomColor: colors.border }]]}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${title}を${expanded ? '閉じる' : '開く'}`}
         accessibilityValue={summary ? { text: summary } : undefined}
         accessibilityState={{ expanded }}
         onPress={onToggle}
-        style={({ pressed }) => [styles.header, pressed && styles.pressed]}
+        style={({ pressed }) => [styles.header, plain && !listRow && { borderBottomWidth: 1, borderBottomColor: colors.border }, listRow && styles.listHeader, pressed && styles.pressed]}
       >
-        <Text style={[styles.title, summary && styles.titleWithSummary]}>{title}</Text>
+        <Text style={[styles.title, plain && styles.plainTitle, listRow && styles.listTitle, summary && styles.titleWithSummary]}>{title}</Text>
         {summary ? <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.summary, summaryError && styles.summaryError]}>{summary}</Text> : null}
         <Chevron direction={expanded ? 'up' : 'down'} />
       </Pressable>
@@ -63,8 +68,8 @@ export function AccordionSection({ title, summary, summaryError = false, expande
         accessibilityElementsHidden={!expanded}
         importantForAccessibility={expanded ? 'auto' : 'no-hide-descendants'}
       >
-        {expanded || retainContent ? (
-          <View style={styles.content} onLayout={measureContent}>
+        {expanded || retainContent || keepMounted ? (
+          <View style={[styles.content, listRow && styles.listContent]} onLayout={measureContent}>
             {children}
           </View>
         ) : null}
@@ -75,6 +80,10 @@ export function AccordionSection({ title, summary, summaryError = false, expande
 
 const styles = StyleSheet.create({
   card: { gap: 0, paddingVertical: 4, overflow: 'hidden' },
+  plain: { borderWidth: 0, borderRadius: 0, paddingHorizontal: 0, backgroundColor: 'transparent' }, plainTitle: { ...typography.label, fontWeight: '600' },
+  listRow: { paddingVertical: 0, borderBottomWidth: StyleSheet.hairlineWidth },
+  listHeader: { minHeight: 54, paddingHorizontal: 15, paddingVertical: 11 },
+  listTitle: { ...typography.body, fontWeight: '400' }, listContent: { paddingHorizontal: 15 },
   header: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   pressed: { opacity: 0.72 },
   title: { ...typography.section, flex: 1, color: palette.ink, fontWeight: '700' },

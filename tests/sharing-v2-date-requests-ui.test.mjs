@@ -31,10 +31,10 @@ for (const platform of ['ios', 'android']) {
       assert.equal((await f.b.readModel(range)).plan.occurrences[0].subjects[0].formalDate.kind, 'automatic');
     } finally { f.close(); }
   });
-  test(`${platform} v2 request approval is explicitly saved and remains awaiting until its server receipt arrives`, async () => {
+  for (const embedded of [false, true]) test(`${platform} v2 request approval is explicitly saved and remains awaiting until its server receipt arrives embedded=${embedded}`, async () => {
     const f = await decisionFixture();
     try {
-      const { screen, update } = await ui(f, 'owner', platform); const before = (await listSharingOutbox(f.owner.database, groupId)).length;
+      const { screen, update } = await ui(f, 'owner', platform, { embedded }); const before = (await listSharingOutbox(f.owner.database, groupId)).length;
       assert.ok(screen.text().includes('正式な日時：2026年10月30日')); assert.ok(screen.text().includes('申請した日時：2026年10月31日'));
       assert.equal((await listSharingOutbox(f.owner.database, groupId)).length, before);
       await screen.press('日時変更を承認'); assert.ok(screen.text().includes('回答を端末に保存しました'));
@@ -117,7 +117,7 @@ for (const platform of ['ios', 'android']) {
       const { screen } = await ui(f, 'owner', platform); assert.ok(screen.text().includes('回答が競合しています'));
       assert.ok(screen.text().includes('：承認')); assert.ok(screen.text().includes('：拒否'));
       assert.equal(screen.button('日時変更を承認').props.disabled, true);
-      const flag = screen.nodes().find((node) => node.type === 'Switch' && node.props.accessibilityLabel === '競合している回答を確認した'); flag.props.onValueChange(true); await screen.flush();
+      const flag = screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '競合している回答を確認した'); flag.props.onPress(); await screen.flush();
       await screen.press('日時変更を承認'); await f.deliver(f.owner, [f.owner, f.member, f.owner2]);
       for (const controller of [f.a, f.b, f.c]) assert.equal((await controller.readModel(range)).requests[0].kind, 'approved');
       assert.equal((await f.owner.repository.readState()).assessment.view.ofType('requestDecision').length, 3);

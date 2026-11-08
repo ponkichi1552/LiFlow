@@ -41,7 +41,7 @@ export function LegacyMigrationPanel({ workspace, run, busy }: {
         <Text style={typography.caption}>有効な家事は、確認した周期・実施期間と現在の担当を引き継ぎます。過去の実施者や履歴を新しい完了記録に書き換えません。</Text>
         <AppButton title="この内容でv2へ移行" disabled={busy} onPress={() => void run(async () => { await workspace.migration.commit(review.id); })} />
       </View> : null}
-    </> : <Text style={typography.body}>所有者の端末で移行内容を確認すると、この端末にもv2の履歴と設定が届きます。</Text>}
+    </> : <Text style={typography.body}>管理者の端末で移行内容を確認すると、この端末にもv2の履歴と設定が届きます。</Text>}
     {error ? <Text accessibilityRole="alert" style={v2FormStyles.error}>{error}</Text> : null}
   </Card>;
 }

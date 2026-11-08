@@ -24,8 +24,8 @@ export function ChoreAudiencePicker({ value, purpose, onChange, disabled = false
   </View>;
 }
 const styles = StyleSheet.create({
-  destination: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 4 },
-  label: { ...typography.caption, color: palette.muted }, audiences: { flexDirection: 'row' },
+  destination: { alignItems: 'center', gap: 0 },
+  label: { ...typography.small, color: palette.muted }, audiences: { flexDirection: 'row' },
   audience: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 7 },
   icon: { width: 28, height: 28, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
   selected: { backgroundColor: palette.accentSoft },

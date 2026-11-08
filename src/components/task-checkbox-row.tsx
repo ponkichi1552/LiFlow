@@ -7,6 +7,7 @@ import { GroupIcon, PersonIcon } from './group-icon';
 import { Chevron } from './chevron';
 import { formatJapaneseDate } from '../domain/scheduling/local-date';
 import type { LocalDate } from '../domain/shared/types';
+import { usePlannerBorderStyles } from './use-planner-border-styles';
 
 export function TaskCheckboxRow({ chore, completed = false, deemphasized = false, source, urgent = false,
   onToggle, onOpen, home = false, compact = false, provisional = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow, seasonalWork }: {
@@ -16,6 +17,7 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
   seasonalWork?: ChoreScheduleEntry['seasonalWork'];
   detail?: string; detailsExpanded?: boolean; lastInList?: boolean; contextLabel?: string; action?: ReactNode; footer?: ReactNode; sourceIcon?: 'person' | 'group';
 }) {
+  const styles = usePlannerBorderStyles(baseStyles);
   const name = choreOccurrenceName(chore.name, seasonalWork);
   const actionName = `${name}${contextLabel ? `（${contextLabel}）` : ''}`;
   const minutes = Number.isFinite(chore.estimatedMinutes) && chore.estimatedMinutes! > 0 ? `約${chore.estimatedMinutes}分` : '';
@@ -26,7 +28,7 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
     style={[styles.checkbox, completed && styles.checkboxCompleted]}>
     {completed ? <Text style={styles.checkmark}>✓</Text> : null}
   </Pressable>;
-  if (compact) return <View style={[styles.compactRow, completed && styles.completedRow]}>
+  if (compact) return <View style={[styles.compactRow, completed && styles.compactCompletedRow]}>
     <View style={styles.compactCheck}>{checkbox}</View>
     <Pressable accessibilityRole="button" accessibilityLabel={`${actionName}の説明を開く`} accessibilityHint="手順や道具を確認します" onPress={onOpen}
       style={({ pressed }) => [styles.compactOpen, pressed && styles.pressed]}>
@@ -37,8 +39,8 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
     </Pressable>
   </View>;
   return <View style={[styles.row, source && source !== 'personal' && styles.sharedRow, source === 'instructed' && styles.instructedRow,
-    deemphasized && !completed && styles.deemphasizedRow, urgent && !completed && styles.urgentRow,
-    completed && styles.completedRow, home && styles.listRow, home && lastInList && styles.lastRow]}>
+    deemphasized && !completed && !home && styles.deemphasizedRow, urgent && !completed && styles.urgentRow,
+    home && styles.listRow, home && lastInList && styles.lastRow]}>
     {/* Siblings keep the full row opener and checkbox as independent accessible actions. */}
     <Pressable accessibilityRole="button" accessibilityLabel={`${actionName}の説明を開く`}
       accessibilityHint={[source === 'shared' || source === 'instructed' ? '共有の家事です' : source === 'personal' && mixedSources ? '個人の家事です' : '', minutes, period ? `実施期間は${period}です` : '', '手順や道具を確認します'].filter(Boolean).join('。')}
@@ -72,19 +74,19 @@ export function calendarPeriodLabel(start: LocalDate, end: LocalDate) {
     ? value.split('-').map(Number).join('/') : value.slice(5).split('-').map(Number).join('/');
   return `${date(start)}–${date(end)}`;
 }
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   compactRow: { flexDirection: 'row', alignItems: 'center', minHeight: 44, borderRadius: 7, backgroundColor: palette.accentSoft, overflow: 'hidden' },
   compactCheck: { width: 42, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   compactOpen: { flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center', paddingVertical: 5, paddingRight: 6 },
   compactName: { ...typography.label, color: palette.ink, fontWeight: '500' },
   compactPeriod: { ...typography.small, color: palette.muted },
   row: { minHeight: 64, gap: 6, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, paddingHorizontal: 15, paddingVertical: 9 },
-  listRow: { borderRadius: 0, borderWidth: 0, borderLeftWidth: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border }, lastRow: { borderBottomWidth: 0 },
+  listRow: { minHeight: 56, paddingVertical: 5, borderRadius: 0, borderWidth: 0, borderLeftWidth: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border }, lastRow: { borderBottomWidth: 0 },
   content: { flexDirection: 'row', alignItems: 'center', gap: 14 }, listContent: { gap: 12 }, listFooter: { paddingLeft: 40 }, action: { minWidth: 44 },
   openArea: { borderRadius: 13, margin: 1 }, listOpenArea: { borderRadius: 0 }, pressed: { backgroundColor: palette.accentSoft },
   sharedRow: { borderLeftWidth: 3, borderLeftColor: palette.shared }, instructedRow: { borderLeftColor: palette.sharedStrong, backgroundColor: palette.sharedSoft },
   urgentRow: { borderLeftWidth: 3, borderLeftColor: palette.gold }, urgentText: { color: palette.gold },
-  deemphasizedRow: { backgroundColor: palette.elevated, borderColor: palette.border }, completedRow: { backgroundColor: palette.elevated, borderColor: palette.elevated },
+  deemphasizedRow: { backgroundColor: palette.elevated, borderColor: palette.border }, compactCompletedRow: { backgroundColor: palette.surface },
   copy: { flex: 1, minWidth: 0, gap: 2, minHeight: 44, justifyContent: 'center' }, metadata: { flexDirection: 'row', alignItems: 'flex-start', gap: 5 },
   sourceIcon: { minHeight: typography.caption.lineHeight, justifyContent: 'center', flexShrink: 0 },
   name: { ...typography.subheading, color: palette.ink, fontWeight: '600' }, category: { ...typography.caption, color: palette.muted, flexShrink: 1 },

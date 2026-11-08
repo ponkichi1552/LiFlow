@@ -1,3 +1,4 @@
+import { SettingsAction, SettingsLabel } from '../../../components/settings-controls';
 import { SettingsSwitch as Switch } from '@/components/settings-switch';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
@@ -8,12 +9,13 @@ import type { V2ReminderControl } from '../../../platform/storage/sharing-v2-rem
 import { createV2ReminderEditor } from './reminder-editor';
 import { useV2DraftLifecycle } from './use-draft-lifecycle';
 import type { ReactNode } from 'react';
+import { SettingsCheckbox } from '../../../components/settings-checkbox';
 
-export function V2ReminderScreen({ load, onBack, notice }: { load: () => Promise<V2ReminderRuntime>; onBack: () => void; notice?: ReactNode }) {
+export function V2ReminderScreen({ load, onBack, notice, embedded = false }: { load: () => Promise<V2ReminderRuntime>; onBack: () => void; notice?: ReactNode; embedded?: boolean }) {
   const [attempt, setAttempt] = useState(0);
-  return <ReminderLoader key={attempt} load={load} onBack={onBack} reload={() => setAttempt(value => value + 1)} notice={notice} />;
+  return <ReminderLoader key={attempt} load={load} onBack={onBack} reload={() => setAttempt(value => value + 1)} notice={notice} embedded={embedded} />;
 }
-function ReminderLoader({ load, onBack, reload, notice }: { load: () => Promise<V2ReminderRuntime>; onBack: () => void; reload: () => void; notice?: ReactNode }) {
+function ReminderLoader({ load, onBack, reload, notice, embedded }: { load: () => Promise<V2ReminderRuntime>; onBack: () => void; reload: () => void; notice?: ReactNode; embedded: boolean }) {
   const [value, setValue] = useState<{ runtime: V2ReminderRuntime; saved: V2ReminderControl } | null>(null); const [failed, setFailed] = useState(false);
   useEffect(() => {
     let active = true;
@@ -21,12 +23,14 @@ function ReminderLoader({ load, onBack, reload, notice }: { load: () => Promise<
       .catch(() => { if (active) setFailed(true); });
     return () => { active = false; };
   }, [load]);
-  if (value) return <ReminderEditor {...value} onBack={onBack} notice={notice} />;
+  if (value) return <ReminderEditor {...value} onBack={onBack} notice={notice} embedded={embedded} />;
+  if (embedded) return <View>{failed ? <><Text accessibilityRole="alert" style={typography.caption}>共有家事の通知設定を読み込めませんでした。</Text>
+    <SettingsAction title="通知設定を再読込" onPress={reload} /></> : <ActivityIndicator accessibilityLabel="共有家事の通知設定を確認中" />}</View>;
   return <Page header={<BackButton onPress={onBack} />}>{notice}<ScreenHeading title="このグループの通知" />
     {failed ? <Card><Text accessibilityRole="alert" style={typography.body}>通知設定を読み込めませんでした。保存内容は保持しています。</Text>
       <AppButton title="通知設定を再読込" onPress={reload} /></Card> : <ActivityIndicator />}</Page>;
 }
-function ReminderEditor({ runtime, saved, onBack, notice }: { runtime: V2ReminderRuntime; saved: V2ReminderControl; onBack: () => void; notice?: ReactNode }) {
+function ReminderEditor({ runtime, saved, onBack, notice, embedded }: { runtime: V2ReminderRuntime; saved: V2ReminderControl; onBack: () => void; notice?: ReactNode; embedded: boolean }) {
   const [busy, setBusy] = useState(false); const working = useRef(false); const alive = useRef(true); const [message, setMessage] = useState<string | null>(null);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const updateDelivery = useCallback(async () => {
@@ -43,34 +47,36 @@ function ReminderEditor({ runtime, saved, onBack, notice }: { runtime: V2Reminde
   async function toggle(enabled: boolean) {
     if (working.current) return; working.current = true; setBusy(true); setMessage(null);
     try {
-      if (!await store.navigateAfterSave(() => {})) return;
+      if (!await store.flush()) return;
       if (enabled && !await runtime.requestPermission()) { if (alive.current) setMessage('通知が許可されていません。端末の設定から許可してください。'); return; }
       if (!alive.current) return; store.resumeNavigation(); store.change({ enabled }); await store.flush();
     } catch { if (alive.current) setMessage('通知の許可を確認できませんでした。'); }
     finally { store.resumeNavigation(); working.current = false; if (alive.current) setBusy(false); }
   }
   const change = (patch: Parameters<typeof store.change>[0]) => { if (!working.current) store.change(patch); };
-  return <Page keyboardAware header={<BackButton disabled={busy} onPress={() => { void navigateAfterSave(onBack); }} />}>{notice}
-    <ScreenHeading title="このグループの通知" description="この端末と本人だけの設定です。他のメンバーの通知設定は変わりません。" />
-    <Text style={typography.caption}>{state.status.phase === 'saving' ? 'この端末に保存中…' : state.hasDraft ? '未保存の入力があります。' : state.revision > 0 ? 'この端末に保存済み' : '通知はオフです。有効な入力は自動保存します。'}</Text>
+  const Container = embedded ? View : Card;
+  const content = <>{notice}
+    {!embedded ? <ScreenHeading title="このグループの通知" description="この端末と本人だけの設定です。他のメンバーの通知設定は変わりません。" /> : null}
+    {!embedded || state.hasDraft || state.status.phase === 'saving' ? <Text style={typography.caption}>{state.status.phase === 'saving' ? 'この端末に保存中…' : state.hasDraft ? '未保存の入力があります。' : state.revision > 0 ? 'この端末に保存済み' : '通知はオフです。有効な入力は自動保存します。'}</Text> : null}
     {state.validation ? <Text accessibilityRole="alert" style={typography.caption}>{state.validation}</Text> : null}
     {state.status.error ? <Card><Text accessibilityRole="alert" style={typography.caption}>{state.status.error}</Text>
       <AppButton title="通知設定の保存を再試行" disabled={busy} onPress={() => { void store.flush(); }} /></Card> : null}
-    {state.navigationBlocked ? <Card><Text style={typography.body}>未保存の入力を修正するか、未保存の分を破棄して戻れます。</Text>
-      <AppButton title="未保存の通知設定を破棄して戻る" variant="secondary" onPress={() => { store.discardDraft(); void navigateAfterSave(onBack); }} /></Card> : null}
-    <Card><SectionHeading title="共有家事のお知らせ" />
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}><Text style={typography.label}>通知を受け取る</Text>
-        <Switch accessibilityLabel="このグループの通知を受け取る" value={state.raw.enabled} disabled={busy} onValueChange={value => { void toggle(value); }} /></View>
-      <Text style={typography.caption}>本人担当と担当未確定の共通家事を通知します。ほかの人だけの担当は催促しません。</Text>
-      <Text style={typography.caption}>時刻未設定の家事は日ごとの負荷だけを確認し、上限以上で通知します。</Text>
+
+    <Container style={{ gap: 10 }}>{!embedded ? <SectionHeading title="共有家事のお知らせ" /> : null}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>{embedded ? <SettingsLabel>共有家事の通知</SettingsLabel> : <Text style={typography.label}>通知を受け取る</Text>}
+        {embedded ? <SettingsCheckbox accessibilityLabel="このグループの通知を受け取る" value={state.raw.enabled} disabled={busy} onValueChange={value => { void toggle(value); }} />
+          : <Switch accessibilityLabel="このグループの通知を受け取る" value={state.raw.enabled} disabled={busy} onValueChange={value => { void toggle(value); }} />}</View>
+      <Text style={typography.caption}>{embedded ? '担当・未担当の家事を通知。この端末だけの設定です。' : '本人担当と担当未確定の共通家事を通知します。ほかの人だけの担当は催促しません。'}</Text>
+      {!embedded ? <Text style={typography.caption}>時刻未設定の家事は日ごとの負荷だけを確認し、上限以上で通知します。</Text> : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         <NumberInputField accessibilityLabel="共有通知の時" suffix="時" value={state.raw.hour} maxLength={2} editable={!busy} onChangeText={hour => change({ hour })} onBlur={() => { void store.flush(); }} />
         <NumberInputField accessibilityLabel="共有通知の分" suffix="分" value={state.raw.minute} maxLength={2} editable={!busy} onChangeText={minute => change({ minute })} onBlur={() => { void store.flush(); }} />
       </View>
-      <Text style={typography.caption}>グループの地域での時刻です。有効な入力は自動保存します。</Text>
-      <Text style={typography.caption}>共通家事の完了は同期後に通知へ反映します。オフラインの端末には、次の同期まで通知が残る場合があります。OSの制限により、直近の予定を優先します。</Text>
-      <AppButton title="通知を今すぐ更新" variant="secondary" disabled={busy} onPress={() => { void store.flush().then(ok => { if (ok) void updateDelivery(); }); }} />
-    </Card>
+      <Text style={typography.caption}>{embedded ? 'グループの地域の時刻です。' : 'グループの地域での時刻です。有効な入力は自動保存します。'}</Text>
+      {!embedded ? <Text style={typography.caption}>共通家事の完了は同期後に通知へ反映します。オフラインの端末には、次の同期まで通知が残る場合があります。OSの制限により、直近の予定を優先します。</Text> : null}
+      <SettingsAction title="通知を今すぐ更新" placement={embedded ? 'panel' : 'page'} compact={embedded} disabled={busy} onPress={() => { void store.flush().then(ok => { if (ok) void updateDelivery(); }); }} />
+    </Container>
     {message ? <Text accessibilityRole="alert" style={typography.caption}>{message}</Text> : null}
-  </Page>;
+  </>;
+  return embedded ? <View style={{ gap: 12 }}>{content}</View> : <Page keyboardAware header={<BackButton disabled={busy} onPress={() => { void navigateAfterSave(onBack); }} />}>{content}</Page>;
 }

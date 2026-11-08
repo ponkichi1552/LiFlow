@@ -14,9 +14,11 @@ export const V2_ENTITY_TYPES = ['groupPolicy', 'chorePolicy', 'datePermission', 
   'claimResolution', 'assignmentRequest', 'assignmentDecision', 'assignmentCancel', 'designation', 'designationCancel', 'changeRequest', 'requestDecision', 'completionApproval', 'migration', 'calendarEvent', 'manualChunk', 'manualDocument', 'historyRetention', 'retainedCompletionUndo'] as const;
 export type V2EntityType = typeof V2_ENTITY_TYPES[number];
 export const V2_SCHEMA_VERSION = 2;
-export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-51';
+export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-55';
+export const supportsMonthlyChores = (version: string): boolean => version === V2_SCHEDULER_VERSION;
+export const supportsChoreRotation = (version: string): boolean => supportsMonthlyChores(version) || version === 'liflow-shared-2-draft-54';
 /** Signed 38/39 histories keep their original epochs until the owner approves an upgrade. */
-export const supportsRetainedManuals = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-50' || version === 'liflow-shared-2-draft-49' || version === 'liflow-shared-2-draft-48' || version === 'liflow-shared-2-draft-47' || version === 'liflow-shared-2-draft-46' || version === 'liflow-shared-2-draft-45' || version === 'liflow-shared-2-draft-44' || version === 'liflow-shared-2-draft-43' || version === 'liflow-shared-2-draft-42';
+export const supportsRetainedManuals = (version: string): boolean => supportsChoreRotation(version) || version === 'liflow-shared-2-draft-53' || version === 'liflow-shared-2-draft-52' || version === 'liflow-shared-2-draft-51' || version === 'liflow-shared-2-draft-50' || version === 'liflow-shared-2-draft-49' || version === 'liflow-shared-2-draft-48' || version === 'liflow-shared-2-draft-47' || version === 'liflow-shared-2-draft-46' || version === 'liflow-shared-2-draft-45' || version === 'liflow-shared-2-draft-44' || version === 'liflow-shared-2-draft-43' || version === 'liflow-shared-2-draft-42';
 export const supportsSharedCalendar = (version: string): boolean => supportsRetainedManuals(version) || version === 'liflow-shared-2-draft-41';
 export const supportsUploadedManuals = (version: string): boolean => supportsSharedCalendar(version) || version === 'liflow-shared-2-draft-40' || version === 'liflow-shared-2-draft-39';
 export const isSupportedV2Scheduler = (version: string): boolean => supportsUploadedManuals(version) || version === 'liflow-shared-2-draft-38';
@@ -57,16 +59,26 @@ function groupPolicy(value: unknown): void {
 }
 function chorePolicy(value: unknown): void {
   const required = ['policy', 'anchorDate', 'intervalDays', 'windowBeforeDays', 'windowAfterDays', 'ruleVersion'];
-  const data = record(value, [...required, 'effectiveFrom', 'active', 'targetMemberIds', 'assignmentSourceVersion'], required);
+  const data = record(value, [...required, 'monthly', 'effectiveFrom', 'active', 'targetMemberIds', 'assignmentSourceVersion', 'rotationSourceVersion'], required);
   day(data.anchorDate); integer(data.intervalDays, 1, 3650); integer(data.windowBeforeDays, 0, 14); integer(data.windowAfterDays, 0, 14); integer(data.ruleVersion, 1);
   if ('effectiveFrom' in data) { day(data.effectiveFrom); if ((data.effectiveFrom as string) < (data.anchorDate as string)) throw new Error('Effective date cannot precede its common anchor'); }
   if ('active' in data) flag(data.active);
+  if ('monthly' in data) flag(data.monthly);
   if ('assignmentSourceVersion' in data) integer(data.assignmentSourceVersion, 1, Number(data.ruleVersion) - 1);
   const policy = record(data.policy, ['completion', 'assignment']); choice(policy.completion, ['one', 'perMember']);
-  const assignment = record(policy.assignment, ['mode', 'memberIds']); choice(assignment.mode, ['open', 'all', 'selected']);
+  const assignment = record(policy.assignment, ['mode', 'memberIds', 'rotation'], ['mode', 'memberIds']); choice(assignment.mode, ['open', 'all', 'selected']);
   const members = ids(assignment.memberIds, assignment.mode !== 'selected', 16);
   if (assignment.mode !== 'selected' && members.length) throw new Error('Non-selected assignment cannot hide member IDs');
   if (policy.completion === 'perMember' && assignment.mode === 'open') throw new Error('Per-member chores require defined subjects');
+  if ('rotation' in assignment) {
+    if (policy.completion !== 'one' || assignment.mode !== 'selected') throw new Error('Rotation requires a single shared completion');
+    const rotation = record(assignment.rotation, ['sequence', 'advanceOn']); choice(rotation.advanceOn, ['completion', 'occurrence']);
+    if (!Array.isArray(rotation.sequence) || rotation.sequence.length < 2 || rotation.sequence.length > 64) throw new Error('Invalid rotation sequence');
+    rotation.sequence.forEach(assertSharedIdentifier);
+    const people = [...new Set(rotation.sequence as string[])].sort();
+    if (people.length < 2 || people.join('\0') !== [...members].sort().join('\0')) throw new Error('Rotation participants must match its assignment members');
+    integer(data.rotationSourceVersion, 1, Number(data.ruleVersion));
+  } else if ('rotationSourceVersion' in data) throw new Error('A rotation epoch requires a rotation');
   if ('targetMemberIds' in data) {
     if (policy.completion !== 'perMember' || assignment.mode !== 'all') throw new Error('Pinned subjects require an each-member policy');
     ids(data.targetMemberIds, true, 16);

@@ -3,6 +3,57 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 
+for (const platform of ['ios', 'android']) test(`${platform} solo idle fallback preserves remote signals private polling unfinished retries and resume synchronization`, async t => {
+  const effects = [], ticks = []; let stateListener, remote, remoteFailure; let shared = 0, privateSyncs = 0, received = 0;
+  let time = 10_000_000, coordinatorKind = 'success', incomplete = false;
+  t.mock.method(Date, 'now', () => time);
+  t.mock.method(globalThis, 'setInterval', callback => { ticks.push(callback); return ticks.length; });
+  t.mock.method(globalThis, 'clearInterval', () => {});
+  const record = { userId: 'owner', groupId: 'house', status: 'active', lastSuccessfulSyncAt: time, lastErrorCode: null };
+  const checkpoint = { pendingCount: 0 };
+  const member = { userId: 'owner', devices: [{ identity: { deviceId: 'device' } }] };
+  const workspace = { ...record, protocol: 2, identity: { deviceId: 'device' }, drain: async () => {},
+    record: async () => record, checkpoint: async () => checkpoint, roster: () => ({ body: { groupId: 'house', members: [member] } }),
+    googleTasks: async () => ({ readControl: async () => ({ state: null }) }), googleCalendar: async () => ({ readControl: async () => ({ enabled: false }) }),
+    watch: (changed, failed) => { remote = changed; remoteFailure = failed; return () => {}; },
+    sync: async () => { received++; return { complete: !incomplete, pending: 0, waitingForApproval: false }; } };
+  const appState = { currentState: 'active', addEventListener: (_event, listener) => { stateListener = listener; return { remove() {} }; } };
+  const screen = screenHarness('src/hooks/use-workspace.tsx', { platform, exportName: 'WorkspaceProvider', effect: callback => effects.push(callback), mocks: {
+    '@/components/planner-ui': {}, '@/contexts/workspace-context': { WorkspaceContext: { Provider: 'WorkspaceContextProvider' } },
+    '@/features/planner/initial-display-gate': { createInitialDisplayGate: () => ({ wait: () => ({ promise: Promise.resolve(true), cancel() {} }), complete() {} }), waitForInitialFrame: async () => {} },
+    '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => undefined, canShowPersonalStartup: async () => false, startupDisplayCache: { read: async () => undefined } },
+    '@/platform/sharing/auth': { observeSharingUser: () => () => {} }, 'react-native': { AppState: appState },
+    '@/platform/sharing/account-device-runtime': { startAccountDeviceForeground: () => () => {}, subscribeAccountDeviceRestoreStatus: () => () => {}, accountDeviceRestoreStatus: () => null },
+    '@/platform/sharing/private-calendar-sync': { startPrivateCalendarForeground: () => () => {}, syncKnownPrivateCalendar: async () => { privateSyncs++; } },
+    '@/platform/sharing/workspaces': { saveSharingSelection: async () => {}, readSharingSelection: async () => null, hasSharingSessionEnabled: async () => true,
+      sharingSessionUser: async () => ({ uid: 'owner' }), currentSharingWorkspace: async () => record, openSharedWorkspace: async () => workspace,
+      subscribeSharingChanges: () => () => {}, syncSharingWorkspace: async () => { shared++; if (coordinatorKind === 'success') record.lastSuccessfulSyncAt = time; return { kind: coordinatorKind }; } },
+  } });
+  const disposeBoot = effects[0](); let disposeForeground;
+  try {
+    for (let i = 0; i < 8; i++) await screen.flush();
+    const boot = screen.nodes().find(node => node.props.value?.ready)?.props.value;
+    assert.equal(boot?.active, workspace, boot?.error ?? 'workspace restoration must finish before foreground polling');
+    disposeForeground = effects.at(-1)();
+    for (let i = 0; i < 8 && shared === 0; i++) await screen.flush();
+    assert.equal(shared, 1); assert.equal(privateSyncs, 1); assert.equal(ticks.length, 1);
+    time += 600_000; ticks[0](); await screen.flush(); assert.equal(shared, 1); assert.equal(privateSyncs, 2);
+    remote(); await screen.flush(); assert.equal(received, 1, 'remote changes bypass idle fallback');
+    incomplete = true; remoteFailure(); await screen.flush();
+    ticks[0](); await screen.flush(); assert.equal(shared, 2, 'unfinished remote synchronization must retry before an hour');
+    incomplete = false; checkpoint.pendingCount = 1; ticks[0](); await screen.flush(); assert.equal(shared, 3);
+    checkpoint.pendingCount = 0; member.devices.push({ identity: { deviceId: 'second-device' } });
+    coordinatorKind = 'pending'; ticks[0](); await screen.flush(); assert.equal(shared, 4);
+    member.devices.pop(); ticks[0](); await screen.flush(); assert.equal(shared, 5, 'incomplete coordinator work cannot be suppressed');
+    coordinatorKind = 'success'; ticks[0](); await screen.flush(); assert.equal(shared, 6);
+    time += 3_600_000; ticks[0](); await screen.flush(); assert.equal(shared, 7, 'one-hour fallback eventually rechecks membership');
+    appState.currentState = 'background'; stateListener('background'); const before = [shared, privateSyncs, received];
+    ticks[0](); remote(); await screen.flush(); assert.deepEqual([shared, privateSyncs, received], before);
+    appState.currentState = 'active'; stateListener('active'); await screen.flush();
+    assert.equal(shared, before[0] + 1, 'resume always synchronizes even shortly after a successful check');
+  } finally { disposeForeground?.(); disposeBoot?.(); screen.unmount(); }
+});
+
 for (const platform of ['ios', 'android']) test(`${platform} cold startup restores the local display before mounting planner calendar and prefetch work`, async () => {
   let ready = false; const started = [];
   const provider = name => ({ children }) => { started.push(name); return children; };
@@ -10,6 +61,7 @@ for (const platform of ['ios', 'android']) test(`${platform} cold startup restor
     'expo-router': { ThemeProvider: ({ children }) => children, DarkTheme: { colors: {} }, DefaultTheme: { colors: {} } },
     'expo-sqlite': { SQLiteProvider: ({ children }) => children },
     '@/platform/diagnostics/startup-splash': { prepareStartupDisplay() {} },
+    '@/hooks/use-app-appearance': { initializeAppAppearance() {} },
     '@/platform/storage/repository': { initializeLocalDatabase: async () => {} },
     '@/features/google-sync/coordinator': { syncGoogleTasksAfterLocalCompletion() {} },
     '@/hooks/use-planner-data': { PlannerDataProvider: provider('planner'), usePlannerData: () => ({ database: {}, refresh: async () => {} }) },

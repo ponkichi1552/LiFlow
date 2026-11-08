@@ -2,6 +2,8 @@ import { assertSharedIdentifier } from '../identifier.ts';
 import { parseLocalDate } from '../../../domain/scheduling/local-date.ts';
 import type { LocalDate } from '../../../domain/shared/types';
 import { isSharedTimeZone, sharedLocalDate } from '../group-clock.ts';
+import { validateRotationProgress } from './rotation-progress.ts';
+import type { V2RotationProgress } from './rotation-progress';
 
 export interface V2RetainedAssignmentCut { keyVersion: number; context: Record<string, number>; receiptContext: Record<string, number> }
 
@@ -17,7 +19,7 @@ export interface V2RetainedRoundState extends V2RetentionAnchor {
   strictInstructionUnfulfilled: boolean;
 }
 export interface V2RetentionBody {
-  format: 1 | 2; groupId: string; rosterDigest: string; keyVersion: number; cutoff: LocalDate; timeZone: string;
+  format: 1 | 2 | 3; groupId: string; rosterDigest: string; keyVersion: number; cutoff: LocalDate; timeZone: string;
   frontier: Record<string, number>; throughSequence: number;
   sourceFactsDigest: string; retainedFactsDigest: string; indexDigest: string;
   anchors: V2RetentionAnchor[];
@@ -25,6 +27,7 @@ export interface V2RetentionBody {
   retainedCount: number;
   /** Two bits per retained fact: accepted / denied / conflict / awaiting receipt. */
   authorityStates: string;
+  rotationProgress?: V2RotationProgress[];
 }
 function record(value: unknown, fields: readonly string[]): asserts value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).sort().join(',') !== [...fields].sort().join(',')) throw new Error('Invalid history-retention fields');
@@ -37,8 +40,10 @@ function vector(value: unknown, maximum?: Record<string, number>): asserts value
     if (maximum && Number(number) > (maximum[device] ?? 0)) throw new Error('Retained causal cut is outside its certificate'); }
 }
 export function validateV2RetentionBody(value: unknown): V2RetentionBody {
-  record(value, ['format', 'groupId', 'rosterDigest', 'keyVersion', 'cutoff', 'timeZone', 'frontier', 'throughSequence', 'sourceFactsDigest', 'retainedFactsDigest', 'indexDigest', 'anchors', 'roundStates', 'retainedCount', 'authorityStates']);
-  if (![1, 2].includes(Number(value.format)) || typeof value.format !== 'number' || !isSharedTimeZone(String(value.timeZone))) throw new Error('Invalid history-retention format or region');
+  const format = value && typeof value === 'object' && 'format' in value ? value.format : undefined;
+  record(value, ['format', 'groupId', 'rosterDigest', 'keyVersion', 'cutoff', 'timeZone', 'frontier', 'throughSequence', 'sourceFactsDigest', 'retainedFactsDigest', 'indexDigest', 'anchors', 'roundStates', 'retainedCount', 'authorityStates', ...(format === 3 ? ['rotationProgress'] : [])]);
+  if (![1, 2, 3].includes(Number(value.format)) || typeof value.format !== 'number' || !isSharedTimeZone(String(value.timeZone))) throw new Error('Invalid history-retention format or region');
+  if (value.format === 3) validateRotationProgress(value.rotationProgress);
   assertSharedIdentifier(value.groupId); hash(value.rosterDigest); hash(value.sourceFactsDigest); hash(value.retainedFactsDigest); hash(value.indexDigest);
   count(value.keyVersion, 1); count(value.throughSequence); parseLocalDate(value.cutoff as LocalDate);
   vector(value.frontier);

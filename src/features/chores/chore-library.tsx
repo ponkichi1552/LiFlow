@@ -7,6 +7,7 @@ import { Chevron } from '../../components/chevron';
 import { groupChores } from '../../domain/chores/chore-groups';
 import type { ChoreDefinition } from '../../domain/chores/types';
 import { finishStartupDisplay } from '../../platform/diagnostics/startup-splash';
+import { hasChoreGuide } from './guide-content';
 
 export const normalizeChoreName = (value: string) => value.normalize('NFKC').toLocaleLowerCase('ja')
   .replace(/[\u30a1-\u30f6]/g, character => String.fromCharCode(character.charCodeAt(0) - 0x60));
@@ -23,7 +24,7 @@ export function ChoreLibrary({ chores, onOpen, header, footer, onTrivia, triviaC
   onTrivia?: () => void; triviaCount?: number; disabled?: boolean; state?: ReturnType<typeof useChoreLibraryState>;
 }) {
   const local = useChoreLibraryState(); const { query, setQuery, expanded, setExpanded } = state ?? local;
-  const groups = useMemo(() => groupChores(chores.filter(chore => !chore.archived)), [chores]);
+  const groups = useMemo(() => groupChores(chores.filter(chore => !chore.archived && hasChoreGuide(chore))), [chores]);
   const search = normalizeChoreName(query.trim());
   const rows = useMemo<Row[]>(() => {
     if (!search) return [...groups.flatMap(([name, chores]): Row[] => [{ kind: 'category', id: name, name, count: chores.length, expanded: expanded.has(name) },

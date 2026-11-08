@@ -1,7 +1,7 @@
-import data from './personal-catalog-data.json';
+import data from './personal-catalog-data.json' with { type: 'json' };
 import type { ChoreDefinition, ChoreLoad, FrequencyMode } from './types';
 import type { AdaptiveHistoryPolicy } from '../scheduling/adaptive/history';
-import { adaptiveWindowRadius } from '../scheduling/adaptive/placement.ts';
+import { adaptiveWindowRadius } from '../scheduling/adaptive/models.ts';
 import { choreCadenceLabel } from './cycle-policy.ts';
 
 export type PersonalChoreCadence = { kind: 'days'; days: number } | { kind: 'asNeeded' | 'afterUse' | 'collection' | 'held' }
@@ -17,6 +17,8 @@ export interface PersonalChoreRecipe {
 /** Bundled, generated specification data. The active repository is switched only after its planner adapter is ready. */
 export const PERSONAL_CHORE_CATALOG = data.recipes as unknown as readonly PersonalChoreRecipe[];
 export const PERSONAL_CHORE_CATALOG_VERSION = data.catalogVersion;
+// Copy and grouping revisions must not invalidate cadence learning inputs.
+const PERSONAL_CHORE_SCHEDULING_VERSION = data.schedulingVersion;
 export const PERSONAL_CHORE_CATALOG_SOURCE_SHA256 = data.sourceSha256;
 const byId = new Map(PERSONAL_CHORE_CATALOG.map(recipe => [recipe.id, recipe]));
 const orderById = new Map(PERSONAL_CHORE_CATALOG.map((recipe, index) => [recipe.id, index]));
@@ -24,6 +26,15 @@ export function comparePersonalChoreOrder(a: Pick<ChoreDefinition, 'id'>, b: Pic
   return (orderById.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (orderById.get(b.id) ?? Number.MAX_SAFE_INTEGER);
 }
 export const personalChoreRecipe = (id: string) => byId.get(id);
+let bundledDefaults: Map<string, NonNullable<ChoreDefinition['personalScheduleDefaults']>> | undefined;
+/** Immutable recipe defaults also identify the same catalogue entry behind a shared group prefix. */
+export function bundledChoreScheduleDefaults(id: string) {
+  const recipeId = /(?:^|\.)(liflow-catalog-6\.\d{3})$/u.exec(id)?.[1];
+  if (!recipeId || !byId.has(recipeId)) return undefined;
+  bundledDefaults ??= new Map(createPersonalChoreDefinitions('catalog-defaults').map(chore => [chore.id, chore.personalScheduleDefaults!]));
+  const defaults = bundledDefaults.get(recipeId);
+  return defaults ? { ...defaults, frequencyDaysByMode: { ...defaults.frequencyDaysByMode } } : undefined;
+}
 export function initialPersonalChoreSelection() { return PERSONAL_CHORE_CATALOG.filter(recipe => recipe.initialEnabled).map(recipe => recipe.id); }
 
 /** First setup stays short. Additional and split recipes remain available in the full guide/settings catalogue. */
@@ -66,6 +77,12 @@ export function createPersonalChoreDefinitions(householdId: string): ChoreDefini
 }
 export function personalChoreHistoryPolicy(chore: ChoreDefinition, mode: FrequencyMode): AdaptiveHistoryPolicy {
   const recipe = chore.personalRecipeId ? byId.get(chore.personalRecipeId) : undefined;
+  if (chore.customPersonal) {
+    const initialDays = chore.personalScheduleDefaults?.frequencyDaysByMode;
+    if (!initialDays || Object.values(initialDays).length !== 3 || Object.values(initialDays).some(days => !Number.isSafeInteger(days) || days! < 1 || days! > 3650)) throw new Error('追加した家事の初期周期を確認してください。');
+    return { choreId: chore.id, kind: 'personal', mode, initialDays: { frequent: initialDays.frequent!, balanced: initialDays.balanced!, relaxed: initialDays.relaxed! },
+      enabled: chore.enabled && !chore.requiresCycleSelection, fixedDays: chore.userIntervalDays ?? chore.recommendedCycleDays ?? null, version: `custom-policy-1:${chore.id}` };
+  }
   if (!recipe && (chore.applianceId || chore.applianceCareSource)) {
     const days = chore.manufacturerRecommendedIntervalDays ?? null;
     if (days !== null && (!Number.isSafeInteger(days) || days <= 0)) throw new Error('メーカー指定の周期を確認してください。');
@@ -77,11 +94,11 @@ export function personalChoreHistoryPolicy(chore: ChoreDefinition, mode: Frequen
   return { choreId: chore.id, kind: recipe.modes.balanced.kind === 'seasonal' ? 'seasonal' : recipe.modes.balanced.kind === 'collection' ? 'display' : 'personal',
     mode, initialDays: Object.fromEntries((['frequent', 'balanced', 'relaxed'] as const).map(mode => [mode, personalRecipeInitialDays(recipe, mode) ?? null])) as AdaptiveHistoryPolicy['initialDays'],
     enabled: chore.enabled, fixedDays: chore.userIntervalDays ?? chore.recommendedCycleDays ?? null,
-    version: `catalog-${PERSONAL_CHORE_CATALOG_VERSION}:${recipe.id}` };
+    version: `catalog-${PERSONAL_CHORE_SCHEDULING_VERSION}:${recipe.id}` };
 }
 /** Only invoked by a verified private repository; shared Scheduler inputs never use this branch. */
 export function usesPersonalAdaptivePlanner(chore: ChoreDefinition): boolean {
-  return Boolean(chore.personalRecipeId || chore.applianceId || chore.applianceCareSource);
+  return Boolean(chore.customPersonal || chore.personalRecipeId || chore.applianceId || chore.applianceCareSource);
 }
 export function personalChoreCadenceLabel(chore: ChoreDefinition, mode: FrequencyMode): string {
   return choreCadenceLabel(chore, mode);

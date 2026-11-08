@@ -11,6 +11,5 @@ export default function PrivateCalendarDevicesRoute() {
   const loadSession = useCallback(async () => { if (!userId) throw new Error('本人用アカウントを確認してください。'); return openPrivateCalendarDevices(userId); }, [userId]);
   if (!ready || !userId) return <Page><Card><Text style={typography.body}>共有用アカウントでログインして、本人の端末を管理できます。</Text><AppButton title="共有用アカウントへ" onPress={() => router.replace('/sharing')} /></Card></Page>;
   return <PrivateCalendarDeviceScreen key={userId} loadSession={loadSession} onBack={() => router.canGoBack() ? router.back() : router.replace('/sharing')}
-    onCalendar={() => router.push('/sharing/private-calendar-source')}
-    onShare={async value => { await Share.share({ message: JSON.stringify(value) }); }} />;
+    onShare={async value => { await Share.share({ message: typeof value === 'string' ? value : JSON.stringify(value) }); }} />;
 }

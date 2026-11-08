@@ -2,7 +2,8 @@ import { v2MemberLabels } from './member-labels';
 import { useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { FlatList, Platform, Text, View } from 'react-native';
-import { AppButton, Card, SectionHeading } from '../../../components/planner-ui';
+import { Card, SectionHeading } from '../../../components/planner-ui';
+import { SettingsAction } from '../../../components/settings-controls';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { V2DateDecision } from '../v2/decision-review';
 import type { DateTarget } from '../v2/model';
@@ -10,13 +11,14 @@ import type { V2DateRequestState } from '../v2/request-state';
 import { canonicalJson } from '../operations';
 import { V2ActionConfirmationError } from '../v2/actions';
 import type { CalendarConflict } from '../v2/private-availability';
-import { V2Flag, v2FormStyles as styles } from './form-controls';
+import { v2FormStyles as styles } from './form-controls';
+import { SettingsCheckbox } from '../../../components/settings-checkbox';
 import { V2DateTargetFields } from './date-target-fields';
 import { v2InitialTargetFields, v2TargetFromEditedForm, v2TargetLabel } from './target-form';
 import { V2DateConfirmation } from './date-confirmation';
 import type { V2DateConfirmationKind } from './date-confirmation';
 
-type Props = { model: V2GroupScreenModel; actions: V2GroupController['actions']; busy: boolean; header?: ReactElement;
+type Props = { model: V2GroupScreenModel; actions: V2GroupController['actions']; busy: boolean; header?: ReactElement; embedded?: boolean;
   run: (work: () => Promise<unknown>) => Promise<void>; readOwnCalendar?: (target: DateTarget) => Promise<CalendarConflict> };
 const labels: Record<V2DateRequestState['kind'], string> = {
   pendingDelivery: '端末に保存済み · 申請の送信待ち', awaiting: '必要な回答を待っています', counteroffered: '代替日時が提案されています',
@@ -26,8 +28,13 @@ const labels: Record<V2DateRequestState['kind'], string> = {
 const answerLabels: Record<V2DateDecision, string> = { approve: '承認', reject: '拒否', counteroffer: '代替日時の提案', acceptCounteroffer: '代替日時の承諾' };
 
 export function V2DateRequests(props: Props) {
+  const [visibleCount, setVisibleCount] = useState(8);
   const closed = (request: V2DateRequestState) => ['approved', 'rejected', 'expired', 'tooLate', 'blocked'].includes(request.kind);
   const entries = [...props.model.requests].reverse().sort((a, b) => Number(closed(a)) - Number(closed(b)));
+  if (props.embedded) return <View style={{ gap: 12 }}>
+    {!entries.length ? <Text style={styles.caption}>申請はありません。</Text> : entries.slice(0, visibleCount).map(request => <DateRequestCard key={request.requestId} {...props} requestId={request.requestId} />)}
+    {entries.length > visibleCount ? <SettingsAction placement="page" title="日時変更の申請をさらに表示" compact onPress={() => setVisibleCount(value => value + 8)} /> : null}
+  </View>;
   return <FlatList data={entries} keyExtractor={(request) => request.requestId} initialNumToRender={8}
     automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'} contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12 }}
     ListHeaderComponent={props.header} ListEmptyComponent={<Card><Text style={styles.body}>日時の変更申請はありません。</Text></Card>}
@@ -130,25 +137,26 @@ function DateRequestCard({ model, actions, busy, run, requestId, readOwnCalendar
     {stale ? <Text accessibilityRole="alert" style={styles.error}>別の回答・設定・権限の変更が届いています。入力は保持しています。最新の状態：{labels[liveRequest.kind]}。最新の内容を確認してから回答してください。</Text> : null}
     {previousRegion ? <Text style={styles.caption}>この申請と回答は申請時の地域（{request.timeZone}）を維持します。現在のグループ地域は{model.plan.timeZone}です。</Text> : null}
     {!model.plan.initialized ? <Text style={styles.error}>地域・共通設定を確認してから回答してください。</Text> : null}
-    {stale || saved ? <AppButton title="最新の申請内容を表示" variant="secondary" disabled={busy || saving} onPress={reload} /> : null}
+    {stale || saved ? <SettingsAction placement="page" title="最新の申請内容を表示" disabled={busy || saving} onPress={reload} /> : null}
     {request.kind === 'conflict' ? <><Text style={styles.error}>異なる回答を保持しています。表示した回答を確認してから解決してください。到着順では決めません。</Text>
-      <V2Flag label="競合している回答を確認した" value={draft.reviewed} disabled={disabled} onChange={(reviewed) => edit({ reviewed })} /></> : null}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><Text style={[styles.label, { flex: 1 }]}>競合している回答を確認した</Text>
+        <SettingsCheckbox accessibilityLabel="競合している回答を確認した" value={draft.reviewed} disabled={disabled} onValueChange={(reviewed) => edit({ reviewed })} /></View></> : null}
     {review.canVote ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-      <AppButton title={removal ? '日時指定の解除を承認' : '日時変更を承認'} compact disabled={!canAnswer} onPress={() => answer('approve')} />
-      <AppButton title={removal ? '解除申請を拒否' : '日時変更を拒否'} compact variant="secondary" disabled={!canAnswer} onPress={() => answer('reject')} />
+      <SettingsAction placement="page" title={removal ? '日時指定の解除を承認' : '日時変更を承認'} intent="primary" compact disabled={!canAnswer} onPress={() => answer('approve')} />
+      <SettingsAction placement="page" title={removal ? '解除申請を拒否' : '日時変更を拒否'} intent="destructive" compact disabled={!canAnswer} onPress={() => answer('reject')} />
     </View> : null}
     {request.counteroffers.map((offer) => <View key={offer.operationId} style={{ gap: 8 }}>
       <Text style={styles.body}>代替日時：{label(offer.target)}</Text>
       {offer.options.allowDuringCooldown ? <Text style={styles.caption}>最近の実施があっても再指定する条件を含みます。本人の承諾まで確定しません。</Text> : null}
       <Text style={styles.caption}>承諾期限：{label({ precision: 'instant', at: new Date(offer.expiresAt).toISOString() })}。必要な本人の承諾で確定し、管理者へ再承認は求めません。</Text>
-      {review.acceptableCounterofferIds.includes(offer.operationId) ? <AppButton title={`この代替日時を承諾（${label(offer.target)}）`} disabled={!canAnswer} onPress={() => answer('acceptCounteroffer', offer.operationId)} /> : null}
+      {review.acceptableCounterofferIds.includes(offer.operationId) ? <SettingsAction placement="page" title={`この代替日時を承諾（${label(offer.target)}）`} disabled={!canAnswer} onPress={() => answer('acceptCounteroffer', offer.operationId)} /> : null}
     </View>)}
     {review.canCounteroffer ? draft.offerOpen ? <View style={{ gap: 10 }}><SectionHeading title="代替日時を提案" />
       <Text style={styles.caption}>{removal ? '解除の代わりに手動日時を指定する提案です。本人が承諾すると、その日時指定が残ります。' : '指定の種類・適用範囲・条件は上記の申請を引き継ぎます。'}入力だけでは保存しません。</Text>
       <V2DateTargetFields mode={request.proposal.proposedMode} fields={draft.fields} timeZone={request.timeZone} disabled={disabled} onChange={field} />
-      <AppButton title="この日時を代替案として送る" disabled={!canAnswer} onPress={() => answer('counteroffer')} />
-      <AppButton title="代替案を送らず戻る" variant="quiet" disabled={disabled} onPress={() => edit({ offerOpen: false })} />
-    </View> : <AppButton title="代替日時を提案…" variant="secondary" disabled={disabled} onPress={() => edit({ offerOpen: true })} /> : null}
+      <SettingsAction placement="page" title="この日時を代替案として送る" intent="primary" disabled={!canAnswer} onPress={() => answer('counteroffer')} />
+      <SettingsAction placement="page" title="代替案を送らず戻る" disabled={disabled} onPress={() => edit({ offerOpen: false })} />
+    </View> : <SettingsAction placement="page" title="代替日時を提案…" disabled={disabled} onPress={() => edit({ offerOpen: true })} /> : null}
     {request.proposal.proposedMode === 'fixed' ? <Text style={styles.caption}>{calendarStatus ? `${label(calendarStatus.target)}の本人用Calendar：${calendarStatus.kind === 'clear' ? '取得済み情報の範囲では重複なし' : calendarStatus.kind === 'conflict' ? '予定と重複しています' : '最新の予定を確認できません'}`
       : '本人用Calendarは未確認です。他のメンバーの予定内容は表示しません。'}</Text> : null}
     {confirmation ? <V2DateConfirmation kind={confirmation.kind} disabled={!canAnswer} confirmLabel="確認して回答を保存"

@@ -13,6 +13,7 @@ import type { V2ServerReceipt } from './server-receipts.ts';
 import { isSupportedV2Scheduler } from './payload-schema.ts';
 import { v2ReadPoint } from './view-point.ts';
 import { commonFrame, commonFrames } from './common-frames.ts';
+import { v2AnchorAtIndex, v2AnchorIndexBefore, v2AnchorIndexOnOrAfter } from './cadence.ts';
 import { frameAtOperation } from './authority-context.ts';
 import { v2SubjectOccurrenceId } from './occurrence-id.ts';
 import { observedDateRules } from './formal-rule-view.ts';
@@ -31,6 +32,8 @@ import type { V2Dependency } from './dependency-constraints.ts';
 import { indexRetainedRounds } from './retained-round-index.ts';
 import { v2RetainedCompletions } from './retained-completions.ts';
 import type { V2RetainedAssignmentCut } from './history-retention-schema';
+import { applyV2AutomaticBacklog, v2BacklogKey, type V2CompletionFrontier } from './automatic-backlog.ts';
+import { excludedSharedChores } from './standard-catalog.ts';
 
 export type V2Assessment = Pick<ReturnType<typeof assessV2BusinessHistory>, 'view' | 'requestStates' | 'approvedRules' | 'receiptEpochs'>;
 export interface V2PlanIssue { kind: string; choreId: string | null; occurrenceId: string | null; subjectUserId: string | null; operationIds: string[] }
@@ -44,6 +47,7 @@ export interface V2SubjectPlan {
   retainedCompletion?: { checkpointId: string; recorderUserIds: string[]; completedDate: LocalDate; completedAt?: string };
   strictInstructionUnfulfilled: boolean; minimumNextExecutionDay: LocalDate | null; cooldownSuppressed: boolean;
   virtuallyConsumed: boolean; showExpiredOnHome: boolean; requestReviewIds: string[];
+  automaticBacklog?: 'pending' | 'later' | 'covered';
   dependencyNotBefore: LocalDate | null; dependencyNotBeforeInstant: number | null; dependencyBlocked: boolean; dependencyAwaitingCompletion: boolean;
 }
 export interface V2PlannedOccurrence extends SharedOccurrence {
@@ -154,6 +158,9 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
       enabled: initialized && alive && data.enabled === true && data.archived !== true && data.requiresCycleSelection !== true && !issues.some((entry) => entry.choreId === id && entry.kind.startsWith('fieldConflict')),
       archived: !alive || data.archived === true } as Omit<ChoreDefinition, 'householdId'>;
   });
+  const enabledCatalogIds = chores.filter(chore => chore.enabled).map(chore => chore.id);
+  const catalogConflicts = new Set(enabledCatalogIds.flatMap(id => excludedSharedChores(view.groupId, id, enabledCatalogIds)));
+  for (const id of catalogConflicts) issue('catalogSelectionConflict', id);
   const memberIds = new Set([...activeMembers, ...history.flatMap((record) => [record.performerUserId, record.recorderUserId, ...record.originalAssigneeIds])]);
   const members = [...memberIds].sort(compareOperationIds).map((userId) => {
     const profile = view.ofType('member').find((op) => op.entityId === userId || op.payload.userId === userId);
@@ -180,6 +187,14 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
     if (edge) dependencies.push(edge); else issue('dependencyPolicyNeedsReview', typeof data.successorChoreId === 'string' ? data.successorChoreId : null);
   }
   const timelines = new Map<string, ReturnType<typeof v2ConfigurationTimeline>>();
+  const completionFrontiers = new Map<string, V2CompletionFrontier>();
+  const rememberCompletion = (choreId: string, version: number, subject: string | null, anchorDate: LocalDate, instant: number) => {
+    const date = sharedLocalDate(new Date(instant), timeZone); if (date > range.asOfDate) return;
+    const key = v2BacklogKey(choreId, version, subject); const previous = completionFrontiers.get(key);
+    if (!previous || instant > previous.instant || instant === previous.instant && anchorDate > previous.anchorDate) completionFrontiers.set(key, { date, anchorDate, instant });
+  };
+  for (const state of [...retention?.anchors ?? [], ...retained.filter(row => row.reports.length)]) rememberCompletion(state.choreId, state.ruleVersion, state.subjectUserId, state.anchorDate, state.instant);
+  for (const record of history) if (usable(record)) rememberCompletion(record.choreId, Number(view.byId(record.operationId)!.payload.ruleVersion), record.subjectUserId, record.anchorDate, Date.parse(record.performedAt));
   const occurrences: V2PlannedOccurrence[] = [];
   const historyAtCut = new Map<string, V2CompletionRecord[]>();
   function usable(record: V2CompletionRecord): boolean {
@@ -201,6 +216,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
     return context.config.policy.completion === 'one' ? done(null) : context.subjectUserIds.length > 0 && context.subjectUserIds.every(done);
   }
   for (const chore of chores) {
+    if (catalogConflicts.has(chore.id)) continue;
     const choreRules = rulesByChore.get(chore.id) ?? [];
     const lastCompletionBySubject = new Map<string | null, LocalDate>();
     for (const state of [...retention?.anchors ?? [], ...retainedIndex.forChore(chore.id).filter(row => row.reports.length)]) if (state.choreId === chore.id) {
@@ -246,6 +262,22 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
       }
       try {
         for (const bound of merged) for (const frame of commonFrames(view.groupId, chore.id, slice.configuration, bound.from, bound.through)) frames.set(frame.id, frame);
+        // A narrow current read also needs the oldest pending slot after the
+        // last real completion. Compute its index directly, without replaying
+        // every missed day since installation.
+        if (range.from <= range.asOfDate && range.asOfDate <= range.through && slice.from <= range.asOfDate) {
+          const cfg = slice.configuration;
+          const subjects: (string | null)[] = cfg.policy.completion === 'one' ? [null]
+            : cfg.targetMemberIds ?? (cfg.policy.assignment.mode === 'all' ? [...activeMembers] : cfg.policy.assignment.memberIds);
+          for (const subject of subjects) {
+            const done = completionFrontiers.get(v2BacklogKey(chore.id, slice.version, subject));
+            const after = done ? addDays(done.date > done.anchorDate ? done.date : done.anchorDate, 1) : slice.from;
+            const start = after > slice.from ? after : slice.from;
+            const index = v2AnchorIndexOnOrAfter(cfg, start);
+            const candidate = commonFrame(view.groupId, chore.id, cfg, v2AnchorAtIndex(cfg, index));
+            if (candidate.anchorDate <= range.through && candidate.windowStart <= range.asOfDate && (!slice.through || candidate.anchorDate <= slice.through)) frames.set(candidate.id, candidate);
+          }
+        }
       } catch { issue('planningRangeNeedsReview', chore.id); }
     }
     for (const fact of assignmentProjection?.facts ?? []) {
@@ -274,7 +306,8 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
       || view.byId(a.operationId)!.logicalClock - view.byId(b.operationId)!.logicalClock || compareOperationIds(a.operationId, b.operationId))) {
       if (record.anchorDate < range.from || record.anchorDate > range.through) {
         const scheduledDate = recordedScheduleDay(record);
-        if (!record.active || scheduledDate < range.from || scheduledDate > range.through) continue;
+        const performedDate = sharedLocalDate(new Date(record.performedAt), timeZone);
+        if (!record.active || (scheduledDate < range.from || scheduledDate > range.through) && (performedDate < range.from || performedDate > range.through)) continue;
       }
       if (retainedHistoricalFrames.has(record.occurrenceId)) continue;
       // An undone report remains in history but cannot replace an actionable current frame.
@@ -310,7 +343,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
         }
         // A work report can know a pending decision without having received its formal acceptance.
         // Preserve a round fully completed under that report's actually observed assignment as well.
-        if (changes.length) for (const record of historyByFrame.get(frame.id) ?? []) {
+        if (changes.length || context.config.policy.assignment.rotation) for (const record of historyByFrame.get(frame.id) ?? []) {
           if (!usable(record)) continue; const work = view.byId(record.operationId); if (!work) continue;
           try {
             const previous = frameContext(work, chore.id, frame.anchorDate, frame.ruleVersion);
@@ -353,7 +386,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
         const reviews = unresolvedRequestReviews({ occurrence: frame, subjectUserId, candidates, allRules, requests: requestsByChore.get(chore.id) ?? [], view });
         if (reviews.length) issue('requestConflict', chore.id, frame.id, subjectUserId, reviews);
         const last = lastCompletionBySubject.get(subjectUserId);
-        const minimumNextExecutionDay = context.config.intervalDays >= 2 && context.config.intervalDays <= 6 && last ? addDays(last, context.config.intervalDays) : null;
+        const minimumNextExecutionDay = !context.config.monthly && context.config.intervalDays >= 2 && context.config.intervalDays <= 6 && last ? addDays(last, context.config.intervalDays) : null;
         if (formalDate.kind === 'automatic' && minimumNextExecutionDay && minimumNextExecutionDay > suggestedDate && minimumNextExecutionDay <= window.windowEnd) {
           suggestedDate = minimumNextExecutionDay;
         }
@@ -391,6 +424,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
         extensionRequestIds: window.sources, subjects: planned });
     }
   }
+  applyV2AutomaticBacklog(occurrences, completionFrontiers, range.asOfDate);
   const cyclic = cyclicV2Dependencies(dependencies);
   const incoming = new Map<string, V2Dependency[]>();
   for (const edge of dependencies) { const list = incoming.get(edge.successorChoreId) ?? []; list.push(edge); incoming.set(edge.successorChoreId, list); }
@@ -401,14 +435,14 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
     const choices: SharedOccurrence[] = []; let initial: SharedOccurrence | undefined;
     for (const slice of timelines.get(choreId) ?? []) {
       const cfg = slice.configuration; if (!cfg || cfg.active === false) continue;
-      const firstIndex = Math.max(0, Math.ceil(daysBetween(cfg.anchorDate, slice.from) / cfg.intervalDays));
-      const first = commonFrame(view.groupId, choreId, cfg, addDays(cfg.anchorDate, firstIndex * cfg.intervalDays));
+      const firstIndex = v2AnchorIndexOnOrAfter(cfg, slice.from);
+      const first = commonFrame(view.groupId, choreId, cfg, v2AnchorAtIndex(cfg, firstIndex));
       if (slice.through && first.anchorDate > slice.through) continue;
       if (!initial || first.anchorDate < initial.anchorDate) initial = first;
       const cut = slice.through && slice.through < anchor ? slice.through : anchor;
-      const index = Math.floor(daysBetween(cfg.anchorDate, cut) / cfg.intervalDays);
+      const index = v2AnchorIndexBefore(cfg, cut);
       if (index < firstIndex) continue;
-      choices.push(commonFrame(view.groupId, choreId, cfg, addDays(cfg.anchorDate, index * cfg.intervalDays)));
+      choices.push(commonFrame(view.groupId, choreId, cfg, v2AnchorAtIndex(cfg, index)));
     }
     for (const record of recordsByChore.get(choreId) ?? []) {
       if (record.anchorDate > anchor || !record.active || record.outcome !== 'completed') continue;
@@ -434,7 +468,9 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
       const completed = subjects.map(uid => {
         const current = retainedIndex.forRound(choreId, frame.anchorDate, frame.ruleVersion).find(row => row.subjectUserId === uid);
         const prior = current ? current.reports.map(report => report.instant) : (retention?.anchors ?? []).filter(row => row.choreId === choreId && row.anchorDate === frame.anchorDate && row.ruleVersion === frame.ruleVersion && row.subjectUserId === uid).map(row => row.instant);
-        const instants = [...records.filter(record => record.subjectUserId === uid).map(record => Date.parse(record.performedAt)), ...prior];
+        const covered = occurrencesById.get(frame.id)?.subjects.find(subject => subject.subjectUserId === uid)?.automaticBacklog === 'covered'
+          ? completionFrontiers.get(v2BacklogKey(choreId, frame.ruleVersion, uid)) : undefined;
+        const instants = [...records.filter(record => record.subjectUserId === uid).map(record => Date.parse(record.performedAt)), ...prior, ...(covered ? [covered.instant] : [])];
         return instants.length ? Math.min(...instants) : null;
       });
       if (subjects.length && completed.every((instant): instant is number => instant !== null)) {

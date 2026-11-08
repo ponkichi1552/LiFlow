@@ -28,12 +28,12 @@ test('an equally long event moved within a day changes the placement revision wh
   assert.equal(a.revision, prepare({ events: [event('a', { title: 'renamed', revision: 2, notes: 'private text' })] }).revision);
 });
 
-test('holiday and workday date overrides precede weekdays and only unconfigured holidays receive default hours', () => {
-  const noSetting = prepare({ preferences: { ...preferences, allowedBands: [] } }); assert.deepEqual(noSetting.days[0].allowed, []);
+test('holiday and workday date overrides precede weekdays and unconfigured days use approved initial hours', () => {
+  const noSetting = prepare({ preferences: { ...preferences, allowedBands: [] } }); assert.deepEqual(noSetting.days[0].allowed, [span(`${date}T19:00Z`, `${date}T21:00Z`)]);
   const holiday = prepare({ preferences: { ...preferences, allowedBands: [], dayOverrides: [{ date, holiday: true }] } });
   assert.deepEqual(holiday.days[0].allowed, [span(`${date}T09:00Z`, `${date}T19:00Z`)]); assert.equal(holiday.holidaysConfigured, true);
   const workday = prepare({ preferences: { ...preferences, restDays: [2], allowedBands: [], dayOverrides: [{ date, holiday: false }] } });
-  assert.equal(workday.days[0].holiday, false); assert.deepEqual(workday.days[0].allowed, []);
+  assert.equal(workday.days[0].holiday, false); assert.deepEqual(workday.days[0].allowed, [span(`${date}T19:00Z`, `${date}T21:00Z`)]);
   const explicit = prepare({ preferences: { ...preferences, restDays: [2], dayOverrides: [{ date, maximumMinutes: 0, allowedBands: [] }] } });
   assert.deepEqual(explicit.days[0].allowed, []); assert.equal(explicit.days[0].maximumMinutes, 0);
   assert.deepEqual(prepare({ preferences: { ...preferences, restDays: [2] } }).days[0].allowed, [span(`${date}T09:00Z`, `${date}T12:00Z`)]);

@@ -35,8 +35,8 @@ test('capacity form autosaves without creating values on open and retains invali
   assert.equal(await editor.flush(), true); assert.equal(writes.length, 0);
   editor.change(raw => ({ ...raw, maximum: '９０' })); const flushing = editor.flush(); await started;
   editor.change(raw => ({ ...raw, maximum: '120' })); release(); assert.equal(await flushing, true); assert.equal(saved.maximumMinutes, 120);
-  editor.change(raw => ({ ...raw, maximum: '1a' })); assert.equal(await editor.navigateAfterSave(() => assert.fail('invalid navigation')), false);
-  assert.equal(saved.maximumMinutes, 120); assert.equal(editor.getSnapshot().raw.maximum, '1a'); editor.discardDraft();
+  editor.change(raw => ({ ...raw, maximum: '1a' })); let left = 0; assert.equal(await editor.navigateAfterSave(() => left++), true); assert.equal(left, 1);
+  assert.equal(saved.maximumMinutes, 120); assert.equal(editor.getSnapshot().raw.maximum, '120'); editor.resumeNavigation();
   editor.change(raw => ({ ...raw, maximum: '' })); assert.equal(await editor.flush(), true); assert.equal(saved.maximumMinutes, undefined);
 });
 
@@ -141,12 +141,12 @@ for (const platform of ['ios', 'android']) test(`${platform} actual capacity con
   const ui = screenHarness('src/features/settings/personal-capacity-settings.tsx', { exportName: 'PersonalCapacitySettings', platform,
     effect: callback => effects.push(callback), props: { today: '2026-11-05', load: async () => source, onDraftChange() {} } });
   t.after(effects.shift()()); for (let i = 0; i < 8; i++) await ui.flush();
-  await ui.press('日付を追加'); for (let i = 0; i < 8; i++) await ui.flush();
-  const field = ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '1日の家事時間上限'); assert.ok(field);
+  await ui.press('2026/11/05 平日'); for (let i = 0; i < 8; i++) await ui.flush();
+  const field = ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '平日の家事時間上限'); assert.ok(field);
   field.props.onChangeText('60'); await ui.flush();
-  ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '1日の家事時間上限').props.onBlur();
+  ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '平日の家事時間上限').props.onBlur();
   for (let i = 0; i < 12; i++) await ui.flush();
-  assert.equal(saved.maximumMinutes, 60); assert.deepEqual(saved.dayOverrides, [{ date: '2026-11-05', holiday: true }]);
+  assert.equal(saved.dayTypes.workday.maximumMinutes, 60); assert.deepEqual(saved.dayTypes.holiday, {}); assert.deepEqual(saved.dayOverrides, [{ date: '2026-11-05', holiday: true }]);
   assert.equal(ui.text().includes('保存する'), false); assert.equal(ui.text().includes('自動移動'), false);
 });
 
@@ -156,7 +156,7 @@ test('collapsing a settings section retains incomplete capacity input instead of
     effect: callback => effects.push(callback), props: { today: '2026-11-05', load: async () => ({ initial: empty(), save: async () => saves++ }),
       onDraftChange() {}, children: content => open ? content : null } });
   t.after(effects.shift()()); for (let i = 0; i < 8; i++) await ui.flush();
-  await ui.change('1日の家事時間上限', '1a'); open = false; ui.render(); assert.equal(ui.text(), '');
-  open = true; ui.render(); assert.equal(ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '1日の家事時間上限').props.value, '1a');
+  await ui.change('平日の家事時間上限', '1a'); open = false; ui.render(); assert.equal(ui.text(), '');
+  open = true; ui.render(); assert.equal(ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '平日の家事時間上限').props.value, '1a');
   assert.match(ui.text(), /0以上/); assert.equal(saves, 0);
 });

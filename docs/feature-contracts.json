@@ -30,7 +30,7 @@
     "tests": [
       {
         "file": "tests/feature-screen-contracts.test.mjs",
-        "name": "feature screen contract: waste settings keep live kana suggestions, recurrence controls and collapsed upcoming list"
+        "name": "feature screen contract: waste settings keep live kana suggestions, recurrence controls and always visible upcoming list"
       },
       {
         "file": "tests/waste-search-and-storage.test.mjs",
@@ -284,7 +284,7 @@
       },
       {
         "file": "tests/settings-autosave.test.mjs",
-        "name": "individual settings show failed saves and retry the retained draft"
+        "name": "individual settings allow retry while editing and discard a failed draft when leaving"
       },
       {
         "file": "tests/settings-autosave.test.mjs",
@@ -305,7 +305,7 @@
     "tests": [
       {
         "file": "tests/mobile-ui-audit.test.mjs",
-        "name": "credits links remain accessible when expanded and hidden when collapsed"
+        "name": "credits links are directly accessible on their page and absent from the settings menu"
       }
     ],
     "manualReview": "docs/testing-strategy.md"
@@ -985,6 +985,22 @@
     "feature": "shared-auth-without-personal-google-revocation",
     "tests": [
       {
+        "file": "tests/account-sign-out-settings.test.mjs",
+        "name": "ios settings logout waits for saved drafts and pending writes and remains retryable after failure"
+      },
+      {
+        "file": "tests/account-sign-out-settings.test.mjs",
+        "name": "android settings logout waits for saved drafts and pending writes and remains retryable after failure"
+      },
+      {
+        "file": "tests/account-sign-out-settings.test.mjs",
+        "name": "ios settings logout coalesces taps and refuses a stale account or workspace"
+      },
+      {
+        "file": "tests/account-sign-out-settings.test.mjs",
+        "name": "android settings logout coalesces taps and refuses a stale account or workspace"
+      },
+      {
         "file": "tests/sharing-auth.test.mjs",
         "name": "Google sharing sign-in uses only a basic ID token"
       },
@@ -1026,6 +1042,22 @@
   {
     "feature": "sharing-invitation-approval",
     "tests": [
+      {
+        "file": "tests/sharing-invite-entry.test.mjs",
+        "name": "invitation entry submits once after readiness without a second confirmation"
+      },
+      {
+        "file": "tests/sharing-invite-entry.test.mjs",
+        "name": "invitation entry retains the original fragment across login callbacks and rechecks expiry"
+      },
+      {
+        "file": "tests/sharing-invite-entry.test.mjs",
+        "name": "invitation entry rejects invalid links and other memberships and reuses the same pending group"
+      },
+      {
+        "file": "tests/sharing-invite-entry.test.mjs",
+        "name": "invitation failures wait for explicit retry and superseded invitations cannot navigate"
+      },
       {
         "file": "tests/sharing-invitations.test.mjs",
         "name": "shared invitations keep their one-time secret in the app-link fragment and verify both possession and account-bound device signatures"
@@ -1091,6 +1123,22 @@
       {
         "file": "tests/sharing-screens.test.mjs",
         "name": "sharing screen keeps login optional and exposes only the current group without switching or a second join"
+      },
+      {
+        "file": "tests/sharing-entry-navigation.test.mjs",
+        "name": "ios sharing entry opens the join form directly and preserves account-scoped drafts across method changes"
+      },
+      {
+        "file": "tests/sharing-entry-navigation.test.mjs",
+        "name": "android sharing entry opens the join form directly and preserves account-scoped drafts across method changes"
+      },
+      {
+        "file": "tests/sharing-entry-navigation.test.mjs",
+        "name": "ios joining retries the same draft once and ignores a previous account's late acceptance"
+      },
+      {
+        "file": "tests/sharing-entry-navigation.test.mjs",
+        "name": "android joining retries the same draft once and ignores a previous account's late acceptance"
       }
     ]
   },
@@ -2373,11 +2421,11 @@
     "tests": [
       {
         "file": "tests/sharing-v2-autosave.test.mjs",
-        "name": "v2 editor removal remains blocked throughout an in-flight save and repeated back requests cannot navigate twice"
+        "name": "v2 editor navigates immediately during an in-flight save and repeated back requests cannot navigate twice"
       },
       {
         "file": "tests/sharing-v2-autosave.test.mjs",
-        "name": "v2 editor failed or invalid drafts prevent leaving and remain retryable instead of being lost on navigation"
+        "name": "v2 editor discards failed or invalid drafts on departure without changing saved cadence"
       },
       {
         "file": "tests/sharing-v2-screen.test.mjs",
@@ -2398,7 +2446,7 @@
       },
       {
         "file": "tests/sharing-v2-development-preview.test.mjs",
-        "name": "v2 isolated native preview connects home, always-visible expired rounds, configuration navigation and targeted history undo to actual SQLite"
+        "name": "v2 isolated native preview connects home, collapsible expired rounds, configuration navigation and home undo to actual SQLite"
       },
       {
         "file": "tests/sharing-v2-development-preview.test.mjs",
@@ -3022,7 +3070,7 @@
       },
       {
         "file": "tests/sharing-v2-calendar-ui.test.mjs",
-        "name": "v2 calendar retains rounds beyond the home expiry cutoff and opens their real group identity"
+        "name": "v2 calendar retains the oldest pending round beyond five days and opens its real group identity"
       },
       {
         "file": "tests/sharing-v2-calendar-ui.test.mjs",
@@ -3039,7 +3087,7 @@
     "tests": [
       {
         "file": "tests/sharing-v2-development-preview.test.mjs",
-        "name": "v2 calendar routes register an actual past round beyond the home cutoff and preserve its performed and recorded dates"
+        "name": "v2 calendar routes register an actual past backlog round and preserve its performed and recorded dates"
       },
       {
         "file": "tests/sharing-v2-development-preview.test.mjs",
@@ -3482,7 +3530,7 @@
       },
       {
         "file": "tests/sharing-v2-field-autosave.test.mjs",
-        "name": "v2 field autosave keeps invalid input out of SQLite and prevents leaving until correction or explicit discard"
+        "name": "v2 field autosave keeps invalid input out of SQLite and discards it automatically on departure"
       }
     ]
   },
@@ -3543,7 +3591,7 @@
       },
       {
         "file": "tests/sharing-v2-workspace-routes.test.mjs",
-        "name": "normal shared creation replaces the add screen and opens its new disabled chore in the same workspace"
+        "name": "normal shared creation replaces the add screen and opens its newly scheduled chore in the same workspace"
       }
     ]
   },
@@ -3769,6 +3817,10 @@
       {
         "file": "tests/sharing-v2-waste-ui.test.mjs",
         "name": "shared waste conflicts reveal whole candidates only on request and reject an obsolete resolution button"
+      },
+      {
+        "file": "tests/sharing-v2-waste-ui.test.mjs",
+        "name": "${platform} inline group collections and the standalone editor update the same signed schedule without duplicate registration or private planning"
       }
     ]
   },
@@ -4861,11 +4913,11 @@
     "tests": [
       {
         "file": "tests/sharing-private-calendar-device-screen.test.mjs",
-        "name": "${platform} private device settings require explicit confirmation for first setup and keep pairing preview read only"
+        "name": "${platform} private device settings initialize only on an explicit setup action and share a single-use code"
       },
       {
         "file": "tests/sharing-private-calendar-device-screen.test.mjs",
-        "name": "${platform} private device settings use the actual signed pairing handlers and show pending delivery without claiming it was sent"
+        "name": "${platform} private device settings connect from a code automatically and keep pending key delivery distinct from success"
       },
       {
         "file": "tests/sharing-private-calendar-device-screen.test.mjs",
@@ -4882,8 +4934,21 @@
       {
         "file": "tests/sharing-private-calendar-device-native.test.mjs",
         "name": "private device settings physical preview rejects release and foreign UID contexts before composing a session"
+      },
+      {
+        "file": "tests/sharing-private-calendar-device-screen.test.mjs",
+        "name": "${platform} private device setup choices retain pasted information and never create trust while browsing"
+      },
+      {
+        "file": "tests/sharing-private-calendar-device-screen.test.mjs",
+        "name": "private device setup guidance remains available in app help without composing a native session"
+      },
+      {
+        "file": "tests/sharing-private-calendar-device-screen.test.mjs",
+        "name": "${platform} private device setup retains a retry after failed initial read without creating trust"
       }
-    ]
+    ],
+    "manualReview": "docs/audits/2026-11-08-settings-ux.md"
   },
   {
     "feature": "private-calendar-competing-approved-key-senders-settle-availability-without-ciphertext-replacement",
@@ -5254,6 +5319,22 @@
         "name": "${platform} foreground uses one timer for shared and private Calendar work and stops both after backgrounding even with registry failure=${registryBroken}"
       },
       {
+        "file": "tests/sharing-foreground-sync-policy.test.mjs",
+        "name": "solo idle polling defers only healthy empty single-device work until one hour without network requests"
+      },
+      {
+        "file": "tests/sharing-foreground-sync-policy.test.mjs",
+        "name": "solo polling keeps pending errors extra devices members and unknown state on the normal retry cadence"
+      },
+      {
+        "file": "tests/sharing-foreground-sync-policy.test.mjs",
+        "name": "solo polling preserves Google-side change detection when shared Tasks or Calendar export is enabled"
+      },
+      {
+        "file": "tests/sharing-workspace-provider.test.mjs",
+        "name": "solo idle fallback preserves remote signals private polling unfinished retries and resume synchronization"
+      },
+      {
         "file": "tests/sharing-workspace-provider.test.mjs",
         "name": "${platform} workspace bootstrap rechecks the account after registry I/O before exposing groups or starting private work"
       },
@@ -5383,7 +5464,7 @@
       },
       {
         "file": "tests/sharing-private-planner-ui.test.mjs",
-        "name": "${platform} private preference UI blocks hardware and visible back for incomplete input until explicit discard"
+        "name": "${platform} private preference UI discards incomplete input on hardware and visible back without blocking"
       }
     ]
   },
@@ -5591,7 +5672,7 @@
       },
       {
         "file": "tests/sharing-v2-reminder-ui.test.mjs",
-        "name": "${platform} v2 invalid reminder times remain visible, block leaving, and can be explicitly discarded"
+        "name": "${platform} v2 invalid reminder times remain visible while editing and are discarded automatically on departure"
       }
     ]
   },
@@ -6310,7 +6391,7 @@
       },
       {
         "file": "tests/sharing-v2-development-preview.test.mjs",
-        "name": "${platform} v2 isolated native preview connects home, always-visible expired rounds, configuration navigation and targeted history undo to actual SQLite"
+        "name": "${platform} v2 isolated native preview connects home, collapsible expired rounds, configuration navigation and home undo to actual SQLite"
       },
       {
         "file": "tests/sharing-v2-calendar-ui.test.mjs",
@@ -6520,7 +6601,7 @@
     "tests": [
       {
         "file": "tests/settings-source-ui.test.mjs",
-        "name": "${platform} chore settings order personal first in Settings and group first in Group with independent saves"
+        "name": "${platform} chore settings select one personal or group source with independent saves"
       },
       {
         "file": "tests/settings-source-ui.test.mjs",
@@ -6528,7 +6609,7 @@
       },
       {
         "file": "tests/settings-source-ui.test.mjs",
-        "name": "settings history links preserve the explicit personal or current group source"
+        "name": "settings omit history navigation while history remains scoped to the selected group"
       }
     ]
   },
@@ -6922,7 +7003,7 @@
       },
       {
         "file": "tests/local-calendar.test.mjs",
-        "name": "birthday and ordinary event drafts remain independent when saved discarded and resumed from settings"
+        "name": "birthday and ordinary event drafts remain independent when saved discarded and resumed from calendar"
       },
       {
         "file": "tests/local-calendar.test.mjs",
@@ -6973,7 +7054,7 @@
     "tests": [
       {
         "file": "tests/mobile-theme-and-waste-icons.test.mjs",
-        "name": "mobile light and dark themes keep text actions warnings and controls readable"
+        "name": "mobile themes preserve body warning and dark-action contrast while light actions follow the requested brand palette"
       },
       {
         "file": "tests/mobile-theme-and-waste-icons.test.mjs",
@@ -7624,6 +7705,18 @@
       {
         "file": "tests/shared-settings-book.test.mjs",
         "name": "${platform} an unfinished initial shared configuration can be explicitly reset before leaving without enabling the chore or writing an operation"
+      },
+      {
+        "file": "tests/shared-settings-book.test.mjs",
+        "name": "${platform} shared settings open one advanced page and discard invalid edits on departure"
+      },
+      {
+        "file": "tests/shared-chore-editor-controls.test.mjs",
+        "name": "${platform} configured shared responsibility refuses empty assignees and retains two same-frame member selections"
+      },
+      {
+        "file": "tests/shared-chore-editor-controls.test.mjs",
+        "name": "${platform} shared inline date selection uses one start date and applies a future date automatically"
       }
     ]
   },
@@ -7692,7 +7785,7 @@
     "tests": [
       {
         "file": "tests/settings-source-ui.test.mjs",
-        "name": "group management settings never load or offer the personal settings source"
+        "name": "group management settings never load the full personal planner or offer its personal audience"
       }
     ]
   },
@@ -8073,6 +8166,22 @@
     "feature": "group-settings-purpose-and-owner-boundaries",
     "tests": [
       {
+        "file": "tests/group-request-sections.test.mjs",
+        "name": "group request page shares one local read and displays both request types without nested scroll lists"
+      },
+      {
+        "file": "tests/group-request-sections.test.mjs",
+        "name": "inline requests reject foreign state and ignore account changes during a pending read"
+      },
+      {
+        "file": "tests/group-request-sections.test.mjs",
+        "name": "inline request read errors retain an explicit retry without sending a request"
+      },
+      {
+        "file": "tests/sharing-v2-recovery-ui.test.mjs",
+        "name": "embedded recovery exposes the impact check without a second disclosure and never starts recovery automatically"
+      },
+      {
         "file": "tests/group-settings-navigation.test.mjs",
         "name": "${platform} group settings open shared controls directly without synchronizing or exposing private integrations"
       },
@@ -8082,7 +8191,11 @@
       },
       {
         "file": "tests/group-settings-navigation.test.mjs",
-        "name": "${platform} group settings show load and held-change failures outside collapsed sections and allow a safe read retry"
+        "name": "${platform} group settings show load and held-change failures outside detail pages and allow a safe read retry"
+      },
+      {
+        "file": "tests/group-request-sections.test.mjs",
+        "name": "${platform} short request summaries appear inline without navigation and never present unread requests as empty"
       }
     ]
   },
@@ -8118,18 +8231,59 @@
   },
   {
     "feature": "personal-settings-selective-disclosure",
+    "manualReview": "docs/audits/2026-11-08-settings-ux.md",
     "tests": [
       {
-        "file": "tests/mobile-ui-audit.test.mjs",
-        "name": "${platform} settings keep chore categories direct and infrequent controls collapsed with current summaries"
+        "file": "tests/chore-document-position.test.mjs",
+        "name": "a chore document indicator includes unmounted chapters and preserves its position when the preceding range is loaded"
+      },
+      {
+        "file": "tests/chore-document-position.test.mjs",
+        "name": "an empty or shorter-than-viewport document never produces invalid scroll positions"
+      },
+      {
+        "file": "tests/chore-rail-window.test.mjs",
+        "name": "${platform} a long chore rail scrolls its own window at an edge and stops after the gesture ends"
+      },
+      {
+        "file": "tests/settings-source-ui.test.mjs",
+        "name": "${platform} settings audience uses one route with opposite document directions and rechecks membership before switching"
+      },
+      {
+        "file": "tests/settings-source-ui.test.mjs",
+        "name": "the shared audience on the common chore route never loads the personal editor"
+      },
+      {
+        "file": "tests/personal-catalog-storage.test.mjs",
+        "name": "catalogue7 clarifies the entrance label without resetting private cadence history selections or a customized name"
+      },
+      {
+        "file": "tests/chore-categories.test.mjs",
+        "name": "${platform} settings book keeps one category outside scrolling chapters and opens explicit split destinations while refusing a failed collapse"
+      },
+      {
+        "file": "tests/chore-categories.test.mjs",
+        "name": "display categories retain every private and shared chore exactly once without rewriting source identity settings or categories"
+      },
+      {
+        "file": "tests/chore-categories.test.mjs",
+        "name": "split candidates follow only their explicit parent and missing archived or ambiguous parents never hide surviving jobs"
+      },
+      {
+        "file": "tests/chore-categories.test.mjs",
+        "name": "${platform} nested split controls show active children and preview parent exclusion then restore both switches after a failed save"
       },
       {
         "file": "tests/mobile-ui-audit.test.mjs",
-        "name": "closing weather stops hidden searches and reopening retains the location draft without searching again"
+        "name": "${platform} settings use a compact category menu and open only the selected controls without changing their save behavior"
       },
       {
         "file": "tests/mobile-ui-audit.test.mjs",
-        "name": "collapsed Google settings distinguish pending hydration and failures from a disconnected account"
+        "name": "weather drafts remain available in inline general settings without searching again"
+      },
+      {
+        "file": "tests/mobile-ui-audit.test.mjs",
+        "name": "Google settings distinguish pending hydration and failures from a disconnected account after opening their page"
       }
     ]
   },
@@ -9119,7 +9273,7 @@
       },
       {
         "file": "tests/sharing-v2-autosave.test.mjs",
-        "name": "retained shared setting drafts keep their selected effective date across failure and editor recreation"
+        "name": "retained shared setting drafts keep their start date and automatic effective date across failure and editor recreation"
       },
       {
         "file": "tests/schedule-reset-and-home-revision.test.mjs",
@@ -9764,7 +9918,7 @@
       },
       {
         "file": "tests/adaptive-calendar-input.test.mjs",
-        "name": "holiday and workday date overrides precede weekdays and only unconfigured holidays receive default hours"
+        "name": "holiday and workday date overrides precede weekdays and unconfigured days use approved initial hours"
       },
       {
         "file": "tests/adaptive-calendar-input.test.mjs",
@@ -11546,7 +11700,7 @@
       },
       {
         "file": "tests/settings-additional-audit.test.mjs",
-        "name": "chore history navigation preserves an invalid unsaved numeric draft and succeeds after correction"
+        "name": "chore settings back navigation discards invalid numeric input without changing saved values"
       },
       {
         "file": "tests/settings-additional-audit.test.mjs",
@@ -12239,7 +12393,7 @@
     "tests": [
       {
         "file": "tests/sharing-v2-autosave.test.mjs",
-        "name": "audit100 a shared anchor between the default and chosen effective date is saved instead of silently discarded"
+        "name": "audit100 a future shared start date automatically selects its effective date instead of silently discarding it"
       }
     ]
   },
@@ -12248,7 +12402,7 @@
     "tests": [
       {
         "file": "tests/sharing-v2-autosave.test.mjs",
-        "name": "audit100 untouched shared effective dates follow a new received boundary while explicitly selected dates and pending edits remain fixed"
+        "name": "audit100 automatic shared effective dates follow a received boundary while pending start dates remain fixed"
       }
     ]
   },
@@ -12953,5 +13107,569 @@
         "name": "audit50 seasonal completion also accepts a bundled timezone missing from native Intl"
       }
     ]
+  },
+  {
+    "feature": "home-expired-folding-and-direct-undo",
+    "tests": [
+      {
+        "file": "tests/home-expired-folding.test.mjs",
+        "name": "personal Home folds only expired pending work and preserves expansion across snapshot refresh"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-ui.test.mjs",
+        "name": "a pending expired shared undo returns directly to its execution window without a temporary row on today"
+      },
+      {
+        "file": "tests/completion-intents-ui.test.mjs",
+        "name": "expired shared Undo stays in the expanded expired section while persistence and refreshed recommendations are pending"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-08-home-ux.md"
+  },
+  {
+    "feature": "one-physical-completion-for-recurring-backlog",
+    "tests": [
+      {
+        "file": "tests/recurring-backlog.test.mjs",
+        "name": "recurring backlog keeps the first unfinished automatic round beyond the read horizon and a late completion creates one real history record"
+      },
+      {
+        "file": "tests/recurring-backlog.test.mjs",
+        "name": "recurring backlog separates per-member work and never consumes a manually designated round"
+      },
+      {
+        "file": "tests/recurring-backlog.test.mjs",
+        "name": "recurring backlog preserves explicit assignments and keeps distinct chores separate even when names match"
+      },
+      {
+        "file": "tests/recurring-backlog.test.mjs",
+        "name": "one overdue physical completion supplies its actual interval to existing learning and Undo removes exactly that observation"
+      },
+      {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "compacting real completion history preserves the oldest unfinished backlog instead of resurrecting previously consumed automatic slots"
+      },
+      {
+        "file": "tests/recurring-backlog.test.mjs",
+        "name": "a quick checkbox on a newer calendar slot completes the oldest unfinished automatic slot and shares its pending count"
+      },
+      {
+        "file": "tests/recurring-backlog.test.mjs",
+        "name": "the oldest overdue backlog completion and targeted Undo retain their Google identity and only completed work carries an actual completion instant"
+      },
+      {
+        "file": "tests/personal-adaptive-repository.test.mjs",
+        "name": "actual two-week personal backlog retains its first missed round and frozen window after a month without treating missed slots as completed"
+      },
+      {
+        "file": "tests/startup-display.test.mjs",
+        "name": "startup display refuses an authenticated pre-backlog plan instead of queueing a completion against its obsolete round target"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-08-recurring-backlog.md"
+  },
+  {
+    "feature": "weekday-holiday-time-capacity-and-direct-date-calendar",
+    "tests": [
+      {
+        "file": "tests/day-type-capacity.test.mjs",
+        "name": "day type capacity rejects hidden fields and invalid bounds while preserving explicit zeros and merging copied bands"
+      },
+      {
+        "file": "tests/day-type-capacity.test.mjs",
+        "name": "date holiday changes switch both duration budget and allowed hours with explicit date exceptions taking precedence"
+      },
+      {
+        "file": "tests/day-type-capacity.test.mjs",
+        "name": "new day type hours and minute caps constrain actual placement rather than only changing displayed settings"
+      },
+      {
+        "file": "tests/day-type-capacity.test.mjs",
+        "name": "capacity edits preserve legacy caps until touched and invalid time ranges never replace approved hours"
+      },
+      {
+        "file": "tests/day-type-capacity.test.mjs",
+        "name": "holiday taps toggle effective weekdays and restore defaults without discarding per-date caps or bands"
+      },
+      {
+        "file": "tests/day-type-capacity.test.mjs",
+        "name": "encrypted owner settings retain both day types across legacy editors rhythm updates and another own device"
+      },
+      {
+        "file": "tests/day-type-capacity.test.mjs",
+        "name": "anonymous SQLite loads new day type settings into the actual planner without a login"
+      },
+      {
+        "file": "tests/day-type-capacity.test.mjs",
+        "name": "${platform} rhythm calendar and time pickers save the selected values without submitting unfinished bands"
+      },
+      {
+        "file": "tests/day-type-capacity.test.mjs",
+        "name": "ios confirming an untouched time wheel commits its displayed value and keeps the picker open through the first draft update"
+      },
+      {
+        "file": "tests/day-type-capacity.test.mjs",
+        "name": "approved initial hours match displayed defaults and explicit saved or empty bands override them"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-08-settings-ux.md"
+  },
+  {
+    "feature": "monthly-waste-inline-calendar-preserves-date-rule-and-save-lock",
+    "tests": [
+      {
+        "file": "tests/waste-monthly-calendar.test.mjs",
+        "name": "${platform} monthly waste calendar selects the actual day and the same-frame save uses it without changing the recurrence"
+      },
+      {
+        "file": "tests/waste-monthly-calendar.test.mjs",
+        "name": "${platform} viewing a shorter month highlights its last day without rewriting a monthly day 31 setting"
+      },
+      {
+        "file": "tests/waste-monthly-calendar.test.mjs",
+        "name": "${platform} monthly waste calendar respects the editor save lock"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-08-settings-ux.md"
+  },
+  {
+    "feature": "shared-standard-catalog-and-split-selection",
+    "tests": [
+      {
+        "file": "tests/shared-standard-catalog.test.mjs",
+        "name": "fresh shared groups use exactly the personal bundled recipes without reading or sharing private state"
+      },
+      {
+        "file": "tests/shared-standard-catalog.test.mjs",
+        "name": "nonperiodic shared recipes receive no invented numeric cadence and remain inactive before explicit setup"
+      },
+      {
+        "file": "tests/shared-standard-catalog.test.mjs",
+        "name": "shared split selection atomically deactivates its parent and reactivation and reset keep the same catalogue defaults"
+      },
+      {
+        "file": "tests/shared-standard-catalog.test.mjs",
+        "name": "a receiver does not schedule overlapping shared parent and split selections even when conflicting owner operations bypass the normal controls"
+      }
+    ]
+  },
+  {
+    "feature": "shared-rotation-distinct-completions-and-retention",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-rotation.test.mjs",
+        "name": "completion-based rotation waits through missed deadlines and advances once for actual work, then reverses on undo"
+      },
+      {
+        "file": "tests/sharing-v2-rotation.test.mjs",
+        "name": "a repeated A A B rotation counts actual distinct completed rounds and preserves the historical assignee"
+      },
+      {
+        "file": "tests/sharing-v2-rotation.test.mjs",
+        "name": "occurrence-based rotation advances without completions and cadence-only edits do not restart the sequence"
+      },
+      {
+        "file": "tests/sharing-v2-rotation.test.mjs",
+        "name": "one-off assignee overrides replace only that round and keep the underlying rotation sequence"
+      },
+      {
+        "file": "tests/sharing-v2-rotation.test.mjs",
+        "name": "two devices completing the same shared round consume one rotation slot and targeted undo preserves the other completion"
+      },
+      {
+        "file": "tests/sharing-v2-rotation.test.mjs",
+        "name": "leaving members are not silently replaced in a rotation and signed unknown participants cannot enter the outbox"
+      },
+      {
+        "file": "tests/sharing-v2-rotation.test.mjs",
+        "name": "old group epochs cannot silently opt into rotating assignments"
+      },
+      {
+        "file": "tests/sharing-v2-rotation-retention.test.mjs",
+        "name": "signed monthly deletion retains exact rotation progress across replicas without retaining old work reports and Undo affects only new work"
+      },
+      {
+        "file": "tests/sharing-v2-rotation-retention.test.mjs",
+        "name": "rotation progress rejects ambiguous duplicate epochs out-of-order buckets and unbounded or private fields"
+      },
+      {
+        "file": "tests/shared-chore-editor-controls.test.mjs",
+        "name": "${platform} rotating responsibility defaults to completion and preserves a weighted sequence while advanced timing remains optional"
+      },
+      {
+        "file": "tests/shared-settings-book.test.mjs",
+        "name": "a rotating chore offers its current assignment from advanced settings and keeps navigation inside the chosen workspace"
+      },
+      {
+        "file": "tests/sharing-v2-rotation.test.mjs",
+        "name": "a future-dated work report cannot advance the rotation once its actual server receipt proves the time invalid"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-08-settings-ux.md"
+  },
+  {
+    "feature": "custom-personal-shared-chore-creation-minimal-input",
+    "tests": [
+      {
+        "file": "tests/custom-chore-creation.test.mjs",
+        "name": "a personal custom chore needs only its name and cycle and retains zero width normal load and independent learning defaults"
+      },
+      {
+        "file": "tests/custom-chore-creation.test.mjs",
+        "name": "a shared custom chore atomically creates its policy using today for both dates and rejects unauthorized or incomplete registration"
+      },
+      {
+        "file": "tests/custom-chore-creation.test.mjs",
+        "name": "${platform} personal add saves same-frame input once and a failed refresh reopens the existing chore without duplicate insertion"
+      },
+      {
+        "file": "tests/custom-chore-creation.test.mjs",
+        "name": "${platform} shared add validates name cycle and responsibility before one atomic save and locks duplicate taps"
+      },
+      {
+        "file": "tests/custom-chore-creation.test.mjs",
+        "name": "${platform} personal creation accepts optional settings and steps without requiring a second edit"
+      },
+      {
+        "file": "tests/custom-chore-creation.test.mjs",
+        "name": "${platform} shared creation validates optional fields before saving and retains the selected start date and responsibility"
+      },
+      {
+        "file": "tests/shared-settings-book.test.mjs",
+        "name": "${platform} a newly created selected chapter never falls back to another chore while the saved catalog is refreshing"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-08-settings-ux.md"
+  },
+  {
+    "feature": "shared-cadence-edit-preserves-last-scheduled-phase",
+    "tests": [
+      {
+        "file": "tests/shared-cadence-start.test.mjs",
+        "name": "a shared period edit keeps the last previous scheduled date instead of recomputing from its original operational start"
+      },
+      {
+        "file": "tests/shared-cadence-start.test.mjs",
+        "name": "an explicit new shared start date remains explicit while unrelated responsibility and window edits retain the existing recurrence phase"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-reused-divider-appearance",
+    "manualReview": "docs/audits/2026-11-08-settings-ux.md",
+    "tests": [
+      {
+        "file": "tests/calendar-border-appearance.test.mjs",
+        "name": "${platform} calendar dividers follow appearance changes without resetting the selected date"
+      }
+    ]
+  },
+  {
+    "feature": "chore-library-omits-empty-guides-without-changing-plans",
+    "tests": [
+      {
+        "file": "tests/guide-empty-sections.test.mjs",
+        "name": "${platform} an empty guide omits unused sections while its plan action and later supplied content remain usable"
+      },
+      {
+        "file": "tests/chore-guide-content.test.mjs",
+        "name": "schedule-only chores have no library entry while meaningful descriptions and procedure content remain eligible"
+      },
+      {
+        "file": "tests/chore-guide-content.test.mjs",
+        "name": "an empty shared guide cannot hide the meaningful personal guide for the same chore"
+      },
+      {
+        "file": "tests/chore-guide-content.test.mjs",
+        "name": "${platform} the added-chore library omits empty guides and reveals newly supplied steps without changing schedule settings"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-08-settings-ux.md"
+  },
+  {
+    "feature": "shared-monthly-chore-dates-and-owner-holidays",
+    "tests": [
+      {
+        "file": "tests/shared-monthly-cadence.test.mjs",
+        "name": "shared monthly dates retain their chosen day across short months leap years and year boundaries"
+      },
+      {
+        "file": "tests/shared-monthly-cadence.test.mjs",
+        "name": "shared monthly work and undo converge on signed replicas without changing future dates or rotating twice"
+      },
+      {
+        "file": "tests/shared-monthly-cadence.test.mjs",
+        "name": "shared monthly sparse reads retain missed work and changing back to days uses the last issued monthly date"
+      },
+      {
+        "file": "tests/shared-monthly-cadence.test.mjs",
+        "name": "old shared epochs and ordinary members cannot create a monthly schedule or leave rejected writes in the outbox"
+      },
+      {
+        "file": "tests/shared-monthly-cadence.test.mjs",
+        "name": "shared windows automatically use each persons holidays without an administrator holiday flag and zero width stays on its date"
+      },
+      {
+        "file": "tests/shared-monthly-cadence.test.mjs",
+        "name": "ios shared dates can save monthly recurrence and creation requires no administrator holiday choice"
+      },
+      {
+        "file": "tests/shared-monthly-cadence.test.mjs",
+        "name": "android shared dates can save monthly recurrence and creation requires no administrator holiday choice"
+      }
+    ]
+  },
+  {
+    "feature": "account-connections-inline-scopes-and-operation-lock",
+    "manualReview": "docs/audits/2026-11-08-settings-ux.md",
+    "tests": [
+      {
+        "file": "tests/account-connections.test.mjs",
+        "name": "${platform} account connections display all related controls immediately without granting access"
+      },
+      {
+        "file": "tests/account-connections.test.mjs",
+        "name": "${platform} account connections preserve an unconfirmed Google review while editing neighboring controls"
+      },
+      {
+        "file": "tests/account-connections.test.mjs",
+        "name": "${platform} local and foreign-account connections never mount shared or protected settings"
+      },
+      {
+        "file": "tests/account-connections.test.mjs",
+        "name": "${platform} account device sync opens locally and rejects a stale owner before protected reads"
+      },
+      {
+        "file": "tests/account-connections.test.mjs",
+        "name": "${platform} embedded Calendar controls share the account lock without bypassing connection review"
+      },
+      {
+        "file": "tests/account-connections.test.mjs",
+        "name": "${platform} embedded Tasks shares the account-operation lock and releases it after failed and unmounted work"
+      },
+      {
+        "file": "tests/sharing-private-planner-ui.test.mjs",
+        "name": "${platform} inline preference sync shows actionable state and preserves retry errors without starting synchronization on open"
+      },
+      {
+        "file": "tests/account-connections.test.mjs",
+        "name": "${platform} inline device setup retains its choice and draft across account rerenders without granting trust"
+      },
+      {
+        "file": "tests/sharing-private-calendar-device-screen.test.mjs",
+        "name": "${platform} embedded device mutations share the account lock through failure and unmount"
+      }
+    ]
+  },
+  {
+    "feature": "private-calendar-one-use-same-account-automatic-connection",
+    "tests": [
+      {
+        "file": "tests/private-calendar-connection-code.test.mjs",
+        "name": "connection codes authorize one same-account device automatically without exporting private keys or a bearer secret to Cloud"
+      },
+      {
+        "file": "tests/private-calendar-connection-code.test.mjs",
+        "name": "connection codes cannot be used by a second device or with a forged proof, modified signature, expired grant or foreign account"
+      },
+      {
+        "file": "tests/private-calendar-connection-code.test.mjs",
+        "name": "a valid connection code recovers a conflicting unaccepted first setup without replacing protected trust"
+      },
+      {
+        "file": "tests/private-calendar-connection-code.test.mjs",
+        "name": "foreground observation resumes a completed connection after code expiry and detaches its watches"
+      },
+      {
+        "file": "tests/private-calendar-connection-code.test.mjs",
+        "name": "connection observation waits for ordinary in-flight sync without losing the server change"
+      },
+      {
+        "file": "tests/private-calendar-connection-code.test.mjs",
+        "name": "simultaneous one-use handoffs retain both recipients when unrelated device additions advance authority"
+      },
+      {
+        "file": "tests/private-calendar-connection-code.test.mjs",
+        "name": "an accepted handoff cannot reapprove its recipient after another device revokes it"
+      },
+      {
+        "file": "tests/private-calendar-connection-code.test.mjs",
+        "name": "an aborted connection retry makes no cloud reads or approvals and retains its exact encrypted request"
+      },
+      {
+        "file": "tests/private-calendar-connection-code.test.mjs",
+        "name": "connection handoff recovers the same claim after recreation and a lost key-delivery reply without a manual approval"
+      },
+      {
+        "file": "tests/private-calendar-connection-code.test.mjs",
+        "name": "connection-code setup is read-only until explicit actions and rejects account changes and stale vault updates"
+      },
+      {
+        "file": "tests/sharing-private-calendar-pairing.test.mjs",
+        "name": "private Calendar approval receipt recovers after another runtime already advanced the protected authority"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-private-calendar-cloud.integration.mjs",
+        "name": "single-use connection-code Rules isolate accounts and atomically bind exactly one recipient without exposing the bearer secret"
+      },
+      {
+        "file": "tests/sharing-private-calendar-cloud.integration.mjs",
+        "name": "single-use connection-code Rules refuse expired changed and unregistered-issuer grants"
+      },
+      {
+        "file": "tests/sharing-private-calendar-cloud.integration.mjs",
+        "name": "single-use connection-code SDK listeners complete two real SQLite devices with automatic approval and detach afterward"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-08-settings-ux.md"
+  },
+  {
+    "feature": "account-sync-compact-controls-and-calendar-source-location",
+    "tests": [
+      {
+        "file": "tests/account-connections.test.mjs",
+        "name": "${platform} private Calendar source and device setup remain in place with stale-account guards"
+      },
+      {
+        "file": "tests/sharing-private-calendar-source-ui.test.mjs",
+        "name": "${platform} inline private Calendar source shares the account lock and releases it after a failed action"
+      },
+      {
+        "file": "tests/sharing-private-planner-ui.test.mjs",
+        "name": "${platform} inline preference sync shows actionable state and preserves retry errors without starting synchronization on open"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-08-settings-ux.md"
+  },
+  {
+    "feature": "general-settings-inline-controls-and-persistent-holiday-calendar",
+    "tests": [
+      {
+        "file": "tests/own-birthday-settings.test.mjs",
+        "name": "own birthday date replaces one annual nonblocking event while preserving other birthdays and drafts"
+      },
+      {
+        "file": "tests/own-birthday-settings.test.mjs",
+        "name": "own birthday registration rejects concurrent copies and restores a cleared date without resetting revisions"
+      },
+      {
+        "file": "tests/own-birthday-settings.test.mjs",
+        "name": "${platform} own birthday settings save only the committed date and expose no other peoples inputs"
+      },
+      {
+        "file": "tests/own-birthday-settings.test.mjs",
+        "name": "calendar birthday classification registers another persons named annual event without changing the settings date"
+      },
+      {
+        "file": "tests/settings-general.test.mjs",
+        "name": "${platform} general settings expose all controls in one page and preserve saves and drafts across appearance changes"
+      },
+      {
+        "file": "tests/settings-general.test.mjs",
+        "name": "${platform} inline group notification settings only read the current account and reject stale actions"
+      },
+      {
+        "file": "tests/sharing-v2-reminder-ui.test.mjs",
+        "name": "${platform} embedded v2 reminders retain permission denial and save recovery without another page"
+      },
+      {
+        "file": "tests/personal-capacity-settings.test.mjs",
+        "name": "${platform} actual capacity controls autosave a date override and minute limit without a save button"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-08-settings-ux.md"
+  },
+  {
+    "feature": "group-settings-inline-personal-chore-selection",
+    "tests": [
+      {
+        "file": "tests/group-personal-chore-selection.test.mjs",
+        "name": "group choices contain missing private definitions unchecked and never duplicate shipped recipes or existing copies"
+      },
+      {
+        "file": "tests/group-personal-chore-selection.test.mjs",
+        "name": "reading selectable personal chore definitions never signs changes or loads schedules and closes its private connection"
+      },
+      {
+        "file": "tests/group-personal-chore-selection.test.mjs",
+        "name": "one group checkbox signs a definition and configuration exactly once and excludes all personal history and mappings"
+      },
+      {
+        "file": "tests/group-personal-chore-selection.test.mjs",
+        "name": "opening an unshared chore creates an inactive group setting and a later checkbox enables that same definition"
+      },
+      {
+        "file": "tests/group-personal-chore-selection.test.mjs",
+        "name": "personal selection refuses changed accounts, non administrators, missing cycles and ambiguous shared names without extra copies"
+      },
+      {
+        "file": "tests/group-personal-chore-selection.test.mjs",
+        "name": "${platform} group settings select a missing personal chore inline and open its group configuration without a separate copy page"
+      },
+      {
+        "file": "tests/group-personal-chore-selection.test.mjs",
+        "name": "the group settings source saves inline choices through its signed source and keeps group settings usable after a private choice read fails"
+      }
+    ]
+  },
+  {
+    "feature": "settings-departure-without-unsaved-input-blocking-20261109",
+    "tests": [
+      { "file": "tests/settings-departure.test.mjs", "name": "settings departure navigates before a slow valid save and still commits that edit once" },
+      { "file": "tests/settings-departure.test.mjs", "name": "settings departure discards invalid or failed input without saving or blocking navigation" },
+      { "file": "tests/settings-departure.test.mjs", "name": "a save failing after departure is discarded and never retried by later cleanup" },
+      { "file": "tests/settings-departure.test.mjs", "name": "discarding a departing queue prevents an in-flight failure from resurrecting old changes" },
+      { "file": "tests/settings-departure.test.mjs", "name": "a discarded settings form follows an already committed save without reviving invalid input" },
+      { "file": "tests/settings-departure.test.mjs", "name": "personal chore departure discards invalid numbers and preserves already saved values" }
+    ],
+    "manualReview": "docs/audits/2026-11-09-settings-design-unification.md"
+  },
+  {
+    "feature": "unified-personal-shared-history",
+    "tests": [
+      {
+        "file": "tests/history-unified.test.mjs",
+        "name": "history excludes only the active group learning mirror and preserves unrelated personal records without rewriting them"
+      },
+      {
+        "file": "tests/history-unified.test.mjs",
+        "name": "${platform} unified history shows own private work beside authorized group work and never reveals a hidden completion through its learning mirror"
+      },
+      {
+        "file": "tests/history-unified.test.mjs",
+        "name": "personal history only presents actual dates and clocks while preserving stored schedule and learning facts"
+      },
+      {
+        "file": "tests/history-unified.test.mjs",
+        "name": "personal history keeps the frozen date and matching clock after the owner changes region without a mutation"
+      },
+      {
+        "file": "tests/history-unified.test.mjs",
+        "name": "group history opens only original assignees and performer without exposing completion edits"
+      },
+      {
+        "file": "tests/home-occurrence-projection.test.mjs",
+        "name": "group home never repeats one personal completion on both its frozen recommendation and a recalculated day"
+      },
+      {
+        "file": "tests/home-occurrence-projection.test.mjs",
+        "name": "personal home keeps a completed occurrence on its saved day and preserves separate later cycles with the same name"
+      },
+      {
+        "file": "tests/home-occurrence-projection.test.mjs",
+        "name": "personal home shows one row when a precompleted round and the next round share a recommendation without deleting either round"
+      },
+      {
+        "file": "tests/home-occurrence-projection.test.mjs",
+        "name": "${platform} home never repeats todays available occurrence in upcoming recommendations"
+      },
+      {
+        "file": "tests/history-unified.test.mjs",
+        "name": "cancelled personal records stay stored but leave the history list and its completion total"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-09-home-history-ux.md"
   }
 ]

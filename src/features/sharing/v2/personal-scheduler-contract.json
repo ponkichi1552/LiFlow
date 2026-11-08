@@ -1,8 +1,8 @@
 {
-  "version": "liflow-personal-2",
+  "version": "liflow-personal-4",
   "sourceFiles": [
     "src/features/sharing/v2/personal-plan.ts",
     "src/features/sharing/v2/private-availability.ts"
   ],
-  "sourceSha256": "959bf76ea88eb973f8d09365a06a238666f5ea965836ad9ebcafaafe52ec4020"
+  "sourceSha256": "3c8c65635f9bb86d1f6aef9d40325445075492fa40e336dfd379b262544e3c04"
 }

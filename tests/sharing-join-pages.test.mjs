@@ -31,9 +31,10 @@ for (const platform of ['ios', 'android']) test(`${platform} group requests reta
       },
     } };
   const screen = screenHarness('src/features/sharing/sharing-manager-screen.tsx', { platform, exportName: 'GroupDetail',
-    props: { workspace, busy: false, run: async work => { try { await work(); return true; } catch (error) { failures.push(error); return false; } } },
-    effectDependencies: true, effect: callback => callback(), mocks: {
+    props: { workspace, section: 'members', busy: false, run: async work => { try { await work(); return true; } catch (error) { failures.push(error); return false; } } },
+    effectDependencies: true, focusDependencies: true, effect: callback => callback(), mocks: {
       '@/hooks/use-workspace': { useWorkspace: () => context }, 'expo-image': { Image: 'Image' },
+      '@/features/sharing/v2-ui/workspace-data': { useOptionalWorkspaceDisplay: () => null },
       '@/platform/sharing/auth': { isSharingAppleSignInAvailable: async () => false },
       '@/platform/sharing/firebase-services': { isSharingConfigured: () => true },
       '@/platform/sharing/workspaces': { subscribeSharingChanges: () => () => {}, sharingFailureMessage: () => '通信を確認してください。' },
@@ -43,12 +44,12 @@ for (const platform of ['ios', 'android']) test(`${platform} group requests reta
       '@/features/sharing/v2/legacy-migration-panel': { LegacyMigrationPanel: () => null },
     } });
   t.after(() => screen.unmount()); await screen.flush();
-  await screen.press('メンバー・招待（1人）を開く'); await screen.flush();
-  assert.equal(screen.text().includes('参加申請はありません。'), false); assert.match(screen.text(), /確認できない参加申請：100件/);
+  await screen.flush();
+  assert.equal(screen.text().includes('申請はありません。'), false); assert.match(screen.text(), /確認できない参加申請：100件/);
   await screen.press('参加申請の続きを取得'); await screen.flush();
   assert.equal(failures.length, 1); assert.ok(screen.button('参加申請の続きを取得')); assert.equal(approved, 0);
   failPage = false; await screen.press('参加申請の続きを取得'); await screen.flush();
-  assert.ok(screen.button('この端末の参加を承認')); assert.equal(screen.text().includes('参加申請はありません。'), false);
+  assert.ok(screen.button('この端末の参加を承認')); assert.equal(screen.text().includes('申請はありません。'), false);
   await screen.press('確認できない申請を削除'); await screen.flush();
   assert.equal(failures.length, 2); assert.equal(deleted.length, 7);
   await screen.press('確認できない申請を削除'); await screen.flush();

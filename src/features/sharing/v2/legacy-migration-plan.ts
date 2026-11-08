@@ -37,7 +37,7 @@ function prepareAtVersion(checkpoint: VerifiedLegacyMigration, input: Parameters
   assertSharedIdentifier(input.id); assertSharedIdentifier(input.userId);
   const source = readVerifiedLegacyMigrationSource(checkpoint); const original = readVerifiedLegacyMigrationSnapshot(checkpoint);
   const witness = original.base.legacyMigrationWitness;
-  if (!witness || source.roster.body.ownerUserId !== input.userId || input.groupPolicy.kind !== witness.body.groupKind) throw new Error('所有者と、確認するグループの種類を確認してください。');
+  if (!witness || source.roster.body.ownerUserId !== input.userId || input.groupPolicy.kind !== witness.body.groupKind) throw new Error('管理者と、確認するグループの種類を確認してください。');
   if (source.replica.entities.some(entity => Object.keys(entity.conflicts).length)) throw new Error('移行前のグループで同時編集を解決してください。');
   const settings = source.replica.entities.find(entity => entity.entityType === 'settings' && entity.entityId === 'settings' && !entity.deleted);
   if (!settings || typeof settings.fields.timeZone !== 'string') throw new Error('移行前の地域設定を確認してください。');

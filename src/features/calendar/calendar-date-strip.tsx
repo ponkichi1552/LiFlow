@@ -3,11 +3,13 @@ import { palette, typography } from '../../components/planner-ui';
 import { addDays, formatJapaneseDate } from '../../domain/scheduling/local-date';
 import type { LocalDate } from '../../domain/shared/types';
 import { weekStart } from './layout';
+import { usePlannerBorderStyles } from '../../components/use-planner-border-styles';
 
 /** The date selector and timeline headings describe the same selected interval. */
 export function CalendarDateStrip({ date, today, days, onSelect }: {
   date: LocalDate; today: LocalDate; days: 1 | 2; onSelect(date: LocalDate): void;
 }) {
+  const styles = usePlannerBorderStyles(baseStyles);
   const first = weekStart(date); const last = addDays(date, days - 1);
   return <View style={styles.week}>{Array.from({ length: 7 }, (_, index) => {
     const day = addDays(first, index); const selected = date <= day && day <= last;
@@ -20,7 +22,7 @@ export function CalendarDateStrip({ date, today, days, onSelect }: {
     </Pressable>;
   })}</View>;
 }
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   week: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border, paddingVertical: 4 },
   cell: { flex: 1, minHeight: 58, alignItems: 'center', justifyContent: 'center', gap: 3 },
   weekday: { ...typography.calendarLabel, color: palette.muted },

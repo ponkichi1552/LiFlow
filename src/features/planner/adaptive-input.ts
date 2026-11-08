@@ -7,6 +7,8 @@ import { localCalendarIntervals } from '../calendar/local-availability.ts';
 import { createCalendarQueryRange } from '../google-sync/calendar-availability.ts';
 import { v2WallTimeCandidates } from '../sharing/v2/local-time.ts';
 import type { MetForecast } from '../../../server/appliance-care-api/src/weather/forecast.mjs';
+import { defaultDayTypeBands, snapshotDayTypeCapacity } from './day-type-capacity.ts';
+import type { DayTypeCapacity } from './day-type-capacity';
 
 export interface AdaptiveAllowedBand { startMinute: number; endMinute: number }
 export interface AdaptiveDayOverride {
@@ -16,6 +18,7 @@ export interface AdaptiveLocalPreferences {
   restDays: readonly Weekday[]; heavyLimit: number; normalLimit: number; maximumMinutes?: number;
   allowedBands: readonly (AdaptiveAllowedBand & { weekday: Weekday })[];
   dayOverrides: readonly AdaptiveDayOverride[];
+  dayTypes?: DayTypeCapacity;
 }
 const checkMinutes = (value: number | undefined) => value === undefined || Number.isFinite(value) && value >= 0;
 function checkedBands(bands: readonly AdaptiveAllowedBand[]) {
@@ -38,6 +41,7 @@ export function prepareAdaptivePlacementInput(input: {
     || !Number.isSafeInteger(own.heavyLimit) || own.heavyLimit < 0 || !Number.isSafeInteger(own.normalLimit) || own.normalLimit < 0
     || !checkMinutes(own.maximumMinutes) || !Array.isArray(own.dayOverrides) || own.dayOverrides.length > 3660) throw new Error('休日と日別の家事設定を確認してください。');
   checkedBands(own.allowedBands);
+  const dayTypes = own.dayTypes === undefined ? undefined : snapshotDayTypeCapacity(own.dayTypes);
   const weekdayBands = new Map<Weekday, AdaptiveAllowedBand[]>();
   for (const band of own.allowedBands) {
     if (!Number.isSafeInteger(band.weekday) || band.weekday < 1 || band.weekday > 7) throw new Error('時間帯の曜日を確認してください。');
@@ -56,9 +60,10 @@ export function prepareAdaptivePlacementInput(input: {
     if (bounds.start >= bounds.end) { unresolvedDates.push(date); continue; }
     const override = overrides.get(date); const weekday = weekdayOf(date);
     const holiday = override?.holiday ?? own.restDays.includes(weekday);
-    // An explicit empty day override forbids work. An unconfigured holiday alone
-    // receives the agreed 09–19 fallback; unknown weekdays never receive fake hours.
-    const bands = override?.allowedBands ?? weekdayBands.get(weekday) ?? (holiday ? [{ startMinute: 540, endMinute: 1140 }] : []);
+    const capacity = dayTypes?.[holiday ? 'holiday' : 'workday'];
+    // Explicit empty bands forbid work; only unconfigured days use the approved initial hours.
+    const bands = override?.allowedBands ?? capacity?.allowedBands ?? weekdayBands.get(weekday)
+      ?? (own.allowedBands.length ? [] : defaultDayTypeBands(holiday ? 'holiday' : 'workday'));
     const allowed: InstantSpan[] = []; let unresolved = false;
     for (const band of bands) {
       const at = (value: number) => v2WallTimeCandidates({ date: value === 1440 ? addDays(date, 1) : date,
@@ -69,7 +74,7 @@ export function prepareAdaptivePlacementInput(input: {
     }
     if (unresolved) unresolvedDates.push(date);
     days.push({ date, bounds, allowed: unresolved ? [] : unionInstantSpans(allowed), holiday,
-      maximumMinutes: override?.maximumMinutes ?? own.maximumMinutes, heavyLimit: own.heavyLimit, normalLimit: own.normalLimit });
+      maximumMinutes: override?.maximumMinutes ?? capacity?.maximumMinutes ?? own.maximumMinutes, heavyLimit: own.heavyLimit, normalLimit: own.normalLimit });
   }
   const busy = unionInstantSpans([...localCalendarIntervals(input.events, input.exceptions, input.from, input.through, input.timeZone), ...(input.busy ?? [])]);
   const holidaysConfigured = own.restDays.length > 0 || days.some(day => day.holiday);

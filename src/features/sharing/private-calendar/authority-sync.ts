@@ -120,10 +120,12 @@ export function createPrivateCalendarAuthoritySync(port: { userId: string; secre
     if (!await intents.markAccepted(saved.digest, collected.authority)) throw new Error('本人端末の受付確認中に設定が変わりました。再同期してください。');
     return { kind: 'accepted' as const, authority: collected.authority, intentDigest: saved.digest };
   }
-  return { refresh, resume, async change(change: PrivateCalendarAuthorityChange) {
+  return { refresh, resume, async change(change: PrivateCalendarAuthorityChange, control: PrivateCalendarWorkControl = {}) {
+    assertPrivateCalendarWork(control);
     const owned = snapshotPrivateCalendarAuthorityChange(change);
     if (!await secrets.authority(userId)) throw new Error('本人端末の信頼を先に確認してください。');
-    const saved = await intents.prepare(owned, await secrets.identity(userId));
-    return saved ? resume() : { kind: 'idle' as const };
+    const identity = await secrets.identity(userId); assertPrivateCalendarWork(control);
+    const saved = await intents.prepare(owned, identity); assertPrivateCalendarWork(control);
+    return saved ? resume(control) : { kind: 'idle' as const };
   }, dismissReviewed: intents.dismissReviewed };
 }

@@ -8,6 +8,29 @@ const { installPersonalCatalogInside } = await import('../src/platform/storage/p
 const { createPersonalChoreDefinitions, PERSONAL_CHORE_CATALOG_VERSION } = await import('../src/domain/chores/personal-catalog.ts');
 const house = repository.LOCAL_HOUSEHOLD_ID;
 
+test('catalogue7 clarifies the entrance label without resetting private cadence history selections or a customized name', async t => {
+  for (const customized of [false, true]) {
+    const h = createDatabase(); t.after(() => h.connection.close()); await repository.initializeLocalDatabase(h.database);
+    const id = 'liflow-catalog-6.006';
+    const current = JSON.parse(h.connection.prepare('SELECT definition_json FROM chore_definitions WHERE id=?').get(id).definition_json);
+    const previous = { ...current, name: customized ? '自分の玄関' : '玄関の清掃', locationOrAppliance: '玄関の清掃', userIntervalDays: 19, enabled: false };
+    await h.database.runAsync('UPDATE chore_definitions SET name=?,enabled=0,definition_json=? WHERE id=?', previous.name, JSON.stringify(previous), id);
+    await h.database.runAsync('UPDATE household_settings SET built_in_chore_catalog_version=6');
+    await h.database.runAsync("INSERT INTO chore_completions(id,household_id,chore_id,completed_at,outcome) VALUES(?,?,?,?,'completed')", 'entrance-history', house, id, '2026-11-06T01:00:00Z');
+    const contents = () => Object.fromEntries(h.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all()
+      .map(({ name }) => [name, h.connection.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all()]));
+    const before = contents(); h.writes.length = 0;
+    await h.database.withTransactionAsync(() => installPersonalCatalogInside(h.database, house, repository.LOCAL_MEMBER_ID));
+    const after = contents(); const saved = JSON.parse(h.connection.prepare('SELECT definition_json FROM chore_definitions WHERE id=?').get(id).definition_json);
+    assert.deepEqual(saved, customized ? previous : { ...previous, name: '玄関の床掃除', locationOrAppliance: '玄関の床掃除' });
+    for (const table of Object.keys(before).filter(name => !['chore_definitions', 'household_settings', 'personal_planning_input_revision'].includes(name))) assert.deepEqual(after[table], before[table], table);
+    assert.equal(after.personal_planning_input_revision[0].revision, before.personal_planning_input_revision[0].revision + (customized ? 1 : 2), 'normal metadata invalidation still occurs for the changed rows');
+    assert.equal(h.writes.some(sql => /DELETE FROM personal_adaptive_inputs/u.test(typeof sql === 'string' ? sql : JSON.stringify(sql))), false);
+    assert.equal(after.chore_definitions.length, before.chore_definitions.length);
+    const stable = contents(); await h.database.withTransactionAsync(() => installPersonalCatalogInside(h.database, house, repository.LOCAL_MEMBER_ID)); assert.deepEqual(contents(), stable);
+  }
+});
+
 test('private initialization adopts only the new catalogue with eight defaults and subsequent opens never rewrite its definitions', async t => {
   const h = createDatabase(); t.after(() => h.connection.close());
   await repository.initializeLocalDatabase(h.database);

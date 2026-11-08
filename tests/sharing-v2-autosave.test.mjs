@@ -15,15 +15,15 @@ async function setup() {
 }
 function deferred() { let resolve; const promise = new Promise((done) => { resolve = done; }); return { promise, resolve }; }
 
-test('retained shared setting drafts keep their selected effective date across failure and editor recreation', async t => {
+test('retained shared setting drafts keep their start date and automatic effective date across failure and editor recreation', async t => {
   const d = await setup(); t.after(() => d.connection.close()); let fail = true; const dates = [];
   const save = async (edits, from) => { dates.push(from); if (fail) throw new Error('save failed'); return d.actions.patchChoreConfigurationFields('floor', edits, from); };
   const input = { configuration: await d.configuration(), effectiveFrom: '2026-10-27', save, onSaved: async () => {} };
-  const editor = createV2ConfigurationEditorState(input); editor.changeEffectiveFrom('2026-12-01'); editor.changeNumber('intervalDays', '17');
+  const editor = createV2ConfigurationEditorState(input); editor.changeAnchor('2026-12-01'); editor.changeNumber('intervalDays', '17');
   assert.equal(await editor.flush(), false);
   editor.updateInput({ ...input, effectiveFrom: '2026-10-28' });
   assert.equal(editor.getSnapshot().effectiveFrom, '2026-12-01');
-  editor.changeEffectiveFrom('2026-10-28'); assert.equal(editor.getSnapshot().effectiveFrom, '2026-12-01');
+  assert.equal(editor.getSnapshot().draft.anchorDate, '2026-12-01');
   fail = false; assert.equal(await editor.flush(), true); assert.deepEqual(dates, ['2026-12-01', '2026-12-01']);
   const facts = await (await import('../src/platform/storage/sharing-ledger.ts')).loadSharedFacts(d.database, groupId);
   assert.equal(facts.find(row => row.operation.entityType === 'chorePolicy' && row.operation.payload.configuration?.intervalDays === 17).operation.payload.configuration.effectiveFrom, '2026-12-01');
@@ -97,47 +97,50 @@ test('v2 editor remote refresh preserves dirty text, updates untouched fields an
   } finally { d.connection.close(); }
 });
 
-test('v2 editor removal remains blocked throughout an in-flight save and repeated back requests cannot navigate twice', async () => {
+test('v2 editor navigates immediately during an in-flight save and repeated back requests cannot navigate twice', async () => {
   const d = await setup();
   try {
     const entered = deferred(); const release = deferred(); let navigated = 0;
     const editor = createV2ConfigurationEditorState({ configuration: await d.configuration(), effectiveFrom: '2026-10-27',
       save: async (edits, from) => { entered.resolve(); await release.promise; return d.actions.patchChoreConfigurationFields('floor', edits, from); }, onSaved: async () => {} });
     editor.changeNumber('intervalDays', '17'); const leaving = editor.navigateAfterSave(() => { navigated++; }); await entered.promise;
-    assert.equal(editor.getSnapshot().leaving, true); assert.equal(editor.getSnapshot().removalAllowed, false);
-    assert.equal(await editor.navigateAfterSave(() => { navigated++; }), false); release.resolve(); assert.equal(await leaving, true);
+    assert.equal(editor.getSnapshot().leaving, true); assert.equal(editor.getSnapshot().removalAllowed, true); assert.equal(navigated, 1);
+    assert.equal(await editor.navigateAfterSave(() => { navigated++; }), false); release.resolve(); assert.equal(await leaving, true); await editor.flush();
     assert.equal(navigated, 1); assert.equal(editor.getSnapshot().removalAllowed, true); assert.equal((await d.configuration()).intervalDays, 17);
     editor.resumeNavigation(); assert.equal(editor.getSnapshot().removalAllowed, false); assert.equal(editor.getSnapshot().leaving, false);
   } finally { d.connection.close(); }
 });
 
-test('v2 editor failed or invalid drafts prevent leaving and remain retryable instead of being lost on navigation', async () => {
+test('v2 editor discards failed or invalid drafts on departure without changing saved cadence', async () => {
   const d = await setup();
   try {
-    let fail = true; let navigated = 0;
-    const editor = createV2ConfigurationEditorState({ configuration: await d.configuration(), effectiveFrom: '2026-10-27',
-      save: (edits, from) => { if (fail) throw new Error('SQLite full'); return d.actions.patchChoreConfigurationFields('floor', edits, from); }, onSaved: async () => {} });
-    editor.changeNumber('intervalDays', '17'); assert.equal(await editor.navigateAfterSave(() => { navigated++; }), false);
-    assert.equal(editor.getSnapshot().draft.intervalDays, '17'); assert.equal(editor.getSnapshot().removalAllowed, false); assert.equal(navigated, 0);
-    fail = false; assert.equal(await editor.navigateAfterSave(() => { navigated++; }), true); assert.equal(navigated, 1);
+    let fail = true; let navigated = 0; let attempts = 0;
+    const initial = await d.configuration();
+    const editor = createV2ConfigurationEditorState({ configuration: initial, effectiveFrom: '2026-10-27',
+      save: (edits, from) => { attempts++; if (fail) throw new Error('SQLite full'); return d.actions.patchChoreConfigurationFields('floor', edits, from); }, onSaved: async () => {} });
+    editor.changeNumber('intervalDays', '17'); assert.equal(await editor.flush(), false);
+    assert.equal(await editor.navigateAfterSave(() => { navigated++; }), true);
+    assert.equal(editor.getSnapshot().draft.intervalDays, String(initial.intervalDays)); assert.equal(navigated, 1);
+    assert.equal(editor.hasDraft(), false); fail = false; await editor.flush(); assert.equal(attempts, 1);
     editor.resumeNavigation(); editor.changeNumber('intervalDays', '');
-    assert.equal(await editor.navigateAfterSave(() => { navigated++; }), false); assert.equal(navigated, 1);
-    assert.equal(editor.getSnapshot().draft.intervalDays, ''); editor.discard();
+    assert.equal(await editor.navigateAfterSave(() => { navigated++; }), true); assert.equal(navigated, 2);
+    assert.equal(editor.getSnapshot().draft.intervalDays, String(initial.intervalDays));
+    assert.equal((await d.configuration()).intervalDays, initial.intervalDays);
   } finally { d.connection.close(); }
 });
 
-test('audit100 a shared anchor between the default and chosen effective date is saved instead of silently discarded',async t=>{
+test('audit100 a future shared start date automatically selects its effective date instead of silently discarding it',async t=>{
  const d=await setup();t.after(()=>d.connection.close());const input={configuration:await d.configuration(),effectiveFrom:'2026-10-27',save:(edits,from)=>d.actions.patchChoreConfigurationFields('floor',edits,from),onSaved:async()=>{}};
- const editor=createV2ConfigurationEditorState(input);editor.changeEffectiveFrom('2026-11-10');editor.changeAnchor('2026-11-05');
+ const editor=createV2ConfigurationEditorState(input);editor.changeAnchor('2026-11-05');
  assert.equal(editor.getSnapshot().anchorError,null);assert.equal(await editor.flush(),true);
  const facts=await(await import('../src/platform/storage/sharing-ledger.ts')).loadSharedFacts(d.database,groupId);
  assert.ok(facts.some(row=>row.operation.payload.configuration?.anchorDate==='2026-11-05'));assert.equal(editor.hasDraft(),false);
 });
 
-test('audit100 untouched shared effective dates follow a new received boundary while explicitly selected dates and pending edits remain fixed',async t=>{
+test('audit100 automatic shared effective dates follow a received boundary while pending start dates remain fixed',async t=>{
  const d=await setup();t.after(()=>d.connection.close());const input={configuration:await d.configuration(),effectiveFrom:'2026-10-27',save:(edits,from)=>d.actions.patchChoreConfigurationFields('floor',edits,from),onSaved:async()=>{}};
  const editor=createV2ConfigurationEditorState(input);editor.updateInput({...input,configuration:{...input.configuration,ruleVersion:2,effectiveFrom:'2026-11-05'},effectiveFrom:'2026-11-05'});
- assert.equal(editor.getSnapshot().effectiveFrom,'2026-11-05');editor.changeEffectiveFrom('2026-12-01');
+ assert.equal(editor.getSnapshot().effectiveFrom,'2026-11-05');editor.changeAnchor('2026-12-01');
  editor.updateInput({...input,configuration:{...input.configuration,ruleVersion:3,effectiveFrom:'2026-11-10'},effectiveFrom:'2026-11-10'});
- assert.equal(editor.getSnapshot().effectiveFrom,'2026-12-01');
+ assert.equal(editor.getSnapshot().effectiveFrom,'2026-12-01');editor.discard();
 });

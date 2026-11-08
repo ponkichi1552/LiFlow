@@ -1,3 +1,4 @@
+import { createDraftNavigation } from '../../settings/draft-navigation.ts';
 import { createAutosaveQueue } from '../../settings/autosave-queue.ts';
 import type { V2ReminderStore, V2ReminderControl } from '../../../platform/storage/sharing-v2-reminders';
 import { validateV2ReminderPreferences } from '../v2/reminders.ts';
@@ -13,18 +14,22 @@ function normalize(value: ReminderDraft) {
 export function createV2ReminderEditor(input: { store: V2ReminderStore; saved: V2ReminderControl; delayMs?: number; afterSave?: () => void }) {
   let base = validateV2ReminderPreferences(input.saved.preferences); let raw = draft(base); let revision = input.saved.revision;
   let afterSave = input.afterSave;
-  let touched = false; let removalAllowed = false; let leaving = false; let navigationBlocked = false;
+  let touched = false;
   const listeners = new Set<() => void>();
   const queue = createAutosaveQueue<{ value: V2ReminderPreferences }>({ delayMs: input.delayMs, save: async ({ value }) => {
     const accepted = await input.store.save(revision, value); revision = accepted.revision; base = validateV2ReminderPreferences(accepted.preferences);
+    if (!touched) raw = draft(base);
     try { afterSave?.(); } catch { /* Delivery failure cannot undo an accepted preference write. */ }
   } });
   function snapshot() {
     let value: V2ReminderPreferences | null = null; let validation: string | null = null;
     try { value = normalize(raw); } catch (error) { validation = error instanceof Error ? error.message : '通知時刻を確認してください。'; }
-    return { raw, revision, removalAllowed, navigationBlocked, status: queue.getSnapshot(), validation: touched ? validation : null,
+    return { raw, revision, ...navigation.state(), status: queue.getSnapshot(), validation: touched ? validation : null,
       hasDraft: touched && (validation !== null || JSON.stringify(value) !== JSON.stringify(base)) };
   }
+  const discardDraft = () => { queue.remove('value'); raw = draft(base); touched = false; publish(); };
+  const navigation = createDraftNavigation({ flush: () => flush(), discard: discardDraft,
+    invalid: () => view.validation !== null, failed: () => queue.getSnapshot().phase === 'error', publish: () => publish() });
   let view = snapshot();
   function publish() { view = snapshot(); for (const listener of listeners) try { listener(); } catch { /* Keep saves independent of rendering. */ } }
   queue.subscribe(publish);
@@ -33,16 +38,11 @@ export function createV2ReminderEditor(input: { store: V2ReminderStore; saved: V
     setAfterSave(callback: () => void) { afterSave = callback; },
     getSnapshot: () => view, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     change(patch: Partial<ReminderDraft>) {
-      if (leaving || removalAllowed) return; raw = { ...raw, ...patch }; touched = true;
+      if (navigation.state().removalAllowed) return; raw = { ...raw, ...patch }; touched = true;
       try { queue.enqueue({ value: normalize(raw) }); } catch { queue.remove('value'); } publish();
     },
     flush,
-    resumeNavigation() { removalAllowed = false; leaving = false; publish(); },
-    discardDraft() { queue.remove('value'); raw = draft(base); touched = false; navigationBlocked = false; publish(); },
-    async navigateAfterSave(navigate: () => void) {
-      if (leaving) return false; leaving = true;
-      if (!await flush()) { leaving = false; navigationBlocked = true; publish(); return false; }
-      removalAllowed = true; publish(); navigate(); return true;
-    },
+    resumeNavigation: navigation.resumeNavigation, discardDraft, navigateAfterSave: navigation.navigateAfterSave,
+
   };
 }

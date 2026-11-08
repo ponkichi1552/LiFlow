@@ -1,11 +1,12 @@
 import type { ChoreDefinition } from '../../domain/chores/types';
 import { commonChoreLinks } from '../planner/common-chore-links.ts';
 import { canonicalBuiltInChoreName } from '../../domain/chores/catalog.ts';
+import { hasChoreGuide } from './guide-content.ts';
 
 /** Presentation only: keep both original definitions and their independent settings intact. */
 export function unifiedGuideCatalog(shared: readonly ChoreDefinition[], personal: readonly ChoreDefinition[]) {
-  const sharedRows = shared.filter(chore => !chore.archived);
-  const personalRows = personal.filter(chore => !chore.archived);
+  const sharedRows = shared.filter(chore => !chore.archived && hasChoreGuide(chore));
+  const personalRows = personal.filter(chore => !chore.archived && hasChoreGuide(chore));
   // Identity matching includes inactive definitions; activation still governs which source is shown.
   const links = commonChoreLinks(personalRows, sharedRows.map(chore => ({ ...chore, enabled: true })));
   const activeShared = new Set(sharedRows.filter(chore => chore.enabled).map(chore => chore.id));

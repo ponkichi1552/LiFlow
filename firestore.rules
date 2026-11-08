@@ -465,6 +465,33 @@ service cloud.firestore {
           && (resource.data.cacheHead == null || resource.data.cacheHead.authorityDigest != resource.data.authorityDigest
             || request.resource.data.cacheHead.sequence > resource.data.cacheHead.sequence)
           && privateCalendarCacheWritten(userId, request.resource.data.cacheHead)));
+      match /connectionCodes/{codeId} {
+        function validCode(c) {
+          return validProofDigest(codeId) && c.keys().hasOnly(['schemaVersion', 'issuerDeviceId', 'authorityDigest', 'grantJson', 'expiresAt',
+            'state', 'requestJson', 'proof', 'claimedAt', 'createdAt', 'updatedAt']) && c.schemaVersion == 1 && safeId(c.issuerDeviceId)
+            && validProofDigest(c.authorityDigest) && c.grantJson is string && c.grantJson.size() <= 4000
+            && c.expiresAt is timestamp && c.createdAt is timestamp && c.updatedAt == request.time
+            && ((c.state == 'open' && c.requestJson == null && c.proof == null && c.claimedAt == null)
+              || (c.state in ['claimed', 'complete'] && c.requestJson is string && c.requestJson.size() <= 4000
+                && validProofDigest(c.proof) && c.claimedAt is timestamp && c.claimedAt < c.expiresAt));
+        }
+        allow get: if privateCalendarOwner(userId);
+        allow list: if false;
+        allow create: if privateCalendarOwner(userId) && validCode(request.resource.data) && request.resource.data.state == 'open'
+          && request.resource.data.issuerDeviceId in privateCalendar(userId).deviceIds
+          && request.resource.data.authorityDigest == privateCalendar(userId).authorityDigest
+          && request.resource.data.expiresAt > request.time && request.resource.data.expiresAt <= request.time + duration.value(11, 'm')
+          && request.resource.data.createdAt == request.time;
+        allow update: if privateCalendarOwner(userId) && validCode(request.resource.data)
+          && ((resource.data.state == 'open' && request.resource.data.state == 'claimed' && resource.data.expiresAt > request.time
+            && resource.data.issuerDeviceId in privateCalendar(userId).deviceIds && resource.data.authorityDigest == privateCalendar(userId).authorityDigest
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'requestJson', 'proof', 'claimedAt', 'updatedAt'])
+            && request.resource.data.claimedAt == request.time)
+          || (resource.data.state == 'claimed' && request.resource.data.state == 'complete'
+            && resource.data.issuerDeviceId in privateCalendar(userId).deviceIds
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['state', 'updatedAt'])));
+        allow delete: if privateCalendarOwner(userId) && resource.data.expiresAt <= request.time;
+      }
       match /authorities/{revision} {
         allow read: if privateCalendarOwner(userId);
         allow create: if privateCalendarOwner(userId)

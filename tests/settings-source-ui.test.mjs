@@ -14,9 +14,10 @@ import { initializeSharedProjection } from '../src/platform/storage/sharing-proj
 import { createSharedPlannerRepository } from '../src/platform/storage/shared-planner-repository.ts';
 import { registerSharedRepositoryAdapter } from '../src/platform/storage/shared-repository-adapter.ts';
 import { chorePolicyFromPreset } from '../src/features/sharing/v2/model.ts';
-import { CHORE_CATALOG } from '../src/domain/chores/catalog.ts';
+import { createPersonalChoreDefinitions } from '../src/domain/chores/personal-catalog.ts';
 const repository = await import('../src/platform/storage/repository.ts');
 const { createGroupChoreSettingsSource } = await import('../src/features/settings/group-chore-settings-source.ts');
+const { choreDisplayCategory } = await import('../src/domain/chores/chore-presentation.ts');
 const today = new Date().toISOString().slice(0, 10);
 async function legacyFixture() {
   // The public settings source now supports v2 only; original personal SQLite remains separate.
@@ -43,7 +44,7 @@ const definitions = h => h.connection.prepare("SELECT 1 FROM sqlite_master WHERE
   : h.connection.prepare('SELECT id,enabled,definition_json FROM chore_definitions ORDER BY id').all();
 const allNodes = tree => tree.flatMap(node => typeof node === 'string' ? [] : [node, ...allNodes(node.children ?? [])]);
 
-test('group management settings never load or offer the personal settings source', async () => {
+test('group management settings never load the full personal planner or offer its personal audience', async () => {
   const f = await legacyFixture();
   try {
     const screen = screenHarness('src/features/settings/chore-settings-sources.tsx', { exportName: 'ChoreSettingsSources', props: { first: 'group', group: f.record },
@@ -51,12 +52,12 @@ test('group management settings never load or offer the personal settings source
         '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { userId: f.scope.userId, group: f.record } } },
         './use-group-chore-settings': { useGroupChoreSettings: () => ({ ...f.source.getSnapshot(), source: f.source }) },
       } });
-    assert.equal(screen.text().includes('個人用'), false); screen.button(`${f.source.getSnapshot().snapshot.model.plan.chores[0].category}の見出しを展開`);
+    assert.equal(screen.text().includes('個人用'), false); screen.button(`${choreDisplayCategory(f.source.getSnapshot().snapshot.model.plan.chores[0])}の家事を開く`);
   } finally { await f.close(); }
 });
 
 for (const platform of ['ios', 'android']) {
-  test(`${platform} chore settings order personal first in Settings and group first in Group with independent saves`, async () => {
+  test(`${platform} chore settings select one personal or group source with independent saves`, async () => {
     const f = await legacyFixture(); const navigation = [];
     try {
       const context = { userId: f.scope.userId, active: f.workspace, group: f.record };
@@ -66,18 +67,18 @@ for (const platform of ['ios', 'android']) {
             '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: context } },
             './use-group-chore-settings': { useGroupChoreSettings: () => ({ ...f.source.getSnapshot(), source: f.source }) },
           } });
-        const personalPosition = screen.text().indexOf('個人用'), groupPosition = screen.text().indexOf('グループ用 · 家族');
-        assert.equal(personalPosition < groupPosition, first === 'personal'); assert.equal(screen.text().includes('left-group'), false);
+        const selected = screen.nodes().find(node => node.props.accessibilityLabel === `${first === 'personal' ? '個人用' : 'グループ用'}の家事設定`);
+        assert.equal(selected.props.accessibilityState.selected, true); assert.equal(screen.text().includes('left-group'), false);
         const chores = first === 'personal' ? f.personalData.snapshot.chores : f.source.getSnapshot().snapshot.model.plan.chores;
         const chore = chores.find(row => !row.archived);
-        await screen.press(`${chore.category}の見出しを展開`);
-        const toggle = screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === `${chore.name}を有効にする`);
+        await screen.press(`${choreDisplayCategory(chore)}の家事を開く`);
+        const toggle = screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === `${chore.name}を有効にする`);
         const privateBefore = definitions(f.personal), sharedBefore = definitions(f.shared), outbox = await listSharingOutbox(f.shared.database, f.scope.groupId);
         const queuedBefore = f.shared.connection.prepare('SELECT COUNT(*) AS n FROM sharing_outbox').get().n;
-        toggle.props.onValueChange(!toggle.props.value);
+        toggle.props.onPress();
         const deadline = Date.now() + 2000;
         do { await new Promise(resolve => setTimeout(resolve, 5)); await screen.flush(); }
-        while (Date.now() < deadline && screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === `${chore.name}を有効にする`)?.props.disabled);
+        while (Date.now() < deadline && screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === `${chore.name}を有効にする`)?.props.disabled);
         if (first === 'personal') {
           assert.notDeepEqual(definitions(f.personal), privateBefore); assert.deepEqual(definitions(f.shared), sharedBefore);
           assert.deepEqual(await listSharingOutbox(f.shared.database, f.scope.groupId), outbox);
@@ -89,7 +90,7 @@ for (const platform of ['ios', 'android']) {
         await screen.press(`${chore.name}の個別設定`);
         assert.deepEqual(navigation.at(-1), ['push', first === 'personal'
           ? { pathname: '/settings/chore/[id]', params: { id: chore.id, source: 'personal' } }
-          : { pathname: '/sharing/chore-settings/[id]', params: { id: chore.id, groupId: f.scope.groupId } }]);
+          : { pathname: '/settings/chore/[id]', params: { id: chore.id, source: 'shared', groupId: f.scope.groupId } }]);
       }
     } finally { await f.close(); }
   });
@@ -109,7 +110,7 @@ for (const platform of ['ios', 'android']) {
       const value = f.source.getSnapshot().snapshot;
       assert.equal(value.protocol, 2); assert.equal(value.record.displayName, '家族');
       assert.equal(value.workspace.adapter, undefined);
-      assert.equal(value.model.plan.chores.length, CHORE_CATALOG.length);
+      assert.equal(value.model.plan.chores.length, createPersonalChoreDefinitions('expected-catalog').length);
 
     } finally { await f.close(); }
   });
@@ -138,9 +139,9 @@ for (const platform of ['ios', 'android']) {
     const rows = [{ id: 'a', name: '家事', category: '分類', enabled: false }];
     const list = screenHarness('src/features/settings/chore-toggle-list.tsx', { exportName: 'ChoreToggleList', platform, props: {
       chores: rows, expanded: new Set(['分類']), setExpanded() {}, onOpen() {}, save: async () => {} } });
-    assert.equal(list.nodes().filter(node => node.type === 'Switch').length, 1);
+    assert.equal(list.nodes().filter(node => node.props.accessibilityRole === 'checkbox').length, 1);
     for (const label of ['分類の家事をすべて無効にする', '分類の有効な家事を個別に選ぶ', '分類の家事をすべて有効にする']) assert.throws(() => list.button(label), /missing button/u);
-    assert.ok(list.text().includes('0/1')); list.button('分類の見出しを折りたたむ');
+    assert.ok(list.text().includes('0/1')); list.button('分類の家事を閉じる');
   });
 
   test(`${platform} category rail scrubs by measured position clamps the ends and preserves accessible taps`, async () => {
@@ -200,14 +201,14 @@ test('group editor targets the current membership while keeping personal setting
   } finally { await f.close(); }
 });
 
-test('settings history links preserve the explicit personal or current group source', async () => {
+test('settings omit history navigation while history remains scoped to the selected group', async () => {
   const f = await legacyFixture(); const navigation = []; let historyProps;
   try {
     const personal = f.personalData.snapshot.chores[0], shared = f.source.getSnapshot().snapshot.model.plan.chores[0];
     const own = screenHarness('src/app/settings/chore/[id].tsx', { params: { id: personal.id, source: 'personal' },
       personalData: () => f.personalData, navigate: (...args) => navigation.push(args) });
-    await own.press('この家事の履歴を見る');
-    assert.deepEqual(navigation.at(-1), ['push', { pathname: '/history', params: { choreId: personal.id, source: 'personal' } }]);
+    assert.throws(() => own.button('この家事の履歴を見る'), /missing button/u);
+    assert.equal(navigation.length, 0);
     f.personalData.snapshot = { ...f.personalData.snapshot, chores: [{ ...personal, id: shared.id, name: '別領域にある同じIDの個人家事' }] };
     const history = screenHarness('src/app/sharing/history.tsx', { params: { groupId: f.scope.groupId, choreId: shared.id }, personalData: () => f.personalData,
       snapshot: () => f.personalData.snapshot, mocks: {
@@ -234,21 +235,26 @@ test('removed memberships never mount a group editor and v2 members cannot use a
     './use-group-chore-settings': { useGroupChoreSettings: () => ({ snapshot: { protocol: 2, model: { viewerUserId: 'member', adminUserId: 'owner',
       plan: { chores: [{ id: 'chore', name: '共有の家事', category: '分類', enabled: true }] } } }, source: { saveEnabled: async () => { throw new Error('must not save'); } } }) },
   } });
-  await member.press('分類の見出しを展開');
-  assert.equal(member.nodes().filter(node => node.type === 'Switch').length, 1);
-  assert.equal(member.nodes().find(node => node.type === 'Switch').props.disabled, true);
+  await member.press('分類の家事を開く');
+  assert.equal(member.nodes().filter(node => node.props.accessibilityRole === 'checkbox').length, 1);
+  assert.equal(member.nodes().find(node => node.props.accessibilityRole === 'checkbox').props.disabled, true);
   await member.press('共有の家事の個別設定'); assert.equal(navigation.at(-1)[1].params.groupId, 'family');
 });
 
 test('fixed audience stays outside the virtual document and a thousand chores keep bounded rail marks', () => {
   const chores = Array.from({ length: 1000 }, (_, i) => ({ id: `c-${i}`, name: `家事${i}`, category: `分類${Math.floor(i / 200)}` }));
-  const book = screenHarness('src/components/chore-book.tsx', { exportName: 'ChoreBook', props: { chores, selectedId: 'c-850', title: '家事ごとの設定',
+  const book = screenHarness('src/components/chore-book.tsx', { exportName: 'ChoreBook', layoutEffect: callback => callback(), props: { chores, selectedId: 'c-850', title: '家事ごとの設定',
     titleAccessory: '個人用', renderChore: chore => chore.name, onBack() {} } });
   assert.equal(book.text().split('個人用').length - 1, 1);
   const list = book.nodes().find(node => node.type === 'FlatList'); assert.equal(allNodes([list]).some(node => node.children?.includes('個人用')), false);
   assert.ok(book.nodes().filter(node => node.props.accessibilityRole === 'button').length <= 90);
-  assert.ok(book.button('分類4の先頭へ移動')); assert.equal(list.props.data[0].id, 'c-850');
-  list.props.onScrollBeginDrag(); book.render(); assert.equal(book.nodes().find(node => node.type === 'FlatList').props.data.length, 1000);
+  assert.equal(list.props.data[0].id, 'c-850');
+  list.props.onTouchStart({ nativeEvent: { pageY: 500 } }); list.props.onTouchMove({ nativeEvent: { pageY: 470 } }); book.render();
+  assert.equal(book.nodes().find(node => node.type === 'FlatList').props.data[0].id, 'c-850', 'forward scrolling must not prepend unrelated chapters');
+  list.props.onTouchStart({ nativeEvent: { pageY: 500 } }); list.props.onTouchMove({ nativeEvent: { pageY: 530 } }); book.render();
+  const previous = book.nodes().find(node => node.type === 'FlatList');
+  assert.ok(previous.props.data.length > list.props.data.length && previous.props.data.length < chores.length);
+  assert.ok(previous.props.maintainVisibleContentPosition);
 });
 
 test('v2 Settings keeps both chore audiences and routes waste management to its supported group screen', async () => {
@@ -266,10 +272,21 @@ test('v2 Settings keeps both chore audiences and routes waste management to its 
         './use-group-chore-settings': { useGroupChoreSettings: () => ({ ...f.source.getSnapshot(), source: f.source }) },
       } });
     effects.splice(0).forEach(callback => callback()); for (let n = 0; n < 8; n++) await screen.flush();
-    await screen.press('共有グループを管理'); assert.deepEqual(navigation.at(-1), ['push', { pathname: '/sharing/group/[groupId]', params: { groupId: f.record.groupId } }]);
-    assert.ok(screen.text().indexOf('個人用') < screen.text().indexOf('グループ用 · 家族'));
+    await screen.press('共有グループ'); assert.deepEqual(navigation.at(-1), ['push', { pathname: '/sharing/group/[groupId]', params: { groupId: f.record.groupId } }]);
+    assert.ok(screen.button('家事ごとの設定'));
+    const sources = screenHarness('src/app/settings.tsx', { params: { section: 'chores' }, database: f.personal.database, snapshot: () => f.personalData.snapshot,
+      personalData: () => f.personalData, mocks: {
+        '@/platform/sharing/private-calendar-secrets': { nativePrivatePlannerPreferences: () => ({ read: async () => null }) },
+        '@/platform/sharing/workspaces': { sharingSessionUser: async () => ({ uid: f.scope.userId }), hasOtherGoogleWorkspaceConnections: async () => false },
+        '@/features/google-sync/background-task': {},
+        '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: false }) },
+        '@/platform/google-tasks/google-sign-in-gateway': {},
+        '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { active: { protocol: 2 }, userId: f.scope.userId, group: f.record } } },
+        './use-group-chore-settings': { useGroupChoreSettings: () => ({ ...f.source.getSnapshot(), source: f.source }) },
+      } });
+    assert.equal(sources.nodes().find(node => node.props.accessibilityLabel === '個人用の家事設定').props.accessibilityState.selected, true); sources.unmount();
     assert.equal(screen.nodes().some(node => node.props.accessibilityLabel === '家事ごとの設定を開く'), false);
-    await screen.press('ゴミ収集日を管理'); assert.deepEqual(navigation.at(-1), ['push', '/group-v2/waste']);
+    await screen.press('ゴミ収集日'); assert.deepEqual(navigation.at(-1), ['push', '/group-v2/waste']);
   } finally { await f.close(); }
 });
 
@@ -285,7 +302,7 @@ for (const platform of ['ios', 'android']) test(`${platform} early settings adds
     restDays: [], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 2 }, allowedBands: [], dayOverrides: [] };
   const store = { read: async () => saved, readLocalProjection: async () => null,
     save: async (expected, value) => { assert.equal(expected, saved.revision); saved = { ...saved, ...value, revision: expected + 1 }; return saved; } };
-  const screen = screenHarness('src/app/settings.tsx', { platform, database: h.database, snapshot: () => metadata,
+  const screen = screenHarness('src/app/settings.tsx', { params: { section: 'rhythm' }, platform, database: h.database, snapshot: () => metadata,
     effect: callback => effects.push(callback), effectDependencies: true, mocks: {
       '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { userId: 'owner', active: null } } },
       '@/platform/sharing/workspaces': { sharingSessionUser: async () => ({ uid: 'owner' }), hasOtherGoogleWorkspaceConnections: async () => false },
@@ -295,9 +312,9 @@ for (const platform of ['ios', 'android']) test(`${platform} early settings adds
       '@/platform/sharing/private-calendar-secrets': { nativePrivatePlannerPreferences: () => store },
     } });
   const settle = async () => { for (let i = 0; i < 12; i++) { cleanups.push(...effects.splice(0).map(effect => effect())); await screen.flush(); } };
-  await settle(); await screen.press('生活リズムを開く'); await settle();
-  await screen.press('日付を追加'); await settle();
-  const field = screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '1日の家事時間上限');
+  await settle();
+  await screen.press('2026/11/04 平日'); await settle();
+  const field = screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '平日の家事時間上限');
   assert.ok(field); field.props.onBlur(); await settle();
   assert.equal(saved.timeZone, 'Pacific/Honolulu');
   assert.deepEqual(saved.dayOverrides, [{ date: '2026-11-04', holiday: true }]);
@@ -310,7 +327,7 @@ for (const platform of ['ios', 'android']) test(`${platform} ordinary settings w
     for (const uid of ['owner', 'another-account']) {
       const effects = []; let finish; let reads = 0;
       const authentication = new Promise(resolve => { finish = resolve; });
-      const screen = screenHarness('src/app/settings.tsx', { platform, database: h.database, snapshot: () => snapshot,
+      const screen = screenHarness('src/app/settings.tsx', { params: { section: 'rhythm' }, platform, database: h.database, snapshot: () => snapshot,
         effect: callback => effects.push(callback), effectDependencies: true, mocks: {
           '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { userId: 'owner', active: null } } },
           '@/platform/sharing/workspaces': { sharingSessionUser: () => authentication, hasOtherGoogleWorkspaceConnections: async () => false },
@@ -326,7 +343,7 @@ for (const platform of ['ios', 'android']) test(`${platform} ordinary settings w
       assert.ok(screen.button('前の画面に戻る'), 'loading must retain a way back');
       finish({ uid }); for (let n = 0; n < 8; n++) await screen.flush();
       assert.equal(reads, uid === 'owner' ? 1 : 0);
-      assert.equal(screen.text().includes('家事ごとの設定'), uid === 'owner');
+      assert.equal(screen.text().includes('頻度'), uid === 'owner');
       assert.equal(screen.text().includes('本人の生活リズムを読み込めませんでした'), uid !== 'owner');
       assert.ok(screen.button('前の画面に戻る'), 'failed authentication must retain a way back');
       cleanup.forEach(dispose => dispose?.()); screen.unmount();
@@ -365,4 +382,22 @@ test('chore rows show their execution period without an early badge or source-sp
     assert.ok(screen.nodes().some(node => /10月28日.*11月1日/u.test(node.props.accessibilityHint ?? '')), 'spoken hints retain the full date range');
     assert.equal(Boolean(screen.nodes().find(node => node.props.accessibilityRole === 'button').props.accessibilityHint?.includes('推奨日前')), false);
   }
+});
+
+for (const platform of ['ios','android']) test(`${platform} settings audience uses one route with opposite document directions and rechecks membership before switching`, async () => {
+ const context={userId:'owner',group:{userId:'owner',groupId:'family',status:'active'}};const navigation=[];
+ const props={chore:{id:'floor',name:'床掃除',category:'居室'},groupName:undefined,navigate:async(next,valid)=>{if(valid())next();}};
+ const screen=screenHarness('src/components/settings-audience.tsx',{exportName:'SettingsAudience',platform,props,layoutEffect:fn=>fn(),navigate:(...args)=>navigation.push(args),mocks:{'../contexts/workspace-context':{WorkspaceContext:{_currentValue:context}}}});
+ const select=async label=>{const node=screen.nodes().find(n=>n.props.accessibilityRole==='radio'&&n.props.accessibilityLabel===label);assert.ok(node);assert.equal(node.props.disabled,false);await node.props.onPress();await screen.flush();};
+ await select('グループ用の家事設定');assert.deepEqual(navigation.at(-1),['replace',{pathname:'/settings/chore/[id]',params:{id:'floor',matchName:'床掃除',matchCategory:'居室',source:'shared',documentTransition:'right',groupId:'family'}}]);
+ props.groupName='家族';screen.render();await select('個人用の家事設定');
+ assert.deepEqual(navigation.at(-1),['replace',{pathname:'/settings/chore/[id]',params:{id:'floor',matchName:'床掃除',matchCategory:'居室',source:'personal',documentTransition:'left'}}]);
+ props.groupName=undefined;props.navigate=async(next,valid)=>{context.userId='different';if(valid())next();};screen.render();
+ await select('グループ用の家事設定');assert.equal(navigation.length,2);screen.unmount();
+});
+
+test('the shared audience on the common chore route never loads the personal editor',()=>{
+ let groups=0;
+ const screen=screenHarness('src/app/settings/chore/[id].tsx',{params:{id:'floor',source:'shared',groupId:'family'},personalData:()=>{throw new Error('private planner must not load');},mocks:{'@/features/settings/group-chore-settings-screen':{GroupChoreSettingsScreen:()=>{groups++;return 'shared-editor';}}}});
+ assert.equal(groups,1);assert.equal(screen.text(),'shared-editor');screen.unmount();
 });

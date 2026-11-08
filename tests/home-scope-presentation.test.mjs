@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { privateFixture } from './helpers/sharing-v2-private-fixture.mjs';
 const repository = await import('../src/platform/storage/repository.ts');
+const { choreDisplayCategory } = await import('../src/domain/chores/chore-presentation.ts');
 
 for (const platform of ['ios', 'android']) {
   test(`${platform} unjoined home and settings omit personal scope labels while joined settings retain the distinction`, async () => {
@@ -20,7 +21,7 @@ for (const platform of ['ios', 'android']) {
         personalData: () => ({ database: f.database, snapshot, refresh: async () => {}, readError: () => null }),
         mocks: { '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: null } } } });
       assert.equal(sources.text().includes('個人用'), false); assert.equal(sources.text().includes('グループ'), false);
-      assert.ok(sources.text().includes(f.chore.category));
+      assert.ok(sources.text().includes(choreDisplayCategory(f.chore)));
     } finally { f.connection.close(); }
   });
   test(`${platform} a private chore with a guide callback navigates without toggling inline details or completing the chore`, async () => {

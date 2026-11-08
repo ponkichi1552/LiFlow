@@ -23,14 +23,15 @@ export function LocationAttribution() {
   return <CreditLink title="地域データ：Geolonia · CC BY 4.0" url="https://geolonia.github.io/japanese-addresses/" />;
 }
 
-export function DataCredits() {
+export function DataCredits({ inline = false }: { inline?: boolean } = {}) {
   const [expanded, setExpanded] = useState(false);
-  return <AccordionSection title="クレジット" expanded={expanded} onToggle={() => setExpanded((value) => !value)}>
+  const content = <>
     <WeatherAttribution />
     <LocationAttribution />
     <CreditLink title="データライセンス：CC BY 4.0" url="https://creativecommons.org/licenses/by/4.0/" />
     <Text style={styles.body}>MET Norwayの予報を時間帯ごとに集計します。Geolonia住所データを自治体ごとに集約し、地域の代表座標を丸めています。</Text>
-  </AccordionSection>;
+  </>;
+  return inline ? <View style={{ gap: 12 }}>{content}</View> : <AccordionSection title="クレジット" expanded={expanded} onToggle={() => setExpanded((value) => !value)}>{content}</AccordionSection>;
 }
 
 const styles = StyleSheet.create({

@@ -104,6 +104,18 @@ function runtime(h, device, publish) {
     readOriginals: () => loadSharedFacts(device.database, groupId), assertAccess: async () => {}, now: h.now,
     makeId: () => `automatic-${device.options.userId}-${++id}` });
 }
+test('compacting real completion history preserves the oldest unfinished backlog instead of resurrecting previously consumed automatic slots', async t => {
+  const h = await prepared(t); const range = { from: '2026-11-01', through: '2026-11-14', asOfDate: '2026-11-01' };
+  const selected = plan => plan.occurrences.flatMap(round => round.subjects.filter(subject => subject.automaticBacklog === 'pending').map(subject => [round.choreId, round.anchorDate, subject.subjectUserId]));
+  const before = buildV2CommonPlan(await h.owner.repository.readState(), range);
+  assert.deepEqual(selected(before), [['floor', '2026-09-08', null]]);
+  const ids = new Set(h.base.operations.map(op => op.operationId)); const checkpoint = await readSharingCheckpoint(h.member.database, groupId);
+  await applySharingSnapshot(h.member.database, groupId, { base: h.base, facts: h.originals.filter(fact => ids.has(fact.operation.operationId)),
+    snapshotId: 'backlog-retention', throughSequence: h.head() }, h.member.repository.project, checkpoint.cursor, h.now(), h.member.repository.evidenceForServerReceipts([...h.receipts.values()]));
+  const state = await h.member.repository.readState(); assert.equal(state.replica.operations.some(op => op.operationId === 'expired-work-report'), false);
+  const after = buildV2CommonPlan(state, range); assert.deepEqual(selected(after), selected(before));
+  assert.equal(after.history.length, 0, 'no phantom completion is manufactured from the retained anchor');
+});
 test('monthly cleanup proposes and independently approves across isolated member databases before publishing a compacted snapshot', async t => {
   const h = await prepared(t, '2026-09-01', false); let published = 0;
   const owner = runtime(h, h.owner, async (_budget, transform) => {

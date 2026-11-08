@@ -53,6 +53,8 @@ export interface ChoreDefinition {
   /** Explicit new-catalog identity; no legacy-name matching or migration heuristic. */
   personalRecipeId?: string;
   personalSchedulingKind?: 'personal' | 'seasonal';
+  /** A private user-created chore has its own defaults, separate from bundled recipes. */
+  customPersonal?: true;
   cadenceLabelsByMode?: Record<FrequencyMode, string>;
   /** Absent means the adaptive period supplies its default width. */
   userWindowRadiusDays?: number;

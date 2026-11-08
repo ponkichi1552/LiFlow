@@ -15,15 +15,18 @@ export interface GroupPolicy {
   showCompletionStatus: boolean;
   completionPushEnabled: boolean;
 }
-export type ChorePreset = 'common' | 'eachMember' | 'assigned' | 'personal';
+export type ChorePreset = 'common' | 'eachMember' | 'assigned' | 'rotation' | 'personal';
+export interface SharedChoreRotation { sequence: string[]; advanceOn: 'completion' | 'occurrence' }
 export interface SharedChorePolicy {
   completion: 'one' | 'perMember';
-  assignment: { mode: 'open' | 'all' | 'selected'; memberIds: string[] };
+  assignment: { mode: 'open' | 'all' | 'selected'; memberIds: string[]; rotation?: SharedChoreRotation };
 }
 export interface SharedChoreConfiguration {
   policy: SharedChorePolicy;
   anchorDate: LocalDate;
   intervalDays: number;
+  /** Calendar-month recurrence, preserving the anchor's day and clamping short months to their last day. */
+  monthly?: boolean;
   windowBeforeDays: number;
   windowAfterDays: number;
   ruleVersion: number;
@@ -33,6 +36,8 @@ export interface SharedChoreConfiguration {
   targetMemberIds?: string[];
   /** An unrelated cadence edit retains original assignment facts and their causal conflicts. */
   assignmentSourceVersion?: number;
+  /** Cadence-only edits retain this epoch so a rotation does not restart. */
+  rotationSourceVersion?: number;
 }
 export type DateTarget = { precision: 'date'; date: LocalDate }
   | { precision: 'instant'; at: string }
@@ -107,9 +112,14 @@ export function changeGroupKind(policy: GroupPolicy, kind: GroupKind): GroupPoli
   createGroupPolicy(kind);
   return { ...policy, kind };
 }
-export function chorePolicyFromPreset(preset: Exclude<ChorePreset, 'personal'>, selected: readonly string[] = []): SharedChorePolicy {
+export function chorePolicyFromPreset(preset: Exclude<ChorePreset, 'personal'>, selected: readonly string[] = [], advanceOn: SharedChoreRotation['advanceOn'] = 'completion'): SharedChorePolicy {
   if (preset === 'eachMember') return { completion: 'perMember', assignment: { mode: 'all', memberIds: [] } };
   if (preset === 'common') return { completion: 'one', assignment: { mode: 'open', memberIds: [] } };
+  if (preset === 'rotation') {
+    if (selected.length < 2 || selected.length > 64 || new Set(selected).size < 2 || new Set(selected).size > 16) throw new Error('交代するメンバーを2人以上選んでください。');
+    selected.forEach(assertSharedIdentifier);
+    return { completion: 'one', assignment: { mode: 'selected', memberIds: [...new Set(selected)].sort(), rotation: { sequence: [...selected], advanceOn } } };
+  }
   if (preset !== 'assigned' || selected.length === 0 || new Set(selected).size !== selected.length) throw new Error('担当者を選んでください。');
   selected.forEach(assertSharedIdentifier);
   return { completion: 'one', assignment: { mode: 'selected', memberIds: [...selected].sort() } };

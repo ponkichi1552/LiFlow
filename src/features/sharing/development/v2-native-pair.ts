@@ -147,7 +147,7 @@ export async function createV2NativePair(input: {
     async prepareChores() {
       check(); if (scope.role !== 'owner') throw new Error('検査用所有者の操作です。'); const value = await open();
       const ui = await this.ui(); const model = await ui.readModel({ management: true }); const today = model.plan.range.asOfDate;
-      for (const [id, preset] of [['builtin-chore-08', 'common'], ['builtin-chore-07', 'eachMember']] as const) {
+      for (const [id, preset] of [['liflow-catalog-6.001', 'common'], ['liflow-catalog-6.004', 'eachMember']] as const) {
         const chore = model.plan.chores.find(row => row.id === `${scope.groupId}.${id}`); if (!chore) throw new Error('検査用の家事が見つかりません。');
         if (!model.configurations.find(row => row.choreId === chore.id)?.configuration) await value.controller.actions.configureChore(chore.id, {
           policy: chorePolicyFromPreset(preset), anchorDate: today, intervalDays: 7, windowBeforeDays: 2, windowAfterDays: 2, effectiveFrom: today, active: true });
@@ -188,7 +188,7 @@ export async function createV2NativePair(input: {
     async damageTransportForRecovery() {
       check(); await synchronize(); const value = await open();
       const id = `${scope.groupId}.damaged-${scope.role}`;
-      await value.repository.commit([{ operationId: id, entityType: 'chore', entityId: `${scope.groupId}.builtin-chore-08`, operationType: 'patch',
+      await value.repository.commit([{ operationId: id, entityType: 'chore', entityId: `${scope.groupId}.liflow-catalog-6.001`, operationType: 'patch',
         payload: { name: '復旧検査用・床の家事' } }]);
       const fact = (await loadSharedFacts(input.database, scope.groupId)).find(item => item.operation.operationId === id);
       if (!fact) throw new Error('検査用の元の署名を確認できません。');

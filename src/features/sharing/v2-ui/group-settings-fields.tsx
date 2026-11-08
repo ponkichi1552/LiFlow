@@ -45,13 +45,12 @@ export function V2GroupSettingsFields({ autosave, model, admin }: {
             onPress={() => autosave.resolve(field, candidate.value)} /> : null}
         </View>)}
       </View>;
-      if (field === 'name') return admin ? <V2TextField key={field} label="グループ名" value={String(autosave.raw.name ?? '')}
+      if (field === 'name') return admin ? <V2TextField filled key={field} label="グループ名" value={String(autosave.raw.name ?? '')}
         editable={!autosave.leaving} onChangeText={raw => autosave.change('name', raw)} />
         : <Text key={field} style={styles.body}>グループ名：{String(source.kind === 'value' ? source.value : '未設定')}</Text>;
-      return <AccordionSection key={field} title="地域" expanded={regionOpen} onToggle={() => setRegionOpen(value => !value)}>
-        <Text style={styles.body}>保存済みの地域：{source.kind === 'value' ? String(source.value) : '未設定'}</Text>
-        <Text style={styles.caption}>既存の指定・申請は元の地域を維持します。新しく指定する日時から変更後の地域を使います。</Text>
-        {admin ? <><V2TextField label="地域を検索" value={search} onChangeText={setSearch} editable={!autosave.leaving} placeholder="東京、ニューヨーク、Asia/Tokyo" />
+      return <AccordionSection listRow key={field} title="地域" summary={(aliases[current] ?? current) || '未設定'} expanded={regionOpen} onToggle={() => setRegionOpen(value => !value)}>
+        <Text style={styles.caption}>変更後に指定する日時から適用します。</Text>
+        {admin ? <><V2TextField filled label="地域を検索" value={search} onChangeText={setSearch} editable={!autosave.leaving} placeholder="東京、ニューヨーク、Asia/Tokyo" />
           <V2Choices label="グループの地域" choices={found.choices} value={current} disabled={autosave.leaving} onChange={value => autosave.change('timeZone', value)} />
           {!found.total ? <Text style={styles.caption}>一致する地域がありません。都市名または地域IDで検索してください。</Text>
             : found.total > 8 ? <Text style={styles.caption}>{found.total}件のうち8件を表示しています。入力を追加すると絞り込めます。</Text> : null}

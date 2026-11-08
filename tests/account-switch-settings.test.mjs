@@ -30,28 +30,28 @@ for (const platform of ['ios', 'android']) {
     try {
       await repository.initializeLocalDatabase(database.database);
       const snapshot = await repository.loadPlannerSnapshot(database.database, '2026-11-05');
-      const events = []; let saved = false; let capacityDraft;
+      const events = []; let saved = false;
       const context = { _currentValue: { userId: 'owner', active: { drain: async () => events.push('drain') }, refreshSharing: async () => events.push('refresh') } };
       const screen = screenHarness('src/app/settings.tsx', { exportName: 'SettingsContent', platform,
         transformSource: (path, source) => path.endsWith('/src/app/settings.tsx') ? source + '\nexport { SettingsContent };' : source,
         layoutEffect: callback => callback(),
-        props: { snapshot, database: database.database, refresh: async () => {} }, mocks: {
+        props: { section: 'account', snapshot, database: database.database, refresh: async () => {} }, mocks: {
           '@/contexts/workspace-context': { WorkspaceContext: context }, '../../contexts/workspace-context': { WorkspaceContext: context },
           '../google-sync/account-switch': { changeGoogleAccount: async () => events.push('select') },
+          '../../platform/sharing/auth': { signOutSharing: async () => events.push('logout') },
           '@/features/google-sync/background-task': {},
           '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: false }) },
           '@/platform/google-tasks/google-sign-in-gateway': { hasGoogleTasksSession: async () => false },
           '@/features/settings/use-settings-autosave': { useSettingsAutosave: () => ({ status: { phase: 'idle' }, flush: async () => { events.push('save'); return saved; } }) },
-          '@/features/settings/personal-capacity-settings': { PersonalCapacitySettings: props => { capacityDraft = props.onDraftChange; return props.children(null); } },
+          '@/features/settings/personal-capacity-settings': { PersonalCapacitySettings: () => assert.fail('the account page must not mount unrelated rhythm inputs') },
         } });
-      assert.equal(screen.nodes().some(node => node.props.accessibilityLabel === 'Googleアカウントを変更'), false);
-      await screen.press('アカウントと端末を開く'); await screen.press('Googleアカウントを変更');
+      assert.ok(screen.button('Googleアカウントを変更'));
+      await screen.press('Googleアカウントを変更');
       assert.deepEqual(events, ['save']); assert.match(screen.text(), /設定の保存/);
-      assert.equal(screen.button('生活リズムを閉じる').props.accessibilityState.expanded, true);
-      saved = true; capacityDraft(true); await screen.flush(); events.length = 0;
-      await screen.press('Googleアカウントを変更'); assert.deepEqual(events, ['save']);
-      capacityDraft(false); await screen.flush(); events.length = 0;
+      saved = true; await screen.flush(); events.length = 0;
       await screen.press('Googleアカウントを変更'); assert.deepEqual(events, ['save', 'drain', 'select', 'refresh']);
+      events.length = 0;
+      await screen.press('ログアウト'); assert.deepEqual(events, ['save', 'drain', 'logout', 'refresh']);
     } finally { database.connection.close(); }
   });
   test(`${platform} account selection saves local settings then drains writes without a logout or group change`, async () => {

@@ -1,3 +1,4 @@
+import { createDraftNavigation } from '../../settings/draft-navigation.ts';
 import { canonicalJson, causallyPrecedes } from '../operations.ts';
 import type { JsonValue } from '../operations';
 import type { V2EditableField, V2FieldEdit, V2FieldSaveResult } from '../v2/field-edit';
@@ -21,8 +22,9 @@ export function createV2FieldEditorState(initial: V2FieldEditorInput) {
   let input = initial; let codecs = { ...initial.codecs }; let known = { ...initial.fields }; let token = 0; let refreshError: string | null = null;
   let raw = Object.fromEntries(Object.entries(known).map(([field, current]) => [field, initial.codecs[field].format(value(current))]));
   const bases = new Map(Object.entries(known).map(([field, current]) => [field, ids(current)])); const dirty = new Map<string, number>();
+  const discardedFields = new Set<string>();
   const ownAcknowledgements = new Map<string, V2EditableField>();
-  let errors: Record<string, string> = {}; let leaving = false; let removalAllowed = false; const listeners = new Set<() => void>();
+  let errors: Record<string, string> = {}; const listeners = new Set<() => void>();
   type Batch = Record<string, { value: JsonValue; token: number; resolveOperationIds?: readonly string[] }>;
   const queue = createAutosaveQueue<Batch>({ delayMs: initial.delayMs, save: async (batch) => {
     const edits = Object.entries(batch).map(([field, change]): V2FieldEdit => ({ field, value: change.value, basisOperationIds: bases.get(field)!,
@@ -34,6 +36,7 @@ export function createV2FieldEditorState(initial: V2FieldEditorInput) {
       bases.set(field, ids(acknowledged));
       ownAcknowledgements.set(field, acknowledged);
       if (covers(acknowledged, known[field])) known = { ...known, [field]: acknowledged };
+      if (discardedFields.delete(field) && !dirty.has(field)) raw = { ...raw, [field]: codecs[field].format(value(known[field])) };
       if (dirty.get(field) === change.token) {
         dirty.delete(field);
         // Keep the user's raw newline/spacing after their own save; show a genuinely newer remote value instead.
@@ -44,7 +47,16 @@ export function createV2FieldEditorState(initial: V2FieldEditorInput) {
     try { await input.onSaved(); } catch { refreshError = '端末に保存済みです。表示を更新するため、もう一度開いてください。'; }
     publish();
   } });
-  function state() { return { fields: known, raw, errors, status: queue.getSnapshot(), refreshError, leaving, removalAllowed, hasDraft: dirty.size > 0 }; }
+  function discard(field?: string) {
+    for (const key of field ? [field] : Object.keys(known)) {
+      if (!known[key]) continue; discardedFields.add(key); dirty.delete(key); bases.set(key, ids(known[key])); queue.remove(key);
+      raw = { ...raw, [key]: codecs[key].format(value(known[key])) }; const next = { ...errors }; delete next[key]; errors = next;
+    }
+    publish();
+  }
+  const navigation = createDraftNavigation({ flush: () => flush(), discard,
+    invalid: () => Object.keys(errors).length > 0, failed: () => queue.getSnapshot().phase === 'error', publish: () => publish() });
+  function state() { return { fields: known, raw, errors, status: queue.getSnapshot(), refreshError, ...navigation.state(), hasDraft: dirty.size > 0 }; }
   let snapshot = state();
   function publish() {
     const next = state();
@@ -59,7 +71,7 @@ export function createV2FieldEditorState(initial: V2FieldEditorInput) {
       const own = ownAcknowledgements.get(field);
       bases.set(field, ids(own && same(value(own), value(known[field])) && covers(own, displayed) ? own : displayed));
     }
-    raw = { ...raw, [field]: nextRaw }; dirty.set(field, ++token);
+    discardedFields.delete(field); raw = { ...raw, [field]: nextRaw }; dirty.set(field, ++token);
     const nextErrors = { ...errors }; delete nextErrors[field];
     try {
       const parsed = exact ? exact.value : codecs[field].parse(nextRaw); const currentToken = token;
@@ -102,20 +114,7 @@ export function createV2FieldEditorState(initial: V2FieldEditorInput) {
     resolve: (field: string, candidateValue: JsonValue, observedOperationIds: readonly string[]) => change(field,
       codecs[field].format(candidateValue), observedOperationIds, undefined, { value: candidateValue }),
     flush, hasDraft: () => dirty.size > 0, isDirty: (field: string) => dirty.has(field),
-    discard(field?: string) {
-      for (const key of field ? [field] : Object.keys(known)) {
-        if (!known[key]) continue; dirty.delete(key); bases.set(key, ids(known[key])); queue.remove(key);
-        raw = { ...raw, [key]: codecs[key].format(value(known[key])) }; const next = { ...errors }; delete next[key]; errors = next;
-      }
-      publish();
-    },
-    resumeNavigation() { leaving = false; removalAllowed = false; publish(); },
-    async navigateAfterSave(navigate: () => void): Promise<boolean> {
-      if (leaving) return false; leaving = true; publish();
-      if (!await flush()) { leaving = false; publish(); return false; }
-      removalAllowed = true; publish();
-      try { navigate(); return true; }
-      catch { leaving = false; removalAllowed = false; refreshError = '端末に保存済みです。もう一度画面を移動してください。'; publish(); return false; }
-    },
+    discard, resumeNavigation: navigation.resumeNavigation, navigateAfterSave: navigation.navigateAfterSave,
+
   };
 }

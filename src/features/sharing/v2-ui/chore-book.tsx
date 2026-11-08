@@ -15,6 +15,7 @@ import { setChoresEnabled } from '../../../platform/storage/repository';
 import type { V2MutationOutcome } from './mutation-outcome';
 import { GuideChapterActions } from '../../chores/guide-chapter-actions';
 import { router } from 'expo-router';
+import { v2CadenceLabel } from '../v2/cadence';
 
 export interface PersonalGuideSource { snapshot: PlannerSnapshot; database: SQLiteDatabase; refresh: () => Promise<unknown>; readError?: () => string | null }
 export function v2GuideChores(model: V2GroupScreenModel, personal?: PersonalGuideSource) {
@@ -45,7 +46,7 @@ export function V2ChoreBook({ model, personal, selectedId, source = 'shared', on
       const display = { ...chore, ...(isPersonal || !configuration ? {} : { userIntervalDays: configuration.intervalDays, requiresCycleSelection: false }) };
       const round = model.plan.occurrences.find(row => row.choreId === id && row.subjects.some(subject => subject.subjectUserId === null || subject.subjectUserId === model.viewerUserId));
       const subject = round?.subjects.find(row => row.subjectUserId === null || row.subjectUserId === model.viewerUserId);
-      return <View style={{ gap: 12 }}><ChoreGuide chore={display} mode={isPersonal ? personal!.snapshot.settings.frequencyMode : 'balanced'} cadenceLabel={isPersonal ? personal!.snapshot.personalCadences?.[id]?.label : undefined} procedureAction={<ChorePlanToggle name={chore.name} enabled={chore.enabled}
+      return <View style={{ gap: 12 }}><ChoreGuide chore={display} mode={isPersonal ? personal!.snapshot.settings.frequencyMode : 'balanced'} cadenceLabel={isPersonal ? personal!.snapshot.personalCadences?.[id]?.label : configuration?.monthly ? v2CadenceLabel(configuration) : undefined} procedureAction={<ChorePlanToggle name={chore.name} enabled={chore.enabled}
           readOnly={!isPersonal && model.viewerUserId !== model.adminUserId} requiresCycleSelection={isPersonal ? chore.requiresCycleSelection : !configuration}
           onConfigure={() => { if (isPersonal) router.push({ pathname: '/chores/[id]', params: { id, source: 'personal' } }); else onConfiguration(id); }}
           retryRead={async () => { if (isPersonal) { await personal!.refresh(); return !personal!.readError?.(); } return (await perform(async () => {})).refreshed; }} save={async enabled => {

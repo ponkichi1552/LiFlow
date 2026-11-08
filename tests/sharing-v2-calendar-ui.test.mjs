@@ -85,6 +85,33 @@ test('a pending shared completion undo keeps the clicked calendar day visible wh
   } finally { f.close(); }
 });
 
+test('a pending expired shared undo returns directly to its execution window without a temporary row on today', async () => {
+  const f = await setup('ios', '2026-10-24');
+  try {
+    const range = { from: '2026-10-01', through: '2026-10-31', asOfDate: '2026-10-27' };
+    const ref = { choreId: 'floor', anchorDate: '2026-10-24', ruleVersion: 1, subjectUserId: null };
+    await f.controller.actions.complete(ref);
+    const model = await f.controller.readModel(range);
+    const subject = model.plan.occurrences.find(round => round.anchorDate === ref.anchorDate).subjects[0];
+    const personal = buildV2PersonalPlan(model.plan, { viewerUserId: model.viewerUserId, now: now().getTime(),
+      settings: { frequencyMode: 'balanced', restDays: [], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 3 } } });
+    assert.equal(subject.executionWindowEnd, '2026-10-26');
+    const saved = JSON.stringify(model);
+    for (const source of [model, (() => {
+      const retained = structuredClone(model); retained.plan.history = [];
+      retained.plan.occurrences.find(round => round.anchorDate === ref.anchorDate).subjects[0].retainedCompletion = {
+        completedDate: range.asOfDate, recorderUserIds: [model.viewerUserId],
+      };
+      return retained;
+    })()]) {
+      const projection = v2CalendarProjection(source, personal, new Map([[`shared:${subject.id}`, false]]));
+      assert.equal(projection.byDate.get(range.asOfDate)?.some(row => row.id === subject.id) ?? false, false);
+      assert.equal(projection.byDate.get('2026-10-26')?.find(row => row.id === subject.id)?.completed, false);
+    }
+    assert.equal(JSON.stringify(model), saved);
+  } finally { f.close(); }
+});
+
 test('v2 calendar never applies the viewers private recommendation to another assigned member', async () => {
   const f = await setup();
   try {
@@ -173,10 +200,10 @@ for (const platform of ['ios', 'android']) {
       assert.notEqual(f.props.model.plan.sourceHash, before); assert.equal(f.props.model.plan.history.length, 1);
     } finally { f.close(); }
   });
-  test(`${platform} v2 calendar retains rounds beyond the home expiry cutoff and opens their real group identity`, async () => {
+  test(`${platform} v2 calendar retains the oldest pending round beyond five days and opens its real group identity`, async () => {
     const f = await setup(platform, '2026-10-12');
     try {
-      const round = f.props.model.plan.occurrences.find((entry) => entry.anchorDate === '2026-10-12'); assert.equal(round.subjects[0].showExpiredOnHome, false);
+      const round = f.props.model.plan.occurrences.find((entry) => entry.anchorDate === '2026-10-12'); assert.equal(round.subjects[0].showExpiredOnHome, true);
       await f.screen.press('床を掃除するの説明を開く'); assert.deepEqual(f.navigation, [[round.id, round.subjects[0].id, '2026-10-12']]);
       assert.equal(f.props.model.plan.history.length, 0);
     } finally { f.close(); }

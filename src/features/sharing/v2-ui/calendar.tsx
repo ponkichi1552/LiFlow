@@ -41,7 +41,7 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
     if (model.calendarLong) return model.calendarLong;
     const byChore = new Map<string, typeof model.plan.occurrences[number]>();
     for (const round of [...model.plan.occurrences].sort((a, b) => a.anchorDate.localeCompare(b.anchorDate))) {
-      if (round.configuration.intervalDays >= 90 && !byChore.has(round.choreId) && round.subjects.some(subject => subject.required && !subject.completed
+      if (!round.configuration.monthly && round.configuration.intervalDays >= 90 && !byChore.has(round.choreId) && round.subjects.some(subject => subject.required && !subject.completed
         && (subject.subjectUserId === null || subject.subjectUserId === model.viewerUserId) && subject.executionWindowEnd >= model.plan.range.asOfDate)) byChore.set(round.choreId, round);
     }
     return [...byChore.values()];
@@ -49,7 +49,7 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
   const projection = useMemo(() => {
     const ids = new Set(nextLong.map(round => round.id));
     const rounds = [...new Map([...model.plan.occurrences, ...nextLong].map(round => [round.id, round])).values()]
-      .filter(round => round.configuration.intervalDays < 90 || round.anchorDate < model.plan.range.asOfDate || round.completed || ids.has(round.id));
+      .filter(round => round.configuration.monthly || round.configuration.intervalDays < 90 || round.anchorDate < model.plan.range.asOfDate || round.completed || ids.has(round.id));
     const through = nextLong.flatMap(round => round.subjects.map(subject => subject.suggestedDate)).reduce((last, date) => date > last ? date : last, choreThrough);
     const rows = v2CalendarProjection({ ...model, plan: { ...model.plan, occurrences: rounds, range: { ...model.plan.range, through } } }, personal, completionValues, true,
       { from: model.plan.range.from < choreThrough ? model.plan.range.from : choreThrough, through });

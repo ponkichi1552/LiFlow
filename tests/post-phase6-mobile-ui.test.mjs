@@ -152,18 +152,18 @@ test('connected settings retain invalid drafts and failed saves after virtual ro
 test('individual chore switches reject double taps roll back failed writes and retain saved values across a failed reread', async () => {
   const h = createDatabase();
   try {
-    await repository.initializeLocalDatabase(h.database); const rows = (await repository.loadPlannerSnapshot(h.database, today)).chores.filter(row => !row.archived).slice(0, 2).map(row => ({ ...row, enabled: false, category: '検査' }));
+    await repository.initializeLocalDatabase(h.database); const rows = (await repository.loadPlannerSnapshot(h.database, today)).chores.filter(row => !row.archived).slice(0, 2).map(row => ({ ...row, id: `probe-${row.id}`, personalRecipeId: undefined, enabled: false, category: '検査' }));
     const held = deferred(); let writes = 0; let phase = 'reject'; let expanded = new Set(['検査']);
     const props = { chores: rows, expanded, setExpanded: fn => { expanded = fn(expanded); props.expanded = expanded; }, onOpen: () => {}, retryRead: async () => { props.chores = rows.map(row => ({ ...row, enabled: true })); return true; },
       save: async () => { writes++; if (phase === 'reject') { await held.promise; throw new Error('保存失敗'); } return { refreshed: false }; } };
     const screen = screenHarness('src/features/settings/chore-toggle-list.tsx', { exportName: 'ChoreToggleList', props });
-    await screen.press('検査の見出しを折りたたむ'); await screen.flush(); assert.equal(expanded.has('検査'), false);
-    await screen.press('検査の見出しを展開'); await screen.flush(); assert.equal(expanded.has('検査'), true);
-    const toggle = () => screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === `${rows[0].name}を有効にする`);
-    toggle().props.onValueChange(true); toggle().props.onValueChange(true); await screen.flush(); assert.equal(writes, 1); assert.equal(toggle().props.value, true);
-    held.resolve(); await screen.flush(); assert.equal(toggle().props.value, false); assert.ok(screen.text().includes('保存失敗'));
-    phase = 'readFailure'; toggle().props.onValueChange(true); await screen.flush(); assert.equal(toggle().props.value, true); assert.equal(toggle().props.disabled, true); assert.match(screen.text(), /保存済み/u);
-    await screen.press('家事の設定を再読込'); await screen.flush(); assert.equal(writes, 2); assert.equal(toggle().props.value, true); assert.equal(toggle().props.disabled, false);
+    await screen.press('検査の家事を閉じる'); await screen.flush(); assert.equal(expanded.has('検査'), false);
+    await screen.press('検査の家事を開く'); await screen.flush(); assert.equal(expanded.has('検査'), true);
+    const toggle = () => screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === `${rows[0].name}を有効にする`);
+    toggle().props.onPress(); toggle().props.onPress(); await screen.flush(); assert.equal(writes, 1); assert.equal(toggle().props.accessibilityState.checked, true);
+    held.resolve(); await screen.flush(); assert.equal(toggle().props.accessibilityState.checked, false); assert.ok(screen.text().includes('保存失敗'));
+    phase = 'readFailure'; toggle().props.onPress(); await screen.flush(); assert.equal(toggle().props.accessibilityState.checked, true); assert.equal(toggle().props.disabled, true); assert.match(screen.text(), /保存済み/u);
+    await screen.press('家事の設定を再読込'); await screen.flush(); assert.equal(writes, 2); assert.equal(toggle().props.accessibilityState.checked, true); assert.equal(toggle().props.disabled, false);
   } finally { h.connection.close(); }
 });
 
@@ -189,8 +189,8 @@ for (const platform of ['ios', 'android']) {
     const h = createDatabase();
     try {
       await repository.initializeLocalDatabase(h.database); const seed = (await repository.loadPlannerSnapshot(h.database, today)).chores[0];
-      const chores = Array.from({ length: 1000 }, (_, i) => ({ ...seed, id: `item-${i}`, category: `分類${Math.floor(i / 200)}` }));
-      const effects = []; const calls = []; let backs = 0;
+      const chores = Array.from({ length: 1000 }, (_, i) => ({ ...seed, id: `item-${i}`, name: `家事${i}`, personalRecipeId: undefined, category: `分類${Math.floor(i / 200)}` }));
+      const effects = []; let backs = 0;
       const screen = screenHarness('src/components/chore-book.tsx', { exportName: 'ChoreBook', platform, effect: callback => effects.push(callback), layoutEffect: callback => callback(),
         props: { chores, selectedId: 'item-850', title: '家事の説明', onBack: () => { backs++; }, renderChore: chore => chore.id } });
       let list = screen.nodes().find(node => node.type === 'FlatList'); assert.equal(list.props.data[0].id, 'item-850'); assert.ok(screen.text().includes('item-850')); assert.equal(list.props.initialScrollIndex, undefined);
@@ -198,14 +198,11 @@ for (const platform of ['ios', 'android']) {
         if (list.props[setting] !== undefined) assert.ok(list.props[setting] > 0 && list.props[setting] < chores.length,
           `${setting}: the native virtual list must not eagerly render the entire document`);
       }
-      list.props.ref.current = { scrollToIndex: args => calls.push(['index', args.index]), scrollToOffset: args => calls.push(['offset', args.offset]) };
       const cleanup = effects.splice(0).map(callback => callback()).filter(Boolean); await delay(5);
-      assert.equal(calls.length, 0, 'initial placement must not scroll through earlier chapters');
-      list.props.onScrollBeginDrag(); screen.render(); list = screen.nodes().find(node => node.type === 'FlatList'); assert.equal(list.props.data.length, 1000); assert.ok(list.props.maintainVisibleContentPosition);
-      await screen.press('分類4の先頭へ移動'); assert.deepEqual(calls.at(-1), ['index', 800]);
-      list.props.onScrollToIndexFailed({ averageItemLength: 500, index: 800 }); assert.deepEqual(calls.at(-1), ['offset', 400000]);
-      await delay(135); assert.deepEqual(calls.at(-1), ['index', 800]);
-      await screen.press('分類1の先頭へ移動'); assert.deepEqual(calls.at(-1), ['index', 200]);
+      list.props.onTouchStart({ nativeEvent: { pageY: 500 } }); list.props.onTouchMove({ nativeEvent: { pageY: 530 } }); screen.render();
+      list = screen.nodes().find(node => node.type === 'FlatList'); assert.ok(list.props.data.length > 150 && list.props.data.length < chores.length); assert.ok(list.props.maintainVisibleContentPosition);
+      await screen.press('家事849へ移動'); list = screen.nodes().find(node => node.type === 'FlatList'); assert.equal(list.props.data[0].id, 'item-849');
+      assert.equal(list.props.initialScrollIndex, undefined, 'jump directly to the chosen chapter rather than estimating other chapter heights');
       await screen.press('前の画面に戻る'); assert.equal(backs, 1);
       assert.equal(list.children.some(node => node.props?.accessibilityLabel === '前の画面に戻る'), false);
       cleanup.forEach(fn => fn());

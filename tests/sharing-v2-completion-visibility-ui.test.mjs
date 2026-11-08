@@ -31,11 +31,11 @@ for (const platform of ['ios', 'android']) test(`${platform} disabling completio
     assert.match(screen.text(), /表示する実施記録はありません/u); assert.equal(screen.nodes().find(node => node.type === 'FlatList').props.data.length, 0); leave();
     const admin = screenHarness('src/features/sharing/v2-ui/completion-history-card.tsx', { exportName: 'V2CompletionHistoryCard', platform,
       props: { model: await a.readModel(range), record, actions: a.actions, busy: false, run: async work => work() } });
-    assert.match(admin.text(), /実施済み/u);
+    assert.match(admin.text(), /床を掃除/u);
     assert.deepEqual((await b.readModel(range)).plan.history, [record]);
     await a.actions.patchGroupPolicy({ showCompletionStatus: true }); await receive(member, await loadSharedFacts(owner.database, groupId));
     const visible = screenHarness('src/features/sharing/v2-ui/completion-history-card.tsx', { exportName: 'V2CompletionHistoryCard', platform,
       props: { model: await b.readModel(range), record, actions: b.actions, busy: false, run: async work => work() } });
-    assert.match(visible.text(), /実施済み/u);
+    assert.match(visible.text(), /床を掃除/u);
   } finally { owner.connection.close(); member.connection.close(); }
 });

@@ -116,9 +116,11 @@ test('v2 history displays a restricted substitution as pending and an actual adm
       run: async (work) => { await work(); model = await controller.readModel(range); Object.assign(props, { model, record: model.plan.history[0] }); } };
     const screen = screenHarness('src/features/sharing/v2-ui/completion-history-card.tsx', { exportName: 'V2CompletionHistoryCard', props });
     assert.ok(screen.text().includes('代行の承認待ち')); assert.equal(screen.text().includes('実施済み'), false);
-    await screen.press('代行の実施を承認'); assert.ok(screen.text().includes('実施済み')); assert.equal(props.model.plan.occurrences[0].subjects[0].completed, true);
+    await screen.press('代行の実施を承認'); assert.equal(screen.text().includes('代行の承認待ち'), false); assert.equal(props.model.plan.occurrences[0].subjects[0].completed, true);
     assert.equal(props.record.performerUserId, 'member'); assert.equal(props.record.recorderUserId, 'member'); assert.deepEqual(props.record.originalAssigneeIds, ['owner']);
-    await screen.press('この完了を取り消す'); assert.ok(screen.text().includes('取消済み')); assert.equal(props.model.plan.history.length, 1);
+    assert.throws(() => screen.button('この完了を取り消す'), /missing button/);
+    await props.run(() => controller.actions.undo(props.record.operationId)); await screen.flush();
+    assert.equal(screen.text(), ''); assert.equal(props.model.plan.history.length, 1); assert.equal(props.record.active, false);
   } finally { owner.connection.close(); member.connection.close(); }
 });
 
@@ -131,7 +133,7 @@ test('v2 history does not offer another member a cancellation control for work r
     const { controller } = await form(member, 'android'); const model = await controller.readModel(range);
     const screen = screenHarness('src/features/sharing/v2-ui/completion-history-card.tsx', { exportName: 'V2CompletionHistoryCard', props: {
       model, record: model.plan.history[0], actions: controller.actions, busy: false, run: async (work) => work() } });
-    assert.ok(screen.text().includes('実施済み')); assert.throws(() => screen.button('この完了を取り消す'), /missing button/);
+    assert.ok(screen.text().includes('床を掃除')); assert.equal(model.plan.history[0].active, true); assert.throws(() => screen.button('この完了を取り消す'), /missing button/);
   } finally { owner.connection.close(); member.connection.close(); }
 });
 

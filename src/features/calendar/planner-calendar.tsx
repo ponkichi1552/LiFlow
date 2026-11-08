@@ -33,6 +33,7 @@ import { CalendarMonthPicker } from './month-picker';
 import { CalendarDateStrip } from './calendar-date-strip';
 import { calendarChoreDisplayThrough } from './chore-display-range';
 import { japaneseHolidayLabels } from './holiday-label';
+import { usePlannerBorderStyles } from '../../components/use-planner-border-styles';
 
 export interface CalendarDayInfo { loaded: boolean; partial?: boolean; pending?: number; total?: number; minutes?: number; accessibilityCountLabel?: string }
 export interface PlannerCalendarProps {
@@ -55,6 +56,7 @@ const minimumEventHeight = 26;
 
 /** One mobile calendar for personal and shared chores. Local events never enter a shared outbox. */
 export function PlannerCalendar(props: PlannerCalendarProps) {
+  const styles = usePlannerBorderStyles(baseStyles);
   const { today, timeZone, local, onMonth, monthLoaded, busy } = props;
   const choreThrough = calendarChoreDisplayThrough(today);
   const showChores = (day: LocalDate) => day <= choreThrough || props.extendedChoreDates?.has(day) === true;
@@ -347,13 +349,14 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
 }
 
 export function CalendarFooter({ onNavigate }: { onNavigate: NonNullable<PlannerCalendarProps['onNavigate']> }) {
+  const styles = usePlannerBorderStyles(baseStyles);
   const insets = useSafeAreaInsets();
   const tabs = [['home', 'ホーム', { ios: 'house', android: 'house' }], ['calendar', 'カレンダー', { ios: 'calendar', android: 'calendar_month' }],
     ['chores', '家事', { ios: 'checklist', android: 'checklist' }], ['appliances', '家電', { ios: 'robotic.vacuum', android: 'vacuum' }]] as const;
   return <View style={[styles.footer, { paddingBottom: Math.max(8, insets.bottom) }]}>{tabs.map(([tab, label, icon]) => <Pressable key={tab} accessibilityRole="button" accessibilityLabel={`${label}へ`} accessibilityState={{ selected: tab === 'calendar' }} onPress={() => onNavigate(tab)} style={styles.footerTab}>
     <SymbolView name={icon} size={21} tintColor={tab === 'calendar' ? palette.accent : palette.muted} /><Text style={[styles.footerLabel, tab === 'calendar' && { color: palette.accent }]}>{label}</Text></Pressable>)}</View>;
 }
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   root: { flex: 1, backgroundColor: palette.background }, header: { ...navigationHeaderMetrics, gap: 8, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
   headerBack: { alignSelf: 'center' },
   titleBlock: { flex: 1, minHeight: 44, justifyContent: 'center' }, title: { fontSize: 20, lineHeight: 28, fontWeight: '700', color: palette.ink },

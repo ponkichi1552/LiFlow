@@ -5,7 +5,7 @@ module.exports = {
   elevated: { light: '#F4F6F9', dark: '#252D39' },
   ink: { light: '#292C3B', dark: '#EDF2FA' },
   muted: { light: '#68718B', dark: '#A7B4C9' },
-  accent: { light: '#007D9F', dark: '#57D4EE' },
+  accent: { light: '#4AADE0', dark: '#57D4EE' },
   accentSoft: { light: '#E4F7FC', dark: '#193A47' },
   accentInk: { light: '#FFFFFF', dark: '#08252F' },
   border: { light: '#DFE4EF', dark: '#36404E' },

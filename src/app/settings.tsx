@@ -1,21 +1,17 @@
-import { Chevron } from '@/components/chevron';
 import { useSettingsAutosave } from '@/features/settings/use-settings-autosave';
 import { BackgroundSyncDiagnostics } from '@/features/google-sync/background-diagnostics';
 import { subscribeToGoogleAccountChanges } from '@/features/google-sync/account-change-events';
 import { FormTextInput as TextInput } from '../components/form-text-input';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SettingsSwitch as Switch } from '@/components/settings-switch';
+import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
+import { SettingsCheckbox } from '@/components/settings-checkbox';
 
-import { AppButton, BackButton, Card, ChoiceChip, Page, ScreenHeading, SectionHeading, palette, typography } from '@/components/planner-ui';
-import { GroupManagementLinks } from '@/features/sharing/group-management-links';
-import { ChoreSettingsSources } from '@/features/settings/chore-settings-sources';
-import { AccordionSection } from '@/components/accordion-section';
+import { AppButton, Card, Page, palette, typography } from '@/components/planner-ui';
+import { GeneralGroupNotifications } from '@/features/settings/general-group-notifications';
 import { BirthdaySettings } from '@/features/calendar/birthday-settings';
 import { PersonalGoogleCalendarSettings } from '@/features/calendar/personal-google-settings';
-import { useLocalCalendar } from '@/features/calendar/use-local-calendar';
 import { DataCredits } from '@/components/data-credits';
 import type { FrequencyMode } from '@/domain/chores/types';
 import type { Weekday } from '@/domain/shared/types';
@@ -51,28 +47,41 @@ import { getDeviceTimeZone } from '@/features/google-sync/calendar-availability'
 import { createOwnerRhythmSettings, type PlannerRhythm } from '@/features/settings/owner-rhythm-settings';
 import { subscriptionRequired } from '@/platform/subscription/runtime';
 import { PersonalCapacitySettings } from '@/features/settings/personal-capacity-settings';
+import { SettingsAction, SettingsStatus, SettingsLabel, SettingsPanel, SettingsSegments } from '@/components/settings-controls';
+import { plannerColorsForScheme } from '@/components/planner-theme';
 import { localDateFromDate } from '@/domain/scheduling/local-date';
 import type { PersonalPlacementPreferences } from '@/features/planner/personal-placement-preferences';
 import { sharedLocalDate } from '@/features/sharing/group-clock';
-import { GoogleAccountSwitch } from '@/features/settings/google-account-switch';
+import { AccountSignOut, GoogleAccountSwitch } from '@/features/settings/google-account-switch';
+import { AccountConnections } from '@/features/settings/account-connections';
+import { AccountOperationContext } from '@/features/settings/account-operation';
+import { AppearanceControls, SettingsHeader, SettingsList, SettingsNavigationScreen, SettingsRow, SettingsSection, settingsCategory, settingsTitles, type SettingsCategory } from '@/features/settings/settings-navigation';
 
-const modeOptions: { id: FrequencyMode; label: string; detail: string }[] = [
-  { id: 'frequent', label: 'こまめ', detail: '短めの周期' },
-  { id: 'balanced', label: '適度', detail: '標準の周期' },
-  { id: 'relaxed', label: '少なめ', detail: 'ゆったり' },
+const modeOptions: { id: FrequencyMode; label: string }[] = [
+  { id: 'frequent', label: 'こまめ' },
+  { id: 'balanced', label: '適度' },
+  { id: 'relaxed', label: '少なめ' },
 ];
 const weekdays: { id: Weekday; label: string }[] = [
   { id: 1, label: '月' }, { id: 2, label: '火' }, { id: 3, label: '水' }, { id: 4, label: '木' },
   { id: 5, label: '金' }, { id: 6, label: '土' }, { id: 7, label: '日' },
 ];
 const notificationGateway = new ExpoLocalNotificationGateway();
+const weatherSearchDrafts = new WeakMap<SQLiteDatabase, { base: string; query: string }>();
 
 export default function SettingsScreen() {
+  const params = useLocalSearchParams<{ section?: string }>();
+  const section = settingsCategory(params.section);
+  if (!section || section === 'chores' || section === 'appearance' || section === 'credits') return <SettingsNavigationScreen section={section} />;
+  return <SettingsDataScreen key={section} section={section} />;
+}
+
+function SettingsDataScreen({ section }: { section: SettingsCategory }) {
   const { snapshot, error: loadError, refresh, database } = usePersonalSettingsData();
   const workspace = useContext(WorkspaceContext);
-  if (!snapshot) return <PlannerLoadState title="設定" message="設定を読み込んでいます。" error={loadError} retry={refresh} onBack={() => router.back()} />;
-  if (workspace?.userId) return <AccountSettings key={workspace.userId} userId={workspace.userId} snapshot={snapshot} loadError={loadError} refresh={refresh} database={database} />;
-  return <SettingsContent snapshot={snapshot} loadError={loadError} refresh={refresh} database={database} />;
+  if (!snapshot) return <PlannerLoadState title={settingsTitles[section]} message="設定を読み込んでいます。" error={loadError} retry={refresh} onBack={() => router.back()} />;
+  if (workspace?.userId && section === 'rhythm') return <AccountSettings key={workspace.userId} section={section} userId={workspace.userId} snapshot={snapshot} loadError={loadError} refresh={refresh} database={database} />;
+  return <SettingsContent key={section === 'account' ? workspace?.userId ?? 'local' : section} section={section} snapshot={snapshot} loadError={loadError} refresh={refresh} database={database} />;
 }
 
 async function activateCurrentGoogleTaskAccount(database: SQLiteDatabase) {
@@ -80,7 +89,7 @@ async function activateCurrentGoogleTaskAccount(database: SQLiteDatabase) {
   return accounts.activateCurrentGoogleTaskAccount(database);
 }
 
-function AccountSettings(props: { userId: string; snapshot: PersonalSettingsView; loadError: string | null; refresh: () => Promise<void>; database: SQLiteDatabase }) {
+function AccountSettings(props: { section: SettingsCategory; userId: string; snapshot: PersonalSettingsView; loadError: string | null; refresh: () => Promise<void>; database: SQLiteDatabase }) {
   const initial = useRef(props.snapshot); const { database, userId } = props; const focused = useRef(false);
   const [source, setSource] = useState<{ value: ReturnType<typeof createOwnerRhythmSettings>; attempt: number } | null>(null);
   const [error, setError] = useState<string | null>(null); const [attempt, setAttempt] = useState(0);
@@ -109,7 +118,8 @@ function AccountSettings(props: { userId: string; snapshot: PersonalSettingsView
     rhythmRecoveryError={error} onDraftChange={onDraftChange} reloadRhythm={() => setAttempt(value => value + 1)} />;
 }
 
-function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, reloadRhythm, onDraftChange, rhythmRecoveryError, capacity }: {
+function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, database, saveRhythm, reloadRhythm, onDraftChange, rhythmRecoveryError, capacity }: {
+  section?: SettingsCategory;
   snapshot: PersonalSettingsView;
   loadError: string | null;
   refresh: (options?: { waitForWeather?: boolean }) => Promise<void>;
@@ -122,7 +132,7 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
 }) {
   const workspace = useContext(WorkspaceContext);
   const v2 = workspace?.active?.protocol === 2;
-  const calendar = useLocalCalendar(database);
+  const colors = plannerColorsForScheme(useColorScheme());
   const draftParts = useRef({ rhythm: false, capacity: false });
   const onCapacityDraftChange = useCallback((value: boolean) => {
     draftParts.current.capacity = value; onDraftChange?.(value || draftParts.current.rhythm);
@@ -138,16 +148,18 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
   const [normalLimit, setNormalLimit] = useState(snapshot.settings.normalDailyLimit);
   const plannerDraftBase = useRef({ frequencyMode: snapshot.settings.frequencyMode, restDays: snapshot.settings.restDays,
     heavyDailyLimit: snapshot.settings.heavyDailyLimit, normalDailyLimit: snapshot.settings.normalDailyLimit });
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
-  const showCapacityError = useCallback(() => setExpandedSections(value => new Set([...value, 'rhythm'])), []);
   const [weatherUpdating, setWeatherUpdating] = useState(false);
-  const [weatherRegion, setWeatherRegion] = useState(snapshot.settings.weatherLocation?.region ?? '');
+  const [weatherRegion, setWeatherRegion] = useState(() => {
+    const base = snapshot.settings.weatherLocation?.region ?? ''; const saved = weatherSearchDrafts.get(database);
+    return saved?.base === base ? saved.query : base;
+  });
   const [weatherSearchEnabled, setWeatherSearchEnabled] = useState(false);
   const [weatherCandidate, setWeatherCandidate] = useState<WeatherRegionCandidate | null>(null);
   const [weatherResultsDismissed, setWeatherResultsDismissed] = useState(false);
   const [weatherMessage, setWeatherMessage] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
   const [notificationUpdating, setNotificationUpdating] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
+  const [accountTasksOpened, setAccountTasksOpened] = useState(false);
   const [googleSyncState, setGoogleSyncState] = useState<GoogleSyncState | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleLoadStatus, setGoogleLoadStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -165,19 +177,6 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
   const [googleMessage, setGoogleMessage] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
   const weatherSuggestions = useMunicipalitySuggestions(weatherRegion, weatherSearchEnabled);
   const googleOAuthConfigured = getGoogleSyncOAuthConfig().configured;
-  const rhythmSummary = `${modeOptions.find(option => option.id === mode)?.label ?? ''}・${restDays.length === 7 ? '毎日休み' : restDays.length ? `${weekdays.filter(day => restDays.includes(day.id)).map(day => day.label).join('')}休み` : '休みなし'}`;
-  const birthdayCount = calendar.snapshot.events.filter(event => event.birthday).length;
-  const birthdaySummary = calendar.error ? '確認できません' : calendar.loading ? '確認中' : birthdayCount ? `${birthdayCount}件` : '未登録';
-  const googleNeedsReconnect = googleSyncState?.status === 'authRequired' || Boolean(googleSyncState?.enabled && !googleConnected);
-  const googleSummaryError = googleLoadStatus === 'error' || googleNeedsReconnect || ['error', 'retryPending'].includes(googleSyncState?.status ?? '');
-  const googleSummary = googleBusy ? '処理中'
-    : googleLoadStatus === 'loading' ? '確認中'
-      : googleLoadStatus === 'error' ? '確認できません'
-        : googleNeedsReconnect ? '再接続が必要'
-          : googleSyncState?.status === 'error' ? '同期失敗'
-            : googleSyncState?.status === 'retryPending' ? '再試行待ち'
-              : !googleOAuthConfigured ? '設定待ち'
-                : googleConnected ? 'Tasks接続済み' : '未接続';
 
   const googleReadGeneration = useRef(0);
   const cancelGoogleReads = useCallback(() => { googleReadGeneration.current++; }, []);
@@ -196,6 +195,7 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
   }, [database]);
 
   useEffect(() => {
+    if (section !== 'tasks' && !(section === 'account' && accountTasksOpened)) return;
     // SQLite state is external persisted state; hydrate the screen after mount.
     const read = () => {
       const pending = refreshGoogleState(); const generation = googleReadGeneration.current;
@@ -208,7 +208,7 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
     const stop = subscribeToGoogleAccountChanges(database, () => { setGoogleMessage(null); void read(); });
     void read();
     return () => { stop(); cancelGoogleReads(); };
-  }, [database, refreshGoogleState, cancelGoogleReads]);
+  }, [section, accountTasksOpened, database, refreshGoogleState, cancelGoogleReads]);
 
   const connectGoogle = async () => {
     if (googleBusy) return;
@@ -378,19 +378,6 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
     changeSettings({ restDays: current.includes(day) ? current.filter(value => value !== day) : [...current, day].sort() as Weekday[] });
   };
 
-  const toggleSection = (section: string) => {
-    if (section === 'weather' && expandedSections.has(section)) {
-      setWeatherSearchEnabled(false);
-      setWeatherResultsDismissed(true);
-    }
-    setExpandedSections((current) => {
-      const next = new Set(current);
-      if (next.has(section)) next.delete(section);
-      else next.add(section);
-      return next;
-    });
-  };
-
   type Rhythm = typeof plannerDraftBase.current;
   const currentDraft = useRef<Rhythm>({ frequencyMode: mode, restDays, heavyDailyLimit: heavyLimit, normalDailyLimit: normalLimit });
   const autosave = useSettingsAutosave<Partial<Rhythm>>(async patch => {
@@ -411,6 +398,12 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
     setMode(value.frequencyMode); setRestDays(value.restDays as Weekday[]); setHeavyLimit(value.heavyDailyLimit); setNormalLimit(value.normalDailyLimit);
     autosave.enqueue(patch);
   };
+  const accountActions = { database, disabled: googleBusy, acquire: () => {
+    if (!beginOperation('google')) return false; setGoogleBusy(true); return true;
+  }, release: () => { endOperation('google'); setGoogleBusy(false); }, onChanged: async () => { setGoogleMessage(null); },
+  prepare: async () => Boolean(await autosave.flush() && !draftParts.current.rhythm && !draftParts.current.capacity) };
+
+  const openAccountTasks = useCallback(() => setAccountTasksOpened(true), []);
 
   const selectWeatherRegion = async (candidate: WeatherRegionCandidate) => {
     if (weatherUpdating) return;
@@ -468,10 +461,72 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
     }
   };
 
-  return (
-    <Page header={<BackButton onPress={() => void autosave.navigate(() => router.back())} />}>
+  const calendarAvailabilityForm = !snapshot.sharing ? <View style={{ gap: 12 }}>
+            <View style={styles.notificationRow}>
+              <View style={styles.limitCopy}>
+                <Text style={section === 'account' ? typography.body : styles.featureTitle}>{section === 'account' ? '空き時間を家事配分に使う' : 'Googleカレンダーの予定を家事日調整に使う'}</Text>
+                <Text style={styles.hint}>{section === 'account' ? googleSyncState?.enabled ? 'メインカレンダーの空き時間を使います。' : 'Google Tasksに接続すると使えます。' : '予定のタイトルや内容は取得せず、予定が入っている時間帯だけを使って家事日を調整します。'}</Text>
+                {section !== 'account' ? <Text style={styles.hint}>現在はGoogleアカウントのメインカレンダーを対象にします。</Text> : null}
+              </View>
+              <SettingsCheckbox accessibilityLabel="Googleカレンダーの予定を家事日調整に使う"
+                value={Boolean(calendarAvailabilityState?.enabled)} disabled={googleBusy || !googleSyncState?.enabled}
+                onValueChange={(value) => void toggleCalendarAvailability(value)} />
+            </View>
+            {section !== 'account' || calendarAvailabilityState?.enabled || calendarAvailabilityState?.status === 'permissionRequired' || calendarAvailabilityState?.status === 'error' ? <FeatureStatus title="カレンダー連携"
+              status={calendarAvailabilityState?.status === 'permissionRequired' ? '追加の許可が必要'
+                : !calendarAvailabilityState?.enabled ? '無効'
+                  : calendarAvailabilityState.status === 'retryPending' ? '取得失敗・再試行待ち'
+                    : calendarAvailabilityState.status === 'syncing' ? '取得中'
+                      : calendarAvailabilityState.status === 'error' ? '取得エラー' : '有効'}
+              detail={`最終取得：${formatSyncTimestamp(calendarAvailabilityState?.lastSuccessfulSyncAt)}。36時間を超えた情報は使いません。`} /> : null}
+            {calendarAvailabilityState?.status === 'permissionRequired' ? (
+              <AppButton title="カレンダーの許可を確認" onPress={() => void toggleCalendarAvailability(true)} disabled={googleBusy || !googleSyncState?.enabled} />
+            ) : null}
+            {calendarAvailabilityState?.lastErrorCode === 'calendar_api_not_enabled' ? (
+              <Text style={styles.error}>Google Calendar APIが無効です。Google Cloudのプロジェクト設定で有効にしてください。</Text>
+            ) : null}
+            {calendarAvailabilityMessage ? <Text style={styles.hint}>{calendarAvailabilityMessage}</Text> : null}
 
-      <ScreenHeading title="設定" />
+  </View> : null;
+  const googleTasksForm = <View style={{ gap: 12 }}>
+        {googleLoadStatus === 'error' ? <Text accessibilityRole="alert" style={styles.error}>連携設定を読み込めませんでした。</Text> : null}
+        <FeatureStatus
+          title={section === 'account' ? v2 ? '個人の家事' : '家事の同期' : 'Google Tasks'}
+          status={googleLoadStatus === 'loading' ? '確認中…' : googleLoadStatus === 'error' ? '確認できません' : googleConnected ? '接続済み' : googleSyncState?.enabled ? '再認証が必要' : googleOAuthConfigured ? '未接続' : 'OAuth設定待ち'}
+          detail={section === 'account' ? '家事をGoogleのチェックリストへ同期します。' : '家事Plannerの名前と予定日をGoogle Tasksへ反映し、完了・完了の取り消しを双方へ同期します。取り消した家事は未完了に戻り、次回予定も再計算します。'}
+        />
+        {!googleOAuthConfigured ? (
+          <Text style={styles.hint}>{section === 'account' ? 'Google連携の準備ができていません。' : 'OAuth client IDが未設定です。docs/google-sync-setup.mdの手順後、ネイティブ開発ビルドを作り直してください。'}</Text>
+        ) : null}
+        {googleConnected || googleSyncState?.enabled ? (
+          <>
+            <View style={styles.notificationRow}>
+              <View style={styles.limitCopy}>
+                <Text style={styles.featureTitle}>自動同期</Text>
+                {section !== 'account' ? <Text style={styles.hint}>{googleSyncState?.enabled ? '通常は1日経過後、失敗時は約1時間経過後に再試行できます。アプリ復帰時やOSが許可したバックグラウンド実行で確認します。' : '自動同期は一時停止中です。'}</Text> : null}
+              </View>
+              <SettingsCheckbox accessibilityLabel="Google Tasksの自動同期" value={Boolean(googleSyncState?.enabled)} disabled={googleBusy} onValueChange={(value) => void toggleGoogleSync(value)} />
+            </View>
+            <FeatureStatus
+              title="同期状態"
+              status={googleSyncState?.enabled ? googleSyncStatusLabel(googleSyncState.status) : '一時停止'}
+              detail={`最終同期：${formatSyncTimestamp(googleSyncState?.lastSuccessfulSyncAt)}${section === 'account' ? '' : '。iOS・Androidのバックグラウンド実行はOSの判断で遅れることがあります。'}`}
+            />
+            {section !== 'account' ? calendarAvailabilityForm : null}
+            <View style={styles.googleActions}>
+              <SettingsAction compact={section === 'account'} placement={section === 'account' ? 'panel' : 'page'} title={googleBusy && section !== 'account' ? '同期中…' : googleSyncState?.status === 'authRequired' ? '再接続して同期' : '今すぐ同期'} onPress={() => void syncGoogleNow()} disabled={googleBusy || !googleSyncState?.enabled} />
+              <SettingsAction compact={section === 'account'} intent="destructive" title="接続解除" onPress={() => void disconnectGoogle()} disabled={googleBusy} />
+            </View>
+          </>
+        ) : (
+          <SettingsAction compact={section === 'account'} placement={section === 'account' ? 'panel' : 'page'} title={googleBusy && section !== 'account' ? '接続中…' : googleLoadStatus === 'loading' ? '接続状況を確認中…' : 'Googleと接続'} onPress={() => void connectGoogle()} disabled={googleBusy || googleLoadStatus !== 'ready' || !googleOAuthConfigured} />
+        )}
+        {section !== 'account' || googleConnected || googleSyncState?.enabled ? <Text style={styles.hint}>{section === 'account' ? '接続解除後もGoogleに追加済みの家事は残ります。' : '同期する家事名と予定日をGoogleへ送信します。接続解除時もGoogle Tasks上の既存家事は削除しません。Google Tasks権限は広い範囲に適用されるため、信頼できるGoogleアカウントで接続してください。'}</Text> : null}
+        {googleMessage ? <Text style={googleMessage.kind === 'success' ? styles.success : styles.error}>{googleMessage.text}</Text> : null}
+  </View>;
+
+  return (
+    <Page keyboardAware={section === 'general' || section === 'weather'} header={<SettingsHeader title={settingsTitles[section]} onBack={() => void autosave.navigate(() => router.back())} />}>
       {autosave.status.phase === 'error' ? <Card><Text accessibilityRole="alert" style={styles.error}>{autosave.status.error}</Text><AppButton title="保存を再試行" variant="quiet" compact onPress={() => void autosave.flush()} />
         {reloadRhythm ? <AppButton title="未保存の入力を破棄して設定を読み直す" variant="quiet" compact onPress={() => {
           for (const key of Object.keys(currentDraft.current) as (keyof typeof currentDraft.current)[]) autosave.remove(key);
@@ -482,19 +537,13 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
         <AppButton title="端末への反映を再試行" variant="quiet" compact onPress={() => reloadRhythm?.()} /></Card> : null}
 
 
-      <Card><SectionHeading title="家事ごとの設定" />
-        <ChoreSettingsSources first="personal" />
-      </Card>
-
-      <PersonalCapacitySettings load={loadCapacity} today={snapshot.today ?? localDateFromDate(new Date())} onDraftChange={onCapacityDraftChange} onBlocked={showCapacityError}>{capacityForm => <AccordionSection title="生活リズム" summary={rhythmSummary}
-        expanded={expandedSections.has('rhythm')} onToggle={() => toggleSection('rhythm')}>
-        <Text style={styles.label}>家事の頻度</Text>
-        <View style={styles.modeRow}>
-          {modeOptions.map((option) => (
-            <ChoiceChip key={option.id} label={`${option.label} · ${option.detail}`} selected={mode === option.id} onPress={() => changeSettings({ frequencyMode: option.id })} />
-          ))}
-        </View>
-        <Text style={styles.label}>休日</Text>
+      {section === 'rhythm' ? <PersonalCapacitySettings load={loadCapacity} today={snapshot.today ?? localDateFromDate(new Date())} restDays={restDays} onDraftChange={onCapacityDraftChange}
+        limits={<><View style={[styles.rhythmLimitRow, { borderTopColor: colors.border }]}><Text style={styles.rhythmLabel}>重い家事</Text>
+          <Counter value={heavyLimit} onChange={heavyDailyLimit => changeSettings({ heavyDailyLimit })} maximum={10} label="重い家事の上限" />
+        </View><View style={[styles.rhythmLimitRow, { borderTopColor: colors.border }]}><Text style={styles.rhythmLabel}>普通の家事</Text>
+          <Counter value={normalLimit} onChange={normalDailyLimit => changeSettings({ normalDailyLimit })} maximum={20} label="普通の家事の上限" />
+        </View></>}>{capacityForm => <View style={styles.rhythmSection}>
+        <Text style={styles.rhythmHeading}>休日</Text>
         <View style={styles.weekdayRow}>
           {weekdays.map((day) => {
             const selected = restDays.includes(day.id);
@@ -505,127 +554,49 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
                 accessibilityLabel={`${day.label}曜日`}
                 accessibilityState={{ selected }}
                 onPress={() => toggleRestDay(day.id)}
-                style={({ pressed }) => [styles.weekdayChip, selected && styles.weekdayChipSelected, pressed && styles.weekdayChipPressed]}
+                style={({ pressed }) => [styles.weekdayChip, { borderColor: selected ? colors.accent : colors.border, backgroundColor: selected ? colors.accentSoft : colors.surface }, pressed && styles.weekdayChipPressed]}
               >
                 <Text style={[styles.weekdayChipText, selected && styles.weekdayChipTextSelected]}>{day.label}</Text>
               </Pressable>
             );
           })}
         </View>
-        <Text style={styles.hint}>休日を含む期間になるよう、家事ごとの許容範囲内で予定を調整します。</Text>
-        <View style={styles.limitRow}>
-          <View style={styles.limitCopy}><Text style={styles.label}>重い家事の1日上限</Text><Text style={styles.hint}>初期値：1件</Text></View>
-          <Counter value={heavyLimit} onChange={heavyDailyLimit => changeSettings({ heavyDailyLimit })} maximum={10} label="重い家事の上限" />
-        </View>
-        <View style={styles.limitRow}>
-          <View style={styles.limitCopy}><Text style={styles.label}>普通の家事の1日上限</Text><Text style={styles.hint}>初期値：2件</Text></View>
-          <Counter value={normalLimit} onChange={normalDailyLimit => changeSettings({ normalDailyLimit })} maximum={20} label="普通の家事の上限" />
-        </View>
+        <Text style={styles.hint}>普段の休みを選択</Text>
+        <SettingsPanel><View style={styles.rhythmFrequency}><Text style={styles.rhythmLabel}>家事の頻度</Text>
+          <SettingsSegments wide options={modeOptions} value={mode} onValueChange={frequencyMode => changeSettings({ frequencyMode })} />
+        </View></SettingsPanel>
         {capacityForm}
-      </AccordionSection>}</PersonalCapacitySettings>
+      </View>}</PersonalCapacitySettings> : null}
 
-      <Card style={{ paddingVertical: 4 }}><Pressable accessibilityRole="button" accessibilityLabel="共有グループを管理" onPress={() => void autosave.navigate(() => router.push(
-        workspace?.group && workspace.group.userId === workspace.userId && ['active', 'creating', 'joining'].includes(workspace.group.status)
-          ? { pathname: '/sharing/group/[groupId]', params: { groupId: workspace.group.groupId } } : '/sharing'))} style={[styles.notificationRow, { minHeight: 46 }]}>
-        <Text style={[typography.section, { color: palette.ink, fontWeight: '700', flex: 1 }]}>共有グループ</Text><Chevron />
-      </Pressable></Card>
-      {subscriptionRequired ? <Card style={{ paddingVertical: 4 }}><Pressable accessibilityRole="button" accessibilityLabel="月額契約を確認"
-        onPress={() => void autosave.navigate(() => router.push('/subscription'))} style={[styles.notificationRow, { minHeight: 46 }]}>
-        <Text style={[typography.section, { color: palette.ink, fontWeight: '700', flex: 1 }]}>月額契約</Text><Chevron />
-      </Pressable></Card> : null}
-      <AccordionSection title="Google連携" summary={googleSummary}
-        summaryError={googleSummaryError} expanded={expandedSections.has('google-sync')} onToggle={() => toggleSection('google-sync')}>
-        <FeatureStatus
-          title="Google Tasks"
-          status={googleConnected ? '接続済み' : googleSyncState?.enabled ? '再認証が必要' : googleOAuthConfigured ? '未接続' : 'OAuth設定待ち'}
-          detail="家事Plannerの名前と予定日をGoogle Tasksへ反映し、完了・完了の取り消しを双方へ同期します。取り消した家事は未完了に戻り、次回予定も再計算します。"
-        />
-        {!googleOAuthConfigured ? (
-          <Text style={styles.hint}>OAuth client IDが未設定です。docs/google-sync-setup.mdの手順後、ネイティブ開発ビルドを作り直してください。</Text>
-        ) : null}
-        {googleConnected || googleSyncState?.enabled ? (
-          <>
-            <View style={styles.notificationRow}>
-              <View style={styles.limitCopy}>
-                <Text style={styles.featureTitle}>自動同期</Text>
-                <Text style={styles.hint}>{googleSyncState?.enabled ? '通常は1日経過後、失敗時は約1時間経過後に再試行できます。アプリ復帰時やOSが許可したバックグラウンド実行で確認します。' : '自動同期は一時停止中です。'}</Text>
-              </View>
-              <Switch accessibilityLabel="Google Tasksの自動同期" value={Boolean(googleSyncState?.enabled)} disabled={googleBusy} onValueChange={(value) => void toggleGoogleSync(value)} />
-            </View>
-            <FeatureStatus
-              title="同期状態"
-              status={googleSyncState?.enabled ? googleSyncStatusLabel(googleSyncState.status) : '一時停止'}
-              detail={`最終成功同期：${formatSyncTimestamp(googleSyncState?.lastSuccessfulSyncAt)}。iOS・Androidのバックグラウンド実行はOSの判断で遅れることがあります。`}
-            />
-            {!snapshot.sharing ? <>
-            <View style={styles.notificationRow}>
-              <View style={styles.limitCopy}>
-                <Text style={styles.featureTitle}>Googleカレンダーの予定を家事日調整に使う</Text>
-                <Text style={styles.hint}>予定のタイトルや内容は取得せず、予定が入っている時間帯だけを使って家事日を調整します。</Text>
-                <Text style={styles.hint}>現在はGoogleアカウントのメインカレンダーを対象にします。</Text>
-              </View>
-              <Switch accessibilityLabel="Googleカレンダーの予定を家事日調整に使う"
-                value={Boolean(calendarAvailabilityState?.enabled)} disabled={googleBusy || !googleSyncState?.enabled}
-                onValueChange={(value) => void toggleCalendarAvailability(value)} />
-            </View>
-            <FeatureStatus title="カレンダー連携"
-              status={calendarAvailabilityState?.status === 'permissionRequired' ? '追加の許可が必要'
-                : !calendarAvailabilityState?.enabled ? '無効'
-                  : calendarAvailabilityState.status === 'retryPending' ? '取得失敗・再試行待ち'
-                    : calendarAvailabilityState.status === 'syncing' ? '取得中'
-                      : calendarAvailabilityState.status === 'error' ? '取得エラー' : '有効'}
-              detail={`最終取得：${formatSyncTimestamp(calendarAvailabilityState?.lastSuccessfulSyncAt)}。36時間を超えた情報は使いません。`} />
-            {calendarAvailabilityState?.status === 'permissionRequired' ? (
-              <AppButton title="カレンダーの許可を確認" onPress={() => void toggleCalendarAvailability(true)} disabled={googleBusy || !googleSyncState?.enabled} />
-            ) : null}
-            {calendarAvailabilityState?.lastErrorCode === 'calendar_api_not_enabled' ? (
-              <Text style={styles.error}>Google Calendar APIが無効です。Google Cloudのプロジェクト設定で有効にしてください。</Text>
-            ) : null}
-            {calendarAvailabilityMessage ? <Text style={styles.hint}>{calendarAvailabilityMessage}</Text> : null}
-            </> : null}
-            <View style={styles.googleActions}>
-              <AppButton title={googleBusy ? '同期中…' : googleSyncState?.status === 'authRequired' ? '再接続して同期' : '今すぐ同期'} onPress={() => void syncGoogleNow()} disabled={googleBusy || !googleSyncState?.enabled} />
-              <AppButton title="接続解除" onPress={() => void disconnectGoogle()} disabled={googleBusy} variant="danger" />
-            </View>
-          </>
-        ) : (
-          <AppButton title={googleBusy ? '接続中…' : 'Googleと接続'} onPress={() => void connectGoogle()} disabled={googleBusy || !googleOAuthConfigured} />
-        )}
-        <Text style={styles.hint}>同期する家事名と予定日をGoogleへ送信します。接続解除時もGoogle Tasks上の既存家事は削除しません。Google Tasks権限は広い範囲に適用されるため、信頼できるGoogleアカウントで接続してください。</Text>
-        <PersonalGoogleCalendarSettings database={database} />
-        {v2 ? <GroupManagementLinks section="google" busy={googleBusy} onSelect={target => router.push(target)} /> : null}
-        {googleMessage ? <Text style={googleMessage.kind === 'success' ? styles.success : styles.error}>{googleMessage.text}</Text> : null}
-      </AccordionSection>
+      <SettingsSection section={section} id="tasks">{googleTasksForm}</SettingsSection>
+      <SettingsSection section={section} id="calendar"><PersonalGoogleCalendarSettings database={database} /></SettingsSection>
 
-      <Card style={{ paddingVertical: 4 }}><Pressable accessibilityRole="button" accessibilityLabel="ゴミ収集日を管理" onPress={() => void autosave.navigate(() => router.push(v2 ? '/group-v2/waste' : '/waste'))} style={[styles.notificationRow, { minHeight: 46 }]}>
-        <Text style={[typography.section, { color: palette.ink, fontWeight: '700', flex: 1 }]}>{v2 ? 'グループのゴミ収集日' : 'ゴミ収集日'}</Text><Chevron />
-      </Pressable></Card>
-
-      <AccordionSection title="通知・ウィジェット" summary={notificationMessage?.kind === 'error' ? '設定を確認' : `通知${snapshot.settings.notificationsEnabled ? 'オン' : 'オフ'}`}
-        summaryError={notificationMessage?.kind === 'error'} expanded={expandedSections.has('notifications')} onToggle={() => toggleSection('notifications')}>
+      <SettingsSection section={section} id="appearance"><AppearanceControls embedded /></SettingsSection>
+      <SettingsSection section={section} id="notifications">
         <View style={styles.notificationRow}>
           <View style={styles.limitCopy}>
-            <Text style={styles.featureTitle}>家事の通知を受け取る</Text>
-            <Text style={styles.hint}>{snapshot.sharing ? `所属グループの家事を、${snapshot.timeZone}の毎朝9時に通知します。` : '毎朝9時に、期間の開始日・最終日・終了翌日に未完了の家事をまとめて通知します。'}</Text>
+            <SettingsLabel>{v2 ? '個人家事の通知' : '家事の通知'}</SettingsLabel>
+            <Text style={styles.hint}>{section === 'general' ? '開始日・期限などを毎朝9時に通知。' : snapshot.sharing ? `所属グループの家事を、${snapshot.timeZone}の毎朝9時に通知します。` : '毎朝9時に、期間の開始日・最終日・終了翌日に未完了の家事をまとめて通知します。'}</Text>
           </View>
-          <Switch accessibilityLabel="家事の通知を受け取る" value={snapshot.settings.notificationsEnabled} disabled={notificationUpdating} onValueChange={(value) => void toggleNotifications(value)} />
+          <SettingsCheckbox accessibilityLabel="家事の通知を受け取る" value={snapshot.settings.notificationsEnabled} disabled={notificationUpdating} onValueChange={(value) => void toggleNotifications(value)} />
         </View>
         {notificationMessage ? <Text accessibilityLiveRegion="polite" style={notificationMessage.kind === 'success' ? styles.success : styles.error}>{notificationMessage.text}</Text> : null}
-        <View style={styles.divider} />
-        {v2 ? <GroupManagementLinks section="notifications" busy={notificationUpdating} onSelect={target => router.push(target)} /> : null}
-        <FeatureStatus title="今日の家事ウィジェット" status="iOS・Android" detail={snapshot.sharing ? "Widgetは個人モードの家事を表示します。共有グループの家事はアプリで確認できます。" : "最大3件を表示します。丸を押すと完了でき、完了した家事はチェック付きで残ります。"} />
-      </AccordionSection>
+        <View style={[styles.divider, { backgroundColor: colors.border }]} />
+        {v2 ? <GeneralGroupNotifications /> : null}
+        <Text style={styles.featureTitle}>今日の家事ウィジェット</Text>
+        <Text style={styles.hint}>{v2 ? '個人の家事を最大3件表示。チェックで完了できます。' : '家事を最大3件表示。チェックで完了できます。'}</Text>
+      </SettingsSection>
 
-      {!snapshot.sharing ? <AccordionSection title="天気予報・洗濯" summary={weatherMessage?.kind === 'error' ? '保存を確認' : snapshot.settings.weatherLocation?.displayName ?? '未設定'}
-        summaryError={weatherMessage?.kind === 'error'} expanded={expandedSections.has('weather')} onToggle={() => toggleSection('weather')}>
+      {!snapshot.sharing ? <SettingsSection section={section} id="weather">
         <Text style={styles.hint}>{snapshot.settings.weatherLocation
-          ? `対象地域：${snapshot.settings.weatherLocation.displayName}。予報更新時に、サーバー経由でMET Norwayへ地域の代表座標を送信します。`
+          ? section === 'general' ? `対象地域：${snapshot.settings.weatherLocation.displayName}` : `対象地域：${snapshot.settings.weatherLocation.displayName}。予報更新時に、サーバー経由でMET Norwayへ地域の代表座標を送信します。`
           : '市区町村を選ぶと、天気に合わせて洗濯予定を調整します。端末の位置情報は使いません。'}</Text>
         <TextInput
           value={weatherRegion}
           editable={!weatherUpdating}
           onChangeText={(value) => {
             setWeatherRegion(value);
+            weatherSearchDrafts.set(database, { base: snapshot.settings.weatherLocation?.region ?? '', query: value });
             setWeatherSearchEnabled(true);
             setWeatherResultsDismissed(false);
             setWeatherCandidate(null);
@@ -633,14 +604,14 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
           }}
           placeholder="市区町村名を入力（例：横浜市）"
           placeholderTextColor={palette.muted}
-          style={styles.regionInput}
+          style={[styles.regionInput, { borderColor: colors.border, backgroundColor: colors.surface }]}
           accessibilityLabel="天気予報に使う市区町村"
           returnKeyType="done"
         />
-        <Text style={styles.hint}>入力すると候補を検索します。候補は「市区町村、都道府県」で表示します。</Text>
+        <Text style={styles.hint}>{section === 'general' ? '地域の代表座標を天気配信元へ送信します。' : '入力すると候補を検索します。候補は「市区町村、都道府県」で表示します。'}</Text>
         <View style={styles.weatherActions}>
           {snapshot.settings.weatherLocation ? (
-            <AppButton title="連動を解除" onPress={() => void disableWeather()} disabled={weatherUpdating} variant="quiet" compact />
+            <SettingsAction title="連動を解除" intent="destructive" onPress={() => void disableWeather()} disabled={weatherUpdating} />
           ) : null}
         </View>
         {weatherSuggestions.candidates.length > 0 && !weatherResultsDismissed ? (
@@ -667,29 +638,23 @@ function SettingsContent({ snapshot, loadError, refresh, database, saveRhythm, r
         {weatherMessage ? (
           <Text style={weatherMessage.kind === 'success' ? styles.success : styles.error}>{weatherMessage.text}</Text>
         ) : null}
-      </AccordionSection> : null}
+      </SettingsSection> : null}
 
-      <AccordionSection title="誕生日" summary={birthdaySummary}
-        summaryError={Boolean(calendar.error)} expanded={expandedSections.has('birthdays')} onToggle={() => toggleSection('birthdays')}><BirthdaySettings /></AccordionSection>
-      {workspace?.userId ? <AccordionSection title="アカウントと端末" expanded={expandedSections.has('account-devices')} onToggle={() => toggleSection('account-devices')}>
-        <GoogleAccountSwitch database={database} disabled={googleBusy} acquire={() => {
-          if (!beginOperation('google')) return false; setGoogleBusy(true); return true;
-        }} release={() => { endOperation('google'); setGoogleBusy(false); }} onChanged={async () => {
-          setGoogleMessage(null);
-        }} prepare={async () => {
-          if (!await autosave.flush() || draftParts.current.rhythm || draftParts.current.capacity) { showCapacityError(); return false; }
-          return true;
-        }} />
-        <Pressable accessibilityRole="button" accessibilityLabel="設定の端末間同期" onPress={() => void autosave.navigate(() => router.push('/sharing/personal-preferences'))} style={[styles.notificationRow, { minHeight: 44 }]}><Text style={[styles.label, { flex: 1 }]}>設定の端末間同期</Text><Chevron /></Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel="同期する端末の管理" onPress={() => void autosave.navigate(() => router.push('/sharing/private-calendar'))} style={[styles.notificationRow, { minHeight: 44 }]}><Text style={[styles.label, { flex: 1 }]}>同期する端末の管理</Text><Chevron /></Pressable>
-      </AccordionSection> : null}
-
-      <AccordionSection title="バックグラウンド同期の実行記録" expanded={expandedSections.has('backgroundDiagnostics')} onToggle={() => toggleSection('backgroundDiagnostics')}>
-        {expandedSections.has('backgroundDiagnostics') ? <BackgroundSyncDiagnostics /> : null}
-      </AccordionSection>
-      {typeof __DEV__ !== 'undefined' && __DEV__ ? <AppButton title="開発検査" onPress={() => router.push('/development')} variant="quiet" /> : null}
-      <DataCredits />
-      <Text style={styles.footer}>{snapshot.sharing ? '共有グループの家事と履歴は端末に保存し、暗号化して共有先へ同期します。' : '家事データ、曜日、予定、履歴はローカルSQLiteに保存されます。'}</Text>
+      <SettingsSection section={section} id="birthdays"><BirthdaySettings database={database} today={snapshot.today} timeZone={snapshot.timeZone} embedded={section === 'general'} /></SettingsSection>
+      <SettingsSection section={section} id="credits"><DataCredits inline /></SettingsSection>
+      <SettingsSection section={section} id="account">
+        <AccountOperationContext.Provider value={{ busy: googleBusy, acquire: accountActions.acquire, release: accountActions.release }}>
+          <AccountConnections database={database} settings={snapshot.settings} personalTasks={googleTasksForm} calendarOptions={calendarAvailabilityForm}
+            onTasksOpen={openAccountTasks} />
+          {subscriptionRequired ? <SettingsList><SettingsRow title="月額契約" onPress={() => void autosave.navigate(() => router.push('/subscription'))} /></SettingsList> : null}
+          {workspace?.userId ? <View style={{ gap: 8, marginTop: 16 }}><GoogleAccountSwitch {...accountActions} /><AccountSignOut {...accountActions} /></View> : null}
+        </AccountOperationContext.Provider>
+      </SettingsSection>
+      {section === 'diagnostics' && typeof __DEV__ !== 'undefined' && __DEV__ ? <BackgroundSyncDiagnostics /> : null}
+      {section === 'general' && typeof __DEV__ !== 'undefined' && __DEV__ ? <SettingsList>
+        <SettingsRow title="開発検査" onPress={() => router.push('/development')} />
+        <SettingsRow title="バックグラウンド同期の実行記録" onPress={() => router.push({ pathname: '/settings', params: { section: 'diagnostics' } })} />
+      </SettingsList> : null}
     </Page>
   );
 }
@@ -703,7 +668,7 @@ function Counter({ value, onChange, maximum, label }: {
         accessibilityRole="button" accessibilityLabel={`${label}を減らす`}>
         <Text style={[styles.counterButton, value <= 1 && { opacity: 0.35 }]}>−</Text>
       </Pressable>
-      <Text style={styles.counterValue}>{value}</Text>
+      <Text style={styles.counterValue}>{value}<Text style={styles.counterUnit}> 件</Text></Text>
       <Pressable onPress={() => onChange(Math.min(maximum, value + 1))} disabled={value >= maximum}
         accessibilityRole="button" accessibilityLabel={`${label}を増やす`}>
         <Text style={[styles.counterButton, value >= maximum && { opacity: 0.35 }]}>＋</Text>
@@ -715,7 +680,7 @@ function Counter({ value, onChange, maximum, label }: {
 function FeatureStatus({ title, status, detail }: { title: string; status: string; detail: string }) {
   return (
     <View style={styles.feature}>
-      <View style={styles.featureTop}><Text style={styles.featureTitle}>{title}</Text><Text style={styles.featureStatus}>{status}</Text></View>
+      <View style={styles.featureTop}><Text style={styles.featureTitle}>{title}</Text><SettingsStatus>{status}</SettingsStatus></View>
       <Text style={styles.hint}>{detail}</Text>
     </View>
   );
@@ -748,7 +713,10 @@ const styles = StyleSheet.create({
   accordionChevron: { color: palette.accent, fontSize: 23, fontWeight: '700', lineHeight: 28, transform: [{ rotate: '0deg' }] },
   accordionChevronExpanded: { transform: [{ rotate: '180deg' }] },
   label: { ...typography.label, color: palette.ink, fontWeight: '700' },
-  modeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  rhythmSection: { gap: 12 },
+  rhythmFrequency: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, minHeight: 62 },
+  rhythmLabel: { ...typography.label, color: palette.ink }, rhythmHeading: { ...typography.label, color: palette.ink, fontWeight: '600' },
+  rhythmLimitRow: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: palette.border },
   weekdayRow: { width: '100%', flexDirection: 'row', flexWrap: 'nowrap', gap: 5 },
   weekdayChip: { flex: 1, minWidth: 0, minHeight: 44, borderRadius: 999, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 0 },
   weekdayChipSelected: { borderColor: palette.accent, backgroundColor: palette.accentSoft },
@@ -762,6 +730,7 @@ const styles = StyleSheet.create({
   counter: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: palette.background, borderRadius: 12 },
   counterButton: { ...typography.section, minWidth: 40, lineHeight: 44, color: palette.accent, fontWeight: '700', textAlign: 'center' },
   counterValue: { ...typography.label, minWidth: 18, color: palette.ink, textAlign: 'center', fontWeight: '700' },
+  counterUnit: { ...typography.caption, color: palette.muted, fontWeight: '400' },
   choreGroup: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border },
   choreGroupHeader: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   choreGroupTitle: { ...typography.subheading, color: palette.ink, fontWeight: '700' },
@@ -782,7 +751,6 @@ const styles = StyleSheet.create({
   googleActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   featureTop: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   featureTitle: { ...typography.control, color: palette.ink, fontWeight: '700' },
-  featureStatus: { ...typography.caption, color: palette.accent, fontWeight: '700', backgroundColor: palette.accentSoft, borderRadius: 8, overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 4 },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: palette.border, marginVertical: 1 },
   footer: { ...typography.caption, color: palette.muted, textAlign: 'center' },
   error: { ...typography.label, color: palette.warning },

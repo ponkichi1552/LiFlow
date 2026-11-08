@@ -22,13 +22,13 @@ export function GroupCreationForm({ busy, onCreate }: {
     finally { inFlight.current = false; if (alive.current) setSubmitting(false); }
   };
   return <View style={{ gap: 12 }}>
-    <V2TextField label="グループ名" value={name} maxLength={100} onChangeText={setName} placeholder="グループ名（例：わが家）" editable={!disabled} />
+    <V2TextField label="グループ名" displayLabel={false} filled value={name} maxLength={100} onChangeText={setName} placeholder="グループ名（例：わが家）" editable={!disabled} />
     <>
-      <V2Choices label="グループの種類" value={kind} choices={[{ value: 'family', label: '家族' }, { value: 'roommates', label: '同居人' }]}
+      <V2Choices compact label="グループの種類" value={kind} choices={[{ value: 'family', label: '家族' }, { value: 'roommates', label: '同居人' }]}
         disabled={disabled} onChange={value => { if (value === 'family' || value === 'roommates') setKind(value); }} />
-      {kind ? <Text style={v2FormStyles.caption}>{kind === 'family' ? '日時の権限委譲は初期ONです。指定権限は、管理者が家事ごとに付与します。' : '日時の権限委譲は初期OFFです。管理者が後から変更できます。'}</Text> : null}
+      {kind ? <Text style={v2FormStyles.caption}>{kind === 'family' ? '管理者が家事の日時を指定できます。' : '担当者の同意をもとに日時を決めます。'}</Text> : null}
     </>
-    <Text style={v2FormStyles.caption}>共有する家事はすべて無効の状態から選べます。個人データは取り込みません。</Text>
+    <Text style={v2FormStyles.caption}>共有する家事は、作成後に選べます。</Text>
     {error ? <Text accessibilityRole="alert" style={v2FormStyles.error}>{error}</Text> : null}
     <AppButton title="グループを作成" disabled={disabled || !name.trim() || !kind} onPress={submit} />
   </View>;

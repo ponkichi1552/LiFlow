@@ -7,7 +7,7 @@ import type { VerifiedLegacyMigration } from './legacy-migration-source.ts';
 /** Owner review only. Do not infer a group kind, prior assignees, recording time or v2 occurrence aliases. */
 export function previewLegacyMigration(checkpoint: VerifiedLegacyMigration, choice: { userId: string; kind: GroupKind }) {
   const source = readVerifiedLegacyMigrationSource(checkpoint);
-  if (choice.userId !== source.roster.body.ownerUserId || !['family', 'roommates'].includes(choice.kind)) throw new Error('所有者がグループの種類を選択してください。');
+  if (choice.userId !== source.roster.body.ownerUserId || !['family', 'roommates'].includes(choice.kind)) throw new Error('管理者がグループの種類を選択してください。');
   const { replica } = source;
   const active = new Set(replica.completions.flatMap(item => item.activeOperationIds));
   const undo = new Map<string, string[]>();

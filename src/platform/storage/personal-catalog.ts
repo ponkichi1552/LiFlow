@@ -10,6 +10,24 @@ export async function installPersonalCatalogInside(database: SQLiteDatabase, hou
   );
   if (!current) throw new Error('家事の保存先がありません。');
   if (current.built_in_chore_catalog_version >= PERSONAL_CHORE_CATALOG_VERSION) return;
+  if (current.built_in_chore_catalog_version >= 6) {
+    // Version7 only clarifies the entrance-floor label and makes the shoe cabinet
+    // independent. Preserve overrides, selection, histories and cached plans.
+    const id = 'liflow-catalog-6.006';
+    const row = await database.getFirstAsync<{ name: string; definition_json: string }>(
+      'SELECT name,definition_json FROM chore_definitions WHERE id=? AND household_id=?', id, householdId,
+    );
+    if (row?.name === '玄関の清掃') {
+      const definition = JSON.parse(row.definition_json) as ChoreDefinition;
+      if (definition.personalRecipeId === id && definition.name === row.name) {
+        const next = { ...definition, name: '玄関の床掃除',
+          ...(definition.locationOrAppliance === row.name ? { locationOrAppliance: '玄関の床掃除' } : {}) };
+        await database.runAsync('UPDATE chore_definitions SET name=?,definition_json=? WHERE id=? AND household_id=?', next.name, JSON.stringify(next), id, householdId);
+      }
+    }
+    await database.runAsync('UPDATE household_settings SET built_in_chore_catalog_version=? WHERE household_id=?', PERSONAL_CHORE_CATALOG_VERSION, householdId);
+    return;
+  }
   const previous = await database.getAllAsync<{ id: string; definition_json: string }>(
     'SELECT id,definition_json FROM chore_definitions WHERE household_id=?', householdId,
   );

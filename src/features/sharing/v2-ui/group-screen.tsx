@@ -1,11 +1,11 @@
 import { V2ChoreSettingsBook } from './chore-settings-book';
 import { useChoreLibraryState } from '../../chores/chore-library';
 import { v2HomeUpcomingRows, type V2HomeUpcomingRow } from './home-upcoming';
-import { homeUpcomingRange, type HomeWeekScope } from '../../planner/home-presentation';
+import { homeUpcomingRange, isHomeTaskExpired, type HomeWeekScope } from '../../planner/home-presentation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ComponentProps } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { ActivityIndicator, AppState, FlatList, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from '@/components/screen-safe-area';
 import { AppButton, BackButton, Card, NavigationHeader, palette, ScreenHeading, SectionHeading, typography } from '../../../components/planner-ui';
@@ -21,18 +21,18 @@ import { v2CalendarMonth, v2CalendarProjection } from './calendar-projection';
 import { v2CalendarDisplayRange } from './calendar-range';
 import type { WorkspaceDisplayValue } from './workspace-display-store';
 import type { LocalDate } from '../../../domain/shared/types';
-import { V2CompletionHistoryCard } from './completion-history-card';
+import { V2HistoryContent } from './history-content';
 import { V2FormScrollView } from './form-controls';
 import type { V2PlannedOccurrence, V2SubjectPlan } from '../v2/common-plan';
 import type { V2GroupUiSession } from './screen-session';
-import { millisecondsUntilNextSharedDay, sharedLocalDate } from '../group-clock';
+import { millisecondsUntilNextSharedDay } from '../group-clock';
 import { privateOverlayForViewer } from './private-overlay';
 import { V2PrivateTaskCard, V2PrivateTaskNotice } from './private-task-card';
 import { V2ChoreList } from './chore-list';
 import { V2AddChore } from './add-chore';
 import { V2ChoreProcedures } from './chore-procedures';
 import { V2GroupPolicyEditor } from './group-policy-editor';
-import { createV2RoundVisibility, v2CanShowCompletion } from './round-visibility';
+import { createV2RoundVisibility } from './round-visibility';
 import { V2DateRightsEditor } from './date-rights-editor';
 import type { V2MutationOutcome } from './mutation-outcome';
 import { V2WasteScreen } from './waste-screen';
@@ -43,18 +43,17 @@ import { V2ChoreBook, type PersonalGuideSource } from './chore-book';
 import { orderTaskRows } from './task-order';
 import type { CompletionFeedback } from './completion-feedback';
 import Animated, { LinearTransition } from 'react-native-reanimated';
-import { HomeHeader, HomeLinks, HomeProgress, HomeWeekSwitcher, HomeUpcomingDate, LoadSortButton, CompletionToast } from '../../../components/home-ui';
+import { HomeHeader, homeHeaderContainerStyle, HomeLinks, HomeProgress, HomeWeekSwitcher, HomeUpcomingDate, HomeExpiredHeading, LoadSortButton, CompletionToast } from '../../../components/home-ui';
 import { finishStartupDisplay } from '../../../platform/diagnostics/startup-splash';
 import { useHomeDisplay } from '../../../hooks/use-home-display';
 import { homeSummary } from '../../planner/home-summary';
-import { groupHistoryByDay } from '../../planner/history-groups';
-import { HistoryDayHeading } from '../../../components/history-day-heading';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
 import type { PlannerCalendarProps } from '../../calendar/planner-calendar';
 import { calendarChoreDisplayThrough } from '../../calendar/chore-display-range';
 import type { ChoreAudienceSelection } from '../../chores/audience-selection';
 import { personalCompletionKey } from '../../planner/completion-command';
 import type { CompletionIntentState } from '../../planner/completion-intents';
+import { V2ChoreAdvancedSettings } from './chore-advanced-settings';
 import type { CompletionIntentRuntime } from '../../../platform/storage/completion-intents';
 
 const noCompletionChanges = () => () => {};
@@ -71,7 +70,7 @@ export interface V2GroupScreenProps {
   localCalendar?: LocalCalendarBinding; onCalendarNavigate?: PlannerCalendarProps['onNavigate'];
   purpose: 'development' | 'workspace'; workspaceName?: string; workspaceError?: string; onManage?: () => void;
   subscribe?: (changed: () => void) => () => void;
-  loadSession: () => Promise<V2GroupUiSession>; view: 'home' | 'configuration' | 'history' | 'round' | 'date' | 'requests' | 'assignment' | 'assignmentRequests' | 'calendar' | 'chores' | 'details' | 'addChore' | 'groupPolicy' | 'dateRights' | 'waste' | 'appliances' | 'appliance' | 'applianceReview' | 'guide'; choreId?: string; applianceId?: string;
+  loadSession: () => Promise<V2GroupUiSession>; view: 'home' | 'configuration' | 'history' | 'round' | 'date' | 'requests' | 'assignment' | 'assignmentRequests' | 'calendar' | 'chores' | 'details' | 'advancedSettings' | 'addChore' | 'groupPolicy' | 'dateRights' | 'waste' | 'appliances' | 'appliance' | 'applianceReview' | 'guide'; choreId?: string; applianceId?: string;
   occurrenceId?: string; subjectId?: string; anchorDate?: string; onRound?: (occurrenceId: string, subjectId: string, anchorDate?: string) => void; onDate?: (occurrenceId: string, subjectId: string) => void;
   onBack: () => void; onConfiguration: (choreId: string) => void; onHistory: () => void; onRequests?: () => void;
   onAssignment?: (occurrenceId: string, subjectId: string) => void; onAssignmentRequests?: () => void;
@@ -89,7 +88,7 @@ export function readOptionsForView(view: V2GroupScreenProps['view'], anchorDate?
   if (view === 'waste') return { management: true, waste: true };
   if (view === 'groupPolicy') return { management: true, groupPolicy: true };
   if (view === 'dateRights') return { management: true, permissionsChoreId: choreId };
-  if (view === 'details' || view === 'configuration') return { management: true, choreSettings: true };
+  if (view === 'details' || view === 'configuration' || view === 'advancedSettings') return { management: true, choreSettings: true };
   if (view === 'guide' || view === 'chores') return undefined;
   if (view === 'addChore') return { management: true };
   if (anchorDate) return { focusDate: anchorDate, ...(['calendar', 'home'].includes(view) ? { waste: true } : {}) };
@@ -104,6 +103,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     const { personal, privateOverlay: privateValue, ...model } = screenModel; return { personal, privateValue, model };
   }, [screenModel]);
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [weekScope, setWeekScope] = useState<HomeWeekScope>('current');
+  const [expiredExpanded, setExpiredExpanded] = useState(false);
   const [proceduresOpen, setProceduresOpen] = useState(true);
   const [legacyCompletionValues, setCompletionValues] = useState(new Map<string, boolean>());
   const sharedIntents = useSyncExternalStore(sharedCompletion?.queue.subscribe ?? noCompletionChanges, sharedCompletion?.queue.getSnapshot ?? noCompletionState, noCompletionState);
@@ -296,32 +296,18 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
       header={<View style={{ gap: 14 }}><ScreenHeading title="家事一覧" />{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}</View>} />
   </V2ScreenFrame>;
   if (view === 'addChore') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
-    <V2AddChore actions={controller.actions} busy={busy} run={run} header={notice} onBack={onBack} onCreated={onChoreCreated ?? onDetails ?? onConfiguration} />
+    <V2AddChore model={model} actions={controller.actions} busy={busy} run={run} header={notice} onBack={onBack} onCreated={onChoreCreated ?? onDetails ?? onConfiguration} />
+  </V2ScreenFrame>;
+  if (view === 'advancedSettings') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
+    <V2ChoreAdvancedSettings key={`${model.viewerUserId}:${model.plan.groupId}:${choreId}`} model={model} controller={controller} choreId={choreId ?? ''} onBack={onBack}
+      development={purpose === 'development'} header={notice} onSaved={async () => { session.invalidate?.(); if (!await refresh()) throw new Error('保存済みです。表示を開き直してください。'); }} />
   </V2ScreenFrame>;
   if (view === 'details' || view === 'configuration') return <V2ChoreSettingsBook key={`${model.viewerUserId}:${model.plan.groupId}`}
     model={model} session={session} choreId={choreId} selection={settingsSelection} groupName={groupName} onBack={onBack} development={purpose === 'development'}
     onSaved={async () => { session.invalidate?.(); if (!await refresh()) throw new Error('保存済みです。表示を更新するため再読込してください。'); }} />;
-  if (view === 'history') {
-    const historyRows = [
-      ...model.plan.history.filter(record => (!choreId || record.choreId === choreId) && v2CanShowCompletion(model, record)).map(record => ({ kind: 'current' as const, record })),
-      ...(model.legacyHistory ?? []).filter(record => (!choreId || record.choreId === choreId) && (model.viewerUserId === model.adminUserId || model.plan.policy?.showCompletionStatus
-        || record.performerUserId === model.viewerUserId || record.recorderUserId === model.viewerUserId)).map(record => ({ kind: 'legacy' as const, record })),
-    ].sort((a, b) => b.record.performedAt.localeCompare(a.record.performedAt) || a.record.operationId.localeCompare(b.record.operationId));
-    const groups = groupHistoryByDay(historyRows, item => ({ id: item.record.operationId, timestamp: item.record.performedAt, date: sharedLocalDate(new Date(item.record.performedAt), model.plan.timeZone) }));
-    const rows = groups.flatMap(group => [{ kind: 'date' as const, id: group.date, date: group.date, showMonth: group.showMonth }, ...group.records.map(value => ({ ...value, id: value.record.operationId }))]);
-    return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
-      <NavigationHeader><BackButton onPress={onBack} disabled={busy} /></NavigationHeader>
-      <FlatList data={rows} keyExtractor={item => item.id} contentContainerStyle={styles.page} initialNumToRender={8}
-        ListHeaderComponent={<>{notice}<ScreenHeading title="実施履歴" /></>}
-        ListEmptyComponent={<Card><Text style={styles.body}>表示する実施記録はありません。</Text></Card>}
-        renderItem={({ item }) => item.kind === 'date' ? <HistoryDayHeading date={item.date} showMonth={item.showMonth} /> : item.kind === 'current' ? <V2CompletionHistoryCard grouped model={model} record={item.record} actions={controller.actions} busy={busy} run={run} />
-          : <Card><SectionHeading title={item.record.choreName} />
-            <Text style={styles.body}>{!item.record.active ? '取消済み' : item.record.outcome === 'completed' ? '実施済み' : '未実施の記録'}</Text>
-            <Text style={styles.caption}>{new Date(item.record.performedAt).toLocaleTimeString('ja-JP', { timeZone: model.plan.timeZone, hour: '2-digit', minute: '2-digit' })}</Text>
-            <Text style={styles.caption}>実施者：{item.record.performerUserId ? model.plan.members.find(member => member.userId === item.record.performerUserId)?.displayName ?? '以前のメンバー' : '記録なし'}</Text>
-          </Card>} />
-    </V2ScreenFrame>;
-  }
+  if (view === 'history') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
+    <V2HistoryContent model={model} choreId={choreId} personal={personalGuide} actions={controller.actions} busy={busy} run={run} onBack={onBack} notice={notice} />
+  </V2ScreenFrame>;
   if (!personal) return <V2ScreenFrame purpose={purpose} style={styles.safe}>{notice}<Text style={styles.body}>本人の推奨日を読み込めませんでした。</Text>
     <AppButton title="読み込みを再試行" variant="quiet" onPress={() => void refresh()} /></V2ScreenFrame>;
   if (view === 'calendar') {
@@ -395,22 +381,30 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   const today = projection.byDate.get(model.plan.range.asOfDate) ?? [];
   const visibility = createV2RoundVisibility(model);
   const choreById = new Map(model.plan.chores.map(chore => [chore.id, chore]));
-  const homeRows = orderTaskRows([...(model.waste?.occurrences ?? []).filter(entry => entry.occurrence.date === model.plan.range.asOfDate && entry.hidden !== true)
+  const allHomeRows = orderTaskRows([...(model.waste?.occurrences ?? []).filter(entry => entry.occurrence.date === model.plan.range.asOfDate && entry.hidden !== true)
     .map(entry => ({ source: 'waste' as const, key: `waste:${entry.key}`, entry })),
-    ...today.map((entry) => ({ source: 'shared' as const, key: `shared:${entry.subject.id}`, ...entry })),
+    ...today.filter(entry => entry.subject.automaticBacklog !== 'later').map((entry) => ({ source: 'shared' as const, key: `shared:${entry.subject.id}`, ...entry })),
     ...(privateOverlay?.status === 'ready' ? privateOverlay.home : []).map((row) => ({ source: 'personal' as const, key: row.key, row }))], model.plan.range.asOfDate, item => item.source === 'personal'
       ? { completed: completionValues.get(item.key) ?? item.row.completed, load: item.row.chore.load, estimatedMinutes: item.row.chore.estimatedMinutes, recommendedDate: item.row.suggestedDate, windowStart: item.row.windowStart, windowEnd: item.row.windowEnd, asOfDate: privateOverlay?.status === 'ready' ? privateOverlay.today : undefined }
       : item.source === 'shared' ? { completed: visibility(item.round, item.subject).showStatus && (completionValues.get(item.key) ?? item.subject.completed),
         load: choreById.get(item.round.choreId)?.load ?? 'light', estimatedMinutes: choreById.get(item.round.choreId)?.estimatedMinutes, recommendedDate: recommendations.get(item.subject.id)?.date ?? item.subject.suggestedDate, windowStart: item.subject.executionWindowStart, windowEnd: item.subject.executionWindowEnd }
         : { completed: false, load: 'light', recommendedDate: model.plan.range.asOfDate }, display.order);
+  const privateExpired = allHomeRows.filter(item => item.source === 'personal' && isHomeTaskExpired(completionValues.get(item.key) ?? item.row.completed,
+    item.row.windowEnd, privateOverlay?.status === 'ready' ? privateOverlay.today : model.plan.range.asOfDate));
+  const expiredKeys = new Set(privateExpired.map(item => item.key));
+  const homeRows = allHomeRows.filter(item => !expiredKeys.has(item.key));
   const upcoming = v2HomeUpcomingRows(model, projection, privateOverlay, homeUpcomingRange(model.plan.range.asOfDate, weekScope), display.order, completionValues);
-  const expired = entries.filter(({ subject }) => subject.showExpiredOnHome);
-  type HomeListItem = { kind: 'today'; key: string; item: typeof homeRows[number] } | { kind: 'upcoming'; key: string; item: V2HomeUpcomingRow }
-    | { kind: 'weeks' | 'emptyToday' | 'emptyWeek' | 'expiredHeading'; key: string } | { kind: 'upcomingDate'; key: string; date: LocalDate }
-    | { kind: 'expired'; key: string; round: V2PlannedOccurrence; subject: V2SubjectPlan };
+  const expired = [...entries.filter(({ round, subject }) => {
+    if (subject.showExpiredOnHome) return true;
+    if (!subject.completed || completionValues.get(`shared:${subject.id}`) !== false) return false;
+    const completion = visibility(round, subject).relatedWork.find(record => record.active && record.outcome === 'completed' && record.acceptance === 'accepted');
+    return (completion?.schedule?.windowEnd ?? subject.executionWindowEnd) < model.plan.range.asOfDate;
+  }).map(item => ({ ...item, source: 'shared' as const, key: `shared:${item.subject.id}` })), ...privateExpired];
+  type HomeListItem = { kind: 'today' | 'expired'; key: string; item: typeof allHomeRows[number] | typeof expired[number] } | { kind: 'upcoming'; key: string; item: V2HomeUpcomingRow }
+    | { kind: 'weeks' | 'emptyToday' | 'emptyWeek' | 'expiredHeading'; key: string } | { kind: 'upcomingDate'; key: string; date: LocalDate };
   const listRows: HomeListItem[] = [
     ...(homeRows.length ? homeRows.map(item => ({ kind: 'today' as const, key: `today:${item.key}`, item })) : [{ kind: 'emptyToday' as const, key: 'emptyToday' }]),
-    ...(expired.length ? [{ kind: 'expiredHeading' as const, key: 'expiredHeading' }, ...expired.map(item => ({ ...item, kind: 'expired' as const, key: `expired:${item.subject.id}` }))] : []),
+    ...(expired.length ? [{ kind: 'expiredHeading' as const, key: 'expiredHeading' }, ...(expiredExpanded ? expired.map(item => ({ item, kind: 'expired' as const, key: `expired:${item.key}` })) : [])] : []),
     { kind: 'weeks', key: 'weeks' },
     ...upcoming.flatMap(({ date, rows }): HomeListItem[] => [{ kind: 'upcomingDate', key: `date:${date}`, date }, ...rows.map(item => ({ kind: 'upcoming' as const, key: `upcoming:${item.key}`, item }))]),
     ...(!upcoming.length ? [{ kind: 'emptyWeek' as const, key: 'emptyWeek' }] : []),
@@ -420,8 +414,8 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     : item.source === 'shared' && visibility(item.round, item.subject).showStatus && (completionValues.get(item.key) ?? item.subject.completed)).length;
   const summary = homeSummary(total, done);
   return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
-    <View style={styles.homeHeader}><HomeHeader today={model.plan.range.asOfDate} workspaceName={typeof model.plan.commonSettings.name === 'string' ? model.plan.commonSettings.name : workspaceName ?? '共有グループ'} onGroup={onManage ?? onBack} /></View>
-    <Animated.FlatList data={listRows} itemLayoutAnimation={LinearTransition.duration(240)} keyExtractor={(entry) => entry.key} contentContainerStyle={styles.page} initialNumToRender={8}
+    <View style={homeHeaderContainerStyle(groupName)}><HomeHeader today={model.plan.range.asOfDate} workspaceName={groupName} onGroup={onManage ?? onBack} /></View>
+    <Animated.FlatList data={listRows} itemLayoutAnimation={LinearTransition.duration(240)} keyExtractor={(entry) => entry.key} contentContainerStyle={[styles.page, styles.homeContent]} initialNumToRender={8}
       ListHeaderComponent={<>
         <HomeProgress summary={summary} total={total} done={done} />
         {workspaceError || error || display.error ? <Text accessibilityRole="alert" style={styles.error}>{workspaceError ?? error ?? display.error}</Text> : null}
@@ -431,15 +425,14 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         {model.waste?.rows.some(row => !row.deleted && row.needsReview) ? <Text style={styles.error}>確認が必要なゴミ収集日があります。共有のゴミ収集日で候補を確認してください。</Text> : null}
 </>}
       renderItem={({ item }) => {
-        if (item.kind === 'expiredHeading') return <Text accessibilityRole="header" style={styles.expiredHeading}>期限を過ぎた家事（{expired.length}件）</Text>;
-        if (item.kind === 'expired') return card(item.round, item.subject);
+        if (item.kind === 'expiredHeading') return <HomeExpiredHeading count={expired.length} expanded={expiredExpanded} onToggle={() => setExpiredExpanded(value => !value)} />;
         if (item.kind === 'weeks') return <HomeWeekSwitcher scope={weekScope} onChange={setWeekScope} />;
         if (item.kind === 'upcomingDate') return <HomeUpcomingDate date={item.date} />;
         if (item.kind === 'emptyToday') return <Card><Text style={styles.body}>{privateOverlay?.status === 'unavailable' ? '今日の共有家事はありません。個人家事は未取得です。' : '今日の家事はありません。'}</Text></Card>;
-        if (item.kind === 'emptyWeek') return <Card><Text style={styles.body}>{privateOverlay?.status === 'unavailable' ? '共有家事の予定はありません。個人家事は未取得です。' : weekScope === 'current' ? '今週の予定はありません。' : '来週の予定はありません。'}</Text></Card>;
-        if (item.kind !== 'today' && item.kind !== 'upcoming') return null;
+        if (item.kind === 'emptyWeek') return <Text style={[styles.caption, styles.emptyWeek]}>{privateOverlay?.status === 'unavailable' ? '共有家事の予定はありません。個人家事は未取得です。' : weekScope === 'current' ? '今週の家事はありません。' : '来週の家事はありません。'}</Text>;
+        if (item.kind !== 'today' && item.kind !== 'upcoming' && item.kind !== 'expired') return null;
         const row = item.item;
-        return row.source === 'waste' ? <V2WasteOccurrence entry={row.entry} />
+        return row.source === 'waste' ? <V2WasteOccurrence entry={row.entry} home />
           : row.source === 'personal' ? <V2PrivateTaskCard row={row.row} onOpen={onGuide ? () => onGuide(row.row.chore.id, 'personal') : undefined} source={session.privateTasks} busy={busy} run={run} feedback={feedback} home mixedSources /> : card(row.round, row.subject);
       }}
       ListFooterComponent={<View style={styles.footer}>
@@ -464,8 +457,8 @@ function V2ScreenFrame({ purpose, children, startupReady = true, ...props }: Com
   return <SafeAreaView {...props} onLayout={startupReady ? finishStartupDisplay : undefined}>{purpose === 'development' ? <Text style={styles.qaScope}>開発用・端末内プレビュー</Text> : null}{children}</SafeAreaView>;
 }
 const styles = StyleSheet.create({ safe: { flex: 1, backgroundColor: palette.background }, page: { padding: 16, gap: 10, paddingBottom: 40 },
-  homeHeader: { paddingHorizontal: 18, paddingVertical: 6, minHeight: 60, justifyContent: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
-  expiredHeading: { ...typography.label, color: palette.muted, fontWeight: '600', marginTop: 12 },
+  homeContent: { paddingTop: 4 },
+  emptyWeek: { ...typography.body, color: palette.muted, paddingVertical: 10 },
   settingsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   settingsHeaderTitle: { ...typography.body, color: palette.ink, fontWeight: '700', flex: 1 },
   qaScope: { ...typography.caption, color: palette.warning, paddingHorizontal: 16, paddingVertical: 4 },

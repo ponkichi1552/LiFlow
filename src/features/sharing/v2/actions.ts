@@ -1,6 +1,7 @@
 import { createV2CalendarActions } from './calendar-actions.ts';
+import { excludedSharedChores } from './standard-catalog.ts';
 import type { LocalDate } from '../../../domain/shared/types.ts';
-import { addDays } from '../../../domain/scheduling/local-date.ts';
+import { addDays, parseLocalDate } from '../../../domain/scheduling/local-date.ts';
 import type { createV2EventRepository, V2LocalCompletionIntent } from '../../../platform/storage/sharing-v2-events.ts';
 import type { SharedOperationDraft } from '../../../platform/storage/sharing-ledger.ts';
 import { canonicalJson } from '../operations.ts';
@@ -40,6 +41,7 @@ import { choreScheduleDefaults } from '../../../domain/chores/schedule-defaults.
 import type { FrequencyMode } from '../../../domain/chores/types';
 import { sharedDocumentDigest } from '../crypto.ts';
 import { v2RetainedCompletions } from './retained-completions.ts';
+import { customChoreInput, customChoreOptions, type CustomChoreOptions } from '../../../domain/chores/custom-chore.ts';
 
 export interface V2RoundReference { choreId: string; anchorDate: LocalDate; ruleVersion: number; subjectUserId: string | null;
   /** The displayed configuration frontier is an optimistic edit guard, never part of a signed business payload. */
@@ -164,7 +166,7 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
     return result;
   }
   const undoTargets = (targetOperationIds: readonly string[], retained?: V2RetainedUndoReference) => repository.commitCurrent(async state => undoDrafts(state, targetOperationIds, retained));
-  function configurationFieldDrafts(state: State, choreId: string, edits: readonly NonNullable<V2ConfigurationFieldEdit>[], effectiveFrom: LocalDate): SharedOperationDraft[] {
+  function configurationFieldDrafts(state: State, choreId: string, edits: readonly NonNullable<V2ConfigurationFieldEdit>[], effectiveFrom: LocalDate, includeExclusions = true): SharedOperationDraft[] {
     const at = point(state); const enabled = state.assessment.view.field('chore', choreId, 'enabled', at)?.value === true;
     const current = state.assessment.view.field('chorePolicy', choreId, 'configuration', at)?.value as unknown as SharedChoreConfiguration | undefined;
     const activation = edits.find((entry) => entry.field === 'active'); const prepared = [...edits];
@@ -173,9 +175,22 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
     }
     const edit = mergeV2ConfigurationFieldEdits({ view: state.assessment.view, at, choreId, edits: prepared, effectiveFrom });
     if (!edit) return activation && typeof activation.value === 'boolean' && activation.value !== enabled
-      ? [draft('chore', choreId, { enabled: activation.value, requiresCycleSelection: false })] : [];
-    const configuration = prepareV2ConfigurationEdit({ view: state.assessment.view, archive: state.archive, at: point(state), choreId, ...edit });
-    return [draft('chorePolicy', choreId, { configuration }), draft('chore', choreId, { enabled: configuration.active !== false, requiresCycleSelection: false })];
+      ? [draft('chore', choreId, { enabled: activation.value, requiresCycleSelection: false }), ...(activation.value && includeExclusions ? excludeAlternatives(state, choreId, effectiveFrom) : [])] : [];
+    const configuration = prepareV2ConfigurationEdit({ view: state.assessment.view, archive: state.archive, at: point(state), choreId, ...edit,
+      rebaseCadence: !prepared.some(entry => entry.field === 'anchorDate') });
+    return [draft('chorePolicy', choreId, { configuration }), draft('chore', choreId, { enabled: configuration.active !== false, requiresCycleSelection: false }),
+      ...(configuration.active !== false && includeExclusions ? excludeAlternatives(state, choreId, effectiveFrom) : [])];
+  }
+  function excludeAlternatives(state: State, choreId: string, from: LocalDate): SharedOperationDraft[] {
+    const view = state.assessment.view; const at = point(state);
+    const enabledIds = [...new Set(view.ofType('chore').map(op => op.entityId))].filter(id => view.field('chore', id, '$alive', at)?.value === true
+      && view.field('chore', id, 'enabled', at)?.value === true && view.field('chore', id, 'archived', at)?.value !== true);
+    return excludedSharedChores(scope.groupId, choreId, enabledIds).flatMap(id => {
+      const configuration = view.field('chorePolicy', id, 'configuration', at)?.value as unknown as SharedChoreConfiguration | undefined;
+      const boundary = configuration?.effectiveFrom ?? configuration?.anchorDate ?? from;
+      return configuration ? configurationFieldDrafts(state, id, [{ field: 'active', value: false, baseRuleVersion: configuration.ruleVersion }], from < boundary ? boundary : from, false)
+        : [draft('chore', id, { enabled: false })];
+    });
   }
   const configureFields = (choreId: string, edits: readonly NonNullable<V2ConfigurationFieldEdit>[], effectiveFrom: LocalDate) =>
     repository.commitCurrent(async (state) => configurationFieldDrafts(state, choreId, edits, effectiveFrom));
@@ -194,7 +209,23 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
     ...createV2ApplianceActions(repository, options),
     readPlan: async (range: Parameters<typeof buildV2CommonPlan>[1]) => buildV2CommonPlan(await repository.readState(), range),
     addChore: (name: string, instructions: string[] = []) => {
-      const id = options.makeId(); return repository.commit([draft('chore', id, { name: name.trim(), instructions, enabled: false })]);
+      const id = options.makeId(); return repository.commit([draft('chore', id, { name: name.trim(), category: '追加した家事', instructions, enabled: false })]);
+    },
+    addConfiguredChore: (name: string, intervalDays: number, policy: SharedChoreConfiguration['policy'], selected: CustomChoreOptions & { startDate?: LocalDate; monthly?: boolean } = {}) => {
+      const value = customChoreInput(name, intervalDays); const settings = customChoreOptions(selected); const id = options.makeId();
+      if (selected.startDate !== undefined) parseLocalDate(selected.startDate);
+      if (selected.monthly !== undefined && typeof selected.monthly !== 'boolean') throw new Error('繰り返しを確認してください。');
+      return repository.commitCurrent(async state => {
+        if (scope.userId !== state.archive.at(-1)!.body.ownerUserId) throw new Error('周期・担当を指定して追加できるのは管理者です。');
+        const zone = state.assessment.view.field('settings', 'settings', 'timeZone', point(state))?.value;
+        if (typeof zone !== 'string') throw new V2StaleSettingsError();
+        const today = sharedLocalDate(options.now(), zone);
+        const start = selected.startDate ?? today;
+        const configuration = prepareV2ConfigurationEdit({ view: state.assessment.view, archive: state.archive, at: point(state), choreId: id,
+          value: { policy, intervalDays: value.intervalDays, ...(selected.monthly ? { monthly: true } : {}), anchorDate: start, effectiveFrom: start > today ? start : today, active: true, windowBeforeDays: settings.windowBeforeDays, windowAfterDays: settings.windowAfterDays } });
+        return [draft('chore', id, { name: value.name, category: '追加した家事', instructions: settings.instructions, load: settings.load, holidayPriority: settings.holidayPriority, estimatedMinutes: settings.estimatedMinutes, enabled: true }),
+          draft('chorePolicy', id, { configuration })];
+      });
     },
     patchChoreDetails: async (choreId: string, edits: readonly V2FieldEdit[]): Promise<V2FieldSaveResult> => {
       let prepared: ReturnType<typeof prepareV2FieldEdits> | undefined;
@@ -239,7 +270,8 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
     },
     configureChore: (choreId: string, value: Omit<SharedChoreConfiguration, 'ruleVersion'>, edit: { expectedRuleVersion?: number; preserveAssignments?: boolean; resolveConfigurationIds?: string[] } = {}) => repository.commitCurrent(async (state) => {
       const configuration = prepareV2ConfigurationEdit({ view: state.assessment.view, archive: state.archive, at: point(state), choreId, value, ...edit });
-      return [draft('chorePolicy', choreId, { configuration }), draft('chore', choreId, { enabled: value.active !== false, requiresCycleSelection: false })];
+      return [draft('chorePolicy', choreId, { configuration }), draft('chore', choreId, { enabled: value.active !== false, requiresCycleSelection: false }),
+        ...(value.active !== false ? excludeAlternatives(state, choreId, configuration.effectiveFrom ?? configuration.anchorDate) : [])];
     }),
     patchChoreConfiguration: (choreId: string, baseRuleVersion: number, patch: V2ConfigurationPatch, effectiveFrom: LocalDate) => configureFields(choreId,
       Object.entries(patch).map(([field, value]) => ({ field, value, baseRuleVersion }) as NonNullable<V2ConfigurationFieldEdit>), effectiveFrom),
@@ -267,6 +299,7 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
           const after = defaults?.windowRadiusDays ?? initial!.windowAfterDays;
           result.push(...configurationFieldDrafts(state, choreId, [
             { field: 'intervalDays', value: cycle, baseRuleVersion: current.ruleVersion },
+            ...(Object.hasOwn(current, 'monthly') ? [{ field: 'monthly' as const, value: !defaults && initial?.monthly === true, baseRuleVersion: current.ruleVersion }] : []),
             { field: 'windowBeforeDays', value: before, baseRuleVersion: current.ruleVersion },
             { field: 'windowAfterDays', value: after, baseRuleVersion: current.ruleVersion },
           ], from));

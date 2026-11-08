@@ -165,6 +165,7 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
     },
     invalidatePlaintext() { refresh?.cancel(); invalidate(); }, subscribe,
     observeRemote(onReady?: () => void | Promise<void>) {
+      const connections = devices.observeConnections?.();
       const common = { assertOwner: port.assertOwner, subscribeLocal: subscribe, now,
         configured: async () => { const view = await devices.read(); return view.phase === 'approved' || view.phase === 'firstPending'; },
         synchronize: synchronizeAutomatically };
@@ -175,7 +176,7 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
       const planner = plannerSync ? observePrivateCalendarForeground({ ...common,
         subscribeConfiguration: listener => { const device = devices.subscribe(listener); const prefs = plannerSync.store.subscribe(listener); return () => { device(); prefs(); }; },
         watchRemote: plannerSync.cloud.watch }) : null;
-      return () => { calendar(); planner?.(); };
+      return () => { calendar(); planner?.(); connections?.(); };
     },
     async checkGoogleAccount() { await assertMain(); const account = await port.currentGoogleAccount(); await port.assertOwner(); return account; },
     async restoreCurrentGoogleAccount() {
