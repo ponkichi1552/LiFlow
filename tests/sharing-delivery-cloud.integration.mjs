@@ -24,6 +24,7 @@ import { createPrivatePlannerCloud } from '../src/platform/sharing/private-plann
 import { sealPrivatePreferences, privatePreferenceCursor } from '../src/features/sharing/private-planner/preference-crypto.ts';
 import { sealPrivateCalendarCache, openPrivateCalendarCache } from '../src/features/sharing/private-calendar/cache-crypto.ts';
 import { sharedDocumentDigest } from '../src/features/sharing/crypto.ts';
+import { tracedDeliveryRelay } from './helpers/delivery-relay-trace.mjs';
 
 if (!/^127\.0\.0\.1:\d+$/u.test(process.env.FIRESTORE_EMULATOR_HOST ?? '')) throw new Error('Use the isolated local Firestore emulator only');
 const require = createRequire(new URL('../server/appliance-care-api/package.json', import.meta.url));
@@ -36,6 +37,19 @@ before(async () => {
 beforeEach(async () => { await environment.clearFirestore(); });
 after(async () => { await store?.terminate(); await deleteApp(admin); await environment?.cleanup(); });
 const groupId = 'synthetic-delivery-group';
+async function eventually(predicate, message) {
+  const deadline = Date.now() + 5000;
+  while (!await predicate()) { assert.ok(Date.now() < deadline, message); await new Promise(resolve => setTimeout(resolve, 20)); }
+}
+async function privateResponsesReady(userId) {
+  await eventually(async () => {
+    const requests = await store.collection(`privateCalendars/${userId}/deliveryRequests`).get();
+    const ready = await Promise.all(requests.docs.filter(request => request.data().receivedAt === undefined).map(async request => {
+      const replies = await request.ref.collection('responses').get(); return replies.docs.some(reply => reply.data().ready === true);
+    }));
+    return ready.every(Boolean);
+  }, 'the private peer did not finish its independent response');
+}
 
 async function privateFixture(t) {
   const h = await privatePlannerSyncFixture(t, { ownerUserId: 'synthetic-private-delivery-owner' });
@@ -81,15 +95,36 @@ test('private device delivery erases received preference and busy ciphertext whi
   const restored = h.device(h.right.f); const source = h.device(h.left.f);
   await assert.rejects(restored.planner.read(h.authority), error => error.code === 'sharing/delivery-pending');
   await source.planner.read(h.authority);
+  await privateResponsesReady(h.uid);
   assert.deepEqual(await restored.planner.read(h.authority), h.preferences);
   await assert.rejects(restored.calendar.readCache(h.authority), error => error.code === 'sharing/delivery-pending');
   const resumedSource = h.device(h.left.f); await resumedSource.planner.read(h.authority);
+  await privateResponsesReady(h.uid);
   const received = await restored.calendar.readCache(h.authority);
   assert.deepEqual(await openPrivateCalendarCache(crypto, received, { authority: h.authority, calendarBinding: h.calendarBinding, accountKey: h.key }), h.cache);
   await restored.delivery.confirm(h.authority, 'calendar', sharedDocumentDigest(h.encrypted.manifest));
   await restored.delivery.confirm(h.authority, 'preferences', privatePreferenceCursor(h.preferences).digest);
   await sweepPrivateDeliveries(store, h.uid);
   assert.equal((await root.collection('deliveryRequests').get()).size, 0);
+});
+
+test('serving another private device cannot delay a normal preferences read and an account change cancels its delayed response', async t => {
+  const h = await privateFixture(t); await h.upload(); await h.receive(); let release, read, stop;
+  const source = h.device(h.left.f), target = h.device(h.right.f); const id = 'synthetic-private-delayed';
+  try {
+    await source.archive.saveChunk(id, { encryptedPayload: 'synthetic-private-opaque' });
+    await assert.rejects(target.delivery.recover(h.authority, id), error => error.code === 'sharing/delivery-pending');
+    const failures = []; stop = source.delivery.watch(() => {}, error => failures.push(error));
+    let entered; const blocked = new Promise(resolve => { entered = resolve; }), gate = new Promise(resolve => { release = resolve; });
+    const previous = source.archive.chunk;
+    source.archive.chunk = async key => { if (key === id) { entered(); await gate; } return previous(key); };
+    let resolved = false; read = source.planner.read(h.authority).then(value => { resolved = true; return value; });
+    await Promise.race([blocked, read]); await new Promise(setImmediate);
+    assert.equal(resolved, true, 'a personal read cannot await a reply for another device');
+    await blocked; h.left.f.state.currentUser = 'another-user'; release(); await read;
+    await eventually(() => failures.length > 0, 'the old account response was not cancelled');
+    assert.equal((await store.collectionGroup('responses').get()).size, 0);
+  } finally { release?.(); stop?.(); await read?.catch(() => {}); h.left.f.state.currentUser = h.uid; }
 });
 
 test('expired private delivery rehydrates through a peer before merging and keeps both an unsent local edit and its explicit conflict candidate', async t => {
@@ -104,6 +139,7 @@ test('expired private delivery rehydrates through a peer before merging and keep
   await h.right.f.exclusive(h.uid, database => database.execAsync('DELETE FROM private_delivery_archive'));
   const right = h.device(h.right.f); await assert.rejects(right.sync.synchronize(true), error => error.code === 'sharing/delivery-pending');
   await h.device(h.left.f).planner.read(h.authority);
+  await privateResponsesReady(h.uid);
   assert.equal((await right.sync.synchronize(true)).kind, 'conflict');
   const kept = await right.store.readSyncState(); assert.deepEqual(kept.local.restDays, [2]); assert.deepEqual(kept.review.preferences.restDays, [1]);
   const outsider = environment.authenticatedContext('unrelated-group-owner').firestore();
@@ -133,7 +169,7 @@ async function fixture() {
     const cloud = createSharingCloud(firestore, uid, () => active);
     const local = await createSharedDeliveryArchive(db.database, groupId, async work => work(), () => { if (active !== uid) throw new Error('synthetic account changed'); });
     if (enabled) cloud.setDeliveryArchive(identity.deviceId, local, () => archive);
-    return { db, cloud, local, firestore, switchAccount: () => { active = 'someone-else'; } };
+    return { db, cloud, local, firestore, checkAccount: () => assert.equal(active, uid), switchAccount: () => { active = 'someone-else'; } };
   }
   async function upload(source, sequence = 1) {
     const operation = { schemaVersion: 2, groupId, operationId: `synthetic-delivery-${sequence}`, authorUserId: 'owner', authorDeviceId: owner.deviceId,
@@ -142,8 +178,110 @@ async function fixture() {
     const fact = signSharedOperation(operation, owner); const envelope = await encryptSharedOperation(crypto, operation, key, owner);
     const event = await source.cloud.upload(envelope, { authorProofDigest: v2AuthorProofDigest(fact) }); return { fact, event };
   }
-  return { owner, member, key, roster, archive, device, upload, close: () => dbs.forEach(db => db.connection.close()) };
+  const transport = (target, uid, identity, local = target.local) => tracedDeliveryRelay({ firestore: target.firestore, userId: uid,
+    checkAccount: target.checkAccount, reference: id => doc(target.firestore, 'sharingGroups', id), readGroup: id => target.cloud.readGroup(id) }, identity.deviceId, local);
+  return { owner, member, key, roster, archive, device, upload, transport, close: () => dbs.forEach(db => db.connection.close()) };
 }
+
+test('more than eight simultaneous recovery artifacts all arrive and completed replies never reread or upload the same ciphertext', async () => {
+  const f = await fixture();
+  try {
+    const source = await f.device('owner', f.owner, false), target = await f.device('member', f.member, false);
+    let reads = 0; const sender = f.transport(source, 'owner', f.owner, { ...source.local, chunk: async id => { reads++; return source.local.chunk(id); } });
+    const receiver = f.transport(target, 'member', f.member);
+    const values = Array.from({ length: 12 }, (_, index) => ({ id: `synthetic-bulk-${index}`, wire: { encryptedPayload: `synthetic-opaque-${index}` } }));
+    for (const value of values) await source.local.saveChunk(value.id, value.wire);
+    for (const value of values) await assert.rejects(receiver.relay.snapshotChunk(groupId, value.id, 0), error => error.code === 'sharing/delivery-pending');
+    await sender.relay.serve(groupId);
+    for (const value of values) assert.deepEqual(await receiver.relay.snapshotChunk(groupId, value.id, 0), value.wire);
+    const sent = sender.counts.ciphertextCharsWritten; assert.ok(sent > 0); assert.equal(reads, values.length);
+    await sender.relay.serve(groupId);
+    assert.equal(sender.counts.ciphertextCharsWritten, sent); assert.equal(reads, values.length, 'an immutable completed response needs no repeated local PDF read');
+    const metadata = await source.cloud.readGroup(groupId), settled = { ...sender.counts };
+    sender.relay.request(groupId, metadata.group); await new Promise(setImmediate);
+    assert.deepEqual(sender.counts, settled, 'normal reads cannot poll completed recovery work');
+    for (const value of values) await receiver.relay.archive.saveChunk(value.id, value.wire);
+    const received = { ...receiver.counts };
+    for (const value of values) assert.deepEqual(await receiver.relay.snapshotChunk(groupId, value.id, 0), value.wire);
+    assert.deepEqual(receiver.counts, received, 'already durable artifacts are read locally without contacting the server');
+  } finally { f.close(); }
+});
+
+test('a pending recovery resumes when its source later acquires the artifact without another request or unrelated user action', async t => {
+  const f = await fixture();
+  try {
+    const source = await f.device('owner', f.owner, false), target = await f.device('member', f.member, false);
+    const sender = f.transport(source, 'owner', f.owner), receiver = f.transport(target, 'member', f.member);
+    const id = 'synthetic-late-source-data', value = { encryptedPayload: 'synthetic-delayed-source' };
+    await assert.rejects(receiver.relay.snapshotChunk(groupId, id, 0), error => error.code === 'sharing/delivery-pending');
+    await sender.relay.serve(groupId); const before = { ...sender.counts };
+    await sender.relay.archive.saveChunk(id, value);
+    await eventually(async () => (await store.collectionGroup('responses').get()).docs.some(response => response.data().ready === true), 'the source did not wake for its newly durable artifact');
+    assert.deepEqual(await receiver.relay.snapshotChunk(groupId, id, 0), value);
+    assert.equal(sender.counts.queries, before.queries, 'no metadata polling is needed when the missing bytes arrive locally');
+    t.diagnostic(JSON.stringify({ scenario: 'late-source-data', additionalMetadataQueries: sender.counts.queries - before.queries }));
+  } finally { f.close(); }
+});
+
+test('a durable receipt for one artifact never closes a second requested artifact that has not reached device storage', async () => {
+  const f = await fixture();
+  try {
+    const source = await f.device('owner', f.owner, false), target = await f.device('member', f.member, false);
+    const sender = f.transport(source, 'owner', f.owner), receiver = f.transport(target, 'member', f.member);
+    for (const id of ['synthetic-saved', 'synthetic-still-receiving']) {
+      await source.local.saveChunk(id, { encryptedPayload: id });
+      await assert.rejects(receiver.relay.snapshotChunk(groupId, id, 0), error => error.code === 'sharing/delivery-pending');
+    }
+    await sender.relay.serve(groupId);
+    await target.local.saveChunk('synthetic-saved', await receiver.relay.snapshotChunk(groupId, 'synthetic-saved', 0));
+    await receiver.relay.acknowledge(groupId, 0);
+    const requests = await store.collection(`sharingGroups/${groupId}/deliveryRequests`).get();
+    const saved = requests.docs.find(row => row.data().key === 'synthetic-saved'), pending = requests.docs.find(row => row.data().key === 'synthetic-still-receiving');
+    assert.ok(saved.data().receivedAt); assert.equal(pending.data().receivedAt, undefined);
+    assert.deepEqual(await receiver.relay.snapshotChunk(groupId, 'synthetic-still-receiving', 0), { encryptedPayload: 'synthetic-still-receiving' });
+  } finally { f.close(); }
+});
+
+test('a slow peer recovery cannot hold a normal group metadata read or continue after its account changes', async () => {
+  const f = await fixture(); let release; let read;
+  try {
+    const source = await f.device('owner', f.owner), target = await f.device('member', f.member, false);
+    await f.upload(source); const receiver = f.transport(target, 'member', f.member);
+    await assert.rejects(receiver.relay.eventPage(groupId, 0, 1), error => error.code === 'sharing/delivery-pending');
+    let entered; const blocked = new Promise(resolve => { entered = resolve; }); const gate = new Promise(resolve => { release = resolve; });
+    const previous = source.local.events; source.local.events = async (...args) => { entered(); await gate; return previous(...args); };
+    let resolved = false; read = source.cloud.readGroup(groupId).then(value => { resolved = true; return value; });
+    await Promise.race([blocked, read]); await new Promise(setImmediate);
+    assert.equal(resolved, true, 'normal metadata must not await another device recovery');
+    await blocked; source.switchAccount(); release(); await read;
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal((await store.collectionGroup('responses').get()).size, 0, 'a delayed old-account response cannot be uploaded');
+  } finally { release?.(); await read?.catch(() => {}); f.close(); }
+});
+
+test('a new recovery request behind forty older requests is observed once and only its new metadata is fetched', async t => {
+  const f = await fixture(); let stop;
+  try {
+    const source = await f.device('owner', f.owner, false), sender = f.transport(source, 'owner', f.owner);
+    const requests = store.collection(`sharingGroups/${groupId}/deliveryRequests`);
+    const createdAt = new Date(Date.now() - 5000), expiresAt = new Date(Date.now() + 86400_000);
+    const value = key => ({ schemaVersion: 1, userId: 'member', deviceId: f.member.deviceId, kind: 'chunk', key,
+      after: 0, through: 0, keyVersion: f.roster.body.keyVersion, createdAt, expiresAt });
+    const batch = store.batch(); for (let index = 0; index < 40; index++) batch.set(requests.doc(index.toString(16).padStart(64, '0')), value(`synthetic-not-held-${index}`));
+    await batch.commit(); let wakes = 0, pending = Promise.resolve(); const errors = [];
+    stop = sender.relay.watch(groupId, () => { wakes++; pending = sender.relay.serve(groupId).catch(error => { errors.push(error); }); }, error => errors.push(error));
+    await eventually(() => wakes > 0, 'initial requests were not observed'); await pending;
+    const before = { ...sender.counts }; const id = 'f'.repeat(64), key = 'synthetic-after-forty';
+    await source.local.saveChunk(key, { encryptedPayload: 'synthetic-new-opaque' });
+    await requests.doc(id).set({ ...value(key), createdAt: new Date() });
+    await eventually(async () => (await requests.doc(id).collection('responses').doc(f.owner.deviceId).get()).data()?.ready === true, 'the new request remained hidden behind old ones');
+    await pending; assert.deepEqual(errors, []);
+    assert.equal(sender.counts.queryDocuments - before.queryDocuments, 1, 'the forty old metadata records need not be fetched again');
+    const settled = { ...sender.counts }; await new Promise(resolve => setTimeout(resolve, 40)); assert.deepEqual(sender.counts, settled);
+    t.diagnostic(JSON.stringify({ scenario: 'one-request-after-forty', newQueryDocuments: sender.counts.queryDocuments - before.queryDocuments,
+      newQueries: sender.counts.queries - before.queries, newCiphertextCharacters: sender.counts.ciphertextCharsWritten - before.ciphertextCharsWritten }));
+  } finally { stop?.(); f.close(); }
+});
 
 test('shared delivery erases acknowledged ciphertext and a fresh approved device recovers original signed events from a peer without losing its unsent edit', async () => {
   const f = await fixture();

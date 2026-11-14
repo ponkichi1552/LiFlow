@@ -79,14 +79,20 @@ test('device analysis inbox commits the PDF and result atomically before acknowl
   });
   const store = deviceAnalysisDeliveries(f.database); const saved = { jobId: 'a'.repeat(64), baseUrl: 'https://synthetic.invalid',
     receipt: { token: 'b'.repeat(64), digest: 'c'.repeat(64), expiresAt: Date.now() + 100000 } };
+  assert.equal(deviceAnalysisDeliveries(f.database), store, 'all callers on one connection share receipt serialization');
+  assert.equal(await store.hasPending(), false);
+  assert.equal(f.connection.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='appliance_analysis_deliveries'").get().n, 0, 'an empty check cannot add AI tables to cold startup');
+  let changes = 0; const stop = store.subscribe(() => { changes++; });
   assert.equal(await store.admission('a', 'request', 'first-attempt'), 'first-attempt');
   assert.equal(await store.admission('a', 'request', 'retry-attempt'), 'first-attempt');
   f.connection.exec("CREATE TRIGGER synthetic_save_failure BEFORE INSERT ON appliance_analysis_deliveries BEGIN SELECT RAISE(ABORT,'synthetic full disk'); END");
   await assert.rejects(store.save('a', 'request', saved, output, syntheticManual()), /synthetic full disk/);
+  assert.equal(changes, 0, 'a failed save cannot wake receipt delivery');
   assert.deepEqual(await store.pending('a'), []);
   assert.equal(f.connection.prepare('SELECT count(*) AS n FROM appliance_manual_documents').get().n, 0, 'no partial PDF transaction');
   f.connection.exec('DROP TRIGGER synthetic_save_failure');
   await store.save('a', 'request', saved, output, syntheticManual());
+  assert.equal(changes, 1); assert.equal(await store.hasPending(), true);
   assert.deepEqual(await deviceAnalysisDeliveries(f.database).pending('a'), [saved]);
   assert.deepEqual(await store.read('a', 'request'), output); assert.equal(await store.read('b', 'request'), null);
   await store.acknowledged('b', saved.jobId); assert.equal((await store.pending('a')).length, 1);
@@ -97,5 +103,5 @@ test('device analysis inbox commits the PDF and result atomically before acknowl
   const newer = { ...output, message: '合成した最新の解析結果' };
   await store.save('a', 'request', { ...saved, jobId: 'd'.repeat(64) }, newer, syntheticManual());
   assert.deepEqual(await store.read('a', 'request'), newer, 'a clock rollback cannot make a previous job newer than a later reanalysis');
-  f.connection.close();
+  stop(); f.connection.close();
 });

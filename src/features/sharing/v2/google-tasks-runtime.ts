@@ -11,6 +11,7 @@ import { googleTaskRequestNotSent } from '../../google-sync/task-create-intent.t
 import type { GoogleTaskCreateJournal } from '../../google-sync/task-create-intent';
 import type { GoogleTaskListResolution } from '../../google-sync/reconcile-google-tasks';
 import { traceStartup } from '../../../platform/diagnostics/startup-timing.ts';
+import { isGoogleSyncAttemptStale, shouldSyncGoogleTasks } from '../../google-sync/sync-policy.ts';
 
 export interface V2GoogleConnectionReview { subject: string; label: string; connectionRevision: number }
 export function createV2GoogleTaskRuntime(input: { store: V2GoogleTaskStore; assertAccess(): void | Promise<void>;
@@ -132,6 +133,17 @@ export function createV2GoogleTaskRuntime(input: { store: V2GoogleTaskStore; ass
   }
   return { store: input.store,
     readControl: () => input.store.readControl(),
+    hasPendingWork: () => withGoogleSyncOperation(async () => {
+      await input.assertAccess(); const { state } = await input.store.readControl(); const date = now();
+      if (!state?.enabled || state.disconnected || state.status === 'authRequired' || state.status === 'error') return false;
+      if (state.status === 'retryPending') return shouldSyncGoogleTasks(state, date);
+      if (state.status === 'syncing') return isGoogleSyncAttemptStale(state, date);
+      if (!state.lastSuccessfulSyncAt) return true;
+      try {
+        await input.preparePlan?.(); await input.assertAccess(); await input.assertPlanningCurrent?.();
+        const pending = await input.store.hasPendingLocalChanges(); await input.assertAccess(); return pending;
+      } finally { input.finishPlan?.(); }
+    }, 'sharedTasks.pending'),
     reviewConnection: () => mutate(async (): Promise<V2GoogleConnectionReview> => {
       const before = await input.store.readControl(); const account = await input.restoreAccount(); await input.assertAccess();
       if (before.state?.accountSubject && before.state.accountSubject !== account.subject) throw new GoogleAccountMismatchError();

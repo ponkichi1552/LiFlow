@@ -227,12 +227,14 @@ for (const platform of ['ios', 'android']) {
     assert.equal(saved.events.length, 1); assert.equal(saved.events[0].revision, 1); assert.equal(saved.drafts.length, 0);
   });
   test(`${platform} leaving calendar search restores its overview on return without altering events or drafts`, async t => {
-    const h = await fixture(t); let blur;
-    const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, focusEffect: callback => { blur = callback(); },
+    const h = await fixture(t); const blurs = new Map();
+    const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, focusEffect: callback => {
+      const cleanup = callback(); if (typeof cleanup === 'function') blurs.set(callback, cleanup);
+    },
       props: { today: date, timeZone: 'Asia/Tokyo', local: h.local, dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null } });
     t.after(() => ui.unmount()); await ui.press('予定を検索する'); await ui.change('予定を検索', '入力した検索語');
     assert.equal(ui.nodes().some(node => node.props.accessibilityLabel === '予定を検索' && node.type === 'TextInput'), true);
-    blur(); await flush(ui);
+    assert.ok(blurs.size > 0); for (const blur of blurs.values()) blur(); await flush(ui);
     assert.equal(ui.nodes().some(node => node.props.testID === 'calendar-search-results'), false);
     assert.equal(ui.nodes().some(node => node.props.testID === 'calendar-weeks'), true);
     assert.equal((await store.readLocalCalendar(h.database)).drafts.length, 0); assert.equal((await store.readLocalCalendar(h.database)).events.length, 0);

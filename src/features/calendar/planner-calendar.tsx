@@ -146,7 +146,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   const range = view === 'list' ? { from: date, through: addDays(date, Math.min(listDays, 365)) }
     : { from: calendarMonth(month, -1), through: addDays(calendarMonth(month, 2), -1) };
   const requestRange = local?.requestRange;
-  useEffect(() => { requestRange?.(range.from, range.through); }, [requestRange, range.from, range.through]);
+  useFocusEffect(useCallback(() => { requestRange?.(range.from, range.through, { refresh: true }); }, [requestRange, range.from, range.through]));
   const projection = useMemo(() => {
     try { return { events: calendarEventsInTimeZone(projectPrivateCalendarEvents(source.events.filter(event => !event.holiday), source.exceptions, addDays(range.from, -2), addDays(range.through, 2)), timeZone), error: null }; }
     catch (error) { return { events: [] as CalendarOccurrence[], error: error instanceof Error ? error.message : '予定を表示できません。' }; }

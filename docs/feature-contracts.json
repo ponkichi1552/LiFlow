@@ -1,5 +1,148 @@
 [
   {
+    "feature": "sync-traffic-delivery-and-responsiveness-audit-2026-11-15",
+    "tests": [
+      {
+        "file": "tests/calendar-sync-demand.test.mjs",
+        "name": "ios opening an already covered calendar requests fresh external changes without idle polling or rapid focus duplicates"
+      },
+      {
+        "file": "tests/calendar-sync-demand.test.mjs",
+        "name": "android opening an already covered calendar requests fresh external changes without idle polling or rapid focus duplicates"
+      },
+      {
+        "file": "tests/calendar-sync-demand.test.mjs",
+        "name": "ios a received Calendar update never echoes another network scan while a real concurrent local edit still synchronizes"
+      },
+      {
+        "file": "tests/calendar-sync-demand.test.mjs",
+        "name": "android a received Calendar update never echoes another network scan while a real concurrent local edit still synchronizes"
+      },
+      {
+        "file": "tests/calendar-sync-demand.test.mjs",
+        "name": "ios a Calendar edit arriving during an in flight receive keeps its trailing send without an idle scan"
+      },
+      {
+        "file": "tests/calendar-sync-demand.test.mjs",
+        "name": "android a Calendar edit arriving during an in flight receive keeps its trailing send without an idle scan"
+      },
+      {
+        "file": "tests/calendar-sync-demand.test.mjs",
+        "name": "ios a failed external Calendar read retries even when there is no local edit to send"
+      },
+      {
+        "file": "tests/calendar-sync-demand.test.mjs",
+        "name": "android a failed external Calendar read retries even when there is no local edit to send"
+      },
+      {
+        "file": "tests/analysis-receipt-recovery.test.mjs",
+        "name": "an empty receipt outbox causes no authentication no send and no idle retry while a new durable receipt starts exactly one delivery"
+      },
+      {
+        "file": "tests/analysis-receipt-recovery.test.mjs",
+        "name": "a failed saved receipt retries with backoff stops in background and resumes without requiring another paid analysis"
+      },
+      {
+        "file": "tests/analysis-receipt-recovery.test.mjs",
+        "name": "receipt recovery waits for an actual account change instead of polling a signed out or unrelated account"
+      },
+      {
+        "file": "tests/analysis-receipt-recovery.test.mjs",
+        "name": "late receipt database reads after backgrounding cannot start authentication or a send"
+      },
+      {
+        "file": "tests/analysis-receipt-recovery.test.mjs",
+        "name": "receipt recovery honors a stored retry deadline and coalesces local notifications during one send"
+      },
+      {
+        "file": "tests/analysis-receipt-recovery.test.mjs",
+        "name": "the mounted receipt bridge waits for personal startup and does not initialize account services for an empty outbox"
+      },
+      {
+        "file": "tests/analysis-receipt-recovery.test.mjs",
+        "name": "native receipt recovery never sends to a different account or configured host and respects an existing receipt retry deadline"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "receipt sends coalesce within one account and host but never make a new account wait for the old accounts stalled request"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "native shared synchronization separates a human approval wait from unfinished transport work"
+      },
+      {
+        "file": "tests/sharing-workspace-provider.test.mjs",
+        "name": "ios foreground sync wakes only for startup remote changes unfinished retries and resume"
+      },
+      {
+        "file": "tests/sharing-workspace-provider.test.mjs",
+        "name": "android foreground sync wakes only for startup remote changes unfinished retries and resume"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a pending only shared worker sends a durable local Tasks change even when its connection status is idle"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a shared pass that spends its budget before Calendar export remains pending instead of claiming full delivery"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a shared pass that spends its budget before all optional integrations preserves their unfinished work"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a delivered native group distinguishes a fresh Tasks cadence from idle deferred work"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a delivered native group distinguishes a fresh Tasks cadence from retryPending deferred work"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a delivered native group distinguishes a fresh Tasks cadence from authRequired deferred work"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a delivered native group distinguishes a fresh Tasks cadence from syncing deferred work"
+      },
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "shared Tasks pending checks retain real SQLite completions without Google traffic and skip disabled authentication and future retry states"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "a deferred shared Calendar export exposes its retry deadline without token API or source reads"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "serving another private device cannot delay a normal preferences read and an account change cancels its delayed response"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "more than eight simultaneous recovery artifacts all arrive and completed replies never reread or upload the same ciphertext"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "a pending recovery resumes when its source later acquires the artifact without another request or unrelated user action"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "a durable receipt for one artifact never closes a second requested artifact that has not reached device storage"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "a slow peer recovery cannot hold a normal group metadata read or continue after its account changes"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "a new recovery request behind forty older requests is observed once and only its new metadata is fetched"
+      }
+    ]
+  },
+  {
     "feature": "server-data-minimization-and-authenticated-device-delivery",
     "tests": [
       {
@@ -7698,7 +7841,19 @@
       },
       {
         "file": "tests/sharing-v2-native-workspace.test.mjs",
-        "name": "a delivered native group distinguishes a fresh Tasks cadence from ${status} deferred work"
+        "name": "a delivered native group distinguishes a fresh Tasks cadence from idle deferred work"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a delivered native group distinguishes a fresh Tasks cadence from retryPending deferred work"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a delivered native group distinguishes a fresh Tasks cadence from authRequired deferred work"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "a delivered native group distinguishes a fresh Tasks cadence from syncing deferred work"
       },
       {
         "file": "tests/google-sync-coordinator.test.mjs",

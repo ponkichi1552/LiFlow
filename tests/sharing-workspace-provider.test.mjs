@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 
-for (const platform of ['ios', 'android']) test(`${platform} foreground sync wakes only for startup remote changes unfinished retries and resume`, async t => {
+for (const [platform, name] of [
+  ['ios', 'ios foreground sync wakes only for startup remote changes unfinished retries and resume'],
+  ['android', 'android foreground sync wakes only for startup remote changes unfinished retries and resume'],
+]) test(name, async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const effects = [], ticks = []; let stateListener, remote, remoteFailure; let shared = 0, privateSyncs = 0, received = 0;
-  let time = 10_000_000, coordinatorKind = 'success', incomplete = false;
+  let time = 10_000_000, coordinatorKind = 'success', incomplete = false, waitingForSignal = false;
   t.mock.method(Date, 'now', () => time);
   t.mock.method(globalThis, 'setInterval', callback => { ticks.push(callback); return ticks.length; });
   t.mock.method(globalThis, 'clearInterval', () => {});
@@ -28,7 +31,7 @@ for (const platform of ['ios', 'android']) test(`${platform} foreground sync wak
     '@/platform/sharing/private-calendar-sync': { startPrivateCalendarForeground: () => () => {}, syncKnownPrivateCalendar: async () => { privateSyncs++; } },
     '@/platform/sharing/workspaces': { saveSharingSelection: async () => {}, readSharingSelection: async () => null, hasSharingSessionEnabled: async () => true,
       sharingSessionUser: async () => ({ uid: 'owner' }), currentSharingWorkspace: async () => record, openSharedWorkspace: async () => workspace,
-      subscribeSharingChanges: () => () => {}, syncSharingWorkspace: async () => { shared++; if (coordinatorKind === 'success') record.lastSuccessfulSyncAt = time; return { kind: coordinatorKind }; } },
+      subscribeSharingChanges: () => () => {}, syncSharingWorkspace: async () => { shared++; if (coordinatorKind === 'success') record.lastSuccessfulSyncAt = time; return { kind: coordinatorKind, ...(waitingForSignal ? { waitingForSignal: true } : {}) }; } },
   } });
   const disposeBoot = effects[0](); let disposeForeground;
   try {
@@ -43,15 +46,22 @@ for (const platform of ['ios', 'android']) test(`${platform} foreground sync wak
     incomplete = true; remote(); await screen.flush(); assert.equal(received, 2);
     t.mock.timers.tick(30_000); await screen.flush(); assert.equal(received, 3, 'unfinished work retries without polling idle groups');
     incomplete = false; t.mock.timers.tick(60_000); await screen.flush(); assert.equal(received, 4);
+    const privateBeforeSharedFailure = privateSyncs;
     coordinatorKind = 'pending'; remoteFailure(); await screen.flush(); assert.equal(shared, 2);
     t.mock.timers.tick(30_000); await screen.flush(); assert.equal(shared, 3);
     coordinatorKind = 'success'; t.mock.timers.tick(60_000); await screen.flush(); assert.equal(shared, 4);
+    assert.equal(privateSyncs, privateBeforeSharedFailure, 'shared retries cannot poll an already settled private domain');
     const settled = [shared, privateSyncs, received];
     t.mock.timers.tick(3_600_000); await screen.flush(); assert.deepEqual([shared, privateSyncs, received], settled);
     appState.currentState = 'background'; stateListener('background'); const before = [shared, privateSyncs, received];
     t.mock.timers.tick(3_600_000); remote(); await screen.flush(); assert.deepEqual([shared, privateSyncs, received], before);
     appState.currentState = 'active'; stateListener('active'); await screen.flush();
     assert.equal(shared, before[0] + 1, 'resume always synchronizes even shortly after a successful check');
+    coordinatorKind = 'pending'; waitingForSignal = true;
+    appState.currentState = 'background'; stateListener('background'); appState.currentState = 'active'; stateListener('active'); await screen.flush();
+    const approvalWait = [shared, privateSyncs]; t.mock.timers.tick(3_600_000); await screen.flush();
+    assert.deepEqual([shared, privateSyncs], approvalWait, 'human approval waits for the actual remote signal');
+    const beforeApproval = received; remote(); await screen.flush(); assert.equal(received, beforeApproval + 1);
   } finally { disposeForeground?.(); disposeBoot?.(); screen.unmount(); }
 });
 
@@ -59,6 +69,7 @@ for (const platform of ['ios', 'android']) test(`${platform} cold startup restor
   let ready = false; const started = [];
   const provider = name => ({ children }) => { started.push(name); return children; };
   const screen = screenHarness('src/app/_layout.tsx', { platform, mocks: {
+    '@/features/appliance-care/analysis-receipt-bridge': { AnalysisReceiptBridge: () => null },
     'expo-router': { ThemeProvider: ({ children }) => children, DarkTheme: { colors: {} }, DefaultTheme: { colors: {} } },
     'expo-sqlite': { SQLiteProvider: ({ children }) => children },
     '@/platform/diagnostics/startup-splash': { prepareStartupDisplay() {} },

@@ -16,6 +16,7 @@ import { googleOwnedFields } from './google-owned-fields.ts';
 import { traceStartup } from '../../platform/diagnostics/startup-timing.ts';
 import { advanceCalendarPageHistory } from './page-history.ts';
 import { isGoogleAuthenticationError } from '../google-sync/auth-error.ts';
+import { personalCalendarHasPendingWork } from '../google-sync/background-work.ts';
 
 class CalendarPassPending extends Error { readonly code = 'calendar/pass-pending'; }
 type Result = { kind: 'success' | 'pending' | 'error' | 'skipped'; received: number; sent: number; retryAt?: number; waiting?: number };
@@ -385,6 +386,7 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
     running = work; return work;
   };
   return { sync, prepareConnection, readControl: () => readPersonalGoogleCalendarControl(input.database),
+    hasPendingWork: () => personalCalendarHasPendingWork(input.database, now()),
     async isConnected(control: PersonalGoogleCalendarControl): Promise<boolean> {
       if (!control.subject || control.authRequired) return false;
       try { return input.hasSession ? await input.hasSession(control.subject) : await input.currentSubject() === control.subject; }

@@ -15,6 +15,55 @@ import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
 import { createV2WorkspaceSession } from '../src/features/sharing/v2/workspace-session.ts';
 const { syncGoogleTasksWithDependencies } = await import('../src/features/google-sync/coordinator.ts');
 
+test('native shared synchronization separates a human approval wait from unfinished transport work', async () => {
+  const h = await workspaceHarness({ deferWorkspaceTimers: true });
+  try {
+    const workspace = await h.api.openSharedWorkspace(h.record);
+    await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, row => ({ ...row, status: 'active' }));
+    await workspace.record(); h.vault.set('sharing-enabled', 'true');
+    workspace.reminders = async () => ({ synchronize: async () => {} }); workspace.maintainHistory = async () => {};
+    workspace.googleTasks = async () => ({ readControl: async () => ({ state: null }) });
+    workspace.googleCalendar = async () => ({ synchronize: async () => ({ kind: 'skipped' }) });
+    workspace.sync = async () => ({ complete: false, pending: 0, waitingForApproval: true });
+    assert.deepEqual(await h.api.syncSharingWorkspace(), { kind: 'pending', waitingForSignal: true });
+    workspace.sync = async () => ({ complete: false, pending: 1, waitingForApproval: false });
+    assert.deepEqual(await h.api.syncSharingWorkspace(), { kind: 'pending' });
+  } finally { await h.close(); }
+});
+
+test('a pending only shared worker sends a durable local Tasks change even when its connection status is idle', async () => {
+  const h = await workspaceHarness({ deferWorkspaceTimers: true });
+  try {
+    const workspace = await h.api.openSharedWorkspace(h.record);
+    await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, row => ({ ...row, status: 'active' }));
+    await workspace.record(); h.vault.set('sharing-enabled', 'true'); let sent = 0;
+    workspace.checkpoint = async () => ({ pendingCount: 0 }); workspace.sync = async () => ({ complete: true, pending: 0, waitingForApproval: false });
+    workspace.reminders = async () => ({ synchronize: async () => {} }); workspace.maintainHistory = async () => {};
+    workspace.googleTasks = async () => ({ readControl: async () => ({ state: { enabled: true, status: 'idle' } }),
+      hasPendingWork: async () => true, synchronize: async () => { sent++; return { kind: 'success' }; } });
+    workspace.googleCalendar = async () => ({ readControl: async () => ({ enabled: false, pending: false }), synchronize: async () => ({ kind: 'skipped' }) });
+    assert.deepEqual(await h.api.syncSharingWorkspace(30_000, { pendingOnly: true, deltaOnly: true }), { kind: 'success' }); assert.equal(sent, 1);
+  } finally { await h.close(); }
+});
+
+for (const [phase, name] of [
+  ['tasks', 'a shared pass that spends its budget before Calendar export remains pending instead of claiming full delivery'],
+  ['shared', 'a shared pass that spends its budget before all optional integrations preserves their unfinished work'],
+]) test(name, async t => {
+  const h = await workspaceHarness({ deferWorkspaceTimers: true }); let time = Date.now(); t.mock.method(Date, 'now', () => time);
+  try {
+    const workspace = await h.api.openSharedWorkspace(h.record);
+    await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, row => ({ ...row, status: 'active' }));
+    await workspace.record(); h.vault.set('sharing-enabled', 'true'); let calendars = 0;
+    workspace.sync = async () => { if (phase === 'shared') time += 19_500; return { complete: true, pending: 0, waitingForApproval: false }; };
+    workspace.reminders = async () => ({ synchronize: async () => {} }); workspace.maintainHistory = async () => {};
+    workspace.googleTasks = async () => ({ readControl: async () => ({ state: { enabled: true, status: 'idle' } }),
+      synchronize: async () => { if (phase === 'tasks') time += 19_500; return { kind: 'success', skipped: true, skipReason: 'notDue' }; } });
+    workspace.googleCalendar = async () => ({ synchronize: async () => { calendars++; return { kind: 'success' }; } });
+    assert.deepEqual(await h.api.syncSharingWorkspace(20_000), { kind: 'pending' }); assert.equal(calendars, 0);
+  } finally { await h.close(); }
+});
+
 test('a delta-only shared worker leaves full history maintenance to foreground while preserving all delta domains', async () => {
   const h = await workspaceHarness({ deferWorkspaceTimers: true });
   try {
@@ -35,8 +84,13 @@ test('a delta-only shared worker leaves full history maintenance to foreground w
   } finally { await h.close(); }
 });
 
-for (const status of ['idle', 'retryPending', 'authRequired', 'syncing']) {
-  test(`a delivered native group distinguishes a fresh Tasks cadence from ${status} deferred work`, async () => {
+for (const [status, name] of [
+  ['idle', 'a delivered native group distinguishes a fresh Tasks cadence from idle deferred work'],
+  ['retryPending', 'a delivered native group distinguishes a fresh Tasks cadence from retryPending deferred work'],
+  ['authRequired', 'a delivered native group distinguishes a fresh Tasks cadence from authRequired deferred work'],
+  ['syncing', 'a delivered native group distinguishes a fresh Tasks cadence from syncing deferred work'],
+]) {
+  test(name, async () => {
     const h = await workspaceHarness({ deferWorkspaceTimers: true });
     try {
       const workspace = await h.api.openSharedWorkspace(h.record);
@@ -59,7 +113,9 @@ for (const status of ['idle', 'retryPending', 'authRequired', 'syncing']) {
         }, { now });
         return googleResult;
       } });
-      assert.deepEqual(await h.api.syncSharingWorkspace(), { kind: status === 'idle' ? 'success' : 'pending' });
+      const expected = status === 'idle' ? { kind: 'success' } : status === 'authRequired' ? { kind: 'pending', waitingForSignal: true }
+        : { kind: 'pending', retryAt: status === 'retryPending' ? Date.parse(state.nextRetryAt) : Date.parse(state.lastAttemptAt) + 600_000 };
+      assert.deepEqual(await h.api.syncSharingWorkspace(), expected);
       assert.equal(googleResult.skipped, true);
       assert.equal(saves, 0, 'classifying an existing cadence cannot write or resend changes');
       assert.equal(pendingReads, ['idle', 'syncing'].includes(status) ? 1 : 0);

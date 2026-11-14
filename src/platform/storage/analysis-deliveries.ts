@@ -7,8 +7,15 @@ import { withIsolatedSqliteTransaction } from './isolated-transaction.ts';
 import { verifyManualContent } from '../../features/appliance-care/manual-document.ts';
 
 const initialized = new WeakSet<SQLiteDatabase>();
+export interface DeviceAnalysisDeliveryStore extends AnalysisDeliveryStore {
+  hasPending(): Promise<boolean>; subscribe(listener: () => void): () => void;
+}
+const stores = new WeakMap<SQLiteDatabase, DeviceAnalysisDeliveryStore>();
 /** A transport inbox, separate from registering/replacing the user's appliance or chores. */
-export function deviceAnalysisDeliveries(database: SQLiteDatabase): AnalysisDeliveryStore {
+export function deviceAnalysisDeliveries(database: SQLiteDatabase): DeviceAnalysisDeliveryStore {
+  const previous = stores.get(database); if (previous) return previous;
+  const listeners = new Set<() => void>();
+  const notify = () => { for (const listener of listeners) { try { listener(); } catch { /* Other consumers must still receive a committed change. */ } } };
   const operation = <T>(work: () => Promise<T>) => withPlannerDatabaseOperation(database, async () => {
     if (!initialized.has(database)) {
       if (await database.getFirstAsync("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sharing_workspace_metadata'")) throw new Error('解析結果の個人保存先を確認してください。');
@@ -22,7 +29,12 @@ export function deviceAnalysisDeliveries(database: SQLiteDatabase): AnalysisDeli
     }
     return work();
   });
-  return {
+  const result: DeviceAnalysisDeliveryStore = {
+    hasPending: () => withPlannerDatabaseOperation(database, async () => {
+      if (!await database.getFirstAsync("SELECT 1 FROM sqlite_master WHERE type='table' AND name='appliance_analysis_deliveries'")) return false;
+      return Boolean(await database.getFirstAsync('SELECT 1 FROM appliance_analysis_deliveries WHERE receipt_json IS NOT NULL LIMIT 1'));
+    }),
+    subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     admission: (owner, requestKey, proposed) => operation(() => withIsolatedSqliteTransaction(database, async transaction => {
       await transaction.runAsync('INSERT OR IGNORE INTO appliance_analysis_admissions(owner,request_key,idempotency_key) VALUES(?,?,?)', owner, requestKey, proposed);
       const row = await transaction.getFirstAsync<{ idempotency_key: string }>('SELECT idempotency_key FROM appliance_analysis_admissions WHERE owner=? AND request_key=?', owner, requestKey);
@@ -43,7 +55,7 @@ export function deviceAnalysisDeliveries(database: SQLiteDatabase): AnalysisDeli
       await transaction.runAsync(`INSERT INTO appliance_analysis_deliveries(owner,job_id,request_key,base_url,receipt_json,result_json,saved_at)
         VALUES(?,?,?,?,?,?,?) ON CONFLICT(owner,job_id) DO UPDATE SET receipt_json=excluded.receipt_json,result_json=excluded.result_json`,
       owner, delivery.jobId, requestKey, delivery.baseUrl, JSON.stringify(delivery.receipt), JSON.stringify(result), Date.now());
-    })),
+    })).then(() => { notify(); }),
     pending: owner => operation(async () => {
       const rows = await database.getAllAsync<{ job_id: string; base_url: string; receipt_json: string }>(
         'SELECT job_id,base_url,receipt_json FROM appliance_analysis_deliveries WHERE owner=? AND receipt_json IS NOT NULL ORDER BY saved_at LIMIT 32', owner);
@@ -51,6 +63,7 @@ export function deviceAnalysisDeliveries(database: SQLiteDatabase): AnalysisDeli
     }),
     acknowledged: (owner, jobId) => operation(async () => {
       await database.runAsync('UPDATE appliance_analysis_deliveries SET receipt_json=NULL WHERE owner=? AND job_id=?', owner, jobId);
-    }),
+    }).then(() => { notify(); }),
   };
+  stores.set(database, result); return result;
 }

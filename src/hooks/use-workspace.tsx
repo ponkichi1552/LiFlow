@@ -126,14 +126,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         const attempt = displayGate.wait(active); subscriptions.push(attempt.cancel);
         if (!await attempt.promise || !live()) return;
       }
-      const recovery = createDemandWorker({ active: live, run: async () => {
-        const [shared, personal] = await Promise.allSettled([syncSharingWorkspace(), syncKnownPrivateCalendar()]);
-        if (!live()) return false;
-        return shared.status === 'rejected' || personal.status === 'rejected'
-          || shared.value?.kind === 'pending'
-          || personal.value?.kind === 'waiting';
+      const sharedRecovery = createDemandWorker({ active: live, run: async () => {
+        const result = await syncSharingWorkspace();
+        if (!live() || result.kind !== 'pending' || result.waitingForSignal) return false;
+        return result.retryAt ? { retryAt: result.retryAt } : true;
       } });
-      subscriptions.push(recovery.stop);
+      const privateRecovery = createDemandWorker({ active: live, run: async () => {
+        const result = await syncKnownPrivateCalendar(); return live() && result?.kind === 'waiting';
+      } });
+      subscriptions.push(sharedRecovery.stop, privateRecovery.stop);
       try { subscriptions.push(startPrivateCalendarForeground(userId)); } catch { /* Private failure does not block the group. */ }
       try {
         const module = await import('@/platform/sharing/account-device-runtime');
@@ -151,7 +152,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           const attach = () => {
             unsubscribe();
             unsubscribe = workspace.watch(incoming.request, () => {
-              listenerFailed = true; incoming.request(); recovery.request();
+              listenerFailed = true; incoming.request(); sharedRecovery.request();
             });
           };
           const incoming = createDemandWorker({ active: live, run: async () => {
@@ -159,13 +160,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
               const result = await workspace.sync();
               if (listenerFailed && live() && result.complete) { listenerFailed = false; attach(); }
               return !result.complete && !result.waitingForApproval || result.pending > 0;
-            } catch { recovery.request(); return listenerFailed; }
+            } catch { sharedRecovery.request(); return listenerFailed; }
           } });
           subscriptions.push(incoming.stop, () => unsubscribe()); attach();
         }
       } catch { /* The coordinator records and retries failures. */ }
       if (!live()) return;
-      recovery.request();
+      sharedRecovery.request(); privateRecovery.request();
     };
     if (AppState.currentState === 'active') void start().catch(() => undefined);
     const subscription = AppState.addEventListener('change', state => {

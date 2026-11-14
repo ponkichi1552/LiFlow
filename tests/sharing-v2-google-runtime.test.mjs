@@ -7,6 +7,24 @@ const { createV2GoogleTaskRuntime } = await import('../src/features/sharing/v2/g
 const { withGoogleSyncOperation } = await import('../src/features/google-sync/operation-lock.ts');
 const turn = () => new Promise(setImmediate);
 
+test('shared Tasks pending checks retain real SQLite completions without Google traffic and skip disabled authentication and future retry states', async () => {
+  const h = await googleFixture(); let clock = now(); let prepared = 0;
+  const runtime = createV2GoogleTaskRuntime({ store: h.store, now: () => clock, assertAccess: h.scope.assertAccess,
+    currentSubject: async () => 'synthetic-google-subject', token: async () => assert.fail('a pending check cannot request a token'),
+    restoreAccount: async () => assert.fail(), authorizeTasks: async () => assert.fail(), createApi: () => assert.fail('a pending check cannot create a Google client'),
+    preparePlan: async () => { prepared++; } });
+  try {
+    assert.equal(await runtime.hasPendingWork(), false); await h.connect(); await h.sync(); const before = h.calls.length;
+    assert.equal(await runtime.hasPendingWork(), false);
+    const [item] = await h.entries(); await h.actions.complete(item.target); assert.equal(await runtime.hasPendingWork(), true);
+    let control = await h.store.readControl(); await h.store.saveSyncState({ ...control.state, status: 'authRequired' }, control.revision);
+    const preparedBeforeAuth = prepared; assert.equal(await runtime.hasPendingWork(), false); assert.equal(prepared, preparedBeforeAuth);
+    control = await h.store.readControl(); await h.store.saveSyncState({ ...control.state, status: 'retryPending', nextRetryAt: new Date(clock.getTime() + 60_000).toISOString() }, control.revision);
+    assert.equal(await runtime.hasPendingWork(), false); clock = new Date(clock.getTime() + 60_001); assert.equal(await runtime.hasPendingWork(), true);
+    assert.equal(h.calls.length, before);
+  } finally { h.close(); }
+});
+
 test('manual synchronization joining a background full-scan deferral gets its own foreground pass',async()=>{
   const h=await googleFixture();let release,entered;let prepared=0;
   const gate=new Promise(resolve=>{release=resolve;}),start=new Promise(resolve=>{entered=resolve;});

@@ -53,9 +53,10 @@ export function createPrivateDelivery(port: { firestore: Firestore; userId: stri
     if (needsServing && !serving) {
       needsServing = false;
       const pending = relay.serve(userId); serving = pending;
-      void pending.finally(() => { if (serving === pending) serving = undefined; }).catch(() => { needsServing = true; });
+      void pending.finally(() => { if (serving === pending) serving = undefined; }).catch(error => {
+        needsServing = true; for (const observer of listeners) observer.failed(error);
+      });
     }
-    if (serving) await serving;
     port.assertOwner(); return relay;
   }
   async function advertise(expected: VerifiedPrivateCalendarAuthority) {
@@ -68,7 +69,7 @@ export function createPrivateDelivery(port: { firestore: Firestore; userId: stri
     advertised = true;
   }
   return {
-    async remember(expected, id, value) { await current(expected); await archive.saveChunk(id, value); port.assertOwner(); },
+    async remember(expected, id, value) { const transport = await current(expected); await transport.archive.saveChunk(id, value); port.assertOwner(); },
     async recover(expected, id) { const transport = await current(expected); const value = await transport.snapshotChunk(userId, id, 0); port.assertOwner(); return value; },
     async confirm(expected, kind, digest) {
       const transport = await current(expected); if (!/^[a-f0-9]{64}$/u.test(digest) || !await archive.chunk(`${kind}.${digest}`)) throw new Error('Private delivery is not durable');

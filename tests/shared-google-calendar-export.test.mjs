@@ -39,6 +39,21 @@ function fixture(count = 1, options = {}) {
   return { runtime, restart: () => createSharedGoogleCalendarExport(runtimeInput), items, calls, links, remote, connect, control: () => control, setSubject: value => { subject = value; }, afterInsert: work => { afterInsert = work; } };
 }
 
+test('a deferred shared Calendar export exposes its retry deadline without token API or source reads', async () => {
+  let sourceReads = 0; let subjectReads = 0; let apiInitializations = 0;
+  const runtime = createSharedGoogleCalendarExport({
+    scope: { userId: 'owner', groupId: 'home' }, now: () => 1_000_000,
+    assertAccess: async () => {},
+    store: { readControl: async () => ({ enabled: true, subject: 'google-user', calendarId: 'cal', revision: 1, retryAt: 1_060_000 }),
+      readItems: async () => { sourceReads++; return []; } },
+    currentSubject: async () => { subjectReads++; return 'google-user'; },
+    authorize: async () => { throw new Error('No interactive authorization while waiting for a deadline'); },
+    createApi: () => { apiInitializations++; throw new Error('No API before the retry deadline'); },
+  });
+  assert.deepEqual(await runtime.synchronize(), { kind: 'pending', sent: 0, retryAt: 1_060_000 });
+  assert.deepEqual({ sourceReads, subjectReads, apiInitializations }, { sourceReads: 0, subjectReads: 0, apiInitializations: 0 });
+});
+
 test('a second installation with an old Google ETag can advance a verified intermediate shared revision without creating another event', async () => {
   const known = new Map(); let currentRevision = 'one';
   const f = fixture(1, { store: { knownSeriesRevision: async (source, revision) => source === 'event-0' && known.has(revision)

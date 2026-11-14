@@ -12,6 +12,26 @@ registerHooks({ resolve(specifier, context, nextResolve) {
 const { analyzeApplianceCareRequest, abortApplianceWait, isApplianceCareUsage } = await import('../src/features/appliance-care/api-client.ts');
 const request = { manufacturer: 'Dyson', productName: 'V12', modelNumber: 'SV20' };
 
+test('receipt sends coalesce within one account and host but never make a new account wait for the old accounts stalled request', async () => {
+  const { flushAnalysisReceipts } = await import('../src/features/appliance-care/api-client.ts');
+  const original = globalThis.fetch; let release; const sent = [], acknowledged = [];
+  const store = { pending: async owner => [{ jobId: (owner === 'a' ? 'a' : 'b').repeat(64), baseUrl: 'https://api.example.test',
+    receipt: { token: 'c'.repeat(64), digest: 'd'.repeat(64), expiresAt: Date.now() + 60000 } }],
+    acknowledged: async owner => { acknowledged.push(owner); } };
+  const session = owner => ({ userId: owner, headers: async () => ({ authorization: `Bearer synthetic-${owner}` }) });
+  try {
+    globalThis.fetch = async (_url, options) => { sent.push(options.headers.authorization);
+      if (options.headers.authorization.endsWith('-a')) await new Promise(resolve => { release = resolve; });
+      return Response.json({ acknowledged: true }); };
+    const first = flushAnalysisReceipts(store, session('a'), 'https://api.example.test');
+    assert.equal(flushAnalysisReceipts(store, session('a'), 'https://api.example.test'), first);
+    while (!release) await new Promise(setImmediate);
+    await flushAnalysisReceipts(store, session('b'), 'https://api.example.test');
+    assert.deepEqual(sent, ['Bearer synthetic-a', 'Bearer synthetic-b']); assert.deepEqual(acknowledged, ['b']);
+    release(); await first; assert.deepEqual(acknowledged, ['b', 'a']);
+  } finally { release?.(); globalThis.fetch = original; }
+});
+
 test('an explicit reanalysis replaces the ordinary local result cache so a later read needs no request and cannot revive the earlier result', async () => {
   const { analysisDeliveryJson } = await import('../server/appliance-care-api/src/analysis-delivery-contract.mjs');
   const { publicKey } = await import('../server/appliance-care-api/src/public-access.mjs');

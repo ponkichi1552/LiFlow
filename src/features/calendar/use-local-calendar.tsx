@@ -100,7 +100,7 @@ export interface LocalCalendarBinding {
   shared?: { groupId: string; name: string; enabled: boolean; notificationScope?: string };
   prepareDraft?: (draft: CalendarEditorDraft) => CalendarEditorDraft;
   canEditEvent?: (eventId: string, anchorDate?: LocalDate | null) => boolean;
-  requestRange?: (from: LocalDate, through: LocalDate) => void;
+  requestRange?: (from: LocalDate, through: LocalDate, options?: { refresh?: boolean }) => void;
   categoriesFor?: (audience: 'personal' | 'group') => readonly CalendarCategory[];
   saveEvent?: (draft: CalendarEditorDraft, resetExceptions: boolean) => Promise<void>;
   restoreOccurrence?: (draft: CalendarEditorDraft) => Promise<void>;

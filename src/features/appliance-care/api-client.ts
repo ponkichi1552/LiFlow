@@ -177,19 +177,30 @@ export async function analyzeApplianceCareRequest(
   }
 }
 
-const receiptWorkers = new WeakMap<AnalysisDeliveryStore, Promise<void>>();
+type ReceiptRun = { work?: Promise<void>; failures: number; retryAt: number };
+const receiptWorkers = new WeakMap<AnalysisDeliveryStore, Map<string, ReceiptRun>>();
+export function analysisReceiptRetryAt(store: AnalysisDeliveryStore, userId: string, baseUrl: string): number {
+  return receiptWorkers.get(store)?.get(JSON.stringify([userId, baseUrl]))?.retryAt ?? 0;
+}
 export function flushAnalysisReceipts(store: AnalysisDeliveryStore, session: ApplianceApiSession, baseUrl: string): Promise<void> {
-  const running = receiptWorkers.get(store); if (running) return running;
+  let scopes = receiptWorkers.get(store); if (!scopes) { scopes = new Map(); receiptWorkers.set(store, scopes); }
+  const key = JSON.stringify([session.userId, baseUrl]); let state = scopes.get(key);
+  if (!state) { state = { failures: 0, retryAt: 0 }; scopes.set(key, state); }
+  if (state.work) return state.work;
+  const captured = state;
   const work = (async () => {
-    for (const delivery of await store.pending(session.userId)) {
-      if (delivery.baseUrl !== baseUrl || !validAnalysisDelivery(delivery.receipt)) continue;
-      if (delivery.receipt.expiresAt <= Date.now()) { await store.acknowledged(session.userId, delivery.jobId); continue; }
-      await sendAnalysisReceipt(delivery, session);
-      await store.acknowledged(session.userId, delivery.jobId);
-    }
+    try {
+      for (const delivery of await store.pending(session.userId)) {
+        if (delivery.baseUrl !== baseUrl || !validAnalysisDelivery(delivery.receipt)) continue;
+        if (delivery.receipt.expiresAt <= Date.now()) { await store.acknowledged(session.userId, delivery.jobId); continue; }
+        await sendAnalysisReceipt(delivery, session);
+        await store.acknowledged(session.userId, delivery.jobId);
+      }
+      captured.failures = 0; captured.retryAt = 0;
+    } catch (error) { captured.retryAt = Date.now() + Math.min(300_000, 30_000 * 2 ** Math.min(captured.failures++, 4)); throw error; }
   })();
-  receiptWorkers.set(store, work);
-  void work.finally(() => { if (receiptWorkers.get(store) === work) receiptWorkers.delete(store); }).catch(() => undefined);
+  captured.work = work;
+  void work.finally(() => { if (captured.work === work) captured.work = undefined; }).catch(() => undefined);
   return work;
 }
 async function sendAnalysisReceipt(delivery: SavedAnalysisDelivery, session: ApplianceApiSession): Promise<void> {

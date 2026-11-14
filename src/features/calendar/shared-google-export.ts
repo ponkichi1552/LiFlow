@@ -16,7 +16,7 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
   createApi(context: { subject: string; assertCurrent(): Promise<void>; signal: AbortSignal }): GoogleCalendarApi;
   now?: () => number; random?: () => number }) {
   const now = input.now ?? Date.now; const random = input.random ?? Math.random;
-  type Result = { kind: 'success' | 'pending' | 'skipped' | 'error'; sent: number };
+  type Result = { kind: 'success' | 'pending' | 'skipped' | 'error'; sent: number; retryAt?: number };
   let running: Promise<Result> | null = null;
   const followups = new WeakMap<Promise<Result>, { promise: Promise<Result>; budget: GoogleOperationBudget }>();
   let cancel: (() => void) | undefined;
@@ -47,7 +47,7 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
     if (!current.enabled || current.revision !== control.revision || current.subject !== control.subject || current.calendarId !== control.calendarId
       || await withinGoogleOperationBudget(budget, input.currentSubject) !== control.subject) throw new GoogleAccountMismatchError();
   }
-  const synchronize = (options: { budgetMs?: number; force?: boolean; interactive?: boolean } = {}): Promise<{ kind: 'success' | 'pending' | 'skipped' | 'error'; sent: number }> => {
+  const synchronize = (options: { budgetMs?: number; force?: boolean; interactive?: boolean } = {}): Promise<Result> => {
     if (running) {
       // An edit can arrive after the active pass captured its source. Preserve
       // one trailing pass with its own deadline instead of losing that trigger.
@@ -77,7 +77,7 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
       await input.assertAccess(); const control = await input.store.readControl();
       // OFF is a complete no-op: no native token, Google reads, writes or deletes.
       if (!control.enabled || !control.subject || !control.calendarId) return { kind: 'skipped' as const, sent: 0 };
-      if (!options.force && control.retryAt && control.retryAt > now()) return { kind: 'pending' as const, sent: 0 };
+      if (!options.force && control.retryAt && control.retryAt > now()) return { kind: 'pending' as const, sent: 0, retryAt: control.retryAt };
       return withGoogleSyncOperation(async () => {
         let sent = 0; let calls = 0;
         const guard = async () => { budget.assert(); await assertControl(control, budget); };

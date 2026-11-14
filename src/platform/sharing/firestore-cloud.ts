@@ -84,7 +84,7 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
       await management.acknowledge(groupId, deviceId, sequence);
       await delivery?.acknowledge(groupId, sequence);
     },
-    readGroup: async (groupId: string) => { await delivery?.serve(groupId); return readGroup(groupId); },
+    readGroup: async (groupId: string) => { const value = await readGroup(groupId); delivery?.request(groupId, value.group); return value; },
     async readMembership(): Promise<string | null> {
       checkAccount(); const result = await getDocFromServer(doc(firestore, 'sharingUsers', userId, 'memberships', 'current')); checkAccount();
       if (!result.exists()) return null;

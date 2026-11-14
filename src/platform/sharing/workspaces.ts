@@ -1,4 +1,5 @@
 import { randomUUID } from 'expo-crypto';
+import { GOOGLE_SYNC_STALE_ATTEMPT_MS } from '../../features/google-sync/sync-policy.ts';
 import { deleteDatabaseAsync, openDatabaseAsync } from 'expo-sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { User } from 'firebase/auth';
@@ -718,7 +719,7 @@ export async function requestSharingWorkspace(linkText: string): Promise<SharedW
 }
 
 /** Foreground and the single OS worker call the same bounded coordinator. */
-export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOnly?: boolean; pendingOnly?: boolean } = {}): Promise<{ kind: 'success' | 'pending' | 'skipped' }> {
+export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOnly?: boolean; pendingOnly?: boolean } = {}): Promise<{ kind: 'success' | 'pending' | 'skipped'; waitingForSignal?: true; retryAt?: number }> {
   if (!await hasSharingSessionEnabled()) return { kind: 'skipped' };
   const start = Date.now(); const owner = (await sharingSessionUser())?.uid;
   const record = await currentSharingWorkspace();
@@ -727,10 +728,10 @@ export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOn
     if (record.status === 'active' && !record.lastErrorCode) {
       const workspace = await openSharedWorkspace(record); const checkpoint = await workspace.checkpoint();
       if (!checkpoint.pendingCount) {
-        const tasks = workspace.protocol === 2 ? (await (await workspace.googleTasks()).readControl()).state : null;
+        const queuedTasks = workspace.protocol === 2 ? await (await workspace.googleTasks()).hasPendingWork() : false;
         const calendar = workspace.protocol === 2 ? await (await workspace.googleCalendar()).readControl() : null;
-        const queuedTasks = tasks?.enabled && !tasks.disconnected && ['retryPending', 'error', 'syncing'].includes(tasks.status);
-        if (!queuedTasks && !calendar?.pending) return { kind: 'skipped' };
+        const queuedCalendar = calendar?.enabled && calendar.pending && (!calendar.retryAt || calendar.retryAt <= Date.now());
+        if (!queuedTasks && !queuedCalendar) return { kind: 'skipped' };
       }
     }
   }
@@ -744,6 +745,14 @@ export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOn
   if ((await sharingSessionUser())?.uid !== owner) throw new SharingAccessError('同期する共有アカウントが変わりました。');
   if (!owner) return { kind: 'skipped' };
   let pending = Boolean(record);
+  let waitingForSignal = restoring;
+  let retryNeeded = false; let retryAt: number | undefined;
+  const defer = (deadline?: number, waitForSignal = false) => {
+    pending = true;
+    if (waitForSignal) waitingForSignal = true;
+    else if (deadline !== undefined && Number.isFinite(deadline) && deadline > Date.now()) retryAt = Math.min(retryAt ?? Infinity, deadline);
+    else retryNeeded = true;
+  };
   if (Date.now() - start < budgetMs - 1000) try {
     const { clearInactiveV2Reminders } = await import('./v2-reminders');
     await clearInactiveV2Reminders(record?.status === 'active' ? [record] : [], async () => {
@@ -760,31 +769,40 @@ export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOn
       if (syncBudget < 1000) { if (failures.length) throw failures[0]; return { kind: 'pending' }; }
       const result = await workspace.sync({ budgetMs: syncBudget }).catch(error => { failures.push(error); return null; });
       pending = !result || !result.complete || result.pending > 0 || result.waitingForApproval;
-      if (budgetMs - (Date.now() - start) >= 1000 && workspace.protocol === 2) {
+      waitingForSignal = Boolean(result && (restoring || result.waitingForApproval));
+      retryNeeded = !result || !result.waitingForApproval && (!result.complete || result.pending > 0);
+      if (workspace.protocol === 2) {
         if (budgetMs - (Date.now() - start) >= 1000) await workspace.reminders().then(runtime => {
           const remaining = budgetMs - (Date.now() - start); if (remaining >= 1000) return runtime.synchronize(Math.min(15_000, remaining));
         }).catch(error => { failures.push(error); });
+        else defer();
         const taskBudget = budgetMs - (Date.now() - start);
         if (taskBudget >= 1000) await workspace.googleTasks().then(async runtime => {
-          if (budgetMs - (Date.now() - start) < 1000) { pending = true; return; }
+          if (budgetMs - (Date.now() - start) < 1000) { defer(); return; }
           const { state } = await runtime.readControl();
           if (!state?.enabled || state.disconnected) return;
           const remaining = budgetMs - (Date.now() - start);
           if (remaining >= 1000) return runtime.synchronize({ budgetMs: Math.min(15_000, remaining), ...(options.deltaOnly ? { deltaOnly: true } : {}) }).then(result => {
             if (result.kind !== 'success') throw new Error('Google Tasksへの同期を完了できませんでした。接続状態を確認してください。');
-            if (result.skipped && result.skipReason !== 'notDue') pending = true;
-            if (result.foregroundRequired) pending = true;
+            if (result.skipped && result.skipReason !== 'notDue' || result.foregroundRequired) {
+              const deadline = state.status === 'retryPending' ? Date.parse(state.nextRetryAt ?? '')
+                : state.status === 'syncing' ? Date.parse(state.lastAttemptAt ?? '') + GOOGLE_SYNC_STALE_ATTEMPT_MS : undefined;
+              defer(deadline, state.status === 'authRequired' || state.status === 'error');
+            }
           });
-          pending = true;
+          defer();
         }).catch(error => { failures.push(error); });
+        else defer();
         const calendarBudget = budgetMs - (Date.now() - start);
         if (calendarBudget >= 1000) await workspace.googleCalendar().then(runtime => {
           const remaining = budgetMs - (Date.now() - start);
-          return remaining >= 1000 ? runtime.synchronize({ budgetMs: Math.min(15_000, remaining) }) : undefined;
+          if (remaining < 1000) { defer(); return undefined; }
+          return runtime.synchronize({ budgetMs: Math.min(15_000, remaining) });
         }).then(result => {
           if (result?.kind === 'error') throw new Error('共有予定のGoogle追加を確認できませんでした。続きを再送します。');
-          if (result && !['success', 'skipped'].includes(result.kind)) pending = true;
+          if (result && !['success', 'skipped'].includes(result.kind)) defer('retryAt' in result && typeof result.retryAt === 'number' ? result.retryAt : undefined);
         }).catch(error => { failures.push(error); });
+        else defer();
       }
       const historyBudget = budgetMs - (Date.now() - start);
       // Full ledger verification and snapshot/retention maintenance run in foreground.
@@ -793,7 +811,9 @@ export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOn
     } catch (error) { failures.push(error); }
   }
   if (failures.length) throw failures[0];
-  return { kind: restoring ? 'pending' : !record ? 'skipped' : pending ? 'pending' : 'success' };
+  const kind = restoring ? 'pending' : !record ? 'skipped' : pending ? 'pending' : 'success';
+  return { kind, ...(kind === 'pending' && !retryNeeded ? (retryAt !== undefined ? { retryAt }
+    : waitingForSignal ? { waitingForSignal: true as const } : {}) : {}) };
 }
 
 /** Native OAuth is shared by the process, while connection settings and Task IDs remain per workspace. */
