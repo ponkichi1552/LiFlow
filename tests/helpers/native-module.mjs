@@ -23,6 +23,8 @@ export function loadNativeModule(filename, mocks, timers = {}) {
     if (!(name in mocks) && name === '@/platform/sharing/adaptive-personal-runtime') return {};
     if (!(name in mocks) && name === './src/platform/diagnostics/startup-clock') return require('../../src/platform/diagnostics/startup-clock.ts');
     if (!(name in mocks) && name === '@/features/planner/initial-display-gate') return require('../../src/features/planner/initial-display-gate.ts');
+    if (!(name in mocks) && name === '../google-sync/demand-worker') return require('../../src/features/google-sync/demand-worker.ts');
+    if (!(name in mocks) && name === '../../../server/appliance-care-api/src/analysis-delivery-contract.mjs') return require('../../server/appliance-care-api/src/analysis-delivery-contract.mjs');
     if (!(name in mocks) && name === '@/platform/sharing/startup-display') return { readSavedStartupDisplay: async () => undefined, startupDisplayCache: { read: async () => undefined } };
     assert.ok(name in mocks, `unmocked native import ${name}`); return mocks[name];
   }, module, module.exports, timers.setTimeout ?? globalThis.setTimeout, timers.clearTimeout ?? globalThis.clearTimeout);

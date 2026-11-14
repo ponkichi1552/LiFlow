@@ -18,6 +18,28 @@ test('background completion classification preserves interrupted evidence and re
   for (const outcome of ['running', 'interrupted', 'failed']) assert.equal(backgroundRunStatus({ ...complete, outcome }), outcome);
 });
 
+test('an idle OS wake performs local demand checks without refreshing settled Tasks or Calendar and restricts sharing retries to pending work', async () => {
+  let worker; let networkDomains = 0; const checks = []; const old = globalThis.__DEV__; globalThis.__DEV__ = false;
+  try {
+    loadNativeModule('src/features/google-sync/background-task.ts', {
+      'expo-background-task': { BackgroundTaskResult: { Success: 'success', Failed: 'failed' } },
+      'expo-task-manager': { defineTask: (_name, callback) => { worker = callback; } },
+      'expo-sqlite': { openDatabaseAsync: async () => ({ closeAsync: async () => {} }) },
+      './background-audit': { createBackgroundAudit: () => ({ begin: async () => 1, domain: async () => {}, finish: async () => {} }) },
+      '@/platform/storage/repository': { initializeLocalDatabase: async () => {}, LOCAL_HOUSEHOLD_ID: 'local',
+        loadGoogleSyncState: async () => ({ enabled: true, status: 'idle', lastSuccessfulSyncAt: '2026-11-15T00:00:00Z' }),
+        hasPendingGoogleTaskChanges: async () => { checks.push('tasks'); return false; } },
+      './background-work': { personalCalendarHasPendingWork: async () => { checks.push('calendar'); return false; } },
+      './coordinator': { syncGoogleTasks: async () => { networkDomains++; return { kind: 'success' }; } },
+      '@/platform/google-calendar/personal-runtime': { nativePersonalGoogleCalendar: () => ({ sync: async () => { networkDomains++; return { kind: 'success' }; } }) },
+      '@/platform/sharing/private-calendar-sync': { syncKnownPrivateCalendar: async (_budget, options) => { assert.equal(options.pendingOnly, true); return { kind: 'skipped' }; } },
+      '@/platform/sharing/workspaces': { syncSharingWorkspace: async (_budget, options) => { assert.equal(options.pendingOnly, true); return { kind: 'skipped' }; } },
+    });
+    for (let i = 0; i < 3; i++) assert.equal(await worker({}), 'success');
+    assert.equal(networkDomains, 0); assert.deepEqual(checks, ['tasks', 'calendar', 'tasks', 'calendar', 'tasks', 'calendar']);
+  } finally { if (old === undefined) delete globalThis.__DEV__; else globalThis.__DEV__ = old; }
+});
+
 for (const platform of ['ios', 'android']) test(`${platform} background diagnostics show pending domains until every enabled synchronization finishes`, async () => {
   const rows = [{ id: 67, started_at: 1000, finished_at: 2000, release: 1, outcome: 'success',
     personal: 'skipped', private_calendar: 'skipped', sharing: 'pending', personal_google_calendar: 'pending' }];
@@ -61,6 +83,7 @@ for (const enabled of [true, false]) test(`registering the OS worker defers all 
       '@/platform/google-calendar/personal-runtime': { nativePersonalGoogleCalendar: () => ({ sync: async options => {
         assert.equal(options.deltaOnly, true); ran.push('calendar'); return { kind: 'success' };
       } }) },
+      './background-work': { personalCalendarHasPendingWork: async () => true },
       '@/platform/sharing/private-calendar-sync': { syncKnownPrivateCalendar: async () => { ran.push('private'); return { kind: 'received' }; } },
       '@/platform/sharing/workspaces': { syncSharingWorkspace: async (budget, options) => {
         assert.equal(budget, 30000); assert.equal(options.deltaOnly, true); ran.push('sharing'); return { kind: 'success' };
@@ -98,6 +121,7 @@ test('only the OS worker callback creates release evidence and one domain failur
       'expo-task-manager': { defineTask: (_name, run) => { callback = run; } },
       'expo-sqlite': { openDatabaseAsync: async name => name === 'background-sync-audit.db' ? { ...h.database, closeAsync: async () => {} } : { closeAsync: async () => {} } },
       '@/platform/google-calendar/personal-runtime': { nativePersonalGoogleCalendar: () => ({ sync: async () => ({ kind: 'skipped' }) }) },
+      './background-work': { personalCalendarHasPendingWork: async () => true },
       './coordinator': { syncGoogleTasks: async () => { calls.push('personal'); throw new Error('transient transport failure'); } },
       '@/platform/storage/repository': { LOCAL_HOUSEHOLD_ID: 'local', initializeLocalDatabase: async () => {}, loadGoogleSyncState: async () => ({ enabled: true }) },
       '@/platform/sharing/private-calendar-sync': { syncKnownPrivateCalendar: async () => { calls.push('private'); return { kind: 'received' }; } },
@@ -116,6 +140,7 @@ for (const kind of ['retry', 'authRequired', 'error', 'success']) {
     const h = createDatabase(); let callback; const calls = []; const previous = globalThis.__DEV__; globalThis.__DEV__ = false;
     try {
       loadNativeModule('src/features/google-sync/background-task.ts', {
+      './background-work': { personalCalendarHasPendingWork: async () => true },
         './background-audit': { createBackgroundAudit },
         'expo-background-task': { BackgroundTaskResult: { Success: 'success', Failed: 'failed' } },
         'expo-task-manager': { defineTask: (_name, run) => { callback = run; } },
@@ -140,6 +165,7 @@ for (const kind of ['skipped', 'pending', 'error', 'success']) test(`personal Ca
   const h = createDatabase(); const calls = []; let callback; const previous = globalThis.__DEV__; globalThis.__DEV__ = false;
   try {
     loadNativeModule('src/features/google-sync/background-task.ts', {
+      './background-work': { personalCalendarHasPendingWork: async () => true },
       './background-audit': { createBackgroundAudit },
       'expo-background-task': { BackgroundTaskResult: { Success: 'success', Failed: 'failed' } },
       'expo-task-manager': { defineTask: (_name, work) => { callback = work; } },
@@ -158,6 +184,7 @@ for (const kind of ['skipped', 'pending', 'error', 'success']) test(`personal Ca
 test('turning Tasks off preserves the single OS worker while personal Calendar synchronization remains enabled', async () => {
   let enabled = true; let registered = false; const calls = [];
   const module = loadNativeModule('src/features/google-sync/background-task.ts', {
+      './background-work': { personalCalendarHasPendingWork: async () => true },
     './background-audit': { createBackgroundAudit }, './coordinator': {},
     '@/platform/storage/repository': {},
     'expo-task-manager': { defineTask() {}, isAvailableAsync: async () => true, getRegisteredTasksAsync: async () => registered ? [{ taskName: 'housework-planner-google-tasks-sync' }] : [] },
@@ -178,6 +205,7 @@ for (const [kind, expected] of [['received', 'success'], ['published', 'success'
     const h = createDatabase(); let callback; const previous = globalThis.__DEV__; globalThis.__DEV__ = false;
     try {
       loadNativeModule('src/features/google-sync/background-task.ts', {
+      './background-work': { personalCalendarHasPendingWork: async () => true },
         './background-audit': { createBackgroundAudit },
         'expo-background-task': { BackgroundTaskResult: { Success: 'success', Failed: 'failed' } },
         'expo-task-manager': { defineTask: (_name, work) => { callback = work; } },

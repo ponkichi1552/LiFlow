@@ -1,5 +1,128 @@
 [
   {
+    "feature": "server-data-minimization-and-authenticated-device-delivery",
+    "tests": [
+      {
+        "file": "tests/analysis-delivery.test.mjs",
+        "name": "analysis content is erased only by the authenticated owner exact durable receipt and survives wrong missing and premature receipts"
+      },
+      {
+        "file": "tests/analysis-delivery.test.mjs",
+        "name": "AI deletion receipts remain usable without paid access or native attestation but never bypass owner authentication"
+      },
+      {
+        "file": "tests/analysis-delivery.test.mjs",
+        "name": "AI unreceived content expires in twenty four hours while immutable admission hashes prevent a paid replay"
+      },
+      {
+        "file": "tests/analysis-delivery.test.mjs",
+        "name": "device analysis inbox commits the PDF and result atomically before acknowledging and keeps receipts recoverable across connection restart"
+      },
+      {
+        "file": "tests/demand-sync.test.mjs",
+        "name": "settled synchronization makes no idle requests and only a new signal can start another pass"
+      },
+      {
+        "file": "tests/demand-sync.test.mjs",
+        "name": "unfinished synchronization retries with backoff while settled work stops all retry traffic"
+      },
+      {
+        "file": "tests/demand-sync.test.mjs",
+        "name": "synchronization honors an existing provider retry deadline instead of checking it every fixed interval"
+      },
+      {
+        "file": "tests/demand-sync.test.mjs",
+        "name": "concurrent synchronization signals coalesce without losing a change that arrived during a pass"
+      },
+      {
+        "file": "tests/demand-sync.test.mjs",
+        "name": "backgrounding and stopping synchronization prevent late retries and old-account signals from making requests"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "mobile analysis sends a deletion receipt only after durable storage and retries lost acknowledgements without sending the result or PDF again"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "mobile analysis rejects a receipt for different result bytes before saving or acknowledging it"
+      },
+      {
+        "file": "tests/background-sync-audit.test.mjs",
+        "name": "an idle OS wake performs local demand checks without refreshing settled Tasks or Calendar and restricts sharing retries to pending work"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "OS Calendar wakeups skip settled state and external-only changes but resume a durable local edit or unfinished scan"
+      },
+      {
+        "file": "tests/sharing-private-calendar-observer.test.mjs",
+        "name": "private Calendar listener failures reconnect without an idle poll and stopped observers cancel unfinished retries"
+      },
+      {
+        "file": "tests/sharing-account-device-runtime.test.mjs",
+        "name": "waiting account device approval uses change signals rather than five second polling and reconnects a failed listener once"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "expired durable AI admissions retire without an automatic paid retry and legacy completed jobs still permit a new explicit reanalysis"
+      },
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "delivery cleanup listeners retry actual failures without idle polling and shutdown cancels reconnection"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "an explicit reanalysis replaces the ordinary local result cache so a later read needs no request and cannot revive the earlier result"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "private device delivery erases received preference and busy ciphertext while durable peer archives preserve exact recovery and idempotent publication"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "expired private delivery rehydrates through a peer before merging and keeps both an unsent local edit and its explicit conflict candidate"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "private delivery retains ciphertext while one approved device has not seeded the new protocol and never treats expiry as an empty preference baseline"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "shared delivery erases acknowledged ciphertext and a fresh approved device recovers original signed events from a peer without losing its unsent edit"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "shared ciphertext expires after twenty four hours without a receiver acknowledgement and a missing peer never yields an empty replacement"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "a durable relay receipt closes late and partial responders before recursive erasure so no orphan ciphertext survives a concurrent sender"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "shared delivery never activates erasure with an old unseeded approved device or allows a client to activate it or impersonate another recipient"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "peer snapshot recovery preserves owner authority after current snapshot chunks are erased and expires abandoned nested transfer parts"
+      },
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "real Firestore removes a completed AI result only after its owner durable receipt and preserves one paid admission through lost receipt replies"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "delivery cleanup observes an abandoned snapshot upload without a root update and erases its expired ciphertext"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "a negotiated closed group with no remaining recipients still expires old ciphertext without deleting its independent receipt"
+      }
+    ]
+  },
+  {
     "feature": "calendar-session-state-chore-search-occurrence-date-and-reminders",
     "tests": [
       {
@@ -2008,11 +2131,11 @@
       },
       {
         "file": "tests/sharing-workspace-provider.test.mjs",
-        "name": "ios historical groups are not watched while the current group retains periodic recovery"
+        "name": "ios historical groups are not watched while the current group retains signal-driven recovery"
       },
       {
         "file": "tests/sharing-workspace-provider.test.mjs",
-        "name": "android historical groups are not watched while the current group retains periodic recovery"
+        "name": "android historical groups are not watched while the current group retains signal-driven recovery"
       },
       {
         "file": "tests/sharing-workspace-recovery.test.mjs",
@@ -5946,23 +6069,11 @@
       },
       {
         "file": "tests/sharing-workspace-provider.test.mjs",
-        "name": "${platform} foreground uses one timer for shared and private Calendar work and stops both after backgrounding even with registry failure=${registryBroken}"
-      },
-      {
-        "file": "tests/sharing-foreground-sync-policy.test.mjs",
-        "name": "solo idle polling defers only healthy empty single-device work until one hour without network requests"
-      },
-      {
-        "file": "tests/sharing-foreground-sync-policy.test.mjs",
-        "name": "solo polling keeps pending errors extra devices members and unknown state on the normal retry cadence"
-      },
-      {
-        "file": "tests/sharing-foreground-sync-policy.test.mjs",
-        "name": "solo polling preserves Google-side change detection when shared Tasks or Calendar export is enabled"
+        "name": "${platform} foreground sync has no idle timer and resumes shared and private Calendar work after backgrounding even with registry failure=${registryBroken}"
       },
       {
         "file": "tests/sharing-workspace-provider.test.mjs",
-        "name": "solo idle fallback preserves remote signals private polling unfinished retries and resume synchronization"
+        "name": "foreground sync wakes only for startup remote changes unfinished retries and resume"
       },
       {
         "file": "tests/sharing-workspace-provider.test.mjs",
@@ -5971,6 +6082,18 @@
       {
         "file": "tests/sharing-private-calendar-device-session.test.mjs",
         "name": "private Calendar automatic device refresh does not emit an explicit-configuration feedback loop but manual changes still notify"
+      },
+      {
+        "file": "tests/demand-sync.test.mjs",
+        "name": "settled synchronization makes no idle requests and only a new signal can start another pass"
+      },
+      {
+        "file": "tests/demand-sync.test.mjs",
+        "name": "unfinished synchronization retries with backoff while settled work stops all retry traffic"
+      },
+      {
+        "file": "tests/demand-sync.test.mjs",
+        "name": "synchronization honors an existing provider retry deadline instead of checking it every fixed interval"
       }
     ],
     "cloudTests": [

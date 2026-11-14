@@ -11,6 +11,17 @@ function fixture() {
     synchronize: async () => { state.syncs++; }, onReady: () => { state.ready++; } };
   return { state, port, start: () => observePrivateCalendarForeground(port) };
 }
+test('private Calendar listener failures reconnect without an idle poll and stopped observers cancel unfinished retries', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(); const stop = f.start(); await flush();
+  f.state.error(); await flush(); const failedSyncs = f.state.syncs;
+  t.mock.timers.tick(30_000); await flush(); assert.equal(f.state.watches, 2); assert.equal(f.state.syncs, failedSyncs + 1);
+  const settled = f.state.syncs; t.mock.timers.tick(3600_000); await flush(); assert.equal(f.state.syncs, settled, 'healthy listeners have no fixed refresh');
+  f.port.synchronize = async () => { f.state.syncs++; throw new Error('synthetic failed delivery'); };
+  f.state.change(); await flush(); const unfinished = f.state.syncs;
+  t.mock.timers.tick(30_000); await flush(); assert.equal(f.state.syncs, unfinished + 1);
+  stop(); t.mock.timers.tick(3600_000); await flush(); assert.equal(f.state.syncs, unfinished + 1);
+});
 test('private Calendar foreground observer installs one owner listener without timers and ignores its own local invalidations', async () => {
   const f = fixture(); const stop = f.start(); await flush(); assert.equal(f.state.watches, 1); assert.equal(f.state.syncs, 1); assert.equal(f.state.ready, 1);
   for (let i = 0; i < 100; i++) f.state.local(); await flush(); assert.equal(f.state.watches, 1); assert.equal(f.state.syncs, 1);

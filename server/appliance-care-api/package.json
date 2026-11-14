@@ -10,6 +10,7 @@
     "start": "node src/index.mjs",
     "billing:retry": "node src/subscription-worker.mjs",
     "analysis:work": "node src/analysis-worker.mjs",
+    "delivery:work": "node src/sharing-delivery-main.mjs",
     "weather:work": "node src/weather-worker.mjs",
     "weather:start": "node src/weather-index.mjs"
   },

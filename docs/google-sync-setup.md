@@ -12,9 +12,11 @@ GoogleのTasks scope (`https://www.googleapis.com/auth/tasks`) は広い範囲�
 
 ## OAuth方式とバックグラウンド制約
 
-このアプリはサーバーを持たないため、Google公式のiOS/Androidネイティブ認証SDKでユーザー認証とaccess tokenの更新を行います。アプリ独自のSecureStoreやSQLiteへOAuth tokenを保存せず、Google SDKの資格情報管理を使います。offline access / server auth codeは要求しません。iOSではアプリ再起動後にSDKのサイレント復元を試み、AndroidではSDKに保存されたセッションを使います。自動同期から対話的なログイン画面は開きません。
+Google認証とTasksの送受信は端末で行い、LiFlowの解析サーバーへOAuth tokenを渡しません。Google公式のiOS/Androidネイティブ認証SDKでユーザー認証とaccess tokenの更新を行います。アプリ独自のSecureStoreやSQLiteへOAuth tokenを保存せず、Google SDKの資格情報管理を使います。offline access / server auth codeは要求しません。iOSではアプリ再起動後にSDKのサイレント復元を試み、AndroidではSDKに保存されたセッションを使います。自動同期から対話的なログイン画面は開きません。
 
 Expo BackgroundTaskはWorkManager (Android) とBGTaskScheduler (iOS) を使います。指定値は60分の最小間隔で、実行時刻はOSが決めます。実行間隔、iOSでのオフライン更新、アプリを明示終了した後の実行は保証しません。起動時・アプリ復帰時にも期限を確認し、前面同期を試みます。
+
+2026-11-15の改修後、OS起動時はローカルの未送信・未完了・失敗状態がある場合にだけ通信します。正常に同期済みのデータを毎回取り直さず、前景の固定10分タイマーも使いません。Google側だけで変更した予定は、起動・復帰・手動更新などの必要な機会に確認します。認証更新や実際の失敗後の再試行は残します。
 
 GoogleのモバイルSDKとExpoのバックグラウンド制約を確認する資料:
 

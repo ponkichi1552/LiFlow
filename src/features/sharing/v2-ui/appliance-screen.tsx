@@ -78,7 +78,9 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
       const input: ApplianceCareApiRequest = { identifyFromManual: true, manual: submittedManual,
         ...(starting ? { manufacturer: starting.manufacturer, productName: starting.productName, modelNumber: starting.modelNumber,
           ...(starting.category ? { category: starting.category } : {}), forceReanalysis: true } : {}) };
-      const result = await analyzeApplianceCareRequest(input, undefined, undefined, undefined, controller.signal);
+      const { deviceAnalysisDeliveries } = await import('../../../platform/storage/analysis-deliveries');
+      const result = await analyzeApplianceCareRequest(input, undefined, undefined, undefined, controller.signal,
+        personalDatabase ? deviceAnalysisDeliveries(personalDatabase) : undefined);
       if (request.current !== controller || controller.signal.aborted) return;
       if (result.status === 'verified') { setResponse(result); chosenRef.current = []; setChosen([]); }
       else setError(result.status === 'ambiguous' ? '製品を特定できませんでした。別の取扱説明書PDFを選んでください。' : result.message);

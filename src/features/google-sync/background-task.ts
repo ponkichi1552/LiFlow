@@ -29,10 +29,12 @@ TaskManager.defineTask(GOOGLE_SYNC_BACKGROUND_TASK, async ({ error }) => {
   try {
     await import('@/platform/sharing/adaptive-personal-runtime');
     database = await SQLite.openDatabaseAsync('housework.db', { useNewConnection: true });
-    const { initializeLocalDatabase, loadGoogleSyncState, LOCAL_HOUSEHOLD_ID } = await import('@/platform/storage/repository');
+    const { initializeLocalDatabase, loadGoogleSyncState, hasPendingGoogleTaskChanges, LOCAL_HOUSEHOLD_ID } = await import('@/platform/storage/repository');
     await initializeLocalDatabase(database);
     const state = await loadGoogleSyncState(database, LOCAL_HOUSEHOLD_ID);
-    if (state?.enabled) {
+    if (state?.enabled && !state.disconnected && state.status !== 'authRequired'
+      && (!state.lastSuccessfulSyncAt || ['retryPending', 'error', 'syncing'].includes(state.status)
+        || await hasPendingGoogleTaskChanges(database, state.lastSuccessfulSyncAt, LOCAL_HOUSEHOLD_ID))) {
       const { syncGoogleTasks } = await import('./coordinator');
       const result = await syncGoogleTasks(database, { budgetMs: 15_000, deltaOnly: true });
       // The coordinator persists transport/auth failures and resolves with their classification.
@@ -46,24 +48,27 @@ TaskManager.defineTask(GOOGLE_SYNC_BACKGROUND_TASK, async ({ error }) => {
     await record('personal', outcome); outcome = 'pending';
     let calendarOutcome: 'success' | 'failed' | 'skipped' | 'pending' = 'skipped';
     if (database) try {
-      const { nativePersonalGoogleCalendar } = await import('@/platform/google-calendar/personal-runtime');
-      const result = await nativePersonalGoogleCalendar(database).sync({ budgetMs: 15_000, deltaOnly: true });
-      calendarOutcome = result.kind === 'error' ? 'failed' : result.kind;
-      if (calendarOutcome === 'failed') failed = true;
+      const { personalCalendarHasPendingWork } = await import('./background-work');
+      if (await personalCalendarHasPendingWork(database)) {
+        const { nativePersonalGoogleCalendar } = await import('@/platform/google-calendar/personal-runtime');
+        const result = await nativePersonalGoogleCalendar(database).sync({ budgetMs: 15_000, deltaOnly: true });
+        calendarOutcome = result.kind === 'error' ? 'failed' : result.kind;
+        if (calendarOutcome === 'failed') failed = true;
+      }
     } catch { failed = true; calendarOutcome = 'failed'; }
     if (runId !== undefined) await audit!.domain(runId, 'personalGoogleCalendar', calendarOutcome).catch(() => undefined);
     await database?.closeAsync().catch(() => undefined);
   }
   try {
     const { syncKnownPrivateCalendar } = await import('@/platform/sharing/private-calendar-sync');
-    const result = await syncKnownPrivateCalendar(15_000);
+    const result = await syncKnownPrivateCalendar(15_000, { pendingOnly: true });
     outcome = ['published', 'received', 'fresh', 'unchanged'].includes(result?.kind) ? 'success'
       : ['skipped', 'disabled', 'unavailable'].includes(result?.kind) ? 'skipped' : 'pending';
   } catch { failed = true; outcome = 'failed'; }
   await record('privateCalendar', outcome); outcome = 'pending';
   try {
     const { syncSharingWorkspace } = await import('@/platform/sharing/workspaces');
-    const result = await syncSharingWorkspace(30_000, { deltaOnly: true }); outcome = result?.kind ?? 'pending';
+    const result = await syncSharingWorkspace(30_000, { deltaOnly: true, pendingOnly: true }); outcome = result?.kind ?? 'pending';
   } catch { failed = true; outcome = 'failed'; }
   await record('sharing', outcome);
   if (runId !== undefined) await audit!.finish(runId, Date.now(), failed).catch(() => undefined);

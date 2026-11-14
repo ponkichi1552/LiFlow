@@ -13,7 +13,7 @@ import { startPrivateCalendarForeground, syncKnownPrivateCalendar } from '@/plat
 import { traceStartup } from '@/platform/diagnostics/startup-timing';
 import { createInitialDisplayGate, waitForInitialFrame } from '@/features/planner/initial-display-gate';
 import { canShowPersonalStartup, readSavedStartupDisplay, startupDisplayCache } from '@/platform/sharing/startup-display';
-import { sharedPeriodicSyncDue } from '@/features/sharing/foreground-sync-policy';
+import { createDemandWorker } from '@/features/google-sync/demand-worker';
 
 /** Personal data stays mounted; a membership adds shared data to the same four tabs. */
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
@@ -117,8 +117,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     group?.rosterArchive?.at(-1)?.body.schedulerVersion]);
   useEffect(() => {
     if (!ready || !userId || !sessionStarted) return;
-    let stopped = false; let generation = 0; let subscriptions: (() => void)[] = []; let interval: ReturnType<typeof setInterval> | undefined;
-    const stop = () => { generation++; subscriptions.forEach(unsubscribe => unsubscribe()); subscriptions = []; clearInterval(interval); };
+    let stopped = false; let generation = 0; let subscriptions: (() => void)[] = [];
+    const stop = () => { generation++; subscriptions.forEach(unsubscribe => unsubscribe()); subscriptions = []; };
     const start = async () => {
       stop(); const current = generation;
       const live = () => !stopped && current === generation && AppState.currentState === 'active';
@@ -126,6 +126,14 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         const attempt = displayGate.wait(active); subscriptions.push(attempt.cancel);
         if (!await attempt.promise || !live()) return;
       }
+      const recovery = createDemandWorker({ active: live, run: async () => {
+        const [shared, personal] = await Promise.allSettled([syncSharingWorkspace(), syncKnownPrivateCalendar()]);
+        if (!live()) return false;
+        return shared.status === 'rejected' || personal.status === 'rejected'
+          || shared.value?.kind === 'pending'
+          || personal.value?.kind === 'waiting';
+      } });
+      subscriptions.push(recovery.stop);
       try { subscriptions.push(startPrivateCalendarForeground(userId)); } catch { /* Private failure does not block the group. */ }
       try {
         const module = await import('@/platform/sharing/account-device-runtime');
@@ -134,36 +142,30 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
           subscriptions.push(module.subscribeAccountDeviceRestoreStatus(update), module.startAccountDeviceForeground(userId)); update();
         }
       } catch { /* Account restoration retries independently of the existing group. */ }
-      let watchedWorkspace: SharedWorkspace | null = null;
-      let sharedRetryNeeded = true;
       try {
         const record = await currentSharingWorkspace();
         if (!live()) return;
         if (record) {
           const workspace = await openSharedWorkspace(record); if (!live()) return;
-          watchedWorkspace = workspace;
-          const synchronize = () => {
-            if (live()) void workspace.sync().then(result => {
-              if (live() && (!result.complete || result.pending > 0 || result.waitingForApproval)) sharedRetryNeeded = true;
-            }).catch(() => { if (live()) sharedRetryNeeded = true; });
+          let listenerFailed = false; let unsubscribe = () => {};
+          const attach = () => {
+            unsubscribe();
+            unsubscribe = workspace.watch(incoming.request, () => {
+              listenerFailed = true; incoming.request(); recovery.request();
+            });
           };
-          subscriptions.push(workspace.watch(synchronize, synchronize));
+          const incoming = createDemandWorker({ active: live, run: async () => {
+            try {
+              const result = await workspace.sync();
+              if (listenerFailed && live() && result.complete) { listenerFailed = false; attach(); }
+              return !result.complete && !result.waitingForApproval || result.pending > 0;
+            } catch { recovery.request(); return listenerFailed; }
+          } });
+          subscriptions.push(incoming.stop, () => unsubscribe()); attach();
         }
       } catch { /* The coordinator records and retries failures. */ }
       if (!live()) return;
-      const synchronize = (periodic = false) => {
-        if (!live()) return;
-        void (async () => {
-          if (periodic && !sharedRetryNeeded && watchedWorkspace && !await sharedPeriodicSyncDue(watchedWorkspace)) return;
-          if (live()) {
-            sharedRetryNeeded = true;
-            const result = await syncSharingWorkspace();
-            if (live()) sharedRetryNeeded = result.kind !== 'success';
-          }
-        })().catch(() => { if (live()) sharedRetryNeeded = true; });
-        void syncKnownPrivateCalendar().catch(() => undefined);
-      };
-      synchronize(); interval = setInterval(() => synchronize(true), 10 * 60_000);
+      recovery.request();
     };
     if (AppState.currentState === 'active') void start().catch(() => undefined);
     const subscription = AppState.addEventListener('change', state => {

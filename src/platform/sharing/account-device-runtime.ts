@@ -133,6 +133,7 @@ export function startAccountDeviceForeground(userId: string): () => void {
   const user = getSharingServices().auth.currentUser; if (user?.uid !== userId) return () => {};
   let stopped = false, failures = 0, timer: ReturnType<typeof setTimeout> | undefined;
   let requested = false, running = false;
+  let listenerFailed = false; let unsubscribe = () => {};
   const live = () => !stopped && getSharingServices().auth.currentUser === user;
   const schedule = (delay: number) => { clearTimeout(timer); if (live()) timer = setTimeout(() => { void run(); }, delay); };
   const run = async () => {
@@ -141,19 +142,22 @@ export function startAccountDeviceForeground(userId: string): () => void {
     try {
       const result = await syncAccountDeviceRestoration(); failures = 0;
       if (live()) {
+        if (listenerFailed) { listenerFailed = false; attach(); }
         if (requested || result === 'sent') schedule(250);
-        else if (result === 'waiting') schedule(5_000);
-        else clearTimeout(timer); // The existing shared coordinator owns the 10-minute fallback.
+        else if (!listenerFailed) clearTimeout(timer); // Approval/grant changes arrive through the listener.
       }
     } catch { failures++; if (live()) schedule(Math.min(10 * 60_000, 5_000 * 2 ** Math.min(failures, 6))); }
     finally { running = false; }
   };
   const cloud = createSharingCloud(getSharingServices().firestore, userId, () => live() ? userId : null);
-  let initialSignal = true;
-  const unsubscribe = cloud.watchAccountDeviceRestores(() => {
-    if (initialSignal) { initialSignal = false; return; }
-    if (running) requested = true; else schedule(250);
-  }, () => schedule(30_000));
+  const attach = () => {
+    unsubscribe(); let initialSignal = true;
+    unsubscribe = cloud.watchAccountDeviceRestores(() => {
+      if (initialSignal) { initialSignal = false; return; }
+      if (running) requested = true; else schedule(250);
+    }, () => { listenerFailed = true; schedule(30_000); });
+  };
+  attach();
   void run();
   return () => { stopped = true; clearTimeout(timer); unsubscribe(); };
 }

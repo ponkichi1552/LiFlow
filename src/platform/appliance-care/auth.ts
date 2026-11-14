@@ -2,6 +2,7 @@ import { randomUUID } from 'expo-crypto';
 import { getSharingServices, isSharingConfigured } from '../sharing/firebase-services';
 
 export interface ApplianceApiSession {
+  readonly userId: string;
   headers(): Promise<Record<string, string>>;
 }
 
@@ -29,7 +30,7 @@ async function createSession(baseUrl: string): Promise<ApplianceApiSession> {
   if (!user || user.isAnonymous) throw failure('家電AIを利用するにはGoogleまたはAppleでログインしてください。');
   const requestId = randomUUID();
   const current = () => sharedAuth.currentUser?.uid === user.uid;
-  return { async headers() {
+  return { userId: user.uid, async headers() {
     if (!current()) throw failure('利用者が切り替わりました。もう一度解析してください。');
     let token;
     try { token = await user.getIdToken(); }

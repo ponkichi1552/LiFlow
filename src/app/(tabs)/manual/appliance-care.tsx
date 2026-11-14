@@ -98,7 +98,8 @@ export default function ApplianceCareScreen() {
     setAnalysisSaved(false);
     let responseReceived = false;
     try {
-      const nextResult = await analyzeApplianceCareRequest(request, undefined, undefined, undefined, controller.signal);
+      const { deviceAnalysisDeliveries } = await import('@/platform/storage/analysis-deliveries');
+      const nextResult = await analyzeApplianceCareRequest(request, undefined, undefined, undefined, controller.signal, deviceAnalysisDeliveries(database));
       if (controller.signal.aborted || analysisRequest.current !== controller) return;
       // Polling is finished. Leaving now must not release the separate, already-started local save.
       responseReceived = true; analysisRequest.current = null;

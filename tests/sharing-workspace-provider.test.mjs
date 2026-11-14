@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 
-for (const platform of ['ios', 'android']) test(`${platform} solo idle fallback preserves remote signals private polling unfinished retries and resume synchronization`, async t => {
+for (const platform of ['ios', 'android']) test(`${platform} foreground sync wakes only for startup remote changes unfinished retries and resume`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const effects = [], ticks = []; let stateListener, remote, remoteFailure; let shared = 0, privateSyncs = 0, received = 0;
   let time = 10_000_000, coordinatorKind = 'success', incomplete = false;
   t.mock.method(Date, 'now', () => time);
@@ -36,19 +37,19 @@ for (const platform of ['ios', 'android']) test(`${platform} solo idle fallback 
     assert.equal(boot?.active, workspace, boot?.error ?? 'workspace restoration must finish before foreground polling');
     disposeForeground = effects.at(-1)();
     for (let i = 0; i < 8 && shared === 0; i++) await screen.flush();
-    assert.equal(shared, 1); assert.equal(privateSyncs, 1); assert.equal(ticks.length, 1);
-    time += 600_000; ticks[0](); await screen.flush(); assert.equal(shared, 1); assert.equal(privateSyncs, 2);
-    remote(); await screen.flush(); assert.equal(received, 1, 'remote changes bypass idle fallback');
-    incomplete = true; remoteFailure(); await screen.flush();
-    ticks[0](); await screen.flush(); assert.equal(shared, 2, 'unfinished remote synchronization must retry before an hour');
-    incomplete = false; checkpoint.pendingCount = 1; ticks[0](); await screen.flush(); assert.equal(shared, 3);
-    checkpoint.pendingCount = 0; member.devices.push({ identity: { deviceId: 'second-device' } });
-    coordinatorKind = 'pending'; ticks[0](); await screen.flush(); assert.equal(shared, 4);
-    member.devices.pop(); ticks[0](); await screen.flush(); assert.equal(shared, 5, 'incomplete coordinator work cannot be suppressed');
-    coordinatorKind = 'success'; ticks[0](); await screen.flush(); assert.equal(shared, 6);
-    time += 3_600_000; ticks[0](); await screen.flush(); assert.equal(shared, 7, 'one-hour fallback eventually rechecks membership');
+    assert.equal(shared, 1); assert.equal(privateSyncs, 1); assert.equal(ticks.length, 0);
+    t.mock.timers.tick(600_000); await screen.flush(); assert.equal(shared, 1); assert.equal(privateSyncs, 1);
+    remote(); await screen.flush(); assert.equal(received, 1, 'a real remote signal starts one receive pass');
+    incomplete = true; remote(); await screen.flush(); assert.equal(received, 2);
+    t.mock.timers.tick(30_000); await screen.flush(); assert.equal(received, 3, 'unfinished work retries without polling idle groups');
+    incomplete = false; t.mock.timers.tick(60_000); await screen.flush(); assert.equal(received, 4);
+    coordinatorKind = 'pending'; remoteFailure(); await screen.flush(); assert.equal(shared, 2);
+    t.mock.timers.tick(30_000); await screen.flush(); assert.equal(shared, 3);
+    coordinatorKind = 'success'; t.mock.timers.tick(60_000); await screen.flush(); assert.equal(shared, 4);
+    const settled = [shared, privateSyncs, received];
+    t.mock.timers.tick(3_600_000); await screen.flush(); assert.deepEqual([shared, privateSyncs, received], settled);
     appState.currentState = 'background'; stateListener('background'); const before = [shared, privateSyncs, received];
-    ticks[0](); remote(); await screen.flush(); assert.deepEqual([shared, privateSyncs, received], before);
+    t.mock.timers.tick(3_600_000); remote(); await screen.flush(); assert.deepEqual([shared, privateSyncs, received], before);
     appState.currentState = 'active'; stateListener('active'); await screen.flush();
     assert.equal(shared, before[0] + 1, 'resume always synchronizes even shortly after a successful check');
   } finally { disposeForeground?.(); disposeBoot?.(); screen.unmount(); }
@@ -201,7 +202,7 @@ for (const platform of ['ios', 'android']) test(`${platform} the same restored a
 });
 
 for (const platform of ['ios', 'android']) for (const registryBroken of [false, true]) {
-  test(`${platform} foreground uses one timer for shared and private Calendar work and stops both after backgrounding even with registry failure=${registryBroken}`, async t => {
+  test(`${platform} foreground sync has no idle timer and resumes shared and private Calendar work after backgrounding even with registry failure=${registryBroken}`, async t => {
     const effects = []; const ticks = []; let stateListener; let privateStarts = 0; let privateStops = 0; let privateSyncs = 0; let sharedSyncs = 0;
     t.mock.method(globalThis, 'setInterval', (work, interval) => { assert.equal(interval, 600000); ticks.push(work); return ticks.length; });
     t.mock.method(globalThis, 'clearInterval', () => {});
@@ -218,12 +219,12 @@ for (const platform of ['ios', 'android']) for (const registryBroken of [false, 
     const disposeBoot = effects[0](); let disposeForeground;
     try {
       await screen.flush(); disposeForeground = effects.at(-1)(); await screen.flush();
-      assert.equal(privateStarts, 1); assert.equal(privateSyncs, 1); assert.equal(sharedSyncs, 1); assert.equal(ticks.length, 1);
-      ticks[0](); await screen.flush(); assert.equal(privateSyncs, 2); assert.equal(sharedSyncs, 2);
-      appState.currentState = 'background'; stateListener('background'); ticks[0](); await screen.flush();
-      assert.equal(privateStops, 1); assert.equal(privateSyncs, 2); assert.equal(sharedSyncs, 2);
+      assert.equal(privateStarts, 1); assert.equal(privateSyncs, 1); assert.equal(sharedSyncs, 1); assert.equal(ticks.length, 0);
+      await screen.flush(); assert.equal(privateSyncs, 1); assert.equal(sharedSyncs, 1);
+      appState.currentState = 'background'; stateListener('background'); await screen.flush();
+      assert.equal(privateStops, 1); assert.equal(privateSyncs, 1); assert.equal(sharedSyncs, 1);
       appState.currentState = 'active'; stateListener('active'); await screen.flush();
-      assert.equal(privateStarts, 2); assert.equal(privateSyncs, 3); assert.equal(sharedSyncs, 3); assert.equal(ticks.length, 2);
+      assert.equal(privateStarts, 2); assert.equal(privateSyncs, 2); assert.equal(sharedSyncs, 2); assert.equal(ticks.length, 0);
     } finally { disposeForeground?.(); disposeBoot?.(); }
     assert.equal(privateStops, 2);
   });
@@ -324,8 +325,8 @@ for (const [platform, name] of [['ios', 'ios backgrounding during the current gr
 });
 
 for (const [platform, name] of [
-  ['ios', 'ios historical groups are not watched while the current group retains periodic recovery'],
-  ['android', 'android historical groups are not watched while the current group retains periodic recovery'],
+  ['ios', 'ios historical groups are not watched while the current group retains signal-driven recovery'],
+  ['android', 'android historical groups are not watched while the current group retains signal-driven recovery'],
 ]) test(name, async () => {
   const effects = [], watches = []; let unsubscribed = 0, recoveries = 0;
   const groups = ['broken', 'healthy'].map((groupId) => ({ userId: 'owner', groupId, status: 'active' }));

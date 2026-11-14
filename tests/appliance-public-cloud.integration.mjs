@@ -38,6 +38,22 @@ const who = (uid, device = uid, installationId = 'synthetic-installation-0001') 
 const input = (uid, key, forceReanalysis = false) => ({ principal: who(uid), requestKey: key, forceReanalysis, idempotencyKey: `request-${key}-synthetic` });
 const output = { status: 'not_found', code: 'PRODUCT_NOT_FOUND', message: '合成した検査用製品です。' };
 
+test('real Firestore removes a completed AI result only after its owner durable receipt and preserves one paid admission through lost receipt replies', async () => {
+  const api = createFirestoreUsageStore({ firestore }); const accepted = await api.admit(input('receipt-owner', 'durable-delivery'));
+  await api.finish(accepted, output); const ready = await api.read(who('receipt-owner'), accepted.jobId);
+  assert.deepEqual(ready.result, output);
+  assert.equal(await api.acknowledgeResult({ uid: 'other-owner' }, accepted.jobId, ready.delivery), false);
+  assert.equal(await api.acknowledgeResult({ uid: 'receipt-owner' }, accepted.jobId, { ...ready.delivery, token: '0'.repeat(64) }), false);
+  assert.deepEqual((await api.read(who('receipt-owner'), accepted.jobId)).result, output);
+  assert.equal(await api.acknowledgeResult({ uid: 'receipt-owner' }, accepted.jobId, ready.delivery), true);
+  assert.equal(await createFirestoreUsageStore({ firestore }).acknowledgeResult({ uid: 'receipt-owner' }, accepted.jobId, ready.delivery), true);
+  const stored = (await firestore.doc(`applianceApi/v1/jobs/${accepted.jobId}`).get()).data();
+  assert.equal('result' in stored, false); assert.equal('delivery' in stored, false);
+  assert.equal(JSON.stringify(stored).includes(output.message), false);
+  assert.equal((await api.admit(input('receipt-owner', 'durable-delivery'))).created, false);
+  assert.equal((await api.usage(who('receipt-owner'))).used, 1);
+});
+
 test('real Firestore queues a maximum PDF atomically and independent workers claim paid execution once without exposing its chunks', async () => {
   const bytes = Buffer.alloc(MAX_MANUAL_BYTES, 32); bytes.write('%PDF-1.4\n'); bytes.write('%%EOF', bytes.length - 5);
   const request = { manufacturer: '検査', productName: '合成製品', modelNumber: 'QA', manual: decodeUploadedManual({ rightsConfirmed: true, base64: bytes.toString('base64') }) };

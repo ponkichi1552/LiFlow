@@ -76,7 +76,11 @@ function nativeStore(development: boolean) {
     preferencesByOwner.set(userId, store); return store;
   }
   const connections = (userId: string) => { assertOwner(userId); return createPrivateCalendarConnectionStorage({ ownerUserId: userId, assertOwner, exclusive, vault }); };
-  return { secrets, cache, rootSetup, authorityIntents, keyOutbox, pairing, connections, source, preferences };
+  async function deliveryArchive(userId: string) {
+    assertOwner(userId); const { createPrivateDeliveryArchive } = await import('../storage/private-delivery-archive');
+    return createPrivateDeliveryArchive({ ownerUserId: userId, exclusive, assertOwner: () => assertOwner(userId) });
+  }
+  return { secrets, cache, rootSetup, authorityIntents, keyOutbox, pairing, connections, source, preferences, deliveryArchive };
 }
 
 /** Importing this module does not initialize Firebase or open any user's database. */
@@ -90,6 +94,7 @@ export const nativePrivateCalendarPairing = native.pairing;
 export const nativePrivateCalendarConnections = native.connections;
 export const nativePrivateCalendarSource = native.source;
 export const nativePrivatePlannerPreferences = native.preferences;
+export const nativePrivateDeliveryArchive = native.deliveryArchive;
 let qaStore: ReturnType<typeof nativeStore> | undefined;
 export function developmentPrivateCalendarSecrets() {
   if (!__DEV__) throw new Error('検査用の鍵保存は開発ビルドだけで使用できます。');

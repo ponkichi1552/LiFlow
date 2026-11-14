@@ -5,6 +5,9 @@ import { Platform } from 'react-native';
 import { isOfficialApplianceUrl } from '@/features/appliance-care/official-url';
 import { applianceCarePollDelay, waitForAppliancePoll } from './polling';
 import { isAnalysisRecord as isRecord, nonemptyAnalysisString as nonemptyString, isVerifiedApplianceAnalysis } from './analysis-validation';
+import { analysisDeliveryJson, validAnalysisDelivery } from '../../../server/appliance-care-api/src/analysis-delivery-contract.mjs';
+import type { AnalysisDeliveryStore, SavedAnalysisDelivery } from './analysis-delivery';
+import type { ApplianceApiSession } from '../../platform/appliance-care/auth';
 
 import type {
   ApplianceCareAnalysisStage,
@@ -28,6 +31,7 @@ export async function analyzeApplianceCareRequest(
   timeoutMs = DEFAULT_TIMEOUT_MS,
   onStage?: (stage: ApplianceCareAnalysisStage) => void,
   signal?: AbortSignal,
+  deliveries?: AnalysisDeliveryStore,
 ): Promise<ApplianceCareApiResponse> {
   if (signal?.aborted) return temporaryError('解析の通信を中断しました。');
   const normalized = {
@@ -54,6 +58,7 @@ export async function analyzeApplianceCareRequest(
   signal?.addEventListener('abort', abort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const retryKey = bytesToHex(sha256(utf8ToBytes(JSON.stringify([baseUrl, normalized]))));
+  const cacheKey = bytesToHex(sha256(utf8ToBytes(JSON.stringify([baseUrl, { ...normalized, forceReanalysis: undefined }]))));
   let admissionId: string | undefined;
   const finishAttempt = () => { if (pendingAdmissions.get(retryKey)?.id === admissionId) pendingAdmissions.delete(retryKey); };
   try {
@@ -61,6 +66,14 @@ export async function analyzeApplianceCareRequest(
       const { authorizeApplianceCareApi } = await import('../../platform/appliance-care/auth');
       return authorizeApplianceCareApi(baseUrl);
     }, controller.signal);
+    if (deliveries && session.userId) {
+      // Receipts carry no PDF/result. Retry them only when there is real local pending work.
+      void flushAnalysisReceipts(deliveries, session, baseUrl).catch(() => undefined);
+      if (!normalized.forceReanalysis) {
+        const cached = await deliveries.read(session.userId, cacheKey);
+        if (cached?.status === 'verified' && isApiResponse(cached)) { finishAttempt(); return cached; }
+      }
+    }
     const startHeaders = await abortApplianceWait(() => session.headers(), controller.signal);
     if (controller.signal.aborted) return temporaryError('解析の通信を中断しました。');
     for (const [key, item] of pendingAdmissions) if (item.expiresAt <= Date.now()) pendingAdmissions.delete(key);
@@ -71,6 +84,10 @@ export async function analyzeApplianceCareRequest(
       while (pendingAdmissions.size > 32) pendingAdmissions.delete(pendingAdmissions.keys().next().value!);
     }
     admissionId = startHeaders['x-idempotency-key'];
+    if (deliveries && session.userId && admissionId) {
+      admissionId = await deliveries.admission(session.userId, retryKey, admissionId);
+      startHeaders['x-idempotency-key'] = admissionId;
+    }
     const startResponse = await abortApplianceWait(() => fetch(`${baseUrl}/api/appliance-care/jobs`, {
       method: 'POST',
       redirect: 'error',
@@ -80,7 +97,14 @@ export async function analyzeApplianceCareRequest(
     }), controller.signal);
     const startPayload: unknown = await abortApplianceWait(() => readJson(startResponse), controller.signal);
     if (controller.signal.aborted) return temporaryError(signal?.aborted ? '解析の通信を中断しました。' : '解析がタイムアウトしました。時間をおいて再試行してください。');
-    if (isApiResponse(startPayload)) { finishAttempt(); return startPayload; }
+    if (isApiResponse(startPayload)) {
+      // Retire an expired admission only after the server's terminal verdict.
+      // A fresh paid attempt still requires the user's next explicit action.
+      if (startPayload.status === 'error' && startPayload.code === 'REQUEST_CONFLICT' && deliveries && session.userId && admissionId) {
+        await deliveries.completeAdmission(session.userId, retryKey, admissionId);
+      }
+      finishAttempt(); return startPayload;
+    }
     if (!startResponse.ok || !isJobAccepted(startPayload)) {
       return temporaryError('家電解析APIに接続できません。APIサーバーの状態を確認してください。');
     }
@@ -99,7 +123,10 @@ export async function analyzeApplianceCareRequest(
       const statusPayload: unknown = await abortApplianceWait(() => readJson(statusResponse), controller.signal);
       if (controller.signal.aborted) return temporaryError(signal?.aborted ? '解析の通信を中断しました。' : '解析がタイムアウトしました。時間をおいて再試行してください。');
       if (isApiResponse(statusPayload)) {
-        if (statusPayload.status === 'error' && statusPayload.code === 'JOB_NOT_FOUND') finishAttempt();
+        if (statusPayload.status === 'error' && statusPayload.code === 'JOB_NOT_FOUND') {
+          if (deliveries && session.userId && admissionId) await deliveries.completeAdmission(session.userId, retryKey, admissionId);
+          finishAttempt();
+        }
         return statusPayload;
       }
       if (!statusResponse.ok || !isJobStatus(statusPayload)) {
@@ -112,8 +139,27 @@ export async function analyzeApplianceCareRequest(
       }
       if (statusPayload.done) {
         if (!isApiResponse(statusPayload.result)) return temporaryError('解析結果を読み取れませんでした。時間をおいて再試行してください。');
+        const output = { ...statusPayload.result, ...(isApplianceCareUsage(statusPayload.usage) ? { usage: statusPayload.usage } : {}) };
+        if (statusPayload.delivery !== undefined) {
+          if (!validAnalysisDelivery(statusPayload.delivery)
+            || bytesToHex(sha256(utf8ToBytes(analysisDeliveryJson(statusPayload.result)))) !== statusPayload.delivery.digest) {
+            return temporaryError('解析結果の受信を確認できませんでした。再試行してください。');
+          }
+          if (deliveries && session.userId) {
+            controller.signal.throwIfAborted();
+            await deliveries.save(session.userId, cacheKey, { jobId: startPayload.jobId, baseUrl, receipt: statusPayload.delivery }, output, request.manual);
+            // Deletion starts after the SQLite transaction. UI need not wait for its network round-trip.
+            void flushAnalysisReceipts(deliveries, session, baseUrl)
+              .then(() => flushAnalysisReceipts(deliveries, session, baseUrl)).catch(() => undefined);
+            if (admissionId) await deliveries.completeAdmission(session.userId, retryKey, admissionId);
+          }
+        }
+        else if (deliveries && session.userId && admissionId) {
+          // Older servers retain their own result; completing that legacy attempt must still permit an explicit reanalysis.
+          await deliveries.completeAdmission(session.userId, retryKey, admissionId);
+        }
         finishAttempt();
-        return { ...statusPayload.result, ...(isApplianceCareUsage(statusPayload.usage) ? { usage: statusPayload.usage } : {}) };
+        return output;
       }
       await waitForAppliancePoll(applianceCarePollDelay(pollAttempt++, statusPayload.pollAfterMs), controller.signal);
     }
@@ -129,6 +175,34 @@ export async function analyzeApplianceCareRequest(
     clearTimeout(timer);
     signal?.removeEventListener('abort', abort);
   }
+}
+
+const receiptWorkers = new WeakMap<AnalysisDeliveryStore, Promise<void>>();
+export function flushAnalysisReceipts(store: AnalysisDeliveryStore, session: ApplianceApiSession, baseUrl: string): Promise<void> {
+  const running = receiptWorkers.get(store); if (running) return running;
+  const work = (async () => {
+    for (const delivery of await store.pending(session.userId)) {
+      if (delivery.baseUrl !== baseUrl || !validAnalysisDelivery(delivery.receipt)) continue;
+      if (delivery.receipt.expiresAt <= Date.now()) { await store.acknowledged(session.userId, delivery.jobId); continue; }
+      await sendAnalysisReceipt(delivery, session);
+      await store.acknowledged(session.userId, delivery.jobId);
+    }
+  })();
+  receiptWorkers.set(store, work);
+  void work.finally(() => { if (receiptWorkers.get(store) === work) receiptWorkers.delete(store); }).catch(() => undefined);
+  return work;
+}
+async function sendAnalysisReceipt(delivery: SavedAnalysisDelivery, session: ApplianceApiSession): Promise<void> {
+  const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const headers = await abortApplianceWait(() => session.headers(), controller.signal);
+    const response = await abortApplianceWait(() => fetch(`${delivery.baseUrl}/api/appliance-care/jobs/${encodeURIComponent(delivery.jobId)}/receipt`, {
+      method: 'POST', redirect: 'error', headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify(delivery.receipt), signal: controller.signal,
+    }), controller.signal);
+    const body = await abortApplianceWait(() => response.json(), controller.signal);
+    if (!response.ok || !isRecord(body) || body.acknowledged !== true) throw new Error('Analysis receipt not accepted');
+  } finally { clearTimeout(timer); }
 }
 
 function temporaryError(message: string): ApplianceCareApiResponse {
@@ -187,6 +261,7 @@ function isJobStatus(value: unknown): value is {
   result?: unknown;
   pollAfterMs?: unknown;
   usage?: unknown;
+  delivery?: unknown;
 } {
   if (!value || typeof value !== 'object' || !('stage' in value) || !('done' in value)) return false;
   return (value.stage === 'product_verification' || value.stage === 'official_manual_analysis')

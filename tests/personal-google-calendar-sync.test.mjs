@@ -5,6 +5,7 @@ import { createDatabase } from './helpers/sqlite.mjs';
 const { initializeLocalDatabase } = await import('../src/platform/storage/repository.ts');
 const { readLocalCalendar, saveCalendarEvent, deleteCalendarEvent, restoreCalendarOccurrence } = await import('../src/platform/storage/calendar-events.ts');
 const { createPersonalGoogleCalendarSync } = await import('../src/features/calendar/personal-google-sync.ts');
+const { personalCalendarHasPendingWork } = await import('../src/features/google-sync/background-work.ts');
 import { newEventDraft, projectCalendarEvents } from '../src/domain/calendar/events.ts';
 import { createGoogleCalendarApi, GoogleCalendarHttpError } from '../src/platform/google-calendar/calendar-api.ts';
 const clone = value => structuredClone(value);
@@ -33,6 +34,19 @@ async function harness(t, extraInput = {}) {
     remote: (id = 'remote', extra = {}) => ({ id, summary: 'Googleの予定', start: { date: '2026-11-04' }, end: { date: '2026-11-05' }, ...extra }),
   };
 }
+
+test('OS Calendar wakeups skip settled state and external-only changes but resume a durable local edit or unfinished scan', async t => {
+  const h = await harness(t); assert.equal(await personalCalendarHasPendingWork(h.database), false);
+  await h.connect(); await h.sync.sync({ force: true });
+  assert.equal(await personalCalendarHasPendingWork(h.database), false);
+  const before = h.calls.length; h.put(h.remote());
+  assert.equal(await personalCalendarHasPendingWork(h.database), false, 'remote-only discovery waits for foreground/resume/manual signals');
+  assert.equal(h.calls.length, before, 'local demand inspection calls no Google API');
+  await h.local(); assert.equal(await personalCalendarHasPendingWork(h.database), true);
+  await h.sync.sync({ force: true }); assert.equal(await personalCalendarHasPendingWork(h.database), false);
+  h.connection.prepare('INSERT INTO calendar_google_progress(subject,remaining_json) VALUES(?,?)').run('google-one', '["owned"]');
+  assert.equal(await personalCalendarHasPendingWork(h.database), true);
+});
 
 test('Calendar connection status requires the native grant and distinguishes authentication failures from retryable network errors', async t => {
   let granted = false; const h = await harness(t, { hasSession: async () => granted });

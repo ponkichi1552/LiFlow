@@ -6,11 +6,104 @@ import {loadNativeModule} from './helpers/native-module.mjs';
 
 registerHooks({ resolve(specifier, context, nextResolve) {
   if (specifier === 'react-native') return { url: 'data:text/javascript,export const Platform = { OS: "ios" };', shortCircuit: true };
-  if (specifier === '../../platform/appliance-care/auth') return { url: 'data:text/javascript,let sequence=0;export async function authorizeApplianceCareApi(){if(globalThis.syntheticApplianceAuthPause)await globalThis.syntheticApplianceAuthPause;const id="synthetic-request-"+(++sequence);return {headers:async()=>({authorization:"Bearer synthetic-client", "x-idempotency-key":id})}}', shortCircuit: true };
+  if (specifier === '../../platform/appliance-care/auth') return { url: 'data:text/javascript,let sequence=0;export async function authorizeApplianceCareApi(){if(globalThis.syntheticApplianceAuthPause)await globalThis.syntheticApplianceAuthPause;const id="synthetic-request-"+(++sequence);return {userId:"synthetic-owner",headers:async()=>({authorization:"Bearer synthetic-client", "x-idempotency-key":id})}}', shortCircuit: true };
   return nextResolve(specifier, context);
 } });
 const { analyzeApplianceCareRequest, abortApplianceWait, isApplianceCareUsage } = await import('../src/features/appliance-care/api-client.ts');
 const request = { manufacturer: 'Dyson', productName: 'V12', modelNumber: 'SV20' };
+
+test('an explicit reanalysis replaces the ordinary local result cache so a later read needs no request and cannot revive the earlier result', async () => {
+  const { analysisDeliveryJson } = await import('../server/appliance-care-api/src/analysis-delivery-contract.mjs');
+  const { publicKey } = await import('../server/appliance-care-api/src/public-access.mjs');
+  const original = globalThis.fetch; const cache = new Map(); let posts = 0;
+  const deliveries = { read: async (_owner, key) => cache.get(key), pending: async () => [], acknowledged: async () => {},
+    admission: async (_owner, _key, id) => id, completeAdmission: async () => {},
+    save: async (_owner, key, _delivery, value) => { cache.set(key, value); } };
+  const input = { ...request, modelNumber: 'SYNTHETIC-LATEST-CACHE' };
+  const source = 'https://www.dyson.co.jp/support/SV20';
+  try {
+    globalThis.fetch = async (_url, options) => {
+      if (options.method === 'POST') { posts++; return Response.json({ jobId: String(posts).repeat(64) }); }
+      const result = { status: 'verified', product: input, officialSources: { manualUrl: source }, analysis: {
+        manufacturer: 'Dyson', model: input.modelNumber, analyzedAt: '2026-11-15T00:00:00Z', requiresUserReview: true,
+        tasks: [{ name: `フィルター清掃 ${posts}`, recommendedIntervalDays: 30, steps: ['ほこりを取る'], tools: [], safetyCautions: [], evidence: [{ url: source }] }],
+      } };
+      return Response.json({ done: true, stage: 'official_manual_analysis', result,
+        delivery: { token: 'a'.repeat(64), digest: publicKey(analysisDeliveryJson(result)), expiresAt: Date.now() + 86400_000 } });
+    };
+    const run = value => analyzeApplianceCareRequest(value, 'https://api.example.test', 1000, undefined, undefined, deliveries);
+    assert.equal((await run(input)).analysis.tasks[0].name, 'フィルター清掃 1');
+    assert.equal((await run({ ...input, forceReanalysis: true })).analysis.tasks[0].name, 'フィルター清掃 2');
+    assert.equal((await run(input)).analysis.tasks[0].name, 'フィルター清掃 2'); assert.equal(posts, 2);
+  } finally { globalThis.fetch = original; }
+});
+
+test('expired durable AI admissions retire without an automatic paid retry and legacy completed jobs still permit a new explicit reanalysis', async () => {
+  const original = globalThis.fetch; let id = 'synthetic-expired-attempt', posts = 0; const ids = [];
+  const deliveries = { read: async () => null, pending: async () => [], acknowledged: async () => {},
+    save: async () => { throw new Error('A legacy server supplies no deletion receipt'); },
+    admission: async (_owner, _key, proposed) => id ??= proposed,
+    completeAdmission: async (_owner, _key, finished) => { if (id === finished) id = undefined; } };
+  try {
+    globalThis.fetch = async (_url, options) => {
+      if (options.method === 'POST') { ids.push(options.headers['x-idempotency-key']); posts++;
+        return Response.json(posts === 1 ? { status: 'error', code: 'REQUEST_CONFLICT', message: '合成した期限切れ' } : { jobId: 'f'.repeat(64) }); }
+      return Response.json({ done: true, stage: 'official_manual_analysis', result: { status: 'not_found', message: '合成した旧版の結果' } });
+    };
+    const input = { ...request, modelNumber: 'SYNTHETIC-EXPIRED', forceReanalysis: true };
+    assert.equal((await analyzeApplianceCareRequest(input, 'https://api.example.test', 1000, undefined, undefined, deliveries)).code, 'REQUEST_CONFLICT');
+    assert.equal(posts, 1, 'a new paid job cannot start in the same operation');
+    assert.equal((await analyzeApplianceCareRequest(input, 'https://api.example.test', 1000, undefined, undefined, deliveries)).status, 'not_found');
+    assert.equal((await analyzeApplianceCareRequest(input, 'https://api.example.test', 1000, undefined, undefined, deliveries)).status, 'not_found');
+    assert.equal(new Set(ids).size, 3);
+  } finally { globalThis.fetch = original; }
+});
+
+test('mobile analysis sends a deletion receipt only after durable storage and retries lost acknowledgements without sending the result or PDF again', async () => {
+  const { analysisDeliveryJson } = await import('../server/appliance-care-api/src/analysis-delivery-contract.mjs');
+  const { publicKey } = await import('../server/appliance-care-api/src/public-access.mjs');
+  const { flushAnalysisReceipts } = await import('../src/features/appliance-care/api-client.ts');
+  const original = globalThis.fetch; const value = { status: 'not_found', message: '合成した配送検査結果' };
+  const receipt = { token: 'a'.repeat(64), digest: publicKey(analysisDeliveryJson(value)), expiresAt: Date.now() + 86400_000 };
+  let saved = null, acknowledged = false, failSave = true, failReceipt = true, receipts = 0; const admissions = [];
+  const deliveries = { read: async () => null, admission: async (_owner, _key, id) => id, completeAdmission: async () => {},
+    save: async (owner, _request, delivery, result) => { assert.equal(owner, 'synthetic-owner'); if (failSave) throw new Error('synthetic disk full'); saved = { delivery, result }; },
+    pending: async () => saved && !acknowledged ? [saved.delivery] : [], acknowledged: async () => { acknowledged = true; } };
+  try {
+    globalThis.fetch = async (url, options) => {
+      if (url.endsWith('/receipt')) {
+        assert.ok(saved); assert.deepEqual(JSON.parse(options.body), receipt); receipts++;
+        if (failReceipt) throw new Error('synthetic lost receipt response'); return Response.json({ acknowledged: true });
+      }
+      if (options.method === 'POST') { admissions.push(options.headers['x-idempotency-key']); return Response.json({ jobId: 'b'.repeat(64) }); }
+      return Response.json({ done: true, stage: 'official_manual_analysis', result: value, delivery: receipt });
+    };
+    const input = { ...request, modelNumber: 'SYNTHETIC-DELIVERY' };
+    assert.equal((await analyzeApplianceCareRequest(input, 'https://api.example.test', 1000, undefined, undefined, deliveries)).status, 'error');
+    assert.equal(receipts, 0, 'no deletion on a failed SQLite commit');
+    failSave = false;
+    assert.deepEqual(await analyzeApplianceCareRequest(input, 'https://api.example.test', 1000, undefined, undefined, deliveries), value);
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(admissions[0], admissions[1]); assert.ok(saved); assert.equal(acknowledged, false);
+    failReceipt = false;
+    await flushAnalysisReceipts(deliveries, { userId: 'synthetic-owner', headers: async () => ({ authorization: 'Bearer synthetic' }) }, 'https://api.example.test');
+    assert.equal(acknowledged, true); assert.equal(receipts, 2);
+  } finally { globalThis.fetch = original; }
+});
+
+test('mobile analysis rejects a receipt for different result bytes before saving or acknowledging it', async () => {
+  const original = globalThis.fetch; let saved = false, receiptSent = false;
+  const deliveries = { read: async () => null, admission: async (_owner, _key, id) => id, completeAdmission: async () => {},
+    save: async () => { saved = true; }, pending: async () => [], acknowledged: async () => {} };
+  try {
+    globalThis.fetch = async (url, options) => {
+      receiptSent ||= url.endsWith('/receipt');
+      return Response.json(options.method === 'POST' ? { jobId: 'c'.repeat(64) } : { done: true, stage: 'official_manual_analysis',
+        result: { status: 'not_found', message: '合成した結果' }, delivery: { token: 'd'.repeat(64), digest: 'e'.repeat(64), expiresAt: Date.now() + 10000 } });
+    };
+    assert.equal((await analyzeApplianceCareRequest({ ...request, modelNumber: 'SYNTHETIC-DIGEST' }, 'https://api.example.test', 1000, undefined, undefined, deliveries)).status, 'error');
+    assert.equal(saved, false); assert.equal(receiptSent, false);
+  } finally { globalThis.fetch = original; }
+});
 
 test('PDF-only mobile analysis submits no product fields and accepts the same-call extracted identity and tasks', async () => {
   const { syntheticManual } = await import('./helpers/synthetic-pdf.mjs');

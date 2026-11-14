@@ -6,8 +6,9 @@ import { assertPrivateCalendarCloudAuthority, parsePrivateCalendarCloudHead } fr
 import { exactRecord } from '../../features/sharing/private-calendar/validation.ts';
 import { canonicalJson } from '../../features/sharing/operations.ts';
 import { MAX_PRIVATE_PREFERENCE_ENVELOPE_CHARS, privatePreferenceCursor, samePrivatePreferenceCursor, snapshotEncryptedPrivatePreferences,
-  verifyEncryptedPrivatePreferences, PrivatePreferenceCloudConflict } from '../../features/sharing/private-planner/preference-crypto.ts';
+  verifyEncryptedPrivatePreferences, PrivatePreferenceCloudConflict, snapshotPrivatePreferenceCursor } from '../../features/sharing/private-planner/preference-crypto.ts';
 import type { EncryptedPrivatePreferences } from '../../features/sharing/private-planner/preference-crypto.ts';
+import type { PrivateDeliveryPort } from './private-delivery.ts';
 import { sharingCloudWithDeadline } from './network-deadline.ts';
 
 const fields = ['schemaVersion', 'ownerUserId', 'accountGeneration', 'rootDigest', 'authorityDigest', 'keyVersion', 'authorDeviceId',
@@ -24,8 +25,14 @@ function decode(data: DocumentData): EncryptedPrivatePreferences {
   const own = snapshotEncryptedPrivatePreferences(JSON.parse(data.encryptedJson)); const expected = content(own);
   for (const [key, value] of Object.entries(expected)) if (data[key] !== value) throw new Error('本人設定の公開情報と暗号文が異なります。'); return own;
 }
+function erasedCursor(data: DocumentData) {
+  exactRecord(data, [...fields, 'erasedAt']);
+  if (data.encryptedJson !== null || !(data.erasedAt instanceof Timestamp) || !(data.createdAt instanceof Timestamp)
+    || !(data.updatedAt instanceof Timestamp) || typeof data.revision !== 'number' || typeof data.digest !== 'string') throw new Error('Invalid private delivery erasure marker');
+  return snapshotPrivatePreferenceCursor({ revision: data.revision, digest: data.digest });
+}
 /** One bounded encrypted snapshot per UID. A server arrival never resolves an offline edit conflict. */
-export function createPrivatePlannerCloud(firestore: Firestore, ownerUserId: string, currentUserId: () => string | null) {
+export function createPrivatePlannerCloud(firestore: Firestore, ownerUserId: string, currentUserId: () => string | null, delivery?: PrivateDeliveryPort) {
   assertSharedIdentifier(ownerUserId); const root = doc(firestore, 'privateCalendars', ownerUserId); const reference = doc(root, 'plannerPreferences', 'current');
   const check = () => { if (currentUserId() !== ownerUserId) throw Object.assign(new Error('本人設定のアカウントが切り替わりました。'), { code: 'private-planner/access-denied' }); };
   function assertRoot(data: DocumentData | undefined, authority: VerifiedPrivateCalendarAuthority) {
@@ -38,25 +45,42 @@ export function createPrivatePlannerCloud(firestore: Firestore, ownerUserId: str
     guard();
     const result = await runTransaction(firestore, async transaction => {
       guard(); const [head, saved] = await Promise.all([transaction.get(root), transaction.get(reference)]); guard(); assertRoot(head.data(), authority);
-      const value = saved.exists() ? decode(saved.data()) : null;
+      return saved.exists() ? saved.data() : null;
+    }); guard();
+    const value = !result ? null : result.encryptedJson === null && delivery
+      ? snapshotEncryptedPrivatePreferences(await delivery.recover(authority, `preferences.${erasedCursor(result).digest}`) as EncryptedPrivatePreferences)
+      : decode(result);
+      if (result && value && result.encryptedJson === null) {
+        const expected = content(value); for (const [key, field] of Object.entries(expected)) if (key !== 'encryptedJson' && result[key] !== field) throw new Error('Private peer preferences differ from the committed header');
+        const latest = await runTransaction(firestore, async transaction => {
+          const [head, saved] = await Promise.all([transaction.get(root), transaction.get(reference)]); guard(); assertRoot(head.data(), authority);
+          return saved.data()?.digest;
+        }); guard(); if (latest !== result.digest) throw new PrivatePreferenceCloudConflict();
+      }
       if (value && (value.body.ownerUserId !== ownerUserId || value.body.accountGeneration !== authority.anchor.accountGeneration
         || value.body.rootDigest !== authority.anchor.rootDigest || value.body.keyVersion > authority.signed.body.keyVersion)) throw new Error('本人設定の信頼・鍵世代を確認してください。');
-      return value;
-    }); guard(); return result;
+    if (value && delivery && value.body.authorityDigest === authority.digest) {
+      verifyEncryptedPrivatePreferences(value, authority); const digest = privatePreferenceCursor(value).digest;
+      await delivery.remember(authority, `preferences.${digest}`, value); guard();
+      void delivery.confirm(authority, 'preferences', digest).catch(() => undefined);
+    }
+    guard(); return value;
   };
   return sharingCloudWithDeadline({ read,
     async publish(authority: VerifiedPrivateCalendarAuthority, incoming: EncryptedPrivatePreferences, assertBudget: () => void = () => {}) {
       const guard = () => { check(); assertBudget(); };
       guard(); const own = verifyEncryptedPrivatePreferences(incoming, authority); const wanted = privatePreferenceCursor(own); const body = content(own);
+      if (delivery) { await delivery.remember(authority, `preferences.${wanted.digest}`, own); guard(); }
       try {
         const result = await runTransaction(firestore, async transaction => {
           guard(); const [head, saved] = await Promise.all([transaction.get(root), transaction.get(reference)]); guard(); assertRoot(head.data(), authority);
-          const previous = saved.exists() ? decode(saved.data()) : null; const cursor = previous ? privatePreferenceCursor(previous) : null;
+          const previous = saved.exists() ? saved.data() : null;
+          const cursor = previous ? previous.encryptedJson === null && delivery ? erasedCursor(previous) : privatePreferenceCursor(decode(previous)) : null;
           if (samePrivatePreferenceCursor(cursor, wanted)) return { published: false };
           if (!samePrivatePreferenceCursor(cursor, own.body.parent)) throw new PrivatePreferenceCloudConflict();
           transaction.set(reference, { ...body, createdAt: saved.exists() ? saved.data().createdAt : serverTimestamp(), updatedAt: serverTimestamp() });
           return { published: true };
-        }); guard(); return result;
+        }); guard(); if (delivery) void delivery.confirm(authority, 'preferences', wanted.digest).catch(() => undefined); return result;
       } catch (error) {
         guard(); if (error instanceof PrivatePreferenceCloudConflict) throw error;
         // The server can have committed before a lost reply. Read the exact envelope, never reseal/rebase in a transaction retry.
@@ -73,11 +97,13 @@ export function createPrivatePlannerCloud(firestore: Firestore, ownerUserId: str
         if (stopped) return;
         try {
           check(); if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return;
-          const next = snapshot.exists() ? privatePreferenceCursor(decode(snapshot.data())).digest : null;
+          const data = snapshot.data();
+          const next = snapshot.exists() ? data!.encryptedJson === null && delivery ? erasedCursor(data!).digest : privatePreferenceCursor(decode(data!)).digest : null;
           if (next !== last) { last = next; changed(); }
         } catch { failed(); }
       }, () => { if (!stopped) failed(); });
-      return () => { stopped = true; unsubscribe(); };
+      const stopDelivery = delivery?.watch(changed, failed);
+      return () => { stopped = true; unsubscribe(); stopDelivery?.(); };
     },
   });
 }

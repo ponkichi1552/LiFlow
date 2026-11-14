@@ -101,6 +101,15 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
     }
     if (await handleWeather(request, response, url)) return;
     if (subscriptionAccess && await subscriptionAccess.handle(request, response, url)) return;
+    const receiptMatch = request.method === 'POST' && url.pathname.match(/^\/api\/appliance-care\/jobs\/([a-f0-9]{64})\/receipt$/u);
+    if (publicAccess && receiptMatch) {
+      // A deletion receipt is not a new paid analysis. An expired subscription must not retain its old result.
+      const identity = await publicAccess.authenticateIdentity(request);
+      if (!allowPublicUser(identity.uid)) throw new PublicApiError(429, 'RATE_LIMITED', '少し待って再試行してください。');
+      const body = await readJsonBody(request, 1024);
+      const removed = await publicAccess.store.acknowledgeResult(identity, receiptMatch[1], body);
+      sendJson(response, removed ? 200 : 404, { acknowledged: removed }); return;
+    }
     if (billingOnly) {
       sendJson(response, 503, { code: 'DEVICE_VERIFICATION_UNAVAILABLE', message: '家電AIは安全な端末確認の準備中です。購入・復元は利用できます。' }); return;
     }

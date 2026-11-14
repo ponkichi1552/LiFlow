@@ -151,6 +151,9 @@ export function screenHarness(filename, options = {}) {
       async base64() { return syntheticPdf().toString('base64'); } delete() { this.exists = false; } } },
     // The real API client imports Native Platform. Screen tests inject responses explicitly; never start a paid API job implicitly.
     '../../appliance-care/api-client': { analyzeApplianceCareRequest: async () => { throw new Error('Appliance API transport was not injected by this screen test'); } },
+    // Transport persistence is exercised with real SQLite in analysis-delivery.test.mjs.
+    '@/platform/storage/analysis-deliveries': { deviceAnalysisDeliveries: () => undefined },
+    '../../../platform/storage/analysis-deliveries': { deviceAnalysisDeliveries: () => undefined },
     '@/platform/sharing/workspaces': { hasOtherGoogleWorkspaceConnections: async () => false },
     // Native local-definition reads and signed additions have dedicated SQLite tests.
     '../../platform/sharing/v2-personal-chore-selection': { createNativeV2PersonalChoreSelection: () => ({

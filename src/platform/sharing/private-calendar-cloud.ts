@@ -15,6 +15,7 @@ import { snapshotPrivateCalendarCacheManifest, verifyPrivateCalendarCacheCiphert
 import type { PrivateCalendarCryptoGateway } from '../../features/sharing/private-calendar/crypto-gateway.ts';
 import { exactRecord } from '../../features/sharing/private-calendar/validation.ts';
 import { sharingCloudWithDeadline } from './network-deadline.ts';
+import type { PrivateDeliveryPort } from './private-delivery.ts';
 
 function bodyWithoutServerTime(data: DocumentData | undefined, fields: readonly string[], updated = false): Record<string, unknown> {
   exactRecord(data, [...fields, 'createdAt', ...(updated ? ['updatedAt'] : [])]);
@@ -27,7 +28,7 @@ function headFromDocument(data: DocumentData | undefined, userId: string): Priva
 const keyId = (authority: VerifiedPrivateCalendarAuthority, deviceId: string) => `${authority.digest}_${deviceId}`;
 
 /** UID-only transport. Cloud metadata never establishes the caller's trust anchor or approves a device. */
-export function createPrivateCalendarCloud(firestore: Firestore, userId: string, currentUserId: () => string | null, crypto: PrivateCalendarCryptoGateway) {
+export function createPrivateCalendarCloud(firestore: Firestore, userId: string, currentUserId: () => string | null, crypto: PrivateCalendarCryptoGateway, delivery?: PrivateDeliveryPort) {
   assertSharedIdentifier(userId); const reference = doc(firestore, 'privateCalendars', userId);
   const checkAccount = () => {
     if (currentUserId() !== userId) throw Object.assign(new Error('本人用Calendarのアカウントが切り替わりました。'), { code: 'private-calendar/access-denied' });
@@ -62,7 +63,9 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
     return verifyPrivateCalendarWrappedKey(JSON.parse(row.wrappedKeyJson), authority, recipient);
   }
   function parseManifest(data: DocumentData | undefined, authority: VerifiedPrivateCalendarAuthority, expected: NonNullable<PrivateCalendarCloudHead['cacheHead']>) {
-    const row = bodyWithoutServerTime(data, ['schemaVersion', 'authorityDigest', 'sequence', 'chunkCount', 'manifestDigest', 'manifestJson']);
+    const { erasedAt, ...stored } = data ?? {};
+    if (erasedAt !== undefined && (!delivery || !(erasedAt instanceof Timestamp))) throw new Error('Invalid private Calendar erasure marker');
+    const row = bodyWithoutServerTime(stored, ['schemaVersion', 'authorityDigest', 'sequence', 'chunkCount', 'manifestDigest', 'manifestJson']);
     if (row.schemaVersion !== 1 || row.authorityDigest !== authority.digest || row.sequence !== expected.sequence || row.chunkCount !== expected.chunkCount
       || row.manifestDigest !== expected.manifestDigest || typeof row.manifestJson !== 'string' || row.manifestJson.length > 16_000) throw new Error('本人用Calendarの分割manifestを確認できません。');
     const manifest = snapshotPrivateCalendarCacheManifest(JSON.parse(row.manifestJson), authority);
@@ -190,6 +193,7 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
       authorityForUser(authority);
       const owned = await verifyPrivateCalendarCacheCiphertext(crypto, incoming, authority); guard();
       const manifestJson = canonicalJson(owned.manifest); const digest = sharedDocumentDigest(owned.manifest);
+      if (delivery) { await delivery.remember(authority, `calendar.${digest}`, owned); guard(); }
       const head = { cacheId: owned.manifest.body.cacheId, manifestDigest: digest, authorityDigest: authority.digest,
         sequence: owned.manifest.body.sequence, chunkCount: owned.manifest.body.chunkCount };
       const cacheRef = doc(reference, 'caches', head.cacheId);
@@ -203,6 +207,7 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
         if (current.cacheHead?.cacheId === head.cacheId) {
           if (!target.exists() || canonicalJson(current.cacheHead) !== canonicalJson(head)) throw new PrivateCalendarCloudConflict();
           parseManifest(target.data(), authority, head);
+          if (delivery && target.data().erasedAt instanceof Timestamp) return { published: false, head };
           const pieces = await Promise.all(prepared.map((part) => transaction.get(part.reference))); guard();
           if (pieces.some((piece, index) => !piece.exists() || canonicalJson(parsePart(piece.data(), piece.id)) !== prepared[index].json)) throw new Error('送信済みのCalendarが欠けているか異なります。');
           return { published: false, head };
@@ -221,7 +226,7 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
         return { published: true, head };
       });
       for (let retry = 0; ; retry++) {
-        try { const result = await publish(); guard(); return result; }
+        try { const result = await publish(); guard(); if (delivery) void delivery.confirm(authority, 'calendar', digest).catch(() => undefined); return result; }
         catch (error) {
           guard();
           if (!error || typeof error !== 'object' || !('code' in error) || !['permission-denied', 'aborted', 'failed-precondition', 'unavailable', 'deadline-exceeded'].includes(String(error.code))) throw error;
@@ -248,18 +253,33 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
       const cacheRef = doc(reference, 'caches', current.cacheHead.cacheId); const manifestDoc = await serverRead(cacheRef, checkBudget);
       if (!manifestDoc.exists()) throw new Error('本人用Calendarの取得が完了していません。');
       const manifest = parseManifest(manifestDoc.data(), authority, current.cacheHead);
+      if (delivery && manifestDoc.data().erasedAt instanceof Timestamp) {
+        const recovered = await delivery.recover(authority, `calendar.${current.cacheHead.manifestDigest}`) as EncryptedPrivateCalendarCache;
+        if (canonicalJson(recovered?.manifest) !== canonicalJson(manifest)) throw new Error('Peer private Calendar manifest differs');
+        const checked = await verifyPrivateCalendarCacheCiphertext(crypto, recovered, authority); guard();
+        const after = await readHead(checkBudget); if (!after) throw new PrivateCalendarCloudConflict(); assertPrivateCalendarCloudAuthority(after, authority);
+        if (after.cacheHead?.manifestDigest !== current.cacheHead.manifestDigest || after.cacheHead.cacheId !== current.cacheHead.cacheId) throw new PrivateCalendarCloudConflict();
+        await delivery.remember(authority, `calendar.${current.cacheHead.manifestDigest}`, checked); guard();
+        void delivery.confirm(authority, 'calendar', current.cacheHead.manifestDigest).catch(() => undefined); return checked;
+      }
       guard(); const page = await getDocsFromServer(query(collection(cacheRef, 'parts'), orderBy('index'), limit(33))); guard();
       if (page.size !== manifest.body.chunkCount) throw new Error('本人用Calendarの分割が揃っていません。');
       const chunks = page.docs.map((entry) => parsePart(entry.data(), entry.id));
       const verified = await verifyPrivateCalendarCacheCiphertext(crypto, { manifest, chunks }, authority); guard();
       const after = await readHead(checkBudget); if (!after) throw new PrivateCalendarCloudConflict(); assertPrivateCalendarCloudAuthority(after, authority);
       if (after.cacheHead?.manifestDigest !== current.cacheHead.manifestDigest || after.cacheHead.cacheId !== current.cacheHead.cacheId) throw new PrivateCalendarCloudConflict();
+      if (delivery) {
+        await delivery.remember(authority, `calendar.${current.cacheHead.manifestDigest}`, verified); guard();
+        void delivery.confirm(authority, 'calendar', current.cacheHead.manifestDigest).catch(() => undefined);
+      }
       return verified;
     },
     watch(onChange: () => void, onError: () => void) {
-      checkAccount(); return onSnapshot(reference, { includeMetadataChanges: true }, (snapshot) => {
+      checkAccount(); const unsubscribe = onSnapshot(reference, { includeMetadataChanges: true }, (snapshot) => {
         if (currentUserId() !== userId || snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return; onChange();
       }, () => { if (currentUserId() === userId) onError(); });
+      const stopDelivery = delivery?.watch(onChange, onError);
+      return () => { unsubscribe(); stopDelivery?.(); };
     },
   });
 }

@@ -51,7 +51,7 @@ function assertRetentionAdvance(current: ReturnType<typeof parseSharedCloudGroup
   if (body.retentionCutoff && body.retentionKeyVersion! >= body.keyVersion) throw new Error('History deletion must retire its original encryption epoch');
 }
 
-export function createSharingManagement({ firestore, userId, checkAccount, reference, readGroup, recoveryEnabled = false }: SharingCloudContext) {
+export function createSharingManagement({ firestore, userId, checkAccount, reference, readGroup, recoveryEnabled = false, deliveryRelay }: SharingCloudContext) {
   const cleanupPositions = new Map<string, { createdAt: Timestamp; id: string }>();
   const eventCleanupPositions = new Map<string, number>();
   const inviteRef = (id: string) => { assertSharedIdentifier(id); return doc(firestore, 'sharingInvites', id); };
@@ -180,6 +180,10 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
       const guard = sharingSequenceGuard(() => { checkAccount(); checkBudget(); });
       verifySharedSnapshotManifest(input.manifest, roster); const { body } = input.manifest;
       if (input.chunks.length !== body.chunks.length) throw new Error('Snapshot chunk count mismatch');
+      if (deliveryRelay?.()) for (const [index, chunk] of input.chunks.entries()) {
+        if (sharedDocumentDigest(chunk) !== body.chunks[index].digest) throw new Error('Snapshot chunk hash mismatch');
+        await deliveryRelay()!.archive.saveChunk(body.chunks[index].id, chunk); guard();
+      }
       const pages = boundedSharingCloudBatches(input.chunks.map((chunk, index) => ({ chunk, index })),
         ({ chunk }) => new TextEncoder().encode(canonicalJson(chunk)).length + 2048);
       for (const page of pages) {
@@ -313,10 +317,16 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
       const chunks: EncryptedSharedSnapshotChunk[] = await boundedReads(manifest.body.chunks, async descriptor => {
         assertSharedIdentifier(descriptor.id); const result = await getDocFromServer(doc(reference(groupId), 'snapshotChunks', descriptor.id)); guard();
         const data = result.data();
+        if (deliveryRelay?.() && !result.exists()) {
+          const chunk = await deliveryRelay()!.snapshotChunk(groupId, descriptor.id, manifest.body.throughSequence); guard();
+          if (sharedDocumentDigest(chunk) !== descriptor.digest || new TextEncoder().encode(canonicalJson(chunk)).length !== descriptor.bytes) throw new Error('Peer snapshot chunk hash mismatch');
+          await deliveryRelay()!.archive.saveChunk(descriptor.id, chunk); guard(); return chunk;
+        }
         if (typeof data?.envelopeJson !== 'string' || data.envelopeJson.length > 800_000 || new TextEncoder().encode(data.envelopeJson).length !== descriptor.bytes
           || data.snapshotId !== snapshotId || data.keyVersion !== manifest.body.keyVersion) throw new Error('Snapshot chunk is missing');
         const chunk = JSON.parse(data.envelopeJson) as EncryptedSharedSnapshotChunk;
-        if (sharedDocumentDigest(chunk) !== descriptor.digest) throw new Error('Snapshot chunk hash mismatch'); return chunk;
+        if (sharedDocumentDigest(chunk) !== descriptor.digest) throw new Error('Snapshot chunk hash mismatch');
+        await deliveryRelay?.()?.archive.saveChunk(descriptor.id, chunk); guard(); return chunk;
       }, guard);
       return { manifest, chunks };
     },

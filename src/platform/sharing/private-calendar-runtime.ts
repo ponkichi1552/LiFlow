@@ -18,6 +18,7 @@ import { assertSharedIdentifier } from '../../features/sharing/identifier';
 import { privateCalendarDeadlineError } from '../../features/sharing/private-calendar/sync-deadline';
 import { createPrivatePreferenceSync } from '../../features/sharing/private-planner/preference-sync';
 import { createPrivatePlannerCloud } from './private-planner-cloud';
+import type { PrivateDeliveryPort } from './private-delivery';
 
 const runtimes = new Map<string, PrivateCalendarRuntime>(); let observedAuth: Auth | null = null; let stopObserving: (() => void) | undefined;
 /** Importing this module does not initialize Firebase, Google, a DB, or any periodic worker. */
@@ -30,12 +31,27 @@ export function openPrivateCalendarRuntime(userId: string): PrivateCalendarRunti
   }
   const saved = runtimes.get(userId); if (saved) return saved;
   const secrets = nativePrivateCalendarSecrets; const source = nativePrivateCalendarSource(userId); const intents = nativePrivateCalendarAuthorityIntents(userId);
-  const cloud = createPrivateCalendarCloud(firestore, userId, () => auth.currentUser?.uid ?? null, nativePrivateCalendarCrypto);
+  let deliveryPromise: Promise<PrivateDeliveryPort> | undefined;
+  const loadDelivery = () => deliveryPromise ??= (async () => {
+    const [{ createPrivateDelivery }, { nativePrivateDeliveryArchive }] = await Promise.all([import('./private-delivery'), import('./private-calendar-secrets')]);
+    return createPrivateDelivery({ firestore, userId, assertOwner, archive: await nativePrivateDeliveryArchive(userId),
+      state: async () => { const value = await secrets.publicState(userId); return value ? { identity: value.identity, authority: value.authority ?? null } : null; } });
+  })();
+  const delivery: PrivateDeliveryPort | undefined = process.env.EXPO_PUBLIC_SHARING_EPHEMERAL_DELIVERY === '1' ? {
+    remember: async (...args) => (await loadDelivery()).remember(...args), recover: async (...args) => (await loadDelivery()).recover(...args),
+    confirm: async (...args) => (await loadDelivery()).confirm(...args),
+    watch(changed, failed) {
+      let disposed = false; let unsubscribe: (() => void) | undefined;
+      void loadDelivery().then(value => { if (!disposed) unsubscribe = value.watch(changed, failed); }).catch(error => { if (!disposed) failed(error); });
+      return () => { disposed = true; unsubscribe?.(); };
+    },
+  } : undefined;
+  const cloud = createPrivateCalendarCloud(firestore, userId, () => auth.currentUser?.uid ?? null, nativePrivateCalendarCrypto, delivery);
   const authoritySync = createPrivateCalendarAuthoritySync({ userId, secrets, intents, cloud });
   const client = createCalendarFreeBusyClient();
   const plannerPreferences = nativePrivatePlannerPreferences(userId);
   const plannerSync = createPrivatePreferenceSync({ ownerUserId: userId, assertOwner, store: plannerPreferences, secrets, crypto: nativePrivateCalendarCrypto,
-    cloud: createPrivatePlannerCloud(firestore, userId, () => auth.currentUser?.uid ?? null) });
+    cloud: createPrivatePlannerCloud(firestore, userId, () => auth.currentUser?.uid ?? null, delivery) });
   const runtime = createPrivateCalendarRuntime({ userId, assertOwner, secrets, source, cloud, devices: openPrivateCalendarDevices(userId),
     plannerPreferences, plannerSync,
     cache: nativePrivateCalendarCache(userId), crypto: nativePrivateCalendarCrypto, sourceController: createPrivateCalendarSourceController({ userId, secrets, source, intents, authoritySync }),

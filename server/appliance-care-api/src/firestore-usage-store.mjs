@@ -1,7 +1,8 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { PUBLIC_API_POLICY, PublicApiError, publicJobId, publicKey, publicUsage, usagePeriods } from './public-access.mjs';
 import { prepareAnalysisQueueInput, decodeAnalysisQueueInput, captureAnalysisQueueKeys } from './analysis-queue-input.mjs';
+import { analysisDeliveryJson, validAnalysisDelivery } from './analysis-delivery-contract.mjs';
 
 const interrupted = { status: 'error', code: 'ANALYSIS_INTERRUPTED',
   message: '解析が中断されました。受付済みの1回分は記録されています。時間をおいて再試行してください。' };
@@ -146,8 +147,11 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
     return publicUsage(state.count, at, policy);
   }
   function readable(job, at) {
+    if (job.deliveredAt !== undefined) return { stage: job.stage, done: true,
+      result: { status: 'error', code: 'JOB_NOT_FOUND', message: '解析結果は端末に保存済みです。' }, usage: job.usage };
     if (!job.done && job.deadlineAt <= at) return { stage: job.stage, done: true, result: interrupted, usage: job.usage };
-    return { stage: job.stage, done: job.done, ...(job.done ? { result: job.result } : { pollAfterMs: 2000 }), usage: job.usage };
+    return { stage: job.stage, done: job.done, ...(job.done ? { result: job.result,
+      ...(job.delivery ? { delivery: job.delivery } : {}) } : { pollAfterMs: 2000 }), usage: job.usage };
   }
   const store = {
     async ready() { await globalRef.get(); },
@@ -215,7 +219,7 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
         if (!forceReanalysis && reusedId) {
           const previous = (await transaction.get(jobRef(reusedId))).data();
           if (previous && previous.owner === principal.uid && previous.expiresAt.toMillis() > at
-            && (!previous.done && previous.deadlineAt > at || previous.done && previous.result.status === 'verified')) {
+            && (!previous.done && previous.deadlineAt > at || previous.done && previous.result?.status === 'verified')) {
             transaction.create(admissionRef(id), { owner: principal.uid, requestDigest, jobRequestDigest: previous.requestDigest, jobId: reusedId });
             writeQuota(transaction, principal, periods, state);
             return { jobId: reusedId, created: false, usage: publicUsage(state.count, at, policy) };
@@ -266,8 +270,27 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
       // Identical response for absent jobs, another user and expired results.
       if (!job || job.owner !== principal.uid || job.expiresAt.toMillis() <= at) return null;
       const output = readable(job, at);
-      output.usage = await readUsage(principal);
+      // Progress reads need no additional quota transaction. The final response refreshes the counter once.
+      if (output.done) output.usage = await readUsage(principal);
       return output;
+    },
+    async acknowledgeResult(principal, id, delivery) {
+      if (!principal?.uid || !/^[a-f0-9]{64}$/u.test(id) || !validAnalysisDelivery(delivery)) return false;
+      return firestore.runTransaction(async transaction => {
+        const ref = jobRef(id); const job = (await transaction.get(ref)).data(); const at = now();
+        if (!job || job.owner !== principal.uid || job.expiresAt.toMillis() <= at || !job.done) return false;
+        const tokenDigest = publicKey(delivery.token);
+        if (job.deliveredAt !== undefined) return job.deliveryProof?.tokenDigest === tokenDigest
+          && job.deliveryProof?.digest === delivery.digest && delivery.expiresAt === job.expiresAt.toMillis();
+        if (!job.result || !validAnalysisDelivery(job.delivery) || job.delivery.token !== delivery.token
+          || job.delivery.digest !== delivery.digest || job.delivery.expiresAt !== delivery.expiresAt) return false;
+        // Replacement removes every result/input field. A merge would retain the private content.
+        transaction.set(ref, { owner: job.owner, requestDigest: job.requestDigest, runId: job.runId, stage: job.stage,
+          done: true, createdAt: job.createdAt, deadlineAt: job.deadlineAt, usage: job.usage, expiresAt: new Date(job.expiresAt.toMillis()),
+          deliveredAt: at, deliveryProof: { tokenDigest, digest: delivery.digest } });
+        if (job.inputManifest) for (let i = 0; i < job.inputManifest.chunks; i++) transaction.delete(chunkRef(id, i));
+        return true;
+      });
     },
     async usage(principal) { return synchronize(principal); },
     /** A separate request-independent worker owns these server-only operations. */
@@ -358,7 +381,9 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
         }
         const receivedAt = job.queueVersion === 1 ? job.resultReceivedAt : at;
         if (decisionDoc.exists) transaction.update(chargeRef(admission.jobId), { state: receivedAt < job.deadlineAt && result.status === 'error' && result.code === 'AI_SERVICE_NO_RESULT' ? 'refunded' : 'charged' });
-        transaction.update(jobRef(admission.jobId), { done: true, result: receivedAt >= job.deadlineAt ? interrupted : result,
+        const output = receivedAt >= job.deadlineAt ? interrupted : result;
+        transaction.update(jobRef(admission.jobId), { done: true, result: output,
+          delivery: { token: randomBytes(32).toString('hex'), digest: publicKey(analysisDeliveryJson(output)), expiresAt: job.expiresAt.toMillis() },
           ...(job.queueVersion === 1 ? { executionState: 'finished' } : {}) });
         if (job.queueVersion === 1) for (let i = 0; i < job.inputManifest.chunks; i++) transaction.delete(chunkRef(admission.jobId, i));
         if (globalDoc.exists) transaction.update(globalRef, { active: (globalDoc.data().active ?? [])

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 export const PUBLIC_API_POLICY = Object.freeze({ monthlyLimit: 5, dailyGlobalLimit: 20, maxConcurrent: 3,
-  jobTimeoutMs: 10 * 60_000, retentionMs: 7 * 24 * 60 * 60_000 });
+  jobTimeoutMs: 10 * 60_000, retentionMs: 24 * 60 * 60_000 });
 
 export class PublicApiError extends Error {
   constructor(status, code, message, details = {}) { super(message); this.status = status; this.code = code; this.details = details; }
@@ -51,6 +51,7 @@ export function createPublicApiAccess({ verifyIdToken, verifyDevice, store, subs
     throw new Error('Public authentication and durable quota storage are required');
   }
   return Object.freeze({ mode: 'firebase-firestore', securityReady: typeof verifyDevice === 'function', store, subscriptions,
+    authenticateIdentity: request => authenticateFirebaseUser(request, verifyIdToken),
     async authenticate(request) {
       const decoded = await authenticateFirebaseUser(request, verifyIdToken);
       // Refuse unpaid AI requests before performing a potentially costly native-attestation provider call.

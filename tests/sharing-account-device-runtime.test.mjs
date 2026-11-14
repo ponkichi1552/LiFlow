@@ -56,6 +56,22 @@ async function fixture() {
 function configured() { const old = process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL; process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL = 'https://synthetic.example/';
   return () => { if (old === undefined) delete process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL; else process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL = old; }; }
 
+test('waiting account device approval uses change signals rather than five second polling and reconnects a failed listener once', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] }); const reset = configured(), h = await fixture(); let stop;
+  try {
+    const d = await h.device(h.tablet); let changed, failed, reads = 0, watches = 0, detachments = 0;
+    const original = d.cloud.readMembership; d.cloud.readMembership = async (...args) => { reads++; return original(...args); };
+    d.cloud.watchAccountDeviceRestores = (onChange, onError) => { watches++; changed = onChange; failed = onError; onChange(); return () => { detachments++; }; };
+    stop = d.reload().startAccountDeviceForeground(d.user.uid);
+    const flush = async () => { for (let i = 0; i < 10; i++) await new Promise(setImmediate); };
+    await flush(); assert.equal(reads, 1);
+    t.mock.timers.tick(3600_000); await flush(); assert.equal(reads, 1, 'waiting for another device does not poll');
+    changed(); t.mock.timers.tick(250); await flush(); assert.equal(reads, 2);
+    failed(); t.mock.timers.tick(30_000); await flush(); assert.equal(reads, 3); assert.equal(watches, 2); assert.equal(detachments, 1);
+    t.mock.timers.tick(3600_000); await flush(); assert.equal(reads, 3);
+    stop(); stop = null; changed(); t.mock.timers.tick(3600_000); await flush(); assert.equal(reads, 3);
+  } finally { stop?.(); h.close(); reset(); }
+});
 test('native account restoration persists its pin across reloads and activates only the same account without overwriting personal SQLite', async () => {
   const reset = configured(), h = await fixture();
   try {
