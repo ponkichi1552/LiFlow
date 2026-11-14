@@ -9,6 +9,7 @@ export function commonFrame(groupId: string, choreId: string, configuration: Sha
   parseLocalDate(configuration.anchorDate); parseLocalDate(anchorDate);
   if (!Number.isSafeInteger(configuration.intervalDays) || configuration.intervalDays < 1 || configuration.intervalDays > 3650
     || configuration.monthly !== undefined && typeof configuration.monthly !== 'boolean'
+    || configuration.once !== undefined && typeof configuration.once !== 'boolean' || configuration.once === true && configuration.monthly === true
     || !Number.isSafeInteger(configuration.ruleVersion) || configuration.ruleVersion < 1
     || [configuration.windowBeforeDays, configuration.windowAfterDays].some((days) => !Number.isSafeInteger(days) || days < 0 || days > 14)) throw new Error('Invalid common recurrence');
   const index = v2AnchorIndexBefore(configuration, anchorDate);

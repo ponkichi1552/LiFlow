@@ -13,7 +13,7 @@ function fixture(platform) {
       events.push('save'); if (state.saveGate) await state.saveGate; return state.saved;
     }, acquire: () => state.acquired, release: () => { releases++; } }, mocks: {
       '../../contexts/workspace-context': { WorkspaceContext: { _currentValue: workspace } },
-      '../../platform/sharing/auth': { signOutSharing: async () => { events.push('logout'); if (state.logoutFailure) throw new Error('auth failed'); } },
+      '../google-sync/account-switch': { signOutGoogleAccount: async () => { events.push('logout'); if (state.logoutFailure) throw new Error('auth failed'); } },
     } });
   return { ui, workspace, events, state, releases: () => releases };
 }

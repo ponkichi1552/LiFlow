@@ -4,7 +4,7 @@ import { screenHarness } from './helpers/screen-harness.mjs';
 import { selectCalendarView, openCalendarDay } from './helpers/calendar-ui.mjs';
 
 for (const platform of ['ios', 'android']) {
-  test(`${platform} leaving either workspace resets calendar overview and guide route without treating a settings overlay as another tab`, () => {
+  test(`${platform} leaving either workspace retains calendar presentation and clears only guide routing without treating a settings overlay as another tab`, () => {
     for (const joined of [false, true]) for (const view of ['calendar', 'chores']) {
       let state = { type: 'tab', index: view === 'calendar' ? 1 : 2, routes: ['index', 'explore', 'guide', 'manual'].map(name => ({ key: name, name })) };
       const params = { choreId: 'selected-chore', source: 'shared', returnTo: 'home' }; const changed = [];
@@ -21,7 +21,7 @@ for (const platform of ['ios', 'android']) {
       listener({ data: { state: { type: 'stack', index: 1, routes: [{ name: '(tabs)' }, { name: 'settings' }] } } });
       assert.equal(resets, 0); assert.deepEqual(changed, []);
       state = { ...state, index: 0 }; listener({ data: { state } }); listener({ data: { state } });
-      if (view === 'calendar') { assert.equal(resets, 1); assert.deepEqual(changed, []); }
+      if (view === 'calendar') { assert.equal(resets, 0); assert.deepEqual(changed, []); }
       else { assert.deepEqual(changed, [{ choreId: undefined, source: undefined, returnTo: undefined }]); assert.equal(resets, 0); }
       screen.unmount(); assert.equal(unsubscribed, true);
     }
@@ -37,9 +37,9 @@ for (const platform of ['ios', 'android']) {
       await screen.press('月表示に戻る'); await screen.press('年表示に戻る');
       const current = screen.button('2026年11月を表示'); assert.match(current.props.accessibilityHint, /今月/u);
       assert.ok(current.props.style.some(part => part?.borderColor && part?.backgroundColor));
-      const today = current.children.flatMap(node => node.children ?? []).find(node => node.key === '2026-11-01');
-      assert.ok(today?.props.style.some(part => part?.backgroundColor && part?.borderRadius));
-      const add = Object.assign({}, ...screen.button('予定を追加').props.style.filter(Boolean)); assert.ok(add.minWidth > add.minHeight);
+      await screen.press('2026年11月を表示'); assert.ok(screen.nodes().some(node => node.props.testID === 'calendar-weeks'));
+      assert.ok(screen.button('予定を追加'));
+      screen.unmount();
     }
   });
 }

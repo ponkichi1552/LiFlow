@@ -13,6 +13,7 @@ const repository = await import('../src/platform/storage/repository.ts');
 const archive = await import('../src/platform/storage/google-account-archive.ts');
 const { stagePendingGoogleTaskStatus } = await import('../src/platform/storage/google-task-link-state.ts');
 const calendars = await import('../src/platform/storage/personal-google-calendar.ts');
+const { configurePersonalGoogleTaskSync } = await import('../src/features/google-sync/coordinator.ts');
 const householdId = repository.LOCAL_HOUSEHOLD_ID;
 const now = '2026-11-05T00:00:00.000Z';
 const state = subject => ({ householdId, accountSubject: subject, enabled: true, taskListId: `list-${subject}`, status: 'idle', retryCount: 0, updatedAt: now });
@@ -59,6 +60,64 @@ function controller(h, subject = 'b', nativeRead) {
   });
   return { module, events, native: value => { native = value; }, firebase: value => { firebase = value; } };
 }
+
+for (const signedIn of [false, true]) test(`Google account logout pauses both sync domains and preserves mappings, pending work and local data with Firebase=${signedIn}`, async () => {
+  const h = await fixture(); const events = []; let firebase = signedIn ? { uid: 'firebase-a' } : null;
+  const calendarStore = await import('../src/platform/storage/personal-google-calendar.ts');
+  const module = loadNativeModule('src/features/google-sync/account-switch.ts', {
+    '../../platform/sharing/workspaces': { sharingSessionUser: async () => firebase },
+    '../../platform/storage/google-account-archive': archive,
+    '../../platform/storage/repository': repository, '../../platform/storage/personal-google-calendar': calendarStore,
+    './coordinator': { configurePersonalGoogleTaskSync }, './operation-lock': lock, './operation-budget': budget,
+    './account-binding': binding, './account-change-events': accountEvents,
+    '../../platform/google-tasks/google-sign-in-gateway': { signOutGoogleSyncAccount: async () => events.push('google-sign-out') },
+    '../../platform/sharing/auth': { signOutSharing: async options => { assert.equal(options.expectedUserId, 'firebase-a'); events.push('firebase-sign-out'); firebase = null; } },
+  });
+  try {
+    await calendarStore.initializePersonalGoogleCalendar(h.database);
+    await calendarStore.connectPersonalGoogleCalendar(h.database, 0, 'a', [{ id: 'calendar-a', summary: 'A', accessRole: 'owner', primary: true }], 'calendar-a');
+    await stagePendingGoogleTaskStatus(h.database, 'entry-0', 'completed', 'pending-before-logout');
+    const before = business(h); const links = rows(h, 'google_task_links');
+    await module.signOutGoogleAccount(h.database);
+    assert.equal((await repository.loadGoogleSyncState(h.database)).enabled, false);
+    assert.equal((await calendarStore.readPersonalGoogleCalendarControl(h.database)).enabled, false);
+    assert.equal(business(h), before); assert.deepEqual(rows(h, 'google_task_links'), links);
+    assert.deepEqual(events, signedIn ? ['google-sign-out', 'firebase-sign-out'] : ['google-sign-out']);
+  } finally { h.connection.close(); }
+});
+
+test('local-only Google account changes select and archive accounts without creating a Firebase session or losing pending changes', async () => {
+  const h = await fixture(); const events = []; let native = 'b'; let cancel = false;
+  const module = loadNativeModule('src/features/google-sync/account-switch.ts', {
+    '../../platform/storage/google-account-archive': archive,
+    '../../platform/google-tasks/google-sign-in-gateway': { getCurrentGoogleSubject: async () => native, GoogleSignInRequiredError: class extends Error {},
+      selectGoogleSyncAccount: async () => { events.push('picker'); if (cancel) throw new Error('cancelled'); return { subject: 'b', label: 'Fixture B' }; } },
+    './account-binding': binding, './operation-lock': lock, './operation-budget': budget, './account-change-events': accountEvents,
+    '../../platform/sharing/auth': { switchSharingGoogleAccount: () => assert.fail('local-only connection must not sign in to Firebase') },
+    '../../platform/sharing/workspaces': { sharingSessionUser: async () => null },
+  });
+  try {
+    const before = business(h); await stagePendingGoogleTaskStatus(h.database, 'entry-0', 'completed', 'pending-a');
+    cancel = true; await assert.rejects(module.changeGoogleAccount(h.database), /cancelled/);
+    assert.equal((await repository.loadGoogleSyncState(h.database)).accountSubject, 'a');
+    cancel = false; await module.changeGoogleAccount(h.database);
+    assert.equal((await repository.loadGoogleSyncState(h.database)).accountSubject, 'b'); assert.equal(business(h), before);
+    await archive.activatePersonalGoogleTaskAccount(h.database, 'a', async () => {});
+    const [saved] = await repository.listGoogleTaskLinks(h.database); assert.equal(saved.googleTaskId, 'task-a-0'); assert.equal(saved.pendingStatus, 'completed');
+    native = 'unexpected'; await assert.rejects(module.changeGoogleAccount(h.database), binding.GoogleAccountMismatchError);
+    native = 'b'; let calls = 0;
+    // A Firebase login arriving during the native picker must invalidate this local-only operation.
+    const race = loadNativeModule('src/features/google-sync/account-switch.ts', {
+      '../../platform/storage/google-account-archive': archive,
+      '../../platform/google-tasks/google-sign-in-gateway': { getCurrentGoogleSubject: async () => native, selectGoogleSyncAccount: async () => ({ subject: 'b' }) },
+      './account-binding': binding, './operation-lock': lock, './operation-budget': budget, './account-change-events': accountEvents,
+      '../../platform/sharing/workspaces': { sharingSessionUser: async () => ++calls === 1 ? null : { uid: 'new-login' } },
+    });
+    await assert.rejects(race.changeGoogleAccount(h.database), binding.GoogleAccountMismatchError);
+    assert.equal((await repository.loadGoogleSyncState(h.database)).accountSubject, 'a');
+    assert.equal(events.length, 3);
+  } finally { h.connection.close(); }
+});
 
 test('explicit Google account changes keep independent mappings busy days and pending intents and restore them without business-data changes', async () => {
   const h = await fixture();
@@ -173,6 +232,7 @@ test('a stalled native identity at the account commit fence rolls back and late 
 for(const platform of ['ios','android'])test(`${platform} Google Tasks connect can use a different account without reusing the old list or task IDs`,async()=>{
   const h=await fixture();
   try{
+    await repository.saveGoogleSyncState(h.database, { ...state('a'), enabled: false });
     const snapshot=await repository.loadPlannerSnapshot(h.database,'2026-11-05');const c=controller(h);let synced=0;
     const screen=screenHarness('src/app/settings.tsx',{params:{section:'tasks'},effect:callback=>callback(),effectDependencies:true,platform,database:h.database,snapshot:()=>snapshot,refresh:async()=>{},mocks:{
       '@/features/google-sync/account-switch':c.module,
@@ -188,6 +248,48 @@ for(const platform of ['ios','android'])test(`${platform} Google Tasks connect c
     assert.equal(synced,1);assert.match(screen.text(),/接続し、同期しました/);assert.equal((await repository.loadGoogleSyncState(h.database)).accountSubject,'b');
     await archive.activatePersonalGoogleTaskAccount(h.database,'a',async()=>{});assert.equal((await repository.listGoogleTaskLinks(h.database))[0].googleTaskId,'task-a-0');
   }finally{h.connection.close();}
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} enabled Tasks reauthentication chooses an account and enables its isolated connection before retrying`, async () => {
+  const h = await fixture(); const calls = [];
+  try {
+    const c = controller(h); const snapshot = await repository.loadPlannerSnapshot(h.database, '2026-11-05');
+    const screen = screenHarness('src/app/settings.tsx', { params: { section: 'tasks' }, effect: fn => fn(), effectDependencies: true, platform,
+      database: h.database, snapshot: () => snapshot, refresh: async () => {}, mocks: {
+        '@/features/google-sync/account-switch': c.module,
+        '@/features/google-sync/background-task': { registerGoogleSyncBackgroundTask: async () => {} },
+        '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: true }) },
+        '@/platform/google-tasks/google-sign-in-gateway': { authorizeGoogleTasks: async () => { calls.push('consent'); }, hasGoogleTasksSession: async expected => { calls.push(['identity', expected]); return false; } },
+        '@/features/google-sync/coordinator': { configurePersonalGoogleTaskSync, syncGoogleTasks: async () => {
+          calls.push('sync'); const saved = await repository.loadGoogleSyncState(h.database);
+          assert.equal(saved.accountSubject, 'b'); assert.equal(saved.enabled, true); assert.notEqual(saved.disconnected, true);
+          assert.deepEqual(await repository.listGoogleTaskLinks(h.database), []); return { kind: 'success', created: 0, updated: 0, imported: 0 };
+        } },
+      } });
+    await screen.flush(); await screen.press('今すぐ同期');
+    assert.equal(c.events.filter(event => event === 'choose').length, 1); assert.equal(calls.filter(event => event === 'sync').length, 1);
+    assert.ok(calls.some(event => Array.isArray(event) && event[1] === 'a')); assert.match(screen.text(), /同期しました/);
+    await archive.activatePersonalGoogleTaskAccount(h.database, 'a', async () => {});
+    assert.equal((await repository.listGoogleTaskLinks(h.database))[0].googleTaskId, 'task-a-0'); screen.unmount();
+  } finally { h.connection.close(); }
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} a local Tasks database failure does not ask the user to change Google OAuth settings`, async () => {
+  const h = await fixture();
+  try {
+    const snapshot = await repository.loadPlannerSnapshot(h.database, '2026-11-05');
+    const screen = screenHarness('src/app/settings.tsx', { params: { section: 'tasks' }, effect: callback => callback(), effectDependencies: true,
+      platform, database: h.database, snapshot: () => snapshot, refresh: async () => {}, mocks: {
+        '@/features/google-sync/background-task': {},
+        '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: true }) },
+        '@/platform/google-tasks/google-sign-in-gateway': { hasGoogleTasksSession: async () => true },
+        '@/features/google-sync/coordinator': { syncGoogleTasks: async () => ({ kind: 'error', code: 'err_internal_sqlite_error' }) },
+      } });
+    await screen.flush(); await screen.press('今すぐ同期');
+    assert.match(screen.text(), /端末内の同期情報を処理できませんでした/);
+    assert.doesNotMatch(screen.text(), /OAuth設定を見直|Googleとの再接続をお試し/);
+    screen.unmount();
+  } finally { h.connection.close(); }
 });
 
 for(const platform of ['ios','android'])test(`${platform} account changes refresh an already-mounted settings view and discard its older native connection read`,async()=>{

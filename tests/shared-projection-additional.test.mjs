@@ -7,6 +7,7 @@ import { loadNativeModule } from './helpers/native-module.mjs';
 import { newEventDraft } from '../src/features/calendar/events.ts';
 import { sharedDocumentDigest } from '../src/features/sharing/crypto.ts';
 import { sharedCalendarPayload } from '../src/features/sharing/v2/calendar-state.ts';
+import { isCalendarAnchor } from '../src/domain/calendar/events.ts';
 
 test('shared optimistic Undo places an early completed round back on its recommended calendar date', async () => {
   const f = await fixture({ configuration: { anchorDate: '2026-10-28' } });
@@ -31,6 +32,7 @@ test('calendar completion visibility cannot disclose another assignee early-comp
 test('shared calendar projection derives each event and repeated category identity once per immutable input batch', () => {
   let digests = 0;
   const { projectSharedCalendarRecords } = loadNativeModule('src/features/calendar/shared-events.ts', {
+    '../../domain/calendar/events.ts': { isCalendarAnchor },
     '../sharing/crypto.ts': { sharedDocumentDigest(value) { digests++; return sharedDocumentDigest(value); } },
     '../sharing/v2/calendar-state.ts': { sharedCalendarPayload }, './private-availability.ts': {},
   });

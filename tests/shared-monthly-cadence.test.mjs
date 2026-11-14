@@ -85,12 +85,14 @@ for(const [platform,name] of [
 ])test(name,async t=>{
   const f=await fixture();const d=await f.device();t.after(()=>d.connection.close());await d.repository.commit(seeds());let n=0;
   const controller=createV2GroupController(d.repository,{now,makeId:()=>`monthly-ui-${++n}`,sync:async()=>{}});const effects=[];
-  const props={model:await controller.readModel({from:'2026-10-27',through:'2026-12-31',asOfDate:'2026-10-27'},{management:true}),choreId:'floor',controller,onSaved:async()=>{props.model=await controller.readModel({from:'2026-10-27',through:'2026-12-31',asOfDate:'2026-10-27'},{management:true});}};
+  const props={advancedOnly:true,model:await controller.readModel({from:'2026-10-27',through:'2026-12-31',asOfDate:'2026-10-27'},{management:true}),choreId:'floor',controller,onSaved:async()=>{props.model=await controller.readModel({from:'2026-10-27',through:'2026-12-31',asOfDate:'2026-10-27'},{management:true});}};
   const s=screenHarness('src/features/sharing/v2-ui/configuration-editor.tsx',{exportName:'V2ConfigurationEditor',platform,props,effect:callback=>effects.push(callback)});t.after(()=>s.unmount());
   const settle=async()=>{for(let n=0;n<16;n++){for(const effect of effects.splice(0))effect();await s.flush();}};
-  await settle();await s.press('毎月');await settle();await s.press('毎月の日付を変更');await s.press('毎月の日付カレンダーの次の月');await s.press('毎月21日にする');await settle();
+  await settle();await s.press('毎月');await settle();await s.press('毎月の日付を変更');
+  const days=s.nodes().filter(node=>node.props.accessibilityRole==='radio'&&/^毎月\d+日にする$/u.test(node.props.accessibilityLabel));
+  assert.equal(days.length,31);days.find(node=>node.props.accessibilityLabel==='毎月31日にする').props.onPress();await settle();
   const cfg=(await controller.readModel({from:'2026-10-27',through:'2026-12-31',asOfDate:'2026-10-27'})).configurations[0].configuration;
-  assert.equal(cfg.monthly,true);assert.equal(cfg.anchorDate,'2026-11-21');assert.equal(cfg.effectiveFrom,'2026-11-21');
+  assert.equal(cfg.monthly,true);assert.equal(cfg.anchorDate,'2026-10-31');assert.equal(cfg.effectiveFrom,'2026-10-31');
   await s.press('日数');await settle();
   const intervalCfg=(await controller.readModel({from:'2026-10-27',through:'2026-12-31',asOfDate:'2026-10-27'})).configurations[0].configuration;
   assert.equal(intervalCfg.monthly,false);assert.equal(intervalCfg.intervalDays,7);

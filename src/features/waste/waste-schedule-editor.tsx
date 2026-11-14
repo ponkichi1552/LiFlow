@@ -3,6 +3,7 @@ import { FormTextInput as TextInput } from '../../components/form-text-input';
 import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { NumberInputField } from '@/components/number-input-field';
+import { WeekdayChoices } from '@/components/weekday-choices';
 
 import { AppButton, ChoiceChip, palette, typography } from '@/components/planner-ui';
 import { SettingsPanel, SettingsSegments, SettingsAction } from '../../components/settings-controls';
@@ -116,14 +117,7 @@ export function WasteScheduleEditor({ initial, onSubmit, onCancel, disabled = fa
       ) : (
         <>
           <Text style={[styles.label, { color: colors.ink }]}>{recurrence === 'biweekly' ? '隔週の曜日（1つ）' : '収集曜日'}</Text>
-          <View style={styles.weekdays}>
-            {wasteWeekdays.map((day) => <Pressable key={day.id} accessibilityRole="button" accessibilityLabel={`${day.label}曜`}
-              accessibilityState={{ selected: weekdays.includes(day.id), disabled: locked }} disabled={locked}
-              onPress={() => toggleWeekday(day.id)} style={[styles.weekday, { borderColor: weekdays.includes(day.id) ? colors.accent : colors.border,
-                backgroundColor: weekdays.includes(day.id) ? colors.accentSoft : colors.surface }]}>
-              <Text style={[styles.weekdayText, { color: weekdays.includes(day.id) ? colors.accent : colors.muted }]}>{day.label}</Text>
-            </Pressable>)}
-          </View>
+          <WeekdayChoices options={wasteWeekdays} selected={weekdays} disabled={locked} onToggle={day => toggleWeekday(day as Weekday)} />
         </>
       )}
       {recurrence === 'biweekly' && nextDate ? (
@@ -150,9 +144,6 @@ const styles = StyleSheet.create({
   body: { ...typography.caption, color: palette.muted },
   error: { ...typography.label, color: palette.warning },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  weekdays: { flexDirection: 'row', gap: 5 },
-  weekday: { flex: 1, minHeight: 44, borderWidth: 1, borderColor: palette.border, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  weekdayText: { ...typography.label, color: palette.muted, fontWeight: '700' },
   row: { minHeight: 56, borderTopWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingTop: 8 },
   suggestions: { gap: 0 },
   candidate: { minHeight: 46, borderBottomWidth: 1, paddingHorizontal: 6, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },

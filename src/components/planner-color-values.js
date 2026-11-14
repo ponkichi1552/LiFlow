@@ -11,6 +11,7 @@ module.exports = {
   border: { light: '#DFE4EF', dark: '#36404E' },
   inputBorder: { light: '#C7D0E1', dark: '#59667B' },
   warning: { light: '#BB4242', dark: '#FF9C9C' },
+  calendarToday: { light: '#A85260', dark: '#DAA0A8' },
   warningSoft: { light: '#FBEDEC', dark: '#3A232B' },
   gold: { light: '#90611F', dark: '#F3C17C' },
   goldSoft: { light: '#F6F0E3', dark: '#3A3020' },

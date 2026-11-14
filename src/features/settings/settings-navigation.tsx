@@ -1,5 +1,6 @@
-import { useContext, useState, type ReactNode } from 'react';
-import { router } from 'expo-router';
+import { useCallback, useContext, useState, type ReactNode } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { choreSourceScope, readChoreSource, rememberChoreSource } from './chore-source-selection';
 import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { Page, palette, typography } from '../../components/planner-ui';
 import { Chevron } from '../../components/chevron';
@@ -15,7 +16,7 @@ export { SettingsHeader } from '../../components/settings-header';
 
 export const settingsTitles = {
   chores: '家事ごとの設定', rhythm: '生活リズム', account: 'アカウント・連携', tasks: 'Google Tasks', calendar: 'Googleカレンダー', general: '一般',
-  appearance: '表示', notifications: '通知・ウィジェット', weather: '天気予報・洗濯', birthdays: '誕生日',
+  appearance: '表示', notifications: '通知', weather: '天気予報・洗濯', birthdays: '誕生日',
   credits: 'このアプリについて', diagnostics: 'バックグラウンド同期の実行記録',
 } as const;
 export type SettingsCategory = keyof typeof settingsTitles;
@@ -54,11 +55,12 @@ export function SettingsNavigationScreen({ section }: { section?: 'chores' | 'ap
 }
 function ChoreSettingsPage() {
   const group = useChoreSettingsGroup();
-  const scope = group ? `${group.userId}:${group.groupId}:${group.localGeneration ?? ''}` : 'personal';
-  const [selection, setSelection] = useState<{ scope: string; source: ChoreSettingsSource }>({ scope, source: 'personal' });
+  const scope = choreSourceScope(group);
+  const [selection, setSelection] = useState<{ scope: string; source: ChoreSettingsSource }>({ scope, source: readChoreSource(scope) });
+  useFocusEffect(useCallback(() => { setSelection({ scope, source: readChoreSource(scope) }); }, [scope]));
   const source = group && selection.scope === scope ? selection.source : 'personal';
   return <Page header={<View style={{ gap: 4 }}><SettingsHeader title={settingsTitles.chores} />
-    {group ? <ChoreSettingsSourcePicker value={source} onChange={next => setSelection({ scope, source: next })} /> : null}</View>} contentStyle={{ paddingTop: 10 }}>
+    {group ? <ChoreSettingsSourcePicker value={source} onChange={next => { rememberChoreSource(scope, next); setSelection({ scope, source: next }); }} /> : null}</View>} contentStyle={{ paddingTop: 10 }}>
     <ChoreSettingsSources key={scope} source={source} />
   </Page>;
 }

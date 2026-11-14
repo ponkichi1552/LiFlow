@@ -149,14 +149,14 @@ for (const platform of ['ios', 'android']) {
       assert.equal(home.nodes().filter(node => node.type === 'Modal' && node.props.visible === true).length, visibleModalCountBefore,
         'ordinary completion must not open a confirmation modal');
       calendar = screenHarness('src/app/(tabs)/explore.tsx', options); await openCalendarDay(calendar, localDateFromDate(new Date()));
-      assert.equal(checkbox(calendar).props.accessibilityState.checked, true);
+      assert.equal(calendar.nodes().filter(node => node.props.accessibilityRole === 'checkbox').length, 0);
       const announcedPending = () => calendar.nodes().find(node => node.type === 'Text' && /家事\d+件、未完了\d+件/u.test(node.props.accessibilityLabel ?? ''))?.props.accessibilityLabel;
       assert.match(announcedPending(), /家事1件、未完了0件/u);
-      checkbox(calendar).props.onPress(); calendar.render(); home.render();
+      checkbox(home).props.onPress(); calendar.render(); home.render();
       assert.equal(checkbox(home).props.accessibilityState.checked, false); assert.equal(businessWrites, 0);
       assert.match(announcedPending(), /家事1件、未完了1件/u, 'the date announcement must follow the same optimistic Undo as the checkmark');
       checkbox(home).props.onPress(); home.render(); calendar.render();
-      assert.equal(checkbox(calendar).props.accessibilityState.checked, true);
+      assert.equal(calendar.nodes().filter(node => node.props.accessibilityRole === 'checkbox').length, 0);
       assert.match(announcedPending(), /家事1件、未完了0件/u);
       runtime.release(); await runtime.queue.settled(); await home.flush(); await calendar.flush();
       assert.equal(businessWrites, 1, 'superseded queued gestures never write contradictory history');

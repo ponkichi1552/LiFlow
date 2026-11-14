@@ -4,7 +4,9 @@ import { ChoreMeta } from '../../components/chore-meta';
 import { ProcedureStep } from '../../components/procedure-step';
 import type { ChoreDefinition } from '../../domain/chores/types';
 import type { ReactNode } from 'react';
+import { hasChoreScheduleSettings } from '../../domain/chores/cycle-policy';
 export function ChoreGuide({ chore, mode, procedureAction, cadenceLabel }: { chore: ChoreDefinition; mode: import('@/domain/chores/types').FrequencyMode; procedureAction?: ReactNode; cadenceLabel?: string }) {
+  const scheduleAction = hasChoreScheduleSettings(chore) ? procedureAction : undefined;
   const instructions = chore.instructions.filter(line => line.trim());
   const sections = chore.procedureSections?.map(section => ({ ...section, steps: section.steps.filter(line => line.trim()) })).filter(section => section.steps.length) ?? [];
   const tools = chore.tools.filter(line => line.trim()); const cautions = chore.cautions.filter(line => line.trim());
@@ -16,7 +18,7 @@ export function ChoreGuide({ chore, mode, procedureAction, cadenceLabel }: { cho
       {chore.schedulingNotes?.trim() ? <Text style={styles.notes}>{chore.schedulingNotes}</Text> : null}
       {chore.description?.trim() ? <Text style={styles.body}>{chore.description}</Text> : null}
       {hasSteps ? <Card>
-        <SectionHeading title="家事の手順" trailing={procedureAction} />
+        <SectionHeading title="家事の手順" trailing={scheduleAction} />
         {sections.length ? sections.map((section) => (
           <View key={section.title} style={styles.procedureSection}>
             {section.title.trim() ? <Text style={styles.procedureTitle}>{section.title}</Text> : null}
@@ -25,7 +27,7 @@ export function ChoreGuide({ chore, mode, procedureAction, cadenceLabel }: { cho
         )) : instructions.map((step, index) => (
           <ProcedureStep key={`${index}-${step}`} step={step} index={index} />
         ))}
-      </Card> : procedureAction ? <View style={styles.procedureAction}>{procedureAction}</View> : null}
+      </Card> : scheduleAction ? <View style={styles.procedureAction}>{scheduleAction}</View> : null}
       {tools.length ? <Card>
         <SectionHeading title="必要な道具" />
         <View style={styles.toolList}>{tools.map((tool) => <Text key={tool} style={styles.toolText}>・{tool}</Text>)}</View>

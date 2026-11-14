@@ -65,25 +65,23 @@ for (const name of ['completeChore', 'recordIncompleteChore']) {
   });
 }
 
-test('the guide submits an incomplete action once per tap sequence and allows retry after failure', async () => {
+test('reading a guide has no history or incomplete-record action and does not write an incomplete attempt', async () => {
   const h = await fixture();
   try {
     const snapshot = await repository.loadPlannerSnapshot(h.database, today);
-    let calls = 0; let fail = true; let release;
-    const blocked = new Promise((resolve) => { release = resolve; });
+    let calls = 0;
     const screen = screenHarness('src/app/(tabs)/guide.tsx', {
       database: h.database, snapshot: () => snapshot, params: { choreId: h.chore.id },
       mocks: { '@/platform/storage/repository': { ...repository, async recordIncompleteChore() {
-        calls++; await blocked; if (fail) throw new Error('synthetic write failure'); return true;
+        calls++; return true;
       } } },
     });
-    const button = screen.button('未完了を記録');
-    button.props.onPress(); button.props.onPress(); release(); await screen.flush();
-    assert.equal(calls, 1);
-    assert.ok(screen.text().includes('synthetic write failure'));
-    fail = false; await screen.press('未完了を記録');
-    assert.equal(calls, 2);
-    assert.ok(screen.text().includes('未完了を記録し'));
+    await screen.flush();
+    assert.equal(screen.text().includes('未完了を記録'), false);
+    assert.equal(screen.text().includes('この家事の実施履歴を見る'), false);
+    assert.equal(calls, 0);
+    assert.equal(h.connection.prepare('SELECT count(*) AS count FROM chore_completions').get().count, 0);
+    screen.unmount();
   } finally { h.connection.close(); }
 });
 

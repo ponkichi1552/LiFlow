@@ -28,7 +28,8 @@ for (const platform of ['ios', 'android']) test(`${platform} shared settings can
 for (const platform of ['ios', 'android']) test(`${platform} shared settings use one fixed-audience document and retain invalid cadence input after virtual chapters unmount`, async t => {
   const f = await fixture(); const d = await f.device(); t.after(() => d.connection.close());
   const initial = seeds(); initial[2].payload.category = '水回り';
-  await d.repository.commit([...initial, draft('add-a', 'chore', 'zz-extra-a', { name: '別の家事A', category: '水回り', enabled: false }), draft('add-b', 'chore', 'zz-extra-b', { name: '別の家事B', category: '屋外', enabled: false })]);
+  await d.repository.commit([...initial, draft('add-a', 'chore', 'zz-extra-a', { name: '別の家事A', category: '水回り', enabled: false }), draft('add-b', 'chore', 'zz-extra-b', { name: '別の家事B', category: '屋外', enabled: false }),
+    ...['zz-extra-a', 'zz-extra-b'].map(id => draft(`configure-${id}`, 'chorePolicy', id, initial[3].payload))]);
   let id = 0; const controller = createV2GroupController(d.repository, { makeId: () => `book-${++id}`, now, sync: async () => {} });
   const session = createV2ScreenSession({ controller, groupId, userId: 'owner', now, readPreferences: () => { throw new Error('private preferences must not open'); } });
   const effects = []; let backs = 0;
@@ -54,7 +55,8 @@ for (const platform of ['ios', 'android']) test(`${platform} shared settings use
 
 test('connected shared settings read one authenticated snapshot and scrolling never rebuilds the same repository state for each chapter', async t => {
   const f = await fixture(); const d = await f.device(); t.after(() => d.connection.close());
-  await d.repository.commit([...seeds(), ...Array.from({ length: 30 }, (_, index) => draft(`extra-${index}`, 'chore', `extra-${index}`, { name: `家事${index}`, enabled: false }))]);
+  await d.repository.commit([...seeds(), ...Array.from({ length: 30 }, (_, index) => [draft(`extra-${index}`, 'chore', `extra-${index}`, { name: `家事${index}`, enabled: false }),
+    draft(`configure-extra-${index}`, 'chorePolicy', `extra-${index}`, seeds()[3].payload)]).flat()]);
   let reads = 0; const repository = { ...d.repository, readState: async () => { reads++; return d.repository.readState(); } };
   const controller = createV2GroupController(repository, { makeId: () => 'unused', now, sync: async () => {} });
   const session = createV2ScreenSession({ controller, groupId, userId: 'owner', now, readPreferences: () => { throw new Error('private read'); } });

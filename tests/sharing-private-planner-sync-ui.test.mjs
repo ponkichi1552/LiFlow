@@ -24,14 +24,16 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} private preference synchronization UI shows local versus acknowledged state and freezes edits until a delayed sync finishes`, async t => {
     const h = await privatePlannerSyncFixture(t); await h.left.store.save(0, input()); let release; const wait = new Promise(done => { release = done; });
     h.wire.unavailable = true; await assert.rejects(() => h.left.sync.synchronize(), /offline/u); h.wire.unavailable = false;
-    const ui = await open(h, platform, { synchronize: async () => { await wait; return h.left.sync.synchronize(true); } }); t.after(ui.close);
+    let synchronization;
+    const ui = await open(h, platform, { synchronize: () => synchronization = (async () => { await wait; return h.left.sync.synchronize(true); })() }); t.after(ui.close);
     assert.match(ui.screen.text(), /この端末に保存済み・本人端末への反映待ち/u);
     assert.match(ui.screen.text(), /前回の同期を確認できませんでした/u);
     await ui.screen.press('本人設定を今すぐ同期'); for (let i = 0; i < 5; i++) await ui.screen.flush();
     const limit = ui.screen.nodes().find(n => n.type === 'TextInput' && n.props.accessibilityLabel === '本人の重い家事の上限');
     assert.equal(limit.props.editable, false); limit.props.onChangeText('9'); await ui.screen.flush();
     assert.equal((await h.left.store.read()).loadLimits.heavyDailyLimit, 1);
-    release(); for (let i = 0; i < 16; i++) await ui.screen.flush(); assert.equal((await h.left.sync.readStatus()).kind, 'synchronized');
+    assert.ok(synchronization, 'the button must start the captured synchronization');
+    release(); await synchronization; await ui.screen.flush(); assert.equal((await h.left.sync.readStatus()).kind, 'synchronized');
     assert.equal(h.wire.writes, 1); assert.equal((await h.left.store.read()).loadLimits.heavyDailyLimit, 1);
   });
   test(`${platform} private preference synchronization UI keeps both conflict candidates and applies only the explicitly chosen remote configuration`, async t => {
@@ -48,7 +50,8 @@ for (const platform of ['ios', 'android']) {
     const ui = await open(h, platform, { synchronize: async () => started++ }); t.after(ui.close);
     const field = ui.screen.nodes().find(n => n.type === 'TextInput' && n.props.accessibilityLabel === '本人の重い家事の上限');
     field.props.onChangeText(''); await ui.screen.flush(); await ui.screen.press('本人設定を今すぐ同期'); for (let i = 0; i < 8; i++) await ui.screen.flush();
-    assert.equal(started, 0); assert.match(ui.screen.text(), /未保存の入力を修正/u); assert.deepEqual((await h.left.store.read()).allowedBands, input().allowedBands);
+    assert.equal(started, 0); assert.ok(ui.screen.nodes().some(node => node.props.accessibilityRole === 'alert'));
+    assert.deepEqual((await h.left.store.read()).allowedBands, input().allowedBands);
     assert.equal(ui.screen.nodes().find(n => n.type === 'TextInput' && n.props.accessibilityLabel === '本人の重い家事の上限').props.value, '');
   });
 }

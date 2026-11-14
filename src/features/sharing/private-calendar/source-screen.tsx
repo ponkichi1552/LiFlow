@@ -7,16 +7,20 @@ import type { ReactNode } from 'react';
 import { SettingsHeader } from '../../settings/settings-navigation';
 import { useAccountOperation } from '../../settings/account-operation';
 import { plannerColorsForScheme } from '../../../components/planner-theme';
+import { SettingsCheckbox } from '../../../components/settings-checkbox';
+import { useGoogleConnection } from '../../settings/google-connection';
 type State = Awaited<ReturnType<PrivateCalendarRuntime['readSettings']>>;
 export function PrivateCalendarSourceScreen({ loadRuntime, onBack, onDevices, footer, embedded = false }: {
   loadRuntime: () => Promise<PrivateCalendarRuntime>; onBack(): void; onDevices(): void; footer?: ReactNode; embedded?: boolean;
 }) {
   const operation = useAccountOperation(), colors = plannerColorsForScheme(useColorScheme());
+  const connection = useGoogleConnection();
   const [view, setView] = useState<State | null>(null); const [busy, setBusy] = useState(true); const [error, setError] = useState(false);
   const [notice, setNotice] = useState<string | null>(null); const [account, setAccount] = useState<{ subject: string; label: string } | null>(null);
   const [needsLogin, setNeedsLogin] = useState(false);
   const [stopReview, setStopReview] = useState(false); const [review, setReview] = useState<{ targetDigest: string; observedCurrentDigest: string } | null>(null);
   const runtime = useRef<PrivateCalendarRuntime | null>(null); const alive = useRef(true); const running = useRef(false); const readVersion = useRef(0);
+  const actionVersion = useRef(0);
   useEffect(() => {
     alive.current = true; let current = true; let stop: (() => void) | undefined;
     const read = async (value: PrivateCalendarRuntime) => {
@@ -29,7 +33,7 @@ export function PrivateCalendarSourceScreen({ loadRuntime, onBack, onDevices, fo
     return () => { current = false; alive.current = false; runtime.current = null; stop?.(); };
   }, [loadRuntime]);
   async function run(work: (value: PrivateCalendarRuntime) => Promise<void>) {
-    if (!alive.current || running.current || operation && !operation.acquire()) return; running.current = true; setBusy(true); setError(false); setNotice(null);
+    if (!alive.current || running.current || operation && !operation.acquire()) return; actionVersion.current++; running.current = true; setBusy(true); setError(false); setNotice(null);
     let active = runtime.current;
     try {
       active ??= await loadRuntime(); if (!alive.current) return; runtime.current = active;
@@ -50,11 +54,18 @@ export function PrivateCalendarSourceScreen({ loadRuntime, onBack, onDevices, fo
       : result.kind === 'sourceReview' ? 'Googleアカウントを確認して接続し直してください。'
       : result.kind === 'disabled' ? '空き時間の同期はオフです。' : '接続状態を確認してください。');
   }
+  function refreshInBackground(value: PrivateCalendarRuntime) {
+    const version = actionVersion.current;
+    const isCurrent = () => alive.current && runtime.current === value && version === actionVersion.current;
+    void value.refreshData().then(result => { if (isCurrent()) showResult(result); })
+      .catch(() => { if (isCurrent()) setNotice('同期は未完了です。次の機会に再試行します。'); });
+  }
   const approved = view?.device.phase === 'approved'; const main = approved && view.device.mainDeviceId === view.device.deviceId;
   const disabled = busy || operation?.busy === true;
+  const inlineToggle = Boolean(connection && main && !view?.pendingTargetDigest);
   const content = <View style={[{ gap: 12 }, embedded && { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 14 }]}>
-    {embedded ? <SectionHeading title="空き時間の端末間同期" level="subsection" /> : null}
-    <Text style={{ ...typography.caption, color: palette.muted }}>予定の時間帯だけを、本人の端末へ同期。</Text>
+    {embedded && !inlineToggle ? <SectionHeading title="空き時間の端末間同期" level="subsection" /> : null}
+    {!inlineToggle ? <Text style={{ ...typography.caption, color: palette.muted }}>予定の時間帯だけを、本人の端末へ同期。</Text> : null}
     {busy ? <ActivityIndicator color={palette.accent} /> : null}
     {view && !approved ? <>
       <Text style={{ ...typography.caption, color: palette.muted }}>{embedded ? '下の「端末間同期」で設定できます。' : '端末間同期の設定が必要です。'}</Text>
@@ -67,6 +78,18 @@ export function PrivateCalendarSourceScreen({ loadRuntime, onBack, onDevices, fo
     </> : null}
     {view?.requiresSourceReview ? <Text accessibilityRole="alert" style={{ ...typography.caption, color: palette.warning }}>Googleアカウントを確認して接続し直してください。</Text> : null}
     {main && !view.pendingTargetDigest ? <>
+      {connection ? <View style={{ gap: 10 }}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <Text accessibilityRole="header" style={{ ...typography.label, color: palette.ink, fontWeight: '700', flex: 1 }}>空き時間の端末間同期</Text>
+        <SettingsCheckbox accessibilityLabel="空き時間を端末間で同期" value={view.connected}
+          disabled={disabled || !connection.ready && !view.connected} onValueChange={enabled => void run(async value => {
+            if (!enabled) { const result = await value.disableSource(view.device.authorityDigest!); if (alive.current && result.kind === 'review') setReview(result); return; }
+            const selected = await value.checkGoogleAccount();
+            if (!selected || selected.subject !== connection.account?.subject) throw new Error('Googleアカウントが変わりました。');
+            const result = await value.connectCurrentSource(selected.subject, view.device.authorityDigest!);
+            if (result.kind === 'review') { if (alive.current) setReview(result); return; }
+            refreshInBackground(value);
+          })} />
+      </View><Text style={{ ...typography.caption, color: palette.muted }}>予定の時間帯だけを、本人の端末へ同期。</Text></View> : <>
       <SettingsStatus>{view.connected ? '接続済み' : '未接続'}</SettingsStatus>
       {!view.connected || view.requiresSourceReview ? <>
         <SettingsAction placement={embedded ? 'panel' : 'page'} title="Googleと接続" accessibilityLabel="Googleアカウントを確認" compact disabled={disabled} onPress={() => run(async value => {
@@ -84,7 +107,7 @@ export function PrivateCalendarSourceScreen({ loadRuntime, onBack, onDevices, fo
         <SettingsAction placement={embedded ? 'panel' : 'page'} title="更新" accessibilityLabel="最新の時間帯を取得・同期" compact disabled={disabled}
           onPress={() => run(async value => { showResult(await value.refreshData()); })} />
         <SettingsAction intent="destructive" placement={embedded ? 'panel' : 'page'} title="接続解除" accessibilityLabel="Google Calendarの取得を停止" compact disabled={disabled} onPress={() => setStopReview(true)} />
-      </View>}
+      </View>}</>}
     </> : null}
     {view?.pendingTargetDigest ? <View style={{ gap: 10 }}><SectionHeading title="接続変更の確認待ち" level="subsection" />
       <Text style={typography.caption}>端末に保存済み・受付の確認待ちです。</Text>

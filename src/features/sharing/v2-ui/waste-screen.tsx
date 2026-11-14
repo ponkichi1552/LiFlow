@@ -21,7 +21,7 @@ const sourceIds = (field: V2WasteField) => field.candidates.map(candidate => can
 function ruleSummary(value: JsonValue | undefined) {
   try {
     const rule = normalizeWasteSchedule({ ...value as object, label: '収集日' } as WasteScheduleInput);
-    return wasteScheduleDescription(rule) + (rule.recurrence === 'monthly' ? '（指定日がない月は月末）' : rule.recurrence === 'biweekly' ? ` · 基準日 ${rule.anchorDate}` : '');
+    return wasteScheduleDescription(rule) + (rule.recurrence === 'monthly' ? '（指定日がない月は月末）' : rule.recurrence === 'biweekly' ? ` · 起点 ${rule.anchorDate?.replaceAll('-', '/')}` : '');
   } catch { return '収集ルールの再入力が必要です。'; }
 }
 function formEdits(row: V2WasteRow, input: WasteScheduleInput): V2WasteEdit[] {

@@ -10,11 +10,11 @@ const range={from:'2026-10-27',through:'2026-12-31',asOfDate:'2026-10-27'};
 async function editor(t,platform){
  const f=await fixture();const d=await f.device();t.after(()=>d.connection.close());await d.repository.commit(seeds());let n=0;
  const controller=createV2GroupController(d.repository,{makeId:()=>`editor-controls-${++n}`,now,sync:async()=>{}});
- let screen;const props={model:await controller.readModel(range,{management:true}),choreId:'floor',controller,onSaved:async()=>{props.model=await controller.readModel(range,{management:true});}};
- screen=screenHarness('src/features/sharing/v2-ui/configuration-editor.tsx',{exportName:'V2ConfigurationEditor',platform,props,effectDependencies:true,effect:callback=>callback()});
+ let picker;let screen;const props={model:await controller.readModel(range,{management:true}),choreId:'floor',controller,onSaved:async()=>{props.model=await controller.readModel(range,{management:true});}};
+ screen=screenHarness('src/features/sharing/v2-ui/configuration-editor.tsx',{exportName:'V2ConfigurationEditor',platform,props,datePicker:value=>{picker=value;},effectDependencies:true,effect:callback=>callback()});
  t.after(()=>screen.unmount());const settle=async()=>{for(let i=0;i<15;i++)await screen.flush();};
  const policy=async()=> (await controller.readModel(range,{management:true})).configurations[0].configuration;
- return{f,d,controller,screen,props,settle,policy};
+ return{f,d,controller,screen,props,settle,policy,picker:()=>picker};
 }
 function choice(screen,label){const node=screen.nodes().find(n=>n.props.accessibilityRole==='radio'&&n.props.accessibilityLabel===label);assert.ok(node,label);return node;}
 function check(screen,label){const node=screen.nodes().find(n=>n.props.accessibilityRole==='checkbox'&&n.props.accessibilityLabel===label);assert.ok(node,label);return node;}
@@ -30,10 +30,14 @@ for(const platform of ['ios','android']){
   choice(e.screen,'メンバーごとに行う').props.onPress();await e.settle();
   assert.deepEqual((await e.policy()).targetMemberIds,['member','owner']);assert.equal((await e.policy()).policy.completion,'perMember');
  });
- test(`${platform} shared inline date selection uses one start date and applies a future date automatically`,async t=>{
+ test(`${platform} shared advanced date selection uses one start date and applies a future date automatically`,async t=>{
   const e=await editor(t,platform);
-  await e.screen.press('開始日を開く');await e.screen.press('開始日カレンダーの次の月');
-  await e.screen.press('開始日を2026/11/05にする');await e.settle();
+  assert.equal(e.screen.nodes().some(node=>node.props.accessibilityLabel==='共有家事の開始日を選択'),false);
+  e.props.advancedOnly=true;e.screen.render();await e.settle();await e.screen.press('共有家事の開始日を選択');
+  const picked=new Date('2026-11-05T12:00:00Z');
+  if(platform==='ios'){e.screen.nodes().find(node=>node.type==='DateTimePicker').props.onValueChange({},picked);await e.screen.press('共有家事の開始日の選択を完了');}
+  else e.picker().onValueChange({},picked);
+  await e.settle();
   const saved=await e.policy();assert.equal(saved.anchorDate,'2026-11-05');assert.equal(saved.effectiveFrom,'2026-11-05');
   assert.equal(e.screen.nodes().some(n=>n.type==='TextInput'&&n.props.accessibilityLabel==='共有家事の基準日'),false);
   assert.equal(e.screen.nodes().some(n=>n.props.accessibilityLabel==='設定の適用開始日を選択'),false);

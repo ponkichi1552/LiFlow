@@ -10,15 +10,15 @@ function setLauncherManifest(manifest) {
 }
 
 function adaptiveIconXml() {
-  // Reuse the exact iOS artwork. 18dp per side maps the 108dp layer to its 72dp viewport.
-  // Balance the white visual mass around the center while retaining its 72dp size and circular safe area.
+  // Keep the supplied square artwork centered, with its complete wordmark inside
+  // Android's 66dp safe circle on a 108dp adaptive layer.
   return `<?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
   <background android:drawable="@color/iconBackground" />
   <foreground>
     <inset android:drawable="@mipmap/ic_launcher_foreground"
-      android:insetLeft="12.7551%" android:insetTop="11.4461%"
-      android:insetRight="20.578234%" android:insetBottom="21.887234%" />
+      android:insetLeft="18%" android:insetTop="18%"
+      android:insetRight="18%" android:insetBottom="18%" />
   </foreground>
 </adaptive-icon>
 `;

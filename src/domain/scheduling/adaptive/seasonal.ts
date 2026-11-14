@@ -39,7 +39,7 @@ export function clothingFixedDay(region: ClothingRegion, work: ClothingSeasonalW
 }
 export interface PersonalSeasonalRound {
   id: string; choreId: string; work: ClothingSeasonalWork; year: number; season: 'spring' | 'autumn';
-  region: ClothingRegion; date: LocalDate; tableVersion: string;
+  region: ClothingRegion; date: LocalDate; tableVersion: string; manualDate?: LocalDate;
 }
 export function personalSeasonalRound(choreId: string, work: ClothingSeasonalWork, year: number, region: ClothingRegion,
   fingerprint: (value: unknown) => string): PersonalSeasonalRound {
@@ -61,7 +61,7 @@ export function initializePersonalSeasonalRounds(input: { choreId: string; regio
 }
 export function updatePersonalSeasonalRegion(round: PersonalSeasonalRound, input: { region: ClothingRegion; today: LocalDate;
   completedRoundIds: ReadonlySet<string>; fingerprint(value: unknown): string }): PersonalSeasonalRound {
-  if (input.completedRoundIds.has(round.id) || round.date <= addDays(input.today, 1)) return round;
+  if (round.manualDate || input.completedRoundIds.has(round.id) || round.date <= addDays(input.today, 1)) return round;
   const next = personalSeasonalRound(round.choreId, round.work, round.year, input.region, input.fingerprint);
   return next.date >= input.today ? next : round;
 }

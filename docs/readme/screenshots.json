@@ -1,0 +1,34 @@
+{
+  "capturedOn": "2026-11-15",
+  "platform": "iOS Simulator 27.0",
+  "bundleSha256": "37f2a9c0fa9051d1d24fd06df07e946cace1d0ebeb66626e72b0797ff206549f",
+  "sourceFileCount": 823,
+  "sourceManifestSha256": "5f35dc752c40da1ae1cf9d3ff72a27b32b2ade27780e33dca72a88909180a0dc",
+  "syntheticDataOnly": true,
+  "images": [
+    {
+      "file": "01-home.png",
+      "sha256": "c6faeeb6794b82838619aa6b160409c803f557361566ce74a9125ba9a1d055e2"
+    },
+    {
+      "file": "02-calendar.png",
+      "sha256": "281197fd52bac53ebe1697ed590dde0ef62c5cd7f03052959a6d0fb7f54b4650"
+    },
+    {
+      "file": "03-guide-search.png",
+      "sha256": "2be1b931f8d2ed28da1ca0e2cdd8fcf3c120b3648ec80d6fff5baecf3b087415"
+    },
+    {
+      "file": "04-guide-detail.png",
+      "sha256": "dc487cfc5432df9f747243e8bc7dde0f1da3a9ea77b729bb006e3b86a9b07bfe"
+    },
+    {
+      "file": "05-appliance-ai.png",
+      "sha256": "0aa9f2c5465e0c8304eb85c0c1d0f447512838da689ae768d34ada88646efe95"
+    },
+    {
+      "file": "06-first-run.png",
+      "sha256": "ca168735ad3ab38c87b40303454feba94c0d3a24a1820ad5b3cb2400d2718d67"
+    }
+  ]
+}

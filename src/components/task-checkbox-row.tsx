@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
+import { SymbolView } from 'expo-symbols';
 import type { ChoreDefinition, ChoreScheduleEntry } from '@/domain/chores/types';
 import { choreOccurrenceName } from '../domain/chores/occurrence-name';
 import { palette, typography } from '@/components/planner-ui';
@@ -8,16 +9,19 @@ import { Chevron } from './chevron';
 import { formatJapaneseDate } from '../domain/scheduling/local-date';
 import type { LocalDate } from '../domain/shared/types';
 import { usePlannerBorderStyles } from './use-planner-border-styles';
+import { plannerColorsForScheme } from './planner-theme';
 
 export function TaskCheckboxRow({ chore, completed = false, deemphasized = false, source, urgent = false,
-  onToggle, onOpen, home = false, compact = false, provisional = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow, seasonalWork }: {
+  onToggle, onOpen, onChangeDate, home = false, compact = false, provisional = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow, seasonalWork, calendarTimeLabel }: {
   chore: ChoreDefinition; completed?: boolean; deemphasized?: boolean; source?: 'personal' | 'shared' | 'instructed';
-  urgent?: boolean; onToggle?: () => void; onOpen: () => void; home?: boolean; compact?: boolean; provisional?: boolean; mixedSources?: boolean;
+  urgent?: boolean; onToggle?: () => void; onOpen: () => void; onChangeDate?: () => void; home?: boolean; compact?: boolean; provisional?: boolean; mixedSources?: boolean;
   executionWindow?: { start: LocalDate; end: LocalDate };
   seasonalWork?: ChoreScheduleEntry['seasonalWork'];
   detail?: string; detailsExpanded?: boolean; lastInList?: boolean; contextLabel?: string; action?: ReactNode; footer?: ReactNode; sourceIcon?: 'person' | 'group';
+  calendarTimeLabel?: string;
 }) {
   const styles = usePlannerBorderStyles(baseStyles);
+  const colors = plannerColorsForScheme(useColorScheme());
   const name = choreOccurrenceName(chore.name, seasonalWork);
   const actionName = `${name}${contextLabel ? `（${contextLabel}）` : ''}`;
   const minutes = Number.isFinite(chore.estimatedMinutes) && chore.estimatedMinutes! > 0 ? `約${chore.estimatedMinutes}分` : '';
@@ -28,15 +32,22 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
     style={[styles.checkbox, completed && styles.checkboxCompleted]}>
     {completed ? <Text style={styles.checkmark}>✓</Text> : null}
   </Pressable>;
-  if (compact) return <View style={[styles.compactRow, completed && styles.compactCompletedRow]}>
-    <View style={styles.compactCheck}>{checkbox}</View>
-    <Pressable accessibilityRole="button" accessibilityLabel={`${actionName}の説明を開く`} accessibilityHint="手順や道具を確認します" onPress={onOpen}
+  const compactSource = source === 'shared' || source === 'instructed' ? '共有の家事' : source === 'personal' && mixedSources ? '個人の家事' : undefined;
+  const compactValue = [completed ? '完了済み' : '', calendarTimeLabel].filter(Boolean).join('、');
+  if (compact) return <View style={styles.compactRow}><View style={styles.compactPrimary}>
+    <Pressable accessibilityRole="button" accessibilityLabel={`${actionName}の${onChangeDate ? '今回の日付を変更' : '説明を開く'}`} accessibilityValue={compactValue ? { text: compactValue } : undefined} accessibilityHint={[compactSource, onChangeDate ? '今回の実施日を選択します' : '手順や道具を確認します'].filter(Boolean).join('。')} onPress={onChangeDate ?? onOpen}
       style={({ pressed }) => [styles.compactOpen, pressed && styles.pressed]}>
-      <Text numberOfLines={2} style={[styles.compactName, completed && styles.completedText]}>{name}</Text>
-      {provisional || executionWindow && executionWindow.start !== executionWindow.end ? <Text style={styles.compactPeriod}>{[
-        provisional ? '仮' : '', executionWindow && executionWindow.start !== executionWindow.end ? calendarPeriodLabel(executionWindow.start, executionWindow.end) : '',
-      ].filter(Boolean).join(' · ')}</Text> : null}
-    </Pressable>
+      {onChangeDate ? <View pointerEvents="none" style={styles.compactDateIcon}><SymbolView name={{ ios: 'calendar', android: 'calendar_month' }} size={16} tintColor={colors.accent} /></View> : null}
+      <View style={styles.compactCopy}><Text numberOfLines={2} ellipsizeMode="tail" lineBreakStrategyIOS="standard" textBreakStrategy="highQuality" style={[styles.compactName, completed && styles.completedText]}>{name}</Text>
+        {provisional || executionWindow && executionWindow.start !== executionWindow.end ? <Text style={styles.compactPeriod}>{[
+          provisional ? '仮' : '', executionWindow && executionWindow.start !== executionWindow.end ? calendarPeriodLabel(executionWindow.start, executionWindow.end) : '',
+        ].filter(Boolean).join(' · ')}</Text> : null}</View>
+      {compactSource ? <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.compactSource}>
+        {source === 'personal' ? <PersonIcon size={16} /> : <GroupIcon size={18} />}
+      </View> : null}
+      {calendarTimeLabel ? <Text numberOfLines={1} style={styles.compactTime}>{calendarTimeLabel}</Text> : null}
+      {!onChangeDate ? <Chevron /> : null}
+    </Pressable></View>
   </View>;
   return <View style={[styles.row, source && source !== 'personal' && styles.sharedRow, source === 'instructed' && styles.instructedRow,
     deemphasized && !completed && !home && styles.deemphasizedRow, urgent && !completed && styles.urgentRow,
@@ -75,18 +86,21 @@ export function calendarPeriodLabel(start: LocalDate, end: LocalDate) {
   return `${date(start)}–${date(end)}`;
 }
 const baseStyles = StyleSheet.create({
-  compactRow: { flexDirection: 'row', alignItems: 'center', minHeight: 44, borderRadius: 7, backgroundColor: palette.accentSoft, overflow: 'hidden' },
-  compactCheck: { width: 42, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  compactOpen: { flex: 1, minWidth: 0, minHeight: 44, justifyContent: 'center', paddingVertical: 5, paddingRight: 6 },
+  compactRow: { minHeight: 44, borderTopWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
+  compactPrimary: { flexDirection: 'row', alignItems: 'center' },
+  compactDateIcon: { width: 24, height: 24, flexShrink: 0, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderRadius: 7, borderColor: palette.inputBorder, backgroundColor: palette.surface },
+  compactOpen: { flex: 1, minWidth: 0, minHeight: 44, flexDirection: 'row', alignItems: 'center', paddingVertical: 7, paddingLeft: 6, paddingRight: 2, gap: 6 },
+  compactCopy: { flex: 1, minWidth: 0 },
   compactName: { ...typography.label, color: palette.ink, fontWeight: '500' },
   compactPeriod: { ...typography.small, color: palette.muted },
+  compactTime: { ...typography.caption, color: palette.muted, flexShrink: 0 }, compactSource: { width: 20, alignItems: 'center', justifyContent: 'center' },
   row: { minHeight: 64, gap: 6, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, paddingHorizontal: 15, paddingVertical: 9 },
   listRow: { minHeight: 56, paddingVertical: 5, borderRadius: 0, borderWidth: 0, borderLeftWidth: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border }, lastRow: { borderBottomWidth: 0 },
   content: { flexDirection: 'row', alignItems: 'center', gap: 14 }, listContent: { gap: 12 }, listFooter: { paddingLeft: 40 }, action: { minWidth: 44 },
   openArea: { borderRadius: 13, margin: 1 }, listOpenArea: { borderRadius: 0 }, pressed: { backgroundColor: palette.accentSoft },
   sharedRow: { borderLeftWidth: 3, borderLeftColor: palette.shared }, instructedRow: { borderLeftColor: palette.sharedStrong, backgroundColor: palette.sharedSoft },
   urgentRow: { borderLeftWidth: 3, borderLeftColor: palette.gold }, urgentText: { color: palette.gold },
-  deemphasizedRow: { backgroundColor: palette.elevated, borderColor: palette.border }, compactCompletedRow: { backgroundColor: palette.surface },
+  deemphasizedRow: { backgroundColor: palette.elevated, borderColor: palette.border },
   copy: { flex: 1, minWidth: 0, gap: 2, minHeight: 44, justifyContent: 'center' }, metadata: { flexDirection: 'row', alignItems: 'flex-start', gap: 5 },
   sourceIcon: { minHeight: typography.caption.lineHeight, justifyContent: 'center', flexShrink: 0 },
   name: { ...typography.subheading, color: palette.ink, fontWeight: '600' }, category: { ...typography.caption, color: palette.muted, flexShrink: 1 },

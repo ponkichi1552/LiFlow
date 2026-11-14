@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
-import { SettingsSwitch } from '../../components/settings-switch';
+import { SettingsCheckbox } from '../../components/settings-checkbox';
 import { AppButton, palette, typography } from '../../components/planner-ui';
 
 export function ChorePlanToggle({ name, enabled, readOnly = false, requiresCycleSelection = false, onConfigure, save, retryRead }: {
@@ -20,7 +20,7 @@ export function ChorePlanToggle({ name, enabled, readOnly = false, requiresCycle
     finally { running.current = false; if (!retain) setPending(null); }
   };
   return <View style={{ maxWidth: 180, gap: 4 }}><View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-    <Text style={[typography.caption, { color: palette.muted }]}>予定に追加</Text><SettingsSwitch value={pending ?? enabled} disabled={readOnly || pending !== null}
+    <Text style={[typography.caption, { color: palette.muted }]}>予定に追加</Text><SettingsCheckbox value={pending ?? enabled} disabled={readOnly || pending !== null}
       accessibilityLabel={`${name}を予定に追加`} accessibilityHint={readOnly ? '有効・無効はグループの管理者が変更できます' : undefined} onValueChange={value => void change(value)} />
   </View>{error ? <Text accessibilityRole="alert" style={[typography.caption, { color: palette.warning }]}>{error}</Text> : null}
     {readPending && retryRead ? <AppButton title="表示を再読込" variant="quiet" compact onPress={() => {

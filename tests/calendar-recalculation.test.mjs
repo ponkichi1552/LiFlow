@@ -31,7 +31,9 @@ test('SQLite draft and category notifications update observers without invalidat
 });
 
 for (const platform of ['ios', 'android']) {
-  test(`${platform} a personal calendar keeps the same native row identity across persisted completion and Undo`, async () => {
+  test(`${platform} a personal calendar keeps the same native row identity across persisted completion and Undo`, async t => {
+    // The scenario needs an available morning slot; wall-clock evening can legitimately place the work tomorrow.
+    t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-14T00:00:00Z') });
     const { privateFixture } = await import('./helpers/sharing-v2-private-fixture.mjs');
     const { openCalendarDay } = await import('./helpers/calendar-ui.mjs');
     const { localDateFromDate } = await import('../src/domain/scheduling/local-date.ts');

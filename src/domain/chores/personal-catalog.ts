@@ -77,24 +77,25 @@ export function createPersonalChoreDefinitions(householdId: string): ChoreDefini
 }
 export function personalChoreHistoryPolicy(chore: ChoreDefinition, mode: FrequencyMode): AdaptiveHistoryPolicy {
   const recipe = chore.personalRecipeId ? byId.get(chore.personalRecipeId) : undefined;
+  const schedule = chore.personalSchedule ? { schedule: chore.personalSchedule } : {};
   if (chore.customPersonal) {
     const initialDays = chore.personalScheduleDefaults?.frequencyDaysByMode;
     if (!initialDays || Object.values(initialDays).length !== 3 || Object.values(initialDays).some(days => !Number.isSafeInteger(days) || days! < 1 || days! > 3650)) throw new Error('追加した家事の初期周期を確認してください。');
     return { choreId: chore.id, kind: 'personal', mode, initialDays: { frequent: initialDays.frequent!, balanced: initialDays.balanced!, relaxed: initialDays.relaxed! },
-      enabled: chore.enabled && !chore.requiresCycleSelection, fixedDays: chore.userIntervalDays ?? chore.recommendedCycleDays ?? null, version: `custom-policy-1:${chore.id}` };
+      enabled: chore.enabled && !chore.requiresCycleSelection, fixedDays: chore.userIntervalDays ?? chore.recommendedCycleDays ?? null, version: `custom-policy-1:${chore.id}`, ...schedule };
   }
   if (!recipe && (chore.applianceId || chore.applianceCareSource)) {
     const days = chore.manufacturerRecommendedIntervalDays ?? null;
     if (days !== null && (!Number.isSafeInteger(days) || days <= 0)) throw new Error('メーカー指定の周期を確認してください。');
     return { choreId: chore.id, kind: 'personal', mode, initialDays: { frequent: days, balanced: days, relaxed: days },
       enabled: chore.enabled && !chore.requiresCycleSelection, fixedDays: chore.userIntervalDays ?? chore.recommendedCycleDays ?? null,
-      version: `appliance-policy-1:${chore.id}` };
+      version: `appliance-policy-1:${chore.id}`, ...schedule };
   }
   if (!recipe || recipe.id !== chore.id) throw new Error('新しい家事カタログの識別子を確認してください。');
   return { choreId: chore.id, kind: recipe.modes.balanced.kind === 'seasonal' ? 'seasonal' : recipe.modes.balanced.kind === 'collection' ? 'display' : 'personal',
     mode, initialDays: Object.fromEntries((['frequent', 'balanced', 'relaxed'] as const).map(mode => [mode, personalRecipeInitialDays(recipe, mode) ?? null])) as AdaptiveHistoryPolicy['initialDays'],
     enabled: chore.enabled, fixedDays: chore.userIntervalDays ?? chore.recommendedCycleDays ?? null,
-    version: `catalog-${PERSONAL_CHORE_SCHEDULING_VERSION}:${recipe.id}` };
+    version: `catalog-${PERSONAL_CHORE_SCHEDULING_VERSION}:${recipe.id}`, ...schedule };
 }
 /** Only invoked by a verified private repository; shared Scheduler inputs never use this branch. */
 export function usesPersonalAdaptivePlanner(chore: ChoreDefinition): boolean {

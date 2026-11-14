@@ -21,7 +21,7 @@ test('calendar picker commits the latest native selection once even before React
 });
 
 test('a failed calendar preference observer cannot prevent other subscribers from receiving the committed selection', () => {
-  const storage = new Map(); const store = createCalendarDisplayStore({ getItemSync: key => storage.get(key), setItemSync: (key, value) => storage.set(key, value) });
+  const store = createCalendarDisplayStore();
   let notified = 0; store.subscribe(() => { throw new Error('closed view'); }); store.subscribe(() => { notified++; });
   assert.doesNotThrow(() => store.select('two')); assert.equal(notified, 1); assert.equal(store.getSnapshot().detail, 'two');
 });

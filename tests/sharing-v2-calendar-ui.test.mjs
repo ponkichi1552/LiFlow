@@ -163,7 +163,8 @@ for (const platform of ['ios', 'android']) {
       const before = JSON.stringify(f.props.model);
       f.props.feedback = { values: new Map([[key, true]]), run: async () => {} }; f.props.busy = true; f.screen.render();
       assert.ok(f.screen.nodes().some(node => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事0件、収集日は未取得'));
-      assert.equal(f.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox').props.accessibilityState.checked, true);
+      assert.equal(f.screen.button('床を掃除するの説明を開く').props.accessibilityValue?.text, '完了済み');
+      assert.ok(!f.screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'));
       assert.equal(f.screen.text().includes('共有予定を読み込んでいます…'), false);
       assert.equal(JSON.stringify(f.props.model), before);
       f.props.feedback.values.clear(); f.screen.render();
@@ -175,7 +176,7 @@ for (const platform of ['ios', 'android']) {
       assert.equal(f.props.model.plan.occurrences[0].subjects[0].completed, true);
     } finally { f.close(); }
   });
-  test(`${platform} calendar mutations keep the visible cards and known counts while disabling another action instead of emptying the list`, async () => {
+  test(`${platform} calendar mutations keep the visible cards and known counts without exposing completion actions`, async () => {
     const f = await setup(platform);
     try {
       const list = f.screen.nodes().find((node) => node.props.testID === 'calendar-chore-list');
@@ -184,19 +185,27 @@ for (const platform of ['ios', 'android']) {
       assert.ok(before.length > 0); f.props.busy = true; f.screen.render();
       assert.deepEqual(f.screen.nodes().find((node) => node.props.testID === 'calendar-chore-list').props.data.map((entry) => entry.key), before);
       assert.ok(f.screen.nodes().some((node) => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事1件、収集日は未取得'));
-      assert.equal(f.screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox').props.disabled, true);
+      assert.ok(!f.screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'));
       assert.equal(f.props.model.plan.history.length, 0);
     } finally { f.close(); }
   });
-  test(`${platform} v2 calendar completion reduces the displayed count to zero while keeping the completed card on its day`, async () => {
+  test(`${platform} home completion updates the v2 calendar count and completed state without adding calendar completion controls`, async () => {
     const f = await setup(platform);
     try {
       const day = f.screen.nodes().find((node) => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事1件、収集日は未取得'); assert.ok(day);
-      const before = f.props.model.plan.sourceHash; const checkbox = f.screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox');
-      await checkbox.props.onPress(); await f.screen.flush();
+      const before = f.props.model.plan.sourceHash;
+      assert.ok(!f.screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'));
+      const round = f.props.model.plan.occurrences[0];
+      const home = screenHarness('src/features/sharing/v2-ui/round-card.tsx', { platform, exportName: 'V2RoundCard', props: {
+        model: f.props.model, round, subject: round.subjects[0], actions: f.props.actions, busy: false, run: f.props.run, home: true, onOpen: () => {},
+      } });
+      try {
+        const checkbox = home.nodes().find(node => node.props.accessibilityRole === 'checkbox'); assert.ok(checkbox, 'home keeps its existing completion control');
+        await checkbox.props.onPress(); await home.flush(); await f.screen.flush();
+      } finally { home.unmount(); }
       assert.ok(f.screen.nodes().some((node) => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事0件、収集日は未取得'));
-      assert.equal(f.screen.nodes().filter((node) => node.props.accessibilityRole === 'checkbox').length, 1);
-      assert.equal(f.screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox').props.accessibilityState.checked, true);
+      assert.ok(!f.screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'));
+      assert.equal(f.screen.button('床を掃除するの説明を開く').props.accessibilityValue?.text, '完了済み');
       assert.notEqual(f.props.model.plan.sourceHash, before); assert.equal(f.props.model.plan.history.length, 1);
     } finally { f.close(); }
   });

@@ -1,4 +1,6 @@
+import { pinnedClockAt } from '../../domain/scheduling/zoned-clock.ts';
 import { writeScheduleCacheDiffInside, saveScopedScheduleCacheInside } from './schedule-cache-diff.ts';
+import { checkedChoreCalendarTiming, choreCalendarSpan, type ChoreCalendarTiming } from '../../domain/chores/calendar-timing.ts';
 import { normalizeStoredWeatherLocation, resolveWeatherMunicipality } from '../../features/weather/municipality-search.ts';
 import { MetServerForecastProvider, weatherCacheFreshness } from '../../features/weather/met-server-provider.ts';
 import { readRegionalWeatherInside, saveRegionalWeatherInside } from './regional-weather.ts';
@@ -34,7 +36,7 @@ import { dateTaskRevision, dateTaskOccurrenceReference, sameDateTaskOccurrence }
 import type { PersonalDateTaskCommand } from '@/domain/scheduling/date-task-reference';
 import type { ScheduleGenerationInput } from '@/domain/scheduling/contracts';
 import { generateHouseworkScheduleResult, wouldCreateDependencyCycle } from '@/domain/scheduling/engine';
-import { addDays, localDateFromDate, localDateFromISODateTime, parseLocalDate } from '@/domain/scheduling/local-date';
+import { addDays, daysBetween, localDateFromDate, localDateFromISODateTime, parseLocalDate } from '@/domain/scheduling/local-date';
 import type { CalendarCountColors, CalendarCountDisplayMode, EntityId, Household, HouseholdMember, LocalDate, WeatherLocation, Weekday } from '@/domain/shared/types';
 import type { WasteRecurrence, WasteScheduleInput, WeeklyWasteSchedule } from '@/features/waste/contracts';
 import { mergeWasteScheduleEdits, normalizeWasteSchedule } from '@/features/waste/schedule-policy';
@@ -71,7 +73,7 @@ import { notifyGooglePlannerChanges } from '../../features/google-sync/planner-c
 import { choreOccurrenceName } from '../../domain/chores/occurrence-name.ts';
 import { planPersonalCatalogToggles, comparePersonalChoreOrder, PERSONAL_CHORE_CATALOG_VERSION, usesPersonalAdaptivePlanner } from '../../domain/chores/personal-catalog.ts';
 import { installPersonalCatalogInside } from './personal-catalog.ts';
-import { createCustomPersonalChore } from '../../domain/chores/custom-chore.ts';
+import { createCustomPersonalChore, customChoreOptions } from '../../domain/chores/custom-chore.ts';
 import type { CustomChoreOptions } from '../../domain/chores/custom-chore';
 import { personalCadenceView } from '../../features/planner/adaptive-cadence.ts';
 import type { PersonalCadenceView } from '../../features/planner/adaptive-cadence';
@@ -84,8 +86,8 @@ import type { AdaptiveOwnerInputs, AdaptiveOwnerReader } from './adaptive-owner-
 import type { CapturedSharedPlanning } from '../../features/planner/shared-adaptive-load';
 import { sharedLocalDate } from '../../features/sharing/group-clock.ts';
 import { synchronizePersonalAdaptiveInside, applyPersonalAdaptiveInside, personalAdaptiveEntries } from './personal-adaptive-planner.ts';
-import { readAdaptivePersonalInside } from './adaptive-personal-chores.ts';
-import { synchronizePersonalSeasonalInside, readPersonalSeasonalInside, applyPersonalSeasonalInside, personalSeasonalEntries } from './personal-seasonal-chores.ts';
+import { readAdaptivePersonalInside, moveAdaptivePersonalRoundInside } from './adaptive-personal-chores.ts';
+import { synchronizePersonalSeasonalInside, readPersonalSeasonalInside, applyPersonalSeasonalInside, personalSeasonalEntries, movePersonalSeasonalInside } from './personal-seasonal-chores.ts';
 
 export { PERSONAL_HOUSEHOLD_ID as LOCAL_HOUSEHOLD_ID } from '../../domain/chores/cycle-policy.ts';
 export const LOCAL_MEMBER_ID = 'local-member';
@@ -960,6 +962,7 @@ export interface SetupSubmission {
   previousDates: Record<EntityId, { date?: LocalDate; estimated?: boolean; unknownReason?: 'unknown' | 'skipped' }>;
   weatherLocation: WeatherLocation | null;
   wasteSchedules?: readonly WasteScheduleInput[];
+  dayTypes?: import('../../features/planner/day-type-capacity').DayTypeCapacity;
 }
 
 async function completeFirstSetupImpl(database: SQLiteDatabase, submission: SetupSubmission): Promise<void> {
@@ -981,6 +984,12 @@ async function completeFirstSetupImpl(database: SQLiteDatabase, submission: Setu
     const setup = await database.getFirstAsync<{ setup_completed: number }>('SELECT setup_completed FROM household_settings WHERE household_id=?', LOCAL_HOUSEHOLD_ID);
     if (setup?.setup_completed) return;
     planPersonalCatalogToggles([], submission.enabledChoreIds, true);
+    if (submission.dayTypes) {
+      const current = await loadPersonalPlacementPreferencesImpl(database);
+      const preferences = snapshotPersonalPlacementPreferences({ ...current, dayTypes: submission.dayTypes });
+      await database.runAsync(`INSERT INTO personal_adaptive_preferences(household_id,revision,preferences_json) VALUES(?,1,?)
+        ON CONFLICT(household_id) DO UPDATE SET revision=revision+1,preferences_json=excluded.preferences_json`, LOCAL_HOUSEHOLD_ID, JSON.stringify(preferences));
+    }
     await database.runAsync(
       `UPDATE household_settings SET frequency_mode = ?, rest_days_json = ?, notifications_enabled = ?, setup_completed = 1,
        weather_municipality_id = ?, weather_region = ?, weather_region_name = ?, weather_latitude = ?, weather_longitude = ?, updated_at = ?
@@ -1113,7 +1122,7 @@ async function updateChoreSettingsImpl(database: SQLiteDatabase, choreId: Entity
   const current = { ...JSON.parse(row.definition_json) as ChoreDefinition, enabled: Boolean(row.enabled) };
   if (current.archived) throw new Error('この家事は現在の家事一覧から削除されています。');
   const updated = applyChoreSettingsPatch(current, patch);
-  if (choreScheduleSignature(current) === choreScheduleSignature(updated)) return false;
+  if (JSON.stringify(current) === JSON.stringify(updated)) return false;
   await updateChoreDefinitionImpl(database, updated);
   plannerVersions.set(database, (plannerVersions.get(database) ?? 0) + 1);
   return true;
@@ -1153,6 +1162,125 @@ async function addPersonalChoreImpl(database: SQLiteDatabase, input: { name: str
   });
   notifyGooglePlannerChanges();
   return chore;
+}
+
+export interface PersonalCalendarChoreInput {
+  operationId: string; choreId?: string; expectedDefinition?: string; expectedRoundId?: string | null; expectedPlanRevision?: string | null;
+  name: string; date: LocalDate; repeat: boolean; intervalDays?: number; monthly?: boolean; options?: CustomChoreOptions;
+  timing?: import('../../domain/chores/calendar-timing').ChoreCalendarTiming;
+}
+async function readPersonalCalendarChoreImpl(database: SQLiteDatabase, choreId: string) {
+  await assertPersonalPlannerDatabase(database);
+  const row = await database.getFirstAsync<DefinitionRow>('SELECT id,enabled,definition_json FROM chore_definitions WHERE id=? AND household_id=?', choreId, LOCAL_HOUSEHOLD_ID);
+  if (!row) throw new Error('この個人家事は見つかりません。');
+  const definition = { ...JSON.parse(row.definition_json) as ChoreDefinition, enabled: Boolean(row.enabled) };
+  const adaptive = await readAdaptivePersonalInside(database, choreId);
+  return { definition, signature: JSON.stringify(definition), roundId: adaptive?.plan?.id ?? null, planRevision: adaptive?.planRevision ?? null };
+}
+async function readPersonalChoreDateImpl(database: SQLiteDatabase, choreId: string, roundId: string) {
+  const value = await readPersonalCalendarChoreImpl(database, choreId);
+  if (value.definition.personalSchedulingKind !== 'seasonal') {
+    const plan = (await readAdaptivePersonalInside(database, choreId))?.plan;
+    const zone = value.definition.personalSchedule?.calendarTiming?.timeZone ?? getDeviceTimeZone();
+    const start = plan?.manualTime && plan.slot ? pinnedClockAt(plan.slot.start, zone) : null;
+    const end = plan?.manualTime && plan.slot ? pinnedClockAt(plan.slot.end, zone) : null;
+    const calendarTiming: ChoreCalendarTiming | null = start && end
+      ? { allDay: false, startMinute: start.minute, endMinute: end.minute, endDayOffset: daysBetween(start.date, end.date), timeZone: zone }
+      : plan?.manualTime ? value.definition.personalSchedule?.calendarTiming ?? null : null;
+    return { ...value, date: plan?.manualDate ?? plan?.recommendedDate, calendarTiming };
+  }
+  const seasonal = await readPersonalSeasonalInside(database, choreId);
+  const round = seasonal && Object.values(seasonal.state.pending).find(row => row.id === roundId);
+  return { ...value, roundId: round?.id ?? null, planRevision: round && seasonal ? `seasonal:${seasonal.revision}` : null, date: round?.date, calendarTiming: null };
+}
+/** Change exactly the captured pending occurrence; cadence and other occurrences stay intact. */
+async function movePersonalChoreDateImpl(database: SQLiteDatabase, input: {
+  operationId: string; choreId: string; roundId: string; planRevision: string; definition: string; date: LocalDate; recordedAt: string;
+  timing?: ChoreCalendarTiming;
+}) {
+  await assertPersonalPlannerDatabase(database); parseLocalDate(input.date);
+  if (!/^calendar-intent\.[A-Za-z0-9.-]{1,100}$/u.test(input.operationId)) throw new Error('家事の変更操作を確認してください。');
+  const requestedTiming = input.timing ? checkedChoreCalendarTiming(input.timing) : undefined;
+  if (requestedTiming && !requestedTiming.allDay) choreCalendarSpan(input.date, requestedTiming);
+  const digest = sharedDocumentDigest(input);
+  await withAdaptiveOwnerTransaction(database, async () => {
+    const receipt = await database.getFirstAsync<{ chore_id: string; request_digest: string }>('SELECT chore_id,request_digest FROM personal_adaptive_actions WHERE operation_id=?', input.operationId);
+    if (receipt) { if (receipt.chore_id !== input.choreId || receipt.request_digest !== digest) throw new Error('同じ操作の内容が異なります。'); return; }
+    const observed = await readPersonalChoreDateImpl(database, input.choreId, input.roundId);
+    if (observed.signature !== input.definition || observed.roundId !== input.roundId || observed.planRevision !== input.planRevision || observed.definition.archived || !observed.definition.enabled) throw new Error('家事の予定が更新されました。開き直してください。');
+    const current = await readAdaptivePersonalInside(database, input.choreId);
+    const context = await readPersonalAdaptiveContextInside(database, { householdId: LOCAL_HOUSEHOLD_ID, memberId: LOCAL_MEMBER_ID, now: new Date(), timeZone: getDeviceTimeZone() });
+    if (!context || context.suppressedChoreIds?.has(input.choreId)) throw new Error('この個人家事の予定は変更できません。表示を更新してください。');
+    if (observed.definition.personalSchedulingKind === 'seasonal') {
+      if (requestedTiming) throw new Error('この家事は実施日だけ変更できます。');
+      const view = await movePersonalSeasonalInside(database, seasonalContext(context, observed.definition), { roundId: input.roundId, revision: Number(input.planRevision.slice('seasonal:'.length)), date: input.date });
+      await saveSeasonalChoreCacheInside(database, input.choreId, personalSeasonalEntries(observed.definition, view, context.today, context.assignedMemberIds(input.choreId)));
+    } else {
+    if (!current?.plan) throw new Error('この回の家事は更新されています。開き直してください。');
+    const plan = current.plan;
+    const zone = observed.definition.personalSchedule?.calendarTiming?.timeZone ?? getDeviceTimeZone();
+    const start = plan.manualTime && plan.slot ? pinnedClockAt(plan.slot.start, zone) : null;
+    const end = plan.manualTime && plan.slot ? pinnedClockAt(plan.slot.end, zone) : null;
+    if (plan.manualTime && !plan.slot && !observed.definition.personalSchedule?.calendarTiming) throw new Error('この家事の時刻を確認してから日付を変更してください。');
+    const timing = requestedTiming ?? (plan.manualTime && !plan.slot ? observed.definition.personalSchedule!.calendarTiming! : { allDay: !start, startMinute: start?.minute ?? 0, endMinute: end?.minute ?? 0, timeZone: zone,
+      endDayOffset: start && end ? daysBetween(start.date, end.date) : plan.manualDate ? Math.max(0, daysBetween(plan.displayedWindow?.from ?? plan.recommendedDate, plan.displayedWindow?.through ?? plan.recommendedDate)) : 0 });
+    await moveAdaptivePersonalRoundInside(database, input.choreId, { operationId: `${input.operationId}.move`, roundId: input.roundId, planRevision: input.planRevision,
+      date: input.date, radius: 0, timing, recordedAt: input.recordedAt }, sharedDocumentDigest);
+    await saveAdaptiveChoreCacheInside(database, context, input.choreId);
+    }
+    await database.runAsync("INSERT INTO personal_adaptive_actions(operation_id,chore_id,action_type,request_digest,receipt_json) VALUES(?,?,'receipt',?,?)", input.operationId, input.choreId, digest, '{}');
+  });
+  notifyGooglePlannerChanges();
+}
+/** The definition, actual round, and retry receipt share one private transaction. */
+async function registerPersonalCalendarChoreImpl(database: SQLiteDatabase, input: PersonalCalendarChoreInput): Promise<ChoreDefinition> {
+  await assertPersonalPlannerDatabase(database); parseLocalDate(input.date);
+  if (!/^calendar-intent\.[A-Za-z0-9.-]{1,100}$/u.test(input.operationId) || typeof input.repeat !== 'boolean' || input.monthly && !input.repeat) throw new Error('家事の登録内容を確認してください。');
+  if (input.repeat && !input.monthly && (!Number.isSafeInteger(input.intervalDays) || input.intervalDays! < 1 || input.intervalDays! > 3650)) throw new Error('周期を1〜3650日の整数で入力してください。');
+  const timing = input.timing ? checkedChoreCalendarTiming(input.timing) : undefined;
+  if (timing && !timing.allDay) choreCalendarSpan(input.date, timing);
+  const options = customChoreOptions(input.options); const digest = sharedDocumentDigest(input);
+  const id = input.choreId ?? `custom-chore-${input.operationId}`; let saved!: ChoreDefinition;
+  await withAdaptiveOwnerTransaction(database, async () => {
+    const receipt = await database.getFirstAsync<{ chore_id: string; request_digest: string }>('SELECT chore_id,request_digest FROM personal_adaptive_actions WHERE operation_id=?', input.operationId);
+    if (receipt) {
+      if (receipt.chore_id !== id || receipt.request_digest !== digest) throw new Error('同じ登録操作の内容が異なります。');
+      saved = (await readPersonalCalendarChoreImpl(database, id)).definition; return;
+    }
+    const observed = input.choreId ? await readPersonalCalendarChoreImpl(database, id) : null;
+    if (observed && (observed.signature !== input.expectedDefinition || observed.roundId !== input.expectedRoundId || observed.planRevision !== input.expectedPlanRevision)) throw new Error('個人家事が更新されました。家事を選び直してください。');
+    if (observed?.definition.archived || observed?.definition.personalSchedulingKind === 'seasonal') throw new Error('この家事は季節ごとの設定から変更してください。');
+    if (observed && observed.definition.name !== input.name) throw new Error('選んだ家事を確認してください。');
+    const contextBefore = await readPersonalAdaptiveContextInside(database, { householdId: LOCAL_HOUSEHOLD_ID, memberId: LOCAL_MEMBER_ID, now: new Date(), timeZone: getDeviceTimeZone() });
+    const configure = !observed || input.repeat || !observed.definition.enabled || !observed.roundId || contextBefore?.suppressedChoreIds?.has(id);
+    const period = input.repeat ? input.monthly ? 30 : input.intervalDays : observed?.definition.frequencyDaysByMode.balanced ?? 7;
+    let definition = observed?.definition ?? createCustomPersonalChore(id, LOCAL_HOUSEHOLD_ID, input.name, period ?? 7, options);
+    if (configure) definition = applyChoreSettingsPatch(definition, { enabled: true, ...(input.repeat ? { cycleDays: period } : {}), windowRadiusDays: options.windowRadiusDays,
+      ...(definition.customPersonal ? { estimatedMinutes: options.estimatedMinutes } : {}), load: options.load, holidayPriority: options.holidayPriority,
+      ...(!observed ? { instructions: options.instructions } : {}),
+      personalSchedule: { startDate: input.date, ...(input.repeat ? input.monthly ? { monthlyDay: Number(input.date.slice(8)) } : {} : { once: true }), ...(timing ? { calendarTiming: timing } : {}) } });
+    if (!observed) {
+      definition.personalScheduleDefaults = { ...definition.personalScheduleDefaults!, personalSchedule: definition.personalSchedule ? { ...definition.personalSchedule } : undefined };
+      await database.runAsync('INSERT INTO chore_definitions(id,household_id,name,enabled,definition_json) VALUES(?,?,?,?,?)', id, LOCAL_HOUSEHOLD_ID, definition.name, 1, JSON.stringify(definition));
+      await database.runAsync('INSERT INTO chore_state(chore_id,initial_pending,initial_scheduled_date) VALUES(?,1,?)', id, input.date);
+      await database.runAsync('INSERT INTO chore_assignments(chore_id,member_id) VALUES(?,?)', id, LOCAL_MEMBER_ID);
+    } else if (configure) {
+      await database.runAsync('UPDATE chore_definitions SET name=?,enabled=1,definition_json=? WHERE id=? AND household_id=?', definition.name, JSON.stringify(definition), id, LOCAL_HOUSEHOLD_ID);
+    }
+    if (configure) await synchronizeAdaptiveRepositoryInside(database);
+    if (!input.repeat) {
+      const current = await readAdaptivePersonalInside(database, id);
+      if (!current?.plan || !current.planRevision) throw new Error('この家事は完了済みです。開始日を選び直してください。');
+      await moveAdaptivePersonalRoundInside(database, id, { operationId: `${input.operationId}.move`, roundId: current.plan.id, planRevision: current.planRevision,
+        date: input.date, radius: options.windowRadiusDays, ...(timing ? { timing } : {}), recordedAt: new Date().toISOString() }, sharedDocumentDigest);
+      const context = await readPersonalAdaptiveContextInside(database, { householdId: LOCAL_HOUSEHOLD_ID, memberId: LOCAL_MEMBER_ID, now: new Date(), timeZone: getDeviceTimeZone() });
+      if (!context) throw new Error('個人家事の保存先を確認してください。');
+      await saveAdaptiveChoreCacheInside(database, context, id);
+    }
+    await database.runAsync("INSERT INTO personal_adaptive_actions(operation_id,chore_id,action_type,request_digest,receipt_json) VALUES(?,?,'receipt',?,?)", input.operationId, id, digest, '{}');
+    saved = definition;
+  });
+  notifyGooglePlannerChanges(); return saved;
 }
 
 async function updateChoreDefinitionImpl(
@@ -1214,6 +1342,7 @@ function choreScheduleSignature(chore: ChoreDefinition): string {
     chore.frequencyDaysByMode.frequent, chore.frequencyDaysByMode.balanced, chore.frequencyDaysByMode.relaxed,
     chore.recommendedCycleDays, chore.userIntervalDays, chore.manufacturerRecommendedIntervalDays,
     chore.windowRadiusDays, chore.userWindowRadiusDays, chore.maxShiftDays, chore.holidayPriority, chore.laundryDryingPreference,
+    chore.personalSchedule,
   ]);
 }
 
@@ -2641,6 +2770,10 @@ export const saveWeatherLocation = serializePlannerOperation(saveWeatherLocation
 export const clearWeatherLocation = serializePlannerOperation(clearWeatherLocationImpl);
 export const updateChoreDefinition = serializePlannerOperation(updateChoreDefinitionImpl, 'updateChoreDefinition');
 export const addPersonalChore = serializePlannerOperation(addPersonalChoreImpl);
+export const readPersonalChoreDate = serializeDatabaseOperation(readPersonalChoreDateImpl);
+export const movePersonalChoreDate = serializePlannerOperation(movePersonalChoreDateImpl);
+export const readPersonalCalendarChore = serializeDatabaseOperation(readPersonalCalendarChoreImpl);
+export const registerPersonalCalendarChore = serializePlannerOperation(registerPersonalCalendarChoreImpl);
 export const updateChoreSettings = serializeDatabaseOperation(updateChoreSettingsImpl, 'updateChoreSettings');
 export const resetAllChoreSchedules = serializeDatabaseOperation(resetAllChoreSchedulesImpl);
 export const saveReviewedApplianceCare = serializePlannerOperation(saveReviewedApplianceCareImpl, 'saveReviewedApplianceCare');

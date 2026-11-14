@@ -1,8 +1,8 @@
-import { router, useFocusEffect, usePreventRemove } from 'expo-router';
+import { Redirect, router, useFocusEffect, usePreventRemove } from 'expo-router';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { SettingsCheckbox } from '@/components/settings-checkbox';
-import { SettingsPanel, SettingsSegments } from '@/components/settings-controls';
+import { SettingsAction, SettingsPanel, SettingsSegments } from '@/components/settings-controls';
 import { plannerColorsForScheme } from '@/components/planner-theme';
 import { ChoreBook } from '@/components/chore-book';
 import { createChoreSettingsDocument } from '@/features/settings/chore-settings-editor';
@@ -12,7 +12,7 @@ import { SettingsAudience } from '@/components/settings-audience';
 
 import { AppButton, BackButton, ChoiceChip, Page, ScreenHeading, palette, typography } from '@/components/planner-ui';
 import type { ChoreDefinition, ChoreLoad } from '@/domain/chores/types';
-import { choreCadenceLabel, registeredChoreCycleDays } from '@/domain/chores/cycle-policy';
+import { choreCadenceLabel, hasChoreScheduleSettings, registeredChoreCycleDays } from '@/domain/chores/cycle-policy';
 import { PlannerLoadState } from '@/components/planner-load-state';
 import type { usePlannerData } from '@/hooks/use-planner-data';
 import { updateChoreSettings } from '@/platform/storage/repository';
@@ -24,6 +24,7 @@ import { parseSettingInteger } from '@/domain/chores/settings-patch';
 import { choreScheduleDefaults } from '@/domain/chores/schedule-defaults';
 import { ScheduleResetAction } from '@/components/schedule-reset-action';
 import { choreInAudience, type ChoreAudienceSelection } from '../chores/audience-selection';
+import { V2AdvancedSettings } from '../sharing/v2-ui/advanced-settings';
 
 const loadOptions: { id: ChoreLoad; label: string }[] = [
   { id: 'light', label: '軽い' }, { id: 'normal', label: '普通' }, { id: 'heavy', label: '重い' },
@@ -56,7 +57,8 @@ export function ChoreSettingsBook({ choreId, selection, data }: { choreId: strin
     return () => { for (const [, cache] of caches.entries()) void cache.navigateAfterSave(() => {}); };
   }, [caches]));
   if (!snapshot) return <PlannerLoadState title="家事ごとの設定" message="設定を読み込んでいます。" error={error} retry={refresh} />;
-  const rows = snapshot.chores.filter(item => !item.archived);
+  const rows = snapshot.chores.filter(hasChoreScheduleSettings);
+  if (chore && !chore.archived && !hasChoreScheduleSettings(chore)) return <Redirect href={{ pathname: '/(tabs)/guide', params: { choreId: chore.id, source: 'personal' } }} />;
   if (!chore && rows.length) return <Page header={<BackButton onPress={() => void leaveAfterSave(() => router.back())} />}><ScreenHeading title="家事が見つかりません" /></Page>;
   const back = () => leaveAfterSave(() => router.back());
   return <ChoreBook chores={rows} selectedId={selectedId} title="家事ごとの設定" onBack={() => void back()} collapseSplits
@@ -97,8 +99,8 @@ function ChoreSettingsContent({
   const autosave = useChoreSettingsAutosave(chore, snapshot.settings.frequencyMode, savePatch, cache);
   const { cycleText, radiusText, load, holidayPriority, dryingPreference, enabled } = autosave.draft;
   const seasonal = chore.personalSchedulingKind === 'seasonal';
-  const cadence = snapshot.personalCadences?.[chore.id];
-  const automaticCycle = cadence?.automatic && cadence.days !== null;
+  const automaticCycle = autosave.canChangeCycleMode && autosave.draft.cycleMode === 'automatic';
+  const monthly = chore.personalSchedule?.monthlyDay;
   const cycleCaption = automaticCycle ? null
     : chore.requiresCycleSelection ? '周期を入力すると予定に追加できます。'
       : chore.applianceCareSource && chore.manufacturerRecommendedIntervalDays === undefined
@@ -119,11 +121,14 @@ function ChoreSettingsContent({
           </View>
           <SettingsCheckbox value={enabled} accessibilityLabel="家事を有効にする" onValueChange={autosave.changeEnabled} disabled={chore.requiresCycleSelection && parseSettingInteger(cycleText, 1, Number.MAX_SAFE_INTEGER) === undefined} />
         </View>
-        {seasonal ? <View style={rowStyle}><Text style={styles.settingTitle}>周期</Text><Text style={styles.body}>{choreCadenceLabel(chore, snapshot.settings.frequencyMode)}</Text></View> : <View style={rowStyle}>
-          <View style={styles.settingCopy}>
-            <View style={styles.titleLine}><Text style={styles.settingTitle}>周期</Text>{automaticCycle ? <Text style={styles.body}>自動調整</Text> : null}</View>
+        {seasonal || monthly ? <View style={rowStyle}><Text style={styles.settingTitle}>周期</Text><Text style={styles.body}>{choreCadenceLabel(chore, snapshot.settings.frequencyMode)}</Text></View> : <View style={rowStyle}>
+          <View style={[styles.settingCopy, styles.cycleCopy]}>
+            <Text style={styles.settingTitle}>周期</Text>
             {cycleCaption ? <Text style={styles.body}>{cycleCaption}</Text> : null}
           </View>
+          <View style={styles.cycleControls}>
+          {autosave.canChangeCycleMode ? <SettingsSegments fitContent value={autosave.draft.cycleMode} onValueChange={autosave.changeCycleMode}
+            options={[{ id: 'automatic', label: '自動調整' }, { id: 'fixed', label: '固定', disabled: parseSettingInteger(cycleText, 1, Number.MAX_SAFE_INTEGER) === undefined }]} /> : null}
           <NumberInputField
             borderless
             value={cycleText}
@@ -132,13 +137,14 @@ function ChoreSettingsContent({
             accessibilityLabel="家事周期の日数"
             placeholder={chore.requiresCycleSelection ? '入力' : registeredChoreCycleDays(chore, snapshot.settings.frequencyMode) === undefined ? '—' : undefined}
           />
+          </View>
         </View>}
         {autosave.cycleError ? <Text style={styles.error}>{autosave.cycleError}</Text> : null}
         {chore.schedulingNotes ? <Text style={styles.body}>{chore.schedulingNotes}</Text> : null}
         {chore.applianceId && chore.manufacturerRecommendedIntervalDays !== undefined
           && (chore.userIntervalDays ?? chore.recommendedCycleDays) !== undefined
           && (chore.userIntervalDays ?? chore.recommendedCycleDays) !== chore.manufacturerRecommendedIntervalDays ? (
-            <AppButton title="メーカー推奨に戻す" onPress={autosave.resetCycle} variant="quiet" compact />
+            <SettingsAction title="メーカー推奨に戻す" onPress={autosave.resetCycle} />
           ) : null}
 
         {!seasonal ? <View style={rowStyle}>
@@ -171,6 +177,7 @@ function ChoreSettingsContent({
           </View>
         ) : null}
 
+        <V2AdvancedSettings choreId={chore.id} onOpen={() => void autosave.navigateAfterSave(() => router.push({ pathname: '/settings/chore-options', params: { choreId: chore.id } }))} />
         {choreScheduleDefaults(chore) ? <ScheduleResetAction onReset={async () => { if (!await autosave.resetSchedule()) throw new Error('初期値を保存できませんでした。再試行してください。'); }} /> : null}
 
         {autosave.status.phase === 'error' ? <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.error}>{autosave.status.error ?? '設定を保存できませんでした。'}</Text> : null}
@@ -186,7 +193,8 @@ const styles = StyleSheet.create({
   body: { ...typography.caption, color: palette.muted },
   row: { minHeight: 60, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingVertical: 8, borderBottomWidth: 1 },
   settingCopy: { flex: 1, gap: 3 },
-  titleLine: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', columnGap: 8 },
+  cycleCopy: { minWidth: typography.body.fontSize * 2 },
+  cycleControls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', flexShrink: 1, gap: 6 },
   settingTitle: { ...typography.body, color: palette.ink },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 1, maxWidth: '80%', gap: 6 },
   error: { ...typography.caption, color: palette.warning },

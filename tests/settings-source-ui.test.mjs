@@ -232,8 +232,8 @@ test('removed memberships never mount a group editor and v2 members cannot use a
   context.group.status = 'active'; const navigation = [];
   const member = screenHarness('src/features/settings/chore-settings-sources.tsx', { exportName: 'ChoreSettingsSources', props: { first: 'group' }, navigate: (...args) => navigation.push(args), mocks: {
     '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: context } },
-    './use-group-chore-settings': { useGroupChoreSettings: () => ({ snapshot: { protocol: 2, model: { viewerUserId: 'member', adminUserId: 'owner',
-      plan: { chores: [{ id: 'chore', name: '共有の家事', category: '分類', enabled: true }] } } }, source: { saveEnabled: async () => { throw new Error('must not save'); } } }) },
+    './use-group-chore-settings': { useGroupChoreSettings: () => ({ snapshot: { protocol: 2, model: { viewerUserId: 'member', adminUserId: 'owner', configurations: [],
+      plan: { chores: [{ id: 'chore', name: '共有の家事', category: '分類', enabled: true, frequencyDaysByMode: { balanced: 7 } }] } } }, source: { saveEnabled: async () => { throw new Error('must not save'); } } }) },
   } });
   await member.press('分類の家事を開く');
   assert.equal(member.nodes().filter(node => node.props.accessibilityRole === 'checkbox').length, 1);
@@ -249,9 +249,11 @@ test('fixed audience stays outside the virtual document and a thousand chores ke
   const list = book.nodes().find(node => node.type === 'FlatList'); assert.equal(allNodes([list]).some(node => node.children?.includes('個人用')), false);
   assert.ok(book.nodes().filter(node => node.props.accessibilityRole === 'button').length <= 90);
   assert.equal(list.props.data[0].id, 'c-850');
-  list.props.onTouchStart({ nativeEvent: { pageY: 500 } }); list.props.onTouchMove({ nativeEvent: { pageY: 470 } }); book.render();
-  assert.equal(book.nodes().find(node => node.type === 'FlatList').props.data[0].id, 'c-850', 'forward scrolling must not prepend unrelated chapters');
-  list.props.onTouchStart({ nativeEvent: { pageY: 500 } }); list.props.onTouchMove({ nativeEvent: { pageY: 530 } }); book.render();
+  const prepared = book.nodes().find(node => node.type === 'FlatList');
+  prepared.props.onScroll({ nativeEvent: { contentOffset: { y: 500 } } });
+  prepared.props.onScrollBeginDrag(); prepared.props.onScroll({ nativeEvent: { contentOffset: { y: 700 } } }); book.render();
+  assert.equal(book.nodes().find(node => node.type === 'FlatList').props.data[0].id, prepared.props.data[0].id, 'forward scrolling must not prepend more chapters');
+  prepared.props.onScroll({ nativeEvent: { contentOffset: { y: 0 } } }); book.render();
   const previous = book.nodes().find(node => node.type === 'FlatList');
   assert.ok(previous.props.data.length > list.props.data.length && previous.props.data.length < chores.length);
   assert.ok(previous.props.maintainVisibleContentPosition);

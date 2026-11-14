@@ -14,6 +14,34 @@ const category = { id: 'personal', name: '私用', color: '#348DC2', revision: 1
 const draft = extra => ({ ...newEventDraft('2026-10-27', 'Asia/Tokyo'), title: 'Shared event', recurrence: 'weekly', ...extra });
 const basis = record => JSON.stringify([record.heads.map(op => op.operationId).sort(), record.heads.map(op => op.operationId).sort()]);
 
+test('shared series moves preserve individual dates in one batch and a single-occurrence undo leaves other exceptions intact', async () => {
+  const f = await fixture(); const d = await f.device(); await d.repository.commit(seeds()); let id = 0;
+  const actions = createV2CalendarActions(d.repository, () => `preserve-series-${++id}`);
+  const records = async () => readSharedCalendar((await d.repository.readState()).assessment.view);
+  await actions.saveCalendarEvent({ scope: 'series', anchorDate: null, value: draft(), category });
+  let record = (await records())[0]; const eventId = record.id;
+  for (const [anchor, date] of [['2026-11-03', '2026-11-05'], ['2026-11-10', '2026-11-12']]) {
+    record = (await records())[0];
+    await actions.saveCalendarEvent({ eventId, scope: 'one', anchorDate: anchor,
+      basisRevision: JSON.stringify([record.heads.map(row => row.operationId).sort(), []]), value: draft({ title: `個別 ${anchor}`, recurrence: 'none', startDate: date, endDate: date }), category });
+  }
+  record = (await records())[0];
+  await actions.saveCalendarEvent({ eventId, scope: 'series', anchorDate: null, basisRevision: basis(record),
+    value: draft({ startDate: '2026-10-28', endDate: '2026-10-28' }), category });
+  record = (await records())[0];
+  assert.deepEqual(record.exceptions.map(row => row.anchorDate), ['2026-11-04', '2026-11-11']);
+  assert.deepEqual(record.exceptions.map(row => row.heads[0].payload.value.startDate), ['2026-11-05', '2026-11-12']);
+  const one = record.exceptions[0];
+  for (const invalid of [{ scope: 'one', anchorDate: one.anchorDate }, { eventId, scope: 'series', anchorDate: one.anchorDate }, { eventId, scope: 'one', anchorDate: null }]) {
+    assert.throws(() => actions.restoreCalendarOccurrence({ ...invalid, value: null, category: null }), /予定を選んで/u);
+  }
+  await actions.restoreCalendarOccurrence({ eventId, scope: 'one', anchorDate: one.anchorDate, value: null, category: null,
+    basisRevision: JSON.stringify([record.heads.map(row => row.operationId).sort(), one.heads.map(row => row.operationId).sort()]) });
+  const after = (await records())[0]; assert.deepEqual(after.exceptions.map(row => row.anchorDate), ['2026-11-11']);
+  await assert.rejects(actions.restoreCalendarOccurrence({ eventId, scope: 'one', anchorDate: one.anchorDate, value: null, category: null,
+    basisRevision: JSON.stringify([record.heads.map(row => row.operationId).sort(), one.heads.map(row => row.operationId).sort()]) }), /更新/);
+});
+
 async function sharedEditorFixture(platform) {
   const f = await fixture(); const d = await f.device(); const local = createDatabase(); let ordinal = 0;
   await d.repository.commit(seeds()); await initializeLocalDatabase(local.database);
@@ -192,3 +220,23 @@ for (const platform of ['ios', 'android']) {
     for (const value of ['Room A', 'Room B', 'Bring the key', 'Bring the books', '毎週', '隔週', '学校', '仕事', 'UTC']) assert.ok(screen.text().includes(value), `missing conflict detail: ${value}`);
   });
 }
+
+for (const platform of ['ios', 'android']) test(`${platform} shared event reminders stay private and a failed local reminder save retries the committed shared intent without duplicating the event`, async () => {
+  const f = await sharedEditorFixture(platform);
+  const { readCalendarReminders, calendarReminderScope } = await import('../src/platform/storage/calendar-reminders.ts');
+  const { sharedCalendarEventId } = await import('../src/features/calendar/shared-events.ts');
+  try {
+    const editor = await f.open(); const input = { ...f.input(), reminderMinutes: 60 };
+    f.local.connection.exec("CREATE TRIGGER fail_reminder BEFORE INSERT ON calendar_notification_rules BEGIN SELECT RAISE(ABORT,'reminder write failed'); END");
+    await assert.rejects(editor.binding.saveEvent(input, false), /reminder write failed/);
+    assert.equal((await f.records()).length, 1);
+    const saved = (await readLocalCalendar(f.local.database)).drafts.find(row => row.audience === 'group'); assert.equal(saved.reminderMinutes, 60);
+    f.local.connection.exec('DROP TRIGGER fail_reminder');
+    await (await f.open()).binding.saveEvent(saved, false);
+    const records = await f.records(); assert.equal(records.length, 1);
+    assert.ok(!JSON.stringify(records[0].heads[0].payload).includes('reminderMinutes'));
+    assert.deepEqual(f.d.connection.prepare('PRAGMA table_info(sharing_v2_calendar_intent_results)').all().map(row => row.name), ['intent_id', 'event_id']);
+    const rules = (await readCalendarReminders(f.local.database)).rules;
+    assert.equal(rules.length, 1); assert.deepEqual(rules[0], { scope: calendarReminderScope('owner', f.d.options.groupId), eventId: sharedCalendarEventId(f.d.options.groupId, records[0].id), anchorDate: null, minutes: 60 });
+  } finally { f.close(); }
+});

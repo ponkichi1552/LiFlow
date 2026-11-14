@@ -10,6 +10,7 @@ import { changePlanningInputRevisionInside } from './planning-input-revision.ts'
 export interface PersonalGoogleCalendarControl {
   subject: string; generation: number; enabled: boolean; calendars: GoogleCalendarListEntry[];
   targetCalendarId: string | null; lastSyncAt: string | null; error: string | null; retryAt: number; retryCount: number;
+  authRequired?: true;
 }
 export const EMPTY_PERSONAL_GOOGLE_CALENDAR: PersonalGoogleCalendarControl = {
   subject: '', generation: 0, enabled: false, calendars: [], targetCalendarId: null, lastSyncAt: null, error: null, retryAt: 0, retryCount: 0,
@@ -103,6 +104,7 @@ function parseControl(json?: string): PersonalGoogleCalendarControl {
     || !Number.isFinite(value.retryAt) || value.retryAt < 0 || !Number.isSafeInteger(value.retryCount) || value.retryCount < 0
     || !(value.lastSyncAt === null || typeof value.lastSyncAt === 'string' && Number.isFinite(Date.parse(value.lastSyncAt)))
     || !(value.error === null || typeof value.error === 'string' && value.error.length <= 1000)) throw new Error('Googleカレンダーの接続設定を確認してください。');
+  if (value.authRequired !== undefined && value.authRequired !== true) throw new Error('Googleカレンダーの認証状態を確認してください。');
   for (const calendar of value.calendars) if (typeof calendar.id !== 'string' || !calendar.id || calendar.id.length > 1024
     || typeof calendar.summary !== 'string' || calendar.summary.length > 1024 || !canReadGoogleCalendar(calendar)) throw new Error('Googleのカレンダー情報を再取得してください。');
   if (value.targetCalendarId !== null && !value.calendars.some(calendar => calendar.id === value.targetCalendarId && canWriteGoogleCalendar(calendar))) throw new Error('Googleのメインカレンダーを確認してください。');
@@ -177,7 +179,7 @@ export async function connectPersonalGoogleCalendar(database: SQLiteDatabase, ex
   notifyCalendarSyncChanged(database); return connected;
 }
 export async function updatePersonalGoogleCalendarStatus(database: SQLiteDatabase, expected: PersonalGoogleCalendarControl,
-  patch: Partial<Pick<PersonalGoogleCalendarControl, 'lastSyncAt' | 'error' | 'retryAt' | 'retryCount'>>) {
+  patch: Partial<Pick<PersonalGoogleCalendarControl, 'lastSyncAt' | 'error' | 'retryAt' | 'retryCount' | 'authRequired'>>) {
   let changed = false;
   const value = await withPersonalGoogleCalendar(database, expected, async (tx, control) => {
     const next = { ...control, ...patch }; changed = JSON.stringify(next) !== JSON.stringify(control);

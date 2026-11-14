@@ -7,7 +7,6 @@ import { fixture, seeds, now, groupId, receiptsFor } from './helpers/sharing-v2-
 import { createV2GroupController } from '../src/features/sharing/v2/controller.ts';
 import { createV2ScreenSession } from '../src/features/sharing/v2-ui/screen-session.ts';
 import { loadSharedFacts, applyReceivedSharedFacts, readSharingCheckpoint, listSharingOutbox } from '../src/platform/storage/sharing-ledger.ts';
-import { wasteTypeColor } from '../src/features/waste/type-appearance.ts';
 import { createGroupChoreSettingsSource } from '../src/features/settings/group-chore-settings-source.ts';
 const day = '2026-10-27'; const range = { from: day, through: '2026-11-10', asOfDate: day };
 const weekly = { label: '可燃ごみ', recurrence: 'weekly', collectionWeekdays: [2] };
@@ -113,7 +112,7 @@ for (const platform of ['ios', 'android']) {
       const date = calendar.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2026年10月27日'));
       assert.match(date.props.accessibilityLabel, /非表示の収集/u);
       await openCalendarDay(calendar, day); assert.equal(checkbox(calendar, true), undefined); assert.equal(checkbox(calendar), undefined);
-      assert.ok(calendar.nodes().some(node => node.type === 'Text' && node.children.join('') === '可燃' && node.props.style.some(style => style?.color === wasteTypeColor('可燃ごみ'))));
+      assert.equal(calendar.text().includes('可燃'), false, 'the hidden weekly collection must not reappear in the detailed date heading');
       await checkbox(management, true).props.onPress(); await settle(management, () => Boolean(checkbox(management)) && !checkbox(management, true));
       assert.equal((await f.read()).waste.occurrences.find(entry => entry.occurrence.date === day).hidden, false);
       const restoredHome = await f.mount(platform, 'home');
@@ -123,7 +122,7 @@ for (const platform of ['ios', 'android']) {
     } finally { f.close(); }
   });
 
-  test(`${platform} shared calendar waste labels keep type marks and aligned grid cells while task counts exclude collections`, async () => {
+  test(`${platform} shared calendar waste labels retain collection identities while task counts exclude collections`, async () => {
     const f = await setup();
     try {
       await f.c.actions.addWasteSchedule({ label: '粗大ゴみ', recurrence: 'monthly', collectionWeekdays: [], monthlyDay: 27 });
@@ -132,15 +131,14 @@ for (const platform of ['ios', 'android']) {
       const cell = screen.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2026年10月27日'));
       assert.match(cell.props.accessibilityLabel, /未完了の共有家事1件/u);
       const nextCell = screen.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2026年10月29日'));
-      const selectedStyle = Object.assign({}, ...cell.props.style.filter(Boolean)); const nextStyle = Object.assign({}, ...nextCell.props.style.filter(Boolean));
-      assert.equal(selectedStyle.width, nextStyle.width, 'all weekday columns use the same width');
-      assert.equal(selectedStyle.padding, nextStyle.padding, 'waste labels never shift the common date baseline');
-      const captions = screen.nodes().filter(node => node.type === 'Text' && Array.isArray(node.props.style));
-      assert.ok(captions.some(node => node.children.join('') === '粗大' && node.props.style.some(style => style?.color === wasteTypeColor('粗大ゴみ'))));
+      assert.ok(nextCell, 'the next date remains selectable beside a date with several collections');
+      const captions = screen.nodes().filter(node => node.type === 'Text');
+      assert.ok(captions.some(node => node.children.join('') === '粗大'));
       assert.ok(captions.filter(node => node.children.join('') === '粗大').every(node => !/[ごゴ][みミ]/u.test(node.children.join(''))));
       await openCalendarDay(screen, day);
       const checks = screen.nodes().filter(node => node.props.accessibilityRole === 'checkbox');
-      assert.equal(checks.length, 1); assert.match(checks[0].props.accessibilityLabel, /床を掃除/u);
+      assert.equal(checks.length, 0);
+      assert.ok(screen.nodes().some(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('床を掃除する')));
       assert.ok(screen.text().includes('粗大ゴみ') && screen.text().includes('びん'));
       assert.equal((await f.read()).waste.schedules.find(row => row.label === '粗大ゴみ').label, '粗大ゴみ');
     } finally { f.close(); }

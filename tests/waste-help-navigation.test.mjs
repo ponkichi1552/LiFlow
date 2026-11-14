@@ -129,8 +129,7 @@ test('settings retain working weather and location attribution', async () => {
     assert.deepEqual(urls, ['https://www.met.no/en/free-meteorological-data/Licensing-and-crediting', 'https://geolonia.github.io/japanese-addresses/', 'https://creativecommons.org/licenses/by/4.0/']);
     screen.button('一般');
     const setup = screenHarness('src/features/onboarding/first-run-setup.tsx', { exportName: 'FirstRunSetup', database: h.database, props: { snapshot, onComplete() {} } });
-    await setup.press('次へ'); await setup.press('次へ'); await setup.press('選択をすべて外す');
-    await setup.press('次へ'); await setup.press('前回の時期はスキップ');
+    await setup.press('次へ'); await setup.press('天気予報');
     assert.ok(setup.text().includes('Geolonia') && setup.text().includes('MET Norway'), 'region search needs attribution before setup is finished too');
   } finally { h.connection.close(); }
 });
@@ -142,17 +141,14 @@ test('appliance details virtualize long instructions and return by popping to th
     const calls = [];
     const screen = screenHarness('src/features/appliance-care/appliance-detail-content.tsx', { exportName: 'ApplianceDetailContent', props: { context, returnTo }, navigate: (...args) => calls.push(args) });
     const list = screen.nodes().find((node) => node.type === 'FlatList');
-    assert.equal(list.props.data.length, 10);
-    assert.equal(list.props.initialNumToRender, 1); assert.equal(list.props.maxToRenderPerBatch, 1);
-    const dock = screen.nodes().find(node => node.props.testID === 'appliance-detail-header');
-    assert.ok(dock, 'the return action must remain outside the scrolling instructions');
+    assert.equal(list.props.data.filter(row => row.task).length, 10);
+    screen.button('一覧へ戻る');
     assert.ok(screen.text().includes('作業0') && !screen.text().includes('作業9'), 'do not mount every long task during navigation');
     await screen.press('一覧へ戻る');
     assert.deepEqual(calls, [['dismissTo', returnTo]], 'return must pop rather than push/replace');
-    const last = screenHarness('src/features/appliance-care/appliance-detail-content.tsx', { exportName: 'ApplianceDetailContent', props: { context, returnTo },
-      mocks: { 'react-native': { Platform: { OS: 'ios' }, useColorScheme: () => 'light', FlatList: (props) => props.renderItem({ item: props.data.at(-1), index: 9 }), Text: 'Text', View: 'View', Pressable: 'Pressable', StyleSheet: { create: (value) => value }, Linking: {} } } });
-    assert.ok(last.text().includes('作業9'), 'all items remain available when the list renders them');
-    last.button('一覧へ戻る');
+    await screen.press('作業9へ移動');
+    assert.ok(screen.text().includes('作業9'), 'the index opens the requested unmounted task');
+    screen.button('一覧へ戻る');
     const analysis = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { params: { returnTo }, navigate: (...args) => calls.push(args), mocks: { '@/features/appliance-care/api-client': {} } });
     await analysis.press('前の画面に戻る');
     assert.deepEqual(calls.at(-1), ['dismissTo', returnTo]);

@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { screenHarness } from './helpers/screen-harness.mjs';
 
-async function openGroup(platform, { owner = true, recordFailures = 0, requestFailures = 0, lastErrorCode = null, heldChanges = 0, overview, section } = {}) {
+async function openGroup(platform, { owner = true, recordFailures = 0, requestFailures = 0, lastErrorCode = null, heldChanges = 0, overview, section, singleDevice = false } = {}) {
   let changed; let syncs = 0; let refreshes = 0; let recordReads = 0; let invitationReads = 0; const commands = []; const routes = []; const alerts = [];
   const roster = { body: { ownerUserId: 'owner', ownerDeviceId: 'owner-device', schedulerVersion: 'liflow-shared-2-draft-41', members: [
     { userId: 'owner', devices: [{ identity: { deviceId: 'owner-device' } }] },
     { userId: 'member', devices: [{ identity: { deviceId: 'member-device' } }] },
   ] } };
+  if (singleDevice) roster.body.members = roster.body.members.slice(0, 1);
   const workspace = { protocol: 2, groupId: 'synthetic-group', userId: owner ? 'owner' : 'member',
     identity: { deviceId: owner ? 'owner-device' : 'member-device' }, roster: () => roster,
     record: async () => { if (recordReads++ < recordFailures) throw new Error('端末の設定を読み込めません。');
@@ -45,6 +46,11 @@ async function openGroup(platform, { owner = true, recordFailures = 0, requestFa
 }
 
 for (const platform of ['ios', 'android']) {
+  test(`${platform} a single participant and device never receive an instruction to wait for another device`, async () => {
+    const ui = await openGroup(platform, { singleDevice: true });
+    try { assert.doesNotMatch(ui.screen.text(), /ほかの端末|相手の端末/u); assert.equal(ui.syncs(), 0); }
+    finally { ui.screen.unmount(); }
+  });
   test(`${platform} group settings open shared controls directly without synchronizing or exposing private integrations`, async () => {
     const ui = await openGroup(platform); const { screen } = ui;
     try {
@@ -72,7 +78,7 @@ for (const platform of ['ios', 'android']) {
       assert.equal((screen.text().match(/申請はありません。/gu) ?? []).length, 2);
       await ui.showSection(undefined);
       assert.match(screen.text(), /日時変更なし担当変更なし/u);
-      assert.match(screen.text(), /相手の端末が同期すると反映/u);
+      assert.match(screen.text(), /ほかの端末の同期後に反映/u);
       assert.ok(screen.nodes().some(node => node.type === 'V2RecoveryPanel'));
       assert.ok(!screen.nodes().some(node => node.props.accessibilityState?.expanded !== undefined));
       await screen.press('今すぐ同期'); assert.equal(ui.syncs(), 1); assert.equal(ui.refreshes(), 1);

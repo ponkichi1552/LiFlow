@@ -10,9 +10,9 @@ import { minuteLabel } from './events';
 import { plannerColorsForScheme } from '../../components/planner-theme';
 
 /** Pick civil fields in a neutral clock; the event's own timezone validates actual instants later. */
-export function CalendarField({ label, date, minute, mode, onDate, onMinute, disabled = false, hideLabel = false, displayValue, commitOnDone = false }: {
+export function CalendarField({ label, date, minute, mode, onDate, onMinute, disabled = false, hideLabel = false, displayValue, commitOnDone = false, borderless = false, empty = false }: {
   label: string; date: LocalDate; minute: number; mode: 'date' | 'time'; onDate?: (date: LocalDate) => void; onMinute?: (minute: number) => void;
-  disabled?: boolean; hideLabel?: boolean; displayValue?: string; commitOnDone?: boolean;
+  disabled?: boolean; hideLabel?: boolean; displayValue?: string; commitOnDone?: boolean; borderless?: boolean; empty?: boolean;
 }) {
   const [open, setOpen] = useState(false); const scheme = useColorScheme(); const parsed = parseLocalDate(date); const insets = useSafeAreaInsets();
   const [pickedValue, setPickedValue] = useState<Date | null>(null);
@@ -22,17 +22,17 @@ export function CalendarField({ label, date, minute, mode, onDate, onMinute, dis
   const accept = (picked?: Date) => { if (!picked || disabled || !Number.isFinite(picked.getTime())) return;
     if (mode === 'date') onDate?.(picked.toISOString().slice(0, 10) as LocalDate); else onMinute?.(picked.getUTCHours() * 60 + picked.getUTCMinutes()); };
   return <View style={styles.wrap}>{!hideLabel ? <Text style={styles.label}>{label}</Text> : null}
-    <Pressable accessibilityRole="button" accessibilityLabel={`${label}を選択`} accessibilityValue={{ text: displayValue ?? (mode === 'date' ? date.replaceAll('-', '/') : minuteLabel(minute)) }} disabled={disabled} onPress={() => {
+    <Pressable accessibilityRole="button" accessibilityLabel={`${label}を選択`} accessibilityValue={{ text: empty ? '未指定' : displayValue ?? (mode === 'date' ? date.replaceAll('-', '/') : minuteLabel(minute)) }} disabled={disabled} onPress={() => {
       if (Platform.OS === 'android') DateTimePickerAndroid.open({ value, mode, is24Hour: true, timeZoneName: 'UTC',
         ...(mode === 'time' ? { minuteInterval: 5 as const, display: 'spinner' as const } : {}), onValueChange: (_event, picked) => accept(picked) });
       else { latestPicked.current = value; setPickedValue(value); setOpen(true); }
-    }} style={[styles.button, { borderColor: colors.inputBorder }]}><Text style={[styles.value, { color: colors.ink }]}>{displayValue ?? (mode === 'date' ? date.replaceAll('-', '/') : minuteLabel(minute))}</Text>
+    }} style={[styles.button, { borderColor: colors.inputBorder }, borderless && { borderWidth: 0, backgroundColor: colors.surface }]}><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={.8} style={[styles.value, { color: empty ? colors.muted : colors.ink }]}>{empty ? '--:--' : displayValue ?? (mode === 'date' ? date.replaceAll('-', '/') : minuteLabel(minute))}</Text>
       <SymbolView name={mode === 'date' ? { ios: 'calendar', android: 'calendar_month' } : { ios: 'clock', android: 'schedule' }} size={19} tintColor={colors.accent} /></Pressable>
     {open && Platform.OS === 'ios' ? <Modal transparent animationType="fade" onRequestClose={() => setOpen(false)}>
       <View style={styles.pickerOverlay}>
         <Pressable accessibilityRole="button" accessibilityLabel="日時選択を閉じる" onPress={() => setOpen(false)} style={StyleSheet.absoluteFill} />
         <View style={[styles.pickerPanel, { paddingBottom: Math.max(12, insets.bottom) }]}>
-          <View style={[styles.pickerHeader, { borderColor: colors.border }]}><Text style={styles.pickerTitle}>{label}</Text><Pressable accessibilityRole="button" accessibilityLabel={`${label}の選択を完了`} onPress={() => {
+          <View style={[styles.pickerHeader, { borderColor: colors.border }]}><View style={styles.done} /><Text style={styles.pickerTitle}>{label}</Text><Pressable accessibilityRole="button" accessibilityLabel={`${label}の選択を完了`} onPress={() => {
             if (commitOnDone) accept(latestPicked.current ?? value);
             else if (displayValue !== undefined) accept(value);
             setOpen(false);
@@ -51,7 +51,7 @@ const styles = StyleSheet.create({ wrap: { flex: 1, gap: 5 }, label: { ...typogr
   pickerPanel: { backgroundColor: palette.elevated, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' },
   // Keep the native wheel's measured width; stretching its host leaves the wheels at the leading edge.
   picker: { height: 200, alignSelf: 'center', maxWidth: '100%' },
-  pickerHeader: { minHeight: 48, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
-  pickerTitle: { ...typography.subheading, color: palette.ink, fontWeight: '600', flex: 1 },
-  done: { minHeight: 44, minWidth: 52, alignItems: 'flex-end', justifyContent: 'center' }, doneText: { ...typography.body, color: palette.accent },
+  pickerHeader: { minHeight: 48, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
+  pickerTitle: { ...typography.body, color: palette.ink, fontWeight: '700', flex: 1, textAlign: 'center' },
+  done: { minHeight: 44, width: 56, alignItems: 'flex-end', justifyContent: 'center' }, doneText: { ...typography.body, color: palette.accent },
 });

@@ -149,7 +149,7 @@ for (const platform of ['ios', 'android']) test(`${platform} group settings sele
   const navigation = [], writes = []; let release;
   const wait = new Promise(resolve => { release = resolve; });
   const record = { userId: 'owner', groupId: 'family', status: 'active' };
-  const value = { workspace: { session: { controller: { actions: {} } } }, model: { viewerUserId: 'owner', adminUserId: 'owner', plan: { chores: [] } }, personalChoices: [{ ...custom, id: choices.personalChoiceId(custom.id), enabled: false }] };
+  const value = { workspace: { session: { controller: { actions: {} } } }, model: { viewerUserId: 'owner', adminUserId: 'owner', configurations: [], plan: { chores: [] } }, personalChoices: [{ ...custom, id: choices.personalChoiceId(custom.id), enabled: false }] };
   const source = { saveEnabled: async (ids, enabled) => { writes.push([ids, enabled]); await wait; value.personalChoices = []; value.model.plan.chores = [{ ...custom, id: 'shared-plants', enabled }]; },
     addPersonalChore: async (id, enabled) => { writes.push([id, enabled]); return { id: 'shared-plants', refreshed: true }; }, refresh: async () => {} };
   const props = { group: record };

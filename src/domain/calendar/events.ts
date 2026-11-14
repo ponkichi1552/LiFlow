@@ -18,7 +18,9 @@ export interface CalendarEvent extends EventDraft {
   readOnly?: boolean; externalUrl?: string; blocksTime?: boolean;
 }
 export interface CalendarCategory { id: string; name: string; color: string; revision: number }
-export interface CalendarException { eventId: string; anchorDate: LocalDate; override: EventDraft | null; revision: number }
+export interface CalendarException { eventId: string; anchorDate: LocalDate; override: EventDraft | null; revision: number;
+  /** Verified storage/history retained this explicit occurrence after a series rule change. */
+  detached?: boolean }
 export interface CalendarOccurrence extends EventDraft {
   id: string; eventId: string; anchorDate: LocalDate; eventRevision: number; exceptionRevision: number;
   timeIssue?: 'gap' | 'fold'; original?: CalendarOccurrence;
@@ -97,6 +99,7 @@ function anchors(event: CalendarEvent, from: LocalDate, through: LocalDate): Loc
   return result;
 }
 export function isCalendarAnchor(event: CalendarEvent, date: LocalDate) { return anchors(event, date, date).includes(date); }
+export function calendarEventAnchors(event: CalendarEvent, from: LocalDate, through: LocalDate) { return anchors(event, from, through).filter(day => day >= from && day <= through); }
 export function projectCalendarEvents(events: readonly CalendarEvent[], exceptions: readonly CalendarException[], from: LocalDate, through: LocalDate): CalendarOccurrence[] {
   parseLocalDate(from); parseLocalDate(through);
   if (from > through || daysBetween(from, through) > 370) throw new Error('表示期間は1年以内にしてください。');
@@ -107,8 +110,9 @@ export function projectCalendarEvents(events: readonly CalendarEvent[], exceptio
   for (const event of events) {
     const dates = new Set(anchors(event, from, through));
     // A moved instance may enter this range from outside its original month.
+    // An explicitly edited occurrence keeps its own date when the series changes.
     for (const row of exceptionsByEvent.get(event.id) ?? []) if (row.override && row.override.startDate <= through && row.override.endDate >= from
-      && anchors(event, row.anchorDate, row.anchorDate).includes(row.anchorDate)) dates.add(row.anchorDate);
+      && (row.detached || isCalendarAnchor(event, row.anchorDate))) dates.add(row.anchorDate);
     for (const anchorDate of dates) {
       const exception = exceptional.get(`${event.id}:${anchorDate}`); if (exception && !exception.override) continue;
       const body = exception?.override ?? { ...event, startDate: anchorDate, endDate: addDays(anchorDate, daysBetween(event.startDate, event.endDate)) };

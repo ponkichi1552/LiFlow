@@ -15,6 +15,9 @@ import { personalLongCalendarPreviews } from '../../calendar/long-cycle-preview.
 import { pinnedClockAt } from '../../../domain/scheduling/zoned-clock.ts';
 
 export interface V2PrivateTaskRow {
+  entryId?: string;
+  calendarTime?: ChoreScheduleEntry['calendarTime'];
+  calendarTimeIssue?: true;
   source: 'personal'; key: string; revision: string; ownerUserId: string; householdId: string;
   date: LocalDate; graceDays: 0 | 3; chore: ChoreDefinition; completed: boolean; completedDate?: LocalDate; suggestedDate: LocalDate; windowStart?: LocalDate; windowEnd?: LocalDate;
   seasonalWork?: ChoreScheduleEntry['seasonalWork'];
@@ -76,10 +79,10 @@ export function projectV2PrivateTasks(input: PrivatePlannerInput, ownerUserId: s
     const relevant = completions.filter((completion) => needed.has(completion));
     const select = createDateTaskSelector(entries, relevant, [chore]);
     const rows = (date: LocalDate, graceDays: 0 | 3) => select(date, graceDays, graceDays === 3).map((task): V2PrivateTaskRow => ({
-      source: 'personal', key: `personal:${JSON.stringify([ownerUserId, snapshot.household.id, date, graceDays, chore.id,
+      ...(task.entry ? { entryId: task.entry.id } : {}), source: 'personal', key: `personal:${JSON.stringify([ownerUserId, snapshot.household.id, date, graceDays, chore.id,
         ...((task.entry?.seasonalWork ?? task.completion?.seasonalWork) ? [task.entry?.seasonalWork ?? task.completion?.seasonalWork] : [])])}`,
       revision: dateTaskRevision(task), ownerUserId, householdId: snapshot.household.id, date, graceDays, chore,
-      seasonalWork: task.entry?.seasonalWork ?? task.completion?.seasonalWork,
+      seasonalWork: task.entry?.seasonalWork ?? task.completion?.seasonalWork, ...(task.entry?.calendarTime ? { calendarTime: task.entry.calendarTime } : {}), ...(task.entry?.calendarTimeIssue ? { calendarTimeIssue: true } : {}),
       completed: task.completed, completedDate: task.completion ? completionRecordedDate(task.completion) : undefined,
       suggestedDate: task.completion?.scheduledDate ?? task.suggestedDate,
       windowStart: task.completion?.scheduledWindowStart ?? task.entry?.windowStart, windowEnd: task.completion?.scheduledWindowEnd ?? task.entry?.windowEnd,
@@ -102,7 +105,7 @@ export function projectV2PrivateTasks(input: PrivatePlannerInput, ownerUserId: s
     calendarLongDates.push(date);
     const existing = byDate.get(date)?.find(row => row.chore.id === preview.chore.id && !preview.provisional && row.revision === dateTaskRevision(task));
     if (existing) calendarLongRows.push({ ...existing, calendarNext: true });
-    else calendarLongRows.push({ source: 'personal', key: `personal:${JSON.stringify([ownerUserId, snapshot.household.id, date, 0, preview.chore.id])}`,
+    else calendarLongRows.push({ ...(!preview.provisional ? { entryId: preview.entry.id } : {}), source: 'personal', key: `personal:${JSON.stringify([ownerUserId, snapshot.household.id, date, 0, preview.chore.id])}`,
       revision: preview.provisional ? '' : dateTaskRevision(task), ownerUserId, householdId: snapshot.household.id,
       date, graceDays: 0, chore: preview.chore, completed: false, suggestedDate: date, windowStart: preview.entry.windowStart, windowEnd: preview.entry.windowEnd,
       provisional: preview.provisional, calendarNext: true });

@@ -19,12 +19,12 @@ function fixture() {
 async function open(h, platform, load = async () => h.runtime, embedded = false) {
   const effects = []; const layoutEffects = []; let backs = 0;
   const screen = screenHarness('src/features/sharing/v2-ui/reminder-screen.tsx', { exportName: 'V2ReminderScreen', platform,
-    props: { load, embedded, onBack() { backs++; } }, effect: callback => effects.push(callback), layoutEffect: callback => layoutEffects.push(callback) });
+    props: { load, embedded, onBack() { backs++; } }, mocks: { '../../calendar/calendar-field': { CalendarField: props => ({ type: 'CalendarField', props }) } }, effect: callback => effects.push(callback), layoutEffect: callback => layoutEffects.push(callback) });
   const close = effects.shift()(); for (let i = 0; i < 10; i++) await screen.flush(); for (const apply of layoutEffects) apply();
   return { screen, effects, close, backs: () => backs };
 }
 const flush = async screen => { for (let i = 0; i < 10; i++) await screen.flush(); };
-const input = (screen, label) => screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === label);
+const clock = screen => screen.nodes().find(node => node.type === 'CalendarField');
 for (const platform of ['ios', 'android']) {
   test(`${platform} embedded v2 reminders retain permission denial and save recovery without another page`, async () => {
     const h = fixture(); h.permit(false);
@@ -40,7 +40,7 @@ for (const platform of ['ios', 'android']) {
       ui.screen.button('通知設定の保存を再試行'); fail = false;
       await ui.screen.press('通知設定の保存を再試行'); await flush(ui.screen);
       assert.equal(h.state.preferences.enabled, true); assert.equal(h.permissions(), 2); assert.equal(h.syncs(), 1);
-      await ui.screen.change('共有通知の時', '10'); input(ui.screen, '共有通知の時').props.onBlur(); await flush(ui.screen);
+      clock(ui.screen).props.onMinute(10 * 60); await flush(ui.screen);
       assert.equal(h.state.preferences.hour, 10); assert.equal(h.permissions(), 2);
     } finally { ui.screen.unmount(); }
   });
@@ -77,22 +77,24 @@ for (const platform of ['ios', 'android']) {
     assert.equal(h.permissions(), 0); assert.equal(h.writes.length, 0);
     assert.equal(ui.screen.nodes().find(node => node.type === 'Switch').props.value, false);
     const page = ui.screen.nodes().find(node => node.type === 'ScrollView'); assert.equal(page.props.automaticallyAdjustKeyboardInsets, true); assert.equal(page.props.keyboardDismissMode, 'on-drag');
-    const hour = input(ui.screen, '共有通知の時'); hour.props.onChangeText('18'); await ui.screen.flush(); input(ui.screen, '共有通知の分').props.onChangeText('7'); await ui.screen.flush();
-    input(ui.screen, '共有通知の分').props.onBlur(); await flush(ui.screen); assert.deepEqual(h.state.preferences, { enabled: false, hour: 18, minute: 7 });
-    assert.equal(h.syncs(), 1, 'an accepted autosave refreshes native delivery even if the page is then left');
-    assert.equal(h.permissions(), 0);
+    assert.equal(clock(ui.screen), undefined, 'an OFF reminder must not show time settings');
     ui.screen.nodes().find(node => node.type === 'Switch').props.onValueChange(true); await flush(ui.screen);
     assert.equal(h.permissions(), 1); assert.equal(h.state.preferences.enabled, true);
-    assert.equal(h.syncs(), 2);
+    clock(ui.screen).props.onMinute(18 * 60 + 5); await flush(ui.screen);
+    assert.deepEqual(h.state.preferences, { enabled: true, hour: 18, minute: 5 });
+    assert.equal(h.permissions(), 1); assert.equal(h.syncs(), 2);
     await ui.screen.press('通知を今すぐ更新'); await flush(ui.screen); assert.equal(h.syncs(), 3); assert.match(ui.screen.text(), /この端末の通知へ反映/u);
     ui.close?.();
   });
   test(`${platform} v2 invalid reminder times remain visible while editing and are discarded automatically on departure`, async () => {
     const h = fixture(); const ui = await open(h, platform);
-    input(ui.screen, '共有通知の時').props.onChangeText('24'); await ui.screen.flush(); input(ui.screen, '共有通知の時').props.onBlur(); await flush(ui.screen);
-    assert.equal(h.writes.length, 0); assert.equal(input(ui.screen, '共有通知の時').props.value, '24');
+    ui.screen.nodes().find(node => node.type === 'Switch').props.onValueChange(true); await flush(ui.screen);
+    const accepted = h.writes.length;
+    clock(ui.screen).props.onMinute(24 * 60); await flush(ui.screen);
+    assert.equal(h.writes.length, accepted); assert.equal(clock(ui.screen).props.minute, 1440);
     await ui.screen.press('前の画面に戻る'); await flush(ui.screen); assert.equal(ui.backs(), 1);
-    assert.equal(input(ui.screen, '共有通知の時').props.value, String(h.state.preferences.hour)); assert.equal(h.writes.length, 0); ui.close?.();
+    assert.equal(clock(ui.screen).props.minute, h.state.preferences.hour * 60 + h.state.preferences.minute);
+    assert.equal(h.writes.length, accepted); ui.close?.();
 
   });
   test(`${platform} v2 denied permission leaves notification preferences off and does not fabricate a successful save`, async () => {

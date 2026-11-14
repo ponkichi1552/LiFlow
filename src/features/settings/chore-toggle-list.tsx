@@ -6,7 +6,8 @@ import { groupChores } from '../../domain/chores/chore-groups';
 import { choreFamilies, presentedChoreRecipe } from '../../domain/chores/chore-presentation';
 import { personalChoreRecipe, planPersonalCatalogToggles } from '../../domain/chores/personal-catalog';
 import { Chevron } from '../../components/chevron';
-import { AppButton, palette, typography } from '../../components/planner-ui';
+import { palette, typography } from '../../components/planner-ui';
+import { SettingsAction } from '../../components/settings-controls';
 import { plannerColorsForScheme } from '../../components/planner-theme';
 import { SettingsCheckbox } from '../../components/settings-checkbox';
 
@@ -54,7 +55,7 @@ export function ChoreToggleList({ chores, expanded, setExpanded, save, onOpen, r
     <Pressable accessibilityRole="button" accessibilityLabel={`${chore.name}の設定を開く`} onPress={() => onOpen(chore.id)} style={styles.arrowTarget}><Chevron color={colors.accent} /></Pressable>
   </View>;
   return <View>{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    {values.size && error && retryRead ? <AppButton title="家事の設定を再読込" variant="quiet" compact disabled={busy} onPress={() => {
+    {values.size && error && retryRead ? <SettingsAction title="家事の設定を再読込" placement="page" disabled={busy} onPress={() => {
       if (running.current) return; running.current = true; onPendingChange?.(true); setBusy(true);
       void retryRead().then(ok => { if (ok) { setValues(new Map()); setError(null); onPendingChange?.(false); } }).catch(() => undefined).finally(() => { running.current = false; setBusy(false); });
     }} /> : null}{groups.map(({ category, rows, families }) => {
@@ -72,7 +73,7 @@ export function ChoreToggleList({ chores, expanded, setExpanded, save, onOpen, r
         return <View key={chore.id} style={children.length && splitOpen ? styles.splitFamily : undefined}>{renderRow(chore)}{children.length ? <>
           <Pressable accessibilityRole="button" accessibilityLabel={`${chore.name}の細かな家事を${splitOpen ? '閉じる' : '開く'}`} accessibilityState={{ expanded: splitOpen }}
             onPress={() => setSplitExpansion(current => new Map(current).set(chore.id, !splitOpen))} style={styles.splitDisclosure}>
-            <Text style={[styles.splitLabel, divided && { color: colors.accent }]}>{divided ? '分けて管理中' : '細かく設定'}</Text>
+            <Text style={[styles.splitLabel, divided && { color: colors.accent }]}>{divided ? '分けて管理中' : '分けて設定'}</Text>
             <Chevron color={colors.muted} direction={splitOpen ? 'up' : 'down'} />
           </Pressable>
           {splitOpen ? <View style={[styles.children, { borderLeftColor: colors.border }]}>{children.map(child => renderRow(child, true))}</View> : null}

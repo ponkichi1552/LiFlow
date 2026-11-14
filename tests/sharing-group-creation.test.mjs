@@ -76,7 +76,7 @@ for (const [platform, name] of [
 ]) test(name, async () => {
   const calls = []; let resolve;
   const context = { active: null, userId: 'owner', group: null, ready: true, refreshSharing: async () => { calls.push(['refresh']); } };
-  const ui = screenHarness('src/app/sharing/index.tsx', { platform, layoutEffect: callback => callback(), mocks: {
+  const ui = screenHarness('src/app/sharing/index.tsx', { platform, layoutEffect: callback => callback(), mocks: { '@/features/settings/chore-settings-sources': { ChoreSettingsSources: () => assert.fail('entry flow must not render native group chore settings') },
     '@/hooks/use-workspace': { useWorkspace: () => context }, 'expo-image': { Image: 'Image' },
     '@/features/sharing/rollout': { sharingCreationProtocol: () => 2 },
     '@/platform/sharing/firebase-services': { isSharingConfigured: () => true },
@@ -106,7 +106,7 @@ test('retired legacy creation input cannot bypass the explicit v2 group kind', a
 test('a saved group creation remains successful when refreshing the group list fails afterward', async () => {
   let create; let count = 0;
   const context = { active: null, userId: 'owner', group: null, ready: true, refreshSharing: async () => { throw new Error('list unavailable'); } };
-  const ui = screenHarness('src/app/sharing/index.tsx', { mocks: {
+  const ui = screenHarness('src/app/sharing/index.tsx', { mocks: { '@/features/settings/chore-settings-sources': { ChoreSettingsSources: () => assert.fail('entry flow must not render native group chore settings') },
     '@/hooks/use-workspace': { useWorkspace: () => context }, 'expo-image': { Image: 'Image' },
     '@/features/sharing/rollout': { sharingCreationProtocol: () => 2 },
     '@/features/sharing/group-creation-form': { GroupCreationForm: props => { create = props.onCreate; return null; } },

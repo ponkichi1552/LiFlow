@@ -14,8 +14,9 @@ export const V2_ENTITY_TYPES = ['groupPolicy', 'chorePolicy', 'datePermission', 
   'claimResolution', 'assignmentRequest', 'assignmentDecision', 'assignmentCancel', 'designation', 'designationCancel', 'changeRequest', 'requestDecision', 'completionApproval', 'migration', 'calendarEvent', 'manualChunk', 'manualDocument', 'historyRetention', 'retainedCompletionUndo'] as const;
 export type V2EntityType = typeof V2_ENTITY_TYPES[number];
 export const V2_SCHEMA_VERSION = 2;
-export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-55';
-export const supportsMonthlyChores = (version: string): boolean => version === V2_SCHEDULER_VERSION;
+export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-56';
+export const supportsOneOffChores = (version: string): boolean => version === V2_SCHEDULER_VERSION;
+export const supportsMonthlyChores = (version: string): boolean => supportsOneOffChores(version) || version === 'liflow-shared-2-draft-55';
 export const supportsChoreRotation = (version: string): boolean => supportsMonthlyChores(version) || version === 'liflow-shared-2-draft-54';
 /** Signed 38/39 histories keep their original epochs until the owner approves an upgrade. */
 export const supportsRetainedManuals = (version: string): boolean => supportsChoreRotation(version) || version === 'liflow-shared-2-draft-53' || version === 'liflow-shared-2-draft-52' || version === 'liflow-shared-2-draft-51' || version === 'liflow-shared-2-draft-50' || version === 'liflow-shared-2-draft-49' || version === 'liflow-shared-2-draft-48' || version === 'liflow-shared-2-draft-47' || version === 'liflow-shared-2-draft-46' || version === 'liflow-shared-2-draft-45' || version === 'liflow-shared-2-draft-44' || version === 'liflow-shared-2-draft-43' || version === 'liflow-shared-2-draft-42';
@@ -59,11 +60,13 @@ function groupPolicy(value: unknown): void {
 }
 function chorePolicy(value: unknown): void {
   const required = ['policy', 'anchorDate', 'intervalDays', 'windowBeforeDays', 'windowAfterDays', 'ruleVersion'];
-  const data = record(value, [...required, 'monthly', 'effectiveFrom', 'active', 'targetMemberIds', 'assignmentSourceVersion', 'rotationSourceVersion'], required);
+  const data = record(value, [...required, 'monthly', 'once', 'effectiveFrom', 'active', 'targetMemberIds', 'assignmentSourceVersion', 'rotationSourceVersion'], required);
   day(data.anchorDate); integer(data.intervalDays, 1, 3650); integer(data.windowBeforeDays, 0, 14); integer(data.windowAfterDays, 0, 14); integer(data.ruleVersion, 1);
   if ('effectiveFrom' in data) { day(data.effectiveFrom); if ((data.effectiveFrom as string) < (data.anchorDate as string)) throw new Error('Effective date cannot precede its common anchor'); }
   if ('active' in data) flag(data.active);
   if ('monthly' in data) flag(data.monthly);
+  if ('once' in data) flag(data.once);
+  if (data.once === true && data.monthly === true) throw new Error('One-off chores cannot repeat monthly');
   if ('assignmentSourceVersion' in data) integer(data.assignmentSourceVersion, 1, Number(data.ruleVersion) - 1);
   const policy = record(data.policy, ['completion', 'assignment']); choice(policy.completion, ['one', 'perMember']);
   const assignment = record(policy.assignment, ['mode', 'memberIds', 'rotation'], ['mode', 'memberIds']); choice(assignment.mode, ['open', 'all', 'selected']);

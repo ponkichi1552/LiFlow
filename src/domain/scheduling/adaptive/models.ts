@@ -1,12 +1,14 @@
 import type { LocalDate } from '../../shared/types';
 import { addDays, daysBetween, parseLocalDate, weekdayOf } from '../local-date.ts';
+import { monthlyDateOnOrAfter, monthlyIntervalAt } from '../../chores/personal-schedule.ts';
 
-export type AdaptiveMethod = 'median' | 'exponential' | 'weekly' | 'monthEnd' | 'alternating';
+export type AdaptiveMethod = 'median' | 'exponential' | 'weekly' | 'monthEnd' | 'alternating' | 'monthlyDate';
 export type AdaptiveModel =
   | { method: 'median'; days: number }
   | { method: 'exponential'; days: number }
   | { method: 'weekly'; weeks: number; weekday: number; anchor: LocalDate }
   | { method: 'monthEnd'; months: number; anchor: LocalDate }
+  | { method: 'monthlyDate'; day: number; anchor: LocalDate }
   | { method: 'alternating'; even: number; odd: number; nextOrdinal: number };
 export interface AdaptiveInterval { days: number; ordinal: number }
 const methods: readonly AdaptiveMethod[] = ['median', 'exponential', 'weekly', 'monthEnd', 'alternating'];
@@ -101,12 +103,17 @@ export function fitAdaptiveModels(input: { intervals: readonly AdaptiveInterval[
 export function adaptiveRepresentativeDays(model: AdaptiveModel) {
   if (model.method === 'weekly') return roundedAdaptiveDays(7 * model.weeks);
   if (model.method === 'monthEnd') return roundedAdaptiveDays(30 * model.months);
+  if (model.method === 'monthlyDate') return monthlyIntervalAt(monthlyDateOnOrAfter(model.anchor, model.day), model.day);
   if (model.method === 'alternating') return roundedAdaptiveDays((model.even + model.odd) / 2);
   return roundedAdaptiveDays(model.days);
 }
 /** Preserve an adopted calendar phase; late completion closes missed rounds without fabricating completion events. */
 export function predictAdaptiveDate(model: AdaptiveModel, completedDate: LocalDate, ruleDate?: LocalDate): LocalDate {
   parseLocalDate(completedDate);
+  if (model.method === 'monthlyDate') {
+    const closedDate = ruleDate && ruleDate > completedDate ? ruleDate : completedDate;
+    return monthlyDateOnOrAfter(addDays(closedDate, 1) > model.anchor ? addDays(closedDate, 1) : model.anchor, model.day);
+  }
   if (model.method === 'median' || model.method === 'exponential') return addDays(completedDate, roundedAdaptiveDays(model.days));
   if (model.method === 'alternating') return addDays(completedDate, roundedAdaptiveDays(model.nextOrdinal % 2 === 0 ? model.even : model.odd));
   const anchor = ruleDate ?? model.anchor; parseLocalDate(anchor);
@@ -123,6 +130,7 @@ export function predictAdaptiveDate(model: AdaptiveModel, completedDate: LocalDa
 }
 /** The next window uses one real rule interval, even when completion skipped older calendar rounds. */
 export function adaptiveNextIntervalDays(model: AdaptiveModel, completedDate: LocalDate, ruleDate?: LocalDate): number {
+  if (model.method === 'monthlyDate') return monthlyIntervalAt(predictAdaptiveDate(model, completedDate, ruleDate), model.day);
   if (model.method === 'alternating') return roundedAdaptiveDays(model.nextOrdinal % 2 === 0 ? model.even : model.odd);
   if (model.method !== 'monthEnd') return adaptiveRepresentativeDays(model);
   const next = predictAdaptiveDate(model, completedDate, ruleDate);

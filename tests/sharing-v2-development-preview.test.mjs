@@ -185,7 +185,7 @@ for (const platform of ['ios', 'android']) {
 }
 
 for (const platform of ['ios', 'android']) {
-  test(`${platform} v2 calendar routes register an actual past backlog round and preserve its performed and recorded dates`, async () => {
+  test(`${platform} v2 calendar date actions keep past backlog identity and round recording preserves performed and recorded dates`, async () => {
     const f = await screenFixture(platform); let cleanup;
     try {
       const [chore] = await f.preview.controller.actions.addChore('過去の家事');
@@ -193,17 +193,23 @@ for (const platform of ['ios', 'android']) {
         anchorDate: '2026-10-12', intervalDays: 30, windowBeforeDays: 2, windowAfterDays: 2, effectiveFrom: '2026-10-12', active: true });
       assert.equal((await f.preview.readModel()).plan.occurrences.find(round => round.choreId === chore.entityId).subjects[0].automaticBacklog, 'pending');
       const navigation = []; let { screen, leave } = await openRoute(f.preview, platform, 'calendar', {}, navigation, '共有カレンダー'); cleanup = leave;
-      const day = screen.nodes().find((node) => node.props.accessibilityLabel === '2026年10月12日、確認できる未完了の共有家事1件'); assert.ok(day);
+      const day = screen.nodes().find((node) => node.props.accessibilityLabel?.startsWith('2026年10月12日') && /共有家事1件/u.test(node.props.accessibilityLabel)); assert.ok(day);
       await openCalendarDay(screen, '2026-10-12');
-      await screen.press('過去の家事の説明を開く'); const target = navigation.at(-1); assert.equal(target[1].params.anchorDate, '2026-10-12');
-      cleanup(); ({ screen, leave } = await openRoute(f.preview, platform, 'round', target[1].params, navigation, '実施を記録')); cleanup = leave;
+      await screen.press('過去の家事の今回の日付を変更');
+      const changedDate = navigation.at(-1); assert.equal(changedDate[1].pathname, '/development/sharing-v2-preview/date');
+      assert.equal(changedDate[1].params.anchorDate, '2026-10-12');
+      assert.equal(screen.nodes().filter(node => node.props.accessibilityRole === 'checkbox').length, 0);
+      const round = (await f.preview.readModel()).plan.occurrences.find(round => round.choreId === chore.entityId);
+      const target = { occurrenceId: round.id, subjectId: round.subjects[0].id, anchorDate: round.anchorDate };
+      assert.equal(target.anchorDate, '2026-10-12');
+      cleanup(); ({ screen, leave } = await openRoute(f.preview, platform, 'round', target, navigation, '実施を記録')); cleanup = leave;
       const past = screen.nodes().find((node) => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === '以前実施した');
       past.props.onPress(); await screen.flush(); await screen.change('実施日', '2026-10-12'); await screen.change('実施時刻', '12:30');
       await screen.press('実施を記録する'); assert.ok(screen.text().includes('実施記録を端末に保存しました'));
       const history = (await f.preview.readModel()).plan.history.find((record) => record.choreId === chore.entityId);
       assert.equal(history.performedAt, '2026-10-12T03:30:00.000Z'); assert.equal(history.recordedAt, '2026-10-27T01:00:00.000Z');
       cleanup(); ({ screen, leave } = await openRoute(f.preview, platform, 'calendar', {}, navigation, '共有カレンダー')); cleanup = leave;
-      assert.ok(screen.nodes().some((node) => node.props.accessibilityLabel === '2026年10月12日、確認できる未完了の共有家事0件'));
+      assert.ok(screen.nodes().some((node) => node.props.accessibilityLabel?.startsWith('2026年10月12日') && /共有家事0件/u.test(node.props.accessibilityLabel)));
     } finally { cleanup?.(); f.leave(); await f.preview.close(); }
   });
   test(`${platform} v2 a failed read-only month change does not claim that data was saved or the unloaded day was empty`, async () => {

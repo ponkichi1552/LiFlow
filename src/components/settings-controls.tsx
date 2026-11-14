@@ -6,10 +6,10 @@ import { AppButton } from './planner-ui';
 
 /** Choose the action's meaning and its surrounding surface; colors stay in the shared theme. */
 export function SettingsAction({ intent = 'normal', placement = 'panel', compact = true, ...props }: {
-  intent?: 'normal' | 'primary' | 'destructive'; placement?: 'panel' | 'page';
+  intent?: 'normal' | 'primary' | 'auxiliary' | 'destructive'; placement?: 'panel' | 'page';
 } & Omit<ComponentProps<typeof AppButton>, 'variant'>) {
   const variant = intent === 'destructive' ? 'dangerText' : intent === 'primary' ? 'primary'
-    : placement === 'panel' ? 'surface' : 'outline';
+    : intent === 'auxiliary' ? 'neutral' : placement === 'panel' ? 'surface' : 'outline';
   return <AppButton {...props} compact={compact} variant={variant} />;
 }
 
@@ -29,28 +29,30 @@ export function SettingsLabel({ children }: PropsWithChildren) {
   return <Text accessibilityRole="header" style={{ ...typography.label, color: colors.ink, fontWeight: '600' }}>{children}</Text>;
 }
 
-export function SettingsGroup({ title, children, plain = false, action }: PropsWithChildren<{ title: string; plain?: boolean; action?: ReactNode }>) {
+export function SettingsGroup({ title, children, plain = false, action, compact = false }: PropsWithChildren<{ title: string; plain?: boolean; action?: ReactNode; compact?: boolean }>) {
   const colors = plannerColorsForScheme(useColorScheme());
-  return <View style={{ gap: 10, marginVertical: 8 }}>
+  return <View style={{ gap: compact ? 6 : 10, marginVertical: compact ? 0 : 8 }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
       <Text accessibilityRole="header" style={{ ...typography.label, color: colors.ink, fontWeight: '600', flex: 1 }}>{title}</Text>{action}
     </View>
-    <View style={{ gap: 14, padding: 12, ...(!plain ? { backgroundColor: colors.elevated, borderRadius: 12 } : {}) }}>{children}</View>
+    <View style={{ gap: compact ? 8 : 14, padding: compact ? 10 : 12, ...(!plain ? { backgroundColor: colors.elevated, borderRadius: 12 } : {}) }}>{children}</View>
   </View>;
 }
 
-export function SettingsSegments<T extends string>({ options, value, onValueChange, wide = false, compact = false, fullWidth = false, disabled = false }: {
-  options: readonly { id: T; label: string }[]; value: T; onValueChange(value: T): void; wide?: boolean; compact?: boolean; fullWidth?: boolean; disabled?: boolean;
+export function SettingsSegments<T extends string>({ options, value, onValueChange, wide = false, compact = false, fullWidth = false, fitContent = false, disabled = false, tone = 'accent' }: {
+  options: readonly { id: T; label: string; disabled?: boolean }[]; value: T; onValueChange(value: T): void; wide?: boolean; compact?: boolean; fullWidth?: boolean; fitContent?: boolean; disabled?: boolean; tone?: 'accent' | 'quiet';
 }) {
   const colors = plannerColorsForScheme(useColorScheme());
-  return <View style={[styles.segments, wide && { width: 224, maxWidth: '100%' }, compact && { width: 116, flexShrink: 0 }, fullWidth && { width: '100%', maxWidth: '100%' }, { borderColor: colors.inputBorder, backgroundColor: colors.surface }]}>
+  const borderColor = disabled || tone === 'quiet' ? colors.inputBorder : colors.accent;
+  return <View style={[styles.segments, wide && { width: 224, maxWidth: '100%' }, compact && { width: 116, flexShrink: 0 }, fullWidth && { width: '100%', maxWidth: '100%' }, fitContent && { width: 'auto', maxWidth: '100%', flexShrink: 0 }, { borderColor, backgroundColor: colors.surface }]}>
     {options.map((option, index) => {
       const selected = option.id === value;
-      return <Pressable key={option.id} accessibilityRole="button" accessibilityState={{ selected, disabled }} disabled={disabled}
-        onPress={() => onValueChange(option.id)} style={({ pressed }) => [styles.segment,
-          index > 0 && { borderLeftWidth: 1, borderLeftColor: colors.inputBorder },
-          selected && { backgroundColor: colors.accentSoft }, pressed && { opacity: 0.7 }]}>
-        <Text style={[styles.segmentLabel, { color: selected ? colors.accent : colors.muted }, selected && { fontWeight: '700' }]}>{option.label}</Text>
+      const unavailable = disabled || option.disabled === true;
+      return <Pressable key={option.id} accessibilityRole="button" accessibilityState={{ selected, disabled: unavailable }} disabled={unavailable}
+        onPress={() => { if (!unavailable) onValueChange(option.id); }} style={({ pressed }) => [styles.segment, fitContent && { flex: 0 },
+          index > 0 && { borderLeftWidth: 1, borderLeftColor: borderColor },
+          selected && { backgroundColor: unavailable ? colors.elevated : colors.accentSoft }, pressed && !unavailable && { opacity: 0.7 }]}>
+        <Text style={[styles.segmentLabel, { color: unavailable ? colors.disabled : selected || tone === 'accent' ? colors.accent : colors.ink }, selected && { fontWeight: '700' }]}>{option.label}</Text>
       </Pressable>;
     })}
   </View>;

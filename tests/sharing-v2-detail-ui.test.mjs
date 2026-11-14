@@ -41,11 +41,11 @@ for (const platform of ['ios', 'android']) {
     try {
       const before = ui.props.model.plan.chores.find((chore) => chore.id === 'floor');
       await ui.screen.change('共有家事の名前', 'メンバーが編集した名前'); await ui.screen.endEditing('共有家事の名前');
-      await ui.settle(() => ui.screen.text().includes('端末に保存しました'));
+      await ui.settle(() => ui.props.model.plan.chores.find(chore => chore.id === 'floor').name === 'メンバーが編集した名前');
       await ui.screen.press('家事の手順を開く'); await ui.settle();
       const title = input(ui.screen, '手順の区分1の見出し'); const steps = input(ui.screen, '手順の区分1（1行に1手順）');
       title.props.onChangeText('拭き掃除'); steps.props.onChangeText('床を拭く\n乾かす\n'); await steps.props.onEndEditing();
-      await ui.settle(() => ui.screen.text().includes('端末に保存しました'));
+      await ui.settle(() => ui.props.model.plan.chores.find(chore => chore.id === 'floor').procedureSections?.[0]?.title === '拭き掃除');
       const after = (await f.controller.readModel(range)).plan.chores.find((chore) => chore.id === 'floor');
       assert.equal(after.name, 'メンバーが編集した名前'); assert.deepEqual(after.procedureSections, [{ title: '拭き掃除', steps: ['床を拭く', '乾かす'] }]);
       assert.equal(input(ui.screen, '手順の区分1（1行に1手順）').props.value, '床を拭く\n乾かす\n');
@@ -85,7 +85,7 @@ for (const platform of ['ios', 'android']) {
       assert.equal(ui.screen.nodes().some((node) => node.props.accessibilityRole === 'button' && node.children?.join('') === '候補1で解決する'), false);
       const button = ui.screen.nodes().find((node) => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('候補1 · ')); assert.ok(button);
       await button.props.onPress(); await ui.screen.flush(); assert.ok(ui.screen.text().includes(conflict.candidates[0].value));
-      await ui.screen.press('候補1で解決する'); await ui.settle(() => ui.screen.text().includes('端末に保存しました'));
+      await ui.screen.press('候補1で解決する'); await ui.settle(() => ui.props.model.choreDetails[0].fields.name.kind === 'value');
       assert.equal(input(ui.screen, '共有家事の名前').props.value, conflict.candidates[0].value);
       assert.equal((await f.controller.readModel(range)).plan.chores.find((chore) => chore.id === 'floor').enabled, true);
     } finally { await ui?.close(); member.connection.close(); f.close(); }
@@ -96,7 +96,8 @@ for (const platform of ['ios', 'android']) {
     try {
       const screen = screenHarness('src/features/sharing/v2-ui/add-chore.tsx', { exportName: 'V2AddChore', platform, props });
       const before = await listSharingOutbox(f.d.database, groupId); assert.match(screen.text(), /グループ全員に公開/u);
-      await screen.press('この内容を共有家事に追加'); assert.match(screen.text(), /家事名は1/u); assert.deepEqual(await listSharingOutbox(f.d.database, groupId), before);
+      assert.equal(screen.button('この内容を共有家事に追加').props.disabled, true);
+      assert.deepEqual(await listSharingOutbox(f.d.database, groupId), before);
       const button = screen.button('この内容を共有家事に追加'); input(screen, '追加する共有家事の名前').props.onChangeText('描画前に入力した共有家事');
       input(screen, '追加する手順（1行に1手順）').props.onChangeText('準備する\n片付ける'); button.props.onPress(); button.props.onPress();
       for (let i = 0; i < 30 && !created; i++) await screen.flush(); assert.ok(created);

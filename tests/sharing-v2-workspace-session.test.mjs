@@ -1,6 +1,7 @@
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { expectedSharedChoreCount, expectedSharedBootstrapFactCount } from './helpers/shared-bootstrap-expectations.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
 import { createDeviceIdentity } from '../src/features/sharing/crypto.ts';
@@ -27,13 +28,13 @@ test('v2 workspace creation restores one disabled catalog and explicit family or
     try {
       const session = await createV2WorkspaceSession({ ...f.options, creationKind: kind });
       const model = await session.controller.readModel({ from: '2026-10-27', through: '2026-11-10', asOfDate: '2026-10-27' });
-      assert.equal(model.plan.policy.kind, kind); assert.equal(model.plan.chores.length, 36);
+      assert.equal(model.plan.policy.kind, kind); assert.equal(model.plan.chores.length, expectedSharedChoreCount);
       assert.ok(model.plan.chores.every((chore) => !chore.enabled)); assert.equal(model.plan.occurrences.length, 0);
-      const before = await loadSharedFacts(f.database, 'v2-session'); assert.equal(before.length, 39);
+      const before = await loadSharedFacts(f.database, 'v2-session'); assert.equal(before.length, expectedSharedBootstrapFactCount);
       assert.ok(before.every((fact) => fact.operation.schemaVersion === 2 && fact.authorSignature));
       await createV2WorkspaceSession({ ...f.options, creationKind: kind, now: () => Date.parse('2026-10-28T01:00:00Z') });
       assert.deepEqual(await loadSharedFacts(f.database, 'v2-session'), before);
-      assert.equal((await listSharingOutbox(f.database, 'v2-session')).length, 39);
+      assert.equal((await listSharingOutbox(f.database, 'v2-session')).length, expectedSharedBootstrapFactCount);
       assert.equal(f.connection.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
     } finally { f.connection.close(); }
   }
@@ -78,7 +79,7 @@ test('v2 workspace reads and edits stop after an account change while committed 
     await assert.rejects(session.repository.commit([{ operationId: 'never-saved', entityType: 'chore', entityId: 'new', operationType: 'patch', payload: { name: '変更' } }]), /account changed/u);
     await assert.rejects(async () => session.synchronizer.verifyMembership(f.record.anchor), /account changed/u);
     assert.deepEqual(await loadSharedFacts(f.database, 'v2-session'), before);
-    assert.equal((await listSharingOutbox(f.database, 'v2-session')).length, 39);
+    assert.equal((await listSharingOutbox(f.database, 'v2-session')).length, expectedSharedBootstrapFactCount);
   } finally { f.connection.close(); }
 });
 test('an empty authenticated commit does not announce another local edit or schedule an endless synchronization loop', async () => {
@@ -87,7 +88,7 @@ test('an empty authenticated commit does not announce another local edit or sche
     const session = await createV2WorkspaceSession(f.options); const notifications = f.commits();
     assert.deepEqual(await session.repository.commitCurrent(async () => []), []);
     assert.equal(f.commits(), notifications);
-    assert.equal((await listSharingOutbox(f.database, 'v2-session')).length, 39);
+    assert.equal((await listSharingOutbox(f.database, 'v2-session')).length, expectedSharedBootstrapFactCount);
   } finally { f.connection.close(); }
 });
 
@@ -100,7 +101,7 @@ test('a retained permission failure defers catalog writes without blocking authe
     const before = await loadSharedFacts(f.database, 'v2-session');
     const range = { from: '2026-10-27', through: '2026-11-10', asOfDate: '2026-10-27' };
     const model = await session.controller.readModel(range);
-    assert.equal(model.plan.chores.length, 36); assert.equal((await session.controller.readCalendar()).groupId, 'v2-session');
+    assert.equal(model.plan.chores.length, expectedSharedChoreCount); assert.equal((await session.controller.readCalendar()).groupId, 'v2-session');
     await assert.rejects(session.controller.actions.addChore('blocked write'), /参加状態/u);
     assert.deepEqual(await loadSharedFacts(f.database, 'v2-session'), before);
     f.record.lastErrorCode = null; await session.controller.readModel(range);

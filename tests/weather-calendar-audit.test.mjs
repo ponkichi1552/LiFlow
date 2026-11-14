@@ -268,7 +268,8 @@ test('weather adjustment agrees between SQLite, home notice, calendar marker and
     const calendar = screenHarness('src/app/(tabs)/explore.tsx', { database: h.database, snapshot: () => adjusted });
     await openCalendarDay(calendar, moved.suggestedDate);
     const chore = adjusted.chores.find((item) => item.id === moved.choreId);
-    assert.ok(calendar.nodes().some((node) => node.props.accessibilityLabel === `${chore.name}を完了`));
+    assert.ok(calendar.nodes().some((node) => node.props.accessibilityLabel === `${chore.name}の今回の日付を変更`));
+    assert.equal(calendar.nodes().some(node => node.props.accessibilityRole === 'checkbox'), false);
     const row = h.connection.prepare('SELECT suggested_date FROM chore_schedule_entries WHERE id = ?').get(moved.id);
     assert.equal(row.suggested_date, moved.suggestedDate);
   } finally { h.connection.close(); }

@@ -113,9 +113,14 @@ for (const platform of ['ios', 'android']) {
       const screen = screenHarness('src/features/sharing/v2-ui/calendar.tsx', { exportName: 'V2Calendar', props, platform });
       await openCalendarDay(screen, privateToday);
       assert.ok(screen.nodes().some((node) => /、個人家事1件(?:、|$)/u.test(node.props.accessibilityLabel ?? '')));
-      await checkbox(screen, f.personal.chore.name).props.onPress(); await screen.flush();
+      assert.equal(screen.nodes().filter(node => node.props.accessibilityRole === 'checkbox').length, 0);
+      const row = privateOverlay.byDate.get(privateToday).find(row => row.chore.id === f.personal.chore.id);
+      await f.personal.source.setCompleted(row.key, row.revision, true);
+      const refreshed = await f.session.readModel(readOptions);
+      Object.assign(props, { model: refreshed, personal: refreshed.personal, privateOverlay: refreshed.privateOverlay }); screen.render();
       assert.ok(screen.nodes().some((node) => /、個人家事0件(?:、|$)/u.test(node.props.accessibilityLabel ?? '')));
-      assert.equal(checkbox(screen, f.personal.chore.name, true).props.accessibilityState.checked, true);
+      assert.ok(screen.nodes().some(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith(f.personal.chore.name)
+        && node.props.accessibilityValue?.text?.includes('完了済み')));
       assert.equal(sharedActions, 0); assert.deepEqual(await listSharingOutbox(f.d.database, groupId), before);
       props.privateOverlay = { status: 'unavailable', message: '個人家事を取得できませんでした。' }; screen.render();
       assert.equal(screen.text().includes(f.personal.chore.name), false); assert.match(screen.text(), /個人家事を取得できません/u);

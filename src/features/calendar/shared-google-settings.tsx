@@ -7,12 +7,14 @@ import type { SharedGoogleCalendarExport } from './shared-google-export';
 import type { SharedCalendarExportControl } from '../../platform/storage/sharing-v2-calendar-export';
 import { useAccountOperation } from '../settings/account-operation';
 import { plannerColorsForScheme } from '../../components/planner-theme';
+import { useGoogleConnection } from '../settings/google-connection';
 
 export function SharedGoogleCalendarSettings({ runtime, onBack, embedded = false }: { runtime: SharedGoogleCalendarExport; onBack: () => void; embedded?: boolean }) {
   const accountOperation = useAccountOperation(); const colors = plannerColorsForScheme(useColorScheme());
+  const connection = useGoogleConnection();
   const [control, setControl] = useState<SharedCalendarExportControl | null>(null);
   const [review, setReview] = useState<Awaited<ReturnType<SharedGoogleCalendarExport['prepareConnection']>> | null>(null);
-  const [busy, setBusy] = useState(false); const lock = useRef(false); const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false); const lock = useRef(false); const actionVersion = useRef(0); const [error, setError] = useState<string | null>(null);
   const [displayedRuntime, setDisplayedRuntime] = useState(runtime);
   if (displayedRuntime !== runtime) {
     setDisplayedRuntime(runtime); setBusy(false); setControl(null); setReview(null); setError(null);
@@ -25,8 +27,10 @@ export function SharedGoogleCalendarSettings({ runtime, onBack, embedded = false
   }, [runtime]);
   const run = async (work: (isCurrent: () => boolean) => Promise<void>) => {
     const current = scope.current;
-    const isCurrent = () => current.active && current.runtime === runtime && current === scope.current;
-    if (lock.current || !isCurrent() || accountOperation && !accountOperation.acquire()) return; lock.current = true; setBusy(true); setError(null);
+    const belongs = () => current.active && current.runtime === runtime && current === scope.current;
+    if (lock.current || !belongs() || accountOperation && !accountOperation.acquire()) return;
+    const version = ++actionVersion.current; const isCurrent = () => belongs() && version === actionVersion.current;
+    lock.current = true; setBusy(true); setError(null);
     try { await work(isCurrent); if (!isCurrent()) return; const next = await runtime.readControl(); if (isCurrent()) setControl(next); }
     catch (cause) { if (isCurrent()) setError(cause instanceof Error ? cause.message : 'Google接続を確認してください。'); }
     finally { accountOperation?.release(); if (isCurrent()) { lock.current = false; setBusy(false); } }
@@ -38,16 +42,29 @@ export function SharedGoogleCalendarSettings({ runtime, onBack, embedded = false
     return () => { active = false; };
   }, [runtime]);
   const choose = (replaceAccount = false) => void run(async isCurrent => { const next = await runtime.prepareConnection({ replaceAccount }); if (isCurrent()) setReview(next); });
+  const backgroundSync = (isCurrent: () => boolean) => {
+    void runtime.synchronize({ force: true, interactive: true }).then(async () => {
+      if (!isCurrent()) return;
+      const next = await runtime.readControl(); if (isCurrent()) setControl(next);
+    }).catch(() => { if (isCurrent()) setError('設定は保存済みです。次の同期で再試行します。'); });
+  };
+  const enable = () => void run(async isCurrent => {
+    const next = await runtime.prepareConnection(); if (!isCurrent()) return;
+    if (next.account.subject !== connection?.account?.subject) throw new Error('Googleアカウントが変わりました。接続を確認してください。');
+    const target = next.calendars.find(calendar => calendar.id === control?.calendarId) ?? next.calendars.find(calendar => calendar.primary) ?? next.calendars[0];
+    if (!target?.id) throw new Error('書き込み可能なカレンダーがありません。');
+    await runtime.connect(next, target.id); if (isCurrent()) backgroundSync(isCurrent);
+  });
   const disabled = busy || accountOperation?.busy === true;
   const Container = embedded ? View : Card;
   const content = <>
     <Container style={{ gap: 10 }}><View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
       <Text style={{ ...typography.label, color: palette.ink, flex: 1 }}>{embedded ? '共有予定をGoogleに表示' : '共有予定をGoogleカレンダーに追加'}</Text>
-      <SettingsCheckbox accessibilityLabel="共有予定をGoogleカレンダーに追加" value={control?.enabled === true} disabled={disabled || !control}
-        onValueChange={enabled => enabled ? choose() : void run(async isCurrent => { await runtime.disable(control!.revision); if (isCurrent()) setReview(null); })} />
+      <SettingsCheckbox accessibilityLabel="共有予定をGoogleカレンダーに追加" value={control?.enabled === true} disabled={disabled || !control || Boolean(connection && !connection.ready && !control.enabled)}
+        onValueChange={enabled => enabled ? connection ? enable() : choose() : void run(async isCurrent => { await runtime.disable(control!.revision); if (isCurrent()) setReview(null); })} />
     </View><Text style={{ ...typography.caption, color: palette.muted }}>{embedded ? 'Googleでの変更は、グループに反映しません。' : '初期状態はオフです。この端末で選んだGoogleカレンダーへ、グループ共通の予定を追加・更新します。Google側の変更はグループへ取り込みません。'}</Text>
     {!embedded || control?.subject ? <Text style={{ ...typography.caption, color: palette.muted }}>{embedded ? 'オフにしても追加済みの予定は残ります。' : 'オフにしても、Googleへ追加済みの予定は削除しません。再びオンにすると、同じ予定との紐付けを使って続けます。'}</Text> : null}
-    {control?.calendarId ? <Text style={{ ...typography.caption, color: palette.muted }}>{control.accountLabel} · {control.calendarLabel}</Text> : null}
+    {control?.calendarId ? <Text style={{ ...typography.caption, color: palette.muted }}>{connection ? control.calendarLabel : `${control.accountLabel} · ${control.calendarLabel}`}</Text> : null}
     {control?.subject ? <SettingsAction placement={embedded ? 'panel' : 'page'} title="接続先を変更" compact disabled={disabled} onPress={() => choose(true)} /> : null}
     </Container>
     {review ? <Card><Text style={{ ...typography.label, color: palette.ink }}>追加先を選択</Text><Text style={{ ...typography.caption, color: palette.muted }}>{review.account.label}</Text>

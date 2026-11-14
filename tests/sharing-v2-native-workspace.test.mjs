@@ -1,6 +1,7 @@
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { expectedSharedChoreCount, expectedSharedBootstrapFactCount } from './helpers/shared-bootstrap-expectations.mjs';
 import { workspaceHarness, createWorkspaceTestTimers } from './helpers/sharing-workspaces-harness.mjs';
 
 import { withSharingLedgerTransaction } from '../src/platform/storage/sharing-ledger.ts';
@@ -76,7 +77,7 @@ for (const [flag, expected, name] of [[undefined, true, 'normal v2 workspace ena
     const workspace = await h.api.openSharedWorkspace(h.record);
     assert.equal(h.cloudOptions[0].ownerRecoveryEnabled, expected);
     assert.equal(workspace.session.recovery.enabled, expected);
-    assert.equal((await workspace.checkpoint()).pendingCount, 39);
+    assert.equal((await workspace.checkpoint()).pendingCount, expectedSharedBootstrapFactCount);
     assert.equal(h.calls.includes('legacy-open'), false);
   } finally { await h.close(); }
 });
@@ -86,10 +87,10 @@ test('native v2 workspace factory chooses its isolated session and never registe
   try {
     const workspace = await h.api.openSharedWorkspace(h.record); assert.equal(workspace.protocol, 2);
     assert.equal('adapter' in workspace, false); assert.deepEqual(h.calls, [['v2-open', 'owner', h.record.groupId, undefined]]);
-    const overview = await workspace.readOverview(); assert.equal(overview.timeZone, 'Asia/Tokyo'); assert.equal(overview.chores.length, 36);
+    const overview = await workspace.readOverview(); assert.equal(overview.timeZone, 'Asia/Tokyo'); assert.equal(overview.chores.length, expectedSharedChoreCount);
     assert.equal(overview.members[0].displayName, '自分');
     assert.equal(h.handles[1].connection.prepare('SELECT COUNT(*) AS n FROM households').get().n, 0, 'legacy materialized rows stay empty');
-    assert.equal((await workspace.checkpoint()).pendingCount, 39);
+    assert.equal((await workspace.checkpoint()).pendingCount, expectedSharedBootstrapFactCount);
     await h.api.saveSharingSelection(h.record); assert.deepEqual(JSON.parse(h.vault.get('active-workspace')), { userId: 'owner', groupId: h.record.groupId });
     h.auth.uid = 'other'; await assert.rejects(workspace.readOverview(), /切り替わり/u);
   } finally { await h.close(); }
@@ -114,7 +115,7 @@ test('a native singleton conflict adopts only the live confirmed locally known g
     assert.equal((await h.api.currentSharingWorkspace()).groupId, confirmed.groupId);
     assert.equal((await h.api.readSharingSelection()).groupId, confirmed.groupId);
     assert.equal((await readSharingWorkspace(h.index.database, 'owner', h.record.groupId)).status, 'active');
-    assert.equal((await workspace.checkpoint()).pendingCount, 39, 'old encrypted data and unsent operations are retained');
+    assert.equal((await workspace.checkpoint()).pendingCount, expectedSharedBootstrapFactCount, 'old encrypted data and unsent operations are retained');
     await assert.rejects(workspace.readOverview(), /所属グループ/u);
     await assert.rejects((await workspace.googleTasks()).readControl(), /所属グループ/u);
   } finally { await h.close(); retained.connection.close(); }
@@ -161,7 +162,7 @@ test('a departed v2 session cannot save new operations while all prior signed hi
     await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, (record) => ({ ...record, status: 'left' }));
     await workspace.record();
     await assert.rejects(workspace.session.repository.commit([{ operationId: 'forbidden', entityType: 'chore', entityId: 'x', operationType: 'patch', payload: { name: '変更' } }]));
-    assert.equal((await workspace.checkpoint()).pendingCount, 39);
+    assert.equal((await workspace.checkpoint()).pendingCount, expectedSharedBootstrapFactCount);
   } finally { await h.close(); }
 });
 
@@ -183,7 +184,7 @@ for (const [change, name] of [
     release(); await holding;
     await assert.rejects(saving, change === 'rejoin' ? /再参加前/u : /現在編集できません/u);
     assert.equal(JSON.stringify(h.handles[1].connection.prepare('SELECT * FROM sharing_operations ORDER BY operation_id').all()), before);
-    assert.equal((await workspace.checkpoint()).pendingCount, 39);
+    assert.equal((await workspace.checkpoint()).pendingCount, expectedSharedBootstrapFactCount);
   } finally { release?.(); await h.close(); }
 });
 
@@ -197,7 +198,7 @@ test('a queued v2 Native read refuses group contents when membership was removed
     for (let i = 0; i < 8; i++) await new Promise(setImmediate);
     await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, record => ({ ...record, status: 'removed' }));
     release(); await holding; await assert.rejects(reading, /現在編集できません/u);
-    assert.equal((await workspace.checkpoint()).pendingCount, 39);
+    assert.equal((await workspace.checkpoint()).pendingCount, expectedSharedBootstrapFactCount);
   } finally { release?.(); await h.close(); }
 });
 
@@ -212,7 +213,7 @@ test('a queued v2 Native command rechecks a newly stored access error while its 
     await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, record => ({ ...record, lastErrorCode: 'permission-denied' }));
     release(); await holding; await assert.rejects(saving, /参加状態を同期/u);
     assert.equal((await workspace.readOverview()).chores.find(item => item.id === chore.id).name, chore.name);
-    assert.equal((await workspace.checkpoint()).pendingCount, 39);
+    assert.equal((await workspace.checkpoint()).pendingCount, expectedSharedBootstrapFactCount);
   } finally { release?.(); await h.close(); }
 });
 test('v2 UI commands recheck a stored version or access failure while cached data remains readable and retry does not invent edits', async (t) => {
@@ -222,11 +223,11 @@ test('v2 UI commands recheck a stored version or access failure while cached dat
     for (const code of ['sharing/scheduler-version-mismatch', 'permission-denied']) {
       await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, (record) => ({ ...record, lastErrorCode: code }));
       for (const command of Object.values(workspace.session.controller.actions)) await assert.rejects(command());
-      assert.equal((await workspace.checkpoint()).pendingCount, 39); assert.equal((await workspace.readOverview()).chores.find((item) => item.id === chore.id).name, chore.name);
+      assert.equal((await workspace.checkpoint()).pendingCount, expectedSharedBootstrapFactCount); assert.equal((await workspace.readOverview()).chores.find((item) => item.id === chore.id).name, chore.name);
     }
     await updateSharingWorkspace(h.index.database, 'owner', h.record.groupId, (record) => ({ ...record, lastErrorCode: null }));
     await workspace.session.controller.actions.patchChore(chore.id, { name: '所属を確認した後の変更' });
-    assert.equal((await workspace.checkpoint()).pendingCount, 40);
+    assert.equal((await workspace.checkpoint()).pendingCount, expectedSharedBootstrapFactCount + 1);
     assert.equal((await workspace.readOverview()).chores.find((item) => item.id === chore.id).name, '所属を確認した後の変更');
   } finally { await h.close(); }
 });

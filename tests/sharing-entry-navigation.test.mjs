@@ -4,7 +4,7 @@ import { screenHarness } from './helpers/screen-harness.mjs';
 
 function entry(platform, context, workspaces = {}, routes = []) {
   return screenHarness('src/app/sharing/index.tsx', { platform, layoutEffect: callback => callback(),
-    navigate: (...args) => routes.push(args), mocks: {
+    navigate: (...args) => routes.push(args), mocks: { '@/features/settings/chore-settings-sources': { ChoreSettingsSources: () => assert.fail('entry flow must not render native group chore settings') },
       '@/hooks/use-workspace': { useWorkspace: () => context }, 'expo-image': { Image: 'Image' },
       '@/platform/sharing/firebase-services': { isSharingConfigured: () => true },
       '@/platform/sharing/auth': { isSharingAppleSignInAvailable: async () => false },

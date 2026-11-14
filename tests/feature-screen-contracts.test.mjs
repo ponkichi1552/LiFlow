@@ -19,10 +19,8 @@ async function initialContext() {
 }
 
 async function reachWasteStep(screen) {
-  await screen.press('次へ'); await screen.press('次へ');
-  await screen.press('選択をすべて外す');
-  await screen.press('次へ'); await screen.press('前回の時期はスキップ'); await screen.press('次へ');
-  assert.ok(screen.text().includes('ゴミ収集日を設定'), 'onboarding must retain its waste setup step');
+  await screen.press('選択をすべて外す'); await screen.press('次へ'); await screen.press('ゴミ収集日');
+  assert.ok(screen.text().includes('ゴミ収集日'), 'optional waste settings remain reachable before setup ends');
 }
 
 test('committed first-run setup retries only display loading after a refresh failure and cannot replay old choices', async () => {
@@ -30,7 +28,7 @@ test('committed first-run setup retries only display loading after a refresh fai
   try {
     const screen = screenHarness('src/features/onboarding/first-run-setup.tsx', { exportName: 'FirstRunSetup', database: h.database,
       props: { snapshot: h.snapshot, onComplete: async () => { reads++; if (fail) throw new Error('view read failed'); } } });
-    await reachWasteStep(screen); await screen.press('設定して始める'); await screen.flush();
+    await reachWasteStep(screen); await screen.press('設定を続ける'); await screen.press('設定して始める'); await screen.flush();
     assert.equal(h.connection.prepare('SELECT setup_completed FROM household_settings').get().setup_completed, 1);
     assert.ok(screen.text().includes('初期設定は保存済み'));
     assert.equal(screen.nodes().some(node => node.props.title === '設定して始める'), false);
@@ -55,7 +53,7 @@ test('feature screen contract: onboarding can register weekly, biweekly and mont
     await screen.change('ゴミの種類', 'かね'); await screen.press('可燃ごみを選択'); await screen.press('火曜'); await screen.press('収集日を追加');
     await screen.change('ゴミの種類', 'びん'); await screen.press('びんを選択'); await screen.press('隔週'); await screen.press('木曜'); await screen.press('収集日を追加');
     await screen.change('ゴミの種類', 'そだい'); await screen.press('粗大ごみを選択'); await screen.press('毎月'); await screen.change('毎月の収集日', '31'); await screen.press('収集日を追加');
-    await screen.press('設定して始める');
+    await screen.press('設定を続ける'); await screen.press('設定して始める');
     assert.equal(completed, 1);
     const saved = await repository.loadPlannerSnapshot(h.database, today);
     assert.equal(saved.settings.setupCompleted, true);
@@ -72,8 +70,7 @@ test('feature screen contract: waste onboarding can be skipped', async () => {
       exportName: 'FirstRunSetup', database: h.database,
       props: { snapshot: h.snapshot, onComplete: async () => { completed++; } },
     });
-    await reachWasteStep(screen);
-    await screen.press('ゴミ収集日はスキップして始める');
+    await screen.press('次へ'); await screen.press('設定して始める');
     const saved = await repository.loadPlannerSnapshot(h.database, today);
     assert.equal(completed, 1); assert.equal(saved.settings.setupCompleted, true); assert.equal(saved.wasteSchedules.length, 0);
   } finally { h.connection.close(); }
@@ -173,18 +170,16 @@ test('feature screen contract: verified appliance analysis auto-saves maker inte
     const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { database: h.database,
       mocks: { '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async (request) => { sent = request; return withUploadedManual(verified, request.manual); } } },
     });
-    await screen.change('メーカー名', 'Dyson'); await screen.change('製品名', 'V12'); await screen.change('型番', 'SV20');
-    await screen.change('カテゴリ（任意）', 'そうじ'); await screen.press('掃除機を選択');
-    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用・解析・共有できることを確認した');
-    await screen.press('選択したPDFを解析');
-    assert.equal(sent.category, 'vacuum_cleaner');
+    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush();
+    await screen.press('PDFを解析');
+    assert.equal(sent.identifyFromManual, true);
     const saved = await repository.loadPlannerSnapshot(h.database, today);
     assert.equal(saved.appliances.length, 1, 'analysis must save without an additional button press');
     const care = saved.chores.filter((chore) => chore.applianceId === saved.appliances[0].id);
     assert.equal(care.length, 1); assert.equal(care[0].manufacturerRecommendedIntervalDays, 30); assert.equal(care[0].enabled, true);
     assert.ok(saved.scheduleEntries.some((entry) => entry.choreId === care[0].id), 'maker intervals must reach the actual Scheduler');
     screen.button('保存した家電のお手入れ詳細を開く');
-    assert.ok(screen.text().includes('カテゴリ：掃除機'));
+    assert.equal(saved.appliances[0].category, 'vacuum_cleaner');
     await screen.change('フィルターを洗うの周期', '45'); await screen.press('周期の変更を保存');
     const updated = await repository.loadPlannerSnapshot(h.database, today);
     assert.equal(updated.appliances.length, 1, 'cycle edits must not duplicate appliance');
@@ -210,9 +205,9 @@ test('feature screen contract guard rejects a virtual removal of the waste onboa
     const screen = screenHarness('src/features/onboarding/first-run-setup.tsx', {
       exportName: 'FirstRunSetup', database: h.database,
       props: { snapshot: h.snapshot, onComplete: async () => {} },
-      transformSource: (path, source) => path.endsWith('first-run-setup.tsx') ? source.replace('const setupStepCount = 6;', 'const setupStepCount = 5;') : source,
+      transformSource: (path, source) => path.endsWith('first-run-setup.tsx') ? source.replace("{ id: 'waste', label: 'ゴミ収集日' }", "{ id: 'weather', label: '天気予報' }") : source,
     });
-    await assert.rejects(reachWasteStep(screen), /missing button: 次へ/u);
+    await assert.rejects(reachWasteStep(screen), /missing button: ゴミ収集日/u);
   } finally { h.connection.close(); }
 });
 

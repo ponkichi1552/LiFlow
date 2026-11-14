@@ -1,9 +1,11 @@
 import type { ApplianceCareAnalysisDraft } from '@/features/appliance-care/contracts';
 
 export interface ApplianceCareApiRequest {
-  manufacturer: string;
-  productName: string;
-  modelNumber: string;
+  /** Uploaded-manual identification does not require any product input. Saved identities may be supplied for reanalysis matching only. */
+  identifyFromManual?: true;
+  manufacturer?: string;
+  productName?: string;
+  modelNumber?: string;
   category?: string;
   forceReanalysis?: boolean;
   manual?: UploadedManualInput;
@@ -20,6 +22,7 @@ export interface ProductCandidate {
 
 export interface ProductVerifiedResponse {
   status: 'verified';
+  usage?: ApplianceCareUsage;
   product: {
     manufacturer: string;
     productName: string;

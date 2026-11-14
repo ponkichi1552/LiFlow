@@ -77,7 +77,11 @@ export function validateApplianceCareRequest(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const fields = ['manufacturer', 'productName', 'modelNumber'];
   if (value.forceReanalysis !== undefined && typeof value.forceReanalysis !== 'boolean') return false;
+  if (value.identifyFromManual !== undefined && value.identifyFromManual !== true) return false;
+  if (value.identifyFromManual === true && (!value.manual || typeof value.manual !== 'object' || Array.isArray(value.manual))) return false;
+  const noIdentity = value.identifyFromManual === true && fields.every(field => value[field] === undefined);
   for (const field of fields) {
+    if (noIdentity) continue;
     if (typeof value[field] !== 'string') return false;
     const normalized = value[field].trim();
     if (normalized.length < 1 || normalized.length > 120 || /[\u0000-\u001f\u007f]/u.test(normalized)) return false;

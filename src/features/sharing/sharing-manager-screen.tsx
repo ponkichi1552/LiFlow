@@ -291,16 +291,16 @@ export function GroupDetail({ workspace, run, busy, section }: { workspace: Shar
     {(!section || section === 'sync') ? <SettingsGroup title="同期・復旧">
       {detail.pending ? <Text style={styles.body}>未送信：{detail.pending}件</Text> : null}
       <Text style={styles.caption}>最終同期：{record.lastSuccessfulSyncAt ? new Date(record.lastSuccessfulSyncAt).toLocaleString('ja-JP') : '未実施'}</Text>
-      <Text style={styles.caption}>相手の端末が同期すると反映されます。</Text>
+      {roster && roster.body.members.reduce((count, member) => count + member.devices.length, 0) > 1 ? <Text style={styles.caption}>ほかの端末の同期後に反映されます。</Text> : null}
       <SettingsAction title="今すぐ同期" compact disabled={busy || ['left', 'removed'].includes(record.status)} onPress={() => void run(async () => { await workspace.sync({ force: true, budgetMs: 120_000 }); await refresh(); })} />
     {workspace.protocol === 2 && record.status === 'active' ? <>
     {workspace.protocol === 2 && roster?.body.schedulerVersion !== V2_SCHEDULER_VERSION ? <Card>
-      <Text style={styles.body}>共有カレンダーに対応する互換更新があります。家事・設定・履歴を保持して、管理者が更新できます。全メンバーのアプリを先に更新してください。</Text>
+      <Text style={styles.body}>共有機能の更新があります。家事・設定・履歴を保持して、管理者が更新できます。全メンバーのアプリを先に更新してください。</Text>
       {isOwner && manager ? <SettingsAction title="共有グループを互換更新" intent="primary" disabled={busy} onPress={() => Alert.alert('共有グループを更新しますか？',
         '全メンバーのアプリ更新後に進めてください。旧版のアプリは更新後のグループを同期できません。保存済みデータは保持します。',
         [{ text: 'キャンセル', style: 'cancel' }, { text: '更新する', onPress: () => void run(async () => { await manager.upgradeScheduler(); await refresh(); }) }])} /> : null}
     </Card> : null}
-    {isOwner && workspace.session.recovery.enabled ? <View style={{ gap: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 14 }}><Text style={styles.label}>復旧</Text><V2RecoveryPanel embedded groupId={workspace.groupId} recovery={workspace.session.recovery}
+    {isOwner && workspace.session.recovery.enabled ? <View style={{ gap: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 14 }}><V2RecoveryPanel embedded groupId={workspace.groupId} recovery={workspace.session.recovery}
       isOwner={isOwner} busy={busy} run={run} devices={roster?.body.members.flatMap(member => member.devices.map(device => ({ deviceId: device.identity.deviceId,
         displayName: snapshot?.members.find(item => item.id === member.userId)?.displayName ?? 'メンバー' }))) ?? []} /></View> : null}
     </> : null}

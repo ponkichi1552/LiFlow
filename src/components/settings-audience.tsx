@@ -6,6 +6,7 @@ import { GroupIcon, PersonIcon } from './group-icon';
 import { palette, typography } from './planner-ui';
 import { ChoreAudiencePicker } from './chore-audience-picker';
 import type { ChoreDefinition } from '../domain/chores/types';
+import { choreSourceScope, rememberChoreSource } from '../features/settings/chore-source-selection';
 
 /** Lives in the fixed settings header, once per document. */
 export function SettingsAudience({ groupName, chore, navigate }: {
@@ -27,10 +28,10 @@ export function SettingsAudience({ groupName, chore, navigate }: {
           return current?.userId === group.userId && current.group?.userId === group.userId && current.group.groupId === group.groupId
             && ['active', 'creating'].includes(current.group.status);
         };
-        await navigate(() => router.replace({ pathname: '/settings/chore/[id]', params: {
+        await navigate(() => { rememberChoreSource(choreSourceScope(group), audience === 'shared' ? 'group' : 'personal'); router.replace({ pathname: '/settings/chore/[id]', params: {
           ...target, source: audience, documentTransition: audience === 'personal' ? 'left' : 'right',
           ...(audience === 'shared' ? { groupId: group.groupId } : {}),
-        } }), canNavigate);
+        } }); }, canNavigate);
       } finally { running.current = false; setBusy(false); }
     }} />;
   if (groupName === undefined && !joined) return null;

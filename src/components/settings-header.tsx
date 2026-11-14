@@ -2,14 +2,20 @@ import { useState } from 'react';
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { BackButton, palette, typography } from './planner-ui';
+import { BackButton, navigationActionText, palette, typography } from './planner-ui';
 import { plannerColorsForScheme } from './planner-theme';
 import { useAppAppearance } from '../hooks/use-app-appearance';
 
-export function SettingsHeader({ title, onBack = () => router.back(), appearance = false, backDisabled = false }: { title: string; onBack?: () => void; appearance?: boolean; backDisabled?: boolean }) {
-  return <View style={styles.header}><BackButton onPress={onBack} disabled={backDisabled} />
+export function SettingsHeader({ title, onBack = () => router.back(), appearance = false, backDisabled = false, backAccessibilityLabel, action, hideBack = false }: {
+  title: string; onBack?: () => void; appearance?: boolean; backDisabled?: boolean; backAccessibilityLabel?: string;
+  action?: { title: string; accessibilityLabel: string; onPress(): void; disabled?: boolean }; hideBack?: boolean;
+}) {
+  const colors = plannerColorsForScheme(useColorScheme());
+  return <View style={styles.header}>{hideBack ? <View style={{ width: 44 }} /> : <BackButton onPress={onBack} disabled={backDisabled} accessibilityLabel={backAccessibilityLabel} />}
     <View pointerEvents="none" style={styles.titleSlot}><Text style={styles.headerTitle} numberOfLines={1}>{title}</Text></View>
-    {appearance ? <AppearanceButton /> : <View style={{ width: 44 }} />}</View>;
+    {action ? <Pressable accessibilityRole="button" accessibilityLabel={action.accessibilityLabel} accessibilityState={{ disabled: action.disabled }} disabled={action.disabled} onPress={action.onPress}
+      style={({ pressed }) => [styles.action, pressed && !action.disabled && styles.pressed]}><Text style={[styles.actionText, { color: action.disabled ? colors.disabled : colors.accent }]}>{action.title}</Text></Pressable>
+      : appearance ? <AppearanceButton /> : <View style={{ width: 44 }} />}</View>;
 }
 function AppearanceButton() {
   const scheme = useColorScheme(); const appearance = useAppAppearance(); const [error, setError] = useState<string | null>(null);
@@ -27,6 +33,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
   titleSlot: { position: 'absolute', left: 83, right: 83, top: 0, bottom: 0, justifyContent: 'center' },
   headerTitle: { ...typography.body, color: palette.ink, fontWeight: '700', textAlign: 'center' },
+  action: { minHeight: 48, minWidth: 64, justifyContent: 'center', alignItems: 'flex-end' }, actionText: { ...navigationActionText },
   appearanceButton: { width: 44, minHeight: 44, borderWidth: 1, borderRadius: 11, justifyContent: 'center', alignItems: 'center' },
   pressed: { opacity: 0.7 }, error: { ...typography.caption, color: palette.warning },
 });

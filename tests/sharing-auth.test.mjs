@@ -95,6 +95,18 @@ test('sharing logout waits for an in-flight sign-in, rejects overlapping new log
   assert.equal(h.events.filter(([name]) => name === 'firebase-sign-out').length, 1);
 });
 
+test('account-scoped logout refuses a substituted Firebase session after an earlier sign-in settles', async () => {
+  const h = fixture(); let release; h.block(new Promise(resolve => { release = resolve; }));
+  h.resultUser({ uid: 'replacement', providerData: [] });
+  const login = h.module.signInSharingWithGoogle();
+  const logout = h.module.signOutSharing({ expectedUserId: 'firebase-uid' });
+  const rejected = assert.rejects(logout, /アカウントが変わりました/);
+  release(); await login; await rejected;
+  assert.equal(h.events.some(event => event[0] === 'firebase-sign-out'), false);
+  await h.module.signOutSharing({ expectedUserId: 'replacement' });
+  assert.equal(h.events.filter(event => event[0] === 'firebase-sign-out').length, 1);
+});
+
 test('Apple sharing is conditional and uses a hashed native nonce with the original nonce supplied only to Firebase', async () => {
   const old = process.env.EXPO_PUBLIC_APPLE_SHARING_ENABLED;
   try {

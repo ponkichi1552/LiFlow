@@ -13,6 +13,7 @@ import { ChoreToggleList } from './chore-toggle-list';
 import { useGroupChoreSettings } from './use-group-chore-settings';
 import { personalChoiceSourceId } from './group-personal-chore-choices';
 import { SettingsAction } from '@/components/settings-controls';
+import { hasChoreScheduleSettings } from '@/domain/chores/cycle-policy';
 import { V2WasteScreen } from '../sharing/v2-ui/waste-screen';
 import type { V2MutationOutcome } from '../sharing/v2-ui/mutation-outcome';
 
@@ -62,7 +63,7 @@ function PersonalChoreSettings({ shared = false, expanded, setExpanded, onPendin
   if (!data.snapshot) return <Text style={styles.hint}>設定を読み込んでいます。</Text>;
   return <View style={styles.body}>{shared ? <Text style={styles.hint}>共通の家事はグループ設定を優先</Text> : null}
     {data.error ? <Text accessibilityRole="alert" style={styles.error}>{data.error}</Text> : null}
-    <ChoreToggleList chores={data.snapshot.chores} expanded={expanded} setExpanded={setExpanded} personalSelection onPendingChange={onPendingChange}
+    <ChoreToggleList chores={data.snapshot.chores.filter(hasChoreScheduleSettings)} expanded={expanded} setExpanded={setExpanded} personalSelection onPendingChange={onPendingChange}
       save={async (ids, enabled) => { await setChoresEnabled(data.database, ids, enabled); await data.refresh(); return { refreshed: !data.readError() }; }}
       retryRead={async () => { await data.refresh(); return !data.readError(); }}
       onOpen={id => router.push({ pathname: '/settings/chore/[id]', params: { id, source: 'personal' } })} />
@@ -83,6 +84,7 @@ function GroupChoreSettings({ selection, expanded, setExpanded, onPendingChange,
     <Text accessibilityRole="alert" style={styles.error}>{data.error}</Text>
     <SettingsAction title="グループの家事設定を再読込" placement="page" onPress={() => void data.source.refresh()} /></>}</View>;
   const readOnly = value.model.viewerUserId !== value.model.adminUserId;
+  const configured = new Set(value.model.configurations.filter(row => row.configuration || row.candidates.length).map(row => row.choreId));
   const open = async (id: string) => {
     if (wasteSaving.current) return;
     if (!personalChoiceSourceId(id)) { router.push({ pathname: '/settings/chore/[id]', params: { id, source: 'shared', groupId: selection.groupId } }); return; }
@@ -104,7 +106,7 @@ function GroupChoreSettings({ selection, expanded, setExpanded, onPendingChange,
     {openError ? <Text accessibilityRole="alert" style={styles.error}>{openError}</Text> : null}
     {value.personalChoicesError ? <><Text accessibilityRole="alert" style={styles.error}>{value.personalChoicesError}</Text>
       <SettingsAction title="追加できる家事を再読込" placement="page" onPress={() => void data.source.refresh()} /></> : null}
-    <ChoreToggleList chores={[...value.model.plan.chores, ...(value.personalChoices ?? [])]}
+    <ChoreToggleList chores={[...value.model.plan.chores, ...(value.personalChoices ?? [])].filter(chore => configured.has(chore.id) || hasChoreScheduleSettings(chore))}
       expanded={expanded} setExpanded={setExpanded} readOnly={readOnly || wasteBusy} onPendingChange={pendingChanged}
       save={data.source.saveEnabled} retryRead={async () => { await data.source.refresh(); return !data.source.getSnapshot().error; }}
       onOpen={id => void open(id)} />

@@ -27,7 +27,7 @@ for (const platform of ['ios', 'android']) {
         '@/features/weather/use-municipality-suggestions': { useMunicipalitySuggestions: (_query, enabled) => ({ status: 'idle', candidates: enabled ? [candidate] : [] }) },
       } });
     t.after(() => { screen.unmount(); h.connection.close(); }); await flush(screen);
-    for (const title of ['表示', '通知・ウィジェット', '天気予報・洗濯', '誕生日', 'このアプリについて']) {
+    for (const title of ['表示', '通知', '天気予報・洗濯', '誕生日', 'このアプリについて']) {
       assert.ok(screen.nodes().some(node => node.props.accessibilityRole === 'header' && node.props.children === title));
     }
     assert.equal(permissions, 0); assert.equal(googleReads, 0); assert.deepEqual(routes, []);

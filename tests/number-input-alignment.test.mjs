@@ -7,6 +7,29 @@ import { createDatabase } from './helpers/sqlite.mjs';
 import { localDateFromDate } from '../src/domain/scheduling/local-date.ts';
 
 const repository = await import('../src/platform/storage/repository.ts');
+for (const platform of ['ios', 'android']) test(`${platform} touching numeric field padding focuses the input and preserves its input callbacks`, async () => {
+  const changes = []; const blurs = [];
+  const props = { accessibilityLabel: '家事時間上限', value: '', placeholder: '上限なし', suffix: '', editIndicator: true,
+    onChangeText: value => changes.push(value), onBlur: event => blurs.push(event) };
+  const options = { exportName: 'NumberInputField', platform, props };
+  const ui = screenHarness('src/components/number-input-field.tsx', options);
+  const input = ui.nodes().find(node => node.type === 'TextInput'); let focuses = 0;
+  input.props.ref.current = { focus() { focuses++; } };
+  ui.nodes().find(node => node.type === 'Pressable').props.onPress();
+  assert.equal(focuses, 1); assert.equal(input.props.value, '');
+  await ui.change('家事時間上限', '60');
+  const event = { nativeEvent: { text: '60' } };
+  ui.nodes().find(node => node.type === 'TextInput').props.onBlur(event);
+  assert.deepEqual(changes, ['60']); assert.deepEqual(blurs, [event]);
+  options.props = { ...props, value: '60', editable: false }; ui.render();
+  const locked = ui.nodes().find(node => node.type === 'TextInput');
+  assert.equal(locked.props.value, '60'); assert.equal(locked.props.editable, false);
+  assert.equal(locked.props.accessibilityState.disabled, true);
+  assert.equal(ui.nodes().find(node => node.type === 'Pressable').props.disabled, true);
+  await assert.rejects(ui.change('家事時間上限', '90'), /read-only input/);
+  assert.deepEqual(changes, ['60']);
+});
+
 test('individual settings and monthly waste persist the entered cycle window and collection day', async () => {
   const h = createDatabase(); const today = localDateFromDate(new Date());
   try {
@@ -35,7 +58,7 @@ test('appliance analysis cycle edits update the saved appliance', async () => {
       analysis: { manufacturer: 'Dyson', model: 'SV20', analyzedAt: new Date().toISOString(), requiresUserReview: true, tasks: [task] } };
     const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { database: h.database,
       mocks: { '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async request => withUploadedManual(verified, request.manual) } } });
-    await screen.change('メーカー名', 'Dyson'); await screen.change('製品名', 'V12'); await screen.change('型番', 'SV20'); await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用・解析・共有できることを確認した'); await screen.press('選択したPDFを解析');
+    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('PDFを解析');
     await screen.change('フィルターを洗うの周期', '17'); await screen.press('周期の変更を保存');
     const snapshot = await repository.loadPlannerSnapshot(h.database);
     assert.equal(snapshot.chores.find((chore) => chore.applianceId).userIntervalDays, 17);

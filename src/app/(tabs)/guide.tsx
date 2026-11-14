@@ -9,7 +9,6 @@ import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { GuideChapterActions } from '@/features/chores/guide-chapter-actions';
 import { ChoreBook } from '@/components/chore-book';
 import { ChoreGuide } from '@/features/chores/chore-guide';
 import { groupChores } from '@/domain/chores/chore-groups';
@@ -117,7 +116,7 @@ function PersonalChoreGuideScreen() {
   }
 
   if (!selectedChoreId) return <SafeAreaView style={{ flex: 1 }} edges={['top']}><ChoreLibrary chores={chores} onOpen={selectChoreFromList} state={libraryState}
-    footer={<AppButton title="家事を追加" accessibilityLabel="新しい個人家事を追加" variant="secondary" onPress={() => router.push('/settings/add-chore')} />}
+    footer={<AppButton title="家事を追加" accessibilityLabel="新しい個人家事を追加" onPress={() => router.push('/settings/add-chore')} />}
     header={<><ScreenHeading title="家事一覧" />{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}</>}
     triviaCount={triviaItems.length} onTrivia={() => { setSearchText(''); setIsTriviaCollectionOpen(true); }} /></SafeAreaView>;
 
@@ -127,7 +126,6 @@ function PersonalChoreGuideScreen() {
       <ChoreGuide chore={chore} mode={snapshot.settings.frequencyMode} cadenceLabel={snapshot.personalCadences?.[chore.id]?.label} procedureAction={<ChorePlanToggle name={chore.name} enabled={chore.enabled} requiresCycleSelection={chore.requiresCycleSelection}
         onConfigure={() => router.push({ pathname: '/chores/[id]', params: { id: chore.id, source: 'personal' } })}
         retryRead={async () => { await refresh(); return !readError(); }} save={async enabled => { await setChoresEnabled(database, [chore.id], enabled); await refresh(); return { refreshed: !readError() }; }} />} />
-      <GuideChapterActions choreId={chore.id} snapshot={snapshot} database={database} refresh={refresh} personalSource={personalSource} />
     </View>} />;
 
 }

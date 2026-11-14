@@ -13,7 +13,8 @@ import { frameAtOperation } from './authority-context.ts';
 import { nextV2CommonOccurrence } from './next-occurrence.ts';
 import { cancellationScopeMatches } from './date-cancellations.ts';
 import { v2CancellationProposal, v2CancellationSelector } from './cancellation-proposal.ts';
-import { v2DatePermissionId, v2SubjectOccurrenceId } from './occurrence-id.ts';
+import { v2DatePermissionId, v2SubjectOccurrenceId, v2OccurrenceId } from './occurrence-id.ts';
+import { checkedChoreCalendarTiming, choreCalendarSpan, type ChoreCalendarTiming } from '../../../domain/chores/calendar-timing.ts';
 import { recordedInstructionAt } from './recorded-instruction.ts';
 import { buildV2CommonPlan } from './common-plan.ts';
 import { v2CompletionHistory } from './completion-history.ts';
@@ -111,12 +112,12 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
     return frameAtOperation(state.assessment.view, state.archive, at, ref.choreId, next.anchorDate, next.ruleVersion, { allowAssignmentConflict });
   }
   function datePlacementReview(state: State, ref: V2RoundReference, target: DateTarget, plan = buildV2CommonPlan(state,
-    { from: ref.anchorDate, through: ref.anchorDate, asOfDate: ref.anchorDate })) {
+    { from: ref.anchorDate, through: ref.anchorDate, asOfDate: ref.anchorDate }), proposedAssignees?: readonly string[]) {
     const civil = targetCivilDate(target, plan.timeZone);
     const subject = plan.occurrences.find((round) => round.choreId === ref.choreId && round.anchorDate === ref.anchorDate)?.subjects.find((slot) => slot.subjectUserId === ref.subjectUserId);
     const targetPlan = buildV2CommonPlan(state, { from: addDays(civil, -14), through: addDays(civil, 14), asOfDate: ref.anchorDate });
     const loads = new Map(targetPlan.chores.map((chore) => [chore.id, chore.load])); const load = loads.get(ref.choreId);
-    const assignees = subject?.assigneeIds ?? frame(state, ref).assigneeIds;
+    const assignees = proposedAssignees ?? subject?.assigneeIds ?? frame(state, ref).assigneeIds;
     let count = 0;
     for (const round of targetPlan.occurrences) for (const slot of round.subjects) {
       if (slot.id === subject?.id || !slot.required || slot.completed || slot.suggestedDate !== civil || loads.get(round.choreId) !== load) continue;
@@ -194,6 +195,25 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
   }
   const configureFields = (choreId: string, edits: readonly NonNullable<V2ConfigurationFieldEdit>[], effectiveFrom: LocalDate) =>
     repository.commitCurrent(async (state) => configurationFieldDrafts(state, choreId, edits, effectiveFrom));
+  function calendarTimeDrafts(state: State, choreId: string, configuration: SharedChoreConfiguration, source?: ChoreCalendarTiming): SharedOperationDraft[] {
+    if (!source) return [];
+    const timing = checkedChoreCalendarTiming(source); const zone = state.assessment.view.field('settings', 'settings', 'timeZone', point(state))?.value;
+    if (timing.timeZone !== zone) throw new V2StaleSettingsError();
+    if (timing.allDay) return [];
+    const span = choreCalendarSpan(configuration.anchorDate, timing);
+    const target = validateDesignationTarget('fixed', { precision: 'interval', start: new Date(span.start).toISOString(), end: new Date(span.end).toISOString() });
+    const subjects = configuration.policy.completion !== 'perMember' ? [null]
+      : configuration.policy.assignment.mode === 'all' ? configuration.targetMemberIds ?? state.archive.at(-1)!.body.members.map(member => member.userId)
+        : configuration.policy.assignment.memberIds;
+    return subjects.map(subjectUserId => {
+      const operation = draft('designation', null, {});
+      return { ...operation, payload: json({ configuration: { id: operation.operationId, choreId, subjectUserId,
+        selector: configuration.once ? { scope: 'once', occurrenceId: v2OccurrenceId(scope.groupId, choreId, configuration.anchorDate), anchorDate: configuration.anchorDate }
+          : { scope: 'ongoing', from: configuration.effectiveFrom ?? configuration.anchorDate },
+        referenceAnchorDate: configuration.anchorDate, timeZoneAtCreation: timing.timeZone, mode: 'fixed', target,
+        strict: false, adminLocked: false, forbidEarlier: false, issuerUserId: scope.userId, ruleVersion: configuration.ruleVersion } }) };
+    });
+  }
   function assignmentCancellations(state: State, ids: readonly string[]): SharedOperationDraft[] {
     const at = point(state); const view = state.assessment.view; const cancelled = observedV2AssignmentCancellations(view, at);
     const sources = [...new Set(ids.map((id) => {
@@ -211,10 +231,11 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
     addChore: (name: string, instructions: string[] = []) => {
       const id = options.makeId(); return repository.commit([draft('chore', id, { name: name.trim(), category: '追加した家事', instructions, enabled: false })]);
     },
-    addConfiguredChore: (name: string, intervalDays: number, policy: SharedChoreConfiguration['policy'], selected: CustomChoreOptions & { startDate?: LocalDate; monthly?: boolean } = {}) => {
+    addConfiguredChore: (name: string, intervalDays: number, policy: SharedChoreConfiguration['policy'], selected: CustomChoreOptions & { startDate?: LocalDate; monthly?: boolean; once?: boolean; calendarTiming?: ChoreCalendarTiming } = {}) => {
       const value = customChoreInput(name, intervalDays); const settings = customChoreOptions(selected); const id = options.makeId();
       if (selected.startDate !== undefined) parseLocalDate(selected.startDate);
       if (selected.monthly !== undefined && typeof selected.monthly !== 'boolean') throw new Error('繰り返しを確認してください。');
+      if (selected.once !== undefined && typeof selected.once !== 'boolean' || selected.once && selected.monthly) throw new Error('繰り返しを確認してください。');
       return repository.commitCurrent(async state => {
         if (scope.userId !== state.archive.at(-1)!.body.ownerUserId) throw new Error('周期・担当を指定して追加できるのは管理者です。');
         const zone = state.assessment.view.field('settings', 'settings', 'timeZone', point(state))?.value;
@@ -222,9 +243,9 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
         const today = sharedLocalDate(options.now(), zone);
         const start = selected.startDate ?? today;
         const configuration = prepareV2ConfigurationEdit({ view: state.assessment.view, archive: state.archive, at: point(state), choreId: id,
-          value: { policy, intervalDays: value.intervalDays, ...(selected.monthly ? { monthly: true } : {}), anchorDate: start, effectiveFrom: start > today ? start : today, active: true, windowBeforeDays: settings.windowBeforeDays, windowAfterDays: settings.windowAfterDays } });
+          value: { policy, intervalDays: value.intervalDays, ...(selected.monthly ? { monthly: true } : {}), ...(selected.once ? { once: true } : {}), anchorDate: start, effectiveFrom: selected.once || start > today ? start : today, active: true, windowBeforeDays: settings.windowBeforeDays, windowAfterDays: settings.windowAfterDays } });
         return [draft('chore', id, { name: value.name, category: '追加した家事', instructions: settings.instructions, load: settings.load, holidayPriority: settings.holidayPriority, estimatedMinutes: settings.estimatedMinutes, enabled: true }),
-          draft('chorePolicy', id, { configuration })];
+          draft('chorePolicy', id, { configuration }), ...calendarTimeDrafts(state, id, configuration, selected.calendarTiming)];
       });
     },
     patchChoreDetails: async (choreId: string, edits: readonly V2FieldEdit[]): Promise<V2FieldSaveResult> => {
@@ -268,10 +289,11 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
         return operations;
       });
     },
-    configureChore: (choreId: string, value: Omit<SharedChoreConfiguration, 'ruleVersion'>, edit: { expectedRuleVersion?: number; preserveAssignments?: boolean; resolveConfigurationIds?: string[] } = {}) => repository.commitCurrent(async (state) => {
+    configureChore: (choreId: string, value: Omit<SharedChoreConfiguration, 'ruleVersion'>, edit: { expectedRuleVersion?: number; preserveAssignments?: boolean; resolveConfigurationIds?: string[]; calendarTiming?: ChoreCalendarTiming } = {}) => repository.commitCurrent(async (state) => {
+      if (edit.calendarTiming && scope.userId !== state.archive.at(-1)!.body.ownerUserId) throw new Error('日時を指定して設定できるのは管理者です。');
       const configuration = prepareV2ConfigurationEdit({ view: state.assessment.view, archive: state.archive, at: point(state), choreId, value, ...edit });
       return [draft('chorePolicy', choreId, { configuration }), draft('chore', choreId, { enabled: value.active !== false, requiresCycleSelection: false }),
-        ...(value.active !== false ? excludeAlternatives(state, choreId, configuration.effectiveFrom ?? configuration.anchorDate) : [])];
+        ...(value.active !== false ? excludeAlternatives(state, choreId, configuration.effectiveFrom ?? configuration.anchorDate) : []), ...calendarTimeDrafts(state, choreId, configuration, edit.calendarTiming)];
     }),
     patchChoreConfiguration: (choreId: string, baseRuleVersion: number, patch: V2ConfigurationPatch, effectiveFrom: LocalDate) => configureFields(choreId,
       Object.entries(patch).map(([field, value]) => ({ field, value, baseRuleVersion }) as NonNullable<V2ConfigurationFieldEdit>), effectiveFrom),
@@ -300,6 +322,7 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
           result.push(...configurationFieldDrafts(state, choreId, [
             { field: 'intervalDays', value: cycle, baseRuleVersion: current.ruleVersion },
             ...(Object.hasOwn(current, 'monthly') ? [{ field: 'monthly' as const, value: !defaults && initial?.monthly === true, baseRuleVersion: current.ruleVersion }] : []),
+            ...(Object.hasOwn(current, 'once') ? [{ field: 'once' as const, value: !defaults && initial?.once === true, baseRuleVersion: current.ruleVersion }] : []),
             { field: 'windowBeforeDays', value: before, baseRuleVersion: current.ruleVersion },
             { field: 'windowAfterDays', value: after, baseRuleVersion: current.ruleVersion },
           ], from));
@@ -457,10 +480,18 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
     changeDate: (ref: V2RoundReference, input: { mode: DesignationMode; target: DateTarget; selector?: RuleSelector; options?: Partial<DesignationOptions>;
       extensionScope?: 'once' | 'future'; reviewedRequestIds?: string[]; expectedRuleIds?: string[]; confirmDateConflict?: boolean;
       expectedAssigneeIds?: readonly string[]; expectedAssignmentIds?: readonly string[]; expectedConflictIds?: readonly string[]; expectedRequestReviewIds?: readonly string[];
-      confirmRecentWork?: boolean; confirmHighLoad?: boolean }) => repository.commitCurrent(async (state) => {
+      confirmRecentWork?: boolean; confirmHighLoad?: boolean; assigneeIds?: readonly string[]; expectedClaimIds?: readonly string[] }) => repository.commitCurrent(async (state) => {
       const context = frame(state, ref); expectAssignment(context, input);
       if (input.expectedAssigneeIds && !sameIds(input.expectedAssigneeIds, ref.subjectUserId === null ? context.assigneeIds : [ref.subjectUserId])) throw new V2StaleSettingsError();
       const view = state.assessment.view; const at = point(state);
+      const assignmentChanged = input.assigneeIds !== undefined && !sameIds(input.assigneeIds, context.assigneeIds);
+      if (assignmentChanged) {
+        if (scope.userId !== state.archive.at(-1)!.body.ownerUserId || ref.subjectUserId !== null || context.config.policy.completion !== 'one') throw new Error('この回の担当を変更する権限を確認してください。');
+        if (!input.expectedAssigneeIds || !input.expectedAssignmentIds || !input.expectedConflictIds || !input.expectedClaimIds) throw new V2StaleSettingsError();
+        const members = new Set(state.archive.at(-1)!.body.members.map(member => member.userId));
+        if (new Set(input.assigneeIds).size !== input.assigneeIds!.length || input.assigneeIds!.some(id => !members.has(id))) throw new Error('担当者を選び直してください。');
+        if (context.assignmentConflictIds.length || context.claims.activeClaimOperationIds.length) throw new Error('担当の申請・引き受け状況を確認してから変更してください。');
+      }
       const zone = view.field('settings', 'settings', 'timeZone', at)?.value as string;
       const target = validateDesignationTarget(input.mode, input.target);
       const rules = observedDateRules(view, at, state.assessment.formalRulesAt(at)); const selected = selectManualRule(rules, context.frame, ref.subjectUserId, zone);
@@ -478,7 +509,7 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
       const civil = targetCivilDate(target, zone);
       if (subject?.dependencyNotBefore && civil < subject.dependencyNotBefore) throw new Error('先に必要な家事の実施日より後を指定してください。');
       if (subject?.dependencyBlocked && !subject.dependencyNotBefore) throw new Error('先に必要な家事の予定を確認してください。');
-      const placement = datePlacementReview(state, ref, target, plan);
+      const placement = datePlacementReview(state, ref, target, plan, assignmentChanged ? input.assigneeIds : undefined);
       if (placement.recentWork) {
         if (!input.confirmRecentWork) throw new V2ActionConfirmationError('recentWork'); proposedOptions.allowDuringCooldown = true;
       }
@@ -492,11 +523,16 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
         { receipts: state.receipts, epochs: state.assessment.receiptEpochs }).permission;
       if (permission.kind === 'denied') throw new Error(permission.reason === 'fixedConflict' ? 'この時間帯は別の家事を行う必要があります。別の時間帯を指定してください'
         : permission.reason === 'dependency' ? '先に必要な家事の実施日時を確認してください。' : 'この日時を変更する権限を確認してください。');
-      if (permission.kind !== 'allowed' || permission.needsRequest || input.extensionScope === 'future') return [request];
+      if (permission.kind !== 'allowed' || permission.needsRequest || input.extensionScope === 'future') {
+        if (assignmentChanged) throw new Error('日時の承認が必要です。日時と担当を分けて申請してください。');
+        return [request];
+      }
       return [{ ...request, entityType: 'designation', payload: json({ configuration: { id: request.operationId, choreId: ref.choreId, subjectUserId: ref.subjectUserId,
         selector, referenceAnchorDate: ref.anchorDate, timeZoneAtCreation: zone, mode: input.mode, target, ...proposedOptions,
         issuerUserId: scope.userId, ruleVersion: ref.ruleVersion, ...(basisRuleIds.length ? { basisRuleIds } : {}),
-        ...(input.reviewedRequestIds?.length ? { reviewedRequestIds: input.reviewedRequestIds } : {}) } }) }];
+        ...(input.reviewedRequestIds?.length ? { reviewedRequestIds: input.reviewedRequestIds } : {}) } }) },
+        ...(assignmentChanged ? [draft('assignmentRule', null, { choreId: ref.choreId, fromOccurrenceId: context.frame.id, fromAnchorDate: context.frame.anchorDate,
+          scope: 'once', memberIds: [...input.assigneeIds!], fixed: true, ruleVersion: context.config.ruleVersion, basisRuleIds: context.assignmentOperationIds })] : [])];
     }),
     decide: (requestId: string, decision: 'approve' | 'reject' | 'counteroffer' | 'acceptCounteroffer', target: DateTarget | null = null, referenceDecisionId: string | null = null, edit: V2DateDecisionEdit = {}) =>
       repository.commitCurrent(async (state) => {

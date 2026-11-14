@@ -12,14 +12,15 @@ import { v2TargetLabel } from './target-form';
 import { isTaskUrgent } from '../../../domain/scheduling/task-priority';
 import type { CompletionFeedback } from './completion-feedback';
 import { v2BacklogTarget } from './backlog-target';
+import { calendarChoreTimeLabel } from '../../calendar/chore-time-label';
 
-export function V2RoundCard({ model, round: displayedRound, subject: displayedSubject, actions, busy, run, onOpen, onDate, onAssignment, onPast, onAssignmentRequest, showActions = false, recommendation: displayedRecommendation, feedback, home = false, compact = false }: {
+export function V2RoundCard({ model, round: displayedRound, subject: displayedSubject, actions, busy, run, onOpen, onDate, onAssignment, onPast, onAssignmentRequest, showActions = false, recommendation: displayedRecommendation, feedback, home = false, compact = false, showCalendarTime = false }: {
   model: V2GroupScreenModel; round: V2PlannedOccurrence; subject: V2SubjectPlan; actions: V2GroupController['actions']; busy: boolean;
   run: (work: () => Promise<unknown>) => Promise<void>; onOpen: () => void; onDate?: () => void; onAssignment?: () => void;
   onPast?: () => void; onAssignmentRequest?: () => void; showActions?: boolean;
   recommendation?: V2Recommendation;
   feedback?: CompletionFeedback;
-  home?: boolean; compact?: boolean;
+  home?: boolean; compact?: boolean; showCalendarTime?: boolean;
 }) {
   const { round, subject } = showActions ? { round: displayedRound, subject: displayedSubject } : v2BacklogTarget(model.plan.occurrences, displayedRound, displayedSubject, model.plan.range.asOfDate);
   const recommendation = subject.id === displayedSubject.id ? displayedRecommendation : undefined;
@@ -97,12 +98,15 @@ export function V2RoundCard({ model, round: displayedRound, subject: displayedSu
       </View>
     </View> : undefined;
   return <TaskCheckboxRow chore={{ ...chore, householdId: '', category }} completed={displayCompleted} home={home} compact={compact} detail={home ? [category, formal.kind === 'manual' ? v2TargetLabel(formal.target, formal.timeZone) : ''].filter(Boolean).join(' · ') : undefined}
+      calendarTimeLabel={showCalendarTime && formal.kind === 'manual' && formal.mode === 'fixed' && formal.target.precision === 'interval'
+        ? calendarChoreTimeLabel({ start: Date.parse(formal.target.start), end: Date.parse(formal.target.end) }, model.plan.timeZone) : undefined}
       sourceIcon={subject.subjectUserId === null ? 'person' : 'group'} footer={footer}
       action={canClaim ? <View style={styles.claim}><AppButton title="担う" compact variant="quiet" disabled={busy} onPress={() => run(() => actions.claim(ref))} /></View> : undefined}
       source={formal.kind === 'manual' ? 'instructed' : 'shared'}
       executionWindow={{ start: recordedWindow?.windowStart ?? subject.executionWindowStart, end: recordedWindow?.windowEnd ?? subject.executionWindowEnd }}
       urgent={isTaskUrgent({ completed: displayCompleted, load: chore.load, recommendedDate, windowStart: subject.executionWindowStart, windowEnd: subject.executionWindowEnd }, model.plan.range.asOfDate)}
-      deemphasized={subject.cooldownSuppressed || subject.virtuallyConsumed} onOpen={onOpen} onToggle={onToggle} />;
+      deemphasized={subject.cooldownSuppressed || subject.virtuallyConsumed} onOpen={onOpen} onToggle={onToggle}
+      onChangeDate={compact && !displayCompleted ? onDate : undefined} />;
 }
 const styles = StyleSheet.create({
   claim: { borderWidth: 1, borderColor: palette.border, borderRadius: 10, minWidth: 48 },

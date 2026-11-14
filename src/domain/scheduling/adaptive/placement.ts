@@ -16,6 +16,11 @@ export interface AdaptiveRoundPlacement {
   basicWindow: { from: LocalDate; through: LocalDate } | null;
   displayedWindow: { from: LocalDate; through: LocalDate } | null;
   slot: InstantSpan | null; fallback: boolean;
+  /** Explicit calendar placement stays fixed until its round is completed or edited. */
+  manualDate?: LocalDate;
+  /** An explicit user-entered interval, unlike a hidden allocation slot. */
+  manualTime?: true;
+  calendarTimeIssue?: true;
 }
 export interface AdaptivePlacementTask {
   id: string; choreId: string; baseDate: LocalDate; periodDays: number; minutes: number | null; load: ChoreLoad;

@@ -20,14 +20,14 @@ async function setup() {
 }
 function deferred() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
 async function open(c, platform) {
-  const effects = []; const cleanups = []; let focus; let backs = 0;
+  const effects = []; const cleanups = []; let focus; let backs = 0; let appState;
   const props = { model: await source(c), choreId: 'floor', controller: c, onBack: () => { backs++; }, onSaved: async () => { props.model = await source(c); } };
   const screen = screenHarness('src/features/sharing/v2-ui/date-rights-editor.tsx', { exportName: 'V2DateRightsEditor', platform, props,
-    effect: callback => effects.push(callback), focusEffect: callback => { focus = callback; } });
+    effect: callback => effects.push(callback), focusEffect: callback => { focus = callback; }, appStateListener: listener => { appState = listener; } });
   const commit = () => { for (const effect of effects.splice(0)) { const cleanup = effect(); if (typeof cleanup === 'function') cleanups.push(cleanup); } };
   const settle = async predicate => { for (let n = 0; n < 40; n++) { commit(); await screen.flush(); if (!predicate || predicate()) return; } assert.fail(screen.text()); };
   const leave = focus?.(); await settle();
-  return { props, screen, commit, settle, backs: () => backs, nameOf: id => v2MemberLabels(props.model.plan.members)(id),
+  return { props, screen, commit, settle, flushPending: () => appState?.('background'), backs: () => backs, nameOf: id => v2MemberLabels(props.model.plan.members)(id),
     close: async () => { if (screen.text().includes('入力を最新の権限に戻す')) await screen.press('入力を最新の権限に戻す'); leave?.(); for (const cleanup of cleanups) cleanup(); await screen.flush(); } };
 }
 const control = (ui, label) => { const node = ui.screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === label); assert.ok(node, label); return node; };
@@ -69,7 +69,7 @@ for (const platform of ['ios', 'android']) {
       await expand(ui); const old = control(ui, `${ui.nameOf('member')}への権限を有効にする`);
       await f.c.actions.patchGroupPolicy({ allowSubstitution: false }); const before = await listSharingOutbox(f.d.database, groupId);
       ui.props.model = await source(f.c); ui.screen.render(); ui.commit(); old.props.onValueChange(true);
-      await ui.screen.press('戻る'); await ui.settle(() => ui.screen.text().includes('別の変更が届いています'));
+      ui.flushPending(); await ui.settle(() => ui.screen.text().includes('別の変更が届いています'));
       assert.equal(ui.backs(), 0); assert.equal((await source(f.c)).dateRights.fields.member.kind, 'missing');
       assert.deepEqual(await listSharingOutbox(f.d.database, groupId), before);
     } finally { await ui.close(); f.close(); }
@@ -80,7 +80,7 @@ for (const platform of ['ios', 'android']) {
     const delayed = { ...f.c, actions: { ...f.c.actions, editDateRights: async (...args) => { entered.resolve(); await release.promise; return f.c.actions.editDateRights(...args); } } };
     try {
       ui = await open(delayed, platform); await expand(ui); const before = await listSharingOutbox(f.d.database, groupId);
-      control(ui, `${ui.nameOf('member')}への権限を有効にする`).props.onValueChange(true); await ui.screen.press('戻る'); await entered.promise;
+      control(ui, `${ui.nameOf('member')}への権限を有効にする`).props.onValueChange(true); ui.flushPending(); await entered.promise;
       f.f.archive.push(removeSharedMembers(f.f.archive.at(-1), f.f.owner, ['member']));
       ui.props.model = await source(f.c); ui.screen.render(); await ui.settle(); release.resolve();
       await ui.settle(() => ui.screen.text().includes('別の変更が届いています')); assert.match(ui.screen.text(), /参加状態が変わった/u);
@@ -141,7 +141,7 @@ for (const platform of ['ios', 'android']) {
     const delayed = { ...f.c, actions: { ...f.c.actions, editDateRights: async (...args) => { entered.resolve(); await release.promise; return f.c.actions.editDateRights(...args); } } };
     try {
       ui = await open(delayed, platform); await expand(ui); const before = await listSharingOutbox(f.d.database, groupId);
-      control(ui, `${ui.nameOf('member')}への権限を有効にする`).props.onValueChange(true); await ui.screen.press('戻る'); await entered.promise;
+      control(ui, `${ui.nameOf('member')}への権限を有効にする`).props.onValueChange(true); ui.flushPending(); await entered.promise;
       f.f.archive.push(removeSharedMembers(f.f.archive.at(-1), f.f.owner, ['member']));
       f.f.archive.push(approveSharedDevice(f.f.archive.at(-1), f.f.owner, 'member', f.f.member));
       ui.props.model = await source(f.c); ui.screen.render(); await ui.settle(); release.resolve();

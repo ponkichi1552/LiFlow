@@ -28,7 +28,7 @@ export function nextLongCalendarRounds(input: {
     const choices: { round: V2PlannedOccurrence; date: LocalDate }[] = [];
     for (const slice of input.timeline(chore.id)) {
       const cfg = slice.configuration;
-      if (!cfg || cfg.active === false || cfg.monthly || cfg.intervalDays < 90) continue;
+      if (!cfg || cfg.active === false || cfg.monthly || !cfg.once && cfg.intervalDays < 90) continue;
       const searches: { near: LocalDate; from: LocalDate; through: LocalDate | null }[] = [{ near: today, from: slice.from, through: slice.through }];
       for (const { rule } of input.dateRules ?? []) if (rule.choreId === chore.id && rule.ruleVersion === cfg.ruleVersion) {
         if (rule.selector.scope === 'once') searches.push({ near: rule.selector.anchorDate, from: rule.selector.anchorDate, through: rule.selector.anchorDate });
@@ -41,11 +41,11 @@ export function nextLongCalendarRounds(input: {
         } catch { /* The common plan retains the invalid-time/date-rule review. */ }
       }
       for (const search of searches) {
-        let index = Math.max(0, Math.floor(daysBetween(cfg.anchorDate, search.near) / cfg.intervalDays), Math.ceil(daysBetween(cfg.anchorDate, search.from) / cfg.intervalDays));
+        let index = cfg.once ? 0 : Math.max(0, Math.floor(daysBetween(cfg.anchorDate, search.near) / cfg.intervalDays), Math.ceil(daysBetween(cfg.anchorDate, search.from) / cfg.intervalDays));
         // Missing a deadline never creates a completion. Query the next genuine
         // frame with the full authority, dependency and date-rule inputs intact.
-        for (let attempt = 0; attempt < 32; attempt++, index++) {
-          let anchor: LocalDate; try { anchor = addDays(cfg.anchorDate, index * cfg.intervalDays); } catch { break; }
+        for (let attempt = 0; attempt < (cfg.once ? 1 : 32); attempt++, index++) {
+          let anchor: LocalDate; try { anchor = cfg.once ? cfg.anchorDate : addDays(cfg.anchorDate, index * cfg.intervalDays); } catch { break; }
           if (search.through && anchor > search.through || slice.through && anchor > slice.through || anchor < slice.from) break;
           const identity = key(chore.id, anchor, cfg.ruleVersion);
           let round = current.get(identity);

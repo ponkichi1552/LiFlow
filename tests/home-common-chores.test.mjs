@@ -211,7 +211,9 @@ for (const platform of ['ios', 'android']) test(`${platform} common home uses on
     assert.deepEqual(await listSharingOutbox(shared.database, shared.scope.groupId), afterGroup);
     await screen.press('直前の完了を元に戻す');
     await screen.press(`${privateLabel}の説明を開く`);
-    assert.equal(navigation.at(-1)[1].params.source, 'personal');
+    assert.equal(navigation.at(-1)[1].pathname, '/(tabs)/guide');
+    assert.equal(navigation.at(-1)[1].params.choreId, extra.id);
+    assert.equal(navigation.at(-1)[1].params.returnTo, 'home');
     assert.deepEqual(h.connection.prepare('SELECT id,enabled,definition_json FROM chore_definitions ORDER BY id').all(), definitions);
     await repository.updateChoreDefinition(shared.database, { ...snapshot.chores.find(chore => chore.name === h.personal.name), enabled: false });
     snapshot = await shared.read(); screen.render();

@@ -1,5 +1,5 @@
 {
-  "version": "liflow-shared-2-draft-55",
+  "version": "liflow-shared-2-draft-56",
   "timeZoneVersion": "2026e",
   "sourceFiles": [
     "src/features/sharing/v2/model.ts",
@@ -131,7 +131,9 @@
     "src/domain/chores/settings-patch.ts",
     "src/features/sharing/v2/rotation-progress.ts",
     "src/features/sharing/v2/rotation.ts",
-    "src/features/sharing/v2/cadence.ts"
+    "src/features/sharing/v2/cadence.ts",
+    "src/domain/chores/calendar-timing.ts",
+    "src/domain/chores/personal-schedule.ts"
   ],
-  "sourceSha256": "b777e785612c71b845c75f19f2c23adf2a1c3aa6aa0aac6f31b3541e77b2d86c"
+  "sourceSha256": "e9589db27e90d1e634247a13831ce26c85988cedf37720b61c8c515627c8d744"
 }

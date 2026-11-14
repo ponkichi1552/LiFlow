@@ -86,12 +86,13 @@ export function authorizeSharedCalendarOperation(view: V2HistoryView, operation:
       return old && (old.startDate !== value.startDate || old.recurrence !== value.recurrence || old.untilDate !== value.untilDate
         || JSON.stringify(old.customRecurrence) !== JSON.stringify(value.customRecurrence));
     });
-    if (changed && !equalIds(exceptionIds, payload.resetExceptionIds)) fail();
+    if (changed && payload.resetExceptionIds.length && !equalIds(exceptionIds, payload.resetExceptionIds)) fail();
   }
   if (payload.scope === 'one') {
     if (current.heads.length !== 1 || body(current.heads[0]).value === null) fail();
     const source = body(current.heads[0]).value!;
-    if (!isCalendarAnchor({ ...source, id: current.id, revision: 1 }, payload.anchorDate!)) fail();
+    if (!view.observed(view.calendarFactsFor(payload.eventId), operation).some(row => body(row).scope === 'one' && body(row).anchorDate === payload.anchorDate)
+      && !isCalendarAnchor({ ...source, id: current.id, revision: 1 }, payload.anchorDate!)) fail();
 
   }
 }

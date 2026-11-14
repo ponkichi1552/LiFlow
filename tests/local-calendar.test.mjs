@@ -8,7 +8,7 @@ import { calendarEventsInTimeZone, calendarMonth, dateInMonth, indexCalendarOccu
 import { addDays } from '../src/domain/scheduling/local-date.ts';
 import { calendarSwipe, timelineEvents } from '../src/features/calendar/layout.ts';
 const { initializeLocalDatabase, loadPlannerSnapshot } = await import('../src/platform/storage/repository.ts');
-const { deleteCalendarEvent, readLocalCalendar, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent, subscribeLocalCalendar } = await import('../src/platform/storage/calendar-events.ts');
+const { deleteCalendarEvent, readLocalCalendar, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent, subscribeLocalCalendar, restoreCalendarOccurrence } = await import('../src/platform/storage/calendar-events.ts');
 
 const draft = (patch = {}) => ({ ...newEventDraft('2026-10-30', 'Asia/Tokyo'), title: '授業', ...patch });
 const event = (patch = {}) => ({ ...draft(patch), id: 'event.test', revision: 1 });
@@ -133,15 +133,35 @@ test('local calendar SQLite CRUD CAS exceptions and drafts survive reopen while 
   await deleteCalendarEvent(h.database, { id, expectedRevision: 1 }); assert.equal((await readLocalCalendar(h.database)).events.length, 0);
   assert.equal(h.connection.prepare('SELECT deleted FROM calendar_events WHERE id=?').get(id).deleted, 1);
 });
-test('local calendar concurrent saves reject stale revisions and series rule changes require explicit exception reset', async t => {
+test('local calendar concurrent saves reject stale revisions and series rule changes preserve exceptions by default', async t => {
   const h = await fixture(t); const id = await saveCalendarEvent(h.database, { expectedRevision: 0, value: draft({ recurrence: 'weekly' }) });
   const attempts = await Promise.allSettled(['A', 'B'].map(title => saveCalendarEvent(h.database, { id, expectedRevision: 1, value: draft({ title, recurrence: 'weekly' }) })));
   assert.equal(attempts.filter(row => row.status === 'fulfilled').length, 1);
   await saveCalendarEvent(h.database, { id, expectedRevision: 2, scope: 'one', anchorDate: '2026-11-06', value: draft() });
-  await assert.rejects(saveCalendarEvent(h.database, { id, expectedRevision: 2, value: draft({ recurrence: 'biweekly' }) }), /個別/);
+  await saveCalendarEvent(h.database, { id, expectedRevision: 2, value: draft({ recurrence: 'biweekly' }) });
   assert.equal((await readLocalCalendar(h.database)).exceptions.length, 1);
-  await saveCalendarEvent(h.database, { id, expectedRevision: 2, value: draft({ recurrence: 'biweekly' }), resetExceptions: true });
-  assert.equal((await readLocalCalendar(h.database)).exceptions.length, 0); assert.equal((await readLocalCalendar(h.database)).events[0].revision, 3);
+  await saveCalendarEvent(h.database, { id, expectedRevision: 3, value: draft({ recurrence: 'monthly' }), resetExceptions: true });
+  assert.equal((await readLocalCalendar(h.database)).exceptions.length, 0); assert.equal((await readLocalCalendar(h.database)).events[0].revision, 4);
+});
+test('local series moves carry exception slots while retaining their dates and single-move undo removes only its new exception without ABA', async t => {
+  const h = await fixture(t); const value = draft({ recurrence: 'weekly' });
+  const id = await saveCalendarEvent(h.database, { expectedRevision: 0, value });
+  const explicit = draft({ title: '個別変更', startDate: '2026-11-08', endDate: '2026-11-08' });
+  await saveCalendarEvent(h.database, { id, expectedRevision: 1, scope: 'one', anchorDate: '2026-11-06', value: explicit });
+  await saveCalendarEvent(h.database, { id, expectedRevision: 1, value: { ...value, startDate: '2026-10-31', endDate: '2026-10-31' } });
+  let saved = await readLocalCalendar(h.database);
+  assert.equal(saved.exceptions[0].anchorDate, '2026-11-07'); assert.deepEqual(saved.exceptions[0].override, explicit);
+  let rows = projectCalendarEvents(saved.events, saved.exceptions, '2026-11-01', '2026-11-15');
+  assert.equal(rows.filter(row => row.startDate === '2026-11-08').length, 1); assert.ok(!rows.some(row => row.startDate === '2026-11-07'));
+  await saveCalendarEvent(h.database, { id, expectedRevision: 2, scope: 'one', anchorDate: '2026-11-14', value: draft({ startDate: '2026-11-15', endDate: '2026-11-15' }) });
+  await restoreCalendarOccurrence(h.database, { eventId: id, revision: 2, exceptionRevision: 1, anchorDate: '2026-11-14', scope: 'one', value });
+  saved = await readLocalCalendar(h.database); assert.equal(saved.events[0].revision, 3); assert.equal(saved.exceptions.length, 1);
+  assert.equal(saved.exceptions[0].anchorDate, '2026-11-07');
+  await assert.rejects(saveCalendarEvent(h.database, { id, expectedRevision: 2, scope: 'one', anchorDate: '2026-11-14', expectedExceptionRevision: 0, value }), /別の画面/);
+  await saveCalendarEvent(h.database, { id, expectedRevision: 3, value: { ...saved.events[0], recurrence: 'monthly' } });
+  saved = await readLocalCalendar(h.database); rows = projectCalendarEvents(saved.events, saved.exceptions, '2026-11-01', '2026-11-15');
+  assert.ok(rows.some(row => row.title === '個別変更' && row.startDate === '2026-11-08'));
+  await saveCalendarEvent(h.database, { id, expectedRevision: 4, scope: 'one', anchorDate: '2026-11-07', expectedExceptionRevision: saved.exceptions[0].revision, value: { ...explicit, title: '保持後の編集' } });
 });
 test('saving another calendar event never discards an unrelated new or existing draft', async t => {
   const h = await fixture(t);
@@ -173,7 +193,7 @@ test('birthday and ordinary event drafts remain independent when saved discarded
   const local = { database: h.database, snapshot: await readLocalCalendar(h.database), loading: false, error: null, refresh: async () => {} };
   const screen = screenHarness('src/features/calendar/calendar-editor.tsx', { exportName: 'CalendarEditor', props: { initial: birthday, local, onClose() {}, onSaved() {} } });
   assert.equal(screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '予定名').props.defaultValue, birthday.value.title);
-  await screen.press('入力を破棄'); for (let n = 0; n < 15 && (await readLocalCalendar(h.database)).draft; n++) await screen.flush();
+  await screen.press('予定の編集を閉じる'); await screen.press('入力を破棄'); for (let n = 0; n < 15 && (await readLocalCalendar(h.database)).draft; n++) await screen.flush();
   assert.equal((await readLocalCalendar(h.database)).draft, null);
 });
 test('local classification colors are reused by reference and invalid or duplicate categories never overwrite a saved color', async t => {

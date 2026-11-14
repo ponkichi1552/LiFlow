@@ -86,14 +86,15 @@ for (const platform of ['ios', 'android']) {
     screen.unmount();
   });
   test(`${platform} official holidays annotate the date without an all-day appointment card`, async () => {
-    const holiday = { ...newEventDraft(today, 'Asia/Tokyo'), id: 'holiday', revision: 1, title: '祝日の検査', allDay: true, holiday: true, blocksTime: false, readOnly: true };
+    const holidayDay = '2026-11-03';
+    const holiday = { ...newEventDraft(holidayDay, 'Asia/Tokyo'), id: 'holiday', revision: 1, title: '祝日の検査', allDay: true, holiday: true, blocksTime: false, readOnly: true };
     const trip = { ...holiday, id: 'trip', title: '旅行', holiday: undefined, blocksTime: true, readOnly: false };
     const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
-      today, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, total: 0, pending: 0 }), renderChores: () => null,
+      today: holidayDay, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, total: 0, pending: 0 }), renderChores: () => null,
       local: { database: {}, snapshot: { events: [holiday, trip], exceptions: [], categories: [], draft: null, drafts: [] }, loading: false, error: null, refresh: async () => {} },
     } });
     for (const mode of ['1日表示', '2日表示', 'リスト表示']) {
-      await selectCalendarView(screen, mode); assert.ok(screen.text().includes(holiday.title));
+      await selectCalendarView(screen, mode); assert.ok(screen.text().includes('文化の日')); assert.equal(screen.text().includes(holiday.title), false);
       assert.equal(screen.nodes().some(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel === `${holiday.title}を編集`), false);
       screen.button('旅行を編集');
     }

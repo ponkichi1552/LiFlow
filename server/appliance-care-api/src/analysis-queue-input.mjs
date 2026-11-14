@@ -47,7 +47,8 @@ export function prepareAnalysisQueueInput(request, requestKey, keys, context) {
   if (!validateApplianceCareRequest(request) || !Buffer.isBuffer(request.manual?.bytes)
     || request.manual.bytes.length > MAX_MANUAL_BYTES || analysisRequestKey(request) !== requestKey
     || publicKey(requestKey) !== context.requestDigest) throw new Error('Invalid analysis queue input');
-  const input = { manufacturer: request.manufacturer, productName: request.productName, modelNumber: request.modelNumber,
+  const input = { ...(request.identifyFromManual === true ? { identifyFromManual: true } : {}),
+    ...Object.fromEntries(['manufacturer', 'productName', 'modelNumber'].filter(field => typeof request[field] === 'string').map(field => [field, request[field]])),
     ...(typeof request.category === 'string' ? { category: request.category } : {}),
     manual: { rightsConfirmed: true, base64: request.manual.bytes.toString('base64') } };
   // Check the same canonical PDF envelope again without parsing it on the HTTP thread.
@@ -85,7 +86,7 @@ export function decodeAnalysisQueueInput(manifest, chunks, keys, context) {
     try { bytes = Buffer.concat([partial, decipher.final()]); } finally { partial.fill(0); }
     if (bytes.length !== manifest.bytes || publicKey(bytes) !== manifest.sha256) throw new Error('Corrupt analysis queue input');
     const input = JSON.parse(bytes.toString('utf8'));
-    if (!validateApplianceCareRequest(input) || Object.keys(input).some(key => !['manufacturer', 'productName', 'modelNumber', 'category', 'manual'].includes(key))) throw new Error('Invalid analysis queue product');
+    if (!validateApplianceCareRequest(input) || Object.keys(input).some(key => !['identifyFromManual', 'manufacturer', 'productName', 'modelNumber', 'category', 'manual'].includes(key))) throw new Error('Invalid analysis queue product');
     const request = { ...input, manual: decodeUploadedManual(input.manual) };
     if (publicKey(analysisRequestKey(request)) !== context.requestDigest) throw new Error('Analysis queue identity mismatch');
     return request;

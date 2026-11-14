@@ -13,13 +13,14 @@ test('completion-only calendar and upcoming cards retain their frozen recording 
 
 test('upcoming exact completion matching is linear while preserving first-match and legacy precedence', () => {
   let reads = 0;
-  const entries = Array.from({ length: 800 }, (_, n) => ({ id: `entry-${n}`, householdId: 'home', choreId: 'chore',
+  const chores = Array.from({ length: 800 }, (_, n) => ({ ...chore, id: `chore-${n}` }));
+  const entries = chores.map((row, n) => ({ id: `entry-${n}`, householdId: 'home', choreId: row.id,
     suggestedDate: '2026-11-08', windowStart: '2026-11-08', windowEnd: '2026-11-08' }));
-  const completions = entries.map((entry, n) => ({ id: `done-${n}`, householdId: 'home', choreId: 'chore', scheduleEntryId: entry.id,
+  const completions = entries.map((entry, n) => ({ id: `done-${n}`, householdId: 'home', choreId: entry.choreId, scheduleEntryId: entry.id,
     completedAt: '2026-11-08T09:00:00Z', get outcome() { reads++; return 'completed'; } }));
-  const result = homeUpcomingTasks(entries, completions, '2026-11-08', '2026-11-08', [chore]);
+  const result = homeUpcomingTasks(entries, completions, '2026-11-08', '2026-11-08', chores);
   assert.equal(result.length, 800); assert.ok(result.every((row, n) => row.completion.id === `done-${n}`));
   assert.ok(reads < 5000, `completion reads: ${reads}`);
-  const legacy = { id: 'legacy', householdId: 'home', choreId: 'chore', outcome: 'completed', completedAt: '2026-11-08T08:00Z' };
-  assert.equal(homeUpcomingTasks(entries.slice(0, 1), [legacy, completions[0]], '2026-11-08', '2026-11-08', [chore])[0].completion.id, 'legacy');
+  const legacy = { id: 'legacy', householdId: 'home', choreId: entries[0].choreId, outcome: 'completed', completedAt: '2026-11-08T08:00Z' };
+  assert.equal(homeUpcomingTasks(entries.slice(0, 1), [legacy, completions[0]], '2026-11-08', '2026-11-08', chores)[0].completion.id, 'legacy');
 });

@@ -17,6 +17,7 @@ import { plannerColorsForScheme } from './planner-theme';
 export { typography } from './planner-typography';
 export { palette } from './planner-colors';
 export const navigationHeaderMetrics = { paddingHorizontal: 18, paddingVertical: 6, minHeight: 60 } as const;
+export const navigationActionText = { ...typography.subheading, fontWeight: '700' as const };
 
 export function NavigationHeader({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
   return <View style={[styles.navigationHeader, style]}>{children}</View>;
@@ -79,6 +80,7 @@ export function BackButton({
   accessibilityLabel?: string;
   disabled?: boolean;
 }) {
+  const colors = plannerColorsForScheme(useColorScheme());
   return (
     <Pressable
       accessibilityRole="button"
@@ -86,9 +88,9 @@ export function BackButton({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.backButton, pressed && styles.buttonPressed, disabled && styles.buttonDisabled]}>
-      <Chevron direction="left" />
-      <Text style={styles.backText}>戻る</Text>
+      style={({ pressed }) => [styles.backButton, pressed && !disabled && styles.buttonPressed]}>
+      <Chevron direction="left" color={disabled ? colors.disabled : colors.accent} />
+      <Text style={[styles.backText, { color: disabled ? colors.disabled : colors.accent }]}>戻る</Text>
     </Pressable>
   );
 }
@@ -108,12 +110,16 @@ export function AppButton({
 }: {
   title: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'outline' | 'surface' | 'quiet' | 'danger' | 'dangerText';
+  variant?: 'primary' | 'secondary' | 'outline' | 'surface' | 'neutral' | 'quiet' | 'danger' | 'dangerText';
   disabled?: boolean;
   compact?: boolean;
   accessibilityLabel?: string;
 }) {
   const colors = plannerColorsForScheme(useColorScheme());
+  const textOnly = variant === 'quiet' || variant === 'dangerText';
+  const destructive = variant === 'danger' || variant === 'dangerText';
+  const textColor = disabled ? colors.disabled : destructive ? colors.warning
+    : variant === 'primary' ? colors.accentInk : variant === 'neutral' ? colors.ink : colors.accent;
   return (
     <Pressable
       accessibilityRole="button"
@@ -125,12 +131,13 @@ export function AppButton({
         styles.button,
         compact && styles.buttonCompact,
         styles[`button_${variant}`],
-        (variant === 'outline' || variant === 'surface') && { borderColor: colors.border, backgroundColor: colors.surface },
-        disabled && styles.buttonDisabled,
+        (variant === 'secondary' || variant === 'outline' || variant === 'surface') && { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+        variant === 'neutral' && { borderColor: colors.inputBorder, backgroundColor: colors.surface },
+        disabled && { backgroundColor: textOnly ? 'transparent' : colors.surface, borderColor: colors.border, ...(!textOnly ? { borderWidth: 1 } : {}) },
         pressed && !disabled && styles.buttonPressed,
       ]}>
-      {title === '‹' || title === '›' ? <Chevron direction={title === '‹' ? 'left' : 'right'} />
-        : <Text style={[styles.buttonText, compact && styles.buttonTextCompact, styles[`buttonText_${variant}`], (variant === 'outline' || variant === 'surface') && { color: colors.muted }]}>{title}</Text>}
+      {title === '‹' || title === '›' ? <Chevron direction={title === '‹' ? 'left' : 'right'} color={textColor} />
+        : <Text style={[styles.buttonText, compact && styles.buttonTextCompact, styles[`buttonText_${variant}`], { color: textColor }]}>{title}</Text>}
     </Pressable>
   );
 }
@@ -153,8 +160,9 @@ export function ChoiceChip({
       accessibilityState={{ selected, disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.chip, { borderColor: selected ? colors.accent : colors.border, backgroundColor: selected ? colors.accentSoft : colors.surface }, pressed && styles.buttonPressed]}>
-      <Text style={[styles.chipText, { color: selected ? colors.accent : colors.muted }, selected && { fontWeight: '700' }]}>{label}</Text>
+      style={({ pressed }) => [styles.chip, { borderColor: disabled ? colors.inputBorder : colors.accent,
+        backgroundColor: selected ? disabled ? colors.elevated : colors.accentSoft : colors.surface }, pressed && !disabled && styles.buttonPressed]}>
+      <Text style={[styles.chipText, { color: disabled ? colors.disabled : colors.accent }, selected && { fontWeight: '700' }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -201,17 +209,17 @@ const styles = StyleSheet.create({
   backButton: { alignSelf: 'flex-start', minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingRight: 16, gap: 6 },
   backIcon: { width: 20, height: 24, alignItems: 'center', justifyContent: 'center' },
   backChevron: { width: 11, height: 11, borderLeftWidth: 2.5, borderBottomWidth: 2.5, borderColor: palette.accent, transform: [{ rotate: '45deg' }] },
-  backText: { ...typography.subheading, color: palette.accent, fontWeight: '700' },
+  backText: { ...navigationActionText, color: palette.accent },
   button: { minHeight: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, paddingVertical: 10 },
   buttonCompact: { minHeight: 44, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 12 },
   button_primary: { backgroundColor: palette.accent },
   button_secondary: { backgroundColor: palette.accentSoft },
   button_outline: { borderWidth: 1 },
   button_surface: {},
+  button_neutral: { borderWidth: 1 },
   button_quiet: { backgroundColor: 'transparent' },
   button_danger: { backgroundColor: palette.warningSoft },
   button_dangerText: { backgroundColor: 'transparent' },
-  buttonDisabled: { opacity: 0.45 },
   buttonPressed: { opacity: 0.75 },
   buttonText: { ...typography.control, fontWeight: '700', textAlign: 'center' },
   buttonTextCompact: { ...typography.label },
@@ -219,6 +227,7 @@ const styles = StyleSheet.create({
   buttonText_secondary: { color: palette.accent },
   buttonText_outline: { fontWeight: '500' },
   buttonText_surface: { fontWeight: '500' },
+  buttonText_neutral: { fontWeight: '500' },
   buttonText_quiet: { color: palette.muted },
   buttonText_danger: { color: palette.warning },
   buttonText_dangerText: { color: palette.warning, fontWeight: '500' },

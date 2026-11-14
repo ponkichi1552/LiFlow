@@ -169,8 +169,8 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
       });
       return;
     }
-    if (!validateApplianceCareRequest(body)) {
-      sendJson(response, 400, { status: 'error', code: 'INVALID_REQUEST', message: 'メーカー名・製品名・型番を確認してください。' });
+    if (!validateApplianceCareRequest(body) || (body.identifyFromManual === true && !manualUploadsOnly)) {
+      sendJson(response, 400, { status: 'error', code: 'INVALID_REQUEST', message: body?.identifyFromManual ? '取扱説明書PDFを確認してください。' : 'メーカー名・製品名・型番を確認してください。' });
       return;
     }
     if (!aiConfigured) {
@@ -184,9 +184,8 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
       await inspectUploadedManual(manual.bytes);
     }
     const analysisRequest = {
-      manufacturer: body.manufacturer.trim(),
-      productName: body.productName.trim(),
-      modelNumber: body.modelNumber.trim(),
+      ...(body.identifyFromManual === true ? { identifyFromManual: true } : {}),
+      ...Object.fromEntries(['manufacturer', 'productName', 'modelNumber'].filter(field => typeof body[field] === 'string').map(field => [field, body[field].trim()])),
       ...(typeof body.category === 'string' ? { category: body.category.trim() } : {}),
       ...(manual ? { manual } : {}),
     };

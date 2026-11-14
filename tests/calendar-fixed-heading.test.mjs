@@ -5,6 +5,28 @@ import { screenHarness } from './helpers/screen-harness.mjs';
 import { selectCalendarView } from './helpers/calendar-ui.mjs';
 import { newEventDraft } from '../src/features/calendar/events.ts';
 const descendants = node => [node, ...(node.children ?? []).filter(child => typeof child === 'object').flatMap(descendants)];
+for (const platform of ['ios', 'android']) test(`${platform} four appointments and expanded chores stay inside a small calendar viewport`, async t => {
+  const day = '2026-11-13';
+  const events = Array.from({ length: 4 }, (_, index) => ({ ...newEventDraft(day, 'Asia/Tokyo'), id: `busy-${index}`, title: `予定${index + 1}`, revision: 1, allDay: true }));
+  const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
+    today: day, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, pending: 12, total: 12 }), renderChores: () => '最後の家事もスクロールで読めます',
+    local: { database: {}, snapshot: { events, exceptions: [], categories: [], drafts: [], draft: null }, loading: false, error: null, refresh: async () => {} },
+  } });
+  t.after(() => screen.unmount());
+  for (const mode of ['1日表示', '2日表示']) {
+    await selectCalendarView(screen, mode);
+    if (screen.nodes().some(row => row.props.accessibilityLabel === '2026年11月13日の家事を開く')) await screen.press('2026年11月13日の家事を開く');
+    screen.nodes().find(row => row.props.testID === 'calendar-viewport').props.onLayout({ nativeEvent: { layout: { height: 300 } } });
+    screen.nodes().find(row => row.props.testID === 'calendar-fixed-day-heading').props.onLayout({ nativeEvent: { layout: { height: 160 } } });
+    screen.nodes().find(row => row.props.accessibilityLabel === '2026年11月13日の家事一覧').props.onContentSizeChange(180, 900);
+    await screen.flush();
+    const pane = screen.nodes().find(row => row.props.testID === 'calendar-fixed-chores');
+    const style = Object.assign({}, ...pane.props.style.flat(Infinity).filter(Boolean));
+    assert.ok(style.height > 0 && style.height < 300 - 160, 'the expanded pane must leave room for the timeline and cannot extend under the tab bar');
+    for (const event of events) screen.button(`${event.title}を編集`);
+    assert.ok(descendants(pane).some(row => row.children?.includes('最後の家事もスクロールで読めます')));
+  }
+});
 for (const platform of ['ios', 'android']) test(`${platform} short calendar cards never cover the next editable event in either day mode`, async () => {
   const day = '2026-10-30';
   const events = [[540, 630], [634, 635], [645, 735]].map(([startMinute, endMinute], i) => ({
@@ -16,7 +38,12 @@ for (const platform of ['ios', 'android']) test(`${platform} short calendar card
   } });
   for (const mode of ['1日表示', '2日表示']) {
     await selectCalendarView(screen, mode);
-    const cards = events.map(row => screen.button(`${row.title}を編集`));
+    const cards = events.map(row => {
+      const button = screen.button(`${row.title}を編集`);
+      const carrier = screen.nodes().find(node => node.props.testID?.startsWith('calendar-movable-') && descendants(node).includes(button));
+      assert.ok(carrier, 'the editable card keeps its collision rectangle on its movable wrapper');
+      return carrier;
+    });
     const rectangles = cards.map(card => {
       const style = Object.assign({}, ...card.props.style.flat(Infinity).filter(value => value && typeof value === 'object'));
       return { top: style.top, bottom: style.top + style.height, left: parseFloat(style.left), right: parseFloat(style.left) + parseFloat(style.width) };

@@ -5,21 +5,22 @@ import { palette, typography } from './planner-ui';
 export type ChoreAudience = 'personal' | 'shared';
 
 /** The same explicit, fixed-header control for explanations and settings. */
-export function ChoreAudiencePicker({ value, purpose, onChange, disabled = false }: {
+export function ChoreAudiencePicker({ value, purpose, onChange, disabled = false, unavailable = [] }: {
   value: ChoreAudience; purpose: 'guide' | 'settings'; disabled?: boolean;
   onChange(audience: ChoreAudience): void | Promise<void>;
+  unavailable?: readonly ChoreAudience[];
 }) {
   const label = purpose === 'guide' ? '予定先' : '設定先';
   return <View style={styles.destination}><Text style={styles.label}>{label}</Text>
     <View style={styles.audiences} accessibilityRole="radiogroup" accessibilityLabel={label}>
-      {(['personal', 'shared'] as const).map(audience => <Pressable key={audience} accessibilityRole="radio"
+      {(['personal', 'shared'] as const).map(audience => { const blocked = disabled || unavailable.includes(audience); return <Pressable key={audience} accessibilityRole="radio"
         accessibilityLabel={`${audience === 'personal' ? '個人用' : 'グループ用'}の家事${purpose === 'guide' ? '説明' : '設定'}`}
-        accessibilityState={{ checked: value === audience, disabled }} disabled={disabled}
-        onPress={() => { if (!disabled && value !== audience) return onChange(audience); }} style={styles.audience}>
+        accessibilityState={{ checked: value === audience, disabled: blocked }} disabled={blocked}
+        onPress={() => { if (!blocked && value !== audience) return onChange(audience); }} style={[styles.audience, blocked && { opacity: .4 }]}>
         <View aria-hidden style={[styles.icon, value === audience && styles.selected]}>
           {audience === 'personal' ? <PersonIcon size={16} /> : <GroupIcon size={20} />}
         </View>
-      </Pressable>)}
+      </Pressable>; })}
     </View>
   </View>;
 }

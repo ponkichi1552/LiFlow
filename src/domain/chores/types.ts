@@ -31,6 +31,15 @@ export interface ChoreProcedureSection {
   steps: string[];
 }
 
+export interface PersonalChoreSchedule {
+  startDate: LocalDate;
+  calendarTiming?: import('./calendar-timing').ChoreCalendarTiming;
+  /** A single real chore round, without an invented repeating interval. */
+  once?: true;
+  /** Absent means the existing day-based cadence. Missing dates clamp to month end. */
+  monthlyDay?: number;
+}
+
 export interface ChoreDefinition {
   id: EntityId;
   householdId: EntityId;
@@ -53,13 +62,14 @@ export interface ChoreDefinition {
   /** Explicit new-catalog identity; no legacy-name matching or migration heuristic. */
   personalRecipeId?: string;
   personalSchedulingKind?: 'personal' | 'seasonal';
+  personalSchedule?: PersonalChoreSchedule;
   /** A private user-created chore has its own defaults, separate from bundled recipes. */
   customPersonal?: true;
   cadenceLabelsByMode?: Record<FrequencyMode, string>;
   /** Absent means the adaptive period supplies its default width. */
   userWindowRadiusDays?: number;
   /** Immutable creation defaults, without duplicating guide text or importing the full catalog for a reset. */
-  personalScheduleDefaults?: Pick<ChoreDefinition, 'frequencyDaysByMode' | 'load' | 'windowRadiusDays' | 'maxShiftDays' | 'holidayPriority' | 'everyday' | 'requiresCycleSelection' | 'laundryDryingPreference'>;
+  personalScheduleDefaults?: Pick<ChoreDefinition, 'frequencyDaysByMode' | 'load' | 'windowRadiusDays' | 'maxShiftDays' | 'holidayPriority' | 'everyday' | 'requiresCycleSelection' | 'laundryDryingPreference' | 'personalSchedule'>;
   /** Explains provisional or condition-based intervals in the current recurring model. */
   schedulingNotes?: string;
   /** Radius around the target date; 1 means target ±1 day. */
@@ -111,6 +121,9 @@ export interface ChoreScheduleEntry {
   windowStart: LocalDate;
   windowEnd: LocalDate;
   suggestedDate: LocalDate;
+  /** Only user-entered calendar times; automatic allocation slots stay private. */
+  calendarTime?: { start: number; end: number };
+  calendarTimeIssue?: true;
   status: ChoreStatus;
   assignedMemberIds: EntityId[];
   seasonalWork?: 'winterStorage' | 'summerStorage';

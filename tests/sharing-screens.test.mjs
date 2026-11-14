@@ -22,7 +22,7 @@ test('a cold group notification retries when the matching workspace opens after 
 test('sharing screen keeps login optional and exposes only the current group without switching or a second join', async () => {
   const calls = []; const group = { userId: 'owner', groupId: 'group-test', displayName: '家族', status: 'active' };
   const context = { active: null, userId: null, group: null, ready: true, refreshSharing: async () => {} };
-  const screen = screenHarness('src/app/sharing/index.tsx', { layoutEffect: callback => callback(), navigate: (...args) => calls.push(['navigate', ...args]), mocks: {
+  const screen = screenHarness('src/app/sharing/index.tsx', { layoutEffect: callback => callback(), navigate: (...args) => calls.push(['navigate', ...args]), mocks: { '@/features/settings/chore-settings-sources': { ChoreSettingsSources: () => assert.fail('entry flow must not render native group chore settings') },
     '@/hooks/use-workspace': { useWorkspace: () => context },
     '@/platform/sharing/firebase-services': { isSharingConfigured: () => true },
     '@/platform/sharing/auth': { isSharingAppleSignInAvailable: async () => false,
@@ -53,7 +53,7 @@ test('sharing screen keeps login optional and exposes only the current group wit
 test('sharing screen prevents duplicate creation while the first local commit is still running and allows retry after failure', async () => {
   let release; let count = 0;
   const context = { active: null, userId: 'owner', group: null, ready: true, refreshSharing: async () => {} };
-  const screen = screenHarness('src/app/sharing/index.tsx', { mocks: {
+  const screen = screenHarness('src/app/sharing/index.tsx', { mocks: { '@/features/settings/chore-settings-sources': { ChoreSettingsSources: () => assert.fail('entry flow must not render native group chore settings') },
     '@/hooks/use-workspace': { useWorkspace: () => context }, 'expo-image': { Image: 'Image' },
     '@/platform/sharing/firebase-services': { isSharingConfigured: () => true },
     '@/platform/sharing/auth': { isSharingAppleSignInAvailable: async () => false },

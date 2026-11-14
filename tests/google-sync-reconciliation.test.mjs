@@ -23,6 +23,7 @@ async function attachDurableCreates(h, database) {
     reserve: identity => intents.reserveGoogleTaskCreateInside(database, { ...identity, attemptId: `attempt-${++sequence}`, startedAt: now.toISOString() }),
     reject: intent => intents.rejectGoogleTaskCreateInside(database, intent),
     linked: (identity, taskId) => intents.linkGoogleTaskCreateInside(database, identity, taskId),
+    read: identity => intents.readGoogleTaskCreateInside(database, identity),
     deleted: (identity, taskId) => intents.deleteGoogleTaskCreateInside(database, identity, taskId),
   };
 }
@@ -113,6 +114,75 @@ test('confirmed deletion repairs a journaled task while a stale absence cannot d
     h.repository.links = [saved]; h.api.listTasks = read;
     h.api.tasks.get(`${taskListId}/task-1`).deleted = true;
     await reconcile(h); assert.equal(h.api.calls.create, 2); assert.equal(h.repository.links[0].googleTaskId, 'task-2');
+  } finally { connection.close(); }
+});
+
+for (const confirmation of ['deleted', 'not-found']) for (const completed of [false, true]) test(`an orphaned Tasks receipt with a cached tombstone uses fresh ${confirmation} evidence and completed=${completed} to avoid a permanent retry or duplicated history`, async () => {
+  const { database, connection } = createDatabase();
+  try {
+    const h = createHarness({ entries: [entry('orphaned')] }); await attachDurableCreates(h, database);
+    await reconcile(h); assert.equal(h.api.calls.create, 1);
+    const original = { ...h.api.tasks.get(`${taskListId}/task-1`), deleted: true };
+    h.repository.links = [];
+    if (completed) h.repository.entries[0] = entry('orphaned', { completedAt: now.toISOString() });
+    if (confirmation === 'deleted') h.api.tasks.set(`${taskListId}/task-1`, original);
+    else h.api.tasks.delete(`${taskListId}/task-1`);
+    const read = h.api.listTasks.bind(h.api); h.api.listTasks = async () => [original];
+    const result = await reconcile(h);
+    assert.equal(h.api.calls.get, 1, 'a cached deletion alone must not release an insert receipt');
+    assert.equal(result.created, completed ? 0 : 1);
+    assert.equal(h.api.calls.create, completed ? 1 : 2);
+    assert.equal(h.repository.links.length, completed ? 0 : 1);
+    assert.equal(connection.prepare('SELECT remote_task_id FROM private_google_task_create_intents').get().remote_task_id, completed ? 'task-1' : 'task-2');
+    h.api.listTasks = read; await reconcile(h);
+    assert.equal(h.api.calls.create, completed ? 1 : 2, 'repeating sync must not POST another task');
+  } finally { connection.close(); }
+});
+
+test('a stale cached Tasks tombstone cannot release a linked receipt when Google still returns the live task', async () => {
+  const { database, connection } = createDatabase();
+  try {
+    const h = createHarness({ entries: [entry('live')] }); await attachDurableCreates(h, database); await reconcile(h);
+    h.repository.links = []; const read = h.api.listTasks.bind(h.api);
+    h.api.listTasks = async () => [{ ...h.api.tasks.get(`${taskListId}/task-1`), deleted: true }];
+    await assert.rejects(reconcile(h), error => error.code === 'task_create_result_pending');
+    assert.equal(h.api.calls.get, 1); assert.equal(h.api.calls.create, 1);
+    assert.equal(connection.prepare('SELECT remote_task_id FROM private_google_task_create_intents').get().remote_task_id, 'task-1');
+    h.api.listTasks = read; await reconcile(h);
+    assert.equal(h.api.calls.create, 1); assert.equal(h.repository.links[0].googleTaskId, 'task-1');
+  } finally { connection.close(); }
+});
+
+test('recovering an orphaned live Tasks receipt imports its remote completion before any local status push', async () => {
+  const { database, connection } = createDatabase();
+  try {
+    const h = createHarness({ entries: [entry('completed-remotely')] }); await attachDurableCreates(h, database); await reconcile(h);
+    h.repository.links = [];
+    const completedAt = '2026-10-25T11:30:00.000Z';
+    Object.assign(h.api.tasks.get(`${taskListId}/task-1`), { status: 'completed', completed: completedAt });
+    const read = h.api.listTasks.bind(h.api); h.api.listTasks = async () => [];
+    await assert.rejects(reconcile(h), error => error.code === 'task_create_result_pending');
+    assert.equal(h.repository.links[0].googleTaskId, 'task-1'); assert.equal(h.api.calls.create, 1);
+    assert.equal(h.api.calls.patch.length, 0);
+    h.api.listTasks = read;
+    h.repository.importGoogleTaskChanges = async changes => {
+      assert.equal(changes.length, 1); assert.equal(changes[0].status, 'completed'); assert.equal(changes[0].completedAt, completedAt);
+      h.repository.entries[0] = entry('completed-remotely', { completedAt }); return 1;
+    };
+    const result = await reconcile(h); assert.equal(result.imported, 1); assert.equal(h.api.calls.create, 1);
+    assert.equal(h.api.tasks.get(`${taskListId}/task-1`).status, 'completed'); assert.equal(h.api.calls.patch.length, 0);
+  } finally { connection.close(); }
+});
+
+for (const failure of ['unavailable', 'wrong-task']) test(`recovering an orphaned Tasks receipt never releases the reservation after fresh GET ${failure}`, async () => {
+  const { database, connection } = createDatabase();
+  try {
+    const h = createHarness({ entries: [entry('fenced')] }); await attachDurableCreates(h, database); await reconcile(h);
+    h.repository.links = []; h.api.listTasks = async () => [];
+    h.api.getTask = async () => { if (failure === 'unavailable') throw new GoogleTasksApiError(503, 'unavailable', null); return { id: 'other-task', deleted: true }; };
+    await assert.rejects(reconcile(h), error => error.code === (failure === 'unavailable' ? 'unavailable' : 'mismatched_recorded_task_id'));
+    assert.equal(h.api.calls.create, 1); assert.equal(h.repository.links.length, 0);
+    assert.equal(connection.prepare('SELECT remote_task_id FROM private_google_task_create_intents').get().remote_task_id, 'task-1');
   } finally { connection.close(); }
 });
 

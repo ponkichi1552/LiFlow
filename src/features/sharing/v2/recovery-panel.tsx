@@ -48,8 +48,7 @@ export function V2RecoveryPanel({ groupId, recovery, isOwner, devices, busy, run
     ]);
   };
   const content = <View style={{ gap: 12 }}>
-    <Text style={styles.body}>共有の同期が止まったときに使います。最初に影響だけを確認します。</Text>
-    <Text style={styles.caption}>個人データ・未送信の変更・元の暗号文は保持します。</Text>
+    <Text style={styles.caption}>同期が止まったときに影響を確認できます。データは削除しません。</Text>
     {loading ? <ActivityIndicator color={palette.accent} /> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     {saved && review ? <View style={styles.review}>

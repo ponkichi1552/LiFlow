@@ -34,7 +34,7 @@ export class V2AssignmentRemapError extends Error {
   readonly code = 'sharing/v2-assignment-remap-required';
   constructor() { super('変更後の周期では担当の適用回が変わります。担当を今回から変えるか、次回から変えるか確認してください。'); }
 }
-export type V2ConfigurationPatch = Partial<Pick<SharedChoreConfiguration, 'policy' | 'anchorDate' | 'intervalDays' | 'monthly' | 'windowBeforeDays' | 'windowAfterDays' | 'active'>>;
+export type V2ConfigurationPatch = Partial<Pick<SharedChoreConfiguration, 'policy' | 'anchorDate' | 'intervalDays' | 'monthly' | 'once' | 'windowBeforeDays' | 'windowAfterDays' | 'active'>>;
 export type V2ConfigurationFieldEdit = { [Key in keyof V2ConfigurationPatch]: { field: Key; baseRuleVersion: number; value: V2ConfigurationPatch[Key] } }[keyof V2ConfigurationPatch];
 
 export function prepareV2ConfigurationEdit(input: { view: V2HistoryView; archive: readonly VerifiedSharedRoster[]; at: SharedOperation; choreId: string;
@@ -56,7 +56,7 @@ export function prepareV2ConfigurationEdit(input: { view: V2HistoryView; archive
   if (latestBoundary && input.value.effectiveFrom < latestBoundary) throw new V2StaleSettingsError();
   const { assignmentSourceVersion: _source, ...value } = input.value;
   const configuration = normalizeV2Configuration({ ...value, ruleVersion: maximum + 1 });
-  if (input.rebaseCadence && old && !configuration.monthly && (old.monthly || configuration.intervalDays !== old.intervalDays) && configuration.anchorDate === old.anchorDate) {
+  if (input.rebaseCadence && old && !configuration.monthly && !configuration.once && (old.monthly || configuration.intervalDays !== old.intervalDays) && configuration.anchorDate === old.anchorDate) {
     configuration.anchorDate = latestScheduledAnchor(input.view, input.at, input.choreId, input.value.effectiveFrom) ?? old.anchorDate;
   }
   if (configuration.policy.assignment.rotation) {
@@ -98,13 +98,13 @@ export function mergeV2ConfigurationPatch(input: { view: V2HistoryView; at: Shar
     (op) => version === undefined || (op.payload.configuration as unknown as SharedChoreConfiguration).ruleVersion === version)?.value as unknown as SharedChoreConfiguration | undefined;
   const current = read(); const base = read(input.baseRuleVersion); if (!current || !base) throw new V2StaleSettingsError();
   const same = (left: unknown, right: unknown) => canonicalJson(left ?? null) === canonicalJson(right ?? null);
-  const allowed = new Set(['policy', 'anchorDate', 'intervalDays', 'monthly', 'windowBeforeDays', 'windowAfterDays', 'active']);
+  const allowed = new Set(['policy', 'anchorDate', 'intervalDays', 'monthly', 'once', 'windowBeforeDays', 'windowAfterDays', 'active']);
   let changed = false;
   for (const [field, value] of Object.entries(input.patch)) {
     if (!allowed.has(field)) throw new Error('変更する設定を確認してください。');
     const key = field as keyof SharedChoreConfiguration;
-    const currentValue = key === 'monthly' ? current.monthly === true : current[key];
-    const baseValue = key === 'monthly' ? base.monthly === true : base[key];
+    const currentValue = key === 'monthly' || key === 'once' ? current[key] === true : current[key];
+    const baseValue = key === 'monthly' || key === 'once' ? base[key] === true : base[key];
     if (!same(currentValue, baseValue) && !same(currentValue, value)) throw new V2StaleSettingsError();
     if (!same(currentValue, value)) changed = true;
   }

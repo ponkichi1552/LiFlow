@@ -1,8 +1,10 @@
+import { checkedReminderMinutes, saveCalendarReminderInside, notifyCalendarRemindersChanged } from './calendar-reminders.ts';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { INITIAL_CATEGORIES, isCalendarAnchor, newEventDraft, validateEventDraft } from '../../features/calendar/events.ts';
 import type { CalendarEvent, CalendarCategory, CalendarException, EventDraft } from '../../features/calendar/events.ts';
+import { OWN_BIRTHDAY_EVENT_ID } from '../../domain/calendar/own-birthday.ts';
 import type { LocalDate } from '../../domain/shared/types.ts';
 import { parseLocalDate } from '../../domain/scheduling/local-date.ts';
 import { migrateLocalDatabase } from './migrations.ts';
@@ -12,8 +14,9 @@ import { withIsolatedSqliteTransaction } from './isolated-transaction.ts';
 import { canWriteGoogleCalendar } from '../google-calendar/calendar-api.ts';
 import type { GoogleCalendarListEntry } from '../google-calendar/calendar-api';
 import { readCalendarEventRows } from './calendar-event-rows.ts';
+import { rebasedCalendarExceptionDate } from '../../domain/calendar/exception-slots.ts';
 
-export interface CalendarEditorDraft { audience?: 'personal' | 'group'; groupId?: string; basisRevision?: string; editorCategory?: CalendarCategory; submission?: { id: string; digest: string }; eventId: string | null; anchorDate: LocalDate | null; revision: number; exceptionRevision: number; scope: 'one' | 'series'; value: EventDraft }
+export interface CalendarEditorDraft { reminderMinutes?: number | null; audience?: 'personal' | 'group'; groupId?: string; basisRevision?: string; editorCategory?: CalendarCategory; submission?: { id: string; digest: string }; eventId: string | null; anchorDate: LocalDate | null; revision: number; exceptionRevision: number; scope: 'one' | 'series'; value: EventDraft }
 export function calendarDraftKey(draft: Pick<CalendarEditorDraft, 'audience' | 'groupId' | 'eventId' | 'scope' | 'anchorDate'> & { value: Pick<EventDraft, 'birthday'> }) { const prefix = draft.audience === 'group' ? `group:${draft.groupId}:` : ''; return prefix + (draft.eventId ? `event:${draft.eventId}:${draft.scope}:${draft.scope === 'one' ? draft.anchorDate : ''}` : draft.value.birthday ? 'birthday:new' : 'new'); }
 /** A return route carries this digest, never the private input text. */
 export function calendarDraftVersion(draft: CalendarEditorDraft) { return bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(parseEditorDraft(draft))))); }
@@ -107,9 +110,10 @@ function parseEditorDraft(draft: CalendarEditorDraft): CalendarEditorDraft {
   if (draft.audience === 'group' && (typeof draft.groupId !== 'string' || !/^[A-Za-z0-9._-]{1,192}$/.test(draft.groupId))) throw new Error('共有予定のグループを確認してください。');
   if (draft.basisRevision !== undefined && (typeof draft.basisRevision !== 'string' || draft.basisRevision.length > 50000)) throw new Error('共有予定の編集元を確認してください。');
   if (draft.submission && (!/^calendar-intent\.[A-Za-z0-9._-]{1,100}$/u.test(draft.submission.id) || !/^[a-f0-9]{64}$/u.test(draft.submission.digest))) throw new Error('予定の保存待ちを確認してください。');
+  if (draft.reminderMinutes !== undefined) checkedReminderMinutes(draft.reminderMinutes);
   const category = draft.editorCategory;
   if (category && (!/^[A-Za-z0-9._-]{1,100}$/.test(category.id) || typeof category.name !== 'string' || category.name.length > 40 || !Number.isSafeInteger(category.revision) || category.revision < 0 || !/^#[0-9a-f]{6}$/i.test(category.color))) throw new Error('分類を確認してください。');
-  return { ...(draft.audience ? { audience: draft.audience } : {}), ...(draft.audience === 'group' ? { groupId: draft.groupId } : {}),
+  return { ...(draft.reminderMinutes !== undefined ? { reminderMinutes: draft.reminderMinutes } : {}), ...(draft.audience ? { audience: draft.audience } : {}), ...(draft.audience === 'group' ? { groupId: draft.groupId } : {}),
     ...(draft.basisRevision ? { basisRevision: draft.basisRevision } : {}), ...(draft.audience === 'group' && draft.submission ? { submission: { ...draft.submission } } : {}), ...(category ? { editorCategory: { id: category.id, name: category.name, color: category.color, revision: category.revision } } : {}), eventId: draft.eventId, anchorDate: draft.anchorDate, revision: draft.revision, exceptionRevision: draft.exceptionRevision, scope: draft.scope,
     value: { ...value, title: draft.value.title, allDay: draft.value.allDay, birthday: draft.value.birthday, endDate: draft.value.endDate, untilDate: draft.value.untilDate } };
 }
@@ -122,7 +126,7 @@ async function clearRelatedDrafts(database: SQLiteDatabase, id: string | null, s
     let draft: CalendarEditorDraft;
     try { draft = parseEditorDraft(JSON.parse(row.draft_json)); } catch { continue; }
     if (submitted && (draft.revision !== submitted.revision || scope === 'one' && draft.exceptionRevision !== submitted.exceptionRevision
-      || JSON.stringify(draft.value) !== JSON.stringify(submitted.value))) continue;
+      || draft.reminderMinutes !== submitted.reminderMinutes || JSON.stringify(draft.value) !== JSON.stringify(submitted.value))) continue;
     if ((draft.audience ?? 'personal') === (audience.audience ?? 'personal') && draft.groupId === audience.groupId && draft.eventId === id && (id !== null || draft.value.birthday === birthday) && (!scope || draft.scope === scope && (scope === 'series' || draft.anchorDate === anchorDate))) {
       await database.runAsync('DELETE FROM calendar_drafts WHERE slot=?', row.slot);
     }
@@ -141,20 +145,34 @@ export async function saveCalendarDraft(database: SQLiteDatabase, input: Calenda
     });
   }); changed(database, 'drafts');
 }
-export const OWN_BIRTHDAY_EVENT_ID = 'self-birthday';
+export { OWN_BIRTHDAY_EVENT_ID } from '../../domain/calendar/own-birthday.ts';
 /** The settings date is one personal event; other people's birthdays keep their own identities. */
 export function saveOwnBirthday(database: SQLiteDatabase, input: { date: LocalDate; timeZone: string; expectedRevision: number }) {
   return writeCalendarEvent(database, { id: OWN_BIRTHDAY_EVENT_ID, expectedRevision: input.expectedRevision,
     value: { ...newEventDraft(input.date, input.timeZone, true), title: '誕生日' } }, true);
 }
 type CalendarEventInput = {
-  id?: string; expectedRevision: number; value: EventDraft; anchorDate?: LocalDate; expectedExceptionRevision?: number; scope?: 'one' | 'series'; resetExceptions?: boolean;
+  reminderMinutes?: number | null; id?: string; expectedRevision: number; value: EventDraft; anchorDate?: LocalDate; expectedExceptionRevision?: number; scope?: 'one' | 'series'; resetExceptions?: boolean;
 };
 export function saveCalendarEvent(database: SQLiteDatabase, input: CalendarEventInput) { return writeCalendarEvent(database, input); }
+/** Undo a new exception without an ABA revision reset or touching other exceptions. */
+export async function restoreCalendarOccurrence(database: SQLiteDatabase, draft: CalendarEditorDraft) {
+  if (!draft.eventId || !draft.anchorDate || draft.scope !== 'one') throw conflict();
+  await withPlannerDatabaseOperation(database, async () => { await personal(database);
+    await withIsolatedSqliteTransaction(database, async tx => {
+      await assertEditableGoogleEvent(tx, draft.eventId!, draft.anchorDate!);
+      const series = await tx.getFirstAsync<{ revision: number; deleted: number }>('SELECT revision,deleted FROM calendar_events WHERE id=?', draft.eventId!);
+      const exception = await tx.getFirstAsync<{ revision: number }>('SELECT revision FROM calendar_event_exceptions WHERE event_id=? AND anchor_date=?', draft.eventId!, draft.anchorDate!);
+      if (!series || series.deleted || series.revision !== draft.revision || exception?.revision !== draft.exceptionRevision) throw conflict();
+      await tx.runAsync('DELETE FROM calendar_event_exceptions WHERE event_id=? AND anchor_date=?', draft.eventId!, draft.anchorDate!);
+      await tx.runAsync('UPDATE calendar_events SET revision=revision+1 WHERE id=?', draft.eventId!);
+    });
+  }); invalidateLocalCalendarPlan(database); changed(database);
+}
 async function writeCalendarEvent(database: SQLiteDatabase, input: CalendarEventInput, ownBirthday = false) {
   const body = validateEventDraft(input.value); const id = input.id ?? newId('event'); identifier(id);
   if (input.anchorDate !== undefined) parseLocalDate(input.anchorDate);
-  const submitted = parseEditorDraft({ eventId: input.id ?? null, revision: input.expectedRevision, scope: input.scope ?? 'series',
+  const submitted = parseEditorDraft({ reminderMinutes: input.reminderMinutes, eventId: input.id ?? null, revision: input.expectedRevision, scope: input.scope ?? 'series',
     anchorDate: input.anchorDate ?? null, exceptionRevision: input.expectedExceptionRevision ?? 0, value: input.value });
   await withPlannerDatabaseOperation(database, async () => { await personal(database);
     await withIsolatedSqliteTransaction(database, async tx => {
@@ -172,22 +190,40 @@ async function writeCalendarEvent(database: SQLiteDatabase, input: CalendarEvent
       if (!restoreBirthday && (prior ? prior.deleted || prior.revision !== input.expectedRevision : input.expectedRevision !== 0)) throw conflict();
       if (input.scope === 'one') {
         if (!prior || !input.anchorDate) throw conflict();
-        if (!isCalendarAnchor({ ...validateEventDraft(JSON.parse(prior.definition_json)), id, revision: prior.revision }, input.anchorDate)) throw conflict();
         const previous = await tx.getFirstAsync<{ revision: number }>('SELECT revision FROM calendar_event_exceptions WHERE event_id=? AND anchor_date=?', id, input.anchorDate);
+        if (!previous && !isCalendarAnchor({ ...validateEventDraft(JSON.parse(prior.definition_json)), id, revision: prior.revision }, input.anchorDate)) throw conflict();
         if ((previous?.revision ?? 0) !== (input.expectedExceptionRevision ?? 0)) throw conflict();
         await tx.runAsync('INSERT INTO calendar_event_exceptions(event_id,anchor_date,override_json,revision) VALUES(?,?,?,?) ON CONFLICT(event_id,anchor_date) DO UPDATE SET override_json=excluded.override_json,revision=excluded.revision',
-          id, input.anchorDate, JSON.stringify(body), (previous?.revision ?? 0) + 1);
+          id, input.anchorDate, JSON.stringify(isCalendarAnchor({ ...validateEventDraft(JSON.parse(prior.definition_json)), id, revision: prior.revision }, input.anchorDate) ? body : { ...body, _retainedOccurrence: true }), (previous?.revision ?? 0) + 1);
       } else {
         const structural = prior && (() => { const old = JSON.parse(prior.definition_json); return old.startDate !== body.startDate || old.recurrence !== body.recurrence || old.untilDate !== body.untilDate || JSON.stringify(old.customRecurrence) !== JSON.stringify(body.customRecurrence); })();
         if (structural && await tx.getFirstAsync('SELECT event_id FROM calendar_event_exceptions WHERE event_id=? LIMIT 1', id)) {
-          if (!input.resetExceptions) throw new Error('この繰り返しには個別に変更した回があります。リセットを確認してください。');
-          await tx.runAsync('DELETE FROM calendar_event_exceptions WHERE event_id=?', id);
+          if (input.resetExceptions) await tx.runAsync('DELETE FROM calendar_event_exceptions WHERE event_id=?', id);
+          else if (prior) {
+            const old = { ...validateEventDraft(JSON.parse(prior.definition_json)), id, revision: prior.revision };
+            const next = { ...body, id, revision: prior.revision + 1 };
+            const exceptions = await tx.getAllAsync<{ anchor_date: LocalDate; override_json: string | null; revision: number }>('SELECT anchor_date,override_json,revision FROM calendar_event_exceptions WHERE event_id=?', id);
+            const moved = exceptions.map(row => ({ ...row, anchor: rebasedCalendarExceptionDate(old, next, row.anchor_date) }));
+            if (new Set(moved.map(row => row.anchor)).size !== moved.length) throw new Error('個別変更の実施日が重なります。予定を確認してください。');
+            const reminderRules = await tx.getAllAsync<{ anchor_date: string; minutes: number | null }>("SELECT anchor_date,minutes FROM calendar_notification_rules WHERE scope='personal' AND event_id=? AND anchor_date<>''", id);
+            await tx.runAsync("DELETE FROM calendar_notification_rules WHERE scope='personal' AND event_id=? AND anchor_date<>''", id);
+            for (const rule of reminderRules) {
+              const anchor = rebasedCalendarExceptionDate(old, next, rule.anchor_date as LocalDate);
+              await saveCalendarReminderInside(tx, { scope: 'personal', eventId: id, anchorDate: anchor, minutes: rule.minutes });
+            }
+            await tx.runAsync('DELETE FROM calendar_event_exceptions WHERE event_id=?', id);
+            for (const row of moved) {
+              const json = row.override_json && !isCalendarAnchor(next, row.anchor) ? JSON.stringify({ ...JSON.parse(row.override_json), _retainedOccurrence: true }) : row.override_json;
+              await tx.runAsync('INSERT INTO calendar_event_exceptions(event_id,anchor_date,override_json,revision) VALUES(?,?,?,?)', id, row.anchor, json, row.revision + 1);
+            }
+          }
         }
         await tx.runAsync('INSERT INTO calendar_events(id,definition_json,revision,deleted) VALUES(?,?,?,0) ON CONFLICT(id) DO UPDATE SET definition_json=excluded.definition_json,revision=excluded.revision,deleted=0', id, JSON.stringify(body), (restoreBirthday ? prior!.revision : input.expectedRevision) + 1);
       }
+      if (input.reminderMinutes !== undefined) await saveCalendarReminderInside(tx, { scope: 'personal', eventId: id, anchorDate: input.scope === 'one' ? input.anchorDate ?? null : null, minutes: input.reminderMinutes });
       await clearRelatedDrafts(tx, input.id ?? null, input.scope ?? 'series', input.anchorDate, body.birthday, {}, submitted);
     });
-  }); invalidateLocalCalendarPlan(database); changed(database); return id;
+  }); invalidateLocalCalendarPlan(database); changed(database); if (input.reminderMinutes !== undefined) notifyCalendarRemindersChanged(database); return id;
 }
 export async function deleteCalendarEvent(database: SQLiteDatabase, input: { id: string; expectedRevision: number; anchorDate?: LocalDate; expectedExceptionRevision?: number }) {
   identifier(input.id); if (input.anchorDate !== undefined) parseLocalDate(input.anchorDate);
@@ -197,8 +233,8 @@ export async function deleteCalendarEvent(database: SQLiteDatabase, input: { id:
       const row = await tx.getFirstAsync<{ revision: number; deleted: number; definition_json: string }>('SELECT revision,deleted,definition_json FROM calendar_events WHERE id=?', input.id);
       if (!row || row.deleted || row.revision !== input.expectedRevision) throw conflict();
       if (input.anchorDate) {
-        if (!isCalendarAnchor({ ...validateEventDraft(JSON.parse(row.definition_json)), id: input.id, revision: row.revision }, input.anchorDate)) throw conflict();
         const prior = await tx.getFirstAsync<{ revision: number }>('SELECT revision FROM calendar_event_exceptions WHERE event_id=? AND anchor_date=?', input.id, input.anchorDate);
+        if (!prior && !isCalendarAnchor({ ...validateEventDraft(JSON.parse(row.definition_json)), id: input.id, revision: row.revision }, input.anchorDate)) throw conflict();
         if ((prior?.revision ?? 0) !== (input.expectedExceptionRevision ?? 0)) throw conflict();
         await tx.runAsync('INSERT INTO calendar_event_exceptions(event_id,anchor_date,override_json,revision) VALUES(?,?,NULL,?) ON CONFLICT(event_id,anchor_date) DO UPDATE SET override_json=NULL,revision=excluded.revision', input.id, input.anchorDate, (prior?.revision ?? 0) + 1);
       } else await tx.runAsync('UPDATE calendar_events SET deleted=1,revision=revision+1 WHERE id=?', input.id);

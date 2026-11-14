@@ -4,20 +4,53 @@ import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 const repository = await import('../src/platform/storage/repository.ts');
+const { notifyGoogleAccountChanged } = await import('../src/features/google-sync/account-change-events.ts');
 
 function fixture(platform, extraProps = {}) {
   const events = []; let saved = true; let cancel = false; let blocked;
   const group = { groupId: 'group-test', userId: 'owner' };
   const workspace = { userId: 'owner', group, active: { drain: async () => events.push('drain') }, refreshSharing: async () => events.push('refresh') };
   const screen = screenHarness('src/features/settings/google-account-switch.tsx', { exportName: 'GoogleAccountSwitch', platform,
-    layoutEffect: callback => callback(), props: { database: {}, prepare: async () => { events.push('save'); if (blocked) await blocked; return saved; }, ...extraProps }, mocks: {
+    effectDependencies: true, effect: callback => callback(), layoutEffect: callback => callback(), props: { database: {}, prepare: async () => { events.push('save'); if (blocked) await blocked; return saved; }, ...extraProps }, mocks: {
       '../../contexts/workspace-context': { WorkspaceContext: { _currentValue: workspace } },
       '../google-sync/account-switch': { changeGoogleAccount: async () => { events.push('select'); if (cancel) throw new Error('synthetic cancellation'); } },
+      '../../platform/google-tasks/google-sign-in-gateway': { getCurrentGoogleSubject: async () => 'native-subject' },
     } });
   return { screen, workspace, group, events, saved: value => { saved = value; }, cancel: value => { cancel = value; }, block: value => { blocked = value; } };
 }
 
 for (const platform of ['ios', 'android']) {
+  test(`${platform} personal account page offers account change and logout after native Google login without group membership`, async () => {
+    const h = createDatabase(); const events = []; let subject = null;
+    try {
+      await repository.initializeLocalDatabase(h.database); const snapshot = await repository.loadPlannerSnapshot(h.database, '2026-11-12');
+      const context = { _currentValue: { userId: null, active: null, refreshSharing: async () => events.push('refresh') } };
+      const gateway = { hasGoogleTasksSession: async () => false, getCurrentGoogleSubject: async () => subject };
+      const screen = screenHarness('src/app/settings.tsx', { exportName: 'SettingsContent', platform,
+        transformSource: (path, source) => path.endsWith('/src/app/settings.tsx') ? source + '\nexport { SettingsContent };' : source,
+        effectDependencies: true, effect: fn => fn(), layoutEffect: fn => fn(),
+        props: { section: 'account', snapshot, database: h.database, refresh: async () => {} }, mocks: {
+          '@/contexts/workspace-context': { WorkspaceContext: context }, '../../contexts/workspace-context': { WorkspaceContext: context },
+          '@/platform/google-tasks/google-sign-in-gateway': gateway, '../../platform/google-tasks/google-sign-in-gateway': gateway,
+          '../google-sync/account-switch': { changeGoogleAccount: async () => { subject = 'selected'; events.push('select'); notifyGoogleAccountChanged(h.database); }, signOutGoogleAccount: async () => { subject = null; events.push('logout'); notifyGoogleAccountChanged(h.database); } },
+          '@/features/google-sync/background-task': {}, '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: false }) },
+          '../../platform/google-calendar/personal-runtime': { nativePersonalGoogleCalendar: () => ({ readControl: async () => ({ enabled: false, generation: 0, subject: '', calendars: [] }), readConflicts: async () => [], isConnected: async () => false }) },
+          '@/features/settings/use-settings-autosave': { useSettingsAutosave: () => ({ status: { phase: 'idle' }, flush: async () => true }) },
+        } });
+      await screen.flush(); assert.doesNotMatch(screen.text(), /Googleアカウントを変更|ログアウト/u);
+      subject = 'native-subject'; notifyGoogleAccountChanged(h.database); await screen.flush(); await screen.press('Googleアカウントを変更');
+      for (let n = 0; n < 4; n++) await screen.flush();
+      screen.button('ログアウト'); assert.deepEqual(events, ['select', 'refresh']); assert.equal(context._currentValue.userId, null);
+      await screen.press('ログアウト'); for (let n = 0; n < 4; n++) await screen.flush();
+      assert.deepEqual(events, ['select', 'refresh', 'logout', 'refresh']); assert.equal(subject, null);
+      assert.doesNotMatch(screen.text(), /ログアウト|Googleアカウントを変更/u); screen.unmount();
+    } finally { h.connection.close(); }
+  });
+  test(`${platform} personal-only settings expose Google account selection without requiring group login`, async () => {
+    const h = fixture(platform); h.workspace.userId = null; h.workspace.active = null; h.screen.render(); await h.screen.flush();
+    await h.screen.press('Googleアカウントを変更'); assert.deepEqual(h.events, ['save', 'select', 'refresh']);
+    h.screen.unmount();
+  });
   test(`${platform} account selection shares the Google settings lock and refreshes same-user connection controls after success`, async () => {
     let acquired = false; let released = 0; let refreshed = 0;
     const h = fixture(platform, { acquire: () => acquired, release: () => { released++; }, onChanged: async () => { refreshed++; } });
@@ -37,7 +70,7 @@ for (const platform of ['ios', 'android']) {
         layoutEffect: callback => callback(),
         props: { section: 'account', snapshot, database: database.database, refresh: async () => {} }, mocks: {
           '@/contexts/workspace-context': { WorkspaceContext: context }, '../../contexts/workspace-context': { WorkspaceContext: context },
-          '../google-sync/account-switch': { changeGoogleAccount: async () => events.push('select') },
+          '../google-sync/account-switch': { changeGoogleAccount: async () => events.push('select'), signOutGoogleAccount: async () => events.push('logout') },
           '../../platform/sharing/auth': { signOutSharing: async () => events.push('logout') },
           '@/features/google-sync/background-task': {},
           '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: false }) },

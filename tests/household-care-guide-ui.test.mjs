@@ -38,10 +38,26 @@ for (const platform of ['ios', 'android']) {
     const props = { name: '暖房器具の使用前点検', enabled: false, requiresCycleSelection: true,
       onConfigure: () => { configured++; }, save: async () => { saves++; } };
     const screen = screenHarness('src/features/chores/chore-plan-toggle.tsx', { exportName: 'ChorePlanToggle', platform, props });
-    screen.nodes().find(node => node.type === 'Switch').props.onValueChange(true); await screen.flush();
-    assert.equal(configured, 1); assert.equal(saves, 0); assert.equal(screen.nodes().find(node => node.type === 'Switch').props.value, false);
+    const control = () => screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '暖房器具の使用前点検を予定に追加');
+    control().props.onPress(); await screen.flush();
+    assert.equal(configured, 1); assert.equal(saves, 0); assert.equal(control().props.accessibilityState.checked, false);
     props.readOnly = true; screen.render();
-    screen.nodes().find(node => node.type === 'Switch').props.onValueChange(true); await screen.flush();
+    const checkbox = control();
+    assert.equal(checkbox.props.accessibilityRole, 'checkbox'); assert.equal(checkbox.props.accessibilityState.disabled, true);
+    checkbox.props.onPress(); await screen.flush();
     assert.equal(configured, 1); assert.equal(saves, 0);
+  });
+
+  test(`${platform} a guide checkbox preserves the setting after a failed save and submits only one in-flight change`, async t => {
+    const saved = []; let release;
+    const props = { name: '部屋の清掃', enabled: false, save: value => { saved.push(value); return new Promise((resolve, reject) => { release = { resolve, reject }; }); } };
+    const screen = screenHarness('src/features/chores/chore-plan-toggle.tsx', { exportName: 'ChorePlanToggle', platform, props }); t.after(() => screen.unmount());
+    const control = () => screen.nodes().find(node => node.props.accessibilityRole === 'checkbox');
+    const initial = control(); initial.props.onPress(); initial.props.onPress(); await screen.flush();
+    assert.deepEqual(saved, [true]); assert.equal(control().props.accessibilityState.disabled, true);
+    release.reject(new Error('保存に失敗')); await screen.flush();
+    assert.equal(control().props.accessibilityState.checked, false); assert.equal(control().props.accessibilityState.disabled, false); assert.ok(screen.text().includes('保存に失敗'));
+    control().props.onPress(); await screen.flush(); props.enabled = true; release.resolve(); await screen.flush();
+    assert.deepEqual(saved, [true, true]); assert.equal(control().props.accessibilityState.checked, true); assert.equal(control().props.accessibilityState.disabled, false);
   });
 }

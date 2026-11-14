@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
 import type { CalendarCategory } from '../../../domain/calendar/events';
 import type { CalendarEditorDraft } from '../../../platform/storage/calendar-events';
-import { clearSubmittedCalendarDraft, newCalendarSubmissionId, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent, deleteCalendarEvent } from '../../../platform/storage/calendar-events';
+import { clearSubmittedCalendarDraft, newCalendarSubmissionId, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent, deleteCalendarEvent, restoreCalendarOccurrence } from '../../../platform/storage/calendar-events';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
-import { projectSharedCalendarRecords } from '../../calendar/shared-events';
+import { calendarReminderScope, saveCalendarReminder } from '../../../platform/storage/calendar-reminders';
+import { projectSharedCalendarRecords, sharedCalendarEventId } from '../../calendar/shared-events';
 import type { SharedCalendarRecord } from '../v2/calendar-state';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { V2MutationOutcome } from './mutation-outcome';
@@ -67,7 +68,16 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
     // Persist retry identity before the separate shared transaction. A restart or
     // missing response can replay this exact command without another event.
     await saveCalendarDraft(local.database!, submitted);
-    await mutate(() => actions.saveCalendarEvent({ ...command, intentId: submission.id }));
+    let savedId = record?.id;
+    await mutate(async () => {
+      const operations = await actions.saveCalendarEvent({ ...command, intentId: submission.id });
+      savedId = String(operations.calendarEventId ?? operations[0]?.payload.eventId ?? savedId ?? '');
+    });
+    if (!remove && draft.reminderMinutes !== undefined) {
+      if (!savedId) throw new Error('予定は保存済みです。通知の保存を再試行してください。');
+      await saveCalendarReminder(local.database!, { scope: calendarReminderScope(model.viewerUserId, groupId), eventId: sharedCalendarEventId(groupId, savedId),
+        anchorDate: draft.scope === 'one' ? draft.anchorDate : null, minutes: draft.reminderMinutes });
+    }
     const pending = { database: local.database!, draft: submitted };
     cleanupPending.current.set(submission.id, pending);
     try {
@@ -79,7 +89,7 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
       setCleanupError({ groupId, message: '予定は保存済みです。下書きの整理を完了できませんでした。再読込で再試行できます。' });
     }
   };
-  return { ...local, shared: { groupId, name: groupName, enabled: model.calendarSupported === true },
+  return { ...local, shared: { groupId, name: groupName, notificationScope: calendarReminderScope(model.viewerUserId, groupId), enabled: model.calendarSupported === true },
     snapshot, error: cleanupError?.groupId === groupId ? cleanupError.message : local.error,
     async refresh() {
       let failed = false;
@@ -108,8 +118,21 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
       if (draft.audience === 'group') { await saveGroup(draft, false, resetExceptions); return; }
       if (!local.database || recordsById.has(draft.eventId ?? '')) throw new Error('個人予定の保存先を確認してください。');
       await saveCalendarEvent(local.database, { id: draft.eventId ?? undefined, expectedRevision: draft.revision, value: draft.value,
-        scope: draft.scope, anchorDate: draft.anchorDate ?? undefined, expectedExceptionRevision: draft.exceptionRevision, resetExceptions });
+        scope: draft.scope, anchorDate: draft.anchorDate ?? undefined, expectedExceptionRevision: draft.exceptionRevision, resetExceptions, reminderMinutes: draft.reminderMinutes });
       void local.refresh();
+    },
+    async restoreOccurrence(draft) {
+      if (draft.audience === 'group') {
+        assertGroup(draft); const record = recordsById.get(draft.eventId ?? '');
+        if (!record || !draft.anchorDate || !draft.basisRevision) throw new Error('共有予定を読み直してください。');
+        const captured = JSON.parse(draft.basisRevision);
+        await mutate(() => actions.restoreCalendarOccurrence({ eventId: record.id, scope: 'one', anchorDate: draft.anchorDate,
+          basisRevision: JSON.stringify([captured.series, captured.exceptions[draft.anchorDate!] ?? []]), value: null, category: null }));
+      } else {
+        if (!local.database || recordsById.has(draft.eventId ?? '')) throw new Error('個人予定の保存先を確認してください。');
+        await restoreCalendarOccurrence(local.database, draft);
+      }
+      await local.refresh();
     },
     async deleteEvent(draft) {
       if (draft.audience === 'group') { await saveGroup(draft, true); return; }

@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDatabase } from './helpers/sqlite.mjs';
 const { initializeLocalDatabase } = await import('../src/platform/storage/repository.ts');
-const { readLocalCalendar, saveCalendarEvent, deleteCalendarEvent } = await import('../src/platform/storage/calendar-events.ts');
+const { readLocalCalendar, saveCalendarEvent, deleteCalendarEvent, restoreCalendarOccurrence } = await import('../src/platform/storage/calendar-events.ts');
 const { createPersonalGoogleCalendarSync } = await import('../src/features/calendar/personal-google-sync.ts');
 import { newEventDraft, projectCalendarEvents } from '../src/domain/calendar/events.ts';
 import { createGoogleCalendarApi, GoogleCalendarHttpError } from '../src/platform/google-calendar/calendar-api.ts';
@@ -33,6 +33,24 @@ async function harness(t, extraInput = {}) {
     remote: (id = 'remote', extra = {}) => ({ id, summary: 'Googleの予定', start: { date: '2026-11-04' }, end: { date: '2026-11-05' }, ...extra }),
   };
 }
+
+test('Calendar connection status requires the native grant and distinguishes authentication failures from retryable network errors', async t => {
+  let granted = false; const h = await harness(t, { hasSession: async () => granted });
+  await h.connect(); const control = await h.sync.readControl();
+  assert.equal(await h.sync.isConnected(control), false); assert.equal(h.calls.length, 0);
+  granted = true; assert.equal(await h.sync.isConnected(control), true); assert.equal(h.calls.length, 0);
+  h.api.calendars = async () => { throw new GoogleCalendarHttpError(401); };
+  assert.equal((await h.sync.sync({ force: true })).kind, 'error');
+  const expired = await h.sync.readControl(); assert.equal(expired.authRequired, true); assert.equal(await h.sync.isConnected(expired), false);
+  h.api.calendars = async () => { throw new GoogleCalendarHttpError(503); };
+  await h.sync.sync({ force: true }); assert.equal((await h.sync.readControl()).authRequired, true, 'a network error cannot certify recovery from an earlier authentication failure');
+  h.api.calendars = async () => ({ items: [control.calendars[0]] });
+  assert.equal((await h.sync.sync({ force: true })).kind, 'success');
+  const recovered = await h.sync.readControl(); assert.equal(recovered.authRequired, undefined); assert.equal(await h.sync.isConnected(recovered), true);
+  h.api.events = async () => { throw new GoogleCalendarHttpError(503); };
+  assert.equal((await h.sync.sync({ force: true })).kind, 'error');
+  const offline = await h.sync.readControl(); assert.equal(offline.authRequired, undefined); assert.equal(await h.sync.isConnected(offline), true);
+});
 test('a background Calendar pass defers its initial full read but sends pending local edits and resumes in foreground', async t => {
   const h = await harness(t); await h.connect(); const event = await h.local();
   const first = await h.sync.sync({ deltaOnly: true });
@@ -407,6 +425,21 @@ test('transparent Google events retain their availability and do not echo an opa
   await saveCalendarEvent(h.database, { id: event.id, expectedRevision: event.revision, value: { ...event, title: '内容だけ変更' } }); await h.sync.sync();
   assert.equal(h.events.get('transparent').transparency, 'transparent');
 });
+test('bundled Japanese holidays remain display only through Google synchronization and an ordinary holiday-date appointment still exports', async t => {
+  const h = await harness(t); const { screenHarness } = await import('./helpers/screen-harness.mjs');
+  const snapshot = await readLocalCalendar(h.database);
+  const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform: 'ios', props: {
+    today: '2026-11-03', timeZone: 'Asia/Tokyo', local: { database: h.database, snapshot, refresh: async () => {} },
+    dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
+  } }); t.after(() => ui.unmount());
+  assert.ok(ui.nodes().some(node => node.props.accessibilityLabel?.includes('祝日：文化の日')));
+  assert.equal((await readLocalCalendar(h.database)).events.length, 0);
+  await h.connect(); assert.equal((await h.sync.sync()).kind, 'success');
+  assert.equal(h.events.size, 0); assert.equal(h.calls.some(call => ['insert', 'patch', 'remove'].includes(call[0])), false);
+  await h.local({ title: '文化の日の食事会', allDay: true });
+  assert.equal((await h.sync.sync({ force: true })).sent, 1);
+  assert.equal(h.events.size, 1); assert.equal([...h.events.values()][0].summary, '文化の日の食事会');
+});
 test('official Google holidays are date annotations and never occupy a whole day or change an ordinary all-day appointment', async t => {
   const h = await harness(t);
   const owned = { id: 'owned', summary: '個人', accessRole: 'owner', primary: true, timeZone: 'Asia/Tokyo' };
@@ -490,6 +523,23 @@ test('Google recurrence exception edits and resets reuse the same instance inste
   await saveCalendarEvent(h.database, { id: event.id, expectedRevision: 1, resetExceptions: true, value: { ...event, recurrence: 'daily' } }); await h.sync.sync();
   assert.equal(h.events.get('instance').status, 'confirmed'); assert.equal(h.calls.filter(row => row[0] === 'insert').length, 1);
 });
+test('undoing a newly moved recurrence exports a reset of the same Google instance and does not resend unchanged data', async t => {
+  const h = await harness(t); await h.connect(); const event = await h.local({ allDay: true, recurrence: 'weekly' }); await h.sync.sync();
+  const master = h.links()[0].google_id;
+  const instance = h.put(h.remote('undo-instance', { summary: '予定', recurringEventId: master, originalStartTime: { date: '2026-11-10' }, start: { date: '2026-11-10' }, end: { date: '2026-11-11' } }));
+  h.api.instances = async () => ({ items: [clone(h.events.get(instance.id))] });
+  await h.sync.sync(); let local = await readLocalCalendar(h.database);
+  const before = local.exceptions.find(row => row.anchorDate === '2026-11-10');
+  await saveCalendarEvent(h.database, { id: event.id, expectedRevision: 1, scope: 'one', anchorDate: '2026-11-10', expectedExceptionRevision: before?.revision ?? 0,
+    value: { ...event, startDate: '2026-11-11', endDate: '2026-11-11', recurrence: 'none' } });
+  assert.equal((await h.sync.sync()).kind, 'success'); assert.equal(h.events.get(instance.id).start.date, '2026-11-11');
+  local = await readLocalCalendar(h.database); const moved = local.exceptions.find(row => row.anchorDate === '2026-11-10');
+  await restoreCalendarOccurrence(h.database, { eventId: event.id, revision: 1, scope: 'one', anchorDate: moved.anchorDate, exceptionRevision: moved.revision, value: event });
+  assert.equal((await h.sync.sync()).kind, 'success'); assert.equal(h.events.get(instance.id).start.date, '2026-11-10');
+  assert.equal(h.calls.filter(row => row[0] === 'insert').length, 1, 'undo must not create a new Google series');
+  h.calls.length = 0; await h.sync.sync(); assert.equal(h.calls.some(row => ['insert', 'patch', 'remove'].includes(row[0])), false);
+});
+
 test('a new one-occurrence edit exports when its unchanged series is filtered out of the outbound delta', async t => {
   const h = await harness(t); await h.connect(); const event = await h.local({ allDay: true, recurrence: 'weekly' }); await h.sync.sync();
   const master = h.links()[0].google_id;

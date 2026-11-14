@@ -39,7 +39,7 @@ export interface PersonalAdaptiveContext {
 interface SavedInput { sourceRevision: string; geometry: Geometry; definitions: Record<string, string>; fixedLoads?: readonly AdaptivePlacementLoad[]; suppressedChoreIds?: readonly string[] }
 function definitionSignature(chore: ChoreDefinition, fingerprint: Fingerprint) {
   return fingerprint([chore.enabled, chore.estimatedMinutes, chore.load, chore.holidayPriority, chore.userWindowRadiusDays,
-    chore.recommendedCycleDays, chore.userIntervalDays, chore.frequencyDaysByMode, chore.laundryDryingPreference]);
+    chore.recommendedCycleDays, chore.userIntervalDays, chore.frequencyDaysByMode, chore.laundryDryingPreference, chore.personalSchedule]);
 }
 function loadFor(chore: ChoreDefinition, plan: AdaptiveRoundPlacement): AdaptivePlacementLoad {
   return { roundId: plan.id, date: plan.recommendedDate, minutes: chore.estimatedMinutes ?? null, load: chore.load, slot: plan.slot };
@@ -74,7 +74,7 @@ function planning(input: PersonalAdaptiveContext, geometry: Geometry | (() => Ge
 function searchableDates(view: AdaptivePersonalView, chore: ChoreDefinition) {
   if (!view.plan || !view.state.model) return null;
   const anchor = view.state.lastPlanCompletion?.date ?? view.state.policy.planningAnchorDate;
-  const period = anchor ? adaptiveNextIntervalDays(view.state.model, anchor) : adaptiveRepresentativeDays(view.state.model);
+  const period = anchor ? adaptiveNextIntervalDays(view.state.model, anchor, view.state.model.method === 'monthlyDate' ? view.state.lastPlanCompletion?.ruleDate : undefined) : adaptiveRepresentativeDays(view.state.model);
   const radius = chore.userWindowRadiusDays ?? adaptiveWindowRadius(period);
   const width = radius * 2 + 1; const extent = radius + Math.floor(width * 1.2) + (radius ? Math.floor(width * 1.5) - width : 0);
   const from = addDays(view.plan.originalBaseDate, -extent); const through = addDays(view.plan.originalBaseDate, extent);
@@ -156,6 +156,7 @@ export async function synchronizePersonalAdaptiveInside(database: SQLiteDatabase
     const policy = personalChoreHistoryPolicy(chore, input.mode);
     return view.state.policy.mode !== input.mode || view.state.policy.enabled !== policy.enabled
       || view.state.policy.fixedDays !== policy.fixedDays || view.state.policy.version !== policy.version
+      || JSON.stringify(view.state.policy.schedule ?? null) !== JSON.stringify(policy.schedule ?? null)
       || (['frequent', 'balanced', 'relaxed'] as const).some(mode => view.state.policy.initialDays[mode] !== policy.initialDays[mode]);
   });
   const definitionChanges = ownChores.filter(chore => previous?.definitions[chore.id] !== definitionSignature(chore, input.fingerprint));
@@ -184,7 +185,7 @@ export async function synchronizePersonalAdaptiveInside(database: SQLiteDatabase
     const policy = personalChoreHistoryPolicy(chore, input.mode);
     const operation: AdaptivePersonalOperation = { operationId: `adaptive-settings.${input.fingerprint([chore.id, current.revision, policy])}`,
       type: 'settings', recordedAt: input.now, mode: input.mode, enabled: policy.enabled, fixedDays: policy.fixedDays,
-      initialDays: policy.initialDays, policyVersion: policy.version };
+      initialDays: policy.initialDays, policyVersion: policy.version, schedule: policy.schedule ?? null };
     await applyAdaptivePersonalOperationInside(database, chore.id, operation, planning(input, geometry, views, operation.operationId, undefined, globalModeChange), input.fingerprint);
     views.set(chore.id, (await readAdaptivePersonalInside(database, chore.id))!); changedIds.add(chore.id);
   }

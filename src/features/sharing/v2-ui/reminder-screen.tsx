@@ -3,13 +3,15 @@ import { SettingsSwitch as Switch } from '@/components/settings-switch';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { AppButton, BackButton, Card, Page, ScreenHeading, SectionHeading, typography } from '../../../components/planner-ui';
-import { NumberInputField } from '../../../components/number-input-field';
+import { CalendarField } from '../../calendar/calendar-field';
+import { localDateFromDate } from '../../../domain/scheduling/local-date';
 import type { V2ReminderRuntime } from '../v2/reminder-runtime';
 import type { V2ReminderControl } from '../../../platform/storage/sharing-v2-reminders';
 import { createV2ReminderEditor } from './reminder-editor';
 import { useV2DraftLifecycle } from './use-draft-lifecycle';
 import type { ReactNode } from 'react';
 import { SettingsCheckbox } from '../../../components/settings-checkbox';
+import { NotificationPermissionRecovery } from '../../notifications/notification-permission-recovery';
 
 export function V2ReminderScreen({ load, onBack, notice, embedded = false }: { load: () => Promise<V2ReminderRuntime>; onBack: () => void; notice?: ReactNode; embedded?: boolean }) {
   const [attempt, setAttempt] = useState(0);
@@ -32,12 +34,13 @@ function ReminderLoader({ load, onBack, reload, notice, embedded }: { load: () =
 }
 function ReminderEditor({ runtime, saved, onBack, notice, embedded }: { runtime: V2ReminderRuntime; saved: V2ReminderControl; onBack: () => void; notice?: ReactNode; embedded: boolean }) {
   const [busy, setBusy] = useState(false); const working = useRef(false); const alive = useRef(true); const [message, setMessage] = useState<string | null>(null);
+  const [permissionDenied, setPermissionDenied] = useState(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const updateDelivery = useCallback(async () => {
     try {
-      const permitted = await runtime.permissionStatus(); const result = await runtime.synchronize(); if (alive.current) setMessage(!permitted
+      const permitted = await runtime.permissionStatus(); const result = await runtime.synchronize(); if (alive.current) { setPermissionDenied(!permitted); setMessage(!permitted
         ? '端末に設定は保存済みですが、OSの通知許可がありません。通知を使う場合は端末の設定を確認してください。' : result.skippedDates.length
-        ? '端末に保存済みです。地域の時刻が存在しない日は通知を省略します。' : 'この端末の通知へ反映しました。');
+        ? '端末に保存済みです。地域の時刻が存在しない日は通知を省略します。' : 'この端末の通知へ反映しました。'); }
     } catch { if (alive.current) setMessage('端末に保存済みです。通知への反映は未完了のため、再試行してください。'); }
   }, [runtime]);
   const [store] = useState(() => createV2ReminderEditor({ store: runtime.store, saved }));
@@ -48,7 +51,8 @@ function ReminderEditor({ runtime, saved, onBack, notice, embedded }: { runtime:
     if (working.current) return; working.current = true; setBusy(true); setMessage(null);
     try {
       if (!await store.flush()) return;
-      if (enabled && !await runtime.requestPermission()) { if (alive.current) setMessage('通知が許可されていません。端末の設定から許可してください。'); return; }
+      if (enabled && !await runtime.requestPermission()) { if (alive.current) { setPermissionDenied(true); setMessage('通知が許可されていません。'); } return; }
+      if (alive.current) setPermissionDenied(false);
       if (!alive.current) return; store.resumeNavigation(); store.change({ enabled }); await store.flush();
     } catch { if (alive.current) setMessage('通知の許可を確認できませんでした。'); }
     finally { store.resumeNavigation(); working.current = false; if (alive.current) setBusy(false); }
@@ -68,15 +72,16 @@ function ReminderEditor({ runtime, saved, onBack, notice, embedded }: { runtime:
           : <Switch accessibilityLabel="このグループの通知を受け取る" value={state.raw.enabled} disabled={busy} onValueChange={value => { void toggle(value); }} />}</View>
       <Text style={typography.caption}>{embedded ? '担当・未担当の家事を通知。この端末だけの設定です。' : '本人担当と担当未確定の共通家事を通知します。ほかの人だけの担当は催促しません。'}</Text>
       {!embedded ? <Text style={typography.caption}>時刻未設定の家事は日ごとの負荷だけを確認し、上限以上で通知します。</Text> : null}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-        <NumberInputField accessibilityLabel="共有通知の時" suffix="時" value={state.raw.hour} maxLength={2} editable={!busy} onChangeText={hour => change({ hour })} onBlur={() => { void store.flush(); }} />
-        <NumberInputField accessibilityLabel="共有通知の分" suffix="分" value={state.raw.minute} maxLength={2} editable={!busy} onChangeText={minute => change({ minute })} onBlur={() => { void store.flush(); }} />
-      </View>
-      <Text style={typography.caption}>{embedded ? 'グループの地域の時刻です。' : 'グループの地域での時刻です。有効な入力は自動保存します。'}</Text>
-      {!embedded ? <Text style={typography.caption}>共通家事の完了は同期後に通知へ反映します。オフラインの端末には、次の同期まで通知が残る場合があります。OSの制限により、直近の予定を優先します。</Text> : null}
-      <SettingsAction title="通知を今すぐ更新" placement={embedded ? 'panel' : 'page'} compact={embedded} disabled={busy} onPress={() => { void store.flush().then(ok => { if (ok) void updateDelivery(); }); }} />
+      {state.raw.enabled ? <>
+        <CalendarField label="共有家事の通知時刻" mode="time" date={localDateFromDate(new Date())} minute={Number(state.raw.hour) * 60 + Number(state.raw.minute)}
+          disabled={busy} onMinute={value => { change({ hour: String(Math.floor(value / 60)), minute: String(value % 60) }); void store.flush(); }} />
+        <Text style={typography.caption}>グループの地域の時刻です。</Text>
+        <SettingsAction title="通知を今すぐ更新" placement={embedded ? 'panel' : 'page'} compact={embedded} disabled={busy} onPress={() => { void store.flush().then(ok => { if (ok) void updateDelivery(); }); }} />
+      </> : null}
     </Container>
     {message ? <Text accessibilityRole="alert" style={typography.caption}>{message}</Text> : null}
+    {permissionDenied ? <NotificationPermissionRecovery scope={runtime} disabled={busy} checkPermission={runtime.permissionStatus}
+      onGranted={() => state.raw.enabled ? updateDelivery() : toggle(true)} /> : null}
   </>;
   return embedded ? <View style={{ gap: 12 }}>{content}</View> : <Page keyboardAware header={<BackButton disabled={busy} onPress={() => { void navigateAfterSave(onBack); }} />}>{content}</Page>;
 }

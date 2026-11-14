@@ -5,7 +5,7 @@ import { initializeGoogleTaskReadCacheInside } from './google-task-read-cache.ts
 import { initializePlanningInputRevisionInside } from './planning-input-revision.ts';
 
 const INITIAL_SCHEMA_VERSION = 1;
-const CURRENT_SCHEMA_VERSION = 29;
+const CURRENT_SCHEMA_VERSION = 31;
 
 function assertReadableVersion(version: number) {
   if (!Number.isSafeInteger(version) || version < 0 || version > CURRENT_SCHEMA_VERSION) throw new Error('新しいバージョンで保存されたデータです。LiFlowを更新してください。');
@@ -487,6 +487,23 @@ async function migrateSchema(database: SQLiteDatabase): Promise<void> {
     await database.execAsync('CREATE INDEX IF NOT EXISTS idx_calendar_events_visible ON calendar_events(deleted,id)');
     version = 29;
   }
+  if (version < 30) {
+    // v24 originally created only the insert reservation table. The durable
+    // response journal was added later; a current v29 database never re-ran
+    // that initializer and Tasks failed before reconciling its first page.
+    await initializeGoogleTaskCreateIntentsInside(database);
+    version = 30;
+  }
+  if (version < 31) {
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS calendar_notification_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1), enabled INTEGER NOT NULL DEFAULT 0);
+      INSERT OR IGNORE INTO calendar_notification_settings VALUES(1,0);
+      CREATE TABLE IF NOT EXISTS calendar_notification_rules (scope TEXT NOT NULL, event_id TEXT NOT NULL, anchor_date TEXT NOT NULL DEFAULT '', minutes INTEGER,
+        PRIMARY KEY(scope,event_id,anchor_date));
+    `);
+    version = 31;
+  }
+
   if (startingVersion < CURRENT_SCHEMA_VERSION) {
     await database.execAsync(`PRAGMA user_version = ${CURRENT_SCHEMA_VERSION}`);
   }

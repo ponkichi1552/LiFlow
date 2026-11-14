@@ -10,8 +10,15 @@ import { retainCalendarInputs } from './observed-snapshot';
 import { usePersonalGoogleSync } from './use-personal-google-sync';
 import { usePlannerData } from '@/hooks/use-planner-data';
 import { canEditPrivateCalendarEvent } from './private-event-projection';
+import { isOwnBirthdayOn } from '../../domain/calendar/own-birthday';
 
 const LocalCalendarContext = createContext<LocalCalendarBinding | null>(null);
+/** Home uses the existing startup cache; no extra database read or sync is needed. */
+export function useOwnBirthday(date: LocalDate) {
+  const snapshot = useContext(LocalCalendarContext)?.snapshot;
+  const events = snapshot?.events; const exceptions = snapshot?.exceptions;
+  return useMemo(() => events ? isOwnBirthdayOn(date, events, exceptions) : false, [date, events, exceptions]);
+}
 /** Loads local events once at app startup and keeps every page on the same subscription. */
 export function LocalCalendarProvider({ children }: { children: ReactNode }) {
   const database = useSQLiteContext(); const value = useObservedLocalCalendar(database, true);
@@ -90,12 +97,13 @@ function useObservedLocalCalendar(database?: SQLiteDatabase, includeGroupDrafts 
 }
 export interface LocalCalendarBinding {
   database?: SQLiteDatabase; snapshot: LocalCalendarSnapshot; loading: boolean; error: string | null; refresh: () => Promise<void>;
-  shared?: { groupId: string; name: string; enabled: boolean };
+  shared?: { groupId: string; name: string; enabled: boolean; notificationScope?: string };
   prepareDraft?: (draft: CalendarEditorDraft) => CalendarEditorDraft;
   canEditEvent?: (eventId: string, anchorDate?: LocalDate | null) => boolean;
   requestRange?: (from: LocalDate, through: LocalDate) => void;
   categoriesFor?: (audience: 'personal' | 'group') => readonly CalendarCategory[];
   saveEvent?: (draft: CalendarEditorDraft, resetExceptions: boolean) => Promise<void>;
+  restoreOccurrence?: (draft: CalendarEditorDraft) => Promise<void>;
   deleteEvent?: (draft: CalendarEditorDraft) => Promise<void>;
   persistDraft?: (draft: CalendarEditorDraft) => Promise<void>;
   saveCategory?: (value: { id?: string; expectedRevision: number; name: string; color: string }, audience?: 'personal' | 'group') => Promise<string>;

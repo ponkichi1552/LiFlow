@@ -39,7 +39,7 @@ for (const platform of ['ios', 'android']) test(`${platform} settings use a comp
     assert.ok(rhythm.button('月曜日')); await rhythm.press('こまめ');
     for (let n = 0; n < 40 && h.snapshot().settings.frequencyMode !== 'frequent'; n++) { await new Promise(resolve => setTimeout(resolve, 25)); await rhythm.flush(); }
     assert.equal((await repository.loadPlannerSnapshot(h.database, today)).settings.frequencyMode, 'frequent'); rhythm.unmount();
-    for (const [section, label] of [['notifications', '家事の通知を受け取る'], ['weather', '天気予報に使う市区町村'], ['birthdays', '誕生日を登録']]) {
+    for (const [section, label] of [['notifications', '家事の通知を受け取る'], ['weather', '天気予報に使う市区町村'], ['birthdays', '自分の誕生日を選択']]) {
       const page = settingsScreen(section, { ...h.options, platform, mocks: settingsMocks });
       assert.ok(page.nodes().some(node => node.props.accessibilityLabel === label || node.children?.some(child => child.children?.join('') === label)));
       assert.ok(page.button('前の画面に戻る')); page.unmount();
@@ -254,8 +254,8 @@ test('onboarding finish cannot initialize twice and a failed save keeps selectio
     const pending = deferred(); const calls = []; let completed = 0;
     const screen = screenHarness('src/features/onboarding/first-run-setup.tsx', { exportName: 'FirstRunSetup', database: h.database, props: { snapshot: h.snapshot(), onComplete: async () => { completed++; } },
       mocks: { '@/platform/storage/repository': { ...repository, completeFirstSetup: async (_db, input) => { calls.push(input); if (calls.length === 1) await pending.promise; } } } });
-    await screen.press('次へ'); await screen.press('次へ'); await screen.press('選択をすべて外す'); await screen.press('次へ'); await screen.press('前回の時期はスキップ'); await screen.press('次へ');
-    const finish = screen.button('設定して始める'); const skip = screen.button('ゴミ収集日はスキップして始める'); finish.props.onPress(); skip.props.onPress(); await screen.flush();
+    await screen.press('選択をすべて外す'); await screen.press('次へ');
+    const finish = screen.button('設定して始める'); finish.props.onPress(); finish.props.onPress(); await screen.flush();
     assert.equal(calls.length, 1); assert.equal(completed, 0);
     pending.reject(new Error('初期設定の保存失敗')); await screen.flush(); assert.ok(screen.text().includes('初期設定の保存失敗'));
     await screen.press('設定して始める'); assert.equal(calls.length, 2); assert.equal(completed, 1); assert.deepEqual(calls[0], calls[1]);
@@ -270,17 +270,16 @@ async function verifyApplianceAbortOnLeave(leave) {
       '@/platform/storage/repository': { saveReviewedApplianceCare: async () => { saved++; } },
     } });
     const cleanups = effects.map((callback) => callback());
-    await screen.change('メーカー名', 'Dyson'); await screen.change('製品名', 'V12'); await screen.change('型番', 'SV20');
-    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用・解析・共有できることを確認した');
-    await screen.press('選択したPDFを解析'); assert.equal(signal.aborted, false);
+    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush();
+    await screen.press('PDFを解析'); assert.equal(signal.aborted, false);
     if (leave === 'back') await screen.press('前の画面に戻る');
     else if (leave === 'blur') { assert.equal(typeof blur, 'function', 'a retained stack screen needs a native blur listener'); blur(); }
     else for (const cleanup of cleanups) cleanup?.();
     assert.equal(signal.aborted, true);
     if (leave === 'blur') {
       await screen.flush();
-      assert.equal(screen.button('選択したPDFを解析').props.accessibilityState.disabled, false, 'an aborted retained screen must allow another request');
-      await screen.press('選択したPDFを解析'); assert.equal(requests, 2); assert.equal(saved, 0);
+      assert.equal(screen.button('PDFを解析').props.accessibilityState.disabled, false, 'an aborted retained screen must allow another request');
+      await screen.press('PDFを解析'); assert.equal(requests, 2); assert.equal(saved, 0);
       pending.resolve({ status: 'verified' }); await screen.flush();
       assert.equal(screen.button('解析しています…').props.accessibilityState.disabled, true, 'an old attempt cannot unlock a newer pending request');
       retry.resolve({ status: 'not_found', message: '入力を確認してください。' }); await screen.flush();
@@ -304,9 +303,8 @@ test('leaving a personal appliance during its committed save preserves the save 
           saves++; await gate.promise; try { return await repository.saveReviewedApplianceCare(...args); } finally { done.resolve(); }
         } },
       } });
-    await screen.change('メーカー名', 'Dyson'); await screen.change('製品名', 'V12'); await screen.change('型番', 'SV20');
-    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用・解析・共有できることを確認した');
-    const originalStart = screen.button('選択したPDFを解析'); originalStart.props.onPress();
+    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush();
+    const originalStart = screen.button('PDFを解析'); originalStart.props.onPress();
     for (let n = 0; n < 30 && saves === 0; n++) await screen.flush(); assert.equal(saves, 1); assert.equal(requests, 1);
     assert.equal(typeof blur, 'function'); blur(); await screen.flush();
     assert.equal(signal.aborted, false, 'a completed network request is detached before the local save begins');

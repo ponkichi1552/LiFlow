@@ -2,7 +2,7 @@ import './helpers/typescript-loader.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { personalLongCalendarPreviews } from '../src/features/calendar/long-cycle-preview.ts';
-import { japaneseHolidayLabel, japaneseHolidayLabels } from '../src/features/calendar/holiday-label.ts';
+const { japanesePublicHoliday, JAPANESE_HOLIDAY_COVERAGE } = await import('../src/features/calendar/holiday-label.ts');
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { openCalendarDay, selectCalendarView } from './helpers/calendar-ui.mjs';
 
@@ -62,12 +62,17 @@ test('calendar-only tentative private rounds neither add home load nor become wr
   await assert.rejects(source.setCompleted(preview.key, preview.revision, true), /選び直し/); assert.equal(saved, 0);
   assert.deepEqual(input, before);
 });
-test('Japanese holiday labels retain source titles while translating known names and safely labeling unsupported and prototype-like names', () => {
-  assert.equal(japaneseHolidayLabel('Election Day'), '選挙の日'); assert.equal(japaneseHolidayLabel('Culture Day'), '文化の日');
-  assert.equal(japaneseHolidayLabel('文化の日'), '文化の日'); assert.equal(japaneseHolidayLabel("New Year’s Day (observed)"), '元日（振替休日）');
-  for (const value of ['constructor', '__proto__', 'an unknown holiday', 'Fête inconnue']) assert.equal(japaneseHolidayLabel(value), '祝日');
-  const rows = [{ holiday: true, title: 'Culture Day' }, { holiday: true, title: '文化の日' }, { holiday: true, title: 'Election Day' }];
-  const before = structuredClone(rows); assert.deepEqual(japaneseHolidayLabels(rows), ['文化の日', '選挙の日']); assert.deepEqual(rows, before);
+test('bundled Japanese holidays follow published national dates including substitute citizen and exceptional holidays', () => {
+  assert.equal(japanesePublicHoliday('2026-11-03'), '文化の日');
+  assert.equal(japanesePublicHoliday('2026-09-22'), '国民の休日');
+  assert.equal(japanesePublicHoliday('2027-03-22'), '振替休日');
+  assert.equal(japanesePublicHoliday('2020-07-23'), '海の日');
+  assert.equal(japanesePublicHoliday('2020-07-20'), null);
+  assert.equal(japanesePublicHoliday('2021-08-08'), '山の日');
+  assert.equal(japanesePublicHoliday('2021-08-09'), '振替休日');
+  assert.equal(japanesePublicHoliday('2019-05-01'), '休日（祝日扱い）');
+  for (const day of ['2026-10-31', '2026-11-26', '2028-03-20', '__proto__', 'constructor']) assert.equal(japanesePublicHoliday(day), null);
+  assert.deepEqual(JAPANESE_HOLIDAY_COVERAGE, { from: '1955-01-01', through: '2027-12-31' });
 });
 test('shared long-round reads query the next real frame and missed deadlines never fabricate completion facts', async () => {
   const { fixture, seeds, now, groupId } = await import('./helpers/sharing-v2-repository-fixture.mjs');
@@ -117,7 +122,7 @@ for (const platform of ['ios', 'android']) {
     } });
     try {
       await openCalendarDay(screen, '2027-11-01'); assert.match(screen.text(), /annual/); assert.match(screen.text(), /仮/);
-      assert.equal(screen.nodes().filter(node => node.props.accessibilityRole === 'checkbox').length, 1); assert.doesNotMatch(screen.text(), /short/);
+      assert.equal(screen.nodes().filter(node => node.props.accessibilityRole === 'checkbox').length, 0); assert.doesNotMatch(screen.text(), /short/);
       await openCalendarDay(screen, '2028-10-31'); assert.equal(screen.nodes().filter(node => node.props.accessibilityRole === 'checkbox').length, 0);
       assert.equal(input.completions.length, 0); assert.equal(input.scheduleEntries.find(row => row.id === 'old').windowEnd, '2026-11-03');
     } finally { screen.unmount(); }
@@ -149,7 +154,9 @@ for (const platform of ['ios', 'android']) {
         selectedDate: '2026-10-27', month: '2026-10-01', busy: false, actions: controller.actions, run: async () => {}, onMonth: date => reads.push(date), onSelectDate() {}, onRound() {} } });
       await openCalendarDay(screen, '2027-01-01');
       assert.match(screen.text(), /個人の年次/); assert.match(screen.text(), /床を掃除する/); assert.doesNotMatch(screen.text(), /遠方の短周期|未取得|通常生成範囲外/);
-      assert.equal(screen.nodes().filter(node => node.props.accessibilityRole === 'checkbox').length, 2);
+      assert.equal(screen.nodes().filter(node => node.props.accessibilityRole === 'checkbox').length, 0);
+      assert.ok(screen.nodes().some(node => node.props.accessibilityLabel?.startsWith('個人の年次')));
+      assert.ok(screen.nodes().some(node => node.props.accessibilityLabel?.startsWith('床を掃除する')));
       assert.deepEqual(model, original, 'calendar-only projection cannot mutate a signed common plan'); assert.deepEqual(reads, []);
       await openCalendarDay(screen, '2028-01-01'); assert.equal(screen.nodes().filter(node => node.props.accessibilityRole === 'checkbox').length, 0);
     } finally { screen?.unmount(); d.connection.close(); }
@@ -165,18 +172,21 @@ for (const platform of ['ios', 'android']) {
     assert.ok(style.height >= 250, 'a short measured list must fit rather than clipping its third card');
     screen.unmount();
   });
-  test(`${platform} holiday annotations use one Japanese line without changing an imported event`, async () => {
+  test(`${platform} Japanese holidays use date annotations in month view and names only in detailed views without changing imported events`, async () => {
     const { newEventDraft } = await import('../src/features/calendar/events.ts');
-    const events = ['Culture Day', 'Election Day'].map((title, i) => ({ ...newEventDraft(day, 'Asia/Tokyo'), id: `holiday-${i}`, title, revision: 1, allDay: true, holiday: true, blocksTime: false }));
+    const holidayDay = '2026-11-03';
+    const events = ['Culture Day', 'Election Day'].map((title, i) => ({ ...newEventDraft(holidayDay, 'Asia/Tokyo'), id: `holiday-${i}`, title, revision: 1, allDay: true, holiday: true, blocksTime: false }));
     const before = structuredClone(events);
     const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
-      today: day, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
+      today: holidayDay, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
       local: { database: {}, snapshot: { events, exceptions: [], categories: [], drafts: [], draft: null } },
     } });
     for (const mode of ['month', '2日表示', '1日表示', 'リスト表示']) {
       if (mode !== 'month') await selectCalendarView(screen, mode);
       const labels = screen.nodes().filter(node => node.props.accessibilityLabel?.startsWith('祝日：'));
-      assert.equal(labels.length, 1, mode); assert.equal(labels[0].props.accessibilityLabel, '祝日：文化の日・選挙の日'); assert.equal(labels[0].props.numberOfLines, 1);
+      assert.equal(screen.text().includes('選挙の日'), false);
+      if (mode === 'month') { assert.equal(labels.length, 0); assert.equal(screen.text().includes('文化の日'), false); }
+      else { assert.ok(labels.length >= 1, mode); assert.equal(labels[0].props.accessibilityLabel, '祝日：文化の日'); assert.equal(labels[0].props.numberOfLines, 1); }
     }
     assert.deepEqual(events, before); screen.unmount();
   });
@@ -187,7 +197,10 @@ for (const platform of ['ios', 'android']) {
       compact: true, busy: false, run: async () => { throw new Error('must not save'); }, onOpen: () => {},
       feedback: { values: new Map(), supports: () => true, request: () => { requested++; } }, source: { setCompleted: () => { throw new Error('must not save'); } },
     } });
-    const checkbox = screen.nodes().find(node => node.props.accessibilityRole === 'checkbox'); assert.equal(checkbox.props.disabled, true); assert.equal(checkbox.props.onPress, undefined); assert.equal(requested, 0);
+    assert.equal(screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'), false);
+    assert.equal(screen.nodes().some(node => node.props.accessibilityLabel?.includes('今回の日付を変更')), false);
+    assert.ok(screen.nodes().some(node => node.props.accessibilityLabel === 'annual（次回の仮予定）の説明を開く'));
+    assert.equal(requested, 0);
     screen.unmount();
   });
 }

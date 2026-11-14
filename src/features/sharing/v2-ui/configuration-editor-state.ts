@@ -11,7 +11,7 @@ const limits = { intervalDays: [1, 3650], windowBeforeDays: [0, 14], windowAfter
 type NumericField = keyof typeof limits;
 function texts(configuration: SharedChoreConfiguration) {
   return { intervalDays: String(configuration.intervalDays), windowBeforeDays: String(configuration.windowBeforeDays),
-    windowAfterDays: String(configuration.windowAfterDays), anchorDate: configuration.anchorDate, monthly: configuration.monthly === true, active: configuration.active !== false,
+    windowAfterDays: String(configuration.windowAfterDays), anchorDate: configuration.anchorDate, monthly: configuration.monthly === true, once: configuration.once === true, active: configuration.active !== false,
     policy: cloneResponsibilityPolicy(configuration.policy) };
 }
 export interface V2EditorInput { configuration: SharedChoreConfiguration; effectiveFrom: LocalDate;
@@ -76,6 +76,10 @@ export function createV2ConfigurationEditorState(initial: V2EditorInput) {
     },
     changeActive(value: boolean) { draft = { ...draft, active: value }; autosave.enqueue('active', value, true); publish(); },
     changeMonthly(value: boolean) { draft = { ...draft, monthly: value }; autosave.enqueue('monthly', value, true); publish(); },
+    changeCadence(mode: 'once' | 'interval' | 'monthly') {
+      const once = mode === 'once'; const monthly = mode === 'monthly';
+      draft = { ...draft, once, monthly }; autosave.enqueue('once', once); autosave.enqueue('monthly', monthly); publish(); void autosave.flush();
+    },
     changePolicy(value: SharedChorePolicy) {
       const policy = cloneResponsibilityPolicy(value);
       draft = { ...draft, policy };

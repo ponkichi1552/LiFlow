@@ -27,6 +27,8 @@ export interface SharedChoreConfiguration {
   intervalDays: number;
   /** Calendar-month recurrence, preserving the anchor's day and clamping short months to their last day. */
   monthly?: boolean;
+  /** A single chore round at anchorDate; completion or expiry never generates a successor. */
+  once?: boolean;
   windowBeforeDays: number;
   windowAfterDays: number;
   ruleVersion: number;

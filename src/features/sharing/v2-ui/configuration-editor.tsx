@@ -24,6 +24,7 @@ import { V2ResponsibilityChoices } from './responsibility-choices';
 import { chorePolicyFromPreset } from '../v2/model';
 import { V2RotationSettings } from './rotation-settings';
 import { rotationDraft } from './responsibility-policy';
+import { supportsOneOffChores } from '../v2/payload-schema';
 
 /** Only an authenticated administrator receives the editor; receiver authority remains the final check. */
 export function V2ConfigurationEditor(props: { model: V2GroupScreenModel; choreId: string;
@@ -44,16 +45,17 @@ function RetainedEditor({ model, choreId, controller, onSaved, onBack, advanced,
   const configuration = row?.configuration && (!retained || row.configuration.ruleVersion >= retained.ruleVersion) ? row.configuration : retained;
   const conflict = !row?.configuration && row?.candidates.length ? <V2ConfigurationConflict model={model} row={row} controller={controller}
     onSaved={onSaved} onBack={!configuration ? onBack : undefined} /> : null;
-  if (!configuration) return advancedOnly ? null : conflict
-    ?? <V2InitialConfiguration model={model} choreId={choreId} controller={controller} onSaved={onSaved} onBack={onBack} advanced={advanced} advancedNeedsReview={advancedNeedsReview} onAdvanced={onAdvanced} />;
+  if (!configuration) return conflict
+    ?? <V2InitialConfiguration advancedOnly={advancedOnly} model={model} choreId={choreId} controller={controller} onSaved={onSaved} onBack={onBack} advanced={advanced} advancedNeedsReview={advancedNeedsReview} onAdvanced={onAdvanced} />;
   const boundary = configuration.effectiveFrom ?? configuration.anchorDate;
   const earliestFrom = row?.earliestEffectiveFrom && row.earliestEffectiveFrom > boundary ? row.earliestEffectiveFrom : boundary;
   return <View style={styles.container}>{conflict}<Editor configuration={configuration} earliestFrom={earliestFrom}
+    allowOnce={supportsOneOffChores(model.plan.algorithm)}
     today={model.plan.range.asOfDate} members={model.plan.members} choreId={choreId} controller={controller} onSaved={onSaved} onBack={onBack} blocked={!row?.configuration}
     advanced={advanced} advancedNeedsReview={advancedNeedsReview} onAdvanced={onAdvanced} advancedOnly={advancedOnly} /></View>;
 }
 
-function Editor({ configuration, earliestFrom, today, members, choreId, controller, onSaved, onBack, blocked, advanced, advancedNeedsReview, onAdvanced, advancedOnly }: { configuration: SharedChoreConfiguration;
+function Editor({ configuration, earliestFrom, today, members, choreId, controller, onSaved, onBack, blocked, advanced, advancedNeedsReview, onAdvanced, advancedOnly, allowOnce }: { configuration: SharedChoreConfiguration; allowOnce: boolean;
   earliestFrom: LocalDate; today: LocalDate; members: V2GroupScreenModel['plan']['members']; choreId: string; controller: V2GroupController; onSaved: () => Promise<void>; onBack?: () => void; blocked: boolean;
   advanced?: ReactNode; advancedNeedsReview?: boolean; onAdvanced?(): void; advancedOnly?: boolean }) {
   const scheme = useColorScheme(); const colors = plannerColorsForScheme(scheme);
@@ -70,7 +72,17 @@ function Editor({ configuration, earliestFrom, today, members, choreId, controll
     const current = autosave.getSnapshot().draft.policy.assignment.rotation; if (!current) return;
     const value = update(current); autosave.changePolicy(rotationDraft(value.sequence, value.advanceOn));
   }} /> : null;
-  if (advancedOnly) return <View style={styles.container}>{rotation}
+  const cadence = (detail: boolean) => <V2ChoreCadence today={today} anchor={autosave.draft.anchorDate} interval={autosave.draft.intervalDays} monthly={autosave.draft.monthly}
+    once={autosave.draft.once} onMode={allowOnce ? autosave.changeCadence : undefined}
+    modeSelection={detail} accessibilityLabel="共有家事の周期" disabled={blocked || Boolean(fromError)} dateDisabled={blocked || saving || autosave.hasDraft()}
+    onInterval={text => autosave.changeNumber('intervalDays', text)} onMonthly={autosave.changeMonthly}
+    onAnchor={value => { autosave.changeAnchor(value); void autosave.flush(); }} onEndEditing={() => void autosave.flush()} />;
+  if (advancedOnly) return <View style={styles.container}><Text style={[typography.label, { color: colors.ink }]}>日付</Text>
+    <SettingsPanel><V2ConfigurationDates unfolded today={today} anchor={autosave.draft.anchorDate} monthly={autosave.draft.monthly} disabled={blocked || saving || autosave.hasDraft()}
+      onAnchor={value => { autosave.changeAnchor(value); void autosave.flush(); }} />{cadence(true)}</SettingsPanel>
+    {autosave.anchorError || fromError ? <Text accessibilityRole="alert" style={styles.error}>{autosave.anchorError ?? fromError}</Text> : null}
+    {autosave.numberError('intervalDays') ? <Text accessibilityRole="alert" style={styles.error}>{autosave.numberError('intervalDays')}</Text> : null}
+    {rotation}
     {autosave.policyError ? <Text accessibilityRole="alert" style={styles.error}>{autosave.policyError}</Text> : null}
     <V2AutosaveFeedback concise status={autosave.status} refreshError={autosave.refreshError} hasDraft={autosave.hasDraft()} flush={autosave.flush} discard={autosave.discard} discardTitle="入力を最新の設定に戻す" />
   </View>;
@@ -89,10 +101,7 @@ function Editor({ configuration, earliestFrom, today, members, choreId, controll
         else autosave.changePolicy({ completion: 'one', assignment: { mode: 'selected', memberIds: checked ? [...new Set([...current.memberIds, userId])].sort() : current.memberIds.filter(id => id !== userId) } });
       }} />
     {autosave.policyError ? <Text accessibilityRole="alert" style={styles.error}>{autosave.policyError}</Text> : null}
-    <V2ChoreCadence today={today} anchor={autosave.draft.anchorDate} interval={autosave.draft.intervalDays} monthly={autosave.draft.monthly}
-      accessibilityLabel="共有家事の周期" disabled={blocked || Boolean(fromError)} dateDisabled={blocked || saving || autosave.hasDraft()}
-      onInterval={text => autosave.changeNumber('intervalDays', text)} onMonthly={autosave.changeMonthly}
-      onAnchor={value => { autosave.changeAnchor(value); void autosave.flush(); }} onEndEditing={() => void autosave.flush()} />
+    {cadence(false)}
     {autosave.numberError('intervalDays') ? <Text accessibilityRole="alert" style={styles.error}>{autosave.numberError('intervalDays')}</Text> : null}
     <View style={rowStyle}><Text style={styles.label}>実施期間の幅</Text><View style={styles.window}>
       {(['windowBeforeDays', 'windowAfterDays'] as const).map((field, index) => <NumberInputField key={field} borderless inputWidth={24} prefix={index === 0 ? '前' : '後'}
@@ -102,8 +111,6 @@ function Editor({ configuration, earliestFrom, today, members, choreId, controll
     {(['windowBeforeDays', 'windowAfterDays'] as const).map(field => autosave.numberError(field) ? <Text key={field} accessibilityRole="alert" style={styles.error}>{autosave.numberError(field)}</Text> : null)}
     <V2AutosaveFeedback concise status={autosave.status} refreshError={autosave.refreshError} hasDraft={autosave.hasDraft()} flush={autosave.flush}
       discard={autosave.discard} discardTitle="入力を最新の設定に戻す" disabled={autosave.leaving} />
-    <V2ConfigurationDates today={today} anchor={autosave.draft.anchorDate} monthly={autosave.draft.monthly} disabled={blocked || saving || autosave.hasDraft()} needsReview={Boolean(fromError || autosave.anchorError)}
-      onAnchor={value => { autosave.changeAnchor(value); void autosave.flush(); }} />
     {autosave.anchorError ? <Text accessibilityRole="alert" style={styles.error}>{autosave.anchorError}</Text> : null}
     {fromError ? <Text accessibilityRole="alert" style={styles.error}>{fromError}</Text> : null}
     {onAdvanced || advanced || policy.assignment.rotation ? <V2AdvancedSettings choreId={choreId} needsReview={advancedNeedsReview} onOpen={onAdvanced}>

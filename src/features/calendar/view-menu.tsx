@@ -12,13 +12,13 @@ export function CalendarViewMenu({ value, onSelect, onClose }: { value: Calendar
     <Pressable accessibilityRole="button" accessibilityLabel="表示の選択を閉じる" style={StyleSheet.absoluteFill} onPress={onClose} />
     <View accessibilityViewIsModal style={[styles.menu, { top: insets.top + 54 }]}>
       {(Object.keys(CALENDAR_DETAIL_LABELS) as CalendarDetailView[]).map(mode => <Pressable key={mode} accessibilityRole="button" accessibilityLabel={`${CALENDAR_DETAIL_LABELS[mode]}表示`} accessibilityState={{ selected: value === mode }}
-        onPress={() => { onSelect(mode); onClose(); }} style={({ pressed }) => [styles.option, pressed && styles.pressed]}>
+        onPress={() => { onSelect(mode); onClose(); }} style={({ pressed }) => [styles.option, value === mode && styles.pressed, pressed && { opacity: .7 }]}>
         <Text style={styles.label}>{CALENDAR_DETAIL_LABELS[mode]}</Text>{value === mode ? <Text aria-hidden style={styles.check}>✓</Text> : null}
       </Pressable>)}
     </View>
   </View></Modal>;
 }
 const baseStyles = StyleSheet.create({
-  overlay: { flex: 1 }, menu: { position: 'absolute', right: 18, minWidth: 156, paddingVertical: 4, backgroundColor: palette.elevated, borderWidth: 1, borderColor: palette.border, borderRadius: 14, boxShadow: '0 4px 18px #00000040' },
-  option: { minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, gap: 14 }, label: { ...typography.control, color: palette.ink, flex: 1 }, check: { ...typography.control, color: palette.accent }, pressed: { backgroundColor: palette.accentSoft },
+  overlay: { flex: 1 }, menu: { position: 'absolute', right: 66, minWidth: 148, paddingVertical: 4, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.border, borderRadius: 12, overflow: 'hidden', boxShadow: '0 3px 12px #00000030' },
+  option: { minHeight: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, gap: 12 }, label: { ...typography.body, color: palette.ink, flex: 1 }, check: { ...typography.body, color: palette.accent }, pressed: { backgroundColor: palette.accentSoft },
 });

@@ -13,6 +13,7 @@ import type { PrivateCalendarPairingReference, PrivateCalendarPairingRequest } f
 import type { HouseholdPlannerSettings as PlannerSettings } from '../../domain/chores/types';
 import type { Weekday } from '../../domain/shared/types';
 import { SettingsList } from './settings-navigation';
+import { GoogleConnectionProvider } from './google-connection';
 
 export function AccountConnections({ database, settings, personalTasks, calendarOptions, onTasksOpen }: {
   database: SQLiteDatabase; settings: Pick<PlannerSettings, 'restDays' | 'heavyDailyLimit' | 'normalDailyLimit'>;
@@ -22,7 +23,7 @@ export function AccountConnections({ database, settings, personalTasks, calendar
   const scope = `${workspace?.userId ?? 'local'}:${shared ? workspace?.active?.groupId : ''}`;
   // Hydrate saved Google controls after display without changing their connection settings.
   useEffect(() => { onTasksOpen(); }, [onTasksOpen]);
-  return <SettingsList key={scope}>
+  return <GoogleConnectionProvider key={scope} database={database}><SettingsList>
     <SettingsGroup title="Googleカレンダー">
       <PersonalGoogleCalendarSettings database={database} embedded />
       {!shared ? calendarOptions : null}
@@ -32,10 +33,10 @@ export function AccountConnections({ database, settings, personalTasks, calendar
     <SettingsGroup title="Google Tasks">
       {personalTasks}{shared ? <AccountSharedGoogleTasks /> : null}
     </SettingsGroup>
-    {workspace?.userId ? <SettingsGroup title="端末間同期">
+    {workspace?.userId ? <SettingsGroup title="生活リズムの端末間同期">
       <AccountDeviceSync key={workspace.userId} userId={workspace.userId} settings={settings} />
     </SettingsGroup> : null}
-  </SettingsList>;
+  </SettingsList></GoogleConnectionProvider>;
 }
 
 function AccountCalendarSource({ userId }: { userId: string }) {

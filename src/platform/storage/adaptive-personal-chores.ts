@@ -4,11 +4,12 @@ import { addDays, parseLocalDate } from '../../domain/scheduling/local-date.ts';
 import { replayAdaptiveHistory } from '../../domain/scheduling/adaptive/history.ts';
 import type { AdaptiveHistoryEvent, AdaptiveHistoryPolicy, AdaptiveHistoryState, AdaptivePriorForecast } from '../../domain/scheduling/adaptive/history';
 import type { AdaptiveRoundPlacement } from '../../domain/scheduling/adaptive/placement';
+import { calendarChorePlacement, type ChoreCalendarTiming } from '../../domain/chores/calendar-timing.ts';
 
 type Fingerprint = (value: unknown) => string;
 export type AdaptivePersonalOperation = { operationId: string; recordedAt: string } & (
   | { type: 'settings'; mode?: AdaptiveHistoryPolicy['mode']; enabled?: boolean; fixedDays?: number | null;
-      initialDays?: AdaptiveHistoryPolicy['initialDays']; policyVersion?: string }
+      initialDays?: AdaptiveHistoryPolicy['initialDays']; policyVersion?: string; schedule?: AdaptiveHistoryPolicy['schedule'] | null }
   | { type: 'complete'; completionId: string; roundId: string; planRevision: string; date: LocalDate; timeZone: string; origin: 'personal' | 'shared' }
   | { type: 'undo'; completionId: string; targetOperationId: string }
 );
@@ -89,6 +90,31 @@ export async function readAdaptivePersonalInside(database: SQLiteDatabase, chore
   return row ? viewFromRow(row) : null;
 }
 
+/** A calendar move changes the displayed round only, never its period or learning history. */
+export async function moveAdaptivePersonalRoundInside(database: SQLiteDatabase, choreId: string,
+  input: { operationId: string; roundId: string; planRevision: string; date: LocalDate; radius: number; recordedAt: string; timing?: ChoreCalendarTiming }, fingerprint: Fingerprint,
+  assertCurrent: () => void | Promise<void> = () => {}) {
+  await requireTransaction(database); checkedScope(choreId); parseLocalDate(input.date);
+  if (!input.operationId || !Number.isFinite(Date.parse(input.recordedAt)) || !Number.isSafeInteger(input.radius) || input.radius < 0 || input.radius > 14) throw new Error('家事の実施日を確認してください。');
+  const digest = fingerprint([choreId, input]);
+  const prior = await database.getFirstAsync<{ chore_id: string; request_digest: string }>('SELECT chore_id,request_digest FROM personal_adaptive_actions WHERE operation_id=?', input.operationId);
+  if (prior) { if (prior.chore_id !== choreId || prior.request_digest !== digest) throw new Error('同じ登録操作の内容が異なります。'); return; }
+  const current = await readAdaptivePersonalInside(database, choreId);
+  if (!current?.plan || !current.state.policy.enabled || current.plan.id !== input.roundId || current.planRevision !== input.planRevision) throw new Error('家事の予定が更新されました。選び直してください。');
+  if (current.state.lastPlanCompletion && input.date <= current.state.lastPlanCompletion.date) throw new Error('前回の実施日より後の日付を選んでください。');
+  const plan: AdaptiveRoundPlacement = input.timing ? { ...calendarChorePlacement(current.plan.id, input.date, input.timing), originalBaseDate: current.plan.originalBaseDate } : { ...current.plan, placedBaseDate: input.date, recommendedDate: input.date, manualDate: input.date,
+    basicWindow: { from: addDays(input.date, -input.radius), through: addDays(input.date, input.radius) },
+    displayedWindow: { from: addDays(input.date, -input.radius), through: addDays(input.date, input.radius) }, slot: null, fallback: false };
+  const revision = fingerprint(['adaptive-plan-v1', choreId, plan]); await assertCurrent();
+  await database.runAsync('INSERT INTO personal_adaptive_plans VALUES(?,?,?,?,?,?) ON CONFLICT(round_id,revision) DO NOTHING',
+    plan.id, revision, choreId, JSON.stringify(plan), current.inputRevision, input.recordedAt);
+  const updated = await database.runAsync('UPDATE personal_adaptive_state SET plan_revision=?,revision=revision+1 WHERE chore_id=? AND revision=? AND plan_revision=?', revision, choreId, current.revision, input.planRevision);
+  if (updated.changes !== 1) throw new Error('家事の予定が更新されました。選び直してください。');
+  await database.runAsync("INSERT INTO personal_adaptive_actions(operation_id,chore_id,action_type,round_id,request_digest,receipt_json) VALUES(?,?,'receipt',?,?,?)",
+    input.operationId, choreId, plan.id, digest, JSON.stringify({ operationId: input.operationId, revision: current.revision + 1, kind: 'applied', activeRoundId: plan.id }));
+  await assertCurrent();
+}
+
 /** Repair only a provable legacy Undo publication. Later replanning/settings
  * changes and original completion/history rows remain untouched. */
 export async function repairLegacyAdaptiveUndoInside(database: SQLiteDatabase) {
@@ -140,11 +166,19 @@ async function publishInside(database: SQLiteDatabase, choreId: string, state: A
     && previous.plan.recommendedDate >= planning.today && previous.plan.recommendedDate <= addDays(planning.today, 1);
   const restoringHeld = trigger === 'undo' && restoreNonPeriodicRoundId === candidateRoundId && restored?.id === candidateRoundId;
   const protectedNonPeriodic = state.policy.enabled && state.model === null && (alreadyHeld || newlyProtected || restoringHeld);
-  const canPlan = state.policy.enabled && (state.model !== null || protectedNonPeriodic);
+  const once = state.policy.schedule?.once ? state.policy.schedule : undefined;
+  const last = state.lastPlanCompletion;
+  const oneOffOpen = Boolean(once && (!last || (last.ruleDate ?? last.date) < once.startDate));
+  const canPlan = state.policy.enabled && (once ? oneOffOpen : state.model !== null || protectedNonPeriodic);
   const roundId = canPlan ? candidateRoundId : null;
   // Undo reopens the displayed round; ordinary next-round allocation would move
   // a distributed initial recommendation back to its seed date.
-  const plan = roundId ? protectedNonPeriodic || undoPlan?.id === roundId ? restored! : await planning.plan({ roundId, state,
+  const plan: AdaptiveRoundPlacement | null = roundId ? once ? undoPlan?.id === roundId ? undoPlan
+    : previous?.plan?.id === roundId && JSON.stringify(previous.state.policy.schedule) === JSON.stringify(state.policy.schedule) ? previous.plan
+    : once.calendarTiming ? calendarChorePlacement(roundId, once.startDate, once.calendarTiming) : {
+    id: roundId, originalBaseDate: once.startDate, placedBaseDate: once.startDate, recommendedDate: once.startDate,
+    basicWindow: null, displayedWindow: null, slot: null, fallback: false, manualDate: once.startDate,
+  } : protectedNonPeriodic || undoPlan?.id === roundId ? restored! : await planning.plan({ roundId, state,
     previous: restored?.id === roundId ? restored : null, trigger }) : null;
   if (plan) {
     for (const date of [plan.originalBaseDate, plan.placedBaseDate, plan.recommendedDate]) parseLocalDate(date);
@@ -154,7 +188,7 @@ async function publishInside(database: SQLiteDatabase, choreId: string, state: A
     if (plan.slot && (!Number.isFinite(plan.slot.start) || !Number.isFinite(plan.slot.end) || plan.slot.start >= plan.slot.end)) throw new Error('家事の実施時間を確認してください。');
   }
   if (plan && (plan.id !== roundId || plan.displayedWindow && (plan.recommendedDate < plan.displayedWindow.from || plan.recommendedDate > plan.displayedWindow.through)
-    || state.lastPlanCompletion && plan.recommendedDate <= state.lastPlanCompletion.date)) throw new Error('次回予定と実施期間を確認してください。');
+    || !once && state.lastPlanCompletion && plan.recommendedDate <= state.lastPlanCompletion.date)) throw new Error('次回予定と実施期間を確認してください。');
   const planRevision = plan ? fingerprint(['adaptive-plan-v1', choreId, plan]) : null;
   await planning.assertInputsCurrent();
   if (plan) await database.runAsync(`INSERT INTO personal_adaptive_plans VALUES(?,?,?,?,?,?) ON CONFLICT(round_id,revision) DO NOTHING`,

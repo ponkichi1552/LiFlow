@@ -12,6 +12,31 @@ registerHooks({ resolve(specifier, context, nextResolve) {
 const { analyzeApplianceCareRequest, abortApplianceWait, isApplianceCareUsage } = await import('../src/features/appliance-care/api-client.ts');
 const request = { manufacturer: 'Dyson', productName: 'V12', modelNumber: 'SV20' };
 
+test('PDF-only mobile analysis submits no product fields and accepts the same-call extracted identity and tasks', async () => {
+  const { syntheticManual } = await import('./helpers/synthetic-pdf.mjs');
+  const { analyzeUploadedManual, decodeUploadedManual } = await import('../server/appliance-care-api/src/uploaded-manual.mjs');
+  const manual = syntheticManual(); const input = { identifyFromManual: true, manual };
+  const decoded = decodeUploadedManual(manual); let calls = 0; let received;
+  const output = await analyzeUploadedManual({ ...input, manual: decoded }, { analyzeUploaded: async () => ({ value: {
+    product: { manufacturer: 'Dyson', productName: 'V12', modelNumbers: ['SV20'] }, tasks: [{ name: 'フィルター清掃',
+      recommendedIntervalDays: null, recommendedConditions: ['汚れたとき'], steps: ['電源を切る。'], tools: [], safetyCautions: [], estimatedMinutes: null,
+      evidence: [{ url: decoded.reference, pageOrSection: '1ページ' }] }],
+  } }) });
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = async (_url, options) => {
+      calls++;
+      if (options.method === 'POST') { received = JSON.parse(options.body); return Response.json({ jobId: 'synthetic-pdf-only-client' }); }
+      return Response.json({ done: true, stage: 'official_manual_analysis', result: output });
+    };
+    const result = await analyzeApplianceCareRequest(input, 'https://api.example.test');
+    assert.deepEqual(received, input); assert.equal(calls, 2); assert.equal(result.status, 'verified'); assert.equal(result.product.modelNumber, 'SV20');
+    assert.equal(result.analysis.tasks.length, 1);
+    const invalid = await analyzeApplianceCareRequest({ ...input, manufacturer: 'partial' }, 'https://api.example.test');
+    assert.equal(invalid.code, 'INVALID_REQUEST'); assert.equal(calls, 2, 'partial identity hints cannot trigger paid work');
+  } finally { globalThis.fetch = original; }
+});
+
 test('an unreadable completed paid result retains its original admission for retry instead of starting a second charge',async()=>{
   const original=globalThis.fetch;const ids=[];let invalid=true;
   try{

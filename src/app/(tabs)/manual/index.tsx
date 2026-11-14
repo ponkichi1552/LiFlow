@@ -18,6 +18,6 @@ function PersonalManualScreen() {
     <ApplianceLibrary items={snapshot.appliances.map(appliance => ({ ...appliance, source: 'personal' as const }))}
       header={error ? <Text accessibilityRole="alert" style={[typography.caption, { color: palette.warning }]}>{error}</Text> : null}
       onOpen={(_source, id) => router.push({ pathname: '/manual/appliances/[id]', params: { id, returnTo: '/manual' } })}
-      onAdd={(_source, productName) => router.push({ pathname: '/manual/appliance-care', params: { productName, returnTo: '/manual' } })} />
+      onAdd={() => router.push({ pathname: '/manual/appliance-care', params: { returnTo: '/manual' } })} />
   </SafeAreaView>;
 }

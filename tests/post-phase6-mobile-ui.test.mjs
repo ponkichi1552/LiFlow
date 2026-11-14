@@ -167,20 +167,28 @@ test('individual chore switches reject double taps roll back failed writes and r
   } finally { h.connection.close(); }
 });
 
-test('hardware back preserves invalid connected settings until corrected and then flushes before repeating navigation', async () => {
+test('hardware back discards invalid drafts without blocking navigation and retains valid autosaves', async () => {
   const h = createDatabase(); let beforeRemove; let navigated = 0; let disabled = 0;
   try {
     await repository.initializeLocalDatabase(h.database); let snapshot = await repository.loadPlannerSnapshot(h.database, today); const chore = snapshot.chores[0];
-    const screen = screenHarness('src/app/chores/[id].tsx', { database: h.database, snapshot: () => snapshot, params: { id: chore.id },
+    const previous = chore.windowRadiusDays;
+    const mount = () => screenHarness('src/app/chores/[id].tsx', { database: h.database, snapshot: () => snapshot, params: { id: chore.id },
       refresh: async () => { snapshot = await repository.loadPlannerSnapshot(h.database, today); },
       layoutEffect: callback => callback(),
       preventRemove: (prevent, callback) => { if (prevent) beforeRemove = callback; }, disablePrevention: () => { disabled++; } });
-    await screen.change('実施期間の日数幅', '999');
-    beforeRemove({ repeat: () => { navigated++; } }); await screen.flush();
-    assert.equal(navigated, 0); assert.equal(disabled, 0); assert.ok(screen.text().includes('数値に入力の誤り'));
-    await screen.change('実施期間の日数幅', '2');
-    beforeRemove({ repeat: () => { navigated++; } }); await screen.flush();
-    assert.equal(navigated, 1); assert.equal(disabled, 1); assert.equal(snapshot.chores.find(row => row.id === chore.id).windowRadiusDays, 2);
+    const invalid = mount();
+    await invalid.change('実施期間の日数幅', '999');
+    beforeRemove({ repeat: () => { navigated++; } }); await invalid.flush();
+    assert.equal(navigated, 1); assert.equal(disabled, 1);
+    assert.equal((await repository.loadPlannerSnapshot(h.database, today)).chores.find(row => row.id === chore.id).windowRadiusDays, previous, 'discarding a draft cannot overwrite the saved schedule');
+    invalid.unmount();
+    const valid = mount(); const next = previous === 2 ? 3 : 2;
+    await valid.change('実施期間の日数幅', String(next));
+    beforeRemove({ repeat: () => { navigated++; } });
+    assert.equal(navigated, 2, 'navigation must happen before waiting for storage'); assert.equal(disabled, 2);
+    for (let n = 0; n < 20 && snapshot.chores.find(row => row.id === chore.id).windowRadiusDays !== next; n++) await valid.flush();
+    assert.equal((await repository.loadPlannerSnapshot(h.database, today)).chores.find(row => row.id === chore.id).windowRadiusDays, next);
+    valid.unmount();
   } finally { h.connection.close(); }
 });
 
@@ -199,7 +207,8 @@ for (const platform of ['ios', 'android']) {
           `${setting}: the native virtual list must not eagerly render the entire document`);
       }
       const cleanup = effects.splice(0).map(callback => callback()).filter(Boolean); await delay(5);
-      list.props.onTouchStart({ nativeEvent: { pageY: 500 } }); list.props.onTouchMove({ nativeEvent: { pageY: 530 } }); screen.render();
+      list.props.onScrollBeginDrag({ nativeEvent: { contentOffset: { y: 0 } } }); screen.render();
+      list.props.onScroll({ nativeEvent: { contentOffset: { y: -40 } } }); screen.render();
       list = screen.nodes().find(node => node.type === 'FlatList'); assert.ok(list.props.data.length > 150 && list.props.data.length < chores.length); assert.ok(list.props.maintainVisibleContentPosition);
       await screen.press('家事849へ移動'); list = screen.nodes().find(node => node.type === 'FlatList'); assert.equal(list.props.data[0].id, 'item-849');
       assert.equal(list.props.initialScrollIndex, undefined, 'jump directly to the chosen chapter rather than estimating other chapter heights');

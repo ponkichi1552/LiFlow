@@ -103,13 +103,13 @@ test('one overdue physical completion supplies its actual interval to existing l
   assert.equal(undone.validIntervalCount, 2); assert.equal(undone.model.days, 14);
 });
 
-for (const platform of ['ios', 'android']) test(`${platform} a quick checkbox on a newer calendar slot completes the oldest unfinished automatic slot and shares its pending count`, async () => {
+for (const platform of ['ios', 'android']) test(`${platform} a quick checkbox on a newer home slot completes the oldest unfinished automatic slot and shares its calendar pending count`, async () => {
   const f = await init(); complete(f, '2026-09-01', '2026-09-01'); const plan = f.plan(range);
   const current = rows(plan).find(row => row.round.anchorDate === '2026-09-29');
   const oldest = pending(plan)[0]; let captured;
   const model = { plan, viewerUserId: 'owner', adminUserId: 'owner', configurations: [], assignmentRequests: [] };
   const screen = screenHarness('src/features/sharing/v2-ui/round-card.tsx', { exportName: 'V2RoundCard', platform,
-    props: { model, round: current.round, subject: current.subject, busy: false, compact: true, onOpen() {}, run: work => work(),
+    props: { model, round: current.round, subject: current.subject, busy: false, home: true, onOpen() {}, run: work => work(),
       actions: { complete: async ref => { captured = ref; return []; } } } });
   try {
     const checkbox = screen.nodes().find(node => node.props.accessibilityRole === 'checkbox'); assert.ok(checkbox.props.onPress);

@@ -16,6 +16,7 @@ async function bindPaidAiIdentity(uid: string) {
 
 let signingIn: Promise<User> | null = null;
 let signingOut: Promise<void> | null = null;
+let signingOutOwner: string | null | undefined;
 function oneSignIn(operation: () => Promise<User>): Promise<User> {
   if (signingOut) return Promise.reject(new Error('ログアウトが終わってから再度ログインしてください。'));
   if (signingIn) return signingIn;
@@ -96,15 +97,18 @@ export function signInSharingWithApple(): Promise<User> {
   });
 }
 
-export function signOutSharing(): Promise<void> {
-  if (signingOut) return signingOut;
+export function signOutSharing(options: { expectedUserId?: string | null } = {}): Promise<void> {
+  if (signingOut) return options.expectedUserId !== undefined && options.expectedUserId !== signingOutOwner
+    ? Promise.reject(new Error('ログアウトするアカウントが変わりました。')) : signingOut;
   // No Google revokeAccess/signOut and no deletion of personal SQLite data or device keys.
   const pending = (signingIn ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    const auth = getSharingServices().auth; await auth.authStateReady();
+    if (options.expectedUserId !== undefined && (auth.currentUser?.uid ?? null) !== options.expectedUserId) throw new Error('ログアウトするアカウントが変わりました。');
     await sharingSecureVault.removeItem('active-workspace');
-    return signOut(getSharingServices().auth);
+    return signOut(auth);
   });
-  signingOut = pending;
-  void pending.finally(() => { if (signingOut === pending) signingOut = null; }).catch(() => undefined);
+  signingOut = pending; signingOutOwner = options.expectedUserId;
+  void pending.finally(() => { if (signingOut === pending) { signingOut = null; signingOutOwner = undefined; } }).catch(() => undefined);
   return pending;
 }
 

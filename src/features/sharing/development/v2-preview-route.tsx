@@ -8,24 +8,24 @@ export type V2PreviewView = V2GroupScreenProps['view'];
 
 /** Separate Native stack screens retain their own inputs, scroll position and route parameters. */
 export function V2PreviewRoute({ view }: { view: V2PreviewView }) {
-  const params = useLocalSearchParams<{ choreId?: string; occurrenceId?: string; subjectId?: string; anchorDate?: string; personal?: string; applianceId?: string }>();
+  const params = useLocalSearchParams<{ choreId?: string; occurrenceId?: string; subjectId?: string; anchorDate?: string; targetDate?: string; returnTo?: string; personal?: string; applianceId?: string }>();
   const router = useRouter();
   const text = (value: unknown) => typeof value === 'string' ? value : undefined;
   const focus = text(params.anchorDate); const personal = text(params.personal) === '1'; const privateContext = personal ? { personal: '1' } : {};
   const context = { ...privateContext, ...(focus ? { anchorDate: focus } : {}) };
   const loadSession = useCallback(() => developmentV2Preview(personal), [personal]);
   return <V2DevelopmentPreviewScreen key={personal ? 'private-fixture' : 'shared-fixture'} development={__DEV__} loadSession={loadSession} view={view}
-    anchorDate={focus}
+    anchorDate={focus} targetDate={text(params.targetDate)} calendarAdd={view === 'addChore' && params.returnTo === 'calendar'}
     choreId={text(params.choreId)} occurrenceId={text(params.occurrenceId)} subjectId={text(params.subjectId)} applianceId={text(params.applianceId)}
     onRound={(occurrenceId, subjectId, anchorDate) => router.push({ pathname: '/development/sharing-v2-preview/round', params: { occurrenceId, subjectId, ...context, ...(anchorDate ? { anchorDate } : {}) } })}
-    onDate={(occurrenceId, subjectId) => router.push({ pathname: '/development/sharing-v2-preview/date', params: { occurrenceId, subjectId, ...context } })}
+    onDate={(occurrenceId, subjectId, targetDate, anchorDate) => router.push({ pathname: '/development/sharing-v2-preview/date', params: { occurrenceId, subjectId, ...context, ...(anchorDate ? { anchorDate } : {}), ...(targetDate ? { targetDate } : {}) } })}
     onAssignment={(occurrenceId, subjectId) => router.push({ pathname: '/development/sharing-v2-preview/assignment', params: { occurrenceId, subjectId, ...context } })}
     onBack={() => router.back()}
     onConfiguration={(choreId) => router.push({ pathname: '/development/sharing-v2-preview/configuration', params: { choreId, ...privateContext } })}
     onDetails={(choreId) => router.push({ pathname: '/development/sharing-v2-preview/details', params: { choreId, ...privateContext } })}
-    onChoreCreated={(choreId) => router.replace({ pathname: '/development/sharing-v2-preview/details', params: { choreId, ...privateContext } })}
+    onChoreCreated={(choreId) => { if (params.returnTo === 'calendar') router.back(); else router.replace({ pathname: '/development/sharing-v2-preview/details', params: { choreId, ...privateContext } }); }}
     onManageChores={() => router.push(personal ? { pathname: '/development/sharing-v2-preview/chores', params: privateContext } : '/development/sharing-v2-preview/chores')}
-    onAddChore={() => router.push(personal ? { pathname: '/development/sharing-v2-preview/add-chore', params: privateContext } : '/development/sharing-v2-preview/add-chore')}
+    onAddChore={date => router.push({ pathname: '/development/sharing-v2-preview/add-chore', params: { ...privateContext, ...(date ? { anchorDate: date, returnTo: 'calendar' } : {}) } })}
     onGroupPolicy={() => router.push(personal ? { pathname: '/development/sharing-v2-preview/group-rules', params: privateContext } : '/development/sharing-v2-preview/group-rules')}
     onWaste={() => router.push(personal ? { pathname: '/development/sharing-v2-preview/waste', params: privateContext } : '/development/sharing-v2-preview/waste')}
     onAppliances={() => router.push(personal ? { pathname: '/development/sharing-v2-preview/appliances', params: privateContext } : '/development/sharing-v2-preview/appliances')}

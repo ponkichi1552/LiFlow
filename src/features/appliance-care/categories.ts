@@ -30,6 +30,24 @@ export function applianceCategoryLabel(value?: string): string | undefined {
   return option?.label ?? value;
 }
 
+/** Read-only display fallback for older manuals that predate the PDF category field. */
+export function applianceCategoryFromContent(product: { category?: string; productName?: string; displayName?: string;
+  analysis?: { tasks?: readonly { name?: unknown }[] } }): string | undefined {
+  const explicit = applianceCategoryOptions.find(option => option.value === product.category || option.label === product.category);
+  if (explicit && explicit.value !== 'other_appliance') return explicit.value;
+  const name = normalizeCategoryQuery([product.productName, product.displayName].filter(Boolean).join(' '));
+  const matches = applianceCategoryOptions.filter(option => option.value !== 'other_appliance').map(option => ({ option,
+    score: Math.max(0, ...[option.label, ...option.aliases].map(term => {
+      const normalized = normalizeCategoryQuery(term);
+      return normalized.length >= 3 && name.includes(normalized) ? normalized.length : 0;
+    })) })).filter(match => match.score > 0).sort((a, b) => b.score - a.score);
+  if (matches.length && (!matches[1] || matches[0].score > matches[1].score)) return matches[0].option.value;
+  // These are appliance-specific part names, not generic tools mentioned in cleaning instructions.
+  const titles = Array.isArray(product.analysis?.tasks) ? product.analysis.tasks.map(task => typeof task?.name === 'string' ? task.name : '').join(' ') : '';
+  if (/(クリアビン|ブラシバー|クリーナーヘッド)/u.test(titles)) return 'vacuum_cleaner';
+  return explicit?.value;
+}
+
 export function searchApplianceCategories(query: string): ApplianceCategoryOption[] {
   const normalized = normalizeCategoryQuery(query);
   if (!normalized) return [];

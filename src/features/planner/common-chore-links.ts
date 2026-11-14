@@ -5,7 +5,7 @@ const nameKey = canonicalBuiltInChoreName;
 export interface CommonChoreLink { sharedChoreId: string; personalChoreId: string }
 
 /** Group definitions govern the common row; the original personal definition is never rewritten. */
-type LinkableChore = Pick<ChoreDefinition, 'id' | 'name' | 'enabled' | 'archived' | 'personalSchedulingKind'>;
+type LinkableChore = Pick<ChoreDefinition, 'id' | 'name' | 'enabled' | 'archived' | 'personalSchedulingKind'> & Partial<Pick<ChoreDefinition, 'personalSchedule'>>;
 export function commonChoreLinks(personal: readonly LinkableChore[], shared: readonly LinkableChore[]): CommonChoreLink[] {
   const candidates = new Map<string, LinkableChore[]>();
   const personalKeys = new Map(personal.filter(chore => !chore.archived).map(chore => [chore.id, nameKey(chore.name)]));
@@ -16,7 +16,7 @@ export function commonChoreLinks(personal: readonly LinkableChore[], shared: rea
   }
   return personal.flatMap(chore => {
     // A generic shared title does not identify winter versus summer storage. Never close both by name alone.
-    if (chore.personalSchedulingKind === 'seasonal') return [];
+    if (chore.personalSchedulingKind === 'seasonal' || chore.personalSchedule?.once) return [];
     const key = personalKeys.get(chore.id);
     if (!key || personalCounts.get(key) !== 1) return [];
     const rows = candidates.get(key);

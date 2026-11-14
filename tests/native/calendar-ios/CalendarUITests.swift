@@ -67,6 +67,7 @@ import XCUIAutomation
     let prior = name.value as? String ?? ""
     if !prior.isEmpty && prior != "予定名・家事名" {
       XCTAssertTrue(["QA-LiFlow-calendar", "QA-LiFlow-quick-input", "QA-LiFlow-calendar-today"].contains(prior), "Refuse to discard an unrelated unfinished draft")
+      tap(app, "予定の編集を閉じる")
       tap(app, "入力を破棄")
       XCTAssertTrue(app.buttons["予定を追加"].waitForExistence(timeout: 15)); tap(app, "予定を追加")
       XCTAssertTrue(name.waitForExistence(timeout: 10))
@@ -134,6 +135,7 @@ import XCUIAutomation
     replace(place, "QA room 2")
     let rewritten = place.value as? String ?? ""
     shot(app, "literal-place-input")
+    tap(app, "予定の編集を閉じる")
     tap(app, "入力を破棄")
     XCTAssertEqual(first, "QA room", "A literal place name must retain every delivered character")
     XCTAssertEqual(rewritten, "QA room 2", "Rewriting a literal place must retain spaces and uppercase characters")
@@ -163,7 +165,7 @@ import XCUIAutomation
     let format = DateFormatter(); format.locale = Locale(identifier: "en_US_POSIX"); format.timeZone = TimeZone(identifier: "Asia/Tokyo"); format.dateFormat = "yyyy/MM/dd"
     let qaDate = try XCTUnwrap(format.date(from: dateText))
     app.swipeDown()
-    let allDay = app.switches["終日"].firstMatch
+    let allDay = app.descendants(matching: .any).matching(identifier: "終日").firstMatch
     for _ in 0..<3 { if allDay.isHittable { break }; app.swipeDown() }
     allDay.tap()
     tap(app, "繰り返しを選択"); wheel(app, "隔週"); tap(app, "繰り返しの選択を完了")
@@ -171,7 +173,7 @@ import XCUIAutomation
     tap(app, "繰り返しを選択"); wheel(app, "カスタム")
     XCTAssertTrue(app.buttons["カスタム繰り返しを適用"].waitForExistence(timeout: 15))
     replace(app.textFields["繰り返しの間隔"].firstMatch, "2")
-    tap(app, "月"); tap(app, "第N曜日"); tap(app, "月の週を選択"); wheel(app, "最後"); tap(app, "週の選択を完了")
+    tap(app, "月"); tap(app, "月の週を選択"); wheel(app, "最後"); tap(app, "週の選択を完了")
     tap(app, "月の曜日を選択"); wheel(app, "金曜日"); tap(app, "曜日の選択を完了")
     shot(app, "03-custom-monthly-last-weekday")
     tap(app, "カスタム繰り返しを適用")
@@ -311,7 +313,7 @@ import XCUIAutomation
     XCTAssertTrue(name.waitForExistence(timeout: 10)); name.tap()
     keyboardReady(app); name.typeText(title)
     replace(app.textFields["予定の場所"].firstMatch, "QA room")
-    let allDay = app.switches["終日"].firstMatch
+    let allDay = app.descendants(matching: .any).matching(identifier: "終日").firstMatch
     XCTAssertTrue(allDay.waitForExistence(timeout: 10)); allDay.tap(); tap(app, "予定を保存")
     expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["予定を保存"]); waitForExpectations(timeout: 90)
     XCTAssertTrue(app.buttons["予定を追加"].waitForExistence(timeout: 30)); shot(app, "today-after-save-month")
@@ -383,8 +385,9 @@ import XCUIAutomation
     if !app.buttons[title + "を編集"].exists {
       tap(app, "予定を追加")
       let name = app.textFields["予定名"].firstMatch; XCTAssertTrue(name.waitForExistence(timeout: 10)); name.tap(); keyboardReady(app); name.typeText(title)
-      let allDay = app.switches["終日"].firstMatch; XCTAssertTrue(allDay.exists)
-      if String(describing: allDay.value ?? "0") != "1" { allDay.tap() }
+      let allDay = app.descendants(matching: .any).matching(identifier: "終日").firstMatch; XCTAssertTrue(allDay.exists)
+      let checked = String(describing: allDay.value ?? "0")
+      if checked != "1" && !(checked.contains("checked") && !checked.contains("unchecked")) { allDay.tap() }
       tap(app, "予定を保存")
       expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["予定を保存"]); waitForExpectations(timeout: 90)
     }

@@ -2,7 +2,6 @@ import { useContext, useEffect, type ReactNode } from 'react';
 import { WorkspaceContext } from '../contexts/workspace-context';
 import { V2WorkspaceRoute } from '@/features/sharing/v2-ui/workspace-route';
 import { Tabs, useLocalSearchParams, useNavigation } from 'expo-router';
-import { resetCalendarOverview } from '../hooks/use-calendar-display';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { plannerTabBarLayout } from './planner-tab-bar';
 import { palette } from './planner-ui';
@@ -29,7 +28,6 @@ export function WorkspaceTab({ view, children }: {
       if (state.type !== 'tab' || state.index === undefined) return;
       const active = state.routes[state.index]?.name;
       if (wasActive && active !== name) {
-        if (view === 'calendar') resetCalendarOverview();
         if (view === 'chores') navigation.setParams({ choreId: undefined, source: undefined, returnTo: undefined });
       }
       wasActive = active === name;

@@ -26,6 +26,7 @@ function connections(platform, group = true, signedIn = true) {
     props: { database: {}, settings: { restDays: [6, 7], heavyDailyLimit: 1, normalDailyLimit: 2 }, personalTasks: text('PERSONAL_TASKS'),
       calendarOptions: text('CALENDAR_AVAILABILITY'), onTasksOpen: () => taskOpenings++ }, navigate: (...value) => moves.push(value), mocks: {
       '@/contexts/workspace-context': { WorkspaceContext: context },
+      '../../platform/google-tasks/google-sign-in-gateway': { readGoogleSyncConnection: async () => ({ subject: 'subject', label: 'TEST_GOOGLE', authorized: true }) },
       '../calendar/personal-google-settings': { PersonalGoogleCalendarSettings: () => { personalCalendarRenders++; return text('PERSONAL_CALENDAR'); } },
       '../sharing/private-calendar/source-screen': { PrivateCalendarSourceScreen: props => { sourceLoads.push(props); return text('PRIVATE_CALENDAR_SOURCE'); } },
       '../sharing/private-planner/preference-screen': { PrivatePreferenceScreen: props => { privateLoads.push(props.load); return text('PRIVATE_SETTINGS_SYNC'); } },
@@ -53,15 +54,19 @@ for (const platform of ['ios', 'android']) {
     assert.equal(h.screen.nodes().some(node => node.props.accessibilityLabel === '前の画面に戻る'), false);
   });
 
-  test(`${platform} account connections preserve an unconfirmed Google review while editing neighboring controls`, async t => {
+  test(`${platform} account connections enable shared Tasks from its checkbox without another Google selection or confirmation`, async t => {
     const h = connections(platform); t.after(() => h.screen.unmount());
     await flush(h.screen);
-    await h.screen.press('Googleアカウントを確認'); await flush(h.screen);
     assert.match(h.screen.text(), /TEST_GOOGLE/u); assert.equal(h.calls.includes('connect'), false);
+    h.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '共有家事をGoogle Tasksと同期').props.onPress(); await flush(h.screen);
+    assert.equal(h.calls.filter(value => value === 'review').length, 1);
+    assert.equal(h.calls.filter(value => value === 'connect').length, 1);
+    assert.equal(h.calls.filter(value => value === 'synchronize').length, 1);
+    const readsAfterConnect = h.calls.filter(value => value === 'readTasks').length;
     await h.screen.press('端末を追加'); await h.screen.change('端末の接続コード', 'unconfirmed draft');
     h.screen.render(); await flush(h.screen);
-    h.screen.button('このアカウントで連携'); assert.equal(h.calls.filter(value => value === 'review').length, 1);
-    assert.equal(h.calls.filter(value => value === 'readTasks').length, 2); assert.equal(h.calls.includes('connect'), false);
+    assert.equal(h.screen.nodes().some(node => node.props.accessibilityLabel === 'このアカウントで連携'), false);
+    assert.equal(h.calls.filter(value => value === 'readTasks').length, readsAfterConnect);
     assert.equal(h.calls.includes('initializeDevice'), false);
   });
 
@@ -118,6 +123,7 @@ for (const platform of ['ios', 'android']) {
       let busy = true; let releases = 0; let resolve; const calls = [];
       const operation = { get busy() { return busy; }, acquire() { if (busy) return false; busy = true; return true; }, release() { busy = false; releases++; } };
       const runtime = { readControl: async () => ({ enabled: false, revision: 0, calendars: [] }), readConflicts: async () => [],
+        isConnected: async () => false,
         prepareConnection: async () => { calls.push('review'); return new Promise(done => { resolve = done; }); },
         connect: async () => { calls.push('connect'); throw new Error('synthetic failure'); } };
       const file = shared ? 'src/features/calendar/shared-google-settings.tsx' : 'src/features/calendar/personal-google-settings.tsx';

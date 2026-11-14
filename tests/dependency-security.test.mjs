@@ -89,7 +89,7 @@ test('Expo SDK 58 MCP command schemas keep typed arguments, strict unknown-key r
 test('security override resolves the official fixed node-forge for both Expo consumers without changing the SDK', () => {
   assert.match(expoRequire('./package.json').version, /^58\./);
   for (const consumer of [cliRequire, certificateRequire]) {
-    assert.equal(consumer('node-forge/package.json').version, '1.4.1');
+    assert.equal(consumer('node-forge/package.json').version, '1.4.3');
     assert.equal(consumer.resolve('node-forge/package.json'), cliRequire.resolve('node-forge/package.json'));
   }
 });

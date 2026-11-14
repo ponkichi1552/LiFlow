@@ -110,20 +110,19 @@ for (const platform of ['ios', 'android']) {
       for (const cleanup of cleanups) cleanup?.();
     } finally { d.connection.close(); }
   });
-  test(`${platform} v2 settings guard native removal until saving succeeds and retain the draft after a failed back gesture`, async () => {
+  test(`${platform} v2 settings finish native removal after a failed save and discard only the unsaved draft`, async () => {
     const f = await fixture(); const d = await f.device();
     try {
-      await d.repository.commit(seeds()); const controller = ctrl(d); let fail = true; let guard; let prevent = false; let repeated = 0;
-      const save = controller.actions.patchChoreConfigurationFields; controller.actions.patchChoreConfigurationFields = async (...args) => { if (fail) throw new Error('SQLite full'); return save(...args); };
+      await d.repository.commit(seeds()); const controller = ctrl(d); let guard; let prevent = false; let repeated = 0; let attempts = 0;
+      controller.actions.patchChoreConfigurationFields = async () => { attempts++; throw new Error('SQLite full'); };
       const props = { model: await controller.readModel(range), choreId: 'floor', controller, onSaved: async () => { props.model = await controller.readModel(range); } };
       const screen = screenHarness('src/features/sharing/v2-ui/configuration-editor.tsx', { exportName: 'V2ConfigurationEditor', platform, props,
         preventRemove: (enabled, callback) => { prevent = enabled; guard = callback; } });
       await screen.change('共有家事の周期', '17'); assert.equal(prevent, true); guard({ repeat: () => { repeated++; } });
-      for (let i = 0; i < 20 && !screen.text().includes('SQLite full'); i++) await screen.flush();
-      assert.equal(repeated, 0); assert.equal(prevent, true); assert.equal(screen.nodes().find((node) => node.props.accessibilityLabel === '共有家事の周期').props.value, '17');
-      fail = false; await screen.press('保存を再試行');
-      for (let i = 0; i < 20 && props.model.configurations[0].configuration.intervalDays !== 17; i++) await screen.flush();
-      assert.equal(props.model.configurations[0].configuration.intervalDays, 17); assert.equal(prevent, false); assert.equal(repeated, 0);
+      for (let i = 0; i < 20; i++) await screen.flush();
+      assert.equal(attempts, 1); assert.equal(repeated, 1); assert.equal(prevent, false);
+      assert.equal(screen.nodes().find((node) => node.props.accessibilityLabel === '共有家事の周期').props.value, '7');
+      assert.equal((await controller.readModel(range)).configurations[0].configuration.intervalDays, 7);
     } finally { d.connection.close(); }
   });
 }

@@ -21,14 +21,14 @@ async function setup() {
   await d.repository.commit(initial); return { f, d, c: controller(d), close: () => d.connection.close() };
 }
 async function open(c, platform) {
-  const effects = []; const cleanups = []; let focus; let backs = 0;
+  const effects = []; const cleanups = []; let focus; let backs = 0; let appState;
   const props = { model: await c.readModel(range, { groupPolicy: true }), controller: c, onSaved: async () => { props.model = await c.readModel(range, { groupPolicy: true }); }, onBack: () => { backs++; } };
   const screen = screenHarness('src/features/sharing/v2-ui/group-policy-editor.tsx', { exportName: 'V2GroupPolicyEditor', platform, props,
-    effect: callback => effects.push(callback), focusEffect: callback => { focus = callback; } });
+    effect: callback => effects.push(callback), focusEffect: callback => { focus = callback; }, appStateListener: listener => { appState = listener; } });
   const commit = () => { for (const effect of effects.splice(0)) { const cleanup = effect(); if (typeof cleanup === 'function') cleanups.push(cleanup); } };
   const settle = async predicate => { for (let n = 0; n < 35; n++) { commit(); await screen.flush(); if (!predicate || predicate()) return; } assert.fail(screen.text()); };
   const leave = focus?.(); await settle();
-  return { props, screen, commit, settle, backs: () => backs, close: async () => {
+  return { props, screen, commit, settle, flushPending: () => appState?.('background'), backs: () => backs, close: async () => {
     if (screen.text().includes('入力を最新のルールに戻す')) await screen.press('入力を最新のルールに戻す');
     leave?.(); for (const cleanup of cleanups) cleanup(); await screen.flush();
   } };
@@ -73,13 +73,14 @@ for (const platform of ['ios', 'android']) {
     } finally { await ui.close(); f.close(); }
   });
 
-  test(`${platform} invalid group names keep the settings draft and prevent navigation without silently saving an empty name`, async () => {
+  test(`${platform} invalid group names are discarded on departure without silently saving an empty name or blocking navigation`, async () => {
     const f = await setup(); const ui = await open(f.c, platform);
     try {
       const before = await listSharingOutbox(f.d.database, groupId);  await ui.screen.change('グループ名', '   ');
-      await ui.screen.press('戻る'); await ui.settle(() => ui.screen.text().includes('グループ名は1〜500文字'));
-      assert.equal(ui.backs(), 0); assert.deepEqual(await listSharingOutbox(f.d.database, groupId), before);
-      await ui.screen.press('入力を最新のルールに戻す'); await ui.settle(); await ui.screen.press('戻る'); assert.equal(ui.backs(), 1);
+      await ui.screen.press('戻る'); await ui.settle(() => ui.backs() === 1);
+      assert.deepEqual(await listSharingOutbox(f.d.database, groupId), before);
+      assert.equal((await f.c.readModel(range, { groupPolicy: true })).groupSettings.name.value, ui.props.model.groupSettings.name.value);
+      assert.equal(ui.screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === 'グループ名').props.value, ui.props.model.groupSettings.name.value);
     } finally { await ui.close(); f.close(); }
   });
 
@@ -132,7 +133,7 @@ for (const platform of ['ios', 'android']) {
       const old = ui.screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '前倒しの変更を自動承認');
       await f.c.actions.patchGroupPolicy({ allowSubstitution: false });
       ui.props.model = await f.c.readModel(range, { groupPolicy: true }); ui.screen.render(); ui.commit();
-      old.props.onPress(); await ui.screen.press('戻る'); await ui.settle(() => ui.screen.text().includes('別の変更が届いています'));
+      old.props.onPress(); ui.flushPending(); await ui.settle(() => ui.screen.text().includes('別の変更が届いています'));
       assert.equal(ui.backs(), 0); const current = (await f.c.readModel(range, { groupPolicy: true })).groupPolicy.value;
       assert.equal(current.autoApproveEarlier, true); assert.equal(current.allowSubstitution, false);
       await ui.screen.press('入力を最新のルールに戻す'); await ui.settle();

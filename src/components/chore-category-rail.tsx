@@ -85,9 +85,10 @@ function createRailControl() {
 }
 
 /** Long category marks and short chore marks navigate one continuous document. */
-export function ChoreCategoryRail({ groups, category, selectedId, onSelect, onScrubChange }: {
+export function ChoreCategoryRail({ groups, category, selectedId, onSelect, onScrubChange, itemLabel = '家事' }: {
   groups: readonly { name: string; chores: readonly { id: string; name: string }[] }[];
   category: string; selectedId?: string; onSelect(id: string): void; onScrubChange(active: boolean): void;
+  itemLabel?: string;
 }) {
   const [preview, setPreview] = useState<RailPreview>(null); const { width } = useWindowDimensions();
   const [window, setWindow] = useState<RailWindow>({ start: 0, count: 24 });
@@ -101,10 +102,10 @@ export function ChoreCategoryRail({ groups, category, selectedId, onSelect, onSc
   // Keep readable spacing. Holding either edge scrolls this small window through the full catalog.
   const visible = targets.slice(window.start, window.start + window.count);
   return <View ref={attach} onLayout={control.layout} style={styles.rail} {...control.panHandlers}
-    accessible accessibilityRole="adjustable" accessibilityLabel="家事の見出しを移動"
-    accessibilityHint="上下になぞると個々の家事へ移動します。上下のスワイプでも前後の家事へ移動できます。"
+    accessible accessibilityRole="adjustable" accessibilityLabel={`${itemLabel}の見出しを移動`}
+    accessibilityHint={`上下になぞると個々の${itemLabel}へ移動します。上下のスワイプでも前後の${itemLabel}へ移動できます。`}
     accessibilityValue={{ text: targets.find(target => target.kind === 'chore' && target.id === selectedId)?.name ?? category }}
-    accessibilityActions={[{ name: 'increment', label: '次の家事' }, { name: 'decrement', label: '前の家事' }]} onAccessibilityAction={control.accessibilityAction}>
+    accessibilityActions={[{ name: 'increment', label: `次の${itemLabel}` }, { name: 'decrement', label: `前の${itemLabel}` }]} onAccessibilityAction={control.accessibilityAction}>
     <View pointerEvents="none" style={styles.marks}>
       {visible.map((target, index) => <Pressable key={target.key} accessible={false} accessibilityRole="button"
         accessibilityLabel={target.kind === 'category' ? `${target.name}の先頭へ移動` : `${target.name}へ移動`}

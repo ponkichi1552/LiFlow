@@ -34,7 +34,7 @@ export function BirthdaySettings({ database, today = localDateFromDate(new Date(
   };
   return <View style={{ gap: 8 }}>
     <Text style={{ ...typography.caption, color: palette.muted }}>カレンダーに誕生日を表示します。</Text>
-    <CalendarField label="自分の誕生日" hideLabel date={date} minute={0} mode="date" commitOnDone
+    <CalendarField label="自分の誕生日" hideLabel date={date} minute={0} mode="date" commitOnDone borderless={embedded}
       displayValue={pending || own ? `${Number(date.slice(5, 7))}月${Number(date.slice(-2))}日` : '未登録'}
       disabled={busy || local.loading} onDate={date => void save(date)} />
     {local.error || pending?.error ? <Text accessibilityRole="alert" style={{ ...typography.caption, color: palette.warning }}>{pending?.error ?? local.error}</Text> : null}

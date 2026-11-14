@@ -1,6 +1,7 @@
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { syntheticManual } from './helpers/synthetic-pdf.mjs';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { fixture, seeds, now, groupId, receiptsFor } from './helpers/sharing-v2-repository-fixture.mjs';
 import { applianceResult } from './helpers/sharing-v2-appliance.mjs';
@@ -20,7 +21,7 @@ async function setup() {
   const decorated = { ...c, actions: { ...c.actions, reviewAppliance: async input => { const value = await c.actions.reviewAppliance(input); if (failAfterSave) { failAfterSave = false; failRead = true; } return retentionPending ? { ...value, personalRetentionPending: true } : value; } } };
   const source = createV2ScreenSession({ controller: decorated, groupId, userId: 'owner', now, readPreferences: () => { preferences++; throw new Error('No private planning in asset management'); } });
   const session = { ...source, readModel: options => { if (failRead) { failRead = false; throw new Error('injected view failure'); } return source.readModel(options); } };
-  async function mount(platform, view = 'applianceReview', applianceId, bottomInset = 0, screenProps = {}) {
+  async function mount(platform, view = 'applianceReview', applianceId, bottomInset = 0, screenProps = {}, extraMocks = {}) {
     let focus; const navigation = []; const effects = []; const blurListeners = new Set();
     const screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { platform, exportName: 'V2GroupScreen',
       props: { purpose: 'workspace', view, applianceId, loadSession: async () => session, onBack: () => navigation.push(['back']), onConfiguration: id => navigation.push(['configuration', id]), onHistory() {},
@@ -30,10 +31,10 @@ async function setup() {
       navigationUnsubscribe: (event, listener) => { if (event === 'blur') blurListeners.delete(listener); },
       effect: callback => { const cleanup = callback(); if (cleanup) effects.push(cleanup); },
       mocks: { '../../appliance-care/api-client': { analyzeApplianceCareRequest: async (...args) => { requests.push(args[0]); return implementation(...args); } },
-        'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView', useSafeAreaInsets: () => ({ top: 0, right: 0, left: 0, bottom: bottomInset }) } } });
+        'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView', useSafeAreaInsets: () => ({ top: 0, right: 0, left: 0, bottom: bottomInset }) }, ...extraMocks } });
     let leave = focus(); mounts.push(() => { leave(); effects.forEach(cleanup => cleanup()); });
-    await settle(screen, () => screen.text().includes('対象の共有家電を表示できません') || screen.text().includes(view === 'appliances' ? '登録した家電' : view === 'appliance' ? '共有家電のお手入れ' : '選択したPDFを解析する'));
-    if (view === 'applianceReview' && screen.text().includes('取扱説明書PDFを選ぶ')) { await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('このPDFを利用・解析・共有できることを確認した'); }
+    await settle(screen, () => screen.text().includes('対象の共有家電を表示できません') || screen.text().includes(view === 'appliances' ? '家電一覧' : view === 'appliance' ? 'お手入れ方法' : applianceId ? 'PDFを再解析' : 'PDFを解析'));
+    if (view === 'applianceReview' && screen.text().includes('取扱説明書PDFを選ぶ')) { await screen.press('取扱説明書PDFを選ぶ'); await screen.flush();  }
     return { screen, navigation, blur: () => { assert.ok(blurListeners.size > 0, 'the retained shared review must handle blur'); for (const listener of blurListeners) listener(); },
       refresh: async () => { leave(); leave = focus(); await screen.flush(); }, leave: () => { leave(); effects.forEach(cleanup => cleanup()); } };
   }
@@ -43,14 +44,14 @@ async function setup() {
     close() { mounts.forEach(cleanup => cleanup()); device.connection.close(); } };
 }
 async function analyze(screen) {
-  await screen.change('メーカー', 'Dyson'); await screen.change('製品名', 'V12 Detect Slim'); await screen.change('型番', 'SV20'); await screen.press('選択したPDFを解析する');
+  await screen.press('PDFを解析');
   await settle(screen, () => Boolean(checkbox(screen, reviewLabel)));
 }
 for (const platform of ['ios', 'android']) {
   test(`${platform} shared appliance analysis waits for an explicit review and selected new tasks stay disabled with separate shared cadence`, async () => {
     const f = await setup();
     try {
-      const { screen, navigation } = await f.mount(platform); assert.match(screen.text(), /解析APIとAI提供元へ送信します/u);
+      const { screen, navigation } = await f.mount(platform); assert.match(screen.text(), /PDFをAI提供元へ送信します/u);
       const before = await listSharingOutbox(f.device.database, groupId); await analyze(screen);
       assert.equal(f.requests().length, 1); assert.deepEqual(await listSharingOutbox(f.device.database, groupId), before);
       assert.equal(screen.button('確認した解析結果を共有する').props.accessibilityState.disabled, true);
@@ -64,18 +65,22 @@ for (const platform of ['ios', 'android']) {
     } finally { f.close(); }
   });
 
-  test(`${platform} a reviewed shared appliance saves the latest input and cancels without sharing partial or late analysis`, async () => {
+  test(`${platform} a reviewed shared appliance submits the latest selected PDF and cancels without sharing partial or late analysis`, async () => {
     const f = await setup();
     try {
       let release; let aborted = false;
       f.analyzeWith((_request, _base, _timeout, _stage, signal) => new Promise(resolve => { release = resolve; signal.addEventListener('abort', () => { aborted = true; }); }));
-      const mounted = await f.mount(platform); const { screen } = mounted;
-      await screen.change('メーカー', 'Dyson'); await screen.change('製品名', 'V12'); await screen.change('型番', 'SV20');
-      const button = screen.button('選択したPDFを解析する'); const input = screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '型番');
-      input.props.onChangeText('SV21'); button.props.onPress(); await screen.flush(); assert.equal(f.requests()[0].modelNumber, 'SV21');
+      let selected;
+      const mounted = await f.mount(platform, 'applianceReview', undefined, 0, {}, { './manual-upload-input': { ManualUploadInput: props => {
+        selected = props.onChange;
+        return { type: 'Pressable', props: { accessibilityRole: 'button', accessibilityLabel: '取扱説明書PDFを選ぶ', onPress: () => props.onChange(syntheticManual()), children: '取扱説明書PDFを選ぶ' } };
+      } } }); const { screen } = mounted;
+      const button = screen.button('PDFを解析'); const latest = { ...syntheticManual(), base64: Buffer.from('synthetic latest PDF').toString('base64') };
+      selected(latest); button.props.onPress(); await screen.flush(); assert.deepEqual(f.requests()[0].manual, latest);
+      assert.equal(f.requests()[0].identifyFromManual, true); assert.equal(f.requests()[0].manufacturer, undefined);
       const before = await listSharingOutbox(f.device.database, groupId); await screen.press('解析を中止'); assert.equal(aborted, true);
       release(applianceResult()); await screen.flush(); assert.equal(checkbox(screen, reviewLabel), undefined); assert.deepEqual(await listSharingOutbox(f.device.database, groupId), before);
-      f.analyzeWith(async () => ({ status: 'ambiguous', candidates: [] })); await screen.press('選択したPDFを解析する');
+      f.analyzeWith(async () => ({ status: 'ambiguous', candidates: [] })); await screen.press('PDFを解析');
       await settle(screen, () => screen.text().includes('製品を特定できませんでした'));
       assert.equal((await f.read()).appliances.rows.length, 0);
     } finally { f.close(); }
@@ -87,7 +92,7 @@ for (const platform of ['ios', 'android']) {
       const { screen } = await f.mount(platform); await analyze(screen); await checkbox(screen, reviewLabel).props.onPress(); await screen.flush();
       f.failAfterNextSave(); await screen.press('確認した解析結果を共有する'); await settle(screen, () => screen.text().includes('端末に保存済みです'));
       const before = await listSharingOutbox(f.device.database, groupId); assert.equal((await f.read()).appliances.rows.length, 1);
-      assert.equal(screen.button('選択したPDFを解析する').props.accessibilityState.disabled, true);
+      assert.equal(screen.nodes().some(node => node.children?.join('') === 'PDFを解析'), false);
       await screen.press('保存済みの家電を再読込'); await settle(screen, () => !screen.text().includes('端末に保存済みです'));
       assert.deepEqual(await listSharingOutbox(f.device.database, groupId), before); assert.equal(screen.nodes().some(node => node.children?.join('') === '確認した解析結果を共有する'), false);
     } finally { f.close(); }
@@ -100,7 +105,7 @@ for (const platform of ['ios', 'android']) {
       f.failPersonalRetention(); await screen.press('確認した解析結果を共有する');
       await settle(screen, () => screen.text().includes('個人側への保存は次回同期時に再試行'));
       assert.equal(f.requests().length, 1);
-      assert.equal(screen.button('選択したPDFを解析する').props.accessibilityState.disabled, true);
+      assert.equal(screen.nodes().some(node => node.children?.join('') === 'PDFを解析'), false);
       assert.equal(screen.nodes().some(node => node.children?.join('') === '確認した解析結果を共有する'), false);
       assert.ok(screen.button('保存した共有家電を開く'));
     } finally { f.close(); }
@@ -110,8 +115,8 @@ for (const platform of ['ios', 'android']) {
     const f = await setup();
     try {
       const saved = await f.seed(); const mounted = await f.mount(platform, 'applianceReview', saved.applianceId); const { screen } = mounted;
-      assert.equal(screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '型番').props.editable, false);
-      await screen.press('選択したPDFを解析する'); await settle(screen, () => Boolean(checkbox(screen, reviewLabel)));
+      assert.equal(screen.nodes().some(node => node.type === 'TextInput'), false);
+      await screen.press('PDFを再解析'); await settle(screen, () => Boolean(checkbox(screen, reviewLabel)));
       const row = (await f.read(saved.applianceId)).appliances.detail.row; const result = applianceResult(); result.product.productName = '別端末で変更';
       await f.c.actions.reviewAppliance({ reviewed: true, result, selection: row.selection, addTaskNames: [] }); await mounted.refresh();
       const before = await listSharingOutbox(f.device.database, groupId); await checkbox(screen, reviewLabel).props.onPress(); await screen.flush(); await screen.press('確認した解析結果を共有する');
@@ -149,12 +154,16 @@ for (const platform of ['ios', 'android']) {
     } finally { member.connection.close(); f.close(); }
   });
 
-  test(`${platform} shared appliance review clearing an input invalidates an already enabled save handler before the next paint`, async () => {
+  test(`${platform} shared appliance review replacing its PDF invalidates an already enabled save handler before the next paint`, async () => {
     const f = await setup();
     try {
-      const { screen } = await f.mount(platform); await analyze(screen); await checkbox(screen, reviewLabel).props.onPress(); await screen.flush();
-      const save = screen.button('確認した解析結果を共有する'); const input = screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '型番');
-      const before = await listSharingOutbox(f.device.database, groupId); input.props.onChangeText('SV99'); save.props.onPress();
+      let selected;
+      const { screen } = await f.mount(platform, 'applianceReview', undefined, 0, {}, { './manual-upload-input': { ManualUploadInput: props => {
+        selected = props.onChange;
+        return { type: 'Pressable', props: { accessibilityRole: 'button', accessibilityLabel: '取扱説明書PDFを選ぶ', onPress: () => props.onChange(syntheticManual()), children: '取扱説明書PDFを選ぶ' } };
+      } } }); await analyze(screen); await checkbox(screen, reviewLabel).props.onPress(); await screen.flush();
+      const save = screen.button('確認した解析結果を共有する'); const before = await listSharingOutbox(f.device.database, groupId);
+      selected(syntheticManual()); save.props.onPress();
       await settle(screen, () => screen.text().includes('メーカー・型番・手順・注意事項を確認してください'));
       assert.deepEqual(await listSharingOutbox(f.device.database, groupId), before); assert.equal((await f.read()).appliances.rows.length, 0);
     } finally { f.close(); }
@@ -201,8 +210,9 @@ for (const platform of ['ios', 'android']) {
     try {
       const bottom = platform === 'android' ? 48 : 34; const { screen } = await f.mount(platform, 'applianceReview', undefined, bottom);
       await analyze(screen); const list = screen.nodes().find(node => node.type === 'FlatList');
-      assert.ok(list.props.contentContainerStyle.paddingBottom >= bottom + 24);
-      assert.equal(list.props.initialNumToRender, 1); assert.equal(list.props.maxToRenderPerBatch, 1); assert.equal(list.props.windowSize, 3);
+      const content = Object.assign({}, ...[list.props.contentContainerStyle].flat(Infinity).filter(Boolean));
+      assert.ok(content.paddingBottom >= bottom + 24);
+      assert.ok(list.props.initialNumToRender < list.props.data.length && list.props.maxToRenderPerBatch < list.props.data.length, 'long analysis stays virtualized');
       assert.equal(screen.button('確認した解析結果を共有する').props.accessibilityState.disabled, true);
     } finally { f.close(); }
   });
@@ -212,12 +222,12 @@ for (const platform of ['ios', 'android']) {
     try {
       let finish; let finishNext; let signal; f.analyzeWith((_request, _base, _timeout, _stage, inputSignal) => { signal = inputSignal; return new Promise(resolve => { finish = resolve; }); });
       const mounted = await f.mount(platform); const { screen } = mounted;
-      await screen.change('メーカー', 'Dyson'); await screen.change('製品名', 'V12'); await screen.change('型番', 'SV20'); await screen.press('選択したPDFを解析する');
+      await screen.press('PDFを解析');
       const before = await listSharingOutbox(f.device.database, groupId); assert.equal(signal.aborted, false); mounted.blur(); assert.equal(signal.aborted, true);
-      await screen.flush(); assert.equal(screen.button('選択したPDFを解析する').props.accessibilityState.disabled, false, 'retry must not wait for a cancelled transport to settle');
-      f.analyzeWith(() => new Promise(resolve => { finishNext = resolve; })); await screen.press('選択したPDFを解析する');
+      await screen.flush(); assert.equal(screen.button('PDFを解析').props.accessibilityState.disabled, false, 'retry must not wait for a cancelled transport to settle');
+      f.analyzeWith(() => new Promise(resolve => { finishNext = resolve; })); await screen.press('PDFを解析');
       finish(applianceResult()); await screen.flush(); assert.equal(checkbox(screen, reviewLabel), undefined);
-      assert.equal(screen.button('選択したPDFを解析する').props.accessibilityState.disabled, true, 'the old finally cannot unlock the newer request');
+      assert.equal(screen.button('解析しています…').props.accessibilityState.disabled, true, 'the old finally cannot unlock the newer request');
       const newer = applianceResult(); newer.product.productName = '新しい解析結果'; finishNext(newer); await settle(screen, () => Boolean(checkbox(screen, reviewLabel)));
       assert.match(screen.text(), /新しい解析結果/u);
       assert.equal(f.requests().length, 2); assert.deepEqual(await listSharingOutbox(f.device.database, groupId), before);

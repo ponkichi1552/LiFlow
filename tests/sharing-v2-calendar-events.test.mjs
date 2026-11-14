@@ -42,8 +42,9 @@ test('shared recurring exceptions bind a real occurrence and structural resets e
   assert.equal(accepted(f, fakeDate), false);
   const structural = value({ recurrence: 'monthly' });
   const forgotten = f.make('calendarEvent', change(create.operationId, { basisOperationIds: [create.operationId], value: structural }), { actor: 'a' });
-  assert.equal(accepted(f, forgotten), false);
-  const reset = f.make('calendarEvent', change(create.operationId, { basisOperationIds: [create.operationId], resetExceptionIds: [one.operationId], value: structural }), { actor: 'a' });
+  assert.equal(accepted(f, forgotten), true);
+  assert.equal(readSharedCalendar(f.state().assessment.view)[0].exceptions.length, 1);
+  const reset = f.make('calendarEvent', change(create.operationId, { basisOperationIds: [forgotten.operationId], resetExceptionIds: [one.operationId], value: structural }), { actor: 'a' });
   assert.equal(accepted(f, reset), true); assert.equal(readSharedCalendar(f.state().assessment.view)[0].exceptions.length, 0);
 });
 

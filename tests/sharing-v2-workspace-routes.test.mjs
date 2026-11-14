@@ -27,19 +27,19 @@ async function fixture() {
     session: { controller: preview.controller }, sync: async () => { syncs++; } };
   const context = { ready: true, active, userId: preview.userId, group: { groupId: preview.groupId, displayName: '選択した家族' } };
   const leaves = new Set();
-  return { ...h, leaves, dispose: () => { for (const leave of leaves) leave(); h.connection.close(); }, preview, context, personalSnapshot: { settings: { frequencyMode: 'balanced', restDays: [], heavyDailyLimit: 2, normalDailyLimit: 3 } }, callbacks: new Set(), calendarCallbacks: new Set(), localCalendarCallbacks: new Set(), appStateListeners: new Set(),
+  return { ...h, leaves, dispose: () => { for (const leave of leaves) leave(); h.connection.close(); }, preview, context, personalSnapshot: { chores: [], completions: [], settings: { frequencyMode: 'balanced', restDays: [], heavyDailyLimit: 2, normalDailyLimit: 3 } }, callbacks: new Set(), calendarCallbacks: new Set(), localCalendarCallbacks: new Set(), appStateListeners: new Set(),
     now: () => clock(), setNow: value => { clock = () => new Date(value); }, calendarReads: 0, calendarChecks: [], sessionInputs: [], synced: () => syncs };
 }
 async function route(f, platform, file, params = {}, readyText = '今日の家事') {
-  let focus; const navigation = [];
+  let focus; let picker; const navigation = [];
   const view = ({ index: 'home', 'add-chore': 'addChore', 'chore-options': 'advancedSettings', 'assignment-requests': 'assignmentRequests', 'date-rights': 'dateRights', 'group-rules': 'groupPolicy', 'appliance-review': 'applianceReview' })[file] ?? file;
   const screen = screenHarness('tests/helpers/workspace-route-host.tsx', { effectDependencies: true, effect: callback => callback(), exportName: 'WorkspaceRouteHost', layoutEffect: callback => callback(), props: { view }, platform, params, focusEffect: (callback) => { focus = callback; },
-    appStateListener: callback => f.appStateListeners.add(callback), navigate: (...args) => navigation.push(args),
+    appStateListener: callback => f.appStateListeners.add(callback), navigate: (...args) => navigation.push(args), datePicker:value=>{picker=value;},
     mocks: {
       // The native document is tested separately with actual virtual unmounts. Route tests
       // exercise the requested chapter, as the native jump makes it the visible editor.
       '../../../components/chore-book': { ChoreBook: props => ({ type: 'ChoreBook', props: { ...props, children: [props.title, props.titleAccessory, props.header,
-        props.renderChore(props.chores.find(row => row.id === props.selectedId) ?? props.chores[0])] } }) },
+        props.chores.length ? props.renderChore(props.chores.find(row => row.id === props.selectedId) ?? props.chores[0]) : null, props.footer] } }) },
       '../../../hooks/use-workspace': { useWorkspace: () => f.context },
       './workspace-display-store': { createWorkspaceDisplayStore: loader => createWorkspaceDisplayStore(loader, f.now) },
       './screen-session': { createV2ScreenSession: input => { f.sessionInputs.push(input); const source = createV2ScreenSession({ ...input, now: f.now });
@@ -60,7 +60,7 @@ async function route(f, platform, file, params = {}, readyText = '今日の家�
       } },
       '../../../hooks/use-planner-data': { usePlannerData: () => ({ database: f.database, snapshot: f.personalSnapshot }) } } });
   const leaveFocus = focus?.(); const leave = () => { leaveFocus?.(); screen.unmount(); f.leaves.delete(leave); }; f.leaves.add(leave); for (let n = 0; n < 30 && !(readyText === '共有カレンダー' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(readyText)); n++) await screen.flush();
-  assert.ok((readyText === '共有カレンダー' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(readyText)), screen.text()); return { screen, leave, navigation };
+  assert.ok((readyText === '共有カレンダー' ? screen.nodes().some(node => node.props.testID === 'calendar-weeks') : screen.text().includes(readyText)), screen.text()); return { screen, leave, navigation, picker:()=>picker };
 }
 async function activateChore(screen) {
   const check = screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === 'この条件で家事を有効にする');
@@ -166,7 +166,7 @@ for (const platform of ['ios', 'android']) {
       const params = { occurrenceId: round.id, subjectId: subject.id, anchorDate: round.anchorDate };
       for (const [file, ready] of [['calendar', '共有カレンダー'], ['history', '実施履歴'], ['requests', '日時の変更申請'], ['assignment-requests', '担当の変更申請'],
         ['round', '共通の設定を開く'], ['date', '日時の指定'], ['assignment', '担当変更の適用範囲'], ['chores', '家事一覧'],
-        ['add-chore', '家事を追加'], ['details', '詳細設定'], ['chore-options', '詳細設定'], ['group-rules', 'グループの種類'], ['date-rights', '日時変更の権限'], ['waste', '登録済み'], ['appliances', '登録した家電'], ['appliance', '共有家電のお手入れ'], ['appliance-review', '選択したPDFを解析する']]) {
+        ['add-chore', '家事を追加'], ['details', '詳細設定'], ['chore-options', '詳細設定'], ['group-rules', 'グループの種類'], ['date-rights', '日時変更の権限'], ['waste', '未登録'], ['appliances', '家電一覧'], ['appliance', 'お手入れ方法'], ['appliance-review', 'PDFを解析']]) {
         const r = await route(f, platform, file, ['details', 'chore-options', 'date-rights'].includes(file) ? { choreId: round.choreId } : params, ready);
         try {
           assert.equal(f.sessionInputs.at(-1).groupId, f.context.active.groupId, 'routes retain the authenticated group without repeating its name on every page');
@@ -223,9 +223,14 @@ for (const platform of ['ios', 'android']) {
       const model = await f.preview.readModel(); const chore = model.plan.chores.find((item) => item.id.endsWith('.liflow-catalog-6.003')); const future = addDays(model.plan.range.asOfDate, 7);
       const r = await route(f, platform, 'configuration', { choreId: chore.id }, '誰か1人');
       const preset = r.screen.nodes().find((node) => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === '誰か1人が行う');
-      preset.props.onPress(); await r.screen.flush(); await r.screen.press('開始日を開く');
-      if (future.slice(0, 7) !== model.plan.range.asOfDate.slice(0, 7)) await r.screen.press('開始日カレンダーの次の月');
-      await r.screen.press(`開始日を${future.replaceAll('-', '/')}にする`); await r.screen.change('初回の周期', '7');
+      preset.props.onPress(); await r.screen.flush(); await r.screen.change('初回の周期', '7'); await r.screen.press('詳細設定を開く');
+      assert.equal(r.navigation.at(-1)[1].params.choreId,chore.id);
+      const advanced=await route(f,platform,'chore-options',{choreId:chore.id},'日付');
+      await advanced.screen.press('共有家事の開始日を選択');const picked=new Date(`${future}T12:00:00Z`);
+      if(platform==='ios'){advanced.screen.nodes().find(node=>node.type==='DateTimePicker').props.onValueChange({},picked);await advanced.screen.press('共有家事の開始日の選択を完了');}
+      else advanced.picker().onValueChange({},picked);
+      await advanced.screen.flush();advanced.leave();
+      r.screen.render();await r.screen.flush();
       await activateChore(r.screen); const next = await f.preview.readModel();
       const configuration = next.configurations.find((item) => item.choreId === chore.id).configuration;
       assert.ok(configuration, r.screen.text()); assert.equal(configuration.anchorDate, future); assert.equal(configuration.effectiveFrom, future);
@@ -239,7 +244,7 @@ for (const platform of ['ios', 'android']) {
     try {
       const r = await route(f, platform, 'add-chore', {}, '家事を追加');
       await r.screen.change('追加する家事の名前', '通常導線で追加した家事'); await r.screen.change('追加する家事の周期','7');
-      r.screen.nodes().find(node=>node.props.accessibilityRole==='radio'&&node.props.accessibilityLabel==='誰か1人が行う').props.onPress();await r.screen.press('追加');
+      r.screen.nodes().find(node=>node.props.accessibilityRole==='radio'&&node.props.accessibilityLabel==='誰か1人が行う').props.onPress();await r.screen.flush();await r.screen.press('追加');
       for (let n = 0; n < 25 && !r.navigation.length; n++) await r.screen.flush();
       const chore = (await f.preview.readModel()).plan.chores.find((item) => item.name === '通常導線で追加した家事'); assert.ok(chore); assert.equal(chore.enabled, true);
       assert.deepEqual(r.navigation.at(-1), ['replace', { pathname: '/group-v2/details', params: { choreId: chore.id } }]); r.leave?.();
@@ -316,6 +321,7 @@ test('workspace navigation keeps the same main tabs for personal and v2 while pr
     const names = screen.nodes().filter((node) => node.type === 'StackScreen').map((node) => node.props.name);
     assert.ok(names.includes('sharing')); assert.ok(names.includes('help'));
     assert.ok(names.includes('settings/add-chore'), 'personal creation remains available inside shared workspaces');
+    assert.ok(names.includes('settings/chore-options'), 'private advanced settings remain available inside shared workspaces');
     assert.equal(names.includes('group-v2'), active?.protocol === 2); assert.equal(names.includes('(tabs)'), true);
     assert.deepEqual(guards.map((guard) => guard.redirectTo), ['/', '/sharing']);
   }

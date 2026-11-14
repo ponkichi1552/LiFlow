@@ -60,8 +60,8 @@ test('ThemedText keeps explicit theme and caller color precedence when text role
 
 test('compact button typography preserves primary secondary quiet and destructive foreground meanings in both themes', () => {
   for (const palette of [plannerLightColors, plannerDarkColors]) for (const compact of [false, true]) {
-    for (const [variant, color] of Object.entries({ primary: palette.accentInk, secondary: palette.accent, quiet: palette.muted, danger: palette.warning })) {
-      const screen = screenHarness('src/components/planner-ui.tsx', { exportName: 'AppButton', props: { variant, compact, title: 'Action', onPress() {} },
+    for (const [variant, color] of Object.entries({ primary: palette.accentInk, secondary: palette.accent, quiet: palette.accent, danger: palette.warning })) {
+      const screen = screenHarness('src/components/planner-ui.tsx', { exportName: 'AppButton', colorScheme: palette === plannerDarkColors ? 'dark' : 'light', props: { variant, compact, title: 'Action', onPress() {} },
         mocks: { './planner-colors': { palette } } });
       assert.equal(flatten(screen.nodes().find(node => node.type === 'Text').props.style).color, color, `${variant} compact=${compact}`);
     }
@@ -74,4 +74,15 @@ test('native tab labels keep navigator controlled active and inactive tint rathe
   assert.ok(options); assert.equal(flatten(options.tabBarLabelStyle).color, undefined);
   assert.equal(options.tabBarActiveTintColor, plannerLightColors.accent);
   assert.equal(options.tabBarInactiveTintColor, plannerLightColors.muted);
+});
+
+test('native tab tints resolve to concrete colors in both themes so inactive destinations remain drawable during search input', () => {
+  for (const platform of ['ios', 'android']) for (const colorScheme of ['light', 'dark']) {
+    const screen = screenHarness('src/components/app-tabs.tsx', { platform, colorScheme });
+    const options = screen.nodes().find(node => node.props.screenOptions)?.props.screenOptions;
+    assert.match(options.tabBarActiveTintColor, /^#[0-9A-F]{6}$/i);
+    assert.match(options.tabBarInactiveTintColor, /^#[0-9A-F]{6}$/i);
+    assert.notEqual(options.tabBarInactiveTintColor, options.tabBarStyle.backgroundColor);
+    screen.unmount();
+  }
 });

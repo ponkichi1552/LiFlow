@@ -39,6 +39,7 @@ for (const platform of ['ios', 'android']) {
     assert.equal(value.tasks[0].evidence[0].url, 'https://example.test/untrusted');
     const empty = screenHarness('src/features/appliance-care/appliance-detail-content.tsx', { exportName: 'ApplianceDetailContent', platform,
       props: { context: context({ analyzedAt: analysis.analyzedAt, tasks: [] }) } });
-    assert.equal(empty.nodes().find(node => node.type === 'FlatList').props.data.length, 0);
+    assert.equal(empty.nodes().find(node => node.type === 'FlatList').props.data.filter(row => row.task).length, 0);
+    empty.button('この家電を再解析');
   });
 }

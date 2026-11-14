@@ -8,5 +8,5 @@ export function V2ChoreList({ model, busy, onDetails, onAdd, header, personal, o
   personal?: PersonalGuideSource; onOpen?: (id: string, source: 'personal' | 'shared') => void; onDetails: (id: string) => void; onConfiguration: (id: string) => void; onAdd?: () => void; header?: ReactElement }) {
   return <ChoreLibrary chores={v2GuideChores(model, personal)} header={header} disabled={busy} state={libraryState}
     onOpen={key => { const source = key.startsWith('personal:') ? 'personal' : 'shared'; const id = key.slice(key.indexOf(':') + 1); if (onOpen) onOpen(id, source); else onDetails(id); }}
-    footer={onAdd ? <AppButton title="家事を追加" accessibilityLabel="新しい共有家事を追加" variant="secondary" disabled={busy} onPress={onAdd} /> : undefined} />;
+    footer={onAdd ? <AppButton title="家事を追加" accessibilityLabel="新しい共有家事を追加" disabled={busy} onPress={onAdd} /> : undefined} />;
 }

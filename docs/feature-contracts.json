@@ -1,5 +1,626 @@
 [
   {
+    "feature": "calendar-session-state-chore-search-occurrence-date-and-reminders",
+    "tests": [
+      {
+        "file": "tests/chore-date-sheet.test.mjs",
+        "name": "${platform} timed personal chore blocks open their exact occurrence date sheet in personal and shared calendars without writing"
+      },
+      {
+        "file": "tests/chore-date-sheet.test.mjs",
+        "name": "${platform} shared home private chores open guides while calendar rows edit dates without adding a second action"
+      },
+      {
+        "file": "tests/calendar-navigation-ux.test.mjs",
+        "name": "${platform} native horizontal swipes page one or two days once and ignore cancelled diagonal and multi-touch gestures"
+      },
+      {
+        "file": "tests/chore-date-sheet.test.mjs",
+        "name": "${platform} chore date sheet closes without saving and saves only its captured occurrence after a date is picked"
+      },
+      {
+        "file": "tests/chore-date-sheet.test.mjs",
+        "name": "${platform} calendar chore rows omit completion controls while home keeps independent guide and completion actions"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "calendar search includes dated personal and shared chores with normalized names without turning source rows into editable appointments"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "${platform} selecting a chore search result opens its date and chore section without opening an editor or writing data"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "${platform} event notification choice saves atomically with the actual event while leaving housework notifications unchanged"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "calendar reminder preferences survive reopen and invalid timing rolls back event creation without altering housework settings"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "calendar notifications follow recurring overrides deletion timing and current account scope and exclude unselected events"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "calendar reconciliation cancels its stale notices after off or deletion while preserving housework and respecting native capacity"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "pending personal chore date change retains the exact round cadence history and clock and rejects stale writes with retry safety"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "manual seasonal occurrence dates persist across region refresh without moving the other work kind or creating completion history"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "${platform} calendar notification switch requests permission only when enabling and denial leaves all saved notification settings intact"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "calendar reminder reads cannot migrate or write a shared-only database"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} shared event reminders stay private and a failed local reminder save retries the committed shared intent without duplicating the event"
+      },
+      {
+        "file": "tests/chore-date-sheet.test.mjs",
+        "name": "${platform} shared calendar rows and timed chores open the captured occurrence date editor without changing home guides or writing"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-15-full-check-and-readme.md"
+  },
+  {
+    "feature": "personal-cycle-automatic-fixed-selection",
+    "tests": [
+      {
+        "file": "tests/chore-cycle-mode.test.mjs",
+        "name": "${platform} personal cycle mode pins the displayed learned cadence with one tap and persists fixed automatic choices through the actual repository"
+      },
+      {
+        "file": "tests/chore-cycle-mode.test.mjs",
+        "name": "cycle mode coalesces rapid switches with a later numeric edit without restoring a stale cadence"
+      },
+      {
+        "file": "tests/chore-cycle-mode.test.mjs",
+        "name": "cycle mode retries the captured learned value and discards a failed choice without touching other settings"
+      },
+      {
+        "file": "tests/chore-cycle-mode.test.mjs",
+        "name": "viewing learned cycles and unavailable automatic modes cannot create a fixed override or erase a special schedule"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-14-chore-cycle-mode.md"
+  },
+  {
+    "feature": "calendar-direct-entry-copy-and-move",
+    "tests": [
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "calendar duplication creates an independent single occurrence without source identity or sync proofs"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "empty calendar slots use the selected civil day and five-minute time without writing an appointment"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "calendar drag targets snap to five minutes and stay in the displayed days and time range"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "calendar moves retain occurrence revisions and real duration while translating display time zones and rejecting DST ambiguity"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "month drag resolves scrolled partial weeks and rejects headings blank cells and offscreen drops"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "month all-day moves retain civil dates span and occurrence scope without inventing clock times"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "${platform} month dragging changes only the date preserves times and returns scrolling without opening an editor"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "${platform} month drags preserve repeating shared proofs and cancel invalid drops while excluding protected events"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "${platform} calendar slot and duplicate shortcuts open editable unsaved forms without touching the original"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "${platform} held calendar drags use captured shared revisions, recheck permission, and restore scrolling after failure or cancellation"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "${platform} a pending calendar move stays visible without duplicating the event or blocking scrolling and accepts the observed saved position"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "${platform} calendar drag shortcuts exclude read-only events and cannot cross a changed group binding"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "${platform} dragging an already edited repeating occurrence changes only that occurrence and preserves its original anchor"
+      },
+      {
+        "file": "tests/calendar-month-autoscroll.test.mjs",
+        "name": "month edge scrolling accelerates toward either edge and stops outside the grid or in its center"
+      },
+      {
+        "file": "tests/calendar-month-autoscroll.test.mjs",
+        "name": "a stationary held pointer scrolls through unseen weeks and months and saves only its final date without changing time"
+      },
+      {
+        "file": "tests/calendar-month-autoscroll.test.mjs",
+        "name": "month edge scrolling reverses stops in the middle and cancels on gesture or view interruption"
+      },
+      {
+        "file": "tests/calendar-month-autoscroll.test.mjs",
+        "name": "month auto scrolling cannot run before gesture ownership and clamps at the real list boundaries"
+      },
+      {
+        "file": "tests/calendar-series-move.test.mjs",
+        "name": "moving a later repeating occurrence shifts its original parent once and keeps the held proof and until date"
+      },
+      {
+        "file": "tests/calendar-series-move.test.mjs",
+        "name": "whole-series moves rotate custom weekdays and convert the displayed displacement back to the source zone"
+      },
+      {
+        "file": "tests/calendar-series-move.test.mjs",
+        "name": "exception slots follow monthly occurrence order while explicit dates deletion and unrelated events stay unchanged"
+      },
+      {
+        "file": "tests/calendar-series-move.test.mjs",
+        "name": "shortened or changed recurrence keeps detached individual edits visible and editable rather than fabricating normal occurrences"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "${platform} month edge dragging continues when its source week is virtualized away and commits only on release"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "${platform} dragging a repeating event asks its scope and undo restores the series without overwriting a later edit"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "${platform} undoing a single repeating drag removes only the newly created exception and scope cancellation never saves"
+      },
+      {
+        "file": "tests/local-calendar.test.mjs",
+        "name": "local series moves carry exception slots while retaining their dates and single-move undo removes only its new exception without ABA"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "shared series moves preserve individual dates in one batch and a single-occurrence undo leaves other exceptions intact"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "undoing a newly moved recurrence exports a reset of the same Google instance and does not resend unchanged data"
+      },
+      {
+        "file": "tests/calendar-month-autoscroll.test.mjs",
+        "name": "a native touch end stops edge scrolling even if a virtualized source never delivers responder release"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-14-calendar-autoscroll-and-undo.md"
+  },
+  {
+    "feature": "calendar-month-preview-count-and-spare-lines",
+    "tests": [
+      {
+        "file": "tests/calendar-month-preview.test.mjs",
+        "name": "month previews account for every hidden appointment without covering day labels or sacrificing appointments for extra title lines"
+      },
+      {
+        "file": "tests/calendar-month-preview.test.mjs",
+        "name": "spare month title lines go to the earliest long appointments without reordering or changing source records"
+      },
+      {
+        "file": "tests/calendar-month-preview.test.mjs",
+        "name": "month title brightening retains classification contrast and leaves light and other calendar text unchanged"
+      },
+      {
+        "file": "tests/calendar-month-preview.test.mjs",
+        "name": "a last fitting month appointment replaces plus one without taking room from chores or waste"
+      },
+      {
+        "file": "tests/calendar-month-preview.test.mjs",
+        "name": "month title previews wrap mixed Latin text without altering source names or splitting composed characters"
+      },
+      {
+        "file": "tests/calendar-month-preview.test.mjs",
+        "name": "month start times use only space left after every title fits two lines and preserve untimed events"
+      },
+      {
+        "file": "tests/calendar-navigation-ux.test.mjs",
+        "name": "${platform} detail calendars omit known empty chores while preserving unavailable and partial states"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-14-month-wrap.md"
+  },
+  {
+    "feature": "own-birthday-home-and-calendar-celebration",
+    "tests": [
+      {
+        "file": "tests/birthday-celebration.test.mjs",
+        "name": "birthday celebration belongs only to the registered person and follows existing recurrence exceptions"
+      },
+      {
+        "file": "tests/birthday-celebration.test.mjs",
+        "name": "birthday celebration does not move February 29 to a different civil date"
+      },
+      {
+        "file": "tests/birthday-celebration.test.mjs",
+        "name": "home birthday observes the startup cache without reading storage or requesting sync"
+      },
+      {
+        "file": "tests/birthday-celebration.test.mjs",
+        "name": "${platform} ${workspaceName ? 'group' : 'personal'} home celebrates only the viewer birthday and restores normal header next day"
+      },
+      {
+        "file": "tests/birthday-celebration.test.mjs",
+        "name": "${platform} birthday month marker preserves appointment slots and detail birthday editing"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-14-birthday-preview.md"
+  },
+  {
+    "feature": "ui-review-first-run-presets-and-save-affordances",
+    "tests": [
+      {
+        "file": "tests/ui-review-onboarding.test.mjs",
+        "name": "${platform} first run finishes from required choices without permission prompts or optional setup"
+      },
+      {
+        "file": "tests/ui-review-onboarding.test.mjs",
+        "name": "first run saves time preferences atomically and never replays them after setup was committed"
+      },
+      {
+        "file": "tests/ui-review-affordances.test.mjs",
+        "name": "${platform} unsupported shared single registrations explain the disabled save and offer the update destination without writing"
+      },
+      {
+        "file": "tests/ui-review-affordances.test.mjs",
+        "name": "${platform} category editing has its own save and cannot submit a partial appointment"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-14-ui-fixes-and-first-run.md"
+  },
+  {
+    "feature": "appliance-index-and-kind-heading",
+    "tests": [
+      {
+        "file": "tests/appliance-task-index.test.mjs",
+        "name": "${platform} appliance index jumps to an unmounted task and final actions without changing reviewed data"
+      },
+      {
+        "file": "tests/appliance-task-index.test.mjs",
+        "name": "${platform} appliance index follows the viewed task and scrubbing selects the touched heading"
+      },
+      {
+        "file": "tests/appliance-display-name.test.mjs",
+        "name": "appliance kinds lead while reviewed product identity and custom names remain available"
+      },
+      {
+        "file": "tests/appliance-library.test.mjs",
+        "name": "${platform} appliance kinds are visible alongside retained model identity and open the original saved item"
+      },
+      {
+        "file": "tests/appliance-pdf-only.test.mjs",
+        "name": "PDF appliance-kind schema uses the same stable categories as the app without requesting another analysis"
+      }
+    ],
+    "manualReview": "docs/appliance-index-kind-2026-11-13.md"
+  },
+  {
+    "feature": "appliance-pdf-only-product-and-care-extraction-20261113",
+    "tests": [
+      {
+        "file": "tests/appliance-pdf-only.test.mjs",
+        "name": "PDF-only requests require no product fields and keep strict legacy and reanalysis validation"
+      },
+      {
+        "file": "tests/appliance-pdf-only.test.mjs",
+        "name": "one uploaded PDF call extracts its own product and care tasks without any identity hints or external fetch"
+      },
+      {
+        "file": "tests/appliance-pdf-only.test.mjs",
+        "name": "PDF-only product extraction does not invent missing identity or choose one model from a combined manual"
+      },
+      {
+        "file": "tests/appliance-pdf-only.test.mjs",
+        "name": "automatic reanalysis validates PDF identity before preserving a saved name and never overwrites another product"
+      },
+      {
+        "file": "tests/appliance-pdf-only.test.mjs",
+        "name": "PDF-only encrypted queue input preserves its identification mode and cannot share a legacy cache identity"
+      },
+      {
+        "file": "tests/appliance-pdf-only.test.mjs",
+        "name": "PDF-only HTTP admission cold worker retries and received product form one paid job with no typed identity"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "PDF-only mobile analysis submits no product fields and accepts the same-call extracted identity and tasks"
+      }
+    ],
+    "manualReview": "docs/appliance-pdf-only-2026-11-13.md"
+  },
+  {
+    "feature": "chore-library-search-and-bidirectional-guide-20261113",
+    "tests": [
+      {
+        "file": "tests/chore-library-navigation.test.mjs",
+        "name": "${platform} chore library searches only matching guides and retains expansion after clearing a kana query"
+      },
+      {
+        "file": "tests/chore-library-navigation.test.mjs",
+        "name": "${platform} chore book continues a backward gesture after restoring each preceding range and deduplicates boundary callbacks"
+      },
+      {
+        "file": "tests/chore-library-navigation.test.mjs",
+        "name": "${platform} the guide keeps the selected chapter stable until backward scrolling and forwards native cell measurements"
+      },
+      {
+        "file": "tests/chore-library-navigation.test.mjs",
+        "name": "${platform} a top-edge touch restores the measured preceding chapters without requiring native overscroll"
+      },
+      {
+        "file": "tests/chore-library-navigation.test.mjs",
+        "name": "${platform} native anchoring continues backward momentum without redundant scroll commands and cancels stale corrections on a jump"
+      },
+      {
+        "file": "tests/chore-library-navigation.test.mjs",
+        "name": "${platform} retained guide chapters still update content and editing authority after heading changes"
+      }
+    ],
+    "manualReview": "docs/chore-library-calendar-review-2026-11-13.md"
+  },
+  {
+    "feature": "calendar-dense-days-retain-housework-20261113",
+    "tests": [
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "uniform month weeks retain appointment space alongside chores waste and holidays without changing scroll geometry for content"
+      },
+      {
+        "file": "tests/calendar-fixed-heading.test.mjs",
+        "name": "${platform} four appointments and expanded chores stay inside a small calendar viewport"
+      }
+    ],
+    "manualReview": "docs/chore-library-calendar-review-2026-11-13.md"
+  },
+  {
+    "feature": "calendar-search-explicit-drafts-and-visible-classification",
+    "tests": [
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "calendar classification adapts white and black for visibility without changing source colors"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "uniform month weeks retain appointment space alongside chores waste and holidays without changing scroll geometry for content"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "date selection keeps both days accessible across a week boundary and distinguishes today from the selected range"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "calendar action controls preserve the selected date and empty chores do not offer a dead expansion"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "detailed calendars render date-specific waste once and preserve unknown or conflicting status"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "multiline notes preserve the latest text across layout and the actual calendar save"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "calendar editor keeps a different event time zone explicit and saves its original clock"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "bundled Japanese holidays remain display only through Google synchronization and an ordinary holiday-date appointment still exports"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "calendar search covers saved names places notes and edited occurrences without expanding unlimited series"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "selecting a recurring search result resolves a real nearby round including ended and sparse leap day series"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "closing an appointment offers explicit draft or discard without saving a fake event"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "blank appointment exits leave no draft and concurrent newer input cannot be discarded"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "calendar search displays the saved event date without editing and draft list exposes nonlatest edits"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "leaving calendar search restores its overview on return without altering events or drafts"
+      },
+      {
+        "file": "tests/semantic-text-colors.test.mjs",
+        "name": "native tab tints resolve to concrete colors in both themes so inactive destinations remain drawable during search input"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "search date navigation preserves each preferred detail view and does not require edit permission"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "search destinations follow the displayed time zone and actual recurring exceptions without changing records"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "searching the displayed day recenters the chosen event without requiring a new layout"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-personal-chore-registration",
+    "tests": [
+      {
+        "file": "tests/personal-calendar-chore-registration.test.mjs",
+        "name": "personal calendar one-off registration completes once and undo restores its exact day without creating a calendar event or learning a fake period"
+      },
+      {
+        "file": "tests/personal-calendar-chore-registration.test.mjs",
+        "name": "personal calendar moves the actual pending round without changing its recurring cadence or accepting stale edits"
+      },
+      {
+        "file": "tests/personal-calendar-chore-registration.test.mjs",
+        "name": "personal calendar recurring registration uses one existing definition and a real monthly date while invalid input leaves no partial chore"
+      },
+      {
+        "file": "tests/personal-calendar-chore-registration.test.mjs",
+        "name": "personal calendar adds a chore through the original form with optional repeat details and no separate page"
+      },
+      {
+        "file": "tests/personal-calendar-chore-registration.test.mjs",
+        "name": "personal calendar keeps explicit start and end through completion, undo, retries and background replanning"
+      },
+      {
+        "file": "tests/personal-calendar-chore-registration.test.mjs",
+        "name": "personal calendar uses the entered date range and advances recurring time without hidden radius settings"
+      },
+      {
+        "file": "tests/personal-calendar-chore-registration.test.mjs",
+        "name": "a missing future recurring clock never prevents completion or invents a valid time"
+      },
+      {
+        "file": "tests/personal-calendar-chore-registration.test.mjs",
+        "name": "${platform} personal chore optional clocks stay blank and persist date-only without an invented time slot"
+      },
+      {
+        "file": "tests/personal-calendar-chore-registration.test.mjs",
+        "name": "${platform} personal chore partial clocks do not save and both selected clocks persist the exact interval"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-shared-chore-registration",
+    "tests": [
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "one-off shared chores converge after completion and undo without inventing later rounds"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "one-off recurrence rejects invented anchors, conflicting monthly flags, and writes under old group epochs"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "calendar registration reuses an inactive chore definition and adds exactly one chosen day"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "existing recurring calendar chores open their real round without writing duplicate definitions or schedules"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "new calendar chores default to one day and can opt into monthly recurrence before one atomic save"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "switching a shared appointment to chore registration preserves typed appointment input and never saves a fake calendar event"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "shared calendar chore selection uses its existing sheet without navigating to add or date routes"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "choosing a scheduled chore edits its real round inside the calendar sheet and returns the saved date"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "chore sheet save errors stay visible and choosing again returns to the picker rather than new-chore input"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "inactive chore sheet saves the edited date and leaves its existing definition intact"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "chore details keep recurrence optional inside the original appointment form and save the selected existing definition"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "calendar saves an existing round date and its assignees atomically without changing its recurring policy"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "turning repeat on for an existing round preserves the definition and reveals editable cadence without collapsing details"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "combined calendar date and assignment edits reject unauthorized or stale input without partially saving"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "calendar chore choices reveal one category or search directly while retaining exact chore identity"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "the calendar date shortcut changes only the existing round and returns after a durable save"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "registering a past one-off chore keeps the selected day rather than dropping its only occurrence"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "calendar chore creation atomically stores timed designations and converges without duplicate calendar events"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "${platform} clearing a chosen chore resets appointment input and dates without keeping its saved draft or interrupting an in-flight save"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "${platform} shared chore clocks start blank and save no partial time while chosen times keep duration"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "timed per-member chore creation designates only its configured participants and converges without extra subjects"
+      }
+    ]
+  },
+  {
+    "feature": "calendar-chore-audience-input-continuity",
+    "tests": [
+      {
+        "file": "tests/calendar-source-switch.test.mjs",
+        "name": "${platform} calendar chore destination switching retains input and writes only the final destination ${destination}"
+      },
+      {
+        "file": "tests/calendar-source-switch.test.mjs",
+        "name": "${platform} an existing recipe keeps its destination identity and clears explicitly after a round trip"
+      }
+    ],
+    "manualReview": "docs/calendar-chore-registration-2026-11-12.md"
+  },
+  {
     "feature": "waste-recurrence",
     "tests": [
       {
@@ -346,6 +967,10 @@
   {
     "feature": "numeric-input-native-alignment",
     "tests": [
+      {
+        "file": "tests/number-input-alignment.test.mjs",
+        "name": "touching numeric field padding focuses the input and preserves its input callbacks"
+      },
       {
         "file": "tests/number-input-alignment.test.mjs",
         "name": "individual settings and monthly waste persist the entered cycle window and collection day"
@@ -710,7 +1335,7 @@
       },
       {
         "file": "tests/storage-reliability.test.mjs",
-        "name": "the guide submits an incomplete action once per tap sequence and allows retry after failure"
+        "name": "reading a guide has no history or incomplete-record action and does not write an incomplete attempt"
       },
       {
         "file": "tests/storage-reliability.test.mjs",
@@ -764,6 +1389,10 @@
     "tests": [
       {
         "file": "tests/appliance-display-name.test.mjs",
+        "name": "appliance subtitles retain missing product details and avoid repeating the visible name"
+      },
+      {
+        "file": "tests/appliance-display-name.test.mjs",
         "name": "official brand prefix"
       },
       {
@@ -803,7 +1432,8 @@
         "file": "tests/ios-build-config.test.mjs",
         "name": "local reminders do not require APNs, while widget App Groups remain configured"
       }
-    ]
+    ],
+    "manualReview": "docs/audits/2026-11-14-wordmark-app-icon.md"
   },
   {
     "feature": "shared-causal-events-and-targeted-undo",
@@ -2429,7 +3059,7 @@
       },
       {
         "file": "tests/sharing-v2-screen.test.mjs",
-        "name": "v2 settings guard native removal until saving succeeds and retain the draft after a failed back gesture"
+        "name": "v2 settings finish native removal after a failed save and discard only the unsaved draft"
       }
     ]
   },
@@ -3066,7 +3696,7 @@
       },
       {
         "file": "tests/sharing-v2-calendar-ui.test.mjs",
-        "name": "v2 calendar completion reduces the displayed count to zero while keeping the completed card on its day"
+        "name": "home completion updates the v2 calendar count and completed state without adding calendar completion controls"
       },
       {
         "file": "tests/sharing-v2-calendar-ui.test.mjs",
@@ -3087,7 +3717,7 @@
     "tests": [
       {
         "file": "tests/sharing-v2-development-preview.test.mjs",
-        "name": "v2 calendar routes register an actual past backlog round and preserve its performed and recorded dates"
+        "name": "v2 calendar date actions keep past backlog identity and round recording preserves performed and recorded dates"
       },
       {
         "file": "tests/sharing-v2-development-preview.test.mjs",
@@ -3449,7 +4079,7 @@
     "tests": [
       {
         "file": "tests/sharing-v2-calendar-ui.test.mjs",
-        "name": "calendar mutations keep the visible cards and known counts while disabling another action instead of emptying the list"
+        "name": "calendar mutations keep the visible cards and known counts without exposing completion actions"
       }
     ]
   },
@@ -3850,7 +4480,7 @@
       },
       {
         "file": "tests/sharing-v2-waste-ui.test.mjs",
-        "name": "shared calendar waste labels keep type marks and aligned grid cells while task counts exclude collections"
+        "name": "shared calendar waste labels retain collection identities while task counts exclude collections"
       }
     ]
   },
@@ -4064,11 +4694,11 @@
       },
       {
         "file": "tests/sharing-v2-appliance-ui.test.mjs",
-        "name": "a reviewed shared appliance saves the latest input and cancels without sharing partial or late analysis"
+        "name": "a reviewed shared appliance submits the latest selected PDF and cancels without sharing partial or late analysis"
       },
       {
         "file": "tests/sharing-v2-appliance-ui.test.mjs",
-        "name": "shared appliance review clearing an input invalidates an already enabled save handler before the next paint"
+        "name": "shared appliance review replacing its PDF invalidates an already enabled save handler before the next paint"
       }
     ]
   },
@@ -6387,7 +7017,7 @@
       },
       {
         "file": "tests/sharing-v2-calendar-ui.test.mjs",
-        "name": "${platform} calendar mutations keep the visible cards and known counts while disabling another action instead of emptying the list"
+        "name": "${platform} calendar mutations keep the visible cards and known counts without exposing completion actions"
       },
       {
         "file": "tests/sharing-v2-development-preview.test.mjs",
@@ -6416,7 +7046,7 @@
       },
       {
         "file": "tests/post-phase6-mobile-ui.test.mjs",
-        "name": "hardware back preserves invalid connected settings until corrected and then flushes before repeating navigation"
+        "name": "hardware back discards invalid drafts without blocking navigation and retains valid autosaves"
       }
     ]
   },
@@ -6442,7 +7072,7 @@
     "tests": [
       {
         "file": "tests/mobile-ui-recovery.test.mjs",
-        "name": "${platform} todays calendar shows recommended-day work and keeps a just-checked card below pending work"
+        "name": "${platform} todays calendar shows recommended-day work and reflects external completion below pending work"
       }
     ]
   },
@@ -6995,7 +7625,7 @@
       },
       {
         "file": "tests/local-calendar.test.mjs",
-        "name": "local calendar concurrent saves reject stale revisions and series rule changes require explicit exception reset"
+        "name": "local calendar concurrent saves reject stale revisions and series rule changes preserve exceptions by default"
       },
       {
         "file": "tests/local-calendar.test.mjs",
@@ -7033,6 +7663,10 @@
       {
         "file": "tests/native-calendar.test.mjs",
         "name": "${platform} dates use OS pickers and calendar gestures reserve tab motion for screen edges"
+      },
+      {
+        "file": "tests/calendar-navigation-ux.test.mjs",
+        "name": "${platform} year header changes only as the year boundary reaches the top in either direction"
       },
       {
         "file": "tests/native-calendar.test.mjs",
@@ -7088,7 +7722,7 @@
       },
       {
         "file": "tests/calendar-custom-recurrence.test.mjs",
-        "name": "custom cadence edits require review before clearing existing exceptions and draft digests reveal no input text"
+        "name": "custom cadence edits preserve existing exceptions by default and draft digests reveal no input text"
       },
       {
         "file": "tests/calendar-custom-recurrence.test.mjs",
@@ -7644,11 +8278,11 @@
       },
       {
         "file": "tests/appliance-library.test.mjs",
-        "name": "${platform} adding a joined appliance uses one registration flow without an audience choice or duplicate taps"
+        "name": "${platform} adding a joined appliance opens PDF registration directly without product input or duplicate navigation"
       },
       {
         "file": "tests/appliance-library.test.mjs",
-        "name": "${platform} joined appliance navigation retains personal storage and passes a new shared product name into review"
+        "name": "${platform} joined appliance navigation retains personal storage and opens PDF review without product input"
       },
       {
         "file": "tests/appliance-library.test.mjs",
@@ -7716,7 +8350,7 @@
       },
       {
         "file": "tests/shared-chore-editor-controls.test.mjs",
-        "name": "${platform} shared inline date selection uses one start date and applies a future date automatically"
+        "name": "${platform} shared advanced date selection uses one start date and applies a future date automatically"
       }
     ]
   },
@@ -7832,11 +8466,11 @@
     "tests": [
       {
         "file": "tests/calendar-month-boundary.test.mjs",
-        "name": "calendar starts with its month overview and retains the last day format through month year and app restart"
+        "name": "calendar presentation survives short navigation but resets on a new process and after a minute away"
       },
       {
         "file": "tests/calendar-month-boundary.test.mjs",
-        "name": "calendar view save failure retains the selected format in this session and remains retryable"
+        "name": "calendar checks elapsed time on return when background timers were suspended"
       }
     ]
   },
@@ -7854,15 +8488,15 @@
     "tests": [
       {
         "file": "tests/settings-audience-switch.test.mjs",
-        "name": "${platform} detailed settings switch audiences only after saving and open the matching independent chore"
+        "name": "${platform} detailed settings switch audiences immediately and retain valid queued saves for the matching independent chore"
       },
       {
         "file": "tests/settings-audience-switch.test.mjs",
-        "name": "${platform} invalid personal drafts and changed memberships block a detailed settings audience switch"
+        "name": "${platform} invalid personal drafts are discarded on audience departure while a changed membership still blocks the switch"
       },
       {
         "file": "tests/settings-audience-switch.test.mjs",
-        "name": "${platform} shared detailed settings retain invalid drafts and save only the group before switching to personal"
+        "name": "${platform} shared detailed settings discard invalid departures and save valid queued edits only in the group"
       },
       {
         "file": "tests/settings-audience-switch.test.mjs",
@@ -8149,7 +8783,7 @@
       },
       {
         "file": "tests/calendar-month-jump-ui.test.mjs",
-        "name": "${platform} a split-month first day keeps its left edge and every month starts with a horizontal grid line"
+        "name": "${platform} a split-month first day keeps its weekday and selects the real date without adjacent-month duplicates"
       }
     ]
   },
@@ -8204,7 +8838,7 @@
     "tests": [
       {
         "file": "tests/tab-entry-reset.test.mjs",
-        "name": "${platform} leaving either workspace resets calendar overview and guide route without treating a settings overlay as another tab"
+        "name": "${platform} leaving either workspace retains calendar presentation and clears only guide routing without treating a settings overlay as another tab"
       },
       {
         "file": "tests/tab-entry-reset.test.mjs",
@@ -8486,6 +9120,10 @@
       {
         "file": "tests/household-care-guide-ui.test.mjs",
         "name": "${platform} a cadence-free guide opens its configuration before any enable write and respects read-only access"
+      },
+      {
+        "file": "tests/household-care-guide-ui.test.mjs",
+        "name": "${platform} a guide checkbox preserves the setting after a failed save and submits only one in-flight change"
       }
     ],
     "cloudTests": [
@@ -11325,11 +11963,11 @@
       },
       {
         "file": "tests/calendar-long-cycle-preview.test.mjs",
-        "name": "Japanese holiday labels retain source titles while translating known names and safely labeling unsupported and prototype-like names"
+        "name": "bundled Japanese holidays follow published national dates including substitute citizen and exceptional holidays"
       },
       {
         "file": "tests/calendar-long-cycle-preview.test.mjs",
-        "name": "${platform} holiday annotations use one Japanese line without changing an imported event"
+        "name": "${platform} Japanese holidays use date annotations in month view and names only in detailed views without changing imported events"
       },
       {
         "file": "tests/calendar-long-cycle-preview.test.mjs",
@@ -11688,7 +12326,7 @@
     "tests": [
       {
         "file": "tests/appliance-additional-audit.test.mjs",
-        "name": "appliance registration submits the latest native text even before the controlled value repaints"
+        "name": "PDF selection supplies chosen bytes without a second input and cancellation keeps the selected manual"
       },
       {
         "file": "tests/calendar-preview-additional.test.mjs",
@@ -12717,7 +13355,7 @@
     "tests": [
       {
         "file": "tests/audit50-calendar-recovery.test.mjs",
-        "name": "audit50 resolving concurrent shared series edits must reset reviewed exceptions before changing recurrence"
+        "name": "audit50 resolving concurrent shared series edits preserves reviewed exceptions and rejects unreviewed resets"
       }
     ]
   },
@@ -13151,7 +13789,7 @@
       },
       {
         "file": "tests/recurring-backlog.test.mjs",
-        "name": "a quick checkbox on a newer calendar slot completes the oldest unfinished automatic slot and shares its pending count"
+        "name": "a quick checkbox on a newer home slot completes the oldest unfinished automatic slot and shares its calendar pending count"
       },
       {
         "file": "tests/recurring-backlog.test.mjs",
@@ -13429,7 +14067,7 @@
       },
       {
         "file": "tests/account-connections.test.mjs",
-        "name": "${platform} account connections preserve an unconfirmed Google review while editing neighboring controls"
+        "name": "${platform} account connections enable shared Tasks from its checkbox without another Google selection or confirmation"
       },
       {
         "file": "tests/account-connections.test.mjs",
@@ -13617,12 +14255,30 @@
   {
     "feature": "settings-departure-without-unsaved-input-blocking-20261109",
     "tests": [
-      { "file": "tests/settings-departure.test.mjs", "name": "settings departure navigates before a slow valid save and still commits that edit once" },
-      { "file": "tests/settings-departure.test.mjs", "name": "settings departure discards invalid or failed input without saving or blocking navigation" },
-      { "file": "tests/settings-departure.test.mjs", "name": "a save failing after departure is discarded and never retried by later cleanup" },
-      { "file": "tests/settings-departure.test.mjs", "name": "discarding a departing queue prevents an in-flight failure from resurrecting old changes" },
-      { "file": "tests/settings-departure.test.mjs", "name": "a discarded settings form follows an already committed save without reviving invalid input" },
-      { "file": "tests/settings-departure.test.mjs", "name": "personal chore departure discards invalid numbers and preserves already saved values" }
+      {
+        "file": "tests/settings-departure.test.mjs",
+        "name": "settings departure navigates before a slow valid save and still commits that edit once"
+      },
+      {
+        "file": "tests/settings-departure.test.mjs",
+        "name": "settings departure discards invalid or failed input without saving or blocking navigation"
+      },
+      {
+        "file": "tests/settings-departure.test.mjs",
+        "name": "a save failing after departure is discarded and never retried by later cleanup"
+      },
+      {
+        "file": "tests/settings-departure.test.mjs",
+        "name": "discarding a departing queue prevents an in-flight failure from resurrecting old changes"
+      },
+      {
+        "file": "tests/settings-departure.test.mjs",
+        "name": "a discarded settings form follows an already committed save without reviving invalid input"
+      },
+      {
+        "file": "tests/settings-departure.test.mjs",
+        "name": "personal chore departure discards invalid numbers and preserves already saved values"
+      }
     ],
     "manualReview": "docs/audits/2026-11-09-settings-design-unification.md"
   },
@@ -13671,5 +14327,268 @@
       }
     ],
     "manualReview": "docs/audits/2026-11-09-home-history-ux.md"
+  },
+  {
+    "feature": "google-foreground-reconnection-and-local-account-selection",
+    "tests": [
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "${platform} local Google reconnection bypasses broken saved credentials and validates the selected account without Firebase tokens"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "iOS explicit Tasks login recovers a failed Keychain restore once while silent background checks never open sign-in"
+      },
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "local-only Google account changes select and archive accounts without creating a Firebase session or losing pending changes"
+      },
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "${platform} enabled Tasks reauthentication chooses an account and enables its isolated connection before retrying"
+      },
+      {
+        "file": "tests/account-switch-settings.test.mjs",
+        "name": "${platform} personal-only settings expose Google account selection without requiring group login"
+      },
+      {
+        "file": "tests/google-settings-additional.test.mjs",
+        "name": "${platform} Calendar authentication errors reconnect through explicit account selection and preserve the connection on cancellation"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "iOS explicit ${action} login recovers failed credential restoration without changing background behavior"
+      }
+    ]
+  },
+  {
+    "feature": "google-native-session-aware-sync-and-retaining-account-logout",
+    "tests": [
+      {
+        "file": "tests/google-settings-additional.test.mjs",
+        "name": "${platform} Calendar settings replace the connected action immediately after account logout without reopening the page"
+      },
+      {
+        "file": "tests/account-switch-settings.test.mjs",
+        "name": "${platform} personal account page offers account change and logout after native Google login without group membership"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "${platform} Calendar native connection checks require matching identity and both scopes without tokens or consent"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "${platform} Google logout coalesces native sign-out without revoking grants or opening authentication"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "iOS logout waits for an in-flight Keychain restore and prevents late credentials or sign-in UI from recreating a session"
+      },
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "Google account logout pauses both sync domains and preserves mappings, pending work and local data with Firebase=${signedIn}"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "Calendar connection status requires the native grant and distinguishes authentication failures from retryable network errors"
+      },
+      {
+        "file": "tests/sharing-auth.test.mjs",
+        "name": "account-scoped logout refuses a substituted Firebase session after an earlier sign-in settles"
+      }
+    ]
+  },
+  {
+    "feature": "google-tasks-existing-device-result-journal-upgrade",
+    "tests": [
+      {
+        "file": "tests/google-tasks-upgrade.test.mjs",
+        "name": "upgrading an existing v29 Tasks connection with result table=${hasResults} preserves reservations and recovers the durable journal"
+      },
+      {
+        "file": "tests/google-tasks-upgrade.test.mjs",
+        "name": "the v29 Tasks journal upgrade rolls back on failure and a retry creates the missing result table without losing an uncertain insert"
+      },
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "${platform} a local Tasks database failure does not ask the user to change Google OAuth settings"
+      }
+    ]
+  },
+  {
+    "feature": "google-tasks-orphaned-created-task-recovery",
+    "tests": [
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "an orphaned Tasks receipt with a cached tombstone uses fresh ${confirmation} evidence and completed=${completed} to avoid a permanent retry or duplicated history"
+      },
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "a stale cached Tasks tombstone cannot release a linked receipt when Google still returns the live task"
+      },
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "recovering an orphaned live Tasks receipt imports its remote completion before any local status push"
+      },
+      {
+        "file": "tests/google-sync-reconciliation.test.mjs",
+        "name": "recovering an orphaned Tasks receipt never releases the reservation after fresh GET ${failure}"
+      }
+    ]
+  },
+  {
+    "feature": "guide-only-chores-without-schedule-settings",
+    "tests": [
+      {
+        "file": "tests/chore-advanced-settings.test.mjs",
+        "name": "guide-only chores stay readable but have no scheduled-settings affordances while seasonal numeric disabled and monthly chores remain configurable"
+      },
+      {
+        "file": "tests/chore-advanced-settings.test.mjs",
+        "name": "actual shared display fallback periods never turn guide-only recipes into configurable recurring chores"
+      }
+    ]
+  },
+  {
+    "feature": "personal-and-shared-chore-advanced-settings",
+    "tests": [
+      {
+        "file": "tests/chore-advanced-settings.test.mjs",
+        "name": "personal monthly dates use real calendar months and restore 31 after February instead of drifting or inventing 30-day rules"
+      },
+      {
+        "file": "tests/chore-advanced-settings.test.mjs",
+        "name": "actual personal monthly completion early late and exact Undo retain the calendar rule without manufacturing adaptive observations"
+      },
+      {
+        "file": "tests/chore-advanced-settings.test.mjs",
+        "name": "personal start dates and later interval edits use the actual last completion rather than replaying the original start date"
+      },
+      {
+        "file": "tests/chore-advanced-settings.test.mjs",
+        "name": "personal content edits preserve identity history scheduling defaults and the exact existing plan without reallocation"
+      },
+      {
+        "file": "tests/chore-advanced-settings.test.mjs",
+        "name": "a private schedule reset clears monthly date overrides while keeping edited descriptions and completion records"
+      },
+      {
+        "file": "tests/chore-advanced-settings.test.mjs",
+        "name": "switching a private monthly rule back to days preserves actual completions and resumes the saved day cadence"
+      },
+      {
+        "file": "tests/chore-advanced-settings.test.mjs",
+        "name": "an advanced private editor keeps unrelated queued fields and abandons invalid input without delaying navigation"
+      },
+      {
+        "file": "tests/chore-advanced-settings.test.mjs",
+        "name": "unsubmitted shared initial dates survive only the internal details step and do not cross accounts groups or controllers"
+      },
+      {
+        "file": "tests/chore-advanced-settings.test.mjs",
+        "name": "${platform} personal advanced settings edits every private content field and monthly rule through the actual controls"
+      },
+      {
+        "file": "tests/chore-advanced-settings.test.mjs",
+        "name": "the personal advanced settings route remains available inside a shared group and always edits the private database"
+      }
+    ],
+    "manualReview": "docs/chore-advanced-settings-2026-11-12.md"
+  },
+  {
+    "feature": "google-unified-account-consent-and-feature-toggles",
+    "tests": [
+      {
+        "file": "tests/google-unified-connection.test.mjs",
+        "name": "${platform} unified connection authorizes once without enabling features and rejects stale completion after navigation"
+      },
+      {
+        "file": "tests/google-unified-connection.test.mjs",
+        "name": "${platform} unified connection cancellation and partial permission failures keep feature access closed without automatic retries"
+      },
+      {
+        "file": "tests/google-unified-connection.test.mjs",
+        "name": "${platform} unified shared Tasks checkbox uses revision-bound connect and pause without a second account review UI"
+      },
+      {
+        "file": "tests/google-unified-connection.test.mjs",
+        "name": "${platform} unified personal Tasks stays OFF until chosen and disables new activation without a Google connection"
+      },
+      {
+        "file": "tests/google-unified-connection.test.mjs",
+        "name": "${platform} unified personal Calendar toggles use the existing account without another consent button"
+      },
+      {
+        "file": "tests/google-unified-connection.test.mjs",
+        "name": "${platform} unified shared Calendar toggle keeps OFF inert and reuses the existing or primary writable destination"
+      },
+      {
+        "file": "tests/google-unified-connection.test.mjs",
+        "name": "${platform} unified availability toggle retains main-device authority and uses the connected Google account without another confirmation"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "${platform} one explicit Google connection grants all sync scopes once and feature activation reuses that identity"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "${platform} unified Google consent requests only missing scopes and rejects partial grants cancellation and account replacement"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "${platform} unified Google consent refuses background authorization and identity changes during token refresh"
+      }
+    ],
+    "manualReview": "docs/google-unified-connection-2026-11-12.md"
+  },
+  {
+    "feature": "calendar-timed-chore-editing-original-manual-and-notification-recovery",
+    "tests": [
+      {
+        "file": "tests/usability-five-fixes.test.mjs",
+        "name": "editing one timed chore occurrence retains its cadence future clocks retry identity and exact undo"
+      },
+      {
+        "file": "tests/usability-five-fixes.test.mjs",
+        "name": "saved manual preview verifies original local bytes and refuses missing tampered or obsolete content without writes"
+      },
+      {
+        "file": "tests/usability-five-fixes.test.mjs",
+        "name": "chore time labels preserve the display zone overnight dates and the absence of unspecified clocks"
+      },
+      {
+        "file": "tests/usability-five-fixes.test.mjs",
+        "name": "native manual viewing writes verified bytes locally and never presents an obsolete request after preparation"
+      },
+      {
+        "file": "tests/usability-five-fixes.test.mjs",
+        "name": "${platform} timed chore sheet edits start end and dates together only on explicit save"
+      },
+      {
+        "file": "tests/usability-five-fixes.test.mjs",
+        "name": "${platform} list calendars show explicit chore clocks once while day cards retain their original action"
+      },
+      {
+        "file": "tests/usability-five-fixes.test.mjs",
+        "name": "${platform} compact calendar sources are accessible while home completion and guide actions stay intact"
+      },
+      {
+        "file": "tests/usability-five-fixes.test.mjs",
+        "name": "${platform} manual action opens the retained original once and cancels an opening after the displayed account changes"
+      },
+      {
+        "file": "tests/usability-five-fixes.test.mjs",
+        "name": "${platform} denied notifications open device settings and finish only the pending enable request after permission is granted"
+      },
+      {
+        "file": "tests/usability-five-fixes.test.mjs",
+        "name": "${platform} calendar notification denial preserves the saved switch and exposes the device settings recovery action"
+      },
+      {
+        "file": "tests/usability-five-fixes.test.mjs",
+        "name": "${platform} notification recovery targets device permission settings and retains a system fallback"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-15-five-usability-fixes.md"
   }
 ]

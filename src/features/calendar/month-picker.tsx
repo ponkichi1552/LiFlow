@@ -37,8 +37,8 @@ export function CalendarMonthPicker({ month, onSelect, onClose }: { month: Local
 const baseStyles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: palette.overlay }, panel: { backgroundColor: palette.elevated, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' },
   header: { flexDirection: 'row', alignItems: 'center', minHeight: 52, paddingHorizontal: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
-  title: { ...typography.subheading, color: palette.ink, flex: 1, textAlign: 'center', fontWeight: '600' }, action: { minWidth: 56, minHeight: 44, justifyContent: 'center', alignItems: 'center' }, actionText: { ...typography.control, color: palette.accent },
-  choices: { flexDirection: 'row', height: 220, padding: 12, gap: 12 }, years: { width: 104, flexGrow: 0 }, year: { height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
-  months: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignContent: 'space-between', justifyContent: 'space-between' }, month: { width: '31%', minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
+  title: { ...typography.body, color: palette.ink, flex: 1, textAlign: 'center', fontWeight: '700' }, action: { width: 64, minHeight: 44, justifyContent: 'center', alignItems: 'center' }, actionText: { ...typography.body, color: palette.accent },
+  choices: { flexDirection: 'row', height: 220, padding: 12, gap: 12 }, years: { width: 104, flexGrow: 0, backgroundColor: palette.surface, borderRadius: 10 }, year: { height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
+  months: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', alignContent: 'space-between', justifyContent: 'space-between' }, month: { width: '31%', minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: palette.surface },
   label: { ...typography.control, color: palette.ink }, selected: { backgroundColor: palette.accentSoft }, selectedText: { color: palette.accent, fontWeight: '700' },
 });

@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { SharedCalendarConflicts } from './calendar-conflicts';
 import { useGroupCalendar } from './use-group-calendar';
 import type { V2MutationOutcome } from './mutation-outcome';
@@ -22,14 +23,18 @@ import { PlannerCalendar } from '../../calendar/planner-calendar';
 import type { CalendarDayInfo, PlannerCalendarProps } from '../../calendar/planner-calendar';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
 import { calendarChoreDisplayThrough } from '../../calendar/chore-display-range';
+import { V2CalendarChoreRegistration } from './calendar-chore-registration';
+import type { V2DateFormProps } from './date-form';
 
-export function V2Calendar({ model, personal, privateOverlay: privateValue, privateSource, selectedDate, busy, actions, run, onMonth, onSelectDate, onRound, header, feedback, local: personalLocal, onNavigate, perform, workspaceName, onGuide }: {
+export function V2Calendar({ model, personal, privateOverlay: privateValue, privateSource, selectedDate, busy, actions, run, onMonth, onSelectDate, onRound, onDate, header, feedback, local: personalLocal, onNavigate, perform, workspaceName, onGuide, readOwnCalendar }: {
   perform?: (work: () => Promise<unknown>) => Promise<V2MutationOutcome>; onGuide?: (choreId: string, source: 'shared' | 'personal') => void; feedback?: CompletionFeedback; local?: LocalCalendarBinding; onNavigate?: PlannerCalendarProps['onNavigate']; workspaceName?: string;
   model: V2GroupScreenModel; personal?: V2PersonalPlan; month: LocalDate; selectedDate: LocalDate; busy: boolean;
   actions: V2GroupController['actions']; run: (work: () => Promise<unknown>) => Promise<void>;
   onMonth: (month: LocalDate) => void; onSelectDate: (date: LocalDate) => void;
   onRound: (occurrenceId: string, subjectId: string, anchorDate: LocalDate) => void; header?: ReactElement;
+  onDate?: (occurrenceId: string, subjectId: string, anchorDate: LocalDate) => void;
   privateOverlay?: V2PrivateOverlayState; privateSource?: V2PrivateTaskSource;
+  readOwnCalendar?: V2DateFormProps['readOwnCalendar'];
 }) {
   const local = useGroupCalendar(personalLocal, model, actions, perform, workspaceName ?? '共有グループ');
   // Feedback is tiny. Snapshot its contents so a cleared/reused map cannot leave
@@ -114,20 +119,33 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
     : { completed: visible(item.entry.round, item.entry.subject).showStatus && (feedback?.values.get(item.key) ?? item.entry.subject.completed),
       load: chores.get(item.entry.round.choreId)?.load ?? 'light', recommendedDate: item.entry.recommendation?.date ?? item.entry.subject.suggestedDate, windowStart: item.entry.subject.executionWindowStart, windowEnd: item.entry.subject.executionWindowEnd });
   const caption = { ...typography.caption, color: palette.muted };
+  const timedChores = [
+    ...model.plan.occurrences.flatMap(round => round.subjects.flatMap(subject => {
+      const formal = subject.formalDate;
+      if (!subject.required || subject.subjectUserId !== null && subject.subjectUserId !== model.viewerUserId || formal.kind !== 'manual' || formal.mode !== 'fixed' || formal.target.precision !== 'interval') return [];
+      return [{ id: subject.id, name: chores.get(round.choreId)?.name ?? '家事', start: Date.parse(formal.target.start), end: Date.parse(formal.target.end), onOpen: () => (onDate ?? onRound)(round.id, subject.id, round.anchorDate) }];
+    })),
+    ...[...new Map([...privateRowsByDate.values()].flat().filter(row => row.calendarTime).map(row => [row.chore.id, row])).values()].map(row => ({
+      id: `personal:${row.chore.id}`, name: row.chore.name, ...row.calendarTime!, onOpen: () => row.entryId && !row.completed && !row.provisional ? router.navigate({ pathname: '/calendar-chore-date', params: { choreId: row.chore.id, entryId: row.entryId } }) : onGuide?.(row.chore.id, 'personal'),
+    })),
+  ];
   return <PlannerCalendar today={model.plan.range.asOfDate} timeZone={model.plan.timeZone} selectedDate={selectedDate} local={local} busy={busy} workspaceName={workspaceName}
+    timedChores={timedChores}
+    searchChores={[...[...projection.byDate].flatMap(([date, rows]) => loaded(date) ? rows.map(entry => ({ key: `shared:${entry.id}:${date}`, title: chores.get(entry.round.choreId)?.name ?? '共有家事', date, source: 'shared' as const })) : []),
+      ...[...privateRowsByDate].flatMap(([date, rows]) => rows.map(row => ({ key: row.key, title: row.chore.name, date, source: 'personal' as const })))]} searchChoresIncomplete
     extendedChoreDates={extendedDates}
     repeatReturnTo="group" onSelectDate={onSelectDate} onMonth={onMonth} monthLoaded={target => { const grid = v2CalendarMonth(target); const through = grid.through < choreThrough ? grid.through : choreThrough;
       return loaded(grid.from) && loaded(through) && Boolean(wasteLoaded(grid.from) && wasteLoaded(through))
         && (privateOverlay?.status !== 'ready' || Boolean(privateReady(grid.from) && privateReady(through))); }}
-    onNavigate={onNavigate}
+    onNavigate={onNavigate} renderChoreRegistration={sheet => <V2CalendarChoreRegistration {...sheet} local={local} model={model} actions={actions} busy={busy} run={run} readOwnCalendar={readOwnCalendar} />}
     notice={<View>{header}<SharedCalendarConflicts model={model} actions={actions} busy={busy} run={run} /></View>}
     wasteSchedules={model.waste?.schedules} hiddenWasteKeys={model.waste?.hiddenKeys} wasteLoaded={date => Boolean(wasteLoaded(date))}
     dayInfo={dayInfo}
     existingChores={existingChores.map(({ round, ...chore }) => ({ ...chore,
       onOpen: () => onGuide ? onGuide(round.choreId, 'shared') : onRound(round.id, chore.id, round.anchorDate) }))}
-    renderWaste={date => <View style={{ paddingHorizontal: 6, gap: 4 }}>{wasteLoaded(date) ? model.waste!.occurrences.filter(entry => entry.occurrence.date === date && entry.hidden !== true).map(entry => <V2WasteOccurrence key={entry.key} entry={entry} compact />)
+    renderWaste={date => <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>{wasteLoaded(date) ? model.waste!.occurrences.filter(entry => entry.occurrence.date === date && entry.hidden !== true).map(entry => <V2WasteOccurrence key={entry.key} entry={entry} inline />)
       : date <= choreThrough ? <Text style={caption}>この日の共有収集日は未取得です。</Text> : null}</View>}
-    renderChores={date => <Animated.FlatList testID="calendar-chore-list" data={entriesFor(date)} scrollEnabled={false} itemLayoutAnimation={LinearTransition.duration(240)} keyExtractor={entry => entry.key} initialNumToRender={8}
+    renderChores={(date, view) => <Animated.FlatList testID="calendar-chore-list" data={entriesFor(date)} scrollEnabled={false} itemLayoutAnimation={LinearTransition.duration(240)} keyExtractor={entry => entry.key} initialNumToRender={8}
       ListHeaderComponent={<View style={{ gap: 6 }}>
         <V2PrivateTaskNotice overlay={privateOverlay} sharedTimeZone={model.plan.timeZone} date={date} />
         {date <= choreThrough && privateValue && !privateReady(date) ? <Text style={caption}>この月の個人家事は未取得です。月を再読込してください。</Text> : null}
@@ -135,9 +153,10 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
         {model.waste?.rows.some(row => !row.deleted && row.needsReview) ? <Text style={caption}>確認が必要な収集ルールは共有のゴミ収集日で確認できます。</Text> : null}
       </View>}
       ListEmptyComponent={loaded(date) && !busy ? <Card><Text style={caption}>この日の共有家事はありません。</Text></Card> : undefined}
-      renderItem={({ item }) => item.source === 'personal' ? <V2PrivateTaskCard compact row={item.row} today={privateOverlay?.status === 'ready' ? privateOverlay.today : undefined} source={privateSource} busy={busy} run={run} feedback={feedback} mixedSources
+      renderItem={({ item }) => item.source === 'personal' ? <V2PrivateTaskCard compact row={item.row} today={privateOverlay?.status === 'ready' ? privateOverlay.today : undefined} source={privateSource} busy={busy} run={run} feedback={feedback} mixedSources showCalendarTime={view === 'list'} timeZone={privateOverlay?.status === 'ready' ? privateOverlay.timeZone : model.plan.timeZone}
         onOpen={onGuide ? () => onGuide(item.row.chore.id, 'personal') : undefined} />
-        : <V2RoundCard compact model={model} round={item.entry.round} subject={item.entry.subject} recommendation={item.entry.recommendation} actions={actions} busy={busy} run={run} feedback={feedback}
+        : <V2RoundCard compact model={model} round={item.entry.round} subject={item.entry.subject} recommendation={item.entry.recommendation} actions={actions} busy={busy} run={run} feedback={feedback} showCalendarTime={view === 'list'}
+          onDate={onDate ? () => onDate(item.entry.round.id, item.entry.subject.id, item.entry.round.anchorDate) : undefined}
           onOpen={() => onGuide ? onGuide(item.entry.round.choreId, 'shared') : onRound(item.entry.round.id, item.entry.subject.id, item.entry.round.anchorDate)} />} />}
   />;
 }

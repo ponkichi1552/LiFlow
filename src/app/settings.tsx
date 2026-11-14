@@ -1,3 +1,5 @@
+import { CalendarNotificationSettings } from '@/features/calendar/calendar-notification-settings';
+import { NotificationPermissionRecovery } from '@/features/notifications/notification-permission-recovery';
 import { useSettingsAutosave } from '@/features/settings/use-settings-autosave';
 import { BackgroundSyncDiagnostics } from '@/features/google-sync/background-diagnostics';
 import { subscribeToGoogleAccountChanges } from '@/features/google-sync/account-change-events';
@@ -54,6 +56,7 @@ import type { PersonalPlacementPreferences } from '@/features/planner/personal-p
 import { sharedLocalDate } from '@/features/sharing/group-clock';
 import { AccountSignOut, GoogleAccountSwitch } from '@/features/settings/google-account-switch';
 import { AccountConnections } from '@/features/settings/account-connections';
+import { AccountPersonalGoogleTasks } from '@/features/settings/personal-google-tasks-settings';
 import { AccountOperationContext } from '@/features/settings/account-operation';
 import { AppearanceControls, SettingsHeader, SettingsList, SettingsNavigationScreen, SettingsRow, SettingsSection, settingsCategory, settingsTitles, type SettingsCategory } from '@/features/settings/settings-navigation';
 
@@ -158,6 +161,7 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
   const [weatherResultsDismissed, setWeatherResultsDismissed] = useState(false);
   const [weatherMessage, setWeatherMessage] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
   const [notificationUpdating, setNotificationUpdating] = useState(false);
+  const [notificationPermissionDenied, setNotificationPermissionDenied] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
   const [accountTasksOpened, setAccountTasksOpened] = useState(false);
   const [googleSyncState, setGoogleSyncState] = useState<GoogleSyncState | null>(null);
@@ -243,7 +247,7 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
     } catch (cause) {
       setGoogleMessage({ text: cause instanceof Error && cause.name === 'GoogleAuthorizationCancelledError'
         ? 'Googleとの接続をキャンセルしました。'
-        : 'Google Tasksに接続できませんでした。OAuth設定と端末の開発ビルドを確認してください。', kind: 'error' });
+        : 'Google Tasksに接続できませんでした。もう一度お試しください。', kind: 'error' });
       await refreshGoogleState().catch(() => undefined);
     } finally {
       endOperation('google'); setGoogleBusy(false);
@@ -275,6 +279,13 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
       setGoogleSyncState(saved);
       if (enabled) {
         try { await registerGoogleSyncBackgroundTask(); } catch { /* Foreground sync remains available. */ }
+        if (section === 'account') {
+          const generation = googleReadGeneration.current;
+          void syncGoogleTasks(database, { force: true }).then(async () => {
+            if (generation === googleReadGeneration.current) await refreshGoogleState();
+          }).catch(() => { /* The coordinator keeps pending changes and its retry status. */ });
+          return;
+        }
         const result = await syncGoogleTasks(database, { force: true });
         await refreshGoogleState();
         setGoogleMessage(result.kind === 'success'
@@ -301,8 +312,13 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
     setGoogleBusy(true);
     setGoogleMessage(null);
     try {
-      if (googleSyncState.status === 'authRequired' || !await hasGoogleTasksSession()) {
+      if (googleSyncState.status === 'authRequired' || !await hasGoogleTasksSession(googleSyncState.accountSubject)) {
+        const { changeGoogleAccount } = await import('@/features/google-sync/account-switch');
+        await changeGoogleAccount(database);
         await authorizeGoogleTasks(); await activateCurrentGoogleTaskAccount(database);
+        // Switching accounts restores that account's saved controls (or a paused
+        // new connection). This explicit retry also enables Tasks for that account.
+        await configurePersonalGoogleTaskSync(database, true);
       }
       const result = await syncGoogleTasks(database, { force: true });
       await refreshGoogleState();
@@ -448,10 +464,12 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
     setNotificationMessage(null);
     try {
       if (enabled && !(await notificationGateway.requestPermission())) {
+        setNotificationPermissionDenied(true);
         setNotificationMessage({ text: '通知は有効になりませんでした。端末の設定から許可できます。', kind: 'error' });
         return;
       }
       await setNotificationsEnabled(database, enabled);
+      setNotificationPermissionDenied(false);
       await refresh();
       setNotificationMessage({ text: enabled ? '通知を有効にしました。' : '通知をオフにしました。', kind: 'success' });
     } catch {
@@ -488,40 +506,42 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
             {calendarAvailabilityMessage ? <Text style={styles.hint}>{calendarAvailabilityMessage}</Text> : null}
 
   </View> : null;
-  const googleTasksForm = <View style={{ gap: 12 }}>
+  const googleTasksForm = section === 'account' ? <AccountPersonalGoogleTasks state={googleSyncState} shared={v2} loaded={googleLoadStatus === 'ready'} busy={googleBusy}
+    error={googleLoadStatus === 'error' ? '連携設定を読み込めませんでした。' : googleMessage?.kind === 'error' ? googleMessage.text : null}
+    onToggle={value => void toggleGoogleSync(value)} onSync={() => void syncGoogleNow()} /> : <View style={{ gap: 12 }}>
         {googleLoadStatus === 'error' ? <Text accessibilityRole="alert" style={styles.error}>連携設定を読み込めませんでした。</Text> : null}
         <FeatureStatus
-          title={section === 'account' ? v2 ? '個人の家事' : '家事の同期' : 'Google Tasks'}
+          title="Google Tasks"
           status={googleLoadStatus === 'loading' ? '確認中…' : googleLoadStatus === 'error' ? '確認できません' : googleConnected ? '接続済み' : googleSyncState?.enabled ? '再認証が必要' : googleOAuthConfigured ? '未接続' : 'OAuth設定待ち'}
-          detail={section === 'account' ? '家事をGoogleのチェックリストへ同期します。' : '家事Plannerの名前と予定日をGoogle Tasksへ反映し、完了・完了の取り消しを双方へ同期します。取り消した家事は未完了に戻り、次回予定も再計算します。'}
+          detail="家事Plannerの名前と予定日をGoogle Tasksへ反映し、完了・完了の取り消しを双方へ同期します。取り消した家事は未完了に戻り、次回予定も再計算します。"
         />
         {!googleOAuthConfigured ? (
-          <Text style={styles.hint}>{section === 'account' ? 'Google連携の準備ができていません。' : 'OAuth client IDが未設定です。docs/google-sync-setup.mdの手順後、ネイティブ開発ビルドを作り直してください。'}</Text>
+          <Text style={styles.hint}>OAuth client IDが未設定です。docs/google-sync-setup.mdの手順後、ネイティブ開発ビルドを作り直してください。</Text>
         ) : null}
         {googleConnected || googleSyncState?.enabled ? (
           <>
             <View style={styles.notificationRow}>
               <View style={styles.limitCopy}>
                 <Text style={styles.featureTitle}>自動同期</Text>
-                {section !== 'account' ? <Text style={styles.hint}>{googleSyncState?.enabled ? '通常は1日経過後、失敗時は約1時間経過後に再試行できます。アプリ復帰時やOSが許可したバックグラウンド実行で確認します。' : '自動同期は一時停止中です。'}</Text> : null}
+                <Text style={styles.hint}>{googleSyncState?.enabled ? '通常は1日経過後、失敗時は約1時間経過後に再試行できます。アプリ復帰時やOSが許可したバックグラウンド実行で確認します。' : '自動同期は一時停止中です。'}</Text>
               </View>
               <SettingsCheckbox accessibilityLabel="Google Tasksの自動同期" value={Boolean(googleSyncState?.enabled)} disabled={googleBusy} onValueChange={(value) => void toggleGoogleSync(value)} />
             </View>
             <FeatureStatus
               title="同期状態"
               status={googleSyncState?.enabled ? googleSyncStatusLabel(googleSyncState.status) : '一時停止'}
-              detail={`最終同期：${formatSyncTimestamp(googleSyncState?.lastSuccessfulSyncAt)}${section === 'account' ? '' : '。iOS・Androidのバックグラウンド実行はOSの判断で遅れることがあります。'}`}
+              detail={`最終同期：${formatSyncTimestamp(googleSyncState?.lastSuccessfulSyncAt)}。iOS・Androidのバックグラウンド実行はOSの判断で遅れることがあります。`}
             />
-            {section !== 'account' ? calendarAvailabilityForm : null}
+            {calendarAvailabilityForm}
             <View style={styles.googleActions}>
-              <SettingsAction compact={section === 'account'} placement={section === 'account' ? 'panel' : 'page'} title={googleBusy && section !== 'account' ? '同期中…' : googleSyncState?.status === 'authRequired' ? '再接続して同期' : '今すぐ同期'} onPress={() => void syncGoogleNow()} disabled={googleBusy || !googleSyncState?.enabled} />
-              <SettingsAction compact={section === 'account'} intent="destructive" title="接続解除" onPress={() => void disconnectGoogle()} disabled={googleBusy} />
+              <SettingsAction placement="page" title={googleBusy ? '同期中…' : googleSyncState?.status === 'authRequired' ? '再接続して同期' : '今すぐ同期'} onPress={() => void syncGoogleNow()} disabled={googleBusy || !googleSyncState?.enabled} />
+              <SettingsAction intent="destructive" title="接続解除" onPress={() => void disconnectGoogle()} disabled={googleBusy} />
             </View>
           </>
         ) : (
-          <SettingsAction compact={section === 'account'} placement={section === 'account' ? 'panel' : 'page'} title={googleBusy && section !== 'account' ? '接続中…' : googleLoadStatus === 'loading' ? '接続状況を確認中…' : 'Googleと接続'} onPress={() => void connectGoogle()} disabled={googleBusy || googleLoadStatus !== 'ready' || !googleOAuthConfigured} />
+          <SettingsAction placement="page" title={googleBusy ? '接続中…' : googleLoadStatus === 'loading' ? '接続状況を確認中…' : 'Googleと接続'} onPress={() => void connectGoogle()} disabled={googleBusy || googleLoadStatus !== 'ready' || !googleOAuthConfigured} />
         )}
-        {section !== 'account' || googleConnected || googleSyncState?.enabled ? <Text style={styles.hint}>{section === 'account' ? '接続解除後もGoogleに追加済みの家事は残ります。' : '同期する家事名と予定日をGoogleへ送信します。接続解除時もGoogle Tasks上の既存家事は削除しません。Google Tasks権限は広い範囲に適用されるため、信頼できるGoogleアカウントで接続してください。'}</Text> : null}
+        <Text style={styles.hint}>同期する家事名と予定日をGoogleへ送信します。接続解除時もGoogle Tasks上の既存家事は削除しません。Google Tasks権限は広い範囲に適用されるため、信頼できるGoogleアカウントで接続してください。</Text>
         {googleMessage ? <Text style={googleMessage.kind === 'success' ? styles.success : styles.error}>{googleMessage.text}</Text> : null}
   </View>;
 
@@ -554,9 +574,9 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
                 accessibilityLabel={`${day.label}曜日`}
                 accessibilityState={{ selected }}
                 onPress={() => toggleRestDay(day.id)}
-                style={({ pressed }) => [styles.weekdayChip, { borderColor: selected ? colors.accent : colors.border, backgroundColor: selected ? colors.accentSoft : colors.surface }, pressed && styles.weekdayChipPressed]}
+                style={({ pressed }) => [styles.weekdayChip, { borderColor: colors.accent, backgroundColor: selected ? colors.accentSoft : colors.surface }, pressed && styles.weekdayChipPressed]}
               >
-                <Text style={[styles.weekdayChipText, selected && styles.weekdayChipTextSelected]}>{day.label}</Text>
+                <Text style={[styles.weekdayChipText, selected && styles.weekdayChipTextSelected, { color: colors.accent }]}>{day.label}</Text>
               </Pressable>
             );
           })}
@@ -581,10 +601,9 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
           <SettingsCheckbox accessibilityLabel="家事の通知を受け取る" value={snapshot.settings.notificationsEnabled} disabled={notificationUpdating} onValueChange={(value) => void toggleNotifications(value)} />
         </View>
         {notificationMessage ? <Text accessibilityLiveRegion="polite" style={notificationMessage.kind === 'success' ? styles.success : styles.error}>{notificationMessage.text}</Text> : null}
-        <View style={[styles.divider, { backgroundColor: colors.border }]} />
-        {v2 ? <GeneralGroupNotifications /> : null}
-        <Text style={styles.featureTitle}>今日の家事ウィジェット</Text>
-        <Text style={styles.hint}>{v2 ? '個人の家事を最大3件表示。チェックで完了できます。' : '家事を最大3件表示。チェックで完了できます。'}</Text>
+        {notificationPermissionDenied ? <NotificationPermissionRecovery scope={database} disabled={notificationUpdating} checkPermission={() => notificationGateway.hasPermission()} onGranted={() => toggleNotifications(true)} /> : null}
+        <CalendarNotificationSettings database={database} />
+        {v2 ? <><View style={[styles.divider, { backgroundColor: colors.border }]} /><GeneralGroupNotifications /></> : null}
       </SettingsSection>
 
       {!snapshot.sharing ? <SettingsSection section={section} id="weather">
@@ -647,7 +666,7 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
           <AccountConnections database={database} settings={snapshot.settings} personalTasks={googleTasksForm} calendarOptions={calendarAvailabilityForm}
             onTasksOpen={openAccountTasks} />
           {subscriptionRequired ? <SettingsList><SettingsRow title="月額契約" onPress={() => void autosave.navigate(() => router.push('/subscription'))} /></SettingsList> : null}
-          {workspace?.userId ? <View style={{ gap: 8, marginTop: 16 }}><GoogleAccountSwitch {...accountActions} /><AccountSignOut {...accountActions} /></View> : null}
+          <View style={{ gap: 8, marginTop: 16 }}><GoogleAccountSwitch {...accountActions} /><AccountSignOut {...accountActions} /></View>
         </AccountOperationContext.Provider>
       </SettingsSection>
       {section === 'diagnostics' && typeof __DEV__ !== 'undefined' && __DEV__ ? <BackgroundSyncDiagnostics /> : null}
@@ -662,16 +681,17 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
 function Counter({ value, onChange, maximum, label }: {
   value: number; onChange: (value: number) => void; maximum: number; label: string;
 }) {
+  const colors = plannerColorsForScheme(useColorScheme());
   return (
     <View style={styles.counter}>
       <Pressable onPress={() => onChange(Math.max(1, value - 1))} disabled={value <= 1}
-        accessibilityRole="button" accessibilityLabel={`${label}を減らす`}>
-        <Text style={[styles.counterButton, value <= 1 && { opacity: 0.35 }]}>−</Text>
+        accessibilityRole="button" accessibilityLabel={`${label}を減らす`} accessibilityState={{ disabled: value <= 1 }}>
+        <Text style={[styles.counterButton, { color: value <= 1 ? colors.disabled : colors.accent }]}>−</Text>
       </Pressable>
       <Text style={styles.counterValue}>{value}<Text style={styles.counterUnit}> 件</Text></Text>
       <Pressable onPress={() => onChange(Math.min(maximum, value + 1))} disabled={value >= maximum}
-        accessibilityRole="button" accessibilityLabel={`${label}を増やす`}>
-        <Text style={[styles.counterButton, value >= maximum && { opacity: 0.35 }]}>＋</Text>
+        accessibilityRole="button" accessibilityLabel={`${label}を増やす`} accessibilityState={{ disabled: value >= maximum }}>
+        <Text style={[styles.counterButton, { color: value >= maximum ? colors.disabled : colors.accent }]}>＋</Text>
       </Pressable>
     </View>
   );
@@ -702,9 +722,12 @@ function formatSyncTimestamp(value: string | undefined): string {
 
 function syncFailureMessage(kind: 'retry' | 'authRequired' | 'error', code?: string): string {
   if (code === 'google_account_mismatch') return '以前連携したGoogleアカウントを選んで再接続してください。保存済みの家事との紐付けは保持しています。';
+  if (code === 'err_internal_sqlite_error') return '端末内の同期情報を処理できませんでした。もう一度同期してください。';
+  if (code === 'task_create_result_pending') return '同期結果を確認できていません。もう一度同期してください。';
   if (kind === 'retry') return '一時的な通信エラーです。約1時間後に再試行します。';
   if (kind === 'authRequired') return 'Googleへの再認証が必要です。Googleと再接続してください。';
-  return '同期できませんでした。同期状態を確認し、OAuth設定を見直してください。';
+  if (code === 'oauth_not_configured') return 'Google連携の準備ができていません。';
+  return '同期できませんでした。もう一度お試しください。';
 }
 
 

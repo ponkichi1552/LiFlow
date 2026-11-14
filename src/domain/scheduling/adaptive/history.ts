@@ -1,4 +1,5 @@
-import type { FrequencyMode } from '../../chores/types';
+import type { FrequencyMode, PersonalChoreSchedule } from '../../chores/types';
+import { checkedPersonalSchedule, monthlyIntervalAt, monthlyDateOnOrAfter } from '../../chores/personal-schedule.ts';
 import type { LocalDate } from '../../shared/types';
 import { daysBetween, parseLocalDate } from '../local-date.ts';
 import { adaptiveReferenceLimit, adaptiveRepresentativeDays, chooseAdaptiveMethod, fitAdaptiveModels, predictAdaptiveDate } from './models.ts';
@@ -15,11 +16,12 @@ export interface AdaptiveHistoryPolicy {
   version: string;
   /** Optional one-time setup information. It is not a measured learning observation. */
   planningAnchorDate?: LocalDate;
+  schedule?: PersonalChoreSchedule;
 }
 interface HistoryOperation { operationId: string; sequence: number; recordedAt: string }
 export type AdaptiveHistoryEvent = HistoryOperation & (
   | { type: 'settings'; mode?: FrequencyMode; enabled?: boolean; fixedDays?: number | null;
-      initialDays?: AdaptiveHistoryPolicy['initialDays']; policyVersion?: string }
+      initialDays?: AdaptiveHistoryPolicy['initialDays']; policyVersion?: string; schedule?: PersonalChoreSchedule | null }
   | { type: 'complete'; completionId: string; roundId: string; localDate: LocalDate; timeZone: string;
       origin: 'personal' | 'shared'; mode: FrequencyMode; initialDays: number | null;
       /** null is genuinely date-only; missing means its frozen published version is unavailable. */
@@ -53,6 +55,8 @@ const finiteDays = (value: number | null) => value === null || Number.isFinite(v
 function copyModel(model: AdaptiveModel | null): AdaptiveModel | null { return model ? { ...model } : null; }
 function initialModel(policy: AdaptiveHistoryPolicy): AdaptiveModel | null {
   if (policy.kind !== 'personal') return null;
+  if (policy.schedule?.once) return null;
+  if (policy.schedule?.monthlyDay !== undefined) return { method: 'monthlyDate', day: policy.schedule.monthlyDay, anchor: policy.schedule.startDate };
   const days = policy.fixedDays ?? policy.initialDays[policy.mode];
   return days === null ? null : { method: 'median', days };
 }
@@ -64,6 +68,7 @@ function calendarMonthsAfter(date: LocalDate, months: number): LocalDate {
 }
 /** Calendar conversion uses a whole actual calendar period, never time remaining in its current round. */
 export function adaptiveModeConversionDays(model: AdaptiveModel, completed: LocalDate): number {
+  if (model.method === 'monthlyDate') return monthlyIntervalAt(monthlyDateOnOrAfter(completed, model.day), model.day);
   if (model.method === 'monthEnd') return daysBetween(completed, calendarMonthsAfter(completed, model.months));
   if (model.method === 'weekly') return model.weeks * 7;
   if (model.method === 'alternating') return (model.even + model.odd) / 2;
@@ -94,6 +99,7 @@ export function replayAdaptiveHistory(input: {
 }): AdaptiveHistoryState {
   const policy: AdaptiveHistoryPolicy = { ...input.policy, initialDays: { ...input.policy.initialDays } };
   if (policy.planningAnchorDate !== undefined) parseLocalDate(policy.planningAnchorDate);
+  if (policy.schedule) policy.schedule = checkedPersonalSchedule(policy.schedule);
   if (!policy.choreId || !policy.version || !modes.includes(policy.mode) || typeof policy.enabled !== 'boolean'
     || !['personal', 'shared', 'seasonal', 'display'].includes(policy.kind) || !finiteDays(policy.fixedDays)
     || modes.some(mode => !finiteDays(policy.initialDays[mode]))) throw new Error('家事の初期周期を確認してください。');
@@ -166,7 +172,7 @@ export function replayAdaptiveHistory(input: {
     forecastBySource.set(forecast.sourceOperationId, [...(forecastBySource.get(forecast.sourceOperationId) ?? []), forecast]);
   }
   let latestCandidates: AdaptiveModel[] = [];
-  const eligible = () => policy.kind === 'personal' && policy.enabled && policy.fixedDays === null && policy.initialDays[policy.mode] !== null;
+  const eligible = () => policy.kind === 'personal' && policy.enabled && policy.fixedDays === null && !policy.schedule?.once && policy.schedule?.monthlyDay === undefined && policy.initialDays[policy.mode] !== null;
   const fit = (previous: number) => {
     const base = policy.initialDays[policy.mode]; if (base === null) return [];
     const limit = adaptiveReferenceLimit(previous); const tail: NormalizedInterval[] = [];
@@ -195,9 +201,13 @@ export function replayAdaptiveHistory(input: {
       const enabledChanged = event.enabled !== undefined && event.enabled !== policy.enabled;
       const basisChanged = event.initialDays !== undefined && modes.some(mode => event.initialDays![mode] !== policy.initialDays[mode])
         || event.policyVersion !== undefined && event.policyVersion !== policy.version;
+      const schedule = event.schedule === undefined ? policy.schedule : event.schedule === null ? undefined : checkedPersonalSchedule(event.schedule);
+      const scheduleChanged = JSON.stringify(schedule ?? null) !== JSON.stringify(policy.schedule ?? null);
+      const monthlyChanged = schedule?.monthlyDay !== policy.schedule?.monthlyDay;
+      const onceChanged = Boolean(schedule?.once) !== Boolean(policy.schedule?.once);
       if (modeChanged) {
         policy.mode = event.mode!; const nextBase = policy.initialDays[policy.mode];
-        if (policy.fixedDays !== null) model = initialModel(policy);
+        if (policy.fixedDays !== null || policy.schedule?.monthlyDay !== undefined) model = initialModel(policy);
         else if (beforeBase !== null && nextBase !== null && model) {
           if (!modeBasis) {
             if ((model.method === 'monthEnd' || model.method === 'weekly') && !lastCompletedDate) throw new Error('暦周期の実施日を確認してください。');
@@ -227,7 +237,13 @@ export function replayAdaptiveHistory(input: {
         if (event.policyVersion) policy.version = event.policyVersion;
         model = initialModel(policy); modeBasis = null; generation = `basis:${event.operationId}`; lastUnitOperationId = null;
       }
-      if (modeChanged || fixedChanged || enabledChanged || basisChanged) {
+      if (scheduleChanged) {
+        policy.schedule = schedule;
+        if (onceChanged || monthlyChanged || schedule?.monthlyDay !== undefined) {
+          model = initialModel(policy); modeBasis = null; generation = `schedule:${event.operationId}`; lastUnitOperationId = null;
+        }
+      }
+      if (modeChanged || fixedChanged || enabledChanged || basisChanged || scheduleChanged) {
         segment = `settings:${event.operationId}`; epoch = segment; latestCandidates = []; applied = true;
       }
     } else if (event.type === 'complete' && activeOperations.has(event.operationId)) {

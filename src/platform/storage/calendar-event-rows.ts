@@ -6,7 +6,7 @@ import { canWriteGoogleCalendar } from '../google-calendar/calendar-api.ts';
 import type { GoogleCalendarListEntry } from '../google-calendar/calendar-api';
 import { parseLocalDate } from '../../domain/scheduling/local-date.ts';
 
-type ValidatedRow = { json: string | null; revision: number; value: EventDraft | null };
+type ValidatedRow = { json: string | null; revision: number; value: EventDraft | null; retained?: boolean };
 const validated = new WeakMap<SQLiteDatabase, { events: Map<string, ValidatedRow>; exceptions: Map<string, ValidatedRow> }>();
 // Never hand a cached object (including custom weekdays) to an editable caller.
 const copy = (value: EventDraft): EventDraft => ({ ...value, ...(value.customRecurrence ? { customRecurrence: {
@@ -48,7 +48,8 @@ export async function readCalendarEventRows(database: SQLiteDatabase): Promise<{
   const read = (json: string | null, revision: number, prior?: ValidatedRow): ValidatedRow => {
     if (!Number.isSafeInteger(revision) || revision < 1) throw new Error('保存された予定の更新番号を確認してください。');
     if (prior?.json === json && prior.revision === revision) return prior;
-    return { json, revision, value: json === null ? null : validateEventDraft(JSON.parse(json)) };
+    const parsed = json === null ? null : JSON.parse(json);
+    return { json, revision, value: parsed === null ? null : validateEventDraft(parsed), retained: parsed?._retainedOccurrence === true };
   };
   const events = rows.map(row => {
     const value = read(row.definition_json, row.revision, previous?.events.get(row.id)); next.events.set(row.id, value);
@@ -59,6 +60,7 @@ export async function readCalendarEventRows(database: SQLiteDatabase): Promise<{
     const value = read(row.override_json, row.revision, previous?.exceptions.get(key)); next.exceptions.set(key, value);
     const source = metadata.get(JSON.stringify([row.event_id, row.anchor_date]));
     return { eventId: row.event_id, anchorDate: row.anchor_date, override: value.value ? copy(value.value) : null, revision: row.revision,
+      ...(value.retained ? { detached: true } : {}),
       ...(source ? { blocksTime: source.blocksTime, readOnly: source.readOnly, ...(source.externalUrl ? { externalUrl: source.externalUrl } : {}) } : {}) };
   });
   // Publish only after the entire read validates. Removed rows are evicted; no DB writes or migrations are skipped.

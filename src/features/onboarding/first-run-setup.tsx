@@ -1,17 +1,15 @@
 import { FormTextInput as TextInput } from '../../components/form-text-input';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type ComponentRef } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from '@/components/screen-safe-area';
-import { router } from 'expo-router';
 import { usePlannerData } from '@/hooks/use-planner-data';
 
-import { AppButton, BackButton, Card, ChoiceChip, NavigationHeader, SectionHeading, palette, typography } from '@/components/planner-ui';
+import { AppButton, Card, ChoiceChip, SectionHeading, palette, typography } from '@/components/planner-ui';
 import type { ChoreDefinition, FrequencyMode } from '@/domain/chores/types';
 import { personalOnboardingChores } from '@/domain/chores/personal-catalog';
 import { addDays, formatJapaneseDate, localDateFromDate } from '@/domain/scheduling/local-date';
 import type { Weekday, WeatherLocation } from '@/domain/shared/types';
 import { completeFirstSetup, nextInitialDateChoice } from '@/platform/storage/repository';
-import { ExpoLocalNotificationGateway } from '@/platform/notifications/expo-local-notification-gateway';
 import { municipalityWeatherLocation } from '@/features/weather/municipality-search';
 import type { WeatherRegionCandidate } from '@/features/weather/municipality-search';
 import { LocationAttribution, WeatherAttribution } from '@/components/data-credits';
@@ -22,20 +20,28 @@ import { WasteScheduleEditor } from '@/features/waste/waste-schedule-editor';
 import { wasteScheduleDescription } from '@/features/waste/schedule-policy';
 import { generateWasteCollectionDates } from '@/features/waste/weekly-scheduler';
 import { useWasteTypeColor } from '@/features/waste/use-waste-type-color';
+import { SettingsAction, SettingsGroup, SettingsPanel, SettingsSegments } from '../../components/settings-controls';
+import { SettingsCheckbox } from '../../components/settings-checkbox';
+import { SettingsHeader } from '../../components/settings-header';
+import { WeekdayChoices } from '../../components/weekday-choices';
 import { finishStartupDisplay } from '@/platform/diagnostics/startup-splash';
 
 const modeOptions: { id: FrequencyMode; title: string }[] = [
   { id: 'frequent', title: 'こまめ' },
-  { id: 'balanced', title: '普通' },
-  { id: 'relaxed', title: '最低限' },
+  { id: 'balanced', title: '適度' },
+  { id: 'relaxed', title: '少なめ' },
 ];
 
 const weekdayOptions: { id: Weekday; label: string }[] = [
   { id: 1, label: '月' }, { id: 2, label: '火' }, { id: 3, label: '水' }, { id: 4, label: '木' },
   { id: 5, label: '金' }, { id: 6, label: '土' }, { id: 7, label: '日' },
 ];
-const notificationGateway = new ExpoLocalNotificationGateway();
-const setupStepCount = 6;
+const setupStepCount = 2;
+const budgetOptions = [{ id: '15', label: '15分' }, { id: '30', label: '30分' }, { id: '60', label: '60分' }, { id: 'none', label: '上限なし' }];
+const timeOptions = {
+  workday: [{ id: '1080-1200', label: '18–20時' }, { id: '1140-1260', label: '19–21時' }, { id: '1200-1320', label: '20–22時' }],
+  holiday: [{ id: '540-720', label: '9–12時' }, { id: '540-1140', label: '9–19時' }, { id: '780-1080', label: '13–18時' }],
+};
 
 type PreviousChoice = 'today' | 'week' | 'month' | 'unknown';
 
@@ -46,15 +52,19 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
   const { database } = usePlannerData();
   const availableChores = personalOnboardingChores(snapshot.chores);
   const [step, setStep] = useState(0);
+  const [optional, setOptional] = useState<'previous' | 'weather' | 'waste' | null>(null);
+  const [budget, setBudget] = useState({ workday: 'none', holiday: 'none' });
+  const [bands, setBands] = useState({ workday: '1140-1260', holiday: '540-1140' });
+  const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
+  const go = (next: number, page: typeof optional = null) => { setStep(next); setOptional(page); scroll.current?.scrollTo({ y: 0, animated: false }); };
+
   const [mode, setMode] = useState(snapshot.settings.frequencyMode);
   const [restDays, setRestDays] = useState<Weekday[]>(snapshot.settings.restDays as Weekday[]);
   const [enabledChoreIds, setEnabledChoreIds] = useState(() =>
     new Set(availableChores.filter((chore) => chore.enabled).map((chore) => chore.id)),
   );
   const [previousChoices, setPreviousChoices] = useState<Record<string, PreviousChoice>>({});
-  const [notificationsEnabled, setNotificationsEnabled] = useState(
-    snapshot.settings.notificationsEnabled,
-  );
+  const notificationsEnabled = false;
   const [weatherRegion, setWeatherRegion] = useState(snapshot.settings.weatherLocation?.region ?? '');
   const [weatherLocation, setWeatherLocation] = useState<WeatherLocation | null>(snapshot.settings.weatherLocation ?? null);
   const [weatherSearchEnabled, setWeatherSearchEnabled] = useState(false);
@@ -68,18 +78,6 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
   const [wasteSchedules, setWasteSchedules] = useState<WasteScheduleInput[]>(() => [...snapshot.wasteSchedules]);
   const [editingWaste, setEditingWaste] = useState<WasteScheduleInput | undefined>();
   const wasteSequence = useRef(0);
-
-  useEffect(() => {
-    let mounted = true;
-    void notificationGateway.requestPermission()
-      .then((granted) => {
-        if (mounted) setNotificationsEnabled(granted);
-      })
-      .catch(() => {
-        if (mounted) setNotificationsEnabled(false);
-      });
-    return () => { mounted = false; };
-  }, []);
 
   const toggleRestDay = (weekday: Weekday) => {
     setRestDays((current) => current.includes(weekday)
@@ -102,7 +100,11 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
     setWeatherMessage({ text: `「${candidate.label}」を天気に使う地域として選択しました。`, kind: 'success' });
   };
 
-  const saveSetup = async (skipWasteSetup: boolean) => {
+  const capacity = (kind: 'workday' | 'holiday') => {
+    const [startMinute, endMinute] = bands[kind].split('-').map(Number);
+    return { ...(budget[kind] === 'none' ? {} : { maximumMinutes: Number(budget[kind]) }), allowedBands: [{ startMinute, endMinute }] };
+  };
+  const saveSetup = async () => {
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
@@ -120,7 +122,8 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
         previousDates,
         notificationsEnabled,
         weatherLocation,
-        wasteSchedules: skipWasteSetup ? [] : wasteSchedules,
+        wasteSchedules,
+        dayTypes: { workday: capacity('workday'), holiday: capacity('holiday') },
       });
       setCommitted(true);
       await onComplete();
@@ -144,86 +147,44 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']} onLayout={finishStartupDisplay}>
-      {step > 0 ? <NavigationHeader><BackButton accessibilityLabel="戻る" onPress={() => setStep(current => current - 1)} disabled={saving} /></NavigationHeader> : null}
-      <ScrollView
+      <SettingsHeader backAccessibilityLabel="戻る" title={optional ? optional === 'previous' ? '前回の実施' : optional === 'weather' ? '天気予報' : 'ゴミ収集日' : '初回設定'} onBack={() => go(optional ? 1 : 0)} hideBack={!optional && step === 0} />
+      <ScrollView ref={scroll}
         style={styles.scroll}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled">
         {loadError ? <Text style={styles.error}>{loadError}</Text> : null}
-        <View style={styles.progressRow}>
-          {Array.from({ length: setupStepCount }, (_, index) => (
-            <View key={index} style={[styles.progressDot, index <= step && styles.progressDotActive]} />
-          ))}
-        </View>
-        <Text style={styles.eyebrow}>初期設定を行います · {step + 1} / {setupStepCount}</Text>
-        <Text style={styles.title}>
-          {step === 0
-            ? '今日を整えて、\n明日を軽やかに。'
-            : step === 1
-              ? '休日を教えてください。'
-              : step === 2
-                ? '家事を選んでください。'
-                : step === 3
-                  ? '前回の実施時期を設定'
-                  : step === 4 ? '天気に使う地域を設定' : 'ゴミ収集日を設定'}
-        </Text>
-
-        {step === 0 ? (
+        {!optional ? <>
+          <View style={styles.progressRow}>{Array.from({ length: setupStepCount }, (_, index) => <View key={index} style={[styles.progressDot, index <= step && styles.progressDotActive]} />)}</View>
+          <Text style={styles.eyebrow}>{step + 1} / {setupStepCount}</Text>
+          <Text style={styles.title}>{step === 0 ? '家事を選ぶ' : '生活リズム'}</Text>
+        </> : null}
+        {!optional && step === 0 ? <>
+          <Text style={styles.body}>普段行う家事を選んでください。</Text>
+          <SettingsPanel>{availableChores.map(chore => <SetupChoreRow key={chore.id} chore={chore} selected={enabledChoreIds.has(chore.id)} onPress={() => toggleChore(chore.id)} />)}</SettingsPanel>
+          <View style={styles.chipRow}>
+            <SettingsAction title="すべて選択" compact intent="auxiliary" onPress={() => setEnabledChoreIds(new Set(availableChores.map(chore => chore.id)))} disabled={enabledChoreIds.size === availableChores.length} />
+            <SettingsAction title="選択をすべて外す" compact intent="auxiliary" onPress={() => setEnabledChoreIds(new Set())} disabled={!enabledChoreIds.size} />
+          </View>
+        </> : null}
+        {!optional && step === 1 ? <>
+          <SettingsGroup compact title="休日"><WeekdayChoices options={weekdayOptions} selected={restDays} disabled={saving} onToggle={day => toggleRestDay(day as Weekday)} />
+            <Text style={styles.hint}>普段の休みを選択。ない場合は選ばず進めます。</Text></SettingsGroup>
+          <SettingsGroup compact title="家事の頻度"><SettingsSegments fullWidth value={mode} options={modeOptions.map(option => ({ id: option.id, label: option.title }))} onValueChange={value => setMode(value as FrequencyMode)} disabled={saving} /></SettingsGroup>
+          <SettingsGroup compact title="1日に使える時間">{(['workday', 'holiday'] as const).map(kind => <View key={kind} style={styles.presetSection}>
+            <Text style={styles.label}>{kind === 'workday' ? '平日' : '休日'}</Text>
+            <SettingsSegments fullWidth value={budget[kind]} options={budgetOptions} onValueChange={value => setBudget(current => ({ ...current, [kind]: value }))} disabled={saving} />
+          </View>)}</SettingsGroup>
+          <SettingsGroup compact title="家事ができる時間帯">{(['workday', 'holiday'] as const).map(kind => <View key={kind} style={styles.presetSection}>
+            <Text style={styles.label}>{kind === 'workday' ? '平日' : '休日'}</Text>
+            <SettingsSegments fullWidth value={bands[kind]} options={timeOptions[kind]} onValueChange={value => setBands(current => ({ ...current, [kind]: value }))} disabled={saving} />
+          </View>)}</SettingsGroup>
+          <Text style={styles.hint}>時刻や上限は、あとから細かく変更できます。</Text>
+          <SectionHeading title="必要なら設定" level="subsection" />
+          {([{ id: 'previous', label: '前回の実施' }, { id: 'weather', label: '天気予報' }, { id: 'waste', label: 'ゴミ収集日' }] as const).map(item => <SettingsAction key={item.id} title={item.label} intent="auxiliary" onPress={() => go(1, item.id)} disabled={saving} />)}
+        </> : null}
+        {optional === 'previous' ? (
           <>
-            <Text style={styles.body}>いつもの家事頻度を教えてください。あとからいつでも変更できます。</Text>
-            <AppButton title="共有グループを使う" variant="quiet" onPress={() => router.push('/sharing')} />
-            <View style={styles.modeList}>
-              {modeOptions.map((option) => (
-                <Pressable
-                  key={option.id}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: mode === option.id }}
-                  onPress={() => setMode(option.id)}
-                  style={[styles.modeOption, mode === option.id && styles.modeSelected]}>
-                  <View style={[styles.checkbox, mode === option.id && styles.checkboxSelected]}>{mode === option.id ? <Text style={styles.check}>✓</Text> : null}</View>
-                  <Text style={[styles.modeTitle, mode === option.id && styles.selectedText]}>{option.title}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </>
-        ) : null}
-
-        {step === 1 ? (
-          <>
-            <Text style={styles.body}>家事を行いやすい曜日を選んでください。複数選択できます。</Text>
-            <View style={styles.weekdayList}>
-              {weekdayOptions.map((day) => {
-                const selected = restDays.includes(day.id);
-                return (
-                  <Pressable key={day.id} accessibilityRole="checkbox" accessibilityState={{ checked: selected }} onPress={() => toggleRestDay(day.id)} style={[styles.weekdayOption, selected && styles.weekdaySelected]}>
-                    <View style={[styles.checkbox, selected && styles.checkboxSelected]}>{selected ? <Text style={styles.check}>✓</Text> : null}</View>
-                    <Text style={styles.weekdayName}>{day.label}曜日</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Text style={styles.hint}>休日を選ばない場合、休日を優先した日程調整は行いません。</Text>
-          </>
-        ) : null}
-
-        {step === 2 ? (
-          <>
-            <Text style={styles.body}>定期的に行う家事を選びます。あとから設定で変更できます。</Text>
-            <View style={styles.choreList}>
-              {availableChores.map((chore) => (
-                <SetupChoreRow key={chore.id} chore={chore} selected={enabledChoreIds.has(chore.id)} onPress={() => toggleChore(chore.id)} />
-              ))}
-            </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-              <AppButton title="すべて選択" onPress={() => setEnabledChoreIds(new Set(availableChores.map(chore => chore.id)))} disabled={enabledChoreIds.size === availableChores.length} variant="quiet" compact />
-              <AppButton title="選択をすべて外す" onPress={() => setEnabledChoreIds(new Set())} disabled={!enabledChoreIds.size} variant="quiet" compact />
-            </View>
-          </>
-        ) : null}
-
-        {step === 3 ? (
-          <>
-            <Text style={styles.body}>前回行った時期が分かる家事だけ選んでください。「分からない」も使えます。</Text>
+            <Text style={styles.body}>分かる家事だけ選んでください。</Text>
             {enabledChores.length === 0 ? <Text style={styles.hint}>家事が選ばれていません。あとから家事一覧で有効にできます。</Text> : null}
             <View style={styles.choreList}>
               {enabledChores.map((chore) => (
@@ -247,9 +208,9 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
           </>
         ) : null}
 
-        {step === 4 ? (
+        {optional === 'weather' ? (
           <>
-            <Text style={styles.body}>天気予報に使う市区町村を入力してください。候補から選んだ地域だけを保存します。設定しない場合は空欄のまま始められます。</Text>
+            <Text style={styles.body}>洗濯の予定に使う市区町村を選んでください。</Text>
             <View style={styles.weatherSearch}>
               <TextInput
                 value={weatherRegion}
@@ -290,13 +251,13 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
             <WeatherAttribution />
             <LocationAttribution />
             {weatherMessage ? <Text style={weatherMessage.kind === 'success' ? styles.success : styles.error}>{weatherMessage.text}</Text> : null}
-            <Text style={styles.hint}>入力すると候補を検索します。候補は「市区町村、都道府県」で表示します。天気連動は候補を確定した場合だけ動作します。</Text>
+
           </>
         ) : null}
 
-        {step === 5 ? (
+        {optional === 'waste' ? (
           <>
-            <Text style={styles.body}>ゴミの種類と収集周期を登録できます。設定せずに始めて、あとから追加することもできます。</Text>
+
             <WasteScheduleEditor key={editingWaste?.id ?? 'new'} initial={editingWaste} disabled={saving}
               onCancel={editingWaste ? () => setEditingWaste(undefined) : undefined}
               onSubmit={async (schedule) => {
@@ -305,8 +266,8 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
                   ? current.map((item) => item.id === draft.id ? draft : item) : [...current, draft]);
                 setEditingWaste(undefined);
               }} />
-            <SectionHeading title="登録済み" trailing={<Text style={styles.hint}>{wasteSchedules.length}種類</Text>} />
-            {!wasteSchedules.length ? <Text style={styles.hint}>収集日はまだ登録されていません。</Text> : wasteSchedules.map((schedule) => (
+            {wasteSchedules.length ? <SectionHeading title="登録済み" trailing={<Text style={styles.label}>{wasteSchedules.length}種類</Text>} /> : null}
+            {!wasteSchedules.length ? <Text style={styles.hint}>未登録</Text> : wasteSchedules.map((schedule) => (
               <Card key={schedule.id} style={{ borderLeftColor: wasteTypeColor(schedule.label), borderLeftWidth: 4 }}>
                 <Text style={[styles.choreName, { color: wasteTypeColor(schedule.label) }]}>{schedule.label}</Text>
                 <Text style={styles.hint}>{wasteScheduleDescription(schedule)}</Text>
@@ -319,29 +280,22 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
                 </View>
               </Card>
             ))}
-            <SectionHeading title="次の収集日" />
+            {wasteSchedules.length ? <SectionHeading title="次の収集日" /> : null}
             {wasteSchedules.flatMap((schedule) => generateWasteCollectionDates({ ...schedule, id: schedule.id!, householdId: snapshot.household.id }, localDateFromDate(new Date()), addDays(localDateFromDate(new Date()), 35)))
               .sort((left, right) => left.date.localeCompare(right.date)).slice(0, 4)
               .map((occurrence) => <Text key={`${occurrence.scheduleId}-${occurrence.date}`} style={[styles.hint, { color: wasteTypeColor(occurrence.label) }]}>{formatJapaneseDate(occurrence.date, { weekday: true })}　{occurrence.label}</Text>)}
           </>
         ) : null}
 
-        <Text style={styles.disclaimer}>周期の初期値は調整用のたたき台です。家事ごとに変更できます。</Text>
+
       </ScrollView>
 
       <View style={styles.footer}>
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        {step < setupStepCount - 1 ? (
-          <>
-            <AppButton title="次へ" onPress={() => setStep((current) => current + 1)} disabled={saving} />
-            {step === 3 ? <AppButton title="前回の時期はスキップ" onPress={() => { setPreviousChoices({}); setStep(4); }} variant="secondary" disabled={saving} /> : null}
-          </>
-        ) : (
-          <>
-            <AppButton title={saving ? '設定中…' : '設定して始める'} onPress={() => void saveSetup(false)} disabled={saving} />
-            <AppButton title="ゴミ収集日はスキップして始める" onPress={() => void saveSetup(true)} variant="secondary" disabled={saving} />
-          </>
-        )}
+        {optional ? <SettingsAction title="設定を続ける" intent="primary" onPress={() => go(1)} disabled={saving} />
+          : step === 0 ? <SettingsAction title="次へ" intent="primary" onPress={() => go(1)} disabled={saving} />
+            : <SettingsAction title={saving ? '設定中…' : '設定して始める'} intent="primary" onPress={() => void saveSetup()} disabled={saving} />}
+
       </View>
     </SafeAreaView>
   );
@@ -352,9 +306,8 @@ function SetupChoreRow({ chore, selected, onPress }: { chore: ChoreDefinition; s
     <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selected }} onPress={onPress} style={styles.choreRow}>
       <View style={styles.choreCopy}>
         <Text style={styles.choreName}>{chore.name}</Text>
-        <Text style={styles.choreCategory}>{chore.category} · {chore.estimatedMinutes ? `約${chore.estimatedMinutes}分` : '時間目安なし'}</Text>
       </View>
-      <View style={[styles.checkbox, selected && styles.checkboxSelected]}>{selected ? <Text style={styles.check}>✓</Text> : null}</View>
+      <View pointerEvents="none" accessible={false}><SettingsCheckbox accessibilityLabel={`${chore.name}を予定に追加`} value={selected} onValueChange={onPress} /></View>
     </Pressable>
   );
 }
@@ -370,25 +323,13 @@ const styles = StyleSheet.create({
   title: { ...typography.title, color: palette.ink, fontWeight: '800', marginTop: -7 },
   body: { ...typography.body, color: palette.muted, marginTop: -7 },
   label: { ...typography.label, color: palette.ink, fontWeight: '700' },
-  modeList: { gap: 9, marginTop: 3 },
-  modeOption: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: palette.accent, borderRadius: 15, backgroundColor: palette.surface, paddingHorizontal: 13, paddingVertical: 11 },
-  modeSelected: { backgroundColor: palette.accentSoft },
-  modeTitle: { ...typography.subheading, color: palette.ink, fontWeight: '700' },
-  selectedText: { color: palette.accent },
-  weekdayList: { gap: 9, marginTop: 1 },
-  weekdayOption: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: 13, borderRadius: 15, borderWidth: 1, borderColor: palette.accent, backgroundColor: palette.surface, paddingHorizontal: 15 },
-  weekdaySelected: { backgroundColor: palette.accentSoft },
-  weekdayName: { ...typography.label, color: palette.ink, fontWeight: '600' },
+  presetSection: { gap: 8, paddingVertical: 4 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   hint: { ...typography.caption, color: palette.muted },
   choreList: { gap: 7 },
-  choreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border, paddingVertical: 9 },
+  choreRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border, paddingVertical: 4 },
   choreCopy: { flex: 1, gap: 3, paddingRight: 10 },
   choreName: { ...typography.subheading, color: palette.ink, fontWeight: '600' },
-  choreCategory: { ...typography.caption, color: palette.muted },
-  checkbox: { width: 22, height: 22, borderRadius: 7, borderWidth: 1.5, borderColor: palette.accent, alignItems: 'center', justifyContent: 'center' },
-  checkboxSelected: { backgroundColor: palette.accent, borderColor: palette.accent },
-  check: { color: palette.accentInk, fontSize: 15, fontWeight: '800' },
   previousCard: { gap: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border, paddingBottom: 12 },
   weatherSearch: { gap: 10 },
   regionInput: { ...typography.body, minHeight: 54, borderWidth: 1, borderColor: palette.accent, borderRadius: 14, paddingHorizontal: 14, color: palette.ink, backgroundColor: palette.surface },
@@ -399,6 +340,5 @@ const styles = StyleSheet.create({
   selectedRegion: { ...typography.label, color: palette.accent, fontWeight: '700' },
   error: { ...typography.label, color: palette.warning },
   success: { ...typography.label, color: palette.accent, fontWeight: '600' },
-  disclaimer: { ...typography.caption, color: palette.muted, textAlign: 'center' },
   footer: { alignItems: 'stretch', gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, backgroundColor: palette.surface, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 8 },
 });

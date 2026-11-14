@@ -12,6 +12,7 @@ import * as authorityIntentStorage from '../src/platform/storage/private-calenda
 import * as keyOutboxStorage from '../src/platform/storage/private-calendar-key-outbox.ts';
 import * as pairingStorage from '../src/platform/storage/private-calendar-pairing.ts';
 import * as sourceStorage from '../src/platform/storage/private-calendar-source.ts';
+import * as connectionStorage from '../src/platform/storage/private-calendar-connections.ts';
 import * as preferenceStorage from '../src/features/sharing/private-planner/preference-store.ts';
 import { privateCalendarDatabaseFilename } from '../src/features/sharing/private-calendar/database-name.ts';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
@@ -45,6 +46,7 @@ function fixture(values = new Map([['jp.jphacks.tkb2633.sharing:original', 'pres
     '../storage/private-calendar-key-outbox.ts': keyOutboxStorage,
     '../storage/private-calendar-pairing.ts': pairingStorage,
     '../storage/private-calendar-source.ts': sourceStorage,
+    '../storage/private-calendar-connections.ts': connectionStorage,
     '../../features/sharing/private-planner/preference-store.ts': preferenceStorage,
     './firebase-services.ts': { getSharingServices: () => { authReads++; return { auth: { currentUser } }; } },
     './native-private-calendar-crypto': { nativePrivateCalendarCrypto: crypto },

@@ -82,6 +82,15 @@ async function initializeV2EventStoreImpl(database: SQLiteDatabase, scope: V2Sto
     await transaction.execAsync(`CREATE TABLE IF NOT EXISTS sharing_v2_mutation_intents (
       intent_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, device_id TEXT NOT NULL,
       target_digest TEXT NOT NULL);`);
+    const resultColumns = await transaction.getAllAsync<{ name: string }>('PRAGMA table_info(sharing_v2_calendar_intent_results)');
+    if (resultColumns.some(column => column.name === 'operations_json')) {
+      // Only the accepted identity is needed after a retry. Do not retain event text in a local receipt after ledger compaction.
+      await transaction.execAsync(`CREATE TABLE sharing_v2_calendar_result_ids (intent_id TEXT PRIMARY KEY NOT NULL, event_id TEXT NOT NULL);
+        INSERT INTO sharing_v2_calendar_result_ids SELECT intent_id,json_extract(operations_json,'$[0].payload.eventId') FROM sharing_v2_calendar_intent_results;
+        DROP TABLE sharing_v2_calendar_intent_results;
+        ALTER TABLE sharing_v2_calendar_result_ids RENAME TO sharing_v2_calendar_intent_results;`);
+    } else await transaction.execAsync(`CREATE TABLE IF NOT EXISTS sharing_v2_calendar_intent_results (
+      intent_id TEXT PRIMARY KEY NOT NULL, event_id TEXT NOT NULL);`);
     await transaction.execAsync(`CREATE TABLE IF NOT EXISTS sharing_v2_projection (
       singleton INTEGER PRIMARY KEY CHECK(singleton=1), fact_hash TEXT NOT NULL, accepted_ids_json TEXT NOT NULL,
       rejected_json TEXT NOT NULL, pending_ids_json TEXT NOT NULL, provisional_ids_json TEXT NOT NULL DEFAULT '[]');`);
@@ -224,9 +233,10 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
     return { assessment, replica: source, archive: history, receipts };
   }
   type CurrentBuilder = (state: Awaited<ReturnType<typeof readStateInside>>, transaction: SQLiteDatabase) => Promise<readonly SharedOperationDraft[]>;
-  async function commit(input: readonly SharedOperationDraft[] | ((replica: SharedReplica) => Promise<readonly SharedOperationDraft[]>) | { build: CurrentBuilder; intent?: V2LocalMutationIntent }): Promise<SharedOperation[]> {
+  async function commit(input: readonly SharedOperationDraft[] | ((replica: SharedReplica) => Promise<readonly SharedOperationDraft[]>) | { build: CurrentBuilder; intent?: V2LocalMutationIntent }): Promise<SharedOperation[] & { calendarEventId?: string }> {
     options.assertWritable(); const latest = archive().at(-1)!; const localIds = new Set<string>();
     const capturedInput = typeof input === 'function' ? input : 'build' in input ? { build: input.build, intent: input.intent ? { ...input.intent } : undefined } : captureV2Input(input);
+    let acceptedCalendarEventId: string | undefined;
     const intent = typeof capturedInput !== 'function' && 'build' in capturedInput ? capturedInput.intent : undefined;
     if (intent && (!['completion', 'calendar'].includes(intent.kind) || !(intent.kind === 'completion'
       ? /^completion-intent\.[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u
@@ -250,6 +260,10 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
           }
           await assertCurrentAccess(true); await assertV2Binding(transaction, options);
           if (sharedRosterDigest(archive().at(-1)!) !== sharedRosterDigest(latest)) throw new SharingAccessError('保存待ちの確認中に共有権限が変わりました。');
+          if (intent.kind === 'calendar') {
+            const result = await transaction.getFirstAsync<{ event_id: string }>('SELECT event_id FROM sharing_v2_calendar_intent_results WHERE intent_id=?', intent.id);
+            if (result) acceptedCalendarEventId = result.event_id;
+          }
           return [];
         }
       }
@@ -269,8 +283,19 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
           intent.id, options.userId, options.identity.deviceId, intent.digest);
       }
       for (const draft of drafts) localIds.add(draft.operationId); return drafts;
-    }, async (transaction, replica) => { options.assertWritable(); await project(transaction, replica, localIds); }, (op) => signSharedOperation(op, options.identity).authorSignature);
+    }, async (transaction, replica) => {
+      options.assertWritable(); await project(transaction, replica, localIds);
+      if (intent?.kind === 'calendar' && localIds.size) {
+        const operation = replica.operations.find(operation => localIds.has(operation.operationId) && operation.entityType === 'calendarEvent');
+        const eventId = operation?.payload.eventId;
+        if (typeof eventId !== 'string' || !eventId) throw new Error('予定の保存結果を確認できません。');
+        acceptedCalendarEventId = eventId;
+        await transaction.runAsync('INSERT INTO sharing_v2_calendar_intent_results VALUES(?,?)', intent.id, eventId);
+      }
+    }, (op) => signSharedOperation(op, options.identity).authorSignature);
     if (created.length) try { void Promise.resolve(options.afterCommit?.()).catch(() => undefined); } catch { /* A notification cannot undo committed facts or require another business write. */ }
+    // An idempotent replay remains an empty operation list. Its non-enumerable local result cannot be confused with a newly signed fact.
+    if (intent?.kind === 'calendar' && acceptedCalendarEventId) Object.defineProperty(created, 'calendarEventId', { value: acceptedCalendarEventId });
     return created;
   }
   return {

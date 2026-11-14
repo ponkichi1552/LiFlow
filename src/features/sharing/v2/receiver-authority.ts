@@ -1,5 +1,5 @@
 import { authorizeSharedCalendarOperation } from './calendar-state.ts';
-import { supportsRetainedManuals, supportsUploadedManuals, supportsSharedCalendar, supportsChoreRotation, supportsMonthlyChores, V2_SCHEDULER_VERSION } from './payload-schema.ts';
+import { supportsRetainedManuals, supportsUploadedManuals, supportsSharedCalendar, supportsChoreRotation, supportsMonthlyChores, supportsOneOffChores, V2_SCHEDULER_VERSION } from './payload-schema.ts';
 import { readV2ManualDocument } from './manual-documents.ts';
 import { restoreManualDocument } from '../../appliance-care/manual-document.ts';
 import type { ManualDocument, ManualChunk } from '../../appliance-care/manual-document';
@@ -336,6 +336,7 @@ function authorizeV2Operation(view: V2HistoryView, archive: readonly VerifiedSha
     adminOnly(); requireAuthority(view.field('chore', op.entityId, '$alive', op)?.value === true, 'Configure an existing shared chore');
     const configuration = op.payload.configuration as unknown as SharedChoreConfiguration;
     if (Object.hasOwn(configuration, 'monthly')) requireAuthority(supportsMonthlyChores(epoch.body.schedulerVersion), '毎月指定を使うにはグループを最新版へ更新してください。');
+    if (Object.hasOwn(configuration, 'once')) requireAuthority(supportsOneOffChores(epoch.body.schedulerVersion), '単発の家事を使うにはグループを最新版へ更新してください。');
     configuration.policy.assignment.memberIds.forEach(member);
     if (configuration.policy.assignment.rotation) {
       requireAuthority(supportsChoreRotation(epoch.body.schedulerVersion), 'Upgrade the group before using rotating assignments');

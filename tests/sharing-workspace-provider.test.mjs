@@ -66,6 +66,7 @@ for (const platform of ['ios', 'android']) test(`${platform} cold startup restor
     '@/features/google-sync/coordinator': { syncGoogleTasksAfterLocalCompletion() {} },
     '@/hooks/use-planner-data': { PlannerDataProvider: provider('planner'), usePlannerData: () => ({ database: {}, refresh: async () => {} }) },
     '../platform/widgets/widget-interaction-listener': {}, '@/components/planner-system-bars': { PlannerSystemBars: () => null },
+    '@/features/calendar/calendar-notification-bridge': { CalendarNotificationBridge: () => null },
     '@/components/notification-workspace-bridge': { NotificationWorkspaceBridge: () => null },
     '@/hooks/use-workspace': { WorkspaceProvider: ({ children }) => children, ActiveWorkspaceScope: ({ children }) => ready ? children : null },
     '@/components/workspace-navigator': { WorkspaceNavigator: () => 'ready-navigation' },

@@ -38,6 +38,7 @@ export function V2ChoreAdvancedSettings({ model: source, controller, choreId, on
   return <V2SettingsDraftCache.Provider value={drafts}><V2FormScrollView contentContainerStyle={{ padding: 18, gap: 16, paddingBottom: 32 }}
     header={<SettingsHeader title="詳細設定" onBack={() => void leave(onBack)} />}>
     {header}
+    <Text accessibilityRole="header" style={[typography.subheading, { color: palette.ink, fontWeight: '700' }]}>{model.plan.chores.find(chore => chore.id === choreId)?.name}</Text>
     {error ? <Text accessibilityRole="alert" style={[typography.caption, { color: palette.warning }]}>{error}</Text> : null}
     {model.viewerUserId === model.adminUserId ? <View style={{ gap: 12 }}><SectionHeading title="日時変更の権限" level="subsection" />
       <V2DateRightsEditor embedded unfolded model={model} choreId={choreId} controller={controller} onSaved={onSaved} onBack={onBack} />

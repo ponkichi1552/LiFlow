@@ -54,7 +54,7 @@ test('audit50 authorizing an edit of one shared calendar event does not causally
   assert.equal(readSharedCalendar(view).length, 1000);
 });
 
-test('audit50 resolving concurrent shared series edits must reset reviewed exceptions before changing recurrence', async () => {
+test('audit50 resolving concurrent shared series edits preserves reviewed exceptions and rejects unreviewed resets', async () => {
   const f = await fixture(); const category = { id: 'personal', name: 'personal', color: '#338899' };
   const series = { ...newEventDraft('2026-10-27', 'Asia/Tokyo'), title: 'weekly', recurrence: 'weekly' };
   const payload = (eventId, extra = {}) => ({ eventId, scope: 'series', anchorDate: null, basisOperationIds: [], resetExceptionIds: [], value: series, category, ...extra });
@@ -64,9 +64,15 @@ test('audit50 resolving concurrent shared series edits must reset reviewed excep
   const left = f.make('calendarEvent', payload(create.operationId, { basisOperationIds: [create.operationId], value: { ...series, title: 'left' } }), { actor: 'a', observed });
   const right = f.make('calendarEvent', payload(create.operationId, { basisOperationIds: [create.operationId], value: { ...series, title: 'right' } }), { observed });
   const basis = [left.operationId, right.operationId];
-  const missing = f.make('calendarEvent', payload(create.operationId, { basisOperationIds: basis, value: { ...series, recurrence: 'monthly' } }), { actor: 'a' });
-  assert.ok(f.state().assessment.rejected.some(row => row.operationId === missing.operationId), 'a conflict resolution cannot retain hidden exceptions from the replaced recurrence');
-  const resolved = f.make('calendarEvent', payload(create.operationId, { basisOperationIds: basis, value: { ...series, recurrence: 'monthly' }, resetExceptionIds: [exception.operationId] }), { actor: 'a' });
+  const retained = f.make('calendarEvent', payload(create.operationId, { basisOperationIds: basis, value: { ...series, recurrence: 'monthly' } }), { actor: 'a' });
+  assert.ok(!f.state().assessment.rejected.some(row => row.operationId === retained.operationId));
+  const kept = readSharedCalendar(f.state().assessment.view)[0].exceptions;
+  assert.equal(kept.length, 1); assert.equal(kept[0].anchorDate, '2026-11-03');
+  assert.equal(kept[0].heads[0].operationId, exception.operationId);
+  const forged = f.make('calendarEvent', payload(create.operationId, { basisOperationIds: [retained.operationId],
+    value: { ...series, recurrence: 'monthly' }, resetExceptionIds: [exception.operationId, 'unreviewed-exception'] }), { actor: 'a' });
+  assert.ok(f.state().assessment.rejected.some(row => row.operationId === forged.operationId));
+  const resolved = f.make('calendarEvent', payload(create.operationId, { basisOperationIds: [retained.operationId], value: { ...series, recurrence: 'monthly' }, resetExceptionIds: [exception.operationId] }), { actor: 'a' });
   assert.ok(!f.state().assessment.rejected.some(row => row.operationId === resolved.operationId));
   assert.deepEqual(readSharedCalendar(f.state().assessment.view)[0].exceptions, []);
 });

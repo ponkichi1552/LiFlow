@@ -3,6 +3,7 @@ import type { Appliance } from '../../appliance-care/contracts';
 import { isAnalysisRecord, isVerifiedApplianceAnalysis } from '../../appliance-care/analysis-validation.ts';
 import { applianceManufacturerIdentity, isOfficialApplianceUrl } from '../../appliance-care/official-url.ts';
 import { applianceDisplayName } from '../../appliance-care/display-name.ts';
+import { applianceCategoryFromContent } from '../../appliance-care/categories.ts';
 import { canonicalJson, compareOperationIds } from '../operations.ts';
 import type { JsonValue, SharedOperation } from '../operations';
 import { sharedDocumentDigest } from '../crypto.ts';
@@ -17,7 +18,7 @@ const text = (value: unknown) => typeof value === 'string' && value.trim().lengt
 export const normalizedApplianceModel = (value: string) => value.normalize('NFKC').trim().toLocaleLowerCase('en-US');
 const instant = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value));
 export interface V2ApplianceSelection { groupId: string; applianceId: string; revision: string }
-export interface V2ApplianceSummary { id: string; displayName: string; manufacturer: string; productName: string; modelNumber: string;
+export interface V2ApplianceSummary { id: string; displayName: string; manufacturer: string; productName: string; modelNumber: string; category?: string;
   deleted: boolean; needsReview: boolean; revision: string; candidateCount: number; selection: V2ApplianceSelection }
 export interface V2ApplianceCandidate { operationId: string; authorUserId: string; recordedAt: string | null; appliance: Appliance | null }
 const touchesContent = (operation: SharedOperation) => contentFields.some(field => Object.hasOwn(operation.payload, field));
@@ -70,9 +71,11 @@ export function readV2Appliance(view: V2HistoryView, at: SharedOperation, id: st
     recordedAt: candidate.recordedAt, appliance: materialize(view, candidate) }));
   const appliance = alive.kind === 'value' && alive.value === true && source.kind === 'value' ? candidates[0]?.appliance ?? null : null;
   const description = appliance ?? (source.kind === 'value' ? candidates[0]?.appliance : null);
+  const category = description ? applianceCategoryFromContent(description) : undefined;
   const revision = sharedDocumentDigest([view.groupId, id, ids(alive), ids(source)]);
   const row: V2ApplianceSummary = { id, displayName: description ? applianceDisplayName(description, description.displayName) : '家電の内容を確認',
     manufacturer: description?.manufacturer ?? '', productName: description?.productName ?? '', modelNumber: description?.modelNumber ?? '',
+    ...(category ? { category } : {}),
     deleted: alive.kind === 'value' && alive.value === false, needsReview: !appliance, revision, candidateCount: candidates.length,
     selection: { groupId: view.groupId, applianceId: id, revision } };
   return { row, appliance, candidates, alive, source };

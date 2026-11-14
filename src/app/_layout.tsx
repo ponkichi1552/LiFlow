@@ -1,3 +1,4 @@
+import { CalendarNotificationBridge } from '@/features/calendar/calendar-notification-bridge';
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { prepareStartupDisplay } from '@/platform/diagnostics/startup-splash';
@@ -71,6 +72,7 @@ export default function RootLayout() {
                     <PlannerSystemBars />
                     <WidgetInteractionBridge />
                     <NotificationWorkspaceBridge />
+                    <CalendarNotificationBridge />
                     <WorkspaceNavigator />
                   </>
                 </ThemeProvider>

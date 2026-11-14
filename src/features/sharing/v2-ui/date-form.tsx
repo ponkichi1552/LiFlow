@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react';
-import { Text, View } from 'react-native';
+import type { ReactNode } from 'react';
+import { Text, View, useColorScheme } from 'react-native';
 import { AppButton, Card, SectionHeading } from '../../../components/planner-ui';
+import { plannerColorsForScheme } from '../../../components/planner-theme';
 import { canonicalJson } from '../operations';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { V2PlannedOccurrence, V2SubjectPlan } from '../v2/common-plan';
@@ -14,12 +16,35 @@ import { v2InitialTargetFields, v2RuleSelectorFromForm, v2TargetFromEditedForm, 
 import type { V2ValidityChoice } from './target-form';
 import { V2DateTargetFields } from './date-target-fields';
 import { V2DateConfirmation } from './date-confirmation';
+import { CalendarField } from '../../calendar/calendar-field';
+import { SettingsAction, SettingsPanel } from '../../../components/settings-controls';
+import type { LocalDate } from '../../../domain/shared/types';
+import { CalendarSheetContent, type CalendarSheetForm } from '../../calendar/calendar-sheet-header';
+import { newEventDraft, minuteLabel, type EventDraft } from '../../calendar/events';
+import { addDays } from '../../../domain/scheduling/local-date';
+import { v2MemberLabels } from './member-labels';
+import { SettingsCheckbox } from '../../../components/settings-checkbox';
+import { changeChoreClock, emptyChoreClocks, withChoreClocks, type ChoreClocks } from '../../calendar/chore-clock-input';
+import type { CalendarChoreInput } from '../../calendar/chore-registration-input';
+import { initialCustomChoreOptions } from '../../chores/custom-chore-options';
+import { sharedRecipeId } from '../v2/standard-catalog';
 
 const ruleIdsOf = (formal: V2SubjectPlan['formalDate']) => formal.kind === 'automatic' ? [] : formal.kind === 'manual' ? formal.equivalentRuleIds : formal.ruleIds;
 const sameIds = (a: readonly string[], b: readonly string[]) => canonicalJson([...a].sort()) === canonicalJson([...b].sort());
 type ConfirmationKind = 'recentWork' | 'highLoad' | 'calendar' | 'cancel';
-type Props = { model: V2GroupScreenModel; round: V2PlannedOccurrence; subject: V2SubjectPlan; actions: V2GroupController['actions']; busy: boolean;
-  run: (work: () => Promise<unknown>) => Promise<void>; readOwnCalendar?: (target: DateTarget) => Promise<CalendarConflict> };
+export type V2DateFormProps = { model: V2GroupScreenModel; round: V2PlannedOccurrence; subject: V2SubjectPlan; actions: V2GroupController['actions']; busy: boolean;
+  run: (work: () => Promise<unknown>) => Promise<void>; readOwnCalendar?: (target: DateTarget) => Promise<CalendarConflict>; initialDate?: LocalDate; onSaved?(date?: LocalDate): void;
+  renderCalendarForm?(form: CalendarSheetForm): ReactNode; onBusyChange?(busy: boolean): void; onRepeatChange?(repeat: boolean, value?: EventDraft, clocks?: ChoreClocks, input?: CalendarChoreInput): void; calendarValue?: EventDraft; calendarClocks?: ChoreClocks; calendarInput?: CalendarChoreInput };
+type Props = V2DateFormProps;
+function calendarDateFields(value: EventDraft) {
+  return { mode: value.allDay && value.startDate === value.endDate ? 'day' as const : 'fixed' as const,
+    fields: { day: value.startDate, clock: value.allDay ? '00:00' : minuteLabel(value.startMinute),
+      endDay: value.allDay ? addDays(value.endDate, 1) : value.endDate, endClock: value.allDay ? '00:00' : minuteLabel(value.endMinute), clockChoice: '', endClockChoice: '' } };
+}
+function calendarInputFields(value: EventDraft, clocks: ChoreClocks) {
+  return calendarDateFields({ ...value, allDay: value.allDay || clocks.start === null || clocks.end === null,
+    startMinute: clocks.start ?? 0, endMinute: clocks.end ?? 0 });
+}
 function displayedState({ model, round, subject }: Props) {
   const formal = subject.formalDate;
   const ruleIds = ruleIdsOf(formal);
@@ -32,7 +57,7 @@ function displayedState({ model, round, subject }: Props) {
   try { const source = v2DateChangeOriginal(rules.map((fact) => fact.rule), round, model.plan.timeZone); originalMissingTime = source.originalMissingTime && source.originalReferenceAt === null; } catch { /* Changed recurrence and timezone stay explicit reviews. */ }
   return { ref, ruleIds, rules, target, mode, originalMissingTime, originalTimeZone: formal.kind === 'manual' ? formal.timeZone : model.plan.timeZone,
     timeZone: model.plan.timeZone, assignees: [...subject.assigneeIds],
-    assignmentIds: [...round.assignmentOperationIds], conflictIds: [...round.assignmentConflictIds], reviewIds: [...subject.requestReviewIds],
+    assignmentIds: [...round.assignmentOperationIds], conflictIds: [...round.assignmentConflictIds], claimIds: [...round.claimOperationIds], reviewIds: [...subject.requestReviewIds],
     needsReview: formal.kind === 'conflict' || formal.kind === 'review' || subject.requestReviewIds.length > 0,
     fields: v2InitialTargetFields(target, model.plan.timeZone),
     options: { strict: rules.some((fact) => fact.rule.strict), adminLocked: rules.some((fact) => fact.rule.adminLocked), forbidEarlier: rules.some((fact) => fact.rule.forbidEarlier) } };
@@ -43,11 +68,18 @@ export function V2DateForm(props: Props) {
   return <DateEditor key={`${props.round.id}:${props.subject.id}`} {...props} />;
 }
 function DateEditor(props: Props) {
+  const colors = plannerColorsForScheme(useColorScheme());
   const { model, round, subject, actions, busy, run, readOwnCalendar } = props;
+  const initialCalendarValue = props.calendarInput?.value ?? props.calendarValue; const initialClocks = props.calendarInput?.clocks ?? props.calendarClocks ?? emptyChoreClocks();
   const [displayed] = useState(() => displayedState(props));
-  const [draft, setDraft] = useState(() => ({ mode: displayed.mode, fields: displayed.fields, validity: 'once' as V2ValidityChoice,
+  const [draft, setDraft] = useState(() => ({ mode: props.initialDate ? 'day' as const : displayed.mode, fields: props.initialDate ? v2InitialTargetFields({ precision: 'date', date: props.initialDate }, model.plan.timeZone) : displayed.fields,
+    ...(initialCalendarValue ? calendarInputFields(initialCalendarValue, initialClocks) : {}), validity: 'once' as V2ValidityChoice,
     through: '', extension: 'once' as 'once' | 'future', options: displayed.options, reviewed: false }));
   const input = useRef(draft);
+  const [calendarValue, setCalendarValue] = useState(initialCalendarValue);
+  const calendarInput = useRef(calendarValue);
+  const [clocks, setClocks] = useState(initialClocks); const clockInput = useRef(clocks);
+  const [assigneeIds, setAssigneeIds] = useState(props.calendarInput?.group?.onceAssigneeIds ?? displayed.assignees); const assigneeInput = useRef(assigneeIds);
   const { mode, fields, validity, through, extension, options, reviewed } = draft;
   const [error, setError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<{ kind: ConfirmationKind; revision: number } | null>(null);
@@ -64,14 +96,18 @@ function DateEditor(props: Props) {
   const [success, setSuccess] = useState<string | null>(null); const [saving, setSaving] = useState(false); const inFlight = useRef(false);
   const confirmed = useRef({ recentWork: false, highLoad: false, calendar: false });
   const zoneChanged = displayed.timeZone !== model.plan.timeZone;
-  const staleAssignment = !sameIds(displayed.assignees, subject.assigneeIds) || !sameIds(displayed.assignmentIds, round.assignmentOperationIds) || !sameIds(displayed.conflictIds, round.assignmentConflictIds);
+  const staleAssignment = !sameIds(displayed.assignees, subject.assigneeIds) || !sameIds(displayed.assignmentIds, round.assignmentOperationIds) || !sameIds(displayed.conflictIds, round.assignmentConflictIds)
+    || Boolean(props.renderCalendarForm && !sameIds(displayed.claimIds, round.claimOperationIds));
   const staleDate = !sameIds(displayed.ruleIds, ruleIdsOf(subject.formalDate)) || !sameIds(displayed.reviewIds, subject.requestReviewIds);
   const staleConfiguration = !sameIds(displayed.ref.expectedConfigurationIds ?? [], model.configurations.find((entry) => entry.choreId === round.choreId)?.candidates.map((entry) => entry.operationId) ?? []);
   const stale = zoneChanged || staleAssignment || staleDate || staleConfiguration;
   const disabled = busy || saving || stale || !model.plan.initialized || Boolean(success)
     || !round.activeInPeriod || Boolean(round.assignmentConflictIds.length) || !model.plan.members.some((member) => member.active && member.userId === model.viewerUserId);
   const admin = model.viewerUserId === model.adminUserId;
-  const ownCalendar = displayed.assignees.includes(model.viewerUserId) ? readOwnCalendar : undefined;
+  const unavailable = !round.activeInPeriod ? 'この回は実施期間外です。家事を選び直してください。'
+    : round.assignmentConflictIds.length ? '担当が競合しています。担当の設定を確認してください。'
+    : !model.plan.members.some(member => member.active && member.userId === model.viewerUserId) ? 'グループの参加状態を確認してください。' : null;
+  const ownCalendar = (props.renderCalendarForm ? assigneeIds : displayed.assignees).includes(model.viewerUserId) ? readOwnCalendar : undefined;
   const edit = (patch: Partial<typeof draft>) => {
     if (inFlight.current) return;
     inputRevision.current++; input.current = { ...input.current, ...patch }; setDraft(input.current);
@@ -81,9 +117,11 @@ function DateEditor(props: Props) {
     ...(['day', 'clock'].includes(name) ? { clockChoice: '' } : ['endDay', 'endClock'].includes(name) ? { endClockChoice: '' } : {}) } });
   const submit = async () => {
     if (disabled || inFlight.current) return;
-    const { mode, fields, validity, through, extension, options, reviewed } = input.current;
+    const { validity, through, extension, options, reviewed } = input.current;
+    let { mode, fields } = input.current;
     setError(null); let target: DateTarget; let selector: RuleSelector;
     try {
+      if (props.renderCalendarForm && calendarInput.current) ({ mode, fields } = calendarDateFields(withChoreClocks(calendarInput.current, clockInput.current)));
       if (displayed.needsReview && !reviewed) throw new Error('元の指定と競合している内容を確認してください。');
       target = v2TargetFromEditedForm({ mode, ...fields, timeZone: displayed.timeZone, clockChoice: fields.clockChoice || undefined,
         endClockChoice: fields.endClockChoice || undefined }, displayed.target, displayed.fields);
@@ -93,23 +131,29 @@ function DateEditor(props: Props) {
         throw new Error('この回の個別指定が優先されます。今回だけを選んで変更するか、元の指定を解除してから期間を指定してください。');
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : '変更する日時を確認してください。'); return; }
-    inFlight.current = true; setSaving(true);
+    inFlight.current = true; setSaving(true); props.onBusyChange?.(true);
+    let savedDirectly = false;
     try { await run(async () => {
-      if (mode === 'fixed' && ownCalendar && !confirmed.current.calendar) {
-        const reading = await ownCalendar(target); setCalendarStatus(reading.kind);
+      const chosenCalendar = (props.renderCalendarForm ? assigneeInput.current : displayed.assignees).includes(model.viewerUserId) ? readOwnCalendar : undefined;
+      if (mode === 'fixed' && chosenCalendar && !confirmed.current.calendar) {
+        const reading = await chosenCalendar(target); setCalendarStatus(reading.kind);
         if (reading.kind === 'conflict') { askConfirmation('calendar'); return; }
       }
       try {
         const created = await actions.changeDate(displayed.ref, { mode, target, selector, options, extensionScope: extension,
           expectedRuleIds: displayed.ruleIds, confirmDateConflict: reviewed, reviewedRequestIds: displayed.reviewIds,
           expectedAssigneeIds: displayed.assignees, expectedAssignmentIds: displayed.assignmentIds, expectedConflictIds: displayed.conflictIds,
+          ...(props.renderCalendarForm ? { ...(admin && subject.subjectUserId === null ? { assigneeIds: assigneeInput.current } : {}), expectedClaimIds: displayed.claimIds } : {}),
           expectedRequestReviewIds: displayed.reviewIds, confirmRecentWork: confirmed.current.recentWork, confirmHighLoad: confirmed.current.highLoad });
         setSuccess(created[0]?.entityType === 'changeRequest' ? '変更申請を端末に保存しました。受付と必要な承認の確認まで正式予定は変わりません。'
           : '日時指定を端末に保存しました。他のメンバーへの反映状況は同期表示で確認できます。'); setConfirmation(null);
+        savedDirectly = created[0]?.entityType !== 'changeRequest';
       } catch (cause) {
         if (cause instanceof V2ActionConfirmationError) { askConfirmation(cause.reason); return; } throw cause;
       }
-    }); } finally { inFlight.current = false; setSaving(false); }
+    }); if (savedDirectly) props.onSaved?.(input.current.fields.day as LocalDate); }
+    catch (cause) { if (!props.renderCalendarForm) throw cause; setError(cause instanceof Error ? cause.message : '変更を保存できませんでした。'); }
+    finally { inFlight.current = false; setSaving(false); props.onBusyChange?.(false); }
   };
   const cancel = async (revision: number) => {
     if (revision !== inputRevision.current) { setConfirmation(null); return; }
@@ -119,16 +163,61 @@ function DateEditor(props: Props) {
       const current = cancelInput.current;
       selector = current.validity === 'source' ? undefined : v2RuleSelectorFromForm(current.validity, round, current.through);
     } catch (cause) { setError(cause instanceof Error ? cause.message : '解除する範囲を確認してください。'); return; }
-    inFlight.current = true; setSaving(true);
+    inFlight.current = true; setSaving(true); props.onBusyChange?.(true);
     try { await run(async () => { const created = await actions.cancelDates(displayed.ref, displayed.ruleIds, { expectedRuleIds: displayed.ruleIds, selector,
       expectedAssigneeIds: displayed.assignees, expectedAssignmentIds: displayed.assignmentIds, expectedConflictIds: displayed.conflictIds });
       setSuccess(created[0]?.entityType === 'changeRequest' ? '解除申請を端末に保存しました。受付と必要な承認の確認まで正式予定は変わりません。'
         : '選択した範囲の日時指定を解除しました。実施履歴は保持されています。'); setConfirmation(null); }); }
-    finally { inFlight.current = false; setSaving(false); }
+    finally { inFlight.current = false; setSaving(false); props.onBusyChange?.(false); }
   };
-  if (success) return <Card><Text accessibilityLiveRegion="polite" style={styles.body}>{success}</Text></Card>;
-  if (!model.plan.initialized) return <Card><Text style={styles.body}>グループの地域と基本設定が未確定です。先に設定を確認してください。</Text></Card>;
-  return <Card><SectionHeading title="日時の指定・変更" />
+  const clockMinute = (clock: string, fallback: number) => /^\d{2}:\d{2}$/u.test(clock) ? Number(clock.slice(0, 2)) * 60 + Number(clock.slice(3)) : fallback;
+  const readInput = (): CalendarChoreInput => {
+    const chore = model.plan.chores.find(row => row.id === round.choreId); const cfg = model.configurations.find(row => row.choreId === round.choreId)?.configuration;
+    const policy = cfg?.policy;
+    return { ...props.calendarInput, value: { ...(calendarInput.current ?? newEventDraft(input.current.fields.day as LocalDate, displayed.timeZone)), title: chore?.name ?? '' },
+      clocks: { ...clockInput.current }, repeat: false, interval: props.calendarInput?.interval ?? String(cfg?.intervalDays ?? 7), monthly: props.calendarInput?.monthly ?? cfg?.monthly === true,
+      options: { ...initialCustomChoreOptions, minutes: String(chore?.estimatedMinutes ?? 15), load: chore?.load ?? 'normal', ...props.calendarInput?.options },
+      selections: { ...props.calendarInput?.selections, group: round.choreId }, recipeId: sharedRecipeId(model.plan.groupId, round.choreId),
+      group: { preset: policy?.completion === 'perMember' ? 'eachMember' : policy?.assignment.rotation ? 'rotation' : policy?.assignment.mode === 'selected' ? 'assigned' : 'common',
+        memberIds: [...(policy?.assignment.rotation?.sequence ?? policy?.assignment.memberIds ?? [])], advanceOn: policy?.assignment.rotation?.advanceOn ?? 'completion', ...props.calendarInput?.group, onceAssigneeIds: [...assigneeInput.current] } };
+  };
+  const entry = { value: calendarValue ?? { ...newEventDraft(fields.day as LocalDate, displayed.timeZone), allDay: mode !== 'fixed', endDate: (fields.endDay || fields.day) as LocalDate,
+      startMinute: clockMinute(fields.clock, 540), endMinute: clockMinute(fields.endClock, 600) }, titleEditable: false,
+    readInput,
+    onChange: (value: ReturnType<typeof newEventDraft>) => { if (inFlight.current) return; calendarInput.current = value; setCalendarValue(value);
+      edit(calendarInputFields(value, clockInput.current)); },
+    clocks: { ...clocks, onChange: (field: 'start' | 'end', minute: number) => {
+      if (inFlight.current || !calendarInput.current) return;
+      const next = changeChoreClock(calendarInput.current, clockInput.current, field, minute);
+      clockInput.current = next.clocks; setClocks(next.clocks); calendarInput.current = next.value; setCalendarValue(next.value);
+      edit(calendarInputFields(next.value, next.clocks));
+    } },
+    details: <View style={{ gap: 12 }}><View style={{ gap: 8, paddingBottom: 12, borderBottomWidth: props.onRepeatChange ? 1 : 0, borderBottomColor: colors.border }}><Text style={styles.label}>担当</Text>
+      {admin && subject.subjectUserId === null ? <>{model.plan.members.filter(member => member.active).map(member => <View key={member.userId} style={{ minHeight: 44, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+        <Text style={[styles.body, { flex: 1 }]}>{v2MemberLabels(model.plan.members)(member.userId)}</Text><SettingsCheckbox accessibilityLabel={`この回の担当：${v2MemberLabels(model.plan.members)(member.userId)}`} value={assigneeIds.includes(member.userId)}
+          disabled={disabled || Boolean(displayed.claimIds.length)} onValueChange={checked => { if (inFlight.current) return;
+            const next = checked ? [...assigneeInput.current.filter(id => id !== member.userId), member.userId] : assigneeInput.current.filter(id => id !== member.userId);
+            assigneeInput.current = next; setAssigneeIds(next); edit({}); }} /></View>)}
+        {!assigneeIds.length ? <Text style={styles.caption}>誰か1人</Text> : null}</> : <Text style={styles.body}>{displayed.assignees.map(v2MemberLabels(model.plan.members)).join('・') || '誰か1人'}</Text>}</View>
+      {props.onRepeatChange ? <View style={{ minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}><Text style={styles.label}>繰り返す</Text><SettingsCheckbox accessibilityLabel="追加する家事を繰り返す" value={false} disabled={disabled || !admin} onValueChange={repeat => props.onRepeatChange?.(repeat, calendarInput.current, clockInput.current, readInput())} /></View> : null}
+    </View> };
+  const presentation = { render: props.renderCalendarForm, onSave: submit, disabled: disabled || Boolean(confirmation), busy: busy || saving, entry };
+  if (success) return <DatePresentation {...presentation} onSave={undefined}><Card><Text accessibilityLiveRegion="polite" style={styles.body}>{success}</Text></Card></DatePresentation>;
+  if (!model.plan.initialized) return <DatePresentation {...presentation} onSave={undefined}><Card><Text style={styles.body}>グループの地域と基本設定が未確定です。先に設定を確認してください。</Text></Card></DatePresentation>;
+  if (props.initialDate && !displayed.needsReview && !round.assignmentConflictIds.length) return <DatePresentation {...presentation}><View style={{ gap: 14 }}>
+    {!props.renderCalendarForm ? <Text style={styles.caption}>既存の1回だけを変更します。</Text> : null}
+    {!props.renderCalendarForm ? <SettingsPanel><View style={{ paddingVertical: 10, gap: 10 }}>
+      <Text style={styles.caption}>現在：{v2TargetLabel(displayed.target, displayed.originalTimeZone)}</Text>
+      <CalendarField label="変更後の実施日" borderless commitOnDone date={fields.day as LocalDate} mode="date" minute={0} disabled={disabled} onDate={date => field('day', date)} />
+    </View></SettingsPanel> : null}
+    {stale ? <Text accessibilityRole="alert" style={styles.error}>予定が更新されています。開き直して確認してください。</Text> : null}
+    {unavailable ? <Text accessibilityRole="alert" style={styles.error}>{unavailable}</Text> : null}
+    {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+    {confirmation && confirmation.kind !== 'cancel' ? <V2DateConfirmation kind={confirmation.kind} disabled={disabled}
+      onConfirm={() => { if (confirmation.revision !== inputRevision.current) return; confirmed.current[confirmation.kind as Exclude<ConfirmationKind, 'cancel'>] = true; setConfirmation(null); void submit(); }}
+      onCancel={() => setConfirmation(null)} /> : !props.renderCalendarForm ? <SettingsAction title={admin ? 'この日に変更' : '変更を申請'} intent="primary" disabled={disabled} onPress={() => void submit()} /> : null}
+  </View></DatePresentation>;
+  return <DatePresentation {...presentation}><Card><SectionHeading title="日時の指定・変更" />
     {stale ? <Text accessibilityRole="alert" style={styles.error}>地域・担当・日時指定または共通設定が変更されています。入力は保持しています。現在の内容を確認して開き直してください。</Text> : null}
     <Text style={styles.caption}>日時の地域：{displayed.timeZone}。基本周期と完了済みの履歴は変更しません。</Text>
     {displayed.originalTimeZone !== displayed.timeZone ? <Text style={styles.caption}>現在の指定：{v2TargetLabel(displayed.target, displayed.originalTimeZone)} · {displayed.originalTimeZone}。既存の指定は元の地域を維持します。この画面で新しく指定する日時には{displayed.timeZone}を使います。</Text> : null}
@@ -150,12 +239,13 @@ function DateEditor(props: Props) {
     {(['strict', 'adminLocked', 'forbidEarlier'] as const).map((key) => <V2Flag key={key} label={key === 'strict' ? '指定日時を厳守' : key === 'adminLocked' ? '管理者による固定' : '前倒しを禁止'}
       value={options[key]} disabled={disabled || !admin} onChange={(value) => edit({ options: { ...input.current.options, [key]: value } })} />)}
     {!admin ? <Text style={styles.caption}>元の厳守・固定・前倒し禁止の条件を維持して申請します。</Text> : null}
+    {unavailable ? <Text accessibilityRole="alert" style={styles.error}>{unavailable}</Text> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     {confirmation && confirmation.kind !== 'cancel' ? <V2DateConfirmation kind={confirmation.kind} disabled={disabled}
       onConfirm={() => { if (confirmation.revision !== inputRevision.current || confirmation.kind === 'cancel') { setConfirmation(null); return; }
         confirmed.current[confirmation.kind] = true; setConfirmation(null); return submit(); }}
       onCancel={() => { setConfirmation(null); confirmed.current = { recentWork: false, highLoad: false, calendar: false }; }} />
-      : <AppButton title="日時を指定・申請する" disabled={disabled} onPress={submit} />}
+      : !props.renderCalendarForm ? <AppButton title="日時を指定・申請する" disabled={disabled} onPress={submit} /> : null}
     {displayed.rules.length ? <View style={{ gap: 8 }}>
       {confirmation?.kind === 'cancel' ? <><Text style={styles.error}>次の元指定から、選択した範囲だけを解除します。実施履歴は残ります。ほかの指定が残る場合はそちらを適用します。</Text>
         {displayed.rules.map((fact) => <Text key={fact.operationId} style={styles.caption}>{fact.rule.selector.scope === 'once' ? `今回だけ：${fact.rule.selector.anchorDate}`
@@ -171,5 +261,9 @@ function DateEditor(props: Props) {
         <AppButton title="解除せず戻る" variant="quiet" disabled={disabled} onPress={() => setConfirmation(null)} /></>
         : <AppButton title="適用中の日時指定を解除…" variant="quiet" disabled={disabled} onPress={() => askConfirmation('cancel')} />}
     </View> : null}
-  </Card>;
+  </Card></DatePresentation>;
+}
+
+function DatePresentation({ render, children, ...form }: Omit<CalendarSheetForm, 'content'> & { render?: Props['renderCalendarForm']; children: ReactNode }) {
+  return render ? <CalendarSheetContent render={render} form={{ ...form, content: children }} /> : children;
 }

@@ -15,10 +15,12 @@ import { notifyCalendarSyncChanged } from '../../platform/storage/calendar-event
 import { googleOwnedFields } from './google-owned-fields.ts';
 import { traceStartup } from '../../platform/diagnostics/startup-timing.ts';
 import { advanceCalendarPageHistory } from './page-history.ts';
+import { isGoogleAuthenticationError } from '../google-sync/auth-error.ts';
 
 class CalendarPassPending extends Error { readonly code = 'calendar/pass-pending'; }
 type Result = { kind: 'success' | 'pending' | 'error' | 'skipped'; received: number; sent: number; retryAt?: number; waiting?: number };
 export function createPersonalGoogleCalendarSync(input: { database: SQLiteDatabase; currentSubject(): Promise<string | null>;
+  hasSession?(subject: string): Promise<boolean>;
   authorize(): Promise<{ subject: string; label: string }>;
   createApi(context: { subject: string; assertCurrent(): Promise<void>; signal: AbortSignal }): GoogleCalendarApi;
   today(): LocalDate; now?: () => number; random?: () => number }) {
@@ -368,13 +370,13 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
           });
           const waitingCount = waiting?.n ?? 0; const retryAt = waitingCount && !remaining.length ? now() + 60_000 : 0;
           await updatePersonalGoogleCalendarStatus(input.database, control, { ...(!remaining.length && !waitingCount ? { lastSyncAt: new Date(now()).toISOString() } : {}),
-            error: waitingCount ? `一部の繰り返し予定を受信待ちです（${waitingCount}件）。` : null, retryAt, retryCount: 0 });
+            error: waitingCount ? `一部の繰り返し予定を受信待ちです（${waitingCount}件）。` : null, authRequired: undefined, retryAt, retryCount: 0 });
           if (changed) notifyCalendarSyncChanged(input.database);
           return finish({ kind: remaining.length || waitingCount ? 'pending' : 'success', received, sent, ...(waitingCount ? { waiting: waitingCount, ...(retryAt ? { retryAt } : {}) } : {}) });
         } catch (cause) {
           const pending = cause instanceof CalendarPassPending || cause instanceof Error && cause.name === 'AbortError';
           const wait = cause instanceof GoogleCalendarHttpError && cause.retryAfterMs || Math.min(6 * 3600_000, 30_000 * 2 ** Math.min(control.retryCount, 9)) * (.75 + random() * .5);
-          try { await updatePersonalGoogleCalendarStatus(input.database, control, { error: pending ? null : cause instanceof Error ? cause.message.slice(0, 1000) : 'Googleカレンダーと同期できません。', retryAt: pending ? 0 : now() + Math.ceil(wait), retryCount: pending ? 0 : control.retryCount + 1 }); }
+          try { await updatePersonalGoogleCalendarStatus(input.database, control, { error: pending ? null : cause instanceof Error ? cause.message.slice(0, 1000) : 'Googleカレンダーと同期できません。', authRequired: isGoogleAuthenticationError(cause) ? true : control.authRequired, retryAt: pending ? 0 : now() + Math.ceil(wait), retryCount: pending ? 0 : control.retryCount + 1 }); }
           catch { /* A disconnected account cannot write status or data into its replacement. */ }
           if (changed) notifyCalendarSyncChanged(input.database); return finish({ kind: pending ? 'pending' : 'error', received, sent });
         }
@@ -383,6 +385,11 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
     running = work; return work;
   };
   return { sync, prepareConnection, readControl: () => readPersonalGoogleCalendarControl(input.database),
+    async isConnected(control: PersonalGoogleCalendarControl): Promise<boolean> {
+      if (!control.subject || control.authRequired) return false;
+      try { return input.hasSession ? await input.hasSession(control.subject) : await input.currentSubject() === control.subject; }
+      catch { return false; }
+    },
     async requestRange(from: LocalDate, through: LocalDate) {
       const control = await readPersonalGoogleCalendarControl(input.database); if (!control.enabled) return false;
       return withPersonalGoogleCalendar(input.database, control, tx => retainGoogleDisplayRange(tx, control.subject, from, through));

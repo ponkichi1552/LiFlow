@@ -31,19 +31,21 @@ export async function analyzeApplianceCareRequest(
 ): Promise<ApplianceCareApiResponse> {
   if (signal?.aborted) return temporaryError('解析の通信を中断しました。');
   const normalized = {
-    manufacturer: request.manufacturer.trim(),
-    productName: request.productName.trim(),
-    modelNumber: request.modelNumber.trim(),
+    ...(request.identifyFromManual === true ? { identifyFromManual: true as const } : {}),
+    ...Object.fromEntries(['manufacturer', 'productName', 'modelNumber'].filter(field => typeof request[field as keyof ApplianceCareApiRequest] === 'string')
+      .map(field => [field, (request[field as keyof ApplianceCareApiRequest] as string).trim()])),
     ...(request.category?.trim() ? { category: request.category.trim() } : {}),
     ...(request.manual ? { manual: request.manual } : {}),
     ...(request.forceReanalysis ? { forceReanalysis: true } : {}),
   };
-  if ([normalized.manufacturer, normalized.productName, normalized.modelNumber]
-    .some((value) => value.length === 0 || value.length > 120)) {
+  const fields = ['manufacturer', 'productName', 'modelNumber'] as const;
+  const noIdentity = request.identifyFromManual === true && fields.every(field => request[field] === undefined);
+  if ((request.identifyFromManual === true && !request.manual) || (!noIdentity && fields.some(field => typeof request[field] !== 'string'
+    || !request[field]!.trim() || request[field]!.trim().length > 120 || /[\u0000-\u001f\u007f]/u.test(request[field]!)))) {
     return {
       status: 'error',
       code: 'INVALID_REQUEST',
-      message: 'メーカー名・製品名・型番を入力してください（各120文字以内）。',
+      message: request.identifyFromManual ? '取扱説明書PDFを選んでください。' : 'メーカー名・製品名・型番を入力してください（各120文字以内）。',
     };
   }
 

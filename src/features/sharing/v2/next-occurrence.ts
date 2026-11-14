@@ -15,6 +15,7 @@ export function nextV2CommonOccurrence(view: V2HistoryView, at: SharedOperation,
     const configuration = slice.configuration; if (configuration.active === false) continue;
     const first = [tomorrow, slice.from, configuration.anchorDate].sort().at(-1)!;
     const index = v2AnchorIndexOnOrAfter(configuration, first);
+    if (configuration.once && index !== 0) continue;
     const anchor = v2AnchorAtIndex(configuration, index);
     if (slice.through !== null && anchor > slice.through) continue;
     return commonFrame(view.groupId, choreId, configuration, anchor);

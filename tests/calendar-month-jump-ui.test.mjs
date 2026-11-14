@@ -18,16 +18,17 @@ for (const platform of ['ios', 'android']) {
       assert.ok(!screen.nodes().some(node => node.type === 'Modal'));
     }
   });
-  test(`${platform} a split-month first day keeps its left edge and every month starts with a horizontal grid line`, () => {
+  test(`${platform} a split-month first day keeps its weekday and selects the real date without adjacent-month duplicates`, () => {
+    const selected = [];
     const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
-      today: '2026-12-01', timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, total: 2 }), renderChores: () => null,
+      today: '2026-12-01', timeZone: 'Asia/Tokyo', onSelectDate: day => selected.push(day), dayInfo: () => ({ loaded: true, total: 2 }), renderChores: () => null,
     } });
     const first = screen.nodes().find(node => node.type === 'Pressable' && node.props.accessibilityLabel?.startsWith('2026年12月1日、'));
-    assert.ok(first); const style = Object.assign({}, ...first.props.style.filter(Boolean)); assert.equal(style.borderLeftWidth, 1);
+    assert.ok(first);
+    assert.equal(screen.nodes().filter(node => node.props.accessibilityLabel?.startsWith('2026年12月1日、')).length, 1);
     const list = screen.nodes().find(node => node.props.testID === 'calendar-weeks');
     const row = list.props.data.find(row => row.days.includes('2026-12-01'));
     assert.equal(row.days[1], null); assert.equal(row.days[2], '2026-12-01');
-    const monthStarts = screen.nodes().filter(node => node.type === 'View' && Array.isArray(node.props.style) && node.props.style.some(part => part?.borderTopWidth === 1));
-    assert.ok(monthStarts.length > 0);
+    first.props.onPress(); screen.render(); assert.equal(selected.at(-1), '2026-12-01');
   });
 }

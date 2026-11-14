@@ -67,7 +67,7 @@ export function configurePersonalGoogleTaskSync(database: SQLiteDatabase, enable
   }
   return withGoogleSyncOperation(async () => {
     const previous = await loadGoogleSyncState(database, 'local-household');
-    const next: GoogleSyncState = { ...(previous ?? { householdId: 'local-household', retryCount: 0 }), enabled, status: 'idle',
+    const next: GoogleSyncState = { ...(previous ?? { householdId: 'local-household', retryCount: 0 }), enabled, ...(enabled ? { disconnected: false } : {}), status: 'idle',
       retryCount: enabled ? previous?.retryCount ?? 0 : 0, nextRetryAt: undefined, lastErrorCode: undefined,
       lastErrorAt: undefined, updatedAt: new Date().toISOString() };
     await saveGoogleSyncState(database, next); return next;

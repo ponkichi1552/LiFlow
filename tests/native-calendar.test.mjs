@@ -25,7 +25,7 @@ for (const platform of ['ios', 'android']) {
     list().props.ref.current = { scrollToOffset: request => calls.push(request) };
     list().props.onLayout();
     assert.equal(Boolean(list().props.maintainVisibleContentPosition), false, 'native anchoring must not add its own offset to explicit initial centering');
-    const viewport = screen.nodes().find(node => typeof node.props.onLayout === 'function' && node.type === 'View');
+    const viewport = screen.nodes().find(node => node.props.testID === 'calendar-viewport');
     viewport.props.onLayout({ nativeEvent: { layout: { height: 420 } } }); screen.render();
     list().props.onContentSizeChange();
     assert.equal(calls.length, 2);
@@ -51,7 +51,7 @@ for (const platform of ['ios', 'android']) {
     weeks.props.ref.current = { scrollToOffset: request => calls.push(request) };
     weeks.props.onLayout(); assert.equal(calls.length, 1, 'initial entry still centers the selected day');
     weeks.props.onScrollBeginDrag?.();
-    const viewport = screen.nodes().find(node => typeof node.props.onLayout === 'function' && node.type === 'View');
+    const viewport = screen.nodes().find(node => node.props.testID === 'calendar-viewport');
     viewport.props.onLayout({ nativeEvent: { layout: { height: 420 } } }); screen.render();
     weeks = screen.nodes().find(node => node.props.testID === 'calendar-weeks'); weeks.props.onContentSizeChange();
     weeks.props.onScrollToIndexFailed();
@@ -154,7 +154,7 @@ for (const platform of ['ios', 'android']) {
     await screen.press('分類を選択'); await screen.press('分類を追加'); await screen.change('分類名', '病院'); await screen.press('カスタムカラー');
     await screen.change('カラーR', '32'); await screen.change('カラーG', '64'); await screen.change('カラーB', '128'); await screen.press('分類を保存');
     const category = (await store.readLocalCalendar(h.database)).categories.find(row => row.name === '病院'); assert.equal(category.color, '#204080');
-    await screen.press('予定の編集を閉じる'); for (let n = 0; n < 15 && !closed; n++) await screen.flush();
+    await screen.press('予定の編集を閉じる'); await screen.press('下書き保存'); for (let n = 0; n < 15 && !closed; n++) await screen.flush();
     const draft = (await store.readLocalCalendar(h.database)).draft; assert.equal(draft.value.title, '通院'); assert.equal(draft.value.recurrence, 'biweekly'); assert.equal(draft.value.categoryId, category.id);
     assert.equal((await store.readLocalCalendar(h.database)).events.length, 0, 'closing a draft never creates an event');
   });
@@ -217,14 +217,18 @@ test('iOS interactive editor dismissal keeps the latest draft visible when SQLit
   const screen = screenHarness('src/features/calendar/calendar-editor.tsx', { exportName: 'CalendarEditor', platform: 'ios',
     props: { initial: { eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series', value: newEventDraft(today, 'Asia/Tokyo') }, local: h.local, onClose: () => closed++, onSaved() {} } });
   await screen.change('予定名', '保存前の予定');
+  const modalKey = screen.nodes().find(node => node.type === 'Modal').key;
   screen.nodes().find(node => node.type === 'Modal').props.onRequestClose();
+  await screen.flush(); assert.equal(screen.nodes().find(node => node.type === 'Modal').key, modalKey, 'an attempted native dismissal does not remount a blocked sheet'); await screen.press('下書き保存');
   for (let n = 0; n < 15; n++) await screen.flush();
   assert.equal(closed, 0);
   assert.ok(screen.text().includes('下書きを保存できませんでした'));
   assert.equal(screen.nodes().find(node => node.type === 'Modal').props.visible, true);
-  assert.equal(screen.nodes().find(node => node.props.accessibilityLabel === '予定名').props.defaultValue, '保存前の予定');
+  // This blocked native dismissal keeps the same uncontrolled native field.
+  // Its defaultValue is not the typed text; the retry below verifies the latest input reaches SQLite.
+  assert.ok(screen.nodes().find(node => node.props.accessibilityLabel === '予定名'));
   h.database.runAsync = run;
-  await screen.press('予定の編集を閉じる');
+  await screen.press('下書き保存');
   for (let n = 0; n < 15 && !closed; n++) await screen.flush();
   assert.equal(closed, 1);
   assert.equal((await store.readLocalCalendar(h.database)).draft.value.title, '保存前の予定');

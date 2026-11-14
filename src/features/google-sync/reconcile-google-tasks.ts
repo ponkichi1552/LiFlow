@@ -408,7 +408,47 @@ export async function reconcileGoogleTasks(options: {
         || batch.some(value => value === undefined))) throw new Error('Google家事の作成記録の件数が異なります。');
       for (const [index, item] of items.entries()) {
         const identity = createIdentity(item.entry.id);
-        const intent = batch ? batch[index] : await repository.taskCreateJournal?.reserve(identity);
+        let intent = batch ? batch[index] : await repository.taskCreateJournal?.reserve(identity);
+        const journal = repository.taskCreateJournal;
+        if (intent === null && journal?.read) {
+          const receipt = await journal.read(identity);
+          // A removed local link can leave a successful insert receipt behind.
+          // Release it only after a fresh GET confirms the recorded task's
+          // deletion; stale inventory absence must never permit another POST.
+          if (receipt?.taskId) {
+            let deleted = false;
+            let recordedTask: GoogleTask | null = null;
+            try {
+              const current = await api.getTask(accessToken, taskList.id, receipt.taskId);
+              if (current.id !== receipt.taskId) throw new GoogleTasksApiError(502, 'mismatched_recorded_task_id', null);
+              deleted = current.deleted === true;
+              recordedTask = current;
+            } catch (error) {
+              if (!(error instanceof GoogleTaskNotFoundError)) throw error;
+              deleted = true;
+            }
+            if (deleted) {
+              // Keep completed history deleted on Google. An explicit local
+              // Undo can subsequently repair the open occurrence normally.
+              if (item.completedAt) continue;
+              await journal.deleted(identity, receipt.taskId);
+              intent = await journal.reserve(identity);
+            } else if (recordedTask) {
+              if (!['completed', 'needsAction'].includes(recordedTask.status)) throw new GoogleTasksApiError(502, 'invalid_recorded_task_status', null);
+              // Restore the exact acknowledged ID, then let the next normal
+              // reconciliation import its completion before deciding any push.
+              // It must not turn a remote completion into a local needsAction.
+              await journal.linked(identity, receipt.taskId, receipt.intent);
+              await repository.upsertGoogleTaskLink({
+                scheduleEntryId: item.entry.id, householdId: state.householdId, choreId: item.entry.choreId,
+                googleTaskListId: taskList.id, googleTaskId: receipt.taskId,
+                lastSyncedTitle: recordedTask.title,
+                createdAt: receipt.intent.startedAt, updatedAt: now.toISOString(),
+              });
+              await repository.taskReadCache?.written?.({ accountSubject: identity.accountSubject, taskListId: identity.taskListId }, [recordedTask]);
+            }
+          }
+        }
         if (intent === null) { unresolvedCreate = true; continue; }
         if (intent && (intent.accountSubject !== identity.accountSubject || intent.taskListId !== identity.taskListId
           || intent.occurrenceMarker !== identity.occurrenceMarker || !intent.attemptId || !Number.isFinite(Date.parse(intent.startedAt)))) throw new Error('Google家事の作成記録が別の家事を指しています。');

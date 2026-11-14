@@ -30,6 +30,10 @@ export class GoogleAuthorizationCancelledError extends Error {
 
 type GoogleSignInModule = typeof import('react-native-nitro-google-signin');
 type GoogleUser = ReturnType<GoogleSignInModule['GoogleOneTapSignIn']['getCurrentUser']>;
+const credentialWork = new Set<Promise<unknown>>();
+const GOOGLE_SYNC_SCOPES = [GOOGLE_TASKS_SCOPE, ...GOOGLE_CALENDAR_EVENT_SCOPES, GOOGLE_CALENDAR_FREEBUSY_SCOPE];
+const credentialStages = new Set(['restore-session', 'interactive-sign-in', 'explicit-sign-in', 'select-google-account',
+  'get-sharing-identity', 'request-scopes', 'request-sync-scopes', 'get-tokens', 'request-calendar-scope', 'request-calendar-events', 'get-calendar-events-token', 'get-calendar-token']);
 
 function redactDiagnostic(value: unknown): string {
   if (typeof value !== 'string') return '';
@@ -43,8 +47,12 @@ function redactDiagnostic(value: unknown): string {
 }
 
 async function authStep<T>(stage: string, operation: () => T | Promise<T>): Promise<T> {
+  const mutatesCredentials = credentialStages.has(stage);
+  if (mutatesCredentials && signingOutGoogle) throw new GoogleSignInRequiredError();
+  const pending = Promise.resolve().then(operation);
+  if (mutatesCredentials) credentialWork.add(pending);
   try {
-    return await operation();
+    return await pending;
   } catch (cause) {
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
       const error = typeof cause === 'object' && cause !== null
@@ -58,12 +66,13 @@ async function authStep<T>(stage: string, operation: () => T | Promise<T>): Prom
       });
     }
     throw cause;
-  }
+  } finally { if (mutatesCredentials) credentialWork.delete(pending); }
 }
 
 let configuredModule: GoogleSignInModule | null = null;
 let configuringModule: Promise<void> | null = null;
 let restoringSession: Promise<GoogleUser> | null = null;
+let signingOutGoogle: Promise<void> | null = null;
 
 async function loadGoogleSignIn(): Promise<GoogleSignInModule> {
   const { configured, webClientId, iosClientId } = getGoogleSyncOAuthConfig();
@@ -93,6 +102,7 @@ async function loadGoogleSignIn(): Promise<GoogleSignInModule> {
 }
 
 async function getCurrentGoogleUser(module: GoogleSignInModule): Promise<GoogleUser> {
+  if (signingOutGoogle) return null;
   const currentUser = module.GoogleOneTapSignIn.getCurrentUser();
   if (currentUser || Platform.OS !== 'ios') return currentUser;
 
@@ -107,22 +117,61 @@ async function getCurrentGoogleUser(module: GoogleSignInModule): Promise<GoogleU
 }
 
 async function signInForUserAction(): Promise<GoogleSignInModule> {
+  if (signingOutGoogle || AppState.currentState !== 'active') throw new GoogleSignInRequiredError();
   const module = await loadGoogleSignIn();
   const googleSignIn = module.GoogleOneTapSignIn;
   await authStep('check-services', () => googleSignIn.checkPlayServices());
+  if (signingOutGoogle || AppState.currentState !== 'active') throw new GoogleSignInRequiredError();
 
-  let response = await authStep('restore-session', () => googleSignIn.signIn());
+  let response;
+  try { response = await authStep('restore-session', () => googleSignIn.signIn()); }
+  catch (cause) {
+    // A revoked iOS Keychain credential can fail restoration instead of returning
+    // noSavedCredentialFound. Only this explicit foreground action may recover it.
+    if (Platform.OS !== 'ios' || AppState.currentState !== 'active') throw cause;
+    await selectGoogleUserForAction(module); return module;
+  }
   if (module.isNoSavedCredentialFoundResponse(response)) {
+    if (AppState.currentState !== 'active') throw new GoogleSignInRequiredError();
     response = await authStep('interactive-sign-in', () => googleSignIn.createAccount());
   }
   if (module.isCancelledResponse(response)) throw new GoogleAuthorizationCancelledError();
   if (!module.isSuccessResponse(response)) {
+    if (AppState.currentState !== 'active') throw new GoogleSignInRequiredError();
     response = await authStep('explicit-sign-in', () => googleSignIn.presentExplicitSignIn());
   }
   if (module.isCancelledResponse(response) || !module.isSuccessResponse(response)) {
     throw new GoogleAuthorizationCancelledError();
   }
   return module;
+}
+
+async function selectGoogleUserForAction(module: GoogleSignInModule): Promise<NonNullable<GoogleUser>> {
+  if (signingOutGoogle || AppState.currentState !== 'active') throw new GoogleSignInRequiredError();
+  await authStep('check-services', () => module.GoogleOneTapSignIn.checkPlayServices());
+  if (signingOutGoogle || AppState.currentState !== 'active') throw new GoogleSignInRequiredError();
+  // Do not restore first: an expired saved credential must not prevent opening
+  // the picker. Cancellation never signs out or deletes the previous connection.
+  const selected = await authStep('select-google-account', () => module.GoogleOneTapSignIn.presentExplicitSignIn());
+  if (module.isCancelledResponse(selected) || !module.isSuccessResponse(selected)) throw new GoogleAuthorizationCancelledError();
+  const current = module.GoogleOneTapSignIn.getCurrentUser();
+  if (!selected.data.user.id || current?.user.id !== selected.data.user.id) throw new GoogleAccountMismatchError();
+  return current;
+}
+
+async function getGoogleUserForAction(module: GoogleSignInModule): Promise<GoogleUser> {
+  try { return await getCurrentGoogleUser(module); }
+  catch (cause) {
+    if (Platform.OS !== 'ios' || AppState.currentState !== 'active') throw cause;
+    return selectGoogleUserForAction(module);
+  }
+}
+
+/** Account selection for local Calendar/Tasks does not require a Firebase session. */
+export async function selectGoogleSyncAccount(): Promise<{ subject: string; label: string }> {
+  if (AppState.currentState !== 'active') throw new GoogleSignInRequiredError();
+  const user = await selectGoogleUserForAction(await loadGoogleSignIn());
+  return { subject: user.user.id, label: user.user.email || user.user.name || 'Googleアカウント' };
 }
 
 /** Expiry is a refresh hint only. Firebase still verifies the signature, issuer and audience. */
@@ -144,14 +193,9 @@ export async function authorizeGoogleSharingIdentity(options: { selectAccount?: 
   let module = await loadGoogleSignIn();
   let user: GoogleUser;
   if (selectAccount) {
-    await authStep('check-services', () => module.GoogleOneTapSignIn.checkPlayServices());
-    if (AppState.currentState !== 'active') throw new GoogleSignInRequiredError();
-    const selected = await authStep('select-sharing-account', () => module.GoogleOneTapSignIn.presentExplicitSignIn());
-    if (module.isCancelledResponse(selected) || !module.isSuccessResponse(selected)) throw new GoogleAuthorizationCancelledError();
-    user = await getCurrentGoogleUser(module);
-    if (!selected.data.user.id || user?.user.id !== selected.data.user.id) throw new GoogleAccountMismatchError();
+    user = await selectGoogleUserForAction(module);
     if (Platform.OS === 'android' && !isGoogleIdentityTokenFresh(user.idToken)) throw new GoogleSignInRequiredError();
-  } else user = await getCurrentGoogleUser(module);
+  } else user = await getGoogleUserForAction(module);
   // Android getTokens refreshes the OAuth token but returns its saved ID token.
   // Credential Manager must issue a fresh ID token after that token expires.
   if (!selectAccount && (!user || (Platform.OS === 'android' && !isGoogleIdentityTokenFresh(user.idToken)))) {
@@ -170,7 +214,9 @@ export async function authorizeGoogleSharingIdentity(options: { selectAccount?: 
 }
 
 export async function authorizeGoogleTasks(): Promise<void> {
-  const module = await signInForUserAction();
+  if (AppState.currentState !== 'active') throw new GoogleSignInRequiredError();
+  let module = await loadGoogleSignIn();
+  if (!await getGoogleUserForAction(module)) module = await signInForUserAction();
   const googleSignIn = module.GoogleOneTapSignIn;
 
   const currentUser = await authStep('current-session', () => googleSignIn.getCurrentUser());
@@ -179,6 +225,41 @@ export async function authorizeGoogleTasks(): Promise<void> {
     if (!authorization.accessToken) throw new GoogleAuthorizationCancelledError();
   }
   await authStep('get-tokens', () => googleSignIn.getTokens());
+}
+
+export type GoogleSyncConnection = { subject: string; label: string; authorized: boolean };
+
+/** Passive status uses one identity read; it never requests tokens or additional consent. */
+export async function readGoogleSyncConnection(): Promise<GoogleSyncConnection | null> {
+  const user = await getCurrentGoogleUser(await loadGoogleSignIn());
+  if (!user?.user.id) return null;
+  return { subject: user.user.id, label: (user.user.email || user.user.name || 'Googleアカウント').slice(0, 320),
+    authorized: GOOGLE_SYNC_SCOPES.every(scope => user.scopes.includes(scope)) };
+}
+
+/** One explicit consent for Calendar, Tasks and availability; feature ON flags remain separate. */
+export async function authorizeGoogleSyncConnection(): Promise<GoogleSyncConnection> {
+  if (AppState.currentState !== 'active') throw new GoogleSignInRequiredError();
+  let module = await loadGoogleSignIn(); let user = await getGoogleUserForAction(module);
+  if (!user) { module = await signInForUserAction(); user = await getCurrentGoogleUser(module); }
+  if (!user?.user.id) throw new GoogleSignInRequiredError();
+  const subject = user.user.id;
+  const missing = GOOGLE_SYNC_SCOPES.filter(scope => !user!.scopes.includes(scope));
+  if (missing.length) {
+    const response = await authStep('request-sync-scopes', () => module.GoogleOneTapSignIn.requestScopes(missing));
+    if (!response.accessToken) throw new GoogleAuthorizationCancelledError();
+  }
+  const validate = async () => {
+    const current = await getCurrentGoogleUser(module);
+    if (current?.user.id !== subject) throw new GoogleAccountMismatchError();
+    if (GOOGLE_SYNC_SCOPES.some(scope => !current.scopes.includes(scope))) throw new CalendarPermissionRequiredError();
+    return current;
+  };
+  await validate();
+  const tokens = await authStep('get-tokens', () => module.GoogleOneTapSignIn.getTokens());
+  const current = await validate();
+  if (!tokens.accessToken) throw new GoogleSignInRequiredError();
+  return { subject, label: (current.user.email || current.user.name || 'Googleアカウント').slice(0, 320), authorized: true };
 }
 
 export async function getGoogleTasksAccessToken(expectedSubject?: string): Promise<string> {
@@ -209,8 +290,8 @@ export async function getCurrentGoogleCalendarAccount(): Promise<{ subject: stri
 /** Explicitly restore a missing Native session. Never replace an existing session or sign in to Firebase. */
 export async function restorePrivateGoogleCalendarAccount(): Promise<{ subject: string; label: string }> {
   if (AppState.currentState !== 'active') throw new GoogleSignInRequiredError();
-  const current = await getCurrentGoogleCalendarAccount(); if (current) return current;
-  await signInForUserAction(); const restored = await getCurrentGoogleCalendarAccount();
+  const current = await getGoogleUserForAction(await loadGoogleSignIn());
+  if (!current) await signInForUserAction(); const restored = await getCurrentGoogleCalendarAccount();
   if (!restored) throw new GoogleSignInRequiredError(); return restored;
 }
 
@@ -222,6 +303,31 @@ export async function hasGoogleTasksSession(expectedSubject?: string): Promise<b
   } catch {
     return false;
   }
+}
+
+/** A saved ON flag is not a native connection. Status reads request neither tokens nor consent. */
+export async function hasGoogleCalendarEventsSession(expectedSubject: string): Promise<boolean> {
+  try {
+    const user = await getCurrentGoogleUser(await loadGoogleSignIn());
+    return Boolean(expectedSubject && user?.user.id === expectedSubject
+      && GOOGLE_CALENDAR_EVENT_SCOPES.every(scope => user.scopes.includes(scope)));
+  } catch { return false; }
+}
+
+/** Forget local Google credentials without revoking the user's grants or deleting remote data. */
+export async function signOutGoogleSyncAccount(): Promise<void> {
+  if (signingOutGoogle) return signingOutGoogle;
+  if (!getGoogleSyncOAuthConfig().configured) return;
+  const pending = (async () => {
+    const module = await loadGoogleSignIn();
+    await Promise.allSettled([...credentialWork]);
+    // A cold Keychain restore must settle before signOut, or its late callback
+    // could recreate the native session after the user has logged out.
+    await restoringSession?.catch(() => null);
+    await authStep('sign-out', () => module.GoogleOneTapSignIn.signOut());
+  })();
+  signingOutGoogle = pending;
+  try { await pending; } finally { if (signingOutGoogle === pending) signingOutGoogle = null; }
 }
 
 /** Incremental consent is only invoked by the settings ON/retry button. */
@@ -253,7 +359,7 @@ async function authorizeSelectedCalendarAccount(requireTasks: boolean, expectedS
 /** Explicit Calendar event consent reuses the selected native Google identity. */
 export async function authorizeGoogleCalendarEvents(expectedSubject?: string): Promise<{ subject: string; label: string }> {
   if (AppState.currentState !== 'active') throw new CalendarPermissionRequiredError();
-  let module = await loadGoogleSignIn(); let user = await getCurrentGoogleUser(module);
+  let module = await loadGoogleSignIn(); let user = await getGoogleUserForAction(module);
   if (!user) { module = await signInForUserAction(); user = await getCurrentGoogleUser(module); }
   if (!user) throw new GoogleSignInRequiredError();
   if (expectedSubject && user.user.id !== expectedSubject) throw new GoogleAccountMismatchError();

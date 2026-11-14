@@ -62,16 +62,16 @@ test('native retention retries a PDF when its final chunk arrives after applianc
   assert.deepEqual(copies, [null, 'verified-pdf']); assert.equal(reads, 2);
 });
 
-test('appliance registration submits the latest native text even before the controlled value repaints', async () => {
-  const { screenHarness } = await import('./helpers/screen-harness.mjs');
-  const calls = [];
-  const screen = screenHarness('src/features/appliance-care/appliance-library.tsx', { exportName: 'ApplianceLibrary', props: {
-    items: [], onOpen() {}, onAdd: (...args) => calls.push(args),
-  } });
+test('PDF selection supplies chosen bytes without a second input and cancellation keeps the selected manual', async () => {
+  const { screenHarness } = await import('./helpers/screen-harness.mjs'); let cancelled = false;
+  const calls = []; const screen = screenHarness('src/features/appliance-care/manual-upload-input.tsx', { exportName: 'ManualUploadInput',
+    props: { onChange: value => calls.push(value) }, mocks: {
+      'expo-document-picker': { getDocumentAsync: async () => cancelled ? { canceled: true } : { canceled: false, assets: [{ uri: 'file:///synthetic-cache/manual.pdf', name: 'manual.pdf' }] } },
+    } });
   try {
-    await screen.press('家電を追加');
-    const input = screen.nodes().find(node => node.props.accessibilityLabel === '家電の製品名');
-    input.props.onChangeText('  V12 Detect Slim  '); input.props.onSubmitEditing(); await screen.flush();
-    assert.deepEqual(calls, [['personal', 'V12 Detect Slim']]);
+    await screen.press('取扱説明書PDFを選ぶ'); assert.equal(calls.length, 1); assert.equal(calls[0].rightsConfirmed, true);
+    assert.ok(calls[0].base64); assert.equal(screen.nodes().some(node => node.type === 'TextInput'), false);
+    assert.doesNotMatch(screen.text(), /確認した|確認済み/);
+    cancelled = true; await screen.press('PDFを変更'); assert.equal(calls.length, 1); assert.match(screen.text(), /manual.pdf/);
   } finally { screen.unmount(); }
 });

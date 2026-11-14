@@ -22,7 +22,7 @@ export function ScheduleResetAction({ all = false, disabled = false, onReset, ac
   return <View>{!all ? <View style={styles.row}><Text style={[styles.rowLabel, { color: colors.ink }]}>初期設定</Text><Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: disabled || busy }}
     disabled={disabled || busy} onPress={press} style={({ pressed }) => [styles.outlined, { borderColor: colors.inputBorder, backgroundColor: colors.surface }, pressed && { backgroundColor: colors.accentSoft }, (disabled || busy) && { opacity: 0.5 }]}>
     <Text style={[styles.label, { color: colors.accent }]}>{busy ? '処理中…' : '戻す'}</Text>
-  </Pressable></View> : <SettingsAction title={label} placement="page" disabled={disabled || busy} onPress={press} />}
+  </Pressable></View> : <SettingsAction title={label} intent="auxiliary" placement="page" disabled={disabled || busy} onPress={press} />}
     {error ? <Text accessibilityRole="alert" style={{ ...typography.caption, color: palette.warning }}>{error}</Text> : null}</View>;
 }
 const styles = StyleSheet.create({

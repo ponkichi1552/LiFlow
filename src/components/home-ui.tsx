@@ -10,6 +10,8 @@ import { Chevron } from './chevron';
 import type { homeSummary } from '../features/planner/home-summary';
 import type { HomeWeekScope } from '../features/planner/home-presentation';
 import { recordHomeFirstLayout } from '../platform/diagnostics/startup-clock';
+import { useOwnBirthday } from '../features/calendar/use-local-calendar';
+import { BirthdayCake } from './birthday-cake';
 
 export function homeHeaderContainerStyle(workspaceName?: string) {
   return [styles.headerFrame, !workspaceName && styles.singleLineHeaderFrame];
@@ -32,10 +34,11 @@ export function HomeExpiredHeading({ count, expanded, onToggle }: { count: numbe
   </Pressable>;
 }
 
-export function HomeHeader({ today, workspaceName, onGroup = () => router.push('/sharing') }: {
-  today: LocalDate; workspaceName?: string; onGroup?: () => void;
+export function HomeHeader({ today, birthdayDate = today, workspaceName, onGroup = () => router.push('/sharing') }: {
+  today: LocalDate; birthdayDate?: LocalDate; workspaceName?: string; onGroup?: () => void;
 }) {
-  return <View style={styles.header} onLayout={recordHomeFirstLayout}>
+  const birthday = useOwnBirthday(birthdayDate);
+  return <View onLayout={recordHomeFirstLayout}><View style={styles.header}>
     <View style={styles.identity}><Text style={styles.date}>{formatJapaneseDate(today, { year: true, weekday: true })}</Text>
       {workspaceName ? <Text numberOfLines={1} style={styles.workspace}>{workspaceName}</Text> : null}</View>
     <View style={styles.actions}>
@@ -45,7 +48,10 @@ export function HomeHeader({ today, workspaceName, onGroup = () => router.push('
       <Pressable accessibilityRole="button" accessibilityLabel="設定を開く" onPress={() => router.push('/settings')} style={styles.iconButton}>
         <SymbolView name={{ ios: 'gearshape', android: 'settings' }} size={23} tintColor={palette.muted} /></Pressable>
     </View>
-  </View>;
+  </View>{birthday ? <View accessible accessibilityLabel="お誕生日おめでとう！" style={styles.birthdayGreeting}>
+    <BirthdayCake />
+    <Text style={styles.birthdayText}>お誕生日おめでとう！</Text>
+  </View> : null}</View>;
 }
 /** The same compact destinations on both platforms and in either workspace. */
 export function HomeLinks({ onHistory, onWaste }: { onHistory: () => void; onWaste?: () => void }) {
@@ -88,6 +94,8 @@ const styles = StyleSheet.create({
   singleLineHeaderFrame: { minHeight: 0, paddingBottom: 0 },
   header: { flexDirection: 'row', gap: 6, alignItems: 'center' }, identity: { flex: 1, minWidth: 0, gap: 2 },
   date: { ...typography.subheading, color: palette.ink, fontWeight: '600' }, workspace: { ...typography.caption, color: palette.muted },
+  birthdayGreeting: { flexDirection: 'row', alignItems: 'center', gap: 7, alignSelf: 'flex-start', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5, marginTop: 5, backgroundColor: palette.warningSoft },
+  birthdayText: { ...typography.caption, color: palette.calendarToday, fontWeight: '600', flexShrink: 1 },
   expiredHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, minHeight: 44, marginTop: 6 },
   expiredTitle: { ...typography.label, color: palette.muted, fontWeight: '600', flexShrink: 1 },
   actions: { flexDirection: 'row', gap: 2 }, iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },

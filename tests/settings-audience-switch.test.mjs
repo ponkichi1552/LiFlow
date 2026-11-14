@@ -17,7 +17,7 @@ const record = { userId: 'owner', groupId, status: 'active' };
 const workspaceContext = context => ({ '../contexts/workspace-context': { WorkspaceContext: context } });
 
 for (const platform of ['ios', 'android']) {
-  test(`${platform} detailed settings switch audiences only after saving and open the matching independent chore`, async t => {
+  test(`${platform} detailed settings switch audiences immediately and retain valid queued saves for the matching independent chore`, async t => {
     const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database);
     const data = { database: h.database, snapshot: await loadPlannerSnapshot(h.database, '2026-11-01'), loading: false, error: null,
       refresh: async () => { data.snapshot = await loadPlannerSnapshot(h.database, '2026-11-01'); } };
@@ -25,34 +25,36 @@ for (const platform of ['ios', 'android']) {
     const navigation = [], context = { _currentValue: { userId: 'owner', group: record } };
     const screen = screenHarness('src/app/settings/chore/[id].tsx', { platform,
       params: { id: 'foreign-shared-id', source: 'personal', matchName: chore.name, matchCategory: chore.category }, personalData: () => data,
-      mocks: workspaceContext(context), navigate: (method, destination) => {
-        assert.equal(data.snapshot.chores.find(row => row.id === chore.id).recommendedCycleDays, 17, 'persist before navigation');
-        navigation.push({ method, destination });
-      } });
+      mocks: workspaceContext(context), navigate: (method, destination) => { navigation.push({ method, destination }); } });
     assert.equal(radio(screen, '個人用の家事設定').props.accessibilityState.checked, true);
     assert.equal(screen.nodes().find(node => node.type === 'ChoreBook').props.selectedId, chore.id);
     await screen.change('家事周期の日数', '17');
     await radio(screen, 'グループ用の家事設定').props.onPress(); await screen.flush();
-    assert.deepEqual(navigation, [{ method: 'replace', destination: { pathname: '/sharing/chore-settings/[id]', params: {
-      id: chore.id, groupId, matchName: chore.name, matchCategory: chore.category,
+    assert.deepEqual(navigation, [{ method: 'replace', destination: { pathname: '/settings/chore/[id]', params: {
+      id: chore.id, groupId, source: 'shared', documentTransition: 'right', matchName: chore.name, matchCategory: chore.category,
     } } }]);
+    for (let i = 0; i < 20; i++) await screen.flush();
+    assert.equal(data.snapshot.chores.find(row => row.id === chore.id).recommendedCycleDays, 17);
     assert.equal(h.connection.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='sharing_operations'").get().n, 0,
       'a personal save and audience navigation never create a shared ledger');
     screen.unmount();
   });
 
-  test(`${platform} invalid personal drafts and changed memberships block a detailed settings audience switch`, async t => {
+  test(`${platform} invalid personal drafts are discarded on audience departure while a changed membership still blocks the switch`, async t => {
     const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database);
     const data = { database: h.database, snapshot: await loadPlannerSnapshot(h.database, '2026-11-01'), loading: true, error: null,
       refresh: async () => { data.snapshot = await loadPlannerSnapshot(h.database, '2026-11-01'); } };
     const chore = data.snapshot.chores.find(row => !row.archived && !row.requiresCycleSelection);
     const context = { _currentValue: { userId: 'owner', group: { ...record } } }, navigation = [];
-    const screen = screenHarness('src/app/settings/chore/[id].tsx', { platform, params: { id: chore.id, source: 'personal' },
+    const mount = () => screenHarness('src/app/settings/chore/[id].tsx', { platform, params: { id: chore.id, source: 'personal' },
       personalData: () => data, layoutEffect: callback => callback(), mocks: workspaceContext(context), navigate: (...args) => navigation.push(args) });
+    let screen = mount();
     await screen.change('家事周期の日数', 'invalid');
     await radio(screen, 'グループ用の家事設定').props.onPress(); await screen.flush();
-    assert.equal(navigation.length, 0); assert.ok(screen.text().includes('数値に入力の誤り'));
-    assert.equal(screen.nodes().find(node => node.props.accessibilityLabel === '家事周期の日数').props.value, 'invalid');
+    assert.equal(navigation.length, 1);
+    assert.equal(screen.nodes().find(node => node.props.accessibilityLabel === '家事周期の日数').props.value, String(chore.recommendedCycleDays ?? chore.frequencyDaysByMode[data.snapshot.settings.frequencyMode]));
+    assert.deepEqual((await loadPlannerSnapshot(h.database, '2026-11-01')).chores.find(row => row.id === chore.id), chore);
+    screen.unmount(); navigation.length = 0; screen = mount();
     await screen.change('家事周期の日数', '17');
     const oldSwitch = radio(screen, 'グループ用の家事設定').props.onPress;
     context._currentValue = { userId: 'different-user', group: { ...record } }; screen.render();
@@ -61,26 +63,31 @@ for (const platform of ['ios', 'android']) {
     screen.unmount();
   });
 
-  test(`${platform} shared detailed settings retain invalid drafts and save only the group before switching to personal`, async t => {
+  test(`${platform} shared detailed settings discard invalid departures and save valid queued edits only in the group`, async t => {
     const f = await fixture(); const d = await f.device(); t.after(() => d.connection.close()); await d.repository.commit(seeds());
     let sequence = 0; const controller = createV2GroupController(d.repository, { makeId: () => `audience-${++sequence}`, now, sync: async () => {} });
     const session = createV2ScreenSession({ controller, groupId, userId: 'owner', now, readPreferences: () => { throw new Error('must not read personal settings'); } });
     const navigation = []; const props = { model: await session.readModel({ management: true, choreSettings: true }), session,
       choreId: 'foreign-personal-id', selection: { name: '床を掃除する', category: '水回り' }, groupName: '家族', onBack() {},
       onSaved: async () => { props.model = await session.readModel({ management: true, choreSettings: true }); } };
-    const effects = []; const screen = screenHarness('src/features/sharing/v2-ui/chore-settings-book.tsx', { exportName: 'V2ChoreSettingsBook', platform, props,
+    const effects = []; const mount = () => screenHarness('src/features/sharing/v2-ui/chore-settings-book.tsx', { exportName: 'V2ChoreSettingsBook', platform, props,
       effect: callback => effects.push(callback), layoutEffect: callback => callback(), mocks: workspaceContext({ _currentValue: { userId: 'owner', group: record } }),
       navigate: (...args) => navigation.push(args) });
+    let screen = mount();
     for (const effect of effects.splice(0)) effect(); await screen.flush();
     assert.equal(radio(screen, 'グループ用の家事設定').props.accessibilityState.checked, true);
     await screen.change('共有家事の周期', 'invalid');
-    await radio(screen, '個人用の家事設定').props.onPress(); await screen.flush(); assert.equal(navigation.length, 0);
-    assert.equal(screen.nodes().find(node => node.props.accessibilityLabel === '共有家事の周期').props.value, 'invalid');
+    await radio(screen, '個人用の家事設定').props.onPress(); await screen.flush(); assert.equal(navigation.length, 1);
+    assert.equal(screen.nodes().find(node => node.props.accessibilityLabel === '共有家事の周期').props.value, '7');
+    assert.equal((await session.readModel({ management: true, choreSettings: true })).configurations.find(row => row.choreId === 'floor').configuration.intervalDays, 7);
+    screen.unmount(); navigation.length = 0; screen = mount();
+    for (const effect of effects.splice(0)) effect(); await screen.flush();
     await screen.change('共有家事の周期', '19');
     await radio(screen, '個人用の家事設定').props.onPress(); await screen.flush();
+    for (let i = 0; i < 20; i++) await screen.flush();
     assert.equal((await session.readModel({ management: true, choreSettings: true })).configurations.find(row => row.choreId === 'floor').configuration.intervalDays, 19);
     assert.deepEqual(navigation, [['replace', { pathname: '/settings/chore/[id]', params: {
-      id: 'floor', source: 'personal', matchName: '床を掃除する', matchCategory: props.model.plan.chores[0].category,
+      id: 'floor', source: 'personal', documentTransition: 'left', matchName: '床を掃除する', matchCategory: props.model.plan.chores[0].category,
     } }]]);
     assert.equal(d.connection.prepare('SELECT count(*) AS n FROM chore_definitions').get().n, 0);
     screen.unmount();

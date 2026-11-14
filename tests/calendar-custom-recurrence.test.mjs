@@ -10,6 +10,13 @@ const { initializeLocalDatabase } = await import('../src/platform/storage/reposi
 const date = '2026-01-01';
 const make = rule => ({ ...newEventDraft(date, 'Asia/Tokyo'), title: 'カスタムの予定', recurrence: 'custom', customRecurrence: rule });
 const event = (rule, patch = {}) => ({ ...make(rule), ...patch, id: 'custom.event', revision: 1 });
+async function chooseMonthlyPattern(screen, name) {
+  const radio = screen.nodes().find(node => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === name);
+  assert.ok(radio, `missing monthly choice: ${name}`);
+  assert.equal(radio.props.disabled, false);
+  await radio.props.onPress(); await screen.flush();
+  assert.equal(screen.nodes().find(node => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === name).props.accessibilityState.checked, true);
+}
 test('Sunday custom recurrence uses the calendar weekday and keeps the starting week for every interval', () => {
   const sunday = '2026-11-01';
   assert.deepEqual(validateCustomRecurrence(defaultCustomRecurrence(sunday)), { unit: 'week', interval: 1, weekdays: [0] });
@@ -24,8 +31,10 @@ for (const platform of ['ios', 'android']) test(`${platform} Sunday monthly week
   const saved = [];
   const screen = screenHarness('src/features/calendar/custom-recurrence-screen.tsx', { exportName: 'CustomRecurrenceScreen', platform,
     props: { date: '2026-11-01', onBack() {}, onSave: async value => saved.push(value) } });
-  await screen.press('月'); await screen.press('第N曜日'); await screen.press('カスタム繰り返しを適用'); await screen.flush();
+  await screen.press('月'); await chooseMonthlyPattern(screen, '曜日を指定'); await screen.press('カスタム繰り返しを適用'); await screen.flush();
   assert.deepEqual(saved, [{ unit: 'month', interval: 1, on: 'weekday', ordinal: 1, weekday: 0 }]);
+  await chooseMonthlyPattern(screen, '1日'); await screen.press('カスタム繰り返しを適用');
+  assert.deepEqual(saved.at(-1), { unit: 'month', interval: 1, on: 'date' });
 });
 async function fixture(t) {
   const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database);
@@ -74,13 +83,13 @@ test('ended custom series do not break later calendar windows while moved instan
   const multiDay = { ...ended, endDate: '2026-01-03', allDay: true };
   assert.deepEqual(projectCalendarEvents([multiDay], [], '2026-01-10', '2026-01-10').map(row => row.anchorDate), ['2026-01-08']);
 });
-test('custom cadence edits require review before clearing existing exceptions and draft digests reveal no input text', async t => {
+test('custom cadence edits preserve existing exceptions by default and draft digests reveal no input text', async t => {
   const h = await fixture(t); const rule = { unit: 'week', interval: 1, weekdays: [1] };
   const id = await saveCalendarEvent(h.database, { expectedRevision: 0, value: make(rule) });
   await saveCalendarEvent(h.database, { id, expectedRevision: 1, scope: 'one', anchorDate: '2026-01-05', value: { ...newEventDraft('2026-01-06', 'Asia/Tokyo'), title: '変更した回' } });
-  await assert.rejects(saveCalendarEvent(h.database, { id, expectedRevision: 1, value: make({ ...rule, weekdays: [2] }) }), /個別/);
+  await saveCalendarEvent(h.database, { id, expectedRevision: 1, value: make({ ...rule, weekdays: [2] }) });
   assert.equal((await readLocalCalendar(h.database)).exceptions.length, 1);
-  await saveCalendarEvent(h.database, { id, expectedRevision: 1, value: make({ ...rule, weekdays: [2] }), resetExceptions: true });
+  await saveCalendarEvent(h.database, { id, expectedRevision: 2, value: make({ ...rule, weekdays: [3] }), resetExceptions: true });
   assert.equal((await readLocalCalendar(h.database)).exceptions.length, 0);
   const draft = { eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series', value: { ...make(rule), title: '公開しない入力' } };
   await saveCalendarDraft(h.database, draft); const saved = (await readLocalCalendar(h.database)).draft;
@@ -94,7 +103,8 @@ for (const platform of ['ios', 'android']) {
     await screen.change('繰り返しの間隔', '2'); await screen.press('月曜日に繰り返す');
     const apply = screen.button('カスタム繰り返しを適用'); apply.props.onPress(); apply.props.onPress(); await screen.flush();
     assert.equal(saved.length, 1); assert.deepEqual(saved[0], { unit: 'week', interval: 2, weekdays: [1, 4] });
-    await screen.press('月'); await screen.press('第N曜日'); await screen.press('月の週を選択');
+    // Picking a monthly ordinal directly also selects the weekday pattern.
+    await screen.press('月'); await screen.press('月の週を選択');
     if (platform === 'ios') { screen.nodes().find(node => node.type === 'NativePicker').props.onValueChange('-1'); screen.render(); await screen.press('週の選択を完了'); }
     else await screen.press('最後');
     await screen.press('月の曜日を選択');

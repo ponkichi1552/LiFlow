@@ -1,4 +1,4 @@
-import { router, useFocusEffect, usePreventRemove } from 'expo-router';
+import { Redirect, router, useFocusEffect, usePreventRemove } from 'expo-router';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { ChoreBook } from '../../../components/chore-book';
@@ -9,6 +9,7 @@ import type { V2GroupUiSession } from './screen-session';
 import { V2SettingsDraftCache, type RetainedV2Draft } from './settings-draft-cache';
 import { V2ConfigurationEditor } from './configuration-editor';
 import { choreInAudience, type ChoreAudienceSelection } from '../../chores/audience-selection';
+import { hasChoreScheduleSettings } from '../../../domain/chores/cycle-policy';
 
 /** The same continuous document as personal settings, with shared authority enforced by each editor. */
 export function V2ChoreSettingsBook({ model, session, choreId, selection, groupName, onBack, onSaved, development = false }: {
@@ -34,8 +35,11 @@ export function V2ChoreSettingsBook({ model, session, choreId, selection, groupN
     for (const draft of drafts.values()) draft.resumeNavigation();
     return () => { for (const draft of drafts.values()) void draft.navigateAfterSave(() => {}); };
   }, [drafts]));
-  const chores = model.plan.chores.filter(row => !row.archived).map(row => ({ ...row, householdId: model.plan.groupId }));
-  const selectedId = selection ? choreInAudience(chores, selection) : choreId;
+  const configured = new Set(model.configurations.filter(row => row.configuration || row.candidates.length).map(row => row.choreId));
+  const all = model.plan.chores.filter(row => !row.archived).map(row => ({ ...row, householdId: model.plan.groupId }));
+  const chores = all.filter(row => configured.has(row.id) || hasChoreScheduleSettings(row));
+  const selectedId = selection ? choreInAudience(all, selection) : choreId;
+  if (all.some(row => row.id === selectedId) && !chores.some(row => row.id === selectedId)) return <Redirect href={{ pathname: '/(tabs)/guide', params: { choreId: selectedId, source: 'shared' } }} />;
   return <V2SettingsDraftCache.Provider value={drafts}><ChoreBook title="家事ごとの設定" chores={chores} collapseSplits
     beforeCollapse={async chore => {
       for (const [key, draft] of drafts) if (key.endsWith(`:${chore.id}`)) void draft.navigateAfterSave(() => {});

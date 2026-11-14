@@ -1,3 +1,4 @@
+import { customChoreReady } from './custom-chore-readiness';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Text } from 'react-native';
@@ -32,7 +33,7 @@ export function AddPersonalChoreScreen() {
   };
   return <Page keyboardAware header={<ChoreAddHeader onBack={() => router.back()} disabled={busy} />} contentStyle={{ paddingTop: 10 }}
     footer={<>{error ? <Text accessibilityRole="alert" style={[typography.caption, { color: palette.warning, paddingBottom: 8 }]}>{error}</Text> : null}
-      <AppButton title={savedId ? '追加済みの家事を開く' : '追加'} onPress={() => void save()} disabled={busy} /></>}>
+      <AppButton title={savedId ? '追加済みの家事を開く' : '追加'} onPress={() => void save()} disabled={busy || !savedId && !customChoreReady(draft.name, draft.interval)} /></>}>
     <SectionHeading title="必須" level="subsection" />
     <SettingsPanel><CustomChoreFields name={draft.name} interval={draft.interval} disabled={busy || Boolean(savedId)} onName={name => edit({ name })} onInterval={interval => edit({ interval })} /></SettingsPanel>
     <SectionHeading title="任意" level="subsection" />

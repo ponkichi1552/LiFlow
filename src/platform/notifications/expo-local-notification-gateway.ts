@@ -77,6 +77,8 @@ export class ExpoLocalNotificationGateway implements LocalNotificationGateway {
     if (fireAt.getTime() >= await this.schedulingDeadline()) throw new ExpiredNotificationRequestError('access');
     if (fireAt.getTime() <= Date.now()) throw new ExpiredNotificationRequestError();
 
+    const calendar = request.data?.kind === 'calendar-event';
+    if (calendar && Platform.OS === 'android') await setNotificationChannelAsync('calendar-reminders', { name: 'カレンダー通知', importance: AndroidImportance.DEFAULT });
     return scheduleNotificationAsync({
       identifier: request.key,
       content: {
@@ -89,7 +91,7 @@ export class ExpoLocalNotificationGateway implements LocalNotificationGateway {
       trigger: {
         type: SchedulableTriggerInputTypes.DATE,
         date: fireAt,
-        channelId: 'housework-reminders',
+        channelId: calendar ? 'calendar-reminders' : 'housework-reminders',
       },
     });
   }

@@ -7,6 +7,7 @@ const authorization = await import('../src/features/google-sync/calendar-authori
 const accountBinding = await import('../src/features/google-sync/account-binding.ts');
 const tasksScope = 'https://www.googleapis.com/auth/tasks';
 const calendarScope = availability.GOOGLE_CALENDAR_FREEBUSY_SCOPE;
+const unifiedScopes = [tasksScope, 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.calendarlist.readonly', calendarScope];
 
 function harness(platform, { scopes = [tasksScope, calendarScope], cold = false, state = 'active', deny = false, expectedScopes = [calendarScope] } = {}) {
   const freshToken = `synthetic.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url')}.synthetic`;
@@ -39,10 +40,70 @@ function harness(platform, { scopes = [tasksScope, calendarScope], cold = false,
   });
   return { gateway, events, sdk, appState, identityToken: freshToken, setScopes: (next) => { user = { ...user, scopes: next }; },
     changeAccount: (id) => { user = { ...user, user: { id } }; },
-    expireIdentity: () => { user = { ...user, idToken: 'synthetic.eyJleHAiOjF9.synthetic' }; } };
+    expireIdentity: () => { user = { ...user, idToken: 'synthetic.eyJleHAiOjF9.synthetic' }; }, clearSession: () => { user = null; } };
 }
 
 for (const platform of ['ios', 'android']) {
+  test(`${platform} one explicit Google connection grants all sync scopes once and feature activation reuses that identity`, async () => {
+    const h = harness(platform, { scopes: [], expectedScopes: unifiedScopes });
+    assert.deepEqual(await h.gateway.readGoogleSyncConnection(), { subject: 'fixture-user', label: 'Googleアカウント', authorized: false });
+    assert.equal(h.events.includes('tokens'), false); assert.equal(h.events.includes('consent'), false);
+    assert.equal((await h.gateway.authorizeGoogleSyncConnection()).authorized, true);
+    await h.gateway.authorizeGoogleTasks(); await h.gateway.authorizeGoogleCalendarEvents('fixture-user');
+    await h.gateway.authorizePrivateGoogleCalendarSource('fixture-user'); await h.gateway.authorizeGoogleCalendarAvailability();
+    assert.equal(h.events.filter(event => event === 'consent').length, 1);
+    assert.equal(h.events.includes('restore'), false);
+    const tokens = h.events.filter(event => event === 'tokens').length;
+    assert.equal((await h.gateway.readGoogleSyncConnection()).authorized, true);
+    assert.equal(h.events.filter(event => event === 'tokens').length, tokens);
+  });
+  test(`${platform} unified Google consent requests only missing scopes and rejects partial grants cancellation and account replacement`, async () => {
+    const missing = unifiedScopes.filter(scope => scope !== tasksScope);
+    const h = harness(platform, { scopes: [tasksScope], expectedScopes: missing });
+    await h.gateway.authorizeGoogleSyncConnection(); assert.equal(h.events.filter(event => event === 'consent').length, 1);
+    h.setScopes([tasksScope]); h.sdk.requestScopes = async () => ({ accessToken: 'synthetic-access-token' });
+    await assert.rejects(h.gateway.authorizeGoogleSyncConnection(), availability.CalendarPermissionRequiredError);
+    assert.equal((await h.gateway.readGoogleSyncConnection()).authorized, false);
+    h.sdk.requestScopes = async () => ({});
+    await assert.rejects(h.gateway.authorizeGoogleSyncConnection(), h.gateway.GoogleAuthorizationCancelledError);
+    h.sdk.requestScopes = async () => { h.setScopes(unifiedScopes); h.changeAccount('another-account'); return { accessToken: 'synthetic-access-token' }; };
+    await assert.rejects(h.gateway.authorizeGoogleSyncConnection(), accountBinding.GoogleAccountMismatchError);
+  });
+  test(`${platform} unified Google consent refuses background authorization and identity changes during token refresh`, async () => {
+    const h = harness(platform, { scopes: unifiedScopes, state: 'background' });
+    await assert.rejects(h.gateway.authorizeGoogleSyncConnection(), h.gateway.GoogleSignInRequiredError); assert.deepEqual(h.events, []);
+    h.appState.currentState = 'active'; h.sdk.getTokens = async () => { h.changeAccount('another-account'); return { accessToken: 'synthetic-access-token' }; };
+    await assert.rejects(h.gateway.authorizeGoogleSyncConnection(), accountBinding.GoogleAccountMismatchError);
+  });
+  test(`${platform} Calendar native connection checks require matching identity and both scopes without tokens or consent`, async () => {
+    const h = harness(platform, { scopes: ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.calendarlist.readonly'] });
+    assert.equal(await h.gateway.hasGoogleCalendarEventsSession('fixture-user'), true);
+    assert.equal(await h.gateway.hasGoogleCalendarEventsSession('another-user'), false);
+    h.setScopes([]); assert.equal(await h.gateway.hasGoogleCalendarEventsSession('fixture-user'), false);
+    assert.equal(h.events.includes('tokens'), false); assert.equal(h.events.includes('consent'), false);
+  });
+  test(`${platform} Google logout coalesces native sign-out without revoking grants or opening authentication`, async () => {
+    const h = harness(platform); h.sdk.signOut = async () => { h.events.push('sign-out'); h.clearSession(); };
+    h.sdk.signIn = async () => ({ type: 'noSavedCredentialFound' });
+    await Promise.all(Array.from({ length: 20 }, () => h.gateway.signOutGoogleSyncAccount()));
+    assert.equal(h.events.filter(event => event === 'sign-out').length, 1); assert.equal(await h.gateway.getCurrentGoogleSubject(), null);
+    assert.equal(h.events.includes('tokens'), false); assert.equal(h.events.includes('consent'), false);
+  });
+  test(`${platform} local Google reconnection bypasses broken saved credentials and validates the selected account without Firebase tokens`, async () => {
+    const h = harness(platform, { cold: true, scopes: [] });
+    h.sdk.signIn = async () => assert.fail('explicit recovery must not restore a broken saved credential');
+    h.sdk.presentExplicitSignIn = async () => { h.events.push('explicit-picker'); h.changeAccount('selected-user'); return { type: 'success', data: h.sdk.getCurrentUser() }; };
+    assert.deepEqual(await h.gateway.selectGoogleSyncAccount(), { subject: 'selected-user', label: 'Googleアカウント' });
+    assert.equal(h.events.filter(event => event === 'explicit-picker').length, 1);
+    assert.equal(h.events.includes('tokens'), false); assert.equal(h.events.includes('consent'), false);
+    h.sdk.presentExplicitSignIn = async () => ({ type: 'success', data: { user: { id: 'substituted' } } });
+    await assert.rejects(h.gateway.selectGoogleSyncAccount(), accountBinding.GoogleAccountMismatchError);
+    h.sdk.presentExplicitSignIn = async () => ({ type: 'cancelled' });
+    await assert.rejects(h.gateway.selectGoogleSyncAccount(), h.gateway.GoogleAuthorizationCancelledError);
+    assert.equal(h.sdk.getCurrentUser().user.id, 'selected-user');
+    h.appState.currentState = 'background'; h.events.length = 0;
+    await assert.rejects(h.gateway.selectGoogleSyncAccount(), h.gateway.GoogleSignInRequiredError); assert.deepEqual(h.events, []);
+  });
   test(`${platform} Google Tasks connection status verifies its bound account without opening consent`, async () => {
     const h = harness(platform);
     assert.equal(await h.gateway.hasGoogleTasksSession('fixture-user'), true);
@@ -214,6 +275,44 @@ for (const platform of ['ios', 'android']) {
     assert.equal(await h.gateway.getGoogleCalendarAccessToken(), 'fixture-access-token'); assert.equal(attempts, 2);
   });
 }
+
+test('iOS logout waits for an in-flight Keychain restore and prevents late credentials or sign-in UI from recreating a session', async () => {
+  const h = harness('ios', { cold: true }); let release;
+  h.sdk.signIn = () => new Promise(resolve => { release = () => { h.changeAccount('restored-user'); resolve({ type: 'success', data: h.sdk.getCurrentUser() }); }; });
+  h.sdk.signOut = async () => { h.events.push('sign-out'); h.clearSession(); };
+  const restoring = h.gateway.getCurrentGoogleSubject();
+  for (let n = 0; n < 15 && !release; n++) await new Promise(setImmediate);
+  assert.equal(typeof release, 'function'); const logout = h.gateway.signOutGoogleSyncAccount();
+  assert.equal(await h.gateway.getCurrentGoogleSubject(), null);
+  await assert.rejects(h.gateway.selectGoogleSyncAccount(), h.gateway.GoogleSignInRequiredError);
+  assert.equal(h.events.includes('sign-out'), false); release(); await restoring; await logout;
+  assert.equal(h.sdk.getCurrentUser(), null); assert.equal(h.events.filter(event => event === 'sign-out').length, 1);
+});
+
+test('iOS explicit Tasks login recovers a failed Keychain restore once while silent background checks never open sign-in', async () => {
+  const h = harness('ios', { cold: true, scopes: [tasksScope] });
+  h.sdk.signIn = async () => { h.events.push('failed-restore'); throw new Error('synthetic revoked credential'); };
+  h.sdk.presentExplicitSignIn = async () => { h.events.push('explicit-picker'); h.changeAccount('selected-user'); h.setScopes([tasksScope]); return { type: 'success', data: h.sdk.getCurrentUser() }; };
+  await assert.rejects(h.gateway.getCurrentGoogleSubject(), /revoked credential/);
+  assert.equal(h.events.includes('explicit-picker'), false);
+  await h.gateway.authorizeGoogleTasks();
+  assert.equal(h.events.filter(event => event === 'explicit-picker').length, 1); assert.equal(h.events.includes('tokens'), true);
+  const background = harness('ios', { state: 'background' });
+  await assert.rejects(background.gateway.authorizeGoogleTasks(), background.gateway.GoogleSignInRequiredError); assert.deepEqual(background.events, []);
+});
+
+for (const action of ['identity', 'calendar', 'private-source']) test(`iOS explicit ${action} login recovers failed credential restoration without changing background behavior`, async () => {
+  const h = harness('ios', { cold: true, scopes: [] });
+  h.sdk.signIn = async () => { throw new Error('synthetic expired Keychain session'); };
+  h.sdk.presentExplicitSignIn = async () => { h.events.push('explicit-picker'); h.changeAccount('selected-user');
+    h.setScopes(['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/calendar.calendarlist.readonly']);
+    return { type: 'success', data: h.sdk.getCurrentUser() }; };
+  h.sdk.getTokens = async () => ({ idToken: 'synthetic-id-token' });
+  const result = action === 'identity' ? await h.gateway.authorizeGoogleSharingIdentity()
+    : action === 'calendar' ? await h.gateway.authorizeGoogleCalendarEvents('selected-user') : await h.gateway.restorePrivateGoogleCalendarAccount();
+  assert.equal(action === 'identity' ? result.googleUserId : result.subject, 'selected-user');
+  assert.equal(h.events.filter(event => event === 'explicit-picker').length, 1);
+});
 
 test('Android sharing succeeds with a fresh Credential Manager ID token even when OAuth authorization requires resolution', async () => {
   const h = harness('android', { scopes: [] });

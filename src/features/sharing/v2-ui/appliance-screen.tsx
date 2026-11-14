@@ -1,23 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { ReactNode } from 'react';
-import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
+import { FlatList, KeyboardAvoidingView, Platform, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppButton, BackButton, Card, NavigationHeader, palette, ScreenHeading, SectionHeading, typography } from '../../../components/planner-ui';
-import type { Appliance } from '../../appliance-care/contracts';
+import { AppButton, Card, NavigationHeader, palette, SectionHeading, typography } from '../../../components/planner-ui';
+import type { Appliance, ApplianceCareTaskDraft } from '../../appliance-care/contracts';
+import { ApplianceTaskBook } from '../../appliance-care/appliance-task-book';
 import type { UploadedManualInput, ApplianceCareApiRequest, ProductVerifiedResponse } from '../../appliance-care/api-contracts';
-import { ManualUploadInput } from '../../appliance-care/manual-upload-input';
-import { ApplianceAiAccount } from '../../appliance-care/ai-account';
+import { ManualAnalysisForm } from '../../appliance-care/manual-analysis-form';
+import { SettingsHeader } from '../../../components/settings-header';
 import { analyzeApplianceCareRequest } from '../../appliance-care/api-client';
 import { MaintenanceTaskCard } from '../../appliance-care/appliance-detail-content';
-import { applianceDisplayName } from '../../appliance-care/display-name';
+import { applianceDisplayName, appliancePrimaryName, applianceSecondaryLabel } from '../../appliance-care/display-name';
 import { applianceAnalysisDate } from '../../appliance-care/analysis-date';
 import { useAbortApplianceRequestOnLeave } from '../../appliance-care/use-abort-on-leave';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { V2ApplianceReview, V2ApplianceReviewResult } from '../v2/appliance-actions';
 import type { V2MutationOutcome } from './mutation-outcome';
-import { V2TextField } from './form-controls';
 import { readApplianceManual } from '../../../platform/storage/appliance-manuals';
+import { SettingsCheckbox } from '../../../components/settings-checkbox';
+import { ApplianceManualAction } from '../../appliance-care/appliance-manual-action';
 
 export type V2ApplianceMode = 'appliance' | 'applianceReview';
 const responseFor = (appliance: Appliance): ProductVerifiedResponse => ({ status: 'verified', product: { manufacturer: appliance.manufacturer,
@@ -29,10 +31,10 @@ const caption = { ...typography.caption, color: palette.muted };
 const warning = { ...typography.caption, color: palette.warning };
 
 /** Review is explicit. No API completion, navigation or refresh can silently replace shared chores. */
-export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, perform, onBack, onOpen, onReview, onConfiguration, onDetails, header, initialProductName, personalDatabase }: {
+export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, perform, onBack, onOpen, onReview, onConfiguration, onDetails, header, personalDatabase }: {
   model: V2GroupScreenModel; mode: V2ApplianceMode; applianceId?: string; actions: V2GroupController['actions']; busy: boolean;
   perform: (work: () => Promise<unknown>) => Promise<V2MutationOutcome>; onBack: () => void; onOpen?: (id: string) => void;
-  initialProductName?: string; onReview?: (id?: string) => void; onConfiguration: (id: string) => void; onDetails?: (id: string) => void; header?: ReactNode;
+  onReview?: (id?: string) => void; onConfiguration: (id: string) => void; onDetails?: (id: string) => void; header?: ReactNode;
   personalDatabase?: SQLiteDatabase;
 }) {
   const insets = useSafeAreaInsets();
@@ -41,9 +43,8 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   const detail = loadedDetail?.row.id === applianceId ? loadedDetail : undefined;
   // Retain the displayed basis throughout an API request and review. A remote refresh cannot bless an old draft.
   const [basis] = useState(() => detail); const starting = basis?.appliance;
-  const [input, setInput] = useState<ApplianceCareApiRequest>(() => ({ manufacturer: starting?.manufacturer ?? '', productName: starting?.productName ?? initialProductName ?? '', modelNumber: starting?.modelNumber ?? '', ...(starting?.category ? { category: starting.category } : {}) }));
   const [canAnalyze, setCanAnalyze] = useState(false);
-  const [manual, setManual] = useState<UploadedManualInput>();
+  const [manual, setManual] = useState<UploadedManualInput>(); const manualRef = useRef<UploadedManualInput | undefined>(undefined);
   const [retainedManual, setRetainedManual] = useState<UploadedManualInput>();
   const manualTouched = useRef(false);
   useEffect(() => {
@@ -51,37 +52,36 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
     if (!digest || !personalDatabase || mode !== 'applianceReview') return;
     let current = true;
     void readApplianceManual(personalDatabase, digest).then(base64 => {
-      if (base64 && current && !manualTouched.current) { const input: UploadedManualInput = { base64, rightsConfirmed: true }; setRetainedManual(input); setManual(input); }
+      if (base64 && current && !manualTouched.current) { const input: UploadedManualInput = { base64, rightsConfirmed: true }; setRetainedManual(input); manualRef.current = input; setManual(input); }
     }).catch(() => { /* A legacy or unreadable PDF can be selected again without changing its saved analysis. */ });
     return () => { current = false; };
   }, [starting, personalDatabase, mode]);
-  const draft = useRef(input); const [response, setResponse] = useState<ProductVerifiedResponse | null>(null);
+  const [response, setResponse] = useState<ProductVerifiedResponse | null>(null);
   const [chosen, setChosen] = useState<string[]>([]); const chosenRef = useRef(chosen);
   const [reviewed, setReviewed] = useState(false); const reviewedRef = useRef(false);
   const [candidateId, setCandidateId] = useState<string | null>(null); const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null); const [pendingRead, setPendingRead] = useState(false);
-  const [saved, setSaved] = useState<V2ApplianceReviewResult | null>(null); const [analyzing, setAnalyzing] = useState(false); const [stage, setStage] = useState('公式資料を確認しています');
+  const [saved, setSaved] = useState<V2ApplianceReviewResult | null>(null); const savedRef = useRef<V2ApplianceReviewResult | null>(null); const [analyzing, setAnalyzing] = useState(false);
   const working = useRef(false); const request = useRef<AbortController | null>(null);
   const beginRequest = useAbortApplianceRequestOnLeave(request);
   const locked = busy || pendingRead || analyzing;
   const check = (value: boolean) => { reviewedRef.current = value; setReviewed(value); };
-  const change = (field: 'manufacturer' | 'productName' | 'modelNumber', value: string) => {
-    if (working.current || locked || saved) return;
-    draft.current = { ...draft.current, [field]: value }; setInput(draft.current); setResponse(null); check(false); setSaved(null);
-  };
-  const analyze = async (override?: ApplianceCareApiRequest) => {
-    if (working.current || locked) return;
+  const analyze = async () => {
+    if (working.current || locked || savedRef.current) return;
     if (model.manualStorageSupported === false) { setError('解析前に、グループ管理で互換更新を行ってください。'); return; }
     if (!canAnalyze) { setError('ログインと正規端末の確認が済むまで家電AIは利用できません。'); return; }
-    if (!manual) { setError('取扱説明書PDFを選び、送信の確認をしてください。'); return; }
+    const submittedManual = manualRef.current;
+    if (!submittedManual) { setError('取扱説明書PDFを選んでください。'); return; }
     working.current = true; const controller = beginRequest(() => { working.current = false; setAnalyzing(false); });
     setAnalyzing(true); setResponse(null); check(false); setError(null); setSaved(null);
     try {
-      const result = await analyzeApplianceCareRequest({ ...(override ?? draft.current), manual, ...(applianceId ? { forceReanalysis: true } : {}) }, undefined, undefined,
-        value => { if (request.current === controller && !controller.signal.aborted) setStage(value === 'product_verification' ? 'PDFを確認しています' : '説明書PDFを解析しています'); }, controller.signal);
+      const input: ApplianceCareApiRequest = { identifyFromManual: true, manual: submittedManual,
+        ...(starting ? { manufacturer: starting.manufacturer, productName: starting.productName, modelNumber: starting.modelNumber,
+          ...(starting.category ? { category: starting.category } : {}), forceReanalysis: true } : {}) };
+      const result = await analyzeApplianceCareRequest(input, undefined, undefined, undefined, controller.signal);
       if (request.current !== controller || controller.signal.aborted) return;
       if (result.status === 'verified') { setResponse(result); chosenRef.current = []; setChosen([]); }
-      else setError(result.status === 'ambiguous' ? '製品を特定できませんでした。製品名・型番を詳しく入力し直してください。' : result.message);
+      else setError(result.status === 'ambiguous' ? '製品を特定できませんでした。別の取扱説明書PDFを選んでください。' : result.message);
     } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : '解析結果を取得できませんでした。'); }
     finally { if (request.current === controller) { request.current = null; working.current = false; setAnalyzing(false); } }
   };
@@ -96,7 +96,8 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   };
   const save = (review: V2ApplianceReview) => execute(async () => {
     if (!reviewedRef.current) throw new Error('メーカー・型番・手順・注意事項を確認してください。');
-    const result = await actions.reviewAppliance({ ...review, ...(review.result.analysis.manualSource && manual ? { manual } : {}) }); setSaved(result);
+    const selectedManual = manualRef.current;
+    const result = await actions.reviewAppliance({ ...review, ...(review.result.analysis.manualSource && selectedManual ? { manual: selectedManual } : {}) }); savedRef.current = result; setSaved(result);
   });
   const executeRead = async () => {
     if (working.current || busy) return; working.current = true;
@@ -106,7 +107,6 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   const pending = pendingRead ? <Card><Text style={body}>端末に保存済みです。再送せず、現在の家電を読み直してください。</Text>
     <AppButton title="保存済みの家電を再読込" disabled={busy} onPress={() => void executeRead()} /></Card> : null;
   const intro = <View style={{ gap: 14 }}>{header}
-    <ScreenHeading title={mode === 'applianceReview' ? '家電の解析・共有' : '共有家電のお手入れ'} />
     {error ? <Text accessibilityRole="alert" style={warning}>{error}</Text> : null}{pending}
     {saved ? <Card><Text style={body}>家電の確認内容を端末に保存しました。新しい家事{saved.createdChoreIds.length}件は無効で追加しています。既存の家事は保持しています。</Text>
       {saved.personalRetentionPending ? <Text accessibilityRole="alert" style={warning}>共有先には保存済みです。個人側への保存は次回同期時に再試行します。</Text> : null}
@@ -118,30 +118,30 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   const appliance = mode === 'applianceReview' ? null : detail?.appliance ?? currentCandidate?.appliance;
   const analysis = mode === 'applianceReview' ? response?.analysis : appliance?.analysis;
   const product = mode === 'applianceReview' ? response?.product : appliance;
+  const productName = product ? applianceDisplayName(product, appliance?.displayName) : '';
+  const primaryName = product ? appliancePrimaryName({ ...product, analysis }, productName) : 'お手入れ';
+  const secondaryName = product ? applianceSecondaryLabel(primaryName, [productName, applianceDisplayName(product)]) : '';
   const instructionsDiffer = (name: string, steps: string[]) => model.plan.chores.some(chore => chore.applianceId === applianceId && chore.applianceTaskName === name
     && (chore.instructions.length !== steps.length || chore.instructions.some((step, index) => step !== steps[index])));
-  const reviewToggle = <Pressable accessibilityRole="checkbox" accessibilityLabel="メーカー・型番・手順・注意事項を確認した" accessibilityState={{ checked: reviewed, disabled: locked }} disabled={locked}
-    onPress={() => check(!reviewedRef.current)} style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-    <View style={{ width: 24, height: 24, borderRadius: 5, borderWidth: 2, borderColor: palette.accent, backgroundColor: reviewed ? palette.accent : 'transparent' }} />
-    <Text style={[body, { flex: 1 }]}>メーカー・型番・手順・注意事項を確認した</Text></Pressable>;
-  return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}><NavigationHeader><BackButton disabled={busy} onPress={() => { request.current?.abort(); onBack(); }} /></NavigationHeader><FlatList
-    contentContainerStyle={pageStyle} data={analysis?.tasks ?? []} keyExtractor={(task, index) => `${index}:${task.name}`} initialNumToRender={1} maxToRenderPerBatch={1} windowSize={3} removeClippedSubviews={false}
-    keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" extraData={{ chosen, reviewed, locked }}
-    ListHeaderComponent={<View style={{ gap: 14 }}>{intro}
+  const reviewToggle = <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+    <Text style={[body, { flex: 1 }]}>メーカー・型番・手順・注意事項を確認した</Text>
+    <SettingsCheckbox value={reviewed} onValueChange={check} disabled={locked} accessibilityLabel="メーカー・型番・手順・注意事項を確認した" />
+  </View>;
+  const bookHeader = <View style={{ gap: 14 }}>{intro}
+      {mode === 'appliance' && personalDatabase && appliance?.analysis.manualSource ? <ApplianceManualAction database={personalDatabase} digest={appliance.analysis.manualSource.sha256} label={primaryName}
+        accessKey={`${model.viewerUserId}:${model.plan.groupId}:${appliance.id}`} disabled={locked} /> : null}
       {mode === 'applianceReview' ? <>
         {model.manualStorageSupported === false ? <Text accessibilityRole="alert" style={warning}>PDFを共有保存するには、管理者によるグループの互換更新が必要です。更新前は解析を実行しません。</Text> : null}
-        <Text style={caption}>説明書PDFを解析APIとAI提供元へ送信します。確認して保存すると、PDFと説明を個人・グループに保存します。共有や再送で解析回数は増えません。</Text>
         {basis?.source.kind === 'conflict' ? <Text style={warning}>確認して共有すると、表示開始時にあった解析の競合を新しい内容で解決します。元の履歴は保持します。</Text> : null}
         {basis?.row.deleted || basis?.alive.kind === 'conflict' ? <Text style={warning}>確認して共有すると、この家電をグループ全員の一覧へ復元します。既存家事の削除状態は変更しません。</Text> : null}
         {applianceId && !detail ? <Text style={warning}>対象の共有家電を読み込めません。家電一覧から開き直してください。</Text> : null}
-        <V2TextField label="メーカー" value={input.manufacturer} onChangeText={value => change('manufacturer', value)} editable={!locked && !saved && !starting} maxLength={120} />
-        <V2TextField label="製品名" value={input.productName} onChangeText={value => change('productName', value)} editable={!locked && !saved} maxLength={120} />
-        <V2TextField label="型番" value={input.modelNumber} onChangeText={value => change('modelNumber', value)} editable={!locked && !saved && !starting} maxLength={120} />
-        <Text style={caption}>月5回まで（再解析を含む）。毎月1日9時（日本時間）に更新。受付後の中止・結果検証の失敗は1回に数えます。OpenAIから結果を得られないとサーバーで確認した障害は消費しません。端末とアカウントの少ない残回数を適用します。</Text>
-        <ApplianceAiAccount disabled={locked} onReady={setCanAnalyze} />
-        <ManualUploadInput retained={retainedManual} disabled={locked || Boolean(saved)} onChange={value => { manualTouched.current = true; setManual(value); setResponse(null); check(false); }} />
-        <AppButton title="選択したPDFを解析する" disabled={model.manualStorageSupported === false || !canAnalyze || !manual || locked || Boolean(saved) || Boolean(applianceId && !detail)} onPress={() => void analyze()} />
-        {analyzing ? <><ActivityIndicator color={palette.accent} /><Text style={caption}>{stage}</Text><AppButton title="解析を中止" variant="quiet" onPress={() => request.current?.abort()} /></> : null}
+        {!saved ? <ManualAnalysisForm retained={retainedManual} shared reanalysis={Boolean(starting)} working={analyzing}
+          canAnalyze={canAnalyze} onReady={setCanAnalyze} usage={response?.usage}
+          disabled={model.manualStorageSupported === false || !manual || locked || Boolean(applianceId && !detail)} inputDisabled={locked}
+          onManual={value => {
+            if (working.current || locked || saved) return;
+            manualTouched.current = true; manualRef.current = value; setManual(value); setResponse(null); check(false);
+          }} onAnalyze={() => void analyze()} onCancel={() => request.current?.abort()} /> : null}
       </> : !detail ? <Text style={warning}>対象の共有家電を表示できません。一覧から開き直してください。</Text> : <>
         {detail.row.needsReview ? <Card><Text style={warning}>{detail.row.deleted ? 'この家電は削除されています。' : detail.alive.kind === 'conflict' ? '削除と編集が重なっています。' : '解析内容の確認が必要です。'}署名付きの履歴は保持しています。</Text>
           {detail.candidates.map((candidate, index) => <AppButton key={candidate.operationId} title={`家電の候補${index + 1}を確認`} variant="quiet" disabled={locked}
@@ -150,19 +150,19 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
         </Card> : null}
 
       </>}
-      {product && analysis ? <Text style={typography.subheading}>{applianceDisplayName(product, appliance?.displayName)}</Text> : null}
-    </View>}
-    renderItem={({ item: task, index }) => <MaintenanceTaskCard task={task} index={index} schedule={<View style={{ gap: 8 }}>
-      <Text style={body}>{task.recommendedIntervalDays ? `メーカー推奨：${task.recommendedIntervalDays}日` : 'メーカー指定：具体的な周期なし'}</Text>
+      {product && analysis ? <View style={{ gap: 6 }}><Text accessibilityRole="header" style={[typography.subheading, { color: palette.ink, fontWeight: '700' }]}>{primaryName}</Text>
+        {secondaryName ? <Text style={caption}>{secondaryName}</Text> : null}
+        <Text style={caption}>お手入れ {analysis.tasks.length}項目</Text></View> : null}
+    </View>;
+  const renderTask = (task: ApplianceCareTaskDraft) => <MaintenanceTaskCard task={task} schedule={<View style={{ gap: 8 }}>
       {instructionsDiffer(task.name, task.steps) ? <Text style={warning}>この解析と、登録済み家事の手順には違いがあります。登録済みの手順は保持しています。「登録した共有家事」から確認してください。</Text> : null}
-      {mode === 'applianceReview' ? <Pressable accessibilityRole="checkbox" accessibilityLabel={`「${task.name}」を無効の共有家事として追加`} accessibilityState={{ checked: chosen.includes(task.name), disabled: locked }} disabled={locked}
-        onPress={() => { chosenRef.current = chosenRef.current.includes(task.name) ? chosenRef.current.filter(name => name !== task.name) : [...chosenRef.current, task.name]; setChosen(chosenRef.current); }}
-        style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <View style={{ width: 24, height: 24, borderRadius: 5, borderWidth: 2, borderColor: palette.accent, backgroundColor: chosen.includes(task.name) ? palette.accent : 'transparent' }} />
-        <Text style={[body, { flex: 1 }]}>無効の共有家事として追加</Text></Pressable>
-        : <Text style={caption}>登録した家事の設定・手順は共有家事の一覧から確認してください。</Text>}
-    </View>} />}
-    ListFooterComponent={analysis ? <View style={{ gap: 14 }}>
+      {mode === 'applianceReview' ? <View style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <Text style={[body, { flex: 1 }]}>無効の共有家事として追加</Text>
+        <SettingsCheckbox accessibilityLabel={`「${task.name}」を無効の共有家事として追加`} value={chosen.includes(task.name)} disabled={locked}
+          onValueChange={() => { chosenRef.current = chosenRef.current.includes(task.name) ? chosenRef.current.filter(name => name !== task.name) : [...chosenRef.current, task.name]; setChosen(chosenRef.current); }} /></View>
+        : null}
+    </View>} />;
+  const bookFooter = analysis ? <View style={{ gap: 14 }}>
       <Text style={caption}>最終解析：{applianceAnalysisDate(analysis.analyzedAt)}</Text>
       {mode === 'appliance' && detail ? <>
         {onReview ? <AppButton title="この共有家電を再解析" variant="quiet" disabled={locked} onPress={() => onReview(applianceId)} /> : null}
@@ -180,6 +180,14 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
         onPress={() => void save({ reviewed: true, result: responseFor(appliance), addTaskNames: [], selection: detail.row.selection, reviewedDisplayName: appliance.displayName,
           ...(detail.source.kind === 'conflict' ? { resolveOperationIds: detail.candidates.map(candidate => candidate.operationId) } : {}),
           ...(detail.row.deleted || detail.alive.kind === 'conflict' ? { restorePresence: true } : {}) })} /></> : null}
-    </View> : undefined} />
+    </View> : undefined;
+  const title = mode === 'applianceReview' ? applianceId ? 'PDFを再解析' : '家電を追加' : 'お手入れ方法';
+  const leave = () => { request.current?.abort(); onBack(); };
+  return <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+    {analysis ? <ApplianceTaskBook tasks={analysis.tasks} label={primaryName}
+      title={title} embedded header={bookHeader} footer={bookFooter} renderTask={renderTask} onBack={leave} backDisabled={busy} bottomPadding={pageStyle.paddingBottom} />
+      : <><NavigationHeader><SettingsHeader title={title} backDisabled={busy} onBack={leave} /></NavigationHeader><FlatList
+        contentContainerStyle={pageStyle} data={[]} renderItem={() => null} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
+        ListHeaderComponent={bookHeader} /></>}
   </KeyboardAvoidingView>;
 }

@@ -4,7 +4,7 @@ import type { LocalDate } from '../../domain/shared/types';
 import type { ClothingRegion, ClothingSeasonalWork, PersonalSeasonalRound } from '../../domain/scheduling/adaptive/seasonal';
 import { CLOTHING_SEASONAL_TABLE_VERSION, completePersonalSeasonalRound, initializePersonalSeasonalRounds,
   updatePersonalSeasonalRegion } from '../../domain/scheduling/adaptive/seasonal.ts';
-import { daysBetween } from '../../domain/scheduling/local-date.ts';
+import { parseLocalDate, daysBetween } from '../../domain/scheduling/local-date.ts';
 import { pinnedClockAt } from '../../domain/scheduling/zoned-clock.ts';
 
 const works: readonly ClothingSeasonalWork[] = ['winterStorage', 'summerStorage'];
@@ -141,4 +141,14 @@ export function personalSeasonalEntries(chore: ChoreDefinition, view: PersonalSe
       seasonalWork: plan.work,
       assignedMemberIds: [...assignedMemberIds], ...(today > plan.date ? { overdueDays: daysBetween(plan.date, today) } : {}) };
   });
+}
+
+/** A manual date belongs to this pending seasonal round, not to its next year's rule. */
+export async function movePersonalSeasonalInside(database: SQLiteDatabase, context: SeasonalContext, input: { roundId: string; revision: number; date: LocalDate }) {
+  await requireTransaction(database); parseLocalDate(input.date);
+  const previous = await readPersonalSeasonalInside(database, context.chore.id);
+  const round = previous && Object.values(previous.state.pending).find(row => row.id === input.roundId);
+  if (!previous || !round || previous.revision !== input.revision || !previous.state.enabled || !context.chore.enabled) throw new Error('季節家事の予定が更新されました。開き直してください。');
+  const state = { ...previous.state, pending: { ...previous.state.pending, [round.work]: { ...round, date: input.date, manualDate: input.date } } };
+  return writeState(database, context, state, previous);
 }

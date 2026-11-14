@@ -187,7 +187,7 @@ function PersonalHomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  taskList: { borderWidth: 1, borderColor: palette.border, borderRadius: 14, overflow: 'hidden' },
+  taskList: { overflow: 'hidden' },
   homePage: { gap: 12, paddingTop: 4, paddingBottom: 80 },
   weatherNotice: { backgroundColor: palette.accentSoft, borderColor: palette.accentSoft, gap: 4 },
   noticeTitle: { ...typography.body, color: palette.ink, fontWeight: '700' },

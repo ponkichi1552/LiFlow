@@ -10,7 +10,7 @@ import { sharedLocalDate } from '../group-clock.ts';
 import type { assessV2BusinessHistory } from './receiver-authority.ts';
 import type { DateTarget, DesignationMode, GroupPolicy, ManualRuleFact, SharedOccurrence, SharedChoreConfiguration } from './model.ts';
 import type { V2ServerReceipt } from './server-receipts.ts';
-import { isSupportedV2Scheduler } from './payload-schema.ts';
+import { isSupportedV2Scheduler, supportsOneOffChores } from './payload-schema.ts';
 import { v2ReadPoint } from './view-point.ts';
 import { commonFrame, commonFrames } from './common-frames.ts';
 import { v2AnchorAtIndex, v2AnchorIndexBefore, v2AnchorIndexOnOrAfter } from './cadence.ts';
@@ -274,6 +274,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
             const after = done ? addDays(done.date > done.anchorDate ? done.date : done.anchorDate, 1) : slice.from;
             const start = after > slice.from ? after : slice.from;
             const index = v2AnchorIndexOnOrAfter(cfg, start);
+            if (cfg.once && index !== 0) continue;
             const candidate = commonFrame(view.groupId, chore.id, cfg, v2AnchorAtIndex(cfg, index));
             if (candidate.anchorDate <= range.through && candidate.windowStart <= range.asOfDate && (!slice.through || candidate.anchorDate <= slice.through)) frames.set(candidate.id, candidate);
           }
@@ -395,15 +396,22 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
         const dates = [...new Set([...completed.map(recordedScheduleDay), ...(retainedState ? [retainedState.suggestedDate] : [])])].sort();
         if (isCompleted && dates.length === 1) suggestedDate = dates[0];
         if (dates.length > 1) issue('recordedScheduleConflict', chore.id, frame.id, subjectUserId, completed.map((record) => record.operationId));
+        const calendarRanges = supportsOneOffChores(roster.body.schedulerVersion);
+        const interval = calendarRanges && formalDate.kind === 'manual' && formalDate.mode === 'fixed' ? fixedInterval(formalDate.target) : null;
+        const executionWindowStart = retainedState?.windowStart ?? (interval ? sharedLocalDate(new Date(interval.start), timeZone)
+          : formalDate.kind === 'manual' && suggestedDate < window.windowStart ? suggestedDate : window.windowStart);
+        // Interval ends are exclusive: midnight belongs to the preceding work day.
+        const executionWindowEnd = retainedState?.through ?? (interval ? sharedLocalDate(new Date(interval.end - 1), timeZone)
+          : formalDate.kind === 'manual' && suggestedDate > window.windowEnd ? suggestedDate : window.windowEnd);
+        const consumptionEnd = calendarRanges ? executionWindowEnd : window.windowEnd;
         return { id: v2SubjectOccurrenceId(frame.id, subjectUserId), subjectUserId, required: requiredSubjects.includes(subjectUserId),
           assigneeIds: subjectUserId === null ? [...context.assigneeIds] : [subjectUserId], formalDate, suggestedDate,
-          executionWindowStart: retainedState?.windowStart ?? (formalDate.kind === 'manual' && suggestedDate < window.windowStart ? suggestedDate : window.windowStart),
-          executionWindowEnd: retainedState?.through ?? (formalDate.kind === 'manual' && suggestedDate > window.windowEnd ? suggestedDate : window.windowEnd),
+          executionWindowStart, executionWindowEnd,
           completed: isCompleted, completionOperationIds: completed.map((record) => record.operationId), pendingCompletionIds: pending.map((record) => record.operationId),
           ...(retainedState ? { retainedCompletion: { checkpointId: retainedDigest, recorderUserIds: retainedState.reports.map(report => report.recorderUserId), completedDate: sharedLocalDate(new Date(retainedState.instant), timeZone), completedAt: new Date(retainedState.instant).toISOString() } } : {}),
           strictInstructionUnfulfilled: isCompleted && completed.every((record) => record.strictInstructionFulfilled === false) && (!retainedState || retainedState.strictInstructionUnfulfilled), minimumNextExecutionDay,
-          cooldownSuppressed: suppressed && !isCompleted, virtuallyConsumed: !isCompleted && (window.windowEnd < range.asOfDate
-            || minimumNextExecutionDay !== null && minimumNextExecutionDay > window.windowEnd && !(formalDate.kind === 'manual' && formalDate.allowDuringCooldown)),
+          cooldownSuppressed: suppressed && !isCompleted, virtuallyConsumed: !isCompleted && (consumptionEnd < range.asOfDate
+            || minimumNextExecutionDay !== null && minimumNextExecutionDay > consumptionEnd && !(formalDate.kind === 'manual' && formalDate.allowDuringCooldown)),
           showExpiredOnHome: !isCompleted && showExpiredOnHome(window.windowEnd, range.asOfDate), requestReviewIds: reviews,
           dependencyNotBefore: null, dependencyNotBeforeInstant: null, dependencyBlocked: false, dependencyAwaitingCompletion: false };
       });
@@ -436,6 +444,7 @@ export function buildV2CommonPlan(input: { assessment: V2Assessment; archive: re
     for (const slice of timelines.get(choreId) ?? []) {
       const cfg = slice.configuration; if (!cfg || cfg.active === false) continue;
       const firstIndex = v2AnchorIndexOnOrAfter(cfg, slice.from);
+      if (cfg.once && firstIndex !== 0) continue;
       const first = commonFrame(view.groupId, choreId, cfg, v2AnchorAtIndex(cfg, firstIndex));
       if (slice.through && first.anchorDate > slice.through) continue;
       if (!initial || first.anchorDate < initial.anchorDate) initial = first;

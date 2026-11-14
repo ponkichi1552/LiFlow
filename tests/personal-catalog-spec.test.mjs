@@ -11,7 +11,7 @@ const { PERSONAL_CHORE_CATALOG: recipes, PERSONAL_CHORE_CATALOG_SOURCE_SHA256: d
   initialPersonalChoreSelection, togglePersonalCatalogSelection, createPersonalChoreDefinitions, personalChoreHistoryPolicy,
   personalChoreCadenceLabel, personalOnboardingChores, planPersonalCatalogToggles } = loadNativeModule('src/domain/chores/personal-catalog.ts', {
   './personal-catalog-data.json': JSON.parse(readFileSync(new URL('../src/domain/chores/personal-catalog-data.json', import.meta.url), 'utf8')),
-  '../scheduling/adaptive/placement.ts': await import('../src/domain/scheduling/adaptive/placement.ts'),
+  '../scheduling/adaptive/models.ts': await import('../src/domain/scheduling/adaptive/models.ts'),
   './cycle-policy.ts': await import('../src/domain/chores/cycle-policy.ts'),
 });
 const source = readFileSync(new URL('../docs/specifications/housework-catalog-2026-11-04.md', import.meta.url), 'utf8');

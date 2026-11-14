@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { AppButton, Card } from '../../../components/planner-ui';
@@ -10,6 +11,7 @@ import type { CompletionFeedback } from './completion-feedback';
 import { isTaskUrgent } from '../../../domain/scheduling/task-priority';
 import type { LocalDate } from '../../../domain/shared/types';
 import { sameOccurrenceAfterCompletion } from '../../../domain/scheduling/date-task-reference';
+import { calendarChoreTimeLabel } from '../../calendar/chore-time-label';
 
 export function V2PrivateTaskNotice({ overlay, sharedTimeZone }: { overlay?: V2PrivateOverlayState; sharedTimeZone: string; date?: string }) {
   if (!overlay) return null;
@@ -23,18 +25,20 @@ export function V2PrivateTaskNotice({ overlay, sharedTimeZone }: { overlay?: V2P
 }
 
 /** The shared actions object is deliberately absent. Only the captured personal source accepts this checkbox. */
-export function V2PrivateTaskCard({ row, source, busy, run, feedback, today = row.date, home = false, compact = false, mixedSources = false, onOpen }: { row: V2PrivateTaskRow; source?: V2PrivateTaskSource; busy: boolean; feedback?: CompletionFeedback; today?: LocalDate; home?: boolean; compact?: boolean; mixedSources?: boolean;
+export function V2PrivateTaskCard({ row, source, busy, run, feedback, today = row.date, home = false, compact = false, mixedSources = false, showCalendarTime = false, timeZone = 'Asia/Tokyo', onOpen }: { row: V2PrivateTaskRow; source?: V2PrivateTaskSource; busy: boolean; feedback?: CompletionFeedback; today?: LocalDate; home?: boolean; compact?: boolean; mixedSources?: boolean; showCalendarTime?: boolean; timeZone?: string;
   onOpen?: () => void; run: (work: () => Promise<unknown>) => Promise<void> }) {
   const [open, setOpen] = useState(false); const chore = row.chore;
   const completed = feedback?.values.get(row.key) ?? row.completed;
   const queueable = !row.provisional && feedback?.supports?.('personal') && feedback.request;
   return <View style={{ gap: 6 }}>
     <TaskCheckboxRow chore={{ ...chore, category: `本人のみ${chore.category ? ` · ${chore.category}` : ''}` }} completed={completed} source="personal" home={home} compact={compact} mixedSources={mixedSources} detailsExpanded={onOpen ? undefined : open}
-      provisional={row.provisional} contextLabel={row.provisional ? '次回の仮予定' : undefined}
+      calendarTimeLabel={showCalendarTime ? calendarChoreTimeLabel(row.calendarTime, timeZone) : undefined}
+      provisional={row.provisional} contextLabel={row.calendarTimeIssue ? '時刻を確認' : row.provisional ? '次回の仮予定' : undefined}
       seasonalWork={row.seasonalWork}
       executionWindow={row.windowStart && row.windowEnd ? { start: row.windowStart, end: row.windowEnd } : undefined}
       urgent={isTaskUrgent({ completed, load: chore.load, recommendedDate: row.suggestedDate, windowStart: row.windowStart, windowEnd: row.windowEnd }, today)}
       onOpen={onOpen ?? (() => setOpen((value) => !value))}
+      onChangeDate={compact && !completed && row.entryId && !row.provisional ? () => router.navigate({ pathname: '/calendar-chore-date', params: { choreId: chore.id, entryId: row.entryId } }) : undefined}
       onToggle={row.provisional ? undefined : queueable ? () => feedback!.request!(row.key, !completed, { kind: 'personal',
         command: { date: row.date, graceDays: row.graceDays, choreId: row.chore.id, revision: row.revision } }) : !busy && source && !feedback?.values.has(row.key) ? () => feedback
         ? feedback.run(row.key, !row.completed, async () => {

@@ -20,10 +20,10 @@ for (const platform of ['ios', 'android']) test(`${platform} appliance AI never 
     pending.get('a').resolve({ remaining: 5 }); await screen.flush(); assert.equal(ready.at(-1), false);
     assert.equal(screen.text().includes('今月5回'), false);
     pending.get('b').reject(new Error('device continuity not verified')); await screen.flush();
-    assert.equal(ready.at(-1), false); assert.match(screen.text(), /紐づけは未確認/u);
+    assert.equal(ready.at(-1), false); assert.match(screen.text(), /解析に接続できませんでした/u);
     observe({ uid: 'c', email: 'c@synthetic.example', isAnonymous: false }); await screen.flush();
     pending.get('c').resolve({ remaining: 2 }); await screen.flush();
-    assert.equal(ready.at(-1), true); assert.match(screen.text(), /今月2回/u);
+    assert.equal(ready.at(-1), true); assert.match(screen.text(), /今月あと2回/u);
     observe(null); await screen.flush(); assert.equal(ready.at(-1), false);
   } finally { cleanup(); }
 });

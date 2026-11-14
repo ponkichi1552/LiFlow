@@ -86,7 +86,7 @@ for(const platform of ['ios','android']){
   const f=await fixture();const d=await f.device();t.after(()=>d.connection.close());await d.repository.commit(seeds());let n=0;const controller=createV2GroupController(d.repository,{makeId:()=>`form-custom-${++n}`,now,sync:async()=>{}});
   const model=await controller.readModel({from:'2026-10-27',through:'2026-11-30',asOfDate:'2026-10-27'},{management:true});const created=[];
   const s=screenHarness('src/features/sharing/v2-ui/add-chore.tsx',{exportName:'V2AddChore',platform,props:{model,actions:controller.actions,busy:false,run:work=>work(),onCreated:id=>created.push(id),onBack(){}}});t.after(()=>s.unmount());
-  await s.change('追加する家事の名前','窓を開ける');await s.change('追加する家事の周期','7');await s.press('追加');assert.match(s.text(),/担当を選んで/);assert.equal(created.length,0);
+  await s.change('追加する家事の名前','窓を開ける');await s.change('追加する家事の周期','7');assert.equal(s.button('追加').props.disabled, true);assert.equal(created.length,0);
   s.nodes().find(node=>node.props.accessibilityRole==='radio'&&node.props.accessibilityLabel==='誰か1人が行う').props.onPress();const save=s.button('追加');save.props.onPress();save.props.onPress();for(let i=0;i<20;i++)await s.flush();
   assert.equal(created.length,1);const state=await d.repository.readState();assert.equal(state.assessment.view.ofType('chore').filter(op=>op.payload.name==='窓を開ける').length,1);
   assert.equal(state.assessment.view.ofType('chorePolicy').filter(op=>op.entityId===created[0]).length,1);

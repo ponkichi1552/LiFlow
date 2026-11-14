@@ -45,7 +45,7 @@ function Details({ model, choreId, controller, source, onSaved, onBack, onConfig
   </View>;
   const field = (key: V2ChoreDetailField, label: string, multiline = false, displayLabel?: string | false) => {
     const current = conflict(key); return <View style={styles.group}>{current ? choose(key, current) : <V2TextField label={label} value={textValue(key)} multiline={multiline}
-      displayLabel={displayLabel} filled={unfolded} placeholder={multiline && unfolded ? key === 'description' ? '説明を追加' : key === 'instructions' ? '1行に1手順' : '1行に1項目' : undefined}
+      displayLabel={displayLabel} placeholder={multiline && unfolded ? key === 'description' ? '説明を追加' : key === 'instructions' ? '1行に1手順' : '1行に1項目' : undefined}
       maxLength={key === 'name' ? 500 : undefined} editable={!disabled} onChangeText={(value) => autosave.change(key, value)} onEndEditing={() => void autosave.flush()} />}{fieldError(key)}</View>;
   };
   const sections = Array.isArray(autosave.raw.procedureSections) ? autosave.raw.procedureSections as unknown as V2SectionDraft[] : [];
@@ -72,9 +72,9 @@ function Details({ model, choreId, controller, source, onSaved, onBack, onConfig
       {!unfolded ? <SectionHeading title="区分ごとの手順" level="subsection" /> : null}
       {conflict('procedureSections') ? choose('procedureSections', autosave.fields.procedureSections) : <>
         {sections.map((section, index) => <View key={index} style={unfolded ? { gap: 8, paddingVertical: 6 } : undefined}>
-          <V2TextField label={`手順の区分${index + 1}の見出し`} filled={unfolded} displayLabel={unfolded ? `見出し${index + 1}` : undefined} placeholder={unfolded ? '例：洗う' : undefined} value={section.title} editable={!disabled}
+          <V2TextField label={`手順の区分${index + 1}の見出し`} displayLabel={unfolded ? `見出し${index + 1}` : undefined} placeholder={unfolded ? '例：洗う' : undefined} value={section.title} editable={!disabled}
             onChangeText={(title) => updateSection(index, { title })} onEndEditing={() => void autosave.flush()} />
-          <V2TextField label={`手順の区分${index + 1}（1行に1手順）`} filled={unfolded} displayLabel={unfolded ? false : undefined} placeholder={unfolded ? '1行に1手順' : undefined} value={section.text} multiline editable={!disabled}
+          <V2TextField label={`手順の区分${index + 1}（1行に1手順）`} displayLabel={unfolded ? false : undefined} placeholder={unfolded ? '1行に1手順' : undefined} value={section.text} multiline editable={!disabled}
             onChangeText={(text) => updateSection(index, { text })} onEndEditing={() => void autosave.flush()} />
           <View style={unfolded ? { alignSelf: 'flex-end' } : undefined}><AppButton title={unfolded ? '見出しを削除' : `区分${index + 1}を削除`} accessibilityLabel={`区分${index + 1}を削除`} compact variant={unfolded ? 'secondary' : 'quiet'} disabled={disabled} onPress={() => autosave.changeWith('procedureSections',
             (value) => (value as unknown as V2SectionDraft[]).filter((_, position) => position !== index) as unknown as JsonValue)} /></View>

@@ -1,9 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
-import { AppButton, palette, typography } from '../../components/planner-ui';
+import { palette, typography } from '../../components/planner-ui';
 import { Chevron } from '../../components/chevron';
 import { NumberInputField } from '../../components/number-input-field';
-import { SettingsPanel } from '../../components/settings-controls';
+import { SettingsAction, SettingsPanel } from '../../components/settings-controls';
 import { CalendarField } from '../calendar/calendar-field';
 import { useV2DraftLifecycle } from '../sharing/v2-ui/use-draft-lifecycle';
 import { createPersonalCapacityEditor } from './personal-capacity-editor';
@@ -24,7 +24,7 @@ export function PersonalCapacitySettings({ load, today, restDays = [], limits, o
   }, [load, attempt]);
   if (source) return <CapacityForm source={source} today={today} restDays={restDays} limits={limits} onDraftChange={onDraftChange} onBlocked={onBlocked} render={children} />;
   return children(failed ? <View><Text accessibilityRole="alert" style={styles.error}>日別設定を読み込めませんでした。</Text>
-    <AppButton title="再読込" compact variant="quiet" onPress={() => setAttempt(value => value + 1)} /></View> : <Text style={typography.caption}>日別設定を読み込み中…</Text>);
+    <SettingsAction title="再読込" placement="page" onPress={() => setAttempt(value => value + 1)} /></View> : <Text style={typography.caption}>日別設定を読み込み中…</Text>);
 }
 
 const kinds: readonly { id: DayType; label: string }[] = [{ id: 'workday', label: '平日' }, { id: 'holiday', label: '休日' }];
@@ -44,7 +44,7 @@ function CapacityForm({ source, today, restDays, limits, onDraftChange, onBlocke
     <SettingsPanel>{limits}{kinds.map(kind => <View key={kind.id} style={[styles.row, { borderTopColor: colors.border }]}>
       <Text style={styles.label}>{kind.label}の家事合計時間</Text>
       <NumberInputField accessibilityLabel={`${kind.label}の家事時間上限`} suffix={(raw.dayTypes?.[kind.id].maximum ?? raw.maximum).trim() ? '分' : ''} inputWidth={68} placeholder="上限なし"
-        value={raw.dayTypes?.[kind.id].maximum ?? raw.maximum} onChangeText={value => editor.setMaximum(kind.id, value)}
+        editIndicator value={raw.dayTypes?.[kind.id].maximum ?? raw.maximum} onChangeText={value => editor.setMaximum(kind.id, value)}
         onBlur={() => { void editor.flush(); }} maxLength={7} borderless />
     </View>)}</SettingsPanel>
     <Text style={styles.heading}>実施できる時間帯</Text>
@@ -55,11 +55,11 @@ function CapacityForm({ source, today, restDays, limits, onDraftChange, onBlocke
       return <View key={kind.id} style={[styles.timeSection, { borderTopColor: colors.border }]}>
         <View style={styles.timeHeading}><Text style={styles.label}>{kind.label}</Text></View>
         {bands.map((band, index) => <View key={index === 0 ? 'first' : band.id} style={styles.timeRow}>
-          <CalendarField hideLabel label={`${kind.label}の開始時刻${index ? index + 1 : ''}`} mode="time" date={today} minute={band.startMinute ?? defaultDayTypeBands(kind.id)[0].startMinute}
+          <CalendarField borderless hideLabel label={`${kind.label}の開始時刻${index ? index + 1 : ''}`} mode="time" date={today} minute={band.startMinute ?? defaultDayTypeBands(kind.id)[0].startMinute}
             displayValue={band.startMinute == null ? '開始' : undefined} onMinute={minute => editor.setBandTime(kind.id, band.id, 'startMinute', minute,
               band.startMinute !== null && band.endMinute !== null ? { startMinute: band.startMinute, endMinute: band.endMinute } : undefined)} />
           <Text style={styles.hint}>〜</Text>
-          <CalendarField hideLabel label={`${kind.label}の終了時刻${index ? index + 1 : ''}`} mode="time" date={today} minute={band.endMinute ?? defaultDayTypeBands(kind.id)[0].endMinute}
+          <CalendarField borderless hideLabel label={`${kind.label}の終了時刻${index ? index + 1 : ''}`} mode="time" date={today} minute={band.endMinute ?? defaultDayTypeBands(kind.id)[0].endMinute}
             displayValue={band.endMinute == null ? '終了' : undefined} onMinute={minute => editor.setBandTime(kind.id, band.id, 'endMinute', minute === 0 ? 1440 : minute,
               band.startMinute !== null && band.endMinute !== null ? { startMinute: band.startMinute, endMinute: band.endMinute } : undefined)} />
         </View>)}
@@ -75,13 +75,13 @@ function CapacityForm({ source, today, restDays, limits, onDraftChange, onBlocke
         <Pressable accessibilityRole="button" accessibilityLabel="選択日の時間上限を変更" accessibilityState={{ expanded: dateLimit }} onPress={() => showDateLimit(value => !value)} style={styles.disclosure}>
           <Text style={styles.actionText}>{Number(selectedDate.slice(5, 7))}/{Number(selectedDate.slice(8, 10))}の時間上限</Text><Chevron direction={dateLimit ? 'up' : 'down'} />
         </Pressable>
-        {dateLimit ? <View style={styles.dateLimit}><Text style={styles.label}>家事合計時間</Text><NumberInputField accessibilityLabel={`${selectedDate}の家事時間上限`} suffix="分" inputWidth={96} placeholder="通常どおり" value={selectedDay?.maximum ?? ''}
+        {dateLimit ? <View style={styles.dateLimit}><Text style={styles.label}>家事合計時間</Text><NumberInputField editIndicator accessibilityLabel={`${selectedDate}の家事時間上限`} suffix="分" inputWidth={96} placeholder="通常どおり" value={selectedDay?.maximum ?? ''}
           onChangeText={maximum => editor.setDateMaximum(selectedDate, maximum)} onBlur={() => { void editor.flush(); }} maxLength={7} /></View> : null}
-        {selectedDay ? <AppButton title="この日の変更を解除" compact variant="quiet" onPress={() => editor.change(value => ({ ...value, days: value.days.filter(day => day.date !== selectedDate) }))} /> : null}
+        {selectedDay ? <SettingsAction title="この日の変更を解除" intent="destructive" onPress={() => editor.change(value => ({ ...value, days: value.days.filter(day => day.date !== selectedDate) }))} /> : null}
       </View> : null}
     </View>
     {snapshot.validation || snapshot.status.error ? <Text accessibilityRole="alert" style={styles.error}>{snapshot.validation ?? snapshot.status.error}</Text> : null}
-    {snapshot.status.phase === 'error' ? <AppButton title="保存を再試行" compact variant="quiet" onPress={() => { void editor.flush(); }} /> : null}
+    {snapshot.status.phase === 'error' ? <SettingsAction title="保存を再試行" placement="page" onPress={() => { void editor.flush(); }} /> : null}
   </View>);
 }
 const styles = StyleSheet.create({

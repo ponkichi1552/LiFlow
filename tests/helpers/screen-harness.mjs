@@ -20,6 +20,7 @@ export function screenHarness(filename, options = {}) {
   let current;
   let tree = [];
   let mounted;
+  let nextId = 0;
   const readError = options.readError ?? (() => null);
   const jsx = (type, props, key) => ({ type, props: props ?? {}, key });
   const hook = (initial) => {
@@ -37,6 +38,9 @@ export function screenHarness(filename, options = {}) {
     }
   };
   const react = {
+    // Rendering memoized children here still exercises their real handlers; native performance is checked separately.
+    memo: component => component,
+    useId: () => hook(() => `screen-harness-${++nextId}`)[0],
     createContext: value => { const context = { _currentValue: value }; context.Provider = { harnessContext: context }; return context; },
     useState: hook,
     useRef: (value) => hook(() => ({ current: value }))[0],
@@ -73,11 +77,18 @@ export function screenHarness(filename, options = {}) {
       useColorScheme: () => options.colorScheme ?? 'light',
       useWindowDimensions: () => ({ width: options.width ?? 390, height: options.height ?? 844, fontScale: 1, scale: 3 }),
       PanResponder: { create: callbacks => ({ panHandlers: callbacks }) },
+      Animated: { View: 'AnimatedView', ValueXY: class {
+        constructor(value = { x: 0, y: 0 }) { this.value = value; }
+        setValue(value) { this.value = value; }
+        getTranslateTransform() { return [{ translateX: this.value.x }, { translateY: this.value.y }]; }
+      } },
       AppState: { currentState: 'active', addEventListener: (_event, listener) => { options.appStateListener?.(listener); return { remove() {} }; } },
-      Linking: { openURL: async () => {} },
+      Linking: { openURL: async () => {}, openSettings: options.openSettings ?? (async () => {}) },
       Alert: { alert: (...args) => options.alert?.(...args) },
     },
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView', useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }) },
+    'react-native-gesture-handler': { GestureHandlerRootView: 'GestureRootView', GestureDetector: props => jsx('NativeGestureDetector', props),
+      usePanGesture: config => config, FlatList: props => mocks['react-native'].FlatList(props), ScrollView: 'ScrollView', GestureStateManager: { deactivate() {} } },
     'react-native-reanimated': {
       __esModule: true, default: { View: 'AnimatedView', FlatList: (props) => mocks['react-native'].FlatList(props) }, LinearTransition: transition,
       SlideInLeft: transition, SlideInRight: transition, ReduceMotion: { System: 'system' },
@@ -102,12 +113,13 @@ export function screenHarness(filename, options = {}) {
     'expo-symbols': { SymbolView: 'SymbolView' },
     'expo-splash-screen': { preventAutoHideAsync: async () => {}, hideAsync: async () => {} },
     '@expo/ui': { Host: 'NativeUIHost', Picker: Object.assign((props) => jsx('NativePicker', props), { Item: 'NativePickerItem' }) },
-    'react-native-svg': { __esModule: true, default: 'Svg', ...Object.fromEntries(['Path', 'Rect', 'Line', 'Ellipse', 'G', 'Circle'].map(name => [name, name])) },
+    'react-native-svg': { __esModule: true, default: 'Svg', ...Object.fromEntries(['Path', 'Rect', 'Line', 'Ellipse', 'G', 'Circle', 'Defs', 'LinearGradient', 'Stop'].map(name => [name, name])) },
     '@react-native-community/datetimepicker': { __esModule: true, default: 'DateTimePicker', DateTimePickerAndroid: { open: params => options.datePicker?.(params) } },
     'expo-linking': { openURL: async (url) => options.openURL?.(url) },
     // Native FlatList jumps are tested directly in chore-book tests. Other screen tests
     // inspect the requested virtual chapter instead of pretending all chapters are mounted.
     '../sharing/v2-ui/workspace-data': { useOptionalWorkspaceDisplay: () => null },
+    '@/features/sharing/v2-ui/workspace-data': { useOptionalWorkspaceDisplay: () => null },
     // Screen tests without a native queue fixture exercise the legacy receipt
     // path. Durable queue wiring has explicit runtimes in completion-intents-ui.
     '../platform/storage/completion-intents': { personalCompletionIntents: () => undefined },
@@ -124,6 +136,9 @@ export function screenHarness(filename, options = {}) {
       : ({ loading: false, error: null, refresh: options.refresh ?? (async () => {}), database: options.database,
         snapshot: options.snapshot?.(), readSnapshot: options.snapshot ?? (() => null), readError }) },
     '@/features/weather/use-municipality-suggestions': { useMunicipalitySuggestions: () => ({ status: 'idle', candidates: [] }) },
+    '../../platform/notifications/expo-local-notification-gateway': { expoLocalNotificationGateway: { requestPermission: async () => false, hasPermission: async () => false } },
+    '../../platform/appliance-care/manual-viewer': { showManualPdf: async () => { throw new Error('Native PDF viewer was not injected by this screen test'); } },
+    '../../platform/notifications/notification-settings': { openDeviceNotificationSettings: options.openSettings ?? (async () => {}) },
     '@/platform/notifications/expo-local-notification-gateway': { ExpoLocalNotificationGateway: class { async requestPermission() { return false; } } },
     '@/features/google-sync/coordinator': { syncGoogleTasksAfterLocalCompletion: () => {} },
     // Account/native boundaries have dedicated real-SQLite and identity tests.
@@ -162,6 +177,11 @@ export function screenHarness(filename, options = {}) {
         : specifier.startsWith('.') ? resolve(dirname(path), specifier) : undefined;
       if (!target) return require(specifier);
       if (!extname(target)) target = ['.ts', '.tsx', '.mjs', '.js'].map((ext) => target + ext).find(existsSync) ?? target;
+      // Metro aliases and relative imports of the same module share one boundary.
+      // Preserve a fixture's explicit native/account port when a child uses a relative path.
+      const sourceRoot = resolve(root, 'src') + '/';
+      const alias = target.startsWith(sourceRoot) ? '@/' + target.slice(sourceRoot.length).replace(/\.[cm]?[jt]sx?$/u, '') : null;
+      if (alias && Object.hasOwn(options.mocks ?? {}, alias)) return mocks[alias];
       return target.endsWith('.tsx') ? load(target) : require(target);
     };
     runInThisContext(`(function(require,module,exports){${outputText}\n})`, { filename: path })(localRequire, mod, mod.exports);
