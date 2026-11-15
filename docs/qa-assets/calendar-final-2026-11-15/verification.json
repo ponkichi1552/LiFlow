@@ -1,0 +1,101 @@
+{
+  "date": "2026-11-15",
+  "startingCommit": "2ad4dc3f48afb742d937170ff13cd3eedcf103a0",
+  "checks": {
+    "fullIos": {
+      "pass": 4471,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "logSha256": "a508349f7830468d2295a5c8552cd1a507f6f69c3ba8e34bbeb0ea37ab5a8754"
+    },
+    "fullAndroid": {
+      "pass": 4471,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "logSha256": "64321df3c19d29b678f07e9e813aae28a8e25688bb865b702dbd666c5fc5ca05"
+    },
+    "cloud": {
+      "pass": 173,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "logSha256": "785b92f3eed6c6bdd38188b7cb0bf415074ff164234cfa8679109c97431b7e5b"
+    },
+    "lastDisplayFocused": {
+      "pass": 38,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "logSha256": "7c9d5715b7d197081428d091328c9f8439e8d58b0c2ce12a21ca3eac61b04e5c"
+    }
+  },
+  "contracts": 704,
+  "requiredCloudReferences": 135,
+  "v2Scheduler": "liflow-shared-2-draft-57",
+  "lint": {
+    "passed": true,
+    "logSha256": "61a9d32eb3c4115dc12845d19f1aa33fba63f897152fa6dd51052b284bd25da3"
+  },
+  "typecheck": {
+    "passed": true,
+    "logSha256": "6cb6a659dafff15e79c4a37d4c2735755e7b002f61d2871bc0165257bb2b6598"
+  },
+  "exports": {
+    "iosSha256": "7ec042eb9c8cb0009be3f0fc4f739a07f615da33a50a445648bfe06436e624d8",
+    "androidSha256": "ad61adf8e152c6c84c66739f06608fbf32b9138923685e3f1b75ea2f44d297d6",
+    "ephemeralDeliveryEnabled": false
+  },
+  "fullTestSourceManifestSha256": "7b6ae10e5120c9831a19a26534575ff961e4ffcdd5881effe4dc2a11052622be",
+  "postFullTestImplementationChanges": [
+    {
+      "file": "src/features/calendar/planner-calendar.tsx",
+      "scope": "Three-day spacing styles and uncircled help symbol only",
+      "verifiedBy": "lastDisplayFocused, lint, typecheck, native export and simulator review"
+    }
+  ],
+  "simulatorInstallation": {
+    "bundleSha256": "7ec042eb9c8cb0009be3f0fc4f739a07f615da33a50a445648bfe06436e624d8",
+    "nativeSectionsPreserved": true,
+    "databasePreserved": true,
+    "databaseFiles": [
+      "Documents/SQLite/ExpoSQLiteStorage",
+      "Documents/SQLite/housework.db"
+    ],
+    "ephemeralDelivery": false
+  },
+  "fixtureCleanup": {
+    "notificationFixtureRestored": true,
+    "appearanceAndMonthPreferenceRestored": true,
+    "completedCalendarHelpRetained": true,
+    "calendar_events": {
+      "matchesBefore": true,
+      "beforeRows": 6,
+      "currentRows": 6
+    },
+    "calendar_event_exceptions": {
+      "matchesBefore": true,
+      "beforeRows": 0,
+      "currentRows": 0
+    },
+    "chore_completions": {
+      "matchesBefore": true,
+      "beforeRows": 1,
+      "currentRows": 1
+    }
+  },
+  "physicalDeviceCases": {
+    "candidateCount": 216,
+    "optimizationCount": 20,
+    "status": "not_run",
+    "file": "../physical-2026-11-15/cases.jsonl"
+  },
+  "limitations": [
+    "No physical-device result recorded yet",
+    "No production deployment or deletion",
+    "No paid OpenAI API run",
+    "No new Android physical-device UI run",
+    "Native automated swipes did not reliably reproduce continuous gestures"
+  ]
+}

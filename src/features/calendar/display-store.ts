@@ -1,8 +1,8 @@
-export type CalendarDetailView = 'day' | 'two' | 'list';
+export type CalendarDetailView = 'day' | 'two' | 'three' | 'week' | 'list';
 export type CalendarView = 'year' | 'month' | CalendarDetailView;
 export const CALENDAR_IDLE_RESET_MS = 60_000;
-const views: readonly CalendarView[] = ['year', 'month', 'day', 'two', 'list'];
-const details: readonly CalendarDetailView[] = ['day', 'two', 'list'];
+const views: readonly CalendarView[] = ['year', 'month', 'day', 'two', 'three', 'week', 'list'];
+const details: readonly CalendarDetailView[] = ['day', 'two', 'three', 'week', 'list'];
 
 /** Presentation lasts for this process only. Background timers are checked again on return. */
 export function createCalendarDisplayStore(now: () => number = Date.now) {

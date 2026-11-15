@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { palette, typography } from '../../components/planner-ui';
-import { addDays, formatJapaneseDate, parseLocalDate } from '../../domain/scheduling/local-date';
+import { addDays, daysBetween, formatJapaneseDate, parseLocalDate } from '../../domain/scheduling/local-date';
 import type { LocalDate } from '../../domain/shared/types';
 import { weekStart } from './layout';
 import { usePlannerBorderStyles } from '../../components/use-planner-border-styles';
@@ -9,17 +9,17 @@ import { plannerColorsForScheme } from '../../components/planner-theme';
 
 /** The date selector and timeline headings describe the same selected interval. */
 export function CalendarDateStrip({ date, today, days, onSelect }: {
-  date: LocalDate; today: LocalDate; days: 1 | 2; onSelect(date: LocalDate): void;
+  date: LocalDate; today: LocalDate; days: 1 | 2 | 3; onSelect(date: LocalDate): void;
 }) {
   const styles = usePlannerBorderStyles(baseStyles);
   const colors = plannerColorsForScheme(useColorScheme());
-  // Keep both selected dates visible together when a two-day interval crosses Saturday.
-  const first = addDays(weekStart(date), days === 2 && parseLocalDate(date).getUTCDay() === 6 ? 1 : 0);
+  // Keep the complete selected interval visible when it crosses Saturday.
+  const first = addDays(weekStart(date), Math.max(0, parseLocalDate(date).getUTCDay() + days - 7));
   const last = addDays(date, days - 1);
   return <View style={styles.week}>{Array.from({ length: 7 }, (_, index) => {
     const day = addDays(first, index); const selected = date <= day && day <= last; const holiday = japanesePublicHoliday(day);
     const current = day === today; const focused = day === date;
-    const status = [current ? '今日' : '', focused ? '選択日' : selected ? '表示中の2日目' : ''].filter(Boolean).join('、');
+    const status = [current ? '今日' : '', focused ? '選択日' : selected ? `表示中の${daysBetween(date, day) + 1}日目` : ''].filter(Boolean).join('、');
     return <Pressable key={day} accessibilityRole="button" accessibilityLabel={`${formatJapaneseDate(day, { year: true, weekday: true })}を表示${holiday ? `、祝日：${holiday}` : ''}`}
       accessibilityState={{ selected }} accessibilityValue={status ? { text: status } : undefined} onPress={() => onSelect(day)} style={({ pressed }) => [styles.cell, pressed && { opacity: .65 }]}>
       <Text style={styles.weekday}>{['日', '月', '火', '水', '木', '金', '土'][parseLocalDate(day).getUTCDay()]}</Text>

@@ -9,9 +9,9 @@ import type { ChoreDefinition } from '../../domain/chores/types';
 import { finishStartupDisplay } from '../../platform/diagnostics/startup-splash';
 import { hasChoreGuide } from './guide-content';
 import { usePlannerBorderStyles } from '../../components/use-planner-border-styles';
+import { normalizeSearchText, searchTerms } from '../../domain/search/normalized-search';
 
-export const normalizeChoreName = (value: string) => value.normalize('NFKC').toLocaleLowerCase('ja')
-  .replace(/[\u30a1-\u30f6]/g, character => String.fromCharCode(character.charCodeAt(0) - 0x60));
+export const normalizeChoreName = normalizeSearchText;
 type Row = { kind: 'category'; id: string; name: string; count: number; expanded: boolean } | { kind: 'chore'; id: string; chore: ChoreDefinition }
   | { kind: 'trivia'; id: string; count: number };
 
@@ -27,16 +27,17 @@ export function ChoreLibrary({ chores, onOpen, header, footer, onTrivia, triviaC
   const styles = usePlannerBorderStyles(baseStyles);
   const local = useChoreLibraryState(); const { query, setQuery, expanded, setExpanded } = state ?? local;
   const groups = useMemo(() => groupChores(chores.filter(chore => !chore.archived && hasChoreGuide(chore))), [chores]);
+  const index = useMemo(() => groups.flatMap(([, values]) => values).map((chore, index) => ({ chore, index, text: normalizeChoreName(chore.name) })), [groups]);
   const search = normalizeChoreName(query.trim());
   const rows = useMemo<Row[]>(() => {
     if (!search) return [...groups.flatMap(([name, chores]): Row[] => [{ kind: 'category', id: name, name, count: chores.length, expanded: expanded.has(name) },
       ...(expanded.has(name) ? chores.map(chore => ({ kind: 'chore' as const, id: chore.id, chore })) : [])]),
       ...(onTrivia ? [{ kind: 'trivia' as const, id: 'trivia', count: triviaCount }] : [])];
-    const visible = groups.flatMap(([, values]) => values);
-    const ranked = visible.map((chore, index) => ({ chore, index, match: normalizeChoreName(chore.name).indexOf(search) }));
-    const matching = ranked.filter(row => row.match >= 0).sort((a, b) => a.match - b.match || a.index - b.index);
+    const terms = searchTerms(search);
+    const matching = index.filter(row => terms.every(term => row.text.includes(term)))
+      .sort((a, b) => a.text.indexOf(terms[0]) - b.text.indexOf(terms[0]) || a.index - b.index);
     return matching.map(({ chore }) => ({ kind: 'chore' as const, id: chore.id, chore }));
-  }, [expanded, groups, onTrivia, search, triviaCount]);
+  }, [expanded, groups, index, onTrivia, search, triviaCount]);
   return <View style={styles.safe} onLayout={finishStartupDisplay}>
     <View style={styles.header}>{header}
       <FormTextInput accessibilityLabel="家事名を検索" value={query} onChangeText={setQuery} placeholder="家事名で検索" autoCapitalize="none" clearButtonMode="while-editing" returnKeyType="search" style={styles.search} />

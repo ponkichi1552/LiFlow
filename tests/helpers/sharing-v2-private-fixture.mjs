@@ -5,6 +5,18 @@ import { createV2PrivateTaskSource } from '../../src/features/sharing/v2-ui/priv
 const repository = await import('../../src/platform/storage/repository.ts');
 
 export const privateToday = localDateFromDate(new Date());
+/** Private UI scenarios need a usable same-day window regardless of the test runner's wall clock. */
+export function pinPrivateFixtureTime(t) {
+  const RealDate = Date, realNow = RealDate.now.bind(RealDate);
+  const offset = RealDate.parse(`${privateToday}T12:00:00+09:00`) - realNow();
+  function FixtureDate(...args) {
+    if (!new.target) return new RealDate(realNow() + offset).toString();
+    return Reflect.construct(RealDate, args.length ? args : [realNow() + offset], new.target);
+  }
+  // Keep elapsed wall time for backoff, queues and observation deadlines.
+  t.mock.method(globalThis, 'Date', FixtureDate);
+  t.mock.method(globalThis.Date, 'now', () => realNow() + offset);
+}
 export const privateRange = { from: addDays(privateToday, -14), through: addDays(privateToday, 14) };
 export async function privateFixture({ commonHistory = false } = {}) {
   const f = createDatabase(); await repository.initializeLocalDatabase(f.database);

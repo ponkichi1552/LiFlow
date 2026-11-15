@@ -1,5 +1,5 @@
 {
-  "version": "liflow-shared-2-draft-56",
+  "version": "liflow-shared-2-draft-57",
   "timeZoneVersion": "2026e",
   "sourceFiles": [
     "src/features/sharing/v2/model.ts",
@@ -87,8 +87,11 @@
     "src/features/appliance-care/manual-source.ts",
     "src/features/sharing/v2/calendar-state.ts",
     "src/features/sharing/v2/calendar-actions.ts",
+    "src/features/sharing/v2/calendar-future-actions.ts",
     "src/domain/calendar/events.ts",
     "src/domain/calendar/recurrence.ts",
+    "src/domain/calendar/exception-slots.ts",
+    "src/domain/calendar/future-series.ts",
     "src/domain/chores/schedule-defaults.ts",
     "src/domain/chores/catalog.ts",
     "src/features/appliance-care/manual-document.ts",
@@ -135,5 +138,5 @@
     "src/domain/chores/calendar-timing.ts",
     "src/domain/chores/personal-schedule.ts"
   ],
-  "sourceSha256": "e9589db27e90d1e634247a13831ce26c85988cedf37720b61c8c515627c8d744"
+  "sourceSha256": "ea23558b3417910fd9f82187f3a2ff007a7af75364ae07032b338e7471b8ebb1"
 }

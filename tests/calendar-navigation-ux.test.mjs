@@ -53,11 +53,11 @@ for (const platform of ['ios', 'android']) {
     strip().props.onTouchStart();
     assert.equal(strip().props.onMoveShouldSetPanResponderCapture(null, swipe), true);
     strip().props.onPanResponderRelease(null, swipe); screen.render(); assert.equal(screen.button('カレンダーの表示を選択').props.accessibilityValue.text, '2日');
-    strip().props.onPanResponderRelease(null, swipe); screen.render(); assert.equal(screen.button('カレンダーの表示を選択').props.accessibilityValue.text, 'リスト');
+    for (const label of ['3日', '7日', 'リスト']) { strip().props.onPanResponderRelease(null, swipe); screen.render(); assert.equal(screen.button('カレンダーの表示を選択').props.accessibilityValue.text, label); }
     assert.deepEqual(selected, [], 'a view choice does not silently select a different civil date');
   });
-  test(`${platform} native horizontal swipes page one or two days once and ignore cancelled diagonal and multi-touch gestures`, async () => {
-    for (const [mode, next] of [['1日表示', '2026-12-11'], ['2日表示', '2026-12-12']]) {
+  test(`${platform} native horizontal swipes shift one day in each detailed view and ignore cancelled diagonal and multi-touch gestures`, async () => {
+    for (const [mode, next] of [['1日表示', '2026-12-11'], ['2日表示', '2026-12-11'], ['3日表示', '2026-12-11']]) {
       const selected = []; const screen = make({ onSelectDate: date => selected.push(date) });
       try {
         await selectCalendarView(screen, mode);

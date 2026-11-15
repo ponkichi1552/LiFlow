@@ -7,6 +7,7 @@ import { v2WallTimeCandidates } from '../sharing/v2/local-time.ts';
 import { moveCalendarStart } from './event-editing.ts';
 import { newEventDraft } from './events.ts';
 import type { CalendarEvent, CalendarOccurrence, EventDraft } from './events.ts';
+import { calendarFutureBase } from '../../domain/calendar/future-series.ts';
 
 export const CALENDAR_DRAG_HOLD_MS = 250;
 export type CalendarDropTarget = { day: LocalDate; minute: number };
@@ -90,4 +91,12 @@ export function calendarSeriesMovedDraft(draft: CalendarEditorDraft, series: Cal
   if (rule?.unit === 'month' && rule.on === 'weekday') value.customRecurrence = { ...rule, weekday: new Date(`${value.startDate}T00:00:00Z`).getUTCDay(),
     ordinal: rule.ordinal === -1 ? -1 : Math.min(5, Math.ceil(Number(value.startDate.slice(-2)) / 7)) as 1 | 2 | 3 | 4 | 5 };
   return { ...draft, scope: 'series' as const, anchorDate: null, exceptionRevision: 0, value };
+}
+
+/** Use the selected original slot as the future series origin, retaining individual edits. */
+export function calendarFutureMovedDraft(draft: CalendarEditorDraft, series: CalendarEvent, target: CalendarDropTarget, displayTimeZone: string): CalendarEditorDraft {
+  if (!draft.anchorDate) throw new Error('変更する繰り返しの回を選び直してください。');
+  const base = { ...calendarFutureBase(series, draft.anchorDate), id: series.id, revision: series.revision };
+  const moved = calendarSeriesMovedDraft(draft, base, target, displayTimeZone);
+  return { ...moved, scope: 'future', anchorDate: draft.anchorDate, exceptionRevision: draft.exceptionRevision };
 }

@@ -18,8 +18,8 @@ import { createV2HistoryRetentionRuntime } from '../src/features/sharing/v2/hist
 import { sharedRosterDigest } from '../src/features/sharing/roster.ts';
 import { readFileSync } from 'node:fs';
 import { loadNativeModule } from './helpers/native-module.mjs';
-async function prepared(t, anchorDate = '2026-09-01', manualCertificate = true, format = 2) {
-  let clock = new Date('2026-09-02T01:00:00Z'); const f = await fixture({ clock: () => clock });
+async function prepared(t, anchorDate = '2026-09-01', manualCertificate = true, format = 2, schedulerVersion) {
+  let clock = new Date('2026-09-02T01:00:00Z'); const f = await fixture({ clock: () => clock, schedulerVersion });
   const owner = await f.device(); const member = await f.device('member', f.member); t.after(() => { owner.connection.close(); member.connection.close(); });
   let uploadSequence = 0; const delivered = new Map(); const receipts = new Map();
   async function deliver(device, input) {
@@ -251,4 +251,12 @@ test('audit100 shared history certificates and packed authority positions remain
 test('audit100 legacy format-one signed history checkpoints still verify and restore without rewriting their certificate',async t=>{
  const h=await prepared(t,'2026-09-01',true,1);assert.equal(h.plan.body.format,1);assert.deepEqual(assertV2RetentionBase(h.replica,h.witness,h.archive),h.plan.body);
  const assessment=buildV2CommonPlan({replica:h.replica,assessment:(await h.owner.repository.readState()).assessment,archive:h.archive,receipts:h.receipts},{from:'2026-11-01',through:'2026-11-05',asOfDate:'2026-11-01'});assert.ok(assessment.initialized);
+});
+
+
+test('draft 56 signed retention histories remain accepted after the future calendar command update', async t => {
+  const h = await prepared(t, '2026-09-01', true, 2, 'liflow-shared-2-draft-56');
+  assert.equal(h.archive.at(-1).body.schedulerVersion, 'liflow-shared-2-draft-56');
+  assert.deepEqual((await h.owner.repository.readState()).assessment.rejected, []);
+  assert.ok(h.witness.proposal); assert.equal(h.witness.approvals.length, 2);
 });

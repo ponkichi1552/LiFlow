@@ -1,0 +1,119 @@
+import type { LocalDate } from '../../domain/shared/types';
+import type { EventDraft } from './events';
+
+export interface TitleDateTime { date?: LocalDate; minute?: number; endMinute?: number; endDayOffset?: number; allDay?: boolean }
+const dayMs = 86_400_000;
+const iso = (stamp: number) => new Date(stamp).toISOString().slice(0, 10) as LocalDate;
+const stamp = (date: LocalDate) => Date.parse(`${date}T00:00:00Z`);
+const add = (date: LocalDate, days: number) => iso(stamp(date) + days * dayMs);
+const civil = (year: number, month: number, day: number): LocalDate | null => {
+  if (year < 1000 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const value = new Date(Date.UTC(year, month - 1, day));
+  return value.getUTCFullYear() === year && value.getUTCMonth() === month - 1 && value.getUTCDate() === day ? iso(value.getTime()) : null;
+};
+function shiftMonths(date: LocalDate, months: number, explicitDay?: number) {
+  const value = new Date(stamp(date)); value.setUTCDate(1); value.setUTCMonth(value.getUTCMonth() + months);
+  const year = value.getUTCFullYear(), month = value.getUTCMonth() + 1;
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return civil(year, month, explicitDay ?? Math.min(Number(date.slice(-2)), last));
+}
+function numerals(text: string) {
+  const digits: Record<string, number> = { '〇': 0, '零': 0, '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9 };
+  return text.normalize('NFKC').replace(/[〇零一二三四五六七八九十百千]+/g, token => {
+    if (!/[十百千]/.test(token)) return [...token].map(char => digits[char]).join('');
+    let total = 0, digit = 0;
+    for (const char of token) { if (char in digits) digit = digits[char]; else { total += (digit || 1) * ({ '十': 10, '百': 100, '千': 1000 }[char] ?? 0); digit = 0; } }
+    return String(total + digit);
+  });
+}
+/** A bounded Japanese date grammar. Ambiguous/invalid input never guesses a date. */
+export function parseTitleDateTime(title: string, today: LocalDate, selectedDate: LocalDate): TitleDateTime | null {
+  const text = numerals(title).replace(/https?:\/\/\S+/g, value => ' '.repeat(value.length))
+    .replace(/(?<![\d/:.\-])(\d{1,2})\s*([〜~～–-])\s*(?=\d{1,2}(?:時|:\d{2}))/g, '$1時$2');
+  if (/毎日|毎週|毎月|毎年|隔週|(?:来月|再来月|来年|再来年)(?:の)?(?:初め|頭|上旬|中旬|下旬)/.test(text)) return null;
+  const used: [number, number][] = [], dates: LocalDate[] = []; let invalid = false;
+  const overlaps = (start: number, end: number) => used.some(([a, b]) => start < b && end > a);
+  const collect = (pattern: RegExp, resolve: (match: RegExpMatchArray) => LocalDate | null) => {
+    for (const match of text.matchAll(pattern)) {
+      const start = match.index!, end = start + match[0].length; if (overlaps(start, end)) continue;
+      used.push([start, end]); const date = resolve(match); if (!date) invalid = true; else dates.push(date);
+    }
+  };
+  const monday = add(today, -((new Date(stamp(today)).getUTCDay() + 6) % 7));
+  const weekday = (char: string) => '月火水木金土日'.indexOf(char);
+  const weekdaySuffix = '(?:曜日?|(?=\\s|\\d|に|から|$))';
+  collect(new RegExp(`(今週|来週|再来週)(?:の)?([月火水木金土日])${weekdaySuffix}`, 'g'), m => add(monday, ({ 今週: 0, 来週: 7, 再来週: 14 }[m[1]] ?? 0) + weekday(m[2])));
+  collect(new RegExp(`(\\d+)週間後(?:の)?([月火水木金土日])${weekdaySuffix}`, 'g'), m => Number(m[1]) <= 5200 ? add(monday, Number(m[1]) * 7 + weekday(m[2])) : null);
+  collect(/(今年|来年|再来年)(?:の)?(?:年末|末)/g, m => civil(Number(today.slice(0, 4)) + ({ 今年: 0, 来年: 1, 再来年: 2 }[m[1]] ?? 0), 12, 31));
+  collect(/(今年|来年|再来年)(?:の)?(\d{1,2})月(\d{1,2})日/g, m => civil(Number(today.slice(0, 4)) + ({ 今年: 0, 来年: 1, 再来年: 2 }[m[1]] ?? 0), Number(m[2]), Number(m[3])));
+  collect(/(今月|来月|再来月)(?:の)?末(?:日)?/g, m => { const shifted = shiftMonths(today, ({ 今月: 0, 来月: 1, 再来月: 2 }[m[1]] ?? 0)); return shifted ? iso(Date.UTC(Number(shifted.slice(0, 4)), Number(shifted.slice(5, 7)), 0)) : null; });
+  collect(/(?<!\d)(?:(\d{4})年)?(\d{1,2})月(\d{1,2})日/g, m => civil(Number(m[1] ?? today.slice(0, 4)), Number(m[2]), Number(m[3])));
+  collect(/(?<![\d/.])(?:(\d{4})\/)?(\d{1,2})\/(\d{1,2})(?![\d/])/g, m => civil(Number(m[1] ?? today.slice(0, 4)), Number(m[2]), Number(m[3])));
+  collect(/(来月|再来月)(?:の)?(?:(\d{1,2})日)?/g, m => shiftMonths(today, m[1] === '来月' ? 1 : 2, m[2] === undefined ? undefined : Number(m[2])));
+  collect(/来年|再来年/g, m => shiftMonths(today, m[0] === '来年' ? 12 : 24));
+  collect(/(?<!\d)(\d+)(日|週間|週|か月|ヶ月|ケ月|月|年)後/g, m => {
+    const n = Number(m[1]); if (!Number.isSafeInteger(n) || n > 36500) return null;
+    if (m[2] === '日') return add(today, n);
+    if (m[2] === '週間' || m[2] === '週') return n <= 5200 ? add(today, n * 7) : null;
+    return shiftMonths(today, n * (m[2] === '年' ? 12 : 1));
+  });
+  collect(/明後日|あさって|今日|明日|あした|あす|昨日|今週|来週|再来週/g, m => add(today, ({ 明後日: 2, あさって: 2, 今日: 0, 明日: 1, あした: 1, あす: 1, 昨日: -1, 今週: 0, 来週: 7, 再来週: 14 }[m[0]] ?? 0)));
+  collect(/(次の)?([月火水木金土日])曜日?/g, m => {
+    const delta = (weekday(m[2]) - ((new Date(stamp(today)).getUTCDay() + 6) % 7) + 7) % 7;
+    return add(today, delta || (m[1] ? 7 : 0));
+  });
+  if (invalid || new Set(dates).size > 1 || /(?:\d+時(?:半|\d+分)?)(?:間|台|前|以降|より前)/.test(text)) return null;
+  const clocks: { minute: number; nextDay: boolean; from: number; through: number }[] = [];
+  const pattern = /(?<!\d)(?:(午前|午後|朝|昼|夕方|夜|深夜)\s*)?(\d{1,2})(?::(\d{2})|時(?:(\d{1,2})分|(\d{2})(?!分)|半)?)(?!\d|間|台)/g;
+  for (const m of text.matchAll(pattern)) {
+    const minutes = m[3] !== undefined ? Number(m[3]) : m[4] !== undefined ? Number(m[4]) : m[5] !== undefined ? Number(m[5]) : m[0].endsWith('半') ? 30 : 0;
+    let hour = Number(m[2]);
+    if (minutes > 59 || hour > 24 || hour === 24 && (minutes !== 0 || m[1])) return null;
+    if (m[1]) {
+      if (hour > 12) return null;
+      if (m[1] === '午前' || m[1] === '深夜') hour %= 12;
+      else if (m[1] === '午後' || m[1] === '夕方' || m[1] === '夜') hour = hour % 12 + (m[1] === '夜' && (hour === 0 || hour === 12) ? 0 : 12);
+      else if (m[1] === '昼' && hour < 11) hour = hour % 12 + 12;
+      else if (m[1] === '朝' && hour === 12) return null;
+    }
+    clocks.push({ minute: hour % 24 * 60 + minutes, nextDay: hour === 24, from: m.index!, through: m.index! + m[0].length });
+  }
+  if (clocks.length === 1 && /\d+\s*(?:から|[〜~～–-])\s*$/.test(text.slice(0, clocks[0].from))) return null;
+  if (clocks.length > 2 || clocks.length === 2 && !/^(?:から|[〜~～–-])$/.test(text.slice(clocks[0].through, clocks[1].from).trim())) return null;
+  const allDay = /終日/.test(text); if (allDay && clocks.length) return null;
+  if (!dates.length && !clocks.length && !allDay) return null;
+  const result: TitleDateTime = { ...(dates.length ? { date: dates[0] } : {}), ...(allDay ? { allDay: true } : {}) };
+  if (clocks.length) {
+    result.minute = clocks[0].minute; result.allDay = false;
+    if (clocks[0].nextDay) result.date = add(result.date ?? selectedDate, 1);
+    if (clocks.length === 2) {
+      if (clocks[0].minute === clocks[1].minute && !clocks[1].nextDay) return null;
+      result.endMinute = clocks[1].minute;
+      result.endDayOffset = clocks[1].nextDay || clocks[1].minute < clocks[0].minute ? 1 : 0;
+    }
+  }
+  return result;
+}
+
+type ClockField = 'startDate' | 'endDate' | 'startMinute' | 'endMinute' | 'allDay';
+/** Keep the title verbatim, restore removed automatic fields, and honor manual fields. */
+export function createTitleDateTimeInput(initial: EventDraft, today: LocalDate) {
+  const locked = new Set<ClockField>(); let applied = false;
+  const duration = Math.max(1, (stamp(initial.endDate) - stamp(initial.startDate)) / 60000 + initial.endMinute - initial.startMinute);
+  return {
+    manual(field: ClockField) { locked.add(field); },
+    change(current: EventDraft, title: string, enabled: boolean): EventDraft {
+      if (!enabled) return { ...current, title };
+      const parsed = parseTitleDateTime(title, today, locked.has('startDate') ? current.startDate : initial.startDate);
+      if (!parsed && !applied) return { ...current, title };
+      applied = Boolean(parsed);
+      const startDate = locked.has('startDate') ? current.startDate : parsed?.date ?? initial.startDate;
+      const startMinute = locked.has('startMinute') ? current.startMinute : parsed?.minute ?? initial.startMinute;
+      const end = stamp(startDate) + startMinute * 60000 + duration * 60000;
+      return { ...current, title, startDate, startMinute,
+        endDate: locked.has('endDate') ? current.endDate : parsed?.endMinute !== undefined ? add(startDate, parsed.endDayOffset ?? 0) : iso(end),
+        endMinute: locked.has('endMinute') ? current.endMinute : parsed?.endMinute ?? new Date(end).getUTCHours() * 60 + new Date(end).getUTCMinutes(),
+        allDay: locked.has('allDay') ? current.allDay : parsed?.allDay ?? initial.allDay };
+    },
+  };
+}

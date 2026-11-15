@@ -14,7 +14,7 @@ import type { V2RetentionBody } from './history-retention-schema';
 import { choreHistoryCutoff } from '../../../domain/chores/history-retention.ts';
 import { isRetiredBuiltInChore } from '../../../domain/chores/catalog.ts';
 import { sharedLocalDate } from '../group-clock.ts';
-import { V2_SCHEDULER_VERSION } from './payload-schema.ts';
+import { supportsHistoryRetention } from './payload-schema.ts';
 
 type Repository = ReturnType<typeof createV2EventRepository>;
 type State = Awaited<ReturnType<Repository['readState']>>;
@@ -36,7 +36,7 @@ export function createV2HistoryRetentionRuntime(input: {
   const cleanState = async () => {
     remaining(); await input.assertAccess(); const state = await input.repository.readState();
     const epoch = state.archive.at(-1)!;
-    if (epoch.body.schedulerVersion !== V2_SCHEDULER_VERSION || state.replica.pendingOperationIds.length || state.assessment.pendingOutboxIds.length
+    if (!supportsHistoryRetention(epoch.body.schedulerVersion) || state.replica.pendingOperationIds.length || state.assessment.pendingOutboxIds.length
       || state.assessment.provisionalOperationIds.length || state.replica.operations.some(op => op.schemaVersion === 2 && !state.receipts.has(op.operationId))) return null;
     const head = await input.readHead(); remaining();
     return head.rotationRequired || head.sequence !== head.localSequence || head.rosterDigest !== sharedRosterDigest(epoch) ? null : { state, head, epoch };

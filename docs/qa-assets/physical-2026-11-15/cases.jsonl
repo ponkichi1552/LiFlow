@@ -1,0 +1,216 @@
+{"id":"E01","category":"E：環境と証拠","priority":"P0","conditionAndAction":"実機のインストール版を照合","expected":"Gitコミット、バンドル、接続先が一致し、古いコードを検査しない","status":"not_run","evidence":[]}
+{"id":"E02","category":"E：環境と証拠","priority":"P0","conditionAndAction":"実機・相手端末の保存状態を退避","expected":"元データと試験データを識別でき、復元方法を確認できる","status":"not_run","evidence":[]}
+{"id":"E03","category":"E：環境と証拠","priority":"P0","conditionAndAction":"検証専用A・Bとグループを確認","expected":"普段のアカウント・グループへ誤送信しない","status":"not_run","evidence":[]}
+{"id":"E04","category":"E：環境と証拠","priority":"P0","conditionAndAction":"Google OAuthの対象と認可を確認","expected":"本人が選んだアカウント・必要な権限で接続する","status":"not_run","evidence":[]}
+{"id":"E05","category":"E：環境と証拠","priority":"P0","conditionAndAction":"Rules・API・削除ワーカーを読み取り照合","expected":"配備済みとローカル実装を混同しない","status":"not_run","evidence":[]}
+{"id":"E06","category":"E：環境と証拠","priority":"P0","conditionAndAction":"一時配送フラグと準備完了を確認","expected":"OFFの環境で削除済みと誤判定しない","status":"not_run","evidence":[]}
+{"id":"E07","category":"E：環境と証拠","priority":"P1","conditionAndAction":"時刻・地域・OS・通知許可を記録","expected":"予定・通知・実施日の比較基準がそろう","status":"not_run","evidence":[]}
+{"id":"E08","category":"E：環境と証拠","priority":"P1","conditionAndAction":"計測自体の無操作時負荷を測る","expected":"計測による追加通信・待機をアプリの不具合と混同しない","status":"not_run","evidence":[]}
+{"id":"L01","category":"L：初回利用と再開","priority":"P1","conditionAndAction":"新規の検証用データで初回設定","expected":"必須項目だけで完了でき、候補選択が保存される","status":"not_run","evidence":[]}
+{"id":"L02","category":"L：初回利用と再開","priority":"P1","conditionAndAction":"任意の天気・収集日・前回実施を飛ばす","expected":"未設定を勝手な値へ置き換えず利用を開始できる","status":"not_run","evidence":[]}
+{"id":"L03","category":"L：初回利用と再開","priority":"P0","conditionAndAction":"初回設定の途中で終了・再開","expected":"完了前の状態を完了済みと誤認せず、元データを失わない","status":"not_run","evidence":[]}
+{"id":"L04","category":"L：初回利用と再開","priority":"P1","conditionAndAction":"Googleなしで起動・家事を完了","expected":"ローカル機能が認証待ちで停止しない","status":"not_run","evidence":[]}
+{"id":"L05","category":"L：初回利用と再開","priority":"P1","conditionAndAction":"家事説明を開き上下へ繰り返し移動","expected":"上へ戻るスクロールが引っかからない","status":"not_run","evidence":[]}
+{"id":"L06","category":"L：初回利用と再開","priority":"P1","conditionAndAction":"家事一覧を展開して別タブから戻る","expected":"起動中は必要な位置・展開を保つ","status":"not_run","evidence":[]}
+{"id":"L07","category":"L：初回利用と再開","priority":"P1","conditionAndAction":"アプリを完全終了して再開","expected":"一時的な一覧展開やカレンダー形式が初期状態へ戻る","status":"not_run","evidence":[]}
+{"id":"L08","category":"L：初回利用と再開","priority":"P1","conditionAndAction":"カレンダーを離れ1分未満で戻る","expected":"選択日・形式・時刻位置を保つ","status":"not_run","evidence":[]}
+{"id":"L09","category":"L：初回利用と再開","priority":"P1","conditionAndAction":"カレンダーを離れ1分以上で戻る","expected":"既定の月表示に戻り、保存した予定を変更しない","status":"not_run","evidence":[]}
+{"id":"L10","category":"L：初回利用と再開","priority":"P1","conditionAndAction":"カレンダーを初めて開く／再度開く","expected":"初回だけ実画面のヘルプ、以後は「？」から再表示","status":"not_run","evidence":[]}
+{"id":"L11","category":"L：初回利用と再開","priority":"P1","conditionAndAction":"ヘルプを途中で閉じる・完了する","expected":"選択日・形式・位置・予定が変化しない","status":"not_run","evidence":[]}
+{"id":"L12","category":"L：初回利用と再開","priority":"P0","conditionAndAction":"端末再起動後にオフラインで開く","expected":"保存済み家事・予定・履歴を表示できる","status":"not_run","evidence":[]}
+{"id":"A01","category":"A：認証とアカウント","priority":"P0","conditionAndAction":"未接続→AでGoogle接続","expected":"選んだアカウントに一度で接続できる","status":"not_run","evidence":[]}
+{"id":"A02","category":"A：認証とアカウント","priority":"P0","conditionAndAction":"接続後に各同期をON／OFF","expected":"不必要なGoogleログインを毎回要求しない","status":"not_run","evidence":[]}
+{"id":"A03","category":"A：認証とアカウント","priority":"P1","conditionAndAction":"接続画面でキャンセル","expected":"未接続のまま操作へ戻り、保存済み内容を消さない","status":"not_run","evidence":[]}
+{"id":"A04","category":"A：認証とアカウント","priority":"P0","conditionAndAction":"Aをログアウトして再ログイン","expected":"正常に接続し直し、重複予定・Tasksを作らない","status":"not_run","evidence":[]}
+{"id":"A05","category":"A：認証とアカウント","priority":"P0","conditionAndAction":"A→Bへ変更","expected":"AのID・トークン・送信待ちをBへ誤適用しない","status":"not_run","evidence":[]}
+{"id":"A06","category":"A：認証とアカウント","priority":"P0","conditionAndAction":"B→Aへ戻す","expected":"Aの対応関係を正しく再利用し、Bのデータを混ぜない","status":"not_run","evidence":[]}
+{"id":"A07","category":"A：認証とアカウント","priority":"P0","conditionAndAction":"Google側で認可を取り消して操作","expected":"再認証へ復帰でき、永遠に同じエラーを繰り返さない","status":"not_run","evidence":[]}
+{"id":"A08","category":"A：認証とアカウント","priority":"P0","conditionAndAction":"一部の権限だけ未許可","expected":"許可済み機能を使え、未許可分を成功扱いしない","status":"not_run","evidence":[]}
+{"id":"A09","category":"A：認証とアカウント","priority":"P0","conditionAndAction":"取得中にログアウト","expected":"古い応答を新しい表示・保存先へ適用しない","status":"not_run","evidence":[]}
+{"id":"A10","category":"A：認証とアカウント","priority":"P0","conditionAndAction":"送信中にアカウント変更","expected":"新アカウントへ旧アカウントの本文を送らない","status":"not_run","evidence":[]}
+{"id":"A11","category":"A：認証とアカウント","priority":"P1","conditionAndAction":"一時的な認証失敗→回復","expected":"入力と送信待ちを保持し、必要分だけ再試行する","status":"not_run","evidence":[]}
+{"id":"A12","category":"A：認証とアカウント","priority":"P0","conditionAndAction":"同じ本人の別端末を承認","expected":"承認後だけ本人専用情報を受信する","status":"not_run","evidence":[]}
+{"id":"A13","category":"A：認証とアカウント","priority":"P0","conditionAndAction":"未承認端末から取得・編集","expected":"本人用・共有用の本文を不正取得できない","status":"not_run","evidence":[]}
+{"id":"A14","category":"A：認証とアカウント","priority":"P0","conditionAndAction":"承認端末を失効","expected":"失効後の新規取得・更新を止める","status":"not_run","evidence":[]}
+{"id":"A15","category":"A：認証とアカウント","priority":"P1","conditionAndAction":"ログアウト・再開・別タブ移動","expected":"表示名・接続状態と実際の操作先が一致する","status":"not_run","evidence":[]}
+{"id":"A16","category":"A：認証とアカウント","priority":"P0","conditionAndAction":"複数の接続操作を連続実行","expected":"認証・同期が重複起動せず最後の操作と一致する","status":"not_run","evidence":[]}
+{"id":"G01","category":"G：Google Calendar","priority":"P0","conditionAndAction":"Google側で単発予定を作る","expected":"LiFlowの該当日・名前・時刻へ反映する","status":"not_run","evidence":[]}
+{"id":"G02","category":"G：Google Calendar","priority":"P0","conditionAndAction":"Google側で日時・名前・メモを変更","expected":"対応する予定だけ更新し、重複を作らない","status":"not_run","evidence":[]}
+{"id":"G03","category":"G：Google Calendar","priority":"P0","conditionAndAction":"Google側で予定を削除","expected":"LiFlowも削除を取り込み、ローカル予定を巻き込まない","status":"not_run","evidence":[]}
+{"id":"G04","category":"G：Google Calendar","priority":"P0","conditionAndAction":"LiFlowからGoogle送信対象の予定を保存","expected":"Googleの対象カレンダーへ一度だけ届く","status":"not_run","evidence":[]}
+{"id":"G05","category":"G：Google Calendar","priority":"P0","conditionAndAction":"LiFlowでその予定を編集・削除","expected":"元のGoogle予定との対応を保つ","status":"not_run","evidence":[]}
+{"id":"G06","category":"G：Google Calendar","priority":"P0","conditionAndAction":"読み取り専用カレンダーの予定を開く","expected":"編集不可が分かり、不正な更新を送らない","status":"not_run","evidence":[]}
+{"id":"G07","category":"G：Google Calendar","priority":"P1","conditionAndAction":"別カレンダーへ移した予定を取得","expected":"消失・二重表示・別予定への誤リンクを起こさない","status":"not_run","evidence":[]}
+{"id":"G08","category":"G：Google Calendar","priority":"P0","conditionAndAction":"繰り返しと個別変更・取消を取り込む","expected":"実際の回と元の基準日、取消状態を維持する","status":"not_run","evidence":[]}
+{"id":"G09","category":"G：Google Calendar","priority":"P1","conditionAndAction":"終日・複数日・日跨ぎを取り込む","expected":"終了日の排他規則と各日の表示が一致する","status":"not_run","evidence":[]}
+{"id":"G10","category":"G：Google Calendar","priority":"P1","conditionAndAction":"異なる地域・DSTの予定を取り込む","expected":"表示地域へ正しく変換し日時をずらさない","status":"not_run","evidence":[]}
+{"id":"G11","category":"G：Google Calendar","priority":"P1","conditionAndAction":"白・黒・淡い分類色で明暗切替","expected":"文字が見え、Google保存色を勝手に変更しない","status":"not_run","evidence":[]}
+{"id":"G12","category":"G：Google Calendar","priority":"P1","conditionAndAction":"表示外の日へ移動","expected":"必要範囲を追加取得し、既取得分を毎回全取得しない","status":"not_run","evidence":[]}
+{"id":"G13","category":"G：Google Calendar","priority":"P1","conditionAndAction":"Google変更後に同じ範囲へ戻る","expected":"再起動を要求せず差分を確認できる","status":"not_run","evidence":[]}
+{"id":"G14","category":"G：Google Calendar","priority":"P1","conditionAndAction":"30秒以内に同じ画面へ連続復帰","expected":"成功キャッシュを使い、取得要求を重複させない","status":"not_run","evidence":[]}
+{"id":"G15","category":"G：Google Calendar","priority":"P0","conditionAndAction":"同期中にLiFlowでも編集","expected":"新しいローカル変更を古い取得結果で失わない","status":"not_run","evidence":[]}
+{"id":"G16","category":"G：Google Calendar","priority":"P0","conditionAndAction":"通信切断・応答紛失後に再送","expected":"同じ予定を二重作成しない","status":"not_run","evidence":[]}
+{"id":"G17","category":"G：Google Calendar","priority":"P1","conditionAndAction":"差分トークン失効の応答を再現","expected":"必要な再取得へ回復し、ローカル専用予定を消さない","status":"not_run","evidence":[]}
+{"id":"G18","category":"G：Google Calendar","priority":"P1","conditionAndAction":"Googleの制限・一時エラー","expected":"バックオフし、連続再認証や無制限再送をしない","status":"not_run","evidence":[]}
+{"id":"G19","category":"G：Google Calendar","priority":"P0","conditionAndAction":"個人予定同期をOFFにして変更","expected":"対象外の連携へ送らず、既存の共有機能を止めない","status":"not_run","evidence":[]}
+{"id":"G20","category":"G：Google Calendar","priority":"P0","conditionAndAction":"共有予定のGoogle表示をON","expected":"自分のGoogleへ表示し、Google編集をグループへ逆流させない","status":"not_run","evidence":[]}
+{"id":"G21","category":"G：Google Calendar","priority":"P0","conditionAndAction":"日本の祝日・誕生日・Google祝日を併用","expected":"表示が重複せず、同梱祝日をGoogleへ書き出さない","status":"not_run","evidence":[]}
+{"id":"G22","category":"G：Google Calendar","priority":"P1","conditionAndAction":"全機能ONで再起動・明示同期","expected":"同じ取得・認証・送信が連携数だけ重複しない","status":"not_run","evidence":[]}
+{"id":"T01","category":"T：Google Tasks","priority":"P0","conditionAndAction":"個人家事のTasks連携をON","expected":"対象家事だけを正しいリストへ同期する","status":"not_run","evidence":[]}
+{"id":"T02","category":"T：Google Tasks","priority":"P0","conditionAndAction":"ホームで完了・取り消し","expected":"対応Tasksと実施履歴が契約どおり一致する","status":"not_run","evidence":[]}
+{"id":"T03","category":"T：Google Tasks","priority":"P0","conditionAndAction":"Google Tasks側で完了","expected":"対応する家事の実施へ反映し、別の回へ適用しない","status":"not_run","evidence":[]}
+{"id":"T04","category":"T：Google Tasks","priority":"P1","conditionAndAction":"Tasks側の名前・期限・削除を変更","expected":"定義された取込規則で処理し、同名別件を誤リンクしない","status":"not_run","evidence":[]}
+{"id":"T05","category":"T：Google Tasks","priority":"P0","conditionAndAction":"共有家事のTasks連携をON","expected":"本人の対象分だけ作り、他人分のリストへ送らない","status":"not_run","evidence":[]}
+{"id":"T06","category":"T：Google Tasks","priority":"P0","conditionAndAction":"同じTasksを2端末が同時同期","expected":"claim・対応IDで二重作成を防ぐ","status":"not_run","evidence":[]}
+{"id":"T07","category":"T：Google Tasks","priority":"P0","conditionAndAction":"作成応答だけ紛失して再試行","expected":"同じTasksを増殖させない","status":"not_run","evidence":[]}
+{"id":"T08","category":"T：Google Tasks","priority":"P0","conditionAndAction":"A→Bへアカウント変更","expected":"旧リスト・旧TaskIDを新アカウントで更新しない","status":"not_run","evidence":[]}
+{"id":"T09","category":"T：Google Tasks","priority":"P1","conditionAndAction":"同期OFF・再ON","expected":"過去の対応関係を壊さず復帰する","status":"not_run","evidence":[]}
+{"id":"T10","category":"T：Google Tasks","priority":"P1","conditionAndAction":"認可取消・再ログイン","expected":"手順を繰り返さず接続を回復できる","status":"not_run","evidence":[]}
+{"id":"T11","category":"T：Google Tasks","priority":"P1","conditionAndAction":"空リスト・削除済みリスト","expected":"復旧でき、不正な成功状態を表示しない","status":"not_run","evidence":[]}
+{"id":"T12","category":"T：Google Tasks","priority":"P0","conditionAndAction":"受信したTasks変更で再計算","expected":"変更を一度反映し、受信を理由に無限再同期しない","status":"not_run","evidence":[]}
+{"id":"S01","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"専用グループを作成","expected":"個人予定・履歴を無断で共有しない","status":"not_run","evidence":[]}
+{"id":"S02","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"Bが申請しAが確認番号を照合・承認","expected":"正しい端末だけ参加する","status":"not_run","evidence":[]}
+{"id":"S03","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"未承認・期限切れ招待で操作","expected":"本文を取得・編集できない","status":"not_run","evidence":[]}
+{"id":"S04","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"共有家事を追加・設定変更","expected":"A・Bで家事ID・周期・担当・予定が一致する","status":"not_run","evidence":[]}
+{"id":"S05","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"誰か1人／各自／指定／交代を切替","expected":"対象外メンバーの回を作らず担当が一致する","status":"not_run","evidence":[]}
+{"id":"S06","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"対象メンバー限定の時刻付き家事を作成","expected":"設定対象分だけが生成され、登録全体が失敗しない","status":"not_run","evidence":[]}
+{"id":"S07","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"Aで実施、Bで取り消し","expected":"同じ実施事実へ適用し履歴・次回予定が収束する","status":"not_run","evidence":[]}
+{"id":"S08","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"A・Bが同じ回を同時に実施","expected":"有効完了を二重計上せず両端末で一致する","status":"not_run","evidence":[]}
+{"id":"S09","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"日時・担当変更の申請と承認／却下","expected":"権限どおり適用し、未承認を確定扱いしない","status":"not_run","evidence":[]}
+{"id":"S10","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"読み取りのみで追加・編集・移動を試す","expected":"UIと保存・サーバーの双方で不正操作を拒否する","status":"not_run","evidence":[]}
+{"id":"S11","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"同じ項目をA・Bがオフライン編集","expected":"競合を失わず、暗黙に後勝ちにしない","status":"not_run","evidence":[]}
+{"id":"S12","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"競合を明示解決して同期","expected":"両端末の状態・有効予定・未送信件数が一致する","status":"not_run","evidence":[]}
+{"id":"S13","category":"S：グループ共有と権限","priority":"P1","conditionAndAction":"別項目を同時編集","expected":"不要な全体競合を作らず両方反映する","status":"not_run","evidence":[]}
+{"id":"S14","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"古い画面のまま権限を変更","expected":"古い権限による保存を確定させない","status":"not_run","evidence":[]}
+{"id":"S15","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"送信待ちのあるBを除名","expected":"新規送信・取得を止め、他グループへ流用しない","status":"not_run","evidence":[]}
+{"id":"S16","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"所有者を引継ぎ、鍵を更新","expected":"正しい所有者だけが管理し、データが継続する","status":"not_run","evidence":[]}
+{"id":"S17","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"退出して再参加","expected":"旧世代の鍵・操作を混ぜず復帰する","status":"not_run","evidence":[]}
+{"id":"S18","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"同じ本人の複数端末を承認","expected":"他メンバー用と本人専用のデータを分離する","status":"not_run","evidence":[]}
+{"id":"S19","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"共有予定の追加・編集・取消","expected":"A・Bで同じ回・時刻・内容へ収束する","status":"not_run","evidence":[]}
+{"id":"S20","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"個人・共有の保存先を入力中に切替","expected":"入力を保ち、保存した先だけへ反映する","status":"not_run","evidence":[]}
+{"id":"S21","category":"S：グループ共有と権限","priority":"P0","conditionAndAction":"グループ切替中の遅延応答","expected":"別のグループ・個人DBへ適用しない","status":"not_run","evidence":[]}
+{"id":"S22","category":"S：グループ共有と権限","priority":"P1","conditionAndAction":"ゴミ収集日・家電・手順を共有変更","expected":"同じ定義を参照し、個人の独自設定を上書きしない","status":"not_run","evidence":[]}
+{"id":"H01","category":"H：予定と家事の連動","priority":"P0","conditionAndAction":"空き時間へ短い通常予定を追加","expected":"影響のない家事を不必要に全移動させない","status":"not_run","evidence":[]}
+{"id":"H02","category":"H：予定と家事の連動","priority":"P0","conditionAndAction":"家事の使用可能時間を塞ぐ予定を追加","expected":"衝突・残り時間・上限へ反映し、配置できない状態を隠さない","status":"not_run","evidence":[]}
+{"id":"H03","category":"H：予定と家事の連動","priority":"P0","conditionAndAction":"その予定を変更・削除","expected":"忙しさを再計算し、必要な提案へ戻る","status":"not_run","evidence":[]}
+{"id":"H04","category":"H：予定と家事の連動","priority":"P0","conditionAndAction":"同じ変更をGoogle側から送る","expected":"手入力の予定と同じ計画条件へ反映する","status":"not_run","evidence":[]}
+{"id":"H05","category":"H：予定と家事の連動","priority":"P0","conditionAndAction":"同時刻の複数予定・重複予定","expected":"忙しさを二重加算しない","status":"not_run","evidence":[]}
+{"id":"H06","category":"H：予定と家事の連動","priority":"P0","conditionAndAction":"終日・数日旅行を入力","expected":"実装の忙しさ規則と一致し、全家事禁止と誤解させない","status":"not_run","evidence":[]}
+{"id":"H07","category":"H：予定と家事の連動","priority":"P1","conditionAndAction":"自由時間を奪わない予定を追加","expected":"free／busyの扱いを正しく区別する","status":"not_run","evidence":[]}
+{"id":"H08","category":"H：予定と家事の連動","priority":"P0","conditionAndAction":"時刻なしの家事を追加","expected":"勝手な開始・終了時刻を生成しない","status":"not_run","evidence":[]}
+{"id":"H09","category":"H：予定と家事の連動","priority":"P0","conditionAndAction":"時刻付き家事を追加・移動","expected":"指定時刻と他予定の関係を反映する","status":"not_run","evidence":[]}
+{"id":"H10","category":"H：予定と家事の連動","priority":"P0","conditionAndAction":"今回だけ実施日を変更","expected":"次回以降の周期と別の回を無断変更しない","status":"not_run","evidence":[]}
+{"id":"H11","category":"H：予定と家事の連動","priority":"P0","conditionAndAction":"完了・過去実施・取り消し","expected":"有効履歴を基に次回予定が更新される","status":"not_run","evidence":[]}
+{"id":"H12","category":"H：予定と家事の連動","priority":"P0","conditionAndAction":"自動調整→固定","expected":"切替時点の調整後周期を保持する","status":"not_run","evidence":[]}
+{"id":"H13","category":"H：予定と家事の連動","priority":"P1","conditionAndAction":"固定後に完了を重ねる","expected":"固定周期を勝手に再学習しない","status":"not_run","evidence":[]}
+{"id":"H14","category":"H：予定と家事の連動","priority":"P1","conditionAndAction":"固定→自動調整","expected":"保存した履歴を保ち自動調整へ戻る","status":"not_run","evidence":[]}
+{"id":"H15","category":"H：予定と家事の連動","priority":"P1","conditionAndAction":"平日・休日・時間・件数上限を変更","expected":"設定された許容範囲・優先を計画へ反映する","status":"not_run","evidence":[]}
+{"id":"H16","category":"H：予定と家事の連動","priority":"P1","conditionAndAction":"雨・晴れ・天気未取得","expected":"天候依存家事を適切に扱い、未取得を晴れと偽らない","status":"not_run","evidence":[]}
+{"id":"H17","category":"H：予定と家事の連動","priority":"P0","conditionAndAction":"前回実施不明・開始日未指定","expected":"不明を推測で埋めず、既存の有効化規則を守る","status":"not_run","evidence":[]}
+{"id":"H18","category":"H：予定と家事の連動","priority":"P1","conditionAndAction":"月末指定・季節家事・ゴミ収集日","expected":"それぞれの暦と周期を混同しない","status":"not_run","evidence":[]}
+{"id":"H19","category":"H：予定と家事の連動","priority":"P0","conditionAndAction":"周期なし家事を説明から参照","expected":"不要な周期や定期予定を自動生成しない","status":"not_run","evidence":[]}
+{"id":"H20","category":"H：予定と家事の連動","priority":"P0","conditionAndAction":"個人と共有で異なる生活条件","expected":"個人の提案を共有の正式予定へ混入しない","status":"not_run","evidence":[]}
+{"id":"C01","category":"C：カレンダーと繰り返し","priority":"P1","conditionAndAction":"年・月・1／2／3／7日・リストを切替","expected":"同じ日付・予定に移り、保存値を変えない","status":"not_run","evidence":[]}
+{"id":"C02","category":"C：カレンダーと繰り返し","priority":"P1","conditionAndAction":"2日・3日で左右スワイプ","expected":"表示幅は保ち、1日ずつ移動する","status":"not_run","evidence":[]}
+{"id":"C03","category":"C：カレンダーと繰り返し","priority":"P1","conditionAndAction":"7日表示で多時間帯・終日・家事を表示","expected":"7列・横線・予定内の時刻を保ち重ならない","status":"not_run","evidence":[]}
+{"id":"C04","category":"C：カレンダーと繰り返し","priority":"P1","conditionAndAction":"3日で家事あり／0件／未取得","expected":"目安時間を出さず件数を読み取れ、未取得と区別できる","status":"not_run","evidence":[]}
+{"id":"C05","category":"C：カレンダーと繰り返し","priority":"P1","conditionAndAction":"月の詳しさ3種・予定4件以上・家事あり","expected":"行の高さをそろえ、家事や+Nが下部バーへ隠れない","status":"not_run","evidence":[]}
+{"id":"C06","category":"C：カレンダーと繰り返し","priority":"P1","conditionAndAction":"長い和文・英数字・2行・短名の予定","expected":"自然な文字で読め、時刻前の不要な空行がない","status":"not_run","evidence":[]}
+{"id":"C07","category":"C：カレンダーと繰り返し","priority":"P1","conditionAndAction":"名前・場所・メモ・家事を検索","expected":"近い日から全結果へ進み、選択すると該当日を表示する","status":"not_run","evidence":[]}
+{"id":"C08","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"予定を追加・複製・閉じる","expected":"保存先を守り、複製が元予定や同期IDを変更しない","status":"not_run","evidence":[]}
+{"id":"C09","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"家事選択・選び直し・解除","expected":"同じシートで操作し、未指定時刻は--:--、日付だけで保存できる","status":"not_run","evidence":[]}
+{"id":"C10","category":"C：カレンダーと繰り返し","priority":"P1","conditionAndAction":"名前へ相対日・曜日・時刻を入力","expected":"月曜基準の来週等を端末内で解釈し、手修正を優先する","status":"not_run","evidence":[]}
+{"id":"C11","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"誤った日付・複数指定・既存予定の編集","expected":"推測で勝手に日時を上書きしない","status":"not_run","evidence":[]}
+{"id":"C12","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"月で長押し移動","expected":"時刻を保ち日付だけ変更する","status":"not_run","evidence":[]}
+{"id":"C13","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"時間軸で長押し移動","expected":"対象の日付・時刻へ保存し、途中キャンセルでは保存しない","status":"not_run","evidence":[]}
+{"id":"C14","category":"C：カレンダーと繰り返し","priority":"P1","conditionAndAction":"月の上下端でドラッグ保持","expected":"自動スクロールし、画面外の日へ移動できる","status":"not_run","evidence":[]}
+{"id":"C15","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"移動直後に元に戻す","expected":"元の回へ正しく戻り、以後の別編集を上書きしない","status":"not_run","evidence":[]}
+{"id":"C16","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"繰り返しの「この予定だけ」を編集・移動","expected":"当該回のみ変え、元の基準日を保持する","status":"not_run","evidence":[]}
+{"id":"C17","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"「今後の予定すべて」を編集・移動","expected":"過去を保ち、選択回以降だけ変更する","status":"not_run","evidence":[]}
+{"id":"C18","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"「繰り返し全体」を編集・移動","expected":"全体へ反映し、個別変更・取消済みの回を維持する","status":"not_run","evidence":[]}
+{"id":"C19","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"個別移動した回から「今後」を選ぶ","expected":"実際の移動先でなく元の基準日で分ける","status":"not_run","evidence":[]}
+{"id":"C20","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"分割境界の前後に個別変更・取消がある","expected":"内容・日時・取消・通知が失われず正しい系列へ残る","status":"not_run","evidence":[]}
+{"id":"C21","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"日／週／月／年、回数・終了日で今後を変更","expected":"終了条件・月末・閏年を保ち回が増減し過ぎない","status":"not_run","evidence":[]}
+{"id":"C22","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"今後移動を元に戻す／同時編集後に戻す","expected":"分割を原子的に戻し、競合時は上書きを止める","status":"not_run","evidence":[]}
+{"id":"C23","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"共有で3範囲を保存しBで受信","expected":"系列・個別変更・通知の私的範囲が一致する","status":"not_run","evidence":[]}
+{"id":"C24","category":"C：カレンダーと繰り返し","priority":"P0","conditionAndAction":"保存中に切断・終了・連打して再開","expected":"半分の分割や重複系列を残さない","status":"not_run","evidence":[]}
+{"id":"D01","category":"D：通信断・受領・復旧","priority":"P0","conditionAndAction":"オフラインで家事・予定を変更","expected":"端末へ保存し、未送信状態を偽装せず示す","status":"not_run","evidence":[]}
+{"id":"D02","category":"D：通信断・受領・復旧","priority":"P0","conditionAndAction":"未送信ありで終了・再起動・再接続","expected":"変更を失わず一度だけ相手へ届く","status":"not_run","evidence":[]}
+{"id":"D03","category":"D：通信断・受領・復旧","priority":"P0","conditionAndAction":"サーバー受付後に応答を紛失","expected":"同じ操作IDで再試行し二重反映しない","status":"not_run","evidence":[]}
+{"id":"D04","category":"D：通信断・受領・復旧","priority":"P0","conditionAndAction":"受信後・端末保存前に終了","expected":"未保存を受領済み扱いせず再取得できる","status":"not_run","evidence":[]}
+{"id":"D05","category":"D：通信断・受領・復旧","priority":"P0","conditionAndAction":"端末保存後・受領応答前に終了","expected":"内容を保持し、受領だけ再送して収束する","status":"not_run","evidence":[]}
+{"id":"D06","category":"D：通信断・受領・復旧","priority":"P0","conditionAndAction":"大量操作でページ上限を超える","expected":"先頭だけで止まらず全件届く","status":"not_run","evidence":[]}
+{"id":"D07","category":"D：通信断・受領・復旧","priority":"P0","conditionAndAction":"古い復旧要求40件後に新規要求","expected":"新規が詰まらず、古い全件を毎回取り直さない","status":"not_run","evidence":[]}
+{"id":"D08","category":"D：通信断・受領・復旧","priority":"P0","conditionAndAction":"要求後に提供端末が必要本文を取得","expected":"余分なメタデータ再取得なしで復旧を再開する","status":"not_run","evidence":[]}
+{"id":"D09","category":"D：通信断・受領・復旧","priority":"P0","conditionAndAction":"別本文で同じ受信位置を持つ要求","expected":"関係のない要求を受領済みと誤認しない","status":"not_run","evidence":[]}
+{"id":"D10","category":"D：通信断・受領・復旧","priority":"P0","conditionAndAction":"期限超過の端末が復帰","expected":"最新の承認端末から検証して復旧する","status":"not_run","evidence":[]}
+{"id":"D11","category":"D：通信断・受領・復旧","priority":"P0","conditionAndAction":"提供端末がオフライン・不在","expected":"待機を示し、空データで置換しない","status":"not_run","evidence":[]}
+{"id":"D12","category":"D：通信断・受領・復旧","priority":"P0","conditionAndAction":"復旧中に本人が追加編集","expected":"未送信内容・競合候補を保って合流する","status":"not_run","evidence":[]}
+{"id":"D13","category":"D：通信断・受領・復旧","priority":"P0","conditionAndAction":"受領後に遅れた分割本文が到着","expected":"閉鎖済み要求へ追加せず断片を残さない","status":"not_run","evidence":[]}
+{"id":"D14","category":"D：通信断・受領・復旧","priority":"P0","conditionAndAction":"古いアカウント・除名・世代違いで復旧","expected":"署名・権限の不一致を拒否する","status":"not_run","evidence":[]}
+{"id":"D15","category":"D：通信断・受領・復旧","priority":"P1","conditionAndAction":"再配送が遅い中で通常の画面を操作","expected":"自分の通常表示・保存を相手の復旧待ちにしない","status":"not_run","evidence":[]}
+{"id":"D16","category":"D：通信断・受領・復旧","priority":"P1","conditionAndAction":"一時障害から回復・連続復帰","expected":"バックオフを守り正常な別経路を巻き込まない","status":"not_run","evidence":[]}
+{"id":"M01","category":"M：送信内容・サーバー保存の最小化","priority":"P0","conditionAndAction":"未接続で無操作・画面閲覧","expected":"家事・予定本文を不要に送信しない","status":"not_run","evidence":[]}
+{"id":"M02","category":"M：送信内容・サーバー保存の最小化","priority":"P0","conditionAndAction":"接続済みで前景待機","expected":"固定10分の業務同期を行わず、認証・監視等と区別できる","status":"not_run","evidence":[]}
+{"id":"M03","category":"M：送信内容・サーバー保存の最小化","priority":"P0","conditionAndAction":"家事1項目だけ変更","expected":"無関係な全家事・全PDFを送り直さない","status":"not_run","evidence":[]}
+{"id":"M04","category":"M：送信内容・サーバー保存の最小化","priority":"P0","conditionAndAction":"予定1件だけ変更","expected":"必要な操作・競合単位を送り、全カレンダーを再送しない","status":"not_run","evidence":[]}
+{"id":"M05","category":"M：送信内容・サーバー保存の最小化","priority":"P0","conditionAndAction":"本人の生活リズム・空き時間だけ変更","expected":"他メンバーに本文を渡さず、正しい本人端末だけへ配送する","status":"not_run","evidence":[]}
+{"id":"M06","category":"M：送信内容・サーバー保存の最小化","priority":"P0","conditionAndAction":"Google busy情報を計画へ反映","expected":"共有に不要な個人予定名・場所・メモを含めない","status":"not_run","evidence":[]}
+{"id":"M07","category":"M：送信内容・サーバー保存の最小化","priority":"P0","conditionAndAction":"ヘルプ・検索・表示形式を操作","expected":"予定保存・共有送信を起動しない","status":"not_run","evidence":[]}
+{"id":"M08","category":"M：送信内容・サーバー保存の最小化","priority":"P0","conditionAndAction":"全対象端末が永続保存・受領","expected":"有効化済み専用環境で配送本文が削除対象となり端末は保持する","status":"not_run","evidence":[]}
+{"id":"M09","category":"M：送信内容・サーバー保存の最小化","priority":"P0","conditionAndAction":"未受領のまま期限到達","expected":"期限後に取得不可となり清掃で本文・断片を削除する","status":"not_run","evidence":[]}
+{"id":"M10","category":"M：送信内容・サーバー保存の最小化","priority":"P0","conditionAndAction":"誤った受領・保存失敗・古い世代","expected":"本文を誤削除しない","status":"not_run","evidence":[]}
+{"id":"M11","category":"M：送信内容・サーバー保存の最小化","priority":"P0","conditionAndAction":"ワーカー停止・監視失敗・再開","expected":"削除未完了が見え、再開後に処理し、固定無限ポーリングしない","status":"not_run","evidence":[]}
+{"id":"M12","category":"M：送信内容・サーバー保存の最小化","priority":"P0","conditionAndAction":"ログ・例外・計測・バックアップを点検","expected":"PDF・結果・予定本文・トークンを恒久ログへ複写しない","status":"not_run","evidence":[]}
+{"id":"M13","category":"M：送信内容・サーバー保存の最小化","priority":"P0","conditionAndAction":"サーバーの残存レコードを分類","expected":"本文と、認証・権限・版・受領・課金に必要な最小メタデータを区別する","status":"not_run","evidence":[]}
+{"id":"M14","category":"M：送信内容・サーバー保存の最小化","priority":"P0","conditionAndAction":"未対応旧版端末が混在","expected":"端末の準備前に配送本文の削除を開始しない","status":"not_run","evidence":[]}
+{"id":"O01","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"無変更で10分以上前景待機","expected":"業務同期・全件再計算の固定反復がない","status":"not_run","evidence":[]}
+{"id":"O02","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"起動・復帰・表示が同時に発生","expected":"同一対象の取得・認証・送信を合流する","status":"not_run","evidence":[]}
+{"id":"O03","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"成功した差分確認を連続実行","expected":"有効キャッシュを使い、必要時だけ更新する","status":"not_run","evidence":[]}
+{"id":"O04","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"ローカル受信通知を連続発生","expected":"受信を再送の変更と誤認せず反響ループがない","status":"not_run","evidence":[]}
+{"id":"O05","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"家事に無関係な見た目を変更","expected":"家事全件・共有全期間を再計算しない","status":"not_run","evidence":[]}
+{"id":"O06","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"同じ予定・設定を同値保存","expected":"無意味な版更新・同じ本文の送信・再予約を抑える","status":"not_run","evidence":[]}
+{"id":"O07","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"家事1件を変更","expected":"必要な依存範囲だけ更新し、関連する次回計画を欠かさない","status":"not_run","evidence":[]}
+{"id":"O08","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"検索語を連続入力・消去","expected":"検索索引を毎回作り直さず、通信・年単位展開を発生させない","status":"not_run","evidence":[]}
+{"id":"O09","category":"O：最適化・処理時間・資源","priority":"P2","conditionAndAction":"予定0／100／1000件、長文を検索・表示","expected":"件数に対する時間・メモリ増加を測り、操作を長時間固めない","status":"not_run","evidence":[]}
+{"id":"O10","category":"O：最適化・処理時間・資源","priority":"P2","conditionAndAction":"月・日・週・リストを50回往復","expected":"リスナー・タイマー・メモリが継続増加しない","status":"not_run","evidence":[]}
+{"id":"O11","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"カレンダーを連続スクロール","expected":"不要な全再描画・計算でフレームを落とさない","status":"not_run","evidence":[]}
+{"id":"O12","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"ドラッグ・自動スクロール・取消","expected":"指への追従とスクロールを保ち、移動中に何度も保存しない","status":"not_run","evidence":[]}
+{"id":"O13","category":"O：最適化・処理時間・資源","priority":"P2","conditionAndAction":"冷起動・温起動・復帰を反復","expected":"初回表示と入力可能までの中央値・p95を比較できる","status":"not_run","evidence":[]}
+{"id":"O14","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"低速ネットで保存・説明・タブ移動","expected":"ローカル表示を先に返し、通信待ちで画面を止めない","status":"not_run","evidence":[]}
+{"id":"O15","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"キャッシュ済みPDF・手順を再表示","expected":"再アップロード・再解析・追加課金を発生させない","status":"not_run","evidence":[]}
+{"id":"O16","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"通知内容が変わらない状態で更新","expected":"全通知の取消・再予約を繰り返さず必要差分だけ処理する","status":"not_run","evidence":[]}
+{"id":"O17","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"期限未到来の失敗状態で復帰を連打","expected":"バックオフを飛ばして再認証・再送しない","status":"not_run","evidence":[]}
+{"id":"O18","category":"O：最適化・処理時間・資源","priority":"P1","conditionAndAction":"ワーカーの実行時間上限を迎える","expected":"未実行分を成功扱いせず次回へ持ち越す","status":"not_run","evidence":[]}
+{"id":"O19","category":"O：最適化・処理時間・資源","priority":"P2","conditionAndAction":"前景・背景のCPU・メモリ・電力を比較","expected":"無操作の計算・無限再描画・接続ループを見つけられる","status":"not_run","evidence":[]}
+{"id":"O20","category":"O：最適化・処理時間・資源","priority":"P0","conditionAndAction":"最適化後にG・T・S・H・Dを再照合","expected":"通信削減による更新漏れ・保存漏れ・権限の弱体化がない","status":"not_run","evidence":[]}
+{"id":"N01","category":"N：通知・ウィジェット・OS","priority":"P1","conditionAndAction":"家事のみ／予定のみ／両方ON・OFF","expected":"互いの設定を変えず通知を制御できる","status":"not_run","evidence":[]}
+{"id":"N02","category":"N：通知・ウィジェット・OS","priority":"P1","conditionAndAction":"家事通知時刻を変更","expected":"個人と共有の本人時刻が独立し、予約が一致する","status":"not_run","evidence":[]}
+{"id":"N03","category":"N：通知・ウィジェット・OS","priority":"P1","conditionAndAction":"予定ごとの通知5候補","expected":"開始時・10分前・1時間前・前日・なしが正しく予約される","status":"not_run","evidence":[]}
+{"id":"N04","category":"N：通知・ウィジェット・OS","priority":"P0","conditionAndAction":"予定変更・取消・繰り返し分割","expected":"古い通知を残さず対象回へ正しく移管する","status":"not_run","evidence":[]}
+{"id":"N05","category":"N：通知・ウィジェット・OS","priority":"P1","conditionAndAction":"OS通知拒否→許可、ロック中に受信","expected":"適切に回復し、許可なしを配信済みと偽らない","status":"not_run","evidence":[]}
+{"id":"N06","category":"N：通知・ウィジェット・OS","priority":"P1","conditionAndAction":"通知タップ・期限切れ通知","expected":"対象の家事・予定を開き、別回へ操作しない","status":"not_run","evidence":[]}
+{"id":"N07","category":"N：通知・ウィジェット・OS","priority":"P1","conditionAndAction":"ウィジェットの追加・更新・完了","expected":"最大3件を表示し、ホーム・履歴・同期と一致する","status":"not_run","evidence":[]}
+{"id":"N08","category":"N：通知・ウィジェット・OS","priority":"P0","conditionAndAction":"ウィジェット操作後に終了・再開","expected":"完了の書込みが欠落・二重化しない","status":"not_run","evidence":[]}
+{"id":"N09","category":"N：通知・ウィジェット・OS","priority":"P1","conditionAndAction":"背景・ロック・省電力で自然復帰を待つ","expected":"OSの自然実行と強制起動を区別して結果を記録する","status":"not_run","evidence":[]}
+{"id":"N10","category":"N：通知・ウィジェット・OS","priority":"P0","conditionAndAction":"ログアウト・除名・アカウント切替","expected":"旧対象の通知・タップ操作を新対象へ適用しない","status":"not_run","evidence":[]}
+{"id":"P01","category":"P：PDF・家電・受領","priority":"P1","conditionAndAction":"PDFだけを添付して登録","expected":"メーカー・製品名・型番の追加入力が不要","status":"not_run","evidence":[]}
+{"id":"P02","category":"P：PDF・家電・受領","priority":"P1","conditionAndAction":"不正PDF・暗号化・サイズ・ページ数超過","expected":"送信・課金前の検証で必要な理由を示す","status":"not_run","evidence":[]}
+{"id":"P03","category":"P：PDF・家電・受領","priority":"P0","conditionAndAction":"解析受付・進捗・完了を再開","expected":"同一受付の重複解析・二重課金をしない","status":"not_run","evidence":[]}
+{"id":"P04","category":"P：PDF・家電・受領","priority":"P0","conditionAndAction":"PDF・結果の端末保存前に失敗","expected":"サーバーへ誤った受領を送らない","status":"not_run","evidence":[]}
+{"id":"P05","category":"P：PDF・家電・受領","priority":"P0","conditionAndAction":"端末保存後に受領送信が失敗","expected":"保存を保ち受領だけ再送する","status":"not_run","evidence":[]}
+{"id":"P06","category":"P：PDF・家電・受領","priority":"P0","conditionAndAction":"正しい受領・誤った本人／ハッシュ","expected":"正しい確認だけ本文を削除し、不正な受領を拒否する","status":"not_run","evidence":[]}
+{"id":"P07","category":"P：PDF・家電・受領","priority":"P0","conditionAndAction":"処理確定・未受領期限後を観測","expected":"入力・結果・分割断片が規定どおり消える","status":"not_run","evidence":[]}
+{"id":"P08","category":"P：PDF・家電・受領","priority":"P1","conditionAndAction":"保存済み説明書・手順を開き直す","expected":"端末内を使い追加通信・解析回数を増やさない","status":"not_run","evidence":[]}
+{"id":"P09","category":"P：PDF・家電・受領","priority":"P0","conditionAndAction":"個人保存と明示的共有","expected":"選んだ共有先だけへPDF・結果を配送する","status":"not_run","evidence":[]}
+{"id":"P10","category":"P：PDF・家電・受領","priority":"P0","conditionAndAction":"再解析後に既存の手編集を確認","expected":"手編集を無断上書きせず最新結果を参照できる","status":"not_run","evidence":[]}
+{"id":"P11","category":"P：PDF・家電・受領","priority":"P1","conditionAndAction":"説明書に周期のない作業","expected":"条件を日数へ推測せず、不要な定期予定を作らない","status":"not_run","evidence":[]}
+{"id":"P12","category":"P：PDF・家電・受領","priority":"P0","conditionAndAction":"別アカウント・端末証明未確認・契約失効","expected":"公開受付の認証・課金条件を弱めず拒否する","status":"not_run","evidence":[]}
+{"id":"U01","category":"U：見やすさと操作","priority":"P1","conditionAndAction":"ライト・ダークで主要画面を巡回","expected":"背景・区切り・文字・無効状態・入力値を見分けられる","status":"not_run","evidence":[]}
+{"id":"U02","category":"U：見やすさと操作","priority":"P1","conditionAndAction":"大きい文字・長い家事名・小画面","expected":"重要操作や日時・件数が欠けず、横にはみ出さない","status":"not_run","evidence":[]}
+{"id":"U03","category":"U：見やすさと操作","priority":"P1","conditionAndAction":"キーボード表示・複数行メモ","expected":"保存・閉じる・編集中の欄へ到達できる","status":"not_run","evidence":[]}
+{"id":"U04","category":"U：見やすさと操作","priority":"P1","conditionAndAction":"VoiceOverで検索・予定移動・家事操作","expected":"名前・状態・操作結果を読み上げ、視覚だけを要求しない","status":"not_run","evidence":[]}
+{"id":"U05","category":"U：見やすさと操作","priority":"P1","conditionAndAction":"ホームとカレンダーの家事を操作","expected":"ホームは説明と完了、カレンダーは日程変更を一貫して扱う","status":"not_run","evidence":[]}
+{"id":"U06","category":"U：見やすさと操作","priority":"P1","conditionAndAction":"豆知識を検索し深い位置の記事から戻る","expected":"検索語・一覧位置を保ち追加通信しない","status":"not_run","evidence":[]}
+{"id":"U07","category":"U：見やすさと操作","priority":"P1","conditionAndAction":"未接続・0件・未取得・エラー","expected":"同じ空表示に混ぜず必要な操作へ進める","status":"not_run","evidence":[]}
+{"id":"U08","category":"U：見やすさと操作","priority":"P1","conditionAndAction":"連打・途中キャンセル・画面遷移","expected":"保存や画面を増殖させず、入力の誤破棄がない","status":"not_run","evidence":[]}

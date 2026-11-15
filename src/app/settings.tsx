@@ -13,6 +13,7 @@ import { SettingsCheckbox } from '@/components/settings-checkbox';
 import { AppButton, Card, Page, palette, typography } from '@/components/planner-ui';
 import { GeneralGroupNotifications } from '@/features/settings/general-group-notifications';
 import { BirthdaySettings } from '@/features/calendar/birthday-settings';
+import { CalendarField } from '@/features/calendar/calendar-field';
 import { PersonalGoogleCalendarSettings } from '@/features/calendar/personal-google-settings';
 import { DataCredits } from '@/components/data-credits';
 import type { FrequencyMode } from '@/domain/chores/types';
@@ -31,6 +32,7 @@ import {
   saveGoogleSyncState,
   saveWeatherLocation,
   setNotificationsEnabled,
+  setHouseworkNotificationTime,
   loadPersonalPlacementPreferences,
   savePersonalPlacementPreferences,
   updatePlannerSettings,
@@ -479,6 +481,14 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
     }
   };
 
+  const changeNotificationTime = async (minute: number) => {
+    if (minute === snapshot.settings.notificationHour * 60 + snapshot.settings.notificationMinute || !beginOperation('notifications')) return;
+    setNotificationUpdating(true); setNotificationMessage(null);
+    try { await setHouseworkNotificationTime(database, minute); await refresh(); }
+    catch { setNotificationMessage({ text: '通知時刻を変更できませんでした。', kind: 'error' }); }
+    finally { endOperation('notifications'); setNotificationUpdating(false); }
+  };
+
   const calendarAvailabilityForm = !snapshot.sharing ? <View style={{ gap: 12 }}>
             <View style={styles.notificationRow}>
               <View style={styles.limitCopy}>
@@ -596,10 +606,13 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
         <View style={styles.notificationRow}>
           <View style={styles.limitCopy}>
             <SettingsLabel>{v2 ? '個人家事の通知' : '家事の通知'}</SettingsLabel>
-            <Text style={styles.hint}>{section === 'general' ? '開始日・期限などを毎朝9時に通知。' : snapshot.sharing ? `所属グループの家事を、${snapshot.timeZone}の毎朝9時に通知します。` : '毎朝9時に、期間の開始日・最終日・終了翌日に未完了の家事をまとめて通知します。'}</Text>
+            <Text style={styles.hint}>開始日・期限などの未完了家事をまとめて通知。</Text>
           </View>
           <SettingsCheckbox accessibilityLabel="家事の通知を受け取る" value={snapshot.settings.notificationsEnabled} disabled={notificationUpdating} onValueChange={(value) => void toggleNotifications(value)} />
         </View>
+        {snapshot.settings.notificationsEnabled ? <CalendarField label="家事の通知時刻" mode="time" date={snapshot.today ?? localDateFromDate(new Date())}
+          minute={snapshot.settings.notificationHour * 60 + snapshot.settings.notificationMinute} commitOnDone borderless disabled={notificationUpdating}
+          onMinute={minute => { void changeNotificationTime(minute); }} /> : null}
         {notificationMessage ? <Text accessibilityLiveRegion="polite" style={notificationMessage.kind === 'success' ? styles.success : styles.error}>{notificationMessage.text}</Text> : null}
         {notificationPermissionDenied ? <NotificationPermissionRecovery scope={database} disabled={notificationUpdating} checkPermission={() => notificationGateway.hasPermission()} onGranted={() => toggleNotifications(true)} /> : null}
         <CalendarNotificationSettings database={database} />

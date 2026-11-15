@@ -20,15 +20,23 @@ async function setup() {
 }
 function deferred() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
 async function open(c, platform) {
-  const effects = []; const cleanups = []; let focus; let backs = 0; let appState;
-  const props = { model: await source(c), choreId: 'floor', controller: c, onBack: () => { backs++; }, onSaved: async () => { props.model = await source(c); } };
+  const effects = []; const cleanups = []; const pending = new Set(); let focus; let backs = 0; let appState;
+  const track = async work => { const promise = work(); pending.add(promise); try { return await promise; } finally { pending.delete(promise); } };
+  const controller = { ...c, actions: { ...c.actions, editDateRights: (...args) => track(() => c.actions.editDateRights(...args)) } };
+  const props = { model: await source(c), choreId: 'floor', controller, onBack: () => { backs++; }, onSaved: () => track(async () => { props.model = await source(c); }) };
   const screen = screenHarness('src/features/sharing/v2-ui/date-rights-editor.tsx', { exportName: 'V2DateRightsEditor', platform, props,
     effect: callback => effects.push(callback), focusEffect: callback => { focus = callback; }, appStateListener: listener => { appState = listener; } });
   const commit = () => { for (const effect of effects.splice(0)) { const cleanup = effect(); if (typeof cleanup === 'function') cleanups.push(cleanup); } };
   const settle = async predicate => { for (let n = 0; n < 40; n++) { commit(); await screen.flush(); if (!predicate || predicate()) return; } assert.fail(screen.text()); };
   const leave = focus?.(); await settle();
   return { props, screen, commit, settle, flushPending: () => appState?.('background'), backs: () => backs, nameOf: id => v2MemberLabels(props.model.plan.members)(id),
-    close: async () => { if (screen.text().includes('入力を最新の権限に戻す')) await screen.press('入力を最新の権限に戻す'); leave?.(); for (const cleanup of cleanups) cleanup(); await screen.flush(); } };
+    close: async () => {
+      // Departure is immediate in the app; let its retained writer finish before closing SQLite.
+      while (pending.size) { await Promise.allSettled([...pending]); await screen.flush(); }
+      await settle();
+      if (!backs && screen.text().includes('入力を最新の権限に戻す')) await screen.press('入力を最新の権限に戻す');
+      leave?.(); for (const cleanup of cleanups) cleanup(); await screen.flush();
+    } };
 }
 const control = (ui, label) => { const node = ui.screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === label); assert.ok(node, label); return node; };
 async function expand(ui, userId = 'member') { await ui.screen.press(`${ui.nameOf(userId)}の権限を開く`); await ui.settle(); }

@@ -76,7 +76,7 @@ test('month all-day moves retain civil dates span and occurrence scope without i
 });
 
 for (const platform of ['ios', 'android']) {
-  const make = (local, options = {}) => screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, alert: (_title, _message, buttons) => buttons.find(button => button.text === 'この予定のみ')?.onPress(), layoutEffect: effect => effect(), effect: effect => effect(), ...options, props: {
+  const make = (local, options = {}) => screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, layoutEffect: effect => effect(), effect: effect => effect(), ...options, props: {
     today: day, selectedDate: day, timeZone: 'Asia/Tokyo', local, dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
   } });
   const binding = (extra = {}) => ({ database: {}, loading: false, error: null,
@@ -126,38 +126,38 @@ for (const platform of ['ios', 'android']) {
     } finally { screen.unmount(); globalThis.requestAnimationFrame = previousRequest; globalThis.cancelAnimationFrame = previousCancel; }
   });
   test(`${platform} dragging a repeating event asks its scope and undo restores the series without overwriting a later edit`, async () => {
-    let choices; const writes = [];
+    const writes = [];
     const local = binding({ saveEvent: async draft => { writes.push(draft); local.snapshot = { ...local.snapshot,
       events: [{ ...local.snapshot.events[0], ...draft.value, revision: local.snapshot.events[0].revision + 1 }] }; } });
     local.snapshot.events = [event({ recurrence: 'weekly' })];
-    const screen = make(local, { alert: (_title, _message, buttons) => { choices = buttons; } });
+    const screen = make(local);
     try {
       const point = await monthSetup(screen); const card = await holdMonth(screen);
       releaseMonth(card, point('2026-11-15')); await screen.flush();
-      assert.deepEqual(writes, []); assert.ok(choices.some(button => button.text === 'この予定のみ'));
-      choices.find(button => button.text === 'すべての予定').onPress(); await screen.flush(); await screen.flush();
+      assert.deepEqual(writes, []); screen.button('この予定だけ'); screen.button('今後の予定すべて'); screen.button('繰り返し全体');
+      await screen.press('繰り返し全体'); await screen.flush(); await screen.flush();
       assert.equal(writes[0].scope, 'series'); assert.equal(writes[0].value.recurrence, 'weekly'); assert.equal(writes[0].value.startDate, '2026-11-15');
       await screen.press('移動を元に戻す'); await screen.flush();
       assert.equal(writes.length, 2); assert.equal(local.snapshot.events[0].startDate, day); assert.equal(local.snapshot.events[0].recurrence, 'weekly');
       const again = await holdMonth(screen); releaseMonth(again, point('2026-11-15')); await screen.flush();
-      choices.find(button => button.text === 'すべての予定').onPress(); await screen.flush(); await screen.flush();
+      await screen.press('繰り返し全体'); await screen.flush(); await screen.flush();
       local.snapshot = { ...local.snapshot, events: [{ ...local.snapshot.events[0], title: '別の端末の編集', revision: 99 }] }; screen.render();
       await screen.press('移動を元に戻す'); await screen.flush();
       assert.equal(writes.length, 3); assert.match(screen.text(), /上書きせず/u);
     } finally { screen.unmount(); }
   });
   test(`${platform} undoing a single repeating drag removes only the newly created exception and scope cancellation never saves`, async () => {
-    const writes = []; let restored = 0; let cancel = true;
+    const writes = []; let restored = 0;
     const local = binding({ restoreOccurrence: async draft => { restored++; assert.equal(draft.scope, 'one');
       local.snapshot = { ...local.snapshot, exceptions: [], events: [{ ...local.snapshot.events[0], revision: 5 }] }; },
       saveEvent: async draft => { writes.push(draft); local.snapshot = { ...local.snapshot,
         exceptions: [{ eventId: draft.eventId, anchorDate: draft.anchorDate, override: draft.value, revision: 1 }] }; } });
     local.snapshot.events = [event({ recurrence: 'weekly' })];
-    const screen = make(local, { alert: (_title, _message, buttons) => buttons.find(button => button.text === (cancel ? 'キャンセル' : 'この予定のみ')).onPress() });
+    const screen = make(local);
     try {
-      const point = await monthSetup(screen); let card = await holdMonth(screen); releaseMonth(card, point('2026-11-15')); await screen.flush();
+      const point = await monthSetup(screen); let card = await holdMonth(screen); releaseMonth(card, point('2026-11-15')); await screen.flush(); await screen.press('変更範囲の選択をキャンセル');
       assert.deepEqual(writes, []);
-      cancel = false; card = await holdMonth(screen); releaseMonth(card, point('2026-11-15')); await screen.flush(); await screen.flush();
+      card = await holdMonth(screen); releaseMonth(card, point('2026-11-15')); await screen.flush(); await screen.press('この予定だけ'); await screen.flush();
       assert.equal(writes.length, 1); assert.equal(writes[0].scope, 'one');
       await screen.press('移動を元に戻す'); await screen.flush(); assert.equal(restored, 1); assert.equal(writes.length, 1);
       assert.deepEqual(local.snapshot.exceptions, []); assert.equal(local.snapshot.events[0].recurrence, 'weekly');
@@ -195,9 +195,9 @@ for (const platform of ['ios', 'android']) {
       const hold = () => holdMonth(screen);
       let card = await hold(); releaseMonth(card, { ...point(day), moveX: -1 }); await screen.flush();
       assert.deepEqual(writes, []); assert.equal(screen.nodes().find(node => node.props.testID === 'calendar-weeks').props.scrollEnabled, true);
-      card = await hold(); allowed = false; screen.render(); releaseMonth(card, point('2026-11-15')); await screen.flush();
+      card = await hold(); allowed = false; screen.render(); releaseMonth(card, point('2026-11-15')); await screen.flush(); await screen.press('この予定だけ');
       assert.deepEqual(writes, []); assert.match(screen.text(), /権限がありません/u);
-      allowed = true; screen.render(); card = await hold(); releaseMonth(card, point('2026-11-15')); await screen.flush();
+      allowed = true; screen.render(); card = await hold(); releaseMonth(card, point('2026-11-15')); await screen.flush(); await screen.press('この予定だけ');
       assert.equal(writes.length, 1); assert.equal(writes[0].scope, 'one'); assert.equal(writes[0].anchorDate, day);
       assert.equal(writes[0].basisRevision, 'hold-proof'); assert.equal(local.snapshot.events[0].startDate, day);
     } finally { screen.unmount(); }
@@ -294,7 +294,7 @@ for (const platform of ['ios', 'android']) {
       await selectCalendarView(screen, '2日表示');
       screen.button('変更した回を編集').props.onLongPress(); await screen.flush();
       const card = screen.nodes().find(node => node.props.testID?.startsWith('calendar-movable-'));
-      card.props.onPanResponderGrant(); card.props.onPanResponderRelease(null, { dx: 0, dy: 44 }); await screen.flush();
+      card.props.onPanResponderGrant(); card.props.onPanResponderRelease(null, { dx: 0, dy: 44 }); await screen.flush(); await screen.press('この予定だけ');
       assert.equal(writes.length, 1); assert.equal(writes[0].scope, 'one');
       assert.equal(writes[0].anchorDate, day); assert.equal(writes[0].exceptionRevision, 2);
       assert.equal(writes[0].value.startDate, '2026-11-15'); assert.equal(writes[0].value.startMinute, 660);

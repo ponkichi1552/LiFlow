@@ -9,6 +9,7 @@ import { selectCalendarView } from './helpers/calendar-ui.mjs';
 import { calendarSearchDestination, calendarSearchIndex, calendarSearchSelection, searchCalendarIndex } from '../src/features/calendar/search.ts';
 import { newEventDraft } from '../src/features/calendar/events.ts';
 import { screenHarness } from './helpers/screen-harness.mjs';
+import { CALENDAR_HELP_SEEN_KEY } from '../src/features/calendar/help-store.ts';
 import { createDatabase } from './helpers/sqlite.mjs';
 const { initializeLocalDatabase } = await import('../src/platform/storage/repository.ts');
 const store = await import('../src/platform/storage/calendar-events.ts');
@@ -231,6 +232,8 @@ for (const platform of ['ios', 'android']) {
     const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, focusEffect: callback => {
       const cleanup = callback(); if (typeof cleanup === 'function') blurs.set(callback, cleanup);
     },
+      // This flow resumes an existing user's calendar; first-use presentation has its own regression tests.
+      mocks: { 'expo-sqlite/kv-store': { __esModule: true, default: { getItemSync: key => key === CALENDAR_HELP_SEEN_KEY ? '1' : null, setItemSync() {} } } },
       props: { today: date, timeZone: 'Asia/Tokyo', local: h.local, dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null } });
     t.after(() => ui.unmount()); await ui.press('予定を検索する'); await ui.change('予定を検索', '入力した検索語');
     assert.equal(ui.nodes().some(node => node.props.accessibilityLabel === '予定を検索' && node.type === 'TextInput'), true);

@@ -1,3 +1,6 @@
+import { beforeEach } from 'node:test';
+import { pinPrivateFixtureTime } from './helpers/sharing-v2-private-fixture.mjs';
+beforeEach(pinPrivateFixtureTime);
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';

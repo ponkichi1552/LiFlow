@@ -21,15 +21,19 @@ async function setup() {
   await d.repository.commit(initial); return { f, d, c: controller(d), close: () => d.connection.close() };
 }
 async function open(c, platform) {
-  const effects = []; const cleanups = []; let focus; let backs = 0; let appState;
-  const props = { model: await c.readModel(range, { groupPolicy: true }), controller: c, onSaved: async () => { props.model = await c.readModel(range, { groupPolicy: true }); }, onBack: () => { backs++; } };
+  const effects = []; const cleanups = []; const pending = new Set(); let focus; let backs = 0; let appState;
+  const track = async work => { const promise = work(); pending.add(promise); try { return await promise; } finally { pending.delete(promise); } };
+  const controller = { ...c, actions: { ...c.actions, editGroupOptions: (...args) => track(() => c.actions.editGroupOptions(...args)) } };
+  const props = { model: await c.readModel(range, { groupPolicy: true }), controller, onSaved: () => track(async () => { props.model = await c.readModel(range, { groupPolicy: true }); }), onBack: () => { backs++; } };
   const screen = screenHarness('src/features/sharing/v2-ui/group-policy-editor.tsx', { exportName: 'V2GroupPolicyEditor', platform, props,
     effect: callback => effects.push(callback), focusEffect: callback => { focus = callback; }, appStateListener: listener => { appState = listener; } });
   const commit = () => { for (const effect of effects.splice(0)) { const cleanup = effect(); if (typeof cleanup === 'function') cleanups.push(cleanup); } };
   const settle = async predicate => { for (let n = 0; n < 35; n++) { commit(); await screen.flush(); if (!predicate || predicate()) return; } assert.fail(screen.text()); };
   const leave = focus?.(); await settle();
   return { props, screen, commit, settle, flushPending: () => appState?.('background'), backs: () => backs, close: async () => {
-    if (screen.text().includes('入力を最新のルールに戻す')) await screen.press('入力を最新のルールに戻す');
+    while (pending.size) { await Promise.allSettled([...pending]); await screen.flush(); }
+    await settle();
+    if (!backs && screen.text().includes('入力を最新のルールに戻す')) await screen.press('入力を最新のルールに戻す');
     leave?.(); for (const cleanup of cleanups) cleanup(); await screen.flush();
   } };
 }

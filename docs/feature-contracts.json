@@ -1,5 +1,345 @@
 [
   {
+    "feature": "calendar-recurrence-one-future-series-20261115",
+    "tests": [
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "future recurrence bases use original slots and preserve monthly yearly custom and overnight durations"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "personal future changes atomically retain past edits future edits cancellations and private reminders and undo restores them"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "personal future saves reject stale selected revisions and roll back a partial split without losing source data"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "shared future changes use existing signed payloads preserve all explicit edits and converge on another device with idempotent save and undo"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "shared future edits keep detached exceptions when a changed recurrence no longer has their slot and block stale undo"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "future split at the first occurrence retains earlier detached edits and undo restores their original identity"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "shared future split rejects another member atomically and refuses undo after authority is revoked"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "shared future split from the first occurrence preserves the entire individual history and rejects stale exception proofs"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "forked shared reminder preferences stay in personal storage are idempotent and never overwrite a later clock choice"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "ios repeating editor exposes exactly three scopes and switching them preserves unsaved input"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "android repeating editor exposes exactly three scopes and switching them preserves unsaved input"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "ios dragging a repeating appointment asks all three scopes and future drag keeps its undo receipt"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "android dragging a repeating appointment asks all three scopes and future drag keeps its undo receipt"
+      },
+      {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "draft 56 signed retention histories remain accepted after the future calendar command update"
+      }
+    ],
+    "manualReview": [
+      "docs/audits/2026-11-15-calendar-recurrence-scopes.md"
+    ]
+  },
+  {
+    "feature": "calendar-three-and-seven-day-views-20261115",
+    "tests": [
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "calendar weeks retain the month weekday order across months years leap days and DST dates"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "weekly display remains process local and resets to month after the approved idle interval"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "ios week mode shows seven dated timeline columns and navigates by complete weeks without writing events"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "android week mode shows seven dated timeline columns and navigates by complete weeks without writing events"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "ios seven day mode retains seven aligned columns with horizontal rules and puts clocks inside appointments"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "android seven day mode retains seven aligned columns with horizontal rules and puts clocks inside appointments"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "ios three day mode keeps all three dates selected across a week boundary and slides by one day"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "android three day mode keeps all three dates selected across a week boundary and slides by one day"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "ios weekly empty slot uses that weekday and clock and does not save until the normal save action"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "android weekly empty slot uses that weekday and clock and does not save until the normal save action"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "ios week drag uses the existing move authority and undo and releases both scroll directions"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "android week drag uses the existing move authority and undo and releases both scroll directions"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "ios week mode preserves all-day metadata unknown chores and timed chore actions without allowing protected drags"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "android week mode preserves all-day metadata unknown chores and timed chore actions without allowing protected drags"
+      }
+    ],
+    "manualReview": [
+      "docs/audits/2026-11-15-calendar-week-view.md"
+    ]
+  },
+  {
+    "feature": "calendar-title-date-month-detail-and-live-guidance-20261115",
+    "tests": [
+      {
+        "file": "tests/calendar-title-datetime.test.mjs",
+        "name": "calendar title date grammar resolves Japanese relative dates from Monday weeks without AI or changing the title"
+      },
+      {
+        "file": "tests/calendar-title-datetime.test.mjs",
+        "name": "calendar title date grammar handles month ends leap years and civil year boundaries"
+      },
+      {
+        "file": "tests/calendar-title-datetime.test.mjs",
+        "name": "calendar title date grammar refuses conflicting invalid vague and duration-only input"
+      },
+      {
+        "file": "tests/calendar-title-datetime.test.mjs",
+        "name": "calendar title automatic fields preserve duration restore removed expressions and respect manual date and clock choices"
+      },
+      {
+        "file": "tests/calendar-title-datetime.test.mjs",
+        "name": "calendar title input cannot rewrite existing chore birthday or readonly values when automatic input is disabled"
+      },
+      {
+        "file": "tests/calendar-input-detail-guidance.test.mjs",
+        "name": "month detail is a device preference with idempotent writes and failed saves keep the accepted mode"
+      },
+      {
+        "file": "tests/calendar-input-detail-guidance.test.mjs",
+        "name": "every month detail retains all counts and reserves chores waste and overflow before additional text"
+      },
+      {
+        "file": "tests/calendar-input-detail-guidance.test.mjs",
+        "name": "calendar help callouts stay inside safe screen bounds and point to the actual measured control"
+      },
+      {
+        "file": "tests/calendar-input-detail-guidance.test.mjs",
+        "name": "calendar help measures real visible editable events and ignores offscreen missing or late native measurements"
+      },
+      {
+        "file": "tests/calendar-input-detail-guidance.test.mjs",
+        "name": "ios new appointment titles fill civil dates and clocks and save the original sentence exactly once"
+      },
+      {
+        "file": "tests/calendar-input-detail-guidance.test.mjs",
+        "name": "ios manually chosen appointment clocks take precedence over subsequent title expressions"
+      },
+      {
+        "file": "tests/calendar-input-detail-guidance.test.mjs",
+        "name": "ios title inference leaves existing duplicate birthday and chore forms unchanged"
+      },
+      {
+        "file": "tests/calendar-input-detail-guidance.test.mjs",
+        "name": "ios month detail can change in the existing menu without writing calendar data or changing view"
+      },
+      {
+        "file": "tests/calendar-input-detail-guidance.test.mjs",
+        "name": "ios calendar guidance advances over the live controls and closes without changing its background"
+      },
+      {
+        "file": "tests/calendar-input-detail-guidance.test.mjs",
+        "name": "android new appointment titles fill civil dates and clocks and save the original sentence exactly once"
+      },
+      {
+        "file": "tests/calendar-input-detail-guidance.test.mjs",
+        "name": "android manually chosen appointment clocks take precedence over subsequent title expressions"
+      },
+      {
+        "file": "tests/calendar-input-detail-guidance.test.mjs",
+        "name": "android title inference leaves existing duplicate birthday and chore forms unchanged"
+      },
+      {
+        "file": "tests/calendar-input-detail-guidance.test.mjs",
+        "name": "android month detail can change in the existing menu without writing calendar data or changing view"
+      },
+      {
+        "file": "tests/calendar-input-detail-guidance.test.mjs",
+        "name": "android calendar guidance advances over the live controls and closes without changing its background"
+      }
+    ],
+    "manualReview": [
+      "docs/audits/2026-11-15-calendar-input-detail-and-guided-help.md"
+    ]
+  },
+  {
+    "feature": "calendar-contextual-help-20261115",
+    "tests": [
+      {
+        "file": "tests/calendar-help.test.mjs",
+        "name": "calendar help records only one shown device introduction and survives process recreation"
+      },
+      {
+        "file": "tests/calendar-help.test.mjs",
+        "name": "calendar help retries an undisplayed introduction and ignores a late native presentation callback"
+      },
+      {
+        "file": "tests/calendar-help.test.mjs",
+        "name": "calendar help storage failures never block use or repeat the introduction within the same session"
+      },
+      {
+        "file": "tests/calendar-help.test.mjs",
+        "name": "an existing calendar help marker skips automatic presentation without a redundant local write"
+      },
+      {
+        "file": "tests/calendar-help.test.mjs",
+        "name": "ios calendar help opens only on first focus and can reopen without changing the selected day view or native list"
+      },
+      {
+        "file": "tests/calendar-help.test.mjs",
+        "name": "ios calendar help waits for another calendar sheet and keeps the chosen display when dismissed"
+      },
+      {
+        "file": "tests/calendar-help.test.mjs",
+        "name": "ios calendar help remains available without a local calendar and returns from every native close path"
+      },
+      {
+        "file": "tests/calendar-help.test.mjs",
+        "name": "android calendar help opens only on first focus and can reopen without changing the selected day view or native list"
+      },
+      {
+        "file": "tests/calendar-help.test.mjs",
+        "name": "android calendar help waits for another calendar sheet and keeps the chosen display when dismissed"
+      },
+      {
+        "file": "tests/calendar-help.test.mjs",
+        "name": "android calendar help remains available without a local calendar and returns from every native close path"
+      }
+    ],
+    "manualReview": [
+      "docs/audits/2026-11-15-calendar-help.md"
+    ]
+  },
+  {
+    "feature": "nearby-search-personal-notification-time-trivia-and-week-labels-20261115",
+    "tests": [
+      {
+        "file": "tests/usability-search-and-notification-time.test.mjs",
+        "name": "calendar search keeps todays and tomorrows daily chores before distant matches within the supported horizon"
+      },
+      {
+        "file": "tests/usability-search-and-notification-time.test.mjs",
+        "name": "calendar search ranks nearby past and future results deterministically without hiding older matches"
+      },
+      {
+        "file": "tests/usability-search-and-notification-time.test.mjs",
+        "name": "personal housework notification time saves atomically without changing enablement or another household"
+      },
+      {
+        "file": "tests/usability-search-and-notification-time.test.mjs",
+        "name": "changing the personal digest time replaces only its reservations and repeated reconciliation stays quiet"
+      },
+      {
+        "file": "tests/usability-search-and-notification-time.test.mjs",
+        "name": "ios calendar search scrolls or explicitly loads every matching page and selects the original chore without writes"
+      },
+      {
+        "file": "tests/usability-search-and-notification-time.test.mjs",
+        "name": "ios personal notification time commits only on confirmation without requesting permission and retains failed saves"
+      },
+      {
+        "file": "tests/usability-search-and-notification-time.test.mjs",
+        "name": "ios chore library accepts spaced reversed and width normalized terms while retaining its category expansion"
+      },
+      {
+        "file": "tests/usability-search-and-notification-time.test.mjs",
+        "name": "android calendar search scrolls or explicitly loads every matching page and selects the original chore without writes"
+      },
+      {
+        "file": "tests/usability-search-and-notification-time.test.mjs",
+        "name": "android personal notification time commits only on confirmation without requesting permission and retains failed saves"
+      },
+      {
+        "file": "tests/usability-search-and-notification-time.test.mjs",
+        "name": "android chore library accepts spaced reversed and width normalized terms while retaining its category expansion"
+      },
+      {
+        "file": "tests/trivia-library-ux.test.mjs",
+        "name": "ios trivia finds headings chore names and body terms without eagerly mounting every article"
+      },
+      {
+        "file": "tests/trivia-library-ux.test.mjs",
+        "name": "ios trivia keeps its native list mounted during article navigation and only resets scroll for a changed query"
+      },
+      {
+        "file": "tests/trivia-library-ux.test.mjs",
+        "name": "ios trivia article back preserves its search while returning to the chore library clears it without writes"
+      },
+      {
+        "file": "tests/trivia-library-ux.test.mjs",
+        "name": "android trivia finds headings chore names and body terms without eagerly mounting every article"
+      },
+      {
+        "file": "tests/trivia-library-ux.test.mjs",
+        "name": "android trivia keeps its native list mounted during article navigation and only resets scroll for a changed query"
+      },
+      {
+        "file": "tests/trivia-library-ux.test.mjs",
+        "name": "android trivia article back preserves its search while returning to the chore library clears it without writes"
+      },
+      {
+        "file": "tests/trivia-library-ux.test.mjs",
+        "name": "ios trivia article rejects mismatched household group and account scopes without reading another article"
+      },
+      {
+        "file": "tests/trivia-library-ux.test.mjs",
+        "name": "android trivia article rejects mismatched household group and account scopes without reading another article"
+      }
+    ],
+    "manualReview": [
+      "docs/audits/2026-11-15-search-notifications-and-week-label.md"
+    ]
+  },
+  {
     "feature": "sync-traffic-delivery-and-responsiveness-audit-2026-11-15",
     "tests": [
       {
@@ -278,7 +618,7 @@
       },
       {
         "file": "tests/calendar-navigation-ux.test.mjs",
-        "name": "${platform} native horizontal swipes page one or two days once and ignore cancelled diagonal and multi-touch gestures"
+        "name": "${platform} native horizontal swipes shift one day in each detailed view and ignore cancelled diagonal and multi-touch gestures"
       },
       {
         "file": "tests/chore-date-sheet.test.mjs",

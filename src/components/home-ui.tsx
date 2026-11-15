@@ -20,7 +20,7 @@ export function homeHeaderContainerStyle(workspaceName?: string) {
 export function HomeWeekSwitcher({ scope, onChange }: { scope: HomeWeekScope; onChange: (scope: HomeWeekScope) => void }) {
   return <View style={styles.weekSwitcher}>{(['current', 'next'] as const).map(value => <Pressable key={value} accessibilityRole="button"
     accessibilityState={{ selected: scope === value }} onPress={() => onChange(value)} style={[styles.weekOption, scope === value && styles.weekSelected]}>
-    <Text style={[styles.weekText, scope === value && styles.weekSelectedText]}>{value === 'current' ? '今週' : '来週'}</Text>
+    <Text style={[styles.weekText, scope === value && styles.weekSelectedText]}>{value === 'current' ? '今週の残り' : '来週'}</Text>
   </Pressable>)}</View>;
 }
 export function HomeUpcomingDate({ date }: { date: LocalDate }) {

@@ -1,13 +1,14 @@
-import { useRef, type ComponentRef, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, type ComponentRef, type ReactNode } from 'react';
 import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
 import type { LocalDate } from '../../domain/shared/types';
 import type { CalendarOccurrence } from './events';
 import { addDays } from '../../domain/scheduling/local-date';
 import { CALENDAR_DRAG_HOLD_MS, type CalendarDropTarget } from './direct-actions';
+import type { RegisterCalendarHelpTarget } from './help-targets';
 import type { MonthDragStart } from './month-drag-driver';
 
 export interface CalendarMonthEventDrag<Capture> {
-  activeId?: string; canMove(event: CalendarOccurrence): boolean; onBegin(event: CalendarOccurrence): Capture | null;
+  helpTarget?: RegisterCalendarHelpTarget; activeId?: string; canMove(event: CalendarOccurrence): boolean; onBegin(event: CalendarOccurrence): Capture | null;
   onCommit(capture: Capture, target: CalendarDropTarget): Promise<void>;
   prepare(input: MonthDragStart<Capture, ReactNode>): void; onOpen(): void;
 }
@@ -17,6 +18,8 @@ export function CalendarMonthEvent<Capture>({ event, day, drag, style, children 
   const held = useRef(false); const pressed = useRef(false);
   const host = useRef<ComponentRef<typeof View>>(null);
   const draggable = drag.canMove(event);
+  const register = drag.helpTarget;
+  useLayoutEffect(() => { const key = `month:${event.id}:${day}`; register?.(key, draggable ? host.current : null); return () => register?.(key, null); }, [register, event.id, day, draggable]);
   return <Pressable ref={host} accessibilityRole="button" accessibilityLabel={`${event.title}、${day}の予定`} accessibilityHint={draggable ? '長押しして日付を移動できます' : undefined}
     accessibilityActions={draggable ? [{ name: 'moveNextDay', label: '翌日へ移動' }, { name: 'movePreviousDay', label: '前日へ移動' }] : undefined}
     onAccessibilityAction={action => {

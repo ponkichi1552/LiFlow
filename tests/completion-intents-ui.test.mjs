@@ -1,3 +1,6 @@
+import { beforeEach } from 'node:test';
+import { pinPrivateFixtureTime } from './helpers/sharing-v2-private-fixture.mjs';
+beforeEach(pinPrivateFixtureTime);
 import './helpers/typescript-loader.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -5,9 +8,10 @@ import { randomUUID } from 'node:crypto';
 import { createCompletionIntents } from '../src/features/planner/completion-intents.ts';
 import { captureCompletionTarget, completionIntentDigest, prepareCompletionRequest } from '../src/features/planner/completion-command.ts';
 import { screenHarness } from './helpers/screen-harness.mjs';
+import { CALENDAR_HELP_SEEN_KEY } from '../src/features/calendar/help-store.ts';
 import { openCalendarDay } from './helpers/calendar-ui.mjs';
 import { localDateFromDate } from '../src/domain/scheduling/local-date.ts';
-import { privateFixture } from './helpers/sharing-v2-private-fixture.mjs';
+import { privateFixture, privateToday } from './helpers/sharing-v2-private-fixture.mjs';
 import { fixture as sharedFixture, seeds, now, draft } from './helpers/sharing-v2-repository-fixture.mjs';
 import { createV2GroupController } from '../src/features/sharing/v2/controller.ts';
 import { createV2ScreenSession } from '../src/features/sharing/v2-ui/screen-session.ts';
@@ -121,7 +125,7 @@ for (const platform of ['ios', 'android']) {
     } finally { runtime?.release(); await runtime?.queue.settled(); screen?.unmount(); store?.dispose(); d.connection.close(); }
   });
 
-  test(`${platform} personal home and calendar immediately share the last completion gesture while protected persistence is blocked`, async () => {
+  test(`${platform} personal home and calendar immediately share the last completion gesture while protected persistence is blocked`, async t => {
     const h = await privateFixture(); let home; let calendar; let runtime; const alerts = [];
     try {
       let snapshot = await repository.loadPlannerSnapshot(h.database); let businessWrites = 0;
@@ -137,7 +141,9 @@ for (const platform of ['ios', 'android']) {
       const options = { platform, database: h.database, snapshot: () => snapshot, refresh,
         alert: (...args) => alerts.push(args),
         effectDependencies: true, focusDependencies: true, effect: callback => callback(), layoutEffect: callback => callback(),
-        mocks: { '../platform/storage/completion-intents': { personalCompletionIntents: () => runtime } } };
+        mocks: { '../platform/storage/completion-intents': { personalCompletionIntents: () => runtime },
+          // Completion resumption uses an established calendar; initial help is covered in calendar-help.test.mjs.
+          'expo-sqlite/kv-store': { __esModule: true, default: { getItemSync: key => key === CALENDAR_HELP_SEEN_KEY ? '1' : null, setItemSync() {} } } } };
       home = screenHarness('src/app/(tabs)/index.tsx', options); await home.flush();
       const inputCountBefore = home.nodes().filter(node => node.type === 'TextInput').length;
       const visibleModalCountBefore = home.nodes().filter(node => node.type === 'Modal' && node.props.visible === true).length;

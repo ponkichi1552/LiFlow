@@ -8,27 +8,78 @@
   "images": [
     {
       "file": "01-home.png",
-      "sha256": "c6faeeb6794b82838619aa6b160409c803f557361566ce74a9125ba9a1d055e2"
+      "sha256": "d160547c38d0316316616fd3d53e8a474e4356134bb80813006e164aa3a197a6",
+      "bundleSha256": "216c07d6562bb359e4fd2fdb29bda1c2b40d2594da6c2cc7959def3aad6c2d6e",
+      "capturedOn": "2026-11-15",
+      "note": "Refreshed during the final spacing build; home unchanged by the subsequent calendar icon change."
     },
     {
       "file": "02-calendar.png",
-      "sha256": "281197fd52bac53ebe1697ed590dde0ef62c5cd7f03052959a6d0fb7f54b4650"
+      "sha256": "e80966780f749aaa27b9ead643e5fb0482efb74756fb4f05cbf15cc74f8760eb",
+      "bundleSha256": "7ec042eb9c8cb0009be3f0fc4f739a07f615da33a50a445648bfe06436e624d8",
+      "capturedOn": "2026-11-15",
+      "note": "Captured from the final question-mark build on the existing simulator."
     },
     {
       "file": "03-guide-search.png",
-      "sha256": "2be1b931f8d2ed28da1ca0e2cdd8fcf3c120b3648ec80d6fff5baecf3b087415"
+      "sha256": "2be1b931f8d2ed28da1ca0e2cdd8fcf3c120b3648ec80d6fff5baecf3b087415",
+      "bundleSha256": "37f2a9c0fa9051d1d24fd06df07e946cace1d0ebeb66626e72b0797ff206549f",
+      "capturedOn": "2026-11-15",
+      "note": "Earlier same-day capture retained; this page was not changed in the additional calendar work."
     },
     {
       "file": "04-guide-detail.png",
-      "sha256": "dc487cfc5432df9f747243e8bc7dde0f1da3a9ea77b729bb006e3b86a9b07bfe"
+      "sha256": "dc487cfc5432df9f747243e8bc7dde0f1da3a9ea77b729bb006e3b86a9b07bfe",
+      "bundleSha256": "37f2a9c0fa9051d1d24fd06df07e946cace1d0ebeb66626e72b0797ff206549f",
+      "capturedOn": "2026-11-15",
+      "note": "Earlier same-day capture retained; this page was not changed in the additional calendar work."
     },
     {
       "file": "05-appliance-ai.png",
-      "sha256": "0aa9f2c5465e0c8304eb85c0c1d0f447512838da689ae768d34ada88646efe95"
+      "sha256": "0aa9f2c5465e0c8304eb85c0c1d0f447512838da689ae768d34ada88646efe95",
+      "bundleSha256": "37f2a9c0fa9051d1d24fd06df07e946cace1d0ebeb66626e72b0797ff206549f",
+      "capturedOn": "2026-11-15",
+      "note": "Earlier same-day capture retained; this page was not changed in the additional calendar work."
     },
     {
       "file": "06-first-run.png",
-      "sha256": "ca168735ad3ab38c87b40303454feba94c0d3a24a1820ad5b3cb2400d2718d67"
+      "sha256": "ca168735ad3ab38c87b40303454feba94c0d3a24a1820ad5b3cb2400d2718d67",
+      "bundleSha256": "37f2a9c0fa9051d1d24fd06df07e946cace1d0ebeb66626e72b0797ff206549f",
+      "capturedOn": "2026-11-15",
+      "note": "Earlier same-day capture retained; this page was not changed in the additional calendar work."
+    },
+    {
+      "file": "07-calendar-seven-day.png",
+      "sha256": "f68c1017b1c5cb70cd5b5d383fd69ef34360bc2edb7315b31ba64930c3c255d0",
+      "bundleSha256": "7ec042eb9c8cb0009be3f0fc4f739a07f615da33a50a445648bfe06436e624d8",
+      "capturedOn": "2026-11-15",
+      "note": "Captured from the final question-mark build on the existing simulator."
+    },
+    {
+      "file": "08-calendar-help.png",
+      "sha256": "4089731eb400897c2ae64eae30907df63716046a515eb3ae114d0d7837508a46",
+      "bundleSha256": "7ec042eb9c8cb0009be3f0fc4f739a07f615da33a50a445648bfe06436e624d8",
+      "capturedOn": "2026-11-15",
+      "note": "Captured from the final question-mark build on the existing simulator."
+    },
+    {
+      "file": "09-trivia.png",
+      "sha256": "602f5df89ab44c999df7261139318e28e908e532dafa8195974b71706b04889b",
+      "bundleSha256": "7ec042eb9c8cb0009be3f0fc4f739a07f615da33a50a445648bfe06436e624d8",
+      "capturedOn": "2026-11-15",
+      "note": "Captured from the final question-mark build on the existing simulator."
+    },
+    {
+      "file": "10-calendar-three-day.png",
+      "sha256": "df52186b165082cc8acbe1491cd45fa07bc1dfaadd3ba478d5e5fd2a2e488952",
+      "bundleSha256": "7ec042eb9c8cb0009be3f0fc4f739a07f615da33a50a445648bfe06436e624d8",
+      "capturedOn": "2026-11-15",
+      "note": "Captured from the final question-mark build on the existing simulator."
     }
-  ]
+  ],
+  "updatedOn": "2026-11-15",
+  "latestBundleSha256": "7ec042eb9c8cb0009be3f0fc4f739a07f615da33a50a445648bfe06436e624d8",
+  "latestSourceFileCount": 849,
+  "latestSourceManifestSha256": "e6bc39562b87f0d7a39dc573aad94e97a5f9f039c113eb3ae0996f6fc7cddd93",
+  "ephemeralDeliveryEnabled": false
 }

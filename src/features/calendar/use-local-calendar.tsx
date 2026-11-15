@@ -102,7 +102,7 @@ export interface LocalCalendarBinding {
   canEditEvent?: (eventId: string, anchorDate?: LocalDate | null) => boolean;
   requestRange?: (from: LocalDate, through: LocalDate, options?: { refresh?: boolean }) => void;
   categoriesFor?: (audience: 'personal' | 'group') => readonly CalendarCategory[];
-  saveEvent?: (draft: CalendarEditorDraft, resetExceptions: boolean) => Promise<void>;
+  saveEvent?: (draft: CalendarEditorDraft, resetExceptions: boolean) => Promise<void | import('../../platform/storage/calendar-events').CalendarFutureSave>;
   restoreOccurrence?: (draft: CalendarEditorDraft) => Promise<void>;
   deleteEvent?: (draft: CalendarEditorDraft) => Promise<void>;
   persistDraft?: (draft: CalendarEditorDraft) => Promise<void>;

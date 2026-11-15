@@ -40,7 +40,7 @@ for (const platform of ['ios', 'android']) test(`${platform} joined home exposes
     purpose: 'workspace', view: 'home', loadSession: async () => h.session, onBack() {}, onConfiguration() {}, onHistory() {}, onGuide: (...args) => opened.push(args),
   } });
   const stop = focus(); t.after(stop); for (let i = 0; i < 15; i++) await screen.flush();
-  assert.equal(screen.button('今週').props.accessibilityState.selected, true); assert.ok(screen.text().includes('本人のみ0'));
+  assert.equal(screen.button('今週の残り').props.accessibilityState.selected, true); assert.ok(screen.text().includes('本人のみ0'));
   await screen.press('来週'); assert.equal(screen.button('来週').props.accessibilityState.selected, true); assert.ok(screen.text().includes('本人のみ1')); assert.equal(screen.text().includes('本人のみ0'), false);
   await screen.press('本人のみ1の説明を開く'); assert.deepEqual(opened, [['private-1', 'personal']]);
   const before = await listSharingOutbox(h.d.database, groupId); const check = screen.nodes().find(node => node.props.accessibilityLabel === '本人のみ1を完了');

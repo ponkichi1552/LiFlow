@@ -2,22 +2,32 @@ import type { CalendarEditorDraft } from '../../platform/storage/calendar-events
 import type { CalendarEvent, CalendarException } from './events';
 import { calendarEventsInTimeZone, isCalendarAnchor } from './events.ts';
 import type { LocalDate } from '../../domain/shared/types';
-import { addDays } from '../../domain/scheduling/local-date.ts';
+import { addDays, localDateFromDate } from '../../domain/scheduling/local-date.ts';
+import { normalizeSearchText, searchTerms } from '../../domain/search/normalized-search.ts';
 import { projectPrivateCalendarEvents } from './private-event-projection.ts';
 
-const normalize = (value: string) => value.normalize('NFKC').toLocaleLowerCase('ja').replace(/[ァ-ヶ]/g, letter => String.fromCharCode(letter.charCodeAt(0) - 0x60));
+const normalize = normalizeSearchText;
 export interface CalendarSearchEntry { key: string; text: string; draft: CalendarEditorDraft }
 export interface CalendarSearchDestination { date: LocalDate; minute: number | null; choreKey?: string }
 export interface CalendarSearchChore { key: string; title: string; date: LocalDate; source: 'personal' | 'shared'; minute?: number | null }
 export type CalendarSearchResult = CalendarSearchEntry | CalendarSearchChore;
-export function searchCalendarWithChores(index: readonly CalendarSearchEntry[], chores: readonly CalendarSearchChore[], query: string, limit = 60) {
-  const terms = normalize(query).trim().split(/\s+/).filter(Boolean);
+export function searchCalendarWithChores(index: readonly CalendarSearchEntry[], chores: readonly CalendarSearchChore[], query: string, limit = 60, focus: LocalDate = localDateFromDate(new Date())) {
+  const terms = searchTerms(query);
   if (!terms.length) return { matches: [] as CalendarSearchResult[], more: false };
   const rows: CalendarSearchResult[] = [...index.filter(row => terms.every(term => row.text.includes(term))),
     ...new Map(chores.filter(row => terms.every(term => normalize(row.title).includes(term))).map(row => [row.key, row])).values()];
-  const date = (row: CalendarSearchResult) => 'draft' in row ? row.draft.value.startDate : row.date;
-  rows.sort((a, b) => date(b).localeCompare(date(a)) || a.key.localeCompare(b.key));
-  return { matches: rows.slice(0, limit), more: rows.length > limit };
+  const date = (row: CalendarSearchResult) => {
+    if (!('draft' in row)) return row.date;
+    const value = row.draft.value;
+    // An active series represents its nearby round. Expanding it is deferred
+    // until selection, so typing never projects years of recurring calendars.
+    if (row.draft.scope === 'series' && value.recurrence !== 'none' && value.startDate <= focus) return value.untilDate && value.untilDate < focus ? value.untilDate : focus;
+    return value.startDate;
+  };
+  const at = Date.parse(focus);
+  const ranked = rows.map(row => { const day = date(row); return { row, day, distance: Math.abs(Date.parse(day) - at) }; });
+  ranked.sort((a, b) => a.distance - b.distance || b.day.localeCompare(a.day) || a.row.key.localeCompare(b.row.key));
+  return { matches: ranked.slice(0, limit).map(value => value.row), more: ranked.length > limit };
 }
 
 /** Index only this binding's visible records, without fetching accounts or expanding recurring years. */
@@ -35,7 +45,7 @@ export function calendarSearchIndex(events: readonly CalendarEvent[], exceptions
   return rows.sort((a, b) => b.draft.value.startDate.localeCompare(a.draft.value.startDate) || a.key.localeCompare(b.key));
 }
 export function searchCalendarIndex(index: readonly CalendarSearchEntry[], query: string, limit = 60) {
-  const terms = normalize(query).trim().split(/\s+/).filter(Boolean); if (!terms.length) return { matches: [], more: false };
+  const terms = searchTerms(query); if (!terms.length) return { matches: [], more: false };
   const matches: CalendarSearchEntry[] = [];
   for (const row of index) if (terms.every(term => row.text.includes(term))) {
     if (matches.length >= limit) return { matches, more: true }; matches.push(row);

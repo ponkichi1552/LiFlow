@@ -2,7 +2,7 @@ import { pinnedClockAt } from '../../domain/scheduling/zoned-clock.ts';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ComponentRef, ReactNode } from 'react';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { Alert, FlatList, Pressable, StyleSheet, Text, View, useColorScheme, useWindowDimensions } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, View, useColorScheme, useWindowDimensions } from 'react-native';
 import type { FlatListProps } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { FlatList as GestureFlatList, ScrollView as GestureScrollView, GestureDetector, GestureHandlerRootView, usePanGesture } from 'react-native-gesture-handler';
@@ -21,7 +21,7 @@ import type { CalendarEvent, CalendarOccurrence } from './events';
 import { CalendarEditor } from './calendar-editor';
 import type { CalendarChoreRegistrationProps, ExistingCalendarChore } from './calendar-editor';
 import type { LocalCalendarBinding } from './use-local-calendar';
-import { calendarDraftKey, calendarDraftVersion, EMPTY_LOCAL_CALENDAR, saveCalendarEvent, restoreCalendarOccurrence } from '../../platform/storage/calendar-events';
+import { calendarDraftKey, calendarDraftVersion, EMPTY_LOCAL_CALENDAR, saveCalendarEvent, saveCalendarFutureEvent, restoreCalendarOccurrence } from '../../platform/storage/calendar-events';
 import type { CalendarEditorDraft } from '../../platform/storage/calendar-events';
 import { calendarSwipe, timelineEvents, weekStart } from './layout';
 import { createCalendarGesture } from './gesture-control';
@@ -38,6 +38,11 @@ import { usePlannerBorderStyles } from '../../components/use-planner-border-styl
 import { calendarDisplayColor as categoryColor, calendarEventAppearance } from './event-appearance';
 import { calendarMonthContentHeight, MONTH_CELL_GAP, MONTH_CELL_PADDING, MONTH_DATE_HEIGHT, MONTH_SUMMARY_HEIGHT } from './month-density';
 import { CalendarSearch } from './calendar-search';
+import { CalendarHelp } from './calendar-help';
+import { useCalendarHelp } from './use-calendar-help';
+import { useCalendarMonthDetail } from './use-month-detail';
+import { monthDetailLayout } from './month-detail-store';
+import { measureCalendarHelpTargets, type CalendarHelpHost, type CalendarHelpTargets } from './help-targets';
 import { CalendarDraftList } from './calendar-draft-list';
 import { calendarSearchDestination, type CalendarSearchDestination, type CalendarSearchChore } from './search';
 import { CalendarYear, type YearScroller } from './calendar-year';
@@ -46,10 +51,14 @@ import { timedCalendarChoreEvents, type TimedCalendarChore } from './timed-chore
 import { OWN_BIRTHDAY_EVENT_ID } from '../../domain/calendar/own-birthday';
 import { BirthdayCake, BirthdayCalendarDate } from '../../components/birthday-cake';
 import { CalendarMonthEvents } from './month-events';
-import { calendarEventValue, calendarMovedDraft, calendarSeriesMovedDraft, calendarMonthDragTarget, calendarOccurrenceDraft, calendarSlotDraft, type CalendarMonthViewport } from './direct-actions';
+import { CalendarMonthEventTitle } from './month-event-title';
+import { calendarEventValue, calendarMovedDraft, calendarSeriesMovedDraft, calendarFutureMovedDraft, calendarMonthDragTarget, calendarOccurrenceDraft, calendarSlotDraft, type CalendarMonthViewport } from './direct-actions';
 import { CalendarTimedEvent } from './calendar-timed-event';
+import { CalendarRecurrenceScopePicker, type CalendarEditScope } from './calendar-recurrence-scope';
+import { CalendarWeek, type WeekRecenter } from './calendar-week';
 import { moveCalendarStart } from './event-editing';
 import { useMonthDrag } from './use-month-drag';
+import { splitCalendarFuture } from '../../domain/calendar/future-series';
 import { rebasedCalendarExceptions } from '../../domain/calendar/exception-slots';
 
 export interface CalendarDayInfo { loaded: boolean; partial?: boolean; pending?: number; total?: number; minutes?: number; accessibilityCountLabel?: string }
@@ -95,21 +104,37 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   const searchFocusTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const agendaEventOffsets = useRef(new Map<string, number>());
   const [draftsOpen, setDraftsOpen] = useState(false);
-  useFocusEffect(useCallback(() => () => { setSearchOpen(false); setDraftsOpen(false); }, [setSearchOpen, setDraftsOpen]));
   const preferred = useRef(Number((props.selectedDate ?? today).slice(-2)));
   const [month, setMonth] = useState(calendarMonth(date)); const [year, setYear] = useState(Number(date.slice(0, 4)));
   const [anchor, setAnchor] = useState(weekStart(date)); const [bounds, setBounds] = useState({ from: -260, through: 260 });
-  const [height, setHeight] = useState(600); const rowHeight = calendarMonthContentHeight(Math.floor(height / 5));
+  const monthDetail = useCalendarMonthDetail(); const density = monthDetailLayout(monthDetail.value);
+  const [height, setHeight] = useState(600); const rowHeight = calendarMonthContentHeight(Math.floor(height / density.weeks), density.maxEvents);
   const [expanded, setExpanded] = useState(new Set<LocalDate>()); const [listDays, setListDays] = useState(28);
   const [choreContentHeights, setChoreContentHeights] = useState<Record<string, number>>({});
   const [dayHeadingHeight, setDayHeadingHeight] = useState(0);
   const [timelineWidth, setTimelineWidth] = useState(width - timeGutter);
   const monthViewport = useRef<CalendarMonthViewport | null>(null); const monthScrollOffset = useRef(0); const viewportHost = useRef<ComponentRef<typeof View>>(null);
+  const helpAdd = useRef<ComponentRef<typeof View>>(null), helpMode = useRef<ComponentRef<typeof View>>(null), helpSearch = useRef<ComponentRef<typeof View>>(null);
+  const helpEventHosts = useRef(new Map<string, CalendarHelpHost>()), helpTargetListeners = useRef(new Set<() => void>());
+  const refreshHelpTargets = useCallback(() => { for (const listener of helpTargetListeners.current) listener(); }, []);
+  const registerHelpTarget = useCallback((key: string, host: CalendarHelpHost | null) => { if (host) helpEventHosts.current.set(key, host); else helpEventHosts.current.delete(key); refreshHelpTargets(); }, [refreshHelpTargets]);
+  const measureHelpTargets = useCallback((done: (targets: CalendarHelpTargets) => void) => {
+    let stopped = false, timer: ReturnType<typeof setTimeout> | undefined; let cancel = () => {};
+    const measure = () => { if (stopped) return; timer = undefined; cancel(); cancel = measureCalendarHelpTargets({ add: helpAdd.current, mode: helpMode.current, search: helpSearch.current, calendar: viewportHost.current }, helpEventHosts.current, done); };
+    const changed = () => { if (timer === undefined && !stopped) timer = setTimeout(measure, 16); };
+    helpTargetListeners.current.add(changed); measure();
+    return () => { stopped = true; clearTimeout(timer); cancel(); helpTargetListeners.current.delete(changed); };
+  }, []);
   const dragDay = useRef<LocalDate | null>(null); const [activeDragDay, setActiveDragDay] = useState<LocalDate | null>(null);
   const setDragDay = useCallback((day: LocalDate | null) => { dragDay.current = day; setActiveDragDay(day); }, []);
   const moveLock = useRef(false); const [moveError, setMoveError] = useState<string | null>(null);
   const [pendingMove, setPendingMove] = useState<{ capture: CalendarMoveCapture; row: CalendarOccurrence; settled: boolean } | null>(null);
-  const [undoMove, setUndoMove] = useState<{ capture: CalendarMoveCapture; saved: CalendarEditorDraft } | null>(null);
+  const [undoMove, setUndoMove] = useState<{ capture: CalendarMoveCapture; saved: CalendarEditorDraft; undoFuture?: () => Promise<void> } | null>(null);
+  const [moveScopeOpen, setMoveScopeOpen] = useState(false);
+  const moveScopeAnswer = useRef<((scope: CalendarEditScope | null) => void) | null>(null);
+  const answerMoveScope = (scope: CalendarEditScope | null) => { const answer = moveScopeAnswer.current; moveScopeAnswer.current = null; setMoveScopeOpen(false); answer?.(scope); };
+  useFocusEffect(useCallback(() => () => { setSearchOpen(false); setDraftsOpen(false); moveScopeAnswer.current?.(null); moveScopeAnswer.current = null; setMoveScopeOpen(false); }, [setSearchOpen, setDraftsOpen]));
+  useEffect(() => () => { moveScopeAnswer.current?.(null); moveScopeAnswer.current = null; setMoveScopeOpen(false); }, [local?.database, local?.shared?.groupId, timeZone]);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(undoTimer.current), []);
   const [editor, setRawEditor] = useState<CalendarEditorDraft | null>(null);
@@ -118,6 +143,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   const returnedDraft = typeof routeParams.calendarDraft === 'string' && typeof routeParams.calendarDraftVersion === 'string'
     ? (source.drafts ?? (source.draft ? [source.draft] : [])).find(row => calendarDraftKey(row) === routeParams.calendarDraft && calendarDraftVersion(row) === routeParams.calendarDraftVersion) : undefined;
   const activeEditor = editor ?? returnedDraft;
+  const calendarHelp = useCalendarHelp(!activeEditor && !searchOpen && !draftsOpen && !monthPicker && !viewMenu && !activeDragDay && !moveScopeOpen);
   const closeEditor = () => { setEditor(null); if (routeParams.calendarDraft) router.setParams({ calendarDraft: undefined, calendarDraftVersion: undefined }); };
   const scroll = useRef<FlatList<{ key: string }>>(null); const timelineTop = useRef<number | null>(null); const timelineViewport = useRef(0); const positioned = useRef('');
   const timelineOffset = useRef(0);
@@ -129,11 +155,13 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   const modesTouched = useRef(false); const modeGesture = useMemo(() => createCalendarGesture(), []);
   const recenter = useRef(() => {}); const todayTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const yearScroll = useRef<YearScroller | null>(null);
+  const weekScroll = useRef<WeekRecenter | null>(null);
+  const weekReady = useCallback((recenter: WeekRecenter | null) => { weekScroll.current = recenter; }, []);
   const yearTarget = useRef<string | null>(null);
   useEffect(() => () => { clearTimeout(todayTimer.current); clearTimeout(searchFocusTimer.current); }, []);
   const currentDate = useRef(date); useLayoutEffect(() => { currentDate.current = date; }, [date]);
   const requestedMonth = useRef<LocalDate | null>(null);
-  const clock = useCalendarClock(view === 'day' || view === 'two');
+  const clock = useCalendarClock(view === 'day' || view === 'two' || view === 'three' || view === 'week');
   const currentMinute = pinnedClockAt(clock, timeZone).minute;
   useEffect(() => {
     if (props.selectedDate && props.selectedDate !== currentDate.current) { setDate(props.selectedDate); setMonth(calendarMonth(props.selectedDate)); preferred.current = Number(props.selectedDate.slice(-2)); }
@@ -162,6 +190,13 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   const movedDays = useMemo<Map<LocalDate, CalendarOccurrence[]> | null>(() => {
     if (!visibleMove) return null;
     const { capture } = visibleMove;
+    if (capture.draft.scope === 'future' && capture.draft.anchorDate) {
+      const split = splitCalendarFuture(capture.series, capture.draft.anchorDate, capture.draft.value, capture.exceptions);
+      const nextId = `${capture.series.id}.future-preview`;
+      const events = [...(split.past ? [{ ...split.past, id: capture.series.id, revision: capture.series.revision }] : []), { ...split.next, id: nextId, revision: 1 }];
+      const exceptions = [...split.previous, ...split.following.map(row => ({ ...row, eventId: nextId }))];
+      return indexCalendarOccurrences(calendarEventsInTimeZone(projectPrivateCalendarEvents(events, exceptions, range.from, range.through), timeZone), range.from, range.through);
+    }
     if (capture.draft.scope !== 'series' || capture.series.recurrence === 'none') return indexCalendarOccurrences([visibleMove.row], range.from, range.through);
     const next = { ...capture.series, ...capture.draft.value };
     const exceptions = rebasedCalendarExceptions(capture.series, next, capture.exceptions);
@@ -170,7 +205,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   const eventsOn = (day: LocalDate) => {
     const rows = byDate.get(day) ?? [];
     const ordinary = visibleMove ? [...rows.filter(row => row.eventId !== visibleMove.capture.event.eventId || visibleMove.capture.draft.scope === 'one' && row.anchorDate !== visibleMove.capture.event.anchorDate), ...movedDays?.get(day) ?? []] : rows;
-    return view === 'day' || view === 'two' ? [...ordinary, ...timedChoreIndex.get(day) ?? []].sort((a, b) => a.startMinute - b.startMinute || a.id.localeCompare(b.id)) : ordinary;
+    return view === 'day' || view === 'two' || view === 'three' || view === 'week' ? [...ordinary, ...timedChoreIndex.get(day) ?? []].sort((a, b) => a.startMinute - b.startMinute || a.id.localeCompare(b.id)) : ordinary;
   };
   const waste = useMemo(() => wasteCalendarLabels(props.wasteSchedules ?? [], range.from, range.through, props.hiddenWasteKeys), [props.wasteSchedules, props.hiddenWasteKeys, range.from, range.through]);
   const wasteKnown = (day: LocalDate) => props.wasteLoaded?.(day) !== false;
@@ -223,8 +258,8 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   useLayoutEffect(() => { horizontal.update({ canStart: gesture => {
     // The detail viewport uses a native horizontal recognizer so vertical native
     // lists cannot take this swipe first or deliver a second navigation.
-    if (view === 'day' || view === 'two') return false;
-    if (dragDay.current || modesTouched.current || searchOpen || draftsOpen) return false;
+    if (view === 'day' || view === 'two' || view === 'three' || view === 'week') return false;
+    if (dragDay.current || modesTouched.current || searchOpen || draftsOpen || calendarHelp.open) return false;
     // Claim a horizontal drag before the native vertical list takes ownership;
     // committing navigation still requires the longer release threshold.
     const action = calendarSwipe(gesture.x0, gesture.dx, gesture.dy, width, 14);
@@ -235,15 +270,15 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     else if (action === 'next' || action === 'previous') {
       const direction = action === 'next' ? 1 : -1;
       if (view === 'month') navigateMonth(calendarMonth(month, direction));
-      else if (view !== 'year') { positioned.current = ''; timelineTop.current = null; chooseDate(addDays(date, direction * (view === 'two' ? 2 : 1))); }
+      else if (view !== 'year') { positioned.current = ''; timelineTop.current = null; chooseDate(addDays(date, direction)); }
     }
   } }); });
-  const detailSwipeSession = useRef<{ date: LocalDate; view: 'day' | 'two'; x: number } | null>(null);
+  const detailSwipeSession = useRef<{ date: LocalDate; view: 'day' | 'two' | 'three'; x: number } | null>(null);
   const detailSwipe = usePanGesture({
-    enabled: (view === 'day' || view === 'two') && !activeDragDay && !activeEditor && !searchOpen && !draftsOpen && !monthPicker && !viewMenu,
+    enabled: (view === 'day' || view === 'two' || view === 'three') && !activeDragDay && !activeEditor && !searchOpen && !draftsOpen && !calendarHelp.open && !monthPicker && !viewMenu,
     activeOffsetX: [-16, 16], failOffsetY: [-14, 14], maxPointers: 1, runOnJS: true, cancelsJSResponder: true,
     onActivate: event => {
-      detailSwipeSession.current = !dragDay.current && (view === 'day' || view === 'two') && event.numberOfPointers === 1
+      detailSwipeSession.current = !dragDay.current && (view === 'day' || view === 'two' || view === 'three') && event.numberOfPointers === 1
         ? { date, view, x: event.x - event.translationX } : null;
     },
     onUpdate: event => { if (event.numberOfPointers !== 1) detailSwipeSession.current = null; },
@@ -253,7 +288,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
       const action = calendarSwipe(start.x, event.translationX, event.translationY, width);
       if (action === 'home' || action === 'chores') { props.onNavigate?.(action); return; }
       if (action !== 'next' && action !== 'previous') return;
-      const next = addDays(start.date, (action === 'next' ? 1 : -1) * (start.view === 'two' ? 2 : 1));
+      const next = addDays(start.date, (action === 'next' ? 1 : -1));
       const minute = timelineTop.current !== null && timelineViewport.current > 0
         ? Math.max(0, Math.min(1440, (timelineOffset.current + timelineViewport.current / 2 - timelineTop.current) / hourHeight * 60)) : null;
       positioned.current = ''; timelineTop.current = null; chooseDate(next);
@@ -264,7 +299,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   useLayoutEffect(() => { modeGesture.update({ canStart: gesture => Math.abs(gesture.dx) > 18 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
     release: gesture => {
       modesTouched.current = false; if (Math.abs(gesture.dx) < 40) return;
-      const modes = ['day', 'two', 'list'] as const; const current = modes.indexOf(display.detail);
+      const modes = ['day', 'two', 'three', 'week', 'list'] as const; const current = modes.indexOf(display.detail);
       chooseView(modes[current < 0 ? 0 : Math.max(0, Math.min(modes.length - 1, current + (gesture.dx < 0 ? 1 : -1)))]);
     } }); });
   const openEvent = (event?: CalendarOccurrence) => {
@@ -305,26 +340,26 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     moveLock.current = true; setMoveError(null);
     let committed = false;
     try {
-      const scope = capture.series.recurrence === 'none' ? 'series' : await new Promise<'one' | 'series' | null>(resolve => Alert.alert('繰り返し予定の移動', '個別変更した予定は、そのまま残します。', [
-        { text: 'この予定のみ', onPress: () => resolve('one') }, { text: 'すべての予定', onPress: () => resolve('series') }, { text: 'キャンセル', style: 'cancel', onPress: () => resolve(null) },
-      ], { cancelable: true, onDismiss: () => resolve(null) }));
+      const scope = capture.series.recurrence === 'none' ? 'series' : await new Promise<CalendarEditScope | null>(resolve => { moveScopeAnswer.current = resolve; setMoveScopeOpen(true); });
       if (!scope) return;
       const currentLocal = currentContext.current.local;
       if (!currentLocal?.database || capture.database !== currentLocal.database || capture.groupId !== currentLocal.shared?.groupId || capture.timeZone !== currentContext.current.timeZone) throw new Error('表示先が変わりました。予定を選び直してください。');
       if (currentLocal.canEditEvent?.(capture.event.eventId, capture.event.anchorDate) === false) throw new Error('この予定を変更する権限がありません。');
-      const draft = scope === 'series' && capture.series.recurrence !== 'none' ? calendarSeriesMovedDraft(capture.draft, capture.series, target, timeZone) : calendarMovedDraft(capture.draft, target, timeZone);
+      const draft = scope === 'future' ? calendarFutureMovedDraft(capture.draft, capture.series, target, timeZone) : scope === 'series' && capture.series.recurrence !== 'none' ? calendarSeriesMovedDraft(capture.draft, capture.series, target, timeZone) : calendarMovedDraft(capture.draft, target, timeZone);
       const row = { ...capture.event, ...moveCalendarStart(calendarEventValue(capture.event), { startDate: target.day, startMinute: target.minute }) };
       setPendingMove({ capture: { ...capture, draft }, row, settled: false });
-      if (currentLocal.saveEvent) await currentLocal.saveEvent(draft, false);
+      let result: void | import('../../platform/storage/calendar-events').CalendarFutureSave = undefined;
+      if (currentLocal.saveEvent) result = await currentLocal.saveEvent(draft, false);
       else {
         if (draft.audience === 'group') throw new Error('共有予定の保存先を確認してください。');
-        await saveCalendarEvent(currentLocal.database, { id: draft.eventId!, expectedRevision: draft.revision, value: draft.value, scope: draft.scope,
+        if (draft.scope === 'future') result = await saveCalendarFutureEvent(currentLocal.database, draft);
+        else await saveCalendarEvent(currentLocal.database, { id: draft.eventId!, expectedRevision: draft.revision, value: draft.value, scope: draft.scope,
           anchorDate: draft.anchorDate ?? undefined, expectedExceptionRevision: draft.exceptionRevision });
       }
       committed = true;
       setPendingMove(previous => previous?.capture.event === capture.event ? { ...previous, settled: true } : previous);
       await currentLocal.refresh();
-      clearTimeout(undoTimer.current); setUndoMove({ capture, saved: draft }); undoTimer.current = setTimeout(() => setUndoMove(null), 8000);
+      clearTimeout(undoTimer.current); setUndoMove(draft.scope !== 'future' || result?.undoFuture ? { capture, saved: draft, undoFuture: result?.undoFuture } : null); undoTimer.current = setTimeout(() => setUndoMove(null), 8000);
     } catch (cause) {
       if (!committed) setPendingMove(previous => previous?.capture.event === capture.event ? null : previous);
       setMoveError(committed ? '移動は保存済みです。表示を更新できませんでした。' : cause instanceof Error ? cause.message : '予定を移動できませんでした。もう一度お試しください。');
@@ -337,6 +372,8 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
       const { capture, saved } = undo;
       if (!local?.database || capture.database !== local.database || capture.groupId !== local.shared?.groupId || capture.timeZone !== timeZone) throw new Error('表示先が変わりました。');
       if (local.canEditEvent?.(saved.eventId!, saved.anchorDate) === false) throw new Error('この予定を変更する権限がありません。');
+      if (undo.undoFuture) { await undo.undoFuture(); clearTimeout(undoTimer.current); setUndoMove(null); setPendingMove(null); await local.refresh(); return; }
+      if (saved.scope === 'future') throw new Error('移動した予定を読み直してください。');
       const series = source.events.find(row => row.id === saved.eventId); const exception = source.exceptions.find(row => row.eventId === saved.eventId && row.anchorDate === saved.anchorDate);
       const current = saved.scope === 'one' ? exception?.override : series;
       const same = (a: CalendarEvent | import('./events').EventDraft | undefined | null, b: import('./events').EventDraft) => Boolean(a && JSON.stringify(calendarEventValue(a)) === JSON.stringify(calendarEventValue(b)));
@@ -344,6 +381,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
       const value = saved.scope === 'one' ? capture.draft.value : calendarEventValue(capture.series);
       const base: CalendarEditorDraft = { eventId: saved.eventId, scope: saved.scope, anchorDate: saved.anchorDate, revision: series.revision, exceptionRevision: exception?.revision ?? 0, value };
       const draft = local.prepareDraft?.(base) ?? base;
+      if (draft.scope === 'future') throw new Error('変更範囲を確認してください。');
       if (capture.draft.audience === 'group' && draft.audience !== 'group') throw new Error('共有予定の保存先を確認してください。');
       const removeNewException = saved.scope === 'one' && !capture.exceptions.some(row => row.eventId === saved.eventId && row.anchorDate === saved.anchorDate);
       if (removeNewException) {
@@ -366,14 +404,14 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   const toggleSummary = (day: LocalDate) => setExpanded(before => {
     const next = new Set(before); if (next.has(day)) next.delete(day); else next.add(day); return next;
   });
-  const summaryToggle = (day: LocalDate, cachedInfo?: CalendarDayInfo) => {
+  const summaryToggle = (day: LocalDate, cachedInfo?: CalendarDayInfo, weekly = false) => {
     if (!showChores(day)) return null;
     const info = cachedInfo ?? props.dayInfo(day); const open = expanded.has(day);
     if (!info.loaded || (info.total ?? info.pending ?? 0) === 0) return null;
     return <Pressable accessibilityRole="button" accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の家事を${open ? '閉じる' : '開く'}`} accessibilityState={{ expanded: open }}
-      onPress={() => toggleSummary(day)} style={styles.summary}>
-      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={.8} style={styles.summaryTitle}>家事 {info.total ?? info.pending ?? 0}件{info.minutes ? <Text style={styles.caption}> · 約{info.minutes}分</Text> : null}</Text>
-      <Chevron direction={open ? 'up' : 'down'} />
+      onPress={() => toggleSummary(day)} style={weekly ? styles.weekSummary : view === 'three' ? [styles.summary, styles.compactDaySummary] : styles.summary}>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={.8} style={weekly ? styles.weekSummaryText : styles.summaryTitle}>家事 {info.total ?? info.pending ?? 0}件{info.minutes && !weekly && view !== 'three' ? <Text style={styles.caption}> · 約{info.minutes}分</Text> : null}</Text>
+      {weekly ? <SymbolView name={{ ios: open ? 'chevron.up' : 'chevron.down', android: open ? 'keyboard_arrow_up' : 'keyboard_arrow_down' }} size={7} tintColor={palette.accent} /> : <Chevron direction={open ? 'up' : 'down'} />}
     </Pressable>;
   };
   const summaryDetails = (day: LocalDate) => !showChores(day) ? null : <View>{(props.dayInfo(day).pending ?? 0) > 0 && eventsOn(day).some(event => event.allDay && !event.birthday && !event.holiday && event.blocksTime !== false)
@@ -387,7 +425,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     <View style={styles.eventText}><Text style={styles.eventTitle}>{event.title}</Text>{event.location ? <Text style={styles.caption}>{event.location}</Text> : null}
       {event.timeIssue ? <Text style={styles.error} accessibilityLabel={`${event.timeZone}の夏時間により${event.timeIssue === 'gap' ? '存在しない' : '重複する'}時刻です。時刻を確認してください。`}>時刻要確認 · {event.timeZone}</Text> : event.original ? <Text style={styles.caption}>元の地域：{event.original.timeZone}</Text> : event.timeZone !== timeZone ? <Text style={styles.caption}>{event.timeZone}</Text> : null}</View><Chevron />
   </Pressable>;
-  const dayHeading = (day: LocalDate, agenda = false) => {
+  const dayHeading = (day: LocalDate, agenda = false, weekly = false) => {
     const announcement = dateLabel(day);
     const holiday = japanesePublicHoliday(day);
     const info = showChores(day) ? props.dayInfo(day) : null;
@@ -397,7 +435,18 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     const open = expanded.has(day);
     // The visual date can remain identical after Undo. Replace only this small
     // native text node so iOS does not retain its old accessibility description.
-    return <View style={[styles.dayHeading, agenda && styles.agendaHeading]}><View style={[styles.dayHeadingMain, agenda && styles.agendaHeadingMain]}><Text key={announcement} accessibilityLabel={announcement} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={.85} style={[styles.dayTitle, styles.dayHeadingDate, day === today && { color: palette.accent }, holiday && { color: palette.warning }]}>{formatJapaneseDate(day, { weekday: true }).replace(/[（(]/gu, ' ').replace(/[）)]/gu, '')}</Text>
+    if (weekly) return <View style={styles.weekHeading}>
+      <Text style={styles.weekWeekday}>{weekdays[parseLocalDate(day).getUTCDay()]}</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${announcement}を選択`} accessibilityState={{ selected: day === date }} disabled={Boolean(activeDragDay)} onPress={() => chooseDate(day)} style={[styles.weekDate, day === date && { backgroundColor: palette.accentSoft }, day === today && { backgroundColor: palette.accent }]}>
+        <Text style={[styles.weekNumber, holiday && { color: palette.warning }, day === today && { color: palette.accentInk }]}>{Number(day.slice(-2))}</Text>
+      </Pressable>
+      {incomplete ? <Pressable accessibilityRole="button" accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の家事を${open ? '閉じる' : '開く'}`} accessibilityState={{ expanded: open }} onPress={() => toggleSummary(day)}><Text style={styles.weekMeta}>{status}</Text></Pressable> : null}
+      {eventsOn(day).filter(event => event.birthday).map(event => <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${event.title}を編集`} onPress={() => openEvent(event)}><BirthdayCake width={18} height={16} /></Pressable>)}
+      {holiday ? <Text numberOfLines={1} accessibilityLabel={`祝日：${holiday}`} style={[styles.weekMeta, { color: palette.warning }]}>{holiday}</Text> : null}
+      {props.renderWaste ? props.renderWaste(day) : wasteKnown(day) ? <>{[...waste.weeklyByColumn[parseLocalDate(day).getUTCDay()].filter(name => !waste.hiddenWeeklyByDate.get(day)?.includes(name)), ...waste.byDate.get(day) ?? []].map(name => <WasteTypeLabel key={name} label={name} size={10} textStyle={styles.weekMeta} />)}</> : null}
+    </View>;
+    const headingText = <Text key={announcement} accessibilityLabel={announcement} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={.85} style={[styles.dayTitle, styles.dayHeadingDate, day === today && { color: palette.accent }, holiday && { color: palette.warning }]}>{formatJapaneseDate(day, { weekday: true }).replace(/[（(]/gu, ' ').replace(/[）)]/gu, '')}</Text>;
+    return <View style={[styles.dayHeading, agenda && styles.agendaHeading, view === 'three' && styles.compactDayHeading]}><View style={[styles.dayHeadingMain, agenda && styles.agendaHeadingMain]}>{headingText}
       {incomplete ? inlineToggle ? <Pressable accessibilityRole="button" accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の家事を${open ? '閉じる' : '開く'}`} accessibilityValue={{ text: status }} accessibilityState={{ expanded: open }} hitSlop={4} onPress={() => toggleSummary(day)} style={styles.inlineSummary}>
         <Text numberOfLines={1} style={styles.dayStatus}>{status}</Text><SymbolView name={{ ios: open ? 'chevron.up' : 'chevron.down', android: open ? 'keyboard_arrow_up' : 'keyboard_arrow_down' }} size={11} tintColor={palette.accent} />
       </Pressable> : <Text numberOfLines={1} style={styles.dayStatus}>{status}</Text> : null}
@@ -408,7 +457,25 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
       .filter(name => !waste.hiddenWeeklyByDate.get(day)?.includes(name)).map(name => <WasteTypeLabel key={name} label={name} size={14} />)}
     {(waste.byDate.get(day) ?? []).map(name => <WasteTypeLabel key={name} label={name} size={14} />)}</> : null}</View>;
   };
-  const dayList = view === 'two' ? [date, addDays(date, 1)] : [date];
+  const timelineMinimum = view === 'week' ? 40 : minimumEventHeight;
+  const timedDay = (day: LocalDate, days: readonly LocalDate[], columnWidth: number) => <>
+              {local?.database ? <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の空き時間に予定を追加`} accessibilityActions={[{ name: 'activate', label: '予定を追加' }]}
+                onAccessibilityTap={() => openSlot(day, 9 * 60)}
+                onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'activate') openSlot(day, 9 * 60); }}
+                onLongPress={event => openSlot(day, event.nativeEvent.locationY / hourHeight * 60)} /> : null}
+              {timelineEvents(eventsOn(day), day, timelineMinimum / hourHeight * 60).map(item => { const appearance = appearances.get(item.row.categoryId) ?? fallbackAppearance; return <CalendarTimedEvent helpTarget={registerHelpTarget} key={item.row.id} event={item.row} day={day} days={days} columnWidth={columnWidth} hourHeight={hourHeight}
+                selected={searchFocus?.eventId === item.row.eventId && searchFocus.date === day}
+                draggable={Boolean(local?.database && !visibleMove && !item.row.allDay && !item.row.birthday && !item.row.holiday && !item.row.readOnly && !item.row.timeIssue && item.row.startDate === day && editableEventIds.has(item.row.eventId) && local.canEditEvent?.(item.row.eventId, item.row.anchorDate) !== false)}
+                onOpen={() => openEvent(item.row)} onBegin={() => beginMove(item.row)} onCommit={commitMove} onActive={setDragDay} style={[styles.timedEvent, view === 'week' && styles.weekTimedEvent,
+                { top: item.start / 60 * hourHeight, height: Math.max(timelineMinimum, (item.end - item.start) / 60 * hourHeight), left: `${item.lane / item.lanes * 100}%`, width: `${96 / item.lanes}%`,
+                  borderLeftColor: appearance.accent, backgroundColor: appearance.backgroundColor, ...(searchFocus?.eventId === item.row.eventId && searchFocus.date === day ? { borderWidth: 2, borderColor: palette.accent } : {}) }]}>
+                {view === 'week' ? <><CalendarMonthEventTitle title={item.row.title} color={appearance.foregroundColor} backgroundColor={appearance.backgroundColor} lines={(item.end - item.start) / 60 * hourHeight >= 58 ? 2 : 1} centerSingleLine={false} onOverflow={() => {}} /><Text numberOfLines={1} style={[styles.weekTime, { color: appearance.foregroundColor }]}>{minuteLabel(item.start)}</Text></> : <>
+                <Text numberOfLines={1} style={[styles.timedTitle, { color: appearance.foregroundColor }]}>{item.row.title}{item.row.timeIssue ? '（時刻要確認）' : ''}</Text>{(item.end - item.start) / 60 * hourHeight >= typography.label.lineHeight + typography.caption.lineHeight + 4 ? <Text numberOfLines={1} style={[styles.caption, { color: appearance.foregroundColor }]}>{minuteLabel(item.start)}〜{minuteLabel(item.end)}</Text> : null}</>}
+
+              </CalendarTimedEvent>; })}
+              {day === today ? <View pointerEvents="none" style={[styles.now, { top: currentMinute / 60 * hourHeight }]}><View style={styles.nowDot} />{view !== 'week' ? <Text style={styles.nowLabel}>現在 {minuteLabel(currentMinute)}</Text> : null}</View> : null}
+  </>;
+  const dayList = Array.from({ length: view === 'three' ? 3 : view === 'two' ? 2 : 1 }, (_, i) => addDays(date, i));
   const positionTime = () => {
     const key = `${view}:${date}`; if (positioned.current === key || timelineTop.current === null || timelineViewport.current <= 0) return;
     positioned.current = key;
@@ -452,7 +519,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     monthScrollOffset.current = Math.max(0, monthRows[start]?.offset ?? row.offset);
     list.current?.scrollToOffset({ offset: monthScrollOffset.current, animated: false });
   };
-  useLayoutEffect(() => { recenter.current = () => { if (view === 'month') positionMonth(); else if (view === 'year') positionYear(); else if (view === 'day' || view === 'two') positionTime(); else if (view === 'list') {
+  useLayoutEffect(() => { recenter.current = () => { if (view === 'month') positionMonth(); else if (view === 'year') positionYear(); else if (view === 'day' || view === 'two' || view === 'three') positionTime(); else if (view === 'week') { const selected = searchPosition.current; searchPosition.current = null; weekScroll.current?.(selected?.minute); } else if (view === 'list') {
       const match = searchFocus?.date === date ? eventsOn(date).find(event => event.eventId === searchFocus.eventId && (searchFocus.minute === null || event.startMinute === searchFocus.minute)) : undefined;
       agenda.current?.scrollToOffset({ offset: match ? agendaEventOffsets.current.get(`${match.id}:${date}`) ?? 0 : 0, animated: false });
     } }; });
@@ -480,8 +547,8 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
         {!wasteKnown(day) ? <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.caption, styles.gridWasteText]}>収集未取得</Text> : null}
       </View> : null}
       <CalendarMonthEvents events={ordinaryEvents} day={day} height={item.height - (item.monthStartColumn === null ? 0 : MONTH_HEADING_HEIGHT)}
-        summary={hasSummary} waste={labels.length > 0 || !wasteKnown(day)} appearances={appearances} fallbackAppearance={fallbackAppearance} dark={scheme === 'dark'}
-        drag={{ canMove: event => canMove(event, true), onBegin: event => beginMove(event, true), onCommit: commitMove,
+        summary={hasSummary} waste={labels.length > 0 || !wasteKnown(day)} detail={monthDetail.value} appearances={appearances} fallbackAppearance={fallbackAppearance} dark={scheme === 'dark'}
+        drag={{ helpTarget: registerHelpTarget, canMove: event => canMove(event, true), onBegin: event => beginMove(event, true), onCommit: commitMove,
           activeId: monthDrag.activeId, prepare: monthDrag.prepare, onOpen: openDay }} />
       {hasSummary ? info?.loaded ? <View pointerEvents="none" style={styles.monthCount}><Text numberOfLines={1} adjustsFontSizeToFit style={styles.monthCountText}>{total > 0 ? <>家事 <Text style={styles.monthCountNumber}>{total}</Text>件{info.partial ? '+' : ''}</> : '一部未取得'}</Text></View>
         : <Text pointerEvents="none" numberOfLines={1} style={[styles.caption, styles.monthCountText, { marginTop: 'auto' }]}>{busy ? '読込中' : '未取得'}</Text> : null}
@@ -490,21 +557,22 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   const titleLabel = view === 'year' ? `${year}年` : `${Number(month.slice(0, 4))}年${Number(month.slice(5, 7))}月`;
   const yearBody = <CalendarYear initialYear={year} today={today} onMonth={next => navigateMonth(next)} onYear={setYear} onReady={scrollToMonth => { yearScroll.current = scrollToMonth; positionYear(); }} />;
   const drafts = source.drafts ?? (source.draft ? [source.draft] : []);
+  const auxiliaryOpen = searchOpen || draftsOpen || calendarHelp.open || moveScopeOpen;
   return <View style={styles.root} {...horizontal.panHandlers}>
-    <View style={{ flex: 1, overflow: 'hidden' }}><View style={{ flex: 1 }} accessibilityElementsHidden={searchOpen || draftsOpen} importantForAccessibility={searchOpen || draftsOpen ? 'no-hide-descendants' : 'auto'} pointerEvents={searchOpen || draftsOpen ? 'none' : 'auto'}>
+    <View style={{ flex: 1, overflow: 'hidden' }}><View style={{ flex: 1 }} accessibilityElementsHidden={auxiliaryOpen} importantForAccessibility={auxiliaryOpen ? 'no-hide-descendants' : 'auto'} pointerEvents={auxiliaryOpen ? 'none' : 'auto'}>
     <View style={styles.header}><View style={styles.headerBack}><BackButton accessibilityLabel={view === 'month' ? '年表示に戻る' : view === 'year' ? 'ホームに戻る' : '月表示に戻る'} onPress={back} /></View>
       <Pressable accessibilityRole="button" accessibilityLabel="表示する年と月を選択" accessibilityValue={{ text: titleLabel }} accessibilityState={{ expanded: monthPicker }} onPress={() => setMonthPicker(true)} style={styles.titleBlock}><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={.7} style={styles.title}>{titleLabel}</Text></Pressable>
       <View style={styles.headerActions}>
       <View testID="calendar-view-modes" onTouchStart={() => { modesTouched.current = true; }} onTouchEnd={() => { modesTouched.current = false; }} onTouchCancel={() => { modesTouched.current = false; }} {...modeGesture.panHandlers}>
-        <Pressable accessibilityRole="button" accessibilityLabel="カレンダーの表示を選択" accessibilityValue={{ text: CALENDAR_DETAIL_LABELS[display.detail] }} accessibilityState={{ expanded: viewMenu }} onPress={() => setViewMenu(true)} style={({ pressed }) => [styles.viewChoice, { width: Math.ceil(68 * Math.max(1, fontScale)) }, pressed && { opacity: .65 }]}>
+        <Pressable accessibilityRole="button" ref={helpMode} accessibilityLabel="カレンダーの表示を選択" accessibilityValue={{ text: CALENDAR_DETAIL_LABELS[display.detail] }} accessibilityState={{ expanded: viewMenu }} onPress={() => setViewMenu(true)} style={({ pressed }) => [styles.viewChoice, { width: Math.ceil(68 * Math.max(1, fontScale)) }, pressed && { opacity: .65 }]}>
           <Text style={styles.modeText}>{CALENDAR_DETAIL_LABELS[display.detail]}</Text><SymbolView name={{ ios: 'chevron.down', android: 'keyboard_arrow_down' }} size={11} tintColor={palette.accent} />
         </Pressable>
       </View>
-      <Pressable accessibilityRole="button" accessibilityLabel="予定を追加" disabled={!local?.database} onPress={() => openEvent()} style={[styles.add, !local?.database && { opacity: .35 }]}><SymbolView name={{ ios: 'plus', android: 'add' }} size={23} tintColor={palette.accent} /></Pressable>
+      <Pressable accessibilityRole="button" ref={helpAdd} accessibilityLabel="予定を追加" disabled={!local?.database} onPress={() => openEvent()} style={[styles.add, !local?.database && { opacity: .35 }]}><SymbolView name={{ ios: 'plus', android: 'add' }} size={23} tintColor={palette.accent} /></Pressable>
       </View>
     </View>
     {props.notice}
-    {view === 'day' || view === 'two' ? <CalendarDateStrip date={date} today={today} days={view === 'two' ? 2 : 1} onSelect={next => {
+    {view === 'day' || view === 'two' || view === 'three' ? <CalendarDateStrip date={date} today={today} days={view === 'three' ? 3 : view === 'two' ? 2 : 1} onSelect={next => {
       positioned.current = ''; timelineTop.current = null; chooseDate(next);
     }} /> : null}
     {display.error ? <Text accessibilityRole="alert" style={styles.error}>{display.error}</Text> : null}
@@ -514,15 +582,15 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
       <View style={styles.weeklyLabels} accessibilityLabel={`${label}曜日${waste.weeklyByColumn[i].length ? `、${waste.weeklyByColumn[i].join('・')}` : ''}`}>
         {waste.weeklyByColumn[i].map(name => <WasteTypeLabel key={name} label={name} size={13} textStyle={styles.gridWasteText} />)}</View>
     </View>)}</View> : null}
-    <GestureHandlerRootView style={styles.viewport}><GestureDetector gesture={view === 'day' || view === 'two' ? detailSwipe : monthDrag.gesture}>
+    <GestureHandlerRootView style={styles.viewport}><GestureDetector gesture={view === 'day' || view === 'two' || view === 'three' ? detailSwipe : monthDrag.gesture}>
     <View ref={viewportHost} testID="calendar-viewport" style={styles.viewport} onLayout={event => {
-      const next = Math.round(event.nativeEvent.layout.height); if (next > 100) setHeight(next);
+      const next = Math.round(event.nativeEvent.layout.height); if (next > 100) setHeight(next); refreshHelpTargets();
       const target = viewportHost.current ?? event.currentTarget;
       if (target && typeof target !== 'number') target.measureInWindow((x, y, width, height) => { monthViewport.current = { x, y, width, height }; });
     }}>
       {view === 'year' ? yearBody : view === 'month' ? <FlatList key={anchor} ref={list} testID="calendar-weeks" data={monthRows} renderItem={renderWeek} keyExtractor={row => row.id}
         scrollEnabled={!activeDragDay}
-        onScroll={event => { monthScrollOffset.current = event.nativeEvent.contentOffset.y; monthDrag.observedScroll(); }} scrollEventThrottle={16}
+        onScroll={event => { monthScrollOffset.current = event.nativeEvent.contentOffset.y; monthDrag.observedScroll(); refreshHelpTargets(); }} scrollEventThrottle={16}
         initialScrollIndex={Math.max(0, calendarRowForDate(monthRows, target) - 2)} initialNumToRender={9} maxToRenderPerBatch={8} windowSize={7}
         getItemLayout={(_data, index) => ({ length: monthRows[index].height, offset: monthRows[index].offset, index })}
         onLayout={positionMonth} onContentSizeChange={positionMonth}
@@ -545,59 +613,59 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
               {events.filter(event => !event.birthday && !event.holiday).map(event => eventRow(event, day))}
               {!events.length && (info?.total ?? info?.pending ?? 0) === 0 && (local?.error || projection.error) ? <Text style={styles.empty}>予定を取得できていません</Text> : null}</View>;
         }} />
-        : <><View testID="calendar-fixed-day-heading" onLayout={event => setDayHeadingHeight(event.nativeEvent.layout.height)} style={[styles.dayColumns, styles.fixedDayHeader, view === 'two' && styles.alignedDayColumns]}>{dayList.map(day => <View key={day} style={[styles.dayColumn, styles.headingColumn]}>{dayHeading(day)}{summaryToggle(day)}</View>)}</View>
+        : view === 'week' ? <CalendarWeek date={date} currentMinute={weekStart(date) === weekStart(today) ? currentMinute : null}
+          defaultMinute={Math.min(...Array.from({ length: 7 }, (_, i) => eventsOn(addDays(weekStart(date), i)).filter(event => !event.allDay).map(event => event.startMinute)).flat(), 9 * 60)}
+          dragging={Boolean(activeDragDay)} activeDay={activeDragDay} hourHeight={hourHeight} onSelect={chooseDate} onReady={weekReady} onScroll={refreshHelpTargets}
+          renderHeading={day => <>{dayHeading(day, false, true)}{summaryToggle(day, undefined, true)}</>}
+          renderSummary={day => <>{eventsOn(day).filter(event => event.allDay && !event.birthday && !event.holiday).map(event => { const appearance = appearances.get(event.categoryId) ?? fallbackAppearance; return <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${event.title}、終日予定を編集`} onPress={() => openEvent(event)} style={[styles.weekAllDay, { backgroundColor: appearance.backgroundColor }]}><CalendarMonthEventTitle title={event.title} color={appearance.foregroundColor} backgroundColor={appearance.backgroundColor} lines={2} centerSingleLine={false} onOverflow={() => {}} /></Pressable>; })}{summaryDetails(day)}</>}
+          renderDay={timedDay} />
+        : <><View testID="calendar-fixed-day-heading" onLayout={event => setDayHeadingHeight(event.nativeEvent.layout.height)} style={[styles.dayColumns, styles.fixedDayHeader, (view === 'two' || view === 'three') && styles.alignedDayColumns]}>{dayList.map(day => <View key={day} style={[styles.dayColumn, styles.headingColumn, view === 'three' && styles.compactHeadingColumn]}>{dayHeading(day)}{summaryToggle(day)}</View>)}</View>
           {dayList.some(day => showChores(day) && expanded.has(day)) ? <View testID="calendar-fixed-chores" style={[styles.dayColumns, styles.fixedChores,
-            { height: Math.max(0, Math.min(height * .65, height - dayHeadingHeight - Math.min(120, height * .25), Math.max(...dayList.filter(day => expanded.has(day)).map(day => choreContentHeights[day] ?? height * .65)))) }, view === 'two' && styles.alignedDayColumns]}>
+            { height: Math.max(0, Math.min(height * .65, height - dayHeadingHeight - Math.min(120, height * .25), Math.max(...dayList.filter(day => expanded.has(day)).map(day => choreContentHeights[day] ?? height * .65)))) }, (view === 'two' || view === 'three') && styles.alignedDayColumns]}>
             {dayList.map(day => <GestureScrollView key={day} simultaneousWith={detailSwipe} disallowInterruption={false} enabled={!activeDragDay} nestedScrollEnabled accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の家事一覧`} style={styles.dayColumn} contentContainerStyle={styles.fixedChoreContent}
               onContentSizeChange={(_width, contentHeight) => setChoreContentHeights(before => before[day] === contentHeight ? before : { ...before, [day]: contentHeight })}>
               {expanded.has(day) ? summaryDetails(day) : null}
             </GestureScrollView>)}
           </View> : null}
           <GestureFlatList key={`timeline:${view}:${date}`} ref={scroll} simultaneousWith={detailSwipe} disallowInterruption={false} enabled={!activeDragDay} scrollEnabled={!activeDragDay} style={styles.timelineScroll} testID="calendar-timeline" data={[{ key: 'top' }, { key: 'timeline' }]} keyExtractor={item => item.key} initialNumToRender={2}
-          onScroll={event => { timelineOffset.current = event.nativeEvent.contentOffset.y; }} scrollEventThrottle={16}
+          onScroll={event => { timelineOffset.current = event.nativeEvent.contentOffset.y; refreshHelpTargets(); }} scrollEventThrottle={16}
           onLayout={event => { timelineViewport.current = event.nativeEvent.layout.height; positionTime(); }} onContentSizeChange={positionTime} contentContainerStyle={styles.timelineBody} renderItem={({ item: section }) => section.key === 'top' ?
-          <View testID="calendar-timeline-days" style={[styles.dayColumns, view === 'two' && styles.alignedDayColumns]} onLayout={event => { timelineTop.current = event.nativeEvent.layout.height + 8; setTimeout(positionTime, 0); }}>{dayList.map(day => <View key={day} style={styles.dayColumn}>
+          <View testID="calendar-timeline-days" style={[styles.dayColumns, (view === 'two' || view === 'three') && styles.alignedDayColumns]} onLayout={event => { timelineTop.current = event.nativeEvent.layout.height + 8; setTimeout(positionTime, 0); }}>{dayList.map(day => <View key={day} style={styles.dayColumn}>
             {eventsOn(day).filter(event => event.allDay && !event.birthday && !event.holiday).map(event => eventRow(event, day))}</View>)}</View>
           : <View style={styles.timeline}>
             {Array.from({ length: 25 }, (_, hour) => <View key={hour} pointerEvents="none" style={[styles.hour, { top: hour * hourHeight }]}><Text style={styles.hourLabel}>{String(hour).padStart(2, '0')}:00</Text><View style={styles.hourRule} /></View>)}
             <View style={styles.timelineColumns} onLayout={event => setTimelineWidth(event.nativeEvent.layout.width)}>{dayList.map(day => <View key={day} style={[styles.timelineColumn, activeDragDay === day && { zIndex: 1 }]}>
-              {local?.database ? <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の空き時間に予定を追加`} accessibilityActions={[{ name: 'activate', label: '予定を追加' }]}
-                onAccessibilityTap={() => openSlot(day, 9 * 60)}
-                onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'activate') openSlot(day, 9 * 60); }}
-                onLongPress={event => openSlot(day, event.nativeEvent.locationY / hourHeight * 60)} /> : null}
-              {timelineEvents(eventsOn(day), day, minimumEventHeight / hourHeight * 60).map(item => { const appearance = appearances.get(item.row.categoryId) ?? fallbackAppearance; return <CalendarTimedEvent key={item.row.id} event={item.row} day={day} days={dayList} columnWidth={timelineWidth / dayList.length} hourHeight={hourHeight}
-                selected={searchFocus?.eventId === item.row.eventId && searchFocus.date === day}
-                draggable={Boolean(local?.database && !visibleMove && !item.row.allDay && !item.row.birthday && !item.row.holiday && !item.row.readOnly && !item.row.timeIssue && item.row.startDate === day && editableEventIds.has(item.row.eventId) && local.canEditEvent?.(item.row.eventId, item.row.anchorDate) !== false)}
-                onOpen={() => openEvent(item.row)} onBegin={() => beginMove(item.row)} onCommit={commitMove} onActive={setDragDay} style={[styles.timedEvent,
-                { top: item.start / 60 * hourHeight, height: Math.max(minimumEventHeight, (item.end - item.start) / 60 * hourHeight), left: `${item.lane / item.lanes * 100}%`, width: `${96 / item.lanes}%`,
-                  borderLeftColor: appearance.accent, backgroundColor: appearance.backgroundColor, ...(searchFocus?.eventId === item.row.eventId && searchFocus.date === day ? { borderWidth: 2, borderColor: palette.accent } : {}) }]}>
-                <Text numberOfLines={1} style={[styles.timedTitle, { color: appearance.foregroundColor }]}>{item.row.title}{item.row.timeIssue ? '（時刻要確認）' : ''}</Text>{(item.end - item.start) / 60 * hourHeight >= typography.label.lineHeight + typography.caption.lineHeight + 4 ? <Text numberOfLines={1} style={[styles.caption, { color: appearance.foregroundColor }]}>{minuteLabel(item.start)}〜{minuteLabel(item.end)}</Text> : null}
-              </CalendarTimedEvent>; })}
-              {day === today ? <View pointerEvents="none" style={[styles.now, { top: currentMinute / 60 * hourHeight }]}><View style={styles.nowDot} /><Text style={styles.nowLabel}>現在 {minuteLabel(currentMinute)}</Text></View> : null}
+              {timedDay(day, dayList, timelineWidth / dayList.length)}
             </View>)}</View>
           </View>} /></>}
       <View pointerEvents="box-none" style={styles.todayDock}><View pointerEvents="box-none" style={styles.calendarActions}>
         <View style={styles.calendarActionSurface}><Pressable accessibilityRole="button" accessibilityLabel="今日" onPress={goToday} style={[styles.search, styles.todayAction]}><Text style={styles.todayActionText}>今日</Text></Pressable></View>
         {undoMove && undoMove.capture.database === local?.database && undoMove.capture.groupId === local?.shared?.groupId ? <View style={styles.calendarActionSurface}><Pressable accessibilityRole="button" accessibilityLabel="移動を元に戻す" onPress={() => void undoLastMove()} style={[styles.search, styles.todayAction]}><Text style={[styles.caption, { color: palette.accent }]}>元に戻す</Text></Pressable></View> : null}
-        <View style={styles.calendarActionSurface}><Pressable accessibilityRole="button" accessibilityLabel="予定を検索する" disabled={!local?.database} onPress={() => setSearchOpen(true)} style={[styles.search, !local?.database && { opacity: .35 }]}><SymbolView name={{ ios: 'magnifyingglass', android: 'search' }} size={20} tintColor={palette.accent} /></Pressable></View>
+        <View style={styles.calendarActionSurface}><View ref={helpSearch} style={styles.searchHelpGroup}>
+          <Pressable accessibilityRole="button" accessibilityLabel="予定を検索する" disabled={!local?.database} onPress={() => setSearchOpen(true)} style={({ pressed }) => [styles.searchHelpControl, pressed && styles.searchHelpPressed, !local?.database && { opacity: .35 }]}><SymbolView name={{ ios: 'magnifyingglass', android: 'search' }} size={20} tintColor={palette.accent} /></Pressable>
+          <View style={styles.searchHelpDivider} />
+          <Pressable accessibilityRole="button" accessibilityLabel="カレンダーのヘルプを開く" onPress={calendarHelp.show} style={({ pressed }) => [styles.searchHelpControl, pressed && styles.searchHelpPressed]}><SymbolView name={{ ios: 'questionmark', android: 'question_mark' }} size={20} tintColor={palette.accent} /></Pressable>
+        </View></View>
       </View></View>
       {view === 'month' ? monthDrag.overlay : null}
     </View>
     </GestureDetector></GestureHandlerRootView>
     </View>
-    {searchOpen && local ? <CalendarSearch local={local} chores={props.searchChores} choresIncomplete={props.searchChoresIncomplete} onClose={() => setSearchOpen(false)} resolveSelection={draft => {
+    {moveScopeOpen ? <CalendarRecurrenceScopePicker onSelect={answerMoveScope} onClose={() => answerMoveScope(null)} /> : null}
+    {calendarHelp.open ? <CalendarHelp onClose={calendarHelp.close} onShow={calendarHelp.onShow} view={view} measureTargets={measureHelpTargets} /> : null}
+    {searchOpen && local ? <CalendarSearch local={local} focusDate={today} chores={props.searchChores} choresIncomplete={props.searchChoresIncomplete} onClose={() => setSearchOpen(false)} resolveSelection={draft => {
       const destination = calendarSearchDestination(draft, source.events, source.exceptions, today, timeZone);
       setSearchFocus({ eventId: draft.eventId, ...destination }); return destination;
     }} onSelect={destination => {
       setSearchOpen(false); if (destination.choreKey) { setSearchFocus({ eventId: null, ...destination }); setExpanded(before => new Set([...before, destination.date])); } clearTimeout(searchFocusTimer.current); searchFocusTimer.current = setTimeout(() => setSearchFocus(null), 2500); preferred.current = Number(destination.date.slice(-2));
-      if (date === destination.date && view === display.detail && (view === 'day' || view === 'two')) positioned.current = '';
+      if (date === destination.date && view === display.detail && (view === 'day' || view === 'two' || view === 'three' || view === 'week')) positioned.current = '';
       else navigateMonth(calendarMonth(destination.date), preferred.current, display.detail);
       searchPosition.current = display.detail === 'list' ? null : destination;
       clearTimeout(todayTimer.current); todayTimer.current = setTimeout(() => recenter.current(), 0);
     }} /> : null}
     {draftsOpen && local ? <View style={StyleSheet.absoluteFill}><CalendarDraftList drafts={drafts} local={local} onClose={() => setDraftsOpen(false)} onSelect={draft => { setDraftsOpen(false); setEditor(draft); }} /></View> : null}
     </View>{props.footer}
-    {viewMenu ? <CalendarViewMenu value={display.detail} onSelect={chooseView} onClose={() => setViewMenu(false)} /> : null}
+    {viewMenu ? <CalendarViewMenu value={display.detail} {...(view === 'month' ? { monthDetail: monthDetail.value, onMonthDetail: monthDetail.select } : {})} onSelect={chooseView} onClose={() => setViewMenu(false)} /> : null}
     {monthPicker ? <CalendarMonthPicker month={view === 'year' ? `${year}-${month.slice(5, 7)}-01` as LocalDate : month}
       onSelect={next => navigateMonth(next, preferred.current, view)} onClose={() => setMonthPicker(false)} /> : null}
     {activeEditor && local ? <CalendarEditor key={`${activeEditor.eventId ?? 'new'}:${activeEditor.anchorDate ?? ''}:${returnedDraft ? routeParams.calendarDraftVersion : ''}`} initial={activeEditor} local={local} chores={props.existingChores} onDuplicate={draft => setEditor(draft)} renderChoreRegistration={sheet => sheet.audience === 'group' && props.renderChoreRegistration ? props.renderChoreRegistration(sheet) : <PersonalCalendarChoreRegistration {...sheet} local={local} />} repeatReturnTo={props.repeatReturnTo} displayTimeZone={timeZone} onClose={closeEditor} onSaved={day => {
@@ -623,6 +691,9 @@ const baseStyles = StyleSheet.create({
   todayDock: { position: 'absolute', left: 10, right: 10, bottom: 10 },
   calendarActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   calendarActionSurface: { padding: 3, backgroundColor: palette.surface, borderRadius: 13 },
+  searchHelpGroup: { flexDirection: 'row', borderWidth: 1, borderColor: palette.border, borderRadius: 10, overflow: 'hidden' },
+  searchHelpControl: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  searchHelpDivider: { width: 1, alignSelf: 'stretch', marginVertical: 9, backgroundColor: palette.border }, searchHelpPressed: { backgroundColor: palette.accentSoft },
   dockedBody: { paddingBottom: 76 },
   add: { minWidth: 56, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: palette.accentSoft },
   search: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.border, borderRadius: 10 },
@@ -644,6 +715,11 @@ const baseStyles = StyleSheet.create({
   dayHeading: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, paddingTop: 7, paddingBottom: 3 }, dayTitle: { ...typography.label, color: palette.ink, fontWeight: '600', textAlign: 'center' },
   agendaHeading: { justifyContent: 'flex-start', paddingHorizontal: 12 },
   dayHeadingMain: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 }, agendaHeadingMain: { justifyContent: 'flex-start' },
+  weekAllDay: { marginHorizontal: 1, marginBottom: 3, padding: 1, borderRadius: 5, minHeight: 30, justifyContent: 'center' },
+  weekHeading: { alignItems: 'center', paddingVertical: 4, gap: 2 }, weekWeekday: { fontSize: 11, lineHeight: 14, color: palette.muted }, weekNumber: { ...typography.calendarDate, color: palette.ink }, weekMeta: { fontSize: 10, lineHeight: 14, color: palette.muted },
+  weekDate: { minHeight: 30, minWidth: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  weekSummary: { minHeight: 32, paddingHorizontal: 2, flexDirection: 'row', gap: 1, justifyContent: 'center', alignItems: 'center' }, weekSummaryText: { fontSize: 10.5, lineHeight: 16, color: palette.ink, flexShrink: 1 },
+  weekTimedEvent: { borderLeftWidth: 0, paddingHorizontal: 1, paddingVertical: 1, borderRadius: 3 }, weekTime: { fontSize: 10.5, lineHeight: 18 },
   dayHeadingDate: { minWidth: 0, flexShrink: 1 }, dayStatus: { ...typography.small, color: palette.muted, flexShrink: 0 },
   inlineSummary: { flexDirection: 'row', alignItems: 'center', gap: 3, minHeight: 36, flexShrink: 0 },
   birthday: { flexDirection: 'row', gap: 3, alignItems: 'center', flexShrink: 1, minWidth: 0, maxWidth: '65%' }, dayColumns: { flexDirection: 'row' }, dayColumn: { flex: 1, minWidth: 0, borderRightWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
@@ -652,7 +728,8 @@ const baseStyles = StyleSheet.create({
   agendaDay: { paddingBottom: 10, borderBottomWidth: 1, borderColor: palette.border }, empty: { ...typography.caption, color: palette.muted, paddingHorizontal: 12, paddingVertical: 8 },
   alignedDayColumns: { marginLeft: timeGutter, borderLeftWidth: 1, borderLeftColor: palette.border },
   fixedDayHeader: { backgroundColor: palette.background, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
-  headingColumn: { justifyContent: 'space-between' },
+  headingColumn: { justifyContent: 'space-between' }, compactHeadingColumn: { justifyContent: 'flex-start' },
+  compactDayHeading: { paddingTop: 4, paddingBottom: 0, gap: 0 }, compactDaySummary: { minHeight: 32 },
   fixedChores: { flexShrink: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border, backgroundColor: palette.background }, fixedChoreContent: { paddingBottom: 4 },
   timelineScroll: { flex: 1, minHeight: 0 },
   holiday: { ...typography.caption, color: palette.warning, maxWidth: '100%' },

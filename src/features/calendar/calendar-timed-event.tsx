@@ -1,10 +1,11 @@
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type ComponentRef } from 'react';
 import { Animated, PanResponder, Pressable, StyleSheet, Text, View, type PanResponderGestureState, type StyleProp, type ViewStyle } from 'react-native';
 import type { LocalDate } from '../../domain/shared/types';
 import { palette, typography } from '../../components/planner-ui';
 import type { CalendarOccurrence } from './events';
 import { minuteLabel } from './events';
 import { CALENDAR_DRAG_HOLD_MS, calendarDragTarget } from './direct-actions';
+import type { RegisterCalendarHelpTarget } from './help-targets';
 import { addDays } from '../../domain/scheduling/local-date';
 
 type Target = { day: LocalDate; minute: number };
@@ -20,12 +21,13 @@ function createTimedDragControl() {
   return { panHandlers: control.panHandlers, update: (next: typeof actions) => { actions = next; } };
 }
 export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hourHeight, draggable, style, selected, children,
-  onOpen, onBegin, onCommit, onActive, onResolveTarget, dateOnly = false }: {
+  onOpen, onBegin, onCommit, onActive, onResolveTarget, dateOnly = false, helpTarget }: {
   event: CalendarOccurrence; day: LocalDate; days: readonly LocalDate[]; columnWidth: number; hourHeight: number;
   draggable: boolean; style: StyleProp<ViewStyle>; selected: boolean; children: ReactNode;
   onOpen(): void; onBegin(): Capture | null; onCommit(capture: Capture, target: Target): Promise<void>; onActive(day: LocalDate | null): void;
-  onResolveTarget?(gesture: PanResponderGestureState): Target | null; dateOnly?: boolean;
+  helpTarget?: RegisterCalendarHelpTarget; onResolveTarget?(gesture: PanResponderGestureState): Target | null; dateOnly?: boolean;
 }) {
+  const setHost = useCallback((node: ComponentRef<typeof View> | null) => { helpTarget?.(`timed:${event.id}:${day}`, draggable ? node : null); }, [helpTarget, event.id, day, draggable]);
   const [animation] = useState(() => { const pan = new Animated.ValueXY(); return { pan, transform: pan.getTranslateTransform() }; });
   const pan = animation.pan;
   const control = useMemo(() => createTimedDragControl(), []);
@@ -60,7 +62,7 @@ export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hou
     } });
   });
   useLayoutEffect(() => { alive.current = true; return () => { alive.current = false; if (session.current) onActive(null); }; }, [onActive]);
-  return <Animated.View {...control.panHandlers} testID={`calendar-movable-${event.id}`} onTouchEnd={() => { if (session.current && !claimed.current) reset(); }}
+  return <Animated.View ref={setHost} {...control.panHandlers} testID={`calendar-movable-${event.id}`} onTouchEnd={() => { if (session.current && !claimed.current) reset(); }}
     onTouchCancel={() => { if (session.current && !claimed.current) reset(); }} style={[style, { transform: animation.transform }, target && styles.active]}>
     {target ? <Text pointerEvents="none" style={styles.target}>{target.day.slice(5).replace('-', '/')}{dateOnly ? '' : ` ${minuteLabel(target.minute)}`}</Text> : null}
     <Pressable accessibilityRole="button" accessibilityLabel={dateOnly ? `${event.title}、${day}の予定` : `${event.title}を編集`} accessibilityHint={draggable ? `長押しして${dateOnly ? '日付' : '日時'}を移動できます` : undefined}

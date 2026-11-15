@@ -1,8 +1,11 @@
+import { beforeEach } from 'node:test';
+import { pinPrivateFixtureTime } from './helpers/sharing-v2-private-fixture.mjs';
+beforeEach(pinPrivateFixtureTime);
 import './helpers/typescript-loader.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { screenHarness } from './helpers/screen-harness.mjs';
-import { privateFixture } from './helpers/sharing-v2-private-fixture.mjs';
+import { privateFixture, privateToday } from './helpers/sharing-v2-private-fixture.mjs';
 const repository = await import('../src/platform/storage/repository.ts');
 
 for (const platform of ['ios', 'android']) test(`${platform} audit100 a temporarily rejected queued Undo retains its one-tap recovery action`, async t => {

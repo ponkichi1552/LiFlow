@@ -7,14 +7,15 @@ import { calendarMonthTitleColor, type calendarEventAppearance } from './event-a
 import { calendarMonthExpandedTitles, calendarMonthPreviewLayout, calendarMonthTimedPreviews, MONTH_EVENT_ROW_HEIGHT, MONTH_MORE_HEIGHT } from './month-density';
 import { CalendarMonthEventTitle } from './month-event-title';
 import { minuteLabel } from './events';
+import { monthDetailLayout, type CalendarMonthDetail } from './month-detail-store';
 import { CalendarMonthEvent, type CalendarMonthEventDrag } from './month-event';
 
 type Appearance = ReturnType<typeof calendarEventAppearance>;
 
-export function CalendarMonthEvents<Capture>({ events, day, height, summary, waste, appearances, fallbackAppearance, dark, drag }: {
+export function CalendarMonthEvents<Capture>({ events, day, height, summary, waste, appearances, fallbackAppearance, dark, drag, detail = 'standard' }: {
   events: readonly CalendarOccurrence[]; day: LocalDate; height: number; summary: boolean; waste: boolean;
   appearances: ReadonlyMap<string, Appearance>; fallbackAppearance: Appearance; dark: boolean;
-  drag?: CalendarMonthEventDrag<Capture>;
+  drag?: CalendarMonthEventDrag<Capture>; detail?: CalendarMonthDetail;
 }) {
   const [overflow, setOverflow] = useState<Record<string, { title: string; value: boolean }>>({});
   const report = useCallback((id: string, title: string, value: boolean) => setOverflow(previous => {
@@ -22,11 +23,12 @@ export function CalendarMonthEvents<Capture>({ events, day, height, summary, was
     if ((!current && !value) || current?.title === title && current.value === value) return previous;
     return { ...previous, [id]: { title, value } };
   }), []);
-  const layout = calendarMonthPreviewLayout(height, events.length, summary, waste);
+  const config = monthDetailLayout(detail);
+  const layout = calendarMonthPreviewLayout(height, events.length, summary, waste, config.maxEvents);
   const shown = events.slice(0, layout.visible);
   const overflowing = new Set(shown.filter(event => overflow[event.id]?.title === event.title && overflow[event.id].value).map(event => event.id));
-  const expanded = calendarMonthExpandedTitles(shown, overflowing, layout.extraLines);
-  const timed = calendarMonthTimedPreviews(shown, day, layout);
+  const expanded = calendarMonthExpandedTitles(shown, overflowing, config.extra ? layout.extraLines : 0);
+  const timed = config.extra ? calendarMonthTimedPreviews(shown, day, layout) : new Set<string>();
   return <>
     {shown.map(event => {
       const appearance = appearances.get(event.categoryId) ?? fallbackAppearance;

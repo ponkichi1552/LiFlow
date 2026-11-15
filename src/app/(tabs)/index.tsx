@@ -177,7 +177,7 @@ function PersonalHomeScreen() {
           <View style={taskListStyle}>{entries.map((row, index) => renderTask(row, index === entries.length - 1))}</View>
         </View>
       )) : (
-        <Text style={[styles.emptyBody, styles.emptyWeek]}>{weekScope === 'current' ? '今週の家事はありません。' : '来週の家事はありません。'}</Text>
+        <Text style={[styles.emptyBody, styles.emptyWeek]}>{weekScope === 'current' ? '今週の残りの家事はありません。' : '来週の家事はありません。'}</Text>
       )}
 
       <HomeLinks onHistory={() => router.push('/history')} onWaste={() => router.push('/waste')} />

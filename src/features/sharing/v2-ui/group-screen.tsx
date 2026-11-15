@@ -445,7 +445,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         if (item.kind === 'weeks') return <HomeWeekSwitcher scope={weekScope} onChange={setWeekScope} />;
         if (item.kind === 'upcomingDate') return <HomeUpcomingDate date={item.date} />;
         if (item.kind === 'emptyToday') return <Card><Text style={styles.body}>{privateOverlay?.status === 'unavailable' ? '今日の共有家事はありません。個人家事は未取得です。' : '今日の家事はありません。'}</Text></Card>;
-        if (item.kind === 'emptyWeek') return <Text style={[styles.caption, styles.emptyWeek]}>{privateOverlay?.status === 'unavailable' ? '共有家事の予定はありません。個人家事は未取得です。' : weekScope === 'current' ? '今週の家事はありません。' : '来週の家事はありません。'}</Text>;
+        if (item.kind === 'emptyWeek') return <Text style={[styles.caption, styles.emptyWeek]}>{privateOverlay?.status === 'unavailable' ? '共有家事の予定はありません。個人家事は未取得です。' : weekScope === 'current' ? '今週の残りの家事はありません。' : '来週の家事はありません。'}</Text>;
         if (item.kind !== 'today' && item.kind !== 'upcoming' && item.kind !== 'expired') return null;
         const row = item.item;
         return row.source === 'waste' ? <V2WasteOccurrence entry={row.entry} home />

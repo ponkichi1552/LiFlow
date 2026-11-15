@@ -1,5 +1,5 @@
 import { authorizeSharedCalendarOperation } from './calendar-state.ts';
-import { supportsRetainedManuals, supportsUploadedManuals, supportsSharedCalendar, supportsChoreRotation, supportsMonthlyChores, supportsOneOffChores, V2_SCHEDULER_VERSION } from './payload-schema.ts';
+import { supportsRetainedManuals, supportsUploadedManuals, supportsSharedCalendar, supportsChoreRotation, supportsMonthlyChores, supportsOneOffChores, supportsHistoryRetention } from './payload-schema.ts';
 import { readV2ManualDocument } from './manual-documents.ts';
 import { restoreManualDocument } from '../../appliance-care/manual-document.ts';
 import type { ManualDocument, ManualChunk } from '../../appliance-care/manual-document';
@@ -286,7 +286,7 @@ function authorizeV2Operation(view: V2HistoryView, archive: readonly VerifiedSha
     authorizeSharedCalendarOperation(view, op, admin); return;
   }
   if (op.entityType === 'historyRetention') {
-    requireAuthority(originalEpoch.body.schedulerVersion === V2_SCHEDULER_VERSION, '履歴整理にはグループの互換更新が必要です。');
+    requireAuthority(supportsHistoryRetention(originalEpoch.body.schedulerVersion), '履歴整理にはグループの互換更新が必要です。');
     if (op.payload.phase === 'proposal') {
       const body = validateV2RetentionBody(op.payload.checkpoint);
       requireAuthority(admin && body.groupId === op.groupId && body.keyVersion === op.keyVersion && body.rosterDigest === sharedRosterDigest(originalEpoch)

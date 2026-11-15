@@ -8,7 +8,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import type { TextInputProps } from 'react-native';
 import { Alert, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
-import { AppButton, ChoiceChip, palette, typography } from '../../components/planner-ui';
+import { AppButton, palette, typography } from '../../components/planner-ui';
 import { FormTextInput } from '../../components/form-text-input';
 import { SettingsCheckbox } from '../../components/settings-checkbox';
 import { SettingsAction, SettingsSegments } from '../../components/settings-controls';
@@ -21,7 +21,9 @@ import { createCalendarGesture } from './gesture-control';
 import { CalendarField } from './calendar-field';
 import type { LocalCalendarBinding } from './use-local-calendar';
 import type { CalendarEditorDraft } from '../../platform/storage/calendar-events';
-import { calendarDraftKey, clearCalendarEditorDraft, deleteCalendarEvent, discardCalendarDraftIfUnchanged, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent } from '../../platform/storage/calendar-events';
+import { calendarDraftKey, clearCalendarEditorDraft, saveCalendarFutureEvent, deleteCalendarEvent, discardCalendarDraftIfUnchanged, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent } from '../../platform/storage/calendar-events';
+import { calendarFutureBase } from '../../domain/calendar/future-series';
+import { CALENDAR_EDIT_SCOPES, CalendarRecurrenceScopePicker, type CalendarEditScope } from './calendar-recurrence-scope';
 import { CalendarOptionPicker } from './calendar-option-picker';
 import { moveCalendarStart } from './event-editing';
 import { privateCalendarReadOnlySource } from './private-event-projection';
@@ -31,6 +33,8 @@ import { CalendarSheetContent, CalendarSheetHeader, type CalendarSheetForm } fro
 import type { CalendarChoreInput } from './chore-registration-input';
 import { createEditorDraftSession } from './editor-draft-session';
 import { duplicateCalendarDraft } from './direct-actions';
+import { createTitleDateTimeInput } from './title-datetime';
+import { pinnedClockAt } from '../../domain/scheduling/zoned-clock';
 
 export interface ExistingCalendarChore { id: string; name: string; minutes?: number; onOpen: () => void }
 export type CalendarChoreRegistrationProps = { date: EventDraft['startDate']; initialValue?: EventDraft; initialInput?: CalendarChoreInput; audience?: 'personal' | 'group';
@@ -46,6 +50,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const styles = usePlannerBorderStyles(baseStyles);
   const reminderSettings = useCalendarReminders(local.database); const reminderWorkspace = useContext(WorkspaceContext);
   const [draft, setDraft] = useState(initial); const latest = useRef(draft);
+  const [titleDateTime] = useState(() => createTitleDateTimeInput(initial.value, pinnedClockAt(new Date(), initial.value.timeZone).date));
   const draftSession = useRef(createEditorDraftSession((local.snapshot.drafts ?? (local.snapshot.draft ? [local.snapshot.draft] : [])).some(row => calendarDraftKey(row) === calendarDraftKey(initial)) ? initial : undefined));
   useLayoutEffect(() => { latest.current = draft; }, [draft]);
   const [ownBusy, setBusy] = useState(false); const busy = ownBusy || Boolean(choreForm?.busy); const lock = useRef(false); const scrollTop = useRef(0);
@@ -62,7 +67,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const [choreBusy, setChoreBusy] = useState(false); const choreLock = useRef(false);
   const onChoreBusyChange = useCallback((value: boolean) => { choreLock.current = value; setChoreBusy(value); }, []);
   const [ownDetailsOpen, setDetailsOpen] = useState(false); const detailsOpen = choreForm?.entry?.detailsExpanded ?? ownDetailsOpen;
-  const [error, setError] = useState<string | null>(null); const [repeatOpen, setRepeatOpen] = useState(false); const [categoryOpen, setCategoryOpen] = useState(false); const scheme = useColorScheme();
+  const [error, setError] = useState<string | null>(null); const [repeatOpen, setRepeatOpen] = useState(false); const [scopeOpen, setScopeOpen] = useState(false); const [categoryOpen, setCategoryOpen] = useState(false); const scheme = useColorScheme();
   type CategoryEdit = { id?: string; revision: number; name: string; color: string } | null;
   const [categoryEdit, setCategoryEditState] = useState<CategoryEdit>(null);
   const latestCategory = useRef(categoryEdit);
@@ -113,7 +118,8 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
     const d = latest.current;
     if (local.saveEvent) { await local.saveEvent(d, resetExceptions); await draftSession.current.clear(local.database); onSaved(d.value.startDate); return; }
     if (d.audience === 'group') throw new Error('共有予定の保存先を確認してください。');
-    await saveCalendarEvent(local.database, { id: d.eventId ?? undefined, expectedRevision: d.revision, value: d.value,
+    if (d.scope === 'future') await saveCalendarFutureEvent(local.database, d);
+    else await saveCalendarEvent(local.database, { id: d.eventId ?? undefined, expectedRevision: d.revision, value: d.value,
       scope: d.scope, anchorDate: d.anchorDate ?? undefined, expectedExceptionRevision: d.exceptionRevision, resetExceptions, reminderMinutes: d.reminderMinutes });
     await draftSession.current.clear(local.database); onSaved(d.value.startDate); void local.refresh();
   });
@@ -201,18 +207,15 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
             })} /> : null}</View> : null}
           {readOnly && !value.birthday ? <CalendarReminderField minutes={reminderMinutes} enabled={reminderSettings.settings.enabled} disabled={busy || reminderSettings.loading || !reminderScope} onChange={reminderMinutes => change(before => ({ ...before, reminderMinutes }))} /> : null}
           <View pointerEvents={readOnly ? 'none' : 'auto'} style={[styles.editorSections, choreForm && styles.choreSections]}>
-          {repeated ? <View style={styles.row}>{(initial.anchorDate ? ['one', 'series'] as const : ['series'] as const).map(scope => <ChoiceChip key={scope} label={scope === 'one' ? '今回だけ' : '繰り返し全体'} selected={draft.scope === scope} disabled={busy || readOnly}
-            onPress={() => change(before => {
-              const basis = before.scope === 'series' ? original : initial.value; const next = { ...(scope === 'series' ? original : initial.value) };
-              for (const key of Object.keys(initial.value) as (keyof EventDraft)[]) if (before.value[key] !== basis[key]) Object.assign(next, { [key]: before.value[key] });
-              return { ...before, scope, value: next };
-            })} />)}</View> : null}
+          {repeated && !value.birthday ? <View style={styles.optionsGroup}><Pressable accessibilityRole="button" accessibilityLabel="変更する範囲を選択" accessibilityValue={{ text: CALENDAR_EDIT_SCOPES.find(row => row.value === draft.scope)?.label ?? '' }} disabled={busy || readOnly || !initial.anchorDate} onPress={() => setScopeOpen(true)} style={styles.optionSelect}>
+            <Text style={[styles.value, styles.optionLabel]}>変更範囲</Text><View style={styles.optionInput}><Text style={[styles.value, styles.optionValue]}>{CALENDAR_EDIT_SCOPES.find(row => row.value === draft.scope)?.label}</Text><Chevron direction="down" /></View>
+          </Pressable></View> : null}
           <View style={styles.inputPanel}>
           <View style={styles.inputGroup}>
           {/* Native text stays authoritative while typing; JS still captures every change for saving. */}
           {choreForm && !choreForm.entry?.titleEditable ? <Pressable accessibilityRole="button" accessibilityLabel="追加する家事を選び直す" accessibilityValue={{ text: value.title }} disabled={busy} onPress={onChooseChore} style={styles.choreName}>
             <SymbolView name={{ ios: 'text.alignleft', android: 'title' }} size={18} tintColor={palette.muted} /><Text style={[styles.value, styles.titleInput, styles.nameLabel, { flex: 1 }]}>{value.title}</Text><Chevron />
-          </Pressable> : <CalendarTextInput icon={{ ios: 'text.alignleft', android: 'title' }} key={`${textKey}:title`} accessibilityLabel={choreForm ? '家事名' : '予定名'} defaultValue={value.title} placeholder={choreForm ? '家事名' : value.birthday ? '名前・誕生日' : '予定名'} style={[styles.textInput, styles.titleInput]} maxLength={160} editable={!busy && !readOnly} onChangeText={title => patch({ title })} />}
+          </Pressable> : <CalendarTextInput icon={{ ios: 'text.alignleft', android: 'title' }} key={`${textKey}:title`} accessibilityLabel={choreForm ? '家事名' : '予定名'} defaultValue={value.title} placeholder={choreForm ? '家事名' : value.birthday ? '名前・誕生日' : '予定名'} style={[styles.textInput, styles.titleInput]} maxLength={160} editable={!busy && !readOnly} onChangeText={title => change(before => ({ ...before, value: titleDateTime.change(before.value, title, !initial.eventId && !initial.value.title.trim() && !readOnly && !choreForm && !before.value.birthday) }))} />}
           {matches.length && !value.birthday && !initial.eventId ? <View style={styles.existing}><Text style={styles.label}>登録済みの家事</Text>{matches.map(chore => <Pressable key={chore.id} accessibilityRole="button" accessibilityLabel={`${chore.name}の既存の予定を開く`} disabled={busy || readOnly} onPress={() => { if (lock.current) return; onClose(); chore.onOpen(); }} style={styles.existingRow}>
             <Text style={styles.value}>{chore.name}{chore.minutes ? ` · 約${chore.minutes}分` : ''}</Text><Chevron /></Pressable>)}<Text style={styles.caption}>家事を選ぶと、登録済みの家事回が開きます。</Text></View> : null}
           {!value.birthday && !choreForm ? <><View style={styles.inputSeparator} /><CalendarTextInput icon={{ ios: 'mappin', android: 'location_on' }} key={`${textKey}:location`} accessibilityLabel="予定の場所" autoCorrect={false} defaultValue={value.location} style={styles.textInput} maxLength={300} placeholder="場所（任意）" editable={!busy && !readOnly} onChangeText={location => patch({ location })} /></> : null}
@@ -226,18 +229,18 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           </View>
           {choreForm?.entry?.details ? <View style={styles.optionsGroup}><Pressable accessibilityRole="button" accessibilityLabel="家事の詳細設定" accessibilityState={{ expanded: detailsOpen }} onPress={() => { if (choreForm.entry?.onDetailsToggle) choreForm.entry.onDetailsToggle(); else setDetailsOpen(before => !before); }} style={styles.optionSelect}><Text style={[styles.value, { flex: 1 }]}>詳細設定</Text><Chevron direction={detailsOpen ? 'up' : 'down'} /></Pressable>{detailsOpen ? <View>{choreForm.entry.details}</View> : null}</View> : null}
           <View style={styles.scheduleContent}>
-          <View style={styles.scheduleTop}><Text style={styles.scheduleTitle}>{value.birthday ? '誕生日' : '日時'}</Text>{!value.birthday ? <View style={styles.allDayControl}><Text style={styles.value}>終日</Text><SettingsCheckbox accessibilityLabel="終日" value={value.allDay} disabled={busy || readOnly} onValueChange={allDay => patch({ allDay })} /></View> : null}</View>
+          <View style={styles.scheduleTop}><Text style={styles.scheduleTitle}>{value.birthday ? '誕生日' : '日時'}</Text>{!value.birthday ? <View style={styles.allDayControl}><Text style={styles.value}>終日</Text><SettingsCheckbox accessibilityLabel="終日" value={value.allDay} disabled={busy || readOnly} onValueChange={allDay => { titleDateTime.manual('allDay'); patch({ allDay }); }} /></View> : null}</View>
           <View style={styles.dateRow}>{!value.birthday ? <Text style={styles.dateLabel}>開始</Text> : null}<CalendarField borderless hideLabel disabled={busy || readOnly} label={value.birthday ? '誕生日' : '開始日'} date={value.startDate} minute={value.startMinute} mode="date" onDate={date => {
-            change(before => ({ ...before, value: moveCalendarStart(before.value, { startDate: date }) }));
-          }} />{!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel disabled={busy || readOnly} label="開始" date={value.startDate} minute={clocks?.start ?? value.startMinute} empty={Boolean(clocks && clocks.start === null)} commitOnDone={Boolean(clocks)} mode="time" onMinute={startMinute => clocks ? clocks.onChange('start', startMinute) : change(before => ({ ...before, value: moveCalendarStart(before.value, { startMinute }) }))} /></View> : null}</View>
+            titleDateTime.manual('startDate'); change(before => ({ ...before, value: moveCalendarStart(before.value, { startDate: date }) }));
+          }} />{!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel disabled={busy || readOnly} label="開始" date={value.startDate} minute={clocks?.start ?? value.startMinute} empty={Boolean(clocks && clocks.start === null)} commitOnDone={Boolean(clocks)} mode="time" onMinute={startMinute => { titleDateTime.manual('startMinute'); if (clocks) clocks.onChange('start', startMinute); else change(before => ({ ...before, value: moveCalendarStart(before.value, { startMinute }) })); }} /></View> : null}</View>
           {!value.birthday ? <View style={styles.dateRow}><Text style={styles.dateLabel}>終了</Text>
-            <CalendarField borderless hideLabel disabled={busy || readOnly} label="終了日" date={value.endDate} minute={value.endMinute} mode="date" onDate={endDate => patch({ endDate })} />
-            {!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel disabled={busy || readOnly} label="終了" date={value.endDate} minute={clocks?.end ?? value.endMinute} empty={Boolean(clocks && clocks.end === null)} commitOnDone={Boolean(clocks)} mode="time" onMinute={endMinute => clocks ? clocks.onChange('end', endMinute) : patch({ endMinute })} /></View> : null}
+            <CalendarField borderless hideLabel disabled={busy || readOnly} label="終了日" date={value.endDate} minute={value.endMinute} mode="date" onDate={endDate => { titleDateTime.manual('endDate'); patch({ endDate }); }} />
+            {!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel disabled={busy || readOnly} label="終了" date={value.endDate} minute={clocks?.end ?? value.endMinute} empty={Boolean(clocks && clocks.end === null)} commitOnDone={Boolean(clocks)} mode="time" onMinute={endMinute => { titleDateTime.manual('endMinute'); if (clocks) clocks.onChange('end', endMinute); else patch({ endMinute }); }} /></View> : null}
           </View> : null}
           {value.timeZone !== displayTimeZone ? <Text style={[styles.caption, { textAlign: 'right' }]}>地域：{value.timeZone}</Text> : null}
           </View>
           {!choreForm ? <View style={styles.optionsGroup}>
-          {!value.birthday && (!repeated || draft.scope === 'series') ? <View style={styles.optionField}>
+          {!value.birthday && (!repeated || draft.scope !== 'one') ? <View style={styles.optionField}>
             <Pressable accessibilityRole="button" accessibilityLabel="繰り返しを選択" accessibilityValue={{ text: recurrenceLabel(value) }} accessibilityState={{ expanded: repeatOpen }} disabled={busy || readOnly} onPress={() => setRepeatOpen(true)} style={styles.optionSelect}><Text style={[styles.value, styles.optionLabel]}>繰り返し</Text><View style={styles.optionInput}><Text numberOfLines={2} style={[styles.value, styles.optionValue]}>{recurrenceLabel(value)}</Text><Chevron direction="down" /></View></Pressable>
             {value.recurrence !== 'none' ? <View style={styles.repeatEnd}><View style={styles.switchRow}><Text style={styles.value}>繰り返しの終了日</Text><SettingsCheckbox disabled={busy || readOnly} accessibilityLabel="繰り返しに終了日を設定" value={value.untilDate !== null} onValueChange={on => patch({ untilDate: on ? addDays(value.startDate, 365) : null })} /></View>
               {value.untilDate ? <CalendarField disabled={busy || readOnly} label="繰り返しの終了日" date={value.untilDate} minute={0} mode="date" onDate={untilDate => patch({ untilDate })} /> : null}</View> : null}
@@ -289,12 +292,20 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
             const category = (local.categoriesFor?.(current.audience ?? 'personal') ?? local.snapshot.categories).find(row => row.id === current.value.categoryId);
             onDuplicate(duplicateCalendarDraft({ ...current, editorCategory: category ?? current.editorCategory }));
           }} /> : null}
-          {!readOnly && initial.eventId ? <AppButton title={repeated && draft.scope === 'one' ? 'この回を削除' : '予定を削除'} variant="danger" disabled={busy} onPress={remove} /> : null}
+          {!readOnly && initial.eventId && draft.scope !== 'future' ? <AppButton title={repeated && draft.scope === 'one' ? 'この回を削除' : '予定を削除'} variant="danger" disabled={busy} onPress={remove} /> : null}
           </View>
         </ScrollView>
         </>}
       </View>
     </KeyboardAvoidingView>
+    {scopeOpen && original && initial.anchorDate ? <CalendarRecurrenceScopePicker value={draft.scope} onClose={() => setScopeOpen(false)} onSelect={(scope: CalendarEditScope) => {
+      change(before => {
+        const base = (choice: CalendarEditScope) => choice === 'series' ? original : choice === 'future' ? calendarFutureBase(original, initial.anchorDate!) : { ...initial.value, recurrence: 'none' as const, untilDate: null, customRecurrence: undefined };
+        const previous = base(before.scope), next = { ...base(scope) };
+        for (const key of Object.keys(next) as (keyof EventDraft)[]) if (JSON.stringify(before.value[key]) !== JSON.stringify(previous[key])) Object.assign(next, { [key]: before.value[key] });
+        return { ...before, scope, value: next };
+      }); setScopeOpen(false);
+    }} /> : null}
     {repeatOpen ? <CalendarOptionPicker title="繰り返し" value={value.recurrence} options={(Object.keys(RECURRENCE_LABELS) as CalendarRecurrence[]).map(recurrence => ({ value: recurrence, label: RECURRENCE_LABELS[recurrence] }))}
       onClose={() => setRepeatOpen(false)} onCustom={openCustomRecurrence} onSelect={recurrence => { if (recurrence !== 'custom' && Object.hasOwn(RECURRENCE_LABELS, recurrence)) patch({ recurrence: recurrence as CalendarRecurrence, customRecurrence: undefined,
         ...(recurrence === 'none' ? { untilDate: null } : {}) }); }} /> : null}

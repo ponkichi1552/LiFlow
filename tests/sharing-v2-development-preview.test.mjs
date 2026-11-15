@@ -50,7 +50,8 @@ test('v2 development fixture refuses release execution before opening storage, c
   assert.equal(calls, 0);
 });
 
-test('optional development personal overlays use a separate empty synthetic database without cloud or Google changes', async () => {
+test('optional development personal overlays use a separate empty synthetic database without cloud or Google changes', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-15T03:00:00Z') });
   const shared = createDatabase(); const personal = createDatabase(); let id = 0;
   const preview = await createV2DevelopmentPreview({ development: true, crypto, makeId: () => `private-preview-${++id}`, now: () => new Date(),
     openDatabase: async () => ({ database: shared.database, close: async () => shared.connection.close() }),

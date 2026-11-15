@@ -1,3 +1,4 @@
+import { createV2CalendarFutureActions } from './calendar-future-actions.ts';
 import type { createV2EventRepository } from '../../../platform/storage/sharing-v2-events';
 import { validateEventDraft } from '../../../domain/calendar/events.ts';
 import type { CalendarCategory, EventDraft } from '../../../domain/calendar/events';
@@ -10,7 +11,7 @@ import { sharedDocumentDigest } from '../crypto.ts';
 import { captureV2Input } from './input-capture.ts';
 import { rebasedCalendarExceptionDate } from '../../../domain/calendar/exception-slots.ts';
 
-export interface V2CalendarCommand { eventId?: string; basisRevision?: string; scope: 'one' | 'series'; anchorDate: LocalDate | null;
+export interface V2CalendarCommand { eventId?: string; basisRevision?: string; scope: 'one' | 'future' | 'series'; anchorDate: LocalDate | null;
   value: EventDraft | null; category: CalendarCategory | null; resetExceptions?: boolean; expectedExceptionIds?: readonly string[] }
 export function v2CalendarCommandDigest(input: V2CalendarCommand, scope: { groupId: string; userId: string }) {
   return sharedDocumentDigest({ groupId: scope.groupId, userId: scope.userId, eventId: input.eventId ?? null,
@@ -20,7 +21,9 @@ export function v2CalendarCommandDigest(input: V2CalendarCommand, scope: { group
 }
 
 export function createV2CalendarActions(repository: ReturnType<typeof createV2EventRepository>, makeId: () => string) {
+  const future = createV2CalendarFutureActions(repository, makeId, v2CalendarCommandDigest);
   return {
+    ...future,
     restoreCalendarOccurrence: (command: V2CalendarCommand) => {
       const input = captureV2Input(command);
       if (!input.eventId || input.scope !== 'one' || !input.anchorDate) throw new Error('元に戻す予定を選んでください。');
@@ -39,6 +42,8 @@ export function createV2CalendarActions(repository: ReturnType<typeof createV2Ev
     },
     saveCalendarEvent: (command: V2CalendarCommand & { intentId?: string }) => {
       const input = captureV2Input(command);
+      if (input.scope === 'future') return future.saveCalendarFutureEvent(input);
+      const scope = input.scope;
       const commit = input.intentId ? repository.commitCalendarIntent.bind(repository,
         { id: input.intentId, digest: v2CalendarCommandDigest(input, repository.scope) }) : repository.commitCurrent;
       return commit(async state => {
@@ -56,7 +61,7 @@ export function createV2CalendarActions(repository: ReturnType<typeof createV2Ev
       const operationId = makeId();
       const value = input.value ? validateEventDraft(input.value) : null;
       if (value && !input.category) throw new Error('共有する分類を選んでください。');
-      const payload: SharedCalendarPayload = { eventId: input.eventId ?? operationId, scope: input.scope, anchorDate: input.anchorDate,
+      const payload: SharedCalendarPayload = { eventId: input.eventId ?? operationId, scope, anchorDate: input.anchorDate,
         basisOperationIds: basis, value, category: value ? { id: input.category!.id, name: input.category!.name, color: input.category!.color } : null,
         resetExceptionIds: input.resetExceptions ? exceptionIds : [] };
       const previous = current?.heads.length === 1 ? current.heads[0].payload as unknown as SharedCalendarPayload : null;

@@ -16,18 +16,18 @@ export function calendarMonthUsedHeight(events: number, summary: boolean, waste:
 }
 
 /** One stable height keeps every week aligned, even when event data arrives later. */
-export function calendarMonthContentHeight(base: number) {
-  return Math.max(base, calendarMonthUsedHeight(MONTH_MAX_EVENT_ROWS, true, false), calendarMonthUsedHeight(3, true, true),
-    calendarMonthUsedHeight(MONTH_MAX_EVENT_ROWS + 1, false, false));
+export function calendarMonthContentHeight(base: number, maxEvents = MONTH_MAX_EVENT_ROWS) {
+  return Math.max(base, calendarMonthUsedHeight(maxEvents, true, false), calendarMonthUsedHeight(Math.max(0, maxEvents - 1), true, true),
+    calendarMonthUsedHeight(maxEvents + 1, false, false));
 }
-export function calendarMonthEventSlots(height: number, summary: boolean, waste: boolean) {
-  return Math.max(0, Math.min(MONTH_MAX_EVENT_ROWS, Math.floor((height - reserved(summary, waste)) / eventHeight)));
+export function calendarMonthEventSlots(height: number, summary: boolean, waste: boolean, maxEvents = MONTH_MAX_EVENT_ROWS) {
+  return Math.max(0, Math.min(maxEvents, Math.floor((height - reserved(summary, waste)) / eventHeight)));
 }
 
 /** Extra title lines consume spare space only after appointments, +N and day labels fit. */
-export function calendarMonthPreviewLayout(height: number, total: number, summary: boolean, waste: boolean) {
+export function calendarMonthPreviewLayout(height: number, total: number, summary: boolean, waste: boolean, maxEvents = MONTH_MAX_EVENT_ROWS) {
   const available = Math.max(0, height - reserved(summary, waste));
-  let visible = Math.min(total, calendarMonthEventSlots(height, summary, waste));
+  let visible = Math.min(total, calendarMonthEventSlots(height, summary, waste, maxEvents));
   if (total === visible + 1 && total * eventHeight <= available) visible = total;
   while (visible > 0 && visible * eventHeight + (total > visible ? MONTH_MORE_HEIGHT + MONTH_CELL_GAP : 0) > available) visible--;
   const hidden = Math.max(0, total - visible);

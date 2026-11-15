@@ -216,7 +216,7 @@ test('feature screen contract: chore categories, kana heading search and trivia 
   try {
     const kitchen = h.snapshot.chores.find(chore => chore.name === 'キッチンマットの洗濯'); assert.ok(kitchen);
     kitchen.trivia = [{ id: 'qa-kitchen-tip', title: '掃除の豆知識', body: '片付けてから作業を始めます。' }];
-    const screen = screenHarness('src/app/(tabs)/guide.tsx', { database: h.database, snapshot: () => h.snapshot, flatListItemHeight: 100 });
+    const routes = []; const screen = screenHarness('src/app/(tabs)/guide.tsx', { database: h.database, snapshot: () => h.snapshot, flatListItemHeight: 100, navigate: (...args) => routes.push(args) });
     const category = choreDisplayCategory(kitchen);
     const count = h.snapshot.chores.filter((chore) => !chore.archived && choreDisplayCategory(chore) === category).length;
     await screen.press(`${category}、${count}件`);
@@ -239,10 +239,14 @@ test('feature screen contract: chore categories, kana heading search and trivia 
     await screen.press('前の画面に戻る'); await screen.change('家事名を検索', '');
     const triviaCount = h.snapshot.chores.flatMap((chore) => chore.trivia ?? []).length;
     await screen.press(`豆知識、${triviaCount}件の豆知識`);
-    assert.ok(screen.text().includes('見出しを選択'));
+    assert.ok(screen.nodes().some(node => node.props.accessibilityLabel === '豆知識を検索'));
+    const articles = screen.nodes().find(node => node.props.testID === 'trivia-library');
+    assert.equal(articles.props.data.length, triviaCount);
     const heading = screen.nodes().find((node) => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.includes('、') && node.props.accessibilityLabel !== '家事一覧に戻る');
     assert.ok(heading); await screen.press(heading.props.accessibilityLabel);
-    screen.button('豆知識一覧に戻る');
+    const [kind, route] = routes.at(-1); assert.equal(kind, 'push'); assert.equal(route.pathname, '/trivia');
+    const detail = screenHarness('src/app/trivia.tsx', { database: h.database, snapshot: () => h.snapshot, params: route.params });
+    try { assert.ok(detail.text().includes(articles.props.data[0].trivia.body)); detail.button('豆知識一覧に戻る'); } finally { detail.unmount(); }
   } finally { h.connection.close(); }
 });
 

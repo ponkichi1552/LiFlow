@@ -1093,6 +1093,14 @@ async function setNotificationsEnabledImpl(database: SQLiteDatabase, enabled: bo
   );
 }
 
+async function setHouseworkNotificationTimeImpl(database: SQLiteDatabase, minute: number): Promise<void> {
+  if (!Number.isInteger(minute) || minute < 0 || minute >= 1440) throw new RangeError('通知時刻を選び直してください。');
+  await assertPersonalPlannerDatabase(database);
+  const hour = Math.floor(minute / 60), remainder = minute % 60;
+  await database.runAsync(`UPDATE household_settings SET notification_hour=?, notification_minute=?, updated_at=?
+    WHERE household_id=? AND (notification_hour<>? OR notification_minute<>?)`, hour, remainder, new Date().toISOString(), LOCAL_HOUSEHOLD_ID, hour, remainder);
+}
+
 async function saveWeatherLocationImpl(
   database: SQLiteDatabase,
   location: WeatherLocation,
@@ -2766,6 +2774,7 @@ export const completeFirstSetup = serializePlannerOperation(completeFirstSetupIm
 export const updatePlannerSettings = serializePlannerOperation(updatePlannerSettingsImpl, 'updatePlannerSettings');
 export const updateCalendarCountDisplay = serializePlannerOperation(updateCalendarCountDisplayImpl);
 export const setNotificationsEnabled = serializePlannerOperation(setNotificationsEnabledImpl);
+export const setHouseworkNotificationTime = serializePlannerOperation(setHouseworkNotificationTimeImpl);
 export const saveWeatherLocation = serializePlannerOperation(saveWeatherLocationImpl);
 export const clearWeatherLocation = serializePlannerOperation(clearWeatherLocationImpl);
 export const updateChoreDefinition = serializePlannerOperation(updateChoreDefinitionImpl, 'updateChoreDefinition');
