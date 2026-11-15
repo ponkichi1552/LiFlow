@@ -1,0 +1,48 @@
+{
+  "sourceCommit": "fff35dfb26dc3aeeb8f9e12bd4e7b34f12f28368",
+  "sourceFilesChecked": 861,
+  "sharingEphemeralDelivery": false,
+  "ios": {
+    "bundleSha256": "9e27d0951d2ecf87b107444235e811bd97056bf35549f086561f4c80c0b0b955",
+    "signatureVerified": true,
+    "entitlementsUnchanged": true,
+    "signingProfileUnchanged": true,
+    "inPlaceInstall": [
+      "iPhone 12",
+      "iPad 9"
+    ],
+    "persistentFilesUnchanged": true,
+    "privateSnapshotFiles": {
+      "phone": 129,
+      "ipad": 13
+    },
+    "sqliteTemporaryMemoryOnlyDifferences": {
+      "phone": 2,
+      "ipad": 1
+    },
+    "readonlyCopyReproduction": [
+      {
+        "kind": "housework",
+        "readonlyReadChangedShm": true,
+        "matchesPreviouslyReadBeforeCopy": true
+      },
+      {
+        "kind": "shared",
+        "readonlyReadChangedShm": true,
+        "matchesPreviouslyReadBeforeCopy": true
+      }
+    ]
+  },
+  "android": {
+    "apkSha256": "1a714cea1cb842813903245361f4534ae060967e7739d7d8b6c40e771d1cc978",
+    "bundleSha256": "1520f69d50cc94e0bf8402510c6b4f15960805057cee40128e1671e9b2f9eb7b",
+    "signingCertificateUnchanged": true,
+    "inPlaceInstall": true,
+    "appDataCleared": false,
+    "privateDatabaseByteComparison": false
+  },
+  "limits": [
+    "Installed build is not a complete physical validation result",
+    "This build receipt precedes the separate title-expanded-inputs physical save and delivery observations"
+  ]
+}

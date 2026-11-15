@@ -1,0 +1,198 @@
+{
+  "observedAt": "2026-11-15T22:04:21.593631+00:00",
+  "sourceCommit": "fff35dfb26dc3aeeb8f9e12bd4e7b34f12f28368",
+  "installedIosBundleSha256": "9e27d0951d2ecf87b107444235e811bd97056bf35549f086561f4c80c0b0b955",
+  "schedulerVersion": "liflow-shared-2-draft-58",
+  "groupRosterRevision": 4,
+  "groupKeyVersion": 4,
+  "inputs": [
+    {
+      "title": "毎月21日学校",
+      "startDate": "2026-11-21",
+      "endDate": "2026-11-21",
+      "startMinute": 540,
+      "endMinute": 600,
+      "allDay": false,
+      "recurrence": "monthly"
+    },
+    {
+      "title": "毎週火曜日、日曜日ランチ",
+      "startDate": "2026-11-17",
+      "endDate": "2026-11-17",
+      "startMinute": 540,
+      "endMinute": 600,
+      "allDay": false,
+      "recurrence": "custom",
+      "customRecurrence": {
+        "unit": "week",
+        "interval": 1,
+        "weekdays": [
+          0,
+          2
+        ]
+      }
+    },
+    {
+      "title": "毎月11日、12日ハッカソン",
+      "startDate": "2026-12-11",
+      "endDate": "2026-12-11",
+      "startMinute": 540,
+      "endMinute": 600,
+      "allDay": false,
+      "recurrence": "custom",
+      "customRecurrence": {
+        "unit": "month",
+        "interval": 1,
+        "on": "dates",
+        "days": [
+          11,
+          12
+        ]
+      }
+    },
+    {
+      "title": "毎年5月22日お父さん誕生日",
+      "startDate": "2027-05-22",
+      "endDate": "2027-05-22",
+      "startMinute": 540,
+      "endMinute": 600,
+      "allDay": false,
+      "recurrence": "yearly"
+    },
+    {
+      "title": "彼女の誕生日、毎年8月22日",
+      "startDate": "2027-08-22",
+      "endDate": "2027-08-22",
+      "startMinute": 540,
+      "endMinute": 600,
+      "allDay": false,
+      "recurrence": "yearly"
+    },
+    {
+      "title": "旅行　4月11日から1週間",
+      "startDate": "2027-04-11",
+      "endDate": "2027-04-17",
+      "allDay": true,
+      "recurrence": "none"
+    },
+    {
+      "title": "1月1日から親戚との集まり6日間",
+      "startDate": "2027-01-01",
+      "endDate": "2027-01-06",
+      "allDay": true,
+      "recurrence": "none"
+    },
+    {
+      "title": "LFQA-20261116-C11 明日11時頃打ち合わせ確認",
+      "startDate": "2026-11-17",
+      "endDate": "2026-11-17",
+      "startMinute": 690,
+      "endMinute": 750,
+      "allDay": false,
+      "recurrence": "none"
+    },
+    {
+      "title": "LFQA-20261116-C11 明日から約1週間の旅行",
+      "startDate": "2026-11-17",
+      "endDate": "2026-11-23",
+      "allDay": true,
+      "recurrence": "none"
+    }
+  ],
+  "rawTitlePreserved": true,
+  "bothAppleProjectionsIdentical": true,
+  "devices": {
+    "phone": {
+      "accepted": 115,
+      "pending": 0,
+      "rejected": 0,
+      "newDefinitionsChecked": 9
+    },
+    "ipad": {
+      "accepted": 115,
+      "pending": 0,
+      "rejected": 0,
+      "newDefinitionsChecked": 9
+    }
+  },
+  "manualApproximateClock": {
+    "automaticCandidate": "11:00",
+    "manuallySelected": "11:30",
+    "savedEnd": "12:30",
+    "titleEditKeptManualClock": true
+  },
+  "captureSha256": [
+    {
+      "case": 1,
+      "sha256": "260bd2dd0a1da8280e348a979b86e59cc691d57ed934eace9dc0817f175eed0b"
+    },
+    {
+      "case": 2,
+      "sha256": "393c3655a61043e23c77efc53fb6c67057305b25ff2dc90118c189902537e0b4"
+    },
+    {
+      "case": 3,
+      "sha256": "717494d131f5378a776d5d72e5d90c9261cf565f6cbf851da5f267138592f3a2"
+    },
+    {
+      "case": 4,
+      "sha256": "ffe56e9975ed8b8e5492dfd79a094a2587769f050ba91da927760a5a9d925828"
+    },
+    {
+      "case": 5,
+      "sha256": "7ed863711a121c0507bd8acc8ebfcd9871d97f16ffe710c103b08053b7a4a97d"
+    },
+    {
+      "case": 6,
+      "sha256": "0c79bcda5e023e394706a774d8cb326a2f88a5c4ceea2c539d77c2a642059f64"
+    },
+    {
+      "case": 7,
+      "sha256": "b7c9c412c9df9095be544ced0cab2ab546c51edb0bf608b7fa5c0690ac0ddba3"
+    },
+    {
+      "case": 8,
+      "sha256": "a817509dafa9cef7e81c4971073992724b86ea284bc6330391c3dbf095a2b7ff"
+    },
+    {
+      "case": 9,
+      "sha256": "31cf2b26aa0c24fcca9a8a7331727780888ea9553e15d9a1716e323dc719d7a7"
+    }
+  ],
+  "testDataRetained": true,
+  "limits": [
+    "Android visually checked definitions 1-5; remaining four detailed definitions are not yet visually verified",
+    "iPad database receipt is not an iPad visual layout test",
+    "This is a bounded input and delivery check, not all 216 candidates",
+    "Real Google outgoing summary checks remain to be completed"
+  ],
+  "androidBoundedVisualCheck": {
+    "recordedAtUtc": "2026-11-15T22:23:47.393266+00:00",
+    "observedSavedDefinitions": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "monthDatesVisible": [
+      "2026-12-11",
+      "2026-12-12"
+    ],
+    "monthlySearchDestinationConfirmed": true,
+    "screenshots": [
+      {
+        "file": "title-expanded-month-search.jpg",
+        "sha256": "fa45b749754d86d630891e7abe778e2f206927e5bf2e8e39d0ac2b53761a5c77"
+      },
+      {
+        "file": "title-expanded-month-date-set-visible.jpg",
+        "sha256": "866a06b0316275842e1f0c8afa1a0d27a4d5a0571caa0505717077b0b9a3531a"
+      },
+      {
+        "file": "title-expanded-annual-search-live.jpg",
+        "sha256": "56b3ad51f78438badaacc45d6ffb2918d74444205c54e1e032463359e7e0b829"
+      }
+    ]
+  }
+}

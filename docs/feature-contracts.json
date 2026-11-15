@@ -15615,5 +15615,51 @@
       }
     ],
     "manualReview": "docs/audits/2026-11-16-initial-group-sync.md"
+  },
+  {
+    "feature": "sharing-membership-rotation-listener-maintenance-20261116",
+    "tests": [
+      {
+        "file": "tests/sharing-group-maintenance.test.mjs",
+        "name": "normal owner compatibility upgrade preserves 106 proofs and original keys with no additional network request or duplicate commit"
+      },
+      {
+        "file": "tests/sharing-group-maintenance.test.mjs",
+        "name": "an owner epoch change excludes a ${capture} listener started during preparation and completes post-commit adoption"
+      },
+      {
+        "file": "tests/sharing-group-maintenance.test.mjs",
+        "name": "a manager waits for already active old-epoch delivery and coalesces one hundred listener retries without metadata rollback or extra snapshots"
+      },
+      {
+        "file": "tests/sharing-group-maintenance.test.mjs",
+        "name": "local edits remain writable during epoch maintenance and their exact original Outbox proof survives snapshot adoption and rekeying"
+      },
+      {
+        "file": "tests/sharing-group-maintenance.test.mjs",
+        "name": "a ${failure} failure releases epoch maintenance without changing proofs archive or saved keys and a bounded retry succeeds"
+      },
+      {
+        "file": "tests/sharing-group-maintenance.test.mjs",
+        "name": "a ${failure} after epoch commit keeps the original proofs and recovers that same epoch without another membership write"
+      },
+      {
+        "file": "tests/sharing-group-maintenance.test.mjs",
+        "name": "post-commit ${failure} is still rejected without unbounded retries or weakened membership validation"
+      },
+      {
+        "file": "tests/sharing-group-maintenance.test.mjs",
+        "name": "the shared ${action} rotation uses the same listener exclusion while retaining all original facts"
+      },
+      {
+        "file": "tests/sharing-group-maintenance.test.mjs",
+        "name": "shared member admission stays signature checked while using epoch maintenance and preserving the original history"
+      },
+      {
+        "file": "tests/sharing-group-maintenance.test.mjs",
+        "name": "owner departure closes its epoch without recursively syncing inside maintenance or deleting its retained local proofs"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-16-sharing-group-maintenance.md"
   }
 ]

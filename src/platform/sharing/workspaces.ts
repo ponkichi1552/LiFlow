@@ -214,7 +214,7 @@ async function buildLegacyMigrationWorkspace(context: WorkspaceOpenContext): Pro
       readKey: (version) => loadSharingGroupKey(userId, groupId, version), saveKey: (version, bytes) => saveSharingGroupKey(userId, groupId, version, bytes),
       project, serialized: (work) => withPlannerDatabaseOperation(database, work), changed: () => changed(selection) };
     const synchronizer = createSharedSynchronizer(deps);
-    const manager = createSharedGroupManager({ ...deps, sync: (options) => synchronizer.sync(options), makeId: randomUUID,
+    const manager = createSharedGroupManager({ ...deps, sync: (options) => synchronizer.sync(options), withMaintenance: synchronizer.withMaintenance, makeId: randomUUID,
       markLeft: async () => { await update((previous) => ({ ...previous, status: 'left', lastErrorCode: null })); } });
     let serviceRun: Promise<SharingSyncResult> | null = null; let runRequested = false; let forceRequested = false;
     sync = (options = {}) => {

@@ -80,7 +80,8 @@ export async function createV2WorkspaceSession(deps: Omit<SharedSyncDependencies
   const synchronizer = createV2Synchronizer({ ...transport, repository, assertCurrentAccount, acceptMigrationSnapshot,
     afterSnapshot: async snapshot => { if (snapshot.base.retention) { retainedMigration = true; migration = undefined; await afterRetentionApplied?.(snapshot); } } });
   const manager = createSharedGroupManager({ ...transport, project: repository.project, sync: synchronizer.sync,
-    verifyMembership: synchronizer.verifyMembership, makeId, markLeft: async () => { assertCurrentAccount(); await markLeft(); assertCurrentAccount(); } });
+    verifyMembership: synchronizer.verifyMembership, withMaintenance: synchronizer.withMaintenance,
+    makeId, markLeft: async () => { assertCurrentAccount(); await markLeft(); assertCurrentAccount(); } });
   const baseController = createV2GroupController(repository, { makeId, now: () => new Date((deps.now ?? Date.now)()), sync: () => synchronizer.sync({ force: true }) });
   let catalogCheck: Promise<boolean> | undefined;
   const controller = { ...baseController, readModel: async (...args: Parameters<typeof baseController.readModel>) => {

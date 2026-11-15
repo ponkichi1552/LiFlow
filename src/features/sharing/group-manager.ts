@@ -18,11 +18,13 @@ export function createSharedGroupManager(deps: SharedSyncDependencies & {
   sync: (options?: { force?: boolean; budgetMs?: number }) => Promise<SharingSyncResult>;
   makeId: () => string; markLeft: () => Promise<void>;
   verifyMembership?: (current: SignedSharedRoster) => Promise<VerifiedSharedRoster[]>;
+  withMaintenance?: <T>(work: () => Promise<T>) => Promise<T>;
 }) {
   let tail: Promise<unknown> = Promise.resolve();
   function serial<T>(work: () => Promise<T>): Promise<T> { const next = tail.then(work, work); tail = next.catch(() => undefined); return next; }
   const now = deps.now ?? Date.now;
   const verifyMembership = deps.verifyMembership ?? ((roster: SignedSharedRoster) => verifyCloudMembership(deps, roster));
+  const exclusive = <T>(work: () => Promise<T>): Promise<T> => deps.withMaintenance ? deps.withMaintenance(work) : work();
   async function current() {
     const metadata = await deps.cloud.readGroup(deps.groupId); const archive = await verifyMembership(metadata.roster);
     const roster = archive.at(-1)!;
@@ -35,36 +37,41 @@ export function createSharedGroupManager(deps: SharedSyncDependencies & {
     const remaining = () => { const left = deadline - Date.now(); if (left < 1000) throw new Error('共有鍵の更新は次の同期で続けます。'); return left; };
     try { await deps.sync({ force: true, budgetMs: remaining() }); }
     catch (error) { if (!(error instanceof SharingKeyVersionError)) throw error; }
-    remaining(); const { roster, group, archive } = await current(); remaining();
-    const checkpoint = await readSharingCheckpoint(deps.database, deps.groupId);
-    if (checkpoint.sequence !== group.headSequence) throw new SharingCloudChangedError('最新の共有データを受信してから再試行してください。');
-    const next = change(roster, group.revokedUserIds);
-    if (next === roster) return sharedRosterDigest(roster);
-    const key = await deps.crypto.randomBytes(32);
-    try {
-      const keys = await Promise.all(next.body.members.flatMap((member) => member.devices.map((device) =>
-        wrapGroupKey(deps.crypto, deps.groupId, next.body.keyVersion, key, deps.identity, device.identity, member.userId))));
-      let snapshot;
-      if (!next.body.closed) {
-        let published = await loadPublishedSharedReplica(deps.database, deps.groupId); const facts = await loadSharedFacts(deps.database, deps.groupId);
-        if (maintenance) published = await maintenance.transform(published, { group, archive, facts });
+    const result = await exclusive(async () => {
+      remaining(); const { roster, group, archive } = await current(); remaining();
+      const checkpoint = await readSharingCheckpoint(deps.database, deps.groupId);
+      if (checkpoint.sequence !== group.headSequence) throw new SharingCloudChangedError('最新の共有データを受信してから再試行してください。');
+      const next = change(roster, group.revokedUserIds);
+      if (next === roster) return { digest: sharedRosterDigest(roster), synchronize: false };
+      const key = await deps.crypto.randomBytes(32);
+      try {
+        const keys = await Promise.all(next.body.members.flatMap((member) => member.devices.map((device) =>
+          wrapGroupKey(deps.crypto, deps.groupId, next.body.keyVersion, key, deps.identity, device.identity, member.userId))));
+        let snapshot;
+        if (!next.body.closed) {
+          let published = await loadPublishedSharedReplica(deps.database, deps.groupId); const facts = await loadSharedFacts(deps.database, deps.groupId);
+          if (maintenance) published = await maintenance.transform(published, { group, archive, facts });
+          remaining();
+          const history = [...archive, next];
+          snapshot = await createEncryptedSharedSnapshot(deps.crypto, published, facts, next, deps.identity, key, `snapshot.${deps.makeId()}`, group.headSequence,
+            (uid, device, version) => {
+              const epoch = history.find((item) => item.body.keyVersion === version); if (!epoch) throw new Error('Missing historical membership');
+              return sharedAuthorIdentity(epoch, uid, device, version);
+            }, history);
+          await deps.cloud.prepareSnapshot(snapshot, next, remaining);
+        }
         remaining();
-        const history = [...archive, next];
-        snapshot = await createEncryptedSharedSnapshot(deps.crypto, published, facts, next, deps.identity, key, `snapshot.${deps.makeId()}`, group.headSequence,
-          (uid, device, version) => {
-            const epoch = history.find((item) => item.body.keyVersion === version); if (!epoch) throw new Error('Missing historical membership');
-            return sharedAuthorIdentity(epoch, uid, device, version);
-          }, history);
-        await deps.cloud.prepareSnapshot(snapshot, next, remaining);
-      }
-      remaining();
-      await deps.cloud.commitMembership(roster, next, keys, group.headSequence, snapshot?.manifest, approval);
-      // Only a successful commit makes this an authoritative key epoch. Failed preparations never overwrite a working key.
-      if (!next.body.closed) await deps.saveKey(next.body.keyVersion, key);
-      await deps.saveArchive([...archive, next]); deps.changed();
-      if (!next.body.closed && deadline - Date.now() >= 1000) await deps.sync({ force: true, budgetMs: deadline - Date.now() });
-      return sharedRosterDigest(next);
-    } finally { key.fill(0); }
+        await deps.cloud.commitMembership(roster, next, keys, group.headSequence, snapshot?.manifest, approval);
+        // Only a successful commit makes this an authoritative key epoch. Failed preparations never overwrite a working key.
+        if (!next.body.closed) await deps.saveKey(next.body.keyVersion, key);
+        await deps.saveArchive([...archive, next]); deps.changed();
+        return { digest: sharedRosterDigest(next), synchronize: !next.body.closed };
+      } finally { key.fill(0); }
+    });
+    // Adoption runs after the network barrier, so it cannot join a listener
+    // whose metadata predates this locally committed membership epoch.
+    if (result.synchronize && deadline - Date.now() >= 1000) await deps.sync({ force: true, budgetMs: deadline - Date.now() });
+    return result.digest;
   }
   return {
     upgradeScheduler: () => serial(() => rotate((previous, revoked) => {
