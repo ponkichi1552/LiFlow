@@ -100,7 +100,15 @@ for (const platform of ['ios', 'android']) {
 
   test(`${platform} a newly approved member can be edited while another member saves without replacing the first draft`, async () => {
     const f = await setup(); const identity = await createDeviceIdentity(sharingTestCrypto); const entered = deferred(); const release = deferred(); let ui;
-    const delayed = { ...f.c, actions: { ...f.c.actions, editDateRights: async (...args) => { entered.resolve(); await release.promise; return f.c.actions.editDateRights(...args); } } };
+    const addedEntered = deferred(); const addedRelease = deferred(); const addedSaved = deferred();
+    const delayed = { ...f.c, actions: { ...f.c.actions, editDateRights: async (...args) => {
+      entered.resolve(); await release.promise;
+      const includesAdded = args[1].some(edit => edit.userId === 'new-member');
+      if (includesAdded) { addedEntered.resolve(); await addedRelease.promise; }
+      const result = await f.c.actions.editDateRights(...args);
+      if (includesAdded) addedSaved.resolve();
+      return result;
+    } } };
     try {
       ui = await open(delayed, platform); await expand(ui);
       control(ui, `${ui.nameOf('member')}への権限を有効にする`).props.onValueChange(true); await entered.promise;
@@ -108,10 +116,13 @@ for (const platform of ['ios', 'android']) {
       ui.props.model = await source(f.c); ui.screen.render(); await ui.settle(); await expand(ui, 'new-member');
       const added = control(ui, `${ui.nameOf('new-member')}への権限を有効にする`); assert.equal(added.props.disabled, false);
       added.props.onValueChange(true); release.resolve(); await ui.screen.press('戻る');
-      await ui.settle(() => ui.backs() === 1); const fields = (await source(f.c)).dateRights.fields;
+      await ui.settle(() => ui.backs() === 1); await addedEntered.promise;
+      assert.equal(ui.backs(), 1, 'navigation must finish while the accepted second save is still pending');
+      addedRelease.resolve(); await addedSaved.promise;
+      const fields = (await source(f.c)).dateRights.fields;
       assert.equal(fields.member.value.enabled, true); assert.equal(fields['new-member'].value.enabled, true);
       assert.equal((await f.d.repository.readState()).assessment.view.ofType('datePermission').length, 2);
-    } finally { release.resolve(); await ui?.close(); f.close(); }
+    } finally { release.resolve(); addedRelease.resolve(); await ui?.close(); f.close(); }
   });
 
   test(`${platform} a non-administrator permission route exposes a return action and no editing controls`, async () => {
