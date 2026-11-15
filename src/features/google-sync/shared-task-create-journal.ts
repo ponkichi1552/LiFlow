@@ -1,4 +1,4 @@
-import type { GoogleTaskCreateIdentity, GoogleTaskCreateIntent, GoogleTaskCreateJournal } from './task-create-intent';
+import type { GoogleTaskCreateIdentity, GoogleTaskCreateIntent, GoogleTaskCreateJournal, GoogleTaskCreateReceipt } from './task-create-intent';
 import type { SharedTaskClaimCloud } from './shared-task-claim';
 import { withinGoogleOperationBudget } from './operation-budget.ts';
 import type { GoogleOperationBudget } from './operation-budget';
@@ -62,6 +62,20 @@ export function sharedTaskCreateJournal(local: GoogleTaskCreateJournal, cloud: S
     await storage(() => rejectLocal(intents));
   };
   return {
+    ...(local.read ? { adopt: async (identity: GoogleTaskCreateIdentity, taskId: string, captured: GoogleTaskCreateReceipt | null) => {
+      const current = await storage(() => local.read!(identity));
+      const same = current === null && captured === null || Boolean(current && captured && current.taskId === captured.taskId
+        && (['accountSubject', 'taskListId', 'occurrenceMarker', 'attemptId', 'startedAt'] as const).every(key => current.intent[key] === captured.intent[key]));
+      if (!same || captured && ((['accountSubject', 'taskListId', 'occurrenceMarker'] as const).some(key => captured.intent[key] !== identity[key])
+        || captured.taskId !== null && captured.taskId !== taskId)) {
+        throw Object.assign(new Error('Google家事の作成予約が変わりました。受信した結果は保持しています。'), { code: 'task_create_result_pending' });
+      }
+      const proof = captured && captured.intent.attemptId !== 'observed' ? captured.intent : undefined;
+      // Unlike a received POST result, inventory adoption must pass Cloud's
+      // exact-attempt fence before it can create a local success receipt.
+      await bounded(() => cloud.linked(identity, taskId, proof?.attemptId));
+      await storage(() => local.linked(identity, taskId, proof));
+    } } : {}),
     ...(local.read ? { read: (identity: GoogleTaskCreateIdentity) => storage(() => local.read!(identity)) } : {}),
     ...(local.received ? { received: (results: Parameters<NonNullable<GoogleTaskCreateJournal['received']>>[0]) => storage(() => local.received!(results)) } : {}),
     ...(local.pending ? { pending: (scope: { accountSubject: string; taskListId: string }) => storage(() => local.pending!(scope)) } : {}),

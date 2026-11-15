@@ -215,6 +215,11 @@ export async function reconcileGoogleTasks(options: {
     if (candidates.length > 1) throw new GoogleTasksApiError(409, 'ambiguous_task_occurrence', null);
     let existingTask = candidates[0];
     if (!existingTask) continue;
+    const identity = createIdentity(item.entry.id);
+    const journal = repository.taskCreateJournal;
+    // Capture before the provider read; a newer reservation must not lend its
+    // proof to a response that started against an earlier local receipt.
+    const captured = namespace && journal?.adopt ? await journal.read?.(identity) ?? null : null;
     if (namespace && repository.taskCreateJournal) {
       try { existingTask = await api.getTask(accessToken, taskList.id, existingTask.id); }
       catch (error) { if (error instanceof GoogleTaskNotFoundError) continue; throw error; }
@@ -233,7 +238,8 @@ export async function reconcileGoogleTasks(options: {
       updatedAt: now.toISOString(),
       ...(item.localRevision ? { observedLocalRevision: item.localRevision } : {}),
     };
-    await repository.taskCreateJournal?.linked(createIdentity(item.entry.id), existingTask.id);
+    if (namespace && journal?.adopt) await journal.adopt(identity, existingTask.id, captured);
+    else await journal?.linked(identity, existingTask.id);
     await repository.upsertGoogleTaskLink(adoptedLink);
     links = [...links, adoptedLink];
     usedTaskIds.add(existingTask.id);

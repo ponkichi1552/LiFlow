@@ -15661,5 +15661,97 @@
       }
     ],
     "manualReview": "docs/audits/2026-11-16-sharing-group-maintenance.md"
+  },
+  {
+    "feature": "calendar-multiweek-move-phase-preservation-20261116",
+    "tests": [
+      {
+        "file": "tests/calendar-weekly-move-guard.test.mjs",
+        "name": "whole and future multiweek moves refuse an unrepresentable week phase without changing the source or captured proof"
+      },
+      {
+        "file": "tests/calendar-weekly-move-guard.test.mjs",
+        "name": "weekly move acceptance agrees with independently translated occurrence dates across every weekday set and year boundary"
+      },
+      {
+        "file": "tests/calendar-weekly-move-guard.test.mjs",
+        "name": "finite weekly series and safe whole week clock and timezone moves keep their dates and Google recurrence"
+      },
+      {
+        "file": "tests/calendar-weekly-move-guard.test.mjs",
+        "name": "${platform} month two three and seven day drags reject unrepresentable whole and future moves before any save and keep single occurrence available"
+      },
+      {
+        "file": "tests/calendar-weekly-move-guard.test.mjs",
+        "name": "${platform} safe one day clock moves and Undo retain a multiweek series individual edits deletions and the original Google body"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-16-calendar-weekly-move-guard.md"
+  },
+  {
+    "feature": "delivery-received-request-independent-bounded-erasure-20261116",
+    "tests": [
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "received shared and private recovery bodies erase behind forty older unreceived requests while pending bodies survive until their expiry"
+      },
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "large received recovery backlogs make bounded progress and schedule another batch without spinning on live unreceived work"
+      },
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "expired recovery backlogs return bounded continuation until cleared and duplicate queue membership deletes each request once"
+      },
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "an interrupted recovery part erasure keeps its received parent retryable and finishes only the remaining ciphertext"
+      },
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "delivery cleanup listeners retry actual failures without idle polling and shutdown cancels reconnection"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-16-delivery-received-queue.md",
+    "cloudTests": [
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "real recovery cleanup erases a received request behind pending work and drains large received batches without expiring pending bodies"
+      }
+    ]
+  },
+  {
+    "feature": "shared-google-tasks-lost-create-response-native-claim-recovery-20261116",
+    "tests": [
+      {
+        "file": "tests/google-tasks-shared-create-recovery.test.mjs",
+        "name": "shared lost POST reply reopens SQLite and adopts ${multiple ? 'multiple mappings' : 'one mapping'} through the native resolver journal claim and HTTP boundaries"
+      },
+      {
+        "file": "tests/google-tasks-shared-create-recovery.test.mjs",
+        "name": "fresh shared adoption refuses a foreign saved ${field} without borrowing or poisoning its reservation"
+      },
+      {
+        "file": "tests/google-tasks-shared-create-recovery.test.mjs",
+        "name": "fresh shared adoption fences ${change} changed during its GET before saving a success receipt"
+      },
+      {
+        "file": "tests/google-tasks-shared-create-recovery.test.mjs",
+        "name": "cancelled shared adoption retains the durable attempt and resumes it without another POST"
+      },
+      {
+        "file": "tests/google-tasks-shared-create-recovery.test.mjs",
+        "name": "old shared creation attempts never expire into another POST and still recover through their exact claim"
+      },
+      {
+        "file": "tests/google-tasks-shared-create-recovery.test.mjs",
+        "name": "duplicate shared marker candidates cannot consume a pending attempt or create another task"
+      },
+      {
+        "file": "tests/google-tasks-shared-create-recovery.test.mjs",
+        "name": "a lost Cloud adoption acknowledgment retains the original intent and recovers the same linked Task after reopening"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-16-shared-tasks-lost-create-reply.md"
   }
 ]

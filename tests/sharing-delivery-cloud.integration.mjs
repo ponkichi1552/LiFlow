@@ -373,6 +373,43 @@ test('shared delivery never activates erasure with an old unseeded approved devi
   } finally { f.close(); }
 });
 
+test('real recovery cleanup erases a received request behind pending work and drains large received batches without expiring pending bodies', async () => {
+  const f = await fixture();
+  try {
+    const source = await f.device('owner', f.owner), receiver = await f.device('member', f.member);
+    await source.cloud.acknowledge(groupId, f.owner.deviceId, 0); await receiver.cloud.acknowledge(groupId, f.member.deviceId, 0);
+    const root = store.doc(`sharingGroups/${groupId}`), at = Date.now();
+    async function seed(id, createdAt, received = false) {
+      const request = root.collection('deliveryRequests').doc(id), expiresAt = new Date(createdAt + 86400_000);
+      const response = request.collection('responses').doc(f.owner.deviceId), batch = store.batch();
+      batch.set(request, { schemaVersion: 1, userId: 'member', deviceId: f.member.deviceId, kind: 'chunk', key: id,
+        after: 0, through: 0, keyVersion: f.roster.body.keyVersion, createdAt: new Date(createdAt), expiresAt,
+        ...(received ? { receivedAt: new Date(at) } : {}) });
+      batch.set(response, { schemaVersion: 1, userId: 'owner', deviceId: f.owner.deviceId, digest: 'a'.repeat(64),
+        size: 1, parts: 1, ready: true, createdAt: new Date(createdAt), expiresAt });
+      batch.set(response.collection('parts').doc('0'), { index: 0, data: 'eA==', createdAt: new Date(createdAt), expiresAt });
+      await batch.commit(); return request;
+    }
+    const pending = [];
+    for (let i = 0; i < 40; i++) pending.push(await seed(`pending-${i}`, at - 60_000 + i));
+    const received = await seed('received-new', at, true);
+    await sweepSharedDeliveries(store, groupId, at);
+    assert.equal((await received.get()).exists, false, 'the durable receipt is selected independently of older unreceived requests');
+    assert.equal((await received.collection('responses').get()).size, 0);
+    const completed = [];
+    for (let i = 0; i < 65; i++) completed.push(await seed(`received-batch-${i}`, at, true));
+    const first = await sweepSharedDeliveries(store, groupId, at);
+    const remaining = (await store.getAll(...completed)).filter(row => row.exists).length;
+    assert.ok(remaining > 0 && remaining < completed.length, 'one pass makes bounded progress');
+    assert.equal(first.nextAt, at);
+    for (let attempt = 0; attempt < 4 && (await store.getAll(...completed)).some(row => row.exists); attempt++) await sweepSharedDeliveries(store, groupId, at);
+    assert.ok((await store.getAll(...completed)).every(row => !row.exists));
+    assert.ok((await store.getAll(...pending)).every(row => row.exists));
+    assert.equal((await store.collectionGroup('parts').get()).size, pending.length, 'only unreceived ciphertext remains');
+    const idle = await sweepSharedDeliveries(store, groupId, at); assert.equal(idle.deleted, 0); assert.ok(idle.nextAt > at);
+  } finally { f.close(); }
+});
+
 test('peer snapshot recovery preserves owner authority after current snapshot chunks are erased and expires abandoned nested transfer parts', async () => {
   const f = await fixture();
   try {

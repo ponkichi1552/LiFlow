@@ -1,0 +1,94 @@
+{
+  "sourceCommit": "d88f083f992be356d7671ae47bf7b50177b1d33d",
+  "observedAtUtc": "2026-11-15T22:26:17.686302+00:00",
+  "sourceFilesChecked": 861,
+  "sharingEphemeralDelivery": false,
+  "ios": {
+    "signatureVerified": true,
+    "entitlementsUnchanged": true,
+    "signingProfileUnchanged": true,
+    "bundleSha256": "f969e0e3db9bfddd89a02820176967410ad72ded89be75c16b2e3d0a6e2f8711"
+  },
+  "android": {
+    "signatureVerified": true,
+    "signingCertificateUnchanged": true,
+    "apkSha256": "147a9460c8b51b7774855991144bbd946bc9d63a777fecd3e7c1c01ff00725f2",
+    "bundleSha256": "5a85794f6ee6d34f439e2ec0deba495e79dea8165985f58c1595f4270207c713"
+  },
+  "install": {
+    "phone": {
+      "inPlaceInstall": true,
+      "preservedFiles": 129,
+      "changedFiles": 0
+    },
+    "ipad": {
+      "inPlaceInstall": true,
+      "preservedFiles": 13,
+      "changedFiles": 0
+    },
+    "android": {
+      "inPlaceInstall": true,
+      "appDataCleared": false,
+      "privateDatabaseByteComparison": false
+    }
+  },
+  "ci": {
+    "sourceCommit": "d88f083f992be356d7671ae47bf7b50177b1d33d",
+    "runUrl": "https://github.com/ponkichi1552/LiFlow/actions/runs/43769102983",
+    "nativeConfigurationUrl": "https://github.com/ponkichi1552/LiFlow/actions/runs/43769103083",
+    "allJobsSucceeded": true,
+    "eachPlatform": {
+      "tests": 4594,
+      "passed": 4593,
+      "failed": 0,
+      "skipped": 1
+    },
+    "skippedReason": "Linux runner cannot compile the macOS-only native widget journal test",
+    "localMacWidgetJournal": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "localCloud": {
+    "passed": 173,
+    "failed": 0
+  },
+  "androidToAppleDelivery": {
+    "identicalAppleProjection": true,
+    "bothAppleAccepted": 116,
+    "androidAuthoredTitleAndClockVerified": true,
+    "testDataRetained": true,
+    "title": "LFQA-20261116-C12 明日18時頃夕食",
+    "startDate": "2026-11-17",
+    "endDate": "2026-11-17",
+    "startMinute": 1080,
+    "endMinute": 1140,
+    "creatorIsReceivingAppleAccount": false
+  },
+  "captureSha256": [
+    {
+      "file": "group-maintenance-phone-manual-sync-crop.jpg",
+      "sha256": "b9e455af3f4f25a5f409d98cea8a168e54174450ad77aea89086b73ca1528c4c"
+    },
+    {
+      "file": "android/group-maintenance-c12-input.jpg",
+      "sha256": "ed54df0e2d0a863b614273c56c3f7426852240675d9883af17f7fdf2832ca925"
+    },
+    {
+      "file": "android/group-maintenance-c12-save-settled.jpg",
+      "sha256": "108c9dde617bb8e7fdbdb04ac053f97e85f7c8d22b7ca0fa27be17017598e7aa"
+    },
+    {
+      "file": "group-maintenance-phone-c12-search-crop.jpg",
+      "sha256": "f37659c1ed2820698317ebc3238221399fbaa0cf4fe3692ef3aab438b93acc09"
+    }
+  ],
+  "limits": [
+    "The pre-upgrade epoch race was reproduced with the real synchronizer and synthetic Cloud ports, not deterministically rerun on physical hardware",
+    "The already upgraded QA group was not downgraded or cleared",
+    "Normal post-install sync and cross-account save/receipt are bounded native acceptance, not all 216 candidates",
+    "Android private database bytes were not compared",
+    "No ephemeral-delivery cutover or paid OpenAI API call was performed"
+  ]
+}

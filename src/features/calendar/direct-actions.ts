@@ -87,7 +87,18 @@ export function calendarSeriesMovedDraft(draft: CalendarEditorDraft, series: Cal
   const value = moveCalendarStart(calendarEventValue(series), { startDate: addDays(series.startDate, dayShift), startMinute: (total % 1440 + 1440) % 1440 });
   if (value.untilDate) value.untilDate = addDays(value.untilDate, dayShift);
   const rule = value.customRecurrence;
-  if (rule?.unit === 'week') value.customRecurrence = { ...rule, weekdays: rule.weekdays.map(day => (day + dayShift % 7 + 7) % 7).sort((a, b) => a - b) };
+  if (rule?.unit === 'week') {
+    const shifted = (day: number) => (day + dayShift % 7 + 7) % 7;
+    const start = new Date(`${series.startDate}T00:00:00Z`).getUTCDay(), nextStart = new Date(`${value.startDate}T00:00:00Z`).getUTCDay();
+    const cycle = rule.interval * 7, first = (day: number, from: number) => (day - from + cycle) % cycle;
+    const through = series.untilDate ? daysBetween(series.startDate, series.untilDate) : Infinity;
+    // Rotating weekdays across different Sunday weeks cannot retain a multiweek phase.
+    if (rule.interval > 1 && rule.weekdays.some(day => {
+      const before = first(day, start), after = first(shifted(day), nextStart);
+      return before !== after && Math.min(before, after) <= through;
+    })) throw new Error('この移動では繰り返しの間隔を保てません。「この予定だけ」を選んでください。');
+    value.customRecurrence = { ...rule, weekdays: rule.weekdays.map(shifted).sort((a, b) => a - b) };
+  }
   if (rule?.unit === 'month' && rule.on === 'weekday') value.customRecurrence = { ...rule, weekday: new Date(`${value.startDate}T00:00:00Z`).getUTCDay(),
     ordinal: rule.ordinal === -1 ? -1 : Math.min(5, Math.ceil(Number(value.startDate.slice(-2)) / 7)) as 1 | 2 | 3 | 4 | 5 };
   if (rule?.unit === 'month' && rule.on === 'dates' && dayShift) {

@@ -1,0 +1,9 @@
+# Google Tasksの作成返信喪失からの復旧
+
+Google側で家事Taskの作成が成功しても返信だけが失われると、アプリを再起動してもmappingが0のまま同期が停止する反例を再現した。再POSTを防いで原履歴とGoogleのTaskは保持していたが、Cloudの作成予約へ正しいattemptを渡さずに採用しようとして拒否されていた。従来のbare storeによる返信喪失検査では、このnative相当の組み合わせが抜けていた。
+
+2026-11-15 22:51:46〜22:54:17 UTCに案を見直した。既存のlinkedを弱めず、受信済み一覧からの採用専用adoptを追加する。Google GET前にローカル予約を捕捉し、新しいGETのID・markerと現在のscope／attemptを照合する。Cloudが同じattemptを承認した後にだけローカル成功receiptを保存する。途中で新しい予約へ変わった場合、その証拠を古いGETへ貸さない。
+
+製品変更はreconcile、作成intentの型、shared journalの3ファイル。保存形式・Rules・Expo/native APIは変更しない。正常なPOST応答のlinked経路も維持する。実resolver、SQLiteの再オープン、shared journal、claim state machine、HTTP wrapperを使う新規14件を含む関連264件と私的11フロー、lint・型検査が成功した。復旧時のPOSTは0、Task IDと原署名factは不変だった。
+
+別アカウント・別list・別marker、新しいlocal／Cloud予約、ID差し替え、削除、取消、古いintent、重複marker、Cloud ACK喪失で誤った成功receiptを作らないことも確認した。採用だけを旧linkedへ戻すmutationでは、単一・複数mappingの再起動回帰が再び失敗した。実Googleの返信喪失を実機で再現した結果とは扱わず、最終CIとnative反映は別に記録する。

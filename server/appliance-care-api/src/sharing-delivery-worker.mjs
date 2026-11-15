@@ -1,4 +1,4 @@
-const TTL = 86400_000;
+const TTL = 86400_000, REQUESTS_PER_QUEUE = 32;
 const time = value => typeof value?.toMillis === 'function' ? value.toMillis() : value instanceof Date ? value.getTime() : NaN;
 
 /** Admin-only erasure. No user content is returned to logging or stored in another collection. */
@@ -58,8 +58,17 @@ export async function sweepSharedDeliveries(firestore, groupId, now = Date.now()
 
 async function pruneDeliveryRequests(root, result, now, firestore) {
   // A parent-document delete does not delete subcollections. Remove every response part explicitly.
-  const requests = await root.collection('deliveryRequests').orderBy('createdAt').limit(32).get();
-  for (const request of requests.docs) {
+  const collection = root.collection('deliveryRequests');
+  // orderBy excludes requests without receivedAt. Independent queues keep a
+  // newly received body from waiting behind older, still-live recovery work.
+  const [received, oldest] = await Promise.all([
+    collection.orderBy('receivedAt').limit(REQUESTS_PER_QUEUE).get(),
+    collection.orderBy('createdAt').limit(REQUESTS_PER_QUEUE).get(),
+  ]);
+  const requests = new Map(received.docs.map(request => [request.id, request]));
+  for (const request of oldest.docs) if (!requests.has(request.id)) requests.set(request.id, request);
+  const removed = new Set();
+  for (const request of requests.values()) {
     const value = request.data(); const expiry = Number.isFinite(time(value.receivedAt)) ? now
       : Math.min(time(value.expiresAt), time(value.createdAt) + TTL);
     if (!Number.isFinite(expiry)) continue;
@@ -72,7 +81,12 @@ async function pruneDeliveryRequests(root, result, now, firestore) {
       }
       await response.ref.delete();
     }
-    await request.ref.delete(); result.deleted++;
+    await request.ref.delete(); result.deleted++; removed.add(request.id);
+  }
+  // Yield between useful bounded batches. A full queue without erasure must
+  // wait for its next expiry rather than create an immediate idle sweep loop.
+  if ([received, oldest].some(page => page.docs.length === REQUESTS_PER_QUEUE && page.docs.some(request => removed.has(request.id)))) {
+    result.nextAt = Math.min(result.nextAt ?? Infinity, now);
   }
 }
 
