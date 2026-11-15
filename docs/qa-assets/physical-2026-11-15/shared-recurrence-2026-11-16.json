@@ -1,0 +1,544 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-11-15T19:16:01.352859+00:00",
+  "sourceCommit": "8a8a381d91bda56b4f1694eb4b1b1e432e811e50",
+  "devices": {
+    "operator": "iPhone 12 / account C, QA group owner",
+    "sameAccountReceiver": "iPad (9th generation) / account C",
+    "creator": "Android 10 / account D"
+  },
+  "installedIosBundleSha256": "2108264550aacbb2a3837542d3fc17d3bfdaf24c767133ded71849b77e90d1ba",
+  "range": {
+    "from": "2026-11-15",
+    "through": "2026-12-15"
+  },
+  "method": "Actual iPhone UI input and save; read-only copies from both Apple devices; project app-accepted facts with the unchanged application projection code. No direct database mutation.",
+  "variants": [
+    {
+      "phase": "shared-recurrence-only",
+      "status": "passed",
+      "captureSha256": "573faa8e75a479e47d0f0083803e15d78662920935a784a4c81637718c27231b",
+      "bothAppleDevicesIdentical": true,
+      "acceptedFacts": 90,
+      "pendingFacts": 0,
+      "rejectedFacts": 0,
+      "qaOccurrences": [
+        {
+          "anchorDate": "2026-11-16",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-owner-edit",
+          "notes": "",
+          "startDate": "2026-11-16",
+          "endDate": "2026-11-16",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-11-23",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-only-23",
+          "notes": "",
+          "startDate": "2026-11-23",
+          "endDate": "2026-11-23",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "none",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-11-30",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-owner-edit",
+          "notes": "",
+          "startDate": "2026-11-30",
+          "endDate": "2026-11-30",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-12-07",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-owner-edit",
+          "notes": "",
+          "startDate": "2026-12-07",
+          "endDate": "2026-12-07",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-12-14",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-owner-edit",
+          "notes": "",
+          "startDate": "2026-12-14",
+          "endDate": "2026-12-14",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        }
+      ],
+      "canceledDecember7": false
+    },
+    {
+      "phase": "shared-recurrence-future",
+      "status": "passed",
+      "captureSha256": "06bdf116e4c2ac5b4e7e964b0ef9785f51d4357bace1a42312cb3040be8b3590",
+      "bothAppleDevicesIdentical": true,
+      "acceptedFacts": 93,
+      "pendingFacts": 0,
+      "rejectedFacts": 0,
+      "qaOccurrences": [
+        {
+          "anchorDate": "2026-11-16",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-future",
+          "notes": "",
+          "startDate": "2026-11-16",
+          "endDate": "2026-11-16",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-11-23",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-only-23",
+          "notes": "",
+          "startDate": "2026-11-23",
+          "endDate": "2026-11-23",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "none",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-11-30",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-future",
+          "notes": "",
+          "startDate": "2026-11-30",
+          "endDate": "2026-11-30",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-12-07",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-future",
+          "notes": "",
+          "startDate": "2026-12-07",
+          "endDate": "2026-12-07",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-12-14",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-future",
+          "notes": "",
+          "startDate": "2026-12-14",
+          "endDate": "2026-12-14",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        }
+      ],
+      "canceledDecember7": false
+    },
+    {
+      "phase": "shared-recurrence-whole",
+      "status": "passed",
+      "captureSha256": "aba77c8999fad3e33983fce0a3e5daf2b64cb67df8b511437f9eceddb6a95d04",
+      "bothAppleDevicesIdentical": true,
+      "acceptedFacts": 94,
+      "pendingFacts": 0,
+      "rejectedFacts": 0,
+      "qaOccurrences": [
+        {
+          "anchorDate": "2026-11-16",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-whole",
+          "notes": "",
+          "startDate": "2026-11-16",
+          "endDate": "2026-11-16",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-11-23",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-only-23",
+          "notes": "",
+          "startDate": "2026-11-23",
+          "endDate": "2026-11-23",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "none",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-11-30",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-whole",
+          "notes": "",
+          "startDate": "2026-11-30",
+          "endDate": "2026-11-30",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-12-07",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-whole",
+          "notes": "",
+          "startDate": "2026-12-07",
+          "endDate": "2026-12-07",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-12-14",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-whole",
+          "notes": "",
+          "startDate": "2026-12-14",
+          "endDate": "2026-12-14",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        }
+      ],
+      "canceledDecember7": false
+    },
+    {
+      "phase": "shared-recurrence-boundary",
+      "status": "passed",
+      "captureSha256": "372584ee54726289253f5541a9a9680e626b1eafb86977a44406c91f31b013ec",
+      "bothAppleDevicesIdentical": true,
+      "acceptedFacts": 97,
+      "pendingFacts": 0,
+      "rejectedFacts": 0,
+      "qaOccurrences": [
+        {
+          "anchorDate": "2026-11-16",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-whole",
+          "notes": "",
+          "startDate": "2026-11-16",
+          "endDate": "2026-11-16",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": "2026-11-29"
+        },
+        {
+          "anchorDate": "2026-11-23",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-only-23",
+          "notes": "",
+          "startDate": "2026-11-23",
+          "endDate": "2026-11-23",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "none",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-11-30",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-future-30",
+          "notes": "",
+          "startDate": "2026-11-30",
+          "endDate": "2026-11-30",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-12-07",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-future-30",
+          "notes": "",
+          "startDate": "2026-12-07",
+          "endDate": "2026-12-07",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-12-14",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-future-30",
+          "notes": "",
+          "startDate": "2026-12-14",
+          "endDate": "2026-12-14",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        }
+      ],
+      "canceledDecember7": false
+    },
+    {
+      "phase": "shared-recurrence-cancel",
+      "status": "passed",
+      "captureSha256": "9ff328e86915de973469f9c4231c81e3512d65739012332e7d11ccb206c1e641",
+      "bothAppleDevicesIdentical": true,
+      "acceptedFacts": 98,
+      "pendingFacts": 0,
+      "rejectedFacts": 0,
+      "qaOccurrences": [
+        {
+          "anchorDate": "2026-11-16",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-whole",
+          "notes": "",
+          "startDate": "2026-11-16",
+          "endDate": "2026-11-16",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": "2026-11-29"
+        },
+        {
+          "anchorDate": "2026-11-23",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-only-23",
+          "notes": "",
+          "startDate": "2026-11-23",
+          "endDate": "2026-11-23",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "none",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-11-30",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-future-30",
+          "notes": "",
+          "startDate": "2026-11-30",
+          "endDate": "2026-11-30",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-12-14",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-future-30",
+          "notes": "",
+          "startDate": "2026-12-14",
+          "endDate": "2026-12-14",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        }
+      ],
+      "canceledDecember7": true
+    },
+    {
+      "phase": "shared-recurrence-future-cancel",
+      "status": "passed",
+      "captureSha256": "8091894617438c9ae1a30027bdc85efaaa69f1bab1464afbce215cfcd2d54f03",
+      "bothAppleDevicesIdentical": true,
+      "acceptedFacts": 101,
+      "pendingFacts": 0,
+      "rejectedFacts": 0,
+      "qaOccurrences": [
+        {
+          "anchorDate": "2026-11-16",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-whole",
+          "notes": "",
+          "startDate": "2026-11-16",
+          "endDate": "2026-11-16",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": "2026-11-29"
+        },
+        {
+          "anchorDate": "2026-11-23",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-only-23",
+          "notes": "",
+          "startDate": "2026-11-23",
+          "endDate": "2026-11-23",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "none",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-11-30",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-after-cancel",
+          "notes": "",
+          "startDate": "2026-11-30",
+          "endDate": "2026-11-30",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-12-14",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-after-cancel",
+          "notes": "",
+          "startDate": "2026-12-14",
+          "endDate": "2026-12-14",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        }
+      ],
+      "canceledDecember7": true
+    },
+    {
+      "phase": "shared-recurrence-whole-cancel",
+      "status": "passed",
+      "captureSha256": "8f73e2e7aa61cdf2e17033e45f68ccec75ac312a15791eb0260b4098b33453bb",
+      "bothAppleDevicesIdentical": true,
+      "acceptedFacts": 102,
+      "pendingFacts": 0,
+      "rejectedFacts": 0,
+      "qaOccurrences": [
+        {
+          "anchorDate": "2026-11-16",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-whole",
+          "notes": "",
+          "startDate": "2026-11-16",
+          "endDate": "2026-11-16",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": "2026-11-29"
+        },
+        {
+          "anchorDate": "2026-11-23",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-only-23",
+          "notes": "",
+          "startDate": "2026-11-23",
+          "endDate": "2026-11-23",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "none",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-11-30",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-whole-final",
+          "notes": "",
+          "startDate": "2026-11-30",
+          "endDate": "2026-11-30",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        },
+        {
+          "anchorDate": "2026-12-14",
+          "title": "LFQA-20261116-S19-D",
+          "location": "QA-whole-final",
+          "notes": "",
+          "startDate": "2026-12-14",
+          "endDate": "2026-12-14",
+          "startMinute": 540,
+          "endMinute": 600,
+          "allDay": false,
+          "recurrence": "weekly",
+          "untilDate": null
+        }
+      ],
+      "canceledDecember7": true
+    }
+  ],
+  "limits": [
+    "Android search received the original series, November 23 exception and split series with the expected locations. Its canceled December 7 occurrence was not separately opened after the final edit.",
+    "Notification delivery, drag, offline conflicts, month-end recurrence and DST are separate unexecuted variants.",
+    "This is not a pass of all 216 candidates or 1000 findings.",
+    "Accepted fact projection is inspected here; cryptographic authority is not independently revalidated by the receipt helper."
+  ],
+  "cleanup": {
+    "status": "already_deleted_before_user_clarified_retention",
+    "bothAppleDevicesNoQaOccurrences": true,
+    "acceptedFacts": 104,
+    "captureSha256": "1875cb1a1401e1d36408d8e0b25a592c4f7e35a724a4b1ea5cd1bfc37f1e3498",
+    "androidAfterDeleteNotSeparatelyVerified": true,
+    "subsequentPolicy": "Leave verification data in place; do not remove it for cleanup."
+  },
+  "androidSearchObservation": {
+    "evidenceSha256": "2ff5a0ffa9ccf09e6863a0215ae2cf34517ef72ead5d9989ce719cf2ed50d18f",
+    "query": "LFQA-20261116-S19-D",
+    "visibleLocations": [
+      "QA-whole",
+      "QA-only-23",
+      "QA-whole-final"
+    ],
+    "exceptionDate": "2026-11-23",
+    "allStartTimes": "09:00",
+    "source": "actual Android 10 native search UI"
+  }
+}

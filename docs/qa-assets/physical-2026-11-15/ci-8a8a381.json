@@ -1,0 +1,39 @@
+{
+  "sourceCommit": "8a8a381d91bda56b4f1694eb4b1b1e432e811e50",
+  "runId": 43747123194,
+  "nativeConfigurationRunId": 43747123345,
+  "conclusion": "success",
+  "jobs": {
+    "ios": {
+      "counts": {
+        "tests": 4484,
+        "pass": 4483,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 1
+      },
+      "logSha256": "9a7b7bc1be8c1aa038207923b8ecbed7b7bd48dbdf1895d2523e87976941b84a"
+    },
+    "android": {
+      "counts": {
+        "tests": 4484,
+        "pass": 4483,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 1
+      },
+      "logSha256": "b33d1e93f9f332b6ea82740ce32ffd10c1ee40c361c98f7c7e4b11baed48d3f7"
+    },
+    "cloud": {
+      "counts": {
+        "tests": 173,
+        "pass": 173,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "logSha256": "f00d6cc1f39d1366bc1c81a9fcafd54c9664f50f957533cbfef1a94c5188a2d5"
+    }
+  },
+  "skipReason": "Linux cannot execute the native iOS durable widget Swift journal test; its source was unchanged and passed on the preceding local Mac run."
+}
