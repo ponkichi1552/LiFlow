@@ -80,6 +80,8 @@ Google Tasksの正常時の24時間再照合条件、Googleの認証・利用制
 
 この作業はローカル実装と隔離した検査まで。稼働中のRules、API、削除ワーカー、端末アプリは配備しておらず、既存のサーバーデータは削除していない。既定の `EXPO_PUBLIC_SHARING_EPHEMERAL_DELIVERY=0` では新しい共有本文の削除は始まらない。無変更の固定同期を外す変更はこのフラグから独立している。
 
+2026-11-16追加：その後、iPhone・iPad・Androidへ対応するソースのReleaseを導入し、既存の本人端末API・天気API・天気workerとRules・indexを更新した。公開家電解析API・解析worker・共有配送の削除workerは未配備。一時配送フラグは全3台とも0で、本文削除への切替は行っていない。稼働版のdigest・認証・応答・切替の証拠は[サーバー更新記録](../audits/2026-11-16-server-update.md)を参照する。上の段落は最初の実装時点の記録として残す。
+
 1. 対応する `firestore.rules` と `firestore.indexes.json` を同じ環境へ配備し、当該アカウント・除名・世代更新の拒否条件を確認する。
 2. APIと解析ワーカーを同じ版へ更新する。AIの受領確認は旧版アプリからは届かないため、その場合は24時間の期限と清掃で削除する。
 3. 同じFirestoreへ接続する管理用プロセスで `npm --prefix server/appliance-care-api run delivery:work` を起動する。既存のFirebase Admin用の認証を使い、認証情報や本文をログに出さない。

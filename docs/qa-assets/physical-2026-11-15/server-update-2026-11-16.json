@@ -1,0 +1,181 @@
+{
+  "observedAt": "2026-11-15T17:50:39.370Z",
+  "sourceCommit": "e0ec346916076486f59e71016ea2bdc94741e53a",
+  "builds": [
+    {
+      "component": "account-device",
+      "buildId": "c1a179d3-dca8-421d-8d91-3ac36ce854af",
+      "status": "SUCCESS",
+      "imageDigest": "sha256:56d082d0302fb0d75bc09fafc5828c6896bed20de87dd0fcec7c3d3d8a7dda23"
+    },
+    {
+      "component": "weather",
+      "buildId": "a8467231-643b-4bd9-aec7-e397afc1572f",
+      "status": "SUCCESS",
+      "imageDigest": "sha256:98ed2b9366a05dc1fd6e52074506f19c9e1f2d60bdb29aa7aa13e83e00f8c61d"
+    }
+  ],
+  "services": [
+    {
+      "name": "liflow-account-device",
+      "ready": "CONDITION_SUCCEEDED",
+      "revision": "liflow-account-device-audit-e0ec346",
+      "trafficPercent": 100,
+      "image": "asia-northeast1-docker.pkg.dev/housework-planner-tkb2633/liflow-weather/account-device@sha256:56d082d0302fb0d75bc09fafc5828c6896bed20de87dd0fcec7c3d3d8a7dda23",
+      "iamUnchanged": true
+    },
+    {
+      "name": "liflow-weather-worker",
+      "ready": "CONDITION_SUCCEEDED",
+      "revision": "liflow-weather-worker-audit-e0ec346",
+      "trafficPercent": 100,
+      "image": "asia-northeast1-docker.pkg.dev/housework-planner-tkb2633/liflow-weather/runtime@sha256:98ed2b9366a05dc1fd6e52074506f19c9e1f2d60bdb29aa7aa13e83e00f8c61d",
+      "iamUnchanged": true
+    },
+    {
+      "name": "liflow-weather",
+      "ready": "CONDITION_SUCCEEDED",
+      "revision": "liflow-weather-audit-e0ec346",
+      "trafficPercent": 100,
+      "image": "asia-northeast1-docker.pkg.dev/housework-planner-tkb2633/liflow-weather/runtime@sha256:98ed2b9366a05dc1fd6e52074506f19c9e1f2d60bdb29aa7aa13e83e00f8c61d",
+      "iamUnchanged": true
+    }
+  ],
+  "rules": {
+    "sha256": "b38cf178c351d3ce8a07c4254515c12899b7288b04b11c9a1c090c19978cd7f2",
+    "compiled": true,
+    "releaseMatchesSource": true,
+    "weatherRulesUnchanged": true
+  },
+  "http": {
+    "staged": [
+      {
+        "label": "account health",
+        "status": 200,
+        "bytes": 11
+      },
+      {
+        "label": "account unauthenticated read",
+        "status": 401,
+        "bytes": 28
+      },
+      {
+        "label": "weather health",
+        "status": 200,
+        "bytes": 15
+      },
+      {
+        "label": "weather known region",
+        "status": 200,
+        "bytes": 26650
+      },
+      {
+        "label": "weather conditional cache",
+        "status": 304,
+        "bytes": 0
+      },
+      {
+        "label": "weather invalid region",
+        "status": 404,
+        "bytes": 33
+      },
+      {
+        "label": "weather write rejected",
+        "status": 405,
+        "bytes": 28
+      },
+      {
+        "label": "weather AI route absent",
+        "status": 404,
+        "bytes": 20
+      },
+      {
+        "label": "worker unauthenticated denied",
+        "status": 403,
+        "bytes": 315
+      }
+    ],
+    "primary": [
+      {
+        "label": "account primary health",
+        "status": 200,
+        "bytes": 11
+      },
+      {
+        "label": "account primary identity required",
+        "status": 401,
+        "bytes": 28
+      },
+      {
+        "label": "weather primary health",
+        "status": 200,
+        "bytes": 15
+      },
+      {
+        "label": "weather primary cached read",
+        "status": 200,
+        "bytes": 26650
+      },
+      {
+        "label": "weather primary conditional read",
+        "status": 304,
+        "bytes": 0
+      },
+      {
+        "label": "worker primary denied",
+        "status": 403,
+        "bytes": 315
+      }
+    ]
+  },
+  "naturalWorker": [
+    {
+      "timestamp": "2026-11-15T17:44:02.324661Z",
+      "event": "weather_worker_batch",
+      "batch": {
+        "attempted": 0
+      }
+    },
+    {
+      "timestamp": "2026-11-15T17:44:01.953324Z",
+      "severity": "INFO",
+      "httpStatus": 200
+    }
+  ],
+  "sourceUploadCopiesDeleted": true,
+  "sharingEphemeralDeliveryEnabled": false,
+  "notDeployed": [
+    "public appliance analysis API",
+    "appliance analysis worker",
+    "shared delivery erasure worker"
+  ],
+  "limits": [
+    "No production erasure cutover was enabled",
+    "Paid OpenAI API validation remains deferred",
+    "Health and IAM checks do not prove every physical device flow"
+  ],
+  "metadataRetention": {
+    "at": "2026-11-15T17:57:41.278Z",
+    "backupSchedules": [
+      {
+        "database": "(default)",
+        "count": 0
+      },
+      {
+        "database": "liflow-weather",
+        "count": 0
+      }
+    ],
+    "loggingBuckets": [
+      {
+        "name": "projects/housework-planner-tkb2633/locations/global/buckets/_Default",
+        "retentionDays": 30
+      },
+      {
+        "name": "projects/housework-planner-tkb2633/locations/global/buckets/_Required",
+        "retentionDays": 400,
+        "locked": true
+      }
+    ]
+  }
+}
