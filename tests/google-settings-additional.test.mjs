@@ -3,6 +3,42 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { screenHarness } from './helpers/screen-harness.mjs';
 
+for (const platform of ['ios', 'android']) test(`${platform} Calendar settings ignore an older failed read after the new account status succeeds`, async t => {
+  const database = {}; let changed; let rejectOld; let reads = 0;
+  const current = { enabled: true, subject: 'current', generation: 2, calendars: [], error: null };
+  const runtime = { readControl: () => ++reads === 1 ? new Promise((_resolve, reject) => { rejectOld = reject; }) : Promise.resolve(current),
+    readConflicts: async () => [], isConnected: async () => true };
+  const ui = screenHarness('src/features/calendar/personal-google-settings.tsx', { exportName: 'PersonalGoogleCalendarSettings', platform,
+    props: { database, embedded: true }, effectDependencies: true, effect: fn => fn(), layoutEffect: fn => fn(), mocks: {
+      '../../platform/google-calendar/personal-runtime': { nativePersonalGoogleCalendar: () => runtime },
+      '../../platform/storage/calendar-events': { subscribeLocalCalendar: () => () => {} },
+      '../google-sync/account-change-events': { subscribeToGoogleAccountChanges: (_db, callback) => { changed = callback; return () => {}; } },
+    } });
+  t.after(() => ui.unmount()); await ui.flush(); assert.equal(typeof rejectOld, 'function'); assert.equal(typeof changed, 'function');
+  changed(); await ui.flush(); ui.button('今すぐ同期');
+  rejectOld(new Error('previous account generation changed')); await ui.flush();
+  ui.button('今すぐ同期'); assert.doesNotMatch(ui.text(), /接続設定を読み込めません/);
+  assert.equal(reads, 2, 'a superseded read must not add a retry or network operation');
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} Calendar status recovery clears a current load error while retaining independent action errors`, async t => {
+  let readFails = true; let statusChanged; let reads = 0;
+  const control = { enabled: true, subject: 'current', generation: 1, calendars: [], error: null };
+  const runtime = { readControl: async () => { reads++; if (readFails) throw new Error('temporarily unavailable'); return control; },
+    readConflicts: async () => [], isConnected: async () => true, sync: async () => { throw new Error('変更は未送信です。'); } };
+  const ui = screenHarness('src/features/calendar/personal-google-settings.tsx', { exportName: 'PersonalGoogleCalendarSettings', platform,
+    props: { database: {}, embedded: true }, effectDependencies: true, effect: fn => fn(), layoutEffect: fn => fn(), mocks: {
+      '../../platform/google-calendar/personal-runtime': { nativePersonalGoogleCalendar: () => runtime },
+      '../../platform/storage/calendar-events': { subscribeLocalCalendar: (_db, callback) => { statusChanged = callback; return () => {}; } },
+    } });
+  t.after(() => ui.unmount()); await ui.flush(); assert.match(ui.text(), /接続設定を読み込めません/);
+  readFails = false; statusChanged('syncStatus'); await ui.flush(); ui.button('今すぐ同期');
+  assert.doesNotMatch(ui.text(), /接続設定を読み込めません/);
+  await ui.press('今すぐ同期'); assert.match(ui.text(), /変更は未送信です/);
+  statusChanged('syncStatus'); await ui.flush(); assert.match(ui.text(), /変更は未送信です/);
+  assert.equal(reads, 3, 'status events alone recover the read without polling');
+});
+
 for (const platform of ['ios', 'android']) test(`${platform} Calendar settings replace the connected action immediately after account logout without reopening the page`, async () => {
   const database = {}; let listener; let stopped = false;
   let control = { enabled: true, subject: 'original', generation: 1, calendars: [], error: null };

@@ -34,6 +34,19 @@ export class GoogleCalendarHttpError extends Error {
 const EVENT_FIELDS = 'id,etag,status,summary,location,description,start,end,recurrence,recurringEventId,originalStartTime,transparency,eventType,extendedProperties(private),updated,visibility,locked,htmlLink';
 const EVENT_FIELDS_QUERY = `fields=${encodeURIComponent(EVENT_FIELDS)}`;
 
+/** PATCH retains omitted nested fields, so a clock change must clear its old representation. */
+function calendarPatchBody(value: Record<string, unknown>): Record<string, unknown> {
+  const patch = { ...value };
+  for (const key of ['start', 'end'] as const) {
+    const clock = value[key];
+    if (!clock || typeof clock !== 'object' || Array.isArray(clock)) continue;
+    const row = clock as Record<string, unknown>;
+    if (typeof row.date === 'string') patch[key] = { ...row, dateTime: null, ...(!Object.hasOwn(row, 'timeZone') ? { timeZone: null } : {}) };
+    else if (typeof row.dateTime === 'string') patch[key] = { ...row, date: null };
+  }
+  return patch;
+}
+
 /** Tokens stay in the native caller; neither errors nor persisted records contain credentials. */
 export function createGoogleCalendarApi(input: { token: () => Promise<string>; assertCurrent: () => Promise<void>; signal?: AbortSignal; fetch?: typeof fetch }) {
   const transport = input.fetch ?? fetch;
@@ -101,7 +114,7 @@ export function createGoogleCalendarApi(input: { token: () => Promise<string>; a
     instances: (calendarId: string, id: string, range: { timeMin?: string; timeMax?: string; originalStart?: string; pageToken?: string }) => request<{ items?: GoogleCalendarEvent[]; nextPageToken?: string }>(`${path(calendarId)}/${encodeURIComponent(id)}/instances?${query({ maxResults: '100', showDeleted: 'true', fields: `nextPageToken,items(${EVENT_FIELDS})`, ...range })}`),
     get: (calendarId: string, id: string) => request<GoogleCalendarEvent>(`${path(calendarId)}/${encodeURIComponent(id)}?${EVENT_FIELDS_QUERY}`, 'GET', undefined, undefined, id),
     insert: (calendarId: string, value: Record<string, unknown>) => request<GoogleCalendarEvent>(`${path(calendarId)}?sendUpdates=none&${EVENT_FIELDS_QUERY}`, 'POST', value, undefined, typeof value.id === 'string' ? value.id : undefined),
-    patch: (calendarId: string, id: string, value: Record<string, unknown>, etag: string) => request<GoogleCalendarEvent>(`${path(calendarId)}/${encodeURIComponent(id)}?sendUpdates=none&conferenceDataVersion=1&${EVENT_FIELDS_QUERY}`, 'PATCH', value, etag, id),
+    patch: (calendarId: string, id: string, value: Record<string, unknown>, etag: string) => request<GoogleCalendarEvent>(`${path(calendarId)}/${encodeURIComponent(id)}?sendUpdates=none&conferenceDataVersion=1&${EVENT_FIELDS_QUERY}`, 'PATCH', calendarPatchBody(value), etag, id),
     remove: (calendarId: string, id: string, etag: string) => request<void>(`${path(calendarId)}/${encodeURIComponent(id)}?sendUpdates=none`, 'DELETE', undefined, etag),
   };
 }

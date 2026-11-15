@@ -94,3 +94,42 @@ test('audit100 Calendar reads and write acknowledgements request only used event
  for(const url of urls){const fields=url.searchParams.get('fields');assert.ok(fields,`full Calendar response requested: ${url.pathname}`);for(const field of ['etag','status','recurrence','originalStartTime','updated','visibility','locked','htmlLink','extendedProperties'])assert.ok(fields.includes(field),`missing ${field}`);for(const unused of ['attendees','attachments','conferenceData','reminders'])assert.equal(fields.includes(unused),false);}
  assert.match(urls[0].searchParams.get('fields'),/nextSyncToken/);assert.match(urls[1].searchParams.get('fields'),/nextPageToken/);
 });
+
+test('Calendar PATCH switches between timed and all-day events while preserving unrelated remote fields', async () => {
+  const timed = googleEventBody({ ...newEventDraft('2026-11-15', 'Asia/Tokyo'), title: 'Synthetic clock switch' });
+  const allDay = googleEventBody({ ...newEventDraft('2026-11-15', 'Asia/Tokyo'), title: 'Synthetic clock switch', allDay: true });
+  const mergePatch = (before, patch) => {
+    const result = structuredClone(before);
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === null) delete result[key];
+      else if (value && typeof value === 'object' && !Array.isArray(value)) result[key] = mergePatch(result[key] ?? {}, value);
+      else result[key] = structuredClone(value);
+    }
+    return result;
+  };
+  for (const [before, desired] of [[timed, allDay], [allDay, timed]]) {
+    const original = structuredClone(desired); let calls = 0;
+    const remote = { ...structuredClone(before), id: 'synthetic-event', etag: '"before"', visibility: 'private', reminders: { useDefault: true } };
+    const api = createGoogleCalendarApi({ token: async () => 'synthetic', assertCurrent: async () => {},
+      fetch: async (_url, init) => {
+        calls++; assert.equal(init.method, 'PATCH'); assert.equal(init.headers['If-Match'], '"before"');
+        const merged = mergePatch(remote, JSON.parse(init.body));
+        if ([merged.start, merged.end].some(clock => Boolean(clock.date) === Boolean(clock.dateTime))) return Response.json({}, { status: 400 });
+        return Response.json({ ...merged, etag: '"after"' });
+      } });
+    const saved = await api.patch('synthetic-calendar', 'synthetic-event', desired, '"before"');
+    assert.deepEqual(saved.start, desired.start); assert.deepEqual(saved.end, desired.end);
+    assert.equal(saved.visibility, 'private'); assert.deepEqual(saved.reminders, { useDefault: true });
+    assert.equal(calls, 1); assert.deepEqual(desired, original);
+  }
+});
+
+test('Calendar PATCH leaves omitted clocks omitted and POST keeps its original clock shape', async () => {
+  const sent = []; const api = createGoogleCalendarApi({ token: async () => 'synthetic', assertCurrent: async () => {},
+    fetch: async (_url, init) => { sent.push({ method: init.method, body: JSON.parse(init.body) }); return Response.json({ id: 'synthetic-event', etag: '"after"' }); } });
+  await api.patch('synthetic-calendar', 'synthetic-event', { location: 'Synthetic room' }, '"before"');
+  const allDay = googleEventBody({ ...newEventDraft('2026-11-15', 'Asia/Tokyo'), title: 'Synthetic insert', allDay: true });
+  await api.insert('synthetic-calendar', { ...allDay, id: 'synthetic-event' });
+  assert.deepEqual(sent[0], { method: 'PATCH', body: { location: 'Synthetic room' } });
+  assert.deepEqual(sent[1].body, { ...allDay, id: 'synthetic-event' });
+});

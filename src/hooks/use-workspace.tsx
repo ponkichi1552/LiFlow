@@ -14,6 +14,7 @@ import { traceStartup } from '@/platform/diagnostics/startup-timing';
 import { createInitialDisplayGate, waitForInitialFrame } from '@/features/planner/initial-display-gate';
 import { canShowPersonalStartup, readSavedStartupDisplay, startupDisplayCache } from '@/platform/sharing/startup-display';
 import { createDemandWorker } from '@/features/google-sync/demand-worker';
+import { isSharingInitialSyncPending } from '@/features/sharing/workspace-initial-sync';
 
 /** Personal data stays mounted; a membership adds shared data to the same four tabs. */
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
@@ -30,6 +31,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null);
   const [sessionStarted, setSessionStarted] = useState(false);
   const [restoration, setRestoration] = useState<'waiting' | 'failed' | null>(null);
+  const [initialSyncPending, setInitialSyncPending] = useState(false);
   const [ready, setReady] = useState(false); const [error, setError] = useState<string | null>(null);
   const alive = useRef(true); const revision = useRef(0);
   const refreshSharing = useCallback(async function refresh(): Promise<void> {
@@ -44,7 +46,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (!await check()) return;
       if (activeRef.current?.userId !== user?.uid) {
         activeRef.current = null; setActive(null);
-        setRestoration(null);
+        setRestoration(null); setInitialSyncPending(false);
         // A verified cache for this same account remains visible while its live
         // workspace restores. Do not briefly remove the tab/route hierarchy.
         setStartupDisplay(previous => previous?.record.userId === user?.uid ? previous : null);
@@ -71,7 +73,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (next) await saveSharingSelection(next);
       else if (!record) await saveSharingSelection(null);
       if (!await check()) return;
-      activeRef.current = next; setActive(next); setGroup(record); setUserId(user?.uid ?? null); setError(null);
+      activeRef.current = next; setActive(next); setGroup(record); setUserId(user?.uid ?? null); setError(null); setInitialSyncPending(false);
       if (!next) setStartupDisplay(null);
       void import('@/platform/sharing/v2-reminders').then(module => module.clearInactiveV2Reminders(record?.status === 'active' ? [record] : [], async () => {
         if (!await check()) throw new Error('通知を更新するアカウントが変わりました。');
@@ -82,7 +84,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       if (!await check()) return;
       if (activeRef.current?.userId !== user?.uid) { activeRef.current = null; setActive(null); setGroup(null); setStartupDisplay(null); }
       setUserId(user?.uid ?? null);
-      setError(cause instanceof Error ? cause.message : '所属グループを読み込めませんでした。保存内容を保持しています。');
+      const pending = isSharingInitialSyncPending(cause); setInitialSyncPending(pending);
+      setError(pending ? null : cause instanceof Error ? cause.message : '所属グループを読み込めませんでした。保存内容を保持しています。');
     }
     if (alive.current && current === revision.current) setSessionStarted(true);
   }, []);
@@ -174,7 +177,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     });
     return () => { stopped = true; stop(); subscription.remove(); };
   }, [active, displayGate, groupKey, ready, sessionStarted, userId]);
-  const value = useMemo(() => ({ active, group, userId, ready, error, refreshSharing, completeInitialDisplay, startupDisplay, restoration }), [active, group, userId, ready, error, refreshSharing, completeInitialDisplay, startupDisplay, restoration]);
+  const value = useMemo(() => ({ active, group, userId, ready, error, refreshSharing, completeInitialDisplay, startupDisplay, restoration: initialSyncPending ? 'waiting' as const : restoration }), [active, group, userId, ready, error, refreshSharing, completeInitialDisplay, startupDisplay, restoration, initialSyncPending]);
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }
 

@@ -481,6 +481,9 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     positioned.current = key;
     const first = dayList.flatMap(day => eventsOn(day).filter(event => !event.allDay).map(event => event.startMinute)).sort((a, b) => a - b)[0];
     const selected = searchPosition.current; searchPosition.current = null;
+    if (selected?.date === date && selected.minute === null) {
+      scroll.current?.scrollToOffset({ offset: 0, animated: false }); return;
+    }
     const minute = selected?.date === date && selected.minute !== null ? selected.minute : dayList.includes(today) ? currentMinute : first ?? 9 * 60;
     scroll.current?.scrollToOffset({ offset: Math.max(0, timelineTop.current + minute / 60 * hourHeight - timelineViewport.current / 2), animated: false });
   };

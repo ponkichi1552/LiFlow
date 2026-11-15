@@ -3,6 +3,27 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 
+for (const platform of ['ios', 'android']) test(`${platform} restored membership remains pending until the first verified planner arrives and then opens automatically`, async t => {
+  const effects = []; let received = false, changed;
+  const record = { userId: 'owner', groupId: 'restored-house', status: 'active', lastSuccessfulSyncAt: null };
+  const workspace = { ...record, protocol: 2, drain: async () => {} };
+  const ui = screenHarness('src/hooks/use-workspace.tsx', { platform, exportName: 'WorkspaceProvider', effect: callback => effects.push(callback), mocks: {
+    '@/components/planner-ui': {}, '@/contexts/workspace-context': { WorkspaceContext: { Provider: 'WorkspaceContextProvider' } },
+    '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => undefined, startupDisplayCache: { read: async () => undefined } },
+    '@/platform/sharing/auth': {}, '@/platform/sharing/private-calendar-sync': {},
+    '@/platform/sharing/workspaces': { readSharingSelection: async () => ({ userId: record.userId, groupId: record.groupId }), hasSharingSessionEnabled: async () => true,
+      sharingSessionUser: async () => ({ uid: record.userId }), currentSharingWorkspace: async () => record, openSharedWorkspace: async () => workspace,
+      saveSharingSelection: async selection => { if (selection && !received) throw Object.assign(new Error('initial data not received'), { code: 'sharing/initial-sync-pending' }); },
+      subscribeSharingChanges: callback => { changed = callback; return () => {}; } },
+  } });
+  t.after(() => ui.unmount()); const dispose = effects[0](); t.after(dispose);
+  for (let i = 0; i < 10; i++) await ui.flush();
+  const state = () => ui.nodes().find(node => node.props.value?.refreshSharing)?.props.value;
+  assert.equal(state().active, null); assert.equal(state().restoration, 'waiting'); assert.equal(state().error, null); assert.equal(state().ready, true);
+  received = true; changed(); for (let i = 0; i < 10; i++) await ui.flush();
+  assert.equal(state().active, workspace); assert.equal(state().restoration, null); assert.equal(state().error, null);
+});
+
 for (const [platform, name] of [
   ['ios', 'ios foreground sync wakes only for startup remote changes unfinished retries and resume'],
   ['android', 'android foreground sync wakes only for startup remote changes unfinished retries and resume'],

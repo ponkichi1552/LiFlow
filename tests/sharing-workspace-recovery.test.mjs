@@ -8,6 +8,56 @@ import * as retentionSchema from '../src/features/sharing/v2/history-retention-s
 import * as retentionArchives from '../src/platform/storage/retention-archives.ts';
 import * as historyCheckpoint from '../src/platform/storage/history-checkpoint.ts';
 import { workspaceHarness } from './helpers/sharing-workspaces-harness.mjs';
+import { updateSharingWorkspace } from '../src/platform/storage/sharing-registry.ts';
+
+test('a restored V2 selection waits for one shared initial receive before exposing the verified overview', async () => {
+  const h = await workspaceHarness({ deferWorkspaceTimers: true }); let release;
+  try {
+    const workspace = await h.api.openSharedWorkspace(h.record);
+    await updateSharingWorkspace(h.index.database, h.record.userId, h.record.groupId, old => ({ ...old, status: 'active' }));
+    let ready = false, receives = 0;
+    workspace.readOverview = async () => { if (!ready) throw new Error('グループの地域を確認してください。'); return { timeZone: 'Asia/Tokyo', members: [], chores: [] }; };
+    workspace.sync = async options => { receives++; assert.ok(options.budgetMs > 0 && options.budgetMs <= 20_000); await new Promise(resolve => { release = resolve; }); ready = true; return { complete: true, pending: 0, sent: 0, received: 1 }; };
+    const first = h.api.saveSharingSelection(h.record).then(() => null, error => error);
+    const second = h.api.saveSharingSelection(h.record).then(() => null, error => error);
+    for (let i = 0; i < 10; i++) await new Promise(setImmediate);
+    assert.equal(receives, 1); assert.equal(await h.api.readSharingSelection(), null, 'membership alone cannot expose an uninitialized planner');
+    release(); assert.equal(await first, null); assert.equal(await second, null);
+    assert.deepEqual(await h.api.readSharingSelection(), { userId: h.record.userId, groupId: h.record.groupId });
+    await h.api.saveSharingSelection(h.record); assert.equal(receives, 1, 'an already selected workspace adds no network pass');
+  } finally { release?.(); await h.close(); }
+});
+
+test('an incomplete initial V2 receive stays pending and a later signal can finish without a region change', async () => {
+  const h = await workspaceHarness({ deferWorkspaceTimers: true });
+  try {
+    const workspace = await h.api.openSharedWorkspace(h.record);
+    await updateSharingWorkspace(h.index.database, h.record.userId, h.record.groupId, old => ({ ...old, status: 'active' }));
+    let ready = false, receives = 0;
+    workspace.readOverview = async () => { if (!ready) throw new Error('グループの地域を確認してください。'); return { timeZone: 'Asia/Tokyo', members: [], chores: [] }; };
+    workspace.sync = async () => { receives++; return { complete: false, pending: 0, sent: 0, received: 0 }; };
+    await assert.rejects(h.api.saveSharingSelection(h.record), error => error.code === 'sharing/initial-sync-pending');
+    assert.equal(await h.api.readSharingSelection(), null); assert.equal(receives, 1);
+    ready = true; await h.api.saveSharingSelection(h.record);
+    assert.equal(receives, 1, 'received settings can complete activation without another receive');
+    assert.equal((await h.api.readSharingSelection()).groupId, h.record.groupId);
+  } finally { await h.close(); }
+});
+
+test('initial V2 preparation preserves established errors and refuses a substituted account before selection commit', async () => {
+  for (const replaced of [false, true]) {
+    const h = await workspaceHarness({ deferWorkspaceTimers: true });
+    try {
+      const workspace = await h.api.openSharedWorkspace(h.record);
+      await updateSharingWorkspace(h.index.database, h.record.userId, h.record.groupId, old => ({ ...old, status: 'active', lastSuccessfulSyncAt: replaced ? null : 123 }));
+      let ready = false, receives = 0;
+      workspace.readOverview = async () => { if (!ready) throw new Error('地域設定の競合'); return {}; };
+      workspace.sync = async () => { receives++; ready = true; h.auth.uid = 'another-account'; return { complete: true, pending: 0, sent: 0, received: 1 }; };
+      await assert.rejects(h.api.saveSharingSelection(h.record), replaced ? /アカウント/ : /地域設定の競合/);
+      assert.equal(receives, replaced ? 1 : 0); assert.equal(h.vault.has('active-workspace'), false);
+    } finally { await h.close(); }
+  }
+});
 
 function fixture(options = {}) {
   const events = []; const handles = []; const synchronizers = []; const syncBudgets = [];

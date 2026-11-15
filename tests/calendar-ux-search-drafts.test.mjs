@@ -271,4 +271,30 @@ for (const platform of ['ios', 'android']) {
     await findNight(); assert.deepEqual(resets, [0], 'same-date search returns the agenda to that date');
     assert.equal((await store.readLocalCalendar(h.database)).drafts.length, 0);
   });
+  test(`${platform} all-day search reveals the day summary instead of retaining a later timeline position`, async t => {
+    const h = await fixture(t); const targetDate = '2026-11-14';
+    for (const value of [
+      { ...newEventDraft(targetDate, 'Asia/Tokyo'), title: '終日確認', allDay: true },
+      { ...newEventDraft(targetDate, 'Asia/Tokyo'), title: '夕方の予定', startMinute: 18 * 60, endMinute: 19 * 60 },
+    ]) await store.saveCalendarEvent(h.database, { expectedRevision: 0, value });
+    await h.local.refresh(); const before = JSON.stringify(h.local.snapshot);
+    for (const mode of ['1日表示', '2日表示', '3日表示']) {
+      const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, layoutEffect: effect => effect(),
+        props: { today: date, selectedDate: targetDate, timeZone: 'Asia/Tokyo', local: h.local, dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null } });
+      try {
+        await selectCalendarView(ui, mode);
+        const offsets = []; const timeline = ui.nodes().find(node => node.props.testID === 'calendar-timeline');
+        timeline.props.ref.current = { scrollToOffset: value => offsets.push(value.offset) };
+        timeline.props.onLayout({ nativeEvent: { layout: { height: 600 } } });
+        ui.nodes().find(node => node.props.testID === 'calendar-timeline-days').props.onLayout({ nativeEvent: { layout: { height: 100 } } });
+        await new Promise(resolve => setTimeout(resolve, 0)); assert.ok(offsets.at(-1) > 0, 'the ordinary view initially reveals its timed event');
+        await ui.press('予定を検索する'); await ui.change('予定を検索', '終日確認'); await ui.press('終日確認の検索結果を開く');
+        if (platform === 'ios') { ui.nodes().find(node => node.type === 'Modal').props.onDismiss(); await ui.flush(); }
+        await new Promise(resolve => setTimeout(resolve, 0));
+        assert.equal(offsets.at(-1), 0, `${mode} must expose the all-day summary at the top`);
+        assert.equal(JSON.stringify(h.local.snapshot), before, 'revealing a search result does not edit events or create a draft');
+        assert.equal(JSON.stringify(await store.readLocalCalendar(h.database)), before, 'the persisted calendar also remains unchanged');
+      } finally { ui.unmount(); }
+    }
+  });
 }

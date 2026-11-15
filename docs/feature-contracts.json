@@ -15208,5 +15208,65 @@
       }
     ],
     "manualReview": "docs/audits/2026-11-15-five-usability-fixes.md"
+  },
+  {
+    "feature": "google-calendar-clock-representation-patch-20261115",
+    "tests": [
+      {
+        "file": "tests/calendar-event-api-audit.test.mjs",
+        "name": "Calendar PATCH switches between timed and all-day events while preserving unrelated remote fields"
+      },
+      {
+        "file": "tests/calendar-event-api-audit.test.mjs",
+        "name": "Calendar PATCH leaves omitted clocks omitted and POST keeps its original clock shape"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-15-google-calendar-clock-patch.md"
+  },
+  {
+    "feature": "calendar-all-day-search-visible-summary-20261116",
+    "tests": [
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "${platform} all-day search reveals the day summary instead of retaining a later timeline position"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-16-physical-calendar-followups.md"
+  },
+  {
+    "feature": "calendar-account-status-read-ownership-20261116",
+    "tests": [
+      {
+        "file": "tests/google-settings-additional.test.mjs",
+        "name": "${platform} Calendar settings ignore an older failed read after the new account status succeeds"
+      },
+      {
+        "file": "tests/google-settings-additional.test.mjs",
+        "name": "${platform} Calendar status recovery clears a current load error while retaining independent action errors"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-16-physical-calendar-followups.md"
+  },
+  {
+    "feature": "restored-group-initial-sync-before-selection-20261116",
+    "tests": [
+      {
+        "file": "tests/sharing-workspace-recovery.test.mjs",
+        "name": "a restored V2 selection waits for one shared initial receive before exposing the verified overview"
+      },
+      {
+        "file": "tests/sharing-workspace-recovery.test.mjs",
+        "name": "an incomplete initial V2 receive stays pending and a later signal can finish without a region change"
+      },
+      {
+        "file": "tests/sharing-workspace-recovery.test.mjs",
+        "name": "initial V2 preparation preserves established errors and refuses a substituted account before selection commit"
+      },
+      {
+        "file": "tests/sharing-workspace-provider.test.mjs",
+        "name": "${platform} restored membership remains pending until the first verified planner arrives and then opens automatically"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-16-initial-group-sync.md"
   }
 ]

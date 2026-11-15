@@ -27,6 +27,7 @@ import { sharedAccessDisposition } from '../../features/sharing/access-state.ts'
 import { createSharedJoinRequest, parseSharedInvitation } from '../../features/sharing/invitations.ts';
 import { isSharedTimeZone, sharedLocalDate } from '../../features/sharing/group-clock.ts';
 import { decodeSharingSelection, encodeSharingSelection } from '../../features/sharing/workspace-selection.ts';
+import { prepareSharedWorkspaceSelection } from '../../features/sharing/workspace-initial-sync.ts';
 import type { SharingSelection } from '../../features/sharing/workspace-selection.ts';
 import { SharingAccessError, SharingKeyVersionError, SharingSchedulerVersionError } from '../../features/sharing/cloud-contract.ts';
 import { sharingOwnerRecoveryEnabled } from '../../features/sharing/rollout.ts';
@@ -88,7 +89,7 @@ export async function saveSharingSelection(selection: SharingSelection | null): 
     const workspace = await openSharedWorkspace(selection); const record = await workspace.record();
     if (!['active', 'creating'].includes(record.status)) throw new SharingAccessError('参加承認を完了してから切り替えてください。');
     if (workspace.protocol === null) throw new SharingAccessError('参加承認を完了してから切り替えてください。');
-    await workspace.readOverview(); await workspace.drain();
+    await prepareSharedWorkspaceSelection(workspace, record); await workspace.drain();
     if ((await requireUser()).uid !== selection.userId) throw new SharingAccessError('共有アカウントが切り替わりました。');
     await sharingSecureVault.setItem('active-workspace', encodeSharingSelection(selection));
   }

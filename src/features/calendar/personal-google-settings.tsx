@@ -24,10 +24,11 @@ export function PersonalGoogleCalendarSettings({ database, embedded = false }: {
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [busy, setBusy] = useState(false); const lock = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const refreshId = useRef(0);
   const [displayedDatabase, setDisplayedDatabase] = useState(database);
   if (displayedDatabase !== database) {
-    setDisplayedDatabase(database); setBusy(false); setControl(null); setCheckedConnection(null); setNeedsReauth(false); setConflicts([]); setConnection(null); setError(null);
+    setDisplayedDatabase(database); setBusy(false); setControl(null); setCheckedConnection(null); setNeedsReauth(false); setConflicts([]); setConnection(null); setError(null); setStatusError(null);
   }
   const scope = useRef({ database, active: true });
   useLayoutEffect(() => {
@@ -35,22 +36,29 @@ export function PersonalGoogleCalendarSettings({ database, embedded = false }: {
     refreshId.current++; lock.current = false;
     return () => { current.active = false; };
   }, [database]);
-  const refresh = async (value: PersonalGoogleCalendarSync, current = scope.current) => {
+  const refresh = async (value: PersonalGoogleCalendarSync, current = scope.current, reportLoadError = false) => {
     if (!current.active || current !== scope.current) return;
     const id = ++refreshId.current;
-    const [next, rows] = await Promise.all([value.readControl(), value.readConflicts()]);
-    if (!current.active || current !== scope.current || refreshId.current !== id) return;
-    setControl(next); setConflicts(rows);
-    const ready = await value.isConnected(next);
-    if (current.active && current === scope.current && refreshId.current === id) setCheckedConnection({ subject: next.subject, generation: next.generation, ready });
+    const isCurrent = () => current.active && current === scope.current && refreshId.current === id;
+    try {
+      const [next, rows] = await Promise.all([value.readControl(), value.readConflicts()]);
+      if (!isCurrent()) return;
+      setControl(next); setConflicts(rows);
+      const ready = await value.isConnected(next);
+      if (isCurrent()) { setCheckedConnection({ subject: next.subject, generation: next.generation, ready }); setStatusError(null); }
+    } catch (cause) {
+      if (!isCurrent()) return;
+      if (reportLoadError) setStatusError('Googleの接続設定を読み込めません。');
+      else throw cause;
+    }
   };
   useEffect(() => {
     const current = scope.current; let active = true;
     const isCurrent = () => active && current.active && current === scope.current;
     void import('../../platform/google-calendar/personal-runtime').then(async ({ nativePersonalGoogleCalendar }) => {
       if (!isCurrent()) return;
-      const value = nativePersonalGoogleCalendar(database); setConnection({ database, value }); await refresh(value, current);
-    }).catch(() => { if (isCurrent()) setError('Googleの接続設定を読み込めません。'); });
+      const value = nativePersonalGoogleCalendar(database); setConnection({ database, value }); await refresh(value, current, true);
+    }).catch(() => { if (isCurrent()) setStatusError('Googleの接続設定を読み込めません。'); });
     return () => { active = false; };
   }, [database]);
   useEffect(() => {
@@ -65,7 +73,7 @@ export function PersonalGoogleCalendarSettings({ database, embedded = false }: {
     const current = scope.current;
     return subscribeToGoogleAccountChanges(database, () => {
       if (!current.active || current !== scope.current) return;
-      setCheckedConnection(null); setNeedsReauth(false); setError(null);
+      setCheckedConnection(null); setNeedsReauth(false); setError(null); setStatusError(null);
       void refresh(runtime, current).catch(() => { /* A failed status read must not restore the old authenticated action. */ });
     });
   }, [database, runtime]);
@@ -108,7 +116,7 @@ export function PersonalGoogleCalendarSettings({ database, embedded = false }: {
       {destination ? <Text style={{ ...typography.caption, color: palette.muted }}>新しい予定の保存先：{destination.summary}</Text> : null}
       <Text style={{ ...typography.caption, color: palette.muted }}>最終同期：{control.lastSyncAt ? new Date(control.lastSyncAt).toLocaleString('ja-JP') : 'まだ同期していません'}</Text>
     </> : null}
-    {error || control?.error ? <Text accessibilityRole="alert" style={{ ...typography.caption, color: palette.warning }}>{error ?? control?.error}</Text> : null}
+    {error || statusError || control?.error ? <Text accessibilityRole="alert" style={{ ...typography.caption, color: palette.warning }}>{error ?? statusError ?? control?.error}</Text> : null}
     {!connectionSettings || control?.enabled ? <SettingsAction placement={embedded ? 'panel' : 'page'} compact title={busy ? ready && control?.enabled ? '同期中…' : '接続中…' : actionTitle} disabled={disabled || ready === null || !control}
       onPress={() => {
         if (connectionSettings && !ready) {
