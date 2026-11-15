@@ -34,7 +34,7 @@ test('calendar title date grammar handles month ends leap years and civil year b
 test('calendar title date grammar refuses conflicting invalid vague and duration-only input', () => {
   for (const title of ['友達と食事', '来週火鍋を食べる2時間', '11時間の作業', '11時台に集合', '11時前に集合', '11時以降に集合',
     '明日か明後日11時', '2月30日11時', '2026年2月29日', '来月32日', '25時に集合', '11:99', '午後18時',
-    '11時に集合して18時に解散', '終日11時から', '毎週火曜18時', '18時から18時', '来月上旬に点検', 'https://example.com/11:00'])
+    '11時に集合して18時に解散', '終日11時から', '18時から18時', '来月上旬に点検', 'https://example.com/11:00'])
     assert.equal(parseTitleDateTime(title, today, selected), null, title);
 });
 

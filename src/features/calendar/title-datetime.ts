@@ -1,7 +1,7 @@
 import type { LocalDate } from '../../domain/shared/types';
 import type { EventDraft } from './events';
 
-export interface TitleDateTime { date?: LocalDate; minute?: number; endMinute?: number; endDayOffset?: number; allDay?: boolean }
+export interface TitleDateTime { date?: LocalDate; minute?: number; endMinute?: number; endDayOffset?: number; allDay?: boolean; recurrence?: 'weekly' | 'monthly' }
 const dayMs = 86_400_000;
 const iso = (stamp: number) => new Date(stamp).toISOString().slice(0, 10) as LocalDate;
 const stamp = (date: LocalDate) => Date.parse(`${date}T00:00:00Z`);
@@ -30,7 +30,7 @@ function numerals(text: string) {
 export function parseTitleDateTime(title: string, today: LocalDate, selectedDate: LocalDate): TitleDateTime | null {
   const text = numerals(title).replace(/https?:\/\/\S+/g, value => ' '.repeat(value.length))
     .replace(/(?<![\d/:.\-])(\d{1,2})\s*([〜~～–-])\s*(?=\d{1,2}(?:時|:\d{2}))/g, '$1時$2');
-  if (/毎日|毎週|毎月|毎年|隔週|(?:来月|再来月|来年|再来年)(?:の)?(?:初め|頭|上旬|中旬|下旬)/.test(text)) return null;
+  if (/毎日|毎年|隔週|(?:来月|再来月|来年|再来年)(?:の)?(?:初め|頭|上旬|中旬|下旬)/.test(text)) return null;
   const used: [number, number][] = [], dates: LocalDate[] = []; let invalid = false;
   const overlaps = (start: number, end: number) => used.some(([a, b]) => start < b && end > a);
   const collect = (pattern: RegExp, resolve: (match: RegExpMatchArray) => LocalDate | null) => {
@@ -42,6 +42,16 @@ export function parseTitleDateTime(title: string, today: LocalDate, selectedDate
   const monday = add(today, -((new Date(stamp(today)).getUTCDay() + 6) % 7));
   const weekday = (char: string) => '月火水木金土日'.indexOf(char);
   const weekdaySuffix = '(?:曜日?|(?=\\s|\\d|に|から|$))';
+  const repeats = [...text.matchAll(new RegExp(`毎週\\s*(?:の\\s*)?([月火水木金土日])${weekdaySuffix}|毎月\\s*(?:の\\s*)?(\\d{1,2})日(?!間|以内|程度|ほど|前|後|頃|ごろ)`, 'g'))];
+  if (repeats.length > 1) return null;
+  const repeat = repeats[0];
+  const recurrence = repeat ? repeat[1] ? 'weekly' : 'monthly' : undefined;
+  const maskUsed = () => text.split('').map((char, index) => overlaps(index, index + 1) ? ' ' : char).join('');
+  if (repeat) {
+    used.push([repeat.index!, repeat.index! + repeat[0].length]);
+    if (/^(?:以外|ではな[いく]|じゃな[いく]|を除|は除|以降|以前|より[前後]|の(?:前日|翌日|翌々日|次の日))/.test(text.slice(repeat.index! + repeat[0].length))) return null;
+  }
+  if (/毎週|毎月/.test(maskUsed())) return null;
   collect(new RegExp(`(今週|来週|再来週)(?:の)?([月火水木金土日])${weekdaySuffix}`, 'g'), m => add(monday, ({ 今週: 0, 来週: 7, 再来週: 14 }[m[1]] ?? 0) + weekday(m[2])));
   collect(new RegExp(`(\\d+)週間後(?:の)?([月火水木金土日])${weekdaySuffix}`, 'g'), m => Number(m[1]) <= 5200 ? add(monday, Number(m[1]) * 7 + weekday(m[2])) : null);
   collect(/(今年|来年|再来年)(?:の)?(?:年末|末)/g, m => civil(Number(today.slice(0, 4)) + ({ 今年: 0, 来年: 1, 再来年: 2 }[m[1]] ?? 0), 12, 31));
@@ -63,6 +73,25 @@ export function parseTitleDateTime(title: string, today: LocalDate, selectedDate
     return add(today, delta || (m[1] ? 7 : 0));
   });
   if (invalid || new Set(dates).size > 1 || /(?:\d+時(?:半|\d+分)?)(?:間|台|前|以降|より前)/.test(text)) return null;
+  if (repeat) {
+    const monthlyDay = Number(repeat[2]);
+    if (recurrence === 'monthly' && (monthlyDay < 1 || monthlyDay > 31 || /\d+日/.test(maskUsed()))) return null;
+    if (dates.length) {
+      if (recurrence === 'weekly' ? (new Date(stamp(dates[0])).getUTCDay() + 6) % 7 !== weekday(repeat[1]) : Number(dates[0].slice(-2)) !== monthlyDay) return null;
+    } else if (recurrence === 'weekly') {
+      const first = add(today, (weekday(repeat[1]) - ((new Date(stamp(today)).getUTCDay() + 6) % 7) + 7) % 7);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(first)) return null;
+      dates.push(first);
+    } else {
+      let first: LocalDate | null = null;
+      for (let offset = 0; offset <= 12 && !first; offset++) {
+        const next = shiftMonths(today, offset, monthlyDay);
+        if (next && next >= today) first = next;
+      }
+      if (!first) return null;
+      dates.push(first);
+    }
+  }
   const clocks: { minute: number; nextDay: boolean; from: number; through: number }[] = [];
   const pattern = /(?<!\d)(?:(午前|午後|朝|昼|夕方|夜|深夜)\s*)?(\d{1,2})(?::(\d{2})|時(?:(\d{1,2})分|(\d{2})(?!分)|半)?)(?!\d|間|台)/g;
   for (const m of text.matchAll(pattern)) {
@@ -81,8 +110,10 @@ export function parseTitleDateTime(title: string, today: LocalDate, selectedDate
   if (clocks.length === 1 && /\d+\s*(?:から|[〜~～–-])\s*$/.test(text.slice(0, clocks[0].from))) return null;
   if (clocks.length > 2 || clocks.length === 2 && !/^(?:から|[〜~～–-])$/.test(text.slice(clocks[0].through, clocks[1].from).trim())) return null;
   const allDay = /終日/.test(text); if (allDay && clocks.length) return null;
+  // A monthly 24:00 anchor can cross a short month and change the skip rule.
+  if (recurrence === 'monthly' && clocks[0]?.nextDay) return null;
   if (!dates.length && !clocks.length && !allDay) return null;
-  const result: TitleDateTime = { ...(dates.length ? { date: dates[0] } : {}), ...(allDay ? { allDay: true } : {}) };
+  const result: TitleDateTime = { ...(dates.length ? { date: dates[0] } : {}), ...(allDay ? { allDay: true } : {}), ...(recurrence ? { recurrence } : {}) };
   if (clocks.length) {
     result.minute = clocks[0].minute; result.allDay = false;
     if (clocks[0].nextDay) result.date = add(result.date ?? selectedDate, 1);
@@ -95,13 +126,13 @@ export function parseTitleDateTime(title: string, today: LocalDate, selectedDate
   return result;
 }
 
-type ClockField = 'startDate' | 'endDate' | 'startMinute' | 'endMinute' | 'allDay';
+type InferredField = 'startDate' | 'endDate' | 'startMinute' | 'endMinute' | 'allDay' | 'recurrence';
 /** Keep the title verbatim, restore removed automatic fields, and honor manual fields. */
 export function createTitleDateTimeInput(initial: EventDraft, today: LocalDate) {
-  const locked = new Set<ClockField>(); let applied = false;
+  const locked = new Set<InferredField>(initial.recurrence !== 'none' ? ['recurrence'] : []); let applied = false;
   const duration = Math.max(1, (stamp(initial.endDate) - stamp(initial.startDate)) / 60000 + initial.endMinute - initial.startMinute);
   return {
-    manual(field: ClockField) { locked.add(field); },
+    manual(field: InferredField) { locked.add(field); },
     change(current: EventDraft, title: string, enabled: boolean): EventDraft {
       if (!enabled) return { ...current, title };
       const parsed = parseTitleDateTime(title, today, locked.has('startDate') ? current.startDate : initial.startDate);
@@ -110,10 +141,17 @@ export function createTitleDateTimeInput(initial: EventDraft, today: LocalDate) 
       const startDate = locked.has('startDate') ? current.startDate : parsed?.date ?? initial.startDate;
       const startMinute = locked.has('startMinute') ? current.startMinute : parsed?.minute ?? initial.startMinute;
       const end = stamp(startDate) + startMinute * 60000 + duration * 60000;
-      return { ...current, title, startDate, startMinute,
+      const next = { ...current, title, startDate, startMinute,
         endDate: locked.has('endDate') ? current.endDate : parsed?.endMinute !== undefined ? add(startDate, parsed.endDayOffset ?? 0) : iso(end),
         endMinute: locked.has('endMinute') ? current.endMinute : parsed?.endMinute ?? new Date(end).getUTCHours() * 60 + new Date(end).getUTCMinutes(),
-        allDay: locked.has('allDay') ? current.allDay : parsed?.allDay ?? initial.allDay };
+        allDay: locked.has('allDay') ? current.allDay : parsed?.allDay ?? initial.allDay,
+        recurrence: locked.has('recurrence') ? current.recurrence : parsed?.recurrence ?? initial.recurrence,
+        untilDate: locked.has('recurrence') || parsed?.recurrence ? current.untilDate : initial.untilDate };
+      if (!locked.has('recurrence')) {
+        if (initial.customRecurrence) next.customRecurrence = initial.customRecurrence;
+        else delete next.customRecurrence;
+      }
+      return next;
     },
   };
 }

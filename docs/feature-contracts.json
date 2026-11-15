@@ -128,6 +128,20 @@
     ]
   },
   {
+    "feature": "calendar-title-weekly-monthly-inference-20261116",
+    "tests": [
+      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "calendar title weekly and monthly expressions choose the first matching civil date and recurrence without altering the sentence" },
+      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "calendar title recurrence refuses incomplete conflicting excluded and unsupported period expressions" },
+      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "calendar title monthly input keeps real month-end anchors and overnight spans through year boundaries" },
+      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "calendar title recurrence restores only automatic values and protects chosen recurrence and custom rules" },
+      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "ios recurring title input saves matching weekly and monthly schedules exactly once" },
+      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "android recurring title input saves matching weekly and monthly schedules exactly once" },
+      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "ios manually selected recurrence and end date survive later title input and audience changes" },
+      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "android manually selected recurrence and end date survive later title input and audience changes" }
+    ],
+    "manualReview": ["docs/audits/2026-11-16-title-recurrence.md"]
+  },
+  {
     "feature": "calendar-title-date-month-detail-and-live-guidance-20261115",
     "tests": [
       {

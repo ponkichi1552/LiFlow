@@ -95,8 +95,10 @@ for (const [platform, inputName, manualName, boundaryName, detailName, guidanceN
       const local = { database: {}, snapshot: { events: kind === 'existing' ? [{ ...value, id: 'old', revision: 1 }] : [], exceptions: [], categories: [], drafts: [] }, refresh: async () => {} };
       const ui = screenHarness('src/features/calendar/calendar-editor.tsx', { exportName: 'CalendarEditor', platform, props: { initial, local, onClose() {}, onSaved() {}, ...(kind === 'chore' ? { choreForm: { content: null, disabled: false, busy: false, entry: { value, onChange() {}, titleEditable: true } } } : {}) } });
       try {
-        await ui.change(kind === 'chore' ? '家事名' : '予定名', '来週火曜日18時');
-        assert.equal(ui.button(kind === 'birthday' ? '誕生日を選択' : '開始日を選択').props.accessibilityValue.text, '2026/11/20');
+        for (const title of ['来週火曜日18時', '毎週火曜日18時', '毎月21日に支払い']) {
+          await ui.change(kind === 'chore' ? '家事名' : '予定名', title);
+          assert.equal(ui.button(kind === 'birthday' ? '誕生日を選択' : '開始日を選択').props.accessibilityValue.text, '2026/11/20');
+        }
       } finally { ui.unmount(); }
     }
   });

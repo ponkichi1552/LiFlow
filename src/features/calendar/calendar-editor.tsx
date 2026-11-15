@@ -244,8 +244,8 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           {!choreForm ? <View style={styles.optionsGroup}>
           {!value.birthday && (!repeated || draft.scope !== 'one') ? <View style={styles.optionField}>
             <Pressable accessibilityRole="button" accessibilityLabel="繰り返しを選択" accessibilityValue={{ text: recurrenceLabel(value) }} accessibilityState={{ expanded: repeatOpen }} disabled={busy || readOnly} onPress={() => setRepeatOpen(true)} style={styles.optionSelect}><Text style={[styles.value, styles.optionLabel, labelWidths.option]}>繰り返し</Text><View style={styles.optionInput}><Text numberOfLines={2} style={[styles.value, styles.optionValue]}>{recurrenceLabel(value)}</Text><Chevron direction="down" /></View></Pressable>
-            {value.recurrence !== 'none' ? <View style={styles.repeatEnd}><View style={styles.switchRow}><Text style={styles.value}>繰り返しの終了日</Text><SettingsCheckbox disabled={busy || readOnly} accessibilityLabel="繰り返しに終了日を設定" value={value.untilDate !== null} onValueChange={on => patch({ untilDate: on ? addDays(value.startDate, 365) : null })} /></View>
-              {value.untilDate ? <CalendarField disabled={busy || readOnly} label="繰り返しの終了日" date={value.untilDate} minute={0} mode="date" onDate={untilDate => patch({ untilDate })} /> : null}</View> : null}
+            {value.recurrence !== 'none' ? <View style={styles.repeatEnd}><View style={styles.switchRow}><Text style={styles.value}>繰り返しの終了日</Text><SettingsCheckbox disabled={busy || readOnly} accessibilityLabel="繰り返しに終了日を設定" value={value.untilDate !== null} onValueChange={on => { titleDateTime.manual('recurrence'); patch({ untilDate: on ? addDays(value.startDate, 365) : null }); }} /></View>
+              {value.untilDate ? <CalendarField disabled={busy || readOnly} label="繰り返しの終了日" date={value.untilDate} minute={0} mode="date" onDate={untilDate => { titleDateTime.manual('recurrence'); patch({ untilDate }); }} /> : null}</View> : null}
           </View> : null}
           <View>
             <Pressable accessibilityRole="button" accessibilityLabel="分類を選択" accessibilityValue={{ text: selectedCategory?.name ?? '未選択' }} accessibilityState={{ expanded: categoryOpen }} disabled={busy || readOnly} onPress={() => setCategoryOpen(v => !v)} style={styles.optionSelect}>
@@ -309,8 +309,8 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
       }); setScopeOpen(false);
     }} /> : null}
     {repeatOpen ? <CalendarOptionPicker title="繰り返し" value={value.recurrence} options={(Object.keys(RECURRENCE_LABELS) as CalendarRecurrence[]).map(recurrence => ({ value: recurrence, label: RECURRENCE_LABELS[recurrence] }))}
-      onClose={() => setRepeatOpen(false)} onCustom={openCustomRecurrence} onSelect={recurrence => { if (recurrence !== 'custom' && Object.hasOwn(RECURRENCE_LABELS, recurrence)) patch({ recurrence: recurrence as CalendarRecurrence, customRecurrence: undefined,
-        ...(recurrence === 'none' ? { untilDate: null } : {}) }); }} /> : null}
+      onClose={() => setRepeatOpen(false)} onCustom={openCustomRecurrence} onSelect={recurrence => { if (recurrence !== 'custom' && Object.hasOwn(RECURRENCE_LABELS, recurrence)) { titleDateTime.manual('recurrence'); patch({ recurrence: recurrence as CalendarRecurrence, customRecurrence: undefined,
+        ...(recurrence === 'none' ? { untilDate: null } : {}) }); } }} /> : null}
   </CalendarEditorSurface>;
 }
 function CalendarEditorSurface({ embedded, children, ...props }: React.ComponentProps<typeof Modal> & { embedded: boolean }) {
