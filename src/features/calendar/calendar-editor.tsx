@@ -7,7 +7,7 @@ import { router } from 'expo-router';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import type { TextInputProps } from 'react-native';
-import { Alert, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
+import { Alert, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useColorScheme, useWindowDimensions } from 'react-native';
 import { AppButton, palette, typography } from '../../components/planner-ui';
 import { FormTextInput } from '../../components/form-text-input';
 import { SettingsCheckbox } from '../../components/settings-checkbox';
@@ -48,6 +48,8 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   choreForm?: CalendarSheetForm; onChooseChore?(): void; onChoreAudience?(audience: 'personal' | 'group'): void; onClearChore?(): void;
 }) {
   const styles = usePlannerBorderStyles(baseStyles);
+  const { fontScale } = useWindowDimensions();
+  const labelWidths = useMemo(() => ({ date: { width: Math.ceil(36 * Math.max(1, fontScale)) }, option: { width: Math.ceil(76 * Math.max(1, fontScale)) } }), [fontScale]);
   const reminderSettings = useCalendarReminders(local.database); const reminderWorkspace = useContext(WorkspaceContext);
   const [draft, setDraft] = useState(initial); const latest = useRef(draft);
   const [titleDateTime] = useState(() => createTitleDateTimeInput(initial.value, pinnedClockAt(new Date(), initial.value.timeZone).date));
@@ -208,7 +210,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           {readOnly && !value.birthday ? <CalendarReminderField minutes={reminderMinutes} enabled={reminderSettings.settings.enabled} disabled={busy || reminderSettings.loading || !reminderScope} onChange={reminderMinutes => change(before => ({ ...before, reminderMinutes }))} /> : null}
           <View pointerEvents={readOnly ? 'none' : 'auto'} style={[styles.editorSections, choreForm && styles.choreSections]}>
           {repeated && !value.birthday ? <View style={styles.optionsGroup}><Pressable accessibilityRole="button" accessibilityLabel="変更する範囲を選択" accessibilityValue={{ text: CALENDAR_EDIT_SCOPES.find(row => row.value === draft.scope)?.label ?? '' }} disabled={busy || readOnly || !initial.anchorDate} onPress={() => setScopeOpen(true)} style={styles.optionSelect}>
-            <Text style={[styles.value, styles.optionLabel]}>変更範囲</Text><View style={styles.optionInput}><Text style={[styles.value, styles.optionValue]}>{CALENDAR_EDIT_SCOPES.find(row => row.value === draft.scope)?.label}</Text><Chevron direction="down" /></View>
+            <Text style={[styles.value, styles.optionLabel, labelWidths.option]}>変更範囲</Text><View style={styles.optionInput}><Text style={[styles.value, styles.optionValue]}>{CALENDAR_EDIT_SCOPES.find(row => row.value === draft.scope)?.label}</Text><Chevron direction="down" /></View>
           </Pressable></View> : null}
           <View style={styles.inputPanel}>
           <View style={styles.inputGroup}>
@@ -230,10 +232,10 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           {choreForm?.entry?.details ? <View style={styles.optionsGroup}><Pressable accessibilityRole="button" accessibilityLabel="家事の詳細設定" accessibilityState={{ expanded: detailsOpen }} onPress={() => { if (choreForm.entry?.onDetailsToggle) choreForm.entry.onDetailsToggle(); else setDetailsOpen(before => !before); }} style={styles.optionSelect}><Text style={[styles.value, { flex: 1 }]}>詳細設定</Text><Chevron direction={detailsOpen ? 'up' : 'down'} /></Pressable>{detailsOpen ? <View>{choreForm.entry.details}</View> : null}</View> : null}
           <View style={styles.scheduleContent}>
           <View style={styles.scheduleTop}><Text style={styles.scheduleTitle}>{value.birthday ? '誕生日' : '日時'}</Text>{!value.birthday ? <View style={styles.allDayControl}><Text style={styles.value}>終日</Text><SettingsCheckbox accessibilityLabel="終日" value={value.allDay} disabled={busy || readOnly} onValueChange={allDay => { titleDateTime.manual('allDay'); patch({ allDay }); }} /></View> : null}</View>
-          <View style={styles.dateRow}>{!value.birthday ? <Text style={styles.dateLabel}>開始</Text> : null}<CalendarField borderless hideLabel disabled={busy || readOnly} label={value.birthday ? '誕生日' : '開始日'} date={value.startDate} minute={value.startMinute} mode="date" onDate={date => {
+          <View style={styles.dateRow}>{!value.birthday ? <Text style={[styles.dateLabel, labelWidths.date]}>開始</Text> : null}<CalendarField borderless hideLabel disabled={busy || readOnly} label={value.birthday ? '誕生日' : '開始日'} date={value.startDate} minute={value.startMinute} mode="date" onDate={date => {
             titleDateTime.manual('startDate'); change(before => ({ ...before, value: moveCalendarStart(before.value, { startDate: date }) }));
           }} />{!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel disabled={busy || readOnly} label="開始" date={value.startDate} minute={clocks?.start ?? value.startMinute} empty={Boolean(clocks && clocks.start === null)} commitOnDone={Boolean(clocks)} mode="time" onMinute={startMinute => { titleDateTime.manual('startMinute'); if (clocks) clocks.onChange('start', startMinute); else change(before => ({ ...before, value: moveCalendarStart(before.value, { startMinute }) })); }} /></View> : null}</View>
-          {!value.birthday ? <View style={styles.dateRow}><Text style={styles.dateLabel}>終了</Text>
+          {!value.birthday ? <View style={styles.dateRow}><Text style={[styles.dateLabel, labelWidths.date]}>終了</Text>
             <CalendarField borderless hideLabel disabled={busy || readOnly} label="終了日" date={value.endDate} minute={value.endMinute} mode="date" onDate={endDate => { titleDateTime.manual('endDate'); patch({ endDate }); }} />
             {!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel disabled={busy || readOnly} label="終了" date={value.endDate} minute={clocks?.end ?? value.endMinute} empty={Boolean(clocks && clocks.end === null)} commitOnDone={Boolean(clocks)} mode="time" onMinute={endMinute => { titleDateTime.manual('endMinute'); if (clocks) clocks.onChange('end', endMinute); else patch({ endMinute }); }} /></View> : null}
           </View> : null}
@@ -241,13 +243,13 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           </View>
           {!choreForm ? <View style={styles.optionsGroup}>
           {!value.birthday && (!repeated || draft.scope !== 'one') ? <View style={styles.optionField}>
-            <Pressable accessibilityRole="button" accessibilityLabel="繰り返しを選択" accessibilityValue={{ text: recurrenceLabel(value) }} accessibilityState={{ expanded: repeatOpen }} disabled={busy || readOnly} onPress={() => setRepeatOpen(true)} style={styles.optionSelect}><Text style={[styles.value, styles.optionLabel]}>繰り返し</Text><View style={styles.optionInput}><Text numberOfLines={2} style={[styles.value, styles.optionValue]}>{recurrenceLabel(value)}</Text><Chevron direction="down" /></View></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="繰り返しを選択" accessibilityValue={{ text: recurrenceLabel(value) }} accessibilityState={{ expanded: repeatOpen }} disabled={busy || readOnly} onPress={() => setRepeatOpen(true)} style={styles.optionSelect}><Text style={[styles.value, styles.optionLabel, labelWidths.option]}>繰り返し</Text><View style={styles.optionInput}><Text numberOfLines={2} style={[styles.value, styles.optionValue]}>{recurrenceLabel(value)}</Text><Chevron direction="down" /></View></Pressable>
             {value.recurrence !== 'none' ? <View style={styles.repeatEnd}><View style={styles.switchRow}><Text style={styles.value}>繰り返しの終了日</Text><SettingsCheckbox disabled={busy || readOnly} accessibilityLabel="繰り返しに終了日を設定" value={value.untilDate !== null} onValueChange={on => patch({ untilDate: on ? addDays(value.startDate, 365) : null })} /></View>
               {value.untilDate ? <CalendarField disabled={busy || readOnly} label="繰り返しの終了日" date={value.untilDate} minute={0} mode="date" onDate={untilDate => patch({ untilDate })} /> : null}</View> : null}
           </View> : null}
           <View>
             <Pressable accessibilityRole="button" accessibilityLabel="分類を選択" accessibilityValue={{ text: selectedCategory?.name ?? '未選択' }} accessibilityState={{ expanded: categoryOpen }} disabled={busy || readOnly} onPress={() => setCategoryOpen(v => !v)} style={styles.optionSelect}>
-              <Text style={[styles.value, styles.optionLabel]}>分類</Text><View style={styles.optionInput}><View style={styles.categoryValue}>{selectedCategory ? <View style={[styles.swatchSmall, { backgroundColor: selectedCategory.color }]} /> : null}<Text style={styles.value}>{selectedCategory?.name ?? '分類を選択'}</Text></View><Chevron direction={categoryOpen ? 'up' : 'down'} /></View>
+              <Text style={[styles.value, styles.optionLabel, labelWidths.option]}>分類</Text><View style={styles.optionInput}><View style={styles.categoryValue}>{selectedCategory ? <View style={[styles.swatchSmall, { backgroundColor: selectedCategory.color }]} /> : null}<Text style={styles.value}>{selectedCategory?.name ?? '分類を選択'}</Text></View><Chevron direction={categoryOpen ? 'up' : 'down'} /></View>
             </Pressable>
             {categoryOpen ? <View style={styles.categoryMenu}><ScrollView nestedScrollEnabled style={styles.categoryOptions} keyboardShouldPersistTaps="handled">
               {categoryOptions.map(category => <Pressable key={category.id} accessibilityRole="button" accessibilityLabel={`${category.name}の分類を選択`} accessibilityState={{ selected: category.id === value.categoryId }} disabled={busy || readOnly}
