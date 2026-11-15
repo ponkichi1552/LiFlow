@@ -1,0 +1,148 @@
+{
+  "sourceCommit": "ef07838a6fecb9933d80888ed0e529b731f2d553",
+  "sourceFilesChecked": 861,
+  "sharingEphemeralDelivery": false,
+  "ios": {
+    "sourceCommit": "ef07838a6fecb9933d80888ed0e529b731f2d553",
+    "completedAtUtc": "2026-11-15T23:04:00.334451+00:00",
+    "sourceFilesChecked": 861,
+    "sharingEphemeralDelivery": false,
+    "method": "Official Expo export:embed, repository iOS Hermes compiler, existing signed native payload and identity",
+    "nativeExecutableUnchangedBeforeResigning": true,
+    "assetsUnchanged": true,
+    "entitlementsUnchanged": true,
+    "profileUnchanged": true,
+    "signatureVerified": true,
+    "bundleSha256": "77251324c813f021dc1a920efab0cbc4cb6887672c29fc16ed875737bc96a673",
+    "hermesBytecodeVersion": 99,
+    "changedSignedFiles": [
+      "_CodeSignature/CodeResources",
+      "main.jsbundle",
+      "LiFlow"
+    ]
+  },
+  "android": {
+    "apkSha256": "bd4ba028f9b607b321cb20a9f98a162f347cedd8e16745879e401db5aee5b571",
+    "bundleSha256": "b2c2dc7b98f1586a512dba6cc917343f4f614ebeae0331ecf8295c82e0c59b11",
+    "signatureVerified": true,
+    "signingCertificateUnchanged": true
+  },
+  "observedAtUtc": "2026-11-15T23:11:25.934373+00:00",
+  "install": {
+    "phone": {
+      "inPlaceInstall": true,
+      "filesPreserved": 129,
+      "changedFiles": 0
+    },
+    "ipad": {
+      "inPlaceInstall": true,
+      "filesPreserved": 13,
+      "changedFiles": 0
+    },
+    "android": {
+      "inPlaceInstall": true,
+      "appDataCleared": false,
+      "privateDatabaseByteComparison": false
+    }
+  },
+  "state": {
+    "observedAtUtc": "2026-11-15T23:09:25.188425+00:00",
+    "sourceCommit": "ef07838a6fecb9933d80888ed0e529b731f2d553",
+    "bothAppleProjectionsIdentical": true,
+    "accepted": 117,
+    "pending": 0,
+    "rejected": 0,
+    "effectiveOccurrences": 170,
+    "unchangedOccurrences": 169,
+    "oneIntentionalDrag": {
+      "date": "2026-11-17",
+      "fromMinute": 1080,
+      "toMinute": 1140,
+      "scope": "one",
+      "threeChoicesVisuallyVerified": true,
+      "performedOnSource": "d88f083f992be356d7671ae47bf7b50177b1d33d"
+    },
+    "undo": {
+      "shown": true,
+      "displayWindowMs": 8000,
+      "attemptedAfterWindow": true,
+      "restorationProven": false
+    },
+    "testDataRetained": true
+  },
+  "startupVisualCheck": {
+    "phone": true,
+    "android": true,
+    "ipad": "Installed and launched; not a visual review"
+  },
+  "ci": {
+    "codeCommit": "ef07838a6fecb9933d80888ed0e529b731f2d553",
+    "url": "https://github.com/ponkichi1552/LiFlow/actions/runs/43772497602",
+    "nativeConfigurationUrl": "https://github.com/ponkichi1552/LiFlow/actions/runs/43772497601",
+    "cloudJobSucceeded": true,
+    "platformJobs": [
+      {
+        "name": "sharing-security",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "check (android)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "name": "check (ios)",
+        "status": "in_progress",
+        "conclusion": ""
+      }
+    ],
+    "observedAtUtc": "2026-11-15T23:15:10.023959+00:00",
+    "status": "in_progress",
+    "conclusion": "",
+    "nativeConfiguration": {
+      "conclusion": "success",
+      "status": "completed"
+    },
+    "localMacWidgetJournal": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "existingServerSources": {
+    "allComparisonsPassed": true,
+    "accountDeviceApiBaseline": "fff35dfb26dc3aeeb8f9e12bd4e7b34f12f28368",
+    "weatherBaseline": "e0ec346916076486f59e71016ea2bdc94741e53a",
+    "newClientAndWorkerChangesNotReachable": true,
+    "privateProofSha256": "371cb5b5e8b4d257dec7cc47ca918d82ce0a9b1a6163b0a745cd41d29c4b1a4a",
+    "liveHealthRechecked": false,
+    "redeployed": false
+  },
+  "limits": [
+    "No paid OpenAI API test",
+    "Ephemeral delivery remains disabled and erasure worker is not newly deployed",
+    "Exact multweek guard and Tasks response loss were not reproduced as physical gestures or real provider failures",
+    "Undo button appeared but the attempted tap followed its eight-second expiry, so physical restoration is unproven",
+    "The complete 216-candidate physical matrix is not complete",
+    "User cancelled the full UI audit and 1000-finding phase and requested a stop around 08:15 JST"
+  ],
+  "captureSha256": [
+    {
+      "file": "final-fixes-phone-launched-crop.jpg",
+      "sha256": "946c53be7c9b80ea1d113cdc18937cb2eb16bcde7c8e141acafd2221b3cbf17c"
+    },
+    {
+      "file": "android/final-fixes-launched.jpg",
+      "sha256": "6319d0aa4dbcf253ef5296ef621d5bcc971db13b77af42382aed1ee1f42fb465"
+    },
+    {
+      "file": "gesture-c10-valid-scope-crop.jpg",
+      "sha256": "bed3ddb17ac1b59ce071c6c02d31400d2fded667e2bc601ea0211a4bb9c2371b"
+    },
+    {
+      "file": "gesture-c10-valid-move-result-crop.jpg",
+      "sha256": "d81c5818765b4a74eb5b905c0bc152fe429bc0db182a025ffa8812052dc95e32"
+    }
+  ]
+}
