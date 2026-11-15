@@ -20,4 +20,10 @@ APIは既存の実行ID・IAM・環境・リソース上限を維持し、digest
 
 新しい復元検査は実際のAPIサービスと署名・暗号snapshot・独立SQLiteを使い、Firestoreのtransactionだけをメモリーの代替へ置いた。正常なdraft58の履歴復元、read/request/accept/acknowledge、反復受領、recipientと本人の分離、旧版の事前停止、旧epochに新規則を混入したfactの拒否と既存履歴保持を確認した。実Cloudへの復元を完了したという証拠ではない。
 
-新版の配備・実機検査は、実施結果を確認してから追記する。
+## 復元APIの配備結果
+
+`fff35dfb26dc3aeeb8f9e12bd4e7b34f12f28368` の明示した861ファイルを梱包し、全ファイルの再読込とSHA-256を照合した。Cloud Buildが成功したdigestを固定し、`liflow-account-device-calendar58-fff35df` を起動した。旧revisionへ100%を維持して新版のhealth 200と本人確認のないread 401を確認し、設定・IAMの一致を照合後に新版へ100%を切り替えた。通常URLでも同じ応答を確認した。実行ID、環境、512MiB・CPU1・最大1インスタンスの既存上限は維持した。天気サービスとworkerは今回変更していない。
+
+ビルド受領後の一時ソースオブジェクトはgenerationを指定して削除し、204と再取得404を確認した。正本ソース、ローカル梱包・旧イメージ・署名済みアプリ・検証データは保持した。機械可読の[配備記録](../qa-assets/physical-2026-11-15/calendar58-server-2026-11-16.json)を残した。この応答確認は実機復元の完了とは別である。
+
+新版アプリの導入と実機検査は、実施結果を確認してから追記する。

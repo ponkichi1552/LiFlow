@@ -1,0 +1,51 @@
+{
+  "observedAt": "2026-11-15T21:17:21.337Z",
+  "sourceCommit": "fff35dfb26dc3aeeb8f9e12bd4e7b34f12f28368",
+  "sourceSha256": "43186157464c6847ce2ac14ab79d877ed2ade4c84f7e8973841145b0744dda76",
+  "sourceFiles": 861,
+  "buildId": "7c9caef9-7ef1-4049-a9d6-18636a2cdd5f",
+  "imageDigest": "sha256:419e88e6f54054d87cba22d882e14c14d6616041db5859c5008b2353856db4bb",
+  "revision": "liflow-account-device-calendar58-fff35df",
+  "trafficPercent": 100,
+  "iamUnchanged": true,
+  "configurationSha256": "aa9d26d267665525b01bede76a74f6fc4d040bf7d2d428a9e3e844d7a83cd0f0",
+  "stagedHttp": [
+    {
+      "label": "health",
+      "status": 200,
+      "bytes": 11
+    },
+    {
+      "label": "identity required",
+      "status": 401,
+      "bytes": 28
+    }
+  ],
+  "primaryHttp": [
+    {
+      "label": "health",
+      "status": 200,
+      "bytes": 11
+    },
+    {
+      "label": "identity required",
+      "status": 401,
+      "bytes": 28
+    }
+  ],
+  "sourceUploadDeleted": {
+    "deleteStatus": 204,
+    "subsequentStatus": 404
+  },
+  "schedulerVersion": "liflow-shared-2-draft-58",
+  "notProven": [
+    "physical restoration on the new build",
+    "all physical validation candidates",
+    "paid OpenAI API"
+  ],
+  "unchangedServices": [
+    "liflow-weather",
+    "liflow-weather-worker"
+  ],
+  "sharingEphemeralDeliveryEnabled": false
+}
