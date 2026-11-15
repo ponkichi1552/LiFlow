@@ -3,6 +3,7 @@ import { localDateFromDate } from '../../domain/scheduling/local-date';
 import { createPersonalGoogleCalendarSync } from '../../features/calendar/personal-google-sync';
 import { createGoogleCalendarApi } from './calendar-api';
 import { authorizeGoogleCalendarEvents, getCurrentGoogleSubject, getGoogleCalendarEventsAccessToken, hasGoogleCalendarEventsSession } from '../google-tasks/google-sign-in-gateway';
+import { readCalendarTitleShortening } from '../../features/calendar/use-title-display';
 
 const runtimes = new WeakMap<SQLiteDatabase, ReturnType<typeof createPersonalGoogleCalendarSync>>();
 /** Same native Google identity and one per-database coordinator for every screen/foreground trigger. */
@@ -10,7 +11,7 @@ export function nativePersonalGoogleCalendar(database: SQLiteDatabase) {
   let value = runtimes.get(database);
   if (!value) {
     value = createPersonalGoogleCalendarSync({ database, currentSubject: getCurrentGoogleSubject, hasSession: hasGoogleCalendarEventsSession,
-      authorize: () => authorizeGoogleCalendarEvents(), today: () => localDateFromDate(new Date()),
+      authorize: () => authorizeGoogleCalendarEvents(), today: () => localDateFromDate(new Date()), readTitleShortening: readCalendarTitleShortening,
       createApi: context => createGoogleCalendarApi({ ...context, token: () => getGoogleCalendarEventsAccessToken(context.subject) }) });
     runtimes.set(database, value);
   }

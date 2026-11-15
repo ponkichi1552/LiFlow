@@ -288,10 +288,11 @@ for (const platform of ['ios', 'android']) {
         timeline.props.onLayout({ nativeEvent: { layout: { height: 600 } } });
         ui.nodes().find(node => node.props.testID === 'calendar-timeline-days').props.onLayout({ nativeEvent: { layout: { height: 100 } } });
         await new Promise(resolve => setTimeout(resolve, 0)); assert.ok(offsets.at(-1) > 0, 'the ordinary view initially reveals its timed event');
-        await ui.press('予定を検索する'); await ui.change('予定を検索', '終日確認'); await ui.press('終日確認の検索結果を開く');
+        await ui.press('予定を検索する'); await ui.change('予定を検索', '終日確認'); await ui.press('確認の検索結果を開く');
         if (platform === 'ios') { ui.nodes().find(node => node.type === 'Modal').props.onDismiss(); await ui.flush(); }
         await new Promise(resolve => setTimeout(resolve, 0));
         assert.equal(offsets.at(-1), 0, `${mode} must expose the all-day summary at the top`);
+        ui.button('確認を編集');
         assert.equal(JSON.stringify(h.local.snapshot), before, 'revealing a search result does not edit events or create a draft');
         assert.equal(JSON.stringify(await store.readLocalCalendar(h.database)), before, 'the persisted calendar also remains unchanged');
       } finally { ui.unmount(); }

@@ -6,12 +6,14 @@ import { GoogleCalendarHttpError } from '../src/platform/google-calendar/calenda
 import { newEventDraft } from '../src/domain/calendar/events.ts';
 import { GoogleAccountMismatchError } from '../src/features/google-sync/account-binding.ts';
 import { googleOwnedFields } from '../src/features/calendar/google-owned-fields.ts';
+import { googleEventBody } from '../src/features/calendar/google-event-mapping.ts';
 
 function fixture(count = 1, options = {}) {
   let control = { enabled: false, revision: 0, subject: null, calendarId: null, retryCount: 0, retryAt: null }; let subject = 'google-user';
   const items = Array.from({ length: count }, (_, i) => ({ sourceId: `event-${i}`, revision: 'one', value: { ...newEventDraft('2026-10-31', 'Asia/Tokyo'), title: `共有${i}` } }));
   const links = new Map(); const remote = new Map(); const calls = []; let afterInsert = async () => {};
   const runtimeInput = { scope: { userId: 'owner', groupId: 'home' }, now: () => 1_000_000, random: () => .5,
+    readTitleShortening: options.readTitleShortening,
     assertAccess: async () => {}, currentSubject: async () => subject, authorize: async expected => {
       await options.authorize?.(); if (expected && subject !== expected) throw new GoogleAccountMismatchError(); return { subject, label: '検査アカウント' };
     },
@@ -425,4 +427,56 @@ test('audit100 restoring an exported recurring series rebinds its exceptions to 
  assert.equal((await f.runtime.synchronize({force:true})).kind,'success');
  const newParent=[...f.links.values()].find(row=>row.value.sourceId==='event-0').value.googleId;assert.notEqual(newParent,oldParent);
  assert.equal(f.remote.get(`instance-${newParent}`).summary,'changed instance');assert.deepEqual(f.remote.get(`instance-${oldParent}`),oldInstance);
+});
+
+test('shared Google title preference changes only the next source revision and never mutates the shared original', async () => {
+  let shorten = true; const f = fixture(1, { readTitleShortening: () => shorten });
+  const title = '彼女の誕生日、毎年8月22日'; f.items[0].value.title = title;
+  await f.connect(); await f.runtime.synchronize(); const [id] = f.remote.keys();
+  assert.equal(f.remote.get(id).summary, '彼女の誕生日'); assert.equal(f.items[0].value.title, title);
+  shorten = false; f.calls.length = 0; await f.runtime.synchronize();
+  assert.deepEqual(f.calls, []); assert.equal(f.remote.get(id).summary, '彼女の誕生日');
+  f.items[0] = { ...f.items[0], revision: 'two', value: { ...f.items[0].value, notes: '予約する' } };
+  await f.runtime.synchronize(); assert.equal(f.remote.get(id).summary, title); assert.equal(f.remote.size, 1);
+  shorten = true; f.calls.length = 0; await f.restart().synchronize(); assert.deepEqual(f.calls, []);
+  assert.equal(f.items[0].value.title, title);
+});
+
+test('a lost shortened shared insert retries its original payload after a preference change before sending a newer source', async () => {
+  let shorten = true; const f = fixture(1, { readTitleShortening: () => shorten });
+  const title = '1月1日から親戚との集まり6日間'; f.items[0].value.title = title;
+  await f.connect(); let lose = true;
+  f.afterInsert(async () => { if (lose) { lose = false; throw new TypeError('synthetic lost title receipt'); } });
+  assert.equal((await f.runtime.synchronize()).kind, 'error');
+  const key = [...f.links.keys()][0]; const intent = structuredClone(f.links.get(key).value.pending);
+  assert.equal(intent.payload.summary, '親戚との集まり');
+  shorten = false; f.items[0] = { ...f.items[0], revision: 'two', value: { ...f.items[0].value, notes: '後から追加した内容' } };
+  assert.equal((await f.restart().synchronize({ force: true })).kind, 'success');
+  assert.equal(f.remote.size, 1); assert.equal([...f.remote.values()][0].summary, title);
+  assert.equal(f.links.get(key).value.pending, undefined); assert.equal(f.links.get(key).value.revision, 'two');
+  assert.equal(f.items[0].value.title, title);
+});
+
+test('shared historical series proof accepts the other installations shortened label and rejects a manual Google rename', async () => {
+  let shorten = false; const proofs = new Map(); let currentRevision = 'one';
+  const f = fixture(1, { readTitleShortening: () => shorten, store: { knownSeriesRevision: async (_source, revision) =>
+    proofs.has(revision) ? { currentRevision, ...proofs.get(revision) } : null } });
+  const title = '毎月11日、12日ハッカソン'; f.items[0].value.title = title;
+  await f.connect(); await f.runtime.synchronize(); const [id] = f.remote.keys(); const key = [...f.links.keys()][0];
+  const first = structuredClone(f.links.get(key));
+  shorten = true; currentRevision = 'two';
+  f.items[0] = { ...f.items[0], revision: 'two', value: { ...f.items[0].value, notes: '別端末の変更' } };
+  await f.runtime.synchronize(); assert.equal(f.remote.get(id).summary, 'ハッカソン');
+  proofs.set('two', { fields: googleOwnedFields(googleEventBody(f.items[0].value)), shortenedFields: googleOwnedFields(googleEventBody(f.items[0].value, false, true)) });
+  f.links.set(key, first); shorten = false; currentRevision = 'three';
+  f.items[0] = { ...f.items[0], revision: 'three', value: { ...f.items[0].value, notes: '現在の変更' } };
+  f.calls.length = 0; assert.equal((await f.runtime.synchronize()).kind, 'success');
+  assert.equal(f.remote.get(id).summary, title); assert.deepEqual(f.calls, ['patch', 'get', 'patch']); assert.equal(f.remote.size, 1);
+  const prior = structuredClone(f.links.get(key));
+  const manual = { ...f.remote.get(id), summary: 'Googleで別名にした予定', etag: 'manual-title-etag' }; f.remote.set(id, manual);
+  proofs.set('three', { fields: googleOwnedFields(googleEventBody(f.items[0].value)), shortenedFields: googleOwnedFields(googleEventBody(f.items[0].value, false, true)) });
+  currentRevision = 'four'; f.items[0] = { ...f.items[0], revision: 'four', value: { ...f.items[0].value, notes: '送信を待つ変更' } };
+  assert.equal((await f.runtime.synchronize()).kind, 'error');
+  assert.equal(f.remote.get(id).summary, manual.summary); assert.equal(f.remote.get(id).etag, manual.etag);
+  assert.equal(f.links.get(key).value.googleId, prior.value.googleId); assert.ok(f.links.get(key).value.pending);
 });

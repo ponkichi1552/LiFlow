@@ -34,6 +34,24 @@ test('shared export can prove an older series revision only from receipted autho
   assert.deepEqual(await listSharingOutbox(d.database, groupId), before);
 });
 
+test('shared historical Google title proofs retain raw and shortened fields only for the same receipted series operation', async t => {
+  const d = await (await fixture()).device(); t.after(() => d.connection.close()); await d.repository.commit(seeds()); let sequence = 0;
+  const controller = createV2GroupController(d.repository, { makeId: () => `title-proof-${++sequence}`, now, sync: async () => {} });
+  const store = createSharedCalendarExportStore(d.repository);
+  const value = { ...newEventDraft('2026-11-21', 'Asia/Tokyo'), title: '毎月21日学校', allDay: true, recurrence: 'monthly' };
+  await controller.actions.saveCalendarEvent({ scope: 'series', anchorDate: null, value, category: { id: 'personal', name: '私用', color: '#3D906A', revision: 1 } });
+  const unreceipted = await store.readItems(); assert.equal(await store.knownSeriesRevision(unreceipted[0].sourceId, unreceipted[0].revision), null);
+  const facts = await loadSharedFacts(d.database, groupId); const checkpoint = await readSharingCheckpoint(d.database, groupId);
+  await applyReceivedSharedFacts(d.database, groupId, facts, String(facts.length), d.repository.project, checkpoint.cursor, now().getTime(), d.repository.evidenceForServerReceipts(receiptsFor(facts)));
+  const [item] = await store.readItems(); const before = await listSharingOutbox(d.database, groupId);
+  const proof = await store.knownSeriesRevision(item.sourceId, item.revision);
+  assert.equal(proof.fields, googleOwnedFields(googleEventBody(value)));
+  assert.equal(proof.shortenedFields, googleOwnedFields(googleEventBody(value, false, true)));
+  assert.equal(JSON.parse(proof.fields).title, value.title); assert.equal(JSON.parse(proof.shortenedFields).title, '学校');
+  assert.equal(await store.knownSeriesRevision(`${item.sourceId}:2026-12-21`, item.revision), null);
+  assert.deepEqual(await listSharingOutbox(d.database, groupId), before); assert.equal((await store.readItems())[0].value.title, value.title);
+});
+
 test('shared export settings and Google IDs stay private and OFF preserves the same account target links', async () => {
   const f = await fixture(); const d = await f.device();
   try {

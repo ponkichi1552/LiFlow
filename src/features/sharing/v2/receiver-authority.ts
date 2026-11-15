@@ -1,5 +1,7 @@
 import { authorizeSharedCalendarOperation } from './calendar-state.ts';
-import { supportsRetainedManuals, supportsUploadedManuals, supportsSharedCalendar, supportsChoreRotation, supportsMonthlyChores, supportsOneOffChores, supportsHistoryRetention } from './payload-schema.ts';
+import type { SharedCalendarPayload } from './calendar-state';
+import { supportsRetainedManuals, supportsUploadedManuals, supportsSharedCalendar, supportsCalendarMonthDates, supportsChoreRotation, supportsMonthlyChores, supportsOneOffChores, supportsHistoryRetention } from './payload-schema.ts';
+import { CALENDAR_MONTH_DATES_UPGRADE_MESSAGE, calendarUsesMonthDates } from './calendar-compatibility.ts';
 import { readV2ManualDocument } from './manual-documents.ts';
 import { restoreManualDocument } from '../../appliance-care/manual-document.ts';
 import type { ManualDocument, ManualChunk } from '../../appliance-care/manual-document';
@@ -283,6 +285,9 @@ function authorizeV2Operation(view: V2HistoryView, archive: readonly VerifiedSha
   }
   if (op.entityType === 'calendarEvent') {
     requireAuthority(supportsSharedCalendar(originalEpoch.body.schedulerVersion), 'Shared calendar requires an owner-approved compatibility update');
+    if (calendarUsesMonthDates((op.payload as unknown as SharedCalendarPayload).value)) {
+      requireAuthority(supportsCalendarMonthDates(originalEpoch.body.schedulerVersion) && supportsCalendarMonthDates(epoch.body.schedulerVersion), CALENDAR_MONTH_DATES_UPGRADE_MESSAGE);
+    }
     authorizeSharedCalendarOperation(view, op, admin); return;
   }
   if (op.entityType === 'historyRetention') {

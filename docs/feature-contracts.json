@@ -1,5 +1,312 @@
 [
   {
+    "feature": "calendar-title-multiple-dates-periods-and-approximation-20261116",
+    "tests": [
+      {
+        "file": "tests/calendar-title-multiple-recurrence.test.mjs",
+        "name": "title recurrence consumes all explicitly listed weekdays and monthly dates and deduplicates each occurrence"
+      },
+      {
+        "file": "tests/calendar-title-multiple-recurrence.test.mjs",
+        "name": "multiple recurrence never partially accepts alternatives negations invalid dates ranges or per-day clocks"
+      },
+      {
+        "file": "tests/calendar-title-multiple-recurrence.test.mjs",
+        "name": "monthly date sets validate bounded civil dates and expand month ends without clamping or duplicate occurrences"
+      },
+      {
+        "file": "tests/calendar-title-multiple-recurrence.test.mjs",
+        "name": "multiple inferred recurrence restores automatic rules and keeps manual choices through title changes"
+      },
+      {
+        "file": "tests/calendar-title-multiple-recurrence.test.mjs",
+        "name": "multiple monthly rules roundtrip Google without a phantom DTSTART and reject incompatible source rules"
+      },
+      {
+        "file": "tests/calendar-title-multiple-recurrence.test.mjs",
+        "name": "multiple monthly whole moves preserve every day or refuse an unrepresentable boundary instead of dropping the held occurrence"
+      },
+      {
+        "file": "tests/calendar-title-multiple-recurrence.test.mjs",
+        "name": "${platform} multiple recurring title saves one validated series with every listed occurrence and no pre-save write"
+      },
+      {
+        "file": "tests/calendar-title-multiple-recurrence.test.mjs",
+        "name": "${platform} custom monthly date selection preserves and edits all inferred dates and refuses an empty selection"
+      },
+      {
+        "file": "tests/calendar-title-multiple-recurrence.test.mjs",
+        "name": "monthly date cache copies do not let an editor mutate the next storage read"
+      },
+      {
+        "file": "tests/calendar-title-multiple-recurrence.test.mjs",
+        "name": "monthly date sets retain explicit moves cancellations and past occurrences through a future split and undo"
+      },
+      {
+        "file": "tests/calendar-title-periods.test.mjs",
+        "name": "all seven requested calendar sentences resolve their full period and recurrence while preserving the original title"
+      },
+      {
+        "file": "tests/calendar-title-periods.test.mjs",
+        "name": "yearless and yearly dates seek the next actual date and explicit past years remain explicit"
+      },
+      {
+        "file": "tests/calendar-title-periods.test.mjs",
+        "name": "explicit day and week durations count civil days and timed durations retain the written clock through year changes"
+      },
+      {
+        "file": "tests/calendar-title-periods.test.mjs",
+        "name": "title display removes parsed schedule tokens at either end without normalizing names or making an empty title"
+      },
+      {
+        "file": "tests/calendar-title-periods.test.mjs",
+        "name": "all requested sentences send the selected Google title style while keeping recurrence and complete day periods intact"
+      },
+      {
+        "file": "tests/calendar-title-periods.test.mjs",
+        "name": "period removal restores automatic values and manual period boundaries remain authoritative"
+      },
+      {
+        "file": "tests/calendar-title-periods.test.mjs",
+        "name": "${platform} requested calendar title examples save original names and complete civil periods through the normal editor"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "title grammar independently checks all 366 yearless month days against next valid civil dates"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "title grammar independently checks all 366 yearly month days without inferring a birthday kind or clock"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "title grammar keeps explicit years and follows century leap rules at same-day and year boundaries"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "title grammar accepts valid positional and unit-based Japanese numerals without losing date digits"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "title grammar preserves all 127 weekday sets across three civil week boundaries without inventing noon"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "title grammar independently checks monthly date pairs around short leap and final months without clamping"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "title grammar counts inclusive all-day periods and same-clock timed periods across Gregorian boundaries"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "title grammar interprets written week periods without treating relative weeks as durations"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "title grammar rejects alternative excluded invalid excessive and partially valid schedule expressions as a whole"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "title grammar short labels remove source spans while preserving Unicode names and the complete stored sentence"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "title grammar accepts explicit approximate dates clocks and durations as editable draft candidates without changing source titles"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "title grammar keeps manually chosen boundaries and clears only automatic period and recurrence fields"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "title grammar does not mutate source drafts or alias inferred monthly and weekly day sets"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "${platform} yearly and duration inference stays outside existing duplicate birthday chore and readonly editors"
+      }
+    ],
+    "manualReview": [
+      "docs/audits/2026-11-16-title-multiple-recurrence.md",
+      "docs/audits/2026-11-16-title-periods-and-display.md",
+      "docs/audits/2026-11-16-title-grammar-edge-audit.md"
+    ]
+  },
+  {
+    "feature": "calendar-title-shortening-display-and-google-originals-20261116",
+    "tests": [
+      {
+        "file": "tests/calendar-title-display.test.mjs",
+        "name": "calendar title shortening defaults on persists once and retains its accepted value after failed or invalid changes"
+      },
+      {
+        "file": "tests/calendar-title-display.test.mjs",
+        "name": "calendar display projection reuses repeated title parsing without rewriting source titles timezone originals or unchanged rows"
+      },
+      {
+        "file": "tests/calendar-title-display.test.mjs",
+        "name": "calendar search indexes original and shortened titles while retaining original series and exception drafts"
+      },
+      {
+        "file": "tests/calendar-title-display.test.mjs",
+        "name": "${platform} calendar title preference updates month day two three week and list labels without calendar writes or sync requests"
+      },
+      {
+        "file": "tests/calendar-title-display.test.mjs",
+        "name": "${platform} failed title preference saves keep the accepted checkbox and the menu usable"
+      },
+      {
+        "file": "tests/calendar-title-display.test.mjs",
+        "name": "${platform} editing duplicating and dragging shortened titles preserve the full saved sentence"
+      },
+      {
+        "file": "tests/calendar-title-display.test.mjs",
+        "name": "${platform} search results display the selected title style and open original drafts for either title query"
+      },
+      {
+        "file": "tests/calendar-title-display.test.mjs",
+        "name": "${platform} shortened yearly periods and monthly date sets retain manual values through search editing duplication and month drag"
+      },
+      {
+        "file": "tests/calendar-google-title-native.test.mjs",
+        "name": "native personal Google synchronization reads the current title preference without requesting another account"
+      },
+      {
+        "file": "tests/calendar-google-title-native.test.mjs",
+        "name": "native shared Google export reads the same live title preference and keeps the existing account and access callbacks"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "personal Google title shortening keeps the raw title through its echo and remote edits to other fields but adopts an explicit rename"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "personal title preference applies to the next content write while unchanged and category-only revisions never resend names"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a raw title edit whose Google label is unchanged advances its baseline without a Google write"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a lost personal ${method} acknowledgement preserves its exact shortened intent across a preference change and restart"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "two personal installations with different title preferences preserve the same original without echoing each others labels"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "personal title proof and a lost acknowledgement remain bound to the original Google account"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "choosing Google after a title conflict restores the original represented by its unchanged label with pending=${unacknowledged}"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "personal Google titles without recognized date text remain unchanged and carry no title proof"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "matching local and remote content edits converge without a false conflict caused by a shortened Google title"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a Google occurrence moved under a shortened series inherits its original title until that occurrence is explicitly renamed"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "Google deletion and restoration of a shortened personal event recover its retained original without an echo write"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "restoring a Google occurrence under a shortened series retains its inherited raw title without changing the parent"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a shortened occurrence with its own original title survives ${source} deletion and Google restoration"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "shared Google title preference changes only the next source revision and never mutates the shared original"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "a lost shortened shared insert retries its original payload after a preference change before sending a newer source"
+      },
+      {
+        "file": "tests/shared-google-calendar-export.test.mjs",
+        "name": "shared historical series proof accepts the other installations shortened label and rejects a manual Google rename"
+      },
+      {
+        "file": "tests/shared-google-calendar-store.test.mjs",
+        "name": "shared historical Google title proofs retain raw and shortened fields only for the same receipted series operation"
+      }
+    ],
+    "manualReview": [
+      "docs/audits/2026-11-16-title-display-ui.md",
+      "docs/audits/2026-11-16-google-title-display.md"
+    ]
+  },
+  {
+    "feature": "calendar-month-date-sets-owner-approved-compatibility-20261116",
+    "tests": [
+      {
+        "file": "tests/calendar-month-dates-compatibility.test.mjs",
+        "name": "draft57 rejects the new month date shape and its frozen Google importer requests safe expansion of the standard RRULE"
+      },
+      {
+        "file": "tests/calendar-month-dates-compatibility.test.mjs",
+        "name": "draft58 retains every supported older scheduler while only the new month dates capability requires its owner-approved epoch"
+      },
+      {
+        "file": "tests/calendar-month-dates-compatibility.test.mjs",
+        "name": "old shared groups save established recurrence but reject new month dates before creating an intent signed fact or Outbox item"
+      },
+      {
+        "file": "tests/calendar-month-dates-compatibility.test.mjs",
+        "name": "the shared receiver rejects a low-level new month rule authored in an old epoch and rolls back every local signed write"
+      },
+      {
+        "file": "tests/calendar-month-dates-compatibility.test.mjs",
+        "name": "owner-approved month date upgrade preserves historical signatures and restores one complete multi-date series into another SQLite database"
+      },
+      {
+        "file": "tests/calendar-month-dates-compatibility.test.mjs",
+        "name": "a late delivery cannot legalize a month date rule signed before its feature epoch even after the group upgrades"
+      },
+      {
+        "file": "tests/calendar-month-dates-compatibility.test.mjs",
+        "name": "a frozen draft57 workspace checks the new scheduler before opening group payloads and leaves its trusted record intact"
+      },
+      {
+        "file": "tests/calendar-month-dates-compatibility.test.mjs",
+        "name": "private busy-calendar schema remains interval-only and rejects new recurrence data without changing the previous cache"
+      },
+      {
+        "file": "tests/sharing-account-device-month-dates.test.mjs",
+        "name": "draft58 account-device service read request accept and acknowledgment restore a month-date snapshot and preserve old signed calendar history"
+      },
+      {
+        "file": "tests/sharing-account-device-month-dates.test.mjs",
+        "name": "draft58 service and encrypted month snapshot bind grants acknowledgments and restored keys to the exact requesting account device and epoch"
+      },
+      {
+        "file": "tests/sharing-account-device-month-dates.test.mjs",
+        "name": "an account-device key restoration cannot legitimize a new month shape signed in draft57 and keeps unrelated snapshot history readable"
+      },
+      {
+        "file": "tests/sharing-account-device-month-dates.test.mjs",
+        "name": "frozen draft57 discovery blocks account restoration before API requests key saves activation or opening a draft58 month snapshot"
+      }
+    ],
+    "manualReview": [
+      "docs/audits/2026-11-16-calendar-month-dates-compatibility.md"
+    ]
+  },
+  {
     "feature": "calendar-recurrence-one-future-series-20261115",
     "tests": [
       {
@@ -130,16 +437,42 @@
   {
     "feature": "calendar-title-weekly-monthly-inference-20261116",
     "tests": [
-      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "calendar title weekly and monthly expressions choose the first matching civil date and recurrence without altering the sentence" },
-      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "calendar title recurrence refuses incomplete conflicting excluded and unsupported period expressions" },
-      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "calendar title monthly input keeps real month-end anchors and overnight spans through year boundaries" },
-      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "calendar title recurrence restores only automatic values and protects chosen recurrence and custom rules" },
-      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "ios recurring title input saves matching weekly and monthly schedules exactly once" },
-      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "android recurring title input saves matching weekly and monthly schedules exactly once" },
-      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "ios manually selected recurrence and end date survive later title input and audience changes" },
-      { "file": "tests/calendar-title-recurrence.test.mjs", "name": "android manually selected recurrence and end date survive later title input and audience changes" }
+      {
+        "file": "tests/calendar-title-recurrence.test.mjs",
+        "name": "calendar title weekly and monthly expressions choose the first matching civil date and recurrence without altering the sentence"
+      },
+      {
+        "file": "tests/calendar-title-recurrence.test.mjs",
+        "name": "calendar title recurrence refuses incomplete conflicting excluded and unsupported period expressions"
+      },
+      {
+        "file": "tests/calendar-title-recurrence.test.mjs",
+        "name": "calendar title monthly input keeps real month-end anchors and overnight spans through year boundaries"
+      },
+      {
+        "file": "tests/calendar-title-recurrence.test.mjs",
+        "name": "calendar title recurrence restores only automatic values and protects chosen recurrence and custom rules"
+      },
+      {
+        "file": "tests/calendar-title-recurrence.test.mjs",
+        "name": "ios recurring title input saves matching weekly and monthly schedules exactly once"
+      },
+      {
+        "file": "tests/calendar-title-recurrence.test.mjs",
+        "name": "android recurring title input saves matching weekly and monthly schedules exactly once"
+      },
+      {
+        "file": "tests/calendar-title-recurrence.test.mjs",
+        "name": "ios manually selected recurrence and end date survive later title input and audience changes"
+      },
+      {
+        "file": "tests/calendar-title-recurrence.test.mjs",
+        "name": "android manually selected recurrence and end date survive later title input and audience changes"
+      }
     ],
-    "manualReview": ["docs/audits/2026-11-16-title-recurrence.md"]
+    "manualReview": [
+      "docs/audits/2026-11-16-title-recurrence.md"
+    ]
   },
   {
     "feature": "calendar-title-date-month-detail-and-live-guidance-20261115",

@@ -772,3 +772,190 @@ test('a Google calendar permission downgrade takes effect before its staged even
   await assert.rejects(saveCalendarEvent(h.database,{id:imported.id,expectedRevision:imported.revision,value:{...imported,title:'変更できない予定'}}),/Google/);
   assert.equal((await readLocalCalendar(h.database)).events[0].title,imported.title);
 });
+
+test('personal Google title shortening keeps the raw title through its echo and remote edits to other fields but adopts an explicit rename', async t => {
+  const h = await harness(t); await h.connect();
+  const title = '毎月21日学校';
+  const event = await h.local({ title, startDate: '2026-11-21', endDate: '2026-11-21', allDay: true, recurrence: 'monthly' });
+  assert.equal((await h.sync.sync()).sent, 1); const id = h.links()[0].google_id;
+  assert.equal(h.events.get(id).summary, '学校');
+  assert.equal(JSON.parse(h.links()[0].base_json).title, '学校');
+  assert.equal(JSON.parse(h.links()[0].local_base_json).title, title);
+  const proof = h.events.get(id).extendedProperties.private.liflowTitleProof;
+  assert.match(proof, /^[a-f0-9]{64}$/); assert.ok(!JSON.stringify(h.events.get(id).extendedProperties).includes(title));
+  h.calls.length = 0; await h.sync.sync();
+  assert.equal((await readLocalCalendar(h.database)).events[0].title, title);
+  assert.equal(h.calls.some(call => ['insert', 'patch', 'remove'].includes(call[0])), false);
+  h.put({ ...h.events.get(id), location: '別の教室', start: { date: '2026-11-22' }, end: { date: '2026-11-23' } });
+  h.calls.length = 0; await h.sync.sync(); const moved = (await readLocalCalendar(h.database)).events[0];
+  assert.equal(moved.id, event.id); assert.equal(moved.title, title); assert.equal(moved.location, '別の教室'); assert.equal(moved.startDate, '2026-11-22');
+  assert.equal(h.calls.some(call => call[0] === 'patch'), false);
+  h.put({ ...h.events.get(id), summary: 'Googleで決めた学校名' });
+  await h.sync.sync(); assert.equal((await readLocalCalendar(h.database)).events[0].title, 'Googleで決めた学校名');
+  assert.equal((await h.sync.readConflicts()).length, 0);
+});
+
+test('personal title preference applies to the next content write while unchanged and category-only revisions never resend names', async t => {
+  let shorten = false; const h = await harness(t, { readTitleShortening: () => shorten }); await h.connect();
+  const title = '毎年5月22日お父さん誕生日'; const event = await h.local({ title });
+  await h.sync.sync(); const id = h.links()[0].google_id;
+  assert.equal(h.events.get(id).summary, title); assert.equal(h.events.get(id).extendedProperties.private.liflowTitleProof, undefined);
+  shorten = true; h.calls.length = 0; await h.sync.sync();
+  assert.equal(h.events.get(id).summary, title); assert.equal(h.calls.some(call => call[0] === 'patch'), false);
+  // A revision whose Google-owned data did not change is also inert.
+  h.connection.prepare('UPDATE calendar_events SET revision=revision+1 WHERE id=?').run(event.id);
+  await h.sync.sync(); assert.equal(h.calls.some(call => call[0] === 'patch'), false);
+  let local = (await readLocalCalendar(h.database)).events[0];
+  await saveCalendarEvent(h.database, { id: event.id, expectedRevision: local.revision, value: { ...local, notes: '贈り物を選ぶ' } });
+  await h.sync.sync(); assert.equal(h.events.get(id).summary, 'お父さん誕生日');
+  shorten = false; h.calls.length = 0; await h.makeSync().sync();
+  assert.equal(h.calls.some(call => call[0] === 'patch'), false); assert.equal(h.events.get(id).summary, 'お父さん誕生日');
+  local = (await readLocalCalendar(h.database)).events[0];
+  await saveCalendarEvent(h.database, { id: event.id, expectedRevision: local.revision, value: { ...local, notes: '予約済み' } });
+  await h.sync.sync(); assert.equal(h.events.get(id).summary, title);
+  assert.equal(h.events.get(id).extendedProperties.private.liflowTitleProof, null);
+  assert.equal((await readLocalCalendar(h.database)).events[0].title, title);
+});
+
+test('a raw title edit whose Google label is unchanged advances its baseline without a Google write', async t => {
+  const h = await harness(t); await h.connect(); const event = await h.local({ title: '毎月21日学校' }); await h.sync.sync();
+  await h.sync.sync(); h.calls.length = 0;
+  await saveCalendarEvent(h.database, { id: event.id, expectedRevision: 1, value: { ...event, title: '毎月22日学校' } });
+  await h.sync.sync(); assert.equal(h.calls.some(call => call[0] === 'patch'), false);
+  assert.equal(JSON.parse(h.links()[0].local_base_json).title, '毎月22日学校'); assert.equal(h.links()[0].local_revision, 2);
+  assert.equal((await readLocalCalendar(h.database)).events[0].title, '毎月22日学校');
+});
+
+for (const method of ['insert', 'patch']) test(`a lost personal ${method} acknowledgement preserves its exact shortened intent across a preference change and restart`, async t => {
+  let shorten = true; const h = await harness(t, { readTitleShortening: () => shorten }); await h.connect();
+  const title = '旅行 4月11日から1週間'; const event = await h.local({ title }); let revision = 1;
+  if (method === 'patch') {
+    await h.sync.sync(); await saveCalendarEvent(h.database, { id: event.id, expectedRevision: revision++, value: { ...event, notes: '送信対象' } });
+  }
+  h.loseNext(method); assert.equal((await h.sync.sync({ force: true })).kind, 'error');
+  const intent = JSON.parse(h.links()[0].pending_json); assert.equal(intent.payload.summary, '旅行'); assert.equal(JSON.parse(intent.localOwned).title, title);
+  const originalEvents = h.api.events; h.api.events = async () => ({ items: [], nextSyncToken: 'S0' });
+  shorten = false;
+  await saveCalendarEvent(h.database, { id: event.id, expectedRevision: revision, value: { ...event, notes: '応答喪失後の編集' } });
+  assert.equal((await h.makeSync().sync({ force: true })).kind, 'success');
+  h.api.events = originalEvents; await h.sync.sync({ force: true });
+  assert.equal(h.events.size, 1); assert.equal([...h.events.values()][0].summary, title);
+  assert.equal((await readLocalCalendar(h.database)).events[0].title, title);
+  assert.equal(h.links()[0].pending_json, null); assert.equal((await h.sync.readConflicts()).length, 0);
+  assert.equal(new Set(h.calls.filter(call => call[0] === 'insert').map(call => call[1])).size, 1);
+});
+
+test('two personal installations with different title preferences preserve the same original without echoing each others labels', async t => {
+  const a = await harness(t, { readTitleShortening: () => false });
+  const b = await harness(t, { readTitleShortening: () => true }); Object.assign(b.api, a.api);
+  await a.connect(); const title = '毎週火曜日、日曜日ランチ'; await a.local({ title }); await a.sync.sync();
+  await b.connect(); await b.sync.sync(); let second = (await readLocalCalendar(b.database)).events[0];
+  assert.equal(second.title, title);
+  await saveCalendarEvent(b.database, { id: second.id, expectedRevision: second.revision, value: { ...second, location: '別端末で選んだ店' } });
+  await b.sync.sync(); assert.equal([...a.events.values()][0].summary, 'ランチ');
+  a.calls.length = 0; await a.sync.sync(); let first = (await readLocalCalendar(a.database)).events[0];
+  assert.equal(first.title, title); assert.equal(first.location, '別端末で選んだ店'); assert.equal(a.calls.some(call => call[0] === 'patch'), false);
+  await saveCalendarEvent(a.database, { id: first.id, expectedRevision: first.revision, value: { ...first, notes: '原文設定の端末で編集' } });
+  await a.sync.sync(); assert.equal([...a.events.values()][0].summary, title);
+  a.calls.length = 0; await b.sync.sync(); second = (await readLocalCalendar(b.database)).events[0];
+  assert.equal(second.title, title); assert.equal(second.notes, '原文設定の端末で編集'); assert.equal(a.calls.some(call => call[0] === 'patch'), false);
+  await a.sync.sync(); await b.sync.sync(); assert.equal(a.calls.some(call => call[0] === 'patch'), false);
+});
+
+test('personal title proof and a lost acknowledgement remain bound to the original Google account', async t => {
+  const h = await harness(t); await h.connect(); const title = '毎月11日、12日ハッカソン'; await h.local({ title });
+  h.loseNext(); await h.sync.sync(); const pending = h.links()[0].pending_json; const writes = h.calls.filter(call => call[0] === 'insert').length;
+  h.subject('different-google-account'); assert.equal((await h.makeSync().sync({ force: true })).kind, 'error');
+  assert.equal(h.links()[0].pending_json, pending); assert.equal(h.calls.filter(call => call[0] === 'insert').length, writes);
+  h.subject('google-one'); assert.equal((await h.makeSync().sync({ force: true })).kind, 'success');
+  assert.equal(h.events.size, 1); assert.equal([...h.events.values()][0].summary, 'ハッカソン');
+  assert.equal((await readLocalCalendar(h.database)).events[0].title, title); assert.equal(h.links()[0].pending_json, null);
+});
+
+for (const unacknowledged of [false, true]) test(`choosing Google after a title conflict restores the original represented by its unchanged label with pending=${unacknowledged}`, async t => {
+  const h = await harness(t); await h.connect(); const title = '毎月21日学校'; const event = await h.local({ title });
+  if (unacknowledged) h.loseNext(); await h.sync.sync(); const id = h.links()[0].google_id;
+  await saveCalendarEvent(h.database, { id: event.id, expectedRevision: 1, value: { ...event, title: '毎月22日別の学校' } });
+  h.put({ ...h.events.get(id), location: 'Googleで変更した教室' }); await h.sync.sync({ force: true });
+  const [conflict] = await h.sync.readConflicts(); assert.ok(conflict); assert.equal(conflict.remote.summary, '学校');
+  await h.sync.resolveConflict(conflict, 'google'); await h.sync.sync({ force: true });
+  const local = (await readLocalCalendar(h.database)).events[0];
+  assert.equal(local.title, title); assert.equal(local.location, 'Googleで変更した教室'); assert.equal(h.events.get(id).summary, '学校');
+  assert.equal((await h.sync.readConflicts()).length, 0); assert.equal(h.links()[0].pending_json, null);
+});
+
+test('personal Google titles without recognized date text remain unchanged and carry no title proof', async t => {
+  const h = await harness(t); await h.connect(); const titles = ['ＳＦ研究会２', '一二三倶楽部', '文化の日の食事会'];
+  for (const title of titles) await h.local({ title });
+  await h.sync.sync(); assert.deepEqual([...h.events.values()].map(event => event.summary).sort(), [...titles].sort());
+  assert.ok([...h.events.values()].every(event => event.extendedProperties.private.liflowTitleProof === undefined));
+  h.calls.length = 0; await h.sync.sync(); await h.makeSync().sync();
+  assert.equal(h.calls.some(call => ['insert', 'patch'].includes(call[0])), false);
+  assert.deepEqual((await readLocalCalendar(h.database)).events.map(event => event.title).sort(), [...titles].sort());
+});
+
+test('matching local and remote content edits converge without a false conflict caused by a shortened Google title', async t => {
+  const h = await harness(t); await h.connect(); const title = '毎月21日学校'; const event = await h.local({ title });
+  await h.sync.sync(); const id = h.links()[0].google_id;
+  await saveCalendarEvent(h.database, { id: event.id, expectedRevision: 1, value: { ...event, notes: '両方で同じ内容へ変更' } });
+  h.put({ ...h.events.get(id), description: '両方で同じ内容へ変更' }); h.calls.length = 0;
+  await h.sync.sync(); assert.equal((await h.sync.readConflicts()).length, 0);
+  const local = (await readLocalCalendar(h.database)).events[0]; assert.equal(local.title, title); assert.equal(local.notes, '両方で同じ内容へ変更');
+  assert.equal(h.calls.some(call => call[0] === 'patch'), false); assert.equal(h.links()[0].local_revision, local.revision);
+});
+
+test('a Google occurrence moved under a shortened series inherits its original title until that occurrence is explicitly renamed', async t => {
+  const h = await harness(t); await h.connect(); const title = '毎週火曜日、日曜日ランチ';
+  await h.local({ title, allDay: true, recurrence: 'daily' }); await h.sync.sync(); const parentId = h.links()[0].google_id;
+  const occurrence = { id: 'shortened-instance', summary: 'ランチ', recurringEventId: parentId, originalStartTime: { date: '2026-11-04' },
+    start: { date: '2026-11-05' }, end: { date: '2026-11-06' } };
+  h.put(occurrence); h.calls.length = 0; await h.sync.sync();
+  let local = await readLocalCalendar(h.database);
+  let moved = projectCalendarEvents(local.events, local.exceptions, '2026-11-05', '2026-11-05').find(row => row.anchorDate === '2026-11-04');
+  assert.equal(moved.title, title); assert.equal(moved.startDate, '2026-11-05'); assert.equal(local.events[0].title, title);
+  assert.equal(h.calls.some(call => call[0] === 'patch'), false);
+  h.put({ ...occurrence, summary: 'この回だけ別のランチ会' }); await h.sync.sync(); local = await readLocalCalendar(h.database);
+  moved = projectCalendarEvents(local.events, local.exceptions, '2026-11-05', '2026-11-05').find(row => row.anchorDate === '2026-11-04');
+  assert.equal(moved.title, 'この回だけ別のランチ会'); assert.equal(local.events[0].title, title);
+});
+
+test('Google deletion and restoration of a shortened personal event recover its retained original without an echo write', async t => {
+  const h = await harness(t); await h.connect(); const title = '毎年5月22日お父さん誕生日'; await h.local({ title }); await h.sync.sync();
+  const id = h.links()[0].google_id; const original = structuredClone(h.events.get(id));
+  h.put({ id, status: 'cancelled' }); await h.sync.sync(); assert.equal((await readLocalCalendar(h.database)).events.length, 0);
+  h.put({ ...original, status: 'confirmed' }); h.calls.length = 0; await h.sync.sync();
+  assert.equal((await readLocalCalendar(h.database)).events[0].title, title); assert.equal(h.events.get(id).summary, 'お父さん誕生日');
+  assert.equal(h.calls.some(call => call[0] === 'patch'), false); assert.equal((await h.sync.readConflicts()).length, 0);
+});
+
+test('restoring a Google occurrence under a shortened series retains its inherited raw title without changing the parent', async t => {
+  const h = await harness(t); await h.connect(); const title = '毎月21日学校'; await h.local({ title, allDay: true, recurrence: 'daily' }); await h.sync.sync();
+  const parent = h.links()[0].google_id; const occurrence = { id: 'restored-short-instance', summary: '学校', recurringEventId: parent,
+    originalStartTime: { date: '2026-11-04' }, start: { date: '2026-11-05' }, end: { date: '2026-11-06' } };
+  h.put(occurrence); await h.sync.sync(); h.put({ id: occurrence.id, status: 'cancelled', recurringEventId: parent, originalStartTime: occurrence.originalStartTime }); await h.sync.sync();
+  h.put(occurrence); h.calls.length = 0; await h.sync.sync(); const local = await readLocalCalendar(h.database);
+  const restored = projectCalendarEvents(local.events, local.exceptions, '2026-11-05', '2026-11-05').find(row => row.anchorDate === '2026-11-04');
+  assert.equal(restored.title, title); assert.equal(local.events[0].title, title); assert.equal(h.calls.some(call => call[0] === 'patch'), false);
+});
+
+for (const source of ['google', 'local']) test(`a shortened occurrence with its own original title survives ${source} deletion and Google restoration`, async t => {
+  const h = await harness(t); await h.connect(); const parentTitle = '毎月21日学校';
+  const event = await h.local({ title: parentTitle, allDay: true, recurrence: 'daily' }); await h.sync.sync(); const parent = h.links()[0].google_id;
+  const instance = h.put({ id: 'own-title-instance', summary: '学校', recurringEventId: parent, originalStartTime: { date: '2026-11-04' },
+    start: { date: '2026-11-04' }, end: { date: '2026-11-05' } });
+  h.api.instances = async () => ({ items: [clone(h.events.get(instance.id))] }); await h.sync.sync();
+  const title = '毎月22日特別な学校'; const imported = (await readLocalCalendar(h.database)).exceptions[0];
+  await saveCalendarEvent(h.database, { id: event.id, expectedRevision: 1, scope: 'one', anchorDate: '2026-11-04', expectedExceptionRevision: imported.revision,
+    value: { ...event, title, recurrence: 'none', startDate: '2026-11-04', endDate: '2026-11-04' } }); await h.sync.sync();
+  const original = clone(h.events.get(instance.id)); assert.equal(original.summary, '特別な学校');
+  if (source === 'local') {
+    const local = (await readLocalCalendar(h.database)).exceptions[0];
+    await deleteCalendarEvent(h.database, { id: event.id, expectedRevision: 1, anchorDate: '2026-11-04', expectedExceptionRevision: local.revision });
+  } else h.put({ id: instance.id, status: 'cancelled', recurringEventId: parent, originalStartTime: instance.originalStartTime });
+  await h.sync.sync(); const tombstone = h.links().find(link => link.google_id === instance.id);
+  assert.equal(JSON.parse(tombstone.local_base_json).deleted, true); assert.equal(JSON.parse(tombstone.local_base_json).title, title);
+  h.put({ ...original, status: 'confirmed' }); h.calls.length = 0; await h.sync.sync(); const local = await readLocalCalendar(h.database);
+  const restored = projectCalendarEvents(local.events, local.exceptions, '2026-11-04', '2026-11-04').find(row => row.anchorDate === '2026-11-04');
+  assert.equal(restored.title, title); assert.equal(local.events[0].title, parentTitle);
+  assert.equal(h.calls.some(call => call[0] === 'patch'), false); assert.equal((await h.sync.readConflicts()).length, 0);
+});

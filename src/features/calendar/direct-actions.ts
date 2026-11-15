@@ -5,7 +5,7 @@ import { MONTH_HEADING_HEIGHT, type CalendarMonthRow } from './month-rows.ts';
 import type { CalendarEditorDraft } from '../../platform/storage/calendar-events';
 import { v2WallTimeCandidates } from '../sharing/v2/local-time.ts';
 import { moveCalendarStart } from './event-editing.ts';
-import { newEventDraft } from './events.ts';
+import { isCalendarAnchor, newEventDraft } from './events.ts';
 import type { CalendarEvent, CalendarOccurrence, EventDraft } from './events.ts';
 import { calendarFutureBase } from '../../domain/calendar/future-series.ts';
 
@@ -90,6 +90,15 @@ export function calendarSeriesMovedDraft(draft: CalendarEditorDraft, series: Cal
   if (rule?.unit === 'week') value.customRecurrence = { ...rule, weekdays: rule.weekdays.map(day => (day + dayShift % 7 + 7) % 7).sort((a, b) => a - b) };
   if (rule?.unit === 'month' && rule.on === 'weekday') value.customRecurrence = { ...rule, weekday: new Date(`${value.startDate}T00:00:00Z`).getUTCDay(),
     ordinal: rule.ordinal === -1 ? -1 : Math.min(5, Math.ceil(Number(value.startDate.slice(-2)) / 7)) as 1 | 2 | 3 | 4 | 5 };
+  if (rule?.unit === 'month' && rule.on === 'dates' && dayShift) {
+    const days = rule.days.map(day => day + dayShift);
+    value.customRecurrence = { ...rule, days };
+    // A fixed set of month days cannot express every displacement across a
+    // short month. Never accept a drop that loses the occurrence being moved.
+    if (days.some(day => day < 1 || day > 31) || !isCalendarAnchor({ ...value, id: series.id, revision: series.revision }, moved.value.startDate)) {
+      throw new Error('月をまたぐ複数日付の移動は「この予定だけ」を選ぶか、繰り返す日付を変更してください。');
+    }
+  }
   return { ...draft, scope: 'series' as const, anchorDate: null, exceptionRevision: 0, value };
 }
 

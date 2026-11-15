@@ -1,0 +1,55 @@
+{
+  "sourceCommit": "82b2d8da99e270392a03474807951d9c8cb1cc36",
+  "productionFilesPinned": 856,
+  "stage": "single_weekday_and_single_monthday_before_expanded_input",
+  "devices": {
+    "iphoneAndIpad": {
+      "bundleSha256": "20b7491a574305cf75710e148870f2dbb0f67a8897da985c7e5c5c47ee34b2ff",
+      "matchingAcceptedProjection": true,
+      "acceptedFacts": 106,
+      "pendingFacts": 0,
+      "rejectedFacts": 0
+    },
+    "android": {
+      "commit": "82b2d8da99e270392a03474807951d9c8cb1cc36",
+      "productionFilesVerified": 856,
+      "apkSha256": "fc6eb81d33c1a627402f0f3f6e64d15c7cf62bee9c7879781ce41467add476c8",
+      "bundleSha256": "3f0e5eaefbdd32f63b4294e39567c053657c3014826ff251ed51fbc425bd628a",
+      "bytes": 51511919,
+      "runtimeFlags": {
+        "EXPO_PUBLIC_SHARING_EPHEMERAL_DELIVERY": "0"
+      }
+    }
+  },
+  "observations": [
+    "iPhone title input infers Nov17 18:00-19:00 weekly",
+    "iPhone title input infers Nov21 monthly without overriding original 09:00-10:00 clock",
+    "clearing automatic title restores the pre-inference date clock and recurrence",
+    "two shared series arrive on iPad with identical accepted projections",
+    "updated Android month view displays the received weekly and monthly occurrences"
+  ],
+  "screenshots": [
+    {
+      "file": "title-recurrence-weekly-saved-crop.jpg",
+      "sha256": "8d7b2f04774748acd6ca3a87c98707da5dc1abd8060c32424b4580f75b626443"
+    },
+    {
+      "file": "title-recurrence-monthly-input-crop.jpg",
+      "sha256": "ae9e95f95015ae003dd7f457924edd37ebb1794d464175545a823b979f9d864d"
+    },
+    {
+      "file": "title-recurrence-clear-crop.jpg",
+      "sha256": "e438166027807a0eac4d21a7e1c6f34f639f8cac6864f850708b75ea1fce335d"
+    },
+    {
+      "file": "android/title-recurrence-baseline-observed-ui.jpg",
+      "sha256": "13509f929caaa628c4f33d09e2c1658633022425717105ffcbb7d0970401b69e"
+    }
+  ],
+  "testData": "retained",
+  "notProven": [
+    "expanded_multiple_weekdays_monthdays_yearly_durations_or_shortening_on_this_native_bundle",
+    "Android_new_title_input_on_this_native_bundle",
+    "all_physical_candidates_or_1000_audit_findings"
+  ]
+}

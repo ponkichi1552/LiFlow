@@ -9,6 +9,7 @@ import { CalendarMonthEventTitle } from './month-event-title';
 import { minuteLabel } from './events';
 import { monthDetailLayout, type CalendarMonthDetail } from './month-detail-store';
 import { CalendarMonthEvent, type CalendarMonthEventDrag } from './month-event';
+import { calendarDisplayedTitle } from './title-display';
 
 type Appearance = ReturnType<typeof calendarEventAppearance>;
 
@@ -26,21 +27,22 @@ export function CalendarMonthEvents<Capture>({ events, day, height, summary, was
   const config = monthDetailLayout(detail);
   const layout = calendarMonthPreviewLayout(height, events.length, summary, waste, config.maxEvents);
   const shown = events.slice(0, layout.visible);
-  const overflowing = new Set(shown.filter(event => overflow[event.id]?.title === event.title && overflow[event.id].value).map(event => event.id));
+  const overflowing = new Set(shown.filter(event => overflow[event.id]?.title === calendarDisplayedTitle(event) && overflow[event.id].value).map(event => event.id));
   const expanded = calendarMonthExpandedTitles(shown, overflowing, config.extra ? layout.extraLines : 0);
   const timed = config.extra ? calendarMonthTimedPreviews(shown, day, layout) : new Set<string>();
   return <>
     {shown.map(event => {
       const appearance = appearances.get(event.categoryId) ?? fallbackAppearance;
       const color = calendarMonthTitleColor(appearance.foregroundColor, dark);
+      const title = calendarDisplayedTitle(event);
       const content = <>
-        <CalendarMonthEventTitle title={event.title} color={color} backgroundColor={appearance.backgroundColor}
-          lines={expanded.has(event.id) ? 2 : 1} centerSingleLine={!timed.has(event.id)} onOverflow={value => report(event.id, event.title, value)} />
+        <CalendarMonthEventTitle title={title} color={color} backgroundColor={appearance.backgroundColor}
+          lines={expanded.has(event.id) ? 2 : 1} centerSingleLine={!timed.has(event.id)} onOverflow={value => report(event.id, title, value)} />
         {timed.has(event.id) ? <Text numberOfLines={1} style={[styles.time, { color }]}>{minuteLabel(event.startMinute)}</Text> : null}
       </>;
       const style = [styles.event, { backgroundColor: appearance.backgroundColor }];
-      return drag ? <CalendarMonthEvent key={`${event.id}:${event.title}`} event={event} day={day} drag={drag} style={style}>{content}</CalendarMonthEvent>
-        : <View key={`${event.id}:${event.title}`} style={style}>{content}</View>;
+      return drag ? <CalendarMonthEvent key={`${event.id}:${title}`} event={event} day={day} drag={drag} style={style}>{content}</CalendarMonthEvent>
+        : <View key={`${event.id}:${title}`} style={style}>{content}</View>;
     })}
     {layout.hidden ? <Text numberOfLines={1} style={[styles.more, { color: plannerColorsForScheme(dark ? 'dark' : 'light').muted }]}>+{layout.hidden}</Text> : null}
   </>;

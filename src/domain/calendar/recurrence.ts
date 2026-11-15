@@ -6,6 +6,7 @@ export type CustomRecurrence =
   | { unit: 'year'; interval: number }
   | { unit: 'week'; interval: number; weekdays: number[] }
   | { unit: 'month'; interval: number; on: 'date' }
+  | { unit: 'month'; interval: number; on: 'dates'; days: number[] }
   | { unit: 'month'; interval: number; on: 'weekday'; ordinal: -1 | 1 | 2 | 3 | 4 | 5; weekday: number };
 export const RECURRENCE_UNITS = { day: '日', week: '週', month: '月', year: '年' } as const;
 export const WEEKDAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'] as const;
@@ -26,6 +27,11 @@ export function validateCustomRecurrence(input: unknown): CustomRecurrence {
   }
   if (rule.unit === 'month') {
     if (rule.on === 'date') return { unit: rule.unit, interval: rule.interval, on: rule.on };
+    if (rule.on === 'dates') {
+      if (!Array.isArray(rule.days) || rule.days.length < 1 || rule.days.length > 31
+        || !rule.days.every(day => Number.isInteger(day) && day >= 1 && day <= 31)) throw new Error('繰り返す日付を1つ以上選んでください。');
+      return { unit: rule.unit, interval: rule.interval, on: rule.on, days: [...new Set(rule.days)].sort((a, b) => a - b) };
+    }
     if (rule.on !== 'weekday' || ![-1, 1, 2, 3, 4, 5].includes(rule.ordinal) || !weekday(rule.weekday)) throw new Error('毎月の週と曜日を選んでください。');
     return { unit: rule.unit, interval: rule.interval, on: rule.on, ordinal: rule.ordinal, weekday: rule.weekday };
   }
@@ -54,6 +60,10 @@ export function customRecurrenceDates(rule: CustomRecurrence, start: LocalDate, 
   const step = rule.interval * (rule.unit === 'year' ? 12 : 1); const result: LocalDate[] = [];
   for (let index = baseMonth + Math.max(0, Math.ceil((fromMonth - baseMonth) / step)) * step; index <= lastMonth; index += step) {
     const dates = monthDates(Math.floor(index / 12), index % 12); let date: LocalDate | undefined;
+    if (rule.unit === 'month' && rule.on === 'dates') {
+      for (const number of rule.days) { const candidate = dates[number - 1]; if (candidate && keep(candidate)) result.push(candidate); }
+      continue;
+    }
     if (rule.unit === 'month' && rule.on === 'weekday') {
       const position = rule.ordinal === -1 ? dates.length - 1 - (weekdayOf(dates.at(-1)!) - rule.weekday + 7) % 7
         : (rule.weekday - weekdayOf(dates[0]) + 7) % 7 + (rule.ordinal - 1) * 7;
@@ -68,6 +78,7 @@ export function customRecurrenceLabel(rule: CustomRecurrence, start: LocalDate):
   if (rule.unit === 'day') return count === 1 ? '毎日' : `${count}日ごと`;
   if (rule.unit === 'week') return `${count === 1 ? '毎週' : `${count}週間ごと`}（${rule.weekdays.map(n => WEEKDAY_NAMES[n]).join('・')}）`;
   if (rule.unit === 'year') return `${count === 1 ? '毎年' : `${count}年ごと`}（${day.getUTCMonth() + 1}月${day.getUTCDate()}日）`;
-  const when = rule.on === 'date' ? `${day.getUTCDate()}日` : `${rule.ordinal === -1 ? '最後の' : `第${rule.ordinal}`}${WEEKDAY_NAMES[rule.weekday]}曜`;
+  const when = rule.on === 'date' ? `${day.getUTCDate()}日` : rule.on === 'dates' ? rule.days.length > 5 ? `${rule.days.length}日分` : `${rule.days.join('・')}日`
+    : `${rule.ordinal === -1 ? '最後の' : `第${rule.ordinal}`}${WEEKDAY_NAMES[rule.weekday]}曜`;
   return `${count === 1 ? '毎月' : `${count}か月ごと`}（${when}）`;
 }

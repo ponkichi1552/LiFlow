@@ -30,7 +30,7 @@ function recurrence(lines: string[] | undefined, startDate: LocalDate, zone: str
   const entries = lines[0].slice(6).split(';').map(part => part.split('='));
   if (entries.some(part => part.length !== 2) || new Set(entries.map(part => part[0])).size !== entries.length) throw unsupported();
   const rule: Record<string, string> = Object.fromEntries(entries);
-  if (Object.keys(rule).some(key => !['FREQ', 'INTERVAL', 'UNTIL', 'BYDAY', 'WKST'].includes(key))) throw unsupported();
+  if (Object.keys(rule).some(key => !['FREQ', 'INTERVAL', 'UNTIL', 'BYDAY', 'BYMONTHDAY', 'WKST'].includes(key))) throw unsupported();
   const interval = rule.INTERVAL === undefined ? 1 : Number(rule.INTERVAL);
   if (!Number.isInteger(interval) || interval < 1 || interval > 999) throw unsupported();
   let untilDate: LocalDate | null = null;
@@ -50,6 +50,12 @@ function recurrence(lines: string[] | undefined, startDate: LocalDate, zone: str
   const units = { DAILY: 'day', WEEKLY: 'week', MONTHLY: 'month', YEARLY: 'year' } as const;
   const unit = units[rule.FREQ as keyof typeof units];
   if (!unit || rule.WKST && !dayNames.includes(rule.WKST)) throw unsupported();
+  if (rule.BYMONTHDAY !== undefined) {
+    if (unit !== 'month' || rule.BYDAY || !/^(?:[1-9]|[12]\d|3[01])(?:,(?:[1-9]|[12]\d|3[01])){0,30}$/u.test(rule.BYMONTHDAY)) throw unsupported();
+    const days = [...new Set(rule.BYMONTHDAY.split(',').map(Number))].sort((a, b) => a - b);
+    if (!days.includes(parseLocalDate(startDate).getUTCDate())) throw unsupported();
+    return { recurrence: 'custom', untilDate, customRecurrence: { unit: 'month', interval, on: 'dates', days } };
+  }
   if (rule.BYDAY) {
     if (unit === 'week') {
       const weekdays = rule.BYDAY.split(',').map(day => dayNames.indexOf(day));

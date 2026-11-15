@@ -72,7 +72,11 @@ export function createSharedCalendarExportStore(repository: ReturnType<typeof cr
         if (payload.eventId === sourceId && payload.scope === 'series' && payload.value
           && sharedDocumentDigest([operation.operationId, payload]) === revision) {
           const body = googleEventBody(payload.value);
-          return body ? { currentRevision, fields: googleOwnedFields(body) } : null;
+          if (!body) return null;
+          const fields = googleOwnedFields(body);
+          const shortened = googleEventBody(payload.value, false, true)!;
+          const shortenedFields = googleOwnedFields(shortened);
+          return { currentRevision, fields, ...(shortenedFields !== fields ? { shortenedFields } : {}) };
         }
       }
       // An instance also depends on its series and reset history. No series-only

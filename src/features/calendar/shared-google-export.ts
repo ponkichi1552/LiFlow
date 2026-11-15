@@ -14,7 +14,7 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
   assertAccess(): Promise<void>; currentSubject(): Promise<string | null>;
   authorize(expectedSubject?: string): Promise<{ subject: string; label: string }>;
   createApi(context: { subject: string; assertCurrent(): Promise<void>; signal: AbortSignal }): GoogleCalendarApi;
-  now?: () => number; random?: () => number }) {
+  readTitleShortening?(): boolean; now?: () => number; random?: () => number }) {
   const now = input.now ?? Date.now; const random = input.random ?? Math.random;
   type Result = { kind: 'success' | 'pending' | 'skipped' | 'error'; sent: number; retryAt?: number };
   let running: Promise<Result> | null = null;
@@ -94,7 +94,8 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
             if (current.id !== link.pending!.googleId || !current.etag || marker?.liflowShared !== '1'
               || marker.liflowSource !== sharedDocumentDigest([input.scope, link.sourceId]) || !marker.liflowRevision) return null;
             const proof = await input.store.knownSeriesRevision?.(link.sourceId, marker.liflowRevision);
-            if (!proof || proof.fields !== googleOwnedFields(current)) return null;
+            const fields = googleOwnedFields(current);
+            if (!proof || proof.fields !== fields && proof.shortenedFields !== fields) return null;
             if (proof.currentRevision !== itemsById.get(link.sourceId)?.revision) throw Object.assign(new Error('共有予定が更新されました。'), { code: 'export_source_changed' });
             return { sourceId: link.sourceId, googleId: current.id, etag: current.etag, revision: marker.liflowRevision, deleted: false };
           };
@@ -169,7 +170,7 @@ export function createSharedGoogleCalendarExport(input: { store: SharedCalendarE
                   etag = prior?.googleId === found.id && !(prior.deleted && item.reset && found.status === 'cancelled') ? prior.etag : found.etag;
                 }
               }
-              const body = value ? googleEventBody(value, Boolean(item.parentId)) : null;
+              const body = value ? googleEventBody(value, Boolean(item.parentId), input.readTitleShortening?.() ?? true) : null;
               if (body === null && (!remoteId || !etag || prior?.deleted)) {
                 await save({ sourceId: item.sourceId, googleId: remoteId ?? '', etag: etag ?? '', revision: item.revision, deleted: true }); sent++; continue;
               }

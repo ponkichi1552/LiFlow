@@ -7,6 +7,7 @@ import { minuteLabel } from './events';
 import { CALENDAR_DRAG_HOLD_MS, calendarDragTarget } from './direct-actions';
 import type { RegisterCalendarHelpTarget } from './help-targets';
 import { addDays } from '../../domain/scheduling/local-date';
+import { calendarDisplayedTitle } from './title-display';
 
 type Target = { day: LocalDate; minute: number };
 function createTimedDragControl() {
@@ -65,7 +66,7 @@ export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hou
   return <Animated.View ref={setHost} {...control.panHandlers} testID={`calendar-movable-${event.id}`} onTouchEnd={() => { if (session.current && !claimed.current) reset(); }}
     onTouchCancel={() => { if (session.current && !claimed.current) reset(); }} style={[style, { transform: animation.transform }, target && styles.active]}>
     {target ? <Text pointerEvents="none" style={styles.target}>{target.day.slice(5).replace('-', '/')}{dateOnly ? '' : ` ${minuteLabel(target.minute)}`}</Text> : null}
-    <Pressable accessibilityRole="button" accessibilityLabel={dateOnly ? `${event.title}、${day}の予定` : `${event.title}を編集`} accessibilityHint={draggable ? `長押しして${dateOnly ? '日付' : '日時'}を移動できます` : undefined}
+    <Pressable accessibilityRole="button" accessibilityLabel={dateOnly ? `${calendarDisplayedTitle(event)}、${day}の予定` : `${calendarDisplayedTitle(event)}を編集`} accessibilityHint={draggable ? `長押しして${dateOnly ? '日付' : '日時'}を移動できます` : undefined}
       accessibilityActions={draggable ? dateOnly ? [{ name: 'moveNextDay', label: '翌日へ移動' }, { name: 'movePreviousDay', label: '前日へ移動' }] : [{ name: 'moveLater', label: '5分後へ移動' }, { name: 'moveEarlier', label: '5分前へ移動' }] : undefined}
       onAccessibilityAction={action => {
         const direction = action.nativeEvent.actionName === (dateOnly ? 'moveNextDay' : 'moveLater') ? 1 : action.nativeEvent.actionName === (dateOnly ? 'movePreviousDay' : 'moveEarlier') ? -1 : 0;

@@ -13,14 +13,17 @@ import type { CalendarSearchChore, CalendarSearchDestination } from './search';
 import { calendarEventAppearance } from './event-appearance';
 import { SettingsAction } from '../../components/settings-controls';
 import type { LocalDate } from '../../domain/shared/types';
+import { useCalendarTitleDisplay } from './use-title-display';
+import { calendarTitleDisplay } from './title-display';
 
 export function CalendarSearch({ local, chores = [], choresIncomplete, focusDate = localDateFromDate(new Date()), onClose, onSelect, resolveSelection }: { local: LocalCalendarBinding; chores?: readonly CalendarSearchChore[]; choresIncomplete?: boolean; focusDate?: LocalDate; onClose(): void; onSelect(destination: CalendarSearchDestination): void; resolveSelection(draft: CalendarEditorDraft): CalendarSearchDestination }) {
   const scheme = useColorScheme(); const colors = plannerColorsForScheme(scheme); const [query, setQuery] = useState(''); const [selectionError, setSelectionError] = useState<string | null>(null);
+  const titleDisplay = useCalendarTitleDisplay();
   const [visibleCount, setVisibleCount] = useState(60);
   const [visible, setVisible] = useState(true); const closing = useRef(false); const finished = useRef(false); const pending = useRef<CalendarSearchDestination | null>(null);
   const finish = () => { if (finished.current) return; finished.current = true; if (pending.current) onSelect(pending.current); else onClose(); };
   const close = () => { if (closing.current) return; closing.current = true; setVisible(false); if (Platform.OS !== 'ios') finish(); };
-  const index = useMemo(() => calendarSearchIndex(local.snapshot.events, local.snapshot.exceptions), [local.snapshot.events, local.snapshot.exceptions]);
+  const index = useMemo(() => calendarSearchIndex(local.snapshot.events, local.snapshot.exceptions, focusDate), [local.snapshot.events, local.snapshot.exceptions, focusDate]);
   const result = useMemo(() => searchCalendarWithChores(index, chores, query, Infinity, focusDate), [index, chores, query, focusDate]);
   const rows = useMemo(() => result.matches.slice(0, visibleCount), [result, visibleCount]);
   const more = rows.length < result.matches.length;
@@ -50,9 +53,10 @@ export function CalendarSearch({ local, chores = [], choresIncomplete, focusDate
             <Text style={{ ...typography.caption, color: colors.muted }}>{formatJapaneseDate(item.date, { year: true, weekday: false })} · {item.source === 'personal' ? '個人の家事' : '共有の家事'}</Text>
           </View><Chevron color={colors.accent} /></Pressable>;
         const value = item.draft.value; const appearance = calendarEventAppearance(categories.get(value.categoryId) ?? colors.muted, scheme === 'dark');
-        return <Pressable accessibilityRole="button" accessibilityLabel={`${value.title}の検索結果を開く`} onPress={() => { if (closing.current) return; try { pending.current = resolveSelection(item.draft); close(); } catch (cause) { setSelectionError(cause instanceof Error ? cause.message : '予定を表示できませんでした。'); } }}
+        const title = calendarTitleDisplay.label(value.title, focusDate, titleDisplay.value);
+        return <Pressable accessibilityRole="button" accessibilityLabel={`${title}の検索結果を開く`} onPress={() => { if (closing.current) return; try { pending.current = resolveSelection(item.draft); close(); } catch (cause) { setSelectionError(cause instanceof Error ? cause.message : '予定を表示できませんでした。'); } }}
           style={{ padding: 14, minHeight: 64, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <View style={{ flex: 1, gap: 4 }}><Text style={{ ...typography.body, color: appearance.foregroundColor }} numberOfLines={2}>{value.title}</Text>
+          <View style={{ flex: 1, gap: 4 }}><Text style={{ ...typography.body, color: appearance.foregroundColor }} numberOfLines={2}>{title}</Text>
             <Text style={{ ...typography.caption, color: colors.muted }} numberOfLines={1}>{value.recurrence !== 'none' && item.draft.scope === 'series' ? recurrenceLabel(value) : formatJapaneseDate(value.startDate, { year: true, weekday: false })}{value.allDay ? ' · 終日' : ` ${minuteLabel(value.startMinute)}`}</Text>
             {value.location ? <Text style={{ ...typography.caption, color: colors.muted }} numberOfLines={1}>{value.location}</Text> : null}
           </View><Chevron color={colors.accent} />

@@ -55,6 +55,7 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} distant calendars display saved appointments without calculating or requesting housework outside the two-month horizon`, async t => {
     t.mock.timers.enable({ apis: ['setTimeout'] }); const requested = [];
     const far = { ...newEventDraft('2027-11-07', 'Asia/Tokyo'), id: 'future-saved', revision: 1, title: '保存済みの来年の予定' };
+    const original = structuredClone(far);
     const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform,
       effectDependencies: true, effect: work => work(), props: {
         today, timeZone: 'Asia/Tokyo', onMonth: day => requested.push(day), monthLoaded: () => false,
@@ -63,7 +64,9 @@ for (const platform of ['ios', 'android']) {
       } });
     await screen.press('表示する年と月を選択'); await screen.press('2027年'); await screen.press('11月'); await screen.press('2027年11月へ移動');
     t.mock.timers.tick(300); await screen.flush();
-    assert.deepEqual(requested, []); assert.ok(screen.text().includes(far.title));
+    assert.deepEqual(requested, []); assert.ok(screen.text().includes('保存済みの予定'));
+    screen.button('保存済みの予定、2027-11-07の予定');
+    assert.deepEqual(far, original, 'shortening the visible relative date keeps the complete saved appointment');
     const day = screen.nodes().find(node => node.props.accessibilityLabel?.startsWith('2027年11月7日、'));
     assert.ok(day); assert.doesNotMatch(day.props.accessibilityLabel, /家事|読込|未取得/);
     screen.unmount(); t.mock.timers.reset();

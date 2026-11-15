@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from '@/components/screen-safe-area';
 import { navigationHeaderMetrics, palette, typography } from '../../components/planner-ui';
 import { FormTextInput } from '../../components/form-text-input';
@@ -18,6 +18,7 @@ export function CustomRecurrenceScreen({ date, initial, onBack, onSave }: {
   date: LocalDate; initial?: CustomRecurrence; onBack: () => void; onSave: (rule: CustomRecurrence) => Promise<void>;
 }) {
   const styles = usePlannerBorderStyles(baseStyles);
+  const { fontScale } = useWindowDimensions();
   const [rule, setRule] = useState(() => initial ?? defaultCustomRecurrence(date)); const [interval, setInterval] = useState(String(rule.interval));
   const latest = useRef({ rule, interval }); const lock = useRef(false); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
   const [picker, setPicker] = useState<'ordinal' | 'weekday' | null>(null);
@@ -66,8 +67,18 @@ export function CustomRecurrenceScreen({ date, initial, onBack, onSave }: {
             <Pressable accessibilityRole="button" accessibilityLabel="月の週を選択" disabled={busy} onPress={() => { chooseMonthlyWeekday(); setPicker('ordinal'); }} style={styles.select}><Text style={styles.value}>{monthOrdinal === -1 ? '最後' : `第${monthOrdinal}`}</Text><Chevron direction="down" /></Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel="月の曜日を選択" disabled={busy} onPress={() => { chooseMonthlyWeekday(); setPicker('weekday'); }} style={styles.select}><Text style={styles.value}>{WEEKDAY_NAMES[monthWeekday]}曜日</Text><Chevron direction="down" /></Pressable>
           </View>
+          <Pressable accessibilityRole="radio" accessibilityLabel="複数の日付を指定" accessibilityState={{ selected: rule.on === 'dates', checked: rule.on === 'dates', disabled: busy }} disabled={busy}
+            onPress={() => update({ unit: 'month', interval: rule.interval, on: 'dates', days: rule.on === 'dates' ? rule.days : [parseLocalDate(date).getUTCDate()] })} style={[styles.monthChoice, styles.multipleChoice]}>
+            <View aria-hidden style={[styles.radio, rule.on === 'dates' && styles.radioSelected]}>{rule.on === 'dates' ? <View style={styles.radioDot} /> : null}</View><Text style={styles.value}>複数の日付</Text>
+          </Pressable>
         </View>
-        {rule.on === 'weekday' && rule.ordinal === 5 || rule.on === 'date' && parseLocalDate(date).getUTCDate() > 28 ? <Text style={styles.caption}>指定の日がない月はスキップします。</Text> : null}</View> : null}
+        {rule.on === 'dates' ? <View style={styles.monthDays}>{Array.from({ length: 31 }, (_, index) => index + 1).map(day => <Pressable key={day} accessibilityRole="button" accessibilityLabel={`${day}日に繰り返す`}
+          accessibilityState={{ selected: rule.days.includes(day), disabled: busy }} disabled={busy}
+          onPress={() => { const current = latest.current.rule; if (current.unit === 'month' && current.on === 'dates') update({ ...current, days: current.days.includes(day) ? current.days.filter(value => value !== day) : [...current.days, day].sort((a, b) => a - b) }); }}
+          style={({ pressed }) => [styles.monthDay, { width: Math.ceil(44 * Math.max(1, fontScale)) }, rule.days.includes(day) && styles.monthDaySelected, pressed && !busy && { opacity: .7 }]}>
+          <Text style={styles.dayNumber}>{day}</Text>
+        </Pressable>)}</View> : null}
+        {rule.on === 'weekday' && rule.ordinal === 5 || rule.on === 'date' && parseLocalDate(date).getUTCDate() > 28 || rule.on === 'dates' && rule.days.some(day => day > 28) ? <Text style={styles.caption}>指定の日がない月はスキップします。</Text> : null}</View> : null}
       {rule.unit === 'year' && date.slice(5) === '02-29' ? <Text style={styles.caption}>うるう年に繰り返します。</Text> : null}
     </ScrollView>
     {picker && rule.unit === 'month' && rule.on === 'weekday' ? <CalendarOptionPicker title={picker === 'ordinal' ? '週' : '曜日'} value={String(picker === 'ordinal' ? rule.ordinal : rule.weekday)} options={picker === 'ordinal' ? ordinalOptions : weekdayOptions} onClose={() => setPicker(null)}
@@ -79,5 +90,8 @@ const baseStyles = StyleSheet.create({
   body: { padding: 16, gap: 24 }, field: { gap: 12 }, intervalGroup: { gap: 20 }, label: { ...typography.label, color: palette.ink, fontWeight: '600' },
   intervalRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, number: { width: 64, minHeight: 46, paddingHorizontal: 4, backgroundColor: palette.surface, borderWidth: 1, borderColor: palette.inputBorder, borderRadius: 10, textAlign: 'center', fontVariant: ['tabular-nums'] },
   monthChoices: { borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border }, monthChoice: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 6 }, monthWeekday: { paddingLeft: 0, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border }, radioTarget: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }, radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, borderColor: palette.inputBorder, alignItems: 'center', justifyContent: 'center' }, radioSelected: { borderColor: palette.accent }, radioDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: palette.accent },
+  multipleChoice: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border }, monthDays: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
+  monthDay: { minHeight: 44, borderWidth: 1, borderColor: palette.inputBorder, borderRadius: 20, alignItems: 'center', justifyContent: 'center', paddingVertical: 6 },
+  monthDaySelected: { borderColor: palette.accent, backgroundColor: palette.accentSoft }, dayNumber: { ...typography.body, color: palette.accent },
   select: { flex: 1, minHeight: 46, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: palette.inputBorder, borderRadius: 12 }, value: { ...typography.body, color: palette.ink }, caption: { ...typography.caption, color: palette.muted }, error: { ...typography.body, color: palette.warning },
 });

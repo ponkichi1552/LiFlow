@@ -14,8 +14,9 @@ export const V2_ENTITY_TYPES = ['groupPolicy', 'chorePolicy', 'datePermission', 
   'claimResolution', 'assignmentRequest', 'assignmentDecision', 'assignmentCancel', 'designation', 'designationCancel', 'changeRequest', 'requestDecision', 'completionApproval', 'migration', 'calendarEvent', 'manualChunk', 'manualDocument', 'historyRetention', 'retainedCompletionUndo'] as const;
 export type V2EntityType = typeof V2_ENTITY_TYPES[number];
 export const V2_SCHEMA_VERSION = 2;
-export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-57';
-export const supportsOneOffChores = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-56';
+export const V2_SCHEDULER_VERSION = 'liflow-shared-2-draft-58';
+export const supportsCalendarMonthDates = (version: string): boolean => version === V2_SCHEDULER_VERSION || version === 'liflow-shared-2-draft-58';
+export const supportsOneOffChores = (version: string): boolean => supportsCalendarMonthDates(version) || version === 'liflow-shared-2-draft-57' || version === 'liflow-shared-2-draft-56';
 export const supportsHistoryRetention = supportsOneOffChores;
 export const supportsMonthlyChores = (version: string): boolean => supportsOneOffChores(version) || version === 'liflow-shared-2-draft-55';
 export const supportsChoreRotation = (version: string): boolean => supportsMonthlyChores(version) || version === 'liflow-shared-2-draft-54';

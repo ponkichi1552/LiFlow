@@ -4,4 +4,8 @@ export * from '../../domain/calendar/events.ts';
 
 /** Source classification belongs only to the private Google projection. */
 export interface CalendarEvent extends CommonCalendarEvent { holiday?: boolean }
-export interface CalendarOccurrence extends CommonCalendarOccurrence { holiday?: boolean; original?: CalendarOccurrence }
+export interface CalendarOccurrence extends CommonCalendarOccurrence {
+  holiday?: boolean; original?: CalendarOccurrence;
+  /** Ephemeral presentation only. Saved and editable titles remain verbatim. */
+  displayTitle?: string;
+}

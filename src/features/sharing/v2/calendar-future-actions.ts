@@ -9,6 +9,7 @@ import { v2ReadPoint } from './view-point.ts';
 import type { V2CalendarCommand } from './calendar-actions';
 import type { SharedOperation } from '../operations';
 import type { SharedOperationDraft } from '../../../platform/storage/sharing-ledger';
+import { assertCalendarMonthDatesCompatibility } from './calendar-compatibility.ts';
 
 const ids = (rows: readonly SharedOperation[]) => rows.map(row => row.operationId).sort();
 const exceptionIds = (record: SharedCalendarRecord) => record.exceptions.flatMap(row => ids(row.heads)).sort();
@@ -37,6 +38,7 @@ export function createV2CalendarFutureActions(repository: ReturnType<typeof crea
       if (input.scope !== 'future' || !input.eventId || !input.anchorDate || !input.value || !input.category || input.resetExceptions) throw new Error('変更する繰り返しの範囲を確認してください。');
       const commit = input.intentId ? repository.commitCalendarIntent.bind(repository, { id: input.intentId, digest: digest(input, repository.scope) }) : repository.commitCurrent;
       return commit(async state => {
+        assertCalendarMonthDatesCompatibility(input.value, state.archive.at(-1)!.body.schedulerVersion);
         const current = readSharedCalendar(state.assessment.view, v2ReadPoint(state.assessment.view, state.archive.at(-1)!), input.eventId)[0];
         if (!current || current.heads.length !== 1 || input.basisRevision !== JSON.stringify([ids(current.heads), ids(current.heads)]) || !sameIds(exceptionIds(current), input.expectedExceptionIds ?? [])) throw new Error('共有予定が更新されています。再読込してください。');
         if (current.exceptions.some(row => row.heads.length !== 1)) throw new Error('個別変更が競合しています。予定を確認してください。');
@@ -57,6 +59,8 @@ export function createV2CalendarFutureActions(repository: ReturnType<typeof crea
     undoCalendarFutureEvent(command: CalendarFutureUndoCommand) {
       const input = captureV2Input(command);
       return repository.commitCalendarIntent({ id: input.intentId, digest: sharedDocumentDigest({ kind: 'undo-calendar-future', ...input }) }, async state => {
+        assertCalendarMonthDatesCompatibility(input.sourceValue, state.archive.at(-1)!.body.schedulerVersion);
+        for (const row of input.exceptions) assertCalendarMonthDatesCompatibility(row.value, state.archive.at(-1)!.body.schedulerVersion);
         const records = readSharedCalendar(state.assessment.view, v2ReadPoint(state.assessment.view, state.archive.at(-1)!));
         const source = records.find(row => row.id === input.sourceId), branch = records.find(row => row.id === input.branchId);
         if (!source || !branch || !sameIds(ids(source.heads), input.sourceHeads) || !sameIds(exceptionIds(source), input.sourceExceptions)

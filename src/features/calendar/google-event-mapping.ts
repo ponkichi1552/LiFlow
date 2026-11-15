@@ -5,6 +5,7 @@ import { addDays, daysBetween, monthDates, parseLocalDate } from '../../domain/s
 import { calendarWeekday, customRecurrenceDates } from '../../domain/calendar/recurrence.ts';
 import { v2WallTimeCandidates } from '../sharing/v2/local-time.ts';
 import { localDayBoundary } from './local-day-boundary.ts';
+import { calendarTitleLabel } from './title-datetime.ts';
 
 const days = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 export function googleEventDateTime(date: LocalDate, minute: number, timeZone: string): string {
@@ -29,11 +30,11 @@ function firstAnchor(value: EventDraft): LocalDate | null {
   throw new Error('繰り返しの最初の日付を確認してください。');
 }
 /** null means a finite rule has no occurrences; it must not create a phantom start. */
-export function googleEventBody(input: EventDraft, instance = false): Record<string, unknown> | null {
+export function googleEventBody(input: EventDraft, instance = false, shortenTitle = false): Record<string, unknown> | null {
   const original = validateEventDraft(input); const first = instance ? original.startDate : firstAnchor(original);
   if (!first) return null;
   const value = { ...original, startDate: first, endDate: addDays(first, daysBetween(original.startDate, original.endDate)) };
-  const body: Record<string, unknown> = { summary: value.title, location: value.location, description: value.notes,
+  const body: Record<string, unknown> = { summary: calendarTitleLabel(value.title, original.startDate, shortenTitle), location: value.location, description: value.notes,
     start: value.allDay ? { date: value.startDate } : { dateTime: googleEventDateTime(value.startDate, value.startMinute, value.timeZone), timeZone: value.timeZone },
     end: value.allDay ? { date: addDays(value.endDate, 1) } : { dateTime: googleEventDateTime(value.endDate, value.endMinute, value.timeZone), timeZone: value.timeZone },
     transparency: value.birthday ? 'transparent' : 'opaque' };
@@ -44,6 +45,7 @@ export function googleEventBody(input: EventDraft, instance = false): Record<str
   const parts = [`FREQ=${({ day: 'DAILY', week: 'WEEKLY', month: 'MONTHLY', year: 'YEARLY' })[rule.unit]}`, `INTERVAL=${rule.interval}`];
   if ('weekdays' in rule) parts.push(`BYDAY=${rule.weekdays.map(day => days[day]).join(',')}`, 'WKST=SU');
   if ('on' in rule && rule.on === 'weekday') parts.push(`BYDAY=${rule.ordinal}${days[rule.weekday]}`);
+  if ('on' in rule && rule.on === 'dates') parts.push(`BYMONTHDAY=${rule.days.join(',')}`);
   if (value.untilDate) {
     const until = value.allDay ? value.untilDate.replaceAll('-', '')
       : new Date(localDayBoundary(addDays(value.untilDate, 1), value.timeZone) - 1000).toISOString().replaceAll(/[-:]/gu, '').replace('.000', '');

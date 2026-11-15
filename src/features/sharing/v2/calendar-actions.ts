@@ -10,6 +10,7 @@ import type { JsonValue } from '../operations';
 import { sharedDocumentDigest } from '../crypto.ts';
 import { captureV2Input } from './input-capture.ts';
 import { rebasedCalendarExceptionDate } from '../../../domain/calendar/exception-slots.ts';
+import { assertCalendarMonthDatesCompatibility } from './calendar-compatibility.ts';
 
 export interface V2CalendarCommand { eventId?: string; basisRevision?: string; scope: 'one' | 'future' | 'series'; anchorDate: LocalDate | null;
   value: EventDraft | null; category: CalendarCategory | null; resetExceptions?: boolean; expectedExceptionIds?: readonly string[] }
@@ -34,6 +35,7 @@ export function createV2CalendarActions(repository: ReturnType<typeof createV2Ev
         const heads = row?.heads.map(row => row.operationId).sort() ?? [];
         if (!current || !row || current.heads.length !== 1 || input.basisRevision !== JSON.stringify([series, heads])) throw new Error('共有予定が更新されています。再読込してください。');
         const original = current.heads[0].payload as unknown as SharedCalendarPayload;
+        assertCalendarMonthDatesCompatibility(original.value, state.archive.at(-1)!.body.schedulerVersion);
         const operationId = makeId();
         const payload: SharedCalendarPayload = { eventId: current.id, scope: 'series', anchorDate: null,
           basisOperationIds: series, value: original.value, category: original.category, resetExceptionIds: heads };
@@ -60,6 +62,7 @@ export function createV2CalendarActions(repository: ReturnType<typeof createV2Ev
       }
       const operationId = makeId();
       const value = input.value ? validateEventDraft(input.value) : null;
+      assertCalendarMonthDatesCompatibility(value, state.archive.at(-1)!.body.schedulerVersion);
       if (value && !input.category) throw new Error('共有する分類を選んでください。');
       const payload: SharedCalendarPayload = { eventId: input.eventId ?? operationId, scope, anchorDate: input.anchorDate,
         basisOperationIds: basis, value, category: value ? { id: input.category!.id, name: input.category!.name, color: input.category!.color } : null,

@@ -22,6 +22,8 @@ export interface PersonalGoogleLink {
 }
 export interface PersonalGoogleWriteIntent {
   payload: Record<string, unknown>; owned: string; revision: number;
+  /** Raw local fields represented by this exact request, independent of its Google title label. */
+  localOwned?: string;
 }
 export interface PersonalGoogleItem {
   eventId: string; anchor: string; revision: number; value: EventDraft | null; link: PersonalGoogleLink | null;
@@ -50,11 +52,35 @@ export async function localGoogleItem(tx: SQLiteDatabase, eventId: string, ancho
   // A structural series edit/reset removes the exception row. Restore this Google instance to the current series body.
   return projectStoredGoogleItem({ ...master, override_json: instance?.override_json, exception_revision: instance?.revision }, eventId, anchor);
 }
-export function personalGoogleBody(item: PersonalGoogleItem) {
-  const value = item.value ? googleEventBody(item.value, Boolean(item.anchor)) : null;
+export function personalGoogleBody(item: PersonalGoogleItem, shortenTitle = false) {
+  const value = item.value ? googleEventBody(item.value, Boolean(item.anchor), shortenTitle) : null;
   const source = item.revision < 0 ? item.inheritedRemoteJson ?? item.link?.remote_json : item.link?.remote_json;
   if (value && source && JSON.parse(source).transparency === 'transparent') value.transparency = 'transparent';
   return value ?? { status: 'cancelled' };
+}
+/** A tombstone keeps its last raw title privately for a later Google undo. */
+export function personalGoogleLocalBaseline(owned: string, previous?: string | null): string {
+  const value = JSON.parse(owned) as { deleted?: boolean; title?: unknown };
+  if (!value.deleted || typeof value.title === 'string' || !previous) return owned;
+  const title = (JSON.parse(previous) as { title?: unknown }).title;
+  return typeof title === 'string' ? JSON.stringify({ deleted: true, title }) : owned;
+}
+/** Retained tombstone titles do not represent an outstanding content edit. */
+export function personalGoogleComparableBaseline(baseline: string | null | undefined): string | null | undefined {
+  return baseline && (JSON.parse(baseline) as { deleted?: boolean }).deleted ? googleOwnedFields({ status: 'cancelled' }) : baseline;
+}
+/** Restore only a title already represented by this link or a matching title proof. */
+function personalGoogleOriginalTitle(remote: GoogleCalendarEvent, localTitle: string | undefined, known: PersonalGoogleLink | null | undefined, parent: PersonalGoogleLink | null): string | undefined {
+  if (localTitle === undefined || remote.status === 'cancelled') return undefined;
+  const title = (json: string | null | undefined) => json ? (JSON.parse(json) as { title?: unknown }).title : undefined;
+  const previousTitle = title(known?.base_json) ?? title(parent?.base_json);
+  const originalTitle = title(known?.local_base_json) ?? title(parent?.local_base_json);
+  const marker = remote.extendedProperties?.private;
+  const ownTitleLabel = marker?.liflowPersonal && marker.liflowTitleProof === personalGoogleDigest([localTitle, remote.summary ?? '']);
+  const previousTitleLabel = typeof originalTitle === 'string' && marker?.liflowPersonal
+    && marker.liflowTitleProof === personalGoogleDigest([originalTitle, remote.summary ?? '']);
+  if (remote.summary === previousTitle || previousTitleLabel) return typeof originalTitle === 'string' ? originalTitle : localTitle;
+  return ownTitleLabel ? localTitle : undefined;
 }
 export async function listPersonalGoogleItems(tx: SQLiteDatabase, control: PersonalGoogleCalendarControl): Promise<PersonalGoogleItem[]> {
   const calendarIds = new Set(control.calendars.map(calendar => calendar.id));
@@ -150,7 +176,7 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
     if (remoteBody === intent.owned && (remote.status === 'cancelled' || marker && source.extendedProperties?.private?.liflowPersonal === marker)) {
       // This is evidence for the exact request that was sent, not for a later edit.
       // Preserve that later revision until it has its own Google acknowledgement.
-      known = { ...known, base_json: remoteBody, local_base_json: intent.owned, local_revision: intent.revision,
+      known = { ...known, base_json: remoteBody, local_base_json: personalGoogleLocalBaseline(intent.localOwned ?? intent.owned, known.local_base_json), local_revision: intent.revision,
         etag: remote.etag ?? known.etag, remote_json: JSON.stringify(source), pending_json: null };
       await writePersonalGoogleLink(tx, known);
     } else if (remoteBody === known.base_json) return 'unchanged';
@@ -173,9 +199,18 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
     await retireExpanded(); await writePersonalGoogleLink(tx, { ...known, base_json: remoteBody, remote_json: JSON.stringify(source), etag: remote.etag ?? known.etag, conflict_json: null }); return 'applied';
   }
   const localBody = local ? googleOwnedFields(personalGoogleBody({ ...local, link: known, inheritedRemoteJson: parentLink?.remote_json })) : null;
-  const localChanged = Boolean(known?.base_json && local && local.revision !== known.local_revision && localBody !== (known.local_base_json ?? known.base_json)
+  // A Google undo can restore a tombstone. Its original local definition is
+  // still stored, even though it is absent from the visible event projection.
+  const retained = local && !local.value && remote.status !== 'cancelled'
+    ? await tx.getFirstAsync<{ definition_json: string }>('SELECT definition_json FROM calendar_events WHERE id=?', eventId) : null;
+  const localTitle = local?.value?.title ?? (retained ? validateEventDraft(JSON.parse(retained.definition_json)).title : undefined);
+  // Compare the same raw representation on both sides before declaring a
+  // conflict. Independently converged edits must not conflict just on a label.
+  const originalTitle = personalGoogleOriginalTitle(source, localTitle, known, parentLink);
+  const comparableRemoteBody = originalTitle === undefined ? remoteBody : googleOwnedFields({ ...source, summary: originalTitle });
+  const localChanged = Boolean(known?.base_json && local && local.revision !== known.local_revision && localBody !== personalGoogleComparableBaseline(known.local_base_json ?? known.base_json)
     && !await isLegacyHiddenGoogleParent(tx,known,local));
-  if (known && local && localChanged && remoteBody !== known.base_json && localBody !== remoteBody) {
+  if (known && local && localChanged && remoteBody !== known.base_json && localBody !== comparableRemoteBody) {
     await writePersonalGoogleLink(tx, { ...known, etag: remote.etag ?? known.etag, remote_json: JSON.stringify(source), read_only: Number(readOnly),
       conflict_json: JSON.stringify({ revision: local.revision, remote: remoteBody, etag: remote.etag ?? null }) }); return 'applied';
   }
@@ -187,6 +222,8 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
     catch (error) { if (error instanceof GoogleEventExpansionRequired && !options.expanded) return 'expand'; throw error; }
     if (local?.value) body = { ...body, categoryId: local.value.categoryId,
       birthday: local.value.birthday && body.allDay && body.recurrence === 'yearly' && body.startDate === body.endDate };
+    // A manual Google rename no longer matches the stored label or proof.
+    if (originalTitle !== undefined) body.title = originalTitle;
   }
   let revision = local?.revision ?? 0;
   let modified = Boolean(local && known && known.read_only !== Number(readOnly));
@@ -195,7 +232,7 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
   const missingInstance = Boolean(anchor && local && local.revision < 0);
   const projectionMoved = known && (known.event_id !== eventId || known.anchor_date !== anchor);
   const unchangedProjection = local && known?.base_json === remoteBody && !localChanged && !missingInstance && !projectionMoved;
-  if (!pending && !unchangedProjection && (localBody !== remoteBody || missingInstance)) {
+  if (!pending && !unchangedProjection && (localBody !== comparableRemoteBody || missingInstance)) {
     if (!body && !local) return 'ignored';
     modified = true;
     if (anchor) {
@@ -214,7 +251,7 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
   if (known?.read_only && !options.expanded && !anchor && !pending) await retireExpanded();
   await writePersonalGoogleLink(tx, { subject: control.subject, calendar_id: calendar.id, google_id: remote.id, event_id: eventId, anchor_date: anchor,
     etag: remote.etag ?? known?.etag ?? null, base_json: remoteBody, local_revision: pending ? known!.local_revision : revision,
-    local_base_json: pending ? known!.local_base_json : googleOwnedFields(body ? { ...googleEventBody(body, Boolean(anchor)), ...(source.transparency === 'transparent' ? { transparency: 'transparent' } : {}) } : { status: 'cancelled' }),
+    local_base_json: pending ? known!.local_base_json : personalGoogleLocalBaseline(googleOwnedFields(body ? { ...googleEventBody(body, Boolean(anchor)), ...(source.transparency === 'transparent' ? { transparency: 'transparent' } : {}) } : { status: 'cancelled' }), known?.local_base_json ?? localBody),
     remote_json: JSON.stringify(source), conflict_json: null, read_only: readOnly ? 1 : 0 }, known);
   if (options.parentId) await tx.runAsync('INSERT OR REPLACE INTO calendar_google_expanded(subject,calendar_id,parent_id,google_id) VALUES(?,?,?,?)', control.subject, calendar.id, options.parentId, remote.id);
   return modified ? 'applied' : 'unchanged';

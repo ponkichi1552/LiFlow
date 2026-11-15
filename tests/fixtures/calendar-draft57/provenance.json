@@ -1,0 +1,18 @@
+{
+  "sourceCommit": "82b2d8da99e270392a03474807951d9c8cb1cc36",
+  "schedulerVersion": "liflow-shared-2-draft-57",
+  "files": {
+    "recurrence.ts.txt": {
+      "sourcePath": "src/domain/calendar/recurrence.ts",
+      "sha256": "a5abf92866836d2012100afa5d5c1f2791d5c3679a38d829162bd837df52442a"
+    },
+    "google-event-import.ts.txt": {
+      "sourcePath": "src/features/calendar/google-event-import.ts",
+      "sha256": "1f6f4d6e441d960377982bfa1aa093df913a0afe8b8da5567e78ac5db04459f1"
+    },
+    "payload-schema.ts.txt": {
+      "sourcePath": "src/features/sharing/v2/payload-schema.ts",
+      "sha256": "e0924927d0f7c9d0d6ec7214c3455324ed76498cdcc63f11086549cfc6b573bb"
+    }
+  }
+}

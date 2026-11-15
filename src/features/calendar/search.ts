@@ -5,6 +5,7 @@ import type { LocalDate } from '../../domain/shared/types';
 import { addDays, localDateFromDate } from '../../domain/scheduling/local-date.ts';
 import { normalizeSearchText, searchTerms } from '../../domain/search/normalized-search.ts';
 import { projectPrivateCalendarEvents } from './private-event-projection.ts';
+import { calendarTitleDisplay } from './title-display.ts';
 
 const normalize = normalizeSearchText;
 export interface CalendarSearchEntry { key: string; text: string; draft: CalendarEditorDraft }
@@ -31,15 +32,16 @@ export function searchCalendarWithChores(index: readonly CalendarSearchEntry[], 
 }
 
 /** Index only this binding's visible records, without fetching accounts or expanding recurring years. */
-export function calendarSearchIndex(events: readonly CalendarEvent[], exceptions: readonly CalendarException[]): CalendarSearchEntry[] {
+export function calendarSearchIndex(events: readonly CalendarEvent[], exceptions: readonly CalendarException[], referenceDate: LocalDate = localDateFromDate(new Date())): CalendarSearchEntry[] {
   const appointments = events.filter(event => !event.holiday);
   const byId = new Map(appointments.map(event => [event.id, event]));
-  const rows: CalendarSearchEntry[] = appointments.map(event => ({ key: `series:${event.id}`, text: normalize(`${event.title}\n${event.location}\n${event.notes}`),
+  const text = (value: CalendarEvent | CalendarEditorDraft['value']) => normalize(`${value.title}\n${calendarTitleDisplay.label(value.title, referenceDate)}\n${value.location}\n${value.notes}`);
+  const rows: CalendarSearchEntry[] = appointments.map(event => ({ key: `series:${event.id}`, text: text(event),
     draft: { eventId: event.id, revision: event.revision, exceptionRevision: 0, anchorDate: null, scope: 'series', value: event } }));
   for (const exception of exceptions) {
     const event = byId.get(exception.eventId); if (!event || !exception.override || !isCalendarAnchor(event, exception.anchorDate)) continue;
     const value = exception.override;
-    rows.push({ key: `one:${event.id}:${exception.anchorDate}`, text: normalize(`${value.title}\n${value.location}\n${value.notes}`),
+    rows.push({ key: `one:${event.id}:${exception.anchorDate}`, text: text(value),
       draft: { eventId: event.id, revision: event.revision, exceptionRevision: exception.revision, anchorDate: exception.anchorDate, scope: 'one', value } });
   }
   return rows.sort((a, b) => b.draft.value.startDate.localeCompare(a.draft.value.startDate) || a.key.localeCompare(b.key));

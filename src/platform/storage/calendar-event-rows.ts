@@ -11,6 +11,7 @@ const validated = new WeakMap<SQLiteDatabase, { events: Map<string, ValidatedRow
 // Never hand a cached object (including custom weekdays) to an editable caller.
 const copy = (value: EventDraft): EventDraft => ({ ...value, ...(value.customRecurrence ? { customRecurrence: {
   ...value.customRecurrence, ...(value.customRecurrence.unit === 'week' ? { weekdays: [...value.customRecurrence.weekdays] } : {}),
+  ...(value.customRecurrence.unit === 'month' && value.customRecurrence.on === 'dates' ? { days: [...value.customRecurrence.days] } : {}),
 } } : {}) });
 
 /** Caller supplies a verified personal DB/serialized transaction; no cloud or UI imports. */

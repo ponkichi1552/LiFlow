@@ -34,11 +34,11 @@ test('calendar title weekly and monthly expressions choose the first matching ci
 
 test('calendar title recurrence refuses incomplete conflicting excluded and unsupported period expressions', () => {
   for (const title of ['毎週', '毎月', '毎月21', '毎週18時', '毎月21時', '毎週火鍋を食べる18時',
-    '毎月0日', '毎月32日', '毎月121日', '毎月21日間', '毎月21日か22日', '毎月21日と22日',
-    '毎週火曜日と木曜日', '毎週火・木', '毎週火曜日以外', '毎週火曜日は除く',
+    '毎月0日', '毎月32日', '毎月121日', '毎月21日間', '毎月21日か22日',
+    '毎週火曜日以外', '毎週火曜日は除く',
     '毎週火曜日ではなく', '毎週火曜日じゃなく', '毎週火曜日の前日', '毎月21日より前',
     '毎週火曜日と毎月21日', '来週水曜日から毎週火曜日', '12月22日から毎月21日',
-    '毎月31日24時', '毎月21日24時', '毎日18時', '毎年1月1日', '隔週火曜日',
+    '毎月31日24時', '毎月21日24時', '毎日18時', '隔週火曜日',
     '毎週火曜日18時か19時', '毎週火曜日終日18時']) {
     assert.equal(parseTitleDateTime(title, today, selected), null, title);
   }

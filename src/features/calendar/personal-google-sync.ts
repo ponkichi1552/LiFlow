@@ -7,7 +7,7 @@ import { canReadGoogleCalendar, canWriteGoogleCalendar, GoogleCalendarHttpError,
 import type { GoogleCalendarApi, GoogleCalendarEvent, GoogleCalendarListEntry } from '../../platform/google-calendar/calendar-api';
 import { connectPersonalGoogleCalendar, disablePersonalGoogleCalendar, readPersonalGoogleCalendarControl, refreshPersonalGoogleCalendars, updatePersonalGoogleCalendarStatus, withPersonalGoogleCalendar } from '../../platform/storage/personal-google-calendar.ts';
 import type { PersonalGoogleCalendarControl } from '../../platform/storage/personal-google-calendar';
-import { googleReadOnlyInstance, isLegacyHiddenGoogleParent, listPersonalGoogleItems, localGoogleItem, personalGoogleBody, personalGoogleDigest, receivePersonalGoogleEvent, writePersonalGoogleLink } from '../../platform/storage/personal-google-store.ts';
+import { googleReadOnlyInstance, isLegacyHiddenGoogleParent, listPersonalGoogleItems, localGoogleItem, personalGoogleBody, personalGoogleComparableBaseline, personalGoogleDigest, personalGoogleLocalBaseline, receivePersonalGoogleEvent, writePersonalGoogleLink } from '../../platform/storage/personal-google-store.ts';
 import { findGoogleCalendarInstance } from './google-instance.ts';
 import { desiredGoogleExpansionRange, googleRangeContains, missingGoogleExpansionRanges, mergeGoogleExpansionRanges, retainGoogleDisplayRange } from '../../platform/storage/personal-google-ranges.ts';
 import type { PersonalGoogleLink, PersonalGoogleWriteIntent } from '../../platform/storage/personal-google-store';
@@ -24,7 +24,7 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
   hasSession?(subject: string): Promise<boolean>;
   authorize(): Promise<{ subject: string; label: string }>;
   createApi(context: { subject: string; assertCurrent(): Promise<void>; signal: AbortSignal }): GoogleCalendarApi;
-  today(): LocalDate; now?: () => number; random?: () => number }) {
+  today(): LocalDate; readTitleShortening?(): boolean; now?: () => number; random?: () => number }) {
   const now = input.now ?? Date.now; const random = input.random ?? Math.random;
   let running: Promise<Result> | null = null; let activeBudget: ReturnType<typeof createGoogleOperationBudget> | undefined;
   const followups = new WeakMap<Promise<Result>, { promise: Promise<Result>; budget: ReturnType<typeof createGoogleOperationBudget> }>();
@@ -132,7 +132,7 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
                 const existing = await tx.getFirstAsync<PersonalGoogleLink>('SELECT * FROM calendar_google_links WHERE subject=? AND calendar_id=? AND google_id=?', control.subject, calendar.id, parentId);
                 const local = existing && await localGoogleItem(tx, existing.event_id);
                 // Do not discard an offline local series edit to adopt an unrepresentable remote RRULE.
-                if (existing?.base_json && local && local.revision !== existing.local_revision && googleOwnedFields(personalGoogleBody({ ...local, link: existing })) !== (existing.local_base_json ?? existing.base_json)
+                if (existing?.base_json && local && local.revision !== existing.local_revision && googleOwnedFields(personalGoogleBody({ ...local, link: existing })) !== personalGoogleComparableBaseline(existing.local_base_json ?? existing.base_json)
                   && !await isLegacyHiddenGoogleParent(tx,existing,local)) {
                   await writePersonalGoogleLink(tx, { ...existing, remote_json: JSON.stringify(original), conflict_json: JSON.stringify({ revision: local.revision, etag: original.etag, remote: googleOwnedFields(original), readOnly: true }) }); return;
                 }
@@ -287,11 +287,12 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
           const items = await transact(tx => listPersonalGoogleItems(tx, control));
           localCandidates = items.length;
           for (const item of items) {
-            budget.assert(); let body = personalGoogleBody(item); let owned = googleOwnedFields(body);
+            budget.assert(); let localOwned = personalGoogleLocalBaseline(googleOwnedFields(personalGoogleBody(item)), item.link?.local_base_json);
+            let body = personalGoogleBody(item, input.readTitleShortening?.() ?? true); let owned = googleOwnedFields(body);
             if (!item.link?.pending_json && item.link?.local_revision === item.revision) continue;
-            if (!item.link?.pending_json && item.link?.local_base_json === owned) {
+            if (!item.link?.pending_json && (item.link?.local_base_json === localOwned || item.link?.base_json === owned)) {
               // A local category-only edit needs no Google write and no repeated reprocessing next pass.
-              await transact(tx => writePersonalGoogleLink(tx, { ...item.link!, local_revision: item.revision })); continue;
+              await transact(tx => writePersonalGoogleLink(tx, { ...item.link!, local_base_json: localOwned, local_revision: item.revision })); continue;
             }
             let link = item.link;
             const calendarId = link?.calendar_id ?? control.targetCalendarId!;
@@ -307,7 +308,8 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
               link.local_base_json = null;
               // The instance can have its own availability. Build the PATCH and
               // its acknowledgement from the resolved instance, not a placeholder.
-              body = personalGoogleBody({ ...item, link }); owned = googleOwnedFields(body);
+              body = personalGoogleBody({ ...item, link }, input.readTitleShortening?.() ?? true); owned = googleOwnedFields(body);
+              localOwned = personalGoogleLocalBaseline(googleOwnedFields(personalGoogleBody({ ...item, link })), link.local_base_json ?? item.link?.local_base_json);
               await transact(tx => writePersonalGoogleLink(tx, link!));
             }
             if (!link) {
@@ -323,8 +325,10 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
               link = { ...link, google_id: `lf${personalGoogleDigest([control.subject, calendarId, item.eventId, 'restore', item.revision])}`, etag: null, base_json: null, remote_json: null };
               await transact(tx => tx.runAsync('UPDATE calendar_google_links SET google_id=?,etag=NULL,base_json=NULL,remote_json=NULL WHERE subject=? AND calendar_id=? AND google_id=?', link!.google_id, control.subject, calendarId, previousId));
             }
-            let payload: Record<string, unknown> = { ...body, ...(item.value ? { status: 'confirmed' } : {}), extendedProperties: { private: { ...prior?.extendedProperties?.private, liflowPersonal: tag } } };
-            const intent: PersonalGoogleWriteIntent = link.pending_json ? JSON.parse(link.pending_json) : { payload, owned, revision: item.revision };
+            let payload: Record<string, unknown> = { ...body, ...(item.value ? { status: 'confirmed' } : {}), extendedProperties: { private: { ...prior?.extendedProperties?.private, liflowPersonal: tag,
+              ...(item.value && item.value.title !== body.summary ? { liflowTitleProof: personalGoogleDigest([item.value.title, body.summary ?? '']) }
+                : prior?.extendedProperties?.private?.liflowTitleProof ? { liflowTitleProof: null } : {}) } } };
+            const intent: PersonalGoogleWriteIntent = link.pending_json ? JSON.parse(link.pending_json) : { payload, owned, localOwned, revision: item.revision };
             payload = intent.payload; owned = intent.owned;
             link = { ...link, pending_json: JSON.stringify(intent) };
             await transact(tx => writePersonalGoogleLink(tx, link!));
@@ -354,7 +358,7 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
             }
             if (!remote.id || payload.status !== 'cancelled' && !remote.etag) throw new Error('Googleの保存結果を確認できません。');
             const accepted = { ...link!, google_id: remote.id, etag: remote.etag ?? link!.etag,
-              base_json: googleOwnedFields(remote), local_base_json: owned, remote_json: JSON.stringify(remote), local_revision: intent.revision, conflict_json: null, pending_json: null };
+              base_json: googleOwnedFields(remote), local_base_json: personalGoogleLocalBaseline(intent.localOwned ?? owned, link.local_base_json), remote_json: JSON.stringify(remote), local_revision: intent.revision, conflict_json: null, pending_json: null };
             await transact(tx => writePersonalGoogleLink(tx, accepted)); sent++;
             if (intent.revision !== item.revision) items.push({ ...item, link: accepted });
           }
@@ -420,9 +424,14 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
         if (choice === 'local' && !canWriteGoogleCalendar(calendar)) throw new Error('このカレンダーはGoogle側で変更してください。');
         const remote = JSON.parse(link.remote_json!) as GoogleCalendarEvent;
         if (choice === 'local' && remote.locked === true) throw new Error('この予定はGoogle側で変更してください。');
+        const intent = link.pending_json ? JSON.parse(link.pending_json) as PersonalGoogleWriteIntent : null;
+        const googleLocalBase = intent ? personalGoogleLocalBaseline(intent.localOwned ?? intent.owned, link.local_base_json) : link.local_base_json;
         await writePersonalGoogleLink(tx, { ...link, pending_json: null, conflict_json: null, read_only: choice === 'local' ? 0 : link.read_only,
-          local_base_json: choice === 'google' ? googleOwnedFields(personalGoogleBody({ ...local, link })) : link.local_base_json,
-          base_json: choice === 'local' ? googleOwnedFields(remote) : googleOwnedFields(personalGoogleBody({ ...local, link })), local_revision: 0 });
+          // Keep the raw/wire pair represented by the chosen Google version.
+          // Suppress only the reviewed local edit while the inbox applies it.
+          local_base_json: choice === 'google' ? googleLocalBase : link.local_base_json,
+          base_json: choice === 'local' ? googleOwnedFields(remote) : intent?.owned ?? link.base_json,
+          local_revision: choice === 'google' ? local.revision : 0 });
         if (choice === 'google') await tx.runAsync(`INSERT INTO calendar_google_inbox(subject,calendar_id,google_id,event_json,dirty) VALUES(?,?,?,?,1)
           ON CONFLICT(subject,calendar_id,google_id) DO UPDATE SET event_json=excluded.event_json,dirty=1`, control.subject, calendar.id, remote.id, JSON.stringify(remote));
         if (await input.currentSubject() !== control.subject) throw new GoogleAccountMismatchError();
