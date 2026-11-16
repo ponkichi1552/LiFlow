@@ -114,6 +114,8 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   const [height, setHeight] = useState(600); const rowHeight = calendarMonthContentHeight(Math.floor(height / density.weeks), density.maxEvents);
   const [expanded, setExpanded] = useState(new Set<LocalDate>()); const [listDays, setListDays] = useState(28);
   const [choreContentHeights, setChoreContentHeights] = useState<Record<string, number>>({});
+  const [allDayContentHeights, setAllDayContentHeights] = useState<Record<string, number>>({});
+  const activeAllDayMeasurements = useRef<ReadonlySet<string>>(new Set());
   const [dayHeadingHeight, setDayHeadingHeight] = useState(0);
   const [timelineWidth, setTimelineWidth] = useState(width - timeGutter);
   const monthViewport = useRef<CalendarMonthViewport | null>(null); const monthScrollOffset = useRef(0); const viewportHost = useRef<ComponentRef<typeof View>>(null);
@@ -480,6 +482,31 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
               {day === today ? <View pointerEvents="none" style={[styles.now, { top: currentMinute / 60 * hourHeight }]}><View style={styles.nowDot} />{view !== 'week' ? <Text style={styles.nowLabel}>現在 {minuteLabel(currentMinute)}</Text> : null}</View> : null}
   </>;
   const dayList = Array.from({ length: view === 'three' ? 3 : view === 'two' ? 2 : 1 }, (_, i) => addDays(date, i));
+  const allDayColumns = view === 'day' || view === 'two' || view === 'three' ? dayList.map(day => {
+    const rows = eventsOn(day).filter(event => event.allDay && !event.birthday && !event.holiday);
+    // Delayed measurements belong to their exact rows and column width, never a later date's content.
+    const measurement = JSON.stringify([view, width, fontScale, timeZone, rows.map(event => [event.id, event.eventRevision, event.exceptionRevision,
+      calendarDisplayedTitle(event), event.location, event.timeZone, event.original?.timeZone])]);
+    return { day, rows, measurement };
+  }) : [];
+  useLayoutEffect(() => { activeAllDayMeasurements.current = new Set(allDayColumns.filter(column => column.rows.length).map(column => column.measurement)); });
+  const measureAllDay = (measurement: string, contentHeight: number) => {
+    if (!activeAllDayMeasurements.current.has(measurement)) return;
+    setAllDayContentHeights(before => {
+      const active = activeAllDayMeasurements.current;
+      if (!active.has(measurement)) return before;
+      const retained = Object.entries(before).filter(([key]) => active.has(key));
+      if (before[measurement] === contentHeight && retained.length === Object.keys(before).length) return before;
+      return { ...Object.fromEntries(retained), [measurement]: contentHeight };
+    });
+  };
+  const hasAllDay = allDayColumns.some(column => column.rows.length > 0);
+  const expandedChores = dayList.some(day => showChores(day) && expanded.has(day));
+  const fixedSpace = Math.max(0, height - dayHeadingHeight - Math.min(120, height * .25));
+  const allDayHeight = hasAllDay ? Math.min(height * .3, fixedSpace * (expandedChores ? .5 : 1),
+    Math.max(...allDayColumns.map(column => column.rows.length ? allDayContentHeights[column.measurement] ?? column.rows.length * baseStyles.eventRow.minHeight : 0))) : 0;
+  const choreHeight = expandedChores ? Math.max(0, Math.min(height * .65, fixedSpace - allDayHeight,
+    Math.max(...dayList.filter(day => expanded.has(day)).map(day => choreContentHeights[day] ?? height * .65)))) : 0;
   const positionTime = () => {
     const key = `${view}:${date}`; if (positioned.current === key || timelineTop.current === null || timelineViewport.current <= 0) return;
     positioned.current = key;
@@ -627,18 +654,25 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
           renderSummary={day => <>{eventsOn(day).filter(event => event.allDay && !event.birthday && !event.holiday).map(event => { const appearance = appearances.get(event.categoryId) ?? fallbackAppearance; return <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${calendarDisplayedTitle(event)}、終日予定を編集`} onPress={() => openEvent(event)} style={[styles.weekAllDay, { backgroundColor: appearance.backgroundColor }]}><CalendarMonthEventTitle title={calendarDisplayedTitle(event)} color={appearance.foregroundColor} backgroundColor={appearance.backgroundColor} lines={2} centerSingleLine={false} onOverflow={() => {}} /></Pressable>; })}{summaryDetails(day)}</>}
           renderDay={timedDay} />
         : <><View testID="calendar-fixed-day-heading" onLayout={event => setDayHeadingHeight(event.nativeEvent.layout.height)} style={[styles.dayColumns, styles.fixedDayHeader, (view === 'two' || view === 'three') && styles.alignedDayColumns]}>{dayList.map(day => <View key={day} style={[styles.dayColumn, styles.headingColumn, view === 'three' && styles.compactHeadingColumn]}>{dayHeading(day)}{summaryToggle(day)}</View>)}</View>
-          {dayList.some(day => showChores(day) && expanded.has(day)) ? <View testID="calendar-fixed-chores" style={[styles.dayColumns, styles.fixedChores,
-            { height: Math.max(0, Math.min(height * .65, height - dayHeadingHeight - Math.min(120, height * .25), Math.max(...dayList.filter(day => expanded.has(day)).map(day => choreContentHeights[day] ?? height * .65)))) }, (view === 'two' || view === 'three') && styles.alignedDayColumns]}>
+          {expandedChores ? <View testID="calendar-fixed-chores" style={[styles.dayColumns, styles.fixedChores,
+            { height: choreHeight }, (view === 'two' || view === 'three') && styles.alignedDayColumns]}>
             {dayList.map(day => <GestureScrollView key={day} simultaneousWith={detailSwipe} disallowInterruption={false} enabled={!activeDragDay} nestedScrollEnabled accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の家事一覧`} style={styles.dayColumn} contentContainerStyle={styles.fixedChoreContent}
               onContentSizeChange={(_width, contentHeight) => setChoreContentHeights(before => before[day] === contentHeight ? before : { ...before, [day]: contentHeight })}>
               {expanded.has(day) ? summaryDetails(day) : null}
             </GestureScrollView>)}
           </View> : null}
+          {hasAllDay ? <View testID="calendar-fixed-all-day" style={[styles.dayColumns, styles.fixedChores,
+            { height: allDayHeight }, (view === 'two' || view === 'three') && styles.alignedDayColumns]}>
+            {allDayColumns.map(({ day, rows, measurement }) => rows.length ? <GestureScrollView key={day} simultaneousWith={detailSwipe} disallowInterruption={false}
+              enabled={!activeDragDay} scrollEnabled={!activeDragDay} nestedScrollEnabled accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の終日予定`} style={styles.dayColumn}
+              onContentSizeChange={(_width, contentHeight) => measureAllDay(measurement, contentHeight)}>
+              {rows.map(event => eventRow(event, day))}
+            </GestureScrollView> : <View key={day} style={styles.dayColumn} />)}
+          </View> : null}
           <GestureFlatList key={`timeline:${view}:${date}`} ref={scroll} simultaneousWith={detailSwipe} disallowInterruption={false} enabled={!activeDragDay} scrollEnabled={!activeDragDay} style={styles.timelineScroll} testID="calendar-timeline" data={[{ key: 'top' }, { key: 'timeline' }]} keyExtractor={item => item.key} initialNumToRender={2}
           onScroll={event => { timelineOffset.current = event.nativeEvent.contentOffset.y; refreshHelpTargets(); }} scrollEventThrottle={16}
           onLayout={event => { timelineViewport.current = event.nativeEvent.layout.height; positionTime(); }} onContentSizeChange={positionTime} contentContainerStyle={styles.timelineBody} renderItem={({ item: section }) => section.key === 'top' ?
-          <View testID="calendar-timeline-days" style={[styles.dayColumns, (view === 'two' || view === 'three') && styles.alignedDayColumns]} onLayout={event => { timelineTop.current = event.nativeEvent.layout.height + 8; setTimeout(positionTime, 0); }}>{dayList.map(day => <View key={day} style={styles.dayColumn}>
-            {eventsOn(day).filter(event => event.allDay && !event.birthday && !event.holiday).map(event => eventRow(event, day))}</View>)}</View>
+          <View testID="calendar-timeline-days" onLayout={event => { timelineTop.current = event.nativeEvent.layout.height + 8; setTimeout(positionTime, 0); }} />
           : <View style={styles.timeline}>
             {Array.from({ length: 25 }, (_, hour) => <View key={hour} pointerEvents="none" style={[styles.hour, { top: hour * hourHeight }]}><Text style={styles.hourLabel}>{String(hour).padStart(2, '0')}:00</Text><View style={styles.hourRule} /></View>)}
             <View style={styles.timelineColumns} onLayout={event => setTimelineWidth(event.nativeEvent.layout.width)}>{dayList.map(day => <View key={day} style={[styles.timelineColumn, activeDragDay === day && { zIndex: 1 }]}>

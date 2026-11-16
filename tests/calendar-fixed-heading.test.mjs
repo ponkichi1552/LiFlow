@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { selectCalendarView } from './helpers/calendar-ui.mjs';
+import { createDatabase } from './helpers/sqlite.mjs';
 import { newEventDraft } from '../src/features/calendar/events.ts';
+import { addDays, formatJapaneseDate } from '../src/domain/scheduling/local-date.ts';
+const { initializeLocalDatabase } = await import('../src/platform/storage/repository.ts');
+const { saveCalendarEvent, readLocalCalendar } = await import('../src/platform/storage/calendar-events.ts');
 const descendants = node => [node, ...(node.children ?? []).filter(child => typeof child === 'object').flatMap(descendants)];
 for (const platform of ['ios', 'android']) test(`${platform} four appointments and expanded chores stay inside a small calendar viewport`, async t => {
   const day = '2026-11-13';
@@ -91,4 +95,135 @@ for (const platform of ['ios', 'android']) test(`${platform} changing day modes 
   assert.ok(pane); assert.equal(descendants(list).includes(pane), false);
   assert.ok(descendants(pane).some(node => node.children?.includes('洗面台の清掃')), 'the expanded list stays above the timeline after a mode change');
   screen.unmount();
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} all-day appointments stay outside clock scrolling across inclusive days and open the same saved occurrence`, async t => {
+  const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database);
+  const start = '2026-11-29', end = '2026-12-01', title = 'Synthetic inclusive appointment';
+  const id = await saveCalendarEvent(h.database, { expectedRevision: 0, value: { ...newEventDraft(start, 'Asia/Tokyo'), title, allDay: true, endDate: end } });
+  await saveCalendarEvent(h.database, { expectedRevision: 0, value: { ...newEventDraft('2026-11-30', 'Asia/Tokyo'), title: 'Synthetic same date appointment', allDay: true } });
+  await saveCalendarEvent(h.database, { expectedRevision: 0, value: { ...newEventDraft(start, 'Asia/Tokyo'), title: 'Synthetic midnight endpoint', startMinute: 23 * 60, endDate: end, endMinute: 0 } });
+  const snapshot = await readLocalCalendar(h.database), opened = [];
+  const local = { database: h.database, snapshot, loading: false, error: null, refresh: async () => {}, prepareDraft: draft => { opened.push(structuredClone(draft)); return draft; } };
+  const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
+    today: '2026-11-16', selectedDate: start, timeZone: 'Asia/Tokyo', local, dayInfo: () => ({ loaded: true, pending: 0, total: 0 }), renderChores: () => null,
+  } }); t.after(() => screen.unmount());
+  const writes = h.writes.length;
+  for (const [mode, days] of [['1日表示', 1], ['2日表示', 2], ['3日表示', 3]]) {
+    await selectCalendarView(screen, mode);
+    for (const date of [start, '2026-11-30', end]) {
+      await screen.press(`${formatJapaneseDate(date, { year: true, weekday: true })}を表示`);
+      const clock = screen.nodes().find(node => node.props.testID === 'calendar-timeline');
+      const visible = Array.from({ length: days }, (_, index) => addDays(date, index)).filter(day => day <= end);
+      const appointments = screen.nodes().filter(node => node.props.accessibilityLabel === `${title}を編集`);
+      assert.equal(appointments.length, visible.length, 'each included day has one row, without copying its saved definition');
+      assert.ok(appointments.every(row => !descendants(clock).includes(row)), 'clock positioning and scrolling must not carry all-day rows away');
+      for (const day of visible) {
+        const pane = screen.nodes().find(node => node.props.accessibilityLabel === `${formatJapaneseDate(day, { year: true })}の終日予定`);
+        assert.ok(pane && descendants(pane).some(node => node.props.accessibilityLabel === `${title}を編集`));
+      }
+      clock.props.ref.current = { scrollToOffset() {} };
+      screen.nodes().find(node => node.props.testID === 'calendar-timeline-days').props.onLayout({ nativeEvent: { layout: { height: 0 } } });
+      clock.props.onLayout({ nativeEvent: { layout: { height: 350 } } });
+      clock.props.onScroll({ nativeEvent: { contentOffset: { y: 900 } } }); await screen.flush();
+      assert.equal(screen.nodes().filter(node => node.props.accessibilityLabel === `${title}を編集`).length, visible.length);
+      if (date === end) assert.equal(screen.nodes().some(node => node.props.accessibilityLabel === 'Synthetic midnight endpointを編集'), false, 'timed midnight end stays exclusive');
+    }
+    await screen.press(`${formatJapaneseDate('2026-12-02', { year: true, weekday: true })}を表示`);
+    assert.equal(screen.nodes().some(node => node.props.testID === 'calendar-fixed-all-day'), false, 'no empty all-day pane remains after the inclusive end');
+  }
+  assert.equal(h.writes.length, writes, 'view changes and clock scrolling never persist per-day copies');
+  await screen.press(`${formatJapaneseDate(end, { year: true, weekday: true })}を表示`); await screen.press(`${title}を編集`);
+  assert.equal(opened.length, 1); assert.equal(opened[0].eventId, id); assert.equal(opened[0].revision, 1);
+  assert.equal(opened[0].anchorDate, start); assert.equal(opened[0].value.startDate, start); assert.equal(opened[0].value.endDate, end);
+  assert.deepEqual((await readLocalCalendar(h.database)).events, snapshot.events);
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} measured all-day content shares bounded space with expanded chores and ignores stale content measurements`, async t => {
+  const day = '2026-11-30';
+  const local = { database: {}, loading: false, error: null, refresh: async () => {}, snapshot: { events: Array.from({ length: 5 }, (_, index) => ({
+    ...newEventDraft(day, 'Asia/Tokyo'), id: `all-day-${index}`, title: `旅行予定${index} ${'長い名前'.repeat(index + 1)}`, revision: 1, allDay: true,
+  })), exceptions: [], categories: [], drafts: [] } };
+  const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, layoutEffect: effect => effect(), props: {
+    today: day, timeZone: 'Asia/Tokyo', local, dayInfo: () => ({ loaded: true, pending: 12, total: 12 }), renderChores: () => '展開した家事一覧',
+  } }); t.after(() => screen.unmount());
+  const style = node => Object.assign({}, ...node.props.style.flat(Infinity).filter(value => value && typeof value === 'object'));
+  for (const mode of ['1日表示', '2日表示', '3日表示']) {
+    await selectCalendarView(screen, mode);
+    const expand = `${formatJapaneseDate(day, { year: true })}の家事を開く`;
+    if (screen.nodes().some(node => node.props.accessibilityLabel === expand)) await screen.press(expand);
+    screen.nodes().find(node => node.props.testID === 'calendar-viewport').props.onLayout({ nativeEvent: { layout: { height: 300 } } });
+    screen.nodes().find(node => node.props.testID === 'calendar-fixed-day-heading').props.onLayout({ nativeEvent: { layout: { height: 160 } } });
+    screen.nodes().find(node => node.props.accessibilityLabel === `${formatJapaneseDate(day, { year: true })}の家事一覧`).props.onContentSizeChange(150, 900);
+    const allDayScroll = screen.nodes().find(node => node.props.accessibilityLabel === `${formatJapaneseDate(day, { year: true })}の終日予定`);
+    assert.ok(allDayScroll, 'all-day content has its own accessible scroll surface');
+    allDayScroll.props.onContentSizeChange(150, 900); await screen.flush();
+    const allDay = screen.nodes().find(node => node.props.testID === 'calendar-fixed-all-day'), chores = screen.nodes().find(node => node.props.testID === 'calendar-fixed-chores');
+    const clock = screen.nodes().find(node => node.props.testID === 'calendar-timeline');
+    assert.ok(style(allDay).height > 0 && style(chores).height > 0);
+    assert.ok(style(allDay).height + style(chores).height < 300 - 160, 'both fixed panes must leave a clock viewport rather than overlapping the footer');
+    assert.equal(descendants(clock).includes(allDay), false); assert.equal(descendants(clock).includes(chores), false);
+    const settledAllDayScroll = screen.nodes().find(node => node.props.accessibilityLabel === `${formatJapaneseDate(day, { year: true })}の終日予定`);
+    assert.equal(settledAllDayScroll.props.simultaneousWith, clock.props.simultaneousWith, 'the pane participates in the existing horizontal day gesture');
+    assert.equal(settledAllDayScroll.props.scrollEnabled, true);
+    screen.nodes().find(node => node.props.testID === 'calendar-viewport').props.onLayout({ nativeEvent: { layout: { height: 700 } } });
+    screen.nodes().find(node => node.props.testID === 'calendar-fixed-day-heading').props.onLayout({ nativeEvent: { layout: { height: 100 } } }); await screen.flush();
+    const oldContent = screen.nodes().find(node => node.props.accessibilityLabel === `${formatJapaneseDate(day, { year: true })}の終日予定`);
+    oldContent.props.onContentSizeChange(150, 60); await screen.flush();
+    local.snapshot = { ...local.snapshot, events: [{ ...local.snapshot.events[0], title: '一件でも長い旅行予定を時計から独立して読む'.repeat(6), revision: local.snapshot.events[0].revision + 1 }] }; screen.render();
+    const currentContent = screen.nodes().find(node => node.props.accessibilityLabel === `${formatJapaneseDate(day, { year: true })}の終日予定`);
+    currentContent.props.onContentSizeChange(150, 110); await screen.flush();
+    const currentHeight = style(screen.nodes().find(node => node.props.testID === 'calendar-fixed-all-day')).height;
+    oldContent.props.onContentSizeChange(150, 9000); await screen.flush();
+    assert.equal(style(screen.nodes().find(node => node.props.testID === 'calendar-fixed-all-day')).height, currentHeight, 'a delayed size from previous rows cannot resize the current long row');
+    const currentButton = screen.button(`${local.snapshot.events[0].title}を編集`);
+    assert.equal(descendants(screen.nodes().find(node => node.props.testID === 'calendar-timeline')).includes(currentButton), false);
+    assert.equal(screen.nodes().filter(node => node.props.accessibilityLabel === currentButton.props.accessibilityLabel).length, 1);
+  }
+  await screen.press(`${formatJapaneseDate('2026-12-01', { year: true, weekday: true })}を表示`);
+  assert.equal(screen.nodes().some(node => node.props.testID === 'calendar-fixed-all-day'), false);
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} all-day measurements retain only active content and ignore callbacks from retired content`, async t => {
+  const first = '2026-11-29'; const initialEvents = Array.from({ length: 3 }, (_, index) => ({
+    ...newEventDraft(addDays(first, index), 'Asia/Tokyo'), id: `measured-${index}`, title: `Synthetic content A ${index}`, revision: 1, allDay: true,
+  }));
+  const local = { database: {}, loading: false, error: null, refresh: async () => {}, snapshot: { events: initialEvents, exceptions: [], categories: [], drafts: [] } };
+  let observed;
+  const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, layoutEffect: effect => effect(),
+    // Observe the actual retained record for this resource bound, without adding a product API or replacing its updater.
+    transformSource: (path, source) => {
+      if (!path.endsWith('/features/calendar/planner-calendar.tsx')) return source;
+      const anchor = '  const hasAllDay = allDayColumns.some'; assert.equal(source.split(anchor).length, 2);
+      return source.replace(anchor, '  props.inspectAllDayMeasurements(allDayContentHeights, allDayColumns);\n' + anchor);
+    }, props: {
+      today: first, timeZone: 'Asia/Tokyo', local, dayInfo: () => ({ loaded: true, pending: 0, total: 0 }), renderChores: () => null,
+      inspectAllDayMeasurements: (heights, columns) => { observed = { heights, active: new Set(columns.filter(column => column.rows.length).map(column => column.measurement)) }; },
+    } }); t.after(() => screen.unmount());
+  let previous = []; let initialKeys;
+  for (let edit = 0; edit < 40; edit++) {
+    local.snapshot = { ...local.snapshot, events: initialEvents.map(row => ({ ...row, title: `Synthetic content ${edit} ${row.id}`, revision: edit + 1 })) }; screen.render();
+    await selectCalendarView(screen, ['1日表示', '2日表示', '3日表示'][edit % 3]);
+    const current = screen.nodes().filter(node => node.props.accessibilityLabel?.endsWith('の終日予定'));
+    for (let index = 0; index < current.length; index++) current[index].props.onContentSizeChange(150, 100 + index);
+    await screen.flush();
+    const retained = Object.keys(observed.heights);
+    assert.ok(retained.length <= observed.active.size, 'session edits cannot accumulate historical title, revision or column-width measurements');
+    assert.ok(retained.every(key => observed.active.has(key)), 'only currently rendered content remains measured');
+    if (!initialKeys) initialKeys = new Set(retained);
+    const accepted = observed.heights;
+    for (const old of previous) old.props.onContentSizeChange(150, 9000);
+    await screen.flush(); assert.equal(observed.heights, accepted, 'inactive callbacks cannot restore discarded keys or trigger another layout state');
+    for (let index = 0; index < current.length; index++) current[index].props.onContentSizeChange(150, 100 + index);
+    await screen.flush(); assert.equal(observed.heights, accepted, 'an unchanged active measurement retains the same state');
+    previous = current;
+  }
+  await screen.press(`${formatJapaneseDate('2026-12-02', { year: true, weekday: true })}を表示`);
+  const beforeRetired = observed.heights;
+  for (const old of previous) old.props.onContentSizeChange(150, 9000);
+  await screen.flush(); assert.equal(observed.heights, beforeRetired);
+  assert.equal(screen.nodes().some(node => node.props.testID === 'calendar-fixed-all-day'), false);
+  local.snapshot = { ...local.snapshot, events: initialEvents.map(row => ({ ...row, title: `Synthetic content 0 ${row.id}` })) }; screen.render();
+  await screen.press(`${formatJapaneseDate(first, { year: true, weekday: true })}を表示`);
+  assert.ok(Object.keys(observed.heights).every(key => !initialKeys.has(key)), 'returning to old rows cannot resurrect their retired measurement');
 });

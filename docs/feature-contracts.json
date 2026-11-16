@@ -9283,6 +9283,18 @@
       {
         "file": "tests/calendar-fixed-heading.test.mjs",
         "name": "${platform} timeline date and chore controls remain outside the native scrolling content in both day modes"
+      },
+      {
+        "file": "tests/calendar-fixed-heading.test.mjs",
+        "name": "${platform} all-day appointments stay outside clock scrolling across inclusive days and open the same saved occurrence"
+      },
+      {
+        "file": "tests/calendar-fixed-heading.test.mjs",
+        "name": "${platform} measured all-day content shares bounded space with expanded chores and ignores stale content measurements"
+      },
+      {
+        "file": "tests/calendar-fixed-heading.test.mjs",
+        "name": "${platform} all-day measurements retain only active content and ignore callbacks from retired content"
       }
     ]
   },
@@ -15576,6 +15588,10 @@
       {
         "file": "tests/calendar-ux-search-drafts.test.mjs",
         "name": "${platform} all-day search reveals the day summary instead of retaining a later timeline position"
+      },
+      {
+        "file": "tests/calendar-fixed-heading.test.mjs",
+        "name": "${platform} all-day appointments stay outside clock scrolling across inclusive days and open the same saved occurrence"
       }
     ],
     "manualReview": "docs/audits/2026-11-16-physical-calendar-followups.md"
