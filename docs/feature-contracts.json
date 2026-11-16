@@ -15783,5 +15783,66 @@
       }
     ],
     "manualReview": "docs/audits/2026-11-16-unchanged-calendar-save.md"
+  },
+  {
+    "feature": "shared-tasks-planning-input-recovery-and-bounded-followups-20261116",
+    "description": "A protected planning input change refreshes shared Tasks from a current snapshot within its existing budget and three-pass limit. Local follow-ups consume a manual force once, retain explicit queued pulls and durable status writes, and keep account and real failure handling intact.",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-google-planning-recovery.test.mjs",
+        "name": "a shared Google import consumes manual force once and its local follow-up does not repeat the remote inventory"
+      },
+      {
+        "file": "tests/sharing-v2-google-planning-recovery.test.mjs",
+        "name": "a real protected planning revision change refreshes shared Tasks input and recovers without replacing its mapped task"
+      },
+      {
+        "file": "tests/sharing-v2-google-planning-recovery.test.mjs",
+        "name": "a shared Google completion committed before a planning retry retains its original Task and single signed fact"
+      },
+      {
+        "file": "tests/sharing-v2-google-planning-recovery.test.mjs",
+        "name": "a planning change during shared Tasks preparation is retried from a fresh snapshot before credentials or HTTP"
+      },
+      {
+        "file": "tests/sharing-v2-google-planning-recovery.test.mjs",
+        "name": "continuous protected planning changes stop after three shared Tasks attempts and retain a retry instead of permanent error"
+      },
+      {
+        "file": "tests/sharing-v2-google-planning-recovery.test.mjs",
+        "name": "planning recovery shares the original deadline and cannot restart after its budget expires"
+      },
+      {
+        "file": "tests/sharing-v2-google-planning-recovery.test.mjs",
+        "name": "a planning recovery still refuses a changed Google account before another remote request"
+      },
+      {
+        "file": "tests/sharing-v2-google-planning-recovery.test.mjs",
+        "name": "an explicit force queued during a local shared Tasks follow-up gets one fresh pull while simultaneous manual joins coalesce"
+      },
+      {
+        "file": "tests/sharing-v2-google-planning-recovery.test.mjs",
+        "name": "a local Undo queued during a manual shared Tasks PATCH is sent without replaying the full remote inventory"
+      },
+      {
+        "file": "tests/sharing-v2-google-planning-recovery.test.mjs",
+        "name": "planning recovery does not hide or immediately repeat a real ${label} failure"
+      },
+      {
+        "file": "tests/sharing-v2-google-planning-recovery.test.mjs",
+        "name": "a committed shared Google completion retains its ACK when later planning preparations exhaust three attempts"
+      }
+    ]
+  },
+  {
+    "feature": "shared-chore-list-add-ignores-native-press-event-20261116",
+    "description": "The shared chore library add button calls its navigation callback without native press-event arguments. Explicit calendar date entry remains separate.",
+    "tests": [
+      {
+        "file": "tests/sharing-v2-chore-list-navigation.test.mjs",
+        "name": "${platform} shared chore list addition discards native press events before its navigation callback"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-16-validation-resume.md"
   }
 ]

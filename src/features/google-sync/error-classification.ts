@@ -1,4 +1,5 @@
 import { GOOGLE_SYNC_RETRY_INTERVAL_MS } from './sync-policy.ts';
+import { PLANNING_INPUT_CHANGED_CODE } from '../planner/planning-input-change.ts';
 
 export type GoogleSyncFailureKind = 'retry' | 'authRequired' | 'error';
 
@@ -22,6 +23,10 @@ export function classifyGoogleSyncFailure(
   const code = normalizeErrorCode(failure.code, failure.status);
   if (failure.status === 401 || code === 'invalid_grant' || code === 'sign_in_required' || code === 'google_account_mismatch') {
     return { kind: 'authRequired', code };
+  }
+
+  if (code === PLANNING_INPUT_CHANGED_CODE) {
+    return { kind: 'retry', code, nextRetryAt: new Date(now.getTime() + GOOGLE_SYNC_RETRY_INTERVAL_MS) };
   }
 
   const quotaLimited = ['ratelimitexceeded', 'userratelimitexceeded', 'quotaexceeded',

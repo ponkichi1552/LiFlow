@@ -12,6 +12,7 @@ import type { GoogleTaskCreateJournal } from '../../google-sync/task-create-inte
 import type { GoogleTaskListResolution } from '../../google-sync/reconcile-google-tasks';
 import { traceStartup } from '../../../platform/diagnostics/startup-timing.ts';
 import { isGoogleSyncAttemptStale, shouldSyncGoogleTasks } from '../../google-sync/sync-policy.ts';
+import { PLANNING_INPUT_CHANGED_CODE } from '../../planner/planning-input-change.ts';
 
 export interface V2GoogleConnectionReview { subject: string; label: string; connectionRevision: number }
 export function createV2GoogleTaskRuntime(input: { store: V2GoogleTaskStore; assertAccess(): void | Promise<void>;
@@ -76,10 +77,18 @@ export function createV2GoogleTaskRuntime(input: { store: V2GoogleTaskStore; ass
       api: guarded,
     };
     let result: GoogleSyncRunResult = { kind: 'success', skipped: true };
+    let forceNext = force;
     try {
       for (let pass = 0; pass < 3; pass++) {
-        requested = false; const nextForce = force || forceRequested; forceRequested = false;
+        requested = false; const nextForce = forceNext || forceRequested; forceNext = false; forceRequested = false;
+        if (running?.budget === budget) running.force = nextForce;
         result = await syncGoogleTasksWithDependencies(dependencies, { now: now(), force: nextForce, forceCalendar: false, recoverInterruptedAttempt: true, deltaOnly });
+        if (result.kind === 'retry' && result.code === PLANNING_INPUT_CHANGED_CODE) {
+          if (pass === 2) return result;
+          // Discard the stale capture through preparePlan on the same serialized
+          // operation and deadline. Its persisted retry protects exhausted work.
+          forceNext = true; budget.assert(); continue;
+        }
         if (deltaOnly && result.kind === 'success' && result.foregroundRequired) return result;
         if (!requested || result.kind !== 'success') return result;
         budget.assert();

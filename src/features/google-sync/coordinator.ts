@@ -17,6 +17,7 @@ import {
   readPersonalGoogleStatusSnapshot,
 } from '@/platform/storage/repository';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { PlanningInputChangedError } from '../planner/planning-input-change.ts';
 import { classifyGoogleSyncFailure } from './error-classification';
 import type { GoogleSyncFailureDetails } from './error-classification';
 import { GoogleTaskFullSyncRequiredError } from './task-read-cache.ts';
@@ -228,8 +229,13 @@ async function runSync(
   let state = await dependencies.loadState();
   dependencies.budget?.assert();
   if (!state?.enabled) return { kind: 'success', skipped: true };
-  if (options.force || state.status !== 'authRequired' && state.status !== 'error'
-    && (state.status !== 'retryPending' || shouldSyncGoogleTasks(state, now))) await dependencies.preparePlan?.();
+  try {
+    if (options.force || state.status !== 'authRequired' && state.status !== 'error'
+      && (state.status !== 'retryPending' || shouldSyncGoogleTasks(state, now))) await dependencies.preparePlan?.();
+  } catch (error) {
+    if (!(error instanceof PlanningInputChangedError)) throw error;
+    return saveSyncFailure(dependencies, { ...state, lastAttemptAt: now.toISOString() }, error, now);
+  }
   // Native Android widget actions can commit while JS is stopped. Recover their
   // durable changes on startup/resume without changing Calendar cadence or
   // bypassing an existing retry/auth/permission failure on every foreground.
@@ -324,25 +330,26 @@ async function runSync(
       catch { return { kind: 'error', code: 'sync_state_persist_failed' }; }
       return { kind: 'success', skipped: true, skipReason: 'foregroundRequired', foregroundRequired: true };
     }
-    const failure = toFailureDetails(error);
-    const classification = classifyGoogleSyncFailure(failure, now);
-    const updatedAt = now.toISOString();
-    const failedState: GoogleSyncState = {
-      ...state,
-      status: classification.kind === 'retry' ? 'retryPending' : classification.kind,
-      retryCount: classification.kind === 'retry' ? state.retryCount + 1 : state.retryCount,
-      ...(classification.nextRetryAt ? { nextRetryAt: classification.nextRetryAt.toISOString() } : { nextRetryAt: undefined }),
-      lastErrorCode: classification.code,
-      lastErrorAt: updatedAt,
-      updatedAt,
-    };
-    try {
-      await dependencies.saveState(failedState);
-    } catch {
-      return { kind: 'error', code: 'sync_state_persist_failed' };
-    }
-    return { kind: classification.kind, code: classification.code };
+    return saveSyncFailure(dependencies, state, error, now);
   }
+}
+
+async function saveSyncFailure(dependencies: GoogleSyncCoordinatorDependencies, state: GoogleSyncState,
+  error: unknown, now: Date): Promise<GoogleSyncRunResult> {
+  const classification = classifyGoogleSyncFailure(toFailureDetails(error), now);
+  const updatedAt = now.toISOString();
+  const failedState: GoogleSyncState = {
+    ...state,
+    status: classification.kind === 'retry' ? 'retryPending' : classification.kind,
+    retryCount: classification.kind === 'retry' ? state.retryCount + 1 : state.retryCount,
+    nextRetryAt: classification.nextRetryAt?.toISOString(),
+    lastErrorCode: classification.code,
+    lastErrorAt: updatedAt,
+    updatedAt,
+  };
+  try { await dependencies.saveState(failedState); }
+  catch { return { kind: 'error', code: 'sync_state_persist_failed' }; }
+  return { kind: classification.kind, code: classification.code };
 }
 
 function toFailureDetails(error: unknown): GoogleSyncFailureDetails {

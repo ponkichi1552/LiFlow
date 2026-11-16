@@ -14,6 +14,7 @@ import { combinePrivateCalendarAvailability } from '../../features/sharing/v2/pr
 import { usesPersonalAdaptivePlanner } from '../../domain/chores/personal-catalog';
 import { capturedSharedRecommendations } from '../../features/planner/shared-adaptive-load';
 import { readPlanningInputRevision } from '../storage/planning-input-revision';
+import { PlanningInputChangedError } from '../../features/planner/planning-input-change';
 
 /** Both native integrations use the same owner-only inputs. Rendering/planning never fetches Google or requests a grant. */
 export async function readV2LocalPlanning(input: { userId: string; assertAccess(): void | Promise<void> }, now: Date) {
@@ -26,14 +27,14 @@ export async function readV2LocalPlanning(input: { userId: string; assertAccess(
     dispose = () => { stop(); stopPreferences?.(); };
     await input.assertAccess(); const snapshot = await readPersonalPlannerOverlaySnapshot(personal, now); await input.assertAccess();
     const before = await readPlanningInputRevision(personal);
-    if (snapshot.snapshot.planningInputRevision !== undefined && snapshot.snapshot.planningInputRevision !== before) throw new Error('本人の予定が更新されました。読み直してください。');
+    if (snapshot.snapshot.planningInputRevision !== undefined && snapshot.snapshot.planningInputRevision !== before) throw new PlanningInputChangedError();
     const own = await calendar.readPlannerPreferences(); await input.assertAccess();
     const preferences = v2OwnerScheduleSettings(input.userId, snapshot.snapshot.settings, own);
     // An unavailable cache remains unknown; the personal planner applies its normal freshness and coverage rules.
     const busy = await calendar.readForPlan().catch(() => null); await input.assertAccess();
     const localEvents = await readLocalCalendar(personal); await input.assertAccess();
     const capturedRevision = await readPlanningInputRevision(personal);
-    if (invalidated || capturedRevision !== before) throw new Error('本人の予定が更新されました。読み直してください。');
+    if (invalidated || capturedRevision !== before) throw new PlanningInputChangedError();
     const localCalendar = createLocalCalendarPlanSource({ ownerUserId: input.userId, assertAccess: input.assertAccess, read: async () => localEvents });
     if (busy && (busy.ownerUserId !== input.userId || busy.cache.ownerUserId !== input.userId || busy.binding.ownerUserId !== input.userId)) throw new Error('本人のCalendar情報を確認してください。');
     const source = { ...snapshot, ownerUserId: input.userId };
@@ -45,11 +46,11 @@ export async function readV2LocalPlanning(input: { userId: string; assertAccess(
       snapshot.snapshot.chores.map(chore => [chore.id, chore.enabled, Boolean(chore.archived), chore.load]), busy, calendarPages]));
     return { revision, preferences, privateTasks, localCalendar, calendar: { readForPlan: async () => busy, readOwnCalendar: calendar.readOwnCalendar }, dispose,
       async assertCurrent() {
-        await input.assertAccess(); if (invalidated) throw new Error('本人の予定が更新されました。読み直してください。');
+        await input.assertAccess(); if (invalidated) throw new PlanningInputChangedError();
         const connection = await openDatabaseAsync('housework.db', { useNewConnection: true });
-        try { if (await readPlanningInputRevision(connection) !== capturedRevision) throw new Error('本人の予定が更新されました。読み直してください。'); }
+        try { if (await readPlanningInputRevision(connection) !== capturedRevision) throw new PlanningInputChangedError(); }
         finally { await connection.closeAsync(); }
-        await input.assertAccess(); if (invalidated) throw new Error('本人の予定が更新されました。読み直してください。');
+        await input.assertAccess(); if (invalidated) throw new PlanningInputChangedError();
       },
       personalize(plan: V2CommonPlan, sharedEvents: readonly SharedCalendarRecord[] = []) {
         const overlay = projectV2PrivateTasks(source, input.userId, plan.range);
