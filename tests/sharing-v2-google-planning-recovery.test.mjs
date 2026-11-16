@@ -12,6 +12,7 @@ import { createDatabase } from './helpers/sqlite.mjs';
 import { loadNativeModule } from './helpers/native-module.mjs';
 import { withGoogleSyncOperation } from '../src/features/google-sync/operation-lock.ts';
 import { GoogleTasksApiError } from '../src/platform/google-tasks/google-tasks-api.ts';
+import { GoogleTaskFullSyncRequiredError } from '../src/features/google-sync/task-read-cache.ts';
 
 const { initializeLocalDatabase, readPersonalPlannerOverlaySnapshot } = await import('../src/platform/storage/repository.ts');
 const { createV2GoogleTaskRuntime } = await import('../src/features/sharing/v2/google-tasks-runtime.ts');
@@ -42,7 +43,8 @@ async function fixture(options = {}) {
   const context = { counts, h, personal,
     invalidate() { writer.exec('UPDATE personal_planning_input_revision SET revision=revision+1 WHERE singleton=1'); },
     account(value) { subject = value; }, expire() { elapsed = 1001; },
-    request(force = false) { return runtime.synchronize(force ? { force: true } : { localChange: true }); } };
+    request(force = false) { return runtime.synchronize(force ? { force: true } : { localChange: true }); },
+    requestPull() { return runtime.synchronize({ force: true, localChange: true }); } };
   const localModule = loadNativeModule(sourceName, { ...planningDependencies,
     'expo-sqlite': { openDatabaseAsync: async () => personal.database },
     '../storage/repository': { readPersonalPlannerOverlaySnapshot },
@@ -54,7 +56,10 @@ async function fixture(options = {}) {
   const initialOps = new Set((await h.d.repository.readState()).assessment.view.ready.map(row => row.operationId));
   const api = { ...h.api,
     listTaskLists: async (...args) => { counts.listInventories++; return h.api.listTaskLists(...args); },
-    listTasks: async (...args) => { counts.taskInventories++; if (options.readFailure) throw options.readFailure; return h.api.listTasks(...args); },
+    listTasks: async (...args) => {
+      counts.taskInventories++; const failure = typeof options.readFailure === 'function' ? options.readFailure(context) : options.readFailure;
+      if (failure) throw failure; return h.api.listTasks(...args);
+    },
   };
   const saveState = h.store.saveSyncState;
   h.store.saveSyncState = async (...args) => { await saveState(...args); await options.afterSaveState?.(args[0], context); };
@@ -80,18 +85,35 @@ async function fixture(options = {}) {
   };
 }
 
-test('a shared Google import consumes manual force once and its local follow-up does not repeat the remote inventory', async () => {
+test('a shared Google import consumes manual force once and its local follow-up does not repeat the remote inventory', async t => {
   const f = await fixture({ followCommits: true });
   try {
     Object.assign(f.h.tasks.get(f.original.googleTaskId), { status: 'completed', completed: f.clock().toISOString() });
     const result = await f.runtime.synchronize({ force: true });
     assert.equal(result.kind, 'success'); assert.equal(f.counts.preparations, 2);
+    assert.equal(result.skipped, undefined); assert.equal(result.skipReason, undefined);
+    assert.equal(result.imported, 1); assert.equal(result.remoteTasksRead, f.h.tasks.size);
     assert.equal(f.counts.taskInventories, 1); assert.equal(f.counts.listInventories, 1);
     const target = await f.target(); assert.equal(target.googleTaskId, f.original.googleTaskId);
     assert.equal(target.lastSyncedStatus, 'completed'); assert.equal(target.pendingStatus, undefined);
     assert.equal((await f.runtime.readControl()).state.status, 'idle');
     const added = await f.newOperations(); assert.equal(added.length, 1); assert.equal(added[0].operationType, 'complete');
   } finally { await f.close(); }
+  await t.test('a later foreground deferral retains performed imports without counting its failed read', async () => {
+    const f = await fixture({ followCommits: true,
+      afterSaveState: (state, { counts, requestPull }) => { if (state.status === 'idle' && counts.preparations === 1) void requestPull().catch(() => {}); },
+      readFailure: ({ counts }) => counts.preparations === 2 ? new GoogleTaskFullSyncRequiredError() : undefined });
+    try {
+      Object.assign(f.h.tasks.get(f.original.googleTaskId), { status: 'completed', completed: f.clock().toISOString() });
+      const result = await f.runtime.synchronize({ force: true });
+      assert.equal(result.kind, 'success'); assert.equal(result.skipped, undefined);
+      assert.equal(result.imported, 1); assert.equal(result.remoteTasksRead, f.h.tasks.size);
+      assert.equal(result.foregroundRequired, true); assert.equal(result.skipReason, 'foregroundRequired');
+      assert.equal(f.counts.preparations, 2); assert.equal(f.counts.taskInventories, 2);
+      assert.equal((await f.newOperations()).length, 1); assert.equal((await f.target()).lastSyncedStatus, 'completed');
+      assert.equal((await f.runtime.readControl()).state.lastErrorCode, 'task_foreground_scan_required');
+    } finally { await f.close(); }
+  });
 });
 
 test('a real protected planning revision change refreshes shared Tasks input and recovers without replacing its mapped task', async () => {
@@ -178,14 +200,21 @@ test('planning recovery shares the original deadline and cannot restart after it
 });
 
 test('a planning recovery still refuses a changed Google account before another remote request', async () => {
-  const f = await fixture({ onToken: ({ counts, invalidate }) => { if (counts.tokens === 1) invalidate(); },
-    onPrepared: ({ counts, account }) => { if (counts.preparations === 2) account('different-subject'); } });
-  try {
-    assert.deepEqual(await f.runtime.synchronize({ force: true }), { kind: 'authRequired', code: 'google_account_mismatch' });
-    assert.equal(f.counts.preparations, 2); assert.equal(f.counts.taskInventories, 0);
-    const state = (await f.runtime.readControl()).state; assert.equal(state.status, 'authRequired'); assert.equal(state.accountSubject, 'synthetic-google-subject');
-    assert.equal((await f.newOperations()).length, 0);
-  } finally { await f.close(); }
+  for (const afterImport of [false, true]) {
+    const f = await fixture({ followCommits: afterImport,
+      onToken: ({ counts, invalidate }) => { if (!afterImport && counts.tokens === 1) invalidate(); },
+      onPrepared: ({ counts, account, request }) => {
+        if (afterImport && counts.preparations === 2) void request(true).catch(() => {});
+        if (counts.preparations === (afterImport ? 3 : 2)) account('different-subject');
+      } });
+    try {
+      if (afterImport) Object.assign(f.h.tasks.get(f.original.googleTaskId), { status: 'completed', completed: f.clock().toISOString() });
+      assert.deepEqual(await f.runtime.synchronize({ force: true }), { kind: 'authRequired', code: 'google_account_mismatch' });
+      assert.equal(f.counts.preparations, afterImport ? 3 : 2); assert.equal(f.counts.taskInventories, afterImport ? 1 : 0);
+      const state = (await f.runtime.readControl()).state; assert.equal(state.status, 'authRequired'); assert.equal(state.accountSubject, 'synthetic-google-subject');
+      assert.equal((await f.newOperations()).length, afterImport ? 1 : 0);
+    } finally { await f.close(); }
+  }
 });
 
 test('an explicit force queued during a local shared Tasks follow-up gets one fresh pull while simultaneous manual joins coalesce', async () => {
@@ -194,7 +223,8 @@ test('an explicit force queued during a local shared Tasks follow-up gets one fr
   try {
     Object.assign(f.h.tasks.get(f.original.googleTaskId), { status: 'completed', completed: f.clock().toISOString() });
     const first = f.runtime.synchronize({ force: true }); assert.equal(f.runtime.synchronize({ force: true }), first);
-    assert.equal((await first).kind, 'success'); assert.equal((await queued).kind, 'success');
+    const result = await first; assert.equal(result.kind, 'success'); assert.deepEqual(await queued, result);
+    assert.equal(result.imported, 1); assert.equal(result.remoteTasksRead, 2 * f.h.tasks.size);
     assert.equal(f.counts.preparations, 3); assert.equal(f.counts.taskInventories, 2); assert.equal(f.counts.listInventories, 2);
     assert.equal((await f.newOperations()).length, 1); assert.equal((await f.runtime.readControl()).state.status, 'idle');
   } finally { await f.close(); }
@@ -209,6 +239,7 @@ test('a local Undo queued during a manual shared Tasks PATCH is sent without rep
     f.h.calls.length = 0;
     const result = await f.runtime.synchronize({ force: true });
     assert.equal(result.kind, 'success');
+    assert.equal(result.updated, 2); assert.equal(result.localStatusesOnly, undefined);
     const target = await f.target(); assert.equal(target.googleTaskId, f.original.googleTaskId);
     assert.equal(target.lastSyncedStatus, 'needsAction'); assert.equal(target.pendingStatus, undefined);
     assert.equal(f.h.tasks.get(target.googleTaskId).status, 'needsAction');
@@ -220,11 +251,16 @@ for (const [label, failure, kind, code] of [
   ['provider', new GoogleTasksApiError(503, 'backend_error', null), 'retry', 'backend_error'],
   ['integrity', new Error('synthetic integrity failure'), 'error', 'error'],
 ]) test(`planning recovery does not hide or immediately repeat a real ${label} failure`, async () => {
-  const f = await fixture({ readFailure: failure });
-  try {
-    assert.deepEqual(await f.runtime.synchronize({ force: true }), { kind, code });
-    assert.equal(f.counts.preparations, 1); assert.equal(f.counts.taskInventories, 1);
-    assert.equal((await f.runtime.readControl()).state.status, kind === 'retry' ? 'retryPending' : 'error');
-    assert.equal((await f.newOperations()).length, 0);
-  } finally { await f.close(); }
+  for (const afterImport of [false, true]) {
+    const f = await fixture({ followCommits: afterImport,
+      onPrepared: ({ counts, request }) => { if (afterImport && counts.preparations === 2) void request(true).catch(() => {}); },
+      readFailure: ({ counts }) => !afterImport || counts.preparations === 3 ? failure : undefined });
+    try {
+      if (afterImport) Object.assign(f.h.tasks.get(f.original.googleTaskId), { status: 'completed', completed: f.clock().toISOString() });
+      assert.deepEqual(await f.runtime.synchronize({ force: true }), { kind, code });
+      assert.equal(f.counts.preparations, afterImport ? 3 : 1); assert.equal(f.counts.taskInventories, afterImport ? 2 : 1);
+      assert.equal((await f.runtime.readControl()).state.status, kind === 'retry' ? 'retryPending' : 'error');
+      assert.equal((await f.newOperations()).length, afterImport ? 1 : 0);
+    } finally { await f.close(); }
+  }
 });

@@ -77,12 +77,29 @@ export function createV2GoogleTaskRuntime(input: { store: V2GoogleTaskStore; ass
       api: guarded,
     };
     let result: GoogleSyncRunResult = { kind: 'success', skipped: true };
+    const countKeys = ['created', 'updated', 'removed', 'imported', 'remoteTasksRead', 'hiddenCompletionsRead', 'invalidCompletions'] as const;
+    const totals: Partial<Record<(typeof countKeys)[number], number>> = {};
+    let performed = false; let onlyLocalStatuses = true;
     let forceNext = force;
     try {
       for (let pass = 0; pass < 3; pass++) {
         requested = false; const nextForce = forceNext || forceRequested; forceNext = false; forceRequested = false;
         if (running?.budget === budget) running.force = nextForce;
         result = await syncGoogleTasksWithDependencies(dependencies, { now: now(), force: nextForce, forceCalendar: false, recoverInterruptedAttempt: true, deltaOnly });
+        if (result.kind === 'success') {
+          if (!result.skipped) {
+            performed = true; onlyLocalStatuses &&= result.localStatusesOnly === true;
+            for (const key of countKeys) {
+              const count = result[key]; if (count !== undefined) totals[key] = (totals[key] ?? 0) + count;
+            }
+          }
+          // A no-work follow-up cannot erase work completed by this same call.
+          if (performed) {
+            result = { ...result, ...totals }; delete result.skipped;
+            if (result.skipReason === 'notDue') delete result.skipReason;
+            if (onlyLocalStatuses) result.localStatusesOnly = true; else delete result.localStatusesOnly;
+          }
+        }
         if (result.kind === 'retry' && result.code === PLANNING_INPUT_CHANGED_CODE) {
           if (pass === 2) return result;
           // Discard the stale capture through preparePlan on the same serialized

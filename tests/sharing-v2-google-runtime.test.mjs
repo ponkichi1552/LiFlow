@@ -136,6 +136,9 @@ test('v2 Tasks refuses an account switched after review before requesting a gran
 
 test('v2 Tasks coalesces100 simultaneous syncs, recovers a fresh interrupted marker and keeps the same remote IDs', async () => {
   const h = await setup(); try {
+    h.hooks.afterCreate = async () => {
+      delete h.hooks.afterCreate; void h.runtime.synchronize({ localChange: true }).catch(() => {});
+    };
     await h.connect(); const attempts = Array.from({ length: 100 }, () => h.runtime.synchronize({ force: true }));
     assert.equal(new Set(attempts).size, 1); assert.equal((await attempts[0]).created, 3);
     assert.equal(h.nativeCalls.filter(value => value === 'token').length, 1);
