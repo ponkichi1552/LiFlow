@@ -15753,5 +15753,35 @@
       }
     ],
     "manualReview": "docs/audits/2026-11-16-shared-tasks-lost-create-reply.md"
+  },
+  {
+    "feature": "personal-calendar-identical-save-preserves-sync-demand-and-private-side-effects-20261116",
+    "tests": [
+      {
+        "file": "tests/calendar-noop-save.test.mjs",
+        "name": "${platform} unchanged personal Calendar save keeps its revision settled Google work and planner cache while a real edit still synchronizes"
+      },
+      {
+        "file": "tests/calendar-noop-save.test.mjs",
+        "name": "normalized identical Calendar content keeps both series and existing occurrence revisions without suppressing a first explicit override or cancellation restoration"
+      },
+      {
+        "file": "tests/calendar-noop-save.test.mjs",
+        "name": "identical Calendar saves still reject stale series exceptions and current Google read-only authority before clearing drafts or reminders"
+      },
+      {
+        "file": "tests/calendar-noop-save.test.mjs",
+        "name": "an unchanged Calendar body saves only changed private reminders clears its submitted draft and retains newer or shared drafts without event demand"
+      },
+      {
+        "file": "tests/calendar-noop-save.test.mjs",
+        "name": "an unchanged Calendar save rolls back reminder and submitted-draft changes together and emits no premature notification"
+      },
+      {
+        "file": "tests/calendar-noop-save.test.mjs",
+        "name": "an identical birthday body still restores the explicitly cleared own birthday with a monotonic revision"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-16-unchanged-calendar-save.md"
   }
 ]
