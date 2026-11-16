@@ -7,7 +7,7 @@ import { createV2ScreenSession } from './screen-session';
 import { v2OwnerScheduleSettings } from './owner-preferences';
 import { subscribeSharingChanges } from '@/platform/sharing/workspaces';
 import { createV2PrivateTaskSource } from './private-overlay';
-import { readPersonalPlannerOverlaySnapshot, setPersonalDateTaskCompleted, mirrorSharedChoreCompletions } from '../../../platform/storage/repository';
+import { readPersonalPlannerOverlaySnapshotOnce, setPersonalDateTaskCompleted, mirrorSharedChoreCompletions } from '../../../platform/storage/repository';
 import { syncGoogleTasksAfterLocalCompletion } from '@/features/google-sync/coordinator';
 import { readLocalCalendar, subscribeLocalCalendar } from '../../../platform/storage/calendar-events';
 import { createLocalCalendarPlanSource } from '../../calendar/private-availability';
@@ -79,7 +79,7 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
     const assertPersonalAccess = assertWorkspaceAccess;
     const privateTasks = createV2PrivateTaskSource({ ownerUserId: active.userId, assertAccess: assertPersonalAccess,
       mirrorShared: (source, guard) => mirrorSharedChoreCompletions(personalDatabase, source, guard),
-      readSnapshot: async (instant) => ({ ...await readPersonalPlannerOverlaySnapshot(personalDatabase, instant), ownerUserId: active.userId }),
+      readSnapshot: async (instant) => ({ ...await readPersonalPlannerOverlaySnapshotOnce(personalDatabase, instant), ownerUserId: active.userId }),
       save: (command, guard) => setPersonalDateTaskCompleted(personalDatabase, command, guard),
       afterChange: async () => {
         await assertPersonalAccess(); syncGoogleTasksAfterLocalCompletion(personalDatabase);

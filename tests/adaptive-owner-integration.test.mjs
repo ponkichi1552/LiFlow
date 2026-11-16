@@ -65,6 +65,19 @@ for (const [method, retryName, publicationName] of [
   });
 }
 
+test('a composed owner read stays single-attempt while the ordinary personal overlay retains three fresh attempts', async t => {
+  const h = await personal(t); let reads = 0;
+  const stop = bindAdaptiveOwnerReader(h.database, async () => { reads++; throw new AdaptiveOwnerInputsChangedError(); });
+  try {
+    assert.equal(typeof repository.readPersonalPlannerOverlaySnapshotOnce, 'function');
+    await assert.rejects(repository.readPersonalPlannerOverlaySnapshotOnce(h.database), AdaptiveOwnerInputsChangedError);
+    assert.equal(reads, 1);
+    reads = 0;
+    await assert.rejects(repository.readPersonalPlannerOverlaySnapshot(h.database), AdaptiveOwnerInputsChangedError);
+    assert.equal(reads, 3);
+  } finally { stop(); }
+});
+
 test('shared load reserves own and unassigned subjects once and ignores other assignees cooldown and consumed rounds', () => {
   const common = plan([occurrence('open'), occurrence('own', { assigneeIds: ['owner'] }), occurrence('other', { assigneeIds: ['member'] }),
     occurrence('each', { subjects: [subject('owner-sub', { subjectUserId: 'owner' }), subject('member-sub', { subjectUserId: 'member' })] }),

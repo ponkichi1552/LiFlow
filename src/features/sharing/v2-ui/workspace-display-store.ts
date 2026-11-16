@@ -4,6 +4,7 @@ import { traceStartup } from '../../../platform/diagnostics/startup-timing.ts';
 import { addDays, parseLocalDate } from '../../../domain/scheduling/local-date.ts';
 import { v2CalendarMonth } from './calendar-projection.ts';
 import { v2CalendarDisplayRange } from './calendar-range.ts';
+import { AdaptiveOwnerInputsChangedError } from '../../../platform/storage/adaptive-owner-inputs.ts';
 
 type Options = Parameters<V2GroupUiSession['readModel']>[0];
 type Model = Awaited<ReturnType<V2GroupUiSession['readModel']>>;
@@ -41,6 +42,7 @@ export function workspaceDisplayOptions(options: Options): Options {
 export function createWorkspaceDisplayStore(initialLoad?: () => Promise<V2GroupUiSession>, now: () => Date = () => new Date()) {
   let load = initialLoad;
   let generation = 0; let disposed = false;
+  let identity: { userId: string; groupId: string } | undefined;
   const values = new Map<string, WorkspaceDisplayValue & { generation: number }>();
   const pending = new Map<string, Promise<WorkspaceDisplayValue>>(); const listeners = new Set<() => void>();
   const key = (options: Options) => JSON.stringify(workspaceDisplayOptions(options) ?? {});
@@ -49,6 +51,13 @@ export function createWorkspaceDisplayStore(initialLoad?: () => Promise<V2GroupU
     && sharedLocalDate(now(), value.model.plan.timeZone) === value.model.plan.range.asOfDate
     && (value.model.privateOverlay?.status !== 'ready' || sharedLocalDate(now(), value.model.privateOverlay.timeZone) === value.model.privateOverlay.today);
   const covering = (options: Options) => [...values.values()].reverse().find(value => fresh(value) && coversDisplay(value, options));
+  const assertSource = (source: V2GroupUiSession) => {
+    if (disposed || identity && (identity.userId !== source.userId || identity.groupId !== source.groupId)) {
+      throw new Error('表示するアカウント・グループが変わりました。');
+    }
+    identity ??= { userId: source.userId, groupId: source.groupId };
+    return source;
+  };
   const store = {
     bind(loader: () => Promise<V2GroupUiSession>) { load = loader; },
     peek(options?: Options): WorkspaceDisplayValue | undefined { return disposed ? undefined : values.get(key(options)) ?? covering(options); },
@@ -59,18 +68,38 @@ export function createWorkspaceDisplayStore(initialLoad?: () => Promise<V2GroupU
       const normalized = workspaceDisplayOptions(options); const cacheKey = key(normalized);
       // Access is checked even for a prepared display. Cache identity is never an authorization token.
       if (!load) throw new Error('共有表示の準備が完了していません。');
-      const source = await traceStartup('display.access', load);
-      if (disposed) throw new Error('表示するアカウント・グループが変わりました。');
+      const source = assertSource(await traceStartup('display.access', load));
       const current = values.get(cacheKey);
       if (current && fresh(current)) return current;
       const retained = covering(normalized); if (retained) return retained;
       const existing = pending.get(cacheKey); if (existing) return existing;
       const work = (async () => {
         let revision: number; let model: Model;
-        do { revision = generation; model = await traceStartup(normalized?.management ? 'display.settings' : 'display.plan', () => source.readModel(normalized)); }
-        while (!disposed && revision !== generation);
-        if (disposed) throw new Error('表示するアカウント・グループが変わりました。');
-        const session: V2GroupUiSession = { ...source, invalidate: store.invalidate,
+        let currentSource = source; let lastOwnerError: AdaptiveOwnerInputsChangedError | undefined;
+        // One coalesced display read owns this budget, including generation
+        // changes. Native private composition takes one protected read per pass.
+        for (let attempt = 0; ; attempt++) {
+          if (disposed) throw new Error('表示するアカウント・グループが変わりました。');
+          if (attempt) {
+            if (!load) throw new Error('共有表示の準備が完了していません。');
+            currentSource = assertSource(await traceStartup('display.access', load));
+          }
+          revision = generation;
+          try { model = await traceStartup(normalized?.management ? 'display.settings' : 'display.plan', () => currentSource.readModel(normalized)); }
+          catch (cause) {
+            if (disposed) throw new Error('表示するアカウント・グループが変わりました。');
+            if (!(cause instanceof AdaptiveOwnerInputsChangedError) || attempt >= 2) throw cause;
+            lastOwnerError = cause; continue;
+          }
+          assertSource(currentSource);
+          if (typeof identity?.userId === 'string' && model.viewerUserId !== identity.userId
+            || typeof identity?.groupId === 'string' && model.plan.groupId !== identity.groupId) {
+            throw new Error('表示するアカウント・グループが変わりました。');
+          }
+          if (revision === generation) break;
+          if (attempt >= 2) throw lastOwnerError ?? new AdaptiveOwnerInputsChangedError();
+        }
+        const session: V2GroupUiSession = { ...currentSource, invalidate: store.invalidate,
           readModel: async next => (await store.read(next)).model };
         const value = { session, model, generation: revision };
         values.delete(cacheKey); values.set(cacheKey, value);

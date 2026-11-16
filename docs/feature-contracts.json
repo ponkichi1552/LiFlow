@@ -15860,5 +15860,42 @@
       }
     ],
     "manualReview": "docs/audits/2026-11-16-validation-resume.md"
+  },
+  {
+    "feature": "shared-workspace-owner-input-coherent-display-recovery-20261116",
+    "tests": [
+      {
+        "file": "tests/workspace-display-cache.test.mjs",
+        "name": "workspace display retries adaptive owner changes with one shared three-pass budget"
+      },
+      {
+        "file": "tests/workspace-display-cache.test.mjs",
+        "name": "workspace display bounds owner errors and generation changes without publishing stale state"
+      },
+      {
+        "file": "tests/workspace-display-cache.test.mjs",
+        "name": "workspace display preserves non-owner failures without retrying them"
+      },
+      {
+        "file": "tests/workspace-display-cache.test.mjs",
+        "name": "workspace display stops owner recovery after disposal or identity replacement"
+      },
+      {
+        "file": "tests/workspace-display-cache.test.mjs",
+        "name": "workspace display refuses a substituted owner before returning cached or newly read rows"
+      },
+      {
+        "file": "tests/sharing-v2-private-ui.test.mjs",
+        "name": "shared display recovers a typed mirror race without replaying committed shared or private work"
+      },
+      {
+        "file": "tests/sharing-v2-private-ui.test.mjs",
+        "name": "${platform} shared workspace composition spends three single owner reads instead of nesting retries"
+      },
+      {
+        "file": "tests/adaptive-owner-integration.test.mjs",
+        "name": "a composed owner read stays single-attempt while the ordinary personal overlay retains three fresh attempts"
+      }
+    ]
   }
 ]

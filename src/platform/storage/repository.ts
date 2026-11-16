@@ -2793,7 +2793,9 @@ export const completeChoreWithReceipt = serializePlannerOperation(completeChoreW
 export const commitWidgetCompletionOperation = serializePlannerOperation(commitWidgetCompletionOperationImpl);
 export const undoCompletionReceipt = serializePlannerOperation(undoCompletionReceiptImpl, 'undoCompletionReceipt');
 export const mirrorSharedChoreCompletions = serializeDatabaseOperation(mirrorSharedChoreCompletionsImpl);
-export const readPersonalPlannerOverlaySnapshot = retryOwnerRead(serializeDatabaseOperation(readPersonalPlannerOverlaySnapshotImpl));
+/** A composed display owns its retry budget across shared and private inputs. */
+export const readPersonalPlannerOverlaySnapshotOnce = serializeDatabaseOperation(readPersonalPlannerOverlaySnapshotImpl);
+export const readPersonalPlannerOverlaySnapshot = retryOwnerRead(readPersonalPlannerOverlaySnapshotOnce);
 export const readPersonalChoreCopySource = serializeDatabaseOperation(readPersonalChoreCopySourceImpl);
 export const setPersonalDateTaskCompleted = serializePlannerOperation(setPersonalDateTaskCompletedImpl);
 export const setPersonalDateTaskCompletedIntent = serializePlannerOperation((database: SQLiteDatabase, command: PersonalDateTaskCommand,

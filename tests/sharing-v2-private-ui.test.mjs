@@ -10,6 +10,8 @@ import { privateFixture, privateToday } from './helpers/sharing-v2-private-fixtu
 import { fixture, seeds, groupId } from './helpers/sharing-v2-repository-fixture.mjs';
 import { createV2GroupController } from '../src/features/sharing/v2/controller.ts';
 import { createV2ScreenSession } from '../src/features/sharing/v2-ui/screen-session.ts';
+import { createV2PrivateTaskSource } from '../src/features/sharing/v2-ui/private-overlay.ts';
+import { createWorkspaceDisplayStore } from '../src/features/sharing/v2-ui/workspace-display-store.ts';
 import { listSharingOutbox } from '../src/platform/storage/sharing-ledger.ts';
 const repository = await import('../src/platform/storage/repository.ts');
 const { bindAdaptiveOwnerReader, AdaptiveOwnerInputsChangedError } = await import('../src/platform/storage/adaptive-owner-inputs.ts');
@@ -207,4 +209,64 @@ for (const [platform, name] of [
     pending = { ...pending, values: new Map([[key, false]]) }; screen.render();
     assert.equal(decodes, used); assert.equal(scans, 1); assert.equal(checkbox(screen, f.personal.chore.name).props.accessibilityState.checked, false);
   } finally { screen?.unmount(); f.close(); }
+});
+
+test('shared display recovers a typed mirror race without replaying committed shared or private work', async () => {
+  const f = await setup({ common: true, liveClock: true });
+  try {
+    const initial = await f.session.readModel();
+    const round = initial.plan.occurrences.find(row => row.choreId === 'floor' && row.anchorDate === privateToday);
+    assert.ok(round);
+    await f.controller.actions.complete({ choreId: round.choreId, anchorDate: round.anchorDate, ruleVersion: round.ruleVersion, subjectUserId: null });
+    const sharedBefore = await listSharingOutbox(f.d.database, groupId);
+    const definitions = f.personal.connection.prepare('SELECT id,definition_json FROM chore_definitions ORDER BY id').all();
+    let mirrorCalls = 0, changed = 0, afterChanges = 0, overlayCalls = 0;
+    const source = createV2PrivateTaskSource({ ownerUserId: 'owner', assertAccess() {},
+      mirrorShared: async (value, guard) => { mirrorCalls++; const count = await repository.mirrorSharedChoreCompletions(f.personal.database, value, guard); changed += count; return count; },
+      afterChange() { afterChanges++; throw new AdaptiveOwnerInputsChangedError(); },
+      readSnapshot: async instant => {
+        overlayCalls++;
+        const read = repository.readPersonalPlannerOverlaySnapshotOnce ?? repository.readPersonalPlannerOverlaySnapshot;
+        return { ownerUserId: 'owner', ...await read(f.personal.database, instant) };
+      }, save: async () => { throw new Error('a display read replayed a private command'); } });
+    const session = createV2ScreenSession({ controller: f.controller, groupId, userId: 'owner', now: () => new Date(), privateTasks: source,
+      readPreferences: () => ({ ownerUserId: 'owner', settings: { frequencyMode: 'balanced', restDays: [], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 3 } } }) });
+    const store = createWorkspaceDisplayStore(async () => session);
+    try {
+      const value = await store.read();
+      assert.equal(value.model.privateOverlay.status, 'ready');
+      assert.equal(mirrorCalls, 2); assert.equal(changed, 1); assert.equal(afterChanges, 1); assert.equal(overlayCalls, 1);
+      const mirrored = f.personal.connection.prepare("SELECT outcome FROM chore_completions WHERE schedule_entry_id LIKE 'shared-home:%'").all();
+      assert.deepEqual(mirrored.map(row => row.outcome), ['completed']);
+      assert.deepEqual(f.personal.connection.prepare('SELECT id,definition_json FROM chore_definitions ORDER BY id').all(), definitions);
+      assert.deepEqual(await listSharingOutbox(f.d.database, groupId), sharedBefore, 'presentation retry cannot append another shared operation');
+      assert.equal(value.model.plan.history.filter(record => record.active && record.outcome === 'completed').length, 1);
+    } finally { store.dispose(); }
+  } finally { f.close(); }
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} shared workspace composition spends three single owner reads instead of nesting retries`, async () => {
+  const f = await setup(); let screen, leave, focus, unbind; let ownerReads = 0, overlayCalls = 0;
+  try {
+    unbind = bindAdaptiveOwnerReader(f.personal.database, async () => { ownerReads++; throw new AdaptiveOwnerInputsChangedError(); });
+    const active = { protocol: 2, groupId, userId: 'owner', record: async () => ({ status: 'active' }), session: { controller: f.controller }, sync: async () => {} };
+    const context = { ready: true, active, userId: 'owner', group: null, completeInitialDisplay() {} };
+    const read = repository.readPersonalPlannerOverlaySnapshotOnce ?? repository.readPersonalPlannerOverlaySnapshot;
+    screen = screenHarness('tests/helpers/workspace-route-host.tsx', { exportName: 'WorkspaceRouteHost', props: { view: 'home' }, platform,
+      focusEffect: callback => { focus = callback; }, layoutEffect: commit => { commit(); }, mocks: {
+        '../../../hooks/use-workspace': { useWorkspace: () => context },
+        '../../../hooks/use-planner-data': { usePlannerData: () => ({ database: f.personal.database, snapshot: undefined, refresh: async () => {} }) },
+        '../../../platform/storage/repository': { ...repository,
+          readPersonalPlannerOverlaySnapshot: async (...args) => { overlayCalls++; return repository.readPersonalPlannerOverlaySnapshot(...args); },
+          readPersonalPlannerOverlaySnapshotOnce: async (...args) => { overlayCalls++; return read(...args); } },
+        '../../../platform/sharing/private-calendar-runtime': { openPrivateCalendarRuntime: () => ({
+          readPlannerPreferences: async () => null, readForPlan: async () => null, subscribe: () => () => {},
+        }) },
+        '@/platform/sharing/workspaces': { subscribeSharingChanges: () => () => {}, sharingFailureMessage: () => '同期を確認してください。' },
+      } });
+    leave = focus(); await ready(screen, '本人の予定設定が更新されました');
+    assert.equal(overlayCalls, 3, 'the composite budget owns the three fresh passes');
+    assert.equal(ownerReads, 3, 'a private repository must not multiply those passes into nine');
+    assert.equal(f.personal.connection.prepare("SELECT COUNT(*) AS n FROM chore_completions WHERE schedule_entry_id LIKE 'shared-home:%'").get().n, 0);
+  } finally { leave?.(); screen?.unmount(); unbind?.(); f.close(); }
 });

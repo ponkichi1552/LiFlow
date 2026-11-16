@@ -3,6 +3,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createWorkspaceDisplayStore } from '../src/features/sharing/v2-ui/workspace-display-store.ts';
 import { v2CalendarDisplayRange } from '../src/features/sharing/v2-ui/calendar-range.ts';
+import { AdaptiveOwnerInputsChangedError } from '../src/platform/storage/adaptive-owner-inputs.ts';
+import { PlanningInputChangedError } from '../src/features/planner/planning-input-change.ts';
+import { V2AuthorityError } from '../src/features/sharing/v2/receiver-authority.ts';
 
 const now = () => new Date('2026-10-31T10:00:00Z');
 const model = () => ({ viewerUserId: 'owner', plan: { groupId: 'group', timeZone: 'Asia/Tokyo', range: { asOfDate: '2026-10-31' } } });
@@ -85,4 +88,81 @@ test('calendar cache never treats partial coverage, invalid ranges or another ci
   await store.read(); await store.read({ calendarMonth: 'current' }); assert.equal(reads, 2, 'overview coverage cannot replace adjacent months');
   await assert.rejects(store.read({ calendarRange: range }), /invalid range/); assert.equal(reads, 3);
   instant = new Date('2026-10-31T15:00:00Z'); await store.read(); assert.equal(reads, 4);
+});
+
+test('workspace display retries adaptive owner changes with one shared three-pass budget', async () => {
+  let reads = 0;
+  const source = { userId: 'owner', groupId: 'group', readModel: async () => {
+    if (++reads < 3) throw new AdaptiveOwnerInputsChangedError();
+    return model();
+  } };
+  const store = createWorkspaceDisplayStore(async () => source, now);
+  const [left, right] = await Promise.all([store.read(), store.read({ management: true })]);
+  assert.equal(reads, 3); assert.equal(left, right);
+  assert.equal(left.model.viewerUserId, 'owner'); assert.equal(store.peek(), left);
+  store.dispose();
+});
+
+test('workspace display bounds owner errors and generation changes without publishing stale state', async () => {
+  for (const failure of ['owner', 'generation', 'mixed']) {
+    let reads = 0, failing = false;
+    const source = { userId: 'owner', groupId: 'group', readModel: async () => {
+      reads++;
+      if (failing && (failure === 'owner' || failure === 'mixed' && reads !== 2)) throw new AdaptiveOwnerInputsChangedError();
+      // Old source eventually settles instead of hanging the regression runner.
+      if (failing && reads < 5) store.invalidate();
+      return { ...model(), read: reads };
+    } };
+    const store = createWorkspaceDisplayStore(async () => source, now);
+    const saved = await store.read(); failing = true; reads = 0; store.invalidate();
+    await assert.rejects(store.read(), AdaptiveOwnerInputsChangedError);
+    assert.equal(reads, 3, `${failure} shares the same total pass budget`);
+    assert.equal(store.peek(), saved, 'failed recovery must not publish an invalidated result');
+    failing = false; const next = await store.read(); assert.notEqual(next, saved);
+    store.dispose();
+  }
+});
+
+test('workspace display preserves non-owner failures without retrying them', async () => {
+  for (const cause of [new Error('offline'), new V2AuthorityError('denied'), new PlanningInputChangedError()]) {
+    let reads = 0;
+    const source = { userId: 'owner', groupId: 'group', readModel: async () => { reads++; throw cause; } };
+    const store = createWorkspaceDisplayStore(async () => source, now);
+    await assert.rejects(store.read(), error => error === cause); assert.equal(reads, 1);
+    assert.equal(store.peek(), undefined); store.dispose();
+  }
+});
+
+test('workspace display stops owner recovery after disposal or identity replacement', async () => {
+  let reads = 0, release;
+  const source = { userId: 'owner', groupId: 'group', readModel: async () => {
+    reads++; await new Promise(resolve => { release = resolve; }); throw new AdaptiveOwnerInputsChangedError();
+  } };
+  const store = createWorkspaceDisplayStore(async () => source, now);
+  const pending = store.read();
+  for (let i = 0; i < 10 && !release; i++) await Promise.resolve();
+  assert.ok(release); store.dispose(); release();
+  await assert.rejects(pending, /アカウント・グループ/); assert.equal(reads, 1); assert.equal(store.peek(), undefined);
+  for (const changed of [{ userId: 'other', groupId: 'group' }, { userId: 'owner', groupId: 'other' }]) {
+    let current, oldReads = 0, replacementReads = 0;
+    const replacement = { ...changed, readModel: async () => { replacementReads++; return model(); } };
+    current = { userId: 'owner', groupId: 'group', readModel: async () => {
+      oldReads++; current = replacement; throw new AdaptiveOwnerInputsChangedError();
+    } };
+    const identityStore = createWorkspaceDisplayStore(async () => current, now);
+    await assert.rejects(identityStore.read(), /アカウント・グループ/);
+    assert.equal(oldReads, 1); assert.equal(replacementReads, 0, 'a new owner/group cannot be read for old callers');
+    assert.equal(identityStore.peek(), undefined); identityStore.dispose();
+  }
+});
+
+test('workspace display refuses a substituted owner before returning cached or newly read rows', async () => {
+  let current = { userId: 'owner', groupId: 'group', readModel: async () => model() };
+  const store = createWorkspaceDisplayStore(async () => current, now); await store.read();
+  let foreignReads = 0;
+  current = { userId: 'other', groupId: 'group', readModel: async () => { foreignReads++; return model(); } };
+  await assert.rejects(store.read(), /アカウント・グループ/); assert.equal(foreignReads, 0); store.dispose();
+  const malformed = createWorkspaceDisplayStore(async () => ({ userId: 'owner', groupId: 'group',
+    readModel: async () => ({ ...model(), viewerUserId: 'other' }) }), now);
+  await assert.rejects(malformed.read(), /アカウント・グループ/); assert.equal(malformed.peek(), undefined); malformed.dispose();
 });
