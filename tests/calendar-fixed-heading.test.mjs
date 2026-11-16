@@ -227,3 +227,43 @@ for (const platform of ['ios', 'android']) test(`${platform} all-day measurement
   await screen.press(`${formatJapaneseDate(first, { year: true, weekday: true })}を表示`);
   assert.ok(Object.keys(observed.heights).every(key => !initialKeys.has(key)), 'returning to old rows cannot resurrect their retired measurement');
 });
+
+for (const platform of ['ios', 'android']) test(`${platform} compact all-day rows bound long titles while preserving full accessible names and the same edit target`, async t => {
+  const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database);
+  const start = '2026-11-29', end = '2026-12-01';
+  const title = `Synthetic inclusive trip ${'長い予定名'.repeat(12)}`, location = 'Synthetic saved location';
+  const id = await saveCalendarEvent(h.database, { expectedRevision: 0, value: { ...newEventDraft(start, 'Asia/Tokyo'), title, location, allDay: true, endDate: end } });
+  const snapshot = await readLocalCalendar(h.database), opened = [];
+  const local = { database: h.database, snapshot, loading: false, error: null, refresh: async () => {}, prepareDraft: draft => { opened.push(structuredClone(draft)); return draft; } };
+  const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, width: 320, props: {
+    today: start, timeZone: 'Asia/Tokyo', local, dayInfo: () => ({ loaded: true, pending: 0, total: 0 }), renderChores: () => null,
+  } }); t.after(() => screen.unmount());
+  const writes = h.writes.length;
+  let ordinaryTitleStyle;
+  for (const [mode, compact, visibleDays] of [['1日表示', false, 1], ['2日表示', true, 2], ['3日表示', true, 3], ['リスト表示', false, 3]]) {
+    await selectCalendarView(screen, mode);
+    const rows = screen.nodes().filter(node => node.props.accessibilityLabel === `${title}を編集`);
+    assert.equal(rows.length, visibleDays, 'each included day retains one accessible action for the same occurrence');
+    for (const row of rows) {
+      assert.equal(row.props.accessibilityRole, 'button');
+      const label = descendants(row).find(node => node.type === 'Text' && node.children?.includes(title));
+      assert.ok(label, 'display truncation never replaces the saved or accessible title with shortened text');
+      if (compact) {
+        assert.ok(label.props.numberOfLines > 0 && label.props.numberOfLines <= 2, 'compact columns must bound a long title instead of wrapping indefinitely');
+        assert.equal(label.props.ellipsizeMode, 'tail');
+      } else assert.ok(!label.props.numberOfLines, 'the one-day and list rows retain their existing unrestricted title');
+      assert.notEqual(label.props.allowFontScaling, false, 'compact display respects the system text size');
+      if (!ordinaryTitleStyle) ordinaryTitleStyle = label.props.style;
+      assert.deepEqual(label.props.style, ordinaryTitleStyle, 'compact rows retain the ordinary title typography and theme');
+      assert.ok(descendants(row).some(node => node.type === 'Text' && node.children?.includes(location)), 'the saved location remains available');
+    }
+    await rows[0].props.onPress(); await screen.flush();
+    const draft = opened.at(-1);
+    assert.equal(draft.eventId, id); assert.equal(draft.anchorDate, start); assert.equal(draft.revision, 1);
+    assert.equal(draft.value.title, title); assert.equal(draft.value.location, location);
+    assert.equal(draft.value.startDate, start); assert.equal(draft.value.endDate, end);
+    await screen.press('閉じる');
+  }
+  assert.equal(h.writes.length, writes, 'view changes and opening the original occurrence never persist a truncated title or per-day copies');
+  assert.deepEqual((await readLocalCalendar(h.database)).events, snapshot.events);
+});

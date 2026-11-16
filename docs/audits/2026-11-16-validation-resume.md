@@ -399,3 +399,71 @@ T03/T12/S04はいずれも既存のnative対応へ証拠を追加したため、
 旧runtimeで3失敗→修正後3成功、関連64件成功。既存登録テストを拡張し、registryを変更していない。rootのlocal `npm run check` は4,641成功・失敗/cancel/skip0、201326.376792msで、lint・型検査も成功した。関連64件と全4,641件には重複があり加算しない。full checkログSHA-256は`a93f7e6fc22d592128331151ec89a826fae5d598c0afae08c2ddfeff0bbc70d5`。
 
 **実機3台は8944のままで、O09修正はまだnativeへ導入・受入れされていない。** 上の8944の5 job成功をe3のCI成功へ転用せず、e3のCI結論もここでは未確認とする。O09はcode checked / native acceptance pending、共有Google reopen・往復全体・T12は未通過の境界を保つ。今回もnative候補の新規対応は0で、39/2/175、全条件PASS0は変わらない。
+
+
+## H系の実機保存照合とO11視認性の境界
+
+既存JSONL372行・監査本文全体と、歴史的355行prefixを保持する追記である。H01/H02部分閉塞/H05は8944、H02全帯閉塞/H03/H06はa75の実iPhone・本人Cの個人fixtureを使った。下表の「成功」は保存データと観測した条件に限り、候補の全条件PASSへ換算しない。
+
+| 原候補 | 保存・計画の結果 | 残る条件 |
+| --- | --- | --- |
+| H01 | 07:00〜07:15の予定を追加しても、同じ回の11月30日09:00〜09:20、14日model、履歴1件を保持。試験の取消後は保存入力が復元。32照合一致 | 他の家事全体・他環境へ拡張しない |
+| H02 部分閉塞 | 09:00〜09:15を塞ぐと、同じ日・回・windowの09:15〜09:35へ15分移動。11照合一致 | まだ配置可能な状態である |
+| H02 全帯閉塞 | 11月30日09:00〜19:00を塞ぐと、許可帯と11月28日〜12月2日のwindowを保ち11月29日19:00〜19:20へ移動。保存値は全体projectorの結果と一致 | 完全に配置不能な状態とその表示は未実施 |
+| H03 | 全帯閉塞の予定を取り消すと、忙しさ85→84、11月30日09:00〜09:20へ復元。他の有効対象計画・履歴を保持 | 既存予定の編集variantは未実施 |
+| H05 | 同じ15分を塞ぐ別IDの2予定でもbusy85と09:15〜09:35を維持。片方の取消では不変、最後の取消でbusy84・09:00〜09:20へ復元 | 任意の重なり・provider・timezone全体は未実施 |
+| H06 | 11月29日〜12月1日inclusiveの1定義を12月2日0時exclusiveで扱い、3暦日を塞ぐ。対象は12月2日19:00〜19:20へ移動、同じ回・model・履歴を保持 | 保存データは成功、native視認性は失敗したまま |
+
+H02全帯閉塞の区間では、直前の共有Google reopen139に対応するcommon-history mirrorのUndoが独立に1件発生していた。厳密な「全personal履歴・全peer計画が一切不変」はfalseであり、この差を消していない。対象QA/T03の個人履歴、他の有効計画は保持され、H03/H06でもこの既知mirror状態は不変だった。
+
+H05の別ID追加ではraw source provenanceが変わる。初回の「source revisionまで同一」という厳密比較の失敗は保持し、有効な忙しさ・入力geometry・計画が同じという機能上の成功と分けた。H06の区間数84→82もunion統合によるもので、忙しさが減ったという意味ではない。
+
+### O11はデータ欠落と分け、native修正受入れを待つ
+
+H06の旅行定義と計画は保存されていたが、終日rowが時計scrollに巻き込まれ見つけづらくなるnative失敗を観測した。観測名O11であり、原候補O11の資源測定を実施した意味ではない。
+
+修正commit `608321329c65aba72bafa8bf0d0820535f551f99` は、終日を時計から独立した有界欄へ置き、表示中署名の測定保持を最大3列の範囲へ抑える。inclusive期間・同じ保存回を開くcallback・検索/recenter・gesture・既存の家事領域予算を保つ。旧rendererの有意4失敗、測定保持の有意2失敗を保存し、最終focused14・関連159成功、lint/型検査/登録検査も成功した。重複する検査は加算しない。
+
+O11はf483に含まれartifact/CIまで確認したが、この草稿には**修正後nativeの視認性受入れを含めない**。旅行fixtureを保持し、全ページUI監査・1000件洗い出しは再開しない。
+
+## B2はD本人Undo、B3はオフライン競合と明示解決
+
+B2ではa75のDがD本人の各自roundを完了し、本人のcheckboxで取り消した。受理139→140→141、追加はcompleteとそのfactを指すself-Undo各1件、C本人の回とCのTasks5対応は不変。26照合一致である。別メンバーが取り消す原S07は実施していない。履歴にUndoを置かない受容済み設計を維持し、管理者用の新入口や権限緩和は加えていない。
+
+B3ではC/Dの通信を切り、同じ共有descriptionの原文を保って各自の検証用識別子だけを追記した。Dはアプリprocess再開後も本文・未送信1を表示し、保存済みHome/guideを利用できた。端末OS再起動やL07の一時展開状態リセットを確認した意味ではない。
+
+| 段階 | 保存された事実 |
+| --- | --- |
+| 確認済みbaseline | 141受理、raw35＋snapshot.base106、未送信/暫定/保留/拒否0 |
+| Cオフライン保存 | stored accepted142には暫定1が含まれる。確認済み部分集合は元141と完全一致、outbox1。唯一の新factはdescriptionのみ |
+| Cを先に再接続 | 同じfactがACKされ142確定、outbox/暫定0。Dの変更はまだない |
+| D再接続 | 143確定、raw37。C/D両patchのcontextは同じ141headで、互いのdotを含まない。異なるdescription2候補を保持し、暗黙の後勝ちにしない |
+| Cが両候補を展開してCを1回選択 | 全143を観測するdescription-only解決factとreceiptが各1件追加され144。単一候補は原文＋C識別子。旧143factを残し、他entity/field/完了/要求/ルールとCのTasks5対応を保持 |
+
+C/iPadの最終raw38・snapshot.base106・受理144・receipt144、authoritative全fact/投影/receiptが一致し、未送信/暫定/保留/拒否は0。最終92照合が一致した。中間51/74と92は重複する照合で、新しい製品テスト数として加算しない。
+
+rootはC/D双方の通信復帰、両候補の展開、C選択後の通常欄、Dの通常descriptionにもCの値が届いたことを実画面で確認した。Dのprivate DB比較や独立署名検証、正確なHTTP件数は行っていない。iPadは保存の収束であり、iPadOS26.1のremote視覚レビューではない。S12の有効予定全体のC/D一致まで拡張しない。
+
+Dに残った本人設定の赤警告は、旧a75の再入で20:23:05の同期表示とともに消えた。新f483が実行された効果とはしない。これはO07のplanning入力Errorとは別のowner入力Errorで、nativeのどのguardが発火したかは未特定のままである。
+
+## a75の結果文受入れ、bb/f483のコード・CI・buildを分離
+
+前のO09「native未実施」の後、a75を上書き導入した。停止中Apple保存の比較はphone129＋iPad13＝計142ファイルが全一致。Androidは同じ署名・UIDを保つin-place導入/起動を確認し、uninstall/data clearは行っていない。Android private DBのbyte比較は未実施である。
+
+a75の実iPhoneで元共有Google Taskをreopenして明示pullすると、同じTask/list/roundへUndo1件が追加され138→139、ACK解除・他4対応不変、control idle/retry0/errorなしとなった。実際の結果文も追加0・更新0・完了と取消の取込1件で一致し、78照合が成功した。O09のこのreopen variantはnativeで確認できたが、同じ新sourceでのGoogle完了/reopen全往復、T12反響0、T06二端末同時Tasksまでは通過にしない。
+
+`bb780a7c5d0e8dc50d58822a26afad22a7a34a4f` のCalendar認証修正は、保存済みauthRequiredの自動入口を止め、明示force/interactiveと必要な同時参加回復を保持する。Calendar一覧の30秒再利用は採用せず、新規calendar/role/権限喪失反映、差分・CAS・予算・保存形式を維持した。実SQLite＋合成Googleポートのfocused14/関連255、local全4654、lint/型検査が成功。native HTTP0を直接測った結果ではない。
+
+`f483017bd6284633c0e741aa72dda3f4ade0a303` のowner入力回復は、型付きAdaptive変更だけを最大3回のfresh shared表示passで読み直す。generation変化も同じ総枠へ含め、普通のprivate読取APIの3回retryを保つ。account/group/dispose guard、pending合流、書込み済みmirror/fact/ACKを保持し、generic/authority/O07 planning Errorは隠さない。real repository回帰を含む新9/関連122が成功し、既存719契約をdeep identicalのまま1群追加して720、Cloud136登録を保持した。native警告の正確な入口は未証明で、修正後native受入れはこの草稿の対象外である。
+
+local全checkは4669成功・失敗/cancel/skip0、lint/型検査成功。bbのCI/Native計5jobと、f483のCI/Native計5jobはそれぞれのheadでcompleted/successを保存receiptから確認した。local件数・CI job・製品テスト・native受入れを合算しない。
+
+f483のiOS/Androidはbuild-only artifact receiptを確認し、iOS retry1は終了0・署名/追加入力照合成功、Androidも署名と非JS payloadのpinを保持した。最初の失敗/preflight証拠も保存している。**build成功は導入成功やO11/owner回復の実機受入れではない。** B3証拠承認後にrootが進めるf483導入・新native確認は、別の確定receiptで後続追記する。
+
+serverは既存bb時点の限定read-only追補で、同じ既存認証のOAuth refresh POST1と既知3service metadata GETを分離し、Ready/revision/image/trafficの配備pin一致を確認した。health2件200は既存a75観測の再利用で、新しいf483 health実行とはしない。clientだけの差から新配備が必要とは判断せず、worker POST/Cloud mutation/flag・secret・IAM取得/有料AI実APIは行っていない。
+
+## 原216候補の重複を除いた残数
+
+今回の新しい限定native対応はH01/H02/H03/H05/H06とD01/D02/S11/S12の9候補である。各original caseIdの最新mappingを1回だけ数えると、限定native48・構成のみ2・未実施166＝216、全条件PASS0。H02配置不能表示、H03編集variant、H06/O11視認性、S12の全有効予定、別member取消S07、端末再起動L12、全形式C01、二端末同時Tasks T06などの境界を残す。関連しただけのcaseIdを新実施へ増やしていない。
+
+元原簿216件はnot_runのまま、旧31結果・355行prefix・全372行の履歴を保持する。試験手順として行った予定取消は保存された墓標/旧証拠と区別し、清掃目的の検証データ削除は行わない。全ページUI監査/1000件目標の取消、有料OpenAI実API保留、削除worker未配備・配送flag0を維持する。account/group/provider/Task/list/端末の実IDや私的本文・画面は公開へ転記しない。

@@ -9295,6 +9295,10 @@
       {
         "file": "tests/calendar-fixed-heading.test.mjs",
         "name": "${platform} all-day measurements retain only active content and ignore callbacks from retired content"
+      },
+      {
+        "file": "tests/calendar-fixed-heading.test.mjs",
+        "name": "${platform} compact all-day rows bound long titles while preserving full accessible names and the same edit target"
       }
     ]
   },

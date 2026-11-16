@@ -423,13 +423,15 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   const summaryDetails = (day: LocalDate) => !showChores(day) ? null : <View>{(props.dayInfo(day).pending ?? 0) > 0 && eventsOn(day).some(event => event.allDay && !event.birthday && !event.holiday && event.blocksTime !== false)
     ? <Text style={styles.overlapNotice}>終日予定がある日の家事です</Text> : null}{expanded.has(day) ? <View style={styles.choreList}>{props.renderChores(day, view)}</View> : null}</View>;
   const summary = (day: LocalDate, info?: CalendarDayInfo) => <View>{summaryToggle(day, info)}{summaryDetails(day)}</View>;
-  const eventRow = (event: CalendarOccurrence, day: LocalDate) => <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${calendarDisplayedTitle(event)}を編集`} accessibilityState={{ selected: searchFocus?.eventId === event.eventId && searchFocus.date === day }} onPress={() => openEvent(event)} onLayout={eventLayout => {
+  const eventRow = (event: CalendarOccurrence, day: LocalDate, compactAllDay = false) => <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${calendarDisplayedTitle(event)}を編集`} accessibilityState={{ selected: searchFocus?.eventId === event.eventId && searchFocus.date === day }} onPress={() => openEvent(event)} onLayout={eventLayout => {
       const y = eventLayout.nativeEvent.layout.y; agendaEventOffsets.current.set(`${event.id}:${day}`, y);
       if (view === 'list' && searchFocus?.eventId === event.eventId && searchFocus.date === day) agenda.current?.scrollToOffset({ offset: y, animated: false });
     }} style={[styles.eventRow, searchFocus?.eventId === event.eventId && searchFocus.date === day && { backgroundColor: palette.accentSoft }]}>
-    <Text numberOfLines={1} style={styles.eventTime}>{event.allDay ? '終日' : event.startDate < day ? '継続' : minuteLabel(event.startMinute)}</Text><View style={[styles.eventStripe, { backgroundColor: colors.get(event.categoryId) ?? palette.muted }]} />
-    <View style={styles.eventText}><Text style={styles.eventTitle}>{calendarDisplayedTitle(event)}</Text>{event.location ? <Text style={styles.caption}>{event.location}</Text> : null}
-      {event.timeIssue ? <Text style={styles.error} accessibilityLabel={`${event.timeZone}の夏時間により${event.timeIssue === 'gap' ? '存在しない' : '重複する'}時刻です。時刻を確認してください。`}>時刻要確認 · {event.timeZone}</Text> : event.original ? <Text style={styles.caption}>元の地域：{event.original.timeZone}</Text> : event.timeZone !== timeZone ? <Text style={styles.caption}>{event.timeZone}</Text> : null}</View><Chevron />
+    {!compactAllDay ? <Text numberOfLines={1} style={styles.eventTime}>{event.allDay ? '終日' : event.startDate < day ? '継続' : minuteLabel(event.startMinute)}</Text> : null}<View style={[styles.eventStripe, { backgroundColor: colors.get(event.categoryId) ?? palette.muted }]} />
+    <View style={[styles.eventText, compactAllDay && styles.compactAllDayText]}>
+      {compactAllDay ? <View style={styles.compactAllDayMeta}><Text style={[styles.eventTime, styles.compactAllDayTime]}>終日</Text><Chevron /></View> : null}
+      <Text numberOfLines={compactAllDay ? 2 : undefined} ellipsizeMode={compactAllDay ? 'tail' : undefined} style={styles.eventTitle}>{calendarDisplayedTitle(event)}</Text>{event.location ? <Text style={styles.caption}>{event.location}</Text> : null}
+      {event.timeIssue ? <Text style={styles.error} accessibilityLabel={`${event.timeZone}の夏時間により${event.timeIssue === 'gap' ? '存在しない' : '重複する'}時刻です。時刻を確認してください。`}>時刻要確認 · {event.timeZone}</Text> : event.original ? <Text style={styles.caption}>元の地域：{event.original.timeZone}</Text> : event.timeZone !== timeZone ? <Text style={styles.caption}>{event.timeZone}</Text> : null}</View>{!compactAllDay ? <Chevron /> : null}
   </Pressable>;
   const dayHeading = (day: LocalDate, agenda = false, weekly = false) => {
     const announcement = dateLabel(day);
@@ -666,7 +668,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
             {allDayColumns.map(({ day, rows, measurement }) => rows.length ? <GestureScrollView key={day} simultaneousWith={detailSwipe} disallowInterruption={false}
               enabled={!activeDragDay} scrollEnabled={!activeDragDay} nestedScrollEnabled accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の終日予定`} style={styles.dayColumn}
               onContentSizeChange={(_width, contentHeight) => measureAllDay(measurement, contentHeight)}>
-              {rows.map(event => eventRow(event, day))}
+              {rows.map(event => eventRow(event, day, view === 'two' || view === 'three'))}
             </GestureScrollView> : <View key={day} style={styles.dayColumn} />)}
           </View> : null}
           <GestureFlatList key={`timeline:${view}:${date}`} ref={scroll} simultaneousWith={detailSwipe} disallowInterruption={false} enabled={!activeDragDay} scrollEnabled={!activeDragDay} style={styles.timelineScroll} testID="calendar-timeline" data={[{ key: 'top' }, { key: 'timeline' }]} keyExtractor={item => item.key} initialNumToRender={2}
@@ -766,6 +768,7 @@ const baseStyles = StyleSheet.create({
   birthday: { flexDirection: 'row', gap: 3, alignItems: 'center', flexShrink: 1, minWidth: 0, maxWidth: '65%' }, dayColumns: { flexDirection: 'row' }, dayColumn: { flex: 1, minWidth: 0, borderRightWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
   eventRow: { minHeight: 48, paddingVertical: 8, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border },
   eventTime: { ...typography.caption, color: palette.muted, minWidth: 39, flexShrink: 0 }, eventStripe: { width: 3, alignSelf: 'stretch', borderRadius: 2 }, eventText: { flex: 1, gap: 1 }, eventTitle: { ...typography.body, color: palette.ink, fontWeight: '600' },
+  compactAllDayText: { minWidth: 0 }, compactAllDayMeta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }, compactAllDayTime: { minWidth: 0, maxWidth: '100%' },
   agendaDay: { paddingBottom: 10, borderBottomWidth: 1, borderColor: palette.border }, empty: { ...typography.caption, color: palette.muted, paddingHorizontal: 12, paddingVertical: 8 },
   alignedDayColumns: { marginLeft: timeGutter, borderLeftWidth: 1, borderLeftColor: palette.border },
   fixedDayHeader: { backgroundColor: palette.background, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
