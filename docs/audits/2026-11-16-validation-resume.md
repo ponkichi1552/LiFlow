@@ -353,3 +353,49 @@ privateの8ファイルfreezeはその時点の718契約群であり、後続の
 実機3台はまだ旧fa7系（phoneはdiagnostic variant2）で、新fix導入後の共有Google完了/reopenとAdd入口の実機再確認が残る。O07/O08はcode checked / native verification pendingとして記録し、runtime修正済み・T12/共有往復全体の通過を主張しない。
 
 新native対応はS04の入口失敗1候補だけで、限定native39・構成のみ2・残175。全状態・全platformの候補全条件PASSは0を維持する。343行prefix・元原簿・旧結果・他ファイルは保持し、識別子/私的画面/本文は公開へ転記していない。
+
+
+## 8944導入・限定native再確認と結果文O09（2026-11-16T09:00:44.811460+00:00）
+
+既存355行prefixを保持し、source `8944bded81e9bc7fa5bd6b9b9bbdeb174b34a694` の確定receiptだけを追加した。以下は限定した入口・取込動作の確認であり、216候補全体や共有往復全体の通過には換算しない。
+
+### CIと実機上書き導入
+
+保存済みCI receiptの確認時刻はUTC08:27:50。Native configuration（43829333015）のnative-configuration/ios-widget-inputと、CI（43829333042）のsharing-security/check(ios)/check(android)、計5 jobすべてが同じ8944 headでcompleted/successだった。このreceiptに含まれない各suiteの件数・skip数は推定せず、前節のlocal4,640件とは別の結果として記録する。
+
+iPhone/iPadは上書き導入時の停止中before/afterでそれぞれ129/13ファイルが全byte・SHA一致し、変更・永続差分0。Androidも同じsourceのAPKをdata clear/uninstallなしで上書きし起動、artifact指紋一致・package UID不変を確認した。Androidのprivate DB byte比較は未実施である。これはインストール区間の保存保持であり、その後の138受理factがiPadへ収束したという証拠ではない。
+
+iPadOS26.1はこのhostからのremote画面共有に対応せず、今回もiPadの視覚レビューは行っていない。過去のApple2台のfact収束、今回の導入前後byte一致、画面での受入れはそれぞれ独立した証拠である。
+
+### O08：Add入口は実iPhone/Androidで復旧、保存は別条件
+
+新nativeのiPhone管理者では日付と必要項目を持つ共有Addフォームが開き、Androidメンバーでもフォームが開いてBackで一覧へ戻った。旧`Invalid local date`は現れなかった。Androidで一度入力をdispatchできなかったのはCUAのクリック操作で、rootが許可済みgesture手段で入力後に画面を観測したものであり、アプリの失敗へ分類しない。
+
+この観測では両端末とも新規家事を保存していない。O08の入口不具合はこの2役割/OSで修正確認できたが、原候補S04の新規保存・設定変更・A/Bの家事/周期/担当/予定一致を通過としない。診断名O08は原候補O08の検索/索引検証でもなく、Hの忙しさ試験を通過にする根拠でもない。
+
+### O07：Google完了1回のデータとcontrolは正常、O09の結果文が残る
+
+8944の実iPhoneでGoogle側の元共有Taskを完了後、停止中readcopyをさらにcloneして照合した。rawだけではなく、106 factを持つsnapshot.baseとrawを合わせて正規projector・repository reader・V2 history viewを使った63項目がすべて一致した。
+
+直前diagnostic2からacceptedは137→138、rawは31→32、snapshotは不変。同じ元Task/list/schedule/本人/roundへのcompleteが1件だけ追加され、private ACKもそのfactだけを指す。他4mappingは完全同一で、pending/rejected/provisional/outboxは0だった。controlはUTC08:35:29.992の成功checkpointと同じlastAttemptでidle、retry0、error/nextRetryなしに終わった。O07の**このGoogle完了1回における取込後control回復**はnativeで確認できた。
+
+一方、rootはその操作結果文が「skipped」であることを観測した。保存とcontrolが正常でも集約した結果文が実態を表さないため、別の不具合観測名O09として修正中のまま残す。private proof担当は保存状態を確認したもので、結果文の画面を独立再観測したとは主張しない。O09という診断名を原候補O09の件数/長文検索性能へ対応させず、新しい候補実施件数にも加えない。
+
+同じ新sourceでのGoogle reopen、共有往復全体、T12の全条件、結果文O09の修正受入れはまだ残る。原候補T06の二端末同時同期、他OS/競合/応答喪失、独立暗号署名検証、HTTP件数も今回の証拠に含めない。
+
+### serverはsourceだけ再比較、Cloudは06:16の既存観測
+
+新main8944として提供されたsourceについて、account-device API/weather API/workerの到達graph、各source指紋、import/config/literal archiveが既存の配備pinと一致した。runtimeの対象source数はそれぞれ33/9/7、型を含めても50/9/7で差はなく、この3serviceのsource差から追加配備が必要とは判断されない。
+
+ここで新しく読んだのはlocal sourceだけである。Ready/revision/image/traffic/healthの根拠は**UTC06:16:14.088〜06:16:16.644の既存Cloud receipt**で、新しいCloud metadata GET・health GET・その他networkはすべて0。worker実行もない。削除worker未配備・配送flag0・有料AI保留は変更せず、live再照会した値ともしていない。
+
+T03/T12/S04はいずれも既存のnative対応へ証拠を追加したため、限定native39・構成のみ2・残175を維持する。全状態・全platformの候補全条件PASSは0のまま。元216原簿・旧31結果・歴史的記録は不変で、account/group/provider/Task/list/roundの実IDや私的画面を公開へ転記していない。証拠のartifact名とSHAは今回のJSONL追記へ記録した。
+
+
+## O09結果集約のコード検証、native受入れは未実施（2026-11-16T09:08:04.902600+00:00）
+
+上の8944 native観測後、製品commit `e3d9c36ce057bcfe57d050f3bf95a06cf8e32d46` にO09結果集約の修正が入った。3ファイルのcommit内指紋がfreeze receiptの修正後指紋と一致した。runtimeは17行追加で、後続のskipが先に成功した取込/作成/更新の結果を消さず、実際に成功したpassの値だけを集約する。全skip・foreground待ち・後続の実retry/auth/errorを区別し、3回上限・force/queue・HTTP判定・権限guard・保存済みfact/ACKを維持する。
+
+旧runtimeで3失敗→修正後3成功、関連64件成功。既存登録テストを拡張し、registryを変更していない。rootのlocal `npm run check` は4,641成功・失敗/cancel/skip0、201326.376792msで、lint・型検査も成功した。関連64件と全4,641件には重複があり加算しない。full checkログSHA-256は`a93f7e6fc22d592128331151ec89a826fae5d598c0afae08c2ddfeff0bbc70d5`。
+
+**実機3台は8944のままで、O09修正はまだnativeへ導入・受入れされていない。** 上の8944の5 job成功をe3のCI成功へ転用せず、e3のCI結論もここでは未確認とする。O09はcode checked / native acceptance pending、共有Google reopen・往復全体・T12は未通過の境界を保つ。今回もnative候補の新規対応は0で、39/2/175、全条件PASS0は変わらない。
