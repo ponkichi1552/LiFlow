@@ -62,7 +62,13 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
       const promise=(async():Promise<Result>=>{
         try {
           const result=await withinGoogleOperationBudget(retryBudget,()=>active);
-          if (!options.force && result.kind!=='pending') return result;
+          if (!options.force && result.kind!=='pending') {
+            if (!options.interactive) return result;
+            retryBudget.assert();
+            const control = await readPersonalGoogleCalendarControl(input.database);
+            retryBudget.assert();
+            if (!control.enabled || !control.subject || !control.authRequired) return result;
+          }
           retryBudget.assert();
           return await withinGoogleOperationBudget(retryBudget,()=>sync({...options,budgetMs:Math.floor(retryBudget.remaining())}));
         } catch(error) { if(error instanceof Error && error.name==='AbortError')return{kind:'pending',received:0,sent:0};throw error; }
@@ -75,7 +81,9 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
     const work = (async (): Promise<Result> => {
       let control = await traceStartup('googleCalendar.control', () => readPersonalGoogleCalendarControl(input.database));
       if (!control.enabled || !control.subject) return { kind: 'skipped', received: 0, sent: 0 };
-      if (!options.force && control.retryAt > now()) return { kind: 'pending', received: 0, sent: 0, retryAt: control.retryAt };
+      // An elapsed backoff cannot restore a grant; authentication recovery requires an explicit retry.
+      if (control.authRequired && !options.force && !options.interactive) return { kind: 'skipped', received: 0, sent: 0 };
+      if (!options.force && !(options.interactive && control.authRequired) && control.retryAt > now()) return { kind: 'pending', received: 0, sent: 0, retryAt: control.retryAt };
       return withGoogleSyncOperation(async () => {
         let calls = 0; let received = 0; let sent = 0; let changed = false; let localCandidates: number | null = null;
         const finish = (result: Result): Result => {

@@ -64,6 +64,135 @@ test('Calendar connection status requires the native grant and distinguishes aut
   h.api.events = async () => { throw new GoogleCalendarHttpError(503); };
   assert.equal((await h.sync.sync({ force: true })).kind, 'error');
   const offline = await h.sync.readControl(); assert.equal(offline.authRequired, undefined); assert.equal(await h.sync.isConnected(offline), true);
+  const beforeRetry = h.calls.length;
+  assert.equal((await h.sync.sync({ interactive: true })).kind, 'pending');
+  assert.equal(h.calls.length, beforeRetry, 'interactive authentication recovery does not bypass ordinary network backoff');
+
+  async function authenticationFailure(t) {
+    let clock = 1_800_000_000_000; let fixture;
+    const counts = { identity: 0, api: 0 };
+    fixture = await harness(t, { now: () => clock,
+      currentSubject: async () => { counts.identity++; return 'google-one'; },
+      createApi: () => { counts.api++; return fixture.api; } });
+    await fixture.connect(); const event = await fixture.local();
+    const insert = fixture.api.insert;
+    fixture.api.insert = async () => { throw new GoogleCalendarHttpError(401); };
+    assert.equal((await fixture.sync.sync({ force: true })).kind, 'error');
+    const control = await fixture.sync.readControl();
+    assert.equal(control.authRequired, true);
+    assert.ok(fixture.links()[0].pending_json, 'the failed write retains its durable intent');
+    const rows = () => fixture.connection.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'calendar_%' ORDER BY name").all()
+      .map(({ name }) => [name, fixture.connection.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}" ORDER BY rowid`).all()]);
+    counts.identity = 0; counts.api = 0; fixture.calls.length = 0;
+    return { ...fixture, counts, control, event, rows, setClock: value => { clock = value; }, restoreInsert: () => { fixture.api.insert = insert; } };
+  }
+  for (const retry of ['future', 'elapsed']) await t.test(`saved Calendar authentication failure blocks automatic identity and API work with ${retry} retry time`, async t => {
+    const f = await authenticationFailure(t);
+    if (retry === 'elapsed') f.setClock(f.control.retryAt + 1);
+    const before = f.rows(); const writes = f.writes.length;
+    const result = await f.sync.sync();
+    assert.equal(f.counts.api, 0, 'automatic work stops before constructing the token-backed API');
+    assert.equal(f.counts.identity, 0, 'automatic work stops before the native identity bridge');
+    assert.equal(f.calls.length, 0);
+    assert.equal(f.writes.length, writes);
+    assert.deepEqual(f.rows(), before, 'pending intents, local edits, cursors, inbox and control remain intact');
+    assert.ok(result.kind === 'skipped' || result.kind === 'pending');
+  });
+  for (const recovery of ['force', 'interactive']) await t.test(`explicit Calendar ${recovery} recovers the same pending write while authentication retry time is future`, async t => {
+    const f = await authenticationFailure(t); const [pending] = f.links(); f.restoreInsert();
+    const result = await f.sync.sync({ [recovery]: true });
+    assert.equal(result.kind, 'success'); assert.equal(result.sent, 1);
+    assert.equal(f.counts.api, 1); assert.ok(f.counts.identity > 0);
+    const [accepted] = f.links();
+    assert.equal(accepted.google_id, pending.google_id); assert.equal(accepted.calendar_id, pending.calendar_id);
+    assert.equal(accepted.event_id, f.event.id); assert.equal(accepted.pending_json, null);
+    assert.equal(accepted.local_revision, f.event.revision); assert.equal(f.events.size, 1);
+    const recovered = await f.sync.readControl();
+    assert.equal(recovered.authRequired, undefined); assert.equal(recovered.error, null); assert.equal(recovered.retryAt, 0);
+    assert.equal(recovered.subject, f.control.subject); assert.equal(recovered.generation, f.control.generation);
+    await f.sync.disable(recovered); f.counts.api = 0; f.counts.identity = 0; f.calls.length = 0;
+    const before = f.rows();
+    assert.equal((await f.sync.sync({ [recovery]: true })).kind, 'skipped');
+    assert.deepEqual(f.counts, { identity: 0, api: 0 }); assert.equal(f.calls.length, 0); assert.deepEqual(f.rows(), before);
+  });
+  function delayFirstControlRead(f, expireDuringSettledRead = false) {
+    const first = f.database.getFirstAsync; let reads = 0; let release; let announce;
+    const gate = new Promise(resolve => { release = resolve; }); const entered = new Promise(resolve => { announce = resolve; });
+    f.database.getFirstAsync = async (sql, ...args) => {
+      const value = await first(sql, ...args);
+      if (sql === 'SELECT control_json FROM calendar_google_control WHERE singleton=1') {
+        reads++;
+        if (reads === 1) { announce(); await gate; }
+        if (reads === 2 && expireDuringSettledRead) f.setClock(1_800_000_001_001);
+      }
+      return value;
+    };
+    return { entered, release, reads: () => reads };
+  }
+  for (const recovery of ['interactive', 'force']) await t.test(`joined Calendar ${recovery} recovers one pending intent after an automatic authentication skip`, async t => {
+    const f = await authenticationFailure(t); const [pending] = f.links(); f.restoreInsert();
+    const gate = delayFirstControlRead(f); const automatic = f.sync.sync(); await gate.entered;
+    const explicit = f.sync.sync({ [recovery]: true });
+    const joined = f.sync.sync({ [recovery]: true }); gate.release();
+    assert.equal(explicit, joined, 'multiple explicit callers share the existing trailing pass');
+    const [stopped, recovered, coalesced] = await Promise.all([automatic, explicit, joined]);
+    assert.deepEqual(stopped, { kind: 'skipped', received: 0, sent: 0 });
+    assert.equal(recovered.kind, 'success'); assert.equal(recovered.sent, 1); assert.deepEqual(coalesced, recovered);
+    assert.equal(f.counts.api, 1); assert.ok(f.counts.identity > 0);
+    const [accepted] = f.links();
+    assert.equal(accepted.google_id, pending.google_id); assert.equal(accepted.calendar_id, pending.calendar_id);
+    assert.equal(accepted.event_id, pending.event_id); assert.equal(accepted.pending_json, null);
+    assert.equal(f.events.size, 1); assert.equal((await f.sync.readControl()).authRequired, undefined);
+  });
+  for (const state of ['disabled', 'unbound']) await t.test(`joined interactive Calendar recovery remains local for a ${state} authentication control`, async t => {
+    const f = await authenticationFailure(t); f.restoreInsert();
+    if (state === 'disabled') await f.sync.disable(f.control);
+    else f.connection.prepare('UPDATE calendar_google_control SET control_json=? WHERE singleton=1').run(JSON.stringify({
+      ...f.control, generation: f.control.generation + 1, enabled: true, subject: '', calendars: [], targetCalendarId: null,
+    }));
+    const before = f.rows(); const gate = delayFirstControlRead(f);
+    const automatic = f.sync.sync(); await gate.entered; const explicit = f.sync.sync({ interactive: true }); gate.release();
+    assert.equal((await automatic).kind, 'skipped'); assert.equal((await explicit).kind, 'skipped');
+    assert.deepEqual(f.counts, { api: 0, identity: 0 }); assert.equal(f.calls.length, 0); assert.deepEqual(f.rows(), before);
+  });
+  for (const outcome of ['success', 'authentication error', 'network error']) await t.test(`joined interactive Calendar request preserves a preceding ${outcome} and retries only saved authentication`, async t => {
+    const f = await authenticationFailure(t); f.restoreInsert(); await f.sync.sync({ force: true });
+    const [link] = f.links();
+    await saveCalendarEvent(f.database, { id: f.event.id, expectedRevision: f.event.revision, value: { ...f.event, title: '回復中も保持する編集' } });
+    f.counts.api = 0; f.counts.identity = 0; f.calls.length = 0;
+    const events = f.api.events; let first = true; let release; let announce;
+    const gate = new Promise(resolve => { release = resolve; }); const entered = new Promise(resolve => { announce = resolve; });
+    f.api.events = async (...args) => {
+      if (first) {
+        first = false; announce(); await gate;
+        if (outcome !== 'success') throw new GoogleCalendarHttpError(outcome === 'authentication error' ? 401 : 503);
+      }
+      return events(...args);
+    };
+    const automatic = f.sync.sync(); await entered;
+    const explicit = f.sync.sync({ interactive: true }); const joined = f.sync.sync({ interactive: true }); release();
+    assert.equal(explicit, joined);
+    const [preceding, result] = await Promise.all([automatic, explicit]); await joined;
+    assert.equal(preceding.kind, outcome === 'success' ? 'success' : 'error');
+    assert.equal(result.kind, outcome === 'network error' ? 'error' : 'success');
+    assert.equal(f.counts.api, outcome === 'authentication error' ? 2 : 1);
+    const [after] = f.links(); assert.equal(after.google_id, link.google_id); assert.equal(after.event_id, link.event_id);
+    assert.equal(f.events.size, 1); assert.equal(after.pending_json, null);
+    assert.equal(after.local_revision, outcome === 'network error' ? f.event.revision : f.event.revision + 1);
+    assert.equal((await readLocalCalendar(f.database)).events.find(row => row.id === f.event.id).title, '回復中も保持する編集');
+    assert.equal((await f.sync.readControl()).authRequired, undefined);
+  });
+  for (const expiry of ['while waiting', 'during settled control read']) await t.test(`joined interactive Calendar authentication recovery does not create an API after its budget expires ${expiry}`, async t => {
+    const f = await authenticationFailure(t); f.restoreInsert(); const before = f.rows();
+    const gate = delayFirstControlRead(f, expiry === 'during settled control read');
+    const automatic = f.sync.sync(); await gate.entered;
+    const explicit = f.sync.sync({ interactive: true, budgetMs: 1000 });
+    if (expiry === 'while waiting') f.setClock(1_800_000_001_001);
+    gate.release();
+    assert.equal((await automatic).kind, 'skipped'); assert.equal((await explicit).kind, 'pending');
+    assert.equal(gate.reads(), expiry === 'while waiting' ? 1 : 2);
+    assert.deepEqual(f.counts, { api: 0, identity: 0 }); assert.equal(f.calls.length, 0); assert.deepEqual(f.rows(), before);
+  });
 });
 test('a background Calendar pass defers its initial full read but sends pending local edits and resumes in foreground', async t => {
   const h = await harness(t); await h.connect(); const event = await h.local();
