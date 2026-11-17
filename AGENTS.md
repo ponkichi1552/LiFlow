@@ -1,5 +1,11 @@
 This is an Expo/React Native mobile application. Prioritize mobile-first patterns, performance, and cross-platform compatibility.
 
+## Agent models and local storage
+
+- Do not use sol models for sub-agents. When delegation is authorized, use `gpt-6-luna` with reasoning effort `max`.
+- Permanently remove temporary files, generated screenshots and obsolete build outputs once they have no remaining use. Do not move unused material to external storage merely to keep it.
+- Keep necessary source, unique unadopted work, current verification records and retained user data organized by purpose. Verify copies by content before removing their originals during a storage migration; confirm that duplicates are identical before deleting them.
+
 ## Canonical development source
 
 - The canonical GitHub repository is the private `ponkichi1552/LiFlow` repository: `https://github.com/ponkichi1552/LiFlow`. `origin` points there.
