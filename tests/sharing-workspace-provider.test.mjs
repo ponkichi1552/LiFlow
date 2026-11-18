@@ -134,6 +134,7 @@ for (const platform of ['ios', 'android']) test(`${platform} cold startup restor
     '@/hooks/use-workspace': { WorkspaceProvider: ({ children }) => children, ActiveWorkspaceScope: ({ children }) => ready ? children : null },
     '@/components/workspace-navigator': { WorkspaceNavigator: () => 'ready-navigation' },
     '@/platform/sharing/adaptive-personal-runtime': {},
+    '@/platform/sharing/install-native-ed25519': {},
     '@/features/subscription/subscription-boundary': { SubscriptionBoundary: ({ children }) => children },
     '@/platform/notifications/configure-foreground-notifications': {}, '@/components/planner-theme': { plannerColorsForScheme: () => ({}) },
     '@/features/sharing/v2-ui/workspace-data': { WorkspaceDisplayProvider: provider('prefetch') },

@@ -25,7 +25,7 @@ export interface V2GroupUiSession {
   privateTasks?: V2PrivateTaskSource;
   readOwnCalendar?: PrivateCalendarRuntime['readOwnCalendar'];
   invalidate?: () => void;
-  readModel: (options?: { calendarMonth?: string; calendarRange?: { from: LocalDate; through: LocalDate }; focusDate?: string; detailChoreId?: string; choreSettings?: boolean; management?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; appliances?: boolean; applianceId?: string; reminders?: boolean }) => Promise<V2GroupScreenModel & { personal?: V2PersonalPlan; privateOverlay?: V2PrivateOverlayState }>;
+  readModel: (options?: { calendarMonth?: string; calendarRange?: { from: LocalDate; through: LocalDate }; focusDate?: string; detailChoreId?: string; choreSettings?: boolean; management?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; wasteCalendarPolicy?: boolean; appliances?: boolean; applianceId?: string; reminders?: boolean }) => Promise<V2GroupScreenModel & { personal?: V2PersonalPlan; privateOverlay?: V2PrivateOverlayState }>;
 }
 
 /** The UI computes its range and personal suggestions from one authenticated group clock. */
@@ -83,7 +83,8 @@ export function createV2ScreenSession(input: { controller: V2GroupController; gr
           return { ...range, through: range.through < horizon ? range.through : horizon, asOfDate: date };
         }
         return { from: addDays(focus ?? date, -14), through: addDays(focus ?? date, 14), asOfDate: date };
-      }, { detailChoreId: options?.detailChoreId, choreSettings: options?.choreSettings, groupPolicy: options?.groupPolicy, permissionsChoreId: options?.permissionsChoreId, waste: options?.waste, appliances: options?.appliances, applianceId: options?.applianceId, calendarLong: Boolean(options?.calendarMonth) }));
+      }, { detailChoreId: options?.detailChoreId, choreSettings: options?.choreSettings, groupPolicy: options?.groupPolicy, permissionsChoreId: options?.permissionsChoreId,
+        waste: options?.waste, wasteCalendarPolicy: options?.wasteCalendarPolicy || Boolean(options?.calendarMonth), appliances: options?.appliances, applianceId: options?.applianceId, calendarLong: Boolean(options?.calendarMonth) }));
       if (model.viewerUserId !== input.userId || model.plan.groupId !== input.groupId) throw new Error('表示する共有アカウント・グループが変わりました。');
       planTimeZone = model.plan.timeZone;
       calendarRecords = model.calendar ?? [];

@@ -65,3 +65,18 @@ test('a native touch end stops edge scrolling even if a virtualized source never
   f.driver.finish(point); assert.equal(f.writes.length, 1); assert.equal(f.offset(), stopped); assert.equal(f.frames.queued(), 0);
   f.driver.start(f.start); f.driver.touchEnd(point); assert.equal(f.driver.active(), false); assert.equal(f.writes.length, 1);
 });
+
+test('a failed drop resolution releases the month drag and its scheduled frames', () => {
+  const f = fixture();
+  const point = { x: 350, y: 495 };
+  f.driver.start(f.start);
+  f.driver.claim();
+  f.driver.move(point, 1);
+  assert.ok(f.frames.queued() > 0);
+  f.driver.update({ ...f.config, resolve: () => { throw new Error('unavailable drop target'); } });
+  assert.throws(() => f.driver.finish(point), /unavailable drop target/u);
+  assert.equal(f.driver.active(), false);
+  assert.equal(f.ended(), 1);
+  assert.equal(f.frames.queued(), 0);
+  assert.deepEqual(f.writes, []);
+});

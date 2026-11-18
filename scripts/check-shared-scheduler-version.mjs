@@ -11,10 +11,20 @@ const personalContractPath = 'src/features/sharing/v2/personal-scheduler-contrac
 const personalOnly = ['src/features/sharing/v2/personal-plan.ts', 'src/features/sharing/v2/private-availability.ts'];
 const formalRoots = ['src/features/sharing/v2/common-plan.ts', 'src/features/sharing/v2/actions.ts', 'src/features/sharing/v2/receiver-authority.ts',
   'src/features/sharing/v2/synchronizer.ts', 'src/features/sharing/roster.ts', 'src/features/sharing/snapshots.ts'];
+// Reviewed local implementation revisions of the same signed scheduler.
+// Unknown digests and downgrades still require a signed version change.
+const draft58Implementations = [
+  { storage: 1, verifier: 1, calendarProjection: 1, digest: 'e64907a510fe40ca4dc19e131b912ed02b4aa2fa7a81c4fb0c1b616af92dbe25' },
+  { storage: 2, verifier: 1, calendarProjection: 1, digest: 'e075b9fefabd0a742bfdc14b5b0da442dcb01d1b37aa76ab6abd3c6a46902f53' },
+  { storage: 2, verifier: 2, calendarProjection: 2, digest: 'f77ef950f6d51a38ff6b8420c1a15c3d06407d02061c19cdd64ca6dd2cd7474c' },
+];
+const draft58ImplementationIndex = manifest => draft58Implementations.findIndex(({ storage, verifier, calendarProjection, digest }) =>
+  manifest.sourceSha256 === digest && (manifest.receiveStorageRevision ?? 1) === storage
+  && (manifest.signatureVerificationRevision ?? 1) === verifier && (manifest.calendarProjectionRevision ?? 1) === calendarProjection);
 export function sharedSchedulerSourceDigest(files, read = (file) => readFileSync(resolve(root, file))) {
   const digest = createHash('sha256');
   for (const file of files) {
-    if ((!file.startsWith('src/') && file !== 'node_modules/moment-timezone/data/packed/latest.json') || file.includes('..')) throw new Error('Invalid scheduler source path');
+    if ((!file.startsWith('src/') && !file.startsWith('modules/liflow-ed25519/') && file !== 'node_modules/moment-timezone/data/packed/latest.json') || file.includes('..')) throw new Error('Invalid scheduler source path');
     digest.update(file); digest.update('\0'); digest.update(read(file)); digest.update('\0');
   }
   return digest.digest('hex');
@@ -109,13 +119,10 @@ function verifyContract({ contractPath, versionSource, constant, allowDraft }) {
     if (sharedSchedulerSourceDigest(previous.sourceFiles, oldSource) !== previous.sourceSha256) throw new Error('Previous scheduler source or timezone data cannot be verified');
     previous = { ...previous, sourceFiles: expected, sourceSha256: sharedSchedulerSourceDigest(expected, oldSource) };
   }
-  // One reviewed storage transition with the same signed scheduler and plan output.
-  // Both complete source digests are pinned, so another edit still requires version review.
   if (contractPath === 'src/features/sharing/v2/scheduler-contract.json' && current.version === 'liflow-shared-2-draft-58'
-    && (previous?.receiveStorageRevision ?? 1) === 1 && current.receiveStorageRevision === 2
-    && previous?.version === current.version && previous.sourceSha256 === 'e64907a510fe40ca4dc19e131b912ed02b4aa2fa7a81c4fb0c1b616af92dbe25'
-    && current.sourceSha256 === 'e075b9fefabd0a742bfdc14b5b0da442dcb01d1b37aa76ab6abd3c6a46902f53') {
-    previous = { ...previous, sourceSha256: current.sourceSha256 };
+    && previous?.version === current.version) {
+    const from = draft58ImplementationIndex(previous);
+    if (from >= 0 && draft58ImplementationIndex(current) > from) previous = { ...previous, sourceSha256: current.sourceSha256 };
   }
   assertSharedSchedulerVersion(current, previous, { allowDraft });
   return current;

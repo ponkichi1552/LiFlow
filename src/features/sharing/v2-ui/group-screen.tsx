@@ -94,8 +94,8 @@ export function readOptionsForView(view: V2GroupScreenProps['view'], anchorDate?
   if (view === 'details' || view === 'configuration' || view === 'advancedSettings') return { management: true, choreSettings: true };
   if (view === 'guide' || view === 'chores') return undefined;
   if (view === 'addChore') return anchorDate ? { focusDate: anchorDate } : { management: true };
-  if (anchorDate) return { focusDate: anchorDate, ...(['calendar', 'home'].includes(view) ? { waste: true } : {}) };
-  return view === 'calendar' ? { calendarMonth: 'current', waste: true } : view === 'home' ? { waste: true } : undefined;
+  if (anchorDate) return { focusDate: anchorDate, ...(['calendar', 'home'].includes(view) ? { waste: true } : {}), ...(view === 'calendar' ? { wasteCalendarPolicy: true } : {}) };
+  return view === 'calendar' ? { calendarMonth: 'current', waste: true, wasteCalendarPolicy: true } : view === 'home' ? { waste: true } : undefined;
 }
 
 export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage, subscribe, loadSession, view, choreId, settingsSelection, applianceId, onBack, onConfiguration, onHistory, onRequests, occurrenceId, subjectId, onRound, onDate, onAssignment, onAssignmentRequests, onCalendar, anchorDate, targetDate, calendarAdd, onManageChores, onDetails, onAddChore, onChoreCreated, onGroupPolicy, onNotifications, onGoogleTasks, onPersonalCopy, onDateRights, onWaste, onAppliances, onAppliance, onApplianceReview, localCalendar, onCalendarNavigate, onGuide, personalGuide, guideSource, onPersonalAppliance, initialDisplay, lifecycleManaged = false, sharedCompletion, personalCompletion, invalidateCompletionDisplay }: V2GroupScreenProps) {
@@ -337,12 +337,13 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         // them must not request a distant shared/private Scheduler projection.
         if (next.month > through) return;
         const requiredThrough = next.through < through ? next.through : through;
+        const wasteCovered = model.waste?.calendarPolicy?.complete === true || Boolean(model.waste && model.waste.range.from <= next.from && requiredThrough <= model.waste.range.through);
         const covered = model.plan.range.from <= next.from && requiredThrough <= model.plan.range.through
-          && model.waste && model.waste.range.from <= next.from && requiredThrough <= model.waste.range.through
+          && wasteCovered
           && (privateOverlay?.status !== 'ready' || privateOverlay.range.from <= next.from && requiredThrough <= privateOverlay.range.through);
         if (covered) return;
         const range = v2CalendarDisplayRange(next.month, model.plan.range);
-        readOptions.current = { calendarMonth: next.month, calendarRange: { ...range, through: range.through < through ? range.through : through }, waste: true };
+        readOptions.current = { calendarMonth: next.month, calendarRange: { ...range, through: range.through < through ? range.through : through }, waste: true, wasteCalendarPolicy: true };
         if (running.current) { refreshQueued.current = true; return; }
         await perform(async () => {}, false);
       } catch (cause) { setError(cause instanceof Error ? cause.message : '表示する月を確認してください。'); }

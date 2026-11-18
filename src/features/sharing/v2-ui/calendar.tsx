@@ -19,6 +19,8 @@ import { privateOverlayForViewer, privateOverlayCalendarRows } from './private-o
 import type { V2PrivateOverlayState, V2PrivateTaskSource } from './private-overlay';
 import { V2PrivateTaskCard, V2PrivateTaskNotice } from './private-task-card';
 import { V2WasteOccurrence } from './waste-occurrence';
+import { createV2WasteCalendarProjector } from '../v2/calendar-waste-policy.ts';
+import type { V2WasteOccurrence as V2WasteEntry } from '../v2/waste-state';
 import { PlannerCalendar } from '../../calendar/planner-calendar';
 import type { CalendarDayInfo, PlannerCalendarProps } from '../../calendar/planner-calendar';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
@@ -37,6 +39,21 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
   readOwnCalendar?: V2DateFormProps['readOwnCalendar'];
 }) {
   const local = useGroupCalendar(personalLocal, model, actions, perform, workspaceName ?? '共有グループ');
+  const wastePlan = model.waste;
+  const wastePolicy = wastePlan?.calendarPolicy;
+  const wasteRows = wastePlan?.rows;
+  const wasteSchedules = wastePlan?.schedules;
+  const loadedWasteHiddenKeys = wastePlan?.hiddenKeys;
+  const completeWastePolicy = wastePolicy?.complete === true;
+  const wasteProjector = useMemo(() => wastePolicy?.complete && wasteRows && wasteSchedules
+    ? createV2WasteCalendarProjector(wastePolicy, wasteRows, wasteSchedules) : undefined, [wastePolicy, wasteRows, wasteSchedules]);
+  const hiddenWasteKeys = useMemo(() => wastePolicy?.complete
+    ? wastePolicy.exceptions.filter(entry => entry.hidden === true).map(entry => entry.key) : loadedWasteHiddenKeys, [wastePolicy, loadedWasteHiddenKeys]);
+  const wasteForDate = (date: LocalDate): V2WasteEntry[] => {
+    if (!wastePlan) return [];
+    if (!completeWastePolicy || !wastePolicy) return wastePlan.occurrences.filter(entry => entry.occurrence.date === date);
+    return wasteProjector?.(date, date) ?? [];
+  };
   // Feedback is tiny. Snapshot its contents so a cleared/reused map cannot leave
   // cached counts behind after an optimistic completion is rolled back.
   const completionRevision = JSON.stringify([...(feedback?.values ?? [])]);
@@ -81,7 +98,7 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
   ]), [nextLong, privateOverlay, model.viewerUserId]);
   const privateReady = (date: LocalDate) => privateOverlay?.status === 'ready' && (privateOverlay.range.from <= date && privateOverlay.range.through >= date || privateOverlay.calendarLongDates?.includes(date) === true);
   const loaded = (date: LocalDate) => model.plan.initialized && (model.plan.range.from <= date && model.plan.range.through >= date || extendedDates.has(date));
-  const wasteLoaded = (date: LocalDate) => model.waste && model.waste.range.from <= date && model.waste.range.through >= date;
+  const wasteLoaded = (date: LocalDate) => completeWastePolicy || Boolean(model.waste && model.waste.range.from <= date && model.waste.range.through >= date);
   const visible = useMemo(() => createV2RoundVisibility(model), [model]);
   const chores = useMemo(() => new Map(model.plan.chores.map(chore => [chore.id, chore])), [model.plan.chores]);
   const dayInfo = useMemo(() => {
@@ -139,12 +156,12 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
         && (privateOverlay?.status !== 'ready' || Boolean(privateReady(grid.from) && privateReady(through))); }}
     onNavigate={onNavigate} renderChoreRegistration={sheet => <V2CalendarChoreRegistration {...sheet} local={local} model={model} actions={actions} busy={busy} run={run} readOwnCalendar={readOwnCalendar} />}
     notice={<View>{header}<SharedCalendarConflicts model={model} actions={actions} busy={busy} run={run} /></View>}
-    wasteSchedules={model.waste?.schedules} hiddenWasteKeys={model.waste?.hiddenKeys} wasteLoaded={date => Boolean(wasteLoaded(date))}
+    wasteSchedules={wasteSchedules} hiddenWasteKeys={hiddenWasteKeys}
+    wasteLoaded={date => Boolean(wasteLoaded(date))}
     dayInfo={dayInfo}
     existingChores={existingChores.map(({ round, ...chore }) => ({ ...chore,
       onOpen: () => onGuide ? onGuide(round.choreId, 'shared') : onRound(round.id, chore.id, round.anchorDate) }))}
-    renderWaste={date => <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>{wasteLoaded(date) ? model.waste!.occurrences.filter(entry => entry.occurrence.date === date && entry.hidden !== true).map(entry => <V2WasteOccurrence key={entry.key} entry={entry} inline />)
-      : date <= choreThrough ? <Text style={caption}>この日の共有収集日は未取得です。</Text> : null}</View>}
+    renderWaste={date => <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>{wasteLoaded(date) ? wasteForDate(date).filter(entry => entry.hidden !== true).map(entry => <V2WasteOccurrence key={entry.key} entry={entry} inline />) : null}</View>}
     renderChores={(date, view) => <Animated.FlatList testID="calendar-chore-list" data={entriesFor(date)} scrollEnabled={false} itemLayoutAnimation={LinearTransition.duration(240)} keyExtractor={entry => entry.key} initialNumToRender={8}
       ListHeaderComponent={<View style={{ gap: 6 }}>
         <V2PrivateTaskNotice overlay={privateOverlay} sharedTimeZone={model.plan.timeZone} date={date} />

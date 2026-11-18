@@ -18,6 +18,8 @@ import type { V2ChoreDetailField, V2EditableField } from './field-edit';
 import { readV2DateRights } from './date-rights-edit.ts';
 import { v2MembershipStart } from './membership-period.ts';
 import { buildV2WastePlan } from './waste-state.ts';
+import { buildV2WasteCalendarPolicy } from './calendar-waste-policy.ts';
+import type { V2WasteCalendarPolicy } from './calendar-waste-policy';
 import { buildV2ApplianceModel } from './appliance-state.ts';
 import type { LegacyCompletionRecord } from './legacy-history.ts';
 import { traceStartup, traceStartupSync } from '../../../platform/diagnostics/startup-timing.ts';
@@ -41,7 +43,7 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
       if (typeof timeZone !== 'string') throw new Error('グループの地域を確認してください。');
       return { groupId: repository.scope.groupId, viewerUserId: repository.scope.userId, timeZone, records: readSharedCalendar(state.assessment.view, at) };
     }),
-    async readModel(inputRange: V2ModelRange | ((context: { timeZone: string }) => V2ModelRange), readOptions: { detailChoreId?: string; choreSettings?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; appliances?: boolean; applianceId?: string; calendarLong?: boolean } = {}) {
+    async readModel(inputRange: V2ModelRange | ((context: { timeZone: string }) => V2ModelRange), readOptions: { detailChoreId?: string; choreSettings?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; wasteCalendarPolicy?: boolean; appliances?: boolean; applianceId?: string; calendarLong?: boolean } = {}) {
       const state = await traceStartup('display.repository', () => repository.readState());
       const at = v2ReadPoint(state.assessment.view, state.archive.at(-1)!);
       let range: V2ModelRange;
@@ -91,7 +93,10 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
         membershipStarts: Object.fromEntries(permissionMembers.map(member => [member.userId, member.start])),
         fields: Object.fromEntries(permissionMembers.map(member => [member.userId, readV2DateRights(state.assessment.view, at, chore.id, member.userId, member.start)])) }));
       const dateRights = choreDateRights.find(chore => chore.choreId === readOptions.permissionsChoreId);
-      const waste = readOptions.waste ? buildV2WastePlan(state.assessment.view, at, range) : undefined;
+      const wastePlan = readOptions.waste ? buildV2WastePlan(state.assessment.view, at, range) : undefined;
+      const waste: (NonNullable<typeof wastePlan> & { calendarPolicy?: V2WasteCalendarPolicy }) | undefined = wastePlan && readOptions.wasteCalendarPolicy
+        ? { ...wastePlan, calendarPolicy: buildV2WasteCalendarPolicy(state.assessment.view, at, wastePlan.rows,
+          state.replica.pendingOperationIds.length === 0 && state.assessment.rejected.length === 0) } : wastePlan;
       const appliances = readOptions.appliances ? buildV2ApplianceModel(state.assessment.view, at, readOptions.applianceId) : undefined;
       const recoveryHistory = state.replica.recoveryWitnesses ?? [];
       let calendarLong: ReturnType<typeof nextLongCalendarRounds> | undefined;

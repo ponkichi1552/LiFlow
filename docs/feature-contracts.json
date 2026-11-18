@@ -182,6 +182,26 @@
       },
       {
         "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "the first imported page is observable while later pages wait and remaining page notifications coalesce"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "an import batch rollback does not publish its partially applied event"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a healthy thousand-event initial import drains ten Google pages in one foreground budget and yields between committed chunks"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a standalone read-only Google fallback is visible while the next page is still pending"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "an unsupported exception of a locally exported series waits for its master on the next Google page"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
         "name": "personal title preference applies to the next content write while unchanged and category-only revisions never resend names"
       },
       {
@@ -1206,6 +1226,14 @@
       {
         "file": "tests/calendar-month-autoscroll.test.mjs",
         "name": "month auto scrolling cannot run before gesture ownership and clamps at the real list boundaries"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "Android month scrolling wins over small movement before the event hold timer"
+      },
+      {
+        "file": "tests/calendar-month-autoscroll.test.mjs",
+        "name": "a failed drop resolution releases the month drag and its scheduled frames"
       },
       {
         "file": "tests/calendar-series-move.test.mjs",
@@ -2592,6 +2620,14 @@
       {
         "file": "tests/sharing-signature-cache.test.mjs",
         "name": "signature memo policy pins the installed audited verifier version"
+      },
+      {
+        "file": "tests/sharing-signature-cache.test.mjs",
+        "name": "previous verified Noble entries survive the native upgrade only with their original authenticated policy"
+      },
+      {
+        "file": "tests/sharing-ed25519-verifier.test.mjs",
+        "name": "libsodium positive results and Noble fallback preserve all public Ed25519 decisions including 169 legacy acceptances"
       },
       {
         "file": "tests/sharing-signature-cache.test.mjs",
@@ -11008,7 +11044,11 @@
       },
       {
         "file": "tests/sharing-v2-calendar-ui.test.mjs",
-        "name": "${platform} a shared monthly waste rule outside loaded exception coverage stays unknown until that month is read"
+        "name": "${platform} a shared monthly waste rule outside loaded exception coverage stays internally unknown until that month is read"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-ui.test.mjs",
+        "name": "a shared calendar projects distant waste and its hidden state from complete authenticated policy without another read"
       },
       {
         "file": "tests/subscription-security.test.mjs",
@@ -12976,6 +13016,30 @@
   {
     "feature": "calendar-holiday-account-scope-fixed-chores-and-bounded-horizon-20261107",
     "tests": [
+      {
+        "file": "tests/calendar-visibility-policy.test.mjs",
+        "name": "calendar month event index projects on demand and evicts the least recently used month at its bound"
+      },
+      {
+        "file": "tests/calendar-visibility-policy.test.mjs",
+        "name": "display projection reuses wall-time candidates only within one projection and preserves DST, midnight, exception metadata, and order"
+      },
+      {
+        "file": "tests/calendar-visibility-policy.test.mjs",
+        "name": "a real monthly occurrence overflow retains the exact visible rounds without repeating the failed month"
+      },
+      {
+        "file": "tests/calendar-visibility-policy.test.mjs",
+        "name": "an overflowing time-zone margin splits source days and retains unique ordered appointments"
+      },
+      {
+        "file": "tests/calendar-visibility-policy.test.mjs",
+        "name": "${platform} calendar projection failures are visible only on affected dates across a month boundary"
+      },
+      {
+        "file": "tests/calendar-visibility-policy.test.mjs",
+        "name": "${platform} a fast fling renders saved far-month recurrence and time-zone events before viewability updates"
+      },
       {
         "file": "tests/calendar-visibility-policy.test.mjs",
         "name": "calendar housework stops at the end of the second following month across year and leap boundaries"

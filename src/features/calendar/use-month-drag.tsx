@@ -1,11 +1,15 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Animated, AppState, StyleSheet, Text, View } from 'react-native';
+import { Animated, AppState, Platform, StyleSheet, Text, View } from 'react-native';
 import { GestureStateManager, usePanGesture } from 'react-native-gesture-handler';
 import type { LocalDate } from '../../domain/shared/types';
 import { palette, typography } from '../../components/planner-ui';
 import type { CalendarDropTarget, CalendarMonthViewport } from './direct-actions';
 import { createMonthDragDriver, type MonthDragPoint, type MonthDragStart } from './month-drag-driver';
 import { CALENDAR_DRAG_HOLD_MS } from './direct-actions';
+
+// Android also activates from movement when minDistance is zero. Keep that
+// threshold beyond the touch slop so only the existing hold timer can activate.
+const androidHoldOnlyDistance = 1024;
 
 export function useMonthDrag<Capture>(options: {
   enabled: boolean; viewport(): CalendarMonthViewport | null; offset(): number; limit(): number;
@@ -19,7 +23,7 @@ export function useMonthDrag<Capture>(options: {
   const [preview, setPreview] = useState<{ start: MonthDragStart<Capture, ReactNode>; viewport: CalendarMonthViewport; target: CalendarDropTarget | null } | null>(null);
   // The native recognizer survives the source week's virtualization.
   const gesture = usePanGesture({ enabled: options.enabled, activateAfterLongPress: CALENDAR_DRAG_HOLD_MS,
-    maxPointers: 1, minDistance: 0, runOnJS: true, cancelsJSResponder: true,
+    maxPointers: 1, minDistance: Platform.OS === 'android' ? androidHoldOnlyDistance : 0, runOnJS: true, cancelsJSResponder: true,
     onActivate: event => { const start = pending.current;
       if (!start || !driver.start(start)) { GestureStateManager.deactivate(event.handlerTag); return; }
       driver.claim();

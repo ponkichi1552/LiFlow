@@ -51,6 +51,23 @@ test('modified ciphertext wrong keys policies nonces and malformed verified rows
   }
 });
 
+test('previous verified Noble entries survive the native upgrade only with their original authenticated policy', async () => {
+  const saved = await storage();
+  const prior = 'liflow-signature-memo:noble-curves-2.4.0:noble-hashes-2.4.0:ed25519:zip215-false:v1';
+  const nonce = await crypto.randomBytes(12);
+  const { createHash } = await import('node:crypto');
+  const digest = createHash('sha256').update(text).digest('hex');
+  const ciphertext = await crypto.encrypt(await saved.port.key(), nonce, new TextEncoder().encode(JSON.stringify([[publicKey, signature, digest]])), new TextEncoder().encode(prior));
+  const envelope = { policy: prior, nonce: Buffer.from(nonce).toString('hex'), ciphertext: Buffer.from(ciphertext).toString('hex') };
+  saved.replace(JSON.stringify(envelope));
+  const cache = createSignatureVerificationCache(); await cache.initialize(saved.port);
+  assert.equal(cache.has(publicKey, signature, text), true);
+  assert.equal(cache.has(publicKey, signature, text + ' '), false);
+  saved.replace(JSON.stringify({ ...envelope, policy: SIGNATURE_CACHE_POLICY }));
+  const relabelled = createSignatureVerificationCache(); await relabelled.initialize(saved.port);
+  assert.equal(relabelled.has(publicKey, signature, text), false);
+});
+
 test('signature memo coalesces writes retains concurrent verified changes and bounds its restored entries', async () => {
   const saved = await storage(); const cache = createSignatureVerificationCache(); let finish;
   let block = false;
@@ -83,9 +100,10 @@ test('a restored signature digest skips only the same strict proof while changed
   const roster = await import('../src/features/sharing/roster.ts');
   let calls = 0;
   const verifier = memo => loadNativeModule('src/features/sharing/crypto.ts', {
-    '@noble/curves/ed25519.js': { ...curves, ed25519: { ...curves.ed25519, verify: (...args) => { calls++; return curves.ed25519.verify(...args); } } },
+    '@noble/curves/ed25519.js': curves,
     '@noble/hashes/hkdf.js': { hkdf }, '@noble/hashes/sha2.js': hashes, '@noble/hashes/utils.js': utils,
     './operations.ts': operations, './content-digest.ts': content, './signature-verification-cache.ts': { signatureVerificationCache: memo },
+    './ed25519-verifier.ts': { verifySharedEd25519: (...args) => { calls++; return curves.ed25519.verify(...args, { zip215: false }); } },
   });
   const owner = await createDeviceIdentity(crypto), member = await createDeviceIdentity(crypto);
   const value = { domain: 'memo-proof-test', payload: { enabled: true } }, signed = signSharedDocument(value, member);
@@ -146,6 +164,7 @@ test('strict low order and noncanonical scalar rejections never become persisted
   const saved = await storage(), memo = createSignatureVerificationCache(); await memo.initialize(saved.port);
   const verifier = loadNativeModule('src/features/sharing/crypto.ts', { '@noble/curves/ed25519.js': curves, '@noble/hashes/hkdf.js': { hkdf },
     '@noble/hashes/sha2.js': hashes, '@noble/hashes/utils.js': utils, './operations.ts': operations,
+    './ed25519-verifier.ts': await import('../src/features/sharing/ed25519-verifier.ts'),
     './content-digest.ts': content, './signature-verification-cache.ts': { signatureVerificationCache: memo } });
   const author = await createDeviceIdentity(crypto), value = { fixture: 'strict-verifier' };
   const encoded = new TextEncoder().encode(operations.canonicalJson(value));

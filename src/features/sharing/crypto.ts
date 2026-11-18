@@ -6,6 +6,7 @@ import { assertJsonRecord, assertSharedIdentifier, canonicalJson, MAX_OPERATION_
 import type { SharedOperation } from './operations.ts';
 import { sharedContentDigest } from './content-digest.ts';
 import { signatureVerificationCache } from './signature-verification-cache.ts';
+import { verifySharedEd25519 } from './ed25519-verifier.ts';
 
 export interface SharingCryptoGateway {
   randomBytes(length: number): Promise<Uint8Array>;
@@ -110,7 +111,7 @@ function verify(value: unknown, signature: string, trusted: DevicePublicIdentity
   // already-verified signature. Reusing a signature with changed bytes still verifies.
   if (cached === text) { verifiedSignatures.delete(key); verifiedSignatures.set(key, text); return; }
   if (!signatureVerificationCache.has(identity.signingPublicKey, signature, text)) {
-    if (!ed25519.verify(signatureBytes, encoder.encode(text), publicKey, { zip215: false })) {
+    if (!verifySharedEd25519(signatureBytes, encoder.encode(text), publicKey)) {
       throw new Error('Shared signature authentication failed');
     }
     signatureVerificationCache.rememberVerified(identity.signingPublicKey, signature, text);

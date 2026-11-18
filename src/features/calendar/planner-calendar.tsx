@@ -15,8 +15,11 @@ import { addDays, formatJapaneseDate, parseLocalDate } from '../../domain/schedu
 import type { LocalDate } from '../../domain/shared/types';
 import type { WeeklyWasteSchedule } from '../waste/contracts';
 import { wasteCalendarLabels } from '../waste/calendar-labels';
-import { calendarEventsInTimeZone, calendarMonth, dateInMonth, indexCalendarOccurrences, isCalendarAnchor, minuteLabel, newEventDraft } from './events';
-import { projectPrivateCalendarEvents } from './private-event-projection';
+import { calendarMonth, dateInMonth, indexCalendarOccurrences, isCalendarAnchor, minuteLabel, newEventDraft } from './events';
+import { projectPrivateCalendarDisplayEvents } from './private-event-projection';
+import { createCalendarMonthCache } from './month-cache';
+import { createCalendarMonthEventIndex } from './month-event-index';
+import { visibleEventProjectionCandidates } from './visible-event-candidates';
 import type { CalendarEvent, CalendarOccurrence } from './events';
 import { CalendarEditor } from './calendar-editor';
 import type { CalendarChoreRegistrationProps, ExistingCalendarChore } from './calendar-editor';
@@ -181,47 +184,58 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     : { from: calendarMonth(month, -1), through: addDays(calendarMonth(month, 2), -1) };
   const requestRange = local?.requestRange;
   useFocusEffect(useCallback(() => { requestRange?.(range.from, range.through, { refresh: true }); }, [requestRange, range.from, range.through]));
-  const projection = useMemo(() => {
-    try { return { events: calendarEventsInTimeZone(projectPrivateCalendarEvents(source.events.filter(event => !event.holiday), source.exceptions, addDays(range.from, -2), addDays(range.through, 2)), timeZone), error: null }; }
-    catch (error) { return { events: [] as CalendarOccurrence[], error: error instanceof Error ? error.message : '予定を表示できません。' }; }
-  }, [source.events, source.exceptions, range.from, range.through, timeZone]);
-  const displayedEvents = useMemo(() => calendarTitleDisplay.occurrences(projection.events, today, titleDisplay.value), [projection.events, today, titleDisplay.value]);
+  const eventSources = useMemo(() => source.events.filter(event => !event.holiday), [source.events]);
+  const monthEventIndex = useMemo(() => createCalendarMonthEventIndex((from, through) => {
+    const candidates = visibleEventProjectionCandidates(eventSources, source.exceptions, from, through);
+    return calendarTitleDisplay.occurrences(projectPrivateCalendarDisplayEvents(candidates.events, candidates.exceptions, from, through, timeZone), today, titleDisplay.value);
+  }),
+  [eventSources, source.exceptions, timeZone, today, titleDisplay.value]);
   const colors = useMemo(() => new Map(source.categories.map(category => [category.id, categoryColor(category.color, scheme === 'dark')])), [source.categories, scheme]);
   const appearances = useMemo(() => new Map(source.categories.map(category => [category.id, calendarEventAppearance(category.color, scheme === 'dark')])), [source.categories, scheme]);
   const fallbackAppearance = useMemo(() => calendarEventAppearance('#718299', scheme === 'dark'), [scheme]);
-  const byDate = useMemo<Map<LocalDate, CalendarOccurrence[]>>(() => indexCalendarOccurrences(displayedEvents, range.from, range.through), [displayedEvents, range.from, range.through]);
   const timedChoreIndex = useMemo<Map<LocalDate, CalendarOccurrence[]>>(() => indexCalendarOccurrences(timedCalendarChoreEvents(props.timedChores ?? [], timeZone), range.from, range.through), [props.timedChores, timeZone, range.from, range.through]);
   const editableEventIds = useMemo(() => new Set(source.events.filter(event => !event.readOnly).map(event => event.id)), [source.events]);
   const visibleMove = pendingMove && pendingMove.capture.database === local?.database && pendingMove.capture.groupId === local?.shared?.groupId && pendingMove.capture.timeZone === timeZone
     && !(pendingMove.settled && (source.events !== pendingMove.capture.events || source.exceptions !== pendingMove.capture.exceptions)) ? pendingMove : null;
-  const movedDays = useMemo<Map<LocalDate, CalendarOccurrence[]> | null>(() => {
+  const movedMonthIndex = useMemo(() => {
     if (!visibleMove) return null;
     const { capture } = visibleMove;
-    if (capture.draft.scope === 'future' && capture.draft.anchorDate) {
-      const split = splitCalendarFuture(capture.series, capture.draft.anchorDate, capture.draft.value, capture.exceptions);
-      const nextId = `${capture.series.id}.future-preview`;
-      const events = [...(split.past ? [{ ...split.past, id: capture.series.id, revision: capture.series.revision }] : []), { ...split.next, id: nextId, revision: 1 }];
-      const exceptions = [...split.previous, ...split.following.map(row => ({ ...row, eventId: nextId }))];
-      return indexCalendarOccurrences(calendarTitleDisplay.occurrences(calendarEventsInTimeZone(projectPrivateCalendarEvents(events, exceptions, range.from, range.through), timeZone), today, titleDisplay.value), range.from, range.through);
-    }
-    if (capture.draft.scope !== 'series' || capture.series.recurrence === 'none') return indexCalendarOccurrences(calendarTitleDisplay.occurrences([visibleMove.row], today, titleDisplay.value), range.from, range.through);
-    const next = { ...capture.series, ...capture.draft.value };
-    const exceptions = rebasedCalendarExceptions(capture.series, next, capture.exceptions);
-    return indexCalendarOccurrences(calendarTitleDisplay.occurrences(calendarEventsInTimeZone(projectPrivateCalendarEvents([next], exceptions, range.from, range.through), timeZone), today, titleDisplay.value), range.from, range.through);
-  }, [visibleMove, range.from, range.through, timeZone, today, titleDisplay.value]);
+    return createCalendarMonthEventIndex((from, through) => {
+      if (capture.draft.scope === 'future' && capture.draft.anchorDate) {
+        const split = splitCalendarFuture(capture.series, capture.draft.anchorDate, capture.draft.value, capture.exceptions);
+        const nextId = `${capture.series.id}.future-preview`;
+        const events = [...(split.past ? [{ ...split.past, id: capture.series.id, revision: capture.series.revision }] : []), { ...split.next, id: nextId, revision: 1 }];
+        const exceptions = [...split.previous, ...split.following.map(row => ({ ...row, eventId: nextId }))];
+        return calendarTitleDisplay.occurrences(projectPrivateCalendarDisplayEvents(events, exceptions, from, through, timeZone), today, titleDisplay.value);
+      }
+      if (capture.draft.scope !== 'series' || capture.series.recurrence === 'none') return calendarTitleDisplay.occurrences([visibleMove.row], today, titleDisplay.value);
+      const next = { ...capture.series, ...capture.draft.value };
+      const exceptions = rebasedCalendarExceptions(capture.series, next, capture.exceptions);
+      return calendarTitleDisplay.occurrences(projectPrivateCalendarDisplayEvents([next], exceptions, from, through, timeZone), today, titleDisplay.value);
+    });
+  }, [visibleMove, timeZone, today, titleDisplay.value]);
   const eventsOn = (day: LocalDate) => {
-    const rows = byDate.get(day) ?? [];
-    const ordinary = visibleMove ? [...rows.filter(row => row.eventId !== visibleMove.capture.event.eventId || visibleMove.capture.draft.scope === 'one' && row.anchorDate !== visibleMove.capture.event.anchorDate), ...movedDays?.get(day) ?? []] : rows;
+    const rows = monthEventIndex.forDate(day);
+    const ordinary = visibleMove ? [...rows.filter(row => row.eventId !== visibleMove.capture.event.eventId || visibleMove.capture.draft.scope === 'one' && row.anchorDate !== visibleMove.capture.event.anchorDate), ...movedMonthIndex?.forDate(day) ?? []] : rows;
     return view === 'day' || view === 'two' || view === 'three' || view === 'week' ? [...ordinary, ...timedChoreIndex.get(day) ?? []].sort((a, b) => a.startMinute - b.startMinute || a.id.localeCompare(b.id)) : ordinary;
   };
+  const eventErrorOn = (day: LocalDate) => monthEventIndex.errorForDate(day) ?? movedMonthIndex?.errorForDate(day) ?? null;
   const waste = useMemo(() => wasteCalendarLabels(props.wasteSchedules ?? [], range.from, range.through, props.hiddenWasteKeys), [props.wasteSchedules, props.hiddenWasteKeys, range.from, range.through]);
   const wasteKnown = (day: LocalDate) => props.wasteLoaded?.(day) !== false;
-  const monthRows = useMemo(() => calendarMonthRows(weeks, rowHeight), [weeks, rowHeight]);
-  const dateLabel = (day: LocalDate) => {
-    const info = showChores(day) ? props.dayInfo(day) : undefined; const labels = wasteKnown(day) ? waste.byDate.get(day) ?? [] : []; const hidden = wasteKnown(day) ? waste.hiddenWeeklyByDate.get(day) ?? [] : []; const events = eventsOn(day);
-    const appointments = events.filter(event => !event.holiday); const holiday = japanesePublicHoliday(day);
-    return `${formatJapaneseDate(day, { year: true })}${holiday ? `、祝日：${holiday}` : ''}${info ? `、${info.accessibilityCountLabel ?? (info.loaded ? `家事${info.total ?? info.pending ?? 0}件、未完了${info.pending ?? 0}件${info.partial ? '、一部は未取得' : ''}` : busy ? '家事は読み込み中' : '家事は未取得')}` : ''}${!wasteKnown(day) ? '、収集日は未取得' : ''}${labels.length ? `、${labels.join('・')}` : ''}${hidden.length ? `、非表示の収集：${hidden.join('・')}` : ''}${appointments.length ? `、予定${appointments.length}件` : ''}`;
+  const wasteMonthCache = useMemo(() => createCalendarMonthCache((from, through) =>
+    wasteCalendarLabels(props.wasteSchedules ?? [], from, through, props.hiddenWasteKeys)), [props.wasteSchedules, props.hiddenWasteKeys]);
+  const wasteForDate = (day: LocalDate) => {
+    if (!wasteKnown(day)) return null;
+    if (day >= range.from && day <= range.through) return waste;
+    return wasteMonthCache.forDate(day);
   };
+  const monthRows = useMemo(() => calendarMonthRows(weeks, rowHeight), [weeks, rowHeight]);
+  const dateLabel = (day: LocalDate, dateWaste: ReturnType<typeof wasteForDate>, events: readonly CalendarOccurrence[], eventError: string | null) => {
+    const info = showChores(day) ? props.dayInfo(day) : undefined; const labels = dateWaste?.byDate.get(day) ?? []; const hidden = dateWaste?.hiddenWeeklyByDate.get(day) ?? [];
+    const appointments = events.filter(event => !event.holiday); const holiday = japanesePublicHoliday(day);
+    return `${formatJapaneseDate(day, { year: true })}${holiday ? `、祝日：${holiday}` : ''}${info ? `、${info.accessibilityCountLabel ?? `家事${info.loaded ? `${info.total ?? info.pending ?? 0}件、未完了${info.pending ?? 0}件${info.partial ? '、一部は未取得' : ''}` : busy ? '家事は読み込み中' : '家事は未取得'}`}` : ''}${labels.length ? `、${labels.join('・')}` : ''}${hidden.length ? `、非表示の収集：${hidden.join('・')}` : ''}${eventError ? `、予定を表示できません。${eventError}` : appointments.length ? `、予定${appointments.length}件` : ''}`;
+  };
+  const headerWaste = wasteForDate(month)?.weeklyByColumn ?? Array.from({ length: 7 }, () => [] as string[]);
   const positionYear = () => {
     if (!yearTarget.current || !yearScroll.current) return;
     yearScroll.current(yearTarget.current);
@@ -341,7 +355,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     if (!series) return null;
     const recurring = series.recurrence !== 'none';
     const draft = calendarOccurrenceDraft(event, recurring);
-    const current = projection.events.find(row => row.eventId === event.eventId && row.anchorDate === event.anchorDate);
+    const current = eventsOn(event.startDate).find(row => row.eventId === event.eventId && row.anchorDate === event.anchorDate);
     if (!current || JSON.stringify(calendarOccurrenceDraft(current, recurring)) !== JSON.stringify(draft)) {
       setMoveError('予定が更新されました。選び直してから移動してください。'); return null;
     }
@@ -440,8 +454,9 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
       <Text numberOfLines={compactAllDay ? 2 : undefined} ellipsizeMode={compactAllDay ? 'tail' : undefined} style={styles.eventTitle}>{calendarDisplayedTitle(event)}</Text>{event.location ? <Text style={styles.caption}>{event.location}</Text> : null}
       {event.timeIssue ? <Text style={styles.error} accessibilityLabel={`${event.timeZone}の夏時間により${event.timeIssue === 'gap' ? '存在しない' : '重複する'}時刻です。時刻を確認してください。`}>時刻要確認 · {event.timeZone}</Text> : event.original ? <Text style={styles.caption}>元の地域：{event.original.timeZone}</Text> : event.timeZone !== timeZone ? <Text style={styles.caption}>{event.timeZone}</Text> : null}</View>{!compactAllDay ? <Chevron /> : null}
   </Pressable>;
-  const dayHeading = (day: LocalDate, agenda = false, weekly = false) => {
-    const announcement = dateLabel(day);
+  const dayHeading = (day: LocalDate, agenda = false, weekly = false, dateWaste = wasteForDate(day), events = eventsOn(day), eventError = eventErrorOn(day)) => {
+    const announcement = dateLabel(day, dateWaste, events, eventError);
+    const eventNotice = eventError ? <Text accessibilityRole="alert" accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の予定を表示できません。${eventError}`} style={[weekly ? styles.weekMeta : styles.caption, { color: palette.warning }]}>{weekly ? '予定表示不可' : eventError}</Text> : null;
     const holiday = japanesePublicHoliday(day);
     const info = showChores(day) ? props.dayInfo(day) : null;
     const incomplete = info && (!info.loaded || info.partial);
@@ -456,21 +471,23 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
         <Text style={[styles.weekNumber, holiday && { color: palette.warning }, day === today && { color: palette.accentInk }]}>{Number(day.slice(-2))}</Text>
       </Pressable>
       {incomplete ? <Pressable accessibilityRole="button" accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の家事を${open ? '閉じる' : '開く'}`} accessibilityState={{ expanded: open }} onPress={() => toggleSummary(day)}><Text style={styles.weekMeta}>{status}</Text></Pressable> : null}
-      {eventsOn(day).filter(event => event.birthday).map(event => <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${calendarDisplayedTitle(event)}を編集`} onPress={() => openEvent(event)}><BirthdayCake width={18} height={16} /></Pressable>)}
+      {eventNotice}
+      {events.filter(event => event.birthday).map(event => <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${calendarDisplayedTitle(event)}を編集`} onPress={() => openEvent(event)}><BirthdayCake width={18} height={16} /></Pressable>)}
       {holiday ? <Text numberOfLines={1} accessibilityLabel={`祝日：${holiday}`} style={[styles.weekMeta, { color: palette.warning }]}>{holiday}</Text> : null}
-      {props.renderWaste ? props.renderWaste(day) : wasteKnown(day) ? <>{[...waste.weeklyByColumn[parseLocalDate(day).getUTCDay()].filter(name => !waste.hiddenWeeklyByDate.get(day)?.includes(name)), ...waste.byDate.get(day) ?? []].map(name => <WasteTypeLabel key={name} label={name} size={10} textStyle={styles.weekMeta} />)}</> : null}
+      {props.renderWaste ? props.renderWaste(day) : dateWaste ? <>{[...(dateWaste.weeklyByColumn[parseLocalDate(day).getUTCDay()] ?? []).filter(name => !dateWaste.hiddenWeeklyByDate.get(day)?.includes(name)), ...dateWaste.byDate.get(day) ?? []].map(name => <WasteTypeLabel key={name} label={name} size={10} textStyle={styles.weekMeta} />)}</> : null}
     </View>;
     const headingText = <Text key={announcement} accessibilityLabel={announcement} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={.85} style={[styles.dayTitle, styles.dayHeadingDate, day === today && { color: palette.accent }, holiday && { color: palette.warning }]}>{formatJapaneseDate(day, { weekday: true }).replace(/[（(]/gu, ' ').replace(/[）)]/gu, '')}</Text>;
     return <View style={[styles.dayHeading, agenda && styles.agendaHeading, view === 'three' && styles.compactDayHeading]}><View style={[styles.dayHeadingMain, agenda && styles.agendaHeadingMain]}>{headingText}
       {incomplete ? inlineToggle ? <Pressable accessibilityRole="button" accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の家事を${open ? '閉じる' : '開く'}`} accessibilityValue={{ text: status }} accessibilityState={{ expanded: open }} hitSlop={4} onPress={() => toggleSummary(day)} style={styles.inlineSummary}>
         <Text numberOfLines={1} style={styles.dayStatus}>{status}</Text><SymbolView name={{ ios: open ? 'chevron.up' : 'chevron.down', android: open ? 'keyboard_arrow_up' : 'keyboard_arrow_down' }} size={11} tintColor={palette.accent} />
       </Pressable> : <Text numberOfLines={1} style={styles.dayStatus}>{status}</Text> : null}
-    {eventsOn(day).filter(event => event.birthday).map(event => <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${calendarDisplayedTitle(event)}を編集`} onPress={() => openEvent(event)} style={styles.birthday}>
+    {events.filter(event => event.birthday).map(event => <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${calendarDisplayedTitle(event)}を編集`} onPress={() => openEvent(event)} style={styles.birthday}>
       <BirthdayCake width={20} height={18} /><Text numberOfLines={1} style={[styles.caption, { flexShrink: 1 }]}>{calendarDisplayedTitle(event)}</Text></Pressable>)}</View>
+    {eventNotice}
     {holiday ? <Text numberOfLines={1} ellipsizeMode="tail" accessibilityLabel={`祝日：${holiday}`} style={styles.holiday}>{holiday}</Text> : null}
-    {props.renderWaste ? props.renderWaste(day) : wasteKnown(day) ? <>{waste.weeklyByColumn[parseLocalDate(day).getUTCDay()]
-      .filter(name => !waste.hiddenWeeklyByDate.get(day)?.includes(name)).map(name => <WasteTypeLabel key={name} label={name} size={14} />)}
-    {(waste.byDate.get(day) ?? []).map(name => <WasteTypeLabel key={name} label={name} size={14} />)}</> : null}</View>;
+    {props.renderWaste ? props.renderWaste(day) : dateWaste ? <>{(dateWaste.weeklyByColumn[parseLocalDate(day).getUTCDay()] ?? [])
+      .filter(name => !dateWaste.hiddenWeeklyByDate.get(day)?.includes(name)).map(name => <WasteTypeLabel key={name} label={name} size={14} />)}
+    {(dateWaste.byDate.get(day) ?? []).map(name => <WasteTypeLabel key={name} label={name} size={14} />)}</> : null}</View>;
   };
   const timelineMinimum = view === 'week' ? 40 : minimumEventHeight;
   const timedDay = (day: LocalDate, days: readonly LocalDate[], columnWidth: number) => <>
@@ -572,25 +589,25 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     </View> : null}
     <View style={[styles.week, item.monthStartColumn !== null && styles.monthFirstWeek, { height: item.height - (item.monthStartColumn === null ? 0 : MONTH_HEADING_HEIGHT) }]}>{item.days.map((day, column) => {
     if (!day) return <View key={`empty:${column}`} pointerEvents="none" style={styles.monthColumn} />;
-    const info = showChores(day) ? props.dayInfo(day) : undefined; const dailyEvents = eventsOn(day); const labels = wasteKnown(day) ? waste.byDate.get(day) ?? [] : []; const hidden = wasteKnown(day) ? waste.hiddenWeeklyByDate.get(day) ?? [] : [];
+    const info = showChores(day) ? props.dayInfo(day) : undefined; const dailyEvents = eventsOn(day); const eventError = eventErrorOn(day); const dateWaste = wasteForDate(day); const labels = dateWaste?.byDate.get(day) ?? []; const hidden = dateWaste?.hiddenWeeklyByDate.get(day) ?? [];
     const total = info?.total ?? info?.pending ?? 0;
     const hasSummary = Boolean(info && (!info.loaded || total > 0 || info.partial));
     const ownBirthday = dailyEvents.some(event => event.eventId === OWN_BIRTHDAY_EVENT_ID && event.birthday);
     const holiday = japanesePublicHoliday(day); const ordinaryEvents = dailyEvents.filter(event => !event.holiday && !(event.eventId === OWN_BIRTHDAY_EVENT_ID && event.birthday));
     const openDay = () => { chooseDate(day); positioned.current = ''; timelineTop.current = null; setView(display.detail); };
     return <View key={day} style={[styles.monthColumn, styles.dayCell, (column === 0 || item.days[column - 1] === null) && styles.firstDayCell, hidden.length > 0 && styles.hiddenDay, activeDragDay === day && { zIndex: 1, overflow: 'visible' }]}>
-      <Pressable accessibilityRole="button" accessibilityLabel={`${dateLabel(day)}${ownBirthday ? '、自分の誕生日' : ''}`}
+      <Pressable accessibilityRole="button" accessibilityLabel={`${dateLabel(day, dateWaste, dailyEvents, eventError)}${ownBirthday ? '、自分の誕生日' : ''}`}
         accessibilityState={{ selected: day === date }} onPress={openDay} style={StyleSheet.absoluteFill} />
       {hidden.length > 0 ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.hiddenOutline]} /> : null}
       <View pointerEvents="none" style={styles.dayNumberRow}>{ownBirthday ? <BirthdayCalendarDate day={Number(day.slice(-2))} today={day === today} selected={day === date} /> : <Text style={[styles.dayNumber, holiday && { color: palette.warning },
         day === today && styles.todayNumber, day === date && day !== today && styles.selectedNumber]}>{Number(day.slice(-2))}</Text>
       }</View>
-      {labels.length || !wasteKnown(day) ? <View pointerEvents="none">
+      {labels.length ? <View pointerEvents="none">
         {labels.slice(0, 1).map(label => <WasteTypeLabel key={label} label={label} size={13} textStyle={styles.gridWasteText} />)}
-        {!wasteKnown(day) ? <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.caption, styles.gridWasteText]}>収集未取得</Text> : null}
       </View> : null}
+      {eventError ? <Text pointerEvents="none" numberOfLines={1} style={[styles.monthCountText, { color: palette.warning }]}>予定表示不可</Text> : null}
       <CalendarMonthEvents events={ordinaryEvents} day={day} height={item.height - (item.monthStartColumn === null ? 0 : MONTH_HEADING_HEIGHT)}
-        summary={hasSummary} waste={labels.length > 0 || !wasteKnown(day)} detail={monthDetail.value} appearances={appearances} fallbackAppearance={fallbackAppearance} dark={scheme === 'dark'}
+        summary={hasSummary} waste={labels.length > 0} detail={monthDetail.value} appearances={appearances} fallbackAppearance={fallbackAppearance} dark={scheme === 'dark'}
         drag={{ helpTarget: registerHelpTarget, canMove: event => canMove(event, true), onBegin: event => beginMove(event, true), onCommit: commitMove,
           activeId: monthDrag.activeId, prepare: monthDrag.prepare, onOpen: openDay }} />
       {hasSummary ? info?.loaded ? <View pointerEvents="none" style={styles.monthCount}><Text numberOfLines={1} adjustsFontSizeToFit style={styles.monthCountText}>{total > 0 ? <>家事 <Text style={styles.monthCountNumber}>{total}</Text>件{info.partial ? '+' : ''}</> : '一部未取得'}</Text></View>
@@ -619,11 +636,11 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
       positioned.current = ''; timelineTop.current = null; chooseDate(next);
     }} /> : null}
     {display.error ? <Text accessibilityRole="alert" style={styles.error}>{display.error}</Text> : null}
-    {moveError || local?.error || projection.error || source.draftError ? <View style={styles.errorRow}><Text accessibilityRole="alert" style={styles.error}>{moveError ?? local?.error ?? projection.error ?? source.draftError}</Text>{moveError ? <AppButton title="閉じる" variant="quiet" compact onPress={() => setMoveError(null)} /> : local?.error ? <AppButton title="予定を再読込" variant="quiet" compact onPress={() => void local.refresh()} /> : null}</View> : null}
+    {moveError || local?.error || source.draftError ? <View style={styles.errorRow}><Text accessibilityRole="alert" style={styles.error}>{moveError ?? local?.error ?? source.draftError}</Text>{moveError ? <AppButton title="閉じる" variant="quiet" compact onPress={() => setMoveError(null)} /> : local?.error ? <AppButton title="予定を再読込" variant="quiet" compact onPress={() => void local.refresh()} /> : null}</View> : null}
     {source.draft && !activeEditor ? <Pressable accessibilityRole="button" accessibilityLabel="入力中の予定を再開" onPress={() => { if (drafts.length > 1) setDraftsOpen(true); else setEditor(source.draft); }} style={styles.resume}><Text style={styles.caption}>下書きを再開{drafts.length > 1 ? `（${drafts.length}件）` : ''}</Text><Chevron /></Pressable> : null}
     {view === 'month' ? <View style={styles.weekdays}>{weekdays.map((label, i) => <View key={label} style={styles.weekdayCell}><Text style={styles.weekday}>{label}</Text>
-      <View style={styles.weeklyLabels} accessibilityLabel={`${label}曜日${waste.weeklyByColumn[i].length ? `、${waste.weeklyByColumn[i].join('・')}` : ''}`}>
-        {waste.weeklyByColumn[i].map(name => <WasteTypeLabel key={name} label={name} size={13} textStyle={styles.gridWasteText} />)}</View>
+      <View style={styles.weeklyLabels} accessibilityLabel={`${label}曜日${headerWaste[i].length ? `、${headerWaste[i].join('・')}` : ''}`}>
+        {headerWaste[i].map(name => <WasteTypeLabel key={name} label={name} size={13} textStyle={styles.gridWasteText} />)}</View>
     </View>)}</View> : null}
     <GestureHandlerRootView style={styles.viewport}><GestureDetector gesture={view === 'day' || view === 'two' || view === 'three' ? detailSwipe : monthDrag.gesture}>
     <View ref={viewportHost} testID="calendar-viewport" style={styles.viewport} onLayout={event => {
@@ -648,13 +665,18 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
       /> : view === 'list' ? <FlatList ref={agenda} key={`agenda:${date}`} testID="calendar-agenda" contentContainerStyle={styles.dockedBody} data={Array.from({ length: Math.min(listDays, 365) }, (_, i) => addDays(date, i))} keyExtractor={day => day} initialNumToRender={7}
         onEndReached={() => setListDays(n => Math.min(365, n + 28))} renderItem={({ item: day }) => {
           const info = showChores(day) ? props.dayInfo(day) : undefined;
-          const events = eventsOn(day);
-          const empty = !props.renderWaste && wasteKnown(day) && !japanesePublicHoliday(day) && !waste.weeklyByColumn[parseLocalDate(day).getUTCDay()].some(name => !waste.hiddenWeeklyByDate.get(day)?.includes(name)) && !(waste.byDate.get(day)?.length) && !events.length && (info?.total ?? info?.pending ?? 0) === 0 && info?.loaded !== false && !info?.partial && !local?.error && !projection.error;
-          return empty ? <View style={[styles.agendaDay, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, minHeight: 44, gap: 8 }]}>
-            <Text style={styles.caption}>{formatJapaneseDate(day, { weekday: true })}</Text><Text style={styles.caption}>予定なし</Text></View>
-            : <View style={styles.agendaDay}>{dayHeading(day, true)}{summary(day, info)}
+          const events = eventsOn(day); const projectionError = eventErrorOn(day);
+          const dateWaste = wasteForDate(day);
+          const empty = !props.renderWaste && Boolean(dateWaste) && !japanesePublicHoliday(day) && !(dateWaste?.weeklyByColumn[parseLocalDate(day).getUTCDay()] ?? []).some(name => !dateWaste?.hiddenWeeklyByDate.get(day)?.includes(name)) && !(dateWaste?.byDate.get(day)?.length) && !events.length && (info?.total ?? info?.pending ?? 0) === 0 && info?.loaded !== false && !info?.partial && !local?.error && !projectionError;
+          return empty ? (
+            <View style={[styles.agendaDay, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, minHeight: 44, gap: 8 }]}>
+              <Text style={styles.caption}>{formatJapaneseDate(day, { weekday: true })}</Text><Text style={styles.caption}>予定なし</Text>
+            </View>
+          ) : (
+            <View style={styles.agendaDay}>{dayHeading(day, true, false, dateWaste, events, projectionError)}{summary(day, info)}
               {events.filter(event => !event.birthday && !event.holiday).map(event => eventRow(event, day))}
-              {!events.length && (info?.total ?? info?.pending ?? 0) === 0 && (local?.error || projection.error) ? <Text style={styles.empty}>予定を取得できていません</Text> : null}</View>;
+              {!events.length && (info?.total ?? info?.pending ?? 0) === 0 && local?.error && !projectionError ? <Text style={styles.empty}>予定を取得できていません</Text> : null}</View>
+          );
         }} />
         : view === 'week' ? <CalendarWeek date={date} currentMinute={weekStart(date) === weekStart(today) ? currentMinute : null}
           defaultMinute={Math.min(...Array.from({ length: 7 }, (_, i) => eventsOn(addDays(weekStart(date), i)).filter(event => !event.allDay).map(event => event.startMinute)).flat(), 9 * 60)}

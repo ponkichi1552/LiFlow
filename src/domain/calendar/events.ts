@@ -26,8 +26,16 @@ export interface CalendarOccurrence extends EventDraft {
   timeIssue?: 'gap' | 'fold'; original?: CalendarOccurrence;
   readOnly?: boolean; externalUrl?: string; blocksTime?: boolean;
 }
-const compareOccurrences = (a: CalendarOccurrence, b: CalendarOccurrence) => a.startDate.localeCompare(b.startDate)
-  || Number(b.allDay) - Number(a.allDay) || a.startMinute - b.startMinute || a.id.localeCompare(b.id);
+export type CalendarWallTimeResolver = typeof v2WallTimeCandidates;
+export class CalendarProjectionLimitError extends Error {
+  static readonly maximumOccurrences = 20_000;
+  constructor() { super('表示する予定が多すぎます。期間を狭めてください。'); }
+}
+export function compareOccurrences(a: CalendarOccurrence, b: CalendarOccurrence) {
+  // Validated ISO dates have fixed width. Comparing digits avoids locale work for each sort comparison.
+  if (a.startDate !== b.startDate) return a.startDate < b.startDate ? -1 : 1;
+  return Number(b.allDay) - Number(a.allDay) || a.startMinute - b.startMinute || a.id.localeCompare(b.id);
+}
 export const RECURRENCE_LABELS: Record<CalendarRecurrence, string> = { none: '繰り返さない', daily: '毎日', weekly: '毎週', biweekly: '隔週', monthly: '毎月', yearly: '毎年', custom: 'カスタム' };
 export function recurrenceLabel(value: EventDraft) { return value.recurrence === 'custom' && value.customRecurrence ? customRecurrenceLabel(value.customRecurrence, value.startDate) : RECURRENCE_LABELS[value.recurrence]; }
 export const CATEGORY_PRESETS = ['#348DC2', '#8459B3', '#3D906A', '#BD7042', '#BA527D', '#71823B', '#727A91', '#BE4E4E'];
@@ -75,8 +83,8 @@ export function validateEventDraft(value: EventDraft): EventDraft {
 }
 
 /** Seek into the visible range rather than expanding a series from its creation date. */
-function anchors(event: CalendarEvent, from: LocalDate, through: LocalDate): LocalDate[] {
-  const earliest = addDays(from, -daysBetween(event.startDate, event.endDate));
+function anchors(event: CalendarEvent, from: LocalDate, through: LocalDate, durationDays = daysBetween(event.startDate, event.endDate)): LocalDate[] {
+  const earliest = addDays(from, -durationDays);
   const last = event.untilDate && event.untilDate < through ? event.untilDate : through;
   if (last < event.startDate || last < earliest) return [];
   if (event.recurrence === 'none') return [event.startDate];
@@ -100,7 +108,8 @@ function anchors(event: CalendarEvent, from: LocalDate, through: LocalDate): Loc
 }
 export function isCalendarAnchor(event: CalendarEvent, date: LocalDate) { return anchors(event, date, date).includes(date); }
 export function calendarEventAnchors(event: CalendarEvent, from: LocalDate, through: LocalDate) { return anchors(event, from, through).filter(day => day >= from && day <= through); }
-export function projectCalendarEvents(events: readonly CalendarEvent[], exceptions: readonly CalendarException[], from: LocalDate, through: LocalDate): CalendarOccurrence[] {
+export function projectCalendarEvents(events: readonly CalendarEvent[], exceptions: readonly CalendarException[], from: LocalDate, through: LocalDate,
+  resolveWallTime: CalendarWallTimeResolver = v2WallTimeCandidates): CalendarOccurrence[] {
   parseLocalDate(from); parseLocalDate(through);
   if (from > through || daysBetween(from, through) > 370) throw new Error('表示期間は1年以内にしてください。');
   const exceptional = new Map(exceptions.map(row => [`${row.eventId}:${row.anchorDate}`, row]));
@@ -108,35 +117,37 @@ export function projectCalendarEvents(events: readonly CalendarEvent[], exceptio
   for (const row of exceptions) { const rows = exceptionsByEvent.get(row.eventId) ?? []; rows.push(row); exceptionsByEvent.set(row.eventId, rows); }
   const result: CalendarOccurrence[] = [];
   for (const event of events) {
-    const dates = new Set(anchors(event, from, through));
+    const durationDays = daysBetween(event.startDate, event.endDate);
+    const dates = new Set(anchors(event, from, through, durationDays));
     // A moved instance may enter this range from outside its original month.
     // An explicitly edited occurrence keeps its own date when the series changes.
     for (const row of exceptionsByEvent.get(event.id) ?? []) if (row.override && row.override.startDate <= through && row.override.endDate >= from
       && (row.detached || isCalendarAnchor(event, row.anchorDate))) dates.add(row.anchorDate);
     for (const anchorDate of dates) {
       const exception = exceptional.get(`${event.id}:${anchorDate}`); if (exception && !exception.override) continue;
-      const body = exception?.override ?? { ...event, startDate: anchorDate, endDate: addDays(anchorDate, daysBetween(event.startDate, event.endDate)) };
+      const body = exception?.override ?? { ...event, startDate: anchorDate, endDate: durationDays === 0 ? anchorDate : addDays(anchorDate, durationDays) };
       if (body.startDate > through || body.endDate < from) continue;
       let timeIssue: CalendarOccurrence['timeIssue'];
       if (!body.allDay) {
-        const lengths = [v2WallTimeCandidates({ date: body.startDate, hour: Math.floor(body.startMinute / 60), minute: body.startMinute % 60, timeZone: body.timeZone }).length,
-          v2WallTimeCandidates({ date: body.endDate, hour: Math.floor(body.endMinute / 60), minute: body.endMinute % 60, timeZone: body.timeZone }).length];
+        const lengths = [resolveWallTime({ date: body.startDate, hour: Math.floor(body.startMinute / 60), minute: body.startMinute % 60, timeZone: body.timeZone }).length,
+          resolveWallTime({ date: body.endDate, hour: Math.floor(body.endMinute / 60), minute: body.endMinute % 60, timeZone: body.timeZone }).length];
         if (lengths.some(n => n !== 1)) timeIssue = lengths.includes(0) ? 'gap' : 'fold';
       }
       result.push({ ...body, ...(event.readOnly ? { readOnly: true } : {}), ...(event.externalUrl ? { externalUrl: event.externalUrl } : {}),
         ...(event.blocksTime !== undefined ? { blocksTime: event.blocksTime } : {}), id: `${event.id}:${anchorDate}`, eventId: event.id, anchorDate, eventRevision: event.revision, exceptionRevision: exception?.revision ?? 0, ...(timeIssue ? { timeIssue } : {}) });
-      if (result.length > 20_000) throw new Error('表示する予定が多すぎます。期間を狭めてください。');
+      if (result.length > CalendarProjectionLimitError.maximumOccurrences) throw new CalendarProjectionLimitError();
     }
   }
   return result.sort(compareOccurrences);
 }
 /** Timed events share the display clock; untimed/all-day dates keep their original civil date. */
-export function calendarEventsInTimeZone(events: readonly CalendarOccurrence[], timeZone: string): CalendarOccurrence[] {
+export function calendarEventsInTimeZone(events: readonly CalendarOccurrence[], timeZone: string,
+  resolveWallTime: CalendarWallTimeResolver = v2WallTimeCandidates): CalendarOccurrence[] {
   pinnedClockAt(0, timeZone);
   return events.map(event => {
     if (event.allDay || event.timeIssue || event.timeZone === timeZone) return event;
     const clock = (date: LocalDate, minute: number) => {
-      const at = v2WallTimeCandidates({ date, hour: Math.floor(minute / 60), minute: minute % 60, timeZone: event.timeZone })[0];
+      const at = resolveWallTime({ date, hour: Math.floor(minute / 60), minute: minute % 60, timeZone: event.timeZone })[0];
       return pinnedClockAt(at, timeZone);
     };
     const start = clock(event.startDate, event.startMinute); const end = clock(event.endDate, event.endMinute);

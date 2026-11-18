@@ -86,6 +86,20 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
       if (!options.force && !(options.interactive && control.authRequired) && control.retryAt > now()) return { kind: 'pending', received: 0, sent: 0, retryAt: control.retryAt };
       return withGoogleSyncOperation(async () => {
         let calls = 0; let received = 0; let sent = 0; let changed = false; let localCandidates: number | null = null;
+        let calendarChangePublished = false; let changedAfterPublish = false;
+        const recordCalendarChange = (publishable = false) => {
+          changed = true;
+          if (calendarChangePublished) { changedAfterPublish = true; return; }
+          if (publishable) {
+            // This call follows a committed, matching-account SQLite transaction.
+            // Further page commits are coalesced into one final observer refresh.
+            notifyCalendarSyncChanged(input.database); calendarChangePublished = true;
+          }
+        };
+        const publishCalendarChanges = () => {
+          if (!changed) return;
+          if (!calendarChangePublished || changedAfterPublish) notifyCalendarSyncChanged(input.database);
+        };
         const finish = (result: Result): Result => {
           if (process.env.EXPO_PUBLIC_LIFLOW_STARTUP_TRACE === '1') console.info('[LiFlow Calendar sync]', { kind: result.kind, calls, received, sent, localCandidates });
           return result;
@@ -105,37 +119,49 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
         });
         const outgoingReserve = Math.min(5_000, Math.ceil(budget.remaining() / 3));
         const canReceive = () => budget.remaining() > outgoingReserve;
-        const dirty = async (calendar: GoogleCalendarListEntry) => {
+        const importInboxBatch = async (calendar: GoogleCalendarListEntry) => {
           // Import a bounded batch atomically. Native account checks stay before/after the
           // transaction instead of making a credential bridge round trip for each SQL row.
           const stats = await transact(async tx => {
           const transactInBatch = <T>(work: (connection: SQLiteDatabase) => Promise<T>) => work(tx);
-          let imported = 0; let processed = 0; let mutated = false;
+          let imported = 0; let processed = 0; let mutated = false; let publishable = false; let reviewedFresh = false;
+          const canPublishFirstBatch = async () => {
+            if (!publishable || calendarChangePublished) return false;
+            return !await tx.getFirstAsync(`SELECT 1
+              FROM calendar_google_expansion x JOIN calendar_google_links l ON l.subject=x.subject AND l.calendar_id=x.calendar_id AND l.google_id=x.parent_id
+              JOIN calendar_events e ON e.id=l.event_id WHERE x.subject=? AND x.active=1 AND l.active=1 AND l.read_only=1 AND e.deleted=1 LIMIT 1`, control.subject);
+          };
           // Masters precede exceptions, even if Google delivered them in reverse page order.
           // Bound the read as well as the writes. Sorting every staged JSON blob
           // in JavaScript made a large first import repeat that work each pass.
-          const rows = await transactInBatch(tx => tx.getAllAsync<{ google_id: string; event_json: string }>(`SELECT google_id,event_json FROM calendar_google_inbox
+          const rows = await transactInBatch(tx => tx.getAllAsync<{ google_id: string; event_json: string; dirty: number }>(`SELECT google_id,event_json,dirty FROM calendar_google_inbox
             WHERE subject=? AND calendar_id=? AND dirty IN (1,2)
             ORDER BY dirty,CASE WHEN json_extract(event_json,'$.recurringEventId') IS NULL THEN 0 ELSE 1 END,attempt_order,google_id LIMIT 26`, control.subject, calendar.id));
           let attemptOrder = (await tx.getFirstAsync<{ n: number }>('SELECT coalesce(max(attempt_order),0) n FROM calendar_google_inbox WHERE subject=? AND calendar_id=?', control.subject, calendar.id))!.n;
           for (const row of rows) {
             if (processed >= 25) break;
-            if (!canReceive()) return { complete: false, imported, mutated };
+            if (!canReceive()) return { complete: false, continueDraining: false, imported, mutated, publishable: await canPublishFirstBatch() };
             processed++;
             budget.assert(); const remote = JSON.parse(row.event_json) as GoogleCalendarEvent;
             const result = await transactInBatch(tx => receivePersonalGoogleEvent(tx, control, calendar, remote));
-            if (result === 'applied') mutated = true;
-            if (result === 'waiting') {
+            if (result === 'applied') { mutated = true; publishable = true; }
+            // A locally exported master can already be linked before its first Google echo reaches this inbox.
+            let source: { event_json: string } | null = null;
+            if (result === 'expand') source = remote.recurringEventId
+              ? await tx.getFirstAsync<{ event_json: string }>('SELECT event_json FROM calendar_google_inbox WHERE subject=? AND calendar_id=? AND google_id=?', control.subject, calendar.id, remote.recurringEventId)
+              : row;
+            if (result === 'waiting' || result === 'expand' && !source) {
               await tx.runAsync('UPDATE calendar_google_inbox SET dirty=2,attempt_order=? WHERE subject=? AND calendar_id=? AND google_id=? AND event_json=?', ++attemptOrder, control.subject, calendar.id, row.google_id, row.event_json);
+              reviewedFresh ||= row.dirty === 1;
               continue;
             }
-            if (result === 'expand') {
+            if (source) {
               const parentId = remote.recurringEventId ?? remote.id;
-              const source = remote.recurringEventId ? await transactInBatch(tx => tx.getFirstAsync<{ event_json: string }>('SELECT event_json FROM calendar_google_inbox WHERE subject=? AND calendar_id=? AND google_id=?', control.subject, calendar.id, parentId)) : row;
-              if (!source) continue;
               const original = JSON.parse(source.event_json) as GoogleCalendarEvent;
               if (!original.recurrence?.length) {
-                if (await transactInBatch(tx => receivePersonalGoogleEvent(tx, control, calendar, googleReadOnlyInstance(original), { expanded: true, original })) === 'applied') mutated = true;
+                if (await transactInBatch(tx => receivePersonalGoogleEvent(tx, control, calendar, googleReadOnlyInstance(original), { expanded: true, original })) === 'applied') {
+                  mutated = true; publishable ||= !remote.recurringEventId;
+                }
               } else await transactInBatch(async tx => {
                 const existing = await tx.getFirstAsync<PersonalGoogleLink>('SELECT * FROM calendar_google_links WHERE subject=? AND calendar_id=? AND google_id=?', control.subject, calendar.id, parentId);
                 const local = existing && await localGoogleItem(tx, existing.event_id);
@@ -144,7 +170,10 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
                   && !await isLegacyHiddenGoogleParent(tx,existing,local)) {
                   await writePersonalGoogleLink(tx, { ...existing, remote_json: JSON.stringify(original), conflict_json: JSON.stringify({ revision: local.revision, etag: original.etag, remote: googleOwnedFields(original), readOnly: true }) }); return;
                 }
-                if (local?.value) { await tx.runAsync('UPDATE calendar_events SET deleted=1,revision=revision+1 WHERE id=? AND deleted=0', local.eventId); mutated = true; }
+                if (local?.value) {
+                  await tx.runAsync('UPDATE calendar_events SET deleted=1,revision=revision+1 WHERE id=? AND deleted=0', local.eventId);
+                  mutated = true;
+                }
                 const hidden = existing && await localGoogleItem(tx, existing.event_id);
                 await writePersonalGoogleLink(tx, { subject: control.subject, calendar_id: calendar.id, google_id: parentId,
                   event_id: existing?.event_id ?? `google.${personalGoogleDigest([control.subject, calendar.id, parentId]).slice(0, 48)}`, anchor_date: '', etag: original.etag ?? null,
@@ -160,11 +189,26 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
               });
             }
             await transactInBatch(tx => tx.runAsync('UPDATE calendar_google_inbox SET dirty=0 WHERE subject=? AND calendar_id=? AND google_id=? AND event_json=?', control.subject, calendar.id, row.google_id, row.event_json)); imported++;
+            reviewedFresh ||= row.dirty === 1;
           }
           const unreviewed = await tx.getFirstAsync('SELECT 1 FROM calendar_google_inbox WHERE subject=? AND calendar_id=? AND dirty=1 LIMIT 1', control.subject, calendar.id);
-          return { complete: !unreviewed, imported, mutated };
+          // Only the first eligible publication needs this guard. A recurring
+          // replacement may have committed its deleted master before Google has
+          // finished returning the replacement instances.
+          return { complete: !unreviewed, continueDraining: Boolean(unreviewed) && reviewedFresh, imported, mutated, publishable: await canPublishFirstBatch() };
           });
-          changed ||= stats.mutated; received += stats.imported; return stats.complete;
+          if (stats.mutated) recordCalendarChange(stats.publishable);
+          received += stats.imported; return stats;
+        };
+        const drainInbox = async (calendar: GoogleCalendarListEntry) => {
+          let batch = await importInboxBatch(calendar);
+          while (batch.continueDraining && canReceive()) {
+            // Let the UI and local writers run between committed chunks of the same Google page.
+            await new Promise<void>(resolve => setTimeout(resolve, 0));
+            if (!canReceive()) break;
+            batch = await importInboxBatch(calendar);
+          }
+          return batch.complete;
         };
         try {
           await guard();
@@ -178,7 +222,7 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
               calendarPage = page.nextPageToken; if (calendarPage) calendarPages.add(calendarPage);
             } while (calendarPage);
             const refreshed = await refreshPersonalGoogleCalendars(input.database, control, calendars);
-            control = refreshed.control; changed ||= refreshed.projectionChanged;
+            control = refreshed.control; if (refreshed.projectionChanged) recordCalendarChange();
             calendars = control.calendars;
           }
           if (options.deltaOnly && !calendars.length) return finish({ kind: 'pending', received, sent });
@@ -192,7 +236,7 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
           incoming: for (const id of [...remaining]) {
             const calendar = control.calendars.find(row => row.id === id)!;
             // Native SQLite/import work also consumes time. Drain saved progress before another HTTP page.
-            if (!await dirty(calendar)) break incoming;
+            if (!await drainInbox(calendar)) break incoming;
             let complete = false;
             while (!complete) {
               // Reserve room for offline edits even with hundreds of calendars or large pages.
@@ -240,7 +284,7 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
                     ON CONFLICT(subject,calendar_id,google_id) DO UPDATE SET event_json=excluded.event_json,dirty=1,scan_id=excluded.scan_id`, scan, control.subject, calendar.id, scan);
                 }
               });
-              if (!await dirty(calendar)) break incoming;
+              if (!await drainInbox(calendar)) break incoming;
               complete = !page.nextPageToken;
             }
             await transact(async tx => {
@@ -273,18 +317,21 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
                 }
                 if (page.nextPageToken && page.nextPageToken === token) throw new Error('Googleの繰り返し予定を読み直してください。');
                 const nextVisited = advanceCalendarPageHistory(visited, token, page.nextPageToken);
-                await transact(async tx => {
+                const expansionChanged = await transact(async tx => {
+                  let mutated = false;
                   for (const event of page.items ?? []) {
-                    if (await receivePersonalGoogleEvent(tx, control, calendar, googleReadOnlyInstance(event), { expanded: true, parentId: expansion.parent_id, original: event }) === 'applied') changed = true;
+                    if (await receivePersonalGoogleEvent(tx, control, calendar, googleReadOnlyInstance(event), { expanded: true, parentId: expansion.parent_id, original: event }) === 'applied') mutated = true;
                     await tx.runAsync('UPDATE calendar_google_expanded SET seen=1 WHERE subject=? AND calendar_id=? AND parent_id=? AND google_id=?', control.subject, calendar.id, expansion.parent_id, event.id);
                   }
                   const remainingRanges = page.nextPageToken ? ranges : ranges.slice(1);
                   await tx.runAsync('UPDATE calendar_google_expansion SET page_token=?,active=?,scan_ranges_json=?,visited_json=? WHERE subject=? AND calendar_id=? AND parent_id=?', page.nextPageToken ?? null, page.nextPageToken || remainingRanges.length ? 1 : 0, expansion.scan_ranges_json ? JSON.stringify(remainingRanges) : null, nextVisited, control.subject, calendar.id, expansion.parent_id);
                   if (!page.nextPageToken && !expansion.scan_ranges_json) {
                     const old = await tx.getAllAsync<PersonalGoogleLink>(`SELECT l.* FROM calendar_google_links l JOIN calendar_google_expanded x USING(subject,calendar_id,google_id) WHERE x.subject=? AND x.calendar_id=? AND x.parent_id=? AND x.seen=0`, control.subject, calendar.id, expansion.parent_id);
-                    for (const link of old) if (await receivePersonalGoogleEvent(tx, control, calendar, { id: link.google_id, status: 'cancelled' }, { expanded: true }) === 'applied') changed = true;
+                    for (const link of old) if (await receivePersonalGoogleEvent(tx, control, calendar, { id: link.google_id, status: 'cancelled' }, { expanded: true }) === 'applied') mutated = true;
                   }
+                  return mutated;
                 }); token = page.nextPageToken; visited = nextVisited;
+                if (expansionChanged) recordCalendarChange();
               } while (token);
               ranges.shift();
               }
@@ -362,7 +409,7 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
               let current: GoogleCalendarEvent;
               try { current = await request(() => api.get(calendarId, link!.google_id)); }
               catch (error) { if (!(error instanceof GoogleCalendarHttpError && [404, 410].includes(error.status))) throw error; current = { id: link!.google_id, status: 'cancelled' }; }
-              if (await transact(tx => receivePersonalGoogleEvent(tx, control, calendar, current)) === 'applied') changed = true; continue;
+              if (await transact(tx => receivePersonalGoogleEvent(tx, control, calendar, current)) === 'applied') recordCalendarChange(); continue;
             }
             if (!remote.id || payload.status !== 'cancelled' && !remote.etag) throw new Error('Googleの保存結果を確認できません。');
             const accepted = { ...link!, google_id: remote.id, etag: remote.etag ?? link!.etag,
@@ -384,14 +431,14 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
           const waitingCount = waiting?.n ?? 0; const retryAt = waitingCount && !remaining.length ? now() + 60_000 : 0;
           await updatePersonalGoogleCalendarStatus(input.database, control, { ...(!remaining.length && !waitingCount ? { lastSyncAt: new Date(now()).toISOString() } : {}),
             error: waitingCount ? `一部の繰り返し予定を受信待ちです（${waitingCount}件）。` : null, authRequired: undefined, retryAt, retryCount: 0 });
-          if (changed) notifyCalendarSyncChanged(input.database);
+          publishCalendarChanges();
           return finish({ kind: remaining.length || waitingCount ? 'pending' : 'success', received, sent, ...(waitingCount ? { waiting: waitingCount, ...(retryAt ? { retryAt } : {}) } : {}) });
         } catch (cause) {
           const pending = cause instanceof CalendarPassPending || cause instanceof Error && cause.name === 'AbortError';
           const wait = cause instanceof GoogleCalendarHttpError && cause.retryAfterMs || Math.min(6 * 3600_000, 30_000 * 2 ** Math.min(control.retryCount, 9)) * (.75 + random() * .5);
           try { await updatePersonalGoogleCalendarStatus(input.database, control, { error: pending ? null : cause instanceof Error ? cause.message.slice(0, 1000) : 'Googleカレンダーと同期できません。', authRequired: isGoogleAuthenticationError(cause) ? true : control.authRequired, retryAt: pending ? 0 : now() + Math.ceil(wait), retryCount: pending ? 0 : control.retryCount + 1 }); }
           catch { /* A disconnected account cannot write status or data into its replacement. */ }
-          if (changed) notifyCalendarSyncChanged(input.database); return finish({ kind: pending ? 'pending' : 'error', received, sent });
+          publishCalendarChanges(); return finish({ kind: pending ? 'pending' : 'error', received, sent });
         }
       }, 'googleCalendar.sync');
     })().finally(() => { budget.close(); if (running === work) { running = null; activeBudget = undefined; } });

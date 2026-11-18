@@ -3,8 +3,9 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
-import { fixture, seeds, now, draft } from './helpers/sharing-v2-repository-fixture.mjs';
+import { fixture, seeds, now, draft, groupId } from './helpers/sharing-v2-repository-fixture.mjs';
 import { createV2GroupController } from '../src/features/sharing/v2/controller.ts';
+import { createV2ScreenSession } from '../src/features/sharing/v2-ui/screen-session.ts';
 import { v2CalendarMonth, v2CalendarProjection } from '../src/features/sharing/v2-ui/calendar-projection.ts';
 import { buildV2PersonalPlan } from '../src/features/sharing/v2/personal-plan.ts';
 import { sharedLocalDate } from '../src/features/sharing/group-clock.ts';
@@ -162,17 +163,17 @@ for (const platform of ['ios', 'android']) {
       const subject = f.props.model.plan.occurrences[0].subjects[0]; const key = `shared:${subject.id}`;
       const before = JSON.stringify(f.props.model);
       f.props.feedback = { values: new Map([[key, true]]), run: async () => {} }; f.props.busy = true; f.screen.render();
-      assert.ok(f.screen.nodes().some(node => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事0件、収集日は未取得'));
+      assert.ok(f.screen.nodes().some(node => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事0件'));
       assert.equal(f.screen.button('床を掃除するの説明を開く').props.accessibilityValue?.text, '完了済み');
       assert.ok(!f.screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'));
       assert.equal(f.screen.text().includes('共有予定を読み込んでいます…'), false);
       assert.equal(JSON.stringify(f.props.model), before);
       f.props.feedback.values.clear(); f.screen.render();
-      assert.ok(f.screen.nodes().some(node => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事1件、収集日は未取得'));
+      assert.ok(f.screen.nodes().some(node => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事1件'));
       await f.controller.actions.complete({ choreId: 'floor', anchorDate: '2026-10-27', ruleVersion: 1, subjectUserId: null });
       f.props.model = await f.controller.readModel({ from: '2026-09-27', through: '2026-10-31', asOfDate: '2026-10-27' });
       f.props.feedback.values.set(key, false); f.screen.render();
-      assert.ok(f.screen.nodes().some(node => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事1件、収集日は未取得'));
+      assert.ok(f.screen.nodes().some(node => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事1件'));
       assert.equal(f.props.model.plan.occurrences[0].subjects[0].completed, true);
     } finally { f.close(); }
   });
@@ -184,7 +185,7 @@ for (const platform of ['ios', 'android']) {
       const before = list.props.data.map((entry) => entry.key);
       assert.ok(before.length > 0); f.props.busy = true; f.screen.render();
       assert.deepEqual(f.screen.nodes().find((node) => node.props.testID === 'calendar-chore-list').props.data.map((entry) => entry.key), before);
-      assert.ok(f.screen.nodes().some((node) => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事1件、収集日は未取得'));
+      assert.ok(f.screen.nodes().some((node) => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事1件'));
       assert.ok(!f.screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'));
       assert.equal(f.props.model.plan.history.length, 0);
     } finally { f.close(); }
@@ -192,7 +193,7 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} home completion updates the v2 calendar count and completed state without adding calendar completion controls`, async () => {
     const f = await setup(platform);
     try {
-      const day = f.screen.nodes().find((node) => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事1件、収集日は未取得'); assert.ok(day);
+      const day = f.screen.nodes().find((node) => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事1件'); assert.ok(day);
       const before = f.props.model.plan.sourceHash;
       assert.ok(!f.screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'));
       const round = f.props.model.plan.occurrences[0];
@@ -203,7 +204,7 @@ for (const platform of ['ios', 'android']) {
         const checkbox = home.nodes().find(node => node.props.accessibilityRole === 'checkbox'); assert.ok(checkbox, 'home keeps its existing completion control');
         await checkbox.props.onPress(); await home.flush(); await f.screen.flush();
       } finally { home.unmount(); }
-      assert.ok(f.screen.nodes().some((node) => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事0件、収集日は未取得'));
+      assert.ok(f.screen.nodes().some((node) => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事0件'));
       assert.ok(!f.screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'));
       assert.equal(f.screen.button('床を掃除するの説明を開く').props.accessibilityValue?.text, '完了済み');
       assert.notEqual(f.props.model.plan.sourceHash, before); assert.equal(f.props.model.plan.history.length, 1);
@@ -223,13 +224,13 @@ for (const platform of ['ios', 'android']) {
       await openCalendarDay(f.screen, '2026-12-01');
       assert.ok(f.screen.text().includes('この月の共有予定を取得できていません'));
       assert.equal(f.screen.text().includes('この日の共有家事はありません'), false);
-      assert.ok(f.screen.nodes().some((node) => node.props.accessibilityLabel === '2026年12月1日、予定は未取得、収集日は未取得'));
+      assert.ok(f.screen.nodes().some((node) => node.props.accessibilityLabel === '2026年12月1日、予定は未取得'));
       assert.equal(f.screen.button('この月を再読込').props.disabled, false);
     } finally { f.close(); }
   });
 }
 
-for (const platform of ['ios', 'android']) test(`${platform} a shared monthly waste rule outside loaded exception coverage stays unknown until that month is read`, async t => {
+for (const platform of ['ios', 'android']) test(`${platform} a shared monthly waste rule outside loaded exception coverage stays internally unknown until that month is read`, async t => {
   const f = await setup(platform); t.after(() => f.close());
   await f.controller.actions.addWasteSchedule({ label: '粗大ごみ', recurrence: 'monthly', collectionWeekdays: [], monthlyDay: 15 });
   const far = { from: '2027-03-01', through: '2027-03-31', asOfDate: '2026-10-27' };
@@ -237,16 +238,68 @@ for (const platform of ['ios', 'android']) test(`${platform} a shared monthly wa
   await f.controller.actions.setWasteOccurrenceHidden(loaded.waste.occurrences[0].selection, true);
   const partial = await f.controller.readModel({ from: '2026-10-01', through: '2026-10-31', asOfDate: '2026-10-27' }, { waste: true });
   assert.equal(partial.waste.schedules.length, 1); assert.equal(partial.waste.hiddenKeys.length, 0);
+  assert.equal(partial.waste.calendarPolicy, undefined, 'a non-calendar partial model does not claim complete exception coverage');
+  assert.ok(partial.waste.range.through < '2027-03-15');
+  assert.equal(partial.waste.occurrences.some(entry => entry.occurrence.date === '2027-03-15'), false);
   const props = { ...f.props, model: partial, selectedDate: '2027-03-15', month: '2027-03-01' };
   const screen = screenHarness('src/features/sharing/v2-ui/calendar.tsx', { exportName: 'V2Calendar', props, platform });
   await scrollCalendarToDate(screen, '2027-03-15');
   const day = () => screen.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2027年3月15日'));
-  assert.match(day().props.accessibilityLabel, /収集日は未取得/); assert.doesNotMatch(day().props.accessibilityLabel, /粗大/);
-  assert.ok(screen.text().includes('収集未取得'));
-  screen.render(); assert.match(day().props.accessibilityLabel, /収集日は未取得/, 'a failed refresh cannot replace unknown with a guessed mark');
+  assert.doesNotMatch(day().props.accessibilityLabel, /収集未取得|粗大/);
+  assert.doesNotMatch(screen.text(), /収集未取得/);
+  screen.render(); assert.doesNotMatch(day().props.accessibilityLabel, /収集未取得|粗大/, 'an unavailable refresh cannot replace internal unknown with a guessed mark');
   loaded = await f.controller.readModel(far, { waste: true }); props.model = loaded; screen.render();
-  assert.doesNotMatch(day().props.accessibilityLabel, /収集日は未取得|粗大/);
+  assert.equal(loaded.waste.occurrences.find(entry => entry.occurrence.date === '2027-03-15').hidden, true);
+  assert.doesNotMatch(day().props.accessibilityLabel, /収集未取得|粗大/);
   await f.controller.actions.setWasteOccurrenceHidden(loaded.waste.occurrences[0].selection, false);
   props.model = await f.controller.readModel(far, { waste: true }); screen.render();
   assert.match(day().props.accessibilityLabel, /粗大/);
+});
+
+test('a shared calendar projects distant waste and its hidden state from complete authenticated policy without another read', async () => {
+  const f = await setup();
+  try {
+    await f.controller.actions.addWasteSchedule({ label: '粗大ごみ', recurrence: 'monthly', collectionWeekdays: [], monthlyDay: 15 });
+    const far = { from: '2027-03-01', through: '2027-03-31', asOfDate: '2026-10-27' };
+    let loaded = await f.controller.readModel(far, { waste: true });
+    const distant = loaded.waste.occurrences.find(entry => entry.occurrence.date === '2027-03-15'); assert.ok(distant);
+    await f.controller.actions.setWasteOccurrenceHidden(distant.selection, true);
+
+    const calendarSession = createV2ScreenSession({ controller: f.controller, groupId, userId: 'owner', now,
+      readPreferences: () => ({ ownerUserId: 'owner', settings: { frequencyMode: 'balanced', restDays: [], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 3 } } }) });
+    const readCalendar = () => calendarSession.readModel({ calendarMonth: 'current', waste: true });
+    let calendar = await readCalendar();
+    assert.equal(calendar.waste.calendarPolicy.complete, true);
+    assert.ok(calendar.waste.range.through < '2027-03-15', 'the waste snapshot does not extend recurrence or chore generation through the distant month');
+    assert.ok(!calendar.waste.occurrences.some(entry => entry.occurrence.date === '2027-03-15'), 'the existing bounded preview stays bounded');
+    assert.deepEqual(calendar.waste.calendarPolicy.exceptions.filter(entry => entry.key === `${distant.selection.scheduleId}:2027-03-15`).map(entry => entry.hidden), [true]);
+
+    const requested = []; f.props.onMonth = month => requested.push(month); f.props.model = calendar; f.screen.render();
+    await scrollCalendarToDate(f.screen, '2026-10-15');
+    const activeDay = () => f.screen.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2026年10月15日'));
+    assert.match(activeDay().props.accessibilityLabel, /粗大ごみ/);
+    const activeOccurrence = calendar.waste.occurrences.find(entry => entry.occurrence.date === '2026-10-15'); assert.ok(activeOccurrence);
+    await f.controller.actions.setWasteOccurrenceHidden(activeOccurrence.selection, true);
+    calendar = await readCalendar(); f.props.model = calendar; f.screen.render();
+    await scrollCalendarToDate(f.screen, '2026-10-15');
+    assert.doesNotMatch(activeDay().props.accessibilityLabel, /粗大ごみ/);
+    await f.controller.actions.setWasteOccurrenceHidden(calendar.waste.occurrences.find(entry => entry.occurrence.date === '2026-10-15').selection, false);
+    calendar = await readCalendar(); f.props.model = calendar; f.screen.render();
+    await scrollCalendarToDate(f.screen, '2026-10-15');
+    assert.match(activeDay().props.accessibilityLabel, /粗大ごみ/);
+    await scrollCalendarToDate(f.screen, '2027-03-15');
+    const hiddenDay = () => f.screen.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2027年3月15日'));
+    assert.doesNotMatch(hiddenDay().props.accessibilityLabel, /収集未取得|粗大ごみ/);
+    assert.equal(requested.length, 0, 'scrolling beyond the Scheduler horizon does not request a month read');
+
+    loaded = await f.controller.readModel(far, { waste: true });
+    await f.controller.actions.setWasteOccurrenceHidden(loaded.waste.occurrences.find(entry => entry.occurrence.date === '2027-03-15').selection, false);
+    calendar = await readCalendar();
+    f.props.model = calendar; f.screen.render();
+    await scrollCalendarToDate(f.screen, '2027-03-15');
+    const restoredDay = () => f.screen.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.startsWith('2027年3月15日'));
+    assert.match(restoredDay().props.accessibilityLabel, /粗大ごみ/);
+    assert.doesNotMatch(restoredDay().props.accessibilityLabel, /収集未取得/);
+    assert.equal(requested.length, 0);
+  } finally { f.close(); }
 });

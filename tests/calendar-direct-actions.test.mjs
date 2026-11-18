@@ -95,6 +95,15 @@ for (const platform of ['ios', 'android']) {
     };
   };
   const monthController = screen => screen.nodes().find(node => node.type === 'NativeGestureDetector').props.gesture;
+  if (platform === 'android') test('Android month scrolling wins over small movement before the event hold timer', () => {
+    const screen = make(binding());
+    const control = monthController(screen);
+    assert.ok(control.activateAfterLongPress > 0);
+    // Native Android rejects the held recognizer once movement exceeds touch slop.
+    // Small movements within that slop must not meet its independent pan threshold.
+    for (const movement of [1, 4, 8, 16]) assert.ok(movement < control.minDistance);
+    assert.equal(screen.nodes().find(node => node.props.testID === 'calendar-weeks').props.scrollEnabled, true);
+  });
   const moveMonth = (control, point) => control.onUpdate({ handlerTag: 1, absoluteX: point.moveX, absoluteY: point.moveY, numberOfPointers: point.numberActiveTouches ?? 1 });
   const releaseMonth = (control, point) => { control.onDeactivate({ handlerTag: 1, absoluteX: point.moveX, absoluteY: point.moveY, canceled: false }); control.onFinalize(); };
   const holdMonth = async screen => {

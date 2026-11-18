@@ -57,7 +57,8 @@ export function createMonthDragDriver<Capture, Preview>(clock = {
   const schedule = () => { if (canScroll()) { if (frame === null) frame = clock.request(tick); } else stop(); };
   const finish = (point: MonthDragPoint) => {
     const current = session; const owner = environment; if (!current || !owner) return;
-    stop(); const target = owner.resolve(current.start, point); session = null; owner.end();
+    stop(); session = null; owner.end();
+    const target = owner.resolve(current.start, point);
     if (target && (target.day !== current.start.event.startDate || target.minute !== current.start.event.startMinute)) {
       void owner.commit(current.start.capture, target).catch(() => { /* Calendar save feedback belongs to the parent. */ });
     }

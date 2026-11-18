@@ -111,7 +111,8 @@ test('signature verification reuses only an identical authenticated message and 
   const memo = loadNativeModule('src/features/sharing/signature-verification-cache.ts', { '@noble/hashes/sha2.js': { sha256: measuredHash }, '@noble/hashes/utils.js': utils });
   const content = loadNativeModule('src/features/sharing/content-digest.ts', { '@noble/hashes/sha2.js': { sha256: measuredHash }, '@noble/hashes/utils.js': utils, './operations.ts': operations });
   const crypto = loadNativeModule('src/features/sharing/crypto.ts', {
-    '@noble/curves/ed25519.js': { ed25519: { ...ed25519, verify: (...args) => { checks++; return ed25519.verify(...args); } }, x25519 },
+    '@noble/curves/ed25519.js': { ed25519, x25519 },
+    './ed25519-verifier.ts': { verifySharedEd25519: (...args) => { checks++; return ed25519.verify(...args, { zip215: false }); } },
     '@noble/hashes/hkdf.js': { hkdf }, '@noble/hashes/sha2.js': { sha256: measuredHash }, '@noble/hashes/utils.js': utils, './operations.ts': operations, './content-digest.ts': content,
     './signature-verification-cache.ts': { signatureVerificationCache: memo.createSignatureVerificationCache() },
   });
@@ -139,7 +140,8 @@ test('signature verification cache evicts old successes and never turns a read r
   const { sha256 } = await import('@noble/hashes/sha2.js'); const utils = await import('@noble/hashes/utils.js');
   const operations = await import('../src/features/sharing/operations.ts'); let checks = 0;
   const crypto = loadNativeModule('src/features/sharing/crypto.ts', {
-    '@noble/curves/ed25519.js': { ed25519: { ...ed25519, verify: (...args) => { checks++; return ed25519.verify(...args); } }, x25519 },
+    '@noble/curves/ed25519.js': { ed25519, x25519 },
+    './ed25519-verifier.ts': { verifySharedEd25519: (...args) => { checks++; return ed25519.verify(...args, { zip215: false }); } },
     '@noble/hashes/hkdf.js': { hkdf }, '@noble/hashes/sha2.js': { sha256 }, '@noble/hashes/utils.js': utils, './operations.ts': operations, './content-digest.ts': await import('../src/features/sharing/content-digest.ts'),
     './signature-verification-cache.ts': { signatureVerificationCache: createSignatureVerificationCache() },
   });

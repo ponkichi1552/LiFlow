@@ -421,8 +421,101 @@ test('an edit committed while the calendar HTTP read waits survives and is expor
 });
 test('account changes while HTTP is pending cannot import data into the replacement connection', async t => {
   const h = await harness(t); await h.connect(); h.put(h.remote()); let release; h.block(new Promise(resolve => { release = resolve; }));
+  const { subscribeLocalCalendar } = await import('../src/platform/storage/calendar-events.ts'); const notifications = [];
+  t.after(subscribeLocalCalendar(h.database, change => notifications.push(change)));
   const pending = h.sync.sync(); await new Promise(resolve => setTimeout(resolve, 5)); h.subject('google-two'); release();
   assert.equal((await pending).kind, 'error'); assert.equal((await readLocalCalendar(h.database)).events.length, 0);
+  assert.deepEqual(notifications.filter(change => change === 'sync'), [], 'an uncommitted page from the old account cannot publish into the replacement scope');
+});
+test('an import batch rollback does not publish its partially applied event', async t => {
+  const h = await harness(t); await h.connect();
+  const { subscribeLocalCalendar } = await import('../src/platform/storage/calendar-events.ts'); const notifications = [];
+  t.after(subscribeLocalCalendar(h.database, change => notifications.push(change)));
+  const insert = h.connection.prepare('INSERT INTO calendar_google_inbox(subject,calendar_id,google_id,event_json,dirty) VALUES(?,?,?,?,1)');
+  insert.run('google-one', 'owned', 'a-good', JSON.stringify(h.remote('a-good')));
+  insert.run('google-one', 'owned', 'b-fail', JSON.stringify(h.remote('b-fail')));
+  const original = h.database.runAsync; let eventInserts = 0;
+  h.database.runAsync = async (sql, ...args) => {
+    if (sql.startsWith('INSERT INTO calendar_events(id,definition_json,revision,deleted)') && ++eventInserts === 2) throw new Error('synthetic import rollback');
+    return original(sql, ...args);
+  };
+  try { assert.equal((await h.sync.sync()).kind, 'error'); }
+  finally { h.database.runAsync = original; }
+  assert.equal((await readLocalCalendar(h.database)).events.length, 0);
+  assert.equal(h.connection.prepare('SELECT count(*) n FROM calendar_google_links').get().n, 0);
+  assert.deepEqual(notifications.filter(change => change === 'sync'), [], 'the transaction did not commit, so observers stay quiet');
+});
+test('the first imported page is observable while later pages wait and remaining page notifications coalesce', async t => {
+  const h = await harness(t); await h.connect();
+  let releaseSecond; let announceSecond;
+  const secondPageGate = new Promise(resolve => { releaseSecond = resolve; });
+  const secondPageEntered = new Promise(resolve => { announceSecond = resolve; });
+  let page = 0;
+  h.api.events = async (_calendarId, cursor) => {
+    if (cursor.syncToken) return { items: [], nextSyncToken: cursor.syncToken };
+    page++;
+    if (page === 1) return { items: [h.remote('page-one')], nextPageToken: 'page-2' };
+    if (page === 2) { announceSecond(); await secondPageGate; return { items: [h.remote('page-two')], nextPageToken: 'page-3' }; }
+    return { items: [h.remote('page-three')], nextSyncToken: 'sync-three' };
+  };
+  const { subscribeLocalCalendar } = await import('../src/platform/storage/calendar-events.ts'); const notifications = [];
+  t.after(subscribeLocalCalendar(h.database, change => { if (change === 'sync') notifications.push(change); }));
+  const pending = h.sync.sync({ force: true }); await secondPageEntered;
+  assert.deepEqual(notifications, ['sync'], 'the first matching-account page committed and became observable before the second request resolved');
+  assert.deepEqual((await readLocalCalendar(h.database)).events.map(event => event.id), [h.links().find(link => link.google_id === 'page-one').event_id]);
+  releaseSecond(); assert.equal((await pending).kind, 'success');
+  assert.equal((await readLocalCalendar(h.database)).events.length, 3);
+  assert.deepEqual(notifications, ['sync', 'sync'], 'later committed pages share one final observer refresh');
+  await h.sync.sync();
+  assert.deepEqual(notifications, ['sync', 'sync'], 'an unchanged pass emits no extra notification');
+});
+test('a standalone read-only Google fallback is visible while the next page is still pending', async t => {
+  const h = await harness(t); await h.connect();
+  const longTitle = '長'.repeat(200);
+  const first = h.remote('long-title', { summary: longTitle });
+  const nextPage = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const pages = [];
+  h.api.events = async (_calendarId, cursor) => {
+    pages.push(cursor.pageToken);
+    if (!cursor.pageToken) return { items: [first], nextPageToken: 'second' };
+    nextPage.resolve(); await release.promise;
+    return { items: [], nextSyncToken: 'done' };
+  };
+  const { subscribeLocalCalendar } = await import('../src/platform/storage/calendar-events.ts');
+  const notifications = [];
+  t.after(subscribeLocalCalendar(h.database, change => { if (change === 'sync') notifications.push(change); }));
+  const syncing = h.sync.sync();
+  try {
+    await nextPage.promise;
+    assert.deepEqual(notifications, ['sync']);
+    const [event] = (await readLocalCalendar(h.database)).events;
+    assert.equal(event.title, longTitle.slice(0, 160)); assert.equal(event.readOnly, true);
+    assert.equal(JSON.parse(h.links()[0].remote_json).summary, longTitle);
+  } finally { release.resolve(); await syncing; }
+  assert.deepEqual(pages, [undefined, 'second']);
+  assert.deepEqual(notifications, ['sync']);
+  assert.deepEqual(await syncing, { kind: 'success', received: 1, sent: 0 });
+});
+
+test('an unsupported recurring replacement stays unpublished until its instance projection commits', async t => {
+  const h = await harness(t); await h.connect();
+  h.put(h.remote('series', { recurrence: ['RRULE:FREQ=DAILY'] })); await h.sync.sync();
+  assert.equal((await readLocalCalendar(h.database)).events.length, 1);
+  const { subscribeLocalCalendar } = await import('../src/platform/storage/calendar-events.ts'); const notifications = [];
+  t.after(subscribeLocalCalendar(h.database, change => { if (change === 'sync') notifications.push(change); }));
+  h.put({ ...h.events.get('series'), recurrence: ['RRULE:FREQ=DAILY;COUNT=999'] });
+  let releaseInstances; let announceInstances;
+  const instancesGate = new Promise(resolve => { releaseInstances = resolve; });
+  const instancesEntered = new Promise(resolve => { announceInstances = resolve; });
+  h.api.instances = async () => {
+    announceInstances(); await instancesGate;
+    return { items: [h.remote('series-instance', { recurringEventId: 'series', originalStartTime: { date: '2026-11-04' }, start: { date: '2026-11-04' }, end: { date: '2026-11-05' } })] };
+  };
+  const pending = h.sync.sync(); await instancesEntered;
+  assert.deepEqual(notifications, [], 'the deleted old master is a temporary replacement state, not a publishable calendar');
+  releaseInstances(); assert.equal((await pending).kind, 'success');
+  assert.deepEqual(notifications, ['sync']); assert.equal((await readLocalCalendar(h.database)).events.length, 1);
 });
 test('a previous account import never becomes a new export after switching Google accounts', async t => {
   const h = await harness(t); await h.connect(); h.put(h.remote()); await h.sync.sync(); h.events.clear(); h.subject('google-two'); await h.connect();
@@ -470,6 +563,33 @@ test('Google recurring exceptions arriving before their master remain staged and
   assert.equal(local.events.length, 1); assert.equal(local.exceptions[0].anchorDate, '2026-11-05');
   const rounds = projectCalendarEvents(local.events, local.exceptions, '2026-11-04', '2026-11-08');
   assert.deepEqual(rounds.map(row => row.startDate), ['2026-11-04', '2026-11-06', '2026-11-08']);
+});
+
+test('an unsupported exception of a locally exported series waits for its master on the next Google page', async t => {
+  const h = await harness(t); await h.connect();
+  await h.local({ allDay: true, recurrence: 'daily' });
+  assert.equal((await h.sync.sync()).sent, 1);
+  const master = h.events.get(h.links()[0].google_id);
+  const exception = h.remote('long-exception', { etag: 'instance', summary: '長'.repeat(180),
+    recurringEventId: master.id, originalStartTime: { date: '2026-11-04' } });
+  const inbox = h.connection.prepare('SELECT dirty FROM calendar_google_inbox WHERE subject=? AND calendar_id=? AND google_id=?');
+  assert.equal(inbox.get('google-one', 'owned', master.id), undefined);
+  const pages = []; const expansions = [];
+  h.api.events = async (_calendarId, cursor) => {
+    pages.push(cursor.pageToken);
+    if (!cursor.pageToken) return { items: [exception], nextPageToken: 'master-page' };
+    assert.equal(inbox.get('google-one', 'owned', exception.id).dirty, 2);
+    return { items: [master], nextSyncToken: 'complete' };
+  };
+  h.api.instances = async (calendarId, parentId) => { expansions.push([calendarId, parentId]); return { items: [exception] }; };
+  h.calls.length = 0;
+  assert.equal((await h.sync.sync()).kind, 'success');
+  assert.deepEqual(pages, [undefined, 'master-page']);
+  assert.deepEqual(expansions, [['owned', master.id]]);
+  assert.deepEqual(h.calls.map(call => call[0]), ['calendars']);
+  assert.equal(inbox.get('google-one', 'owned', exception.id).dirty, 0);
+  const [visible] = (await readLocalCalendar(h.database)).events;
+  assert.equal(visible.title, exception.summary.slice(0, 160)); assert.equal(visible.readOnly, true);
 });
 for (const choice of ['local', 'google']) test(`an explicit ${choice} conflict decision applies only the reviewed revisions`, async t => {
   const h = await harness(t); await h.connect(); const event = await h.local(); await h.sync.sync(); const id = h.links()[0].google_id;
@@ -824,8 +944,51 @@ test('slow native import work leaves time for offline outbound edits and resumes
 test('one atomic inbound batch avoids a native identity bridge round trip per imported row', async t => {
   let identities = 0; const h = await harness(t, { currentSubject: async () => { identities++; return 'google-one'; } }); await h.connect();
   for (let i = 0; i < 100; i++) h.put(h.remote(`bridge-${i}`));
-  identities = 0; const result = await h.sync.sync(); assert.equal(result.kind, 'pending'); assert.equal(result.received, 25);
+  identities = 0; const result = await h.sync.sync(); assert.equal(result.kind, 'success'); assert.equal(result.received, 100);
   assert.ok(identities < 60, `native identity checks must be per HTTP/atomic batch, got ${identities}`);
+});
+
+test('a healthy thousand-event initial import drains ten Google pages in one foreground budget and yields between committed chunks', async t => {
+  let clock = Date.parse('2026-11-01T00:00:00Z');
+  const h = await harness(t, { now: () => clock });
+  await h.connect();
+  await h.local({ title: '送信待ちの予定' });
+  const pages = [];
+  h.api.events = async (_calendarId, cursor) => {
+    assert.equal(cursor.syncToken, undefined);
+    const offset = Number(cursor.pageToken ?? 0);
+    pages.push(offset); clock += 100;
+    const items = Array.from({ length: 100 }, (_, i) => h.remote(`bulk-${offset + i}`, { etag: `e-${offset + i}` }));
+    return offset < 900 ? { items, nextPageToken: String(offset + 100) } : { items, nextSyncToken: 'complete' };
+  };
+
+  const count = h.connection.prepare("SELECT count(*) n FROM calendar_events WHERE id GLOB 'google.*' AND deleted=0");
+  const committedChunks = [];
+  const transaction = h.database.withTransactionAsync;
+  h.database.withTransactionAsync = async work => {
+    const before = count.get().n;
+    await transaction(work);
+    const imported = count.get().n - before;
+    if (imported) { committedChunks.push(imported); clock += imported * 4; }
+  };
+  const { subscribeLocalCalendar } = await import('../src/platform/storage/calendar-events.ts');
+  const observed = []; let countAfterYield;
+  t.after(subscribeLocalCalendar(h.database, change => {
+    if (change !== 'sync') return;
+    observed.push(count.get().n);
+    if (observed.length === 1) setTimeout(() => { countAfterYield = count.get().n; }, 0);
+  }));
+
+  const result = await h.sync.sync({ budgetMs: 12_000 });
+  assert.deepEqual(result, { kind: 'success', received: 1000, sent: 1 });
+  assert.deepEqual(pages, Array.from({ length: 10 }, (_, n) => n * 100));
+  assert.deepEqual(h.calls.map(call => call[0]), ['calendars', 'insert']);
+  assert.equal(committedChunks.length, 40);
+  assert.ok(committedChunks.every(size => size === 25));
+  assert.deepEqual(observed, [25, 1000]);
+  assert.equal(countAfterYield, 25, 'foreground work can run before the second transaction starts');
+  assert.equal(h.connection.prepare('SELECT count(*) n FROM calendar_google_inbox WHERE dirty<>0').get().n, 0);
+  assert.equal(h.connection.prepare('SELECT sync_token FROM calendar_google_cursors').get().sync_token, 'complete');
 });
 test('changing the native account during an inbound batch rolls back every row before it becomes visible', async t => {
   let subject = 'google-one'; const h = await harness(t, { currentSubject: async () => subject }); await h.connect();

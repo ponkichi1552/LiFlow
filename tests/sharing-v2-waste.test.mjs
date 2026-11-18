@@ -5,6 +5,7 @@ import { fixture, seeds, now, groupId, receiptsFor, draft } from './helpers/shar
 import { signSharedOperation } from '../src/features/sharing/crypto.ts';
 import { createV2GroupController } from '../src/features/sharing/v2/controller.ts';
 import { v2WasteVisibilityId } from '../src/features/sharing/v2/waste-state.ts';
+import { projectV2WasteCalendar } from '../src/features/sharing/v2/calendar-waste-policy.ts';
 import { applyReceivedSharedFacts, listSharingOutbox, loadSharedFacts, readSharingCheckpoint } from '../src/platform/storage/sharing-ledger.ts';
 const range = { from: '2026-10-27', through: '2026-11-10', asOfDate: '2026-10-27' };
 const weekly = { label: '可燃ごみ', recurrence: 'weekly', collectionWeekdays: [2] };
@@ -112,6 +113,11 @@ test('v2 conflicting visibility is unresolved until the current occurrence is ex
     await b.actions.setWasteOccurrenceHidden((await read(b)).waste.occurrences[0].selection, false);
     await b.actions.setWasteOccurrenceHidden((await read(b)).waste.occurrences[0].selection, true);
     await receive(f.d, await loadSharedFacts(member.database, groupId)); const current = (await read(f.c)).waste.occurrences[0]; assert.equal(current.hidden, null);
+    const calendar = await f.c.readModel(range, { waste: true, wasteCalendarPolicy: true });
+    assert.equal(calendar.waste.calendarPolicy.complete, true, 'a visibility conflict is known evidence, not missing exception coverage');
+    assert.equal(calendar.waste.calendarPolicy.exceptions.find(entry => entry.key === current.key)?.hidden, null);
+    assert.equal(projectV2WasteCalendar(calendar.waste.calendarPolicy, calendar.waste.rows, calendar.waste.schedules,
+      current.occurrence.date, current.occurrence.date)[0]?.hidden, null);
     await assert.rejects(f.c.actions.setWasteOccurrenceHidden(current.selection, true), { code: 'sharing/v2-stale-settings' });
     await assert.rejects(f.c.actions.setWasteOccurrenceHidden(first.selection, true, true), { code: 'sharing/v2-stale-settings' });
     await f.c.actions.setWasteOccurrenceHidden(current.selection, true, true); assert.equal((await read(f.c)).waste.occurrences[0].hidden, true);

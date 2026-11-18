@@ -4,7 +4,8 @@ import type { SharingCryptoGateway } from './crypto';
 
 // Bump whenever the verifier's acceptance policy or implementation changes.
 // These are mathematical verification results, never membership/authorization.
-export const SIGNATURE_CACHE_POLICY = 'liflow-signature-memo:noble-curves-2.4.0:noble-hashes-2.4.0:ed25519:zip215-false:v1';
+const nobleOnlyPolicy = 'liflow-signature-memo:noble-curves-2.4.0:noble-hashes-2.4.0:ed25519:zip215-false:v1';
+export const SIGNATURE_CACHE_POLICY = 'liflow-signature-memo:libsodium-1.0.22-strict:noble-curves-2.4.0:noble-hashes-2.4.0:ed25519:zip215-false:v2';
 const maximumEntries = 1024;
 const maximumPlaintext = 400 * 1024;
 const encoder = new TextEncoder();
@@ -37,10 +38,11 @@ export function createSignatureVerificationCache() {
       const [raw, key] = await Promise.all([port.read(), port.key(false)]);
       if (!raw || raw.length > 1024 * 1024 || !key || key.length !== 32) return;
       const envelope = JSON.parse(raw);
-      if (Object.keys(envelope).sort().join(',') !== 'ciphertext,nonce,policy' || envelope.policy !== SIGNATURE_CACHE_POLICY
+      if (Object.keys(envelope).sort().join(',') !== 'ciphertext,nonce,policy'
+        || envelope.policy !== SIGNATURE_CACHE_POLICY && envelope.policy !== nobleOnlyPolicy
         || !hex(envelope.nonce, 12) || typeof envelope.ciphertext !== 'string' || envelope.ciphertext.length > (maximumPlaintext + 16) * 2
         || envelope.ciphertext.length < 32 || envelope.ciphertext.length % 2 || !/^[a-f0-9]+$/u.test(envelope.ciphertext)) return;
-      const plaintext = await port.crypto.decrypt(key, hexToBytes(envelope.nonce), hexToBytes(envelope.ciphertext), encoder.encode(SIGNATURE_CACHE_POLICY));
+      const plaintext = await port.crypto.decrypt(key, hexToBytes(envelope.nonce), hexToBytes(envelope.ciphertext), encoder.encode(envelope.policy));
       if (plaintext.length > maximumPlaintext) return;
       const rows: unknown = JSON.parse(decoder.decode(plaintext));
       if (!Array.isArray(rows) || rows.length > maximumEntries) return;
