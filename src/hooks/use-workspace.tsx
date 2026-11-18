@@ -14,6 +14,7 @@ import { traceStartup } from '@/platform/diagnostics/startup-timing';
 import { createInitialDisplayGate, waitForInitialFrame } from '@/features/planner/initial-display-gate';
 import { canShowPersonalStartup, readSavedStartupDisplay, startupDisplayCache } from '@/platform/sharing/startup-display';
 import { createDemandWorker } from '@/features/google-sync/demand-worker';
+import { privateCalendarWaitRetry } from '@/features/sharing/private-calendar/foreground-observer';
 import { isSharingInitialSyncPending } from '@/features/sharing/workspace-initial-sync';
 
 /** Personal data stays mounted; a membership adds shared data to the same four tabs. */
@@ -135,7 +136,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         return result.retryAt ? { retryAt: result.retryAt } : true;
       } });
       const privateRecovery = createDemandWorker({ active: live, run: async () => {
-        const result = await syncKnownPrivateCalendar(); return live() && result?.kind === 'waiting';
+        const result = await syncKnownPrivateCalendar();
+        return live() && result?.kind === 'waiting' && privateCalendarWaitRetry(result.retryAt);
       } });
       subscriptions.push(sharedRecovery.stop, privateRecovery.stop);
       try { subscriptions.push(startPrivateCalendarForeground(userId)); } catch { /* Private failure does not block the group. */ }

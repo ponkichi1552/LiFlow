@@ -30,12 +30,24 @@ test('unfinished synchronization retries with backoff while settled work stops a
 });
 
 test('synchronization honors an existing provider retry deadline instead of checking it every fixed interval', async t => {
-  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 }); let calls = 0;
-  const worker = createDemandWorker({ active: () => true, run: async () => { calls++; return calls === 1 ? { retryAt: Date.now() + 3_600_000 } : false; } });
-  try {
-    worker.request(); await flush(); t.mock.timers.tick(3_599_999); await flush(); assert.equal(calls, 1);
-    t.mock.timers.tick(1); await flush(); assert.equal(calls, 2);
-  } finally { worker.stop(); }
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const schedule = globalThis.setTimeout;
+  const maximumDelay = 2_147_483_647;
+  t.mock.method(globalThis, 'setTimeout', (callback, delay) => schedule(callback, delay > maximumDelay ? 1 : delay));
+  for (const duration of [3_600_000, 32 * 86_400_000]) {
+    let calls = 0;
+    const retryAt = Date.now() + duration;
+    const worker = createDemandWorker({ active: () => true, run: async () => ++calls === 1 ? { retryAt } : false });
+    try {
+      worker.request(); await flush();
+      if (duration > maximumDelay) {
+        t.mock.timers.tick(maximumDelay); await flush();
+        assert.equal(calls, 1, 'a far future deadline cannot overflow into an immediate sync');
+      }
+      t.mock.timers.tick(retryAt - Date.now() - 1); await flush(); assert.equal(calls, 1);
+      t.mock.timers.tick(1); await flush(); assert.equal(calls, 2);
+    } finally { worker.stop(); }
+  }
 });
 
 test('concurrent synchronization signals coalesce without losing a change that arrived during a pass', async () => {

@@ -55,7 +55,36 @@ test('private Calendar automatic synchronization retains saved envelope backoff 
   f.port.cloud.uploadCache = async (...args) => { const result = await upload(...args); if (lost) { lost = false; throw Object.assign(new Error('synthetic reply loss'), { code: 'unavailable' }); } return result; };
   await assert.rejects(() => f.runtime.synchronizeAutomatically(), /synthetic reply loss/u); const allocations = f.f.state.generations;
   const restarted = f.open(); const waiting = await restarted.synchronizeAutomatically(); assert.equal(waiting.kind, 'waiting'); assert.equal(f.state.googleReads, 1);
-  f.state.now = waiting.retryAt; assert.equal((await restarted.synchronizeAutomatically()).kind, 'published');
+  const bothListeners = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  let listeners = 0, devicePasses = 0, preferencePasses = 0;
+  const watch = () => {
+    if (++listeners === 2) bothListeners.resolve();
+    return () => { listeners--; };
+  };
+  const synchronizeDevices = f.devices.synchronizeDevices;
+  f.port.devices = { ...f.devices, synchronizeDevices: async options => {
+    devicePasses++;
+    await release.promise;
+    return synchronizeDevices(options);
+  } };
+  f.port.cloud.watch = watch;
+  f.port.plannerSync = { store: { subscribe: () => () => {} }, cloud: { watch },
+    synchronize: async () => { preferencePasses++; return { kind: 'unchanged' }; } };
+  f.state.now = waiting.retryAt;
+  const active = f.open();
+  const stop = active.observeRemote();
+  try {
+    const resume = active.synchronizeAutomatically();
+    await bothListeners.promise;
+    await new Promise(setImmediate);
+    assert.equal(devicePasses, 1, 'both foreground listeners join the active resume');
+    release.resolve();
+    assert.equal((await resume).kind, 'published');
+    await new Promise(setImmediate);
+    assert.equal(devicePasses, 1);
+    assert.equal(preferencePasses, 1);
+  } finally { release.resolve(); stop(); }
   assert.equal(f.state.googleReads, 1); assert.equal(f.f.state.generations, allocations); assert.equal(f.state.uploads, 2);
 });
 test('private Calendar automatic follower receives one complete snapshot and skips another download when the head is unchanged', async t => {

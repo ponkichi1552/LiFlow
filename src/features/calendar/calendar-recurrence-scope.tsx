@@ -10,15 +10,18 @@ export const CALENDAR_EDIT_SCOPES = [
 ] as const;
 export type CalendarEditScope = typeof CALENDAR_EDIT_SCOPES[number]['value'];
 /** All three choices remain visible on both platforms; closing never commits a move. */
-export function CalendarRecurrenceScopePicker({ value, onSelect, onClose }: { value?: CalendarEditScope; onSelect(scope: CalendarEditScope): void; onClose(): void }) {
+export function CalendarRecurrenceScopePicker({ value, futureDisabled = false, onSelect, onClose }: { value?: CalendarEditScope; futureDisabled?: boolean; onSelect(scope: CalendarEditScope): void; onClose(): void }) {
   const styles = usePlannerBorderStyles(baseStyles), insets = useSafeAreaInsets();
   return <Modal transparent animationType="slide" onRequestClose={onClose}><View style={styles.overlay}>
     <Pressable accessibilityRole="button" accessibilityLabel="変更範囲の選択を閉じる" style={StyleSheet.absoluteFill} onPress={onClose} />
     <View accessibilityViewIsModal style={[styles.panel, { paddingBottom: Math.max(12, insets.bottom) }]}>
       <Text accessibilityRole="header" style={styles.title}>変更する範囲</Text>
-      {CALENDAR_EDIT_SCOPES.map(row => <Pressable key={row.value} accessibilityRole="button" accessibilityLabel={row.label} accessibilityState={{ selected: value === row.value }} onPress={() => onSelect(row.value)} style={styles.option}>
-        <Text style={styles.label}>{row.label}</Text>{value === row.value ? <Text aria-hidden style={styles.check}>✓</Text> : null}
-      </Pressable>)}
+      {CALENDAR_EDIT_SCOPES.map(row => {
+        const disabled = row.value === 'future' && futureDisabled;
+        return <Pressable key={row.value} accessibilityRole="button" accessibilityLabel={row.label} accessibilityState={{ selected: value === row.value, disabled }} disabled={disabled} onPress={() => onSelect(row.value)} style={styles.option}>
+          <Text style={[styles.label, disabled && { color: palette.muted }]}>{row.label}</Text>{value === row.value ? <Text aria-hidden style={styles.check}>✓</Text> : null}
+        </Pressable>;
+      })}
       <Pressable accessibilityRole="button" accessibilityLabel="変更範囲の選択をキャンセル" onPress={onClose} style={styles.option}><Text style={[styles.label, { color: palette.accent }]}>キャンセル</Text></Pressable>
     </View>
   </View></Modal>;

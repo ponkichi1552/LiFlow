@@ -1,3 +1,5 @@
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
 /** Wake on a real signal; only unfinished work earns a bounded retry timer. */
 export function createDemandWorker(input: { run(): Promise<boolean | { retryAt: number }>; active(): boolean;
   retryDelayMs?: number; maximumRetryMs?: number }) {
@@ -5,6 +7,16 @@ export function createDemandWorker(input: { run(): Promise<boolean | { retryAt: 
   let retry: ReturnType<typeof setTimeout> | undefined;
   const live = () => !stopped && input.active();
   const cancelRetry = () => { clearTimeout(retry); retry = undefined; };
+  function waitUntil(retryAt: number) {
+    // A saved timestamp can be more than one timer away after the wall clock moves backwards.
+    const delay = Math.min(MAX_TIMEOUT_MS, Math.max(1_000, retryAt - Date.now()));
+    retry = setTimeout(() => {
+      retry = undefined;
+      if (!live()) return;
+      if (Date.now() < retryAt) waitUntil(retryAt);
+      else void execute();
+    }, delay);
+  }
   const execute = async () => {
     if (!live() || running) return;
     running = true; let unfinished: boolean | { retryAt: number } = true;
@@ -13,10 +25,9 @@ export function createDemandWorker(input: { run(): Promise<boolean | { retryAt: 
       running = false;
       if (live()) {
         if (changed) { changed = false; void execute(); }
+        else if (typeof unfinished === 'object' && Number.isFinite(unfinished.retryAt)) waitUntil(unfinished.retryAt);
         else if (unfinished) {
-          const delay = typeof unfinished === 'object' && Number.isFinite(unfinished.retryAt)
-            ? Math.max(1_000, unfinished.retryAt - Date.now())
-            : Math.min(input.maximumRetryMs ?? 300_000, (input.retryDelayMs ?? 30_000) * 2 ** Math.min(failures++, 8));
+          const delay = Math.min(input.maximumRetryMs ?? 300_000, (input.retryDelayMs ?? 30_000) * 2 ** Math.min(failures++, 8));
           retry = setTimeout(() => { retry = undefined; void execute(); }, delay);
         } else failures = 0;
       }

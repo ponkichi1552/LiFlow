@@ -5,6 +5,7 @@ import { createDatabase } from './helpers/sqlite.mjs';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { selectCalendarView } from './helpers/calendar-ui.mjs';
 import { newEventDraft, projectCalendarEvents } from '../src/domain/calendar/events.ts';
+import { calendarOccurrenceDraft } from '../src/features/calendar/direct-actions.ts';
 import { calendarFutureBase, splitCalendarFuture } from '../src/domain/calendar/future-series.ts';
 import { fixture, seeds, receiptsFor, groupId, now } from './helpers/sharing-v2-repository-fixture.mjs';
 import { createV2CalendarActions } from '../src/features/sharing/v2/calendar-actions.ts';
@@ -20,7 +21,7 @@ const value = extra => ({ ...newEventDraft('2026-11-01', 'Asia/Tokyo'), title: '
 const basis = record => JSON.stringify([record.heads.map(row => row.operationId).sort(), record.heads.map(row => row.operationId).sort()]);
 const allExceptionIds = record => record.exceptions.flatMap(row => row.heads.map(head => head.operationId)).sort();
 const project = snapshot => projectCalendarEvents(snapshot.events, snapshot.exceptions, '2026-11-01', '2026-12-20');
-const plain = rows => rows.map(row => ({ date: row.startDate, minute: row.startMinute, title: row.title })).sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
+const plain = rows => rows.map(row => ({ date: row.startDate, minute: row.startMinute, title: row.title, location: row.location })).sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
 
 test('future recurrence bases use original slots and preserve monthly yearly custom and overnight durations', () => {
   for (const [series, anchor] of [
@@ -87,7 +88,7 @@ async function sharedFixture() {
   }
   const original = (await records())[0];
   const command = { eventId, scope: 'future', anchorDate: '2026-11-15', basisRevision: basis(original), expectedExceptionIds: allExceptionIds(original),
-    value: value({ startDate: '2026-11-16', endDate: '2026-11-16', title: '新しい定例' }), category, intentId: 'calendar-intent.future-save-intent' };
+    value: value({ startDate: '2026-11-16', endDate: '2026-11-16', title: '新しい定例', location: '共有会議室 Ｂ棟２階 西口前desk' }), category, intentId: 'calendar-intent.future-save-intent' };
   return { f, device, actions, records, original, command };
 }
 test('shared future changes use existing signed payloads preserve all explicit edits and converge on another device with idempotent save and undo', async t => {
@@ -96,7 +97,9 @@ test('shared future changes use existing signed payloads preserve all explicit e
   const operations = await f.actions.saveCalendarEvent(f.command); assert.ok(operations.length >= 2); assert.ok(operations.every(row => ['one', 'series'].includes(row.payload.scope)));
   const after = plain(project(projectSharedCalendarRecords(await f.records(), groupId)));
   assert.ok(after.some(row => row.date === '2026-11-09' && row.title === '過去の個別変更')); assert.ok(after.some(row => row.date === '2026-11-25' && row.title === '今後の個別変更'));
-  assert.ok(!after.some(row => row.date === '2026-11-23' || row.date === '2026-11-30')); assert.ok(after.some(row => row.date === '2026-11-16' && row.title === '新しい定例'));
+  assert.ok(!after.some(row => row.date === '2026-11-23' || row.date === '2026-11-30'));
+  assert.ok(after.some(row => row.date === '2026-11-16' && row.title === '新しい定例' && row.location === f.command.value.location));
+  assert.ok(after.filter(row => row.title !== '新しい定例').every(row => row.location === ''));
   const retry = await f.actions.saveCalendarEvent(f.command); assert.equal(retry.calendarEventId, operations[0].payload.eventId); assert.deepEqual(plain(project(projectSharedCalendarRecords(await f.records(), groupId))), after);
   const second = await f.f.device('member', f.f.member); t.after(() => second.connection.close());
   const facts = await loadSharedFacts(f.device.database, groupId), checkpoint = await readSharingCheckpoint(second.database, groupId);
@@ -185,5 +188,52 @@ for (const [platform, ...testNames] of [
     for (const label of ['この予定だけ', '今後の予定すべて', '繰り返し全体']) ui.button(label); assert.deepEqual(writes, []);
     await ui.press('今後の予定すべて'); assert.equal(writes[0].scope, 'future'); assert.equal(writes[0].anchorDate, '2026-11-15'); assert.equal(writes[0].value.startMinute, 600);
     await ui.press('移動を元に戻す'); assert.equal(undo, 1);
+  });
+}
+
+for (const platform of ['ios', 'android']) {
+  test(`${platform} deleting a retained personal occurrence leaves its single parent and other individual changes in SQLite`, async t => {
+    const f = await localFixture(); t.after(() => f.h.connection.close());
+    await storage.saveCalendarEvent(f.h.database, { id: f.id, expectedRevision: f.series.revision, value: { ...f.series, recurrence: 'none', untilDate: null } });
+    const before = await storage.readLocalCalendar(f.h.database), selected = project(before).find(row => row.title === '今後の個別変更');
+    let confirm, closed = 0;
+    const editor = screenHarness('src/features/calendar/calendar-editor.tsx', { exportName: 'CalendarEditor', platform,
+      alert: (_title, _message, options) => { confirm = options.find(row => row.style === 'destructive'); },
+      props: { initial: calendarOccurrenceDraft(selected, false), local: { database: f.h.database, snapshot: before, refresh: async () => {} },
+        onClose() { closed++; }, onSaved() {} },
+    }); t.after(() => editor.unmount());
+    await editor.press('この回を削除'); confirm.onPress();
+    for (let i = 0; i < 20 && !closed; i++) await editor.flush();
+    assert.equal(closed, 1); const after = await storage.readLocalCalendar(f.h.database);
+    assert.deepEqual(after.events, before.events);
+    const others = snapshot => snapshot.exceptions.filter(row => row.anchorDate !== selected.anchorDate);
+    assert.deepEqual(others(after), others(before));
+    assert.equal(after.exceptions.find(row => row.anchorDate === selected.anchorDate).override, null);
+  });
+
+  test(`${platform} editing and dragging a detached occurrence offer only valid scopes and leave its parent untouched`, async t => {
+    const series = { ...value(), id: 'detached-series', revision: 3 }, day = '2026-11-17', writes = [];
+    const override = value({ title: '個別に残した回', location: '別室', startDate: day, endDate: day, recurrence: 'none', untilDate: null });
+    const exception = { eventId: series.id, anchorDate: '2026-11-16', revision: 2, detached: true, override };
+    const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, layoutEffect: callback => callback(), props: {
+      today: day, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
+      local: { database: {}, snapshot: { events: [series], exceptions: [exception], categories: [category], drafts: [] }, refresh: async () => {}, saveEvent: async draft => writes.push(draft) },
+    } }); t.after(() => screen.unmount());
+    const checkScopes = () => {
+      const future = screen.button('今後の予定すべて');
+      assert.equal(future.props.disabled, true); assert.equal(future.props.accessibilityState.disabled, true);
+      assert.ok(!screen.button('この予定だけ').props.disabled); assert.ok(!screen.button('繰り返し全体').props.disabled);
+    };
+    await selectCalendarView(screen, '1日表示'); await screen.press('個別に残した回を編集');
+    await screen.press('変更する範囲を選択'); checkScopes(); await screen.press('繰り返し全体');
+    await screen.press('変更する範囲を選択'); await screen.press('この予定だけ');
+    const location = screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '予定の場所');
+    assert.equal(location.props.value ?? location.props.defaultValue, override.location);
+    await screen.press('予定の編集を閉じる');
+    if (screen.nodes().some(node => node.props.accessibilityLabel === '閉じるときの入力の扱い')) await screen.press('入力を破棄');
+    screen.button('個別に残した回を編集').props.onLongPress(); await screen.flush();
+    const card = screen.nodes().find(node => node.props.testID?.startsWith('calendar-movable-'));
+    card.props.onPanResponderGrant(); card.props.onPanResponderRelease(null, { dx: 0, dy: 44 }); await screen.flush();
+    checkScopes(); await screen.press('キャンセル'); assert.deepEqual(writes, []);
   });
 }

@@ -30,7 +30,8 @@ for (const [platform, name] of [
 ]) test(name, async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const effects = [], ticks = []; let stateListener, remote, remoteFailure; let shared = 0, privateSyncs = 0, received = 0;
-  let time = 10_000_000, coordinatorKind = 'success', incomplete = false, waitingForSignal = false;
+  let time = 10_000_000, coordinatorKind = 'success', incomplete = false, waitingForSignal = false, privateRetryAt = null;
+  let privateResult = 'unchanged';
   t.mock.method(Date, 'now', () => time);
   t.mock.method(globalThis, 'setInterval', callback => { ticks.push(callback); return ticks.length; });
   t.mock.method(globalThis, 'clearInterval', () => {});
@@ -49,7 +50,10 @@ for (const [platform, name] of [
     '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => undefined, canShowPersonalStartup: async () => false, startupDisplayCache: { read: async () => undefined } },
     '@/platform/sharing/auth': { observeSharingUser: () => () => {} }, 'react-native': { AppState: appState },
     '@/platform/sharing/account-device-runtime': { startAccountDeviceForeground: () => () => {}, subscribeAccountDeviceRestoreStatus: () => () => {}, accountDeviceRestoreStatus: () => null },
-    '@/platform/sharing/private-calendar-sync': { startPrivateCalendarForeground: () => () => {}, syncKnownPrivateCalendar: async () => { privateSyncs++; } },
+    '@/platform/sharing/private-calendar-sync': { startPrivateCalendarForeground: () => () => {}, syncKnownPrivateCalendar: async () => {
+      privateSyncs++;
+      return privateRetryAt && time < privateRetryAt ? { kind: 'waiting', retryAt: privateRetryAt } : { kind: privateResult };
+    } },
     '@/platform/sharing/workspaces': { saveSharingSelection: async () => {}, readSharingSelection: async () => null, hasSharingSessionEnabled: async () => true,
       sharingSessionUser: async () => ({ uid: 'owner' }), currentSharingWorkspace: async () => record, openSharedWorkspace: async () => workspace,
       subscribeSharingChanges: () => () => {}, syncSharingWorkspace: async () => { shared++; if (coordinatorKind === 'success') record.lastSuccessfulSyncAt = time; return { kind: coordinatorKind, ...(waitingForSignal ? { waitingForSignal: true } : {}) }; } },
@@ -83,6 +87,32 @@ for (const [platform, name] of [
     const approvalWait = [shared, privateSyncs]; t.mock.timers.tick(3_600_000); await screen.flush();
     assert.deepEqual([shared, privateSyncs], approvalWait, 'human approval waits for the actual remote signal');
     const beforeApproval = received; remote(); await screen.flush(); assert.equal(received, beforeApproval + 1);
+    privateRetryAt = time + 3_600_000;
+    appState.currentState = 'background'; stateListener('background'); appState.currentState = 'active'; stateListener('active'); await screen.flush();
+    const onResume = privateSyncs;
+    time += 3_599_999; t.mock.timers.tick(3_599_999); await screen.flush();
+    assert.equal(privateSyncs, onResume, 'resuming must honor the persisted private retry time');
+    time++; t.mock.timers.tick(1); await screen.flush();
+    assert.equal(privateSyncs, onResume + 1);
+    const resume = async () => {
+      appState.currentState = 'background'; stateListener('background');
+      appState.currentState = 'active'; stateListener('active');
+      await screen.flush();
+    };
+    for (privateResult of ['inProgress', 'pending', 'changed', 'error']) {
+      await resume();
+      const before = privateSyncs;
+      t.mock.timers.tick(3_600_000); await screen.flush();
+      assert.equal(privateSyncs, before, privateResult);
+    }
+    privateResult = 'waiting';
+    await resume();
+    const waitingWithoutDeadline = privateSyncs;
+    privateResult = 'unchanged';
+    t.mock.timers.tick(29_999); await screen.flush();
+    assert.equal(privateSyncs, waitingWithoutDeadline);
+    t.mock.timers.tick(1); await screen.flush();
+    assert.equal(privateSyncs, waitingWithoutDeadline + 1);
   } finally { disposeForeground?.(); disposeBoot?.(); screen.unmount(); }
 });
 

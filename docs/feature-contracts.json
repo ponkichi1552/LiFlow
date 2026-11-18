@@ -362,6 +362,22 @@
         "name": "android dragging a repeating appointment asks all three scopes and future drag keeps its undo receipt"
       },
       {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "${platform} editing and dragging a detached occurrence offer only valid scopes and leave its parent untouched"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "${platform} deleting a retained personal occurrence leaves its single parent and other individual changes in SQLite"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} a resumed shared occurrence draft keeps its edits and saves the latest exact location once on the future branch"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} editing moving and deleting a detached shared occurrence of a single event changes only that occurrence"
+      },
+      {
         "file": "tests/sharing-v2-history-retention.test.mjs",
         "name": "draft 56 signed retention histories remain accepted after the future calendar command update"
       }
@@ -6899,6 +6915,14 @@
       },
       {
         "file": "tests/sharing-private-calendar-observer.test.mjs",
+        "name": "a queued private Calendar change supersedes an unfinished retry even while its follow-up is still running"
+      },
+      {
+        "file": "tests/sharing-private-calendar-observer.test.mjs",
+        "name": "private Calendar foreground waits for the saved retry time while a new change can wake it earlier"
+      },
+      {
+        "file": "tests/sharing-private-calendar-observer.test.mjs",
         "name": "private Calendar foreground observer detaches failed listeners and retries from periodic local activity only after the cooldown"
       },
       {
@@ -11357,6 +11381,14 @@
       {
         "file": "tests/google-tasks-api.test.mjs",
         "name": "partial task reads preserve recovery markers, concurrent-change identity, hidden completions and deletions across pages"
+      },
+      {
+        "file": "tests/google-tasks-api.test.mjs",
+        "name": "Google Tasks inserts are sent in multipart batches of at most 100 and matched by Content-ID"
+      },
+      {
+        "file": "tests/google-tasks-api.test.mjs",
+        "name": "Google Tasks update batches encode stable IDs and retain Retry-After on per-item errors"
       },
       {
         "file": "tests/google-tasks-api.test.mjs",

@@ -15,7 +15,7 @@ import { addDays, formatJapaneseDate, parseLocalDate } from '../../domain/schedu
 import type { LocalDate } from '../../domain/shared/types';
 import type { WeeklyWasteSchedule } from '../waste/contracts';
 import { wasteCalendarLabels } from '../waste/calendar-labels';
-import { calendarEventsInTimeZone, calendarMonth, dateInMonth, indexCalendarOccurrences, minuteLabel, newEventDraft } from './events';
+import { calendarEventsInTimeZone, calendarMonth, dateInMonth, indexCalendarOccurrences, isCalendarAnchor, minuteLabel, newEventDraft } from './events';
 import { projectPrivateCalendarEvents } from './private-event-projection';
 import type { CalendarEvent, CalendarOccurrence } from './events';
 import { CalendarEditor } from './calendar-editor';
@@ -135,11 +135,12 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   const moveLock = useRef(false); const [moveError, setMoveError] = useState<string | null>(null);
   const [pendingMove, setPendingMove] = useState<{ capture: CalendarMoveCapture; row: CalendarOccurrence; settled: boolean } | null>(null);
   const [undoMove, setUndoMove] = useState<{ capture: CalendarMoveCapture; saved: CalendarEditorDraft; undoFuture?: () => Promise<void> } | null>(null);
-  const [moveScopeOpen, setMoveScopeOpen] = useState(false);
+  const [moveScopeEvent, setMoveScopeEvent] = useState<CalendarMoveCapture | null>(null);
+  const moveScopeOpen = moveScopeEvent !== null;
   const moveScopeAnswer = useRef<((scope: CalendarEditScope | null) => void) | null>(null);
-  const answerMoveScope = (scope: CalendarEditScope | null) => { const answer = moveScopeAnswer.current; moveScopeAnswer.current = null; setMoveScopeOpen(false); answer?.(scope); };
-  useFocusEffect(useCallback(() => () => { setSearchOpen(false); setDraftsOpen(false); moveScopeAnswer.current?.(null); moveScopeAnswer.current = null; setMoveScopeOpen(false); }, [setSearchOpen, setDraftsOpen]));
-  useEffect(() => () => { moveScopeAnswer.current?.(null); moveScopeAnswer.current = null; setMoveScopeOpen(false); }, [local?.database, local?.shared?.groupId, timeZone]);
+  const answerMoveScope = (scope: CalendarEditScope | null) => { const answer = moveScopeAnswer.current; moveScopeAnswer.current = null; setMoveScopeEvent(null); answer?.(scope); };
+  useFocusEffect(useCallback(() => () => { setSearchOpen(false); setDraftsOpen(false); moveScopeAnswer.current?.(null); moveScopeAnswer.current = null; setMoveScopeEvent(null); }, [setSearchOpen, setDraftsOpen]));
+  useEffect(() => () => { moveScopeAnswer.current?.(null); moveScopeAnswer.current = null; setMoveScopeEvent(null); }, [local?.database, local?.shared?.groupId, timeZone]);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(undoTimer.current), []);
   const [editor, setRawEditor] = useState<CalendarEditorDraft | null>(null);
@@ -326,8 +327,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
       : draft.eventId === null && !draft.value.birthday && draft.audience !== 'group');
     if (savedDraft) { setEditor(savedDraft); return; }
     if (event?.birthday) { setEditor({ eventId: event.eventId, anchorDate: event.anchorDate, revision: event.eventRevision, exceptionRevision: event.exceptionRevision, scope: 'series', value: source.events.find(row => row.id === event.eventId)! }); return; }
-    setEditor(event ? { eventId: event.eventId, anchorDate: event.anchorDate, revision: event.eventRevision, exceptionRevision: event.exceptionRevision,
-      scope: source.events.find(row => row.id === event.eventId)?.recurrence === 'none' ? 'series' : 'one', value: { ...calendarEventValue(event), recurrence: 'none', untilDate: null } }
+    setEditor(event ? calendarOccurrenceDraft(event, source.events.find(row => row.id === event.eventId)?.recurrence !== 'none')
       : { eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series', value: newEventDraft(date.slice(0, 7) === month.slice(0, 7) ? date : dateInMonth(month, preferred.current), timeZone) });
   };
   const openSlot = (day: LocalDate, minute: number) => {
@@ -353,7 +353,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     moveLock.current = true; setMoveError(null);
     let committed = false;
     try {
-      const scope = capture.series.recurrence === 'none' ? 'series' : await new Promise<CalendarEditScope | null>(resolve => { moveScopeAnswer.current = resolve; setMoveScopeOpen(true); });
+      const scope = capture.series.recurrence === 'none' ? capture.draft.scope : await new Promise<CalendarEditScope | null>(resolve => { moveScopeAnswer.current = resolve; setMoveScopeEvent(capture); });
       if (!scope) return;
       const currentLocal = currentContext.current.local;
       if (!currentLocal?.database || capture.database !== currentLocal.database || capture.groupId !== currentLocal.shared?.groupId || capture.timeZone !== currentContext.current.timeZone) throw new Error('表示先が変わりました。予定を選び直してください。');
@@ -701,7 +701,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     </View>
     </GestureDetector></GestureHandlerRootView>
     </View>
-    {moveScopeOpen ? <CalendarRecurrenceScopePicker onSelect={answerMoveScope} onClose={() => answerMoveScope(null)} /> : null}
+    {moveScopeEvent ? <CalendarRecurrenceScopePicker futureDisabled={!isCalendarAnchor(moveScopeEvent.series, moveScopeEvent.event.anchorDate)} onSelect={answerMoveScope} onClose={() => answerMoveScope(null)} /> : null}
     {calendarHelp.open ? <CalendarHelp onClose={calendarHelp.close} onShow={calendarHelp.onShow} view={view} measureTargets={measureHelpTargets} /> : null}
     {searchOpen && local ? <CalendarSearch local={local} focusDate={today} chores={props.searchChores} choresIncomplete={props.searchChoresIncomplete} onClose={() => setSearchOpen(false)} resolveSelection={draft => {
       const destination = calendarSearchDestination(draft, source.events, source.exceptions, today, timeZone);

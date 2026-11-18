@@ -1,4 +1,11 @@
+import { createDemandWorker } from '../../google-sync/demand-worker.ts';
 import { PRIVATE_CALENDAR_REFRESH_MS } from './sync-deadline.ts';
+
+interface ForegroundSyncResult { kind: string; retryAt?: number | null }
+
+export function privateCalendarWaitRetry(retryAt?: number | null): true | { retryAt: number } {
+  return typeof retryAt === 'number' && Number.isFinite(retryAt) ? { retryAt } : true;
+}
 
 /** No idle polling. Timers exist only to finish failed work or reconnect a terminated listener. */
 export function observePrivateCalendarForeground(port: {
@@ -6,36 +13,25 @@ export function observePrivateCalendarForeground(port: {
   subscribeLocal(listener: () => void): () => void;
   subscribeConfiguration?(listener: () => void): () => void;
   watchRemote(changed: () => void, failed: () => void): () => void;
-  synchronize(): Promise<unknown>; onReady?(): void | Promise<void>; now?: () => number;
+  synchronize(): Promise<ForegroundSyncResult | void>; onReady?(): void | Promise<void>; now?: () => number;
 }): () => void {
   const now = port.now ?? Date.now;
   let stopped = false; let remote: (() => void) | null = null; let failedAt: number | null = null;
-  let checking: Promise<void> | null = null; let syncing: Promise<void> | null = null; let dirty = false; let recheck = false;
-  let listenerRetry: ReturnType<typeof setTimeout> | undefined; let syncRetry: ReturnType<typeof setTimeout> | undefined;
-  let listenerFailures = 0; let syncFailures = 0;
+  let checking: Promise<void> | null = null; let recheck = false;
+  let listenerRetry: ReturnType<typeof setTimeout> | undefined;
+  let listenerFailures = 0;
+  const sync = createDemandWorker({ active: () => !stopped, run: async () => {
+    await port.assertOwner();
+    if (stopped) return false;
+    const result = await port.synchronize();
+    if (result?.kind === 'waiting') return privateCalendarWaitRetry(result.retryAt);
+    return result?.kind === 'pending' || result?.kind === 'changed' || result?.kind === 'error';
+  } });
+  const synchronize = sync.request;
   const delay = (attempts: number) => Math.min(300_000, 30_000 * 2 ** Math.min(attempts, 4));
   function retryListener() {
     clearTimeout(listenerRetry); if (stopped) return;
     listenerRetry = setTimeout(() => { listenerRetry = undefined; failedAt = null; reconcile(); }, delay(listenerFailures++));
-  }
-  function retrySync() {
-    clearTimeout(syncRetry); if (!stopped) syncRetry = setTimeout(() => { syncRetry = undefined; synchronize(); }, delay(syncFailures++));
-  }
-  function synchronize() {
-    clearTimeout(syncRetry); syncRetry = undefined;
-    if (stopped) return; dirty = true; if (syncing) return;
-    const pending = (async () => {
-      while (dirty && !stopped) {
-        dirty = false;
-        try {
-          await port.assertOwner(); if (stopped) return;
-          const result = await port.synchronize();
-          if (result && typeof result === 'object' && 'kind' in result && ['pending', 'waiting', 'changed', 'error'].includes(String(result.kind))) retrySync();
-          else syncFailures = 0;
-        } catch { retrySync(); }
-      }
-    })(); syncing = pending;
-    void pending.finally(() => { if (syncing === pending) { syncing = null; if (dirty && !stopped) synchronize(); } }).catch(() => {});
   }
   function reconcile() {
     const stamp = now();
@@ -59,5 +55,5 @@ export function observePrivateCalendarForeground(port: {
   }
   const local = port.subscribeLocal(reconcile); reconcile();
   const configuration = port.subscribeConfiguration?.(() => { if (remote) synchronize(); else reconcile(); });
-  return () => { stopped = true; dirty = false; clearTimeout(listenerRetry); clearTimeout(syncRetry); local(); configuration?.(); remote?.(); remote = null; };
+  return () => { stopped = true; sync.stop(); clearTimeout(listenerRetry); local(); configuration?.(); remote?.(); remote = null; };
 }

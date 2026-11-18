@@ -258,7 +258,8 @@ async function requestBatch(
   budget?: GoogleOperationBudget,
 ): Promise<GoogleTasksBatchItemResult[]> {
   return withRequestTimeout(BATCH_REQUEST_TIMEOUT_MS, async signal => {
-    const response = await fetcher(BATCH_ROOT, {
+    // The batch request's common query applies to each task in the multipart body.
+    const response = await fetcher(`${BATCH_ROOT}${TASK_RESPONSE_QUERY}`, {
       method: 'POST',
       signal,
       headers: {

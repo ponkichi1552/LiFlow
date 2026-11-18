@@ -14,7 +14,7 @@ import { SettingsCheckbox } from '../../components/settings-checkbox';
 import { SettingsAction, SettingsSegments } from '../../components/settings-controls';
 import { Chevron } from '../../components/chevron';
 import { addDays } from '../../domain/scheduling/local-date';
-import { CATEGORY_PRESETS, RECURRENCE_LABELS, recurrenceLabel, newEventDraft } from './events';
+import { CATEGORY_PRESETS, RECURRENCE_LABELS, isCalendarAnchor, recurrenceLabel, newEventDraft } from './events';
 import { calendarDisplayColor as categoryColor } from './event-appearance';
 import type { CalendarRecurrence, EventDraft } from './events';
 import { createCalendarGesture } from './gesture-control';
@@ -22,7 +22,6 @@ import { CalendarField } from './calendar-field';
 import type { LocalCalendarBinding } from './use-local-calendar';
 import type { CalendarEditorDraft } from '../../platform/storage/calendar-events';
 import { calendarDraftKey, clearCalendarEditorDraft, saveCalendarFutureEvent, deleteCalendarEvent, discardCalendarDraftIfUnchanged, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent } from '../../platform/storage/calendar-events';
-import { calendarFutureBase } from '../../domain/calendar/future-series';
 import { CALENDAR_EDIT_SCOPES, CalendarRecurrenceScopePicker, type CalendarEditScope } from './calendar-recurrence-scope';
 import { CalendarOptionPicker } from './calendar-option-picker';
 import { moveCalendarStart } from './event-editing';
@@ -32,7 +31,7 @@ import { plannerColorsForScheme } from '../../components/planner-theme';
 import { CalendarSheetContent, CalendarSheetHeader, type CalendarSheetForm } from './calendar-sheet-header';
 import type { CalendarChoreInput } from './chore-registration-input';
 import { createEditorDraftSession } from './editor-draft-session';
-import { duplicateCalendarDraft } from './direct-actions';
+import { changeCalendarDraftScope, duplicateCalendarDraft } from './direct-actions';
 import { createTitleDateTimeInput } from './title-datetime';
 import { pinnedClockAt } from '../../domain/scheduling/zoned-clock';
 
@@ -52,6 +51,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const labelWidths = useMemo(() => ({ date: { width: Math.ceil(36 * Math.max(1, fontScale)) }, option: { width: Math.ceil(76 * Math.max(1, fontScale)) } }), [fontScale]);
   const reminderSettings = useCalendarReminders(local.database); const reminderWorkspace = useContext(WorkspaceContext);
   const [draft, setDraft] = useState(initial); const latest = useRef(draft);
+  const editedScopeFields = useRef(new Set<keyof EventDraft>());
   const [titleDateTime] = useState(() => createTitleDateTimeInput(initial.value, pinnedClockAt(new Date(), initial.value.timeZone).date));
   const draftSession = useRef(createEditorDraftSession((local.snapshot.drafts ?? (local.snapshot.draft ? [local.snapshot.draft] : [])).some(row => calendarDraftKey(row) === calendarDraftKey(initial)) ? initial : undefined));
   useLayoutEffect(() => { latest.current = draft; }, [draft]);
@@ -133,12 +133,13 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const saveReviewed = () => {
     save();
   };
-  const remove = () => Alert.alert(draft.scope === 'one' && repeated ? 'この回を削除' : '予定を削除', 'この予定を削除しますか？', [
+  const deleteLabel = draft.scope === 'one' ? 'この回を削除' : '予定を削除';
+  const remove = () => Alert.alert(deleteLabel, 'この予定を削除しますか？', [
     { text: 'キャンセル', style: 'cancel' }, { text: '削除', style: 'destructive', onPress: () => void work(async () => {
       if (!local.database || !initial.eventId) return; const d = latest.current;
       if (local.deleteEvent) { await local.deleteEvent(d); onClose(); return; }
       await deleteCalendarEvent(local.database, { id: initial.eventId, expectedRevision: d.revision,
-        anchorDate: repeated && d.scope === 'one' ? d.anchorDate ?? undefined : undefined, expectedExceptionRevision: d.exceptionRevision });
+        anchorDate: d.scope === 'one' ? d.anchorDate ?? undefined : undefined, expectedExceptionRevision: d.exceptionRevision });
       onClose(); void local.refresh();
     }) },
   ]);
@@ -242,7 +243,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           {value.timeZone !== displayTimeZone ? <Text style={[styles.caption, { textAlign: 'right' }]}>地域：{value.timeZone}</Text> : null}
           </View>
           {!choreForm ? <View style={styles.optionsGroup}>
-          {!value.birthday && (!repeated || draft.scope !== 'one') ? <View style={styles.optionField}>
+          {!value.birthday && draft.scope !== 'one' ? <View style={styles.optionField}>
             <Pressable accessibilityRole="button" accessibilityLabel="繰り返しを選択" accessibilityValue={{ text: recurrenceLabel(value) }} accessibilityState={{ expanded: repeatOpen }} disabled={busy || readOnly} onPress={() => setRepeatOpen(true)} style={styles.optionSelect}><Text style={[styles.value, styles.optionLabel, labelWidths.option]}>繰り返し</Text><View style={styles.optionInput}><Text numberOfLines={2} style={[styles.value, styles.optionValue]}>{recurrenceLabel(value)}</Text><Chevron direction="down" /></View></Pressable>
             {value.recurrence !== 'none' ? <View style={styles.repeatEnd}><View style={styles.switchRow}><Text style={styles.value}>繰り返しの終了日</Text><SettingsCheckbox disabled={busy || readOnly} accessibilityLabel="繰り返しに終了日を設定" value={value.untilDate !== null} onValueChange={on => { titleDateTime.manual('recurrence'); patch({ untilDate: on ? addDays(value.startDate, 365) : null }); }} /></View>
               {value.untilDate ? <CalendarField disabled={busy || readOnly} label="繰り返しの終了日" date={value.untilDate} minute={0} mode="date" onDate={untilDate => { titleDateTime.manual('recurrence'); patch({ untilDate }); }} /> : null}</View> : null}
@@ -294,19 +295,20 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
             const category = (local.categoriesFor?.(current.audience ?? 'personal') ?? local.snapshot.categories).find(row => row.id === current.value.categoryId);
             onDuplicate(duplicateCalendarDraft({ ...current, editorCategory: category ?? current.editorCategory }));
           }} /> : null}
-          {!readOnly && initial.eventId && draft.scope !== 'future' ? <AppButton title={repeated && draft.scope === 'one' ? 'この回を削除' : '予定を削除'} variant="danger" disabled={busy} onPress={remove} /> : null}
+          {!readOnly && initial.eventId && draft.scope !== 'future' ? <AppButton title={deleteLabel} variant="danger" disabled={busy} onPress={remove} /> : null}
           </View>
         </ScrollView>
         </>}
       </View>
     </KeyboardAvoidingView>
-    {scopeOpen && original && initial.anchorDate ? <CalendarRecurrenceScopePicker value={draft.scope} onClose={() => setScopeOpen(false)} onSelect={(scope: CalendarEditScope) => {
-      change(before => {
-        const base = (choice: CalendarEditScope) => choice === 'series' ? original : choice === 'future' ? calendarFutureBase(original, initial.anchorDate!) : { ...initial.value, recurrence: 'none' as const, untilDate: null, customRecurrence: undefined };
-        const previous = base(before.scope), next = { ...base(scope) };
-        for (const key of Object.keys(next) as (keyof EventDraft)[]) if (JSON.stringify(before.value[key]) !== JSON.stringify(previous[key])) Object.assign(next, { [key]: before.value[key] });
-        return { ...before, scope, value: next };
-      }); setScopeOpen(false);
+    {scopeOpen && original && initial.anchorDate ? <CalendarRecurrenceScopePicker value={draft.scope} futureDisabled={!isCalendarAnchor(original, initial.anchorDate)} onClose={() => setScopeOpen(false)} onSelect={(scope: CalendarEditScope) => {
+      setScopeOpen(false);
+      const exception = local.snapshot.exceptions.find(row => row.eventId === original.id && row.anchorDate === initial.anchorDate);
+      try {
+        change(before => changeCalendarDraftScope(before, scope, original, exception?.override, editedScopeFields.current));
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : '変更する範囲を選び直してください。');
+      }
     }} /> : null}
     {repeatOpen ? <CalendarOptionPicker title="繰り返し" value={value.recurrence} options={(Object.keys(RECURRENCE_LABELS) as CalendarRecurrence[]).map(recurrence => ({ value: recurrence, label: RECURRENCE_LABELS[recurrence] }))}
       onClose={() => setRepeatOpen(false)} onCustom={openCustomRecurrence} onSelect={recurrence => { if (recurrence !== 'custom' && Object.hasOwn(RECURRENCE_LABELS, recurrence)) { titleDateTime.manual('recurrence'); patch({ recurrence: recurrence as CalendarRecurrence, customRecurrence: undefined,

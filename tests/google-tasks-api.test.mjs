@@ -4,6 +4,23 @@ import './helpers/typescript-loader.mjs';
 
 const { createGoogleTasksApi, GoogleTaskNotFoundError, GoogleTasksApiError } = await import('../src/platform/google-tasks/google-tasks-api.ts');
 
+function taskBatchTargets(batchUrl, body) {
+  const batch = new URL(batchUrl);
+  assert.equal(batch.origin + batch.pathname, 'https://tasks.googleapis.com/batch');
+  assert.deepEqual(new Set(batch.searchParams.get('fields')?.split(',')), new Set([
+    'id', 'title', 'due', 'notes', 'status', 'completed', 'deleted', 'hidden', 'etag', 'updated', 'parent',
+  ]), 'one field selection applies to all task responses');
+  const targets = [];
+  for (const line of String(body).split('\r\n')) {
+    const request = /^(POST|PATCH) (\/\S+) HTTP\/1\.1$/u.exec(line);
+    if (!request) continue;
+    const target = new URL(request[2], 'https://tasks.googleapis.com');
+    assert.equal(target.searchParams.has('fields'), false, 'do not send the shared selection again in each part');
+    targets.push([request[1], target.pathname]);
+  }
+  return targets;
+}
+
 test('Google Tasks API paginates task lists and sends the access token only in the authorization header', async () => {
   const calls = [];
   const api = createGoogleTasksApi(async (url, init) => {
@@ -39,7 +56,10 @@ test('Google Tasks inserts are sent in multipart batches of at most 100 and matc
   const api = createGoogleTasksApi(async (url, init) => {
     observed = { url: String(url), init };
     const requestBody = String(init.body);
-    assert.match(requestBody, /POST \/tasks\/v1\/lists\/list%2F1\/tasks HTTP\/1\.1/u);
+    assert.deepEqual(taskBatchTargets(url, requestBody), [
+      ['POST', '/tasks/v1/lists/list%2F1/tasks'],
+      ['POST', '/tasks/v1/lists/list%2F1/tasks'],
+    ]);
     assert.equal((requestBody.match(/Content-ID: <request-/gu) ?? []).length, 2);
     const responseBody = [
       '--response-boundary',
@@ -68,7 +88,6 @@ test('Google Tasks inserts are sent in multipart batches of at most 100 and matc
     { title: '一番目', due: '2026-10-26T00:00:00.000Z' },
     { title: '二番目', due: '2026-10-27T00:00:00.000Z' },
   ]);
-  assert.equal(observed.url, 'https://tasks.googleapis.com/batch');
   assert.equal(observed.init.headers.Authorization, 'Bearer token');
   assert.match(observed.init.headers['Content-Type'], /^multipart\/mixed; boundary=housework_/u);
   assert.equal(results[0].ok, true);
@@ -109,7 +128,10 @@ test('Google Tasks update batches encode stable IDs and retain Retry-After on pe
     { taskId: 'task/1', patch: { due: '2026-11-30T00:00:00.000Z' } },
     { taskId: 'task/2', patch: { status: 'completed', completed: '2026-10-26T01:00:00.000Z' } },
   ]);
-  assert.match(observed[0].body, /PATCH \/tasks\/v1\/lists\/list%2F1\/tasks\/task%2F1 HTTP\/1\.1/u);
+  assert.deepEqual(taskBatchTargets(observed[0].url, observed[0].body), [
+    ['PATCH', '/tasks/v1/lists/list%2F1/tasks/task%2F1'],
+    ['PATCH', '/tasks/v1/lists/list%2F1/tasks/task%2F2'],
+  ]);
   assert.equal(result[0].task.id, 'task/1');
   assert.deepEqual(result[1], { requestId: 'request-1', ok: false, status: 429, code: 'RESOURCE_EXHAUSTED', retryAfter: '3600' });
   assert.deepEqual(counts, [{ method: 'POST', operations: 2 }]);

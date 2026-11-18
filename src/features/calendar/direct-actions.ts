@@ -52,8 +52,27 @@ export function calendarOccurrenceDraft(event: CalendarOccurrence, recurring: bo
   const source = event.original ?? event;
   return { eventId: source.eventId, anchorDate: source.anchorDate, revision: source.eventRevision,
     // Exception bodies are single-event values even when their parent still repeats.
-    exceptionRevision: source.exceptionRevision, scope: recurring ? 'one' : 'series',
+    exceptionRevision: source.exceptionRevision, scope: recurring || source.exceptionRevision > 0 ? 'one' : 'series',
     value: { ...calendarEventValue(source), recurrence: 'none', untilDate: null, customRecurrence: undefined } };
+}
+
+/** Compare with the saved series or occurrence so edits persist even after reopening a draft. */
+export function changeCalendarDraftScope(draft: CalendarEditorDraft, scope: CalendarEditorDraft['scope'], series: CalendarEvent, override: EventDraft | null | undefined, editedFields: Set<keyof EventDraft>): CalendarEditorDraft {
+  const anchor = draft.anchorDate;
+  if (!anchor || draft.scope === scope) return draft;
+  const base = (choice: CalendarEditorDraft['scope']): EventDraft => {
+    if (choice === 'series') return calendarEventValue(series);
+    if (choice === 'future') return calendarFutureBase(series, anchor);
+    const occurrence = override ?? { ...series, startDate: anchor, endDate: addDays(anchor, daysBetween(series.startDate, series.endDate)) };
+    return { ...calendarEventValue(occurrence), recurrence: 'none', untilDate: null, customRecurrence: undefined };
+  };
+  const previous = base(draft.scope), next = base(scope), current = calendarEventValue(draft.value);
+  for (const key of Object.keys({ ...previous, ...current }) as (keyof EventDraft)[]) {
+    if (JSON.stringify(current[key]) !== JSON.stringify(previous[key])) editedFields.add(key);
+  }
+  // An explicit edit can match another scope's baseline and still belongs to the draft.
+  for (const key of editedFields) Object.assign(next, { [key]: current[key] });
+  return { ...draft, scope, value: next };
 }
 
 export function calendarSlotDraft(day: LocalDate, minute: number, timeZone: string): CalendarEditorDraft {

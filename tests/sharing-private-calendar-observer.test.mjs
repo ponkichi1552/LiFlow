@@ -40,6 +40,78 @@ test('private Calendar foreground observer coalesces remote bursts and performs 
   const stop = f.start(); await entered; for (let i = 0; i < 100; i++) f.state.change(); release(); await flush();
   assert.equal(f.state.syncs, 2); assert.equal(maximum, 1); assert.equal(f.state.watches, 1); stop();
 });
+test('a queued private Calendar change supersedes an unfinished retry even while its follow-up is still running', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  for (const firstResult of ['waiting', 'failure']) {
+    const f = fixture();
+    const first = Promise.withResolvers();
+    const followup = Promise.withResolvers();
+    let remoteRevision = 0;
+    const received = [];
+    f.port.synchronize = async () => {
+      const revision = remoteRevision;
+      f.state.syncs++;
+      if (f.state.syncs === 1) {
+        await first.promise;
+        if (firstResult === 'failure') throw new Error('temporary delivery failure');
+        return { kind: 'waiting' };
+      }
+      if (f.state.syncs === 2) await followup.promise;
+      received.push(revision);
+      return { kind: 'unchanged' };
+    };
+    const stop = f.start();
+    try {
+      await flush();
+      remoteRevision++;
+      f.state.change();
+      first.resolve();
+      await flush();
+      assert.equal(f.state.syncs, 2);
+      t.mock.timers.tick(30_000);
+      await flush();
+      followup.resolve();
+      await flush();
+      t.mock.timers.tick(86_400_000);
+      await flush();
+      assert.deepEqual(received, [1], firstResult);
+      remoteRevision++;
+      f.state.change();
+      await flush();
+      assert.deepEqual(received, [1, 2], 'the next genuine change still arrives immediately');
+    } finally { stop(); }
+  }
+});
+test('private Calendar foreground waits for the saved retry time while a new change can wake it earlier', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const f = fixture();
+  let retryAt = Date.now() + 3_600_000;
+  f.port.synchronize = async () => {
+    f.state.syncs++;
+    return Date.now() < retryAt ? { kind: 'waiting', retryAt } : { kind: 'unchanged' };
+  };
+  const stop = f.start();
+  try {
+    await flush();
+    t.mock.timers.tick(3_599_999);
+    await flush();
+    assert.equal(f.state.syncs, 1);
+    t.mock.timers.tick(1);
+    await flush();
+    assert.equal(f.state.syncs, 2);
+    retryAt = Date.now() + 3_600_000;
+    f.state.change();
+    await flush();
+    assert.equal(f.state.syncs, 3);
+    retryAt = Date.now();
+    f.state.change();
+    await flush();
+    assert.equal(f.state.syncs, 4);
+    t.mock.timers.tick(3_600_000);
+    await flush();
+    assert.equal(f.state.syncs, 4);
+  } finally { stop(); }
+});
 test('private Calendar foreground observer detaches failed listeners and retries from periodic local activity only after the cooldown', async () => {
   const f = fixture(); const stop = f.start(); await flush(); f.state.error(); await flush();
   assert.equal(f.state.stops, 1); assert.equal(f.state.syncs, 2);

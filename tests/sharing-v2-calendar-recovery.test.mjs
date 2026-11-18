@@ -1,11 +1,14 @@
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { isDeepStrictEqual } from 'node:util';
 import { fixture, seeds, now } from './helpers/sharing-v2-repository-fixture.mjs';
 import { createV2CalendarActions } from '../src/features/sharing/v2/calendar-actions.ts';
 import { readSharedCalendar } from '../src/features/sharing/v2/calendar-state.ts';
-import { newEventDraft } from '../src/domain/calendar/events.ts';
+import { newEventDraft, projectCalendarEvents } from '../src/domain/calendar/events.ts';
+import { calendarOccurrenceDraft } from '../src/features/calendar/direct-actions.ts';
 import { screenHarness } from './helpers/screen-harness.mjs';
+import { selectCalendarView } from './helpers/calendar-ui.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 const { initializeLocalDatabase } = await import('../src/platform/storage/repository.ts');
 const { readLocalCalendar, saveCalendarDraft } = await import('../src/platform/storage/calendar-events.ts');
@@ -65,6 +68,106 @@ async function sharedEditorFixture(platform) {
 }
 
 for (const platform of ['ios', 'android']) {
+  test(`${platform} a resumed shared occurrence draft keeps its edits and saves the latest exact location once on the future branch`, async t => {
+    const f = await sharedEditorFixture(platform); t.after(() => f.close());
+    const parent = draft({ title: '週の予定', location: '本館', notes: '毎週のメモ' });
+    await f.actions.saveCalendarEvent({ scope: 'series', anchorDate: null, value: parent, category });
+    const [record] = await f.records(), anchor = '2026-11-03', moved = '2026-11-04';
+    const override = draft({ title: '個別予定', location: '別館', notes: 'この回のメモ', startDate: moved, endDate: moved, recurrence: 'none' });
+    await f.actions.saveCalendarEvent({ eventId: record.id, scope: 'one', anchorDate: anchor,
+      basisRevision: JSON.stringify([[record.id], []]), value: override, category });
+
+    const source = await f.open(); t.after(() => source.screen.unmount()); const local = source.binding;
+    const [occurrence] = projectCalendarEvents(local.snapshot.events, local.snapshot.exceptions, moved, moved);
+    const initial = local.prepareDraft(calendarOccurrenceDraft(occurrence, true));
+    const editor = (initial, local, callbacks) => {
+      const ui = screenHarness('src/features/calendar/calendar-editor.tsx', { exportName: 'CalendarEditor', platform, props: { initial, local, onClose() {}, onSaved() {}, ...callbacks } });
+      t.after(() => ui.unmount()); return ui;
+    };
+    let closed = 0;
+    const first = editor(initial, local, { onClose() { closed++; } });
+    await first.change('予定の場所', '長い下書きの場所');
+    await first.change('予定のメモ', '再開前のメモ');
+    await first.press('予定の編集を閉じる'); await first.press('下書き保存');
+    for (let i = 0; i < 20 && !closed; i++) await first.flush();
+    assert.equal(closed, 1);
+
+    const sourceAfterRestart = await f.open(); t.after(() => sourceAfterRestart.screen.unmount());
+    const restarted = sourceAfterRestart.binding; let saves = 0;
+    const form = editor(restarted.snapshot.draft, restarted, { onSaved() { saves++; } });
+    await form.press('変更する範囲を選択'); await form.press('今後の予定すべて');
+    const location = () => form.nodes().find(row => row.type === 'TextInput' && row.props.accessibilityLabel === '予定の場所').props;
+    assert.equal(location().value ?? location().defaultValue, '長い下書きの場所');
+    await form.change('予定の場所', parent.location);
+    await form.press('変更する範囲を選択'); await form.press('この予定だけ');
+    assert.equal(location().value ?? location().defaultValue, parent.location);
+    await form.press('変更する範囲を選択'); await form.press('今後の予定すべて');
+    const before = await f.records(); assert.equal(before.length, 1); assert.equal(before[0].heads[0].payload.value.location, '本館');
+    const save = form.button('予定を保存');
+    const finalLocation = '共有会議室 Ｂ棟２階 西口前';
+    location().onChangeText(finalLocation + 'desk'); location().onChangeText(finalLocation);
+    save.props.onPress(); save.props.onPress();
+    for (let i = 0; i < 50 && !saves; i++) await form.flush();
+    assert.equal(saves, 1, form.text());
+    const records = await f.records(); assert.equal(records.length, 2);
+    const branch = records.find(row => row.id !== record.id), past = records.find(row => row.id === record.id);
+    assert.deepEqual(branch.heads[0].payload.value, { ...parent, startDate: anchor, endDate: anchor, location: finalLocation, notes: '再開前のメモ' });
+    assert.deepEqual(branch.exceptions[0].heads[0].payload.value, override);
+    assert.deepEqual(past.heads[0].payload.value, { ...parent, untilDate: '2026-11-02' });
+    assert.equal((await readLocalCalendar(f.local.database)).draft, null);
+  });
+
+  test(`${platform} editing moving and deleting a detached shared occurrence of a single event changes only that occurrence`, async t => {
+    const f = await sharedEditorFixture(platform); t.after(() => f.close());
+    const parent = draft({ title: '残す親予定', location: '親の場所' });
+    await f.actions.saveCalendarEvent({ scope: 'series', anchorDate: null, value: parent, category });
+    const [record] = await f.records(), anchor = '2026-11-03', moved = '2026-11-05';
+    const override = draft({ title: '残した個別予定', location: '個別の場所', startDate: moved, endDate: moved, recurrence: 'none' });
+    await f.actions.saveCalendarEvent({ eventId: record.id, scope: 'one', anchorDate: anchor, basisRevision: JSON.stringify([[record.id], []]), value: override, category });
+    await f.actions.saveCalendarEvent({ eventId: record.id, scope: 'one', anchorDate: '2026-11-10', basisRevision: JSON.stringify([[record.id], []]),
+      value: draft({ title: 'もう一つの個別予定', startDate: '2026-11-12', endDate: '2026-11-12', recurrence: 'none' }), category });
+    await f.actions.saveCalendarEvent({ eventId: record.id, scope: 'series', anchorDate: null, basisRevision: basis(record), value: { ...parent, recurrence: 'none' }, category });
+    const [baseline] = await f.records(); let confirm;
+    const member = await f.open({ model: { viewerUserId: 'member', adminUserId: 'owner', calendarSupported: true, plan: { groupId: f.d.options.groupId }, calendar: [baseline] } });
+    t.after(() => member.screen.unmount());
+    const memberLocal = member.binding;
+    const [memberOccurrence] = projectCalendarEvents(memberLocal.snapshot.events, memberLocal.snapshot.exceptions, moved, moved);
+    const memberDraft = memberLocal.prepareDraft(calendarOccurrenceDraft(memberOccurrence, false));
+    assert.equal(memberLocal.canEditEvent(memberDraft.eventId, anchor), false);
+    await assert.rejects(memberLocal.saveEvent(memberDraft, false), /作成者または管理者/);
+    await assert.rejects(memberLocal.deleteEvent(memberDraft), /作成者または管理者/);
+    const openDay = async () => {
+      const host = await f.open(); t.after(() => host.screen.unmount());
+      const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, layoutEffect: callback => callback(),
+        alert: (_title, _message, options) => { confirm = options.find(option => option.style === 'destructive'); }, props: {
+          local: host.binding, today: moved, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
+        } });
+      t.after(() => ui.unmount()); await selectCalendarView(ui, '1日表示'); return ui;
+    };
+    const verify = async (ui, expected) => {
+      let record, target;
+      for (let i = 0; i < 50; i++) {
+        await ui.flush(); [record] = await f.records();
+        target = record.exceptions.find(row => row.anchorDate === anchor);
+        if (isDeepStrictEqual(target?.heads[0].payload.value, expected)) break;
+      }
+      assert.deepEqual(record.heads, baseline.heads);
+      assert.deepEqual(record.exceptions.filter(row => row.anchorDate !== anchor), baseline.exceptions.filter(row => row.anchorDate !== anchor));
+      assert.deepEqual(target.heads[0].payload.value, expected);
+    };
+    const edited = { ...override, location: '変更後の場所' };
+    const form = await openDay(); await form.press('残した個別予定を編集');
+    await form.change('予定の場所', edited.location); await form.press('予定を保存'); await verify(form, edited);
+    const day = await openDay(); day.button('残した個別予定を編集').props.onLongPress(); await day.flush();
+    const card = day.nodes().find(node => node.props.testID?.startsWith('calendar-movable-'));
+    card.props.onPanResponderGrant(); card.props.onPanResponderRelease(null, { dx: 0, dy: 44 });
+    await verify(day, { ...edited, startMinute: 600, endMinute: 660 });
+    const removal = await openDay(); await removal.press('残した個別予定を編集');
+    assert.ok(!removal.nodes().some(node => node.props.accessibilityLabel === '繰り返しを選択'));
+    await removal.press('この回を削除');
+    assert.ok(confirm); confirm.onPress(); await verify(removal, null);
+  });
+
   test(`${platform} a committed shared calendar save survives draft-cleanup failure and restart without duplicating a series`, async () => {
     const f = await sharedEditorFixture(platform);
     try {
