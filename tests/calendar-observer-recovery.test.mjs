@@ -78,10 +78,15 @@ test('switching calendar databases hides the previous database snapshot before t
 test('changing group-draft visibility projects retained drafts immediately without rereading unchanged SQLite input', async () => {
   const empty = { events: [], categories: [], exceptions: [], draft: null, drafts: [] }; let reads = 0;
   const props = { includeGroupDrafts: false };
+  const { calendarReminderScope } = await import('../src/features/calendar/reminder-preferences.ts');
+  const groupId = 'group', userId = 'viewer', ownerScope = calendarReminderScope(userId, groupId);
+  const auth = { currentUser: { uid: userId }, onAuthStateChanged: () => () => {} };
   const screen = screenHarness('tests/fixtures/calendar-switch-observer.tsx', { props, database: {}, effectDependencies: true,
     effect: fn => fn(), layoutEffect: fn => fn(), mocks: {
+      '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { ready: true, userId, active: { protocol: 2, groupId, userId }, group: { groupId, userId, status: 'active' } } } },
+      '@/platform/sharing/firebase-services': { isSharingConfigured: () => true, getSharingServices: () => ({ auth }) },
       '../../platform/storage/calendar-events': { EMPTY_LOCAL_CALENDAR: empty,
-        readLocalCalendar: async () => { reads++; return { ...empty, drafts: [{ audience: 'group', value: { title: 'Shared draft' } }] }; },
+        readLocalCalendar: async () => { reads++; return { ...empty, drafts: [{ audience: 'group', groupId, ownerScope, value: { title: 'Shared draft' } }] }; },
         readLocalCalendarDrafts: async () => empty, subscribeLocalCalendar: () => () => {} },
       './use-personal-google-sync': { usePersonalGoogleSync: () => () => {} },
     } });
@@ -89,5 +94,7 @@ test('changing group-draft visibility projects retained drafts immediately witho
     await screen.flush(); assert.doesNotMatch(screen.text(), /Shared draft/); const before = reads;
     props.includeGroupDrafts = true; screen.render();
     assert.match(screen.text(), /Shared draft/); assert.equal(reads, before);
+    auth.currentUser = { uid: 'other' }; screen.render();
+    assert.doesNotMatch(screen.text(), /Shared draft/); assert.equal(reads, before);
   } finally { screen.unmount(); }
 });

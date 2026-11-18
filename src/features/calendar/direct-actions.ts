@@ -43,7 +43,7 @@ export function calendarEventValue(value: EventDraft): EventDraft {
 
 export function duplicateCalendarDraft(source: CalendarEditorDraft): CalendarEditorDraft {
   return { eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series',
-    ...(source.audience ? { audience: source.audience } : {}), ...(source.audience === 'group' ? { groupId: source.groupId } : {}),
+    ...(source.audience ? { audience: source.audience } : {}), ...(source.audience === 'group' ? { groupId: source.groupId, ownerScope: source.ownerScope } : {}),
     ...(source.editorCategory ? { editorCategory: { ...source.editorCategory } } : {}),
     value: { ...calendarEventValue(source.value), recurrence: 'none', untilDate: null, customRecurrence: undefined, birthday: false } };
 }

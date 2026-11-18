@@ -5,8 +5,8 @@ import { createDatabase } from './helpers/sqlite.mjs';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { newEventDraft } from '../src/domain/calendar/events.ts';
 const { initializeLocalDatabase, loadPlannerSnapshot, readCachedPlannerSnapshot } = await import('../src/platform/storage/repository.ts');
-const { readLocalCalendar, saveCalendarEvent, saveCalendarDraft, deleteCalendarEvent, saveOwnBirthday, subscribeLocalCalendar } = await import('../src/platform/storage/calendar-events.ts');
-const { readCalendarReminders, subscribeCalendarReminders } = await import('../src/platform/storage/calendar-reminders.ts');
+const { calendarDraftKey, readLocalCalendar, readLocalCalendarDrafts, saveCalendarEvent, saveCalendarDraft, deleteCalendarEvent, saveOwnBirthday, subscribeLocalCalendar } = await import('../src/platform/storage/calendar-events.ts');
+const { calendarReminderScope, readCalendarReminders, subscribeCalendarReminders } = await import('../src/platform/storage/calendar-reminders.ts');
 const { createPersonalGoogleCalendarSync } = await import('../src/features/calendar/personal-google-sync.ts');
 const { personalCalendarHasPendingWork } = await import('../src/features/google-sync/background-work.ts');
 
@@ -15,6 +15,43 @@ async function fixture(t) {
   const h = createDatabase(); t.after(() => h.connection.close());
   await initializeLocalDatabase(h.database); await readLocalCalendar(h.database); return h;
 }
+test('calendar draft reads and the fifty draft limit isolate each owner while retaining unassigned rows', async t => {
+  const h = await fixture(t), groupId = 'group';
+  const a = calendarReminderScope('a', groupId), b = calendarReminderScope('b', groupId);
+  const make = (eventId, audience, ownerScope) => ({ eventId, anchorDate: null, revision: 1, exceptionRevision: 0, scope: 'series', value: draft(),
+    ...(audience ? { audience, groupId, ...(ownerScope ? { ownerScope } : {}) } : {}) });
+  const insert = h.connection.prepare('INSERT INTO calendar_drafts(slot,draft_json) VALUES(?,?)');
+  const legacy = [];
+  for (let i = 0; i < 50; i++) {
+    const id = 'event.' + i;
+    for (const row of [make(id), make(id, 'group', b), make(id, 'group')]) {
+      const slot = row.audience === 'group' && !row.ownerScope && i === 0 ? 'editor' : calendarDraftKey(row);
+      const body = JSON.stringify(row); insert.run(slot, body);
+      if (row.audience === 'group' && !row.ownerScope) legacy.push([slot, body]);
+    }
+  }
+  const own = make(null, 'group', a);
+  const asOwner = expected => row => assert.equal(row.ownerScope, expected);
+  await assert.rejects(saveCalendarDraft(h.database, own), /アカウント/u);
+  await assert.rejects(saveCalendarDraft(h.database, make(null, 'group'), false, asOwner(a)), /アカウント/u);
+  await saveCalendarDraft(h.database, own, false, asOwner(a));
+  await assert.rejects(saveCalendarDraft(h.database, make(null, 'group', b), false, asOwner(b)), /多くなっています/u);
+  await assert.rejects(saveCalendarDraft(h.database, make(null)), /多くなっています/u);
+  const query = h.database.getAllAsync; const bodies = [];
+  h.database.getAllAsync = async (sql, ...args) => {
+    const rows = await query(sql, ...args);
+    if (sql.includes('FROM calendar_drafts')) bodies.push(...rows.map(row => JSON.parse(row.draft_json)));
+    return rows;
+  };
+  for (const [scope, count, read] of [[undefined, 50, readLocalCalendar], [a, 51, readLocalCalendarDrafts], [b, 100, readLocalCalendar]]) {
+    bodies.length = 0; const snapshot = await read(h.database, scope);
+    assert.equal(snapshot.drafts.length, count);
+    assert.ok(bodies.length >= count);
+    assert.ok(bodies.every(row => !row.audience || Boolean(scope && row.ownerScope === scope)), 'foreign JSON must stay inside SQLite');
+  }
+  for (const [slot, body] of legacy) assert.equal(h.connection.prepare('SELECT draft_json FROM calendar_drafts WHERE slot=?').get(slot).draft_json, body);
+});
+
 async function synchronized(t) {
   const h = await fixture(t); let version = 0; const remote = new Map(), changes = [], calls = [];
   const put = body => {
@@ -100,12 +137,12 @@ test('identical Calendar saves still reject stale series exceptions and current 
 test('an unchanged Calendar body saves only changed private reminders clears its submitted draft and retains newer or shared drafts without event demand', async t => {
   const h = await fixture(t); const value = draft(); const id = await saveCalendarEvent(h.database, { expectedRevision: 0, value });
   const submitted = { eventId: id, anchorDate: null, revision: 1, exceptionRevision: 0, scope: 'series', value, reminderMinutes: 10 };
-  const shared = { ...submitted, audience: 'group', groupId: 'test-group' };
-  await saveCalendarDraft(h.database, submitted); await saveCalendarDraft(h.database, shared);
+  const shared = { ...submitted, audience: 'group', groupId: 'test-group', ownerScope: calendarReminderScope('viewer', 'test-group') };
+  await saveCalendarDraft(h.database, submitted); await saveCalendarDraft(h.database, shared, false, row => assert.equal(row.ownerScope, shared.ownerScope));
   const changes = []; let reminders = 0;
   t.after(subscribeLocalCalendar(h.database, kind => changes.push(kind))); t.after(subscribeCalendarReminders(h.database, () => reminders++));
   await saveCalendarEvent(h.database, { id, expectedRevision: 1, value, reminderMinutes: 10 });
-  let current = await readLocalCalendar(h.database);
+  let current = await readLocalCalendar(h.database, shared.ownerScope);
   assert.equal(current.events[0].revision, 1); assert.deepEqual(current.drafts, [shared]); assert.deepEqual(changes, ['drafts']);
   assert.equal(reminders, 1); assert.equal((await readCalendarReminders(h.database)).rules.find(row => row.eventId === id).minutes, 10);
   h.writes.length = 0; changes.length = 0;
@@ -113,7 +150,7 @@ test('an unchanged Calendar body saves only changed private reminders clears its
   assert.equal(h.writes.length, 0); assert.equal(reminders, 1); assert.deepEqual(changes, []);
   const newer = { ...submitted, value: { ...value, notes: '別の画面の新しい入力' } }; await saveCalendarDraft(h.database, newer); changes.length = 0;
   await saveCalendarEvent(h.database, { id, expectedRevision: 1, value, reminderMinutes: null });
-  current = await readLocalCalendar(h.database); assert.ok(current.drafts.some(row => row.value.notes === newer.value.notes));
+  current = await readLocalCalendar(h.database, shared.ownerScope); assert.ok(current.drafts.some(row => row.value.notes === newer.value.notes));
   assert.ok(current.drafts.some(row => row.audience === 'group')); assert.equal(current.events[0].revision, 1);
   assert.equal((await readCalendarReminders(h.database)).rules.find(row => row.eventId === id).minutes, null); assert.equal(reminders, 2); assert.deepEqual(changes, []);
 });

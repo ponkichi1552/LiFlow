@@ -13,7 +13,7 @@ export function CalendarDraftList({ drafts, local, onClose, onSelect }: { drafts
   const colors = plannerColorsForScheme(useColorScheme()); const pending = useRef(false); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
   const discard = async (draft: CalendarEditorDraft) => {
     if (pending.current || !local.database) return; pending.current = true; setBusy(true); setError(null);
-    try { await clearCalendarEditorDraft(local.database, draft); await local.refresh(); }
+    try { await clearCalendarEditorDraft(local.database, draft, local.assertDraftAccess); await local.refresh(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : '下書きを破棄できませんでした。'); }
     finally { pending.current = false; setBusy(false); }
   };

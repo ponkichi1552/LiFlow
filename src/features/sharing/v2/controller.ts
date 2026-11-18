@@ -3,6 +3,7 @@ import { readSharedCalendar } from './calendar-state.ts';
 import type { LocalDate } from '../../../domain/shared/types.ts';
 import type { createV2EventRepository } from '../../../platform/storage/sharing-v2-events.ts';
 import { createV2PlannerActions } from './actions.ts';
+import { createSharedCalendarRecovery } from '../../calendar/shared-recovery.ts';
 import { buildV2CommonPlan } from './common-plan.ts';
 import type { V2CommonPlan } from './common-plan';
 import { isolatedProjectionValue } from '../../../platform/storage/isolated-projection-value.ts';
@@ -28,7 +29,7 @@ type V2ModelRange = { from: LocalDate; through: LocalDate; asOfDate: LocalDate }
 export function createV2GroupController(repository: ReturnType<typeof createV2EventRepository>, options: {
   makeId: () => string; now: () => Date; sync: () => Promise<unknown>;
 }) {
-  const actions = createV2PlannerActions(repository, options);
+  const actions = { ...createV2PlannerActions(repository, options), ...createSharedCalendarRecovery(repository) };
   const recentPlans = new Map<string, V2CommonPlan>();
   let longCalendarCache: { key: string; rounds: ReturnType<typeof nextLongCalendarRounds> } | undefined;
   return {

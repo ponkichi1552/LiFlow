@@ -21,8 +21,8 @@ export function createPrivateDelivery(port: { firestore: Firestore; userId: stri
   let relay: ReturnType<typeof createSharingDeliveryRelay<unknown>> | undefined;
   let needsServing = true; let serving: Promise<void> | undefined; let stopRelay: (() => void) | undefined;
   const listeners = new Set<{ changed(): void; failed(error: unknown): void }>();
-  const acknowledgements = new Map<string, string>();
-  let advertised = false;
+  const acknowledgements = new Map<string, { digest: string; durable: boolean; missingSeed?: string; readiness?: Promise<void> }>();
+  let advertised: typeof relay;
   function group(raw: unknown): SharedCloudGroup {
     if (!authority || !raw || typeof raw !== 'object') throw new PrivateCalendarCloudConflict();
     const { createdAt: _created, updatedAt: _updated, ...fields } = raw as DocumentData;
@@ -59,35 +59,53 @@ export function createPrivateDelivery(port: { firestore: Firestore; userId: stri
     }
     port.assertOwner(); return relay;
   }
-  async function advertise(expected: VerifiedPrivateCalendarAuthority) {
-    if (advertised) return;
-    const transport = await current(expected);
+  async function advertise(expected: VerifiedPrivateCalendarAuthority, transport: NonNullable<typeof relay>) {
+    if (advertised === transport) return;
+    if (await current(expected) !== transport) throw new PrivateCalendarCloudConflict();
     const [headDoc, preferences] = await Promise.all([getDocFromServer(root), getDocFromServer(doc(root, 'plannerPreferences', 'current'))]); port.assertOwner();
     group(headDoc.data()); const cache = headDoc.data()?.cacheHead; const digest = preferences.data()?.digest;
-    if (cache && !await archive.chunk(`calendar.${cache.manifestDigest}`) || digest && !await archive.chunk(`preferences.${digest}`)) return;
+    if (cache && !await archive.chunk(`calendar.${cache.manifestDigest}`)) return `calendar.${cache.manifestDigest}`;
+    if (digest && !await archive.chunk(`preferences.${digest}`)) return `preferences.${digest}`;
     await transport.ready(userId, 0);
-    advertised = true;
+    if (relay === transport) advertised = transport;
   }
   return {
     async remember(expected, id, value) { const transport = await current(expected); await transport.archive.saveChunk(id, value); port.assertOwner(); },
     async recover(expected, id) { const transport = await current(expected); const value = await transport.snapshotChunk(userId, id, 0); port.assertOwner(); return value; },
     async confirm(expected, kind, digest) {
-      const transport = await current(expected); if (!/^[a-f0-9]{64}$/u.test(digest) || !await archive.chunk(`${kind}.${digest}`)) throw new Error('Private delivery is not durable');
-      const key = `${expected.digest}:${kind}`;
-      if (acknowledgements.get(key) === digest) { await transport.acknowledge(userId, 0); return; }
-      if (acknowledgements.get(key) !== digest) {
-        await runTransaction(firestore, async transaction => {
-          const target = doc(root, 'deliveryAcknowledgements', deviceId);
-          const [head, previous] = await Promise.all([transaction.get(root), transaction.get(target)]); port.assertOwner(); group(head.data());
-          const old = previous.data(); const domain = kind === 'calendar' ? 'calendarDigest' : 'preferencesDigest';
-          if (old?.authorityDigest === expected.digest && old[domain] === digest) return;
-          transaction.set(target, { userId, deviceId, authorityDigest: expected.digest,
-            calendarDigest: old?.authorityDigest === expected.digest ? old.calendarDigest : null,
-            preferencesDigest: old?.authorityDigest === expected.digest ? old.preferencesDigest : null,
-            [domain]: digest, updatedAt: serverTimestamp() });
-        }); port.assertOwner(); acknowledgements.set(key, digest);
+      const transport = await current(expected);
+      const confirmingDevice = deviceId;
+      if (!/^[a-f0-9]{64}$/u.test(digest) || !await archive.chunk(`${kind}.${digest}`)) throw new Error('Private delivery is not durable');
+      const key = `${expected.digest}:${confirmingDevice}:${kind}`;
+      let receipt = acknowledgements.get(key);
+      if (receipt?.digest !== digest) {
+        receipt = { digest, durable: false }; acknowledgements.set(key, receipt);
       }
-      await advertise(expected); await transport.acknowledge(userId, 0);
+      const confirmed = receipt;
+      if (!confirmed.readiness) {
+        const finish = async () => {
+          if (!confirmed.durable) {
+            await runTransaction(firestore, async transaction => {
+              const target = doc(root, 'deliveryAcknowledgements', confirmingDevice);
+              const [head, previous] = await Promise.all([transaction.get(root), transaction.get(target)]); port.assertOwner(); group(head.data());
+              const old = previous.data(); const domain = kind === 'calendar' ? 'calendarDigest' : 'preferencesDigest';
+              if (old?.authorityDigest === expected.digest && old[domain] === digest) return;
+              transaction.set(target, { userId, deviceId: confirmingDevice, authorityDigest: expected.digest,
+                calendarDigest: old?.authorityDigest === expected.digest ? old.calendarDigest : null,
+                preferencesDigest: old?.authorityDigest === expected.digest ? old.preferencesDigest : null,
+                [domain]: digest, updatedAt: serverTimestamp() });
+            });
+            port.assertOwner(); confirmed.durable = true;
+          }
+          if (confirmed.missingSeed && advertised !== transport && !await archive.chunk(confirmed.missingSeed)) return;
+          confirmed.missingSeed = await advertise(expected, transport);
+        };
+        // Missing local ciphertext or an interrupted seed check can be retried without rewriting the receipt.
+        confirmed.readiness = finish().then(() => { if (confirmed.missingSeed) confirmed.readiness = undefined; },
+          error => { confirmed.readiness = undefined; throw error; });
+      }
+      await confirmed.readiness;
+      await transport.acknowledge(userId, 0);
     },
     watch(changed, failed) {
       const observer = { changed, failed }; listeners.add(observer); watchRelay();

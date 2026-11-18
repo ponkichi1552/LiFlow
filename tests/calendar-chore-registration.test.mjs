@@ -27,6 +27,14 @@ async function setup(t) {
   return { d, controller, model };
 }
 
+async function calendarBinding(t, platform, database) {
+  const { model, controller } = await setup(t); let binding;
+  const host = screenHarness('tests/helpers/calendar-source-host.tsx', { platform, exportName: 'CalendarSourceHost',
+    props: { model, actions: controller.actions, local: { database, snapshot: await readLocalCalendar(database), loading: false, error: null, refresh: async () => {} },
+      capture: value => { binding = value; } } });
+  t.after(() => host.unmount()); return binding;
+}
+
 test('one-off shared chores converge after completion and undo without inventing later rounds', async t => {
   const h = await rotationFixture(t);
   const ops = await h.a.addConfiguredChore('単発の家事', 1, chorePolicyFromPreset('assigned', ['owner']), { once: true, startDate: '2026-10-27' });
@@ -179,9 +187,10 @@ for (const platform of ['ios', 'android']) {
   });
   test(`${platform} switching a shared appointment to chore registration preserves typed appointment input and never saves a fake calendar event`, async t => {
     const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database);
-    let snapshot = await readLocalCalendar(h.database); const calls = []; const navigations = []; let registration;
-    const local = { database: h.database, snapshot, loading: false, error: null, refresh: async () => {}, shared: { enabled: true, groupId: 'group', name: '検査' } };
-    const initial = { eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series', audience: 'group', groupId: 'group', value: newEventDraft('2026-11-05', 'Asia/Tokyo') };
+    const calls = []; const navigations = []; let registration;
+    const local = await calendarBinding(t, platform, h.database);
+    const initial = { eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series', audience: 'group',
+      groupId: local.shared.groupId, ownerScope: local.shared.notificationScope, value: newEventDraft('2026-11-05', 'Asia/Tokyo') };
     const ui = screenHarness('src/features/calendar/calendar-editor.tsx', { exportName: 'CalendarEditor', platform,
       navigate: (...args) => navigations.push(args), props: { local, initial, onClose: () => calls.push('close'), onSaved: () => calls.push('event-save'),
         renderChoreRegistration: props => { registration = props; return { type: 'Pressable', props: { accessibilityRole: 'button', accessibilityLabel: '家事選択を閉じる', onPress: props.onBack } }; } } });
@@ -190,8 +199,8 @@ for (const platform of ['ios', 'android']) {
     await ui.press('家事を追加'); await flush(ui);
     assert.deepEqual(calls, []); assert.equal(registration.date, '2026-11-05'); assert.deepEqual(navigations, []);
     assert.equal(ui.nodes().filter(node => node.type === 'Modal').length, 1, 'chore selection stays inside the original sheet');
-    snapshot = await readLocalCalendar(h.database);
-    assert.equal(snapshot.events.length, 0); assert.equal(snapshot.draft.value.title, '入力を保持');
+    const snapshot = await readLocalCalendar(h.database, initial.ownerScope);
+    assert.equal(snapshot.events.length, 0); assert.equal(snapshot.draft.value.title, '入力を保持'); assert.equal(snapshot.draft.ownerScope, initial.ownerScope);
     registration.onBusyChange(true); await ui.flush();
     ui.nodes().find(node => node.type === 'Modal').props.onRequestClose(); registration.onBack(); await ui.flush();
     assert.deepEqual(calls, []); assert.ok(ui.nodes().some(node => node.props.accessibilityLabel === '家事選択を閉じる'));
@@ -359,11 +368,11 @@ for (const platform of ['ios', 'android']) {
 for (const platform of ['ios', 'android']) {
   test(`${platform} clearing a chosen chore resets appointment input and dates without keeping its saved draft or interrupting an in-flight save`, async t => {
     const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database);
+    const local = await calendarBinding(t, platform, h.database);
     for (const audience of ['personal', 'group']) {
       let registration; let picker; const calls = [];
       const initial = { eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series', audience,
-        ...(audience === 'group' ? { groupId: 'group' } : {}), value: newEventDraft('2026-11-05', 'Asia/Tokyo') };
-      const local = { database: h.database, snapshot: await readLocalCalendar(h.database), loading: false, error: null, refresh: async () => {}, shared: { enabled: true, groupId: 'group', name: '検査' } };
+        ...(audience === 'group' ? { groupId: local.shared.groupId, ownerScope: local.shared.notificationScope } : {}), value: newEventDraft('2026-11-05', 'Asia/Tokyo') };
       const ui = screenHarness('src/features/calendar/calendar-editor.tsx', { exportName: 'CalendarEditor', platform, datePicker: options => { picker = options; }, props: {
         local, initial, onClose: () => calls.push('close'), onSaved: () => calls.push('save'), renderChoreRegistration: props => { registration = props; return { type: 'View', props: {} }; },
       } });
@@ -378,7 +387,8 @@ for (const platform of ['ios', 'android']) {
       for (const label of ['予定名', '予定の場所', '予定のメモ']) assert.equal(ui.nodes().find(node => node.props.accessibilityLabel === label).props.defaultValue, '');
       assert.equal(ui.button('開始日を選択').props.accessibilityValue.text, '2026/11/05');
       assert.equal(ui.button('終了日を選択').props.accessibilityValue.text, '2026/11/05');
-      assert.equal((await readLocalCalendar(h.database)).draft, null); assert.equal((await readLocalCalendar(h.database)).events.length, 0); assert.deepEqual(calls, []);
+      const snapshot = await readLocalCalendar(h.database, local.shared.notificationScope);
+      assert.equal(snapshot.draft, null); assert.equal(snapshot.events.length, 0); assert.deepEqual(calls, []);
       ui.unmount();
     }
   });

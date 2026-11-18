@@ -9,7 +9,7 @@ import { loadNativeModule } from './native-module.mjs';
 
 /** Counts business SDK operations against the real emulator, never credentials or document contents. */
 export function tracedDeliveryRelay(context, deviceId, archive) {
-  const counts = { queries: 0, queryDocuments: 0, documentReads: 0, transactions: 0, writes: 0, ciphertextCharsWritten: 0, listeners: 0 };
+  const counts = { queries: 0, queryDocuments: 0, documentReads: 0, transactions: 0, writes: 0, ciphertextCharsWritten: 0, listeners: 0, activeListeners: 0 };
   const sdk = { ...firestore,
     getDocsFromServer: async target => { counts.queries++; const value = await firestore.getDocsFromServer(target); counts.queryDocuments += value.size; return value; },
     getDocFromServer: async target => { counts.documentReads++; return firestore.getDocFromServer(target); },
@@ -26,7 +26,12 @@ export function tracedDeliveryRelay(context, deviceId, archive) {
         delete: (...args) => { counts.writes++; return transaction.delete(...args); },
       }), ...options);
     },
-    onSnapshot: (...args) => { counts.listeners++; return firestore.onSnapshot(...args); },
+    onSnapshot: (...args) => {
+      const stop = firestore.onSnapshot(...args);
+      counts.listeners++; counts.activeListeners++;
+      let active = true;
+      return () => { if (active) { active = false; counts.activeListeners--; stop(); } };
+    },
   };
   const module = loadNativeModule('src/platform/sharing/firestore-delivery.ts', {
     'firebase/firestore': sdk, 'base64-js': base64, '@noble/hashes/utils.js': hashUtils,

@@ -46,16 +46,26 @@ function check(ui,label,value){const node=ui.nodes().find(n=>n.props.accessibili
 async function flag(ui,label){const node=ui.nodes().find(n=>n.props.accessibilityLabel===label&&n.props.onPress);assert.ok(node);node.props.onPress();await ui.flush();}
 for(const platform of ['ios','android']) {
   test(`${platform} deselecting a chore clears the same editor's saved shared draft before closing an empty personal form`, async t => {
-    const h = await setup(t); let closed = 0;
-    const ui = harness({ local: h.local, model: h.model, actions: h.controller.actions,
-      initial: { eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series', value: newEventDraft('2026-11-05', 'Asia/Tokyo') },
-      onClose() { closed++; }, onSaved() {} }, platform, h.data); t.after(() => ui.unmount());
-    await ui.press('グループ共通'); await ui.change('予定名', '同じ入力の古い共有下書き');
-    await ui.press('家事を追加'); await ui.press('新しい家事を作る');
-    assert.equal((await readLocalCalendar(h.p.database)).drafts.length, 1);
-    await ui.press('家事の選択を解除'); await flush(ui); await ui.press('個人');
-    await ui.press('予定の編集を閉じる'); await flush(ui);
-    assert.equal(closed, 1); assert.equal((await readLocalCalendar(h.p.database)).drafts.length, 0);
+    const h = await setup(t);
+    let local;
+    const host = screenHarness('tests/helpers/calendar-source-host.tsx', { platform, exportName: 'CalendarSourceHost',
+      props: { model: h.model, actions: h.controller.actions, local: h.local, capture: value => { local = value; } } });
+    t.after(() => host.unmount());
+    const read = () => readLocalCalendar(h.p.database, local.shared.notificationScope);
+    for (const newer of [false, true]) {
+      let closed = 0;
+      const ui = harness({ local, model: h.model, actions: h.controller.actions,
+        initial: { eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series', value: newEventDraft('2026-11-05', 'Asia/Tokyo') },
+        onClose() { closed++; }, onSaved() {} }, platform, h.data); t.after(() => ui.unmount());
+      await ui.press('グループ共通'); await ui.change('予定名', '同じ入力の古い共有下書き');
+      await ui.press('家事を追加'); await ui.press('新しい家事を作る');
+      const saved = (await read()).drafts; assert.equal(saved.length, 1); assert.ok(saved[0].editorCategory);
+      if (newer) await local.persistDraft({ ...saved[0], value: { ...saved[0].value, notes: '別画面の更新' } });
+      await ui.press('家事の選択を解除'); await flush(ui); await ui.press('個人');
+      await ui.press('予定の編集を閉じる'); await flush(ui);
+      assert.equal(closed, 1); assert.deepEqual((await read()).drafts.map(row => row.value.notes), newer ? ['別画面の更新'] : []);
+      ui.unmount();
+    }
     assert.equal((await readLocalCalendar(h.p.database)).events.length, 0);
   });
   for(const destination of ['personal','group']) test(`${platform} calendar chore destination switching retains input and writes only the final destination ${destination}`,async t=>{

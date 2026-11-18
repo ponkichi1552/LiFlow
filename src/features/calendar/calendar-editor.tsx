@@ -53,7 +53,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const [draft, setDraft] = useState(initial); const latest = useRef(draft);
   const editedScopeFields = useRef(new Set<keyof EventDraft>());
   const [titleDateTime] = useState(() => createTitleDateTimeInput(initial.value, pinnedClockAt(new Date(), initial.value.timeZone).date));
-  const draftSession = useRef(createEditorDraftSession((local.snapshot.drafts ?? (local.snapshot.draft ? [local.snapshot.draft] : [])).some(row => calendarDraftKey(row) === calendarDraftKey(initial)) ? initial : undefined));
+  const draftSession = useRef(createEditorDraftSession((local.snapshot.drafts ?? (local.snapshot.draft ? [local.snapshot.draft] : [])).some(row => calendarDraftKey(row) === calendarDraftKey(initial)) ? initial : undefined, local.assertDraftAccess));
   useLayoutEffect(() => { latest.current = draft; }, [draft]);
   const [ownBusy, setBusy] = useState(false); const busy = ownBusy || Boolean(choreForm?.busy); const lock = useRef(false); const scrollTop = useRef(0);
   const externalEntry = choreForm?.entry?.value;
@@ -100,10 +100,12 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const needsExitChoice = shouldChooseExit(draft);
   const persistDraft = async (current: CalendarEditorDraft) => {
     if (!local.database) throw new Error('入力内容の保存先を確認してください。');
-    await (local.persistDraft ? local.persistDraft(current) : saveCalendarDraft(local.database, current));
-    draftSession.current.remember(current);
+    if (current.audience === 'group' && !local.persistDraft) throw new Error('共有予定の保存先を確認してください。');
+    const stored = local.persistDraft ? await local.persistDraft(current) : await saveCalendarDraft(local.database, current, false, local.assertDraftAccess);
+    local.assertDraftAccess?.(current);
+    draftSession.current.remember(stored ?? current);
   };
-  const discardAndClose = () => void work(async () => { if (local.database) { await clearCalendarEditorDraft(local.database, draftSession.current.snapshot(initial) ?? initial); await draftSession.current.clear(local.database); } onClose(); });
+  const discardAndClose = () => void work(async () => { if (local.database) { await clearCalendarEditorDraft(local.database, draftSession.current.snapshot(initial) ?? initial, local.assertDraftAccess); await draftSession.current.clear(local.database); } onClose(); });
   const saveDraftAndClose = () => void work(async () => {
     if (!local.database) throw new Error('入力内容の保存先を確認してください。');
     await persistDraft(latest.current); await draftSession.current.clear(local.database, latest.current); onClose();
@@ -127,6 +129,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   });
   const saveReminderOnly = () => void work(async () => {
     if (!local.database || !initial.eventId) return;
+    local.assertDraftAccess?.(latest.current);
     await saveCalendarReminder(local.database, { scope: reminderScope, eventId: initial.eventId, anchorDate: draft.scope === 'one' ? draft.anchorDate : null, minutes: reminderMinutes });
     onSaved(draft.value.startDate);
   });
@@ -167,6 +170,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
     });
   };
   const clocks = choreForm?.entry?.clocks;
+  if (draft.audience === 'group' && local.draftOwnerScope !== undefined && local.draftOwnerScope !== draft.ownerScope) return null;
   return <CalendarEditorSurface key={modalRevision} embedded={Boolean(choreForm)} visible animationType="slide" presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'overFullScreen'} transparent={Platform.OS === 'android'}
     allowSwipeDismissal={!busy && !choreBusy && !needsExitChoice} onRequestClose={() => {
       if (lock.current || choreLock.current) return;
@@ -177,8 +181,8 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
         {!choreForm ? <View style={styles.grabber} /> : null}
         {registeringChore && renderChoreRegistration ? <CalendarSheetContent render={renderChoreRegistration} form={{ date: value.startDate, initialValue: value, initialInput: choreInput, audience: draft.audience ?? 'personal',
           onAudienceChange: (audience, input) => { if (choreLock.current) return; setChoreInput(input);
-            change(before => ({ ...before, audience, groupId: audience === 'group' ? local.shared?.groupId : undefined, basisRevision: undefined })); },
-          onBack: audience => { if (!choreLock.current) { setRegisteringChore(false); if (audience) change(before => ({ ...before, audience, groupId: audience === 'group' ? local.shared?.groupId : undefined, value: { ...before.value, categoryId: 'personal' } })); } },
+            change(before => ({ ...before, audience, groupId: audience === 'group' ? local.shared?.groupId : undefined, ownerScope: audience === 'group' ? local.shared?.notificationScope : undefined, basisRevision: undefined })); },
+          onBack: audience => { if (!choreLock.current) { setRegisteringChore(false); if (audience) change(before => ({ ...before, audience, groupId: audience === 'group' ? local.shared?.groupId : undefined, ownerScope: audience === 'group' ? local.shared?.notificationScope : undefined, value: { ...before.value, categoryId: 'personal' } })); } },
           onCancel: () => { if (choreLock.current) return; setRegisteringChore(false); setChoreInput(undefined); setError(null); setInputRevision(before => before + 1);
             change(before => ({ ...before, value: newEventDraft(initial.value.startDate, initial.value.timeZone) }));
             if (local.database) void draftSession.current.clear(local.database).catch(cause => setError(cause instanceof Error ? cause.message : '入力内容を破棄できませんでした。')); },
@@ -199,14 +203,14 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           {local.shared && !initial.eventId && !value.birthday ? <View style={styles.field}><View style={styles.audienceRow}><Text style={styles.value}>保存先</Text>
             <SettingsSegments tone="quiet" wide value={draft.audience === 'group' ? 'group' : 'personal'} disabled={busy}
               options={[{ id: 'personal', label: '個人' }, { id: 'group', label: 'グループ共通', disabled: !local.shared.enabled }]}
-              onValueChange={audience => { if (choreForm) { if (audience !== draft.audience) onChoreAudience?.(audience); return; } change(before => audience === 'group' ? { ...before, audience, groupId: local.shared!.groupId }
-                : { ...before, audience, groupId: undefined, basisRevision: undefined, value: { ...before.value, categoryId: 'personal' } }); }} /></View>
+              onValueChange={audience => { if (choreForm) { if (audience !== draft.audience) onChoreAudience?.(audience); return; } change(before => audience === 'group' ? { ...before, audience, groupId: local.shared!.groupId, ownerScope: local.shared!.notificationScope }
+                : { ...before, audience, groupId: undefined, ownerScope: undefined, basisRevision: undefined, value: { ...before.value, categoryId: 'personal' } }); }} /></View>
           {!local.shared.enabled ? <Text style={styles.caption}>共有予定は、管理者がグループの互換更新を行うと利用できます。</Text> : null}</View> : initial.eventId && local.shared ? <Text style={styles.caption}>{draft.audience === 'group' ? `${local.shared.name} · グループ共通` : '個人 · 本人のみ'}</Text> : null}
           {readOnly ? googleReadOnly ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(googleReadOnly.externalUrl ?? 'https://calendar.google.com/calendar/u/0/r')}><Text style={styles.action}>Googleカレンダーで編集 ↗</Text></Pressable>
             : <Text style={styles.caption}>共有予定は作成者または管理者が変更できます。</Text> : null}
           {error && !exitActions ? <View><Text accessibilityRole="alert" style={styles.error}>{error}</Text><AppButton title="予定を再読込" variant="quiet" compact onPress={() => void local.refresh()} />
             {initial.eventId && local.database ? <AppButton title="下書きを破棄して閉じる" variant="quiet" compact disabled={busy} onPress={() => void work(async () => {
-              await discardCalendarDraftIfUnchanged(local.database!, initial); onClose(); void local.refresh();
+              await discardCalendarDraftIfUnchanged(local.database!, initial, local.assertDraftAccess); onClose(); void local.refresh();
             })} /> : null}</View> : null}
           {readOnly && !value.birthday ? <CalendarReminderField minutes={reminderMinutes} enabled={reminderSettings.settings.enabled} disabled={busy || reminderSettings.loading || !reminderScope} onChange={reminderMinutes => change(before => ({ ...before, reminderMinutes }))} /> : null}
           <View pointerEvents={readOnly ? 'none' : 'auto'} style={[styles.editorSections, choreForm && styles.choreSections]}>

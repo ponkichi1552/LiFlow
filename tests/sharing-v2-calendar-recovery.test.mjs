@@ -2,16 +2,24 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { isDeepStrictEqual } from 'node:util';
-import { fixture, seeds, now } from './helpers/sharing-v2-repository-fixture.mjs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fixture, seeds, now, receiptsFor } from './helpers/sharing-v2-repository-fixture.mjs';
 import { createV2CalendarActions } from '../src/features/sharing/v2/calendar-actions.ts';
+import { createSharedCalendarRecovery } from '../src/features/calendar/shared-recovery.ts';
 import { readSharedCalendar } from '../src/features/sharing/v2/calendar-state.ts';
 import { newEventDraft, projectCalendarEvents } from '../src/domain/calendar/events.ts';
+import { calendarFutureBase } from '../src/domain/calendar/future-series.ts';
+import { addDays } from '../src/domain/scheduling/local-date.ts';
 import { calendarOccurrenceDraft } from '../src/features/calendar/direct-actions.ts';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { selectCalendarView } from './helpers/calendar-ui.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
-const { initializeLocalDatabase } = await import('../src/platform/storage/repository.ts');
-const { readLocalCalendar, saveCalendarDraft } = await import('../src/platform/storage/calendar-events.ts');
+import { applyReceivedSharedFacts, loadSharedFacts, readSharingCheckpoint } from '../src/platform/storage/sharing-ledger.ts';
+const { initializeLocalDatabase, withPlannerDatabaseOperation } = await import('../src/platform/storage/repository.ts');
+const { calendarDraftKey, readLocalCalendar, saveCalendarDraft } = await import('../src/platform/storage/calendar-events.ts');
+const { calendarReminderMinutes, calendarReminderScope, readCalendarReminders, recoverCalendarReminderUndos, saveCalendarReminder } = await import('../src/platform/storage/calendar-reminders.ts');
 
 const category = { id: 'personal', name: '私用', color: '#348DC2', revision: 1 };
 const draft = extra => ({ ...newEventDraft('2026-10-27', 'Asia/Tokyo'), title: 'Shared event', recurrence: 'weekly', ...extra });
@@ -48,26 +56,255 @@ test('shared series moves preserve individual dates in one batch and a single-oc
 async function sharedEditorFixture(platform) {
   const f = await fixture(); const d = await f.device(); const local = createDatabase(); let ordinal = 0;
   await d.repository.commit(seeds()); await initializeLocalDatabase(local.database);
-  const actions = createV2CalendarActions(d.repository, () => `durable-calendar-${++ordinal}`);
+  const actions = { ...createV2CalendarActions(d.repository, () => `durable-calendar-${++ordinal}`), ...createSharedCalendarRecovery(d.repository) };
   const records = async () => readSharedCalendar((await d.repository.readState()).assessment.view);
+  const readDrafts = (user = 'owner') => readLocalCalendar(local.database, calendarReminderScope(user, d.options.groupId));
   const open = async (overrides = {}) => {
     let binding;
     const model = { viewerUserId: 'owner', adminUserId: 'owner', calendarSupported: true,
       plan: { groupId: d.options.groupId }, calendar: await records() };
-    const props = { local: { database: local.database, snapshot: await readLocalCalendar(local.database), refresh: async () => {}, error: null, loading: false },
+    const props = { local: { database: local.database, snapshot: await readDrafts(overrides.model?.viewerUserId), refresh: async () => {}, error: null, loading: false },
       model, actions, perform: async work => {
         try { await work(); return { committed: true, refreshed: true }; }
         catch (error) { return { committed: false, refreshed: false, error }; }
       }, capture: value => { binding = value; }, ...overrides };
-    const screen = screenHarness('tests/helpers/calendar-source-host.tsx', { exportName: 'CalendarSourceHost', platform, props });
+    const screen = screenHarness('tests/helpers/calendar-source-host.tsx', { exportName: 'CalendarSourceHost', platform, props, effectDependencies: true, layoutEffect: fn => fn() });
     return { get binding() { screen.render(); return binding; }, props, screen };
   };
-  const input = () => ({ audience: 'group', groupId: d.options.groupId, eventId: null, anchorDate: null,
+  const input = (user = 'owner') => ({ audience: 'group', groupId: d.options.groupId, ownerScope: calendarReminderScope(user, d.options.groupId), eventId: null, anchorDate: null,
     revision: 0, exceptionRevision: 0, scope: 'series', value: draft() });
-  return { ...f, d, local, actions, records, open, input, close() { d.connection.close(); local.connection.close(); } };
+  return { ...f, d, local, actions, records, open, input, readDrafts, close() { d.connection.close(); local.connection.close(); } };
 }
 
 for (const platform of ['ios', 'android']) {
+  test(`${platform} switching accounts inside the same group isolates unsent calendar drafts and restores each owners own draft`, async t => {
+    const f = await sharedEditorFixture(platform); t.after(() => f.close());
+    const owner = await f.open(); t.after(() => owner.screen.unmount());
+    const legacy = { ...f.input(), ownerScope: undefined, value: draft({ title: '旧形式' }) };
+    await f.local.database.runAsync('INSERT INTO calendar_drafts(slot,draft_json) VALUES(?,?)', calendarDraftKey(legacy), JSON.stringify(legacy));
+    const oldRow = await f.local.database.getFirstAsync('SELECT slot,draft_json FROM calendar_drafts');
+    await assert.rejects(owner.binding.persistDraft(legacy), /アカウント/u);
+    const categoryId = await owner.binding.saveCategory({ name: '未共有の分類', color: '#31648A', expectedRevision: 0 }, 'group');
+    const first = { ...f.input(), value: draft({ title: '最初の下書き', categoryId }) }; await owner.binding.persistDraft(first);
+    const saved = (await f.readDrafts()).draft;
+    const model = { viewerUserId: 'member', adminUserId: 'owner', calendarSupported: true, plan: { groupId: f.d.options.groupId }, calendar: await f.records() };
+    let submissions = 0;
+    const actions = { ...f.actions, async saveCalendarEvent() { submissions++; throw new Error('unexpected write'); } };
+    const member = await f.open({ model, actions }); t.after(() => member.screen.unmount());
+    assert.equal(member.binding.snapshot.drafts.length, 0);
+    assert.equal(member.binding.categoriesFor('group').some(row => row.id === categoryId), false);
+    await assert.rejects(member.binding.saveEvent(saved, false), /アカウント|本人/u); assert.equal(submissions, 0);
+    const second = { ...f.input('member'), value: draft({ title: '次の下書き' }) }; await member.binding.persistDraft(second);
+    const ownerAgain = await f.open(), memberAgain = await f.open({ model, actions });
+    t.after(() => { ownerAgain.screen.unmount(); memberAgain.screen.unmount(); });
+    assert.deepEqual(ownerAgain.binding.snapshot.drafts.map(row => row.value.title), [first.value.title]);
+    assert.deepEqual(memberAgain.binding.snapshot.drafts.map(row => row.value.title), [second.value.title]);
+    assert.ok(ownerAgain.binding.categoriesFor('group').some(row => row.id === categoryId));
+    assert.deepEqual(await f.local.database.getFirstAsync('SELECT slot,draft_json FROM calendar_drafts WHERE slot=?', oldRow.slot), oldRow);
+    assert.equal((await f.local.database.getFirstAsync('SELECT COUNT(*) AS total FROM calendar_drafts')).total, 3); assert.equal((await f.records()).length, 0);
+  });
+
+  test(`${platform} an account switch while editing a shared event stops queued draft writes and deferred signed submissions`, async t => {
+    const f = await sharedEditorFixture(platform); t.after(() => f.close());
+    await f.actions.saveCalendarEvent({ scope: 'series', anchorDate: null, value: draft(), category });
+    const waiting = Promise.withResolvers(), release = Promise.withResolvers();
+    const host = await f.open({ perform: async work => {
+      waiting.resolve(); await release.promise;
+      try { await work(); return { committed: true, refreshed: true }; }
+      catch (error) { return { committed: false, refreshed: false, error }; }
+    } });
+    t.after(() => { release.resolve(); host.screen.unmount(); });
+    const owner = host.binding, event = owner.snapshot.events.find(row => row.id.startsWith('group.'));
+    const edit = owner.prepareDraft({ eventId: event.id, anchorDate: '2026-11-03', revision: event.revision, exceptionRevision: 0,
+      scope: 'one', value: draft({ title: '入力中のこの回', startDate: '2026-11-03', endDate: '2026-11-03', recurrence: 'none' }) });
+    assert.equal(edit.ownerScope, calendarReminderScope('owner', f.d.options.groupId));
+    await owner.persistDraft(edit);
+    const deferred = owner.saveEvent(edit, false);
+    await waiting.promise;
+    const before = await f.readDrafts();
+    const gate = Promise.withResolvers(), held = withPlannerDatabaseOperation(f.local.database, () => gate.promise);
+    const queued = owner.persistDraft({ ...edit, value: { ...edit.value, notes: '遅延した保存' } });
+    host.props.model = { ...host.props.model, viewerUserId: 'member' };
+    host.props.local = { ...host.props.local, snapshot: before };
+    const next = host.binding;
+    assert.deepEqual(next.snapshot.drafts, []);
+    assert.throws(() => next.prepareDraft(edit), /アカウント/u);
+    assert.equal(next.canEditEvent(event.id), false);
+    const refused = Promise.all([assert.rejects(queued, /アカウント/u), assert.rejects(deferred, /アカウント/u)]);
+    gate.resolve(); release.resolve(); await Promise.all([held, refused]);
+    assert.deepEqual((await f.readDrafts()).drafts, before.drafts);
+    const record = (await f.records())[0];
+    assert.equal(record.heads.length, 1); assert.equal(record.exceptions.length, 0);
+    const restored = await f.open(); t.after(() => restored.screen.unmount());
+    assert.deepEqual(restored.binding.snapshot.drafts, before.drafts);
+    await restored.binding.saveEvent(restored.binding.snapshot.draft, false);
+    assert.deepEqual((await f.records())[0].exceptions.map(row => row.anchorDate), [edit.anchorDate]);
+    assert.equal((await f.readDrafts()).draft, null);
+  });
+
+  test(`${platform} a resumed shared future draft refuses a newly received exception but a one occurrence edit may keep the unrelated change`, async t => {
+    const f = await sharedEditorFixture(platform); t.after(() => f.close());
+    const member = await f.device('member', f.member); t.after(() => member.connection.close());
+    const groupId = f.d.options.groupId;
+    const deliver = async (from, to) => {
+      const facts = await loadSharedFacts(from.database, groupId), checkpoint = await readSharingCheckpoint(to.database, groupId);
+      await applyReceivedSharedFacts(to.database, groupId, facts, String(facts.length), to.repository.project, checkpoint.cursor,
+        now().getTime(), to.repository.evidenceForServerReceipts(receiptsFor(facts)));
+    };
+    await deliver(f.d, member);
+    let id = 0; const author = createV2CalendarActions(member.repository, () => `companion-calendar-${++id}`);
+    const [creation] = await author.saveCalendarEvent({ scope: 'series', anchorDate: null, value: draft(), category });
+    await deliver(member, f.d);
+    const host = await f.open(); t.after(() => host.screen.unmount());
+    const local = host.binding, parent = local.snapshot.events.find(row => row.id.startsWith('group.')), anchor = '2026-11-03';
+    const pending = local.prepareDraft({ eventId: parent.id, anchorDate: anchor, revision: parent.revision, exceptionRevision: 0, scope: 'future',
+      value: { ...calendarFutureBase(parent, anchor), location: 'ローカルの編集' } });
+    await local.persistDraft(pending);
+    const otherDay = '2026-11-10', remoteValue = draft({ title: '相手が保存した回', startDate: otherDay, endDate: otherDay, recurrence: 'none' });
+    await author.saveCalendarEvent({ eventId: creation.operationId, scope: 'one', anchorDate: otherDay, basisRevision: JSON.stringify([[creation.operationId], []]),
+      value: remoteValue, category });
+    await deliver(member, f.d);
+    const resumed = await f.open(); t.after(() => resumed.screen.unmount());
+    const client = resumed.binding, prior = await f.records(), input = client.snapshot.draft, facts = await loadSharedFacts(f.d.database, groupId);
+    await assert.rejects(client.saveEvent(input, false), /更新/u);
+    assert.deepEqual(await loadSharedFacts(f.d.database, groupId), facts); assert.deepEqual(await f.records(), prior);
+    assert.deepEqual((await f.readDrafts()).draft.value, pending.value);
+    const one = { ...input, scope: 'one', value: { ...input.value, recurrence: 'none', untilDate: null } };
+    await client.saveEvent(one, false);
+    const [current] = await f.records();
+    assert.deepEqual(current.heads, prior[0].heads);
+    assert.deepEqual(current.exceptions.find(row => row.anchorDate === otherDay), prior[0].exceptions.find(row => row.anchorDate === otherDay));
+    assert.equal(current.exceptions.find(row => row.anchorDate === anchor).heads[0].payload.value.location, one.value.location);
+  });
+
+  test(`${platform} undoing a shared future move keeps both the split and private rules when another editor changes reminders or local restoration fails`, async t => {
+    const f = await sharedEditorFixture(platform); t.after(() => f.close());
+    await f.actions.saveCalendarEvent({ scope: 'series', anchorDate: null, value: draft(), category });
+    const pending = Promise.withResolvers(), release = Promise.withResolvers();
+    let pauseUndo = false, rejectSignature = false;
+    const host = await f.open({ actions: { ...f.actions, undoCalendarFutureEvent(command) {
+      if (rejectSignature) throw new Error('synthetic signing failure');
+      return f.actions.undoCalendarFutureEvent(command);
+    } }, perform: async work => {
+      if (pauseUndo) { pending.resolve(); await release.promise; }
+      try { await work(); return { committed: true, refreshed: true }; }
+      catch (error) { return { committed: false, refreshed: false, error }; }
+    } });
+    t.after(() => { release.resolve(); host.screen.unmount(); });
+    const binding = host.binding, source = binding.snapshot.events[0], anchor = '2026-11-03';
+    const groupId = f.d.options.groupId, scope = calendarReminderScope('owner', groupId);
+    await saveCalendarReminder(f.local.database, { scope, eventId: source.id, anchorDate: null, minutes: 60 });
+    const before = await readCalendarReminders(f.local.database);
+    const input = binding.prepareDraft({ eventId: source.id, anchorDate: anchor, revision: source.revision, exceptionRevision: 0,
+      scope: 'future', value: calendarFutureBase(source, anchor) });
+    const receipt = await binding.saveEvent(input, false);
+    assert.equal(typeof receipt?.undoFuture, 'function');
+    const after = await loadSharedFacts(f.d.database, groupId);
+    const branch = (await readCalendarReminders(f.local.database)).rules.find(row => row.eventId !== source.id);
+    assert.ok(branch); pauseUndo = true;
+    const refused = assert.rejects(receipt.undoFuture(), /通知設定が更新/u);
+    await pending.promise;
+    await saveCalendarReminder(f.local.database, { ...branch, minutes: 10 });
+    const concurrent = await readCalendarReminders(f.local.database);
+    release.resolve(); await refused;
+    assert.deepEqual(await readCalendarReminders(f.local.database), concurrent);
+    assert.equal((await loadSharedFacts(f.d.database, groupId)).length, after.length, 'a refused undo must leave the signed split intact');
+    pauseUndo = false;
+    await saveCalendarReminder(f.local.database, branch);
+    const originalRun = f.local.database.runAsync;
+    f.local.database.runAsync = async (sql, ...params) => {
+      if (sql.startsWith('DELETE FROM calendar_notification_rules')) throw new Error('synthetic disk failure');
+      return originalRun(sql, ...params);
+    };
+    try { await assert.rejects(receipt.undoFuture(), /synthetic disk failure/u); }
+    finally { f.local.database.runAsync = originalRun; }
+    assert.deepEqual(await loadSharedFacts(f.d.database, groupId), after);
+    const afterRules = await readCalendarReminders(f.local.database);
+    rejectSignature = true; await assert.rejects(receipt.undoFuture(), /synthetic signing failure/u); rejectSignature = false;
+    await recoverCalendarReminderUndos(f.local.database, scope, f.actions.appliedCalendarReminderUndo, () => {});
+    assert.deepEqual(await loadSharedFacts(f.d.database, groupId), after); assert.deepEqual(await readCalendarReminders(f.local.database), afterRules);
+    await receipt.undoFuture(); const undone = await loadSharedFacts(f.d.database, groupId);
+    assert.ok(undone.length > after.length); assert.deepEqual(await readCalendarReminders(f.local.database), before);
+    await receipt.undoFuture(); assert.deepEqual(await loadSharedFacts(f.d.database, groupId), undone);
+  });
+
+  test(`${platform} restarting after the signed future undo repairs the same device's private reminders without signing again`, async t => {
+    const f = await sharedEditorFixture(platform); t.after(() => f.close());
+    await f.actions.saveCalendarEvent({ scope: 'series', anchorDate: null, value: draft(), category });
+    const dir = mkdtempSync(join(tmpdir(), 'liflow-calendar-undo-restart-')), path = join(dir, 'personal.sqlite');
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    let h = createDatabase(path); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database);
+    const groupId = f.d.options.groupId, scope = calendarReminderScope('owner', groupId);
+    let signed = false;
+    const editor = await f.open({ local: { database: h.database, snapshot: await readLocalCalendar(h.database, scope), refresh: async () => {} },
+      actions: { ...f.actions, async undoCalendarFutureEvent(command) { const result = await f.actions.undoCalendarFutureEvent(command); signed = true; return result; } } });
+    const binding = editor.binding, source = binding.snapshot.events[0], anchor = '2026-11-03', future = '2026-11-10', later = '2026-11-17';
+    await saveCalendarReminder(h.database, { scope, eventId: source.id, anchorDate: null, minutes: 60 });
+    await saveCalendarReminder(h.database, { scope, eventId: source.id, anchorDate: future, minutes: 10 });
+    await saveCalendarReminder(h.database, { scope, eventId: source.id, anchorDate: later, minutes: null });
+    const original = await readCalendarReminders(h.database);
+    const receipt = await binding.saveEvent(binding.prepareDraft({ eventId: source.id, anchorDate: anchor, revision: source.revision, exceptionRevision: 0,
+      scope: 'future', value: calendarFutureBase(source, anchor) }), false);
+    const normal = h.database.withTransactionAsync;
+    h.database.withTransactionAsync = callback => normal(async () => { await callback(); if (signed) throw new Error('interrupted private COMMIT'); });
+    try { await assert.rejects(receipt.undoFuture(), /interrupted private COMMIT/u); }
+    finally { h.database.withTransactionAsync = normal; editor.screen.unmount(); }
+    assert.ok(signed); const facts = await loadSharedFacts(f.d.database, groupId);
+    h.connection.close(); h = createDatabase(path);
+    await saveCalendarReminder(h.database, { scope, eventId: source.id, anchorDate: later, minutes: 1440 });
+    const waiting = await readCalendarReminders(h.database);
+    assert.equal(calendarReminderMinutes(waiting, scope, source.id, future), 60);
+    const auth = { currentUser: { uid: 'member' }, onAuthStateChanged: () => () => {} };
+    const session = { controller: { actions: f.actions } };
+    const identity = userId => ({ ready: true, userId, group: { groupId, userId, status: 'active' }, active: { protocol: 2, userId, groupId, session } });
+    const workspace = { _currentValue: identity('member') };
+    const observer = screenHarness('tests/helpers/local-calendar-observer-host.tsx', { exportName: 'LocalCalendarObserverHost', platform,
+      effectDependencies: true, effect: callback => callback(), layoutEffect: callback => callback(), props: { database: h.database, capture() {} },
+      mocks: { '@/contexts/workspace-context': { WorkspaceContext: workspace }, './use-personal-google-sync': { usePersonalGoogleSync: () => () => {} },
+        '@/platform/sharing/firebase-services': { isSharingConfigured: () => true, getSharingServices: () => ({ auth }) } } });
+    t.after(() => observer.unmount()); await observer.flush();
+    assert.deepEqual(await readCalendarReminders(h.database), waiting);
+    workspace._currentValue = identity('owner'); auth.currentUser = { uid: 'owner' }; observer.render();
+    for (let n = 0; n < 20 && calendarReminderMinutes(await readCalendarReminders(h.database), scope, source.id, future) !== 10; n++) await observer.flush();
+    const recovered = await readCalendarReminders(h.database);
+    const sorted = rows => [...rows].sort((a, b) => String(a.anchorDate).localeCompare(String(b.anchorDate)));
+    assert.deepEqual(sorted(recovered.rules), sorted(original.rules.map(row => row.anchorDate === later ? { ...row, minutes: 1440 } : row)));
+    assert.equal((await h.database.getFirstAsync('SELECT count(*) AS n FROM calendar_reminder_undos')).n, 0);
+    assert.deepEqual(await loadSharedFacts(f.d.database, groupId), facts);
+  });
+
+  test(`${platform} restarting after a lost shared future split reply recovers private reminders from the original series exactly once`, async t => {
+    for (const anchor of ['2026-10-27', '2026-11-03']) {
+      const f = await sharedEditorFixture(platform); t.after(() => f.close());
+      await (await f.open()).binding.saveEvent(f.input(), false);
+      const source = await f.open({ actions: { ...f.actions, async saveCalendarEvent(command) {
+        await f.actions.saveCalendarEvent(command); throw new Error('synthetic lost split reply');
+      } } }); t.after(() => source.screen.unmount());
+      const local = source.binding, parent = local.snapshot.events.find(row => row.id.startsWith('group.'));
+      const scope = calendarReminderScope('owner', f.d.options.groupId), nextDay = addDays(anchor, 1), following = addDays(anchor, 7);
+      await saveCalendarReminder(f.local.database, { scope, eventId: parent.id, anchorDate: null, minutes: 60 });
+      await saveCalendarReminder(f.local.database, { scope, eventId: parent.id, anchorDate: following, minutes: 10 });
+      const edit = local.prepareDraft({ eventId: parent.id, anchorDate: anchor, revision: parent.revision, exceptionRevision: 0, scope: 'future',
+        value: { ...calendarFutureBase(parent, anchor), startDate: nextDay, endDate: nextDay, location: '合成会場' } });
+      await assert.rejects(local.saveEvent(edit, false), /lost split reply/u);
+      const committed = await f.records(); assert.equal(committed.length, 2);
+      const outbox = () => f.d.connection.prepare('SELECT COUNT(*) AS n FROM sharing_outbox').get().n;
+      const beforeRetry = outbox(), current = await f.open(); t.after(() => current.screen.unmount());
+      const resumed = current.binding, saved = (await f.readDrafts()).draft;
+      const branch = resumed.snapshot.events.find(row => row.id !== parent.id); assert.ok(branch); assert.ok(saved?.submission);
+      const chosenAfterSplit = anchor !== parent.startDate;
+      if (chosenAfterSplit) await saveCalendarReminder(f.local.database, { scope, eventId: branch.id, anchorDate: null, minutes: 0 });
+      const canRetry = async () => resumed.saveEvent(saved, false);
+      await canRetry(); assert.equal((await f.readDrafts()).draft, null);
+      const rules = async () => (await readCalendarReminders(f.local.database)).rules.filter(row => row.scope === scope);
+      const after = await rules();
+      assert.ok(after.some(row => row.eventId === branch.id && row.anchorDate === null && row.minutes === (chosenAfterSplit ? 0 : 60)));
+      assert.ok(after.some(row => row.eventId === branch.id && row.anchorDate === addDays(following, 1) && row.minutes === 10));
+      assert.ok(!after.some(row => row.eventId === parent.id && row.anchorDate === following));
+      await canRetry(); assert.deepEqual(await rules(), after); assert.deepEqual(await f.records(), committed); assert.equal(outbox(), beforeRetry);
+    }
+  });
+
   test(`${platform} a resumed shared occurrence draft keeps its edits and saves the latest exact location once on the future branch`, async t => {
     const f = await sharedEditorFixture(platform); t.after(() => f.close());
     const parent = draft({ title: '週の予定', location: '本館', notes: '毎週のメモ' });
@@ -114,7 +351,7 @@ for (const platform of ['ios', 'android']) {
     assert.deepEqual(branch.heads[0].payload.value, { ...parent, startDate: anchor, endDate: anchor, location: finalLocation, notes: '再開前のメモ' });
     assert.deepEqual(branch.exceptions[0].heads[0].payload.value, override);
     assert.deepEqual(past.heads[0].payload.value, { ...parent, untilDate: '2026-11-02' });
-    assert.equal((await readLocalCalendar(f.local.database)).draft, null);
+    assert.equal((await f.readDrafts()).draft, null);
   });
 
   test(`${platform} editing moving and deleting a detached shared occurrence of a single event changes only that occurrence`, async t => {
@@ -181,12 +418,12 @@ for (const platform of ['ios', 'android']) {
       assert.equal((await f.records()).length, 1);
       assert.match(editor.binding.error, /予定は保存済み/);
       await editor.binding.refresh(); assert.match(editor.binding.error, /予定は保存済み/);
-      const restored = (await readLocalCalendar(f.local.database)).draft; assert.ok(restored.submission);
+      const restored = (await f.readDrafts()).draft; assert.ok(restored.submission);
       const restarted = await f.open(); failCleanup = false;
       await restarted.binding.saveEvent(restored, false);
       assert.equal((await f.records()).length, 1);
       assert.equal(f.d.connection.prepare('SELECT count(*) AS n FROM sharing_v2_mutation_intents').get().n, 1);
-      assert.equal((await readLocalCalendar(f.local.database)).draft, null);
+      assert.equal((await f.readDrafts()).draft, null);
       // A genuinely new event with identical content is a separate user action.
       await (await f.open()).binding.saveEvent(f.input(), false);
       assert.equal((await f.records()).length, 2);
@@ -198,11 +435,11 @@ for (const platform of ['ios', 'android']) {
       const newer = { ...f.input(), value: draft({ title: 'New unsaved event' }) };
       const editor = await f.open({ actions: { ...f.actions, saveCalendarEvent: async command => {
         const result = await f.actions.saveCalendarEvent(command);
-        await saveCalendarDraft(f.local.database, newer); return result;
+        await saveCalendarDraft(f.local.database, newer, false, editor.binding.assertDraftAccess); return result;
       } } });
       await editor.binding.saveEvent(f.input(), false);
       assert.equal((await f.records()).length, 1);
-      assert.deepEqual((await readLocalCalendar(f.local.database)).draft, newer);
+      assert.deepEqual((await f.readDrafts()).draft, newer);
     } finally { f.close(); }
   });
   test(`${platform} a lost shared calendar commit reply retries the persisted command and failed pre-commit saves retain their draft`, async () => {
@@ -216,7 +453,7 @@ for (const platform of ['ios', 'android']) {
       } } });
       const input = { ...f.input(), submission: { id: 'calendar-intent.previous-restored-command', digest: '0'.repeat(64) } };
       await assert.rejects(editor.binding.saveEvent(input, false), /before commit/);
-      assert.equal((await f.records()).length, 0); assert.ok((await readLocalCalendar(f.local.database)).draft);
+      assert.equal((await f.records()).length, 0); assert.ok((await f.readDrafts()).draft);
       before = false;
       await assert.rejects(editor.binding.saveEvent(input, false), /reply lost/);
       assert.equal((await f.records()).length, 1);
@@ -226,9 +463,9 @@ for (const platform of ['ios', 'android']) {
       // Closing after recovery must persist the current submission, not the
       // obsolete identity that came with the original restored draft.
       await editor.binding.persistDraft(input);
-      const restored = (await readLocalCalendar(f.local.database)).draft;
+      const restored = (await f.readDrafts()).draft;
       await (await f.open()).binding.saveEvent(restored, false);
-      assert.equal((await f.records()).length, 1); assert.equal((await readLocalCalendar(f.local.database)).draft, null);
+      assert.equal((await f.records()).length, 1); assert.equal((await f.readDrafts()).draft, null);
     } finally { f.close(); }
   });
   test(`${platform} edits and deletion retry the committed shared intent using the projected event identity and original basis`, async () => {
@@ -244,7 +481,7 @@ for (const platform of ['ios', 'android']) {
         return run(sql, ...params);
       };
       await editor.binding.saveEvent(input, false);
-      const restored = (await readLocalCalendar(f.local.database)).draft;
+      const restored = (await f.readDrafts()).draft;
       failCleanup = false; editor = await f.open(); await editor.binding.saveEvent(restored, false);
       let record = (await f.records())[0]; assert.equal(record.heads[0].payload.value.title, 'Edited shared event');
       assert.equal((await f.d.repository.readState()).replica.operations.filter(row => row.entityType === 'calendarEvent').length, 2);
@@ -252,11 +489,11 @@ for (const platform of ['ios', 'android']) {
       const remove = editor.binding.prepareDraft({ ...f.input(), audience: undefined, groupId: undefined, eventId: updated.id,
         revision: updated.revision, value: updated });
       failCleanup = true; await editor.binding.deleteEvent(remove);
-      const retryDelete = (await readLocalCalendar(f.local.database)).draft;
+      const retryDelete = (await f.readDrafts()).draft;
       failCleanup = false; editor = await f.open(); await editor.binding.deleteEvent(retryDelete);
       record = (await f.records())[0]; assert.equal(record.heads[0].payload.value, null);
       assert.equal((await f.d.repository.readState()).replica.operations.filter(row => row.entityType === 'calendarEvent').length, 3);
-      assert.equal((await readLocalCalendar(f.local.database)).draft, null);
+      assert.equal((await f.readDrafts()).draft, null);
     } finally { f.close(); }
   });
 }
@@ -333,7 +570,7 @@ for (const platform of ['ios', 'android']) test(`${platform} shared event remind
     f.local.connection.exec("CREATE TRIGGER fail_reminder BEFORE INSERT ON calendar_notification_rules BEGIN SELECT RAISE(ABORT,'reminder write failed'); END");
     await assert.rejects(editor.binding.saveEvent(input, false), /reminder write failed/);
     assert.equal((await f.records()).length, 1);
-    const saved = (await readLocalCalendar(f.local.database)).drafts.find(row => row.audience === 'group'); assert.equal(saved.reminderMinutes, 60);
+    const saved = (await f.readDrafts()).drafts.find(row => row.audience === 'group'); assert.equal(saved.reminderMinutes, 60);
     f.local.connection.exec('DROP TRIGGER fail_reminder');
     await (await f.open()).binding.saveEvent(saved, false);
     const records = await f.records(); assert.equal(records.length, 1);

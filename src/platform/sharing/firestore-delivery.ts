@@ -35,7 +35,8 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
   let advertised = false;
   let advertising: Promise<void> | undefined;
   let acknowledgement: Promise<void> = Promise.resolve();
-  const receivedRequests = new Map<string, Pick<Request, 'kind' | 'key' | 'after' | 'through'>>();
+  let lastEmptyClosedRequest: string | undefined;
+  const receivedRequests = new Map<string, Pick<Request, 'kind' | 'key' | 'after' | 'through'> & { deadline: number }>();
   const knownRequests = new Map<string, Request>();
   const sentRequests = new Map<string, string>();
   let cursor: QueryDocumentSnapshot | undefined;
@@ -46,6 +47,11 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
   let wake: (() => void) | undefined; let failure: ((error: unknown) => void) | undefined;
   const responseObservers = new Map<string, () => void>();
   const fingerprintOf = (request: Request) => `${request.createdAt!.seconds}:${request.createdAt!.nanoseconds}:${request.keyVersion}`;
+  const deadlineOf = (request: Request) => Math.min(request.expiresAt.toMillis(), request.createdAt!.toMillis() + TTL);
+  function forgetRequest(id: string) {
+    knownRequests.delete(id); sentRequests.delete(id); receivedRequests.delete(id);
+    responseObservers.get(id)?.(); responseObservers.delete(id);
+  }
   function archiveChanged() {
     if (!scope || ![...knownRequests].some(([id, request]) => request.deviceId !== deviceId && request.receivedAt === undefined
       && request.expiresAt.toMillis() > Date.now() && sentRequests.get(id) !== fingerprintOf(request))) return;
@@ -59,7 +65,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
   function observeResponse(target: DocumentReference) {
     if (!wake || responseObservers.has(target.id)) return;
     let last = '';
-    responseObservers.set(target.id, onSnapshot(collection(target, 'responses'), snapshot => {
+    responseObservers.set(target.id, onSnapshot(collection(target, 'responses'), { includeMetadataChanges: true }, snapshot => {
       if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return;
       const fingerprint = snapshot.docs.filter(item => item.data().ready === true).map(item => `${item.id}:${item.data().digest}`).sort().join(',');
       if (fingerprint && fingerprint !== last) { last = fingerprint; wake?.(); }
@@ -115,11 +121,12 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
         if (discoveryNeeded) { discoveryNeeded = false; await discover(groupId); }
         for (const [id, request] of knownRequests) {
           checkAccount();
-          if (request.expiresAt.toMillis() <= Date.now() || request.createdAt!.toMillis() + TTL <= Date.now() || request.receivedAt !== undefined) {
-            knownRequests.delete(id); sentRequests.delete(id); continue;
+          if (deadlineOf(request) <= Date.now() || request.receivedAt !== undefined) {
+            forgetRequest(id); continue;
           }
           if (request.deviceId === deviceId && request.userId === userId) {
-            receivedRequests.set(id, request); observeResponse(doc(requests(groupId), id)); continue;
+            receivedRequests.set(id, { kind: request.kind, key: request.key, after: request.after, through: request.through, deadline: deadlineOf(request) });
+            observeResponse(doc(requests(groupId), id)); continue;
           }
           if (request.deviceId === deviceId || group.deviceOwners[request.deviceId] !== request.userId
             || group.revokedUserIds.includes(request.userId) || request.keyVersion !== group.keyVersion) continue;
@@ -134,7 +141,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
             const live = await getDocFromServer(doc(requests(groupId), id)); checkAccount(); const latest = live.data();
             // A different peer can complete delivery while this one is preparing its response.
             if (!live.exists() || latest?.receivedAt !== undefined || latest?.expiresAt?.toMillis() <= Date.now()) {
-              knownRequests.delete(id); sentRequests.delete(id); continue;
+              forgetRequest(id); continue;
             }
             throw error;
           }
@@ -150,18 +157,36 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
     // Stable within a bounded window: repeated wakeups reuse a request instead of uploading another full copy.
     const requestId = sharedDocumentDigest([groupId, userId, deviceId, kind, key, after, through, group.keyVersion, Math.floor(Date.now() / TTL)]);
     const target = doc(requests(groupId), requestId);
-    receivedRequests.set(requestId, { kind, key, after, through });
-    observeResponse(target);
-    await runTransaction(firestore, async transaction => {
+    const state = await runTransaction(firestore, async transaction => {
       const raw = (await transaction.get(reference(groupId))).data();
       const current = context.parseRoot ? context.parseRoot(raw, groupId) : parseSharedCloudGroup(raw, groupId).group;
       assertSharedCloudAccess(current, userId, deviceId); const old = await transaction.get(target); checkAccount();
-      if (old.exists()) return;
+      if (old.exists()) {
+        const saved = old.data();
+        if (!validRequest(saved)) return null;
+        return { deadline: deadlineOf(saved), closed: saved.receivedAt === undefined ? null : fingerprintOf(saved) };
+      }
+      const expiresAt = Timestamp.fromMillis(Date.now() + TTL);
       transaction.set(target, { schemaVersion: 1, userId, deviceId, kind, key, after, through,
-        keyVersion: current.keyVersion, createdAt: serverTimestamp(), expiresAt: Timestamp.fromMillis(Date.now() + TTL) });
+        keyVersion: current.keyVersion, createdAt: serverTimestamp(), expiresAt });
+      return { deadline: expiresAt.toMillis(), closed: null };
     }); checkAccount();
+    if (!state || state.deadline <= Date.now()) {
+      forgetRequest(requestId); throw new SharedDeliveryPendingError();
+    }
+    const closed = state.closed && `${requestId}:${state.closed}`;
+    if (closed) {
+      forgetRequest(requestId);
+      if (lastEmptyClosedRequest === closed) throw new SharedDeliveryPendingError();
+    } else {
+      receivedRequests.set(requestId, { kind, key, after, through, deadline: state.deadline });
+      observeResponse(target);
+    }
     const responses = await getDocsFromServer(query(collection(target, 'responses'), limit(64))); checkAccount();
+    // Unexpired replies can restore a lost local copy after ACK. A closed request cannot gain replies after an empty server listing.
+    if (closed && responses.empty) lastEmptyClosedRequest = closed;
     for (const response of responses.docs) {
+      if (state.deadline <= Date.now()) break;
       const metadata = response.data();
       if (metadata.ready !== true || !group.deviceOwners[response.id] || group.deviceOwners[response.id] !== metadata.userId
         || group.revokedUserIds.includes(metadata.userId) || !Number.isSafeInteger(metadata.size) || metadata.size < 1 || metadata.size > MAX_BYTES
@@ -179,7 +204,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
       }
       if (!valid || offset !== bytes.length) continue;
       let value: unknown; try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { continue; }
-      if (sharedDocumentDigest(value) === metadata.digest) return value;
+      if (sharedDocumentDigest(value) === metadata.digest && state.deadline > Date.now()) return value;
     }
     throw new SharedDeliveryPendingError();
   }
@@ -221,6 +246,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
       const close = async () => {
         const targets: string[] = [];
         for (const [id, request] of receivedRequests) {
+          if (request.deadline <= Date.now()) { forgetRequest(id); continue; }
           if (request.through > sequence) continue;
           const durable = request.kind === 'chunk' ? await archive.chunk(request.key) : await archive.events(request.after, request.through);
           checkAccount(); if (durable !== null) targets.push(id);
@@ -240,10 +266,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
             }
           }); checkAccount();
         }
-        for (const request of targets) {
-          receivedRequests.delete(request); knownRequests.delete(request);
-          responseObservers.get(request)?.(); responseObservers.delete(request);
-        }
+        for (const id of targets) forgetRequest(id);
       };
       const pending = acknowledgement.then(close);
       acknowledgement = pending.catch(() => undefined);
@@ -252,7 +275,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
     watch(groupId: string, changed: () => void, failed: (error: unknown) => void) {
       wake = changed; failure = failed;
       let latest: string | undefined;
-      const unsubscribe = onSnapshot(query(requests(groupId), orderBy('createdAt', 'desc'), limit(1)), snapshot => {
+      const unsubscribe = onSnapshot(query(requests(groupId), orderBy('createdAt', 'desc'), limit(1)), { includeMetadataChanges: true }, snapshot => {
         try { checkAccount(); if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) {
           const value = snapshot.docs[0]; const createdAt = value?.data().createdAt;
           const fingerprint = value && validTime(createdAt) ? `${value.id}:${createdAt.seconds}:${createdAt.nanoseconds}` : '';

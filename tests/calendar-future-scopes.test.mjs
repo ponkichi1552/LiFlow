@@ -1,6 +1,9 @@
 import './helpers/typescript-loader.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { selectCalendarView } from './helpers/calendar-ui.mjs';
@@ -159,6 +162,25 @@ test('forked shared reminder preferences stay in personal storage are idempotent
   const writes = h.writes.length; await reminders.forkCalendarReminders(h.database, input); assert.equal(h.writes.length, writes);
   await reminders.saveCalendarReminder(h.database, { scope, eventId: branchId, anchorDate: null, minutes: 0 }); await assert.rejects(receipt.assertCurrent(), /上書きせず/u);
   await reminders.saveCalendarReminder(h.database, { scope, eventId: branchId, anchorDate: null, minutes: 60 }); await receipt.undo(); assert.deepEqual(await reminders.readCalendarReminders(h.database), before);
+});
+
+test('an empty private reminder split stays complete after restart and never adopts a later source reminder', async t => {
+  const folder = mkdtempSync(join(tmpdir(), 'liflow-calendar-reminders-')), path = join(folder, 'private.sqlite');
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  const scope = reminders.calendarReminderScope('viewer', 'group');
+  const input = { scope, sourceId: 'shared.source', branchId: 'shared.branch', source: { ...value(), id: 'shared.source', revision: 1 },
+    anchor: '2026-11-15', next: value({ startDate: '2026-11-16', endDate: '2026-11-16' }) };
+  const first = createDatabase(path);
+  try {
+    await repository.initializeLocalDatabase(first.database);
+    await reminders.forkCalendarReminders(first.database, input);
+  } finally { first.connection.close(); }
+  const h = createDatabase(path); t.after(() => h.connection.close());
+  await reminders.saveCalendarReminder(h.database, { scope, eventId: input.sourceId, anchorDate: null, minutes: 1440 });
+  const before = await reminders.readCalendarReminders(h.database); const writes = h.writes.length;
+  await reminders.forkCalendarReminders(h.database, input);
+  assert.deepEqual(await reminders.readCalendarReminders(h.database), before);
+  assert.equal(h.writes.length, writes);
 });
 
 for (const [platform, ...testNames] of [

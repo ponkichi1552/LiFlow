@@ -17,8 +17,16 @@ import { readCalendarEventRows } from './calendar-event-rows.ts';
 import { splitCalendarFuture } from '../../domain/calendar/future-series.ts';
 import { rebasedCalendarExceptionDate } from '../../domain/calendar/exception-slots.ts';
 
-export interface CalendarEditorDraft { reminderMinutes?: number | null; audience?: 'personal' | 'group'; groupId?: string; basisRevision?: string; editorCategory?: CalendarCategory; submission?: { id: string; digest: string }; eventId: string | null; anchorDate: LocalDate | null; revision: number; exceptionRevision: number; scope: 'one' | 'future' | 'series'; value: EventDraft }
-export function calendarDraftKey(draft: Pick<CalendarEditorDraft, 'audience' | 'groupId' | 'eventId' | 'scope' | 'anchorDate'> & { value: Pick<EventDraft, 'birthday'> }) { const prefix = draft.audience === 'group' ? `group:${draft.groupId}:` : ''; return prefix + (draft.eventId ? `event:${draft.eventId}:${draft.scope}:${draft.scope !== 'series' ? draft.anchorDate : ''}` : draft.value.birthday ? 'birthday:new' : 'new'); }
+export interface CalendarEditorDraft { reminderMinutes?: number | null; audience?: 'personal' | 'group'; groupId?: string; ownerScope?: string; basisRevision?: string; editorCategory?: CalendarCategory; submission?: { id: string; digest: string }; eventId: string | null; anchorDate: LocalDate | null; revision: number; exceptionRevision: number; scope: 'one' | 'future' | 'series'; value: EventDraft }
+export function calendarDraftKey(draft: Pick<CalendarEditorDraft, 'audience' | 'groupId' | 'ownerScope' | 'eventId' | 'scope' | 'anchorDate'> & { value: Pick<EventDraft, 'birthday'> }) {
+  const prefix = draft.audience !== 'group' ? '' : draft.ownerScope ? `owned:${draft.ownerScope}:` : `group:${draft.groupId}:`;
+  return prefix + (draft.eventId ? `event:${draft.eventId}:${draft.scope}:${draft.scope !== 'series' ? draft.anchorDate : ''}` : draft.value.birthday ? 'birthday:new' : 'new');
+}
+export type CalendarDraftAccess = (draft: CalendarEditorDraft) => void;
+function assertDraftWriter(draft: CalendarEditorDraft, assertAccess?: CalendarDraftAccess) {
+  if (draft.audience === 'group' && (!draft.ownerScope || !assertAccess)) throw new Error('下書きを保存したアカウントを確認してください。');
+  assertAccess?.(draft);
+}
 /** A return route carries this digest, never the private input text. */
 export function calendarDraftVersion(draft: CalendarEditorDraft) { return bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(parseEditorDraft(draft))))); }
 export interface LocalCalendarSnapshot { events: CalendarEvent[]; categories: CalendarCategory[]; exceptions: CalendarException[]; draft: CalendarEditorDraft | null; drafts?: CalendarEditorDraft[]; draftError?: string }
@@ -73,17 +81,28 @@ export function subscribeLocalCalendar(database: SQLiteDatabase, callback: (chan
   return () => { set!.delete(callback); if (!set!.size) connections!.delete(database); if (!connections!.size) listeners.delete(key); };
 }
 export type LocalCalendarDrafts = Pick<LocalCalendarSnapshot, 'draft' | 'drafts' | 'draftError'>;
-async function readDrafts(database: SQLiteDatabase): Promise<LocalCalendarDrafts> {
-  const rows = await database.getAllAsync<{ draft_json: string }>('SELECT draft_json FROM calendar_drafts ORDER BY rowid DESC LIMIT 51');
+type DraftReadOwner = string | null | (() => string | null | undefined);
+// The original single-slot editor may contain either audience. Unknown group authors stay archived.
+const personalDraftSlots = `(slot IN ('new','birthday:new') OR slot GLOB 'event:*'
+  OR (slot='editor' AND CASE WHEN json_valid(draft_json) THEN coalesce(json_extract(draft_json,'$.audience'),'personal')<>'group' ELSE 1 END))`;
+async function readDrafts(database: SQLiteDatabase, owner?: DraftReadOwner): Promise<LocalCalendarDrafts> {
+  const scope = typeof owner === 'function' ? owner() : owner;
+  if (scope && !/^group:[a-f0-9]{64}$/u.test(scope)) throw new Error('下書きのアカウントを確認してください。');
+  const rows = await database.getAllAsync<{ draft_json: string }>(
+    `SELECT draft_json FROM calendar_drafts WHERE ${personalDraftSlots}${scope ? ' OR slot GLOB ?' : ''} ORDER BY rowid DESC LIMIT 100`,
+    ...(scope ? [`owned:${scope}:*`] : []));
   const drafts: CalendarEditorDraft[] = []; let draftError: string | undefined;
-  for (const raw of rows) try { drafts.push(parseEditorDraft(JSON.parse(raw.draft_json))); } catch { draftError = '入力途中の予定を読み込めません。保存済みの予定は表示しています。'; }
+  for (const raw of rows) try {
+    const draft = parseEditorDraft(JSON.parse(raw.draft_json));
+    if (draft.audience !== 'group' || scope && draft.ownerScope === scope) drafts.push(draft);
+  } catch { draftError = '入力途中の予定を読み込めません。保存済みの予定は表示しています。'; }
   return { draft: drafts[0] ?? null, drafts, draftError };
 }
 /** A keystroke only changes drafts, never the saved recurrence, category or availability inputs. */
-export function readLocalCalendarDrafts(database: SQLiteDatabase): Promise<LocalCalendarDrafts> {
-  return withPlannerDatabaseOperation(database, async () => { await personal(database); await migrateLocalDatabase(database); return readDrafts(database); });
+export function readLocalCalendarDrafts(database: SQLiteDatabase, owner?: DraftReadOwner): Promise<LocalCalendarDrafts> {
+  return withPlannerDatabaseOperation(database, async () => { await personal(database); await migrateLocalDatabase(database); return readDrafts(database, owner); });
 }
-export async function readLocalCalendar(database: SQLiteDatabase): Promise<LocalCalendarSnapshot> {
+export async function readLocalCalendar(database: SQLiteDatabase, owner?: DraftReadOwner): Promise<LocalCalendarSnapshot> {
   return withPlannerDatabaseOperation(database, async () => {
     await personal(database); await migrateLocalDatabase(database);
     const { events, exceptions } = await readCalendarEventRows(database);
@@ -91,7 +110,7 @@ export async function readLocalCalendar(database: SQLiteDatabase): Promise<Local
     const missing = INITIAL_CATEGORIES.filter(category => !categories.some(existing => existing.id === category.id));
     for (const category of missing) await insertInitialCalendarCategory(database, category);
     if (missing.length) categories = await database.getAllAsync<CalendarCategory>('SELECT * FROM calendar_categories ORDER BY rowid');
-    return { events, exceptions, categories, ...await readDrafts(database) };
+    return { events, exceptions, categories, ...await readDrafts(database, owner) };
   });
 }
 function insertInitialCalendarCategory(database: SQLiteDatabase, category: CalendarCategory) {
@@ -109,42 +128,47 @@ function parseEditorDraft(draft: CalendarEditorDraft): CalendarEditorDraft {
   const value = validateEventDraft({ ...draft.value, title: draft.value.title.trim() ? draft.value.title : '入力中', allDay: true, birthday: false, endDate: draft.value.startDate, untilDate: null });
   if (draft.audience !== undefined && !['personal', 'group'].includes(draft.audience)) throw new Error('予定の保存先を確認してください。');
   if (draft.audience === 'group' && (typeof draft.groupId !== 'string' || !/^[A-Za-z0-9._-]{1,192}$/.test(draft.groupId))) throw new Error('共有予定のグループを確認してください。');
+  if (draft.audience === 'group' && draft.ownerScope !== undefined && !/^group:[a-f0-9]{64}$/u.test(draft.ownerScope)) throw new Error('下書きのアカウントを確認してください。');
   if (draft.basisRevision !== undefined && (typeof draft.basisRevision !== 'string' || draft.basisRevision.length > 50000)) throw new Error('共有予定の編集元を確認してください。');
   if (draft.submission && (!/^calendar-intent\.[A-Za-z0-9._-]{1,100}$/u.test(draft.submission.id) || !/^[a-f0-9]{64}$/u.test(draft.submission.digest))) throw new Error('予定の保存待ちを確認してください。');
   if (draft.reminderMinutes !== undefined) checkedReminderMinutes(draft.reminderMinutes);
   const category = draft.editorCategory;
   if (category && (!/^[A-Za-z0-9._-]{1,100}$/.test(category.id) || typeof category.name !== 'string' || category.name.length > 40 || !Number.isSafeInteger(category.revision) || category.revision < 0 || !/^#[0-9a-f]{6}$/i.test(category.color))) throw new Error('分類を確認してください。');
   return { ...(draft.reminderMinutes !== undefined ? { reminderMinutes: draft.reminderMinutes } : {}), ...(draft.audience ? { audience: draft.audience } : {}), ...(draft.audience === 'group' ? { groupId: draft.groupId } : {}),
+    ...(draft.audience === 'group' && draft.ownerScope ? { ownerScope: draft.ownerScope } : {}),
     ...(draft.basisRevision ? { basisRevision: draft.basisRevision } : {}), ...(draft.audience === 'group' && draft.submission ? { submission: { ...draft.submission } } : {}), ...(category ? { editorCategory: { id: category.id, name: category.name, color: category.color, revision: category.revision } } : {}), eventId: draft.eventId, anchorDate: draft.anchorDate, revision: draft.revision, exceptionRevision: draft.exceptionRevision, scope: draft.scope,
     value: { ...value, title: draft.value.title, allDay: draft.value.allDay, birthday: draft.value.birthday, endDate: draft.value.endDate, untilDate: draft.value.untilDate } };
 }
-async function clearRelatedDrafts(database: SQLiteDatabase, id: string | null, scope?: 'one' | 'future' | 'series', anchorDate?: LocalDate | null, birthday = false, audience: Pick<CalendarEditorDraft, 'audience' | 'groupId'> = {}, submitted?: CalendarEditorDraft) {
+async function clearRelatedDrafts(database: SQLiteDatabase, id: string | null, scope?: 'one' | 'future' | 'series', anchorDate?: LocalDate | null, birthday = false, audience: Pick<CalendarEditorDraft, 'audience' | 'groupId' | 'ownerScope'> = {}, submitted?: CalendarEditorDraft) {
   let removed = false;
   const exactSlot = scope || id === null ? calendarDraftKey({ ...audience, eventId: id, scope: scope ?? 'series', anchorDate: anchorDate ?? null, value: { birthday } }) : null;
-  const rows = await database.getAllAsync<{ slot: string; draft_json: string }>(exactSlot === null
-    ? 'SELECT slot,draft_json FROM calendar_drafts LIMIT 51'
-    : "SELECT slot,draft_json FROM calendar_drafts WHERE slot IN (?,'editor')", ...(exactSlot === null ? [] : [exactSlot]));
+  const where = exactSlot === null ? personalDraftSlots : audience.audience === 'group' ? 'slot=?' : `(slot=? OR (slot='editor' AND ${personalDraftSlots}))`;
+  const rows = await database.getAllAsync<{ slot: string; draft_json: string }>(
+    `SELECT slot,draft_json FROM calendar_drafts WHERE ${where} LIMIT 51`, ...(exactSlot === null ? [] : [exactSlot]));
   for (const row of rows) {
     let draft: CalendarEditorDraft;
     try { draft = parseEditorDraft(JSON.parse(row.draft_json)); } catch { continue; }
     if (submitted && (draft.revision !== submitted.revision || scope === 'one' && draft.exceptionRevision !== submitted.exceptionRevision
       || draft.reminderMinutes !== submitted.reminderMinutes || JSON.stringify(draft.value) !== JSON.stringify(submitted.value))) continue;
-    if ((draft.audience ?? 'personal') === (audience.audience ?? 'personal') && draft.groupId === audience.groupId && draft.eventId === id && (id !== null || draft.value.birthday === birthday) && (!scope || draft.scope === scope && (scope === 'series' || draft.anchorDate === anchorDate))) {
+    if ((draft.audience ?? 'personal') === (audience.audience ?? 'personal') && draft.groupId === audience.groupId && draft.ownerScope === audience.ownerScope && draft.eventId === id && (id !== null || draft.value.birthday === birthday) && (!scope || draft.scope === scope && (scope === 'series' || draft.anchorDate === anchorDate))) {
       const result = await database.runAsync('DELETE FROM calendar_drafts WHERE slot=?', row.slot); removed ||= Boolean(result.changes);
     }
   }
   return removed;
 }
-export async function saveCalendarDraft(database: SQLiteDatabase, input: CalendarEditorDraft | null, birthday = false) {
+export async function saveCalendarDraft(database: SQLiteDatabase, input: CalendarEditorDraft | null, birthday = false, assertAccess?: CalendarDraftAccess) {
   const draft = input ? parseEditorDraft(input) : null;
   await withPlannerDatabaseOperation(database, async () => { await personal(database);
     await withIsolatedSqliteTransaction(database, async tx => {
+      if (draft) assertDraftWriter(draft, assertAccess);
       await clearRelatedDrafts(tx, draft?.eventId ?? null, draft?.scope, draft?.anchorDate, draft?.value.birthday ?? birthday, draft ?? {});
       if (!draft) return;
-      const count = await tx.getFirstAsync<{ count: number }>('SELECT COUNT(*) AS count FROM calendar_drafts');
+      const groupSlots = draft.audience === 'group' ? `owned:${draft.ownerScope}:*` : null;
+      const count = await tx.getFirstAsync<{ count: number }>(`SELECT COUNT(*) AS count FROM calendar_drafts WHERE ${groupSlots ? 'slot GLOB ?' : personalDraftSlots}`, ...(groupSlots ? [groupSlots] : []));
       if ((count?.count ?? 0) >= 50) throw new Error('入力途中の予定が多くなっています。下書きを保存・整理してから閉じてください。');
       const slot = calendarDraftKey(draft);
       await tx.runAsync('INSERT INTO calendar_drafts(slot,draft_json) VALUES(?,?)', slot, JSON.stringify(draft));
+      assertDraftWriter(draft, assertAccess);
     });
   }); changed(database, 'drafts');
 }
@@ -339,28 +363,30 @@ export async function saveCalendarCategory(database: SQLiteDatabase, value: { id
 }
 
 /** Clear only the submitted scope; a group draft can never clear a private one. */
-export async function clearCalendarEditorDraft(database: SQLiteDatabase, draft: CalendarEditorDraft) {
-  await discardCalendarDraftIfUnchanged(database, draft);
+export async function clearCalendarEditorDraft(database: SQLiteDatabase, draft: CalendarEditorDraft, assertAccess?: CalendarDraftAccess) {
+  await discardCalendarDraftIfUnchanged(database, draft, assertAccess);
 }
 
 /** Post-commit cleanup must not remove an editor that has since saved newer input. */
-export async function clearSubmittedCalendarDraft(database: SQLiteDatabase, input: CalendarEditorDraft) {
+export async function clearSubmittedCalendarDraft(database: SQLiteDatabase, input: CalendarEditorDraft, assertAccess?: CalendarDraftAccess) {
   const draft = parseEditorDraft(input);
   const removed = await withPlannerDatabaseOperation(database, async () => {
-    await personal(database);
+    await personal(database); assertDraftWriter(draft, assertAccess);
     return database.runAsync('DELETE FROM calendar_drafts WHERE slot=? AND draft_json=?', calendarDraftKey(draft), JSON.stringify(draft));
   }); if (removed.changes) changed(database, 'drafts');
 }
 
 /** Explicit recovery discards only the exact draft opened by this editor. */
-export async function discardCalendarDraftIfUnchanged(database: SQLiteDatabase, input: CalendarEditorDraft) {
+export async function discardCalendarDraftIfUnchanged(database: SQLiteDatabase, input: CalendarEditorDraft, assertAccess?: CalendarDraftAccess) {
   const draft = parseEditorDraft(input); let removed = false;
   await withPlannerDatabaseOperation(database, async () => {
     await personal(database); await withIsolatedSqliteTransaction(database, async tx => {
+      assertDraftWriter(draft, assertAccess);
       const row = await tx.getFirstAsync<{ draft_json: string }>('SELECT draft_json FROM calendar_drafts WHERE slot=?', calendarDraftKey(draft));
       if (!row) return;
       if (row.draft_json !== JSON.stringify(draft)) throw new Error('別の画面で入力が更新されています。閉じてから最新の下書きを開いてください。');
       const result = await tx.runAsync('DELETE FROM calendar_drafts WHERE slot=? AND draft_json=?', calendarDraftKey(draft), row.draft_json); removed = Boolean(result.changes);
+      assertDraftWriter(draft, assertAccess);
     });
   });
   if (removed) changed(database, 'drafts');

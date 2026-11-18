@@ -375,6 +375,46 @@
       },
       {
         "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} restarting after a lost shared future split reply recovers private reminders from the original series exactly once"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} a resumed shared future draft refuses a newly received exception but a one occurrence edit may keep the unrelated change"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} undoing a shared future move keeps both the split and private rules when another editor changes reminders or local restoration fails"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} restarting after the signed future undo repairs the same device's private reminders without signing again"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "an empty private reminder split stays complete after restart and never adopts a later source reminder"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} switching accounts inside the same group isolates unsent calendar drafts and restores each owners own draft"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} an account switch while editing a shared event stops queued draft writes and deferred signed submissions"
+      },
+      {
+        "file": "tests/calendar-custom-recurrence.test.mjs",
+        "name": "${platform} the custom repeat route verifies the draft owner while reading and again when a delayed SQLite save runs"
+      },
+      {
+        "file": "tests/calendar-noop-save.test.mjs",
+        "name": "calendar draft reads and the fifty draft limit isolate each owner while retaining unassigned rows"
+      },
+      {
+        "file": "tests/calendar-source-switch.test.mjs",
+        "name": "${platform} deselecting a chore clears the same editor's saved shared draft before closing an empty personal form"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
         "name": "${platform} editing moving and deleting a detached shared occurrence of a single event changes only that occurrence"
       },
       {
@@ -965,6 +1005,26 @@
       {
         "file": "tests/sharing-delivery-cloud.integration.mjs",
         "name": "a negotiated closed group with no remaining recipients still expires old ciphertext without deleting its independent receipt"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "a durable private receipt retries interrupted device readiness with the same digest and coalesces unchanged confirmations"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "an expired recovery releases its response listener and durable-receipt checks while a live sibling keeps listening"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "server confirmation of cached group metadata and recovery requests and replies wakes each listener once across reconnects"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "an unchanged private receipt finishes readiness when its missing companion is later stored without another domain confirmation"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "a lost local copy recovers from an unexpired acknowledged reply but skips response queries at the parent expiry"
       }
     ]
   },

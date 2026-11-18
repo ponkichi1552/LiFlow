@@ -5,8 +5,9 @@ import { screenHarness } from './helpers/screen-harness.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { newEventDraft, projectCalendarEvents, validateEventDraft } from '../src/features/calendar/events.ts';
 import { customRecurrenceDates, customRecurrenceLabel, defaultCustomRecurrence, validateCustomRecurrence } from '../src/features/calendar/recurrence.ts';
+import { calendarReminderScope } from '../src/features/calendar/reminder-preferences.ts';
 const { calendarDraftKey, calendarDraftVersion, readLocalCalendar, saveCalendarDraft, saveCalendarEvent } = await import('../src/platform/storage/calendar-events.ts');
-const { initializeLocalDatabase } = await import('../src/platform/storage/repository.ts');
+const { initializeLocalDatabase, withPlannerDatabaseOperation } = await import('../src/platform/storage/repository.ts');
 const date = '2026-01-01';
 const make = rule => ({ ...newEventDraft(date, 'Asia/Tokyo'), title: 'カスタムの予定', recurrence: 'custom', customRecurrence: rule });
 const event = (rule, patch = {}) => ({ ...make(rule), ...patch, id: 'custom.event', revision: 1 });
@@ -98,6 +99,47 @@ test('custom cadence edits preserve existing exceptions by default and draft dig
   assert.notEqual(calendarDraftVersion(saved), calendarDraftVersion({ ...saved, value: { ...saved.value, customRecurrence: { ...rule, weekdays: [2] } } }));
 });
 for (const platform of ['ios', 'android']) {
+  test(`${platform} the custom repeat route verifies the draft owner while reading and again when a delayed SQLite save runs`, async t => {
+    const h = await fixture(t); const groupId = 'draft-group';
+    const input = user => ({ eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series', audience: 'group', groupId,
+      ownerScope: user ? calendarReminderScope(user, groupId) : undefined, value: { ...newEventDraft(date, 'Asia/Tokyo'), title: '未送信の入力' } });
+    const first = input('owner'), second = input('member'), legacy = input(null);
+    for (const row of [first, second]) await saveCalendarDraft(h.database, row, false, input => assert.equal(input.ownerScope, row.ownerScope));
+    await h.database.runAsync('INSERT INTO calendar_drafts(slot,draft_json) VALUES(?,?)', calendarDraftKey(legacy), JSON.stringify(legacy));
+    const stored = () => h.database.getAllAsync('SELECT slot,draft_json FROM calendar_drafts ORDER BY slot');
+    const before = await stored();
+    const identity = (userId, selectedGroup = groupId) => ({ ready: true, userId,
+      active: { protocol: 2, userId, groupId: selectedGroup }, group: { status: 'active', userId, groupId: selectedGroup } });
+    const workspace = { _currentValue: identity('owner') };
+    const params = { draft: calendarDraftKey(first) }, navigation = [];
+    const auth = { currentUser: { uid: 'owner' }, onAuthStateChanged: () => () => {} };
+    const screen = screenHarness('src/app/calendar-repeat.tsx', { database: h.database, params, platform, effectDependencies: true,
+      effect: action => action(), layoutEffect: action => action(), navigate: (...args) => navigation.push(args),
+      mocks: { '@/contexts/workspace-context': { WorkspaceContext: workspace }, './use-personal-google-sync': { usePersonalGoogleSync: () => () => {} },
+        '@/platform/sharing/firebase-services': { isSharingConfigured: () => true, getSharingServices: () => ({ auth }) } } });
+    t.after(() => screen.unmount()); await screen.flush();
+    const hasApply = () => screen.nodes().some(node => node.props.accessibilityLabel === 'カスタム繰り返しを適用');
+    assert.ok(hasApply());
+    const gate = Promise.withResolvers(), held = withPlannerDatabaseOperation(h.database, () => gate.promise);
+    await screen.change('繰り返しの間隔', '4'); screen.button('カスタム繰り返しを適用').props.onPress();
+    auth.currentUser = { uid: 'member' }; // Native auth changes before the workspace finishes reloading.
+    gate.resolve(); await held; await screen.flush();
+    assert.equal(hasApply(), false); assert.equal(navigation.length, 0); assert.deepEqual(await stored(), before);
+    workspace._currentValue = identity('member'); screen.render(); assert.equal(hasApply(), false);
+    params.draft = calendarDraftKey(legacy); screen.render(); assert.equal(hasApply(), false);
+    params.draft = calendarDraftKey(second); await screen.flush(); assert.ok(hasApply());
+    workspace._currentValue = identity('member', 'other-group'); screen.render(); assert.equal(hasApply(), false);
+    auth.currentUser = null; workspace._currentValue = identity('member'); screen.render(); assert.equal(hasApply(), false);
+    auth.currentUser = { uid: 'owner' }; workspace._currentValue = identity('owner'); params.draft = calendarDraftKey(first); screen.render(); await screen.flush();
+    await screen.change('繰り返しの間隔', '3'); await screen.press('カスタム繰り返しを適用');
+    for (let n = 0; n < 20 && !navigation.length; n++) await screen.flush();
+    const saved = (await readLocalCalendar(h.database, first.ownerScope)).drafts.find(row => row.ownerScope === first.ownerScope);
+    assert.equal(saved.value.customRecurrence.interval, 3); assert.equal(navigation.length, 1);
+    assert.equal(navigation[0][1].params.calendarDraftVersion, calendarDraftVersion(saved));
+    const otherRows = rows => rows.filter(row => row.slot !== calendarDraftKey(first));
+    assert.deepEqual(otherRows(await stored()), otherRows(before));
+  });
+
   test(`${platform} custom repeat screen applies the latest interval weekdays and last monthly weekday and rejects incomplete input`, async () => {
     const saved = []; const screen = screenHarness('src/features/calendar/custom-recurrence-screen.tsx', { exportName: 'CustomRecurrenceScreen', platform, props: { date, onBack() {}, onSave: async value => saved.push(value) } });
     await screen.change('繰り返しの間隔', '2'); await screen.press('月曜日に繰り返す');

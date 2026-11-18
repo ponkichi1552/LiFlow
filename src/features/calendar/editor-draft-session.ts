@@ -1,8 +1,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { calendarDraftKey, clearSubmittedCalendarDraft, type CalendarEditorDraft } from '../../platform/storage/calendar-events';
+import { calendarDraftKey, clearSubmittedCalendarDraft, type CalendarDraftAccess, type CalendarEditorDraft } from '../../platform/storage/calendar-events';
 
 /** Only snapshots written by this editor may be cleaned up after changing destination. */
-export function createEditorDraftSession(initial?: CalendarEditorDraft) {
+export function createEditorDraftSession(initial?: CalendarEditorDraft, assertAccess?: CalendarDraftAccess) {
   const owned = new Map<string, CalendarEditorDraft>();
   const remember = (draft: CalendarEditorDraft) => owned.set(calendarDraftKey(draft), JSON.parse(JSON.stringify(draft)) as CalendarEditorDraft);
   if (initial) remember(initial);
@@ -14,7 +14,7 @@ export function createEditorDraftSession(initial?: CalendarEditorDraft) {
       for (const [key, snapshot] of [...owned]) {
         if (key === keepKey) continue;
         // Compare-and-delete preserves any input subsequently saved by another editor.
-        await clearSubmittedCalendarDraft(database, snapshot);
+        await clearSubmittedCalendarDraft(database, snapshot, assertAccess);
         if (owned.get(key) === snapshot) owned.delete(key);
       }
     },

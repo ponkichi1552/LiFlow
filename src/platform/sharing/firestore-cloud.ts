@@ -272,7 +272,7 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
     watch(groupId: string, changed: () => void, failed: (error: unknown) => void): () => void {
       checkAccount();
       let fingerprint: string | undefined;
-      const unsubscribe = onSnapshot(reference(groupId), (snapshot) => {
+      const unsubscribe = onSnapshot(reference(groupId), { includeMetadataChanges: true }, (snapshot) => {
         try { checkAccount(); if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) {
           const { createdAt: _created, updatedAt: _updated, ...data } = snapshot.data() ?? {};
           const next = canonicalJson(snapshot.exists() ? data : null);
