@@ -91,8 +91,12 @@ for (const platform of ['ios', 'android']) {
         today: '2026-11-17', selectedDate: '2026-11-17', timeZone: 'Asia/Tokyo', local, dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
       } });
       try {
-        await dragEarlierDay(ui, mode, '2026-11-18'); await ui.press(scope); assert.equal(writes.length, 0); assert.match(ui.text(), error);
+        await dragEarlierDay(ui, mode, '2026-11-18');
+        const unavailable = ui.button(scope);
+        assert.equal(unavailable.props.disabled, true); assert.equal(unavailable.props.accessibilityState.disabled, true);
+        assert.match(ui.text(), /この日付に移動できる範囲/u); assert.equal(writes.length, 0);
         assert.deepEqual(snapshot, before); assert.equal(ui.nodes().some(row => row.props.accessibilityLabel === '移動を元に戻す'), false);
+        await ui.press('キャンセル');
         assert.equal(find(ui, mode === 'month' ? 'calendar-weeks' : mode === '7日表示' ? 'calendar-week-time-scroll' : 'calendar-timeline').props.scrollEnabled, true);
         await dragEarlierDay(ui, mode, '2026-11-18'); await ui.press('この予定だけ');
         assert.equal(writes.length, 1); assert.equal(writes[0].scope, 'one'); assert.equal(writes[0].anchorDate, '2026-11-18');

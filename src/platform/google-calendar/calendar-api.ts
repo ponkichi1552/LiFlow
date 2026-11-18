@@ -19,6 +19,11 @@ export interface GoogleCalendarEvent {
   transparency?: string; eventType?: string; extendedProperties?: { private?: Record<string, string> };
   [key: string]: unknown;
 }
+const guardedCalendarApis = new WeakMap<object, () => Promise<void>>();
+/** Only the same account and generation check can replace a caller's duplicate guard. */
+export function googleCalendarApiOwnsRequestAuthority(api: unknown, assertCurrent: () => Promise<void>): boolean {
+  return Boolean(api && typeof api === 'object' && guardedCalendarApis.get(api) === assertCurrent);
+}
 export class GoogleCalendarHttpError extends Error {
   status: number; retryAfterMs: number;
   constructor(status: number, retryAfterMs = 0) {
@@ -50,6 +55,7 @@ function calendarPatchBody(value: Record<string, unknown>): Record<string, unkno
 /** Tokens stay in the native caller; neither errors nor persisted records contain credentials. */
 export function createGoogleCalendarApi(input: { token: () => Promise<string>; assertCurrent: () => Promise<void>; signal?: AbortSignal; fetch?: typeof fetch }) {
   const transport = input.fetch ?? fetch;
+  const assertCurrent = input.assertCurrent;
   let cancellation: Promise<void> | undefined; let cancel: (() => void) | undefined; let activeRequests = 0;
   const cancelled = () => Object.assign(new Error('Googleカレンダーの同期を中断しました。変更は保持しています。'), { name: 'AbortError' });
   async function withinSignal<T>(work: () => Promise<T>): Promise<T> {
@@ -73,10 +79,10 @@ export function createGoogleCalendarApi(input: { token: () => Promise<string>; a
     if ((method === 'PATCH' || method === 'DELETE') && !isGoogleETag(etag)) throw new GoogleCalendarHttpError(400);
     activeRequests++;
     try {
-    await withinSignal(() => input.assertCurrent()); const token = await withinSignal(() => traceStartup('googleCalendar.token', accessToken)); await withinSignal(() => input.assertCurrent());
+    await withinSignal(assertCurrent); const token = await withinSignal(() => traceStartup('googleCalendar.token', accessToken)); await withinSignal(assertCurrent);
     const response = await withinSignal(() => traceStartup('googleCalendar.http', () => transport(`https://www.googleapis.com/calendar/v3/${path}`, { method, signal: input.signal,
       headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}), ...(etag ? { 'If-Match': etag } : {}) }, body: body ? JSON.stringify(body) : undefined })));
-    await withinSignal(() => input.assertCurrent());
+    await withinSignal(assertCurrent);
     if (!response.ok) {
       if (response.status === 401) tokenFlight = undefined;
       const raw = response.headers.get('Retry-After'); const seconds = raw ? Number(raw) : 0;
@@ -93,7 +99,7 @@ export function createGoogleCalendarApi(input: { token: () => Promise<string>; a
     }
     if (response.status === 204) return undefined as T;
     const text = await withinSignal(() => readGoogleResponseText(response, input.signal)); if (text.length > 2_000_000) throw new Error('Googleカレンダーの応答が大きすぎます。');
-    await withinSignal(() => input.assertCurrent());
+    await withinSignal(assertCurrent);
     let value: T;
     try { value = JSON.parse(text) as T; }
     catch { throw new Error('Googleカレンダーの応答を読み込めませんでした。変更は保持しています。'); }
@@ -108,7 +114,7 @@ export function createGoogleCalendarApi(input: { token: () => Promise<string>; a
   }
   const path = (calendarId: string) => `calendars/${encodeURIComponent(calendarId)}/events`;
   const query = (values: Record<string, string | undefined>) => new URLSearchParams(Object.fromEntries(Object.entries(values).filter((entry): entry is [string, string] => entry[1] !== undefined))).toString();
-  return {
+  const api = {
     calendars: (pageToken?: string) => request<{ items?: GoogleCalendarListEntry[]; nextPageToken?: string }>(`users/me/calendarList?${query({ maxResults: '100', showHidden: 'true', pageToken, fields: 'nextPageToken,items(id,summary,accessRole,primary,timeZone,backgroundColor)' })}`),
     events: (calendarId: string, cursor: { syncToken?: string; pageToken?: string }) => request<{ items?: GoogleCalendarEvent[]; nextPageToken?: string; nextSyncToken?: string }>(`${path(calendarId)}?${query({ maxResults: '100', showDeleted: 'true', singleEvents: 'false', fields: `nextPageToken,nextSyncToken,items(${EVENT_FIELDS})`, ...cursor })}`),
     instances: (calendarId: string, id: string, range: { timeMin?: string; timeMax?: string; originalStart?: string; pageToken?: string }) => request<{ items?: GoogleCalendarEvent[]; nextPageToken?: string }>(`${path(calendarId)}/${encodeURIComponent(id)}/instances?${query({ maxResults: '100', showDeleted: 'true', fields: `nextPageToken,items(${EVENT_FIELDS})`, ...range })}`),
@@ -117,5 +123,7 @@ export function createGoogleCalendarApi(input: { token: () => Promise<string>; a
     patch: (calendarId: string, id: string, value: Record<string, unknown>, etag: string) => request<GoogleCalendarEvent>(`${path(calendarId)}/${encodeURIComponent(id)}?sendUpdates=none&conferenceDataVersion=1&${EVENT_FIELDS_QUERY}`, 'PATCH', calendarPatchBody(value), etag, id),
     remove: (calendarId: string, id: string, etag: string) => request<void>(`${path(calendarId)}/${encodeURIComponent(id)}?sendUpdates=none`, 'DELETE', undefined, etag),
   };
+  guardedCalendarApis.set(api, assertCurrent);
+  return api;
 }
 export type GoogleCalendarApi = ReturnType<typeof createGoogleCalendarApi>;

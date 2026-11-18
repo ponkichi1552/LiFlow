@@ -49,6 +49,7 @@ async function setup() {
     '../../features/sharing/v2/private-availability': privateCalendarAvailability,
     '../../features/notifications/reconcile-local-notifications': reconciliation, '../../features/sharing/v2/native-identity': identity,
     '../../features/sharing/v2/completion-notices': completionNotices, '../../domain/scheduling/local-date': localDate,
+    '../../domain/scheduling/local-date.ts': localDate,
     'react-native': { Platform: { OS: process.env.HOUSEWORK_TEST_PLATFORM ?? 'ios' } },
     'expo-notifications': { AndroidImportance: { DEFAULT: 3 }, setNotificationChannelAsync: async () => {},
       scheduleNotificationAsync: async request => { calls.push(['immediate', request]); return request.identifier; },

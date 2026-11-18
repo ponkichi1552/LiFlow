@@ -3,46 +3,82 @@ import type { LocalDate } from '../shared/types';
 import { calendarEventAnchors, isCalendarAnchor, type CalendarEvent, type CalendarException } from './events.ts';
 
 const lastDate = '9999-12-31' as LocalDate;
+const step = (event: CalendarEvent) => event.recurrence === 'daily' ? 1 : event.recurrence === 'weekly' ? 7 : event.recurrence === 'biweekly' ? 14
+  : event.recurrence === 'custom' && event.customRecurrence?.unit === 'day' ? event.customRecurrence.interval : 0;
 
-/** Carry the occurrence slot with a moved series; its explicit body stays untouched. */
-export function rebasedCalendarExceptionDate(previous: CalendarEvent, next: CalendarEvent, anchor: LocalDate): LocalDate {
-  if (previous.startDate === next.startDate || !isCalendarAnchor(previous, anchor)) return anchor;
-  const step = (event: CalendarEvent) => event.recurrence === 'daily' ? 1 : event.recurrence === 'weekly' ? 7 : event.recurrence === 'biweekly' ? 14
-    : event.recurrence === 'custom' && event.customRecurrence?.unit === 'day' ? event.customRecurrence.interval : 0;
-  const ordinal = (event: CalendarEvent, through: LocalDate) => {
-    let count = 0;
-    for (let from = event.startDate; from <= through;) {
-      const end = daysBetween(from, through) > 365 ? addDays(from, 365) : through;
-      count += calendarEventAnchors(event, from, end).length;
-      if (end === through) break;
-      from = addDays(end, 1);
-    }
-    return count - 1;
-  };
-  let remaining = step(previous) ? daysBetween(previous.startDate, anchor) / step(previous) : ordinal(previous, anchor);
-  if (step(next)) {
-    if (remaining * step(next) > daysBetween(next.startDate, lastDate)) return anchor;
-    const date = addDays(next.startDate, remaining * step(next));
-    return next.untilDate && date > next.untilDate ? anchor : date;
-  }
-  const limit = next.untilDate ?? lastDate;
-  for (let from = next.startDate; from <= limit;) {
+/** Visit recurrence anchors in bounded windows so custom recurrence expansion stays capped. */
+function walkAnchors(event: CalendarEvent, through: LocalDate, visit: (date: LocalDate, ordinal: number) => boolean) {
+  const limit = event.untilDate && event.untilDate < through ? event.untilDate : through;
+  let ordinal = 0;
+  for (let from = event.startDate; from <= limit;) {
     const end = daysBetween(from, limit) > 365 ? addDays(from, 365) : limit;
-    const dates = calendarEventAnchors(next, from, end);
-    if (remaining < dates.length) return dates[remaining];
-    remaining -= dates.length;
-    if (end === limit || next.recurrence === 'none') break;
+    for (const date of calendarEventAnchors(event, from, end)) {
+      if (visit(date, ordinal++)) return;
+    }
+    if (end === limit || event.recurrence === 'none') return;
     from = addDays(end, 1);
   }
-  // A shortened series keeps the edited occurrence as a detached explicit date.
-  return anchor;
+}
+
+/** Carry occurrence slots through a moved series, preserving input order and duplicates. */
+export function rebasedCalendarExceptionDates(previous: CalendarEvent, next: CalendarEvent, anchors: readonly LocalDate[]): LocalDate[] {
+  if (!anchors.length) return [];
+  if (previous.startDate === next.startDate) return [...anchors];
+
+  const ordered = [...new Set(anchors)].sort();
+  const ordinals = new Map<LocalDate, number>();
+  const previousStep = step(previous);
+  if (previousStep) {
+    for (const anchor of ordered) if (isCalendarAnchor(previous, anchor)) {
+      ordinals.set(anchor, daysBetween(previous.startDate, anchor) / previousStep);
+    }
+  } else {
+    const sourceAnchors = ordered.filter(anchor => isCalendarAnchor(previous, anchor));
+    let target = 0;
+    if (sourceAnchors.length) {
+      const finalSource = sourceAnchors.at(-1)!;
+      walkAnchors(previous, finalSource, (date, ordinal) => {
+        while (target < sourceAnchors.length && sourceAnchors[target] < date) target++;
+        if (sourceAnchors[target] === date) { ordinals.set(date, ordinal); target++; }
+        return target >= sourceAnchors.length;
+      });
+    }
+  }
+
+  const resultByAnchor = new Map<LocalDate, LocalDate>();
+  const nextStep = step(next);
+  if (nextStep) {
+    const availableDays = daysBetween(next.startDate, next.untilDate ?? lastDate);
+    for (const [anchor, ordinal] of ordinals) {
+      if (ordinal * nextStep > availableDays) continue;
+      resultByAnchor.set(anchor, addDays(next.startDate, ordinal * nextStep));
+    }
+  } else if (ordinals.size) {
+    const pending = new Map<number, LocalDate>();
+    for (const [anchor, ordinal] of ordinals) pending.set(ordinal, anchor);
+    walkAnchors(next, next.untilDate ?? lastDate, (date, ordinal) => {
+      const anchor = pending.get(ordinal);
+      if (anchor) { resultByAnchor.set(anchor, date); pending.delete(ordinal); }
+      return pending.size === 0;
+    });
+  }
+
+  return anchors.map(anchor => resultByAnchor.get(anchor) ?? anchor);
+}
+
+/** Carry one occurrence slot with a moved series; its explicit body stays untouched. */
+export function rebasedCalendarExceptionDate(previous: CalendarEvent, next: CalendarEvent, anchor: LocalDate): LocalDate {
+  return rebasedCalendarExceptionDates(previous, next, [anchor])[0];
 }
 
 /** The optimistic projection uses the same slots as storage, without changing edited bodies. */
 export function rebasedCalendarExceptions(previous: CalendarEvent, next: CalendarEvent, exceptions: readonly CalendarException[]): CalendarException[] {
+  const anchors = exceptions.filter(row => row.eventId === previous.id).map(row => row.anchorDate);
+  const dates = rebasedCalendarExceptionDates(previous, next, anchors);
+  let matched = 0;
   return exceptions.map(row => {
     if (row.eventId !== previous.id) return row;
-    const anchorDate = rebasedCalendarExceptionDate(previous, next, row.anchorDate);
+    const anchorDate = dates[matched++];
     return { ...row, anchorDate, detached: !isCalendarAnchor(next, anchorDate) };
   });
 }

@@ -51,15 +51,20 @@ export function initializePersonalGoogleCalendar(database: SQLiteDatabase): Prom
         );
         CREATE TABLE IF NOT EXISTS calendar_google_expansion (
           subject TEXT NOT NULL, calendar_id TEXT NOT NULL, parent_id TEXT NOT NULL,
-          page_token TEXT, range_json TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+          page_token TEXT, range_json TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, atomic_replace INTEGER NOT NULL DEFAULT 0,
           PRIMARY KEY(subject,calendar_id,parent_id)
+        );
+        CREATE TABLE IF NOT EXISTS calendar_google_expansion_staged (
+          subject TEXT NOT NULL, calendar_id TEXT NOT NULL, parent_id TEXT NOT NULL,
+          google_id TEXT NOT NULL, event_json TEXT NOT NULL,
+          PRIMARY KEY(subject,calendar_id,parent_id,google_id)
         );
         CREATE TABLE IF NOT EXISTS calendar_google_expanded (
           subject TEXT NOT NULL, calendar_id TEXT NOT NULL, parent_id TEXT NOT NULL, google_id TEXT NOT NULL,
           seen INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(subject,calendar_id,parent_id,google_id)
         );
         CREATE TABLE IF NOT EXISTS calendar_google_requested_ranges (
-          subject TEXT PRIMARY KEY, range_json TEXT NOT NULL
+          subject TEXT PRIMARY KEY, range_json TEXT NOT NULL, current_range_json TEXT
         );
         CREATE TABLE IF NOT EXISTS calendar_google_progress (
           subject TEXT PRIMARY KEY, remaining_json TEXT NOT NULL
@@ -70,11 +75,15 @@ export function initializePersonalGoogleCalendar(database: SQLiteDatabase): Prom
       if (!columns.some(column => column.name === 'pending_json')) await tx.execAsync('ALTER TABLE calendar_google_links ADD COLUMN pending_json TEXT');
       const inboxColumns = await tx.getAllAsync<{ name: string }>('PRAGMA table_info(calendar_google_inbox)');
       const expansionColumns = await tx.getAllAsync<{ name: string }>('PRAGMA table_info(calendar_google_expansion)');
+      const rangeColumns = await tx.getAllAsync<{ name: string }>('PRAGMA table_info(calendar_google_requested_ranges)');
       const cursorColumns = await tx.getAllAsync<{ name: string }>('PRAGMA table_info(calendar_google_cursors)');
       if (!cursorColumns.some(column => column.name === 'visited_json')) await tx.execAsync("ALTER TABLE calendar_google_cursors ADD COLUMN visited_json TEXT NOT NULL DEFAULT '[]'");
       if (!expansionColumns.some(column => column.name === 'visited_json')) await tx.execAsync("ALTER TABLE calendar_google_expansion ADD COLUMN visited_json TEXT NOT NULL DEFAULT '[]'");
       if (!expansionColumns.some(column => column.name === 'scan_ranges_json')) await tx.execAsync('ALTER TABLE calendar_google_expansion ADD COLUMN scan_ranges_json TEXT');
       if (!inboxColumns.some(column => column.name === 'attempt_order')) await tx.execAsync('ALTER TABLE calendar_google_inbox ADD COLUMN attempt_order INTEGER NOT NULL DEFAULT 0');
+      if (!expansionColumns.some(column => column.name === 'atomic_replace')) await tx.execAsync('ALTER TABLE calendar_google_expansion ADD COLUMN atomic_replace INTEGER NOT NULL DEFAULT 0');
+      if (!expansionColumns.some(column => column.name === 'covered_ranges_json')) await tx.execAsync('ALTER TABLE calendar_google_expansion ADD COLUMN covered_ranges_json TEXT');
+      if (!rangeColumns.some(column => column.name === 'current_range_json')) await tx.execAsync('ALTER TABLE calendar_google_requested_ranges ADD COLUMN current_range_json TEXT');
       await tx.execAsync(`CREATE INDEX IF NOT EXISTS calendar_google_inbox_attempts ON calendar_google_inbox(
         subject,calendar_id,dirty,CASE WHEN json_extract(event_json,'$.recurringEventId') IS NULL THEN 0 ELSE 1 END,attempt_order,google_id
       )`);

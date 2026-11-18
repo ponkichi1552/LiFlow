@@ -96,7 +96,8 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
         readForPlan: async () => { const calendar = await openCalendar(); const value = await calendar.readForPlan(); await assertWorkspaceAccess(); return value; },
         readOwnCalendar: async target => { const calendar = await openCalendar(); const value = await calendar.readOwnCalendar(target); await assertWorkspaceAccess(); return value; },
       },
-      localCalendar: createLocalCalendarPlanSource({ ownerUserId: active.userId, assertAccess: assertWorkspaceAccess, read: () => readLocalCalendar(personalDatabase) }),
+      localCalendar: createLocalCalendarPlanSource({ ownerUserId: active.userId, assertAccess: assertWorkspaceAccess,
+        read: range => readLocalCalendar(personalDatabase, undefined, range) }),
       controller: { ...active.session.controller, sync: () => active.sync({ force: true }) },
       readPreferences: async () => {
         await active.record();

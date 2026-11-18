@@ -17,6 +17,7 @@ const draft58Implementations = [
   { storage: 1, verifier: 1, calendarProjection: 1, digest: 'e64907a510fe40ca4dc19e131b912ed02b4aa2fa7a81c4fb0c1b616af92dbe25' },
   { storage: 2, verifier: 1, calendarProjection: 1, digest: 'e075b9fefabd0a742bfdc14b5b0da442dcb01d1b37aa76ab6abd3c6a46902f53' },
   { storage: 2, verifier: 2, calendarProjection: 2, digest: 'f77ef950f6d51a38ff6b8420c1a15c3d06407d02061c19cdd64ca6dd2cd7474c' },
+  { storage: 2, verifier: 2, calendarProjection: 3, digest: '3fe706c158b3016b0e6040364f6e9ed4d229895a12434db0a7bfbf6d2a2c9519' },
 ];
 const draft58ImplementationIndex = manifest => draft58Implementations.findIndex(({ storage, verifier, calendarProjection, digest }) =>
   manifest.sourceSha256 === digest && (manifest.receiveStorageRevision ?? 1) === storage

@@ -58,7 +58,7 @@ function PersonalCalendarScreen() {
     <PlannerCalendar today={today} timeZone={snapshot.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} selectedDate={selectedDate} onSelectDate={setSelectedDate} local={local}
       timedChores={snapshot.scheduleEntries.flatMap(entry => entry.calendarTime && chores.has(entry.choreId) ? [{ id: entry.id, name: chores.get(entry.choreId)!.name, ...entry.calendarTime, onOpen: () => choreSource === 'personal' ? router.navigate({ pathname: '/calendar-chore-date', params: { choreId: entry.choreId, entryId: entry.id } }) : open(entry.choreId) }] : [])}
       busy={completion.pending.size > 0} onNavigate={navigate}
-      searchChores={[...new Set([...snapshot.scheduleEntries.map(row => row.suggestedDate), ...snapshot.completions.map(completionRecordedDate), ...longDates])].flatMap(date => [
+      loadSearchChores={() => [...new Set([...snapshot.scheduleEntries.map(row => row.suggestedDate), ...snapshot.completions.map(completionRecordedDate), ...longDates])].flatMap(date => [
         ...rowsFor(date).map(task => ({ key: `personal:${dateTaskKey(task)}:${date}`, title: chores.get(task.choreId)?.name ?? '', date, source: choreSource })),
         ...tentativeFor(date).map(row => ({ key: `personal:${row.entry.id}`, title: row.chore.name, date, source: choreSource })),
       ])} searchChoresIncomplete

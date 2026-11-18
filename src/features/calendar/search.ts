@@ -1,15 +1,15 @@
 import type { CalendarEditorDraft } from '../../platform/storage/calendar-events';
-import type { CalendarEvent, CalendarException } from './events';
-import { calendarEventsInTimeZone, isCalendarAnchor } from './events.ts';
+import type { CalendarEvent, CalendarException, CalendarOccurrence } from './events';
+import { calendarEventAnchors, calendarEventsInTimeZone, calendarMonth, compareOccurrences, isCalendarAnchor } from './events.ts';
 import type { LocalDate } from '../../domain/shared/types';
-import { addDays, localDateFromDate } from '../../domain/scheduling/local-date.ts';
+import { addDays, daysBetween, localDateFromDate } from '../../domain/scheduling/local-date.ts';
 import { normalizeSearchText, searchTerms } from '../../domain/search/normalized-search.ts';
 import { projectPrivateCalendarEvents } from './private-event-projection.ts';
 import { calendarTitleDisplay } from './title-display.ts';
 
 const normalize = normalizeSearchText;
 export interface CalendarSearchEntry { key: string; text: string; draft: CalendarEditorDraft }
-export interface CalendarSearchDestination { date: LocalDate; minute: number | null; choreKey?: string }
+export interface CalendarSearchDestination { date: LocalDate; minute: number | null; anchorDate?: LocalDate; choreKey?: string }
 export interface CalendarSearchChore { key: string; title: string; date: LocalDate; source: 'personal' | 'shared'; minute?: number | null }
 export type CalendarSearchResult = CalendarSearchEntry | CalendarSearchChore;
 export function searchCalendarWithChores(index: readonly CalendarSearchEntry[], chores: readonly CalendarSearchChore[], query: string, limit = 60, focus: LocalDate = localDateFromDate(new Date())) {
@@ -39,7 +39,7 @@ export function calendarSearchIndex(events: readonly CalendarEvent[], exceptions
   const rows: CalendarSearchEntry[] = appointments.map(event => ({ key: `series:${event.id}`, text: text(event),
     draft: { eventId: event.id, revision: event.revision, exceptionRevision: 0, anchorDate: null, scope: 'series', value: event } }));
   for (const exception of exceptions) {
-    const event = byId.get(exception.eventId); if (!event || !exception.override || !isCalendarAnchor(event, exception.anchorDate)) continue;
+    const event = byId.get(exception.eventId); if (!event || !exception.override || !exception.detached && !isCalendarAnchor(event, exception.anchorDate)) continue;
     const value = exception.override;
     rows.push({ key: `one:${event.id}:${exception.anchorDate}`, text: text(value),
       draft: { eventId: event.id, revision: event.revision, exceptionRevision: exception.revision, anchorDate: exception.anchorDate, scope: 'one', value } });
@@ -55,37 +55,98 @@ export function searchCalendarIndex(index: readonly CalendarSearchEntry[], query
   return { matches: matches.sort((a, b) => b.draft.value.startDate.localeCompare(a.draft.value.startDate) || a.key.localeCompare(b.key)), more: false };
 }
 
-/** Resolve just the selected series, rather than expanding every search match while typing. */
-export function calendarSearchSelection(draft: CalendarEditorDraft, events: readonly CalendarEvent[], exceptions: readonly CalendarException[], focus: LocalDate): CalendarEditorDraft {
-  if (draft.scope === 'one' || draft.value.recurrence === 'none') return draft;
-  const event = events.find(row => row.id === draft.eventId); if (!event) return draft;
+const firstDate = '0100-01-01' as LocalDate;
+const lastDate = '9999-12-31' as LocalDate;
+const earlier = (a: LocalDate, b: LocalDate) => a < b ? a : b;
+const later = (a: LocalDate, b: LocalDate) => a > b ? a : b;
+function boundedShift(day: LocalDate, amount: number) {
+  const next = addDays(day, amount);
+  return next.startsWith('+') ? lastDate : later(firstDate, next);
+}
+const monthIndex = (date: LocalDate) => Number(date.slice(0, 4)) * 12 + Number(date.slice(5, 7)) - 1;
+type SearchOccurrence = { source: CalendarOccurrence; visible: CalendarOccurrence };
+
+function seekSearchOccurrence(event: CalendarEvent, start: LocalDate, direction: 1 | -1, get: (date: LocalDate) => SearchOccurrence | undefined) {
+  const upper = event.recurrence === 'none' ? event.startDate : event.untilDate ?? lastDate;
+  const recurrence = event.recurrence === 'custom' ? event.customRecurrence : undefined;
+  const months = recurrence?.unit === 'year' ? recurrence.interval * 12 : recurrence?.unit === 'month' ? recurrence.interval : 0;
+  const origin = monthIndex(event.startDate);
+  // Seeking anchors needs the rule and its phase, independently of its duration.
+  const anchorsOnly = { ...event, endDate: event.startDate };
+  let cursor = direction === 1 ? later(start, event.startDate) : earlier(start, upper);
+  while (cursor >= event.startDate && cursor <= upper) {
+    let from = direction === 1 ? cursor : later(event.startDate, boundedShift(cursor, -365));
+    let through = direction === -1 ? cursor : earlier(upper, boundedShift(cursor, 365));
+    if (months > 12) {
+      const position = monthIndex(cursor);
+      const cycle = (position - origin) / months;
+      const index = origin + (direction === 1 ? Math.ceil(cycle) : Math.floor(cycle)) * months;
+      if (index < origin || index > monthIndex(upper)) break;
+      const first = calendarMonth(event.startDate, index - origin);
+      const end = first === '9999-12-01' ? lastDate : addDays(calendarMonth(first, 1), -1);
+      from = direction === 1 ? later(first, cursor) : later(first, event.startDate);
+      through = direction === -1 ? earlier(end, cursor) : earlier(end, upper);
+    }
+    if (from <= through) {
+      const anchors = calendarEventAnchors(anchorsOnly, from, through);
+      if (direction === -1) anchors.reverse();
+      for (const anchor of anchors) {
+        const occurrence = get(anchor);
+        if (occurrence) return occurrence;
+      }
+    }
+    if (through >= upper && direction === 1 || from <= event.startDate && direction === -1) break;
+    cursor = addDays(direction === 1 ? through : from, direction);
+  }
+}
+
+function resolveSearchOccurrence(draft: CalendarEditorDraft, events: readonly CalendarEvent[], exceptions: readonly CalendarException[], focus: LocalDate,
+  displayTimeZone?: string): SearchOccurrence | undefined {
+  const event = events.find(row => row.id === draft.eventId && !row.holiday);
+  if (!event) return undefined;
   const related = exceptions.filter(row => row.eventId === event.id);
-  const shift = (day: LocalDate, amount: number) => { try { return addDays(day, amount); } catch { return amount < 0 ? '1900-01-01' as LocalDate : '2199-12-31' as LocalDate; } };
-  let occurrence;
-  if (!event.untilDate || event.untilDate >= focus) {
-    for (const days of [0, 14, 62, 366]) {
-      occurrence = projectPrivateCalendarEvents([event], related, focus, shift(focus, days))[0]; if (occurrence) break;
-    }
-    // Leap-day and sparse custom rules can have no occurrence in the first year.
-    for (let year = 1; !occurrence && year < 8; year++) {
-      const from = shift(focus, year * 366); const through = shift(from, 366);
-      occurrence = projectPrivateCalendarEvents([event], related, from, through)[0];
-    }
+  const duration = daysBetween(event.startDate, event.endDate);
+  const occurrence = (anchorDate: LocalDate, exception?: CalendarException) => {
+    const value = exception?.override ?? { ...event, startDate: anchorDate, endDate: addDays(anchorDate, duration) };
+    const [projected] = projectPrivateCalendarEvents([{ ...value, id: event.id, revision: event.revision, recurrence: 'none', untilDate: null }], [], value.startDate, value.startDate);
+    const source = { ...projected, id: `${event.id}:${anchorDate}`, anchorDate, exceptionRevision: exception?.revision ?? 0 };
+    return { source, visible: calendarEventsInTimeZone([source], displayTimeZone ?? event.timeZone)[0] };
+  };
+  const validOverride = (row: CalendarException) => row.override && (row.detached || isCalendarAnchor(event, row.anchorDate));
+  if (draft.scope === 'one') {
+    const selected = related.find(row => row.anchorDate === draft.anchorDate);
+    return selected && validOverride(selected) ? occurrence(selected.anchorDate, selected) : undefined;
   }
-  if (!occurrence) {
-    const through = event.untilDate && event.untilDate < focus ? event.untilDate : focus;
-    occurrence = projectPrivateCalendarEvents([event], related, shift(through, -366), through).at(-1);
-  }
-  if (!occurrence) occurrence = projectPrivateCalendarEvents([event], related, event.startDate, event.startDate)[0];
-  return occurrence ? { ...draft, anchorDate: occurrence.anchorDate, exceptionRevision: occurrence.exceptionRevision, scope: 'one',
-    value: { ...occurrence, recurrence: 'none', untilDate: null } } : draft;
+  const onOrAfter = (candidate: SearchOccurrence) => candidate.visible.endDate > focus || candidate.visible.endDate === focus
+    && (candidate.visible.allDay || candidate.visible.endMinute > 0);
+  const byStart = (a: SearchOccurrence, b: SearchOccurrence) => compareOccurrences(a.visible, b.visible);
+  const overrides = related.filter(validOverride).map(row => occurrence(row.anchorDate, row)).sort(byStart);
+  const skipped = new Set(related.map(row => row.anchorDate));
+  const normal = (future: boolean) => (anchor: LocalDate) => {
+    if (skipped.has(anchor)) return undefined;
+    const row = occurrence(anchor);
+    return onOrAfter(row) === future ? row : undefined;
+  };
+  const padding = !event.allDay && displayTimeZone && displayTimeZone !== event.timeZone ? 2 : 0;
+  const nextNormal = seekSearchOccurrence(event, boundedShift(focus, -duration - padding), 1, normal(true));
+  const nextOverride = overrides.find(onOrAfter);
+  if (nextNormal && nextOverride) return byStart(nextNormal, nextOverride) <= 0 ? nextNormal : nextOverride;
+  if (nextNormal || nextOverride) return nextNormal ?? nextOverride;
+  const previousNormal = seekSearchOccurrence(event, boundedShift(focus, padding), -1, normal(false));
+  const previousOverride = overrides.at(-1);
+  if (previousNormal && previousOverride) return byStart(previousNormal, previousOverride) >= 0 ? previousNormal : previousOverride;
+  return previousNormal ?? previousOverride;
+}
+
+/** Resolve only the selected series, with the same stable anchor as the displayed card. */
+export function calendarSearchSelection(draft: CalendarEditorDraft, events: readonly CalendarEvent[], exceptions: readonly CalendarException[], focus: LocalDate): CalendarEditorDraft | null {
+  const selected = resolveSearchOccurrence(draft, events, exceptions, focus)?.source;
+  return selected ? { ...draft, anchorDate: selected.anchorDate, exceptionRevision: selected.exceptionRevision, scope: 'one', value: selected } : null;
 }
 
 /** Search locates the visible occurrence; editing remains a separate calendar action. */
 export function calendarSearchDestination(draft: CalendarEditorDraft, events: readonly CalendarEvent[], exceptions: readonly CalendarException[], focus: LocalDate, timeZone: string): CalendarSearchDestination {
-  const selected = calendarSearchSelection(draft, events, exceptions, focus);
-  const eventId = selected.eventId ?? 'search';
-  const [visible] = calendarEventsInTimeZone([{ ...selected.value, id: eventId, eventId, anchorDate: selected.anchorDate ?? selected.value.startDate,
-    eventRevision: selected.revision, exceptionRevision: selected.exceptionRevision }], timeZone);
-  return { date: visible.startDate, minute: visible.allDay ? null : visible.startMinute };
+  const selected = resolveSearchOccurrence(draft, events, exceptions, focus, timeZone);
+  if (!selected) throw new Error('表示できる予定がありません。');
+  return { date: selected.visible.startDate, minute: selected.visible.allDay ? null : selected.visible.startMinute, anchorDate: selected.source.anchorDate };
 }

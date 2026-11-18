@@ -1128,6 +1128,30 @@
         "name": "${platform} shared event reminders stay private and a failed local reminder save retries the committed shared intent without duplicating the event"
       },
       {
+        "file": "tests/calendar-save-recovery.test.mjs",
+        "name": "a personal series change moves individual notification rules and informs subscribers even without event exceptions"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-recovery.test.mjs",
+        "name": "${platform} a shared series edit replays its committed intent and moves only the current owner's individual notification rules once"
+      },
+      {
+        "file": "tests/calendar-notification-audit.test.mjs",
+        "name": "${platform} calendar reconciliation keeps existing notices through only the current shared workspace restoration"
+      },
+      {
+        "file": "tests/calendar-notification-audit.test.mjs",
+        "name": "calendar day-before notices use the previous civil day and all-day reminders use the real start of a midnight gap"
+      },
+      {
+        "file": "tests/calendar-notification-audit.test.mjs",
+        "name": "calendar notification search keeps the same 32 earliest keys without expanding all dense recurrence days"
+      },
+      {
+        "file": "tests/calendar-notification-audit.test.mjs",
+        "name": "a large local history schedules from its own notification horizon and resolves a previously delivered day outside the visible month"
+      },
+      {
         "file": "tests/chore-date-sheet.test.mjs",
         "name": "${platform} shared calendar rows and timed chores open the captured occurrence date editor without changing home guides or writing"
       }
@@ -1242,6 +1266,14 @@
       {
         "file": "tests/calendar-series-move.test.mjs",
         "name": "whole-series moves rotate custom weekdays and convert the displayed displacement back to the source zone"
+      },
+      {
+        "file": "tests/calendar-series-scope-ui.test.mjs",
+        "name": "${platform} a month-end drag disables an unrepresentable series move and saves the chosen day once"
+      },
+      {
+        "file": "tests/calendar-series-move.test.mjs",
+        "name": "batch exception rebasing preserves month slots with one ordered traversal across 144 historical edits"
       },
       {
         "file": "tests/calendar-series-move.test.mjs",
@@ -1538,6 +1570,14 @@
       {
         "file": "tests/calendar-ux-search-drafts.test.mjs",
         "name": "search destinations follow the displayed time zone and actual recurring exceptions without changing records"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "calendar search includes retained detached overrides and never opens an omitted or cancelled round"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "calendar search seeks sparse future and past rounds and compares their displayed civil dates"
       },
       {
         "file": "tests/calendar-ux-search-drafts.test.mjs",
@@ -2790,6 +2830,10 @@
       {
         "file": "tests/sharing-cloud-contract.test.mjs",
         "name": "cloud ACL metadata cannot substitute a pinned signed account, device or membership epoch"
+      },
+      {
+        "file": "tests/sharing-cloud-contract.test.mjs",
+        "name": "caught-up legacy shared pulls verify the live group without issuing an empty history query"
       }
     ]
   },
@@ -10428,6 +10472,22 @@
       },
       {
         "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "an unsupported recurring replacement stays unpublished until its instance projection commits"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a failed unsupported recurring replacement preserves its previous projection and retries the staged scan"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "long all-day Google events retain their full read-only display span while other imports and local writes continue"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a Google 410 full snapshot removes a missing prior exception${localEdit ? ' as a conflict when it has a local edit' : ''}"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
         "name": "lost insert acknowledgements and application restarts cannot duplicate a personal Google event"
       },
       {
@@ -15980,6 +16040,18 @@
       {
         "file": "tests/calendar-noop-save.test.mjs",
         "name": "an identical birthday body still restores the explicitly cleared own birthday with a monotonic revision"
+      },
+      {
+        "file": "tests/calendar-save-recovery.test.mjs",
+        "name": "${platform} a resumed edited appointment rolls back on draft cleanup failure and saves exactly once on retry"
+      },
+      {
+        "file": "tests/calendar-save-recovery.test.mjs",
+        "name": "${platform} a saved appointment returns to its display-zone day and a birthday returns to the opened occurrence"
+      },
+      {
+        "file": "tests/calendar-save-recovery.test.mjs",
+        "name": "calendar edit authority indexes an observed snapshot and rebuilds when links change"
       }
     ],
     "manualReview": "docs/audits/2026-11-16-unchanged-calendar-save.md"
@@ -16033,6 +16105,141 @@
         "name": "a committed shared Google completion retains its ACK when later planning preparations exhaust three attempts"
       }
     ]
+  },
+  {
+    "feature": "calendar-audit-followup-20261119",
+    "description": "Calendar date changes, recurrence, Google recovery and historical lookups target the actual occurrence while keeping personal and shared data isolated.",
+    "tests": [
+      {
+        "file": "tests/calendar-series-move.test.mjs",
+        "name": "whole-series month drags preserve the selected destination or stop before saving an unrepresentable day"
+      },
+      {
+        "file": "tests/calendar-series-move.test.mjs",
+        "name": "monthly ordinal drags derive the new rule from the selected occurrence, including last-weekday boundaries"
+      },
+      {
+        "file": "tests/calendar-layout-additional.test.mjs",
+        "name": "a repeated fall-back hour event stays visible with its actual elapsed duration"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "timed drag snaps only the relative five-minute gesture and keeps the original clock on a no-op"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "${platform} a zero-distance timed drag keeps 09:02 and accessibility moves exactly five minutes"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "future series can repair a recurring occurrence in a DST gap and validates the saved replacement"
+      },
+      {
+        "file": "tests/calendar-future-scopes.test.mjs",
+        "name": "shared future DST repair emits valid existing payloads that a second device can apply"
+      },
+      {
+        "file": "tests/calendar-title-datetime.test.mjs",
+        "name": "calendar title date grammar refuses conflicting invalid vague and duration-only input"
+      },
+      {
+        "file": "tests/calendar-title-grammar-edge-cases.test.mjs",
+        "name": "title grammar rejects alternative excluded invalid excessive and partially valid schedule expressions as a whole"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-ui.test.mjs",
+        "name": "shared timed chore opens its displayed date while retaining the clicked recurrence anchor"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-ui.test.mjs",
+        "name": "shared calendar retains every timed personal occurrence for a recurring chore"
+      },
+      {
+        "file": "tests/sharing-v2-date-form.test.mjs",
+        "name": "${platform} calendar date shortcut keeps a shared fixed chore start and end clock when its clicked date changes"
+      },
+      {
+        "file": "tests/sharing-v2-date-form.test.mjs",
+        "name": "${platform} shared date shortcut exposes both repeated-clock choices and restores the exact original fold when returning"
+      },
+      {
+        "file": "tests/sharing-v2-date-form.test.mjs",
+        "name": "${platform} shared date shortcut exposes only the missing DST clock and saves the corrected local time"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "${platform} recurring search highlight identifies only the selected occurrence anchor"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "${platform} bounded-history search pages older appointments and resolves their retained moved override"
+      },
+      {
+        "file": "tests/calendar-observer-recovery.test.mjs",
+        "name": "bounded calendar history follows the latest viewport through an in-flight full read"
+      },
+      {
+        "file": "tests/calendar-observer-recovery.test.mjs",
+        "name": "calendar month scrolling under the history cap issues no additional database reads"
+      },
+      {
+        "file": "tests/calendar-navigation-ux.test.mjs",
+        "name": "${platform} adding from year view uses the displayed year and resumes the saved personal draft when present"
+      },
+      {
+        "file": "tests/calendar-navigation-ux.test.mjs",
+        "name": "${platform} closing the calendar editor preserves the browsed year despite a native zero offset"
+      },
+      {
+        "file": "tests/calendar-fixed-heading.test.mjs",
+        "name": "${platform} a carryover appointment at midnight starts the visible day at the top of its timeline"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "${platform} known empty agenda days stay compact when waste uses a custom renderer"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "${platform} chore search candidates are loaded only when search opens"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a Calendar delta 410 gets one full snapshot attempt and backs off if that tokenless request also expires"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a tokenless Calendar 410 does not repeat the same full read in one sync pass"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "Google calendar category names follow the connected account while user-created categories remain available"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "native Google sync checks request authority once at transport boundaries and once around each SQLite commit"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "disjoint Google display ranges expand unsupported series separately and retain previously cached dates"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "an expired page in a disjoint atomic series replacement restarts every range before publishing"
+      },
+      {
+        "file": "tests/calendar-event-row-range.test.mjs",
+        "name": "calendar display-range reads skip large saved history and retain moved exceptions whose anchor is outside the range"
+      },
+      {
+        "file": "tests/calendar-event-row-range.test.mjs",
+        "name": "display-range reads pad neighboring civil dates for New York events and moved overrides blocking Tokyo"
+      },
+      {
+        "file": "tests/calendar-event-row-range.test.mjs",
+        "name": "bounded Google metadata reads probe indexed occurrence keys without copying the original provider payload"
+      }
+    ],
+    "manualReview": "docs/audits/2026-11-19-calendar-followup.md"
   },
   {
     "feature": "shared-chore-list-add-ignores-native-press-event-20261116",

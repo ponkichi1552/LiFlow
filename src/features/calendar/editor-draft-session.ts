@@ -9,6 +9,7 @@ export function createEditorDraftSession(initial?: CalendarEditorDraft, assertAc
   return {
     remember,
     snapshot: (draft: CalendarEditorDraft) => owned.get(calendarDraftKey(draft)),
+    cleanup: () => owned.size ? { snapshots: [...owned.values()], assertAccess } : undefined,
     async clear(database: SQLiteDatabase, keep?: CalendarEditorDraft) {
       const keepKey = keep && calendarDraftKey(keep);
       for (const [key, snapshot] of [...owned]) {

@@ -48,9 +48,9 @@ export function localCalendarTargetRange(target: Parameters<PrivateCalendarAvail
 
 /** Same account guard and projection for foreground UI and background native integrations. */
 export function createLocalCalendarPlanSource(input: { ownerUserId: string; assertAccess: () => void | Promise<void>;
-  read: () => Promise<{ events: CalendarEvent[]; exceptions: CalendarException[] }> }) {
+  read: (range: { from: LocalDate; through: LocalDate }) => Promise<{ events: CalendarEvent[]; exceptions: CalendarException[] }> }) {
   const readForPlan = async (range: { from: LocalDate; through: LocalDate }, timeZone: string) => {
-    await input.assertAccess(); const value = await input.read(); await input.assertAccess();
+    await input.assertAccess(); const value = await input.read(range); await input.assertAccess();
     return { ownerUserId: input.ownerUserId, availability: createLocalCalendarAvailability(value.events, value.exceptions, range, timeZone) };
   };
   return { readForPlan, async readOwnCalendar(target: Parameters<PrivateCalendarAvailability>[0], timeZone?: string) {

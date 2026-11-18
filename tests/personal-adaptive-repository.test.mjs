@@ -275,7 +275,7 @@ test('a complete account-bound Calendar mirror uses real interval union while un
     h.connection.prepare('UPDATE calendar_google_control SET control_json=?').run(original);
   }
   h.connection.exec('DELETE FROM calendar_google_cursors');
-  h.connection.prepare('INSERT INTO calendar_google_requested_ranges VALUES(?,?)').run('same-google-account', JSON.stringify({ timeMin: range.timeMin, timeMax: range.timeMax }));
+  h.connection.prepare('INSERT INTO calendar_google_requested_ranges(subject,range_json) VALUES(?,?)').run('same-google-account', JSON.stringify({ timeMin: range.timeMin, timeMax: range.timeMax }));
   const requested = await read(); assert.ok(requested.busy.some(span => span.start <= day.bounds.start && span.end >= day.bounds.end));
 });
 

@@ -1,9 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
 import type { CalendarCategory } from '../../../domain/calendar/events';
-import type { CalendarEditorDraft, CalendarFutureSave } from '../../../platform/storage/calendar-events';
-import { clearSubmittedCalendarDraft, newCalendarSubmissionId, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent, saveCalendarFutureEvent, deleteCalendarEvent, restoreCalendarOccurrence } from '../../../platform/storage/calendar-events';
+import type { CalendarDraftCleanup, CalendarEditorDraft, CalendarFutureSave } from '../../../platform/storage/calendar-events';
+import { calendarDraftKey, clearSubmittedCalendarDrafts, newCalendarSubmissionId, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent, saveCalendarFutureEvent, deleteCalendarEvent, restoreCalendarOccurrence } from '../../../platform/storage/calendar-events';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
-import { calendarReminderScope, saveCalendarReminder, forkCalendarReminders } from '../../../platform/storage/calendar-reminders';
+import { calendarReminderScope, saveCalendarReminder, forkCalendarReminders, rebaseSharedCalendarReminders } from '../../../platform/storage/calendar-reminders';
 import { projectSharedCalendarRecords, sharedCalendarEventId } from '../../calendar/shared-events';
 import type { SharedCalendarRecord } from '../v2/calendar-state';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
@@ -26,7 +26,7 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
   const ownerScope = useMemo(() => calendarReminderScope(model.viewerUserId, groupId), [model.viewerUserId, groupId]);
   const assertScope = useCalendarDraftAccess(groupId, ownerScope);
   const submissions = useRef(new WeakMap<CalendarEditorDraft, { id: string; digest: string }>());
-  const cleanupPending = useRef(new Map<string, { database: NonNullable<LocalCalendarBinding['database']>; draft: CalendarEditorDraft }>());
+  const cleanupPending = useRef(new Map<string, { database: NonNullable<LocalCalendarBinding['database']>; ownerScope: string; snapshots: CalendarDraftCleanup['snapshots'] }>());
   const [cleanupError, setCleanupError] = useState<{ ownerScope: string; message: string } | null>(null);
   const [temporary, setTemporary] = useState<{ ownerScope: string; rows: CalendarCategory[] }>({ ownerScope, rows: [] });
   const accountMatches = local?.draftOwnerScope === undefined || local.draftOwnerScope === ownerScope;
@@ -62,7 +62,7 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
     if (!local.database || draft.groupId !== groupId || !model.calendarSupported) throw new Error('グループの管理者が互換更新を行ってから共有予定を追加してください。');
     if (draft.eventId && !canEdit(draft.eventId)) throw new Error('共有予定の作成者または管理者だけが変更できます。');
   };
-  const saveGroup = async (draft: CalendarEditorDraft, remove = false, resetExceptions = false) => {
+  const saveGroup = async (draft: CalendarEditorDraft, remove = false, resetExceptions = false, draftCleanup?: CalendarDraftCleanup) => {
     assertGroup(draft); const record = draft.eventId ? recordsById.get(draft.eventId) : undefined;
     if (draft.eventId && !record) throw new Error('共有予定を読み直してください。');
     if (remove && draft.scope === 'future') throw new Error('削除する範囲を選び直してください。');
@@ -106,17 +106,31 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
           await local.refresh();
         } };
       }
-    } else if (!remove && draft.reminderMinutes !== undefined) {
-      if (!savedId) throw new Error('予定は保存済みです。通知の保存を再試行してください。');
-      assertDraftAccess(draft);
-      await saveCalendarReminder(local.database!, { scope: ownerScope, eventId: sharedCalendarEventId(groupId, savedId),
-        anchorDate: draft.scope === 'one' ? draft.anchorDate : null, minutes: draft.reminderMinutes });
+    } else if (!remove) {
+      if (draft.scope === 'series' && record && draft.eventId && !resetExceptions && command.value && captured.series.length === 1) {
+        const basisId: string = captured.series[0];
+        const head = record.heads.find(row => row.operationId === basisId);
+        const original = head ? sharedCalendarPayload(head).value : await actions.readCalendarFutureSource(record.id, basisId);
+        if (!original) throw new Error('共有予定を読み直してください。');
+        await rebaseSharedCalendarReminders(local.database!, {
+          scope: ownerScope, intentId: submission.id, source: { ...original, id: draft.eventId, revision: draft.revision },
+          next: { ...command.value, id: draft.eventId, revision: draft.revision + 1 }, assertCurrent: () => assertDraftAccess(draft),
+        });
+      }
+      if (draft.reminderMinutes !== undefined) {
+        if (!savedId) throw new Error('予定は保存済みです。通知の保存を再試行してください。');
+        assertDraftAccess(draft);
+        await saveCalendarReminder(local.database!, { scope: ownerScope, eventId: sharedCalendarEventId(groupId, savedId),
+          anchorDate: draft.scope === 'one' ? draft.anchorDate : null, minutes: draft.reminderMinutes });
+      }
     }
-    const pending = { database: local.database!, draft: submitted };
+    const submittedKey = calendarDraftKey(submitted);
+    const snapshots = [submitted, ...(draftCleanup?.snapshots.filter(row => calendarDraftKey(row) !== submittedKey) ?? [])];
+    const pending = { database: local.database!, ownerScope, snapshots };
     cleanupPending.current.set(submission.id, pending);
     try {
-      await clearSubmittedCalendarDraft(pending.database, pending.draft, assertDraftAccess); cleanupPending.current.delete(submission.id);
-      if (![...cleanupPending.current.values()].some(row => row.draft.ownerScope === ownerScope)) setCleanupError(null);
+      await clearSubmittedCalendarDrafts(pending.database, { snapshots, assertAccess: assertDraftAccess }); cleanupPending.current.delete(submission.id);
+      if (![...cleanupPending.current.values()].some(row => row.ownerScope === ownerScope)) setCleanupError(null);
     } catch {
       // The business save is committed. Report cleanup separately, never offer
       // another business write as the cure for a local DELETE failure.
@@ -128,8 +142,8 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
     snapshot, assertDraftAccess, error: cleanupError?.ownerScope === ownerScope ? cleanupError.message : local.error,
     async refresh() {
       let failed = false;
-      for (const [id, pending] of cleanupPending.current) if (pending.draft.ownerScope === ownerScope) {
-        try { await clearSubmittedCalendarDraft(pending.database, pending.draft, assertDraftAccess); cleanupPending.current.delete(id); }
+      for (const [id, pending] of cleanupPending.current) if (pending.ownerScope === ownerScope) {
+        try { await clearSubmittedCalendarDrafts(pending.database, { snapshots: pending.snapshots, assertAccess: assertDraftAccess }); cleanupPending.current.delete(id); }
         catch { failed = true; }
       }
       setCleanupError(failed ? { ownerScope, message: '予定は保存済みです。下書きの整理を完了できませんでした。再読込で再試行できます。' } : null);
@@ -152,12 +166,12 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
       await saveCalendarDraft(local.database, stored, false, assertDraftAccess);
       return stored;
     },
-    async saveEvent(draft, resetExceptions) {
-      if (draft.audience === 'group') return saveGroup(draft, false, resetExceptions);
+    async saveEvent(draft, resetExceptions, draftCleanup) {
+      if (draft.audience === 'group') return saveGroup(draft, false, resetExceptions, draftCleanup);
       if (!local.database || recordsById.has(draft.eventId ?? '')) throw new Error('個人予定の保存先を確認してください。');
-      if (draft.scope === 'future') { const result = await saveCalendarFutureEvent(local.database, draft); void local.refresh(); return result; }
+      if (draft.scope === 'future') { const result = await saveCalendarFutureEvent(local.database, draft, draftCleanup); void local.refresh(); return result; }
       await saveCalendarEvent(local.database, { id: draft.eventId ?? undefined, expectedRevision: draft.revision, value: draft.value,
-        scope: draft.scope, anchorDate: draft.anchorDate ?? undefined, expectedExceptionRevision: draft.exceptionRevision, resetExceptions, reminderMinutes: draft.reminderMinutes });
+        scope: draft.scope, anchorDate: draft.anchorDate ?? undefined, expectedExceptionRevision: draft.exceptionRevision, resetExceptions, reminderMinutes: draft.reminderMinutes, draftCleanup });
       void local.refresh();
     },
     async restoreOccurrence(draft) {

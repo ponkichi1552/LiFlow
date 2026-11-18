@@ -11,9 +11,10 @@ const remote = (id, extra = {}) => ({ id, etag: '"version"', summary: '予定', 
 async function setup(t) {
   const h = createDatabase(); t.after(() => h.connection.close()); await initializeLocalDatabase(h.database); await readLocalCalendar(h.database);
   const api = { calendars: async () => ({ items: [owned] }), events: async () => ({ items: [], nextSyncToken: 'next' }), instances: async () => ({ items: [] }) };
-  const makeSync = () => createPersonalGoogleCalendarSync({ database: h.database, currentSubject: async () => 'account', authorize: async () => ({ subject: 'account', label: 'QA' }), createApi: () => api, today: () => '2026-11-07', now: () => Date.parse('2026-11-07T03:00:00Z'), random: () => .5 });
+  let clock = Date.parse('2026-11-07T03:00:00Z');
+  const makeSync = () => createPersonalGoogleCalendarSync({ database: h.database, currentSubject: async () => 'account', authorize: async () => ({ subject: 'account', label: 'QA' }), createApi: () => api, today: () => '2026-11-07', now: () => clock, random: () => .5 });
   const sync = makeSync();
-  return { ...h, api, sync, makeSync, async connect() { return sync.connect(await sync.prepareConnection()); } };
+  return { ...h, api, sync, makeSync, advance(ms) { clock += ms; }, async connect() { return sync.connect(await sync.prepareConnection()); } };
 }
 
 test('audit100 repeated CalendarList rows across pages do not block connection or duplicate synchronization', async t => {
@@ -83,15 +84,26 @@ test('audit100 Calendar page cycles fail without seventy five repeated requests 
 test('audit100 a full Calendar rebuild queues missing deletions instead of applying an unbounded transaction', async t => {
   const h = await setup(t); await h.connect();
   h.api.events = async () => ({ items: Array.from({ length: 100 }, (_, n) => remote(`old-${n}`)), nextSyncToken: 'old' });
-  for (let n = 0; n < 6; n++) await h.sync.sync({ force: true });
+  assert.equal((await h.sync.sync({ force: true })).kind, 'success');
   assert.equal((await readLocalCalendar(h.database)).events.length, 100);
+  h.advance(1);
   await h.database.runAsync('DELETE FROM calendar_google_cursors');
   h.api.events = async () => ({ items: [], nextSyncToken: 'rebuilt' });
+  const countDeleted = () => h.connection.prepare('SELECT count(*) n FROM calendar_events WHERE deleted=1').get().n;
+  const transact = h.database.withTransactionAsync; const chunks = [];
+  h.database.withTransactionAsync = async work => {
+    const before = countDeleted(); await transact(work);
+    const removed = countDeleted() - before;
+    if (removed) {
+      chunks.push(removed);
+      if (chunks.length === 1) h.advance(16_000);
+    }
+  };
   const first = await h.sync.sync({ force: true });
-  const removed = h.connection.prepare('SELECT count(*) n FROM calendar_events WHERE deleted=1').get().n;
   assert.equal(first.kind, 'pending');
-  assert.ok(removed > 0 && removed <= 25, `deletions applied in one import chunk: ${removed}`);
-  for (let n = 0; n < 6; n++) await h.sync.sync({ force: true });
+  assert.deepEqual(chunks, [25], 'exhausting the receive time after commit leaves the remaining deletion queue durable');
+  assert.equal((await h.makeSync().sync({ force: true })).kind, 'success');
+  assert.deepEqual(chunks, [25, 25, 25, 25]);
   assert.equal((await readLocalCalendar(h.database)).events.length, 0);
 });
 

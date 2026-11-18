@@ -236,6 +236,7 @@ const rejectedTitles = [
   '毎年5月22日18時か19時旅行', '明日18時または19時旅行', '明日終日18時旅行',
   '明日11時間の作業', '明日11時台の作業', '明日11時前に集合', '明日11時以降に集合',
   '明日25時集合', '明日11:99集合', '明日午後18時集合', '明日18時から18時集合',
+  '11:00以降に集合', '明日の10時以外は空き', '明日香さん',
   'https://example.com/4/11/18:00', 'https://example.com/毎年5月22日',
 ];
 test('title grammar rejects alternative excluded invalid excessive and partially valid schedule expressions as a whole', () => {

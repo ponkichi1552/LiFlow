@@ -79,15 +79,62 @@ test('search destinations follow the displayed time zone and actual recurring ex
   const overseas = event('late interview', { timeZone: 'America/New_York', startMinute: 23 * 60 + 30, endDate: '2026-11-13', endMinute: 30 });
   const [entry] = calendarSearchIndex([overseas], []);
   const before = JSON.stringify(overseas);
-  assert.deepEqual(calendarSearchDestination(entry.draft, [overseas], [], date, 'Asia/Tokyo'), { date: '2026-11-13', minute: 13 * 60 + 30 });
+  assert.deepEqual(calendarSearchDestination(entry.draft, [overseas], [], date, 'Asia/Tokyo'), { date: '2026-11-13', minute: 13 * 60 + 30, anchorDate: date });
   assert.equal(JSON.stringify(overseas), before);
   const allDay = { ...overseas, allDay: true, startDate: date, endDate: date };
-  assert.deepEqual(calendarSearchDestination({ ...entry.draft, value: allDay }, [allDay], [], date, 'Asia/Tokyo'), { date, minute: null });
+  assert.deepEqual(calendarSearchDestination({ ...entry.draft, value: allDay }, [allDay], [], date, 'Asia/Tokyo'), { date, minute: null, anchorDate: date });
   const weekly = event('weekly', { recurrence: 'weekly' });
   const exceptions = [{ eventId: weekly.id, anchorDate: date, revision: 1, override: null },
     { eventId: weekly.id, anchorDate: '2026-11-19', revision: 2, override: { ...newEventDraft('2026-11-20', 'Asia/Tokyo'), title: '変更後の面談' } }];
   const rows = calendarSearchIndex([weekly], exceptions);
-  for (const row of rows) assert.deepEqual(calendarSearchDestination(row.draft, [weekly], exceptions, date, 'Asia/Tokyo'), { date: '2026-11-20', minute: 9 * 60 });
+  for (const row of rows) assert.deepEqual(calendarSearchDestination(row.draft, [weekly], exceptions, date, 'Asia/Tokyo'), { date: '2026-11-20', minute: 9 * 60, anchorDate: '2026-11-19' });
+});
+for (const platform of ['ios', 'android']) test(`${platform} bounded-history search pages older appointments and resolves their retained moved override`, async t => {
+  const series = event('historic-series', { title: '過去の定例会議', recurrence: 'weekly', startDate: '2010-11-11', endDate: '2010-11-11' });
+  const override = { eventId: series.id, anchorDate: date, revision: 4, override: { ...newEventDraft('2026-11-18', 'Asia/Tokyo'),
+    title: '移動後の面接', startMinute: 600, endMinute: 660 } };
+  const reads = []; const selected = []; let resolved;
+  const local = { snapshot: { events: [], exceptions: [], categories: [] }, loading: false, error: null, historyLimited: true, historyGeneration: 7,
+    readHistoryPage: async (afterId, generation) => { reads.push([afterId, generation]); return { events: [series], exceptions: [override] }; } };
+  const ui = screenHarness('src/features/calendar/calendar-search.tsx', { exportName: 'CalendarSearch', platform, effectDependencies: true, effect: callback => callback(),
+    props: { focusDate: date, local, onClose() {}, onSelect: value => selected.push(value), resolveSelection: (draft, events, exceptions) => {
+      resolved = { eventIds: events.map(row => row.id), exceptionAnchors: exceptions.map(row => row.anchorDate) };
+      return calendarSearchDestination(draft, events, exceptions, date, 'Asia/Tokyo');
+    } } });
+  t.after(() => ui.unmount()); await ui.change('予定を検索', '移動後の面接');
+  await new Promise(resolve => setTimeout(resolve, 190)); await ui.flush();
+  assert.deepEqual(reads, [[undefined, 7]], 'the fallback queries history only after an explicit term');
+  await ui.press('移動後の面接の検索結果を開く');
+  if (platform === 'ios') { ui.nodes().find(node => node.type === 'Modal').props.onDismiss(); await ui.flush(); }
+  assert.deepEqual(resolved, { eventIds: ['historic-series'], exceptionAnchors: [date] });
+  assert.deepEqual(selected, [{ date: '2026-11-18', minute: 600, anchorDate: date }]);
+});
+test('calendar search includes retained detached overrides and never opens an omitted or cancelled round', () => {
+  const parent = event('通常の予定', { startDate: '2026-11-09', endDate: '2026-11-09', recurrence: 'weekly', untilDate: '2026-11-16' });
+  const overrides = [{ eventId: parent.id, anchorDate: '2026-11-10', revision: 3, detached: true,
+    override: { ...newEventDraft('2026-11-17', 'Asia/Tokyo'), title: '残した個別の名前' } },
+  ...['2026-11-09', '2026-11-16'].map(anchorDate => ({ eventId: parent.id, anchorDate, revision: 1, override: null }))];
+  const match = searchCalendarIndex(calendarSearchIndex([parent], overrides), '残した個別').matches[0];
+  assert.ok(match);
+  assert.deepEqual(calendarSearchDestination(match.draft, [parent], overrides, date, 'Asia/Tokyo'),
+    { date: '2026-11-17', minute: 540, anchorDate: '2026-11-10' });
+  assert.throws(() => calendarSearchDestination(match.draft, [parent], overrides.slice(1), date, 'Asia/Tokyo'), /表示できる予定/);
+  const series = calendarSearchIndex([parent], overrides.slice(1))[0].draft;
+  assert.equal(calendarSearchSelection(series, [parent], overrides.slice(1), date), null);
+  assert.throws(() => calendarSearchDestination(series, [parent], overrides.slice(1), date, 'Asia/Tokyo'), /表示できる予定/);
+});
+
+test('calendar search seeks sparse future and past rounds and compares their displayed civil dates', () => {
+  const sparse = event('50年ごと', { recurrence: 'custom', customRecurrence: { unit: 'year', interval: 50 }, untilDate: '2100-12-31' });
+  const [entry] = calendarSearchIndex([sparse], []);
+  assert.deepEqual(calendarSearchDestination(entry.draft, [sparse], [], '2026-11-13', 'Asia/Tokyo'),
+    { date: '2076-11-12', minute: 540, anchorDate: '2076-11-12' });
+  assert.deepEqual(calendarSearchDestination(entry.draft, [sparse], [], '2125-01-01', 'Asia/Tokyo'),
+    { date: '2076-11-12', minute: 540, anchorDate: '2076-11-12' });
+  const sanFrancisco = event('海外の週次予定', { recurrence: 'weekly', timeZone: 'America/Los_Angeles', startMinute: 1380, endMinute: 1420 });
+  const [local] = calendarSearchIndex([sanFrancisco], []);
+  assert.deepEqual(calendarSearchDestination(local.draft, [sanFrancisco], [], '2026-11-13', 'Asia/Tokyo'),
+    { date: '2026-11-13', minute: 960, anchorDate: date });
 });
 for (const platform of ['ios', 'android']) {
   test(`${platform} calendar editor keeps a different event time zone explicit and saves its original clock`, async t => {
@@ -206,6 +253,24 @@ for (const platform of ['ios', 'android']) {
     t.after(() => drafts.unmount()); await drafts.press('歯科の変更途中の下書きを再開'); assert.equal(picked.eventId, saved.id);
     await drafts.press('新しい予定の途中の下書きを破棄'); await flush(drafts);
     assert.deepEqual((await store.readLocalCalendar(h.database)).drafts.map(row => row.value.title), ['歯科の変更途中']);
+  });
+  test(`${platform} recurring search highlight identifies only the selected occurrence anchor`, async t => {
+    const h = await fixture(t); const start = '2026-11-11';
+    await store.saveCalendarEvent(h.database, { expectedRevision: 0, value: { ...newEventDraft(start, 'Asia/Tokyo'), title: '長期の毎日予定', endDate: '2026-11-12',
+      startMinute: 9 * 60, endMinute: 10 * 60, recurrence: 'daily' } });
+    await h.local.refresh();
+    const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
+      today: '2026-11-12', selectedDate: '2026-11-12', timeZone: 'Asia/Tokyo', local: h.local,
+      dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
+    } });
+    t.after(() => ui.unmount());
+    await selectCalendarView(ui, 'リスト表示'); await ui.press('予定を検索する');
+    await ui.change('予定を検索', '長期の毎日予定'); await ui.press('長期の毎日予定の検索結果を開く');
+    if (platform === 'ios') { ui.nodes().find(node => node.type === 'Modal').props.onDismiss(); await ui.flush(); }
+    const rows = ui.nodes().filter(node => node.props.accessibilityLabel === '長期の毎日予定を編集');
+    const selected = rows.filter(node => node.props.accessibilityState?.selected === true);
+    assert.ok(rows.length >= 2, 'overlapping recurrence instances are present on the visible day');
+    assert.equal(selected.length, 1, 'only the chosen anchor is highlighted even when several instances share the day');
   });
   test(`${platform} search date navigation preserves each preferred detail view and does not require edit permission`, async t => {
     const h = await fixture(t); const targetDate = '2028-08-17'; let prepareCalls = 0;

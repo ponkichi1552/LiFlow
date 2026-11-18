@@ -56,6 +56,69 @@ test('a queued full refresh survives a failed read and persistent failure cannot
   finally { screen.unmount(); }
 });
 
+test('bounded calendar history follows the latest viewport through an in-flight full read', async () => {
+  const empty = { events: [], categories: [], exceptions: [], draft: null, drafts: [] };
+  class HistoryLimit extends Error {}
+  let rejectFull; let resolveFirstBounded; let binding; const rangedReads = [];
+  const pendingFull = new Promise((_resolve, reject) => { rejectFull = reject; });
+  const pendingFirstBounded = new Promise(resolve => { resolveFirstBounded = resolve; });
+  const largeDatabase = {};
+  const large = screenHarness('tests/helpers/local-calendar-observer-host.tsx', { exportName: 'LocalCalendarObserverHost', database: largeDatabase, effectDependencies: true,
+    effect: fn => fn(), layoutEffect: fn => fn(), props: { database: largeDatabase, capture: value => { binding = value; } }, mocks: {
+      '../../platform/storage/calendar-events': { EMPTY_LOCAL_CALENDAR: empty,
+        readLocalCalendar: async (_db, _owner, range) => {
+          if (!range) return pendingFull;
+          rangedReads.push({ ...range });
+          if (rangedReads.length === 1) return pendingFirstBounded;
+          return { ...empty, events: [{ title: range.from }] };
+        }, readLocalCalendarDrafts: async () => empty, subscribeLocalCalendar: () => () => {} },
+      '../../platform/storage/calendar-event-rows': { CalendarHistoryLimitError: HistoryLimit },
+      './use-personal-google-sync': { usePersonalGoogleSync: () => () => {} },
+    } });
+  try {
+    await large.flush(); assert.ok(binding); assert.equal(rangedReads.length, 0);
+    binding.loadRange('2030-01-01', '2030-01-31');
+    rejectFull(new HistoryLimit());
+    await large.flush(); await large.flush();
+    assert.deepEqual(rangedReads, [{ from: '2030-01-01', through: '2030-01-31' }],
+      'the first fallback uses the latest viewport even when it changes during the unbounded read');
+    binding.loadRange('2030-02-01', '2030-02-28'); await large.flush();
+    resolveFirstBounded({ ...empty, events: [{ title: '2030-01-01' }] });
+    await large.flush(); await large.flush();
+    assert.deepEqual(rangedReads, [
+      { from: '2030-01-01', through: '2030-01-31' },
+      { from: '2030-02-01', through: '2030-02-28' },
+    ], 'a viewport change during the first ranged read starts the newer range before publishing');
+    assert.deepEqual(binding.snapshot.events.map(event => event.title), ['2030-02-01'], 'the stale January snapshot is never published');
+    binding.loadRange('2030-03-01', '2030-03-31'); await large.flush();
+    assert.deepEqual(rangedReads.at(-1), { from: '2030-03-01', through: '2030-03-31' });
+    const beforeSameRange = rangedReads.length;
+    binding.loadRange('2030-03-01', '2030-03-31'); await large.flush();
+    assert.equal(rangedReads.length, beforeSameRange, 'a duplicate visible range does not trigger another read');
+  } finally { large.unmount(); }
+});
+
+test('calendar month scrolling under the history cap issues no additional database reads', async () => {
+  const empty = { events: [], categories: [], exceptions: [], draft: null, drafts: [] };
+  class HistoryLimit extends Error {}
+  let ordinaryReads = 0; let ordinaryBinding;
+  const smallDatabase = {};
+  const small = screenHarness('tests/helpers/local-calendar-observer-host.tsx', { exportName: 'LocalCalendarObserverHost', database: smallDatabase, effectDependencies: true,
+    effect: fn => fn(), layoutEffect: fn => fn(), props: { database: smallDatabase, capture: value => { ordinaryBinding = value; } }, mocks: {
+      '../../platform/storage/calendar-events': { EMPTY_LOCAL_CALENDAR: empty,
+        readLocalCalendar: async () => { ordinaryReads++; return { ...empty, events: [{ title: 'Saved' }] }; },
+        readLocalCalendarDrafts: async () => empty, subscribeLocalCalendar: () => () => {} },
+      '../../platform/storage/calendar-event-rows': { CalendarHistoryLimitError: HistoryLimit },
+      './use-personal-google-sync': { usePersonalGoogleSync: () => () => {} },
+    } });
+  try {
+    await small.flush(); assert.equal(ordinaryReads, 1);
+    ordinaryBinding.loadRange('2030-01-01', '2030-01-31'); await small.flush();
+    ordinaryBinding.loadRange('2030-02-01', '2030-02-28'); await small.flush();
+    assert.equal(ordinaryReads, 1, 'passive month navigation below the history cap performs no additional database read');
+  } finally { small.unmount(); }
+});
+
 test('switching calendar databases hides the previous database snapshot before the next read resolves', async () => {
   const first = {}, second = {}; let release;
   const empty = { events: [], categories: [], exceptions: [], draft: null, drafts: [] };

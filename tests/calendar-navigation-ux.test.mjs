@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { selectCalendarView, scrollCalendarToDate } from './helpers/calendar-ui.mjs';
+import { newEventDraft } from '../src/features/calendar/events.ts';
 
 for (const platform of ['ios', 'android']) {
   const make = (extra = {}) => screenHarness('src/features/calendar/planner-calendar.tsx', { platform, exportName: 'PlannerCalendar', layoutEffect: effect => effect(), props: {
@@ -23,6 +24,7 @@ for (const platform of ['ios', 'android']) {
     await year.press('今日'); await year.flush();
     assert.ok(year.nodes().some(node => node.props.testID === 'calendar-year'));
     assert.equal(list.props.data[jump.index].year, 2026); assert.equal(list.props.data[jump.index].quarter, 3);
+    assert.equal(jump.animated, false, 'Today jumps directly to the current year without scrolling through the intervening years');
     assert.equal(year.button('表示する年と月を選択').props.accessibilityValue.text, '2026年');
     assert.equal(year.nodes().some(node => ['前の年', '次の年'].includes(node.props.accessibilityLabel)), false);
     const root = year.nodes().find(node => typeof node.props.onMoveShouldSetPanResponderCapture === 'function'); const swipe = { x0: 160, dx: -100, dy: 2, numberActiveTouches: 1 };
@@ -45,6 +47,57 @@ for (const platform of ['ios', 'android']) {
     scrollTo(boundary + 1); assert.deepEqual(changed, [2027], 'scrolling within one year does not repeatedly update the header');
     scrollTo(boundary - 1); assert.deepEqual(changed, [2027, 2026]);
     scrollTo(Number.NaN); assert.deepEqual(changed, [2027, 2026]);
+  });
+  test(`${platform} adding from year view uses the displayed year and resumes the saved personal draft when present`, async () => {
+    const opened = [];
+    const local = { database: {}, snapshot: { events: [], exceptions: [], categories: [], drafts: [] } };
+    const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { platform, exportName: 'PlannerCalendar', props: {
+      today: '2026-10-31', selectedDate: '2026-12-10', timeZone: 'Asia/Tokyo', local,
+      dayInfo: () => ({ loaded: true, pending: 0, total: 0 }), renderChores: () => null,
+    }, mocks: { '@/features/calendar/calendar-editor': { CalendarEditor: props => { opened.push(props.initial); return null; } } } });
+    try {
+      await screen.press('年表示に戻る');
+      const yearList = screen.nodes().find(node => node.props.testID === 'calendar-year');
+      const nextYearIndex = yearList.props.data.findIndex(row => row.year === 2027 && row.quarter === null);
+      yearList.props.onScrollBeginDrag();
+      yearList.props.onScroll({ nativeEvent: { contentOffset: { y: yearList.props.getItemLayout(yearList.props.data, nextYearIndex).offset } } });
+      await screen.flush(); await screen.press('予定を追加');
+      assert.equal(opened.at(-1).value.startDate, '2027-12-10');
+
+      const groupDraft = { eventId: null, anchorDate: null, revision: 1, exceptionRevision: 0, scope: 'series', audience: 'group', value: { ...newEventDraft('2026-10-31', 'Asia/Tokyo'), title: '共有の入力中' } };
+      const personalDraft = { eventId: null, anchorDate: null, revision: 2, exceptionRevision: 0, scope: 'series', audience: 'personal', value: { ...newEventDraft('2026-11-01', 'Asia/Tokyo'), title: '個人の入力中' } };
+      local.snapshot.drafts = [groupDraft, personalDraft]; screen.render(); await screen.press('予定を追加');
+      assert.equal(opened.at(-1).value.title, '個人の入力中', 'the existing personal draft still takes precedence over a group draft when adding');
+    } finally { screen.unmount(); }
+  });
+  test(`${platform} closing the calendar editor preserves the browsed year despite a native zero offset`, async () => {
+    let closeEditor;
+    const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { platform, exportName: 'PlannerCalendar', effectDependencies: true,
+      layoutEffect: callback => callback(), props: {
+        today: '2026-10-31', timeZone: 'Asia/Tokyo', local: { database: {}, snapshot: { events: [], exceptions: [], categories: [], drafts: [] } },
+        dayInfo: () => ({ loaded: true, pending: 0, total: 0 }), renderChores: () => null,
+      }, mocks: { '@/features/calendar/calendar-editor': { CalendarEditor: props => { closeEditor = props.onClose; return null; } } } });
+    const list = () => screen.nodes().find(node => node.props.testID === 'calendar-year').props;
+    const scrollTo = y => list().onScroll({ nativeEvent: { contentOffset: { y } } });
+    const label = () => screen.button('表示する年と月を選択').props.accessibilityValue.text;
+    try {
+      await screen.press('年表示に戻る');
+      const restorations = [];
+      list().ref.current = { scrollToOffset: value => restorations.push(value) };
+      const index = list().data.findIndex(row => row.year === 2033 && row.quarter === 1);
+      const offset = list().getItemLayout(list().data, index).offset + 28;
+      list().onScrollBeginDrag(); scrollTo(offset); await screen.flush();
+      assert.equal(label(), '2033年');
+      await screen.press('予定を追加');
+      assert.equal(list().scrollEnabled, false);
+      scrollTo(0); await screen.flush(); assert.equal(label(), '2033年');
+      closeEditor(); await screen.flush();
+      scrollTo(0); await screen.flush();
+      assert.deepEqual(restorations.at(-1), { offset, animated: false });
+      assert.equal(label(), '2033年');
+      list().onScrollBeginDrag(); scrollTo(0); await screen.flush();
+      assert.equal(label(), '1900年', 'explicit scrolling can still reach the first year');
+    } finally { screen.unmount(); }
   });
   test(`${platform} swiping the mode strip changes views without moving the selected date`, async () => {
     const selected = []; const screen = make({ onSelectDate: date => selected.push(date) }); await selectCalendarView(screen, '1日表示');

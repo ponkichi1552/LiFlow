@@ -9,7 +9,7 @@ import type { SharedCalendarPayload } from './calendar-state';
 import type { JsonValue } from '../operations';
 import { sharedDocumentDigest } from '../crypto.ts';
 import { captureV2Input } from './input-capture.ts';
-import { rebasedCalendarExceptionDate } from '../../../domain/calendar/exception-slots.ts';
+import { rebasedCalendarExceptionDates } from '../../../domain/calendar/exception-slots.ts';
 import { assertCalendarMonthDatesCompatibility } from './calendar-compatibility.ts';
 
 export interface V2CalendarCommand { eventId?: string; basisRevision?: string; scope: 'one' | 'future' | 'series'; anchorDate: LocalDate | null;
@@ -69,10 +69,12 @@ export function createV2CalendarActions(repository: ReturnType<typeof createV2Ev
         resetExceptionIds: input.resetExceptions ? exceptionIds : [] };
       const previous = current?.heads.length === 1 ? current.heads[0].payload as unknown as SharedCalendarPayload : null;
       if (input.scope === 'series' && !input.resetExceptions && value && previous?.value && previous.value.startDate !== value.startDate && current?.exceptions.length) {
-        const moved = current.exceptions.map(row => {
+        const dates = rebasedCalendarExceptionDates({ ...previous.value, id: current.id, revision: 1 }, { ...value, id: current.id, revision: 2 },
+          current.exceptions.map(row => row.anchorDate));
+        const moved = current.exceptions.map((row, index) => {
           if (row.heads.length !== 1) throw new Error('個別変更が競合しています。予定を確認してください。');
           const old = row.heads[0].payload as unknown as SharedCalendarPayload;
-          return { anchor: rebasedCalendarExceptionDate({ ...previous.value!, id: current.id, revision: 1 }, { ...value, id: current.id, revision: 2 }, row.anchorDate), old };
+          return { anchor: dates[index], old };
         });
         if (new Set(moved.map(row => row.anchor)).size !== moved.length) throw new Error('個別変更の日付が重なります。予定を確認してください。');
         payload.resetExceptionIds = exceptionIds;

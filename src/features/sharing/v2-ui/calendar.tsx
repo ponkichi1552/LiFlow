@@ -11,6 +11,7 @@ import { addDays } from '../../../domain/scheduling/local-date';
 import { Text, View } from 'react-native';
 import { AppButton, Card, palette, typography } from '../../../components/planner-ui';
 import type { LocalDate } from '../../../domain/shared/types';
+import { sharedLocalDate } from '../group-clock';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { V2PersonalPlan } from '../v2/personal-plan';
 import { v2CalendarMonth, v2CalendarProjection } from './calendar-projection';
@@ -34,7 +35,7 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
   actions: V2GroupController['actions']; run: (work: () => Promise<unknown>) => Promise<void>;
   onMonth: (month: LocalDate) => void; onSelectDate: (date: LocalDate) => void;
   onRound: (occurrenceId: string, subjectId: string, anchorDate: LocalDate) => void; header?: ReactElement;
-  onDate?: (occurrenceId: string, subjectId: string, anchorDate: LocalDate) => void;
+  onDate?: (occurrenceId: string, subjectId: string, targetDate: LocalDate, anchorDate: LocalDate) => void;
   privateOverlay?: V2PrivateOverlayState; privateSource?: V2PrivateTaskSource;
   readOwnCalendar?: V2DateFormProps['readOwnCalendar'];
 }) {
@@ -139,16 +140,20 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
   const timedChores = [
     ...model.plan.occurrences.flatMap(round => round.subjects.flatMap(subject => {
       const formal = subject.formalDate;
-      if (!subject.required || subject.subjectUserId !== null && subject.subjectUserId !== model.viewerUserId || formal.kind !== 'manual' || formal.mode !== 'fixed' || formal.target.precision !== 'interval') return [];
-      return [{ id: subject.id, name: chores.get(round.choreId)?.name ?? '家事', start: Date.parse(formal.target.start), end: Date.parse(formal.target.end), onOpen: () => (onDate ?? onRound)(round.id, subject.id, round.anchorDate) }];
+      const target = formal.kind === 'manual' && formal.mode === 'fixed' && formal.target.precision === 'interval' ? formal.target : null;
+      if (!subject.required || subject.subjectUserId !== null && subject.subjectUserId !== model.viewerUserId || !target) return [];
+      const start = Date.parse(target.start); const end = Date.parse(target.end);
+      return [{ id: subject.id, name: chores.get(round.choreId)?.name ?? '家事', start, end, onOpen: () => onDate
+        ? onDate(round.id, subject.id, sharedLocalDate(new Date(start), model.plan.timeZone), round.anchorDate)
+        : onRound(round.id, subject.id, round.anchorDate) }];
     })),
-    ...[...new Map([...privateRowsByDate.values()].flat().filter(row => row.calendarTime).map(row => [row.chore.id, row])).values()].map(row => ({
-      id: `personal:${row.chore.id}`, name: row.chore.name, ...row.calendarTime!, onOpen: () => row.entryId && !row.completed && !row.provisional ? router.navigate({ pathname: '/calendar-chore-date', params: { choreId: row.chore.id, entryId: row.entryId } }) : onGuide?.(row.chore.id, 'personal'),
+    ...[...privateRowsByDate.values()].flat().filter(row => row.calendarTime).map(row => ({
+      id: `personal:${row.entryId ?? row.key}`, name: row.chore.name, ...row.calendarTime!, onOpen: () => row.entryId && !row.completed && !row.provisional ? router.navigate({ pathname: '/calendar-chore-date', params: { choreId: row.chore.id, entryId: row.entryId } }) : onGuide?.(row.chore.id, 'personal'),
     })),
   ];
   return <PlannerCalendar today={model.plan.range.asOfDate} timeZone={model.plan.timeZone} selectedDate={selectedDate} local={local} busy={busy} workspaceName={workspaceName}
     timedChores={timedChores}
-    searchChores={[...[...projection.byDate].flatMap(([date, rows]) => loaded(date) ? rows.map(entry => ({ key: `shared:${entry.id}:${date}`, title: chores.get(entry.round.choreId)?.name ?? '共有家事', date, source: 'shared' as const })) : []),
+    loadSearchChores={() => [...[...projection.byDate].flatMap(([date, rows]) => loaded(date) ? rows.map(entry => ({ key: `shared:${entry.id}:${date}`, title: chores.get(entry.round.choreId)?.name ?? '共有家事', date, source: 'shared' as const })) : []),
       ...[...privateRowsByDate].flatMap(([date, rows]) => rows.map(row => ({ key: row.key, title: row.chore.name, date, source: 'personal' as const })))]} searchChoresIncomplete
     extendedChoreDates={extendedDates}
     repeatReturnTo="group" onSelectDate={onSelectDate} onMonth={onMonth} monthLoaded={target => { const grid = v2CalendarMonth(target); const through = grid.through < choreThrough ? grid.through : choreThrough;
@@ -173,7 +178,7 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
       renderItem={({ item }) => item.source === 'personal' ? <V2PrivateTaskCard compact row={item.row} today={privateOverlay?.status === 'ready' ? privateOverlay.today : undefined} source={privateSource} busy={busy} run={run} feedback={feedback} mixedSources showCalendarTime={view === 'list'} timeZone={privateOverlay?.status === 'ready' ? privateOverlay.timeZone : model.plan.timeZone}
         onOpen={onGuide ? () => onGuide(item.row.chore.id, 'personal') : undefined} />
         : <V2RoundCard compact model={model} round={item.entry.round} subject={item.entry.subject} recommendation={item.entry.recommendation} actions={actions} busy={busy} run={run} feedback={feedback} showCalendarTime={view === 'list'}
-          onDate={onDate ? () => onDate(item.entry.round.id, item.entry.subject.id, item.entry.round.anchorDate) : undefined}
+          onDate={onDate ? () => onDate(item.entry.round.id, item.entry.subject.id, date, item.entry.round.anchorDate) : undefined}
           onOpen={() => onGuide ? onGuide(item.entry.round.choreId, 'shared') : onRound(item.entry.round.id, item.entry.subject.id, item.entry.round.anchorDate)} />} />}
   />;
 }

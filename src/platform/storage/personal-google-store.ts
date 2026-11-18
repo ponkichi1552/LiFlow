@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import type { LocalDate } from '../../domain/shared/types';
-import { addDays } from '../../domain/scheduling/local-date.ts';
+import { addDays, daysBetween, parseLocalDate } from '../../domain/scheduling/local-date.ts';
 import { validateEventDraft } from '../../domain/calendar/events.ts';
 import type { EventDraft } from '../../domain/calendar/events';
 import { googleEventBody } from '../../features/calendar/google-event-mapping.ts';
@@ -15,6 +15,7 @@ import { googleOriginalDate, calendarOccurrenceAt } from '../../features/calenda
 export { googleOriginalDate } from '../../features/calendar/google-instance.ts';
 
 export const personalGoogleDigest = (value: unknown) => bytesToHex(sha256(new TextEncoder().encode(JSON.stringify(value))));
+export const personalGoogleCategoryId = (subject: string, calendarId: string) => `google.${personalGoogleDigest([subject, calendarId]).slice(0, 24)}`;
 export interface PersonalGoogleLink {
   subject: string; calendar_id: string; google_id: string; event_id: string; anchor_date: string;
   etag: string | null; base_json: string | null; local_revision: number; remote_json: string | null;
@@ -129,8 +130,14 @@ export async function writePersonalGoogleLink(tx: SQLiteDatabase, link: Personal
       conflict_json=excluded.conflict_json,read_only=excluded.read_only,pending_json=excluded.pending_json,active=1`,
   link.subject, link.calendar_id, link.google_id, link.event_id, link.anchor_date, link.etag, link.base_json, link.local_base_json ?? null, link.local_revision, link.remote_json, link.conflict_json, link.read_only, link.pending_json ?? null);
 }
-async function category(tx: SQLiteDatabase, calendar: GoogleCalendarListEntry) {
-  const id = `google.${personalGoogleDigest(calendar.id).slice(0, 24)}`;
+async function category(tx: SQLiteDatabase, control: PersonalGoogleCalendarControl, calendar: GoogleCalendarListEntry) {
+  const prior = await tx.getFirstAsync<{ category_id: string }>(`SELECT json_extract(e.definition_json,'$.categoryId') AS category_id
+    FROM calendar_google_links l JOIN calendar_events e ON e.id=l.event_id
+    WHERE l.subject=? AND l.calendar_id=? AND l.active=1 AND e.deleted=0 AND json_extract(e.definition_json,'$.categoryId') LIKE 'google.%'
+    ORDER BY l.event_id LIMIT 1`, control.subject, calendar.id);
+  // Keep an older category attached to its original account, but give a newly
+  // connected account a separate category row for the same Google calendar ID.
+  const id = prior?.category_id ?? personalGoogleCategoryId(control.subject, calendar.id);
   // Never rename the user's chosen category while synchronizing.
   await tx.runAsync('INSERT OR IGNORE INTO calendar_categories(id,name,color,revision) VALUES(?,?,?,1)', id,
     (calendar.summary || 'Google').slice(0, 40), /^#[0-9a-f]{6}$/i.test(calendar.backgroundColor ?? '') ? calendar.backgroundColor! : '#348DC2');
@@ -138,7 +145,7 @@ async function category(tx: SQLiteDatabase, calendar: GoogleCalendarListEntry) {
 }
 /** Full source JSON is retained privately. Unsupported series are expanded by Google's own engine, never rewritten. */
 export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: PersonalGoogleCalendarControl, calendar: GoogleCalendarListEntry,
-  remote: GoogleCalendarEvent, options: { expanded?: boolean; parentId?: string; original?: GoogleCalendarEvent } = {}): Promise<'applied' | 'unchanged' | 'waiting' | 'expand' | 'ignored'> {
+  remote: GoogleCalendarEvent, options: { expanded?: boolean; parentId?: string; original?: GoogleCalendarEvent; missingFromSnapshot?: boolean } = {}): Promise<'applied' | 'unchanged' | 'waiting' | 'expand' | 'ignored'> {
   if (!remote.id || remote.id.length > 1024 || remote.extendedProperties?.private?.liflowShared === '1') return 'ignored';
   let known = await tx.getFirstAsync<PersonalGoogleLink>('SELECT * FROM calendar_google_links WHERE subject=? AND calendar_id=? AND google_id=?', control.subject, calendar.id, remote.id);
   const source = options.original ?? remote;
@@ -186,6 +193,26 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
       return 'applied';
     }
   }
+  if (options.missingFromSnapshot) {
+    if (!known) return 'ignored';
+    const localBody = local ? googleOwnedFields(personalGoogleBody({ ...local, link: known })) : null;
+    const pending = known.pending_json ? JSON.parse(known.pending_json) as PersonalGoogleWriteIntent : null;
+    const localChanged = pending ? pending.owned !== googleOwnedFields({ status: 'cancelled' }) : Boolean(known.base_json && local
+      && local.revision !== known.local_revision
+      && localBody !== personalGoogleComparableBaseline(known.local_base_json ?? known.base_json)
+      && !await isLegacyHiddenGoogleParent(tx, known, local));
+    const cancelled = JSON.stringify({ id: remote.id, status: 'cancelled' });
+    if (localChanged) {
+      const remoteOwned = googleOwnedFields({ status: 'cancelled' });
+      await writePersonalGoogleLink(tx, { ...known, remote_json: cancelled,
+        conflict_json: JSON.stringify({ revision: local?.revision ?? pending?.revision ?? null, remote: remoteOwned, etag: null }) });
+    } else {
+      await tx.runAsync('DELETE FROM calendar_event_exceptions WHERE event_id=? AND anchor_date=?', known.event_id, known.anchor_date);
+      await tx.runAsync('UPDATE calendar_google_links SET active=0,remote_json=?,conflict_json=NULL,pending_json=NULL WHERE subject=? AND calendar_id=? AND google_id=?',
+        cancelled, control.subject, calendar.id, known.google_id);
+    }
+    return 'applied';
+  }
   const retireExpanded = async () => {
     await tx.runAsync(`UPDATE calendar_events SET deleted=1,revision=revision+1 WHERE deleted=0 AND id IN (
       SELECT l.event_id FROM calendar_google_links l JOIN calendar_google_expanded x USING(subject,calendar_id,google_id)
@@ -194,6 +221,7 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
       (SELECT google_id FROM calendar_google_expanded WHERE subject=? AND calendar_id=? AND parent_id=?)`, control.subject, calendar.id, control.subject, calendar.id, remote.id);
     // Retired display projections are distinct from a completed, resumable scan.
     await tx.runAsync('DELETE FROM calendar_google_expansion WHERE subject=? AND calendar_id=? AND parent_id=?', control.subject, calendar.id, remote.id);
+    await tx.runAsync('DELETE FROM calendar_google_expansion_staged WHERE subject=? AND calendar_id=? AND parent_id=?', control.subject, calendar.id, remote.id);
   };
   if (known?.read_only && !local && remote.status === 'cancelled') {
     await retireExpanded(); await writePersonalGoogleLink(tx, { ...known, base_json: remoteBody, remote_json: JSON.stringify(source), etag: remote.etag ?? known.etag, conflict_json: null }); return 'applied';
@@ -218,7 +246,7 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
   const pending = localChanged && remoteBody === known?.base_json;
   let body: EventDraft | null = null;
   if (remote.status !== 'cancelled') {
-    try { body = googleImportedEvent(remote, local?.value?.categoryId ?? await category(tx, calendar), calendar.timeZone ?? 'UTC', Boolean(anchor) || options.expanded); }
+    try { body = googleImportedEvent(remote, local?.value?.categoryId ?? await category(tx, control, calendar), calendar.timeZone ?? 'UTC', Boolean(anchor) || options.expanded); }
     catch (error) { if (error instanceof GoogleEventExpansionRequired && !options.expanded) return 'expand'; throw error; }
     if (local?.value) body = { ...body, categoryId: local.value.categoryId,
       birthday: local.value.birthday && body.allDay && body.recurrence === 'yearly' && body.startDate === body.endDate };
@@ -259,6 +287,14 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
 /** Read-only fallback for seconds/folds/long text. Exact raw Google content stays in the private link. */
 export function googleReadOnlyInstance(remote: GoogleCalendarEvent): GoogleCalendarEvent {
   const value = { ...remote, summary: String(remote.summary ?? '').trim().slice(0, 160) || '予定', location: String(remote.location ?? '').slice(0, 300), description: String(remote.description ?? '').slice(0, 4000), eventType: 'default', recurrence: undefined };
+  // EventDraft intentionally limits editable spans. Keep a bounded private row
+  // for storage while calendar-event-rows restores the exact all-day end date
+  // from remote_json when it builds a read-only projection.
+  if (remote.start?.date && remote.end?.date) {
+    const start = remote.start.date as LocalDate; const end = remote.end.date as LocalDate;
+    parseLocalDate(start); parseLocalDate(end);
+    if (end > start && daysBetween(start, end) > 367) value.end = { date: addDays(start, 367) };
+  }
   for (const field of ['start', 'end'] as const) {
     const at = remote[field]?.dateTime; if (!at) continue;
     const parsed = Date.parse(at); if (!Number.isFinite(parsed)) throw new Error('Googleの予定日時を確認してください。');

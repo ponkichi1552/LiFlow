@@ -90,7 +90,7 @@ setNativeAdaptiveOwnerReader(async (now, database) => {
   const local = await database.getFirstAsync<{ frequency_mode: FrequencyMode; rest_days_json: string; heavy_daily_limit: number; normal_daily_limit: number }>(
     "SELECT * FROM household_settings WHERE household_id='local-household'");
   const calendar = await database.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='calendar_events'")
-    ? await readCalendarEventRows(database) : { events: [], exceptions: [] };
+    ? await readCalendarEventRows(database, common.range) : { events: [], exceptions: [] };
   // Shared recommendations are calculated first from private calendar/settings,
   // never from the private chores that will be placed around them. No feedback loop.
   const personal = buildV2PersonalPlan(common, { viewerUserId: ownerUserId, now: now.getTime(), settings: {

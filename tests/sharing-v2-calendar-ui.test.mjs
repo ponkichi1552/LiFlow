@@ -24,6 +24,55 @@ async function setup(platform = 'ios', anchorDate = '2026-10-27', hideStatus = f
   return { ...f, d, controller, props, screen, navigation, close: () => d.connection.close() };
 }
 
+test('shared timed chore opens its displayed date while retaining the clicked recurrence anchor', async () => {
+  const f = await fixture(); const d = await f.device();
+  try {
+    await d.repository.commit(seeds());
+    const controller = createV2GroupController(d.repository, { makeId: () => 'shared-timed-click', now, sync: async () => {} });
+    const ref = { choreId: 'floor', anchorDate: '2026-10-27', ruleVersion: 1, subjectUserId: null };
+    await controller.actions.changeDate(ref, { mode: 'fixed', target: { precision: 'interval', start: '2026-10-29T01:15:00.000Z', end: '2026-10-29T01:45:00.000Z' } });
+    const range = { from: '2026-10-01', through: '2026-10-31', asOfDate: '2026-10-27' };
+    const model = await controller.readModel(range); let calendarProps; const opened = [];
+    const screen = screenHarness('src/features/sharing/v2-ui/calendar.tsx', { exportName: 'V2Calendar', navigate: (_name, value) => opened.push(value), props: {
+      model, month: '2026-10-01', selectedDate: '2026-10-27', busy: false, actions: controller.actions, run: async work => work(),
+      onMonth() {}, onSelectDate() {}, onRound: () => assert.fail('a timed date edit must not open the chore round'),
+      onDate: (...args) => opened.push(args),
+    }, mocks: { '../../calendar/planner-calendar': { PlannerCalendar: props => { calendarProps = props; return null; } } } });
+    try {
+      const round = model.plan.occurrences.find(row => row.choreId === 'floor' && row.anchorDate === ref.anchorDate); assert.ok(round);
+      const subject = round.subjects[0]; const block = calendarProps.timedChores.find(row => row.id === subject.id); assert.ok(block);
+      block.onOpen();
+      assert.deepEqual(opened, [[round.id, subject.id, '2026-10-29', ref.anchorDate]]);
+    } finally { screen.unmount(); }
+  } finally { d.connection.close(); }
+});
+
+test('shared calendar retains every timed personal occurrence for a recurring chore', async () => {
+  const f = await fixture(); const d = await f.device();
+  try {
+    await d.repository.commit(seeds());
+    const controller = createV2GroupController(d.repository, { makeId: () => 'shared-personal-time', now, sync: async () => {} });
+    const range = { from: '2026-10-01', through: '2026-10-31', asOfDate: '2026-10-27' };
+    const model = await controller.readModel(range); let calendarProps; const opened = [];
+    const chore = { id: 'repeating-personal', name: '繰り返しの時刻付き家事', householdId: 'local-household', load: 'light', enabled: true, archived: false };
+    const row = (date, entryId) => ({ key: `personal:${date}:${entryId}`, entryId, source: 'personal', date, suggestedDate: date,
+      revision: `${entryId}:1`, ownerUserId: model.viewerUserId, householdId: 'local-household', graceDays: 0, chore, completed: false,
+      windowStart: date, windowEnd: date, calendarTime: { start: Date.parse(`${date}T01:00:00.000Z`), end: Date.parse(`${date}T01:20:00.000Z`) } });
+    const overlay = { status: 'ready', ownerUserId: model.viewerUserId, householdId: 'local-household', timeZone: 'Asia/Tokyo', today: range.asOfDate,
+      setupCompleted: true, range, generatedThrough: '2027-04-25', home: [], byDate: new Map([['2026-10-27', [row('2026-10-27', 'entry-one')]], ['2026-10-29', [row('2026-10-29', 'entry-two')]]]), counts: new Map(), dailyLoad: {} };
+    const screen = screenHarness('src/features/sharing/v2-ui/calendar.tsx', { exportName: 'V2Calendar', navigate: (_name, value) => opened.push(value), props: {
+      model, month: '2026-10-01', selectedDate: '2026-10-27', privateOverlay: overlay, busy: false, actions: controller.actions, run: async work => work(),
+      onMonth() {}, onSelectDate() {}, onRound() {},
+    }, mocks: { '../../calendar/planner-calendar': { PlannerCalendar: props => { calendarProps = props; return null; } } } });
+    try {
+      const blocks = calendarProps.timedChores.filter(row => row.name === chore.name);
+      assert.equal(blocks.length, 2); assert.deepEqual(blocks.map(row => row.id).sort(), ['personal:entry-one', 'personal:entry-two']);
+      blocks.forEach(row => row.onOpen());
+      assert.deepEqual(opened.map(value => value.params.entryId).sort(), ['entry-one', 'entry-two']);
+    } finally { screen.unmount(); }
+  } finally { d.connection.close(); }
+});
+
 test('v2 calendar month cells use the minimum complete weeks and stay identical across device timezones', () => {
   const previous = process.env.TZ;
   try {

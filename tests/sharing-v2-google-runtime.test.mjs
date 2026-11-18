@@ -156,8 +156,13 @@ test('automatic shared Tasks recovers a fresh interrupted first sync before link
     await h.store.saveSyncState({ ...control.state, status: 'syncing', lastAttemptAt: now().toISOString() }, control.revision);
     const item = (await h.entries())[0]; const [done] = await h.actions.complete(item.target);
     assert.equal((await h.links()).length, 0, 'the previous process stopped before its first mapping');
-    assert.equal(await h.store.hasPendingLocalChanges(), false, 'unmapped completions cannot rely on an existing link status');
-    const result = await h.runtime.synchronize({ localChange: true });
+    const readPending = h.store.hasPendingLocalChanges;
+    assert.equal(await readPending(), true, 'the other upcoming unmapped tasks are independently eligible for sync');
+    // Isolate interrupted-marker recovery from the independent pending-work trigger.
+    h.store.hasPendingLocalChanges = async () => false;
+    let result;
+    try { result = await h.runtime.synchronize({ localChange: true }); }
+    finally { h.store.hasPendingLocalChanges = readPending; }
     assert.equal(result.kind, 'success'); assert.equal(result.skipped, undefined); assert.equal(result.created, 3);
     const linked = (await h.links()).find(row => row.scheduleEntryId === item.entry.id);
     assert.equal(h.tasks.get(linked.googleTaskId).status, 'completed');

@@ -3,13 +3,13 @@ import type { LocalDate } from '../../domain/shared/types';
 import { withGoogleSyncOperation } from '../google-sync/operation-lock.ts';
 import { createGoogleOperationBudget, withinGoogleOperationBudget } from '../google-sync/operation-budget.ts';
 import { GoogleAccountMismatchError } from '../google-sync/account-binding.ts';
-import { canReadGoogleCalendar, canWriteGoogleCalendar, GoogleCalendarHttpError, normalizeGoogleCalendars } from '../../platform/google-calendar/calendar-api.ts';
+import { canReadGoogleCalendar, canWriteGoogleCalendar, GoogleCalendarHttpError, googleCalendarApiOwnsRequestAuthority, normalizeGoogleCalendars } from '../../platform/google-calendar/calendar-api.ts';
 import type { GoogleCalendarApi, GoogleCalendarEvent, GoogleCalendarListEntry } from '../../platform/google-calendar/calendar-api';
 import { connectPersonalGoogleCalendar, disablePersonalGoogleCalendar, readPersonalGoogleCalendarControl, refreshPersonalGoogleCalendars, updatePersonalGoogleCalendarStatus, withPersonalGoogleCalendar } from '../../platform/storage/personal-google-calendar.ts';
 import type { PersonalGoogleCalendarControl } from '../../platform/storage/personal-google-calendar';
 import { googleReadOnlyInstance, isLegacyHiddenGoogleParent, listPersonalGoogleItems, localGoogleItem, personalGoogleBody, personalGoogleComparableBaseline, personalGoogleDigest, personalGoogleLocalBaseline, receivePersonalGoogleEvent, writePersonalGoogleLink } from '../../platform/storage/personal-google-store.ts';
 import { findGoogleCalendarInstance } from './google-instance.ts';
-import { desiredGoogleExpansionRange, googleRangeContains, missingGoogleExpansionRanges, mergeGoogleExpansionRanges, retainGoogleDisplayRange } from '../../platform/storage/personal-google-ranges.ts';
+import { desiredGoogleExpansionRanges, missingGoogleExpansionRanges, mergeGoogleExpansionRangeSets, parseGoogleExpansionRangeQueue, retainGoogleDisplayRange, storedGoogleExpansionCoverage } from '../../platform/storage/personal-google-ranges.ts';
 import type { PersonalGoogleLink, PersonalGoogleWriteIntent } from '../../platform/storage/personal-google-store';
 import { notifyCalendarSyncChanged } from '../../platform/storage/calendar-events.ts';
 import { googleOwnedFields } from './google-owned-fields.ts';
@@ -110,7 +110,14 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
           if (!current.enabled || current.generation !== control.generation || current.subject !== control.subject) throw new GoogleAccountMismatchError();
         };
         const api = input.createApi({ subject: control.subject, assertCurrent: guard, signal: budget.signal });
-        const request = async <T>(fn: () => Promise<T>) => { if (++calls > 100) throw new CalendarPassPending(); await guard(); const value = await fn(); await guard(); return value; };
+        const apiChecksRequestAuthority = googleCalendarApiOwnsRequestAuthority(api, guard);
+        const request = async <T>(fn: () => Promise<T>) => {
+          if (++calls > 100) throw new CalendarPassPending();
+          if (!apiChecksRequestAuthority) await guard();
+          const value = await fn();
+          if (!apiChecksRequestAuthority) await guard();
+          return value;
+        };
         // Only native identity reads race the deadline; always await SQLite commit/rollback before releasing the queue.
         const transact = <T>(fn: (tx: SQLiteDatabase) => Promise<T>) => withPersonalGoogleCalendar(input.database, control, async tx => {
           if (await withinGoogleOperationBudget(budget, () => input.currentSubject()) !== control.subject) throw new GoogleAccountMismatchError();
@@ -143,7 +150,8 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
             if (!canReceive()) return { complete: false, continueDraining: false, imported, mutated, publishable: await canPublishFirstBatch() };
             processed++;
             budget.assert(); const remote = JSON.parse(row.event_json) as GoogleCalendarEvent;
-            const result = await transactInBatch(tx => receivePersonalGoogleEvent(tx, control, calendar, remote));
+            const result = await transactInBatch(tx => receivePersonalGoogleEvent(tx, control, calendar, remote,
+              (remote as GoogleCalendarEvent & { _liflowSnapshotMissing?: boolean })._liflowSnapshotMissing ? { missingFromSnapshot: true } : {}));
             if (result === 'applied') { mutated = true; publishable = true; }
             // A locally exported master can already be linked before its first Google echo reaches this inbox.
             let source: { event_json: string } | null = null;
@@ -170,21 +178,29 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
                   && !await isLegacyHiddenGoogleParent(tx,existing,local)) {
                   await writePersonalGoogleLink(tx, { ...existing, remote_json: JSON.stringify(original), conflict_json: JSON.stringify({ revision: local.revision, etag: original.etag, remote: googleOwnedFields(original), readOnly: true }) }); return;
                 }
-                if (local?.value) {
-                  await tx.runAsync('UPDATE calendar_events SET deleted=1,revision=revision+1 WHERE id=? AND deleted=0', local.eventId);
-                  mutated = true;
-                }
+                // Keep the last good projection visible while Google pages the replacement.
+                // New instances are staged and become visible in the same transaction that
+                // hides this prior series after the complete instance snapshot arrives.
                 const hidden = existing && await localGoogleItem(tx, existing.event_id);
+                const priorExpandedProjection = existing && await tx.getFirstAsync(`SELECT 1 FROM calendar_google_expanded x
+                  JOIN calendar_google_links l USING(subject,calendar_id,google_id)
+                  JOIN calendar_events e ON e.id=l.event_id
+                  WHERE x.subject=? AND x.calendar_id=? AND x.parent_id=? AND l.active=1 AND e.deleted=0 LIMIT 1`,
+                  control.subject, calendar.id, parentId);
+                const atomicReplace = Boolean(existing && (hidden?.value || priorExpandedProjection));
                 await writePersonalGoogleLink(tx, { subject: control.subject, calendar_id: calendar.id, google_id: parentId,
                   event_id: existing?.event_id ?? `google.${personalGoogleDigest([control.subject, calendar.id, parentId]).slice(0, 48)}`, anchor_date: '', etag: original.etag ?? null,
                   base_json: googleOwnedFields(original), local_revision: hidden?.revision ?? 0,
-                  local_base_json: hidden ? googleOwnedFields({ status: 'cancelled' }) : null,
+                  local_base_json: existing?.local_base_json ?? (hidden?.value ? existing?.base_json ?? null : hidden ? googleOwnedFields({ status: 'cancelled' }) : null),
                   remote_json: JSON.stringify(original), conflict_json: null, read_only: 1 });
-                const existingRange = await tx.getFirstAsync<{ range_json: string }>('SELECT range_json FROM calendar_google_expansion WHERE subject=? AND calendar_id=? AND parent_id=?', control.subject, calendar.id, parentId);
-                const desired = await desiredGoogleExpansionRange(tx, control.subject, input.today());
-                const range = existingRange ? mergeGoogleExpansionRanges(desired, JSON.parse(existingRange.range_json)) : desired;
+                const desired = await desiredGoogleExpansionRanges(tx, control.subject, input.today());
+                const range = desired[0];
                 // A changed master/exception invalidates the previous pagination token.
-                await tx.runAsync('INSERT OR REPLACE INTO calendar_google_expansion(subject,calendar_id,parent_id,page_token,range_json,active) VALUES(?,?,?,NULL,?,1)', control.subject, calendar.id, parentId, JSON.stringify(range));
+                await tx.runAsync(`INSERT INTO calendar_google_expansion(subject,calendar_id,parent_id,page_token,range_json,active,atomic_replace,scan_ranges_json,visited_json,covered_ranges_json)
+                  VALUES(?,?,?,NULL,?,1,?,?, '[]','[]') ON CONFLICT(subject,calendar_id,parent_id) DO UPDATE SET
+                    page_token=NULL,range_json=excluded.range_json,active=1,atomic_replace=excluded.atomic_replace,scan_ranges_json=excluded.scan_ranges_json,visited_json='[]',covered_ranges_json='[]'`,
+                  control.subject, calendar.id, parentId, JSON.stringify(range), Number(atomicReplace), JSON.stringify(desired));
+                await tx.runAsync('DELETE FROM calendar_google_expansion_staged WHERE subject=? AND calendar_id=? AND parent_id=?', control.subject, calendar.id, parentId);
                 await tx.runAsync('UPDATE calendar_google_expanded SET seen=0 WHERE subject=? AND calendar_id=? AND parent_id=?', control.subject, calendar.id, parentId);
               });
             }
@@ -257,7 +273,19 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
                   throw new CalendarPassPending();
                 }
                 if (!(cause instanceof GoogleCalendarHttpError && cause.status === 410)) throw cause;
-                await transact(tx => tx.runAsync('DELETE FROM calendar_google_cursors WHERE subject=? AND calendar_id=?', control.subject, calendar.id)); continue;
+                if (cursor?.sync_token) {
+                  // An expired delta token gets one full-snapshot replacement.
+                  // If that tokenless request also expires, let normal retry
+                  // backoff handle it instead of looping on the same request.
+                  await transact(tx => tx.runAsync('DELETE FROM calendar_google_cursors WHERE subject=? AND calendar_id=?', control.subject, calendar.id)); continue;
+                }
+                if (cursor?.page_token) {
+                  // A persisted full-scan page can expire independently. Drop
+                  // the page cursor and resume the full scan next pass.
+                  await transact(tx => tx.runAsync('DELETE FROM calendar_google_cursors WHERE subject=? AND calendar_id=?', control.subject, calendar.id));
+                  throw new CalendarPassPending();
+                }
+                throw cause;
               }
               if (!page.nextPageToken && !page.nextSyncToken || page.nextPageToken && page.nextPageToken === cursor?.page_token) throw new Error('Googleの差分位置を確認できません。');
               const visited = advanceCalendarPageHistory(cursor?.visited_json, cursor?.page_token, page.nextPageToken);
@@ -279,7 +307,16 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
                   // Full-rescan deletions are real remote changes; local pending edits still become conflicts.
                   await tx.runAsync(`INSERT INTO calendar_google_inbox(subject,calendar_id,google_id,event_json,dirty,scan_id)
                     SELECT l.subject,l.calendar_id,l.google_id,json_object('id',l.google_id,'status','cancelled'),1,? FROM calendar_google_links l WHERE l.subject=? AND l.calendar_id=? AND l.base_json IS NOT NULL AND l.anchor_date=''
+                    AND l.active=1
                     AND NOT EXISTS(SELECT 1 FROM calendar_google_expanded x WHERE x.subject=l.subject AND x.calendar_id=l.calendar_id AND x.google_id=l.google_id)
+                    AND NOT EXISTS(SELECT 1 FROM calendar_google_inbox i WHERE i.subject=l.subject AND i.calendar_id=l.calendar_id AND i.google_id=l.google_id AND i.scan_id=?)
+                    ON CONFLICT(subject,calendar_id,google_id) DO UPDATE SET event_json=excluded.event_json,dirty=1,scan_id=excluded.scan_id`, scan, control.subject, calendar.id, scan);
+                  // A complete snapshot is authoritative for linked recurring
+                  // exceptions too. Delta feeds can omit an old exception after
+                  // its token expires, so stage a tombstone for every unseen link.
+                  await tx.runAsync(`INSERT INTO calendar_google_inbox(subject,calendar_id,google_id,event_json,dirty,scan_id)
+                    SELECT l.subject,l.calendar_id,l.google_id,json_object('id',l.google_id,'status','cancelled','_liflowSnapshotMissing',1),1,?
+                    FROM calendar_google_links l WHERE l.subject=? AND l.calendar_id=? AND l.anchor_date<>'' AND l.active=1 AND l.base_json IS NOT NULL
                     AND NOT EXISTS(SELECT 1 FROM calendar_google_inbox i WHERE i.subject=l.subject AND i.calendar_id=l.calendar_id AND i.google_id=l.google_id AND i.scan_id=?)
                     ON CONFLICT(subject,calendar_id,google_id) DO UPDATE SET event_json=excluded.event_json,dirty=1,scan_id=excluded.scan_id`, scan, control.subject, calendar.id, scan);
                 }
@@ -288,29 +325,42 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
               complete = !page.nextPageToken;
             }
             await transact(async tx => {
-              const desired = await desiredGoogleExpansionRange(tx, control.subject, input.today());
-              const existing = await tx.getAllAsync<{ parent_id: string; range_json: string }>('SELECT * FROM calendar_google_expansion WHERE subject=? AND calendar_id=? AND active=0', control.subject, calendar.id);
-              for (const row of existing) if (!googleRangeContains(JSON.parse(row.range_json), desired)) {
+              const desired = await desiredGoogleExpansionRanges(tx, control.subject, input.today());
+              const existing = await tx.getAllAsync<{ parent_id: string; range_json: string; covered_ranges_json: string | null }>('SELECT * FROM calendar_google_expansion WHERE subject=? AND calendar_id=? AND active=0', control.subject, calendar.id);
+              for (const row of existing) {
+                const covered = storedGoogleExpansionCoverage(row.covered_ranges_json, row.range_json);
+                const missing = missingGoogleExpansionRanges(covered, desired);
+                if (!missing.length) continue;
                 const link = await tx.getFirstAsync<PersonalGoogleLink>('SELECT * FROM calendar_google_links WHERE subject=? AND calendar_id=? AND google_id=?', control.subject, calendar.id, row.parent_id);
                 if (!link?.remote_json || JSON.parse(link.remote_json).status === 'cancelled') continue;
-                await tx.runAsync("UPDATE calendar_google_expansion SET page_token=NULL,visited_json='[]',range_json=?,scan_ranges_json=?,active=1 WHERE subject=? AND calendar_id=? AND parent_id=?", JSON.stringify(mergeGoogleExpansionRanges(JSON.parse(row.range_json), desired)), JSON.stringify(missingGoogleExpansionRanges(JSON.parse(row.range_json), desired)), control.subject, calendar.id, row.parent_id);
+                await tx.runAsync("UPDATE calendar_google_expansion SET page_token=NULL,visited_json='[]',range_json=?,scan_ranges_json=?,covered_ranges_json=?,active=1 WHERE subject=? AND calendar_id=? AND parent_id=?",
+                  JSON.stringify(missing[0]), JSON.stringify(missing), JSON.stringify(covered), control.subject, calendar.id, row.parent_id);
               }
             });
             // Expansions are resumable and share the same 100-request and wall-clock limits.
-            const expansions = await transact(tx => tx.getAllAsync<{ parent_id: string; page_token: string | null; range_json: string; scan_ranges_json: string | null; visited_json: string }>('SELECT * FROM calendar_google_expansion WHERE subject=? AND calendar_id=? AND active=1', control.subject, calendar.id));
+            const expansions = await transact(tx => tx.getAllAsync<{ parent_id: string; page_token: string | null; range_json: string; scan_ranges_json: string | null; visited_json: string; atomic_replace: number; covered_ranges_json: string | null }>('SELECT * FROM calendar_google_expansion WHERE subject=? AND calendar_id=? AND active=1', control.subject, calendar.id));
             for (const expansion of expansions) {
               let token = expansion.page_token ?? undefined;
               let visited = expansion.visited_json;
-              const ranges = expansion.scan_ranges_json ? JSON.parse(expansion.scan_ranges_json) as { timeMin: string; timeMax: string }[] : [JSON.parse(expansion.range_json)];
+              const ranges = expansion.scan_ranges_json ? parseGoogleExpansionRangeQueue(JSON.parse(expansion.scan_ranges_json)) : [JSON.parse(expansion.range_json)];
+              let coveredRanges = storedGoogleExpansionCoverage(expansion.covered_ranges_json, expansion.range_json);
               while (ranges.length) {
               do {
                 if (calls >= 75 || !canReceive()) break incoming;
                 let page;
                 try { page = await request(() => api.instances(calendar.id, expansion.parent_id, { ...ranges[0], ...(token ? { pageToken: token } : {}) })); }
                 catch (cause) {
-                  if (!(cause instanceof GoogleCalendarHttpError && cause.status === 400 && token)) throw cause;
+                  if (!(cause instanceof GoogleCalendarHttpError && [400, 410].includes(cause.status) && token)) throw cause;
                   await transact(async tx => {
-                    await tx.runAsync("UPDATE calendar_google_expansion SET page_token=NULL,visited_json='[]' WHERE subject=? AND calendar_id=? AND parent_id=?", control.subject, calendar.id, expansion.parent_id);
+                    if (expansion.atomic_replace) {
+                      // The queue may already have dropped completed ranges.
+                      // Restart the full desired set so a replacement can only
+                      // publish after every disjoint interval has been staged.
+                      const desired = await desiredGoogleExpansionRanges(tx, control.subject, input.today());
+                      await tx.runAsync("UPDATE calendar_google_expansion SET page_token=NULL,range_json=?,scan_ranges_json=?,visited_json='[]',covered_ranges_json='[]' WHERE subject=? AND calendar_id=? AND parent_id=?",
+                        JSON.stringify(desired[0]), JSON.stringify(desired), control.subject, calendar.id, expansion.parent_id);
+                      await tx.runAsync('DELETE FROM calendar_google_expansion_staged WHERE subject=? AND calendar_id=? AND parent_id=?', control.subject, calendar.id, expansion.parent_id);
+                    } else await tx.runAsync("UPDATE calendar_google_expansion SET page_token=NULL,visited_json='[]' WHERE subject=? AND calendar_id=? AND parent_id=?", control.subject, calendar.id, expansion.parent_id);
                     if (!expansion.scan_ranges_json) await tx.runAsync('UPDATE calendar_google_expanded SET seen=0 WHERE subject=? AND calendar_id=? AND parent_id=?', control.subject, calendar.id, expansion.parent_id);
                   });
                   throw new CalendarPassPending();
@@ -319,18 +369,47 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
                 const nextVisited = advanceCalendarPageHistory(visited, token, page.nextPageToken);
                 const expansionChanged = await transact(async tx => {
                   let mutated = false;
-                  for (const event of page.items ?? []) {
+                  if (expansion.atomic_replace) {
+                    for (const event of page.items ?? []) await tx.runAsync(`INSERT INTO calendar_google_expansion_staged(subject,calendar_id,parent_id,google_id,event_json)
+                      VALUES(?,?,?,?,?) ON CONFLICT(subject,calendar_id,parent_id,google_id) DO UPDATE SET event_json=excluded.event_json`, control.subject, calendar.id, expansion.parent_id, event.id, JSON.stringify(event));
+                  } else for (const event of page.items ?? []) {
                     if (await receivePersonalGoogleEvent(tx, control, calendar, googleReadOnlyInstance(event), { expanded: true, parentId: expansion.parent_id, original: event }) === 'applied') mutated = true;
                     await tx.runAsync('UPDATE calendar_google_expanded SET seen=1 WHERE subject=? AND calendar_id=? AND parent_id=? AND google_id=?', control.subject, calendar.id, expansion.parent_id, event.id);
                   }
                   const remainingRanges = page.nextPageToken ? ranges : ranges.slice(1);
-                  await tx.runAsync('UPDATE calendar_google_expansion SET page_token=?,active=?,scan_ranges_json=?,visited_json=? WHERE subject=? AND calendar_id=? AND parent_id=?', page.nextPageToken ?? null, page.nextPageToken || remainingRanges.length ? 1 : 0, expansion.scan_ranges_json ? JSON.stringify(remainingRanges) : null, nextVisited, control.subject, calendar.id, expansion.parent_id);
-                  if (!page.nextPageToken && !expansion.scan_ranges_json) {
+                  const covered = !page.nextPageToken ? mergeGoogleExpansionRangeSets(coveredRanges, [ranges[0]]) : coveredRanges;
+                  await tx.runAsync('UPDATE calendar_google_expansion SET page_token=?,active=?,scan_ranges_json=?,visited_json=?,covered_ranges_json=? WHERE subject=? AND calendar_id=? AND parent_id=?',
+                    page.nextPageToken ?? null, page.nextPageToken || remainingRanges.length ? 1 : 0, expansion.scan_ranges_json ? JSON.stringify(remainingRanges) : null,
+                    nextVisited, JSON.stringify(covered), control.subject, calendar.id, expansion.parent_id);
+                  const scanFinished = !page.nextPageToken && !remainingRanges.length;
+                  if (scanFinished && expansion.atomic_replace) {
+                    const staged = await tx.getAllAsync<{ event_json: string }>('SELECT event_json FROM calendar_google_expansion_staged WHERE subject=? AND calendar_id=? AND parent_id=? ORDER BY google_id', control.subject, calendar.id, expansion.parent_id);
+                    for (const row of staged) {
+                      const original = JSON.parse(row.event_json) as GoogleCalendarEvent;
+                      if (await receivePersonalGoogleEvent(tx, control, calendar, googleReadOnlyInstance(original), { expanded: true, parentId: expansion.parent_id, original }) === 'applied') mutated = true;
+                    }
+                    const parent = await tx.getFirstAsync<PersonalGoogleLink>('SELECT * FROM calendar_google_links WHERE subject=? AND calendar_id=? AND google_id=? AND anchor_date=\'\'', control.subject, calendar.id, expansion.parent_id);
+                    if (parent) {
+                      const local = await localGoogleItem(tx, parent.event_id);
+                      if (local?.value) {
+                        const result = await tx.runAsync('UPDATE calendar_events SET deleted=1,revision=revision+1 WHERE id=? AND deleted=0', parent.event_id);
+                        if (result.changes) mutated = true;
+                        const hidden = await localGoogleItem(tx, parent.event_id);
+                        if (hidden) await writePersonalGoogleLink(tx, { ...parent, local_revision: hidden.revision,
+                          local_base_json: googleOwnedFields({ status: 'cancelled' }), read_only: 1 });
+                      }
+                    }
+                    const old = await tx.getAllAsync<PersonalGoogleLink>(`SELECT l.* FROM calendar_google_links l JOIN calendar_google_expanded x USING(subject,calendar_id,google_id) WHERE x.subject=? AND x.calendar_id=? AND x.parent_id=? AND x.seen=0`, control.subject, calendar.id, expansion.parent_id);
+                    for (const link of old) if (await receivePersonalGoogleEvent(tx, control, calendar, { id: link.google_id, status: 'cancelled' }, { expanded: true }) === 'applied') mutated = true;
+                    await tx.runAsync('DELETE FROM calendar_google_expansion_staged WHERE subject=? AND calendar_id=? AND parent_id=?', control.subject, calendar.id, expansion.parent_id);
+                    await tx.runAsync('UPDATE calendar_google_expansion SET atomic_replace=0 WHERE subject=? AND calendar_id=? AND parent_id=?', control.subject, calendar.id, expansion.parent_id);
+                  } else if (scanFinished && !expansion.scan_ranges_json) {
                     const old = await tx.getAllAsync<PersonalGoogleLink>(`SELECT l.* FROM calendar_google_links l JOIN calendar_google_expanded x USING(subject,calendar_id,google_id) WHERE x.subject=? AND x.calendar_id=? AND x.parent_id=? AND x.seen=0`, control.subject, calendar.id, expansion.parent_id);
                     for (const link of old) if (await receivePersonalGoogleEvent(tx, control, calendar, { id: link.google_id, status: 'cancelled' }, { expanded: true }) === 'applied') mutated = true;
                   }
                   return mutated;
                 }); token = page.nextPageToken; visited = nextVisited;
+                if (!page.nextPageToken) coveredRanges = mergeGoogleExpansionRangeSets(coveredRanges, [ranges[0]]);
                 if (expansionChanged) recordCalendarChange();
               } while (token);
               ranges.shift();

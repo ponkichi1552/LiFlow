@@ -352,7 +352,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
       selectedDate={calendarDay ?? model.plan.range.asOfDate} feedback={feedback} busy={busy} actions={controller.actions} run={run} perform={perform} local={localCalendar} onNavigate={onCalendarNavigate} onGuide={onGuide} workspaceName={groupName}
       onMonth={selectMonth} onSelectDate={(day) => { if (day.slice(0, 7) === month.slice(0, 7)) setCalendarDay(day); else void selectMonth(day, day); }}
       onRound={(id, subject, anchor) => onRound?.(id, subject, anchor)} readOwnCalendar={session.readOwnCalendar}
-      onDate={onDate ? (id, subject, anchor) => onDate(id, subject, calendarDay ?? model.plan.range.asOfDate, anchor) : undefined}
+      onDate={onDate ? (id, subject, clickedDate, anchor) => onDate(id, subject, clickedDate, anchor) : undefined}
       header={purpose === 'development' ? <View>{notice}{error ? <AppButton title="この月を再読込" compact variant="quiet" disabled={busy} onPress={() => void selectMonth(month)} /> : null}</View>
         : workspaceError || error ? <View style={{ padding: 8 }}><Text accessibilityRole="alert" style={styles.error}>{workspaceError ?? error}</Text><AppButton title="この月を再読込" compact variant="quiet" disabled={busy} onPress={() => void selectMonth(month)} /></View> : undefined} /></V2ScreenFrame>;
   }

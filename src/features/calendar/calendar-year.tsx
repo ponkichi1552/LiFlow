@@ -11,8 +11,8 @@ type YearRow = { key: string; year: number; quarter: number | null };
 export type YearScroller = (month: string) => void;
 
 /** Only visible month rows are drawn; vertical scrolling crosses year boundaries. */
-export function CalendarYear({ initialYear, today, onMonth, onYear, onReady }: {
-  initialYear: number; today: LocalDate; onMonth(date: LocalDate): void; onYear(year: number): void; onReady(scroll: YearScroller | null): void;
+export function CalendarYear({ initialYear, today, editorOpen = false, onMonth, onYear, onReady }: {
+  initialYear: number; today: LocalDate; editorOpen?: boolean; onMonth(date: LocalDate): void; onYear(year: number): void; onReady(scroll: YearScroller | null): void;
 }) {
   const styles = usePlannerBorderStyles(baseStyles); const { fontScale } = useWindowDimensions();
   const list = useRef<FlatList<YearRow>>(null); const [initial] = useState(() => Math.max(1900, Math.min(2199, initialYear)));
@@ -27,28 +27,44 @@ export function CalendarYear({ initialYear, today, onMonth, onYear, onReady }: {
     const within = index % 5;
     return { index, length: within === 0 ? headingHeight : rowHeight, offset: Math.floor(index / 5) * yearHeight + (within === 0 ? 0 : headingHeight + (within - 1) * rowHeight) };
   }, [headingHeight, rowHeight, yearHeight]);
+  const initialIndex = (initial - 1900) * 5 + 1;
+  const visibleOffset = useRef(layout(undefined, initialIndex).offset);
+  const editorOffset = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (editorOpen) editorOffset.current = visibleOffset.current;
+    else if (editorOffset.current !== null) list.current?.scrollToOffset({ offset: editorOffset.current, animated: false });
+  }, [editorOpen]);
   const scrollToMonth = useCallback((month: string) => {
     const year = Number(month.slice(0, 4)); const ordinal = Number(month.slice(5, 7));
     if (!Number.isInteger(year) || year < 1900 || year > 2199 || !Number.isInteger(ordinal) || ordinal < 1 || ordinal > 12) return;
+    editorOffset.current = null;
     tracking.current = true;
-    list.current?.scrollToIndex({ index: (year - 1900) * 5 + 1 + Math.floor((ordinal - 1) / 3), viewPosition: .5, animated: true });
+    list.current?.scrollToIndex({ index: (year - 1900) * 5 + 1 + Math.floor((ordinal - 1) / 3), viewPosition: .5, animated: false });
   }, []);
   useLayoutEffect(() => { onReady(scrollToMonth); return () => onReady(null); }, [onReady, scrollToMonth]);
   const scrolled = useCallback<NonNullable<FlatListProps<YearRow>['onScroll']>>(event => {
     const offset = event.nativeEvent.contentOffset.y;
-    if (!Number.isFinite(offset)) return;
+    if (editorOpen || !Number.isFinite(offset)) return;
+    const beforeEditor = editorOffset.current;
+    // UIKit can send a zero offset while restoring the year list after the sheet closes.
+    if (beforeEditor !== null && beforeEditor > 0 && offset <= 0) {
+      list.current?.scrollToOffset({ offset: beforeEditor, animated: false });
+      return;
+    }
+    if (beforeEditor !== null && Math.abs(offset - beforeEditor) > 1) editorOffset.current = null;
     // Each year starts with its heading. Change the fixed header only when
     // that heading reaches the top of the list, in either scroll direction.
     const next = Math.max(1900, Math.min(2199, 1900 + Math.floor(Math.max(0, offset) / yearHeight)));
     // Ignore the mount-time zero offset before initialScrollIndex is applied.
     if (!tracking.current && next !== initial) return;
     tracking.current = true;
+    visibleOffset.current = Math.max(0, offset);
     if (reportedYear.current === next) return;
     reportedYear.current = next; onYear(next);
-  }, [initial, onYear, yearHeight]);
-  return <FlatList ref={list} testID="calendar-year" data={rows} keyExtractor={row => row.key} initialScrollIndex={(initial - 1900) * 5 + 1}
+  }, [editorOpen, initial, onYear, yearHeight]);
+  return <FlatList ref={list} testID="calendar-year" data={rows} keyExtractor={row => row.key} initialScrollIndex={initialIndex} scrollEnabled={!editorOpen}
     getItemLayout={layout} initialNumToRender={6} maxToRenderPerBatch={5} windowSize={5} contentContainerStyle={{ paddingBottom: 76 }}
-    onScrollBeginDrag={() => { tracking.current = true; }} onScroll={scrolled} scrollEventThrottle={16}
+    onScrollBeginDrag={() => { editorOffset.current = null; tracking.current = true; }} onScroll={scrolled} scrollEventThrottle={16}
     renderItem={({ item }) => item.quarter === null
       ? <View style={[styles.yearHeading, { height: headingHeight }]}><Text accessibilityRole="header" style={styles.yearTitle}>{item.year}年</Text></View>
       : <View style={[styles.monthRow, { height: rowHeight }]}>{Array.from({ length: 3 }, (_, column) => {

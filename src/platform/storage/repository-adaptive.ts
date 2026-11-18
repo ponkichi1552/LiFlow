@@ -109,7 +109,7 @@ export async function readPersonalAdaptiveContextInside(database: SQLiteDatabase
     input.householdId, today, addDays(today, -2)),
     database.getAllAsync<{ chore_id: string; member_id: string }>(`SELECT a.* FROM chore_assignments a JOIN chore_definitions d ON d.id=a.chore_id WHERE d.household_id=?`, input.householdId),
     owner?.preferences ? Promise.resolve(null) : database.getFirstAsync<{ preferences_json: string }>('SELECT preferences_json FROM personal_adaptive_preferences WHERE household_id=?', input.householdId),
-    readCalendarEventRows(database),
+    readCalendarEventRows(database, { from: today, through: addDays(today, 180) }),
     privateGoogleCoverageInside(database, input.householdId, today, addDays(today, 180), timeZone),
     readRegionalWeatherInside(database, usesWeather ? municipality?.id : null),
   ]);

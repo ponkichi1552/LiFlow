@@ -30,7 +30,7 @@ for (const platform of ['ios', 'android']) {
       const choreId = operations.find(op => op.entityType === 'chore').entityId;
       const round = model.plan.occurrences.find(row => row.choreId === choreId); assert.ok(round);
       await ui.press(`${name}${action}`);
-      assert.deepEqual(dates.at(-1), [round.id, round.subjects[0].id, round.anchorDate]);
+      assert.deepEqual(dates.at(-1), [round.id, round.subjects[0].id, range.asOfDate, round.anchorDate]);
       let guides = 0; const home = screenHarness('src/features/sharing/v2-ui/round-card.tsx', { platform, exportName: 'V2RoundCard', props: {
         model, round, subject: round.subjects[0], home: true, busy: false, actions: controller.actions, run: async work => work(),
         onOpen: () => { guides++; }, onDate: () => assert.fail('a Home row opens its guide'),

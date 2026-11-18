@@ -10,14 +10,17 @@ export const CALENDAR_EDIT_SCOPES = [
 ] as const;
 export type CalendarEditScope = typeof CALENDAR_EDIT_SCOPES[number]['value'];
 /** All three choices remain visible on both platforms; closing never commits a move. */
-export function CalendarRecurrenceScopePicker({ value, futureDisabled = false, onSelect, onClose }: { value?: CalendarEditScope; futureDisabled?: boolean; onSelect(scope: CalendarEditScope): void; onClose(): void }) {
+export function CalendarRecurrenceScopePicker({ value, futureDisabled = false, seriesDisabled = false, notice, onSelect, onClose }: {
+  value?: CalendarEditScope; futureDisabled?: boolean; seriesDisabled?: boolean; notice?: string; onSelect(scope: CalendarEditScope): void; onClose(): void;
+}) {
   const styles = usePlannerBorderStyles(baseStyles), insets = useSafeAreaInsets();
   return <Modal transparent animationType="slide" onRequestClose={onClose}><View style={styles.overlay}>
     <Pressable accessibilityRole="button" accessibilityLabel="変更範囲の選択を閉じる" style={StyleSheet.absoluteFill} onPress={onClose} />
     <View accessibilityViewIsModal style={[styles.panel, { paddingBottom: Math.max(12, insets.bottom) }]}>
       <Text accessibilityRole="header" style={styles.title}>変更する範囲</Text>
+      {notice ? <Text style={styles.notice}>{notice}</Text> : null}
       {CALENDAR_EDIT_SCOPES.map(row => {
-        const disabled = row.value === 'future' && futureDisabled;
+        const disabled = row.value === 'future' && futureDisabled || row.value === 'series' && seriesDisabled;
         return <Pressable key={row.value} accessibilityRole="button" accessibilityLabel={row.label} accessibilityState={{ selected: value === row.value, disabled }} disabled={disabled} onPress={() => onSelect(row.value)} style={styles.option}>
           <Text style={[styles.label, disabled && { color: palette.muted }]}>{row.label}</Text>{value === row.value ? <Text aria-hidden style={styles.check}>✓</Text> : null}
         </Pressable>;
@@ -29,6 +32,7 @@ export function CalendarRecurrenceScopePicker({ value, futureDisabled = false, o
 const baseStyles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: palette.overlay }, panel: { backgroundColor: palette.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' },
   title: { ...typography.body, fontWeight: '600', textAlign: 'center', color: palette.ink, padding: 16 },
+  notice: { ...typography.caption, color: palette.muted, paddingHorizontal: 20, paddingBottom: 12 },
   option: { minHeight: 52, paddingVertical: 12, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderColor: palette.border },
   label: { ...typography.body, color: palette.ink, flex: 1 }, check: { ...typography.body, color: palette.accent },
 });

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, Text, View, useColorScheme } from 'react-native';
 import { FormTextInput } from '../../components/form-text-input';
 import { Chevron } from '../../components/chevron';
@@ -7,23 +7,65 @@ import { plannerColorsForScheme } from '../../components/planner-theme';
 import { formatJapaneseDate, localDateFromDate } from '../../domain/scheduling/local-date';
 import type { CalendarEditorDraft } from '../../platform/storage/calendar-events';
 import type { LocalCalendarBinding } from './use-local-calendar';
+import type { CalendarEvent, CalendarException } from '../../domain/calendar/events';
 import { minuteLabel, recurrenceLabel } from './events';
-import { calendarSearchIndex, searchCalendarWithChores } from './search';
+import { calendarSearchIndex, searchCalendarIndex, searchCalendarWithChores } from './search';
 import type { CalendarSearchChore, CalendarSearchDestination } from './search';
 import { calendarEventAppearance } from './event-appearance';
 import { SettingsAction } from '../../components/settings-controls';
 import type { LocalDate } from '../../domain/shared/types';
 import { useCalendarTitleDisplay } from './use-title-display';
 import { calendarTitleDisplay } from './title-display';
+import { searchTerms } from '../../domain/search/normalized-search';
 
-export function CalendarSearch({ local, chores = [], choresIncomplete, focusDate = localDateFromDate(new Date()), onClose, onSelect, resolveSelection }: { local: LocalCalendarBinding; chores?: readonly CalendarSearchChore[]; choresIncomplete?: boolean; focusDate?: LocalDate; onClose(): void; onSelect(destination: CalendarSearchDestination): void; resolveSelection(draft: CalendarEditorDraft): CalendarSearchDestination }) {
+type HistorySearchState = { events: CalendarEvent[]; exceptions: CalendarException[]; loading: boolean; error?: boolean };
+
+export function CalendarSearch({ local, chores = [], choresIncomplete, focusDate = localDateFromDate(new Date()), onClose, onSelect, resolveSelection }: { local: LocalCalendarBinding; chores?: readonly CalendarSearchChore[]; choresIncomplete?: boolean; focusDate?: LocalDate; onClose(): void; onSelect(destination: CalendarSearchDestination): void; resolveSelection(draft: CalendarEditorDraft, events: readonly CalendarEvent[], exceptions: readonly CalendarException[]): CalendarSearchDestination }) {
   const scheme = useColorScheme(); const colors = plannerColorsForScheme(scheme); const [query, setQuery] = useState(''); const [selectionError, setSelectionError] = useState<string | null>(null);
   const titleDisplay = useCalendarTitleDisplay();
   const [visibleCount, setVisibleCount] = useState(60);
+  const [historyState, setHistoryState] = useState<HistorySearchState & { key: string }>({ key: '', events: [], exceptions: [], loading: false });
   const [visible, setVisible] = useState(true); const closing = useRef(false); const finished = useRef(false); const pending = useRef<CalendarSearchDestination | null>(null);
   const finish = () => { if (finished.current) return; finished.current = true; if (pending.current) onSelect(pending.current); else onClose(); };
   const close = () => { if (closing.current) return; closing.current = true; setVisible(false); if (Platform.OS !== 'ios') finish(); };
-  const index = useMemo(() => calendarSearchIndex(local.snapshot.events, local.snapshot.exceptions, focusDate), [local.snapshot.events, local.snapshot.exceptions, focusDate]);
+  const terms = searchTerms(query);
+  const readHistoryPage = local.readHistoryPage;
+  const historyGeneration = local.historyGeneration ?? 0;
+  const historyKey = JSON.stringify([historyGeneration, focusDate, query]);
+  const searchHistory = local.historyLimited === true && terms.length > 0 && Boolean(readHistoryPage);
+  const history: HistorySearchState = searchHistory && historyState.key === historyKey ? historyState
+    : { events: [], exceptions: [], loading: searchHistory };
+  useEffect(() => {
+    if (!searchHistory || !readHistoryPage) return;
+    let live = true; let afterId: string | undefined;
+    const events = new Map<string, CalendarEvent>(); const exceptions = new Map<string, CalendarException>();
+    const run = async () => {
+      try {
+        do {
+          const page = await readHistoryPage(afterId, historyGeneration);
+          if (!live) return;
+          const matching = searchCalendarIndex(calendarSearchIndex(page.events, page.exceptions, focusDate), query, Infinity).matches;
+          const matchingSeries = new Set(matching.filter(row => row.draft.scope === 'series').map(row => row.draft.eventId).filter((id): id is string => Boolean(id)));
+          const matchingOverrides = new Set(matching.filter(row => row.draft.scope === 'one' && row.draft.eventId && row.draft.anchorDate)
+            .map(row => `${row.draft.eventId}:${row.draft.anchorDate}`));
+          if (matchingSeries.size || matchingOverrides.size) {
+            const included = new Set([...matchingSeries, ...[...matchingOverrides].map(key => key.slice(0, key.lastIndexOf(':')))]);
+            for (const event of page.events) if (included.has(event.id)) events.set(event.id, event);
+            for (const exception of page.exceptions) if (matchingSeries.has(exception.eventId) || matchingOverrides.has(`${exception.eventId}:${exception.anchorDate}`))
+              exceptions.set(`${exception.eventId}:${exception.anchorDate}`, exception);
+            setHistoryState({ key: historyKey, events: [...events.values()], exceptions: [...exceptions.values()], loading: Boolean(page.nextAfterId) });
+          }
+          afterId = page.nextAfterId;
+        } while (live && afterId);
+        if (live) setHistoryState({ key: historyKey, events: [...events.values()], exceptions: [...exceptions.values()], loading: false });
+      } catch { if (live) setHistoryState({ key: historyKey, events: [...events.values()], exceptions: [...exceptions.values()], loading: false, error: true }); }
+    };
+    const timer = setTimeout(() => { void run(); }, 160);
+    return () => { live = false; clearTimeout(timer); };
+  }, [searchHistory, readHistoryPage, historyGeneration, historyKey, focusDate, query]);
+  const searchEvents = useMemo(() => [...new Map([...history.events, ...local.snapshot.events].map(event => [event.id, event])).values()], [history.events, local.snapshot.events]);
+  const searchExceptions = useMemo(() => [...new Map([...history.exceptions, ...local.snapshot.exceptions].map(exception => [`${exception.eventId}:${exception.anchorDate}`, exception])).values()], [history.exceptions, local.snapshot.exceptions]);
+  const index = useMemo(() => calendarSearchIndex(searchEvents, searchExceptions, focusDate), [searchEvents, searchExceptions, focusDate]);
   const result = useMemo(() => searchCalendarWithChores(index, chores, query, Infinity, focusDate), [index, chores, query, focusDate]);
   const rows = useMemo(() => result.matches.slice(0, visibleCount), [result, visibleCount]);
   const more = rows.length < result.matches.length;
@@ -39,6 +81,8 @@ export function CalendarSearch({ local, chores = [], choresIncomplete, focusDate
     </View>
     <FormTextInput accessibilityLabel="予定を検索" placeholder="予定名・家事名・場所・メモで検索" value={query} onChangeText={value => { setQuery(value); setVisibleCount(60); setSelectionError(null); }} autoFocus autoCorrect={false} returnKeyType="search"
       style={{ ...typography.body, marginHorizontal: 12, paddingHorizontal: 12, minHeight: 46, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 10, color: colors.ink, backgroundColor: colors.surface }} />
+    {history.loading ? <Text style={{ ...typography.caption, color: colors.muted, paddingHorizontal: 14 }}>過去の予定を検索中</Text> : null}
+    {history.error ? <Text accessibilityRole="alert" style={{ ...typography.caption, color: colors.warning, paddingHorizontal: 14 }}>保存履歴を検索できませんでした</Text> : null}
     {choresIncomplete ? <Text style={{ ...typography.caption, color: colors.muted, paddingHorizontal: 14 }}>家事は取得済みの期間から検索します</Text> : null}
     {local.error ? <Text accessibilityRole="alert" style={{ ...typography.caption, color: colors.warning, paddingHorizontal: 14 }}>{local.error}</Text> : null}
     {selectionError ? <Text accessibilityRole="alert" style={{ ...typography.caption, color: colors.warning, paddingHorizontal: 14 }}>{selectionError}</Text> : null}
@@ -54,7 +98,7 @@ export function CalendarSearch({ local, chores = [], choresIncomplete, focusDate
           </View><Chevron color={colors.accent} /></Pressable>;
         const value = item.draft.value; const appearance = calendarEventAppearance(categories.get(value.categoryId) ?? colors.muted, scheme === 'dark');
         const title = calendarTitleDisplay.label(value.title, focusDate, titleDisplay.value);
-        return <Pressable accessibilityRole="button" accessibilityLabel={`${title}の検索結果を開く`} onPress={() => { if (closing.current) return; try { pending.current = resolveSelection(item.draft); close(); } catch (cause) { setSelectionError(cause instanceof Error ? cause.message : '予定を表示できませんでした。'); } }}
+        return <Pressable accessibilityRole="button" accessibilityLabel={`${title}の検索結果を開く`} onPress={() => { if (closing.current) return; try { pending.current = resolveSelection(item.draft, searchEvents, searchExceptions); close(); } catch (cause) { setSelectionError(cause instanceof Error ? cause.message : '予定を表示できませんでした。'); } }}
           style={{ padding: 14, minHeight: 64, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <View style={{ flex: 1, gap: 4 }}><Text style={{ ...typography.body, color: appearance.foregroundColor }} numberOfLines={2}>{title}</Text>
             <Text style={{ ...typography.caption, color: colors.muted }} numberOfLines={1}>{value.recurrence !== 'none' && item.draft.scope === 'series' ? recurrenceLabel(value) : formatJapaneseDate(value.startDate, { year: true, weekday: false })}{value.allDay ? ' · 終日' : ` ${minuteLabel(value.startMinute)}`}</Text>

@@ -6,6 +6,10 @@ import { createSharedRoster } from '../src/features/sharing/roster.ts';
 import { assertSharedCloudAccess, boundedSharingCloudBatches, MAX_SHARED_CLOUD_BATCH_BYTES,
   parseSharedCloudEvent, parseSharedCloudGroup, rosterCloudFields } from '../src/features/sharing/cloud-contract.ts';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
+import { loadNativeModule } from './helpers/native-module.mjs';
+import * as operations from '../src/features/sharing/operations.ts';
+import * as cloudContract from '../src/features/sharing/cloud-contract.ts';
+import * as networkDeadline from '../src/platform/sharing/network-deadline.ts';
 
 test('cloud ACL metadata cannot substitute a pinned signed account, device or membership epoch', async () => {
   const owner = await createDeviceIdentity(crypto); const roster = createSharedRoster('group-test', 'owner', owner);
@@ -41,4 +45,32 @@ test('cloud event positions and author metadata must bind the encrypted envelope
   }
   assert.throws(() => parseSharedCloudEvent('other-operation', data, 'group-test'));
   assert.throws(() => parseSharedCloudEvent('operation-test', { ...data, envelopeJson: JSON.stringify({ ...envelope, schemaVersion: 2 }) }, 'group-test'));
+});
+
+test('caught-up legacy shared pulls verify the live group without issuing an empty history query', async () => {
+  const owner = await createDeviceIdentity(crypto); const roster = createSharedRoster('group-test', 'owner', owner);
+  const group = { ...rosterCloudFields(roster), headSequence: 2, lastOperationId: 'latest', snapshotId: null, snapshotThroughSequence: 0 };
+  let rootReads = 0, queries = 0, user = 'owner';
+  const cloud = loadNativeModule('src/platform/sharing/firestore-cloud.ts', {
+    'firebase/firestore': {
+      doc: () => ({}), collection: () => ({}), orderBy: () => ({}), startAfter: () => ({}), where: () => ({}), limit: () => ({}), query: () => ({}),
+      async getDocFromServer() { rootReads++; return { data: () => group }; },
+      async getDocsFromServer() { queries++; return { docs: [] }; },
+    },
+    '../../features/sharing/operations.ts': operations, '../../features/sharing/cloud-contract.ts': cloudContract, './network-deadline.ts': networkDeadline,
+    './firestore-management.ts': { createSharingManagement: () => ({}) }, './firestore-recovery.ts': { createSharingRecovery: () => ({}) },
+    './firestore-retention.ts': { createSharingHistoryRetention: () => ({}) }, './firestore-account-devices.ts': { createSharingAccountDevices: () => ({}) },
+    './v2-receipts.ts': {}, './firestore-delivery.ts': {}, '../../features/sharing/v2/recovery-lock.ts': {},
+  }).createSharingCloud({}, 'owner', () => user);
+  for (let run = 0; run < 2; run++) {
+    const page = await cloud.pull('group-test', 2);
+    assert.deepEqual(page.events, []); assert.equal(page.throughSequence, 2);
+  }
+  assert.equal(rootReads, 2); assert.equal(queries, 0);
+  await assert.rejects(cloud.pull('group-test', 1), { code: 'sharing/snapshot-required' });
+  assert.equal(queries, 1);
+  await assert.rejects(cloud.pull('group-test', 3), { code: 'sharing/snapshot-required' });
+  user = 'other';
+  await assert.rejects(cloud.pull('group-test', 2), { code: 'sharing/access-denied' });
+  assert.equal(queries, 1);
 });

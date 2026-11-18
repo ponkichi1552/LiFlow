@@ -16,8 +16,15 @@ async function form(d, platform = 'ios', options = {}) {
   const props = { actions: controller.actions, busy: false, ...options, run: async (work) => { await work(); await update(); } };
   async function update() { const model = await controller.readModel(query); const round = model.plan.occurrences.find((r) => r.anchorDate === (options.anchorDate ?? ref.anchorDate));
     Object.assign(props, { model, round, subject: round.subjects[0] }); }
-  await update(); const screen = screenHarness(file, { exportName: 'V2DateForm', props, platform });
+  await update(); const screen = screenHarness(file, { exportName: 'V2DateForm', props, platform, datePicker: options.datePicker });
   return { props, controller, screen, update };
+}
+async function pickShortcutDate(screen, platform, date) {
+  screen.button('変更後の実施日を選択').props.onPress(); await screen.flush();
+  if (platform === 'android') return;
+  const picker = screen.nodes().find((node) => node.type === 'DateTimePicker'); assert.ok(picker, 'missing native date picker');
+  picker.props.onValueChange(null, new Date(`${date}T12:00:00.000Z`)); await screen.flush();
+  await screen.press('変更後の実施日の選択を完了');
 }
 async function choose(screen, label) {
   const node = screen.nodes().find((n) => n.props.accessibilityRole === 'radio' && n.props.accessibilityLabel === label);
@@ -53,6 +60,19 @@ for (const platform of ['ios', 'android']) {
       assert.equal(props.round.configuration.intervalDays, 7); assert.equal(props.model.plan.history.length, 0);
     } finally { d.connection.close(); }
   });
+  test(`${platform} calendar date shortcut keeps a shared fixed chore start and end clock when its clicked date changes`, async () => {
+    const f = await fixture(); const d = await f.device();
+    try {
+      await d.repository.commit(seeds());
+      const controller = createV2GroupController(d.repository, { makeId: (() => { let id = 0; return () => `date-shortcut-${++id}`; })(), now, sync: async () => {} });
+      await controller.actions.changeDate(ref, { mode: 'fixed', target: { precision: 'interval', start: '2026-10-27T01:15:00.000Z', end: '2026-10-27T01:45:00.000Z' } });
+      const { screen, props } = await form(d, platform, { initialDate: '2026-10-29', datePicker: ({ onValueChange }) => onValueChange(null, new Date('2026-10-29T12:00:00.000Z')) });
+      assert.equal(screen.nodes().some((node) => node.type === 'TextInput' && ['開始時刻', '終了時刻'].includes(node.props.accessibilityLabel)), false);
+      await screen.press('この日に変更'); await screen.flush();
+      assert.deepEqual(props.subject.formalDate.target, { precision: 'interval', start: '2026-10-29T01:15:00.000Z', end: '2026-10-29T01:45:00.000Z' });
+      assert.equal(props.subject.formalDate.mode, 'fixed');
+    } finally { d.connection.close(); }
+  });
   test(`${platform} v2 fixed-date form requires explicit start and end plus repeated-clock choices without guessing a duration`, async () => {
     const f = await fixture(); const d = await f.device();
     try {
@@ -66,6 +86,50 @@ for (const platform of ['ios', 'android']) {
       const rule = (await d.repository.readState()).assessment.view.ofType('designation')[0].payload.configuration;
       assert.deepEqual(rule.target, { precision: 'interval', start: '2026-11-01T06:30:00.000Z', end: '2026-11-01T06:45:00.000Z' });
       assert.ok(screen.text().includes('端末に保存'));
+    } finally { d.connection.close(); }
+  });
+}
+
+for (const platform of ['ios', 'android']) {
+  test(`${platform} shared date shortcut exposes both repeated-clock choices and restores the exact original fold when returning`, async () => {
+    const f = await fixture(); const d = await f.device();
+    try {
+      const initial = seeds(); initial[1].payload.timeZone = 'America/New_York'; initial[1].payload.anchorDate = '2026-11-01'; initial[3].payload.configuration.anchorDate = '2026-11-01'; await d.repository.commit(initial);
+      const reference = { ...ref, anchorDate: '2026-11-01' }; const target = { precision: 'interval', start: '2026-11-01T06:30:27.123Z', end: '2026-11-01T06:45:27.456Z' };
+      const controller = createV2GroupController(d.repository, { makeId: () => 'date-shortcut-fold', now, sync: async () => {} });
+      await controller.actions.changeDate(reference, { mode: 'fixed', target });
+      let selectedDate = '2026-11-01';
+      const { screen, props } = await form(d, platform, { initialDate: '2026-11-02', anchorDate: reference.anchorDate,
+        datePicker: ({ onValueChange }) => onValueChange(null, new Date(`${selectedDate}T12:00:00.000Z`)) });
+      assert.equal(screen.nodes().some((node) => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel.includes('回目')), false);
+      selectedDate = '2026-11-01'; await pickShortcutDate(screen, platform, selectedDate);
+      const choices = screen.nodes().filter((node) => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === '2回目（UTC-05:00）');
+      assert.equal(choices.length, 2); assert.ok(choices.every((node) => node.props.accessibilityState.checked));
+      assert.equal(screen.nodes().some((node) => node.type === 'TextInput' && ['開始時刻', '終了時刻'].includes(node.props.accessibilityLabel)), false);
+      assert.equal(screen.nodes().some((node) => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === '日時指定の適用範囲'), false);
+      await screen.press('この日に変更');
+      assert.deepEqual(props.subject.formalDate.target, target);
+    } finally { d.connection.close(); }
+  });
+
+  test(`${platform} shared date shortcut exposes only the missing DST clock and saves the corrected local time`, async () => {
+    const clock = () => new Date('2027-03-10T12:00:00.000Z'); const f = await fixture({ clock }); const d = await f.device();
+    try {
+      const initial = seeds(); initial[1].payload.timeZone = 'America/New_York'; initial[1].payload.anchorDate = '2027-03-13'; initial[3].payload.configuration.anchorDate = '2027-03-13'; await d.repository.commit(initial);
+      const reference = { ...ref, anchorDate: '2027-03-13' };
+      const controller = createV2GroupController(d.repository, { makeId: () => 'date-shortcut-gap', now: clock, sync: async () => {} });
+      await controller.actions.changeDate(reference, { mode: 'fixed', target: { precision: 'interval', start: '2027-03-13T07:30:00.000Z', end: '2027-03-13T08:15:00.000Z' } });
+      const range = { from: '2027-03-01', through: '2027-03-20', asOfDate: '2027-03-10' };
+      const { screen, props } = await form(d, platform, { now: clock, range, anchorDate: reference.anchorDate, initialDate: '2027-03-14',
+        datePicker: ({ onValueChange }) => onValueChange(null, new Date('2027-03-14T12:00:00.000Z')) });
+      assert.ok(screen.text().includes('開始時刻がこの地域にはありません'));
+      assert.ok(screen.nodes().some((node) => node.type === 'TextInput' && node.props.accessibilityLabel === '開始時刻'));
+      assert.equal(screen.nodes().some((node) => node.type === 'TextInput' && node.props.accessibilityLabel === '終了時刻'), false);
+      assert.equal(screen.text().includes('日時指定の適用範囲'), false);
+      await screen.change('開始時刻', '01:30');
+      assert.equal(screen.text().includes('開始時刻がこの地域にはありません'), false);
+      await screen.press('この日に変更');
+      assert.deepEqual(props.subject.formalDate.target, { precision: 'interval', start: '2027-03-14T06:30:00.000Z', end: '2027-03-14T07:15:00.000Z' });
     } finally { d.connection.close(); }
   });
 }

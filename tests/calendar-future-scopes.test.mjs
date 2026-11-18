@@ -41,6 +41,17 @@ test('future recurrence bases use original slots and preserve monthly yearly cus
   assert.throws(() => calendarFutureBase({ ...value(), id: 'event', revision: 1 }, '2026-11-16'), /選び直して/u);
 });
 
+test('future series can repair a recurring occurrence in a DST gap and validates the saved replacement', () => {
+  const series = { ...newEventDraft('2026-03-01', 'America/New_York'), title: '朝の予定', startMinute: 150, endMinute: 200,
+    recurrence: 'weekly', untilDate: null, id: 'dst-gap', revision: 1 };
+  const baseline = calendarFutureBase(series, '2026-03-08');
+  assert.equal(baseline.startDate, '2026-03-08'); assert.equal(baseline.startMinute, 150);
+  assert.throws(() => splitCalendarFuture(series, '2026-03-08', baseline, []), /夏時間/u,
+    'an unchanged invalid wall clock remains unsaveable');
+  const repaired = splitCalendarFuture(series, '2026-03-08', { ...baseline, startMinute: 200, endMinute: 250 }, []);
+  assert.equal(repaired.next.startDate, '2026-03-08'); assert.equal(repaired.next.startMinute, 200); assert.equal(repaired.next.endMinute, 250);
+});
+
 async function localFixture() {
   const h = createDatabase(); await repository.initializeLocalDatabase(h.database);
   const id = await storage.saveCalendarEvent(h.database, { expectedRevision: 0, value: value() });
@@ -111,6 +122,31 @@ test('shared future changes use existing signed payloads preserve all explicit e
   const undo = calendarFutureUndoCommand(f.original, operations, 'calendar-intent.future-undo-intent'); assert.ok(undo);
   await f.actions.undoCalendarFutureEvent(undo); await f.actions.undoCalendarFutureEvent(undo);
   assert.deepEqual(plain(project(projectSharedCalendarRecords(await f.records(), groupId))), before);
+});
+test('shared future DST repair emits valid existing payloads that a second device can apply', async t => {
+  const f = await fixture(), device = await f.device(); t.after(() => device.connection.close());
+  await device.repository.commit(seeds());
+  let issued = 0;
+  const actions = createV2CalendarActions(device.repository, () => `future-dst-operation-${++issued}`);
+  const records = async () => readSharedCalendar((await device.repository.readState()).assessment.view);
+  const original = { ...newEventDraft('2027-03-07', 'America/New_York'), title: '朝の予定',
+    recurrence: 'weekly', startMinute: 150, endMinute: 210 };
+  await actions.saveCalendarEvent({ scope: 'series', anchorDate: null, value: original, category });
+  const record = (await records())[0], anchor = '2027-03-14';
+  const command = { eventId: record.id, scope: 'future', anchorDate: anchor, basisRevision: basis(record),
+    expectedExceptionIds: [], category, value: { ...original, startDate: anchor, endDate: anchor } };
+  const before = await loadSharedFacts(device.database, groupId);
+  await assert.rejects(actions.saveCalendarEvent(command), /夏時間/u);
+  assert.deepEqual(await loadSharedFacts(device.database, groupId), before);
+  const operations = await actions.saveCalendarEvent({ ...command, value: { ...command.value, startMinute: 200, endMinute: 260 } });
+  assert.ok(operations.every(row => row.payload.scope === 'series'));
+  const second = await f.device('member', f.member); t.after(() => second.connection.close());
+  const facts = await loadSharedFacts(device.database, groupId), checkpoint = await readSharingCheckpoint(second.database, groupId);
+  await applyReceivedSharedFacts(second.database, groupId, facts, String(facts.length), second.repository.project, checkpoint.cursor,
+    now().getTime(), second.repository.evidenceForServerReceipts(receiptsFor(facts)));
+  const projected = readSharedCalendar((await second.repository.readState()).assessment.view);
+  const visible = projectCalendarEvents(projectSharedCalendarRecords(projected, groupId).events, [], anchor, anchor);
+  assert.deepEqual(visible.map(row => [row.startDate, row.startMinute, row.endMinute, row.timeIssue]), [[anchor, 200, 260, undefined]]);
 });
 test('shared future edits keep detached exceptions when a changed recurrence no longer has their slot and block stale undo', async t => {
   const f = await sharedFixture(); t.after(() => f.device.connection.close());
@@ -241,10 +277,11 @@ for (const platform of ['ios', 'android']) {
       today: day, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
       local: { database: {}, snapshot: { events: [series], exceptions: [exception], categories: [category], drafts: [] }, refresh: async () => {}, saveEvent: async draft => writes.push(draft) },
     } }); t.after(() => screen.unmount());
-    const checkScopes = () => {
+    const checkScopes = (seriesDisabled = false) => {
       const future = screen.button('今後の予定すべて');
       assert.equal(future.props.disabled, true); assert.equal(future.props.accessibilityState.disabled, true);
-      assert.ok(!screen.button('この予定だけ').props.disabled); assert.ok(!screen.button('繰り返し全体').props.disabled);
+      assert.ok(!screen.button('この予定だけ').props.disabled);
+      assert.equal(screen.button('繰り返し全体').props.disabled, seriesDisabled);
     };
     await selectCalendarView(screen, '1日表示'); await screen.press('個別に残した回を編集');
     await screen.press('変更する範囲を選択'); checkScopes(); await screen.press('繰り返し全体');
@@ -256,6 +293,6 @@ for (const platform of ['ios', 'android']) {
     screen.button('個別に残した回を編集').props.onLongPress(); await screen.flush();
     const card = screen.nodes().find(node => node.props.testID?.startsWith('calendar-movable-'));
     card.props.onPanResponderGrant(); card.props.onPanResponderRelease(null, { dx: 0, dy: 44 }); await screen.flush();
-    checkScopes(); await screen.press('キャンセル'); assert.deepEqual(writes, []);
+    checkScopes(true); await screen.press('キャンセル'); assert.deepEqual(writes, []);
   });
 }

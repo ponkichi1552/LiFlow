@@ -7,7 +7,7 @@ import { parseLocalDate } from '../../domain/scheduling/local-date.ts';
 import type { LocalDate } from '../../domain/shared/types';
 import type { CalendarEvent, EventDraft } from '../../domain/calendar/events';
 import { calendarFutureBase } from '../../domain/calendar/future-series.ts';
-import { rebasedCalendarExceptionDate } from '../../domain/calendar/exception-slots.ts';
+import { rebasedCalendarExceptionDates } from '../../domain/calendar/exception-slots.ts';
 import type { CalendarReminderUndoProof } from '../../features/calendar/shared-recovery';
 
 import { checkedReminderMinutes, type CalendarReminderRule, type CalendarReminderSettings } from '../../features/calendar/reminder-preferences.ts';
@@ -42,6 +42,41 @@ export async function saveCalendarReminder(database: SQLiteDatabase, rule: Calen
   notifyCalendarRemindersChanged(database);
 }
 type StoredRule = { event_id: string; anchor_date: string; minutes: number | null };
+/** The caller owns the transaction. Rules anchored at their existing dates take precedence over a moved rule. */
+export async function rebaseCalendarReminderRulesInside(database: SQLiteDatabase, scope: string, source: CalendarEvent, next: CalendarEvent) {
+  if (source.startDate === next.startDate) return false;
+  const rules = await database.getAllAsync<{ anchor_date: LocalDate; minutes: number | null }>(
+    "SELECT anchor_date,minutes FROM calendar_notification_rules WHERE scope=? AND event_id=? AND anchor_date<>'' ORDER BY anchor_date", scope, source.id);
+  const dates = rebasedCalendarExceptionDates(source, next, rules.map(row => row.anchor_date));
+  const moves = rules.map((row, index) => ({ ...row, target: dates[index] })).filter(row => row.target !== row.anchor_date);
+  for (const row of moves) await database.runAsync('DELETE FROM calendar_notification_rules WHERE scope=? AND event_id=? AND anchor_date=?', scope, source.id, row.anchor_date);
+  for (const row of moves) await database.runAsync('INSERT OR IGNORE INTO calendar_notification_rules(scope,event_id,anchor_date,minutes) VALUES(?,?,?,?)',
+    scope, next.id, row.target, row.minutes);
+  return moves.length > 0;
+}
+
+/** A confirmed shared save can be replayed without moving the viewer's private rules twice. */
+export async function rebaseSharedCalendarReminders(database: SQLiteDatabase, input: {
+  scope: string; intentId: string; source: CalendarEvent; next: CalendarEvent; assertCurrent(): void;
+}) {
+  if (input.source.startDate === input.next.startDate) return;
+  const changed = await withPlannerDatabaseOperation(database, async () => {
+    await personalReminderDatabase(database);
+    return withIsolatedSqliteTransaction(database, async tx => {
+      input.assertCurrent();
+      await tx.execAsync(`CREATE TABLE IF NOT EXISTS calendar_reminder_series_moves (
+        scope TEXT NOT NULL, intent_id TEXT NOT NULL, PRIMARY KEY(scope,intent_id)
+      ) WITHOUT ROWID`);
+      const claimed = await tx.runAsync('INSERT OR IGNORE INTO calendar_reminder_series_moves(scope,intent_id) VALUES (?,?)', input.scope, input.intentId);
+      if (!claimed.changes) return false;
+      const updated = await rebaseCalendarReminderRulesInside(tx, input.scope, input.source, input.next);
+      input.assertCurrent();
+      return updated;
+    });
+  });
+  if (changed) notifyCalendarRemindersChanged(database);
+}
+
 function readForkRules(database: SQLiteDatabase, scope: string, source: string, branch: string) {
   return database.getAllAsync<StoredRule>('SELECT event_id,anchor_date,minutes FROM calendar_notification_rules WHERE scope=? AND event_id IN (?,?) ORDER BY event_id,anchor_date', scope, source, branch);
 }
@@ -107,9 +142,10 @@ export async function forkCalendarReminders(database: SQLiteDatabase, input: { s
         await saveCalendarReminderInside(tx, { scope: input.scope, eventId: input.branchId, anchorDate: null, minutes: seriesMinutes });
       }
       const next = { ...input.next, id: input.branchId, revision: 1 };
-      for (const row of sourceRules) {
-        if (!row.anchor_date || (row.anchor_date < input.anchor && input.anchor !== input.source.startDate)) continue;
-        const anchorDate = rebasedCalendarExceptionDate(base, next, row.anchor_date as LocalDate);
+      const moved = sourceRules.filter(row => row.anchor_date && (row.anchor_date >= input.anchor || input.anchor === input.source.startDate));
+      const dates = rebasedCalendarExceptionDates(base, next, moved.map(row => row.anchor_date as LocalDate));
+      for (const [index, row] of moved.entries()) {
+        const anchorDate = dates[index];
         if (!branchAnchors.has(anchorDate)) {
           await saveCalendarReminderInside(tx, { scope: input.scope, eventId: input.branchId, anchorDate, minutes: row.minutes });
         }

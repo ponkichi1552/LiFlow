@@ -36,6 +36,7 @@ export function parseTitleDateTime(title: string, today: LocalDate, selectedDate
   if (/毎日|隔週|(?:来月|再来月|来年|再来年)(?:の)?(?:初め|頭|上旬|中旬|下旬)/.test(text)) return null;
   const used: [number, number][] = [], dates: LocalDate[] = []; let invalid = false;
   const uncertainTail = /^\s*(?:以外|ではな[いく]|じゃな[いく]|を除|は除|以降|以前|以内|以上|以下|より[前後]|候補|か(?!ら)|または|もしくは|あるいは|の(?:前日|翌日|翌々日|次の日))/;
+  const personNameTail = /^\s*[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]{1,12}(?:さん|様|さま|くん|君|ちゃん|先生|氏)(?=$|\s|に|と|が|は|の|を|へ|で|から|も|、|,|。)/u;
   const unconsumedDateList = /^\s*(?:[、,・/&＆]|と|および|及び)\s*(?:\d{1,2}日(?!間|目)|\d{1,2}[\/月])/;
   const unhandledDateRange = /^\s*(?:から|[〜~～–-])\s*(?:(?:\d{4}[年/])?\d{1,2}[月/]\d{1,2}|(?:今週|来週|再来週)(?:の)?[月火水木金土日]曜日?|[月火水木金土日]曜日?|明後日|あさって|明日|あした|今日|昨日|\d{1,2}(?:日(?!間|目)|(?=[^\d日週時:]|$)))/;
   const overlaps = (start: number, end: number) => used.some(([a, b]) => start < b && end > a);
@@ -50,7 +51,8 @@ export function parseTitleDateTime(title: string, today: LocalDate, selectedDate
     for (const match of text.matchAll(pattern)) {
       const start = match.index!, end = start + match[0].length; if (overlaps(start, end)) continue;
       used.push([start, end]); const date = resolve(match);
-      if (!date || uncertainTail.test(text.slice(end)) || unconsumedDateList.test(text.slice(end)) || unhandledDateRange.test(text.slice(end))) invalid = true;
+      if (!date || uncertainTail.test(text.slice(end)) || personNameTail.test(text.slice(end))
+        || unconsumedDateList.test(text.slice(end)) || unhandledDateRange.test(text.slice(end))) invalid = true;
       else dates.push(date);
     }
   };
@@ -119,7 +121,7 @@ export function parseTitleDateTime(title: string, today: LocalDate, selectedDate
       dates.push(first);
     }
   }
-  const clocks: { minute: number; nextDay: boolean; from: number; through: number }[] = [];
+  const clocks: { minute: number; nextDay: boolean; from: number; through: number; qualifier?: string; rawHour: number }[] = [];
   const pattern = /(?<!\d)(?:(午前|午後|朝|昼|夕方|夜|深夜)\s*)?(\d{1,2})(?::(\d{2})|時(?:(\d{1,2})分|(\d{2})(?!分)|半)?)(?!\d|間|台)/g;
   for (const m of text.matchAll(pattern)) {
     const minutes = m[3] !== undefined ? Number(m[3]) : m[4] !== undefined ? Number(m[4]) : m[5] !== undefined ? Number(m[5]) : m[0].endsWith('半') ? 30 : 0;
@@ -132,7 +134,19 @@ export function parseTitleDateTime(title: string, today: LocalDate, selectedDate
       else if (m[1] === '昼' && hour < 11) hour = hour % 12 + 12;
       else if (m[1] === '朝' && hour === 12) return null;
     }
-    clocks.push({ minute: hour % 24 * 60 + minutes, nextDay: hour === 24, from: approximationStart(m.index!), through: approximationEnd(m.index! + m[0].length) });
+    const from = approximationStart(m.index!), through = approximationEnd(m.index! + m[0].length);
+    if (/^\s*(?:以外|以降|以前|以内|以上|以下|より前|より後)/.test(text.slice(through))) invalid = true;
+    clocks.push({ minute: hour % 24 * 60 + minutes, nextDay: hour === 24, from, through, qualifier: m[1], rawHour: Number(m[2]) });
+  }
+  if (invalid) return null;
+  if (clocks.length === 2 && !clocks[1].qualifier && clocks[0].qualifier) {
+    const first = clocks[0], second = clocks[1], qualifier = clocks[0].qualifier!;
+    const afternoon = ['午後', '夕方', '夜'].includes(qualifier) || qualifier === '昼' && first.minute >= 12 * 60;
+    if (afternoon) {
+      const minute = (second.rawHour % 12 + 12) * 60 + second.minute % 60;
+      if (minute > first.minute) second.minute = minute;
+      else { second.minute = second.rawHour % 12 * 60 + second.minute % 60; second.nextDay = true; }
+    } else if (qualifier === '午前' && second.rawHour === 12) second.minute = 12 * 60 + second.minute % 60;
   }
   if (clocks.length === 1 && /\d+\s*(?:から|[〜~～–-])\s*$/.test(text.slice(0, clocks[0].from))) return null;
   if (clocks.length > 2 || clocks.length === 2 && !/^(?:から|[〜~～–-])$/.test(text.slice(clocks[0].through, clocks[1].from).trim())) return null;

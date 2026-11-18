@@ -34,6 +34,8 @@ import { createEditorDraftSession } from './editor-draft-session';
 import { changeCalendarDraftScope, duplicateCalendarDraft } from './direct-actions';
 import { createTitleDateTimeInput } from './title-datetime';
 import { pinnedClockAt } from '../../domain/scheduling/zoned-clock';
+import { rebasedCalendarExceptionDate } from '../../domain/calendar/exception-slots';
+import { v2WallTimeCandidates } from '../sharing/v2/local-time';
 
 export interface ExistingCalendarChore { id: string; name: string; minutes?: number; onOpen: () => void }
 export type CalendarChoreRegistrationProps = { date: EventDraft['startDate']; initialValue?: EventDraft; initialInput?: CalendarChoreInput; audience?: 'personal' | 'group';
@@ -117,21 +119,40 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
     if (!initial.eventId && !hasInput(latest.current)) { discardAndClose(); return; }
     onClose();
   };
+  const savedDisplayDate = (submitted: CalendarEditorDraft) => {
+    let value = submitted.value;
+    let day = value.startDate;
+    if (submitted.scope === 'series' && submitted.anchorDate && original && original.recurrence !== 'none') {
+      const occurrence = local.snapshot.exceptions.find(row => row.eventId === original.id && row.anchorDate === submitted.anchorDate)?.override;
+      if (occurrence) { value = occurrence; day = occurrence.startDate; }
+      else {
+        const next = { ...original, ...value };
+        const anchor = rebasedCalendarExceptionDate(original, next, submitted.anchorDate);
+        if (isCalendarAnchor(next, anchor)) day = anchor;
+      }
+    }
+    if (displayTimeZone && value.timeZone !== displayTimeZone && !value.allDay) {
+      const [instant, ambiguous] = v2WallTimeCandidates({ date: day, hour: Math.floor(value.startMinute / 60), minute: value.startMinute % 60, timeZone: value.timeZone });
+      if (instant !== undefined && ambiguous === undefined) return pinnedClockAt(instant, displayTimeZone).date;
+    }
+    return day;
+  };
   const save = (resetExceptions = false) => void work(async () => {
     if (!local.database) throw new Error('予定の保存先を読み込んでください。');
     const d = latest.current;
-    if (local.saveEvent) { await local.saveEvent(d, resetExceptions); await draftSession.current.clear(local.database); onSaved(d.value.startDate); return; }
+    const draftCleanup = draftSession.current.cleanup();
+    if (local.saveEvent) { await local.saveEvent(d, resetExceptions, draftCleanup); onSaved(savedDisplayDate(d)); return; }
     if (d.audience === 'group') throw new Error('共有予定の保存先を確認してください。');
-    if (d.scope === 'future') await saveCalendarFutureEvent(local.database, d);
+    if (d.scope === 'future') await saveCalendarFutureEvent(local.database, d, draftCleanup);
     else await saveCalendarEvent(local.database, { id: d.eventId ?? undefined, expectedRevision: d.revision, value: d.value,
-      scope: d.scope, anchorDate: d.anchorDate ?? undefined, expectedExceptionRevision: d.exceptionRevision, resetExceptions, reminderMinutes: d.reminderMinutes });
-    await draftSession.current.clear(local.database); onSaved(d.value.startDate); void local.refresh();
+      scope: d.scope, anchorDate: d.anchorDate ?? undefined, expectedExceptionRevision: d.exceptionRevision, resetExceptions, reminderMinutes: d.reminderMinutes, draftCleanup });
+    onSaved(savedDisplayDate(d)); void local.refresh();
   });
   const saveReminderOnly = () => void work(async () => {
     if (!local.database || !initial.eventId) return;
     local.assertDraftAccess?.(latest.current);
     await saveCalendarReminder(local.database, { scope: reminderScope, eventId: initial.eventId, anchorDate: draft.scope === 'one' ? draft.anchorDate : null, minutes: reminderMinutes });
-    onSaved(draft.value.startDate);
+    onSaved(savedDisplayDate(draft));
   });
   const saveReviewed = () => {
     save();

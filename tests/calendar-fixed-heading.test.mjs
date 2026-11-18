@@ -79,6 +79,24 @@ for (const platform of ['ios', 'android']) test(`${platform} timeline date and c
   }
 });
 
+for (const platform of ['ios', 'android']) test(`${platform} a carryover appointment at midnight starts the visible day at the top of its timeline`, async () => {
+  const previous = '2026-10-31'; const selected = '2026-11-01';
+  const overnight = { ...newEventDraft(previous, 'Asia/Tokyo'), id: 'overnight', title: '夜をまたぐ予定', revision: 1,
+    startMinute: 23 * 60, endDate: selected, endMinute: 60 };
+  const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
+    today: '2026-10-20', selectedDate: selected, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, total: 0, pending: 0 }), renderChores: () => null,
+    local: { database: {}, snapshot: { events: [overnight], exceptions: [], categories: [], drafts: [] }, loading: false, error: null, refresh: async () => {} },
+  } });
+  try {
+    await selectCalendarView(screen, '1日表示');
+    const offsets = []; const timeline = screen.nodes().find(node => node.props.testID === 'calendar-timeline');
+    timeline.props.ref.current = { scrollToOffset: value => offsets.push(value.offset) };
+    screen.nodes().find(node => node.props.testID === 'calendar-timeline-days').props.onLayout({ nativeEvent: { layout: { height: 0 } } });
+    timeline.props.onLayout({ nativeEvent: { layout: { height: 500 } } }); await screen.flush();
+    assert.ok(offsets.length > 0); assert.equal(offsets.at(-1), 0, 'the carryover starts at minute zero on the selected date');
+  } finally { screen.unmount(); }
+});
+
 for (const platform of ['ios', 'android']) test(`${platform} changing day modes keeps an already expanded chore list visible instead of scrolling past it`, async () => {
   const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
     today: '2026-10-31', timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, pending: 4, total: 4 }), renderChores: () => '洗面台の清掃',

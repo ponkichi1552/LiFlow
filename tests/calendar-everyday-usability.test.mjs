@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { screenHarness } from './helpers/screen-harness.mjs';
+import { selectCalendarView } from './helpers/calendar-ui.mjs';
 import { calendarSearchIndex, searchCalendarWithChores } from '../src/features/calendar/search.ts';
 import { calendarNotificationRequests, calendarNotificationDestination, CALENDAR_NOTIFICATION_PREFIX } from '../src/features/calendar/calendar-notifications.ts';
 import { newEventDraft } from '../src/features/calendar/events.ts';
@@ -39,6 +40,37 @@ for (const platform of ['ios', 'android']) {
       if (platform === 'ios') { ui.nodes().find(row => row.type === 'Modal').props.onDismiss(); await ui.flush(); }
       assert.ok(selected.includes('2026-11-15')); assert.match(ui.text(), /CHORE:2026-11-15/);
       assert.ok(!ui.nodes().some(row => row.props.accessibilityLabel === '予定を保存'));
+    } finally { ui.unmount(); }
+  });
+  test(`${platform} known empty agenda days stay compact when waste uses a custom renderer`, async () => {
+    const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { platform, exportName: 'PlannerCalendar', props: {
+      today: '2026-11-14', selectedDate: '2026-11-14', timeZone: 'Asia/Tokyo', wasteSchedules: [],
+      dayInfo: () => ({ loaded: true, total: 0, pending: 0 }), renderChores: () => null, renderWaste: () => null,
+    } });
+    try {
+      await selectCalendarView(ui, 'リスト表示');
+      assert.ok(ui.text().includes('予定なし'));
+      assert.ok(!ui.nodes().some(node => node.props.accessibilityLabel?.includes('の家事を開く')));
+    } finally { ui.unmount(); }
+  });
+  test(`${platform} chore search candidates are loaded only when search opens`, async () => {
+    const local = { database: {}, snapshot: { events: [], exceptions: [], categories: [], drafts: [] }, loading: false, error: null, refresh: async () => {} };
+    let loads = 0; const selected = [];
+    const props = {
+      today: '2026-11-14', timeZone: 'Asia/Tokyo', local, onSelectDate: day => selected.push(day), dayInfo: () => ({ loaded: true, total: 1 }),
+      renderChores: day => `CHORE:${day}`, loadSearchChores: () => { loads++; return [{ key: 'personal:lazy', title: '窓の掃除', date: '2026-11-15', source: 'personal' }]; },
+    };
+    const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { platform, exportName: 'PlannerCalendar', props });
+    try {
+      assert.equal(loads, 0, 'ordinary calendar rendering does not construct search candidates');
+      await ui.press('予定を検索する'); assert.equal(loads, 1);
+      await ui.change('予定を検索', '窓'); assert.equal(loads, 1);
+      ui.button('窓の掃除の検索結果を開く');
+      props.loadSearchChores = () => { loads++; return [{ key: 'personal:lazy', title: '窓の掃除', date: '2026-11-16', source: 'personal' }]; };
+      await ui.flush(); assert.equal(loads, 2, 'an open search uses the changed chore source once');
+      await ui.press('窓の掃除の検索結果を開く');
+      if (platform === 'ios') { ui.nodes().find(row => row.type === 'Modal').props.onDismiss(); await ui.flush(); }
+      assert.ok(selected.includes('2026-11-16')); assert.equal(loads, 2);
     } finally { ui.unmount(); }
   });
   test(`${platform} event notification choice saves atomically with the actual event while leaving housework notifications unchanged`, async t => {

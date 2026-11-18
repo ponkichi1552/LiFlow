@@ -2706,7 +2706,8 @@ async function readCalendarPlanningSignaturesImpl(database: SQLiteDatabase, now 
 /** The freshness check and planner must hash identical optional sources and coverage. */
 async function plannerCalendarAvailability(database: SQLiteDatabase, today: LocalDate, now: Date, timeZone: string) {
   const google = await getFreshCalendarAvailabilityDaysImpl(database, now, timeZone).catch(() => undefined);
-  const local = await readCalendarEventRows(database).then(({ events, exceptions }) => localCalendarAvailability(events, exceptions, today, addDays(today, 180), timeZone)).catch(() => undefined);
+  const local = await readCalendarEventRows(database, { from: today, through: addDays(today, 180) })
+    .then(({ events, exceptions }) => localCalendarAvailability(events, exceptions, today, addDays(today, 180), timeZone)).catch(() => undefined);
   return { google, combined: combineCalendarAvailability(google, local) };
 }
 

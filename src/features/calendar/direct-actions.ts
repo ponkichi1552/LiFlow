@@ -5,11 +5,16 @@ import { MONTH_HEADING_HEIGHT, type CalendarMonthRow } from './month-rows.ts';
 import type { CalendarEditorDraft } from '../../platform/storage/calendar-events';
 import { v2WallTimeCandidates } from '../sharing/v2/local-time.ts';
 import { moveCalendarStart } from './event-editing.ts';
-import { isCalendarAnchor, newEventDraft } from './events.ts';
+import { isCalendarAnchor, newEventDraft, validateEventDraft } from './events.ts';
 import type { CalendarEvent, CalendarOccurrence, EventDraft } from './events.ts';
 import { calendarFutureBase } from '../../domain/calendar/future-series.ts';
+import { rebasedCalendarExceptionDate } from '../../domain/calendar/exception-slots.ts';
 
 export const CALENDAR_DRAG_HOLD_MS = 250;
+export class CalendarMoveScopeRequiredError extends Error {
+  readonly scope = 'one' as const;
+  constructor(message: string) { super(message); this.name = 'CalendarMoveScopeRequiredError'; }
+}
 export type CalendarDropTarget = { day: LocalDate; minute: number };
 export interface CalendarMonthViewport { x: number; y: number; width: number; height: number }
 
@@ -85,8 +90,15 @@ export function calendarDragTarget(start: { day: LocalDate; minute: number }, da
   hourHeight: number, dx: number, dy: number) {
   if (![columnWidth, hourHeight, dx, dy].every(Number.isFinite) || columnWidth <= 0 || hourHeight <= 0) return null;
   const index = days.indexOf(start.day); if (index < 0) return null;
+  const rawDelta = dy / hourHeight * 60;
+  const minuteDelta = Math.sign(rawDelta) * Math.round(Math.abs(rawDelta) / 5) * 5;
+  const movedMinute = start.minute + minuteDelta;
+  const minute = minuteDelta === 0 || minuteDelta > 0 && start.minute > 1435
+    ? start.minute : Math.max(0, Math.min(1435, movedMinute));
   return { day: days[Math.max(0, Math.min(days.length - 1, index + Math.round(dx / columnWidth)))],
-    minute: Math.max(0, Math.min(1435, Math.round((start.minute + dy / hourHeight * 60) / 5) * 5)) };
+    // Snap the gesture delta, not the saved clock. A no-op drag and a day-only
+    // move must preserve imported clocks such as 09:02 exactly.
+    minute };
 }
 
 /** Convert the displayed drop point back to the source zone before preserving its real duration. */
@@ -100,6 +112,7 @@ export function calendarMovedDraft(draft: CalendarEditorDraft, target: { day: Lo
 
 /** Apply the selected occurrence's displacement to its parent, retaining the repeating rule. */
 export function calendarSeriesMovedDraft(draft: CalendarEditorDraft, series: CalendarEvent, target: CalendarDropTarget, displayTimeZone: string) {
+  if (draft.exceptionRevision > 0) throw new CalendarMoveScopeRequiredError('個別に変更した回は「この予定だけ」で移動できます。');
   const moved = calendarMovedDraft(draft, target, displayTimeZone);
   const delta = daysBetween(draft.value.startDate, moved.value.startDate) * 1440 + moved.value.startMinute - draft.value.startMinute;
   const total = series.startMinute + delta; const dayShift = Math.floor(total / 1440);
@@ -115,20 +128,39 @@ export function calendarSeriesMovedDraft(draft: CalendarEditorDraft, series: Cal
     if (rule.interval > 1 && rule.weekdays.some(day => {
       const before = first(day, start), after = first(shifted(day), nextStart);
       return before !== after && Math.min(before, after) <= through;
-    })) throw new Error('この移動では繰り返しの間隔を保てません。「この予定だけ」を選んでください。');
+    })) throw new CalendarMoveScopeRequiredError('この移動では繰り返しの間隔を保てません。「この予定だけ」を選んでください。');
     value.customRecurrence = { ...rule, weekdays: rule.weekdays.map(shifted).sort((a, b) => a - b) };
   }
-  if (rule?.unit === 'month' && rule.on === 'weekday') value.customRecurrence = { ...rule, weekday: new Date(`${value.startDate}T00:00:00Z`).getUTCDay(),
-    ordinal: rule.ordinal === -1 ? -1 : Math.min(5, Math.ceil(Number(value.startDate.slice(-2)) / 7)) as 1 | 2 | 3 | 4 | 5 };
+  if (rule?.unit === 'month' && rule.on === 'weekday' && dayShift !== 0) {
+    const target = new Date(`${moved.value.startDate}T00:00:00Z`);
+    const day = target.getUTCDate(); const weekday = target.getUTCDay();
+    const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+    const rank = Math.ceil(day / 7) as 1 | 2 | 3 | 4 | 5;
+    const previousOrdinalStillFits = rule.ordinal === -1 ? day + 7 > lastDay : rank === rule.ordinal;
+    const ordinal = previousOrdinalStillFits ? rule.ordinal : rank;
+    // The selected occurrence, not the series' original lower-bound date,
+    // identifies the ordinal weekday rule to carry through a whole-series move.
+    value.customRecurrence = { ...rule, weekday, ordinal };
+  }
   if (rule?.unit === 'month' && rule.on === 'dates' && dayShift) {
     const days = rule.days.map(day => day + dayShift);
     value.customRecurrence = { ...rule, days };
     // A fixed set of month days cannot express every displacement across a
     // short month. Never accept a drop that loses the occurrence being moved.
     if (days.some(day => day < 1 || day > 31) || !isCalendarAnchor({ ...value, id: series.id, revision: series.revision }, moved.value.startDate)) {
-      throw new Error('月をまたぐ複数日付の移動は「この予定だけ」を選ぶか、繰り返す日付を変更してください。');
+      throw new CalendarMoveScopeRequiredError('月をまたぐ複数日付の移動は「この予定だけ」を選ぶか、繰り返す日付を変更してください。');
     }
   }
+  const nextSeries = { ...value, id: series.id, revision: series.revision };
+  if (!isCalendarAnchor(nextSeries, moved.value.startDate)) {
+    throw new CalendarMoveScopeRequiredError('移動先がこの繰り返しに含まれません。「この予定だけ」を選んでください。');
+  }
+  const selectedSlot = draft.anchorDate ?? draft.value.startDate;
+  if (rebasedCalendarExceptionDate(series, nextSeries, selectedSlot) !== moved.value.startDate) {
+    throw new CalendarMoveScopeRequiredError('移動先では個別の予定との対応を保てません。「この予定だけ」を選んでください。');
+  }
+  try { validateEventDraft(value); }
+  catch { throw new CalendarMoveScopeRequiredError('この移動では繰り返しの日時を保てません。'); }
   return { ...draft, scope: 'series' as const, anchorDate: null, exceptionRevision: 0, value };
 }
 

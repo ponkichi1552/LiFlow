@@ -305,6 +305,37 @@ for (const platform of ['ios', 'android']) {
     }
   });
 
+  test(`${platform} a shared series edit replays its committed intent and moves only the current owner's individual notification rules once`, async t => {
+    const f = await sharedEditorFixture(platform); t.after(() => f.close());
+    await f.actions.saveCalendarEvent({ scope: 'series', anchorDate: null, value: draft({ recurrence: 'daily' }), category });
+    const host = await f.open(); t.after(() => host.screen.unmount());
+    const local = host.binding;
+    const [parent] = local.snapshot.events;
+    const ownerScope = calendarReminderScope('owner', f.d.options.groupId), memberScope = calendarReminderScope('member', f.d.options.groupId);
+    for (const scope of [ownerScope, memberScope]) {
+      await saveCalendarReminder(f.local.database, { scope, eventId: parent.id, anchorDate: '2026-11-03', minutes: 10 });
+    }
+    const edit = local.prepareDraft({ eventId: parent.id, anchorDate: '2026-11-03', revision: parent.revision, exceptionRevision: 0, scope: 'series',
+      value: { ...parent, startDate: '2026-10-28', endDate: '2026-10-28' } });
+    f.local.connection.exec("CREATE TRIGGER fail_series_reminder BEFORE DELETE ON calendar_notification_rules BEGIN SELECT RAISE(ABORT,'series reminder failed'); END");
+    await assert.rejects(local.saveEvent(edit, false), /series reminder failed/u);
+    const committed = await f.records();
+    assert.equal(committed[0].heads[0].payload.value.startDate, '2026-10-28');
+    const saved = (await f.readDrafts()).draft;
+    assert.ok(saved?.submission);
+    f.local.connection.exec('DROP TRIGGER fail_series_reminder');
+    const resumed = await f.open(); t.after(() => resumed.screen.unmount());
+    await resumed.binding.saveEvent(saved, false);
+    await resumed.binding.saveEvent(saved, false);
+    assert.deepEqual(await f.records(), committed);
+    const rules = await readCalendarReminders(f.local.database);
+    assert.equal(calendarReminderMinutes(rules, ownerScope, parent.id, '2026-11-03'), null);
+    assert.equal(calendarReminderMinutes(rules, ownerScope, parent.id, '2026-11-04'), 10);
+    assert.equal(calendarReminderMinutes(rules, ownerScope, parent.id, '2026-11-05'), null);
+    assert.equal(calendarReminderMinutes(rules, memberScope, parent.id, '2026-11-03'), 10);
+    assert.equal(calendarReminderMinutes(rules, memberScope, parent.id, '2026-11-04'), null);
+  });
+
   test(`${platform} a resumed shared occurrence draft keeps its edits and saves the latest exact location once on the future branch`, async t => {
     const f = await sharedEditorFixture(platform); t.after(() => f.close());
     const parent = draft({ title: '週の予定', location: '本館', notes: '毎週のメモ' });

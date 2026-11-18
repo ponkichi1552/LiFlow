@@ -6,10 +6,34 @@ import type { LocalDate } from '../../domain/shared/types';
 
 /** Private Google transport metadata is kept outside the shared EventDraft contract. */
 export interface PrivateCalendarException extends CalendarException { blocksTime?: boolean; readOnly?: boolean; externalUrl?: string }
+const eventsById = new WeakMap<readonly CalendarEvent[], Map<string, CalendarEvent>>();
+const exceptionsBySlot = new WeakMap<readonly PrivateCalendarException[], Map<string, Map<LocalDate, PrivateCalendarException>>>();
+
 export function privateCalendarReadOnlySource(snapshot: { events: readonly CalendarEvent[]; exceptions: readonly PrivateCalendarException[] }, id: string, anchorDate?: LocalDate | null) {
-  const event = snapshot.events.find(row => row.id === id);
+  let events = eventsById.get(snapshot.events);
+  if (!events) {
+    events = new Map();
+    for (const row of snapshot.events) {
+      const key = row.id;
+      if (!events.has(key)) events.set(key, row);
+    }
+    eventsById.set(snapshot.events, events);
+  }
+  const event = events.get(id);
   if (event?.readOnly) return event;
-  const exception = anchorDate ? snapshot.exceptions.find(row => row.eventId === id && row.anchorDate === anchorDate) : undefined;
+  if (!anchorDate) return undefined;
+  let exceptions = exceptionsBySlot.get(snapshot.exceptions);
+  if (!exceptions) {
+    exceptions = new Map();
+    for (const row of snapshot.exceptions) {
+      const key = row.eventId;
+      let byDay = exceptions.get(key);
+      if (!byDay) { byDay = new Map(); exceptions.set(key, byDay); }
+      if (!byDay.has(row.anchorDate)) byDay.set(row.anchorDate, row);
+    }
+    exceptionsBySlot.set(snapshot.exceptions, exceptions);
+  }
+  const exception = exceptions.get(id)?.get(anchorDate);
   return exception?.readOnly ? exception : undefined;
 }
 export function canEditPrivateCalendarEvent(snapshot: { events: readonly CalendarEvent[]; exceptions: readonly PrivateCalendarException[] }, id: string, anchorDate?: LocalDate | null) {

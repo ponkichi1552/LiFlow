@@ -15,6 +15,7 @@ import { usesPersonalAdaptivePlanner } from '../../domain/chores/personal-catalo
 import { capturedSharedRecommendations } from '../../features/planner/shared-adaptive-load';
 import { readPlanningInputRevision } from '../storage/planning-input-revision';
 import { PlanningInputChangedError } from '../../features/planner/planning-input-change';
+import { addDays } from '../../domain/scheduling/local-date.ts';
 
 /** Both native integrations use the same owner-only inputs. Rendering/planning never fetches Google or requests a grant. */
 export async function readV2LocalPlanning(input: { userId: string; assertAccess(): void | Promise<void> }, now: Date) {
@@ -32,7 +33,7 @@ export async function readV2LocalPlanning(input: { userId: string; assertAccess(
     const preferences = v2OwnerScheduleSettings(input.userId, snapshot.snapshot.settings, own);
     // An unavailable cache remains unknown; the personal planner applies its normal freshness and coverage rules.
     const busy = await calendar.readForPlan().catch(() => null); await input.assertAccess();
-    const localEvents = await readLocalCalendar(personal); await input.assertAccess();
+    const localEvents = await readLocalCalendar(personal, undefined, { from: snapshot.today, through: addDays(snapshot.today, 180) }); await input.assertAccess();
     const capturedRevision = await readPlanningInputRevision(personal);
     if (invalidated || capturedRevision !== before) throw new PlanningInputChangedError();
     const localCalendar = createLocalCalendarPlanSource({ ownerUserId: input.userId, assertAccess: input.assertAccess, read: async () => localEvents });

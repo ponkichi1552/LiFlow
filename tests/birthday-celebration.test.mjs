@@ -41,6 +41,11 @@ test('home birthday observes the startup cache without reading storage or reques
     './observed-snapshot': {}, './use-personal-google-sync': { usePersonalGoogleSync: forbidden },
     '@/hooks/use-planner-data': { usePlannerData: forbidden }, './private-event-projection': {},
     '../../domain/calendar/own-birthday': { isOwnBirthdayOn },
+    '@/contexts/workspace-context': { WorkspaceContext: {} },
+    './reminder-preferences': { calendarReminderScope: forbidden }, './use-calendar-draft-access': {},
+    '../../platform/storage/calendar-reminders': { recoverCalendarReminderUndos: forbidden },
+    '../../platform/storage/calendar-event-rows': { CalendarHistoryLimitError: Error },
+    '../../domain/scheduling/local-date': { localDateFromDate: forbidden, addDays: forbidden }, './events': { calendarMonth: forbidden },
   });
   assert.equal(useOwnBirthday(date), false);
   provided = { snapshot: { events: [birthday()], exceptions: [] } }; assert.equal(useOwnBirthday(date), true);

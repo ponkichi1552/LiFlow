@@ -241,6 +241,9 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
       const metadata = await readGroup(groupId); const { group } = metadata;
       if (afterSequence > group.headSequence) throw new SharingSnapshotRequiredError('共有履歴が保存位置より前に戻っています。');
       if (afterSequence < group.snapshotThroughSequence) throw new SharingSnapshotRequiredError('共有データのSnapshotを取得します。');
+      if (group.schemaVersion === 1 && afterSequence === group.headSequence) {
+        return { ...metadata, events: [], throughSequence: afterSequence };
+      }
       const page = await getDocsFromServer(query(collection(reference(groupId), 'events'), orderBy('uploadSequence'),
         startAfter(afterSequence), where('uploadSequence', '<=', group.headSequence), limit(100)));
       checkAccount();

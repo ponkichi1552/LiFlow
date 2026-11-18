@@ -11,8 +11,8 @@ import type { V2RoundReference } from '../v2/actions';
 import { v2DateChangeOriginal } from '../v2/date-change-original';
 import type { DateTarget, DesignationMode, RuleSelector } from '../v2/model';
 import type { CalendarConflict } from '../v2/private-availability';
-import { V2Choices, V2Flag, V2TextField, v2FormStyles as styles } from './form-controls';
-import { v2InitialTargetFields, v2RuleSelectorFromForm, v2TargetFromEditedForm, v2TargetLabel } from './target-form';
+import { V2Choices, V2Flag, V2TextField, V2TimeDisambiguation, v2FormStyles as styles } from './form-controls';
+import { v2InitialTargetFields, v2LocalTimeChoices, v2RuleSelectorFromForm, v2TargetFromEditedForm, v2TargetLabel } from './target-form';
 import type { V2ValidityChoice } from './target-form';
 import { V2DateTargetFields } from './date-target-fields';
 import { V2DateConfirmation } from './date-confirmation';
@@ -21,7 +21,7 @@ import { SettingsAction, SettingsPanel } from '../../../components/settings-cont
 import type { LocalDate } from '../../../domain/shared/types';
 import { CalendarSheetContent, type CalendarSheetForm } from '../../calendar/calendar-sheet-header';
 import { newEventDraft, minuteLabel, type EventDraft } from '../../calendar/events';
-import { addDays } from '../../../domain/scheduling/local-date';
+import { addDays, daysBetween } from '../../../domain/scheduling/local-date';
 import { v2MemberLabels } from './member-labels';
 import { SettingsCheckbox } from '../../../components/settings-checkbox';
 import { changeChoreClock, emptyChoreClocks, withChoreClocks, type ChoreClocks } from '../../calendar/chore-clock-input';
@@ -44,6 +44,16 @@ function calendarDateFields(value: EventDraft) {
 function calendarInputFields(value: EventDraft, clocks: ChoreClocks) {
   return calendarDateFields({ ...value, allDay: value.allDay || clocks.start === null || clocks.end === null,
     startMinute: clocks.start ?? 0, endMinute: clocks.end ?? 0 });
+}
+function fieldsOnDate(fields: ReturnType<typeof v2InitialTargetFields>, date: LocalDate) {
+  const offset = daysBetween(fields.day as LocalDate, date);
+  return { ...fields, day: date, endDay: addDays(fields.endDay as LocalDate, offset),
+    ...(offset ? { clockChoice: '', endClockChoice: '' } : {}) };
+}
+function shortcutClockIssue(date: string, clock: string, timeZone: string): 'ambiguous' | 'missing' | null {
+  if (!/^\d{2}:\d{2}$/u.test(clock)) return null;
+  try { return v2LocalTimeChoices(date, clock, timeZone).length > 1 ? 'ambiguous' : null; }
+  catch (cause) { return cause instanceof Error && cause.message.includes('存在しない時刻') ? 'missing' : null; }
 }
 function displayedState({ model, round, subject }: Props) {
   const formal = subject.formalDate;
@@ -72,7 +82,7 @@ function DateEditor(props: Props) {
   const { model, round, subject, actions, busy, run, readOwnCalendar } = props;
   const initialCalendarValue = props.calendarInput?.value ?? props.calendarValue; const initialClocks = props.calendarInput?.clocks ?? props.calendarClocks ?? emptyChoreClocks();
   const [displayed] = useState(() => displayedState(props));
-  const [draft, setDraft] = useState(() => ({ mode: props.initialDate ? 'day' as const : displayed.mode, fields: props.initialDate ? v2InitialTargetFields({ precision: 'date', date: props.initialDate }, model.plan.timeZone) : displayed.fields,
+  const [draft, setDraft] = useState(() => ({ mode: displayed.mode, fields: props.initialDate ? fieldsOnDate(displayed.fields, props.initialDate) : displayed.fields,
     ...(initialCalendarValue ? calendarInputFields(initialCalendarValue, initialClocks) : {}), validity: 'once' as V2ValidityChoice,
     through: '', extension: 'once' as 'once' | 'future', options: displayed.options, reviewed: false }));
   const input = useRef(draft);
@@ -113,8 +123,20 @@ function DateEditor(props: Props) {
     inputRevision.current++; input.current = { ...input.current, ...patch }; setDraft(input.current);
     setCalendarStatus('unknown'); setConfirmation(null); setError(null); confirmed.current = { recentWork: false, highLoad: false, calendar: false };
   };
-  const field = (name: keyof typeof fields, value: string) => edit({ fields: { ...input.current.fields, [name]: value,
-    ...(['day', 'clock'].includes(name) ? { clockChoice: '' } : ['endDay', 'endClock'].includes(name) ? { endClockChoice: '' } : {}) } });
+  const field = (name: keyof typeof fields, value: string) => {
+    const returnedToSourceDate = name === 'day' && value === displayed.fields.day;
+    const dateShifted = name === 'day' && Boolean(props.initialDate) && value !== input.current.fields.day && !returnedToSourceDate;
+    const next = returnedToSourceDate ? { ...displayed.fields } : { ...input.current.fields, [name]: value,
+      ...(['day', 'clock'].includes(name) ? { clockChoice: '' } : ['endDay', 'endClock'].includes(name) ? { endClockChoice: '' } : {}) };
+    if (dateShifted) {
+      try {
+        const offset = daysBetween(displayed.fields.day as LocalDate, value as LocalDate);
+        next.endDay = addDays(displayed.fields.endDay as LocalDate, offset);
+      } catch { /* Keep the previous end date while the user is entering an incomplete date. */ }
+      next.endClockChoice = '';
+    }
+    edit({ fields: next });
+  };
   const submit = async () => {
     if (disabled || inFlight.current) return;
     const { validity, through, extension, options, reviewed } = input.current;
@@ -204,12 +226,24 @@ function DateEditor(props: Props) {
   const presentation = { render: props.renderCalendarForm, onSave: submit, disabled: disabled || Boolean(confirmation), busy: busy || saving, entry };
   if (success) return <DatePresentation {...presentation} onSave={undefined}><Card><Text accessibilityLiveRegion="polite" style={styles.body}>{success}</Text></Card></DatePresentation>;
   if (!model.plan.initialized) return <DatePresentation {...presentation} onSave={undefined}><Card><Text style={styles.body}>グループの地域と基本設定が未確定です。先に設定を確認してください。</Text></Card></DatePresentation>;
+  const shortcutStartIssue = props.initialDate && !props.renderCalendarForm && mode === 'fixed'
+    ? shortcutClockIssue(fields.day, fields.clock, displayed.timeZone) : null;
+  const shortcutEndIssue = props.initialDate && !props.renderCalendarForm && mode === 'fixed'
+    ? shortcutClockIssue(fields.endDay, fields.endClock, displayed.timeZone) : null;
   if (props.initialDate && !displayed.needsReview && !round.assignmentConflictIds.length) return <DatePresentation {...presentation}><View style={{ gap: 14 }}>
     {!props.renderCalendarForm ? <Text style={styles.caption}>既存の1回だけを変更します。</Text> : null}
     {!props.renderCalendarForm ? <SettingsPanel><View style={{ paddingVertical: 10, gap: 10 }}>
       <Text style={styles.caption}>現在：{v2TargetLabel(displayed.target, displayed.originalTimeZone)}</Text>
       <CalendarField label="変更後の実施日" borderless commitOnDone date={fields.day as LocalDate} mode="date" minute={0} disabled={disabled} onDate={date => field('day', date)} />
     </View></SettingsPanel> : null}
+    {shortcutStartIssue === 'ambiguous' ? <V2TimeDisambiguation label="開始時刻の区別" day={fields.day} clock={fields.clock} timeZone={displayed.timeZone}
+      value={fields.clockChoice} disabled={disabled} onChange={value => field('clockChoice', value)} /> : null}
+    {shortcutStartIssue === 'missing' ? <View style={{ gap: 6 }}><Text style={styles.error}>開始時刻がこの地域にはありません。別の時刻を選んでください。</Text>
+      <V2TextField label="開始時刻" value={fields.clock} placeholder="HH:mm" editable={!disabled} onChangeText={value => field('clock', value)} /></View> : null}
+    {shortcutEndIssue === 'ambiguous' ? <V2TimeDisambiguation label="終了時刻の区別" day={fields.endDay} clock={fields.endClock} timeZone={displayed.timeZone}
+      value={fields.endClockChoice} disabled={disabled} onChange={value => field('endClockChoice', value)} /> : null}
+    {shortcutEndIssue === 'missing' ? <View style={{ gap: 6 }}><Text style={styles.error}>終了時刻がこの地域にはありません。別の時刻を選んでください。</Text>
+      <V2TextField label="終了時刻" value={fields.endClock} placeholder="HH:mm" editable={!disabled} onChangeText={value => field('endClock', value)} /></View> : null}
     {stale ? <Text accessibilityRole="alert" style={styles.error}>予定が更新されています。開き直して確認してください。</Text> : null}
     {unavailable ? <Text accessibilityRole="alert" style={styles.error}>{unavailable}</Text> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}

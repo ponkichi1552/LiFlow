@@ -24,6 +24,7 @@ export function withLocalNotificationOperation<T>(gateway: LocalNotificationGate
 /** All planner domains share the native queue. A scope can replace/cancel only its own keys. */
 export function reconcileLocalNotifications(gateway: LocalNotificationGateway, input: {
   prefix: string; desired: readonly LocalNotificationRequest[]; enabled: boolean;
+  retainExisting?: (request: LocalNotificationRequest) => boolean;
   assertCurrent?: () => void | Promise<void>;
 }): Promise<NotificationReconciliationResult> {
   if (typeof input.prefix !== 'string' || !input.prefix || input.desired.some(request => typeof request.key !== 'string' || !request.key.startsWith(input.prefix))
@@ -37,7 +38,10 @@ export function reconcileLocalNotifications(gateway: LocalNotificationGateway, i
     const permitted = enabled && await gateway.hasPermission();
     const deadline = await gateway.schedulingDeadline?.() ?? Infinity;
     await assertCurrent?.();
-    const otherCount = existing.filter(request => !request.key.startsWith(prefix)).length;
+    const snapshotKeys = new Set(desired.map(request => request.key));
+    const retained = new Set(existing.filter(request => permitted && request.key.startsWith(prefix) && !snapshotKeys.has(request.key)
+      && Date.parse(request.fireAt) < deadline && input.retainExisting?.(request)).map(request => request.key));
+    const otherCount = existing.filter(request => !request.key.startsWith(prefix) || retained.has(request.key)).length;
     const capacity = gateway.maximumScheduledRequests;
     if (capacity !== undefined && (!Number.isSafeInteger(capacity) || capacity < 0)) throw new Error('通知の上限を確認してください。');
     const room = capacity === undefined ? Infinity : Math.max(0, capacity - otherCount);
@@ -50,7 +54,7 @@ export function reconcileLocalNotifications(gateway: LocalNotificationGateway, i
       permissionExcluded: enabled && !permitted ? desired.length : 0, failed: 0 };
     const desiredKeys = new Set(requests.map(request => request.key));
     const byKey = new Map(existing.map(request => [request.key, request]));
-    const obsolete = existing.filter(request => request.key.startsWith(prefix) && !desiredKeys.has(request.key));
+    const obsolete = existing.filter(request => request.key.startsWith(prefix) && !desiredKeys.has(request.key) && !retained.has(request.key));
     const failures: unknown[] = [];
     let cancelled = 0;
     // Capacity-limited platforms need free slots before new requests; uncapped legacy ordering stays unchanged.

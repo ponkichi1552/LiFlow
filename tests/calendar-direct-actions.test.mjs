@@ -41,6 +41,21 @@ test('calendar drag targets snap to five minutes and stay in the displayed days 
   assert.equal(calendarDragTarget(start, days, 0, 60, 0, 0), null);
 });
 
+test('timed drag snaps only the relative five-minute gesture and keeps the original clock on a no-op', () => {
+  const start = { day, minute: 9 * 60 + 2 }; const days = [day, '2026-11-15'];
+  assert.deepEqual(calendarDragTarget(start, days, 100, 60, 0, 0), start);
+  assert.deepEqual(calendarDragTarget(start, days, 100, 60, 0, 0.25), start, 'tiny movement is not an implicit clock edit');
+  assert.deepEqual(calendarDragTarget(start, days, 100, 60, 0, 5), { day, minute: 9 * 60 + 7 });
+  assert.deepEqual(calendarDragTarget(start, days, 100, 60, 0, -5), { day, minute: 8 * 60 + 57 });
+  assert.deepEqual(calendarDragTarget(start, days, 100, 60, 100, 0), { day: days[1], minute: start.minute }, 'a date-only drag preserves the imported minute');
+  const late = { day, minute: 23 * 60 + 58 };
+  assert.deepEqual(calendarDragTarget(late, days, 100, 60, 0, 0), late);
+  assert.deepEqual(calendarDragTarget(late, days, 100, 60, 0, 5), late, 'the upper snap limit must not move an imported late clock backwards');
+  assert.deepEqual(calendarDragTarget(late, days, 100, 60, 0, -5), { day, minute: 23 * 60 + 53 });
+  assert.deepEqual(calendarDragTarget({ day, minute: 1430 }, days, 100, 60, 0, 5), { day, minute: 1435 });
+  assert.deepEqual(calendarDragTarget({ day, minute: 0 }, days, 100, 60, 0, -5), { day, minute: 0 });
+});
+
 test('calendar moves retain occurrence revisions and real duration while translating display time zones and rejecting DST ambiguity', () => {
   const source = occurrence({ timeZone: 'America/New_York', recurrence: 'weekly' });
   const shown = { ...source, startMinute: 1380, endMinute: 0, endDate: '2026-11-15', timeZone: 'Asia/Tokyo', original: source };
@@ -95,6 +110,22 @@ for (const platform of ['ios', 'android']) {
     };
   };
   const monthController = screen => screen.nodes().find(node => node.type === 'NativeGestureDetector').props.gesture;
+  test(`${platform} a zero-distance timed drag keeps 09:02 and accessibility moves exactly five minutes`, async () => {
+    const writes = []; const local = binding({ saveEvent: async draft => { writes.push(draft); } });
+    local.snapshot.events = [event({ startMinute: 542, endMinute: 602 })];
+    const screen = make(local);
+    try {
+      await selectCalendarView(screen, '1日表示');
+      let button = screen.button('会議を編集'); button.props.onLongPress();
+      let carrier = screen.nodes().find(node => node.props.testID?.startsWith('calendar-movable-'));
+      carrier.props.onPanResponderGrant(); carrier.props.onPanResponderRelease(null, { dx: 0, dy: 0.25 });
+      await screen.flush(); assert.deepEqual(writes, []);
+
+      button = screen.button('会議を編集');
+      button.props.onAccessibilityAction({ nativeEvent: { actionName: 'moveLater' } }); await screen.flush();
+      assert.equal(writes.length, 1); assert.equal(writes[0].value.startMinute, 547); assert.equal(writes[0].value.endMinute, 607);
+    } finally { screen.unmount(); }
+  });
   if (platform === 'android') test('Android month scrolling wins over small movement before the event hold timer', () => {
     const screen = make(binding());
     const control = monthController(screen);
@@ -303,7 +334,10 @@ for (const platform of ['ios', 'android']) {
       await selectCalendarView(screen, '2日表示');
       screen.button('変更した回を編集').props.onLongPress(); await screen.flush();
       const card = screen.nodes().find(node => node.props.testID?.startsWith('calendar-movable-'));
-      card.props.onPanResponderGrant(); card.props.onPanResponderRelease(null, { dx: 0, dy: 44 }); await screen.flush(); await screen.press('この予定だけ');
+      card.props.onPanResponderGrant(); card.props.onPanResponderRelease(null, { dx: 0, dy: 44 }); await screen.flush();
+      assert.equal(screen.button('今後の予定すべて').props.accessibilityState.disabled, true);
+      assert.equal(screen.button('繰り返し全体').props.accessibilityState.disabled, true);
+      await screen.press('この予定だけ');
       assert.equal(writes.length, 1); assert.equal(writes[0].scope, 'one');
       assert.equal(writes[0].anchorDate, day); assert.equal(writes[0].exceptionRevision, 2);
       assert.equal(writes[0].value.startDate, '2026-11-15'); assert.equal(writes[0].value.startMinute, 660);

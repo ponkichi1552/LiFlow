@@ -55,7 +55,7 @@ export function newEventDraft(date: LocalDate, timeZone: string, birthday = fals
   return { title: '', location: '', notes: '', startDate: date, endDate: date, allDay: birthday, startMinute: 9 * 60, endMinute: 10 * 60,
     timeZone, recurrence: birthday ? 'yearly' : 'none', untilDate: null, categoryId: birthday ? 'birthday' : 'personal', birthday };
 }
-export function validateEventDraft(value: EventDraft): EventDraft {
+export function validateEventDraft(value: EventDraft, options: { allowInvalidWallTime?: boolean } = {}): EventDraft {
   if (!value || typeof value !== 'object') throw new Error('予定の入力内容を確認してください。');
   const text = (s: unknown, max: number, required = false) => {
     if (typeof s !== 'string' || s.length > max || required && !s.trim()) throw new Error('予定名・場所・メモの長さを確認してください。'); return s.trim();
@@ -74,8 +74,9 @@ export function validateEventDraft(value: EventDraft): EventDraft {
   if (!value.allDay) {
     const start = v2WallTimeCandidates({ date: value.startDate, hour: Math.floor(value.startMinute / 60), minute: value.startMinute % 60, timeZone: value.timeZone });
     const end = v2WallTimeCandidates({ date: value.endDate, hour: Math.floor(value.endMinute / 60), minute: value.endMinute % 60, timeZone: value.timeZone });
-    if (start.length !== 1 || end.length !== 1) throw new Error('夏時間で存在しない、または重複する時刻です。別の時刻を選んでください。');
-    if (end[0] <= start[0]) throw new Error('終了は開始より後にしてください。');
+    if (start.length !== 1 || end.length !== 1) {
+      if (!options.allowInvalidWallTime) throw new Error('夏時間で存在しない、または重複する時刻です。別の時刻を選んでください。');
+    } else if (end[0] <= start[0]) throw new Error('終了は開始より後にしてください。');
   }
   return { title, location, notes, startDate: value.startDate, endDate: value.endDate, allDay: value.allDay, startMinute: value.startMinute,
     endMinute: value.endMinute, timeZone: value.timeZone, recurrence: value.recurrence, untilDate: value.untilDate, categoryId: value.categoryId, birthday: value.birthday,

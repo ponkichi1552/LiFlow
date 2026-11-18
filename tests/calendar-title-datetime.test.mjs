@@ -16,6 +16,8 @@ test('calendar title date grammar resolves Japanese relative dates from Monday w
     ['明日11時半', { date: '2026-11-16', minute: 690, allDay: false }], ['明後日は終日休み', { date: '2026-11-17', allDay: true }],
     ['2027年1月3日 9時', { date: '2027-01-03', minute: 540, allDay: false }], ['2027/1/3 09:05', { date: '2027-01-03', minute: 545, allDay: false }],
     ['明日23時から1時', { date: '2026-11-16', minute: 1380, endMinute: 60, endDayOffset: 1, allDay: false }],
+    ['午後2時から4時', { minute: 840, endMinute: 960, endDayOffset: 0, allDay: false }],
+    ['午後11時から1時', { minute: 1380, endMinute: 60, endDayOffset: 1, allDay: false }],
     ['18:00〜20:30に食事', { minute: 1080, endMinute: 1230, endDayOffset: 0, allDay: false }],
     ['24時に集合', { date: '2026-11-21', minute: 0, allDay: false }],
     ['18〜20時に食事', { minute: 1080, endMinute: 1200, endDayOffset: 0, allDay: false }],
@@ -33,6 +35,7 @@ test('calendar title date grammar handles month ends leap years and civil year b
 
 test('calendar title date grammar refuses conflicting invalid vague and duration-only input', () => {
   for (const title of ['友達と食事', '来週火鍋を食べる2時間', '11時間の作業', '11時台に集合', '11時前に集合', '11時以降に集合',
+    '11:00以降に集合', '明日の10時以外は空き', '明日香さん',
     '明日か明後日11時', '2月30日11時', '2026年2月29日', '来月32日', '25時に集合', '11:99', '午後18時',
     '11時に集合して18時に解散', '終日11時から', '18時から18時', '来月上旬に点検', 'https://example.com/11:00'])
     assert.equal(parseTitleDateTime(title, today, selected), null, title);
