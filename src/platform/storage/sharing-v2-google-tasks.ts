@@ -332,7 +332,17 @@ export function createV2GoogleTaskStore(input: { repository: Repository; userId:
         await transaction.runAsync('UPDATE sharing_v2_private_google_control SET state_json=? WHERE singleton=1 AND revision=?', JSON.stringify(state), expectedRevision); await check(transaction);
       });
     },
-    hasPendingLocalChanges: () => repository.readCurrent(async (state, transaction) => (await stageRows(state, transaction)).rows.some(row => Boolean(row.link.pendingStatus))),
+    hasPendingLocalChanges: () => repository.readCurrent(async (state, transaction) => {
+      const { rows, projected } = await stageRows(state, transaction);
+      if (rows.some(row => row.link.pendingStatus)) return true;
+      const linked = new Set(rows.map(row => row.link.scheduleEntryId));
+      const through = projected.plans[0].range.through;
+      for (const [entryId, item] of projected.items) {
+        // Completed history can intentionally remain without a Google task.
+        if (!item.synchronizationBlocked && !item.completedAt && item.entry.suggestedDate <= through && !linked.has(entryId)) return true;
+      }
+      return false;
+    }),
   };
 }
 export type V2GoogleTaskStore = ReturnType<typeof createV2GoogleTaskStore>;

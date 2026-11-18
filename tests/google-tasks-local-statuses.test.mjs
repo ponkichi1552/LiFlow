@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { googleFixture } from './helpers/sharing-v2-google.mjs';
 import { now } from './helpers/sharing-v2-repository-fixture.mjs';
+import { chorePolicyFromPreset } from '../src/features/sharing/v2/model.ts';
 const { createV2GoogleTaskRuntime } = await import('../src/features/sharing/v2/google-tasks-runtime.ts');
 const { withGoogleSyncOperation } = await import('../src/features/google-sync/operation-lock.ts');
 const { reconcileLocalGoogleTaskStatuses } = await import('../src/features/google-sync/reconcile-google-tasks.ts');
@@ -15,6 +16,38 @@ function runtimeFor(h, extra = {}) {
     authorizeTasks: async () => { throw new Error('No consent during automatic sync'); },
     verifyTaskListForLocalChanges: async state => state.taskListId === 'v2-private-list', createApi: () => h.api, ...extra });
 }
+
+test('a new shared chore in the sync window wakes Tasks once without waking for disabled or distant chores', async () => {
+  const h = await googleFixture();
+  const runtime = runtimeFor(h);
+  try {
+    await h.connect();
+    assert.equal((await runtime.synchronize({ force: true })).kind, 'success');
+    const initialCount = h.tasks.size;
+    let reads = 0;
+    const listTasks = h.api.listTasks;
+    h.api.listTasks = async (...args) => { reads++; return listTasks(...args); };
+    const policy = chorePolicyFromPreset('common');
+    await h.actions.addChore('無効の家事');
+    await h.actions.addConfiguredChore('期間外の家事', 7, policy, { startDate: '2026-11-20' });
+    assert.equal(await runtime.hasPendingWork(), false);
+    assert.equal((await runtime.synchronize({ localChange: true })).skipReason, 'notDue');
+    assert.equal(reads, 0);
+
+    await h.actions.addConfiguredChore('新しい共有家事', 7, policy, { startDate: '2026-10-27' });
+    assert.equal(await runtime.hasPendingWork(), true);
+    const synced = await runtime.synchronize({ localChange: true });
+    assert.equal(synced.kind, 'success');
+    assert.ok(synced.created > 0);
+    const created = [...h.tasks.values()].filter(task => task.title === '新しい共有家事');
+    assert.equal(created.length, synced.created);
+    assert.equal(new Set(created.map(task => task.due)).size, created.length);
+    assert.equal(h.tasks.size, initialCount + created.length);
+    assert.equal(await runtime.hasPendingWork(), false);
+    assert.equal((await runtime.synchronize({ localChange: true })).skipReason, 'notDue');
+    assert.equal(reads, 1);
+  } finally { await withGoogleSyncOperation(async () => {}); h.close(); }
+});
 
 test('an existing shared completion and Undo fit the worker without re-reading Google list metadata or remote pages', async () => {
   const h = await googleFixture(); const runtime = runtimeFor(h); let reads = 0;

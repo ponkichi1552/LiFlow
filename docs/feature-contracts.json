@@ -12797,6 +12797,10 @@
     "tests": [
       {
         "file": "tests/google-tasks-local-statuses.test.mjs",
+        "name": "a new shared chore in the sync window wakes Tasks once without waking for disabled or distant chores"
+      },
+      {
+        "file": "tests/google-tasks-local-statuses.test.mjs",
         "name": "an existing shared completion and Undo fit the worker without re-reading Google list metadata or remote pages"
       },
       {
