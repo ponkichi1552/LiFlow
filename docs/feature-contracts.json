@@ -1000,6 +1000,18 @@
         "name": "calendar reconciliation cancels its stale notices after off or deletion while preserving housework and respecting native capacity"
       },
       {
+        "file": "tests/calendar-notification-navigation.test.mjs",
+        "name": "${platform} a reminder opens its date and time regardless of foreground event order after a minute away"
+      },
+      {
+        "file": "tests/calendar-notification-navigation.test.mjs",
+        "name": "${platform} reminders recenter an already visible date without waiting for another layout"
+      },
+      {
+        "file": "tests/calendar-notification-navigation.test.mjs",
+        "name": "${platform} incomplete or cancelled reminder deliveries retry and apply a completed jump only once"
+      },
+      {
         "file": "tests/calendar-everyday-usability.test.mjs",
         "name": "pending personal chore date change retains the exact round cadence history and clock and rejects stale writes with retry safety"
       },

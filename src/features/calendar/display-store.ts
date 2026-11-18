@@ -9,6 +9,7 @@ export function createCalendarDisplayStore(now: () => number = Date.now) {
   let state: { view: CalendarView; detail: CalendarDetailView; error: string | null } = { view: 'month', detail: 'day', error: null };
   let leftAt: number | null = null; let timer: ReturnType<typeof setTimeout> | undefined;
   const listeners = new Set<() => void>();
+  const cancelAwayReset = () => { leftAt = null; clearTimeout(timer); timer = undefined; };
   const store = {
     getSnapshot: () => state,
     subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
@@ -18,6 +19,12 @@ export function createCalendarDisplayStore(now: () => number = Date.now) {
       if (state.view === view && state.detail === detail && !state.error) return;
       state = { view, detail, error: null }; for (const listener of listeners) try { listener(); } catch { /* A closed screen cannot block other observers. */ }
     },
+    openDetail(view: CalendarDetailView) {
+      if (!details.includes(view)) return;
+      // A notification can open the calendar before AppState reports foregrounding.
+      cancelAwayReset();
+      store.select(view);
+    },
     leave() {
       if (leftAt !== null) return;
       leftAt = now(); clearTimeout(timer);
@@ -25,7 +32,7 @@ export function createCalendarDisplayStore(now: () => number = Date.now) {
     },
     enter() {
       if (leftAt !== null && now() - leftAt >= CALENDAR_IDLE_RESET_MS) store.select('month');
-      leftAt = null; clearTimeout(timer); timer = undefined;
+      cancelAwayReset();
     },
     dispose() { clearTimeout(timer); listeners.clear(); },
   };

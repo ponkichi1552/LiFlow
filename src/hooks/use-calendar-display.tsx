@@ -17,5 +17,5 @@ export function useCalendarDisplay() {
     });
     return () => subscription.remove();
   }, [binding]);
-  return { ...useSyncExternalStore(binding.subscribe, binding.getSnapshot, binding.getSnapshot), select: binding.select };
+  return { ...useSyncExternalStore(binding.subscribe, binding.getSnapshot, binding.getSnapshot), select: binding.select, openDetail: binding.openDetail };
 }

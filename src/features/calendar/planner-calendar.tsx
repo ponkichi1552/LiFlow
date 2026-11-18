@@ -226,26 +226,33 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     yearScroll.current(yearTarget.current);
     yearTarget.current = null;
   };
-  const navigateMonth = (next: LocalDate, day = preferred.current, destination: CalendarView = 'month') => {
+  const navigateMonth = (next: LocalDate, day = preferred.current, destination: CalendarView = 'month', applyView = setView) => {
     searchPosition.current = null;
     monthDragged.current = false; setBrowsingMonth(false); monthPositioned.current = '';
     const chosen = dateInMonth(next, day); setTarget(chosen); setMonth(calendarMonth(next)); setYear(Number(next.slice(0, 4)));
-    setAnchor(weekStart(chosen)); setBounds({ from: -260, through: 260 }); setDate(chosen); positioned.current = ''; timelineTop.current = null; props.onSelectDate?.(chosen); setView(destination);
+    setAnchor(weekStart(chosen)); setBounds({ from: -260, through: 260 }); setDate(chosen); positioned.current = ''; timelineTop.current = null; props.onSelectDate?.(chosen); applyView(destination);
     if (destination === 'year') { yearTarget.current = next.slice(0, 7); positionYear(); }
   };
   const chooseDate = (next: LocalDate) => { searchPosition.current = null; setDate(next); preferred.current = Number(next.slice(-2)); setMonth(calendarMonth(next)); props.onSelectDate?.(next); };
   const notificationJump = useRef<string | null>(null);
   useEffect(() => {
-    if (!routeParams.calendarJump || notificationJump.current === routeParams.calendarJump || !routeParams.calendarDate) return;
-    try { parseLocalDate(routeParams.calendarDate as LocalDate); } catch { return; }
-    notificationJump.current = routeParams.calendarJump;
-    const day = routeParams.calendarDate as LocalDate;
-    const minute = routeParams.calendarMinute === '' ? null : Number(routeParams.calendarMinute);
+    const { calendarJump: jump, calendarDate, calendarMinute } = routeParams;
+    if (typeof jump !== 'string' || !jump || notificationJump.current === jump || typeof calendarDate !== 'string' || typeof calendarMinute !== 'string') return;
+    const day = calendarDate as LocalDate;
+    try { parseLocalDate(day); } catch { return; }
+    const minute = calendarMinute === '' ? null : Number(calendarMinute);
     if (minute !== null && (!Number.isInteger(minute) || minute < 0 || minute >= 1440)) return;
     const delivery = setTimeout(() => {
-    navigateMonth(calendarMonth(day), Number(day.slice(-2)), display.detail);
-    searchPosition.current = display.detail === 'list' ? null : { date: day, minute };
-    clearTimeout(todayTimer.current); todayTimer.current = setTimeout(() => recenter.current(), 0);
+      const detail = display.detail;
+      const openDetail = () => display.openDetail(detail);
+      if (date === day && view === detail) {
+        // The same timeline may stay mounted and never publish another layout.
+        positioned.current = '';
+        openDetail();
+      } else navigateMonth(calendarMonth(day), Number(day.slice(-2)), detail, openDetail);
+      searchPosition.current = detail === 'list' ? null : { date: day, minute };
+      clearTimeout(todayTimer.current); todayTimer.current = setTimeout(() => recenter.current(), 0);
+      notificationJump.current = jump;
     }, 0);
     return () => clearTimeout(delivery);
   // A delivery is consumed once; repainting its destination must not navigate again.
