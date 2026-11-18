@@ -2,8 +2,11 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { googleFixture } from './helpers/sharing-v2-google.mjs';
+import { memoryTaskClaims } from './helpers/shared-task-claims.mjs';
 import { now } from './helpers/sharing-v2-repository-fixture.mjs';
 import { chorePolicyFromPreset } from '../src/features/sharing/v2/model.ts';
+import { sharedTaskCreateJournal } from '../src/features/google-sync/shared-task-create-journal.ts';
+import { sharedGoogleOccurrenceNote } from '../src/features/google-sync/workspace-policy.ts';
 const { createV2GoogleTaskRuntime } = await import('../src/features/sharing/v2/google-tasks-runtime.ts');
 const { withGoogleSyncOperation } = await import('../src/features/google-sync/operation-lock.ts');
 const { reconcileLocalGoogleTaskStatuses } = await import('../src/features/google-sync/reconcile-google-tasks.ts');
@@ -46,6 +49,56 @@ test('a new shared chore in the sync window wakes Tasks once without waking for 
     assert.equal(await runtime.hasPendingWork(), false);
     assert.equal((await runtime.synchronize({ localChange: true })).skipReason, 'notDue');
     assert.equal(reads, 1);
+  } finally { await withGoogleSyncOperation(async () => {}); h.close(); }
+});
+
+for (const [name, peerPublished] of [
+  ['an automatic shared Tasks claim conflict rereads one delta when the peer has published', true],
+  ['an automatic shared Tasks claim conflict rereads one delta when the peer is still pending', false],
+]) test(name, async () => {
+  const h = await googleFixture();
+  const { cloud } = memoryTaskClaims(h.namespace);
+  const runtime = runtimeFor(h, { wrapCreateJournal: (journal, context) => sharedTaskCreateJournal(journal, cloud, context) });
+  const stopAt = now().toISOString();
+  const listId = 'v2-private-list';
+  try {
+    h.api.listTaskPage = async () => ({ items: structuredClone([...h.tasks.values()]), serverDate: stopAt });
+    await h.connect();
+    assert.equal((await runtime.synchronize({ force: true })).kind, 'success');
+    assert.equal((await runtime.synchronize({ force: true })).kind, 'success');
+    const before = h.tasks.size;
+    const title = '別端末と同期する家事';
+    await h.actions.addConfiguredChore(title, 7, chorePolicyFromPreset('common'), { startDate: '2026-11-10' });
+    const items = (await h.entries()).filter(item => item.choreName === title);
+    assert.equal(items.length, 1);
+    const { entry } = items[0];
+    const identity = { accountSubject: 'synthetic-google-subject', taskListId: listId, occurrenceMarker: sharedGoogleOccurrenceNote(h.namespace, entry.id) };
+    const intent = { ...identity, attemptId: 'peer-attempt', startedAt: stopAt };
+    assert.deepEqual(await cloud.reserveBatch([intent]), [true]);
+    const reads = [];
+    let listReads = 0;
+    const readLists = h.api.listTaskLists;
+    h.api.listTaskLists = async (...args) => { listReads++; return readLists(...args); };
+    h.api.listTaskPage = async (_token, _list, query) => {
+      reads.push(query.updatedMin);
+      const existing = structuredClone([...h.tasks.values()]);
+      if (reads.length === 1 && peerPublished) {
+        h.tasks.set('peer-task', { id: 'peer-task', title, notes: identity.occurrenceMarker, due: `${entry.suggestedDate}T00:00:00.000Z`, status: 'needsAction' });
+        await cloud.linked(identity, 'peer-task', intent.attemptId);
+      }
+      return { items: existing, serverDate: stopAt };
+    };
+
+    const result = await runtime.synchronize({ localChange: true });
+    assert.equal(result.kind, peerPublished ? 'success' : 'retry');
+    assert.equal(reads.length, 2);
+    assert.ok(reads.every(value => typeof value === 'string' && value.length > 0), 'The extra read must remain a delta');
+    assert.equal(listReads, 1);
+    assert.equal(h.tasks.size, before + Number(peerPublished));
+    assert.equal((await h.links()).find(link => link.scheduleEntryId === entry.id)?.googleTaskId, peerPublished ? 'peer-task' : undefined);
+    if (!peerPublished) assert.equal(result.code, 'task_create_result_pending');
+    assert.equal((await runtime.synchronize({ localChange: true })).skipped, true);
+    assert.equal(reads.length, 2);
   } finally { await withGoogleSyncOperation(async () => {}); h.close(); }
 });
 

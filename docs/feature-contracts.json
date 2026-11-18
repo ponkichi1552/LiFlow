@@ -12801,6 +12801,14 @@
       },
       {
         "file": "tests/google-tasks-local-statuses.test.mjs",
+        "name": "an automatic shared Tasks claim conflict rereads one delta when the peer has published"
+      },
+      {
+        "file": "tests/google-tasks-local-statuses.test.mjs",
+        "name": "an automatic shared Tasks claim conflict rereads one delta when the peer is still pending"
+      },
+      {
+        "file": "tests/google-tasks-local-statuses.test.mjs",
         "name": "an existing shared completion and Undo fit the worker without re-reading Google list metadata or remote pages"
       },
       {

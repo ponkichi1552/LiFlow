@@ -81,11 +81,14 @@ export function createV2GoogleTaskRuntime(input: { store: V2GoogleTaskStore; ass
     const totals: Partial<Record<(typeof countKeys)[number], number>> = {};
     let performed = false; let onlyLocalStatuses = true;
     let forceNext = force;
+    const canReadCreationDelta = Boolean(port.taskReadCache && port.verifyTaskListForLocalChanges && api.listTaskPage);
+    let creationDeltaUsed = false; let creationDeltaNext = false;
     try {
       for (let pass = 0; pass < 3; pass++) {
         requested = false; const nextForce = forceNext || forceRequested; forceNext = false; forceRequested = false;
+        const passDeltaOnly = deltaOnly || creationDeltaNext; creationDeltaNext = false;
         if (running?.budget === budget) running.force = nextForce;
-        result = await syncGoogleTasksWithDependencies(dependencies, { now: now(), force: nextForce, forceCalendar: false, recoverInterruptedAttempt: true, deltaOnly });
+        result = await syncGoogleTasksWithDependencies(dependencies, { now: now(), force: nextForce, forceCalendar: false, recoverInterruptedAttempt: true, deltaOnly: passDeltaOnly });
         if (result.kind === 'success') {
           if (!result.skipped) {
             performed = true; onlyLocalStatuses &&= result.localStatusesOnly === true;
@@ -106,7 +109,14 @@ export function createV2GoogleTaskRuntime(input: { store: V2GoogleTaskStore; ass
           // operation and deadline. Its persisted retry protects exhausted work.
           forceNext = true; budget.assert(); continue;
         }
-        if (deltaOnly && result.kind === 'success' && result.foregroundRequired) return result;
+        if (result.kind === 'retry' && result.code === 'task_create_result_pending' && !nextForce
+          && canReadCreationDelta && !creationDeltaUsed && pass < 2) {
+          // The first inventory can finish before the winning device publishes.
+          // Read its delta once under the same deadline and canonical-list fence.
+          creationDeltaUsed = true; creationDeltaNext = true; forceNext = true;
+          budget.assert(); continue;
+        }
+        if (passDeltaOnly && result.kind === 'success' && result.foregroundRequired) return result;
         if (!requested || result.kind !== 'success') return result;
         budget.assert();
       }
