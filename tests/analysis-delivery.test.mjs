@@ -9,7 +9,6 @@ import { createApplianceCareHttpServer } from '../server/appliance-care-api/src/
 import { analysisDeliveryJson } from '../server/appliance-care-api/src/analysis-delivery-contract.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { loadNativeModule } from './helpers/native-module.mjs';
-import * as manuals from '../src/platform/storage/appliance-manual-storage.ts';
 import * as manualDocument from '../src/features/appliance-care/manual-document.ts';
 import { syntheticManual } from './helpers/synthetic-pdf.mjs';
 
@@ -72,10 +71,15 @@ test('device analysis inbox commits the PDF and result atomically before acknowl
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const f = createDatabase();
   f.connection.exec('CREATE TABLE appliance_manual_documents(sha256 TEXT PRIMARY KEY,byte_length INTEGER,content_base64 TEXT)');
+  let manualChecks = 0;
+  const manualVerifier = { ...manualDocument, verifyManualContent(...args) { manualChecks++; return manualDocument.verifyManualContent(...args); } };
+  const manualStorage = loadNativeModule('src/platform/storage/appliance-manual-storage.ts', {
+    '../../features/appliance-care/manual-document.ts': manualVerifier,
+  });
   const { deviceAnalysisDeliveries } = loadNativeModule('src/platform/storage/analysis-deliveries.ts', {
     './repository.ts': { withPlannerDatabaseOperation: (_database, work) => work() },
     './isolated-transaction.ts': { withIsolatedSqliteTransaction: async (database, work) => { let value; await database.withTransactionAsync(async () => { value = await work(database); }); return value; } },
-    './appliance-manual-storage.ts': manuals, '../../features/appliance-care/manual-document.ts': manualDocument,
+    './appliance-manual-storage.ts': manualStorage, '../../features/appliance-care/manual-document.ts': manualVerifier,
   });
   const store = deviceAnalysisDeliveries(f.database); const saved = { jobId: 'a'.repeat(64), baseUrl: 'https://synthetic.invalid',
     receipt: { token: 'b'.repeat(64), digest: 'c'.repeat(64), expiresAt: Date.now() + 100000 } };
@@ -87,11 +91,13 @@ test('device analysis inbox commits the PDF and result atomically before acknowl
   assert.equal(await store.admission('a', 'request', 'retry-attempt'), 'first-attempt');
   f.connection.exec("CREATE TRIGGER synthetic_save_failure BEFORE INSERT ON appliance_analysis_deliveries BEGIN SELECT RAISE(ABORT,'synthetic full disk'); END");
   await assert.rejects(store.save('a', 'request', saved, output, syntheticManual()), /synthetic full disk/);
+  assert.equal(manualChecks, 1, 'the inbox validates the PDF once per save attempt');
   assert.equal(changes, 0, 'a failed save cannot wake receipt delivery');
   assert.deepEqual(await store.pending('a'), []);
   assert.equal(f.connection.prepare('SELECT count(*) AS n FROM appliance_manual_documents').get().n, 0, 'no partial PDF transaction');
   f.connection.exec('DROP TRIGGER synthetic_save_failure');
   await store.save('a', 'request', saved, output, syntheticManual());
+  assert.equal(manualChecks, 2);
   assert.equal(changes, 1); assert.equal(await store.hasPending(), true);
   assert.deepEqual(await deviceAnalysisDeliveries(f.database).pending('a'), [saved]);
   assert.deepEqual(await store.read('a', 'request'), output); assert.equal(await store.read('b', 'request'), null);

@@ -89,16 +89,27 @@ function* placementWindowCandidates(baseDate: LocalDate, radius: number): Genera
   const width = radius * 2 + 1; const extra = radius ? Math.floor(width * 1.5) - width : 0;
   const movement = Math.floor(width * 1.2); const centers = [0];
   for (let step = 1; step <= movement; step++) centers.push(-step, step);
+  const dates = new Map<number, LocalDate>([[0, baseDate]]);
+  const dateAt = (offset: number) => {
+    const cached = dates.get(offset);
+    if (cached !== undefined) return cached;
+    const date = addDays(baseDate, offset);
+    dates.set(offset, date);
+    return date;
+  };
   const seen = new Set<string>();
   for (const movement of centers) {
-    const base = addDays(baseDate, movement);
+    const base = dateAt(movement);
+    // Keep the date-range check that used to happen when shifting each center.
+    parseLocalDate(base);
     for (let amount = 0; amount <= extra; amount++) {
       const sides = new Set<number>();
       for (let offset = 0; sides.size < amount + 1; offset++) {
         for (const before of [Math.ceil(amount / 2) + offset, Math.floor(amount / 2) - offset]) if (before >= 0 && before <= amount) sides.add(before);
       }
       for (const before of sides) {
-        const from = addDays(base, -radius - before); const through = addDays(base, radius + amount - before);
+        const from = dateAt(movement - radius - before);
+        const through = dateAt(movement + radius + amount - before);
         const key = `${from}/${through}`; if (seen.has(key)) continue;
         seen.add(key); yield { base, from, through };
       }

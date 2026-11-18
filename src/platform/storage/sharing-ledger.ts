@@ -22,7 +22,7 @@ export interface SharedLocalAuthor {
 }
 export interface SharedLedgerEvidence {
   record: (transaction: SQLiteDatabase) => Promise<boolean>;
-  acknowledge?: (transaction: SQLiteDatabase, operation: SharedOperation) => Promise<boolean>;
+  acknowledge?: (operation: SharedOperation, authorSignature: string | null) => boolean;
 }
 const tails = new WeakMap<SQLiteDatabase, Promise<unknown>>();
 
@@ -120,15 +120,25 @@ export function createSharedReplicaReader() {
   };
 }
 
-async function insertOperation(db: SQLiteDatabase, op: SharedOperation, signature?: string): Promise<boolean> {
+type StoredOperation = { operation_json: string; author_signature: string | null };
+
+function assertAuthorProof(signature?: string) {
   if (signature !== undefined && !/^[a-f0-9]{128}$/u.test(signature)) throw new Error('Invalid stored author proof');
-  const existing = await db.getFirstAsync<{ operation_json: string; author_signature: string | null }>(
+}
+
+function assertSameOperation(existing: StoredOperation, encoded: string, signature?: string) {
+  if (existing.operation_json !== encoded) throw new Error('Operation ID reused with different content');
+  if (signature && existing.author_signature && existing.author_signature !== signature) throw new Error('Original author proof cannot change');
+}
+
+async function insertOperation(db: SQLiteDatabase, op: SharedOperation, signature?: string): Promise<boolean> {
+  assertAuthorProof(signature);
+  const existing = await db.getFirstAsync<StoredOperation>(
     'SELECT operation_json, author_signature FROM sharing_operations WHERE operation_id = ?', op.operationId,
   );
   const encoded = canonicalJson(op);
   if (existing) {
-    if (existing.operation_json !== encoded) throw new Error('Operation ID reused with different content');
-    if (signature && existing.author_signature && existing.author_signature !== signature) throw new Error('Original author proof cannot change');
+    assertSameOperation(existing, encoded, signature);
     if (signature && !existing.author_signature) await db.runAsync('UPDATE sharing_operations SET author_signature = ? WHERE operation_id = ?', signature, op.operationId);
     return false;
   }
@@ -223,6 +233,66 @@ export function createLocalSharedOperations(
   });
 }
 
+async function persistReceivedOperations(
+  db: SQLiteDatabase, groupId: string, operations: readonly SharedOperation[], base: VerifiedSharedSnapshot['base'] | undefined,
+  proofs: ReadonlyMap<string, string> | undefined, acknowledge: SharedLedgerEvidence['acknowledge'],
+): Promise<boolean> {
+  if (!operations.length) return false;
+  const ids = [...new Set(operations.map(op => op.operationId))];
+  const placeholders = (values: readonly string[]) => values.map(() => '?').join(',');
+  const existing = new Map<string, StoredOperation>((await db.getAllAsync<StoredOperation & { operation_id: string }>(
+    `SELECT operation_id, operation_json, author_signature FROM sharing_operations WHERE operation_id IN (${placeholders(ids)})`, ...ids,
+  )).map(row => [row.operation_id, row] as const));
+  const writes = new Map<string, { op: SharedOperation; encoded: string; signature: string | null }>();
+  const acknowledged = new Set<string>();
+  const compacted = new Set<string>();
+  let inserted = false;
+  for (const op of operations) {
+    const id = op.operationId;
+    const stored = existing.get(id);
+    if (op.deviceSequence <= (base?.frontier[op.authorDeviceId] ?? 0)) {
+      // Validate old ID/dot receipts without resurrecting compacted edits.
+      buildSharedReplica(groupId, [op], base);
+      if (proofs?.has(id) && acknowledge?.(op, stored?.author_signature ?? null)) {
+        acknowledged.add(id);
+        compacted.add(id);
+        existing.delete(id);
+        writes.delete(id);
+      }
+      continue;
+    }
+    const signature = proofs?.get(id);
+    assertAuthorProof(signature);
+    const encoded = canonicalJson(op);
+    if (stored) assertSameOperation(stored, encoded, signature);
+    else inserted = true;
+    const authorSignature = signature ?? stored?.author_signature ?? null;
+    if (!stored || signature && !stored.author_signature) {
+      writes.set(id, { op, encoded, signature: authorSignature });
+      existing.set(id, { operation_json: encoded, author_signature: authorSignature });
+    }
+    if (proofs?.has(id) && (!acknowledge || acknowledge(op, authorSignature))) acknowledged.add(id);
+  }
+  if (acknowledged.size) {
+    const batch = [...acknowledged];
+    await db.runAsync(`DELETE FROM sharing_outbox WHERE operation_id IN (${placeholders(batch)})`, ...batch);
+  }
+  if (compacted.size) {
+    const batch = [...compacted];
+    await db.runAsync(`DELETE FROM sharing_operations WHERE operation_id IN (${placeholders(batch)})`, ...batch);
+  }
+  if (writes.size) {
+    // At most 700 bound parameters, including on SQLite builds with the older 999 limit.
+    const batch = [...writes.values()];
+    await db.runAsync(`INSERT INTO sharing_operations
+      (operation_id, group_id, author_device_id, device_sequence, logical_clock, operation_json, author_signature)
+      VALUES ${batch.map(() => '(?,?,?,?,?,?,?)').join(',')}
+      ON CONFLICT(operation_id) DO UPDATE SET author_signature=excluded.author_signature`,
+    ...batch.flatMap(({ op, encoded, signature }) => [op.operationId, op.groupId, op.authorDeviceId, op.deviceSequence, op.logicalClock, encoded, signature]));
+  }
+  return inserted;
+}
+
 /** Call only after every envelope has authenticated and passed membership validation. Cursor commits last. */
 export function applyReceivedSharedOperations(
   db: SQLiteDatabase, groupId: string, input: readonly SharedOperation[], cursor: string,
@@ -239,23 +309,11 @@ export function applyReceivedSharedOperations(
         const old = await db.getFirstAsync<{ cursor: string }>('SELECT cursor FROM sharing_cursors WHERE group_id = ?', groupId);
         if ((old?.cursor ?? null) !== expectedCursor) throw new Error('Shared receive position changed concurrently');
       }
-      let changed = await evidence?.record(db) ?? false;
+      const evidenceChanged = await evidence?.record(db) ?? false;
       const base = (await loadSnapshotInside(db, groupId))?.base;
-      for (const op of operations) {
-        if (op.deviceSequence <= (base?.frontier[op.authorDeviceId] ?? 0)) {
-          // Validates old ID/dot receipts, but never resurrects a compacted edit.
-          buildSharedReplica(groupId, [op], base);
-          if (proofs?.has(op.operationId) && evidence?.acknowledge && await evidence.acknowledge(db, op)) {
-            await db.runAsync('DELETE FROM sharing_outbox WHERE operation_id=?', op.operationId);
-            await db.runAsync('DELETE FROM sharing_operations WHERE operation_id=?', op.operationId);
-          }
-          continue;
-        }
-        changed = (await insertOperation(db, op, proofs?.get(op.operationId))) || changed;
-        if (proofs?.has(op.operationId) && (!evidence?.acknowledge || await evidence.acknowledge(db, op))) await db.runAsync('DELETE FROM sharing_outbox WHERE operation_id = ?', op.operationId);
-      }
+      const inserted = await persistReceivedOperations(db, groupId, operations, base, proofs, evidence?.acknowledge);
       result = await loadReplicaInside(db, groupId);
-      if (changed) await apply(db, result);
+      if (inserted || evidenceChanged) await apply(db, result);
       await db.runAsync(`INSERT INTO sharing_cursors (group_id, cursor, last_successful_sync_at) VALUES (?, ?, ?)
         ON CONFLICT(group_id) DO UPDATE SET cursor=excluded.cursor, last_successful_sync_at=excluded.last_successful_sync_at`,
       groupId, cursor, now);
@@ -400,10 +458,10 @@ export function applySharingSnapshot(db: SQLiteDatabase, groupId: string, snapsh
       await evidence?.record(db);
       for (const [device, sequence] of Object.entries(snapshot.base.frontier)) {
         if (evidence?.acknowledge) {
-          const rows = await db.getAllAsync<{ operation_json: string }>('SELECT operation_json FROM sharing_operations WHERE group_id=? AND author_device_id=? AND device_sequence<=?', groupId, device, sequence);
+          const rows = await db.getAllAsync<StoredOperation>('SELECT operation_json, author_signature FROM sharing_operations WHERE group_id=? AND author_device_id=? AND device_sequence<=?', groupId, device, sequence);
           for (const row of rows) {
             const operation = validateSharedOperation(JSON.parse(row.operation_json), groupId);
-            if (!(retention && operation.deviceSequence <= (retention.frontier[operation.authorDeviceId] ?? 0)) && !await evidence.acknowledge(db, operation)) continue;
+            if (!(retention && operation.deviceSequence <= (retention.frontier[operation.authorDeviceId] ?? 0)) && !evidence.acknowledge(operation, row.author_signature)) continue;
             await db.runAsync('DELETE FROM sharing_outbox WHERE operation_id=?', operation.operationId);
             await db.runAsync('DELETE FROM sharing_operations WHERE operation_id=?', operation.operationId);
           }

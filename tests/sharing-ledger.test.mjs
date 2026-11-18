@@ -45,6 +45,32 @@ test('authenticated echoes acknowledge a lost upload response while retaining th
   } finally { h.connection.close(); }
 });
 
+test('a full shared receive page batches writes and preserves every proof on replay', async () => {
+  const h = await fixture();
+  try {
+    const identity = await createDeviceIdentity(crypto);
+    const facts = Array.from({ length: 100 }, (_, i) => {
+      const op = operation(i + 1);
+      return signSharedOperation({ ...op, authorDeviceId: identity.deviceId, context: i ? { [identity.deviceId]: i } : {} }, identity);
+    });
+    let calls = 0;
+    for (const name of ['getAllAsync', 'getFirstAsync', 'runAsync']) {
+      const run = h.database[name];
+      h.database[name] = (...args) => { calls++; return run(...args); };
+    }
+    let projections = 0;
+    const project = async () => { projections++; };
+    await ledger.applyReceivedSharedFacts(h.database, 'group-test', facts, '100', project, null);
+    assert.ok(calls < 20, `SQLite calls for 100 facts: ${calls}`);
+    calls = 0;
+    await ledger.applyReceivedSharedFacts(h.database, 'group-test', [...facts].reverse(), '100', project, '100');
+    assert.ok(calls < 20, `SQLite calls for a replay: ${calls}`);
+    assert.equal(projections, 1);
+    assert.deepEqual((await ledger.loadSharedFacts(h.database, 'group-test')).sort((a, b) => a.operation.deviceSequence - b.operation.deviceSequence), facts);
+    assert.equal((await ledger.readSharingCheckpoint(h.database, 'group-test')).pendingCount, 0);
+  } finally { h.connection.close(); }
+});
+
 test('applying an authenticated snapshot atomically preserves unpublished edits, proof history and the next device sequence', async () => {
   const h = await fixture(); const identity = await createDeviceIdentity(crypto); const key = await crypto.randomBytes(32);
   try {

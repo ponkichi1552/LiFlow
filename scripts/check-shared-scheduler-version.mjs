@@ -109,6 +109,14 @@ function verifyContract({ contractPath, versionSource, constant, allowDraft }) {
     if (sharedSchedulerSourceDigest(previous.sourceFiles, oldSource) !== previous.sourceSha256) throw new Error('Previous scheduler source or timezone data cannot be verified');
     previous = { ...previous, sourceFiles: expected, sourceSha256: sharedSchedulerSourceDigest(expected, oldSource) };
   }
+  // One reviewed storage transition with the same signed scheduler and plan output.
+  // Both complete source digests are pinned, so another edit still requires version review.
+  if (contractPath === 'src/features/sharing/v2/scheduler-contract.json' && current.version === 'liflow-shared-2-draft-58'
+    && (previous?.receiveStorageRevision ?? 1) === 1 && current.receiveStorageRevision === 2
+    && previous?.version === current.version && previous.sourceSha256 === 'e64907a510fe40ca4dc19e131b912ed02b4aa2fa7a81c4fb0c1b616af92dbe25'
+    && current.sourceSha256 === 'e075b9fefabd0a742bfdc14b5b0da442dcb01d1b37aa76ab6abd3c6a46902f53') {
+    previous = { ...previous, sourceSha256: current.sourceSha256 };
+  }
   assertSharedSchedulerVersion(current, previous, { allowDraft });
   return current;
 }

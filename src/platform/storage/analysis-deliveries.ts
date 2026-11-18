@@ -4,7 +4,6 @@ import type { AnalysisDeliveryStore, SavedAnalysisDelivery } from '../../feature
 import { storeApplianceManualInside } from './appliance-manual-storage.ts';
 import { withPlannerDatabaseOperation } from './repository.ts';
 import { withIsolatedSqliteTransaction } from './isolated-transaction.ts';
-import { verifyManualContent } from '../../features/appliance-care/manual-document.ts';
 
 const initialized = new WeakSet<SQLiteDatabase>();
 export interface DeviceAnalysisDeliveryStore extends AnalysisDeliveryStore {
@@ -50,8 +49,8 @@ export function deviceAnalysisDeliveries(database: SQLiteDatabase): DeviceAnalys
       return row ? JSON.parse(row.result_json) as ApplianceCareApiResponse : null;
     }),
     save: (owner, requestKey, delivery, result, manual) => operation(() => withIsolatedSqliteTransaction(database, async transaction => {
-      if (manual) await storeApplianceManualInside(transaction, manual.base64, verifyManualContent(manual.base64,
-        result.status === 'verified' ? result.analysis.manualSource?.sha256 : undefined).sha256);
+      if (manual) await storeApplianceManualInside(transaction, manual.base64,
+        result.status === 'verified' ? result.analysis.manualSource?.sha256 : undefined);
       await transaction.runAsync(`INSERT INTO appliance_analysis_deliveries(owner,job_id,request_key,base_url,receipt_json,result_json,saved_at)
         VALUES(?,?,?,?,?,?,?) ON CONFLICT(owner,job_id) DO UPDATE SET receipt_json=excluded.receipt_json,result_json=excluded.result_json`,
       owner, delivery.jobId, requestKey, delivery.baseUrl, JSON.stringify(delivery.receipt), JSON.stringify(result), Date.now());

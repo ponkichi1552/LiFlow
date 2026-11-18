@@ -362,11 +362,10 @@ export function createV2EventRepository(database: SQLiteDatabase, options: V2Sto
         const changed = await persistV2ServerReceiptsInside(transaction, options.groupId, receipts.filter(receipt => !retained
           || retained.has(receipt.operationId) || receipt.uploadSequence > Number((base!.retention!.proposal.operation.payload.checkpoint as { throughSequence: number }).throughSequence)));
         stored = await readV2ServerReceiptsInside(transaction, options.groupId); await assertCurrentAccess(); return changed;
-      }, acknowledge: async (transaction, operation) => {
+      }, acknowledge: (operation, authorSignature) => {
         if (operation.schemaVersion === 1) return true;
         const receipt = stored.get(operation.operationId); if (!receipt) return false;
-        const row = await transaction.getFirstAsync<{ author_signature: string | null }>('SELECT author_signature FROM sharing_operations WHERE operation_id=?', operation.operationId);
-        return Boolean(row?.author_signature && receipt.authorProofDigest === v2AuthorProofDigest({ operation, authorSignature: row.author_signature }));
+        return Boolean(authorSignature && receipt.authorProofDigest === v2AuthorProofDigest({ operation, authorSignature }));
       } };
     },
     commit,
