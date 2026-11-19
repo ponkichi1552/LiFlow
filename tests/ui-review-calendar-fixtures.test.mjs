@@ -91,6 +91,12 @@ test('the midnight overlap review can open each of the three continuing entries 
   const ui = make('overlap', { props: { scenario: 'overlap', onExit: () => { exits++; } } });
   t.after(() => ui.unmount());
   assert.equal(ui.button('2026年11月23日の家事を開く').props.accessibilityState.expanded, false);
+  assert.ok(ui.nodes().some(node => node.props.testID === 'calendar-duration-review-exhibition:2026-11-23'),
+    'a late conflict during the same long event does not force daytime labels into side-by-side cards');
+  assert.ok(!ui.nodes().some(node => node.props.testID === 'calendar-duration-review-reading:2026-11-23'),
+    'the standalone reading title uses one frame beside the ongoing rail');
+  ui.button('朝の連絡を編集');
+  ui.button('荷物の受け取りを編集');
   for (const name of ['夜行列車で移動', '前夜から翌々朝までのキャンプ当番', '洗濯乾燥機のフィルターを確認する']) {
     assert.ok(ui.button(`${name}を編集`));
     await ui.press(`${name}を編集`);

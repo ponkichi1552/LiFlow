@@ -39,8 +39,12 @@ for (const platform of ['ios', 'android']) test(`${platform} overlapping appoint
   const staggered = [[900, 975], [920, 965], [935, 990]].map(([startMinute, endMinute], index) =>
     event({ id: `staggered-${index}`, title: `午後の予定 ${index + 1}`, startMinute, endMinute }));
   parts.push(...staggered);
+  const tight = [1025, 1030].map((endMinute, index) =>
+    event({ id: `tight-${index}`, title: `短い連絡 ${index + 1}`, startMinute: 1020, endMinute }));
+  parts.push(...tight);
   parts.push(event({ id: 'five-minutes', title: '荷物を渡す', startMinute: 1080, endMinute: 1085 }),
-    event({ id: 'ten-minutes', title: '電話をかける', startMinute: 1140, endMinute: 1150 }));
+    event({ id: 'ten-minutes', title: '電話をかける', startMinute: 1140, endMinute: 1150 }),
+    event({ id: 'solo-long', title: '単独で読書する', startMinute: 1200, endMinute: 1260 }));
   const opened = [];
   const local = binding({ snapshot: { events: parts, exceptions: [], categories: [], drafts: [] },
     prepareDraft: draft => { opened.push(draft); return draft; } });
@@ -62,6 +66,7 @@ for (const platform of ['ios', 'android']) test(`${platform} overlapping appoint
     assert.ok(rails[0].height < rails[1].height && rails[1].height < rails[2].height);
     for (const [i, rail] of rails.entries()) {
       assert.equal(cards[i].left, rail.left + rail.width, 'each label sits directly against its own duration rail');
+      assert.ok(cards[i].top >= rail.top && cards[i].top + cards[i].height <= rail.top + rail.height + 1e-6);
     }
     assert.equal(cards[0].top, rails[0].top);
     assert.ok(cards.every((card, index) => !index || card.top >= cards[index - 1].top + cards[index - 1].height));
@@ -71,26 +76,85 @@ for (const platform of ['ios', 'android']) test(`${platform} overlapping appoint
     assert.ok(cards[0].height < cards[1].height);
     assert.equal(ui.button(`${names[0]}を編集`).props.accessibilityValue.text, '10:00〜10:25');
     const later = style(find(ui, `calendar-movable-later:${day}`));
-    assert.equal(later.top, style(find(ui, `calendar-duration-later:${day}`)).top);
+    assert.ok(later.borderLeftWidth > 0, 'a lone title beside an earlier rail uses a single background and edge');
+    assert.ok(later.left > rails[2].left + rails[2].width, 'another appointment’s rail stays visually separate');
     for (const entry of staggered) {
       const rail = style(find(ui, `calendar-duration-${entry.id}:${day}`));
       const label = style(find(ui, `calendar-movable-${entry.id}:${day}`));
-      assert.ok(label.top < rail.top + rail.height && rail.top < label.top + label.height,
-        'staggered labels still touch their duration rails when enough space is available');
+      assert.equal(label.left, rail.left + rail.width);
+      assert.ok(label.top >= rail.top && label.top + label.height <= rail.top + rail.height + 1e-6,
+        'the full title background sits beside its own duration rail');
     }
-    const five = style(find(ui, `calendar-duration-five-minutes:${day}`));
-    const ten = style(find(ui, `calendar-duration-ten-minutes:${day}`));
+    assert.equal(visibleText(find(ui, `calendar-movable-staggered-0:${day}`)).trim(), staggered[0].title,
+      'omit the leading clock when the next labels would detach');
+    const sameHeight = tight.map(row => style(find(ui, `calendar-movable-${row.id}:${day}`)));
+    assert.equal(sameHeight[0].top, sameHeight[1].top, 'unplaceable titles start together in separate lanes');
+    assert.notEqual(sameHeight[0].left, sameHeight[1].left);
+    const five = style(find(ui, `calendar-movable-five-minutes:${day}`));
+    const ten = style(find(ui, `calendar-movable-ten-minutes:${day}`));
+    const solo = style(find(ui, `calendar-movable-solo-long:${day}`));
     const displayedHour = ten.top - five.top;
+    assert.equal(later.top, 827 / 60 * displayedHour);
     assert.equal(five.top, displayedHour * 18, 'the minimum length does not change the start position');
     assert.ok(five.height > displayedHour * 5 / 60 && Math.abs(five.height - ten.height) < .0001,
       'very short appointments use the same visible minimum');
+    assert.equal(solo.height, displayedHour, 'the background of a single long appointment follows its duration');
+    assert.ok([...sameHeight, five, ten, solo].every(frame => frame.borderLeftWidth > 0 && frame.backgroundColor));
+    for (const id of [...tight.map(row => row.id), 'five-minutes', 'ten-minutes', 'solo-long']) {
+      assert.ok(!ui.nodes().some(node => node.props.testID === `calendar-duration-${id}:${day}`),
+        'one attached edge and its background share the same frame');
+    }
     assert.equal(ui.button('荷物を渡すを編集').props.accessibilityValue.text, '18:00〜18:05');
+    await ui.press('短い連絡 2を編集');
+    assert.equal(opened.at(-1).value.startMinute, 1020);
+    await ui.press('閉じる');
     for (const [index, name] of names.entries()) {
       await ui.press(`${name}を編集`);
       assert.equal(opened.at(-1).eventId, `overlap-${index}`);
       assert.equal(opened.at(-1).value.startMinute, 600);
       await ui.press('閉じる');
     }
+  }
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} time grids show the overnight continuation with a midnight scale and keep the real end editable`, async t => {
+  const next = addDays(day, 1);
+  const long = event({ id: 'night', title: '夜行列車', startMinute: 23 * 60, endDate: next, endMinute: 6 * 60 + 40 });
+  const short = event({ id: 'few-minutes-overnight', title: '洗濯', startDate: next, startMinute: 23 * 60 + 45, endDate: addDays(next, 1), endMinute: 5 });
+  const opened = [];
+  const local = binding({ snapshot: { events: [long, short], exceptions: [], categories: [], drafts: [] },
+    prepareDraft: draft => { opened.push(draft); return draft; } });
+  const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, layoutEffect: effect => effect(),
+    props: { today: day, timeZone: 'Asia/Tokyo', local, dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null } });
+  t.after(() => ui.unmount());
+  const style = node => Object.assign({}, ...[node.props.style].flat(Infinity).filter(Boolean));
+  for (const mode of ['1日表示', '2日表示', '3日表示', '7日表示']) {
+    await selectCalendarView(ui, mode);
+    const card = style(find(ui, `calendar-movable-night:${day}`));
+    const displayedHour = card.top / 23;
+    let midnight = displayedHour * 24;
+    if (mode !== '7日表示') {
+      const hour = find(ui, 'calendar-hour-24');
+      const rule = style(hour.children.find(node => node.type === 'View'));
+      assert.equal(rule.position, 'absolute', 'the line follows the hour coordinate, independent of the text height');
+      midnight = style(hour).top + rule.top;
+      assert.match(ui.text(), /24:00/u);
+    }
+    assert.equal(card.top + card.height - midnight, displayedHour / 2, 'only the first half hour appears past midnight');
+    if (mode !== '1日表示') {
+      const shortCard = style(find(ui, `calendar-movable-few-minutes-overnight:${next}`));
+      assert.ok(Math.abs(shortCard.top + shortCard.height - midnight - displayedHour / 12) < 1e-6,
+        'a five-minute continuation visibly crosses the midnight line and stops at its real end');
+    }
+    assert.doesNotMatch(ui.text(), /24:30/u);
+    const slot = ui.button(`2026年11月11日の空き時間に予定を追加`);
+    const before = opened.length;
+    slot.props.onLongPress({ nativeEvent: { locationY: displayedHour * 24.25 } });
+    await ui.flush();
+    assert.equal(opened.length, before, 'the continuation is not an empty slot on the starting day');
+    await ui.press('夜行列車を編集');
+    assert.deepEqual([opened.at(-1).value.endDate, opened.at(-1).value.endMinute], [next, long.endMinute]);
+    await ui.press('閉じる');
   }
 });
 

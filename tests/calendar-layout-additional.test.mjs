@@ -1,7 +1,7 @@
 import './helpers/typescript-loader.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { timelineEvents } from '../src/features/calendar/layout.ts';
+import { timelineEvents, timelineGroups } from '../src/features/calendar/layout.ts';
 import { newEventDraft, projectCalendarEvents } from '../src/domain/calendar/events.ts';
 const event = (id, start, end) => ({ id, startDate: '2026-11-07', endDate: '2026-11-07', startMinute: start, endMinute: end, allDay: false });
 test('dense calendar overlap assigns the same readable lanes without quadratic lane scans', t => {
@@ -26,4 +26,19 @@ test('a repeated fall-back hour event stays visible with its actual elapsed dura
   assert.ok(moved, '01:50 EDT to 01:10 EST is a real 20-minute event');
   assert.equal(moved.start, 110); assert.equal(moved.end - moved.start, 20);
   assert.equal(moved.lanes, 2); assert.equal(rows.find(row => row.row.id === 'after').lane, 1);
+});
+
+test('overnight calendar previews stop at their actual end or half past midnight', () => {
+  const day = '2026-11-07', next = '2026-11-08';
+  const overnight = (id, endDate, endMinute) => ({ ...event(id, 1435, endMinute), endDate });
+  const rows = [event('same-day', 1435, 1439), overnight('midnight', next, 0), overnight('five-past', next, 5),
+    overnight('half-past', next, 30), overnight('morning', next, 380), overnight('more-days', '2026-11-09', 0)];
+  const positions = new Map(timelineGroups(rows, day, 32, true).flat().map(row => [row.row.id, row]));
+  assert.deepEqual(rows.map(row => positions.get(row.id).bottom), [1440, 1440, 1445, 1470, 1470, 1470]);
+  assert.ok(positions.get('same-day').bottom - positions.get('same-day').top >= 32);
+  assert.deepEqual([positions.get('five-past').row.startMinute, positions.get('five-past').row.endMinute], [1435, 5]);
+  const nextDay = timelineGroups(rows, next, 32, true).flat();
+  assert.ok(!nextDay.some(row => row.row.id === 'midnight'));
+  assert.equal(nextDay.find(row => row.row.id === 'morning').end, 380);
+  assert.equal(nextDay.find(row => row.row.id === 'more-days').end, 1440);
 });

@@ -26,7 +26,7 @@ import type { CalendarChoreRegistrationProps, ExistingCalendarChore } from './ca
 import type { LocalCalendarBinding } from './use-local-calendar';
 import { calendarDraftKey, calendarDraftVersion, newCalendarDraftId, EMPTY_LOCAL_CALENDAR, saveCalendarEvent, saveCalendarFutureEvent, restoreCalendarOccurrence } from '../../platform/storage/calendar-events';
 import type { CalendarEditorDraft } from '../../platform/storage/calendar-events';
-import { calendarSwipe, compactAllDayLanes, compactTimelineHeads, timelineEvents, weekStart, type TimelineEntry } from './layout';
+import { calendarSwipe, compactAllDayLanes, compactTimelineLayout, timelineDayMinutes, timelineGroups, weekStart, type TimelineEntry, type TimelineLabel } from './layout';
 import { createCalendarGesture } from './gesture-control';
 import { calendarMonthRows, calendarRowForDate, MONTH_HEADING_HEIGHT } from './month-rows';
 import type { CalendarMonthRow } from './month-rows';
@@ -487,7 +487,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     begin: day => { monthDragged.current = true; setBrowsingMonth(true); setDragDay(day); }, end: () => setDragDay(null), commit: commitMove,
   });
   const dayList = useMemo(() => Array.from({ length: view === 'three' ? 3 : view === 'two' ? 2 : 1 }, (_, i) => addDays(date, i)), [date, view]);
-  const weekDays = view === 'week' ? calendarWeekDays(date) : [];
+  const weekDays = useMemo(() => view === 'week' ? calendarWeekDays(date) : [], [view, date]);
   const compactDays = view === 'week' ? weekDays : view === 'three' ? dayList : null;
   const compactChoreDay = compactDays ? [...expanded].reverse().find(day => compactDays.includes(day) && showChores(day)) : undefined;
   const isSummaryExpanded = (day: LocalDate) => compactDays ? day === compactChoreDay : expanded.has(day);
@@ -565,86 +565,134 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   };
   const appearanceFor = (event: CalendarOccurrence) => appearances.get(event.categoryId) ?? fallbackAppearance;
   const focusedEvent = (event: CalendarOccurrence, day: LocalDate) => searchFocus?.eventId === event.eventId && searchFocus.anchorDate === event.anchorDate && searchFocus.date === day;
+  const compactTimeline = view === 'three' || view === 'week';
+  const y = (minute: number) => minute / 60 * hourHeight;
+  const minutesAt = (height: number) => height / hourHeight * 60;
+  const scale = Math.max(1, fontScale);
+  const compactTitle = view === 'week' ? styles.weekTimedTitle : styles.threeTimedTitle;
+  const titleHeight = compactTitle.lineHeight * scale;
+  const stackedLabelHeight = Math.ceil(titleHeight) + 4;
+  const stackedLabelMinutes = minutesAt(stackedLabelHeight);
+  const minimumTimelineMinutes = minutesAt(compactTimeline ? Math.max(24, stackedLabelHeight) : minimumEventHeight);
+  const timedDates = compactDays ?? (view === 'day' || view === 'two' ? dayList : null);
+  const timeline = useMemo(() => {
+    const columns = new Map<LocalDate, TimelineEntry[][]>();
+    let end = timelineDayMinutes, first = Infinity;
+    for (const day of timedDates ?? []) {
+      const groups = timelineGroups(eventsOn(day), day, minimumTimelineMinutes, true);
+      columns.set(day, groups);
+      for (const group of groups) for (const item of group) {
+        end = Math.max(end, item.end);
+        first = Math.min(first, item.start);
+      }
+    }
+    return { columns, end, first: Number.isFinite(first) ? first : 9 * 60 };
+  }, [timedDates, eventsOn, minimumTimelineMinutes]);
   const timedDay = (day: LocalDate, days: readonly LocalDate[], columnWidth: number) => {
-    const compact = view === 'three' || view === 'week';
-    const y = (minute: number) => minute / 60 * hourHeight;
-    const minutesAt = (height: number) => height / hourHeight * 60;
-    const scale = Math.max(1, fontScale);
-    const compactTitle = view === 'week' ? styles.weekTimedTitle : styles.threeTimedTitle;
-    const shortHeight = Math.max(24, Math.ceil(compactTitle.lineHeight * scale) + 4);
-    const showClock = (item: TimelineEntry) => item.end - item.start >= 60;
-    const titleLines = (item: TimelineEntry) => view === 'three' && (item.lanes === 1 || item.end - item.start >= 90) ? 2 : 1;
-    const labelHeight = (item: TimelineEntry) => showClock(item)
-      ? Math.ceil((compactTitle.lineHeight * titleLines(item) + styles.compactTime.lineHeight) * scale) + 4
-      : shortHeight;
-    const items = timelineEvents(eventsOn(day), day, minutesAt(compact ? shortHeight : minimumEventHeight));
-    const railCount = items.reduce((count, item) => Math.max(count, item.lanes), 1);
-    const railStep = Math.min(5, (view === 'week' ? 12 : 16) / railCount);
-    const railWidth = Math.max(StyleSheet.hairlineWidth, railStep - 2);
-    const railLeft = (item: TimelineEntry) => 1 + item.lane * railStep;
-    const minimumRailMinutes = minutesAt(compactTitle.lineHeight);
-    const railEnd = (item: TimelineEntry) => Math.max(item.end, item.start + minimumRailMinutes);
-    const heads = compact ? compactTimelineHeads(items, item => minutesAt(labelHeight(item)), minutesAt(2)) : [];
+    const groups = timeline.columns.get(day) ?? [];
+    const withClock = (lines: 1 | 2) => minutesAt(Math.ceil(titleHeight * lines + styles.compactTime.lineHeight * scale) + 4);
+    const label = (item: TimelineEntry, available: number): TimelineLabel => {
+      const duration = item.end - item.start;
+      if (duration < 60 || available + 1e-6 < withClock(1)) return { minutes: stackedLabelMinutes, lines: 1, clock: false };
+      const lines = view === 'three' && (item.lanes === 1 || duration >= 90) && available + 1e-6 >= withClock(2) ? 2 : 1;
+      return { minutes: withClock(lines), lines, clock: true };
+    };
+    const railBottom = (item: TimelineEntry) => Math.min(item.bottom, Math.max(item.end, item.top + stackedLabelMinutes));
+    const inColumns = ({ top, bottom, lane, lanes }: { top: number; bottom: number; lane: number; lanes: number }, reserve = 0): ViewStyle => {
+      const width = Math.max(0, columnWidth - reserve);
+      return { top: y(top), height: y(bottom - top),
+        left: reserve ? reserve + lane / lanes * width : `${lane / lanes * 100}%`,
+        width: reserve ? .96 / lanes * width : `${96 / lanes}%` };
+    };
     const now = day === today ? <View pointerEvents="none" style={[styles.now, { top: y(currentMinute) }]}><View style={styles.nowDot} />
-      {!compact ? <Text style={styles.nowLabel}>現在 {minuteLabel(currentMinute)}</Text> : null}</View> : null;
-    const card = (item: TimelineEntry, placement: ViewStyle, content: ReactNode, isCompact = false) => {
+      {!compactTimeline ? <Text style={styles.nowLabel}>現在 {minuteLabel(currentMinute)}</Text> : null}</View> : null;
+    const card = (item: TimelineEntry, placement: ViewStyle, content: ReactNode, stacked = false) => {
       const event = item.row;
       const appearance = appearanceFor(event);
       const selected = focusedEvent(event, day);
-      const accessibleTime = isCompact ? `${event.startDate < day ? `${formatJapaneseDate(event.startDate)} ` : ''}${minuteLabel(event.startMinute)}〜${event.endDate > day ? `${formatJapaneseDate(event.endDate)} ` : ''}${minuteLabel(event.endMinute)}${event.timeIssue ? '、時刻要確認' : ''}` : undefined;
+      const accessibleTime = compactTimeline ? `${event.startDate < day ? `${formatJapaneseDate(event.startDate)} ` : ''}${minuteLabel(event.startMinute)}〜${event.endDate > day ? `${formatJapaneseDate(event.endDate)} ` : ''}${minuteLabel(event.endMinute)}${event.timeIssue ? '、時刻要確認' : ''}` : undefined;
       return <CalendarTimedEvent helpTarget={registerHelpTarget} key={event.id} event={event} day={day} days={days} columnWidth={columnWidth} hourHeight={hourHeight}
         selected={selected} draggable={event.startDate === day && canMove(event)} accessibleTime={accessibleTime}
         onOpen={() => openEvent(event)} onBegin={() => beginMove(event)} onCommit={commitMove} onActive={setDragDay}
-        style={[styles.timedEvent, isCompact && styles.compactTimedEvent, placement, { borderLeftColor: appearance.accent, backgroundColor: appearance.backgroundColor }, selected && styles.selectedTimeline]}>
+        style={[styles.timedEvent, compactTimeline && styles.compactTimedEvent, stacked && styles.stackedTimedEvent, placement,
+          { borderLeftColor: appearance.accent, backgroundColor: appearance.backgroundColor }, selected && styles.selectedTimeline]}>
         {content}
       </CalendarTimedEvent>;
+    };
+    const compactCard = (entries: readonly TimelineEntry[], position: ViewStyle, size: TimelineLabel, stacked = false) => {
+      const [item] = entries;
+      const event = item.row;
+      const appearance = appearanceFor(event);
+      const count = entries.length;
+      const title = calendarDisplayedTitle(event);
+      const clock = event.startDate === day ? minuteLabel(item.start) : event.endDate > day ? '継続' : `〜${minuteLabel(event.endMinute)}`;
+      const content = <View style={styles.timedContent}>
+        <View style={styles.compactTitleRow}>
+          <Text numberOfLines={size.lines} style={[compactTitle, styles.compactTitle, { color: appearance.foregroundColor }]}>{title}{event.timeIssue && !size.clock ? ' !' : ''}</Text>
+          {count > 1 ? <Text numberOfLines={1} style={[styles.compactTime, styles.overlapCount, { color: appearance.foregroundColor }]}>+{count - 1}</Text> : null}
+        </View>
+        {size.clock ? <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={.85} style={[styles.compactTime, { color: event.timeIssue ? palette.warning : appearance.foregroundColor }]}>{clock}{event.timeIssue ? ' !' : ''}</Text> : null}
+      </View>;
+      if (count === 1) return card(item, position, content, stacked);
+      return <Pressable key={`overlap:${event.id}`} accessibilityRole="button"
+        accessibilityLabel={`${formatJapaneseDate(day)} ${minuteLabel(item.start)}、重なった予定${count}件を開く`}
+        accessibilityHint={title}
+        onPress={() => setOverlap({ day, start: item.start, eventIds: entries.map(entry => entry.row.id) })}
+        style={[styles.timedEvent, styles.compactTimedEvent, stacked && styles.stackedTimedEvent, position,
+          { borderLeftColor: appearance.accent, backgroundColor: appearance.backgroundColor },
+          entries.some(entry => focusedEvent(entry.row, day)) && styles.selectedTimeline]}>
+        {content}
+      </Pressable>;
     };
     return <>
       {local?.database ? <Pressable style={StyleSheet.absoluteFill} accessibilityRole="button" accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の空き時間に予定を追加`} accessibilityActions={[{ name: 'activate', label: '予定を追加' }]}
         onAccessibilityTap={() => openSlot(day, 9 * 60)}
         onAccessibilityAction={event => { if (event.nativeEvent.actionName === 'activate') openSlot(day, 9 * 60); }}
-        onLongPress={event => openSlot(day, event.nativeEvent.locationY / hourHeight * 60)} /> : null}
-      {compact ? now : null}
-      {compact ? heads.map(head => {
-        const [item] = head.entries;
-        const event = item.row;
-        const cardLeft = railLeft(item) + railWidth;
-        // A later rail can cross an earlier card. Keep text beyond the rails that cross this card.
-        const railsRight = items.reduce((edge, other) => other.start < head.top + head.minutes && railEnd(other) > head.top
-          ? Math.max(edge, railLeft(other) + railWidth) : edge, cardLeft);
-        const position = { top: y(head.top), height: y(head.minutes), left: cardLeft, width: Math.max(0, columnWidth - cardLeft - 2), paddingLeft: railsRight - cardLeft + 4 };
-        const appearance = appearanceFor(item.row);
-        const count = head.entries.length;
-        const title = calendarDisplayedTitle(event);
-        const timed = showClock(item);
-        const clock = event.startDate === day ? minuteLabel(item.start) : event.endDate > day ? '継続' : `〜${minuteLabel(item.end)}`;
-        const content = <View style={styles.timedContent}>
-          <View style={styles.compactTitleRow}>
-            <Text numberOfLines={timed ? titleLines(item) : 1} style={[compactTitle, styles.compactTitle, { color: appearance.foregroundColor }]}>{title}{event.timeIssue && !timed ? ' !' : ''}</Text>
-            {count > 1 ? <Text numberOfLines={1} style={[styles.compactTime, styles.overlapCount, { color: appearance.foregroundColor }]}>+{count - 1}</Text> : null}
-          </View>
-          {timed ? <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={.85} style={[styles.compactTime, { color: event.timeIssue ? palette.warning : appearance.foregroundColor }]}>{clock}{event.timeIssue ? ' !' : ''}</Text> : null}
-        </View>;
-        if (count === 1) return card(item, position, content, true);
-        return <Pressable key={`overlap:${event.id}`} accessibilityRole="button"
-          accessibilityLabel={`${formatJapaneseDate(day)} ${minuteLabel(item.start)}、重なった予定${count}件を開く`}
-          accessibilityHint={title}
-          onPress={() => setOverlap({ day, start: item.start, eventIds: head.entries.map(entry => entry.row.id) })}
-          style={[styles.timedEvent, styles.compactTimedEvent, position, { backgroundColor: appearance.backgroundColor },
-            head.entries.some(entry => focusedEvent(entry.row, day)) && styles.selectedTimeline]}>
-          {content}
-        </Pressable>;
-      }) : items.map(item => {
+        onLongPress={event => {
+          const minute = minutesAt(event.nativeEvent.locationY);
+          if (minute < timelineDayMinutes) openSlot(day, minute);
+        }} /> : null}
+      {compactTimeline ? now : null}
+      {compactTimeline ? groups.flatMap((group, index) => {
+        const blocks = compactTimelineLayout(group, groups[index + 1]?.[0].top ?? timeline.end, {
+          minimumLabel: stackedLabelMinutes, gap: minutesAt(2), railBottom, label,
+        });
+        const railStep = Math.min(5, (view === 'week' ? 12 : 16) / group[0].lanes);
+        const railWidth = Math.max(StyleSheet.hairlineWidth, railStep - 2);
+        const railLeft = (item: TimelineEntry) => 1 + item.lane * railStep;
+        const rails = blocks.flatMap(block => block.kind === 'stacked' ? block.cards.flatMap(card => card.entries) : []);
+        const rightOfRails = (top: number, bottom: number, start = 0) => rails.reduce((edge, item) =>
+          item.top < bottom && railBottom(item) > top ? Math.max(edge, railLeft(item) + railWidth) : edge, start);
+        return [
+          ...blocks.flatMap(block => {
+            if (block.kind === 'columns') {
+              const bottom = block.cards.reduce((end, item) => Math.max(end, item.bottom), block.cards[0].top);
+              const railEdge = rightOfRails(block.cards[0].top, bottom);
+              const reserve = railEdge ? railEdge + 2 : 0;
+              return block.cards.map(item => compactCard(item.entries, inColumns(item, reserve), label(item.entries[0], item.bottom - item.top)));
+            }
+            return block.cards.map(({ entries, top, size }) => {
+              const cardLeft = railLeft(entries[0]) + railWidth;
+              const paddingLeft = rightOfRails(top, top + size.minutes, cardLeft) - cardLeft + 4;
+              return compactCard(entries, { top: y(top), height: y(size.minutes), left: cardLeft,
+                width: Math.max(0, columnWidth - cardLeft - 2), paddingLeft }, size, true);
+            });
+          }),
+          ...rails.map(item => <View key={`rail:${item.row.id}`} pointerEvents="none" testID={`calendar-duration-${item.row.id}`}
+            style={[styles.durationRail, { top: y(item.top), height: y(railBottom(item) - item.top), left: railLeft(item),
+              width: railWidth, backgroundColor: appearanceFor(item.row).accent }]} />),
+        ];
+      }) : groups.flatMap(group => group.map(item => {
         const appearance = appearanceFor(item.row);
         const height = y(item.end - item.start);
-        return card(item, { left: `${item.lane / item.lanes * 100}%`, width: `${96 / item.lanes}%`, top: y(item.start), height: Math.max(minimumEventHeight, height) }, <>
+        const endDay = item.row.endDate;
+        const through = endDay === day ? '' : endDay === addDays(day, 1) ? '翌' : `${formatJapaneseDate(endDay)} `;
+        return card(item, inColumns(item), <>
           <Text numberOfLines={1} style={[styles.timedTitle, { color: appearance.foregroundColor }]}>{calendarDisplayedTitle(item.row)}{item.row.timeIssue ? '（時刻要確認）' : ''}</Text>
-          {height >= typography.label.lineHeight + typography.caption.lineHeight + 4 ? <Text numberOfLines={1} style={[styles.caption, { color: appearance.foregroundColor }]}>{minuteLabel(item.start)}〜{minuteLabel(item.end)}</Text> : null}
+          {height >= typography.label.lineHeight + typography.caption.lineHeight + 4 ? <Text numberOfLines={1} style={[styles.caption, { color: appearance.foregroundColor }]}>{minuteLabel(item.start)}〜{through}{minuteLabel(item.row.endMinute)}</Text> : null}
         </>);
-      })}
-      {compact ? items.map(item => <View key={`rail:${item.row.id}`} pointerEvents="none" testID={`calendar-duration-${item.row.id}`}
-        style={[styles.durationRail, { top: y(item.start), height: y(railEnd(item) - item.start), left: railLeft(item),
-          width: railWidth, backgroundColor: appearanceFor(item.row).accent }]} />) : now}
+      }))}
+      {!compactTimeline ? now : null}
     </>;
   };
   const allDayColumns = useMemo(() => view === 'day' || view === 'two' ? dayList.map(day => {
@@ -683,7 +731,6 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     <CompactAllDay days={compactDays} lanes={allDayLanes} rowHeight={allDayRowHeight} heightLimit={limit} dragging={Boolean(activeDragDay)} simultaneousWith={view === 'three' ? detailSwipe : undefined}
       appearanceFor={appearanceFor} isSelected={event => searchFocus ? focusedEvent(event, searchFocus.date) : false} onOpen={openEvent} />
   </View> : null;
-  const weekStarts = weekDays.flatMap(day => timelineEvents(eventsOn(day), day).map(event => event.start));
   const expandedChores = dayList.some(day => showChores(day) && isSummaryExpanded(day));
   const fixedSpace = Math.max(0, height - dayHeadingHeight - Math.min(120, height * .25));
   const allDayHeight = hasAllDay ? Math.min(height * .3, fixedSpace * (expandedChores ? .5 : 1),
@@ -714,12 +761,11 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   const positionTime = () => {
     const key = `${view}:${date}`; if (positioned.current === key || timelineTop.current === null || timelineViewport.current <= 0) return;
     positioned.current = key;
-    const first = dayList.flatMap(day => timelineEvents(eventsOn(day), day).map(event => event.start)).sort((a, b) => a - b)[0];
     const selected = searchPosition.current; searchPosition.current = null;
     if (selected?.date === date && selected.minute === null) {
       scroll.current?.scrollToOffset({ offset: 0, animated: false }); return;
     }
-    const minute = selected?.date === date && selected.minute !== null ? selected.minute : dayList.includes(today) ? currentMinute : first ?? 9 * 60;
+    const minute = selected?.date === date && selected.minute !== null ? selected.minute : dayList.includes(today) ? currentMinute : timeline.first;
     scroll.current?.scrollToOffset({ offset: Math.max(0, timelineTop.current + minute / 60 * hourHeight - timelineViewport.current / 2), animated: false });
   };
   const goToday = () => {
@@ -864,7 +910,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
           );
         }} />
         : view === 'week' ? <CalendarWeek date={date} height={height} currentMinute={weekStart(date) === weekStart(today) ? currentMinute : null}
-          defaultMinute={weekStarts.length ? Math.min(...weekStarts) : 9 * 60}
+          defaultMinute={timeline.first} endMinute={timeline.end}
           dragging={Boolean(activeDragDay)} activeDay={activeDragDay} hourHeight={hourHeight} onSelect={chooseDate} onReady={weekReady} onScroll={refreshHelpTargets}
           renderHeading={day => dayHeading(day, false, true)}
           renderChores={compactChoreDay ? compactChores : undefined}
@@ -891,8 +937,8 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
           onScroll={event => { timelineOffset.current = event.nativeEvent.contentOffset.y; refreshHelpTargets(); }} scrollEventThrottle={16}
           onLayout={event => { timelineViewport.current = event.nativeEvent.layout.height; positionTime(); }} onContentSizeChange={positionTime} contentContainerStyle={styles.timelineBody} renderItem={({ item: section }) => section.key === 'top' ?
           <View testID="calendar-timeline-days" onLayout={event => { timelineTop.current = event.nativeEvent.layout.height + 8; setTimeout(positionTime, 0); }} />
-          : <View style={styles.timeline}>
-            {Array.from({ length: 25 }, (_, hour) => <View key={hour} pointerEvents="none" style={[styles.hour, { top: hour * hourHeight }]}><Text style={styles.hourLabel}>{String(hour).padStart(2, '0')}:00</Text><View style={styles.hourRule} /></View>)}
+          : <View style={[styles.timeline, { height: y(timeline.end) + 15 }]}>
+            {Array.from({ length: 25 }, (_, hour) => <View key={hour} testID={`calendar-hour-${hour}`} pointerEvents="none" style={[styles.hour, { top: hour * hourHeight }]}><Text style={styles.hourLabel}>{String(hour).padStart(2, '0')}:00</Text><View style={styles.hourRule} /></View>)}
             <View style={styles.timelineColumns} onLayout={event => setTimelineWidth(event.nativeEvent.layout.width)}>{dayList.map(day => <View key={day} style={[styles.timelineColumn, activeDragDay === day && { zIndex: 1 }]}>
               {timedDay(day, dayList, timelineWidth / dayList.length)}
             </View>)}</View>
@@ -986,11 +1032,12 @@ const baseStyles = StyleSheet.create({
   weekMetadata: { alignSelf: 'stretch', flexGrow: 0, maxHeight: 46 }, weekMetadataContent: { alignItems: 'center', gap: 2 },
   weekDate: { minHeight: 30, minWidth: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   weekSummary: { minHeight: 32, paddingHorizontal: 2, flexDirection: 'row', gap: 1, justifyContent: 'center', alignItems: 'center' }, weekSummaryText: { fontSize: 10.5, lineHeight: 16, color: palette.ink, flexShrink: 1 },
-  compactTimedEvent: { borderLeftWidth: 0, paddingRight: 4, paddingVertical: 2, borderRadius: 4, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 },
-  timedContent: { flex: 1, justifyContent: 'center' },
+  compactTimedEvent: { paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4 },
+  stackedTimedEvent: { borderLeftWidth: 0, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 },
+  timedContent: { flex: 1 },
   compactTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 2 }, compactTitle: { flex: 1, minWidth: 0 },
-  weekTimedTitle: { fontSize: 11, lineHeight: 14, fontWeight: '600' }, threeTimedTitle: { fontSize: 13, lineHeight: 16, fontWeight: '600' },
-  compactTime: { fontSize: 11, lineHeight: 14, fontVariant: ['tabular-nums'] },
+  weekTimedTitle: { fontSize: 11, lineHeight: 14, fontWeight: '600', includeFontPadding: false }, threeTimedTitle: { fontSize: 13, lineHeight: 16, fontWeight: '600', includeFontPadding: false },
+  compactTime: { fontSize: 11, lineHeight: 14, fontVariant: ['tabular-nums'], includeFontPadding: false },
   durationRail: { position: 'absolute', borderRadius: 1 },
   overlapCount: { fontWeight: '700' },
   selectedTimeline: { borderWidth: 1, borderColor: palette.accent },
@@ -1011,7 +1058,10 @@ const baseStyles = StyleSheet.create({
   fixedChores: { flexShrink: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border, backgroundColor: palette.background }, fixedChoreContent: { paddingBottom: 4 },
   timelineScroll: { flex: 1, minHeight: 0 },
   holiday: { ...typography.caption, color: palette.warning, maxWidth: '100%' },
-  timelineBody: { paddingBottom: 76 }, timeline: { height: 24 * hourHeight + 15, marginTop: 8 }, hour: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', alignItems: 'center' }, hourLabel: { fontSize: 12, lineHeight: 18, color: palette.muted, width: timeGutter, textAlign: 'center', transform: [{ translateY: -9 }] }, hourRule: { flex: 1, height: 1, backgroundColor: palette.border },
+  timelineBody: { paddingBottom: 76 }, timeline: { marginTop: 8 },
+  hour: { position: 'absolute', left: 0, right: 0 },
+  hourLabel: { fontSize: 12, lineHeight: 18, color: palette.muted, width: timeGutter, textAlign: 'center', transform: [{ translateY: -9 }] },
+  hourRule: { position: 'absolute', left: timeGutter, right: 0, top: 0, height: 1, backgroundColor: palette.border },
   timelineColumns: { marginLeft: timeGutter, flexDirection: 'row', height: '100%', borderLeftWidth: 1, borderColor: palette.border }, timelineColumn: { flex: 1, minWidth: 0, borderRightWidth: 1, borderColor: palette.border },
   timedEvent: { position: 'absolute', borderLeftWidth: 3, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, overflow: 'hidden' }, timedTitle: { ...typography.label, color: palette.ink, fontWeight: '600' },
   now: { position: 'absolute', left: 0, right: 0, borderTopWidth: 1.5, borderColor: palette.accent, height: 1 }, nowDot: { position: 'absolute', left: -4, top: -4, width: 7, height: 7, borderRadius: 4, backgroundColor: palette.accent }, nowLabel: { position: 'absolute', right: 3, bottom: 3, paddingHorizontal: 3, fontSize: 11, lineHeight: 15, color: palette.accent, backgroundColor: palette.background },

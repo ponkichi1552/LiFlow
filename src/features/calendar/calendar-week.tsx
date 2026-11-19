@@ -6,12 +6,14 @@ import { Chevron } from '../../components/chevron';
 import { usePlannerBorderStyles } from '../../components/use-planner-border-styles';
 import { addDays } from '../../domain/scheduling/local-date';
 import type { LocalDate } from '../../domain/shared/types';
+import { timelineDayMinutes } from './layout';
 import { calendarWeekDays, calendarWeekLabel } from './week-layout';
 
 export type WeekRecenter = (minute?: number | null) => void;
 /** The month calendar's seven columns, extended vertically by appointment time. */
-export function CalendarWeek({ date, height, currentMinute, defaultMinute, dragging, activeDay, hourHeight, renderHeading, allDayHeight = 0, renderAllDay, renderChores, renderDay, onSelect, onReady, onScroll }: {
+export function CalendarWeek({ date, height, currentMinute, defaultMinute, endMinute = timelineDayMinutes, dragging, activeDay, hourHeight, renderHeading, allDayHeight = 0, renderAllDay, renderChores, renderDay, onSelect, onReady, onScroll }: {
   date: LocalDate; height: number; currentMinute: number | null; defaultMinute: number; dragging: boolean; activeDay: LocalDate | null; hourHeight: number;
+  endMinute?: number;
   renderHeading(day: LocalDate): ReactNode;
   allDayHeight?: number; renderAllDay?(heightLimit: number): ReactNode;
   renderChores?(heightLimit: number): ReactNode;
@@ -51,7 +53,7 @@ export function CalendarWeek({ date, height, currentMinute, defaultMinute, dragg
     {allDayLimit > 0 ? renderAllDay?.(allDayLimit) : null}
     <ScrollView ref={vertical} testID="calendar-week-time-scroll" style={styles.vertical} nestedScrollEnabled enabled={!dragging} scrollEnabled={!dragging}
       onLayout={event => setViewportHeight(event.nativeEvent.layout.height)} onContentSizeChange={() => position()} onScroll={onScroll} scrollEventThrottle={16} contentContainerStyle={styles.timeContent}>
-      <View testID="calendar-week-grid" style={[styles.columns, { height: hourHeight * 24 + 16 }]}>
+      <View testID="calendar-week-grid" style={[styles.columns, { height: hourHeight * endMinute / 60 + 16 }]}>
         {days.map(day => <View key={day} style={[styles.column, activeDay === day && { zIndex: 1 }]}>
           {Array.from({ length: 25 }, (_, hour) => <View key={hour} pointerEvents="none" style={[styles.rule, { top: hour * hourHeight }]} />)}
           {renderDay(day, days, width / 7)}

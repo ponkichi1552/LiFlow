@@ -30,9 +30,16 @@ function minimumHeap<T>(compare: (left: T, right: T) => number) {
     },
   };
 }
-export function timelineEvents(events: readonly CalendarOccurrence[], date: LocalDate, minimumVisibleMinutes = 0) {
+export const timelineDayMinutes = 24 * 60;
+const overnightPreviewMinutes = 30;
+
+export function timelineGroups(events: readonly CalendarOccurrence[], date: LocalDate, minimumVisibleMinutes = 0, showOvernight = false) {
+  const tomorrow = showOvernight ? addDays(date, 1) : null;
   const rows = events.filter(row => !row.allDay && row.startDate <= date && row.endDate >= date).map(row => ({ row,
-    start: row.startDate < date ? 0 : row.startMinute, end: row.endDate > date ? 1440 : row.endMinute, lane: 0, lanes: 1,
+    start: row.startDate < date ? 0 : row.startMinute,
+    end: row.endDate > date
+      ? timelineDayMinutes + (tomorrow ? Math.min(overnightPreviewMinutes, row.endDate === tomorrow ? row.endMinute : overnightPreviewMinutes) : 0)
+      : row.endMinute,
   })).map(row => {
     // The wall clock moves backwards during a fall transition. A short real
     // interval can therefore end at an earlier displayed minute (01:50 to
@@ -46,52 +53,137 @@ export function timelineEvents(events: readonly CalendarOccurrence[], date: Loca
       if (Number.isFinite(elapsed)) row.end = row.start + elapsed;
     }
     return row;
-  }).filter(row => row.end > row.start).sort((a, b) => a.start - b.start || b.end - a.end || a.row.id.localeCompare(b.row.id));
-  let group: typeof rows = []; let groupEnd = -1; let laneCount = 0;
-  const active = minimumHeap<{ end: number; lane: number }>((a, b) => a.end - b.end || a.lane - b.lane);
-  const free = minimumHeap<number>((a, b) => a - b);
-  const finish = () => { for (const row of group) row.lanes = laneCount; group = []; laneCount = 0; groupEnd = -1; active.clear(); free.clear(); };
-  for (const row of rows) {
-    if (row.start >= groupEnd) finish();
-    while (active.peek()?.end <= row.start) free.push(active.pop()!.lane);
-    const lane = free.pop() ?? laneCount++;
-    // A short event still needs a readable card. Reserve its visible extent for
-    // collisions, keeping the real start/end unchanged for editing and labels.
-    const visibleEnd = Math.max(row.end, row.start + minimumVisibleMinutes);
-    active.push({ end: visibleEnd, lane }); row.lane = lane; group.push(row); groupEnd = Math.max(groupEnd, visibleEnd);
-  }
-  finish(); return rows;
+  }).filter(row => row.end > row.start).map(row => {
+    // At the end of the day, keep the minimum size inside the visible interval.
+    // Only an actual continuation can extend below midnight.
+    const bottom = Math.max(row.end, Math.min(timelineDayMinutes, row.start + minimumVisibleMinutes));
+    return { ...row, top: Math.max(0, Math.min(row.start, bottom - minimumVisibleMinutes)), bottom };
+  }).sort((a, b) => a.top - b.top || b.bottom - a.bottom || a.start - b.start || b.end - a.end || a.row.id.localeCompare(b.row.id));
+  return assignTimelineLanes(rows);
 }
 
-export type TimelineEntry = ReturnType<typeof timelineEvents>[number];
-type TimelineHead = { top: number; minutes: number; entries: TimelineEntry[] };
-
-/** Align duration rails to time, allowing readable labels to stack independently. */
-export function compactTimelineHeads(entries: readonly TimelineEntry[], labelMinutes: (entry: TimelineEntry) => number, gap: number): TimelineHead[] {
-  const ordered = [...entries].sort((a, b) => a.start - b.start || a.end - b.end || a.row.id.localeCompare(b.row.id));
-  const result: TimelineHead[] = [];
-  let used = 0;
-  for (const entry of ordered) {
-    const last = result.at(-1);
-    const minutes = Math.min(1440, labelMinutes(entry));
-    const top = last ? Math.max(entry.start, last.top + last.minutes + gap) : entry.start;
-    const thirdBack = result.at(-3);
-    // The first three simultaneous appointments each have a title. If the
-    // queue gets longer, keep the remainder accessible alongside the last one.
-    if (last && (used + gap + minutes > 1440 || thirdBack && thirdBack.top + thirdBack.minutes + gap > entry.start)) last.entries.push(entry);
-    else {
-      used += (last ? gap : 0) + minutes;
-      result.push({ top, minutes, entries: [entry] });
+function assignTimelineLanes<T extends { top: number; bottom: number }>(rows: readonly T[]) {
+  type Lane = T & { lane: number; lanes: number };
+  const groups: Lane[][] = [];
+  let group: Lane[] = []; let groupEnd = -1; let laneCount = 0;
+  const active = minimumHeap<{ end: number; lane: number }>((a, b) => a.end - b.end || a.lane - b.lane);
+  const free = minimumHeap<number>((a, b) => a - b);
+  const finish = () => {
+    if (group.length) {
+      for (const row of group) row.lanes = laneCount;
+      groups.push(group);
     }
+    group = []; laneCount = 0; groupEnd = -1; active.clear(); free.clear();
+  };
+  for (const row of rows) {
+    if (row.top >= groupEnd) finish();
+    while (active.peek()?.end <= row.top) free.push(active.pop()!.lane);
+    const lane = free.pop() ?? laneCount++;
+    active.push({ end: row.bottom, lane });
+    group.push({ ...row, lane, lanes: 1 });
+    groupEnd = Math.max(groupEnd, row.bottom);
   }
-  // Near midnight there may be room above, even when no room remains below.
-  let boundary = 1440;
-  for (let i = result.length - 1; i >= 0; i--) {
-    const head = result[i];
-    head.top = Math.max(0, Math.min(head.top, boundary - head.minutes));
-    boundary = head.top - gap;
+  finish();
+  return groups;
+}
+
+export function timelineEvents(events: readonly CalendarOccurrence[], date: LocalDate, minimumVisibleMinutes = 0) {
+  return timelineGroups(events, date, minimumVisibleMinutes).flat();
+}
+export type TimelineEntry = ReturnType<typeof timelineEvents>[number];
+type TimelineHead = { top: number; entries: TimelineEntry[] };
+export type TimelineLabel = { minutes: number; lines: 1 | 2; clock: boolean };
+type CompactTimelineOptions = {
+  minimumLabel: number; gap: number;
+  railBottom(item: TimelineEntry): number;
+  label(item: TimelineEntry, available: number): TimelineLabel;
+};
+type CompactTimelineBlock =
+  | { kind: 'columns'; cards: (TimelineHead & { bottom: number; lane: number; lanes: number })[] }
+  | { kind: 'stacked'; cards: (TimelineHead & { size: TimelineLabel })[] };
+
+/** Keep nearby titles beside their own rails. A long rail may span several independent title groups. */
+export function compactTimelineLayout(group: readonly TimelineEntry[], before: number, options: CompactTimelineOptions): CompactTimelineBlock[] {
+  const ordered = [...group].sort((a, b) => a.start - b.start || a.end - b.end || a.row.id.localeCompare(b.row.id));
+  let coveredThrough = -1;
+  const separated = ordered.some((item, index) => {
+    if (index > 0 && item.start >= coveredThrough) return true;
+    coveredThrough = Math.max(coveredThrough, item.end);
+    return false;
+  });
+  if (group.length === 1 || separated) return [{ kind: 'columns', cards: group.map(item => ({ ...item, entries: [item] })) }];
+
+  const { minimumLabel, gap } = options;
+  const runs: TimelineHead[][] = [];
+  for (const entry of ordered) {
+    let heads = runs.at(-1);
+    const previous = heads?.at(-1);
+    if (!heads || !previous || entry.top >= previous.top + minimumLabel + gap) {
+      heads = [];
+      runs.push(heads);
+    }
+    const last = heads.at(-1), thirdBack = heads.at(-3);
+    if (last && thirdBack && thirdBack.top + minimumLabel + gap > entry.top) last.entries.push(entry);
+    else heads.push({ top: last ? Math.max(entry.top, last.top + minimumLabel + gap) : entry.top, entries: [entry] });
   }
-  return result;
+
+  const blocks: CompactTimelineBlock[] = [];
+  for (let index = 0; index < runs.length; index++) {
+    const heads = runs[index];
+    const boundary = runs[index + 1]?.[0].top ?? before;
+    const [item] = heads[0].entries;
+    // A rail from an earlier appointment can pass alongside a full card.
+    if (heads.length === 1 && item.bottom <= boundary) {
+      blocks.push({ kind: 'columns', cards: [{ entries: [item], top: item.top, bottom: item.bottom, lane: 0, lanes: 1 }] });
+      continue;
+    }
+    const stacked = stackTimelineHeads(heads, boundary, options);
+    if (stacked) {
+      blocks.push({ kind: 'stacked', cards: stacked });
+      continue;
+    }
+
+    // Full-height side-by-side cards also occupy any following titles under them.
+    const columns = [];
+    let bottom = -1;
+    let nextHeads: TimelineHead[] | undefined = heads;
+    while (nextHeads) {
+      for (const { entries } of nextHeads) {
+        const [item] = entries;
+        columns.push({ entries, top: item.top, bottom: item.bottom });
+        bottom = Math.max(bottom, item.bottom);
+      }
+      const following = runs[index + 1];
+      nextHeads = following && following[0].top < bottom ? following : undefined;
+      if (nextHeads) index++;
+    }
+    columns.sort((a, b) => a.top - b.top || b.bottom - a.bottom);
+    blocks.push({ kind: 'columns', cards: assignTimelineLanes(columns).flat() });
+  }
+  return blocks;
+}
+
+function stackTimelineHeads(heads: readonly TimelineHead[], before: number, { minimumLabel, gap, railBottom, label }: CompactTimelineOptions) {
+  // Set the latest start that still leaves the next title on its own rail.
+  // Add the optional clock line only with space left after reserving those starts.
+  const latestStarts: number[] = [];
+  let limit = before;
+  for (let index = heads.length - 1; index >= 0; index--) {
+    const item = heads[index].entries[0];
+    const latest = Math.min(railBottom(item), limit) - minimumLabel;
+    if (latest + 1e-6 < item.top) return null;
+    latestStarts[index] = latest;
+    limit = latest - gap;
+  }
+  let nextTop = 0;
+  return heads.map(({ entries }, index) => {
+    const item = entries[0];
+    const top = Math.max(item.top, nextTop);
+    const end = Math.min(railBottom(item), index + 1 < heads.length ? latestStarts[index + 1] - gap : before);
+    const size = label(item, end - top);
+    nextTop = top + size.minutes + gap;
+    return { entries, top, size };
+  });
 }
 
 export function compactAllDayLanes(days: readonly LocalDate[], eventsOn: (day: LocalDate) => readonly CalendarOccurrence[]) {

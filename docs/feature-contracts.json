@@ -16403,6 +16403,14 @@
       },
       {
         "file": "tests/calendar-week.test.mjs",
+        "name": "${platform} time grids show the overnight continuation with a midnight scale and keep the real end editable"
+      },
+      {
+        "file": "tests/calendar-layout-additional.test.mjs",
+        "name": "overnight calendar previews stop at their actual end or half past midnight"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
         "name": "${platform} a dense cluster keeps every event accessible and can switch to its one-day timeline"
       },
       {

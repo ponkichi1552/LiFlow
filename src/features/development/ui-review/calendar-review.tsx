@@ -45,6 +45,10 @@ function appointment(id: string, title: string, offset: number, fields: Partial<
 const reading = appointment('review-reading', '図書館の読書会', -7, {
   startMinute: 14 * 60, endMinute: 15 * 60, categoryId: 'school', recurrence: 'weekly', untilDate: day(21),
 });
+const shortOverlapEvents = [
+  appointment('review-brief-call', '朝の連絡', 2, { startMinute: 25, endMinute: 30, categoryId: 'work' }),
+  appointment('review-brief-check', '荷物の受け取り', 2, { startMinute: 25, endMinute: 35, categoryId: 'school' }),
+];
 const personalEvents = [
   reading,
   appointment('review-exhibition', 'まちの写真展「川辺の四季」とワークショップの会場設営・当日受付の打ち合わせ', 0, {
@@ -178,11 +182,11 @@ function CalendarReviewSession({ scenario, onExit }: { scenario: ScenarioId; onE
   const [selection, setSelection] = useState<Selection | null>(null);
   const local = useMemo<LocalCalendarBinding>(() => ({
     loading: false, error: null, refresh: async () => {},
-    snapshot: { categories, events: empty ? [] : [...personalEvents, ...sharedEvents], draft: null, exceptions: empty ? [] : [
+    snapshot: { categories, events: empty ? [] : [...personalEvents, ...sharedEvents, ...(overlapping ? shortOverlapEvents : [])], draft: null, exceptions: empty ? [] : [
       { eventId: reading.id, anchorDate: today, revision: 1, override: { ...reading, startDate: today, endDate: today,
         title: '読書会・会場変更', location: '図書館 分館の閲覧室', startMinute: 15 * 60, endMinute: 16 * 60 } },
     ] },
-  }), [empty]);
+  }), [empty, overlapping]);
   const rowsByDate = useMemo(() => {
     const rows = new Map<LocalDate, ReviewChore[]>();
     for (const row of orderTaskRows(chores, today, item => ({
