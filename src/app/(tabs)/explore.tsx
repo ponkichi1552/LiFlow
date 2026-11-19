@@ -16,6 +16,7 @@ import { usePlannerData } from '@/hooks/use-planner-data';
 import { useTaskCompletion } from '@/hooks/use-task-completion';
 import { generateWasteCollectionDates } from '@/features/waste/weekly-scheduler';
 import { PlannerCalendar } from '@/features/calendar/planner-calendar';
+import type { CalendarView } from '@/features/calendar/display-store';
 import { useLocalCalendar } from '@/features/calendar/use-local-calendar';
 import { personalCalendarTasks } from '@/features/calendar/personal-projection';
 import { dateTaskKey } from '@/features/planner/task-mutations';
@@ -50,9 +51,9 @@ function PersonalCalendarScreen() {
   const navigate = (tab: 'home' | 'calendar' | 'chores' | 'appliances') => router.navigate(({ home: '/(tabs)', calendar: '/(tabs)/explore', chores: '/(tabs)/guide', appliances: '/(tabs)/manual' } as const)[tab]);
   const choreSource = snapshot.sharing ? 'shared' as const : 'personal' as const;
   const open = (choreId: string) => router.navigate({ pathname: '/(tabs)/guide', params: { choreId, returnTo: 'calendar' } });
-  const renderTask = (task: DateTask, date: LocalDate, showTime: boolean) => {
+  const renderTask = (task: DateTask, date: LocalDate, view: CalendarView) => {
     const chore = chores.get(task.choreId); if (!chore) return null;
-    return <Animated.View key={`${dateTaskKey(task)}:${date}`} layout={LinearTransition.duration(240)}><TaskCheckboxRow compact calendarTimeLabel={showTime ? calendarChoreTimeLabel(task.entry?.calendarTime, snapshot.timeZone ?? 'Asia/Tokyo') : undefined} contextLabel={task.entry?.calendarTimeIssue ? '時刻を確認' : undefined} chore={chore} completed={task.completed} source={choreSource} seasonalWork={task.entry?.seasonalWork ?? task.completion?.seasonalWork} executionWindow={task.entry ? { start: task.entry.windowStart, end: task.entry.windowEnd } : task.completion?.scheduledWindowStart && task.completion?.scheduledWindowEnd ? { start: task.completion.scheduledWindowStart, end: task.completion.scheduledWindowEnd } : undefined}
+    return <Animated.View key={`${dateTaskKey(task)}:${date}`} layout={LinearTransition.duration(240)}><TaskCheckboxRow compact narrowCalendar={view === 'three' || view === 'week'} calendarTimeLabel={view === 'list' ? calendarChoreTimeLabel(task.entry?.calendarTime, snapshot.timeZone ?? 'Asia/Tokyo') : undefined} contextLabel={task.entry?.calendarTimeIssue ? '時刻を確認' : undefined} chore={chore} completed={task.completed} source={choreSource} seasonalWork={task.entry?.seasonalWork ?? task.completion?.seasonalWork} executionWindow={task.entry ? { start: task.entry.windowStart, end: task.entry.windowEnd } : task.completion?.scheduledWindowStart && task.completion?.scheduledWindowEnd ? { start: task.completion.scheduledWindowStart, end: task.completion.scheduledWindowEnd } : undefined}
       onOpen={() => open(chore.id)} onChangeDate={choreSource === 'personal' && !task.completed && task.entry ? () => router.navigate({ pathname: '/calendar-chore-date', params: { choreId: chore.id, entryId: task.entry!.id } }) : undefined} onToggle={completion.canToggle(task) ? () => void completion.toggle(task) : undefined} /></Animated.View>;
   };
   return <SafeAreaView edges={['top']} style={styles.safe} onLayout={finishStartupDisplay}>
@@ -75,7 +76,7 @@ function PersonalCalendarScreen() {
       })}</View>}
       renderChores={(date, view) => {
         const tasks = rowsFor(date); const previews = tentativeFor(date);
-        return <View style={styles.tasks}>{tasks.map(task => renderTask(task, date, view === 'list'))}{previews.map(row => <TaskCheckboxRow key={row.entry.id} compact provisional chore={row.chore} contextLabel="次回の仮予定" onOpen={() => open(row.chore.id)} executionWindow={{ start: row.entry.windowStart, end: row.entry.windowEnd }} />)}
+        return <View style={styles.tasks}>{tasks.map(task => renderTask(task, date, view))}{previews.map(row => <TaskCheckboxRow key={row.entry.id} compact narrowCalendar={view === 'three' || view === 'week'} provisional chore={row.chore} contextLabel="次回の仮予定" onOpen={() => open(row.chore.id)} executionWindow={{ start: row.entry.windowStart, end: row.entry.windowEnd }} />)}
           {!tasks.length && !previews.length ? <Text style={styles.caption}>この日の家事はありません。</Text> : null}</View>;
       }} />
     {completion.undoAvailable ? <View style={styles.toast}><CompletionToast onUndo={() => void completion.undoLast()} /></View> : null}

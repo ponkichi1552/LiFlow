@@ -12,13 +12,13 @@ import { usePlannerBorderStyles } from './use-planner-border-styles';
 import { plannerColorsForScheme } from './planner-theme';
 
 export function TaskCheckboxRow({ chore, completed = false, deemphasized = false, source, urgent = false,
-  onToggle, onOpen, onChangeDate, home = false, immediateCheckbox = false, compact = false, provisional = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow, seasonalWork, calendarTimeLabel }: {
+  onToggle, onOpen, onChangeDate, home = false, immediateCheckbox = false, compact = false, narrowCalendar = false, provisional = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow, seasonalWork, calendarTimeLabel }: {
   chore: ChoreDefinition; completed?: boolean; deemphasized?: boolean; source?: 'personal' | 'shared' | 'instructed';
   urgent?: boolean; onToggle?: () => boolean | void | Promise<void>; onOpen: () => void; onChangeDate?: () => void; home?: boolean; immediateCheckbox?: boolean; compact?: boolean; provisional?: boolean; mixedSources?: boolean;
   executionWindow?: { start: LocalDate; end: LocalDate };
   seasonalWork?: ChoreScheduleEntry['seasonalWork'];
   detail?: string; detailsExpanded?: boolean; lastInList?: boolean; contextLabel?: string; action?: ReactNode; footer?: ReactNode; sourceIcon?: 'person' | 'group';
-  calendarTimeLabel?: string;
+  calendarTimeLabel?: string; narrowCalendar?: boolean;
 }) {
   const styles = usePlannerBorderStyles(baseStyles);
   const colors = plannerColorsForScheme(useColorScheme());
@@ -57,17 +57,17 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
   const compactValue = [completed ? '完了済み' : '', calendarTimeLabel].filter(Boolean).join('、');
   if (compact) return <View style={styles.compactRow}><View style={styles.compactPrimary}>
     <Pressable accessibilityRole="button" accessibilityLabel={`${actionName}の${onChangeDate ? '今回の日付を変更' : '説明を開く'}`} accessibilityValue={compactValue ? { text: compactValue } : undefined} accessibilityHint={[compactSource, onChangeDate ? '今回の実施日を選択します' : '手順や道具を確認します'].filter(Boolean).join('。')} onPress={onChangeDate ?? onOpen}
-      style={({ pressed }) => [styles.compactOpen, pressed && styles.pressed]}>
-      {onChangeDate ? <View pointerEvents="none" style={styles.compactDateIcon}><SymbolView name={{ ios: 'calendar', android: 'calendar_month' }} size={16} tintColor={colors.accent} /></View> : null}
-      <View style={styles.compactCopy}><Text numberOfLines={2} ellipsizeMode="tail" lineBreakStrategyIOS="standard" textBreakStrategy="highQuality" style={[styles.compactName, completed && styles.completedText]}>{name}</Text>
-        {provisional || executionWindow && executionWindow.start !== executionWindow.end ? <Text style={styles.compactPeriod}>{[
+      style={({ pressed }) => [styles.compactOpen, narrowCalendar && styles.narrowCalendarOpen, pressed && styles.pressed]}>
+      {onChangeDate && !narrowCalendar ? <View pointerEvents="none" style={styles.compactDateIcon}><SymbolView name={{ ios: 'calendar', android: 'calendar_month' }} size={16} tintColor={colors.accent} /></View> : null}
+      <View style={styles.compactCopy}><Text numberOfLines={narrowCalendar ? 1 : 2} ellipsizeMode="tail" lineBreakStrategyIOS="standard" textBreakStrategy="highQuality" style={[styles.compactName, narrowCalendar && styles.narrowCalendarName, completed && styles.completedText]}>{name}</Text>
+        {!narrowCalendar && (provisional || executionWindow && executionWindow.start !== executionWindow.end) ? <Text style={styles.compactPeriod}>{[
           provisional ? '仮' : '', executionWindow && executionWindow.start !== executionWindow.end ? calendarPeriodLabel(executionWindow.start, executionWindow.end) : '',
         ].filter(Boolean).join(' · ')}</Text> : null}</View>
-      {compactSource ? <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.compactSource}>
+      {compactSource && !narrowCalendar ? <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.compactSource}>
         {source === 'personal' ? <PersonIcon size={16} /> : <GroupIcon size={18} />}
       </View> : null}
-      {calendarTimeLabel ? <Text numberOfLines={1} style={styles.compactTime}>{calendarTimeLabel}</Text> : null}
-      {!onChangeDate ? <Chevron /> : null}
+      {calendarTimeLabel && !narrowCalendar ? <Text numberOfLines={1} style={styles.compactTime}>{calendarTimeLabel}</Text> : null}
+      {!onChangeDate && !narrowCalendar ? <Chevron /> : null}
     </Pressable></View>
   </View>;
   return <View style={[styles.row, source && source !== 'personal' && styles.sharedRow, source === 'instructed' && styles.instructedRow,
@@ -113,6 +113,8 @@ const baseStyles = StyleSheet.create({
   compactOpen: { flex: 1, minWidth: 0, minHeight: 44, flexDirection: 'row', alignItems: 'center', paddingVertical: 7, paddingLeft: 6, paddingRight: 2, gap: 6 },
   compactCopy: { flex: 1, minWidth: 0 },
   compactName: { ...typography.label, color: palette.ink, fontWeight: '500' },
+  narrowCalendarOpen: { paddingLeft: 3, paddingRight: 3 },
+  narrowCalendarName: { ...typography.small, color: palette.ink, fontWeight: '600' },
   compactPeriod: { ...typography.small, color: palette.muted },
   compactTime: { ...typography.caption, color: palette.muted, flexShrink: 0 }, compactSource: { width: 20, alignItems: 'center', justifyContent: 'center' },
   row: { minHeight: 64, gap: 6, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, paddingHorizontal: 15, paddingVertical: 9 },

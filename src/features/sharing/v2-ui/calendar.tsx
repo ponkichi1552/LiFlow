@@ -175,9 +175,9 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
         {model.waste?.rows.some(row => !row.deleted && row.needsReview) ? <Text style={caption}>確認が必要な収集ルールは共有のゴミ収集日で確認できます。</Text> : null}
       </View>}
       ListEmptyComponent={loaded(date) && !busy ? <Card><Text style={caption}>この日の共有家事はありません。</Text></Card> : undefined}
-      renderItem={({ item }) => item.source === 'personal' ? <V2PrivateTaskCard compact row={item.row} today={privateOverlay?.status === 'ready' ? privateOverlay.today : undefined} source={privateSource} busy={busy} run={run} feedback={feedback} mixedSources showCalendarTime={view === 'list'} timeZone={privateOverlay?.status === 'ready' ? privateOverlay.timeZone : model.plan.timeZone}
+      renderItem={({ item }) => item.source === 'personal' ? <V2PrivateTaskCard compact narrowCalendar={view === 'three' || view === 'week'} row={item.row} today={privateOverlay?.status === 'ready' ? privateOverlay.today : undefined} source={privateSource} busy={busy} run={run} feedback={feedback} mixedSources showCalendarTime={view === 'list'} timeZone={privateOverlay?.status === 'ready' ? privateOverlay.timeZone : model.plan.timeZone}
         onOpen={onGuide ? () => onGuide(item.row.chore.id, 'personal') : undefined} />
-        : <V2RoundCard compact model={model} round={item.entry.round} subject={item.entry.subject} recommendation={item.entry.recommendation} actions={actions} busy={busy} run={run} feedback={feedback} showCalendarTime={view === 'list'}
+        : <V2RoundCard compact narrowCalendar={view === 'three' || view === 'week'} model={model} round={item.entry.round} subject={item.entry.subject} recommendation={item.entry.recommendation} actions={actions} busy={busy} run={run} feedback={feedback} showCalendarTime={view === 'list'}
           onDate={onDate ? () => onDate(item.entry.round.id, item.entry.subject.id, date, item.entry.round.anchorDate) : undefined}
           onOpen={() => onGuide ? onGuide(item.entry.round.choreId, 'shared') : onRound(item.entry.round.id, item.entry.subject.id, item.entry.round.anchorDate)} />} />}
   />;

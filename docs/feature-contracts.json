@@ -451,7 +451,7 @@
     "tests": [
       {
         "file": "tests/calendar-week.test.mjs",
-        "name": "${platform} three and seven day calendars open one full-width chore list outside the timeline"
+        "name": "${platform} three and seven day calendars keep opened chores in their day column outside the timeline"
       },
       {
         "file": "tests/calendar-week.test.mjs",

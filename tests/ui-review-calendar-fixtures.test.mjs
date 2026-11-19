@@ -6,6 +6,7 @@ const filename = 'src/features/development/ui-review/calendar-review.tsx';
 const make = (scenario, options) => screenHarness(filename, { exportName: 'CalendarReview', props: { scenario }, ...options });
 const controls = (ui, label) => ui.nodes().filter(node => node.props.accessibilityLabel === label);
 const sourceHints = (ui, label) => controls(ui, label).map(node => node.props.accessibilityHint);
+const descendants = node => (node.children ?? []).flatMap(child => typeof child === 'object' ? [child, ...descendants(child)] : []);
 const mirror = '洗面所の鏡を拭くの今回の日付を変更';
 const filter = 'リビングと寝室のエアコンのフィルターと吹き出し口を順番に掃除する';
 
@@ -16,6 +17,12 @@ for (const scenario of ['three', 'week']) test(`${scenario} review opens mixed-s
   assert.deepEqual(sourceHints(ui, mirror).map(hint => hint.split('。')[0]).sort(), ['個人の家事', '共有の家事']);
 
   const edit = `${filter}の今回の日付を変更`;
+  const contents = descendants(ui.button(edit));
+  const labels = contents.filter(node => node.type === 'Text');
+  assert.deepEqual(labels.map(node => node.children.join('')), [filter]);
+  assert.equal(labels[0].props.numberOfLines, 1);
+  assert.equal(labels[0].props.ellipsizeMode, 'tail');
+  assert.equal(contents.some(node => node.type === 'SymbolView' || node.type === 'Svg'), false);
   await ui.press(edit);
   await ui.press('2026/11/24を選択');
   await ui.press('今回の実施日を保存');

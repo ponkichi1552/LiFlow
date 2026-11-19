@@ -119,7 +119,7 @@ const initialChores = [
   ...choreRounds('shared', 'builtin-chore-26', [-1, 0, 1, 2, 3, 4, 5]),
   ...choreRounds('personal', 'builtin-chore-15', [0, 2, 4], { name: '玄関の靴をそろえる', provisionalOn: 2 }),
   ...choreRounds('shared', 'builtin-chore-21', [1, 2, 3, 5], { completedOn: 1 }),
-  ...choreRounds('personal', 'builtin-chore-22', [0, 4, 5], { name: '洗濯乾燥機のフィルターを確認する', clocks: [23 * 60 + 45, 10] }),
+  ...choreRounds('personal', 'builtin-chore-22', [0, 4, 5], { name: '洗濯乾燥機のフィルターを確認する', clocks: [23 * 60 + 45, 5] }),
 ];
 function choreTime(row: ReviewChore) {
   if (!row.clocks) return undefined;
@@ -215,7 +215,7 @@ function CalendarReviewSession({ scenario, onExit }: { scenario: ScenarioId; onE
         itemLayoutAnimation={LinearTransition.duration(240)} initialNumToRender={8} keyExtractor={row => row.key}
         ListHeaderComponent={partial && date === today ? <V2PrivateTaskNotice sharedTimeZone={zone}
           overlay={{ status: 'unavailable', message: 'この日の個人家事は未取得です。' }} /> : undefined}
-        renderItem={({ item }) => <TaskCheckboxRow chore={item.definition} source={item.source} compact mixedSources completed={item.completed} provisional={item.provisional}
+        renderItem={({ item }) => <TaskCheckboxRow chore={item.definition} source={item.source} compact narrowCalendar={view === 'three' || view === 'week'} mixedSources completed={item.completed} provisional={item.provisional}
           executionWindow={{ start: addDays(date, -item.windowDays), end: addDays(date, item.windowDays) }}
           calendarTimeLabel={view === 'list' ? calendarChoreTimeLabel(choreTime(item), zone) : undefined}
           onOpen={() => setSelection({ chore: item })} onChangeDate={item.completed || item.provisional ? undefined : () => setSelection({ chore: item })} />} />}

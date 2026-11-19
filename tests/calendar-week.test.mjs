@@ -34,8 +34,13 @@ const binding = (extra = {}) => ({ database: {}, loading: false, error: null, sn
 const find = (ui, id) => { const node = ui.nodes().find(node => node.props.testID === id); assert.ok(node, id); return node; };
 for (const platform of ['ios', 'android']) test(`${platform} overlapping appointments keep their real duration and each of three simultaneous labels can be opened`, async t => {
   const names = ['短い予定', '夜間の作業', '長い予定'];
-  const parts = [660, 740, 840].map((endMinute, index) => event({ id: `overlap-${index}`, title: names[index], endMinute }));
+  const parts = [625, 740, 840].map((endMinute, index) => event({ id: `overlap-${index}`, title: names[index], endMinute }));
   parts.push(event({ id: 'later', title: '途中の別件', startMinute: 827, endMinute: 835 }));
+  const staggered = [[900, 975], [920, 965], [935, 990]].map(([startMinute, endMinute], index) =>
+    event({ id: `staggered-${index}`, title: `午後の予定 ${index + 1}`, startMinute, endMinute }));
+  parts.push(...staggered);
+  parts.push(event({ id: 'five-minutes', title: '荷物を渡す', startMinute: 1080, endMinute: 1085 }),
+    event({ id: 'ten-minutes', title: '電話をかける', startMinute: 1140, endMinute: 1150 }));
   const opened = [];
   const local = binding({ snapshot: { events: parts, exceptions: [], categories: [], drafts: [] },
     prepareDraft: draft => { opened.push(draft); return draft; } });
@@ -43,24 +48,43 @@ for (const platform of ['ios', 'android']) test(`${platform} overlapping appoint
     props: { today: day, timeZone: 'Asia/Tokyo', local, dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null } });
   t.after(() => ui.unmount());
   const style = node => Object.assign({}, ...node.props.style.flat(Infinity).filter(Boolean));
+  const visibleText = node => (node.children ?? []).flatMap(child => typeof child === 'object' ? visibleText(child) : [child]).join(' ');
   for (const mode of ['3日表示', '7日表示']) {
     await selectCalendarView(ui, mode);
+    if (mode === '7日表示') {
+      find(ui, 'calendar-week').props.onLayout({ nativeEvent: { layout: { width: 390 } } });
+      await ui.flush();
+    }
     const rails = names.map((_name, index) => style(find(ui, `calendar-duration-overlap-${index}:${day}`)));
-    const cards = names.map((_name, index) => style(find(ui, `calendar-movable-overlap-${index}:${day}`)));
+    const eventNodes = names.map((_name, index) => find(ui, `calendar-movable-overlap-${index}:${day}`));
+    const cards = eventNodes.map(style);
     assert.deepEqual(rails.map(rail => rail.top), [rails[0].top, rails[0].top, rails[0].top]);
     assert.ok(rails[0].height < rails[1].height && rails[1].height < rails[2].height);
     for (const [i, rail] of rails.entries()) {
-      const link = style(find(ui, `calendar-connector-overlap-${i}:${day}`));
-      assert.ok(link.top >= rail.top && link.top < rail.top + rail.height, 'each connector starts on its own event’s time rail');
-      assert.ok(link.left >= rail.left && link.left < rail.left + rail.width);
-      assert.equal(link.backgroundColor, rail.backgroundColor);
+      assert.equal(cards[i].left, rail.left + rail.width, 'each label sits directly against its own duration rail');
     }
     assert.equal(cards[0].top, rails[0].top);
     assert.ok(cards.every((card, index) => !index || card.top >= cards[index - 1].top + cards[index - 1].height));
-    assert.equal(new Set(cards.map(card => card.width)).size, 1, 'a long event does not consume horizontal space from its neighbours');
+    assert.deepEqual(cards.map(card => card.left + card.width), Array(3).fill(cards[0].left + cards[0].width));
+    assert.equal(visibleText(eventNodes[0]).trim(), names[0]);
+    assert.match(visibleText(eventNodes[1]), /10:00/u);
+    assert.ok(cards[0].height < cards[1].height);
+    assert.equal(ui.button(`${names[0]}を編集`).props.accessibilityValue.text, '10:00〜10:25');
     const later = style(find(ui, `calendar-movable-later:${day}`));
-    assert.equal(later.width, cards[0].width);
     assert.equal(later.top, style(find(ui, `calendar-duration-later:${day}`)).top);
+    for (const entry of staggered) {
+      const rail = style(find(ui, `calendar-duration-${entry.id}:${day}`));
+      const label = style(find(ui, `calendar-movable-${entry.id}:${day}`));
+      assert.ok(label.top < rail.top + rail.height && rail.top < label.top + label.height,
+        'staggered labels still touch their duration rails when enough space is available');
+    }
+    const five = style(find(ui, `calendar-duration-five-minutes:${day}`));
+    const ten = style(find(ui, `calendar-duration-ten-minutes:${day}`));
+    const displayedHour = ten.top - five.top;
+    assert.equal(five.top, displayedHour * 18, 'the minimum length does not change the start position');
+    assert.ok(five.height > displayedHour * 5 / 60 && Math.abs(five.height - ten.height) < .0001,
+      'very short appointments use the same visible minimum');
+    assert.equal(ui.button('荷物を渡すを編集').props.accessibilityValue.text, '18:00〜18:05');
     for (const [index, name] of names.entries()) {
       await ui.press(`${name}を編集`);
       assert.equal(opened.at(-1).eventId, `overlap-${index}`);
@@ -89,7 +113,7 @@ for (const platform of ['ios', 'android']) test(`${platform} a dense cluster kee
   for (const entry of parts) assert.ok(ui.button(`${entry.title}を編集`));
 });
 
-for (const platform of ['ios', 'android']) test(`${platform} three and seven day calendars open one full-width chore list outside the timeline`, async t => {
+for (const platform of ['ios', 'android']) test(`${platform} three and seven day calendars keep opened chores in their day column outside the timeline`, async t => {
   const next = addDays(day, 1); const name = 'エアコンのフィルターと吹き出し口の掃除';
   const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform,
     layoutEffect: effect => effect(), props: { today: day, timeZone: 'Asia/Tokyo', local: binding(),
@@ -98,15 +122,20 @@ for (const platform of ['ios', 'android']) test(`${platform} three and seven day
   t.after(() => ui.unmount());
   const label = (date, suffix) => `${formatJapaneseDate(date, { year: true })}の家事${suffix}`;
   const descendants = node => [node, ...(node.children ?? []).flatMap(child => typeof child === 'object' ? descendants(child) : [child])];
+  const checkColumn = (open, closed) => {
+    const column = find(ui, `calendar-chore-column:${open}`);
+    assert.ok(descendants(column).includes(`${name} ${open}`));
+    assert.equal(descendants(find(ui, `calendar-chore-column:${closed}`)).includes(`${name} ${closed}`), false);
+  };
   for (const [mode, timeline] of [['3日表示', 'calendar-timeline'], ['7日表示', 'calendar-week-time-scroll']]) {
     await selectCalendarView(ui, mode);
     await ui.press(label(day, 'を開く'));
     const pane = find(ui, 'calendar-fixed-chores');
     assert.equal(descendants(find(ui, timeline)).some(node => node === pane), false);
     assert.equal(descendants(pane).filter(node => node.props?.accessibilityLabel?.endsWith('の家事一覧')).length, 1);
-    assert.ok(ui.text().includes(`${name} ${day}`));
+    checkColumn(day, next);
     await ui.press(label(next, 'を開く'));
-    assert.ok(ui.text().includes(`${name} ${next}`));
+    checkColumn(next, day);
     assert.equal(ui.text().includes(`${name} ${day}`), false);
     await ui.press(label(next, 'を閉じる'));
     assert.equal(ui.nodes().some(node => node.props.testID === 'calendar-fixed-chores'), false);

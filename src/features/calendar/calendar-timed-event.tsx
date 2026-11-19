@@ -28,11 +28,12 @@ function createTimedDragControl() {
   return { panHandlers: control.panHandlers, update: (next: typeof actions) => { actions = next; } };
 }
 export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hourHeight, draggable, style, selected, children,
-  onOpen, onBegin, onCommit, onActive, onResolveTarget, dateOnly = false, helpTarget }: {
+  onOpen, onBegin, onCommit, onActive, onResolveTarget, dateOnly = false, helpTarget, accessibleTime }: {
   event: CalendarOccurrence; day: LocalDate; days: readonly LocalDate[]; columnWidth: number; hourHeight: number;
   draggable: boolean; style: StyleProp<ViewStyle>; selected: boolean; children: ReactNode;
   onOpen(): void; onBegin(): Capture | null; onCommit(capture: Capture, target: Target): Promise<void>; onActive(day: LocalDate | null): void;
   helpTarget?: RegisterCalendarHelpTarget; onResolveTarget?(gesture: PanResponderGestureState): Target | null; dateOnly?: boolean;
+  accessibleTime?: string;
 }) {
   const setHost = useCallback((node: ComponentRef<typeof View> | null) => { helpTarget?.(`timed:${event.id}:${day}`, draggable ? node : null); }, [helpTarget, event.id, day, draggable]);
   const [animation] = useState(() => { const pan = new Animated.ValueXY(); return { pan, transform: pan.getTranslateTransform() }; });
@@ -82,6 +83,7 @@ export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hou
     onTouchCancel={() => { if (session.current && !claimed.current) reset(); }} style={[style, { transform: animation.transform }, target && styles.active]}>
     {target ? <Text pointerEvents="none" style={styles.target}>{target.day.slice(5).replace('-', '/')}{dateOnly ? '' : ` ${minuteLabel(target.minute)}`}</Text> : null}
     <Pressable accessibilityRole="button" accessibilityLabel={dateOnly ? `${calendarDisplayedTitle(event)}、${day}の予定` : `${calendarDisplayedTitle(event)}を編集`} accessibilityHint={draggable ? `長押しして${dateOnly ? '日付' : '日時'}を移動できます` : undefined}
+      accessibilityValue={accessibleTime ? { text: accessibleTime } : undefined}
       accessibilityActions={draggable ? dateOnly ? [{ name: 'moveNextDay', label: '翌日へ移動' }, { name: 'movePreviousDay', label: '前日へ移動' }] : [{ name: 'moveLater', label: '5分後へ移動' }, { name: 'moveEarlier', label: '5分前へ移動' }] : undefined}
       onAccessibilityAction={action => {
         const direction = action.nativeEvent.actionName === (dateOnly ? 'moveNextDay' : 'moveLater') ? 1 : action.nativeEvent.actionName === (dateOnly ? 'movePreviousDay' : 'moveEarlier') ? -1 : 0;

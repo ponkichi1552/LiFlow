@@ -64,36 +64,34 @@ export function timelineEvents(events: readonly CalendarOccurrence[], date: Loca
 }
 
 export type TimelineEntry = ReturnType<typeof timelineEvents>[number];
-type TimelineHead = { top: number; entries: TimelineEntry[] };
+type TimelineHead = { top: number; minutes: number; entries: TimelineEntry[] };
 
 /** Align duration rails to time, allowing readable labels to stack independently. */
-export function compactTimelineHeads(entries: readonly TimelineEntry[], labelMinutes: number): TimelineHead[] {
+export function compactTimelineHeads(entries: readonly TimelineEntry[], labelMinutes: (entry: TimelineEntry) => number, gap: number): TimelineHead[] {
   const ordered = [...entries].sort((a, b) => a.start - b.start || a.end - b.end || a.row.id.localeCompare(b.row.id));
   const result: TimelineHead[] = [];
-  const maximumHeads = Math.max(1, Math.floor(1440 / labelMinutes));
+  let used = 0;
   for (const entry of ordered) {
     const last = result.at(-1);
-    const top = Math.max(entry.start, last ? last.top + labelMinutes : 0);
+    const minutes = Math.min(1440, labelMinutes(entry));
+    const top = last ? Math.max(entry.start, last.top + last.minutes + gap) : entry.start;
+    const thirdBack = result.at(-3);
     // The first three simultaneous appointments each have a title. If the
     // queue gets longer, keep the remainder accessible alongside the last one.
-    if (last && (result.length === maximumHeads || top - entry.start > 2 * labelMinutes + .0001)) last.entries.push(entry);
-    else result.push({ top, entries: [entry] });
+    if (last && (used + gap + minutes > 1440 || thirdBack && thirdBack.top + thirdBack.minutes + gap > entry.start)) last.entries.push(entry);
+    else {
+      used += (last ? gap : 0) + minutes;
+      result.push({ top, minutes, entries: [entry] });
+    }
   }
   // Near midnight there may be room above, even when no room remains below.
   let boundary = 1440;
   for (let i = result.length - 1; i >= 0; i--) {
     const head = result[i];
-    head.top = Math.max(0, Math.min(head.top, boundary - labelMinutes));
-    boundary = head.top;
+    head.top = Math.max(0, Math.min(head.top, boundary - head.minutes));
+    boundary = head.top - gap;
   }
   return result;
-}
-
-export function compactTimelineLink(railTop: number, railHeight: number, labelTop: number, labelHeight: number) {
-  const inset = Math.min(1, railHeight / 2);
-  const branchY = Math.max(railTop + inset, Math.min(railTop + railHeight - inset, labelTop + labelHeight / 2));
-  const edgeY = Math.max(labelTop + 5, Math.min(labelTop + labelHeight - 5, branchY));
-  return { branchY, edgeY };
 }
 
 export function compactAllDayLanes(days: readonly LocalDate[], eventsOn: (day: LocalDate) => readonly CalendarOccurrence[]) {

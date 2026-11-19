@@ -25,13 +25,13 @@ export function V2PrivateTaskNotice({ overlay, sharedTimeZone }: { overlay?: V2P
 }
 
 /** The shared actions object is deliberately absent. Only the captured personal source accepts this checkbox. */
-export function V2PrivateTaskCard({ row, source, busy, run, feedback, today = row.date, home = false, compact = false, mixedSources = false, showCalendarTime = false, timeZone = 'Asia/Tokyo', onOpen }: { row: V2PrivateTaskRow; source?: V2PrivateTaskSource; busy: boolean; feedback?: CompletionFeedback; today?: LocalDate; home?: boolean; compact?: boolean; mixedSources?: boolean; showCalendarTime?: boolean; timeZone?: string;
+export function V2PrivateTaskCard({ row, source, busy, run, feedback, today = row.date, home = false, compact = false, narrowCalendar = false, mixedSources = false, showCalendarTime = false, timeZone = 'Asia/Tokyo', onOpen }: { row: V2PrivateTaskRow; source?: V2PrivateTaskSource; busy: boolean; feedback?: CompletionFeedback; today?: LocalDate; home?: boolean; compact?: boolean; narrowCalendar?: boolean; mixedSources?: boolean; showCalendarTime?: boolean; timeZone?: string;
   onOpen?: () => void; run: (work: () => Promise<unknown>) => Promise<void> }) {
   const [open, setOpen] = useState(false); const chore = row.chore;
   const completed = feedback?.values.get(row.key) ?? row.completed;
   const queueable = !row.provisional && feedback?.supports?.('personal') && feedback.request;
   return <View style={{ gap: 6 }}>
-    <TaskCheckboxRow chore={{ ...chore, category: `本人のみ${chore.category ? ` · ${chore.category}` : ''}` }} completed={completed} source="personal" home={home} compact={compact} mixedSources={mixedSources} detailsExpanded={onOpen ? undefined : open}
+    <TaskCheckboxRow chore={{ ...chore, category: `本人のみ${chore.category ? ` · ${chore.category}` : ''}` }} completed={completed} source="personal" home={home} compact={compact} narrowCalendar={narrowCalendar} mixedSources={mixedSources} detailsExpanded={onOpen ? undefined : open}
       calendarTimeLabel={showCalendarTime ? calendarChoreTimeLabel(row.calendarTime, timeZone) : undefined}
       provisional={row.provisional} contextLabel={row.calendarTimeIssue ? '時刻を確認' : row.provisional ? '次回の仮予定' : undefined}
       seasonalWork={row.seasonalWork}
@@ -52,7 +52,7 @@ export function V2PrivateTaskCard({ row, source, busy, run, feedback, today = ro
           } catch { /* A missing Undo receipt must not turn a stored completion into a failed write. */ }
         })
         : run(() => source.setCompleted(row.key, row.revision, !row.completed)) : undefined} />
-    {!onOpen ? <Text style={styles.caption}>個人の推奨日：{formatJapaneseDate(row.suggestedDate, { weekday: true })}</Text> : null}
+    {!onOpen && !narrowCalendar ? <Text style={styles.caption}>個人の推奨日：{formatJapaneseDate(row.suggestedDate, { weekday: true })}</Text> : null}
     {open ? <Card><V2ChoreProcedures chore={chore} />
       <AppButton title="手順を閉じる" variant="quiet" compact onPress={() => setOpen(false)} />
     </Card> : null}
