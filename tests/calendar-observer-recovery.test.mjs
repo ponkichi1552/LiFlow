@@ -161,3 +161,34 @@ test('changing group-draft visibility projects retained drafts immediately witho
     assert.doesNotMatch(screen.text(), /Shared draft/); assert.equal(reads, before);
   } finally { screen.unmount(); }
 });
+
+test('cold group display reads personal events without starting Auth for unpublished group drafts', async t => {
+  const groupId = 'group', userId = 'viewer';
+  const { calendarReminderScope } = await import('../src/features/calendar/reminder-preferences.ts');
+  const ownerScope = calendarReminderScope(userId, groupId);
+  const group = { groupId, userId, status: 'active' };
+  const workspace = { ready: true, userId, active: null, group, startupDisplay: { record: group } };
+  const auth = { currentUser: { uid: userId }, onAuthStateChanged: () => () => {} };
+  const empty = { events: [], categories: [], exceptions: [], draft: null, drafts: [] };
+  const draft = { audience: 'group', groupId, ownerScope, value: { title: 'Shared draft' } };
+  let authStarts = 0;
+  const screen = screenHarness('tests/fixtures/calendar-switch-observer.tsx', {
+    props: { includeGroupDrafts: true }, database: {}, effectDependencies: true, effect: fn => fn(), layoutEffect: fn => fn(),
+    mocks: {
+      '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: workspace } },
+      '@/platform/sharing/firebase-services': { isSharingConfigured: () => true, getSharingServices: () => { authStarts++; return { auth }; } },
+      '../../platform/storage/calendar-events': { EMPTY_LOCAL_CALENDAR: empty,
+        readLocalCalendar: async (_database, owner) => ({ ...empty, events: [{ title: 'Local event' }], drafts: owner() === ownerScope ? [draft] : [] }),
+        readLocalCalendarDrafts: async (_database, owner) => ({ drafts: owner() === ownerScope ? [draft] : [] }), subscribeLocalCalendar: () => () => {} },
+      './use-personal-google-sync': { usePersonalGoogleSync: () => () => {} },
+    },
+  });
+  t.after(() => screen.unmount());
+  await screen.flush();
+  assert.match(screen.text(), /Local event/);
+  assert.doesNotMatch(screen.text(), /Shared draft/); assert.equal(authStarts, 0);
+  workspace.active = { ...group, protocol: 2 }; screen.render(); await screen.flush();
+  assert.match(screen.text(), /Shared draft/); assert.equal(authStarts, 1);
+  auth.currentUser = { uid: 'other' }; screen.render();
+  assert.doesNotMatch(screen.text(), /Shared draft/);
+});

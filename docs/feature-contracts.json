@@ -9815,6 +9815,22 @@
     "feature": "encrypted-saved-home-never-authorizes-unverified-commands",
     "tests": [
       {
+        "file": "tests/startup-display-platform.test.mjs",
+        "name": "a change to current membership during decryption discards the old presentation even if its registry record remains"
+      },
+      {
+        "file": "tests/sharing-workspace-provider.test.mjs",
+        "name": "a changed membership scope clears the cold display even when an earlier workspace is still opening"
+      },
+      {
+        "file": "tests/calendar-observer-recovery.test.mjs",
+        "name": "cold group display reads personal events without starting Auth for unpublished group drafts"
+      },
+      {
+        "file": "tests/cold-private-completion.test.mjs",
+        "name": "${platform} ${label}"
+      },
+      {
         "file": "tests/startup-display.test.mjs",
         "name": "saved home expires at the personal midnight even while the shared household is still on the same date"
       },

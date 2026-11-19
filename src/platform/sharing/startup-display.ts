@@ -89,8 +89,6 @@ export async function canShowPersonalStartup() {
 export async function readSavedStartupDisplay() {
   const selection = await traceStartup('startup.selection', readSharingSelection); if (!selection) return;
   const db = await traceStartup('startup.registry', () => sharingRegistryDatabase({ presentationOnly: true }));
-  const current = await db.getFirstAsync<{ group_id: string | null }>('SELECT group_id FROM sharing_current_workspace WHERE user_id=?', selection.userId);
-  if (current?.group_id !== selection.groupId) return;
   const record = await traceStartup('startup.record', () => readSharingDisplayCandidate(db, selection.userId, selection.groupId)); if (!record || record.status !== 'active') return;
   const scope = traceStartupSync('startup.displayScope', () => startupDisplayScope(record));
   const model = await traceStartup('startup.savedModel', () => startupDisplayCache.read(record)); if (!model) return;

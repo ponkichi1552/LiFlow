@@ -20,13 +20,17 @@ import { isSharingInitialSyncPending } from '@/features/sharing/workspace-initia
 /** Personal data stays mounted; a membership adds shared data to the same four tabs. */
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const displayGate = useMemo(() => createInitialDisplayGate<SharedWorkspace>(), []);
+  const [startupDisplay, setStartupDisplay] = useState<WorkspaceContextValue['startupDisplay']>(null);
+  const displayed = useRef<WorkspaceContextValue['startupDisplay']>(null);
+  const showStartupDisplay = useCallback((value: WorkspaceContextValue['startupDisplay']) => {
+    displayed.current = value; setStartupDisplay(value);
+  }, []);
   const completeInitialDisplay = useCallback((workspace: SharedWorkspace) => {
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => displayGate.complete(workspace));
     else setTimeout(() => displayGate.complete(workspace), 0);
-    if (activeRef.current === workspace) setStartupDisplay(null);
-  }, [displayGate]);
+    if (activeRef.current === workspace) showStartupDisplay(null);
+  }, [displayGate, showStartupDisplay]);
   const [active, setActive] = useState<SharedWorkspace | null>(null);
-  const [startupDisplay, setStartupDisplay] = useState<WorkspaceContextValue['startupDisplay']>(null);
   const activeRef = useRef<SharedWorkspace | null>(null);
   const [group, setGroup] = useState<SharingWorkspaceRecord | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -35,6 +39,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [initialSyncPending, setInitialSyncPending] = useState(false);
   const [ready, setReady] = useState(false); const [error, setError] = useState<string | null>(null);
   const alive = useRef(true); const revision = useRef(0);
+  const authenticatedRevision = useRef<{ revision: number; userId: string | null } | null>(null);
   const refreshSharing = useCallback(async function refresh(): Promise<void> {
     const current = ++revision.current; const user = await traceStartup('workspace.authentication', sharingSessionUser);
     const check = async () => {
@@ -45,25 +50,29 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     try {
       const record = user ? await traceStartup('workspace.membership', currentSharingWorkspace) : null;
       if (!await check()) return;
+      const alreadyDisplayed = displayed.current;
+      // The authenticated membership and the presentation still have to agree when refreshes overlap.
+      const keepStartupDisplay = alreadyDisplayed && record && record.userId === user?.uid
+        && startupDisplayCache.canReuse(record, alreadyDisplayed.model);
+      if (alreadyDisplayed && !keepStartupDisplay) showStartupDisplay(null);
       if (activeRef.current?.userId !== user?.uid) {
         activeRef.current = null; setActive(null);
         setRestoration(null); setInitialSyncPending(false);
-        // A verified cache for this same account remains visible while its live
-        // workspace restores. Do not briefly remove the tab/route hierarchy.
-        setStartupDisplay(previous => previous?.record.userId === user?.uid ? previous : null);
       }
       setGroup(record); setUserId(user?.uid ?? null);
       const eligible = record && ['active', 'creating'].includes(record.status);
       let next = eligible ? activeRef.current : null;
       if (eligible && (next?.userId !== user!.uid || next.groupId !== record.groupId)) {
-        const model = await traceStartup('workspace.savedDisplay', () => startupDisplayCache.read(record));
-        if (!await check()) return;
-        if (model) {
-          // Present only authenticated local ciphertext. This does not construct
-          // a writable workspace or skip the real restoration/authority checks.
-          setStartupDisplay({ record, model }); setReady(true);
-          await waitForInitialFrame();
+        if (!keepStartupDisplay) {
+          const model = await traceStartup('workspace.savedDisplay', () => startupDisplayCache.read(record));
           if (!await check()) return;
+          if (model) {
+            // Present only authenticated local ciphertext. This does not construct
+            // a writable workspace or skip the real restoration/authority checks.
+            showStartupDisplay({ record, model }); setReady(true);
+            await waitForInitialFrame();
+            if (!await check()) return;
+          }
         }
         next = await traceStartup('workspace.open', () => openSharedWorkspace(record));
         if (next.protocol === null) next = null;
@@ -75,7 +84,8 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       else if (!record) await saveSharingSelection(null);
       if (!await check()) return;
       activeRef.current = next; setActive(next); setGroup(record); setUserId(user?.uid ?? null); setError(null); setInitialSyncPending(false);
-      if (!next) setStartupDisplay(null);
+      authenticatedRevision.current = { revision: current, userId: user?.uid ?? null };
+      if (!next) showStartupDisplay(null);
       void import('@/platform/sharing/v2-reminders').then(module => module.clearInactiveV2Reminders(record?.status === 'active' ? [record] : [], async () => {
         if (!await check()) throw new Error('通知を更新するアカウントが変わりました。');
         const latest = await currentSharingWorkspace();
@@ -83,20 +93,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       })).catch(() => undefined);
     } catch (cause) {
       if (!await check()) return;
-      if (activeRef.current?.userId !== user?.uid) { activeRef.current = null; setActive(null); setGroup(null); setStartupDisplay(null); }
+      if (activeRef.current?.userId !== user?.uid) { activeRef.current = null; setActive(null); setGroup(null); showStartupDisplay(null); }
       setUserId(user?.uid ?? null);
       const pending = isSharingInitialSyncPending(cause); setInitialSyncPending(pending);
       setError(pending ? null : cause instanceof Error ? cause.message : '所属グループを読み込めませんでした。保存内容を保持しています。');
     }
     if (alive.current && current === revision.current) setSessionStarted(true);
-  }, []);
+  }, [showStartupDisplay]);
   useEffect(() => {
     alive.current = true;
     void (async () => {
       try {
         const saved = await traceStartup('workspace.savedStartup', readSavedStartupDisplay).catch(() => undefined);
         if (saved && alive.current && revision.current === 0) {
-          setStartupDisplay(saved); setGroup(saved.record); setUserId(saved.record.userId); setReady(true);
+          showStartupDisplay(saved); setGroup(saved.record); setUserId(saved.record.userId); setReady(true);
           await waitForInitialFrame();
         }
         const selected = await readSharingSelection();
@@ -107,15 +117,22 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         }
         if (enabled) await refreshSharing();
       }
-      catch { if (alive.current) { setStartupDisplay(null); setError('所属グループの保存情報を読み込めませんでした。'); } }
+      catch { if (alive.current) { showStartupDisplay(null); setError('所属グループの保存情報を読み込めませんでした。'); } }
       finally { if (alive.current) setReady(true); }
     })();
     const unsubscribe = subscribeSharingChanges(change => { if (!change?.statusOnly) void refreshSharing().catch(() => undefined); });
     return () => { alive.current = false; unsubscribe(); };
-  }, [refreshSharing]);
+  }, [refreshSharing, showStartupDisplay]);
   useEffect(() => {
     if (!sessionStarted) return;
-    return observeSharingUser(() => { void refreshSharing().catch(() => undefined); });
+    let first = true;
+    const last = authenticatedRevision.current;
+    return observeSharingUser(user => {
+      // Firebase immediately emits its initial state for a new observer.
+      const alreadyHandled = first && last?.revision === revision.current && last.userId === (user?.uid ?? null);
+      first = false;
+      if (!alreadyHandled) void refreshSharing().catch(() => undefined);
+    });
   }, [refreshSharing, sessionStarted]);
   const groupKey = JSON.stringify([group?.groupId, group?.status, group?.localGeneration,
     group?.rosterArchive?.at(-1)?.body.schedulerVersion]);

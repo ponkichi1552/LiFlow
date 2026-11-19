@@ -87,8 +87,13 @@ test('saved home falls back to a fresh authenticated read on missing keys future
 });
 test('saved home expires at the personal midnight even while the shared household is still on the same date', async () => {
   const f = await fixture(); const model = { ...f.model, plan: { ...f.model.plan, timeZone: 'UTC' } };
-  await f.cache.write(f.record, model); assert.ok(await f.cache.read(f.record));
-  f.setNow('2026-10-31T15:00:00Z'); assert.equal(await f.cache.read(f.record), undefined);
+  await f.cache.write(f.record, model); const restored = await f.cache.read(f.record);
+  assert.ok(restored); assert.equal(f.cache.canReuse(f.record, restored), true);
+  assert.equal(f.cache.canReuse(f.record, model), false, 'a model that was never authenticated cannot be reused');
+  assert.equal(f.cache.canReuse({ ...f.record, localGeneration: 'changed' }, restored), false);
+  f.setNow('2026-10-31T15:00:00Z');
+  assert.equal(f.cache.canReuse(f.record, restored), false);
+  assert.equal(await f.cache.read(f.record), undefined);
 });
 test('saved presentation cannot restore or rewrite deleted shared audit history under a newer retention boundary', async () => {
   const f = await fixture(); await f.cache.write(f.record, f.model);

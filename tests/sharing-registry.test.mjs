@@ -43,6 +43,9 @@ test('display candidates defer signature work only behind authenticated cipherte
   await assert.rejects(api.readSharingWorkspace(coldConnection, 'owner', 'group-test')); assert.equal(validations, 2);
   const mutated = await api.readSharingDisplayCandidate(coldConnection, 'owner', 'group-test'); mutated.displayName = 'changed by caller';
   assert.equal((await api.readSharingDisplayCandidate(coldConnection, 'owner', 'group-test')).displayName, h.record.displayName);
+  await h.database.runAsync('UPDATE sharing_current_workspace SET group_id=? WHERE user_id=?', 'group-new', 'owner');
+  assert.equal(await api.readSharingDisplayCandidate(coldConnection, 'owner', 'group-test'), null);
+  assert.ok(await h.database.getFirstAsync('SELECT 1 FROM sharing_workspaces WHERE user_id=? AND group_id=?', 'owner', 'group-test'));
 });
 
 test('unchanged registry bytes reuse validation while every read still checks SQLite and returns isolated current account data', async () => {

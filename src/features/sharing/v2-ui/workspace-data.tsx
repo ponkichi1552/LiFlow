@@ -133,13 +133,13 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
   const sharedCompletion = useMemo(() => context.userId && groupId ? sharedCompletionIntents({ userId: context.userId, groupId,
     generation: completionGeneration, loadSession: () => restoring.get() }) : undefined, [context.userId, groupId, completionGeneration, restoring]);
   const personalHousehold = personalSnapshot?.household;
-  const personalCompletion = useMemo(() => personalHousehold ? personalCompletionIntents(personalDatabase, personalHousehold) : undefined,
+  const personalCompletion = useMemo(() => personalDatabase ? personalCompletionIntents(personalDatabase, personalHousehold) : undefined,
     // The household's creation identity changes after reinstall/reset; its name does not change the save scope.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [personalDatabase, personalHousehold?.id, personalHousehold?.createdAt]);
-  useEffect(() => sharedCompletion?.acquire(() => completionScope.current.userId === context.userId && completionScope.current.groupId === groupId
+  useLayoutEffect(() => sharedCompletion?.acquire(() => completionScope.current.userId === context.userId && completionScope.current.groupId === groupId
     && completionScope.current.generation === completionGeneration), [sharedCompletion, context.userId, groupId, completionGeneration]);
-  useEffect(() => personalCompletion?.acquire(), [personalCompletion]);
+  useLayoutEffect(() => personalCompletion?.acquire(), [personalCompletion]);
   const binding = useMemo<WorkspaceDisplayBinding>(() => ({
     workspace: active, invalidate: store.invalidate,
     sharedCompletion, personalCompletion,

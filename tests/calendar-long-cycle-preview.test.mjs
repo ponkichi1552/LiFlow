@@ -113,6 +113,27 @@ test('a moved long round stays visible after its original configuration ends and
   } finally { d.connection.close(); }
 });
 for (const platform of ['ios', 'android']) {
+  test(`${platform} a cold personal Calendar link releases the splash after the calendar is laid out`, async t => {
+    let input; let hidden = 0;
+    const finishStartupDisplay = () => { hidden++; };
+    const screen = screenHarness('src/app/(tabs)/explore.tsx', { platform, snapshot: () => input, mocks: {
+      '@/hooks/use-task-completion': { useTaskCompletion: () => ({ pending: new Set(), project: rows => rows, canToggle: () => false }) },
+      '@/features/calendar/use-local-calendar': { useLocalCalendar: () => undefined },
+      '@/features/calendar/planner-calendar': { PlannerCalendar: () => 'calendar-content' },
+      '@/components/planner-load-state': { PlannerLoadState: () => 'calendar-loading' },
+      '@/platform/diagnostics/startup-splash': { finishStartupDisplay },
+    } });
+    t.after(() => screen.unmount());
+    assert.match(screen.text(), /calendar-loading/); assert.equal(hidden, 0);
+    input = { ...snapshot([], []), today: day, household: { id: 'local-household' }, hiddenWasteOccurrenceKeys: [], wasteSchedules: [], members: [], timeZone: 'Asia/Tokyo' };
+    await screen.flush();
+    assert.match(screen.text(), /calendar-content/); assert.equal(hidden, 0);
+    const surface = screen.nodes().find(node => node.props.onLayout === finishStartupDisplay);
+    assert.ok(surface, 'the mounted Calendar surface owns its own splash release');
+    surface.props.onLayout();
+    assert.equal(hidden, 1);
+  });
+
   test(`${platform} personal calendars show only the next long round and preserve the unfinished original after expiry`, async () => {
     const input = { ...snapshot([chore('annual', 365), chore('short', 7)], [entry('old', 'annual', '2026-11-01', '2026-11-03'), entry('short-far', 'short', '2027-11-01')]),
       today: day, household: { id: 'local-household' }, hiddenWasteOccurrenceKeys: [], wasteSchedules: [], members: [], timeZone: 'Asia/Tokyo' };

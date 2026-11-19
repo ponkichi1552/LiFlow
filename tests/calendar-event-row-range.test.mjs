@@ -36,6 +36,11 @@ test('calendar display-range reads skip large saved history and retain moved exc
   assert.deepEqual(page.events.map(row => row.id), ['series'], 'explicit search can page beyond the visible-range projection');
   assert.deepEqual(page.exceptions.map(row => row.anchorDate), ['2026-10-30'], 'a history page keeps the moved override with its parent');
   assert.equal(h.connection.prepare('SELECT count(*) n FROM calendar_events WHERE deleted=0').get().n, 10_003, 'range reads retain every historical source row');
+  const readAll = h.database.getAllAsync;
+  h.database.getAllAsync = async (sql, ...params) => {
+    assert.doesNotMatch(sql, /SELECT e\.\* FROM calendar_events/u, 'over-limit historical bodies must stay in SQLite');
+    return readAll(sql, ...params);
+  };
   await assert.rejects(readCalendarEventRows(h.database), CalendarHistoryLimitError, 'unbounded direct reads keep the typed history limit');
 });
 

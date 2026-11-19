@@ -165,7 +165,10 @@ export function readSharingWorkspace(database: SQLiteDatabase, userId: string, g
 export function readSharingDisplayCandidate(database: SQLiteDatabase, userId: string, groupId: string): Promise<SharingWorkspaceRecord | null> {
   assertSharedIdentifier(userId); assertSharedIdentifier(groupId);
   return serial(database, async () => {
-    const row = await database.getFirstAsync<{ record_json: string }>('SELECT record_json FROM sharing_workspaces WHERE user_id = ? AND group_id = ?', userId, groupId);
+    const row = await database.getFirstAsync<{ record_json: string }>(`
+      SELECT workspace.record_json FROM sharing_current_workspace current
+      JOIN sharing_workspaces workspace ON workspace.user_id=current.user_id AND workspace.group_id=current.group_id
+      WHERE current.user_id=? AND current.group_id=?`, userId, groupId);
     if (!row || row.record_json.length > 1_048_576) return null;
     // Defer the expensive first Ed25519 initialization until the real session
     // restores. The encrypted display's authenticated scope still commits to the

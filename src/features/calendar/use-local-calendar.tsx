@@ -58,7 +58,9 @@ export function useLocalCalendar(database?: SQLiteDatabase, includeGroupDrafts =
 /** Read personal events and only the current viewer's unpublished group drafts from this SQLite file. */
 function useObservedLocalCalendar(database?: SQLiteDatabase): LocalCalendarBinding {
   const workspace = useContext(WorkspaceContext);
-  const selected = workspace?.active?.protocol === 2 ? workspace.active : workspace?.startupDisplay?.record;
+  // An encrypted startup view can show its calendar before authentication. Drafts
+  // still need live membership and should not bring Auth onto the initial render.
+  const selected = workspace?.active?.protocol === 2 ? workspace.active : undefined;
   const membership = workspace?.group;
   const selectedGroup = database && workspace?.ready && selected && membership && selected.userId === workspace.userId
     && membership.userId === selected.userId && membership.groupId === selected.groupId && (membership.status === 'active' || membership.status === 'creating') ? selected : undefined;

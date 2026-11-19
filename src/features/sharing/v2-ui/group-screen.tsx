@@ -134,8 +134,9 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   const feedbackEpoch = useRef(0);
   const display = useHomeDisplay();
   const insets = useSafeAreaInsets();
-  const [lastUndo, setLastUndo] = useState<{ undo: () => Promise<unknown>; queued?: boolean } | null>(null);
-  useEffect(() => { if (!lastUndo || busy && !lastUndo.queued) return; const timer = setTimeout(() => setLastUndo(null), 6500); return () => clearTimeout(timer); }, [lastUndo, busy]);
+  const [lastUndo, setLastUndo] = useState<{ undo: () => Promise<unknown>; queuedKey?: string } | null>(null);
+  const undoFailed = lastUndo?.queuedKey && (sharedIntents.failed.has(lastUndo.queuedKey) || personalIntents.failed.has(lastUndo.queuedKey));
+  useEffect(() => { if (!lastUndo || busy && !lastUndo.queuedKey) return; const timer = setTimeout(() => setLastUndo(null), 6500); return () => clearTimeout(timer); }, [lastUndo, busy]);
   const alive = useRef(false); const generation = useRef(0); const running = useRef(false);
   const notificationTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const mutationRead = useRef(false); const refreshQueued = useRef(false);
@@ -233,7 +234,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         if (!runtime) throw new Error('完了操作の保存先を確認できません。');
         const targetKey = target.kind === 'shared' ? key : personalCompletionKey(target.command.revision);
         const accepted = runtime.queue.request(targetKey, target, completed);
-        if (accepted && view === 'home') setLastUndo(completed ? { queued: true, undo: async () => runtime.queue.request(targetKey, target, false) } : null);
+        if (accepted && view === 'home') setLastUndo(completed ? { queuedKey: targetKey, undo: async () => runtime.queue.request(targetKey, target, false) } : null);
       } catch { setError('完了操作の保存先を確認できません。'); }
     },
     run: async (key, completed, work) => {
@@ -251,12 +252,13 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   const run = async (work: () => Promise<unknown>) => { await perform(work); };
   const groupName = typeof screenModel?.plan.commonSettings.name === 'string' ? screenModel.plan.commonSettings.name : workspaceName ?? '共有グループ';
   const actionError = error ?? sharedIntents.error ?? personalIntents.error;
+  const retryCompletion = sharedIntents.failed.size || personalIntents.failed.size ? <AppButton title="保存を再試行" variant="quiet" compact
+    onPress={() => { sharedCompletion?.queue.retryFailed(); personalCompletion?.queue.retryFailed(); }} /> : null;
   const notice = purpose === 'development' || workspaceError || actionError ? <View style={styles.notice}>
     {purpose === 'development' ? <Text style={styles.caption}>検査用の独立したデータです。既存データやログイン中のアカウントを使わず、共有操作をクラウドへ送信しません。</Text> : null}
     {workspaceError ? <Text accessibilityRole="alert" style={styles.error}>{workspaceError}</Text> : null}
     {actionError ? <Text accessibilityRole="alert" style={styles.error}>{actionError}</Text> : null}
-    {sharedIntents.failed.size || personalIntents.failed.size ? <AppButton title="保存を再試行" variant="quiet" compact
-      onPress={() => { sharedCompletion?.queue.retryFailed(); personalCompletion?.queue.retryFailed(); }} /> : null}
+    {retryCompletion}
   </View> : null;
   if ((!screenModel || !session) && (view === 'details' || view === 'configuration')) return <V2ScreenFrame purpose={purpose} startupReady={Boolean(error)} style={styles.safe} edges={['top']}>
     <NavigationHeader><View style={styles.settingsHeader}><BackButton onPress={onBack} /><Text style={styles.settingsHeaderTitle}>家事ごとの設定</Text></View></NavigationHeader>
@@ -436,7 +438,8 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     <Animated.FlatList data={listRows} itemLayoutAnimation={LinearTransition.duration(240)} keyExtractor={(entry) => entry.key} contentContainerStyle={[styles.page, styles.homeContent]} initialNumToRender={8}
       ListHeaderComponent={<>
         <HomeProgress summary={summary} total={total} done={done} />
-        {workspaceError || error || display.error ? <Text accessibilityRole="alert" style={styles.error}>{workspaceError ?? error ?? display.error}</Text> : null}
+        {workspaceError || actionError || display.error ? <Text accessibilityRole="alert" style={styles.error}>{actionError ?? workspaceError ?? display.error}</Text> : null}
+        {purpose === 'workspace' ? retryCompletion : null}
         <SectionHeading title="今日の家事" trailing={<LoadSortButton order={display.order} onPress={display.toggle} />} />
         <V2PrivateTaskNotice overlay={privateOverlay} sharedTimeZone={model.plan.timeZone} />
         {privateOverlay?.status === 'ready' && privateOverlay.today !== model.plan.range.asOfDate ? <Text style={styles.caption}>個人の今日：{privateOverlay.today} · 共有の今日：{model.plan.range.asOfDate}</Text> : null}
@@ -460,9 +463,9 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         {purpose === 'development' ? <Card><SectionHeading title="設定を検査" />{model.configurations.map((entry) =>
           <AppButton key={entry.choreId} title={`「${model.plan.chores.find((chore) => chore.id === entry.choreId)?.name ?? '家事'}」の設定`} variant="quiet" disabled={busy} onPress={() => onConfiguration(entry.choreId)} />)}</Card> : null}
       </View>} />
-    {lastUndo ? <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: Math.max(insets.bottom, 8) }}><CompletionToast busy={busy && !lastUndo.queued} onUndo={() => {
-      if ((!lastUndo.queued && running.current) || !alive.current) return; const receipt = lastUndo;
-      if (receipt.queued) void receipt.undo().then(accepted => {
+    {lastUndo && !undoFailed ? <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: Math.max(insets.bottom, 8) }}><CompletionToast busy={busy && !lastUndo.queuedKey} onUndo={() => {
+      if ((!lastUndo.queuedKey && running.current) || !alive.current) return; const receipt = lastUndo;
+      if (receipt.queuedKey) void receipt.undo().then(accepted => {
         if (accepted !== false && alive.current) setLastUndo(current => current === receipt ? null : current);
       }).catch(() => { if (alive.current) setError('取り消しを保存できませんでした。もう一度お試しください。'); });
       else { setLastUndo(null); void perform(receipt.undo); }

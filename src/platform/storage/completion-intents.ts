@@ -6,7 +6,7 @@ import type { CompletionIntent } from '../../features/planner/completion-intents
 import { captureCompletionTarget, completionIntentDigest, personalCompletionKey, prepareCompletionRequest } from '../../features/planner/completion-command.ts';
 import type { CompletionTarget } from '../../features/planner/completion-command';
 import { protectedCompletionIntentStore } from './completion-intent-store.ts';
-import { LOCAL_HOUSEHOLD_ID, loadPlannerSnapshot, setPersonalDateTaskCompletedIntent } from './repository';
+import { initializedPersonalHousehold, LOCAL_HOUSEHOLD_ID, loadPlannerSnapshot, setPersonalDateTaskCompletedIntent } from './repository';
 import { syncGoogleTasksAfterLocalCompletion } from '../../features/google-sync/coordinator';
 import type { V2GroupUiSession } from '../../features/sharing/v2-ui/screen-session';
 
@@ -44,7 +44,8 @@ const personal = new Map<string, { runtime: CompletionIntentRuntime; database: S
  * rejects old Keychain requests when iOS keeps Keychain data after reinstall.
  * Personal requests remain local and independent of group login or departure.
  */
-export function personalCompletionIntents(database: SQLiteDatabase, household: Household): CompletionIntentRuntime {
+export function personalCompletionIntents(database: SQLiteDatabase, household: Pick<Household, 'id' | 'createdAt'> | undefined = initializedPersonalHousehold(database)): CompletionIntentRuntime | undefined {
+  if (!household) return;
   if (household.id !== LOCAL_HOUSEHOLD_ID || !Number.isFinite(Date.parse(household.createdAt))) throw new Error('個人家事の保存先を確認できません。');
   const scope = JSON.stringify(['personal', household.id, household.createdAt]);
   const householdCreatedAt = household.createdAt;

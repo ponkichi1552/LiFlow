@@ -69,11 +69,17 @@ export async function readCalendarEventRows(database: SQLiteDatabase, range?: Ca
     projectionRange.through, addDays(projectionRange.from, -366), projectionRange.from, projectionRange.through, projectionRange.through, projectionRange.from] : [];
   const eventScopeSql = target ? ' AND e.id=?' : `${rangeSql}${page?.afterId ? ' AND e.id>?' : ''}`;
   const eventScopeValues = target ? [target.eventId] : [...rangeValues, ...(page?.afterId ? [page.afterId] : [])];
+  // Check the cap inside SQLite before copying and validating historical event bodies.
+  if (!range && !target && !page && await database.getFirstAsync(
+    `SELECT 1 FROM calendar_events e WHERE e.deleted=0${visibleSql} LIMIT 1 OFFSET 10000`, ...parameters)) {
+    throw new CalendarHistoryLimitError();
+  }
   const rawRows = await database.getAllAsync<{ id: string; definition_json: string; revision: number }>(
     `SELECT e.* FROM calendar_events e WHERE e.deleted=0${visibleSql}${eventScopeSql} ORDER BY e.id LIMIT ${page ? '?' : '10001'}`,
     ...parameters, ...eventScopeValues, ...(page ? [page.limit + 1] : []));
   const hasMoreRows = Boolean(page && rawRows.length > page.limit);
   const rows = hasMoreRows ? rawRows.slice(0, page!.limit) : rawRows;
+  if (!page && rows.length > 10000) throw new CalendarHistoryLimitError();
   const exceptionRangeSql = range ? ` AND (x.anchor_date BETWEEN ? AND ? OR (x.override_json IS NOT NULL
     AND json_extract(x.override_json,'$.startDate')<=? AND json_extract(x.override_json,'$.endDate')>=?))` : '';
   const exceptionRangeValues = projectionRange ? [projectionRange.from, projectionRange.through, projectionRange.through, projectionRange.from] : [];
@@ -83,7 +89,7 @@ export async function readCalendarEventRows(database: SQLiteDatabase, range?: Ca
   const exceptionPageSql = page ? ' AND x.event_id IN (SELECT value FROM json_each(?))' : '';
   const exceptions = await database.getAllAsync<{ event_id: string; anchor_date: LocalDate; override_json: string | null; revision: number }>(
     `SELECT x.* FROM calendar_event_exceptions x JOIN calendar_events e ON e.id=x.event_id WHERE e.deleted=0${visibleSql}${exceptionTargetSql}${exceptionPageSql} LIMIT 20001`, ...parameters, ...exceptionTargetValues);
-  if (!page && rows.length > 10000 || exceptions.length > 20000) throw new CalendarHistoryLimitError();
+  if (exceptions.length > 20000) throw new CalendarHistoryLimitError();
   const cache = validated.get(database);
   const rangeKey = range ? `${range.from}:${range.through}` : null;
   const previous = target || page ? undefined : rangeKey ? cache?.ranges.get(rangeKey) : cache?.full;

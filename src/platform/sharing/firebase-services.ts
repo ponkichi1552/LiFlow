@@ -35,8 +35,10 @@ function createServices() {
     if (!(error && typeof error === 'object' && 'code' in error && error.code === 'auth/already-initialized')) throw error;
     auth = getAuth(app);
   }
-  const firestore = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
-  return { app, auth, firestore };
+  let firestore: ReturnType<typeof initializeFirestore> | undefined;
+  return { app, auth, get firestore() {
+    return firestore ??= initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+  } };
 }
 
 /** Personal mode does not initialize Firebase or require any account. */

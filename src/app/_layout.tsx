@@ -63,8 +63,8 @@ export default function RootLayout() {
   const theme = { ...baseTheme, colors: { ...baseTheme.colors, background: colors.background, card: colors.surface,
     text: colors.ink, border: colors.border, primary: colors.accent, notification: colors.warning } };
   return (
-    <SubscriptionBoundary><SQLiteProvider databaseName="housework.db" onInit={initialize}>
-      <WorkspaceProvider>
+    <SubscriptionBoundary><WorkspaceProvider>
+      <SQLiteProvider databaseName="housework.db" onInit={initialize}>
         <ActiveWorkspaceScope>
           <PlannerDataProvider>
             <LocalCalendarProvider>
@@ -83,7 +83,7 @@ export default function RootLayout() {
             </LocalCalendarProvider>
           </PlannerDataProvider>
         </ActiveWorkspaceScope>
-      </WorkspaceProvider>
-    </SQLiteProvider></SubscriptionBoundary>
+      </SQLiteProvider>
+    </WorkspaceProvider></SubscriptionBoundary>
   );
 }

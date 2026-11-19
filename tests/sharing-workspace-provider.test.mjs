@@ -235,18 +235,20 @@ test('active workspace scope never injects a legacy provider and preserves the p
 });
 
 for (const platform of ['ios', 'android']) test(`${platform} the same restored account keeps its saved tab hierarchy visible while membership is still loading`, async () => {
-  const effects = []; let finishAuthentication; let finishMembership; let finishCache;
-  const record = { userId: 'owner', groupId: 'house', status: 'active' }; const model = { viewerUserId: 'owner', plan: { groupId: 'house' } };
+  const effects = []; let finishAuthentication; let finishMembership; let openWorkspace; let reads = 0;
+  const record = { userId: 'owner', groupId: 'house', status: 'active', anchor: {}, rosterArchive: [] };
+  const model = { viewerUserId: 'owner', plan: { groupId: 'house' } };
   const authentication = new Promise(resolve => { finishAuthentication = resolve; });
   const membership = new Promise(resolve => { finishMembership = resolve; });
   const screen = screenHarness('src/hooks/use-workspace.tsx', { platform, exportName: 'WorkspaceProvider', effectDependencies: true,
     effect: callback => effects.push(callback), mocks: {
       '@/components/planner-ui': {}, '@/contexts/workspace-context': { WorkspaceContext: { Provider: 'WorkspaceContextProvider' } },
-      '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => ({ record, model }), startupDisplayCache: { read: () => new Promise(resolve => { finishCache = resolve; }) } },
+      '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => ({ record, model }),
+        startupDisplayCache: { canReuse: (candidate, view) => candidate === record && view === model, read: async () => { reads++; return model; } } },
       '@/platform/sharing/auth': {}, '@/platform/sharing/private-calendar-sync': {},
       '@/platform/sharing/workspaces': { readSharingSelection: async () => ({ userId: 'owner', groupId: 'house' }), hasSharingSessionEnabled: async () => true,
         sharingSessionUser: () => authentication, currentSharingWorkspace: () => membership,
-        openSharedWorkspace: async () => ({ protocol: 2, userId: 'owner', groupId: 'house', drain: async () => {} }),
+        openSharedWorkspace: () => new Promise(resolve => { openWorkspace = resolve; }),
         saveSharingSelection: async () => {}, subscribeSharingChanges: () => () => {} },
     } });
   const cleanup = effects[0]();
@@ -256,12 +258,78 @@ for (const platform of ['ios', 'android']) test(`${platform} the same restored a
     finishAuthentication({ uid: 'owner' }); await screen.flush();
     assert.deepEqual(current().startupDisplay.model, model, 'authentication must not tear down the same account route hierarchy');
     finishMembership(record);
-    for (const deadline = Date.now() + 1000; !finishCache && Date.now() < deadline;) { await new Promise(resolve => setTimeout(resolve, 2)); await screen.flush(); }
-    assert.ok(finishCache); assert.deepEqual(current().startupDisplay?.model, model);
-    finishCache(model);
+    for (const deadline = Date.now() + 1000; !openWorkspace && Date.now() < deadline;) { await new Promise(resolve => setTimeout(resolve, 2)); await screen.flush(); }
+    assert.ok(openWorkspace); assert.deepEqual(current().startupDisplay?.model, model);
+    assert.equal(reads, 0, 'the same boot has already decrypted the exact current scope');
+    assert.equal(current().active, null, 'presenting authenticated local ciphertext does not authorize writes');
+    openWorkspace({ protocol: 2, userId: 'owner', groupId: 'house', drain: async () => {} });
     for (let i = 0; i < 12; i++) { await new Promise(resolve => setTimeout(resolve, 1)); await screen.flush(); }
     assert.equal(current().active?.groupId, 'house');
   } finally { cleanup?.(); screen.unmount(); }
+});
+
+test('a changed membership scope clears the cold display even when an earlier workspace is still opening', async t => {
+  const effects = []; let finishCache; let finishOriginal;
+  const saved = { userId: 'owner', groupId: 'house', status: 'active', anchor: {}, rosterArchive: [] };
+  const live = { ...saved, historyRetention: { throughSequence: 12, cutoff: '2026-11-01', digest: 'a'.repeat(64) } };
+  const model = { viewerUserId: 'owner', plan: { groupId: 'house' } };
+  let membership = saved;
+  const screen = screenHarness('src/hooks/use-workspace.tsx', { exportName: 'WorkspaceProvider', effect: callback => effects.push(callback), mocks: {
+    '@/components/planner-ui': {}, '@/contexts/workspace-context': { WorkspaceContext: { Provider: 'WorkspaceContextProvider' } },
+    '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => ({ record: saved, model }),
+      startupDisplayCache: { canReuse: (input, view) => input === saved && view === model,
+        read: input => { assert.equal(input, live); return new Promise(resolve => { finishCache = resolve; }); } } },
+    '@/platform/sharing/auth': {}, '@/platform/sharing/private-calendar-sync': {},
+    '@/platform/sharing/workspaces': { readSharingSelection: async () => ({ userId: 'owner', groupId: 'house' }), subscribeSharingChanges: () => () => {},
+      sharingSessionUser: async () => ({ uid: 'owner' }), currentSharingWorkspace: async () => membership,
+      openSharedWorkspace: input => input === saved ? new Promise(resolve => { finishOriginal = resolve; }) : Promise.resolve({ ...live, protocol: 2, drain: async () => {} }),
+      saveSharingSelection: async () => {} },
+  } });
+  const cleanup = effects[0]();
+  t.after(() => { cleanup?.(); screen.unmount(); finishCache?.(undefined); finishOriginal?.({ ...saved, protocol: 2, drain: async () => {} }); });
+  const current = () => screen.nodes().find(node => node.props.value)?.props.value;
+  for (const deadline = Date.now() + 1000; !finishOriginal && Date.now() < deadline;) { await new Promise(resolve => setTimeout(resolve, 2)); await screen.flush(); }
+  assert.ok(finishOriginal);
+  assert.equal(current().startupDisplay?.model, model);
+  membership = live;
+  const refreshing = current().refreshSharing();
+  for (const deadline = Date.now() + 1000; !finishCache && Date.now() < deadline;) { await new Promise(resolve => setTimeout(resolve, 2)); await screen.flush(); }
+  assert.ok(finishCache);
+  assert.equal(current().startupDisplay, null);
+  assert.equal(current().active, null);
+  finishCache(undefined); await refreshing; await screen.flush();
+  assert.deepEqual(current().active.historyRetention, live.historyRetention);
+});
+
+for (const [initial, firstObserved, initialReadFails] of [
+  ['owner', 'owner', false], ['owner', 'other', false], ['owner', 'owner', true],
+]) test(`the first auth emission is reused only for a successful current refresh (${firstObserved}, ${initialReadFails})`, async t => {
+  const effects = [];
+  let uid = initial, membershipReads = 0, emit;
+  const screen = screenHarness('src/hooks/use-workspace.tsx', { exportName: 'WorkspaceProvider', effectDependencies: true,
+    effect: callback => effects.push(callback), mocks: {
+      '@/components/planner-ui': {}, '@/contexts/workspace-context': { WorkspaceContext: { Provider: 'WorkspaceContextProvider' } },
+      '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => undefined, canShowPersonalStartup: async () => false },
+      '@/platform/sharing/auth': { observeSharingUser: callback => { emit = callback; return () => {}; } },
+      '@/platform/sharing/private-calendar-sync': {},
+      '@/platform/sharing/workspaces': { readSharingSelection: async () => null, hasSharingSessionEnabled: async () => true, subscribeSharingChanges: () => () => {},
+        sharingSessionUser: async () => ({ uid }), currentSharingWorkspace: async () => {
+          if (++membershipReads === 1 && initialReadFails) throw new Error('Synthetic read error');
+          return null;
+        }, saveSharingSelection: async () => {} },
+    } });
+  const cleanup = effects[0]();
+  t.after(() => { cleanup?.(); screen.unmount(); });
+  for (const deadline = Date.now() + 1000; membershipReads === 0 && Date.now() < deadline;) { await new Promise(resolve => setTimeout(resolve, 2)); await screen.flush(); }
+  await screen.flush();
+  effects.at(-2)();
+  assert.equal(typeof emit, 'function');
+  uid = firstObserved; emit({ uid });
+  await screen.flush();
+  const expected = firstObserved === initial && !initialReadFails ? 1 : 2;
+  assert.equal(membershipReads, expected);
+  emit({ uid }); await screen.flush();
+  assert.equal(membershipReads, expected + 1, 'later auth events still refresh the membership and account');
 });
 
 for (const platform of ['ios', 'android']) for (const registryBroken of [false, true]) {

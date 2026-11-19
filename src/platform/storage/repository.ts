@@ -96,7 +96,12 @@ export function plannerGenerationRange(today: LocalDate) {
   return { from: today, through: addDays(today, 180) };
 }
 
-const initializedHouseholds = new WeakSet<SQLiteDatabase>();
+type HouseholdIdentity = Pick<Household, 'id' | 'createdAt'>;
+const initializedHouseholds = new WeakMap<SQLiteDatabase, HouseholdIdentity>();
+/** Captured by the personal database bootstrap, before a planner snapshot is ready. */
+export function initializedPersonalHousehold(database: SQLiteDatabase) {
+  return initializedHouseholds.get(database);
+}
 const operationTails = new WeakMap<SQLiteDatabase, Promise<unknown>>();
 const plannerVersions = new WeakMap<SQLiteDatabase, number>();
 const snapshotVersions = new WeakMap<PlannerSnapshot, number>();
@@ -379,17 +384,17 @@ async function ensureLocalHouseholdImpl(database: SQLiteDatabase): Promise<void>
   if (await database.getFirstAsync("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sharing_workspace_metadata'")) {
     throw new Error('共有DBはアカウントとグループを確認してから開いてください。');
   }
-  const existing = await database.getFirstAsync<{ built_in_chore_catalog_version: number }>(
-    `SELECT s.built_in_chore_catalog_version FROM household_settings s
+  const existing = await database.getFirstAsync<HouseholdIdentity & { built_in_chore_catalog_version: number }>(
+    `SELECT h.id,h.created_at AS createdAt,s.built_in_chore_catalog_version FROM household_settings s
      JOIN households h ON h.id=s.household_id
      JOIN household_members m ON m.household_id=h.id AND m.id=?
      WHERE s.household_id=?`, LOCAL_MEMBER_ID, LOCAL_HOUSEHOLD_ID,
   );
   if (existing && existing.built_in_chore_catalog_version >= PERSONAL_CHORE_CATALOG_VERSION) {
-    initializedHouseholds.add(database); return;
+    initializedHouseholds.set(database, { id: existing.id, createdAt: existing.createdAt }); return;
   }
   const now = new Date().toISOString();
-  await withAdaptiveOwnerTransaction(database, async () => {
+  const household = await withAdaptiveOwnerTransaction(database, async () => {
     await database.runAsync(
       'INSERT OR IGNORE INTO households (id, name, created_at) VALUES (?, ?, ?)',
       LOCAL_HOUSEHOLD_ID, 'わが家', now,
@@ -410,8 +415,11 @@ async function ensureLocalHouseholdImpl(database: SQLiteDatabase): Promise<void>
     // Catalogue6 removes retired built-ins, but custom/appliance history survives.
     // Preserve the one-time repair required by older private completion records.
     if (existing && existing.built_in_chore_catalog_version < 2) await repairRetainedFutureCompletionStates(database);
+    const row = await database.getFirstAsync<HouseholdIdentity>('SELECT id,created_at AS createdAt FROM households WHERE id=?', LOCAL_HOUSEHOLD_ID);
+    if (!row) throw new Error('Local household could not be initialized');
+    return row;
   });
-  initializedHouseholds.add(database);
+  initializedHouseholds.set(database, household);
 }
 
 async function repairRetainedFutureCompletionStates(database: SQLiteDatabase): Promise<void> {

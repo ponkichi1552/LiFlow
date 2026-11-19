@@ -33,7 +33,8 @@ function fixture() {
     './workspaces.ts': { readSharingSelection: async () => selection, sharingRegistryDatabase: async () => ({ getFirstAsync: async sql => {
       onQuery(); return sql.includes('SELECT 1') ? rows ? { present: 1 } : null : { group_id: slot };
     } }) },
-    '../storage/sharing-registry.ts': { readSharingWorkspace: async () => record, readSharingDisplayCandidate: async () => record },
+    '../storage/sharing-registry.ts': { readSharingWorkspace: async () => record,
+      readSharingDisplayCandidate: async (_db, userId, groupId) => userId === record.userId && groupId === slot ? record : null },
     '../storage/isolated-transaction.ts': transactions,
   });
   return { module, record, model, reads: () => reads, select: value => { selection = value; }, rows: value => { rows = value; }, query: fn => { onQuery = fn; }, slot: value => { slot = value; }, after: work => { afterRead = work; } };
@@ -48,6 +49,11 @@ test('a logout or account switch during encrypted startup restoration discards t
   for (const selection of [null, { userId: 'different', groupId: 'house' }, { userId: 'owner', groupId: 'new-house' }]) {
     const f = fixture(); f.after(() => f.select(selection)); assert.equal(await f.module.readSavedStartupDisplay(), undefined);
   }
+});
+test('a change to current membership during decryption discards the old presentation even if its registry record remains', async () => {
+  const f = fixture(); f.after(() => f.slot('new-house'));
+  assert.equal(await f.module.readSavedStartupDisplay(), undefined);
+  assert.equal(f.reads(), 1);
 });
 test('a deletion checkpoint adopted while the startup view decrypts prevents old history rendering', async () => {
   const f = fixture(); f.after(() => { f.record.historyRetention = { cutoff: '2026-10-01', throughSequence: 10, digest: 'a'.repeat(64) }; });

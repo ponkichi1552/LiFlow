@@ -23,6 +23,7 @@ import { personalLongCalendarPreviews } from '@/features/calendar/long-cycle-pre
 import { completionRecordedDate } from '@/domain/scheduling/completion-matching';
 import { calendarChoreDisplayThrough } from '@/features/calendar/chore-display-range';
 import { calendarChoreTimeLabel } from '@/features/calendar/chore-time-label';
+import { finishStartupDisplay } from '@/platform/diagnostics/startup-splash';
 
 export default function CalendarScreen() {
   return <WorkspaceTab view="calendar"><PersonalCalendarScreen /></WorkspaceTab>;
@@ -54,7 +55,7 @@ function PersonalCalendarScreen() {
     return <Animated.View key={`${dateTaskKey(task)}:${date}`} layout={LinearTransition.duration(240)}><TaskCheckboxRow compact calendarTimeLabel={showTime ? calendarChoreTimeLabel(task.entry?.calendarTime, snapshot.timeZone ?? 'Asia/Tokyo') : undefined} contextLabel={task.entry?.calendarTimeIssue ? '時刻を確認' : undefined} chore={chore} completed={task.completed} source={choreSource} seasonalWork={task.entry?.seasonalWork ?? task.completion?.seasonalWork} executionWindow={task.entry ? { start: task.entry.windowStart, end: task.entry.windowEnd } : task.completion?.scheduledWindowStart && task.completion?.scheduledWindowEnd ? { start: task.completion.scheduledWindowStart, end: task.completion.scheduledWindowEnd } : undefined}
       onOpen={() => open(chore.id)} onChangeDate={choreSource === 'personal' && !task.completed && task.entry ? () => router.navigate({ pathname: '/calendar-chore-date', params: { choreId: chore.id, entryId: task.entry!.id } }) : undefined} onToggle={completion.canToggle(task) ? () => void completion.toggle(task) : undefined} /></Animated.View>;
   };
-  return <SafeAreaView edges={['top']} style={styles.safe}>
+  return <SafeAreaView edges={['top']} style={styles.safe} onLayout={finishStartupDisplay}>
     <PlannerCalendar today={today} timeZone={snapshot.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone} selectedDate={selectedDate} onSelectDate={setSelectedDate} local={local}
       timedChores={snapshot.scheduleEntries.flatMap(entry => entry.calendarTime && chores.has(entry.choreId) ? [{ id: entry.id, name: chores.get(entry.choreId)!.name, ...entry.calendarTime, onOpen: () => choreSource === 'personal' ? router.navigate({ pathname: '/calendar-chore-date', params: { choreId: entry.choreId, entryId: entry.id } }) : open(entry.choreId) }] : [])}
       busy={completion.pending.size > 0} onNavigate={navigate}

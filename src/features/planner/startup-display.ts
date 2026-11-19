@@ -36,6 +36,14 @@ export function startupDisplayScope(record: SharingWorkspaceRecord): string {
     generation: record.localGeneration ?? null, status: record.status, anchor: record.anchor, archive: record.rosterArchive });
 }
 
+function isFresh(model: Model, savedAt: number, now: Date): boolean {
+  const age = now.getTime() - savedAt;
+  if (!Number.isFinite(age) || age < 0 || age > 24 * 60 * 60_000
+    || sharedLocalDate(now, model.plan.timeZone) !== model.plan.range.asOfDate) return false;
+  const overlay = model.privateOverlay;
+  return overlay?.status !== 'ready' || sharedLocalDate(now, overlay.timeZone) === overlay.today;
+}
+
 /** Encrypted, device-local presentation only. The real session still verifies every operation. */
 export function createStartupDisplayCache(input: {
   crypto: SharingCryptoGateway;
@@ -46,7 +54,13 @@ export function createStartupDisplayCache(input: {
   now?: () => Date;
 }) {
   const now = input.now ?? (() => new Date());
+  const verified = new WeakMap<Model, { scope: string; savedAt: number }>();
   return {
+    canReuse(record: SharingWorkspaceRecord, model: Model) {
+      const received = verified.get(model);
+      return Boolean(received && record.status === 'active' && received.scope === startupDisplayScope(record)
+        && isFresh(model, received.savedAt, now()));
+    },
     async read(record: SharingWorkspaceRecord): Promise<Model | undefined> {
       if (record.status !== 'active') return;
       try {
@@ -66,16 +80,15 @@ export function createStartupDisplayCache(input: {
         }
         if (plaintext.length > MAX_BYTES) return;
         const { savedAt, model } = JSON.parse(decoder.decode(plaintext));
-        if (!Number.isFinite(savedAt) || now().getTime() < savedAt || now().getTime() - savedAt > 24 * 60 * 60_000
-          || model.viewerUserId !== record.userId || model.plan.groupId !== record.groupId
-          || sharedLocalDate(now(), model.plan.timeZone) !== model.plan.range.asOfDate) return;
+        if (!Number.isFinite(savedAt) || model.viewerUserId !== record.userId || model.plan.groupId !== record.groupId
+          || !isFresh(model, savedAt, now())) return;
         if (record.historyRetention && (record.historyRetention.digest !== model.plan.historyRetention?.digest || model.legacyHistory?.length)) return;
         if (model.privateOverlay?.status === 'ready') {
-          if (model.privateOverlay.ownerUserId !== record.userId
-            || sharedLocalDate(now(), model.privateOverlay.timeZone) !== model.privateOverlay.today) return;
+          if (model.privateOverlay.ownerUserId !== record.userId) return;
           model.privateOverlay.byDate = new Map(model.privateOverlay.byDate);
           model.privateOverlay.counts = new Map(model.privateOverlay.counts);
         }
+        verified.set(model, { scope: envelope.scope, savedAt });
         return model;
       } catch { /* A missing, stale or modified presentation falls back to the authenticated read. */ }
     },
