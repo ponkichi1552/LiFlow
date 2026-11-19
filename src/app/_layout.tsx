@@ -22,12 +22,14 @@ import { plannerColorsForScheme } from '@/components/planner-theme';
 import { WorkspaceDisplayProvider } from '@/features/sharing/v2-ui/workspace-data';
 import { LocalCalendarProvider } from '@/features/calendar/use-local-calendar';
 import { traceStartup } from '@/platform/diagnostics/startup-timing';
+import { prepareSavedStartupDisplay } from '@/platform/sharing/startup-display';
 import { SubscriptionBoundary } from '@/features/subscription/subscription-boundary';
 import { initializeAppAppearance } from '@/hooks/use-app-appearance';
 
 const initialize = (database: Parameters<typeof initializeLocalDatabase>[0]) => traceStartup('database.initialize', () => initializeLocalDatabase(database));
 initializeAppAppearance();
 prepareStartupDisplay(SplashScreen);
+prepareSavedStartupDisplay();
 
 function WidgetInteractionBridge() {
   const { database, refresh } = usePlannerData();

@@ -117,13 +117,14 @@ for (const [platform, name] of [
 });
 
 for (const platform of ['ios', 'android']) test(`${platform} cold startup restores the local display before mounting planner calendar and prefetch work`, async () => {
-  let ready = false; const started = [];
+  let ready = false; let displayPrepared = false; const started = [];
   const provider = name => ({ children }) => { started.push(name); return children; };
   const screen = screenHarness('src/app/_layout.tsx', { platform, mocks: {
     '@/features/appliance-care/analysis-receipt-bridge': { AnalysisReceiptBridge: () => null },
     'expo-router': { ThemeProvider: ({ children }) => children, DarkTheme: { colors: {} }, DefaultTheme: { colors: {} } },
     'expo-sqlite': { SQLiteProvider: ({ children }) => children },
     '@/platform/diagnostics/startup-splash': { prepareStartupDisplay() {} },
+    '@/platform/sharing/startup-display': { prepareSavedStartupDisplay() { displayPrepared = true; } },
     '@/hooks/use-app-appearance': { initializeAppAppearance() {} },
     '@/platform/storage/repository': { initializeLocalDatabase: async () => {} },
     '@/features/google-sync/coordinator': { syncGoogleTasksAfterLocalCompletion() {} },
@@ -141,6 +142,7 @@ for (const platform of ['ios', 'android']) test(`${platform} cold startup restor
     '@/features/calendar/use-local-calendar': { LocalCalendarProvider: provider('calendar') },
   } });
   try {
+    assert.equal(displayPrepared, true);
     assert.deepEqual(started, [], 'background providers must not compete with initial protected-display restoration');
     ready = true; await screen.flush();
     for (const kind of ['planner', 'calendar', 'prefetch']) assert.ok(started.includes(kind));

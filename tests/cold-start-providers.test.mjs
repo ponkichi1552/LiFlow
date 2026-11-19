@@ -36,7 +36,7 @@ for (const platform of ['ios', 'android']) {
           '@/platform/storage/repository': { initializeLocalDatabase: async handle => {
             assert.equal(handle, database); started.push('database'); await reads.database.promise;
           } },
-          '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => {
+          '@/platform/sharing/startup-display': { prepareSavedStartupDisplay() {}, readSavedStartupDisplay: async () => {
             started.push('workspace'); await reads.workspace.promise;
           } },
           '@/platform/sharing/workspaces': { readSharingSelection: async () => null, hasSharingSessionEnabled: async () => false,

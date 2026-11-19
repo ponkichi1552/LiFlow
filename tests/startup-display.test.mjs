@@ -23,6 +23,24 @@ test('a restarted home restores authenticated encrypted presentation including p
   assert.deepEqual(restored, f.model); assert.ok(restored.privateOverlay.byDate instanceof Map);
   assert.equal(restored.privateOverlay.counts.get('2026-10-31'), 0);
 });
+test('cold display begins key and ciphertext reads while the selected membership is being verified', async () => {
+  const f = await fixture(); await f.cache.write(f.record, f.model);
+  let resolveRecord; let opened = 0; const started = [];
+  const candidate = new Promise(resolve => { resolveRecord = resolve; });
+  const cache = createStartupDisplayCache({ ...f.dependencies,
+    read: async (...scope) => { started.push('ciphertext'); return f.dependencies.read(...scope); },
+    key: async (...args) => { started.push('key'); return f.dependencies.key(...args); },
+    crypto: { ...crypto, decrypt: (...args) => { opened++; return crypto.decrypt(...args); } },
+  });
+  const waiting = cache.readFromSelection(f.record, candidate);
+  assert.deepEqual(started, ['ciphertext', 'key']);
+  assert.equal(opened, 0);
+  resolveRecord(f.record);
+  assert.deepEqual(await waiting, { record: f.record, model: f.model });
+  assert.equal(opened, 1);
+  assert.equal(await cache.readFromSelection(f.record, Promise.resolve({ ...f.record, groupId: 'other' })), undefined);
+  assert.equal(opened, 1, 'incorrect membership must be rejected before decryption');
+});
 test('startup display refuses an authenticated pre-backlog plan instead of queueing a completion against its obsolete round target', async () => {
   const f = await fixture(); const scope = sharedDocumentDigest({ version: 1, userId: f.record.userId, groupId: f.record.groupId,
     historyRetention: null, generation: f.record.localGeneration, status: f.record.status, anchor: f.record.anchor, archive: f.record.rosterArchive });

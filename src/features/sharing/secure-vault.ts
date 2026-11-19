@@ -62,6 +62,14 @@ export function createSecureVault(gateway: SecureKeyValueGateway, randomBytes: (
       || value.removed !== null && !value.values.some(item => item.generation === value.removed)) throw new Error('Secure storage cleanup is invalid');
     return value;
   }
+  async function readJournal(base: string): Promise<readonly [Cleanup | null, Manifest | null]> {
+    // Both are read-only under the same per-key queue. Settle both calls before
+    // allowing a later writer to replace the manifest or deletion marker.
+    const [pending, active] = await Promise.allSettled([cleanup(base), manifest(base)]);
+    if (pending.status === 'rejected') throw pending.reason;
+    if (active.status === 'rejected') throw active.reason;
+    return [pending.value, active.value];
+  }
   async function writeMetadata(key: string, value: unknown) {
     const raw = JSON.stringify(value);
     try { await gateway.set(key, raw); }
@@ -89,8 +97,8 @@ export function createSecureVault(gateway: SecureKeyValueGateway, randomBytes: (
   return {
     getItem(key: string): Promise<string | null> {
       return serial(key, async () => {
-        const base = name(key); const pending = await cleanup(base);
-        const { active: info } = await sweep(base, pending, await manifest(base));
+        const base = name(key); const [pending, active] = await readJournal(base);
+        const { active: info } = await sweep(base, pending, active);
         // A durable deletion marker denies access even while a native removal is failing.
         if (!info || info.generation === pending?.removed) return null;
         const chunks = await nativeBatch(info.chunks, i => gateway.get(`${base}.${info.generation}.${i}`));
@@ -119,7 +127,8 @@ export function createSecureVault(gateway: SecureKeyValueGateway, randomBytes: (
       if (data.length > MAX_VALUE_BYTES) return Promise.reject(new Error('Secure storage value is too large'));
       return serial(key, async () => {
         const base = name(key);
-        const recovered = await sweep(base, await cleanup(base), await manifest(base));
+        const [pendingCleanup, manifestBeforeWrite] = await readJournal(base);
+        const recovered = await sweep(base, pendingCleanup, manifestBeforeWrite);
         if (recovered.error) throw recovered.error;
         const previous = recovered.active;
         const random = await randomBytes(16);
@@ -146,7 +155,7 @@ export function createSecureVault(gateway: SecureKeyValueGateway, randomBytes: (
     },
     removeItem(key: string): Promise<void> {
       return serial(key, async () => {
-        const base = name(key); const active = await manifest(base); const outstanding = await cleanup(base);
+        const base = name(key); const [outstanding, active] = await readJournal(base);
         if (!active && !outstanding) return;
         const values = [...(outstanding?.values ?? [])];
         if (active && !values.some(value => value.generation === active.generation)) values.push(active);

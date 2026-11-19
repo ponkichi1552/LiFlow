@@ -25,20 +25,40 @@ test('native base64 display decryption keeps the existing AES-GCM nonce cipherte
 
 function fixture() {
   let selection = { userId: 'owner', groupId: 'house' }; let afterRead = () => {}; let reads = 0; let rows = true; let onQuery = () => {};
+  let selectionReads = 0;
   const record = { ...selection, status: 'active', anchor: { groupId: 'house' }, rosterArchive: [] }; let slot = 'house';
   const model = { viewerUserId: 'owner', plan: { groupId: 'house' } };
+  let openedScope;
   const module = loadNativeModule('src/platform/sharing/startup-display.ts', {
-    '../../features/planner/startup-display.ts': { startupDisplayScope, createStartupDisplayCache: () => ({ read: async input => { reads++; assert.equal(input, record); afterRead(); return model; } }) },
+    '../../features/planner/startup-display.ts': { startupDisplayScope, createStartupDisplayCache: () => ({
+      readFromSelection: async (scope, candidate) => {
+        const input = await candidate; if (input?.status !== 'active') return;
+        assert.equal(input, record); assert.equal(scope.userId, record.userId);
+        openedScope = startupDisplayScope(input); reads++; afterRead();
+        return { record: input, model };
+      },
+      canReuse: input => startupDisplayScope(input) === openedScope,
+    }) },
     './native-crypto.ts': {}, './secure-store.ts': {},
-    './workspaces.ts': { readSharingSelection: async () => selection, sharingRegistryDatabase: async () => ({ getFirstAsync: async sql => {
+    './workspaces.ts': { readSharingSelection: async () => { selectionReads++; return selection; }, sharingRegistryDatabase: async () => ({ getFirstAsync: async sql => {
       onQuery(); return sql.includes('SELECT 1') ? rows ? { present: 1 } : null : { group_id: slot };
     } }) },
     '../storage/sharing-registry.ts': { readSharingWorkspace: async () => record,
       readSharingDisplayCandidate: async (_db, userId, groupId) => userId === record.userId && groupId === slot ? record : null },
     '../storage/isolated-transaction.ts': transactions,
   });
-  return { module, record, model, reads: () => reads, select: value => { selection = value; }, rows: value => { rows = value; }, query: fn => { onQuery = fn; }, slot: value => { slot = value; }, after: work => { afterRead = work; } };
+  return { module, record, model, reads: () => reads, selectionReads: () => selectionReads, select: value => { selection = value; }, rows: value => { rows = value; }, query: fn => { onQuery = fn; }, slot: value => { slot = value; }, after: work => { afterRead = work; } };
 }
+test('the foreground prefetch starts a single protected read and checks the current account again before presenting', async () => {
+  const f = fixture();
+  f.module.prepareSavedStartupDisplay();
+  f.module.prepareSavedStartupDisplay();
+  assert.equal(f.selectionReads(), 1);
+  f.select({ userId: 'new-user', groupId: 'house' });
+  assert.equal(await f.module.readSavedStartupDisplay(), undefined);
+  assert.equal(f.reads(), 1, 'the old selection supplied the encrypted lookup');
+  assert.equal(f.selectionReads(), 2, 'the former account cannot supply the displayed model');
+});
 test('startup presentation requires the protected selection and current single membership without initializing Firebase or opening a writable workspace', async () => {
   const f = fixture(); assert.deepEqual(await f.module.readSavedStartupDisplay(), { record: f.record, model: f.model });
   f.slot('another'); assert.equal(await f.module.readSavedStartupDisplay(), undefined); assert.equal(f.reads(), 1);

@@ -4,7 +4,7 @@ import { sharingSecureVault } from './secure-store.ts';
 import { readSharingSelection, sharingRegistryDatabase } from './workspaces.ts';
 import { readSharingWorkspace, readSharingDisplayCandidate } from '../storage/sharing-registry.ts';
 import { withIsolatedSqliteTransaction } from '../storage/isolated-transaction.ts';
-import { traceStartup, traceStartupSync } from '@/platform/diagnostics/startup-timing';
+import { traceStartup } from '@/platform/diagnostics/startup-timing';
 
 let initialization: Promise<void> | undefined;
 async function database() {
@@ -18,6 +18,17 @@ async function database() {
 }
 const keys = new Map<string, Promise<Uint8Array | null>>();
 const writes = new Map<string, Promise<unknown>>();
+let firstCandidate: ReturnType<typeof loadStartupCandidate> | undefined;
+let startedCandidate = false;
+
+/** Overlap the encrypted cache lookup with the foreground Router's first mount. */
+export function prepareSavedStartupDisplay() {
+  if (startedCandidate) return;
+  startedCandidate = true;
+  firstCandidate = loadStartupCandidate();
+  void firstCandidate.catch(() => undefined);
+}
+
 function serializeWrite<T>(userId: string, groupId: string, work: () => Promise<T>): Promise<T> {
   const name = JSON.stringify([userId, groupId]); const pending = (writes.get(name) ?? Promise.resolve()).then(work, work);
   const tail = pending.then(() => undefined, () => undefined); writes.set(name, tail);
@@ -85,15 +96,23 @@ export async function canShowPersonalStartup() {
   } catch { return false; }
 }
 
+async function loadStartupCandidate() {
+  const selection = await traceStartup('startup.selection', readSharingSelection); if (!selection) return;
+  const database = traceStartup('startup.registry', () => sharingRegistryDatabase({ presentationOnly: true }));
+  const candidate = database.then(db => traceStartup('startup.record', () => readSharingDisplayCandidate(db, selection.userId, selection.groupId)));
+  const saved = await traceStartup('startup.savedModel', () => startupDisplayCache.readFromSelection(selection, candidate)); if (!saved) return;
+  return { selection, model: saved.model, db: await database };
+}
+
 /** Restore the last verified local view while Firebase initializes. No live session or authority is created here. */
 export async function readSavedStartupDisplay() {
-  const selection = await traceStartup('startup.selection', readSharingSelection); if (!selection) return;
-  const db = await traceStartup('startup.registry', () => sharingRegistryDatabase({ presentationOnly: true }));
-  const record = await traceStartup('startup.record', () => readSharingDisplayCandidate(db, selection.userId, selection.groupId)); if (!record || record.status !== 'active') return;
-  const scope = traceStartupSync('startup.displayScope', () => startupDisplayScope(record));
-  const model = await traceStartup('startup.savedModel', () => startupDisplayCache.read(record)); if (!model) return;
+  const prepared = firstCandidate;
+  firstCandidate = undefined;
+  const cached = await (prepared?.catch(loadStartupCandidate) ?? loadStartupCandidate()); if (!cached) return;
+  const { selection, model, db } = cached;
   // Login/logout clear the protected selection before changing Firebase users.
   const latest = await traceStartup('startup.recheckSelection', readSharingSelection);
+  if (latest?.userId !== selection.userId || latest.groupId !== selection.groupId) return;
   const currentRecord = await traceStartup('startup.recheckRecord', () => readSharingDisplayCandidate(db, selection.userId, selection.groupId));
-  if (latest?.userId === selection.userId && latest.groupId === selection.groupId && currentRecord && startupDisplayScope(currentRecord) === scope) return { record, model };
+  if (currentRecord && startupDisplayCache.canReuse(currentRecord, model)) return { record: currentRecord, model };
 }

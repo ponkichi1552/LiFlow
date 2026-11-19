@@ -55,42 +55,49 @@ export function createStartupDisplayCache(input: {
 }) {
   const now = input.now ?? (() => new Date());
   const verified = new WeakMap<Model, { scope: string; savedAt: number }>();
+  async function readFromSelection(selection: Pick<SharingWorkspaceRecord, 'userId' | 'groupId'>,
+    candidate: Promise<SharingWorkspaceRecord | null>): Promise<{ record: SharingWorkspaceRecord; model: Model } | undefined> {
+    const { userId, groupId } = selection;
+    try {
+      const [record, raw, key] = await Promise.all([candidate, input.read(userId, groupId), input.key(userId, false)]);
+      if (!record || record.status !== 'active' || record.userId !== userId || record.groupId !== groupId) return;
+      if (!raw || !key || key.length !== 32 || raw.length > MAX_BYTES * 3) return;
+      const envelope = JSON.parse(raw);
+      if (envelope.version !== VERSION || envelope.scope !== startupDisplayScope(record)) return;
+      const aad = encoder.encode(envelope.scope);
+      let plaintext: Uint8Array;
+      if (envelope.encoding === 'base64' && input.decryptBase64) {
+        // Expo accepts base64 directly. Validate limits before crossing to native,
+        // without allocating and converting the entire saved display on the JS thread.
+        if (base64Length(envelope.nonce, 12) !== 12 || base64Length(envelope.ciphertext, MAX_BYTES + 16) < 16) return;
+        plaintext = await input.decryptBase64(key, envelope.nonce, envelope.ciphertext, aad);
+      } else {
+        plaintext = await input.crypto.decrypt(key, decodeBytes(envelope.nonce, 12, envelope.encoding), decodeBytes(envelope.ciphertext, MAX_BYTES + 16, envelope.encoding), aad);
+      }
+      if (plaintext.length > MAX_BYTES) return;
+      const { savedAt, model } = JSON.parse(decoder.decode(plaintext));
+      if (!Number.isFinite(savedAt) || model.viewerUserId !== record.userId || model.plan.groupId !== record.groupId
+        || !isFresh(model, savedAt, now())) return;
+      if (record.historyRetention && (record.historyRetention.digest !== model.plan.historyRetention?.digest || model.legacyHistory?.length)) return;
+      if (model.privateOverlay?.status === 'ready') {
+        if (model.privateOverlay.ownerUserId !== record.userId) return;
+        model.privateOverlay.byDate = new Map(model.privateOverlay.byDate);
+        model.privateOverlay.counts = new Map(model.privateOverlay.counts);
+      }
+      verified.set(model, { scope: envelope.scope, savedAt });
+      return { record, model };
+    } catch { /* A missing, stale or modified presentation falls back to the authenticated read. */ }
+  }
   return {
     canReuse(record: SharingWorkspaceRecord, model: Model) {
       const received = verified.get(model);
       return Boolean(received && record.status === 'active' && received.scope === startupDisplayScope(record)
         && isFresh(model, received.savedAt, now()));
     },
+    readFromSelection,
     async read(record: SharingWorkspaceRecord): Promise<Model | undefined> {
       if (record.status !== 'active') return;
-      try {
-        const [raw, key] = await Promise.all([input.read(record.userId, record.groupId), input.key(record.userId, false)]);
-        if (!raw || !key || key.length !== 32 || raw.length > MAX_BYTES * 3) return;
-        const envelope = JSON.parse(raw);
-        if (envelope.version !== VERSION || envelope.scope !== startupDisplayScope(record)) return;
-        const aad = encoder.encode(envelope.scope);
-        let plaintext: Uint8Array;
-        if (envelope.encoding === 'base64' && input.decryptBase64) {
-          // Expo accepts base64 directly. Validate limits before crossing to native,
-          // without allocating and converting the entire saved display on the JS thread.
-          if (base64Length(envelope.nonce, 12) !== 12 || base64Length(envelope.ciphertext, MAX_BYTES + 16) < 16) return;
-          plaintext = await input.decryptBase64(key, envelope.nonce, envelope.ciphertext, aad);
-        } else {
-          plaintext = await input.crypto.decrypt(key, decodeBytes(envelope.nonce, 12, envelope.encoding), decodeBytes(envelope.ciphertext, MAX_BYTES + 16, envelope.encoding), aad);
-        }
-        if (plaintext.length > MAX_BYTES) return;
-        const { savedAt, model } = JSON.parse(decoder.decode(plaintext));
-        if (!Number.isFinite(savedAt) || model.viewerUserId !== record.userId || model.plan.groupId !== record.groupId
-          || !isFresh(model, savedAt, now())) return;
-        if (record.historyRetention && (record.historyRetention.digest !== model.plan.historyRetention?.digest || model.legacyHistory?.length)) return;
-        if (model.privateOverlay?.status === 'ready') {
-          if (model.privateOverlay.ownerUserId !== record.userId) return;
-          model.privateOverlay.byDate = new Map(model.privateOverlay.byDate);
-          model.privateOverlay.counts = new Map(model.privateOverlay.counts);
-        }
-        verified.set(model, { scope: envelope.scope, savedAt });
-        return model;
-      } catch { /* A missing, stale or modified presentation falls back to the authenticated read. */ }
+      return (await readFromSelection(record, Promise.resolve(record)))?.model;
     },
     async write(record: SharingWorkspaceRecord, model: Model): Promise<void> {
       if (record.status !== 'active' || model.viewerUserId !== record.userId || model.plan.groupId !== record.groupId) return;

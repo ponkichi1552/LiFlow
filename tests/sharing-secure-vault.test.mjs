@@ -66,6 +66,29 @@ test('protected credential chunks are read concurrently after their committed ma
   assert.ok(releases.length > 1, 'native reads must not wait one chunk at a time');
   releases.forEach(resolve => resolve()); assert.equal(await pending, value);
 });
+test('both protected journal reads start together and a failed read drains them before the next writer', async () => {
+  const h = fixture(); await h.vault.setItem('account', 'original');
+  const pending = new Map(); let intercept = true;
+  const get = h.gateway.get;
+  h.gateway.get = key => {
+    if (!intercept) return get(key);
+    const part = key.split('.').at(-1);
+    return new Promise((resolve, reject) => pending.set(part, { key, resolve, reject }));
+  };
+  const first = assert.rejects(h.vault.getItem('account'), /failed read/);
+  const oldWrites = h.writes.length;
+  const writing = h.vault.setItem('account', 'next');
+  await new Promise(setImmediate);
+  assert.deepEqual([...pending.keys()].sort(), ['cleanup', 'manifest']);
+  intercept = false;
+  pending.get('cleanup').reject(new Error('failed read'));
+  await new Promise(setImmediate);
+  assert.equal(h.writes.length, oldWrites);
+  const remaining = pending.get('manifest');
+  remaining.resolve(await get(remaining.key));
+  await first; await writing;
+  assert.equal(await h.vault.getItem('account'), 'next');
+});
 
 test('concurrent secure-store writes are serialized and account namespaces remain independent', async () => {
   const h = fixture();

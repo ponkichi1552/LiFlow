@@ -56,6 +56,7 @@ module.exports = ({ config }) => {
   plugins.push('./plugins/with-liflow-theme');
   plugins.push('./plugins/with-android-api-styles');
   plugins.push('./plugins/with-android-security-dependencies');
+  plugins.push('./plugins/with-android-startup-profile');
   plugins.push(['expo-iap', { android: { store: 'play' } }]);
   if (!plugins.some(plugin => (typeof plugin === 'string' ? plugin : plugin[0]) === '@react-native-community/datetimepicker')) {
     plugins.push('@react-native-community/datetimepicker');

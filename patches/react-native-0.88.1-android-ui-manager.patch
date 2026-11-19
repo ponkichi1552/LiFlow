@@ -1,0 +1,216 @@
+--- a/node_modules/react-native/Libraries/ReactNative/BridgelessUIManager.js
++++ b/node_modules/react-native/Libraries/ReactNative/BridgelessUIManager.js
+@@ -29,12 +29,25 @@
+ const getUIManagerConstants: ?() => {[viewManagerName: string]: Object} =
+   global.RN$LegacyInterop_UIManager_getConstants;
+
++const earlyViewConfigs = new Map();
++let allViewConfigsLoaded = false;
+ const getUIManagerConstantsCached = (function () {
+   let wasCalledOnce = false;
+   let result: {[viewManagerName: string]: Object} = {};
+   return (): {[viewManagerName: string]: Object} => {
+     if (!wasCalledOnce) {
+       result = nullthrows(getUIManagerConstants)();
++      if (deferAndroidLegacy) {
++        for (const [name, config] of earlyViewConfigs) {
++          if (Object.prototype.hasOwnProperty.call(result, name)) {
++            result[name] = config;
++          }
++        }
++        installNativeFields(result);
++      }
++      for (const [name, config] of earlyViewConfigs) result[name] = config;
++      earlyViewConfigs.clear();
++      allViewConfigsLoaded = true;
+       wasCalledOnce = true;
+     }
+     return result;
+@@ -44,6 +57,12 @@
+ const getConstantsForViewManager: ?(viewManagerName: string) => ?Object =
+   global.RN$LegacyInterop_UIManager_getConstantsForViewManager;
+
++const deferAndroidLegacy =
++  !__DEV__ &&
++  Platform.OS === 'android' &&
++  typeof Proxy === 'function' &&
++  typeof getUIManagerConstants === 'function' &&
++  typeof getConstantsForViewManager === 'function';
+ const getDefaultEventTypes: ?() => Object =
+   global.RN$LegacyInterop_UIManager_getDefaultEventTypes;
+
+@@ -267,6 +286,15 @@
+   ...UIManagerJSUnusedInNewArchAPIs,
+   getViewManagerConfig: (viewManagerName: string): unknown => {
+     if (getUIManagerConstants) {
++      if (deferAndroidLegacy && !allViewConfigsLoaded) {
++        const known = earlyViewConfigs.get(viewManagerName);
++        if (known !== undefined) return known;
++        const value = nullthrows(getConstantsForViewManager)(viewManagerName);
++        if (value != null) {
++          earlyViewConfigs.set(viewManagerName, value);
++          return value;
++        }
++      }
+       const constants = getUIManagerConstantsCached();
+       if (
+         !constants[viewManagerName] &&
+@@ -396,19 +424,102 @@
+   },
+ };
+
+-if (getUIManagerConstants) {
+-  Object.keys(getUIManagerConstantsCached()).forEach(viewConfigName => {
+-    UIManagerJS[viewConfigName] = getUIManagerConstantsCached()[viewConfigName];
++// Keep the inherited legacy fields observable without asking native for every
++// view config during the module factory. Mutation and reflection materialize the
++// original own keys before the standard JavaScript operation runs.
++const nativeConfigGetters = new WeakSet();
++let publicManagerExposed = false;
++function defineLazyConfig(object, key, descriptor) {
++  defineLazyObjectProperty(object, key, descriptor);
++  nativeConfigGetters.add(Reflect.getOwnPropertyDescriptor(object, key).get);
++}
++function materializeLazyConfig(object, key) {
++  const getter = Reflect.getOwnPropertyDescriptor(object, key)?.get;
++  if (getter && nativeConfigGetters.has(getter)) Reflect.get(object, key);
++}
++function lazyLegacyObject(target, initialize) {
++  let ready = false;
++  const ensure = () => {
++    if (!ready) {
++      initialize();
++      ready = true;
++    }
++  };
++  const ensureUnknown = key => {
++    if (typeof key === 'string' && !Object.prototype.hasOwnProperty.call(target, key)) ensure();
++  };
++  return new Proxy(target, {
++    get(object, key, receiver) { ensureUnknown(key); return Reflect.get(object, key, receiver); },
++    has(object, key) { ensureUnknown(key); return Reflect.has(object, key); },
++    getOwnPropertyDescriptor(object, key) { ensureUnknown(key); if (object !== UIManagerJS || publicManagerExposed) materializeLazyConfig(object, key); return Reflect.getOwnPropertyDescriptor(object, key); },
++    ownKeys(object) { ensure(); return Reflect.ownKeys(object); },
++    set(object, key, value, receiver) { ensure(); if (object === UIManagerJS && publicManagerExposed) materializeLazyConfig(object, key); return Reflect.set(object, key, value, receiver); },
++    deleteProperty(object, key) { ensure(); if (object === UIManagerJS && publicManagerExposed) materializeLazyConfig(object, key); return Reflect.deleteProperty(object, key); },
++    defineProperty(object, key, descriptor) {
++      ensure();
++      materializeLazyConfig(object, key);
++      return Reflect.defineProperty(object, key, descriptor);
++    },
++    preventExtensions(object) {
++      ensure();
++      for (const key of Reflect.ownKeys(object)) materializeLazyConfig(object, key);
++      return Reflect.preventExtensions(object);
++    },
++    setPrototypeOf(object, prototype) { ensure(); return Reflect.setPrototypeOf(object, prototype); },
+   });
+-
+-  if (UIManagerJS.getConstants().ViewManagerNames) {
+-    UIManagerJS.getConstants().ViewManagerNames.forEach(viewManagerName => {
+-      defineLazyObjectProperty(UIManagerJS, viewManagerName, {
+-        get: () =>
+-          nullthrows(UIManagerJS.getConstantsForViewManager)(viewManagerName),
+-      });
++}
++let legacyPropertiesInstalled = false;
++let hydratePublic;
++function installNativeFields(constants) {
++  if (legacyPropertiesInstalled) return;
++  Object.keys(constants).forEach(name => { UIManagerJS[name] = constants[name]; });
++  constants.ViewManagerNames?.forEach(name => {
++    defineLazyConfig(UIManagerJS, name, {
++      get: () => nullthrows(UIManagerJS.getConstantsForViewManager)(name),
+     });
++  });
++  legacyPropertiesInstalled = true;
++  if (hydratePublic) hydratePublic();
++}
++function installLegacyProperties() {
++  if (!legacyPropertiesInstalled) installNativeFields(getUIManagerConstants ? getUIManagerConstantsCached() : {});
++}
++function createDeferredPublicManager(overrides) {
++  publicManagerExposed = true;
++  const result = {};
++  let hydrated = false;
++  function hydrate() {
++    if (hydrated) return;
++    for (const name of Reflect.ownKeys(UIManagerJS)) {
++      const descriptor = Object.getOwnPropertyDescriptor(UIManagerJS, name);
++      if (!descriptor?.enumerable) continue;
++      if (Object.prototype.hasOwnProperty.call(overrides, name)) {
++        result[name] = overrides[name];
++      } else if (typeof name === 'string' && descriptor.get) {
++        const get = descriptor.get;
++        defineLazyConfig(result, name, {get: () => get.call(UIManagerJS)});
++      } else {
++        Object.defineProperty(result, name, descriptor);
++      }
++    }
++    Object.assign(result, overrides);
++    hydrated = true;
+   }
+-}
+-
+-export default UIManagerJS;
++  if (legacyPropertiesInstalled) {
++    hydrate();
++  } else {
++    Object.assign(result, UIManagerJS, overrides);
++    hydratePublic = hydrate;
++  }
++  return lazyLegacyObject(result, () => { installLegacyProperties(); hydrate(); });
++}
++if (!deferAndroidLegacy) installLegacyProperties();
++
++export const getAndroidDefaultEventsBeforeConstants = deferAndroidLegacy && typeof getDefaultEventTypes === 'function'
++  ? () => {
++    if (allViewConfigsLoaded) return null;
++    const events = getDefaultEventTypesCached();
++    return events?.bubblingEventTypes && events?.directEventTypes ? events : null;
++  } : undefined;
++export const createAndroidUIManager = deferAndroidLegacy ? createDeferredPublicManager : undefined;
++export default deferAndroidLegacy ? lazyLegacyObject(UIManagerJS, installLegacyProperties) : UIManagerJS;
+--- a/node_modules/react-native/Libraries/ReactNative/UIManager.js
++++ b/node_modules/react-native/Libraries/ReactNative/UIManager.js
+@@ -23,9 +23,7 @@
+     ? require('./BridgelessUIManager').default
+     : require('./PaperUIManager').default;
+
+-// $FlowFixMe[cannot-spread-interface]
+-const UIManager: UIManagerJSInterface = {
+-  ...UIManagerImpl,
++const uiOverrides = {
+   /**
+    * Determines the location on screen, width, and height of the given view and
+    * returns the values via an async callback. If successful, the callback will
+@@ -242,5 +240,13 @@
+     }
+   },
+ };
+-
++const deferredPublic = global.RN$Bridgeless === true
++  ? require('./BridgelessUIManager').createAndroidUIManager
++  : undefined;
++const UIManager: UIManagerJSInterface = deferredPublic
++  ? deferredPublic(uiOverrides)
++  : {...UIManagerImpl, ...uiOverrides};
++export const getAndroidDefaultEventsBeforeConstants = global.RN$Bridgeless === true
++  ? require('./BridgelessUIManager').getAndroidDefaultEventsBeforeConstants
++  : undefined;
+ export default UIManager;
+--- a/node_modules/react-native/Libraries/ReactNative/getNativeComponentAttributes.js
++++ b/node_modules/react-native/Libraries/ReactNative/getNativeComponentAttributes.js
+@@ -115,6 +115,12 @@
+   // This is supported on UIManager platforms (ex: Android),
+   // as lazy view managers are not implemented for all platforms.
+   // See [UIManager] for details on constants and implementations.
++  // Both native Android representations use UIManagerModuleConstants' generic event maps.
++  const direct = require('./UIManager').getAndroidDefaultEventsBeforeConstants?.();
++  if (direct) {
++    merge(viewConfig, direct);
++    return;
++  }
+   const constants = UIManager.getConstants();
+   if (constants.ViewManagerNames || constants.LazyViewManagersEnabled) {
+     // Lazy view managers enabled.
