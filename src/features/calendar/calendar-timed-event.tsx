@@ -11,6 +11,10 @@ import { calendarDisplayedTitle } from './title-display';
 
 type Target = { day: LocalDate; minute: number };
 type PagePoint = Pick<GestureResponderEvent['nativeEvent'], 'pageX' | 'pageY'>;
+function pagePoint(event?: GestureResponderEvent): PagePoint | undefined {
+  const touch = event?.nativeEvent;
+  return touch && { pageX: touch.pageX, pageY: touch.pageY };
+}
 function createTimedDragControl() {
   let actions = { active: () => false, grant: () => {}, cancel: () => {},
     move: (_gesture: PanResponderGestureState, _point?: PagePoint) => {}, finish: (_gesture: PanResponderGestureState, _point?: PagePoint) => {} };
@@ -37,6 +41,7 @@ export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hou
   const [target, setTarget] = useState<Target | null>(null);
   const session = useRef<{ capture: Capture; origin: Target; touch?: PagePoint; days: readonly LocalDate[]; columnWidth: number; hourHeight: number;
     resolve?: (gesture: PanResponderGestureState) => Target | null } | null>(null);
+  const touchBeforeHold = useRef<PagePoint | undefined>(undefined);
   const claimed = useRef(false); const held = useRef(false); const saving = useRef(false); const alive = useRef(true);
   const reset = () => {
     session.current = null; claimed.current = false; pan.setValue({ x: 0, y: 0 });
@@ -87,14 +92,19 @@ export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hou
         saving.current = true;
         void onCommit(capture, next).catch(() => { /* The calendar owns save-error feedback. */ }).finally(() => { saving.current = false; });
       }}
-      accessibilityState={{ selected }} style={dateOnly ? undefined : styles.hit} onPressIn={() => { if (!saving.current) held.current = false; }}
+      accessibilityState={{ selected }} style={dateOnly ? undefined : styles.hit} onPressIn={touchEvent => {
+        if (saving.current) return;
+        held.current = false;
+        touchBeforeHold.current = pagePoint(touchEvent);
+      }} onPressMove={draggable ? touchEvent => {
+        if (!held.current && !saving.current) touchBeforeHold.current = pagePoint(touchEvent);
+      } : undefined}
       onPress={() => { if (!held.current && !saving.current) onOpen(); }} delayLongPress={CALENDAR_DRAG_HOLD_MS} onLongPress={draggable ? touchEvent => {
         if (saving.current || session.current) return;
         const capture = onBegin(); if (!capture) return;
         held.current = true; claimed.current = false;
         const origin = { day: event.startDate, minute: event.startMinute };
-        const native = touchEvent?.nativeEvent;
-        const touch = native && { pageX: native.pageX, pageY: native.pageY };
+        const touch = touchBeforeHold.current ?? pagePoint(touchEvent);
         session.current = { capture, origin, touch, days: [...days], columnWidth, hourHeight, resolve: onResolveTarget }; setTarget(origin); onActive(day);
       } : undefined}>{children}</Pressable>
     {target ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.outline]} /> : null}

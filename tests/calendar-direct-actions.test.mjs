@@ -135,13 +135,21 @@ for (const [platform, timedDragTest] of [
     t.after(() => screen.unmount());
     await selectCalendarView(screen, '1日表示');
     const touch = pageY => ({ nativeEvent: { pageX: 125, pageY } });
-    const hold = () => {
-      screen.button('会議を編集').props.onLongPress(touch(120));
+    const hold = (lastPressY = 120) => {
+      const props = screen.button('会議を編集').props;
+      props.onPressIn(touch(120));
+      if (lastPressY !== 120) props.onPressMove?.(touch(lastPressY));
+      props.onLongPress(touch(120));
       const card = screen.nodes().find(node => node.props.testID?.startsWith('calendar-movable-'));
       card.props.onPanResponderGrant(touch(150), { dx: 0, dy: 0 });
       return card.props;
     };
-    let drag = hold();
+    let drag = hold(123);
+    drag.onPanResponderRelease(touch(123), { dx: 0, dy: 0 });
+    await screen.flush();
+    assert.deepEqual(writes, [], 'movement before the hold completed does not count toward the drop');
+
+    drag = hold();
     drag.onPanResponderMove(touch(197), { dx: 0, dy: 47, numberActiveTouches: 1 });
     await screen.flush();
     assert.match(screen.text(), /11\/14 10:45/u);
