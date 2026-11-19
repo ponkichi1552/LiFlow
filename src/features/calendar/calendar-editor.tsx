@@ -39,9 +39,10 @@ import { v2WallTimeCandidates } from '../sharing/v2/local-time';
 
 export interface ExistingCalendarChore { id: string; name: string; minutes?: number; onOpen: () => void }
 export type CalendarChoreRegistrationProps = { date: EventDraft['startDate']; initialValue?: EventDraft; initialInput?: CalendarChoreInput; audience?: 'personal' | 'group';
-  onAudienceChange?(audience: 'personal' | 'group', input: CalendarChoreInput): void; onBack(audience?: 'personal' | 'group'): void; onCancel?(): void; onClose(): void; onSaved(date: EventDraft['startDate']): void; onBusyChange(busy: boolean): void };
+  onAudienceChange?(audience: 'personal' | 'group', input: CalendarChoreInput): void; onBack(audience?: 'personal' | 'group'): void; onCancel?(): void; onClose(): void;
+  onSaved(date: EventDraft['startDate'], notice?: string): void; onBusyChange(busy: boolean): void };
 export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, onDuplicate, repeatReturnTo = 'personal', renderChoreRegistration, displayTimeZone, choreForm, onChooseChore, onChoreAudience, onClearChore }: {
-  initial: CalendarEditorDraft; local: LocalCalendarBinding; chores?: readonly ExistingCalendarChore[]; onClose: () => void; onSaved: (date: EventDraft['startDate']) => void;
+  initial: CalendarEditorDraft; local: LocalCalendarBinding; chores?: readonly ExistingCalendarChore[]; onClose: () => void; onSaved: (date: EventDraft['startDate'], notice?: string) => void;
   repeatReturnTo?: 'personal' | 'group';
   onDuplicate?(draft: CalendarEditorDraft): void;
   renderChoreRegistration?(props: CalendarChoreRegistrationProps): ReactNode;
@@ -208,9 +209,9 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
             change(before => ({ ...before, value: newEventDraft(initial.value.startDate, initial.value.timeZone) }));
             if (local.database) void draftSession.current.clear(local.database).catch(cause => setError(cause instanceof Error ? cause.message : '入力内容を破棄できませんでした。')); },
           onClose: () => { if (choreLock.current) return; setRegisteringChore(false); close(); },
-          onSaved: date => { onChoreBusyChange(false); void work(async () => {
+          onSaved: (date, notice) => { onChoreBusyChange(false); void work(async () => {
             if (local.database) await draftSession.current.clear(local.database);
-            onSaved(date);
+            onSaved(date, notice);
           }); }, onBusyChange: onChoreBusyChange }} /> : <>
         <CalendarSheetHeader title={initial.eventId ? '予定を編集' : value.birthday ? '誕生日を追加' : '予定を追加'} busy={busy || choreForm?.busy}
           closeTitle={exitActions ? '戻る' : '閉じる'} closeExpanded={exitActions} onClose={() => { if (exitActions) setExitActions(false); else close(); }} onSave={choreForm ? choreForm.onSave : readOnly ? saveReminderOnly : saveReviewed} saveDisabled={Boolean(categoryEdit) || (readOnly && reminderSettings.loading) || (choreForm ? choreForm.disabled : !value.title.trim())} />

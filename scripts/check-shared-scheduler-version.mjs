@@ -18,10 +18,12 @@ const draft58Implementations = [
   { storage: 2, verifier: 1, calendarProjection: 1, digest: 'e075b9fefabd0a742bfdc14b5b0da442dcb01d1b37aa76ab6abd3c6a46902f53' },
   { storage: 2, verifier: 2, calendarProjection: 2, digest: 'f77ef950f6d51a38ff6b8420c1a15c3d06407d02061c19cdd64ca6dd2cd7474c' },
   { storage: 2, verifier: 2, calendarProjection: 3, digest: '3fe706c158b3016b0e6040364f6e9ed4d229895a12434db0a7bfbf6d2a2c9519' },
+  { storage: 2, verifier: 2, calendarProjection: 3, calendarRegistration: 2, digest: '4d4f6013fa6dce7d4c7b25ac35aee24ddf41f3eba5ff92d52f2ac79913b636a0' },
 ];
-const draft58ImplementationIndex = manifest => draft58Implementations.findIndex(({ storage, verifier, calendarProjection, digest }) =>
+const draft58ImplementationIndex = manifest => draft58Implementations.findIndex(({ storage, verifier, calendarProjection, calendarRegistration = 1, digest }) =>
   manifest.sourceSha256 === digest && (manifest.receiveStorageRevision ?? 1) === storage
-  && (manifest.signatureVerificationRevision ?? 1) === verifier && (manifest.calendarProjectionRevision ?? 1) === calendarProjection);
+  && (manifest.signatureVerificationRevision ?? 1) === verifier && (manifest.calendarProjectionRevision ?? 1) === calendarProjection
+  && (manifest.calendarRegistrationRevision ?? 1) === calendarRegistration);
 export function sharedSchedulerSourceDigest(files, read = (file) => readFileSync(resolve(root, file))) {
   const digest = createHash('sha256');
   for (const file of files) {

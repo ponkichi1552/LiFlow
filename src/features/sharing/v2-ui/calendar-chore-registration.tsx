@@ -26,6 +26,9 @@ export function V2CalendarChoreRegistration({ model, actions, busy, run, readOwn
   local?: LocalCalendarBinding;
 }) {
   const colors = plannerColorsForScheme(useColorScheme());
+  const savedRegistration = (fallback: LocalDate) => (_id: string, date?: LocalDate, needsDateApproval?: boolean) => {
+    sheet.onSaved(date ?? fallback, needsDateApproval ? '日時は担当者の承認後に確定します。' : undefined);
+  };
   const restored = registrationChore(sheet.initialInput, 'group', model.plan.chores, model.plan.groupId);
   function scheduled(choreId: string, date: LocalDate, input?: CalendarChoreInput): SelectedChore | null {
     const candidates = [...model.plan.occurrences, ...(model.calendarLong ?? [])].filter(round => round.choreId === choreId && round.activeInPeriod)
@@ -79,7 +82,7 @@ export function V2CalendarChoreRegistration({ model, actions, busy, run, readOwn
     const chore = model.plan.chores.find(row => row.id === selected.choreId);
     if (repeating && chore) return <V2AddChore model={model} actions={actions} busy={busy} run={commit} calendarDate={selected.date} calendarValue={selected.value} calendarClocks={selected.clocks} calendarInput={selected.input} initialChore={chore}
       onBack={() => setRepeating(false)} onRepeatChange={(repeat, value, clocks, input) => { if (value) setSelected(before => before && ({ ...before, date: value.startDate, value, clocks: clocks ?? before.clocks, input: input && { ...input, repeat } })); setRepeating(repeat); }} onBusyChange={sheet.onBusyChange} renderCalendarForm={renderForm}
-      onCreated={(_id, date) => sheet.onSaved(date ?? selected.date)} />;
+      onCreated={savedRegistration(selected.date)} />;
     return <V2DateForm model={model} round={round} subject={subject} actions={actions} busy={busy} run={commit} readOwnCalendar={readOwnCalendar}
       initialDate={selected.date} calendarValue={selected.value} calendarClocks={selected.clocks} calendarInput={selected.input} onSaved={date => sheet.onSaved(date ?? selected.date)} onRepeatChange={(repeat, value, clocks, input) => {
         if (value) setSelected(before => before && ({ ...before, date: value.startDate, value, clocks: clocks ?? before.clocks, input: input && { ...input, repeat } })); setRepeating(repeat);
@@ -88,7 +91,7 @@ export function V2CalendarChoreRegistration({ model, actions, busy, run, readOwn
   return <View style={{ flex: 1 }}>
     {selectionError ? <Text accessibilityRole="alert" style={{ ...typography.caption, color: colors.warning, paddingHorizontal: 16 }}>{selectionError}</Text> : null}
     <V2AddChore model={model} actions={actions} busy={busy} run={commit} calendarDate={sheet.date} calendarValue={sheet.initialValue} calendarInput={sheet.initialInput} initialChore={restored ?? undefined} onBack={sheet.onBack} onBusyChange={sheet.onBusyChange}
-      renderCalendarForm={renderForm} onCreated={(_id, date) => sheet.onSaved(date ?? sheet.date)} onOpenScheduled={(choreId, date, input) => {
+      renderCalendarForm={renderForm} onCreated={savedRegistration(sheet.date)} onOpenScheduled={(choreId, date, input) => {
         const next = scheduled(choreId, date, input);
         if (!next) { setSelectionError('この家事の予定を取得できませんでした。家事を選び直してください。'); return false; }
         setSelectionError(null); setSelected(next); return true;

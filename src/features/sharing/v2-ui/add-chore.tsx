@@ -33,8 +33,10 @@ import { changeChoreClock, emptyChoreClocks, withChoreClocks, type ChoreClocks }
 import { registrationOptions, type CalendarChoreInput } from '../../calendar/chore-registration-input';
 import { sharedRecipeId } from '../v2/standard-catalog';
 
+type SavedChore = { id: string; needsDateApproval: boolean };
+
 export function V2AddChore({ model, actions, busy, run, onCreated, onBack, header, calendarDate, onOpenScheduled, renderCalendarForm, onBusyChange, initialChore, onRepeatChange, calendarValue, calendarClocks, calendarInput }: { model?: V2GroupScreenModel; actions: V2GroupController['actions']; busy: boolean;
-  run: (work: () => Promise<unknown>) => Promise<void>; onCreated: (id: string, date?: LocalDate) => void; onBack: () => void; header?: ReactNode;
+  run: (work: () => Promise<unknown>) => Promise<void>; onCreated: (id: string, date?: LocalDate, needsDateApproval?: boolean) => void; onBack: () => void; header?: ReactNode;
   calendarDate?: LocalDate; onOpenScheduled?(choreId: string, date: LocalDate, input?: CalendarChoreInput): boolean | void;
   renderCalendarForm?(form: CalendarSheetForm): ReactNode; onBusyChange?(busy: boolean): void;
   initialChore?: CalendarChoreChoice; onRepeatChange?(repeat: boolean, value?: EventDraft, clocks?: ChoreClocks, input?: CalendarChoreInput): void; calendarValue?: EventDraft; calendarClocks?: ChoreClocks; calendarInput?: CalendarChoreInput }) {
@@ -60,14 +62,17 @@ export function V2AddChore({ model, actions, busy, run, onCreated, onBack, heade
   const [existing, setExisting] = useState<CalendarChoreChoice | null>(initialChore ?? null); const existingInput = useRef(existing);
   const hasChoice = useRef(Boolean(calendarInput));
   const input = useRef(draft); const pending = useRef(false); const alive = useRef(true);
-  const durable = useRef<string | null>(null); const [createdId, setCreatedId] = useState<string | null>(null);
+  const durable = useRef<SavedChore | null>(null); const [createdId, setCreatedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null); const [saving, setSaving] = useState(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const edit = (patch: Partial<typeof draft>) => { if (pending.current || busy || durable.current) return; input.current = { ...input.current, ...patch }; setDraft(input.current); setError(null); };
   const create = async () => {
     if (pending.current || busy) return; pending.current = true; setSaving(true); onBusyChange?.(true); setError(null);
     try {
-      if (durable.current) { if (alive.current) onCreated(durable.current, input.current.startDate as LocalDate); return; }
+      if (durable.current) {
+        if (alive.current) onCreated(durable.current.id, input.current.startDate as LocalDate, durable.current.needsDateApproval);
+        return;
+      }
       if (calendarDate && !administrator) throw new Error('家事の登録は管理者が行います。');
       const value = input.current;
       const name = v2ChoreDetailCodecs.name.parse(value.name) as string;
@@ -76,7 +81,8 @@ export function V2AddChore({ model, actions, busy, run, onCreated, onBack, heade
       const configured = administrator ? customChoreInput(name, once ? 1 : value.monthly ? 30 : value.interval) : null;
       if (configured && !value.preset) throw new Error('担当を選んでください。');
       const policy = configured && value.preset ? chorePolicyFromPreset(value.preset, value.memberIds, value.advanceOn) : null;
-      const steps = v2ChoreDetailCodecs.instructions.parse(value.steps) as string[]; let created: string | undefined;
+      const steps = v2ChoreDetailCodecs.instructions.parse(value.steps) as string[];
+      let saved: SavedChore | undefined;
       await run(async () => {
         const selected = existingInput.current;
         const timing = calendarDate ? choreCalendarTiming(withChoreClocks(calendarDraft(value), value.clocks)) : undefined;
@@ -87,10 +93,14 @@ export function V2AddChore({ model, actions, busy, run, onCreated, onBack, heade
           active: true, windowBeforeDays: options.windowBeforeDays, windowAfterDays: options.windowAfterDays,
         }, { expectedRuleVersion: model?.configurations.find(row => row.choreId === selected.id)?.configuration?.ruleVersion ?? 0, ...(timing ? { calendarTiming: timing } : {}) })
           : configured && policy ? await actions.addConfiguredChore(configured.name, configured.intervalDays, policy, { ...options, startDate: value.startDate as LocalDate, ...(timing ? { calendarTiming: timing } : {}), ...(once ? { once: true } : value.monthly ? { monthly: true } : {}) }) : await actions.addChore(name, steps);
-        created = selected?.id ?? operations[0]?.entityId;
-        if (created) { durable.current = created; if (alive.current) setCreatedId(created); }
+        const created = selected?.id ?? operations[0]?.entityId;
+        if (created) {
+          saved = { id: created, needsDateApproval: operations.some(operation => operation.entityType === 'changeRequest') };
+          durable.current = saved;
+          if (alive.current) setCreatedId(created);
+        }
       });
-      if (created && alive.current) onCreated(created, value.startDate as LocalDate);
+      if (saved && alive.current) onCreated(saved.id, value.startDate as LocalDate, saved.needsDateApproval);
     } catch (cause) { if (alive.current) setError(durable.current ? '端末に追加済みです。もう一度開いてください。'
       : cause instanceof Error ? cause.message : '追加する内容を確認してください。'); }
     finally { pending.current = false; if (alive.current) setSaving(false); onBusyChange?.(false); }

@@ -1716,6 +1716,10 @@
       {
         "file": "tests/calendar-chore-registration.test.mjs",
         "name": "timed per-member chore creation designates only its configured participants and converges without extra subjects"
+      },
+      {
+        "file": "tests/calendar-chore-registration.test.mjs",
+        "name": "timed roommate chore registration saves a single request and waits for the assigned member"
       }
     ]
   },

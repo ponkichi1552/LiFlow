@@ -9,7 +9,8 @@ import type { JsonValue, SharedOperation } from '../operations.ts';
 import { sharedLocalDate } from '../group-clock.ts';
 import { v2ReadPoint } from './view-point.ts';
 import { maximalCausalFacts } from './causal-facts.ts';
-import { frameAtOperation } from './authority-context.ts';
+import { frameAtOperation, groupPolicyAt } from './authority-context.ts';
+import { createV2AuthorityIndex } from './history-view.ts';
 import { nextV2CommonOccurrence } from './next-occurrence.ts';
 import { cancellationScopeMatches } from './date-cancellations.ts';
 import { v2CancellationProposal, v2CancellationSelector } from './cancellation-proposal.ts';
@@ -195,24 +196,63 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
   }
   const configureFields = (choreId: string, edits: readonly NonNullable<V2ConfigurationFieldEdit>[], effectiveFrom: LocalDate) =>
     repository.commitCurrent(async (state) => configurationFieldDrafts(state, choreId, edits, effectiveFrom));
-  function calendarTimeDrafts(state: State, choreId: string, configuration: SharedChoreConfiguration, source?: ChoreCalendarTiming): SharedOperationDraft[] {
+  function calendarTimeDrafts(state: State, choreId: string, configuration: SharedChoreConfiguration, registration: readonly SharedOperationDraft[],
+    source?: ChoreCalendarTiming): SharedOperationDraft[] {
     if (!source) return [];
-    const timing = checkedChoreCalendarTiming(source); const zone = state.assessment.view.field('settings', 'settings', 'timeZone', point(state))?.value;
-    if (timing.timeZone !== zone) throw new V2StaleSettingsError();
+    const timing = checkedChoreCalendarTiming(source);
+    const view = state.assessment.view; const at = point(state);
+    if (timing.timeZone !== view.field('settings', 'settings', 'timeZone', at)?.value) throw new V2StaleSettingsError();
     if (timing.allDay) return [];
     const span = choreCalendarSpan(configuration.anchorDate, timing);
     const target = validateDesignationTarget('fixed', { precision: 'interval', start: new Date(span.start).toISOString(), end: new Date(span.end).toISOString() });
+    const anchorDate = configuration.anchorDate;
+    const occurrenceId = v2OccurrenceId(scope.groupId, choreId, anchorDate);
+    const selector: RuleSelector = configuration.once ? { scope: 'once', occurrenceId, anchorDate }
+      : { scope: 'ongoing', from: configuration.effectiveFrom ?? anchorDate };
     const subjects = configuration.policy.completion !== 'perMember' ? [null]
       : configuration.policy.assignment.mode === 'all' ? configuration.targetMemberIds ?? state.archive.at(-1)!.body.members.map(member => member.userId)
         : configuration.policy.assignment.memberIds;
+    const preview = groupPolicyAt(view, at).adminCanFixWithoutConsent ? null : calendarRegistrationAuthority(state, at, registration);
+    const formalRules = preview ? state.assessment.formalRulesAt(at) : [];
+    const rules = preview ? observedDateRules(preview.view, preview.at, formalRules) : [];
+    const requests = preview ? new Map(state.assessment.requestStates.map(request => [request.requestId, request])) : undefined;
     return subjects.map(subjectUserId => {
       const operation = draft('designation', null, {});
-      return { ...operation, payload: json({ configuration: { id: operation.operationId, choreId, subjectUserId,
-        selector: configuration.once ? { scope: 'once', occurrenceId: v2OccurrenceId(scope.groupId, choreId, configuration.anchorDate), anchorDate: configuration.anchorDate }
-          : { scope: 'ongoing', from: configuration.effectiveFrom ?? configuration.anchorDate },
-        referenceAnchorDate: configuration.anchorDate, timeZoneAtCreation: timing.timeZone, mode: 'fixed', target,
-        strict: false, adminLocked: false, forbidEarlier: false, issuerUserId: scope.userId, ruleVersion: configuration.ruleVersion } }) };
+      const direct = { ...operation, payload: json({ configuration: { id: operation.operationId, choreId, subjectUserId, selector,
+        referenceAnchorDate: anchorDate, timeZoneAtCreation: timing.timeZone, mode: 'fixed', target, strict: false, adminLocked: false,
+        forbidEarlier: false, issuerUserId: scope.userId, ruleVersion: configuration.ruleVersion } }) };
+      if (!preview) return direct;
+      const { frame } = frameAtOperation(preview.view, state.archive, preview.at, choreId, anchorDate, configuration.ruleVersion);
+      const selected = selectManualRule(rules, frame, subjectUserId, timing.timeZone);
+      if (selected.kind === 'conflict') throw new V2StaleSettingsError();
+      const existing = selected.kind === 'selected' ? selected.fact : null;
+      const { original } = v2DateChangeOriginal(existing ? [existing.rule] : [], frame, timing.timeZone);
+      const request: SharedOperationDraft = { ...operation, entityType: 'changeRequest', payload: json({ requesterUserId: scope.userId,
+        choreId, anchorDate, occurrenceId, subjectUserId, originalDesignationId: existing?.operationId ?? null, original, proposed: target,
+        proposedMode: 'fixed', proposedOptions: { strict: existing?.rule.strict ?? false, adminLocked: existing?.rule.adminLocked ?? false,
+          forbidEarlier: existing?.rule.forbidEarlier ?? false }, selector, extensionScope: 'once',
+        ...(selected.kind === 'selected' ? { basisRuleIds: selected.equivalentOperationIds } : {}) }) };
+      const { permission } = dateChangeContextAtOperation(preview.view, state.archive, { ...preview.at, ...request }, undefined,
+        formalRules, requests, { receipts: state.receipts, epochs: state.assessment.receiptEpochs });
+      if (permission.kind === 'denied') throw new Error(permission.reason === 'fixedConflict' ? 'この時間帯は別の家事と重なっています。別の時間を指定してください。'
+        : permission.reason === 'dependency' ? '先に必要な家事の実施日時を確認してください。' : 'この日時を変更する権限を確認してください。');
+      return permission.kind === 'allowed' && !permission.needsRequest ? direct : request;
     });
+  }
+  function calendarRegistrationAuthority(state: State, at: SharedOperation, registration: readonly SharedOperationDraft[]) {
+    const view = state.assessment.view;
+    const index = createV2AuthorityIndex(scope.groupId, undefined, undefined, view.dateCancellationsAt,
+      view.retentionAt(at), state.receipts);
+    for (const operation of view.ready) index.accept(operation);
+    // Preview the chore and its configuration together. The real transaction separately
+    // signs and validates every operation before any of them can be saved or sent.
+    let current = at;
+    for (const operation of registration) {
+      index.accept({ ...current, ...operation });
+      current = { ...current, context: { ...current.context, [scope.deviceId]: current.deviceSequence },
+        deviceSequence: current.deviceSequence + 1, logicalClock: current.logicalClock + 1 };
+    }
+    return { view: { ...index.view, assignmentsAt: view.assignmentsAt, confirmedReceiptContext: view.confirmedReceiptContext }, at: current };
   }
   function assignmentCancellations(state: State, ids: readonly string[]): SharedOperationDraft[] {
     const at = point(state); const view = state.assessment.view; const cancelled = observedV2AssignmentCancellations(view, at);
@@ -244,8 +284,9 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
         const start = selected.startDate ?? today;
         const configuration = prepareV2ConfigurationEdit({ view: state.assessment.view, archive: state.archive, at: point(state), choreId: id,
           value: { policy, intervalDays: value.intervalDays, ...(selected.monthly ? { monthly: true } : {}), ...(selected.once ? { once: true } : {}), anchorDate: start, effectiveFrom: selected.once || start > today ? start : today, active: true, windowBeforeDays: settings.windowBeforeDays, windowAfterDays: settings.windowAfterDays } });
-        return [draft('chore', id, { name: value.name, category: '追加した家事', instructions: settings.instructions, load: settings.load, holidayPriority: settings.holidayPriority, estimatedMinutes: settings.estimatedMinutes, enabled: true }),
-          draft('chorePolicy', id, { configuration }), ...calendarTimeDrafts(state, id, configuration, selected.calendarTiming)];
+        const registration = [draft('chore', id, { name: value.name, category: '追加した家事', instructions: settings.instructions, load: settings.load, holidayPriority: settings.holidayPriority, estimatedMinutes: settings.estimatedMinutes, enabled: true }),
+          draft('chorePolicy', id, { configuration })];
+        return [...registration, ...calendarTimeDrafts(state, id, configuration, registration, selected.calendarTiming)];
       });
     },
     patchChoreDetails: async (choreId: string, edits: readonly V2FieldEdit[]): Promise<V2FieldSaveResult> => {
@@ -292,8 +333,9 @@ export function createV2PlannerActions(repository: ReturnType<typeof createV2Eve
     configureChore: (choreId: string, value: Omit<SharedChoreConfiguration, 'ruleVersion'>, edit: { expectedRuleVersion?: number; preserveAssignments?: boolean; resolveConfigurationIds?: string[]; calendarTiming?: ChoreCalendarTiming } = {}) => repository.commitCurrent(async (state) => {
       if (edit.calendarTiming && scope.userId !== state.archive.at(-1)!.body.ownerUserId) throw new Error('日時を指定して設定できるのは管理者です。');
       const configuration = prepareV2ConfigurationEdit({ view: state.assessment.view, archive: state.archive, at: point(state), choreId, value, ...edit });
-      return [draft('chorePolicy', choreId, { configuration }), draft('chore', choreId, { enabled: value.active !== false, requiresCycleSelection: false }),
-        ...(value.active !== false ? excludeAlternatives(state, choreId, configuration.effectiveFrom ?? configuration.anchorDate) : []), ...calendarTimeDrafts(state, choreId, configuration, edit.calendarTiming)];
+      const registration = [draft('chorePolicy', choreId, { configuration }), draft('chore', choreId, { enabled: value.active !== false, requiresCycleSelection: false }),
+        ...(value.active !== false ? excludeAlternatives(state, choreId, configuration.effectiveFrom ?? configuration.anchorDate) : [])];
+      return [...registration, ...calendarTimeDrafts(state, choreId, configuration, registration, edit.calendarTiming)];
     }),
     patchChoreConfiguration: (choreId: string, baseRuleVersion: number, patch: V2ConfigurationPatch, effectiveFrom: LocalDate) => configureFields(choreId,
       Object.entries(patch).map(([field, value]) => ({ field, value, baseRuleVersion }) as NonNullable<V2ConfigurationFieldEdit>), effectiveFrom),

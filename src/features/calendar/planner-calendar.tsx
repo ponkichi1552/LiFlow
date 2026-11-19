@@ -140,13 +140,19 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
   const dragDay = useRef<LocalDate | null>(null); const [activeDragDay, setActiveDragDay] = useState<LocalDate | null>(null);
   const setDragDay = useCallback((day: LocalDate | null) => { dragDay.current = day; setActiveDragDay(day); }, []);
   const moveLock = useRef(false); const [moveError, setMoveError] = useState<string | null>(null);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!saveNotice) return;
+    const timer = setTimeout(() => setSaveNotice(null), 8000);
+    return () => clearTimeout(timer);
+  }, [saveNotice]);
   const [pendingMove, setPendingMove] = useState<{ capture: CalendarMoveCapture; row: CalendarOccurrence; settled: boolean } | null>(null);
   const [undoMove, setUndoMove] = useState<{ capture: CalendarMoveCapture; saved: CalendarEditorDraft; undoFuture?: () => Promise<void> } | null>(null);
   const [moveScopeEvent, setMoveScopeEvent] = useState<{ futureDisabled: boolean; seriesDisabled: boolean; notice?: string } | null>(null);
   const moveScopeOpen = moveScopeEvent !== null;
   const moveScopeAnswer = useRef<((scope: CalendarEditScope | null) => void) | null>(null);
   const answerMoveScope = (scope: CalendarEditScope | null) => { const answer = moveScopeAnswer.current; moveScopeAnswer.current = null; setMoveScopeEvent(null); answer?.(scope); };
-  useFocusEffect(useCallback(() => () => { setSearchOpen(false); setDraftsOpen(false); moveScopeAnswer.current?.(null); moveScopeAnswer.current = null; setMoveScopeEvent(null); }, [setSearchOpen, setDraftsOpen]));
+  useFocusEffect(useCallback(() => () => { setSearchOpen(false); setDraftsOpen(false); setSaveNotice(null); moveScopeAnswer.current?.(null); moveScopeAnswer.current = null; setMoveScopeEvent(null); }, [setSearchOpen, setDraftsOpen, setSaveNotice]));
   useEffect(() => () => { moveScopeAnswer.current?.(null); moveScopeAnswer.current = null; setMoveScopeEvent(null); }, [local?.database, local?.shared?.groupId, timeZone]);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(undoTimer.current), []);
@@ -667,6 +673,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     }} /> : null}
     {display.error ? <Text accessibilityRole="alert" style={styles.error}>{display.error}</Text> : null}
     {moveError || local?.error || source.draftError ? <View style={styles.errorRow}><Text accessibilityRole="alert" style={styles.error}>{moveError ?? local?.error ?? source.draftError}</Text>{moveError ? <AppButton title="閉じる" variant="quiet" compact onPress={() => setMoveError(null)} /> : local?.error ? <AppButton title="予定を再読込" variant="quiet" compact onPress={() => void local.refresh()} /> : null}</View> : null}
+    {saveNotice ? <View style={styles.errorRow}><Text accessibilityLiveRegion="polite" style={styles.caption}>{saveNotice}</Text></View> : null}
     {source.draft && !activeEditor ? <Pressable accessibilityRole="button" accessibilityLabel="入力中の予定を再開" onPress={() => { if (drafts.length > 1) setDraftsOpen(true); else setEditor(source.draft); }} style={styles.resume}><Text style={styles.caption}>下書きを再開{drafts.length > 1 ? `（${drafts.length}件）` : ''}</Text><Chevron /></Pressable> : null}
     {view === 'month' ? <View style={styles.weekdays}>{weekdays.map((label, i) => <View key={label} style={styles.weekdayCell}><Text style={styles.weekday}>{label}</Text>
       <View style={styles.weeklyLabels} accessibilityLabel={`${label}曜日${headerWaste[i].length ? `、${headerWaste[i].join('・')}` : ''}`}>
@@ -770,7 +777,8 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
     {viewMenu ? <CalendarViewMenu value={display.detail} {...(view === 'month' ? { monthDetail: monthDetail.value, onMonthDetail: monthDetail.select } : {})} titleShortening={titleDisplay.value} onTitleShortening={titleDisplay.select} onSelect={chooseView} onClose={() => setViewMenu(false)} /> : null}
     {monthPicker ? <CalendarMonthPicker month={view === 'year' ? `${year}-${month.slice(5, 7)}-01` as LocalDate : month}
       onSelect={next => navigateMonth(next, preferred.current, view)} onClose={() => setMonthPicker(false)} /> : null}
-    {activeEditor && local ? <CalendarEditor key={`${activeEditor.eventId ?? 'new'}:${activeEditor.anchorDate ?? ''}:${returnedDraft ? routeParams.calendarDraftVersion : ''}`} initial={activeEditor} local={local} chores={props.existingChores} onDuplicate={draft => setEditor(draft)} renderChoreRegistration={sheet => sheet.audience === 'group' && props.renderChoreRegistration ? props.renderChoreRegistration(sheet) : <PersonalCalendarChoreRegistration {...sheet} local={local} />} repeatReturnTo={props.repeatReturnTo} displayTimeZone={timeZone} onClose={closeEditor} onSaved={day => {
+    {activeEditor && local ? <CalendarEditor key={`${activeEditor.eventId ?? 'new'}:${activeEditor.anchorDate ?? ''}:${returnedDraft ? routeParams.calendarDraftVersion : ''}`} initial={activeEditor} local={local} chores={props.existingChores} onDuplicate={draft => setEditor(draft)} renderChoreRegistration={sheet => sheet.audience === 'group' && props.renderChoreRegistration ? props.renderChoreRegistration(sheet) : <PersonalCalendarChoreRegistration {...sheet} local={local} />} repeatReturnTo={props.repeatReturnTo} displayTimeZone={timeZone} onClose={closeEditor} onSaved={(day, notice) => {
+      setSaveNotice(notice ?? null);
       closeEditor(); if (view === 'month' || view === 'year') navigateMonth(calendarMonth(day), Number(day.slice(-2))); else chooseDate(day);
     }} /> : null}
   </View>;

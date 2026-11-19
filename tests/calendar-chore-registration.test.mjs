@@ -115,6 +115,38 @@ test('timed per-member chore creation designates only its configured participant
   assert.equal(other.subjects[0].formalDate.target.start, '2026-10-27T01:00:00.000Z');
 });
 
+test('timed roommate chore registration saves a single request and waits for the assigned member', async t => {
+  const h = await rotationFixture(t);
+  await h.a.changeGroupKind('roommates');
+  await h.a.patchGroupPolicy({ adminCanFixWithoutConsent: false });
+  const day = '2026-10-29';
+  const range = { from: day, through: day, asOfDate: '2026-10-27' };
+  const calendarTiming = { allDay: false, startMinute: 660, endMinute: 670, endDayOffset: 0, timeZone: 'Asia/Tokyo' };
+  const operations = await h.a.addConfiguredChore('担当者に確認する家事', 1, chorePolicyFromPreset('assigned', ['member']),
+    { once: true, startDate: day, calendarTiming });
+  assert.deepEqual(operations.map(op => op.entityType), ['chore', 'chorePolicy', 'changeRequest']);
+  const [chore, , request] = operations;
+  assert.equal(request.payload.choreId, chore.entityId);
+  assert.deepEqual(request.payload.original, { precision: 'date', date: day });
+  const round = async actions => (await actions.readPlan(range)).occurrences.find(row => row.choreId === chore.entityId);
+  assert.notEqual((await round(h.a)).subjects[0].formalDate.kind, 'manual');
+  await h.deliver(h.owner, await h.load(h.owner)); await h.deliver(h.member);
+  assert.deepEqual((await round(h.b)).assigneeIds, ['member']);
+  assert.notEqual((await round(h.b)).subjects[0].formalDate.kind, 'manual');
+  assert.equal((await h.member.repository.readState()).assessment.requestStates.find(row => row.requestId === request.operationId)?.kind, 'awaiting');
+  await assert.rejects(h.a.decide(request.operationId, 'approve'), { code: 'sharing/v2-authority-denied' });
+  await h.b.decide(request.operationId, 'approve');
+  await h.deliver(h.member, await h.load(h.member)); await h.deliver(h.owner);
+  const actual = (await round(h.a)).subjects[0].formalDate;
+  assert.equal(actual.kind, 'manual');
+  assert.deepEqual(actual.target, { precision: 'interval', start: '2026-10-29T02:00:00.000Z', end: '2026-10-29T02:10:00.000Z' });
+  assert.deepEqual(await round(h.b), await round(h.a));
+  const before = (await h.load(h.owner)).length;
+  await assert.rejects(h.a.addConfiguredChore('重なる家事', 1, chorePolicyFromPreset('assigned', ['member']),
+    { once: true, startDate: day, calendarTiming }), /重なっています/);
+  assert.equal((await h.load(h.owner)).length, before, 'a failed request leaves no chore, policy or outbox entry');
+});
+
 test('combined calendar date and assignment edits reject unauthorized or stale input without partially saving', async t => {
   const f = await fixture(); const owner = await f.device(); t.after(() => owner.connection.close()); await owner.repository.commit(seeds());
   for (const userId of ['owner', 'member']) {
