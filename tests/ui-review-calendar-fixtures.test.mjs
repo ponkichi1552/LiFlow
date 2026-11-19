@@ -78,3 +78,18 @@ test('partial calendar shows only available chores and empty calendar has no fix
   await empty.change('予定を検索', '洗面所');
   assert.match(empty.text(), /一致する予定はありません/u);
 });
+
+test('the midnight overlap review can open each of the three continuing entries and return with one back action', async t => {
+  let exits = 0;
+  const ui = make('overlap', { props: { scenario: 'overlap', onExit: () => { exits++; } } });
+  t.after(() => ui.unmount());
+  assert.equal(ui.button('2026年11月23日の家事を開く').props.accessibilityState.expanded, false);
+  for (const name of ['夜行列車で移動', '前夜から翌々朝までのキャンプ当番', '洗濯乾燥機のフィルターを確認する']) {
+    assert.ok(ui.button(`${name}を編集`));
+    await ui.press(`${name}を編集`);
+    assert.ok(ui.button('詳細を閉じる'));
+    await ui.press('詳細を閉じる');
+  }
+  await ui.press('UI確認用データ一覧へ戻る');
+  assert.equal(exits, 1);
+});

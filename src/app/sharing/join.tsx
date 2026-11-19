@@ -5,11 +5,12 @@ import { ActivityIndicator, Text, View } from 'react-native';
 import { AppButton, Page, palette, typography } from '@/components/planner-ui';
 import { parseSharedInvitation } from '@/features/sharing/invitations';
 import { requestSharingWorkspace, enableSharingSession, sharingFailureMessage, sharingSessionUser } from '@/platform/sharing/workspaces';
-import { signInSharingWithGoogle } from '@/platform/sharing/auth';
+import { isSharingAppleSignInAvailable, signInSharingWithApple, signInSharingWithGoogle } from '@/platform/sharing/auth';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { SettingsHeader } from '@/features/settings/settings-navigation';
 
 const isInvitationURL = (value: string | null): value is string => Boolean(value?.startsWith('houseworkplanner://sharing/join'));
+type SignInMethod = 'google' | 'apple';
 
 /** Fragment secrets are consumed locally and never copied into Router query parameters. */
 export default function SharingJoinScreen() {
@@ -19,6 +20,7 @@ export default function SharingJoinScreen() {
   const [openedAt] = useState(() => Date.now());
   if (isInvitationURL(url) && url !== invitationURL) setInvitationURL(url);
   const [failure, setFailure] = useState<{ url: string; message: string } | null>(null);
+  const [appleAvailable, setAppleAvailable] = useState(false);
   const [busy, setBusy] = useState(false); const inFlight = useRef<{ url: string } | null>(null);
   const attempted = useRef<string | null>(null); const context = useRef(workspace); const target = useRef(invitationURL);
   const alive = useRef(true);
@@ -27,10 +29,19 @@ export default function SharingJoinScreen() {
   // Display validation is stable; the async operation checks the actual clock before login and submission.
   const groupId = useMemo(() => { try { return invitationURL ? parseSharedInvitation(invitationURL, openedAt).invitation.body.groupId : null; } catch { return null; } }, [invitationURL, openedAt]);
   const blocked = Boolean(groupId && workspace.group && ['active', 'creating', 'joining'].includes(workspace.group.status) && workspace.group.groupId !== groupId);
-  const join = useCallback(async (link: string) => {
+  const needsSignIn = Boolean(workspace.ready && !workspace.userId && groupId && !blocked);
+  useEffect(() => {
+    if (!needsSignIn) return;
+    let visible = true;
+    void isSharingAppleSignInAvailable().then(available => { if (visible) setAppleAvailable(available); }).catch(() => {});
+    return () => { visible = false; };
+  }, [needsSignIn]);
+  const join = useCallback(async (link: string, method?: SignInMethod) => {
     if (!alive.current || inFlight.current || !context.current.ready) return;
-    const operation = { url: link }; inFlight.current = operation; setBusy(true); setFailure(null);
     const initialOwner = context.current.userId;
+    if (!initialOwner && !method) return;
+    const operation = { url: link }; inFlight.current = operation; setBusy(true); setFailure(null);
+    attempted.current = link;
     const ownsScreen = () => alive.current && inFlight.current === operation && target.current === link;
     const current = async (owner: string) => {
       if (!ownsScreen()) return false;
@@ -41,15 +52,15 @@ export default function SharingJoinScreen() {
     };
     try {
       const destination = parseSharedInvitation(link, Date.now()).invitation.body.groupId;
-      await enableSharingSession();
-      if (!ownsScreen()) return;
       const user = await sharingSessionUser();
       if (!ownsScreen()) return;
-      if (initialOwner && user?.uid !== initialOwner) throw new Error('ログイン中のアカウントが変わりました。もう一度お試しください。');
-      const owner = user?.uid ?? (await signInSharingWithGoogle()).uid;
+      if (initialOwner ? user?.uid !== initialOwner : Boolean(user)) throw new Error('ログイン中のアカウントが変わりました。もう一度お試しください。');
+      const owner = user?.uid ?? (await (method === 'apple' ? signInSharingWithApple() : signInSharingWithGoogle())).uid;
       if (!await current(owner)) return;
       // Consent can outlive the invitation. Never submit a link that expired during login.
       parseSharedInvitation(link, Date.now());
+      await enableSharingSession();
+      if (!await current(owner)) return;
       const existing = context.current.group;
       if (existing && existing.userId === owner && ['active', 'creating', 'joining'].includes(existing.status)) {
         if (existing.groupId !== destination) throw new Error('現在のグループから退出するか、参加申請を取り消してから参加してください。');
@@ -64,16 +75,23 @@ export default function SharingJoinScreen() {
     finally { if (inFlight.current === operation) inFlight.current = null; if (alive.current) setBusy(false); }
   }, []);
   useEffect(() => {
-    if (!workspace.ready || !invitationURL || !groupId || blocked || busy || attempted.current === invitationURL) return;
-    attempted.current = invitationURL; void join(invitationURL);
-  }, [workspace.ready, invitationURL, groupId, blocked, busy, join]);
+    if (!workspace.ready || !workspace.userId || !invitationURL || !groupId || blocked || busy || attempted.current === invitationURL) return;
+    void join(invitationURL);
+  }, [workspace.ready, workspace.userId, invitationURL, groupId, blocked, busy, join]);
   const message = failure?.url === invitationURL ? failure.message : null;
   return <Page header={<SettingsHeader title="グループに参加" onBack={() => router.canGoBack() ? router.back() : router.replace('/')} />}>
     {blocked ? <Text style={typography.body}>参加できるグループは一つです。現在のグループから退出するか、申請を取り消してから参加してください。</Text>
       : !groupId ? <Text accessibilityRole="alert" style={typography.body}>招待リンクが無効、または期限が切れています。管理者から新しいリンクを受け取ってください。</Text>
-      : message ? <><Text accessibilityRole="alert" style={[typography.body, { color: palette.warning }]}>{message}</Text>
-        <AppButton title="再試行" disabled={busy} onPress={() => { if (invitationURL) void join(invitationURL); }} /></>
-      : <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><ActivityIndicator color={palette.accent} /><Text style={typography.body}>参加を申請しています…</Text></View>}
+      : !workspace.ready || busy ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><ActivityIndicator color={palette.accent} />
+        <Text style={typography.body}>{!workspace.ready ? 'ログイン状態を確認しています…' : '参加を申請しています…'}</Text></View>
+      : <>
+        {message ? <Text accessibilityRole="alert" style={[typography.body, { color: palette.warning }]}>{message}</Text> : null}
+        {needsSignIn && invitationURL ? <>
+          <Text style={typography.body}>参加に使うアカウントでログインしてください。</Text>
+          <AppButton title="Googleで続ける" onPress={() => void join(invitationURL, 'google')} />
+          {appleAvailable ? <AppButton title="Appleで続ける" variant="secondary" onPress={() => void join(invitationURL, 'apple')} /> : null}
+        </> : message ? <AppButton title="再試行" onPress={() => { if (invitationURL) void join(invitationURL); }} /> : null}
+      </>}
     {!busy ? <AppButton title="グループ画面へ" compact variant="quiet" onPress={() => router.replace('/sharing')} /> : null}
   </Page>;
 }

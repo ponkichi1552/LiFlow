@@ -134,6 +134,7 @@ export function GroupDetail({ workspace, run, busy, section }: { workspace: Shar
   const [requestRead, setRequestRead] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
   const [requestError, setRequestError] = useState<string | null>(null);
   const [requestAttempt, setRequestAttempt] = useState(0);
+  const [openInvitations, setOpenInvitations] = useState<{ invitation: SignedSharedInvitation; createdAtMs: number | null }[]>([]);
   const manager = workspace.manager;
   const [invite, setInvite] = useState<Awaited<ReturnType<NonNullable<SharedWorkspace['manager']>['createInvitation']>> | null>(null);
   const [failedQr, setFailedQr] = useState<string | null>(null);
@@ -170,16 +171,24 @@ export function GroupDetail({ workspace, run, busy, section }: { workspace: Shar
     read(); const unsubscribe = subscribeSharingChanges((scope) => { if (scope?.userId === workspace.userId && scope.groupId === workspace.groupId) { clearTimeout(timer); timer = setTimeout(read, 80); } });
     return () => { current = false; clearTimeout(timer); unsubscribe(); };
   }, [load, workspace]));
-  useEffect(() => { if (!invite) return; const timer = setInterval(() => setClock(Date.now()), 30_000); return () => clearInterval(timer); }, [invite]);
+  useEffect(() => {
+    const latestExpiry = invite?.invitation.body.expiresAt ?? 0;
+    const expiresAt = openInvitations.reduce((nearest, entry) => {
+      const expiry = entry.invitation.body.expiresAt;
+      return expiry > clock ? Math.min(nearest, expiry) : nearest;
+    }, latestExpiry > clock ? latestExpiry : Infinity);
+    if (Number.isFinite(expiresAt)) {
+      const timer = setTimeout(() => setClock(Date.now()), Math.max(1, expiresAt - Date.now()));
+      return () => clearTimeout(timer);
+    }
+  }, [clock, invite, openInvitations]);
   const preparedQr = useMemo(() => {
     try { return invite ? sharingInvitationQr(invite.url) : null; } catch { return null; }
   }, [invite]);
   const qr = invite && invite.invitation.body.expiresAt > clock ? preparedQr : null;
   const roster = workspace.roster(); const isOwner = roster?.body.ownerDeviceId === workspace.identity.deviceId;
-  const readRequests = useCallback(async (continuation?: typeof requestCursors) => {
+  const readRequests = useCallback(async (sources: readonly { invitation: SignedSharedInvitation; after?: string }[]) => {
     if (!isOwner) return { next: [], invalid: [], cursors: [] };
-    const sources = continuation ?? (await workspace.cloud.listInvitations(workspace.groupId, { activeAtMs: Date.now() }))
-      .filter(entry => entry.status === 'open' && entry.invitation.body.expiresAt > Date.now()).map(entry => ({ invitation: entry.invitation, after: undefined }));
     const next: { invitation: SignedSharedInvitation; request: SharedJoinRequest }[] = [];
     const invalid: typeof invalidRequests = []; const cursors: typeof requestCursors = [];
     for (let offset = 0; offset < sources.length; offset += 4) {
@@ -196,10 +205,20 @@ export function GroupDetail({ workspace, run, busy, section }: { workspace: Shar
   useEffect(() => {
     if (!membersOpen || !isOwner || detail?.record.status !== 'active') return;
     let current = true;
-    void readRequests().then(({ next, invalid, cursors }) => { if (current) { setRequests(next); setInvalidRequests(invalid); setRequestCursors(cursors); setRequestRead('loaded'); } })
+    const read = async () => {
+      const entries = await workspace.cloud.listInvitations(workspace.groupId, { activeAtMs: Date.now() });
+      const now = Date.now();
+      const active = entries.filter(entry => entry.status === 'open' && entry.invitation.body.expiresAt > now);
+      if (!current) return;
+      setOpenInvitations(active);
+      setClock(now);
+      const { next, invalid, cursors } = await readRequests(active);
+      if (current) { setRequests(next); setInvalidRequests(invalid); setRequestCursors(cursors); setRequestRead('loaded'); }
+    };
+    void read()
       .catch(cause => { if (current) { setRequestError(userMessage(cause)); setRequestRead('error'); } });
     return () => { current = false; };
-  }, [membersOpen, isOwner, detail?.record.status, readRequests, requestAttempt]);
+  }, [membersOpen, isOwner, detail?.record.status, readRequests, requestAttempt, workspace]);
   const reloadRequests = () => { setRequestRead('loading'); setRequestError(null); setRequestAttempt(value => value + 1); };
   if (workspace.protocol === 'migration') return <LegacyMigrationPanel workspace={workspace} run={run} busy={busy} />;
   if (!detail) return loadError ? <Card><Text accessibilityRole="alert" style={styles.error}>{loadError}</Text>
@@ -275,17 +294,42 @@ export function GroupDetail({ workspace, run, busy, section }: { workspace: Shar
         <SettingsAction title="申請を拒否" intent="destructive" disabled={busy || requestRead !== 'loaded'} onPress={() => void run(async () => { await workspace.cloud.withdrawOrRejectJoinRequest(invitation.body.inviteId, request.body.userId); reloadRequests(); })} />
       </Card>)}
       </SettingsGroup>
-      <View style={{ gap: 12 }}>
-      <SettingsAction title="メンバーを招待" accessibilityLabel="招待リンクとQRを作る" placement="page" compact={false} disabled={busy} onPress={() => void run(async () => { setInvite(await manager.createInvitation()); })} />
+      <SettingsGroup title="招待リンク">
+      <SettingsAction title="メンバーを招待" accessibilityLabel="招待リンクとQRを作る" placement="page" compact={false} disabled={busy} onPress={() => void run(async () => {
+        const next = await manager.createInvitation();
+        if (currentWorkspace.current !== workspace) return;
+        const now = Date.now();
+        setInvite(next); setClock(now);
+        setOpenInvitations(previous => [{ invitation: next.invitation, createdAtMs: now }, ...previous.filter(entry => entry.invitation.body.inviteId !== next.invitation.body.inviteId)]);
+        reloadRequests();
+      })} />
       {invite ? <>
         {qr ? failedQr === qr.uri ? <Text style={styles.error}>QRコードを表示できません。招待リンクを共有してください。</Text>
           : <Image source={{ uri: qr.uri }} style={styles.qr} contentFit="contain" cachePolicy="none" onError={() => setFailedQr(qr.uri)} accessibilityLabel="共有グループの招待QRコード" />
           : <Text style={styles.error}>この招待は期限が切れています。</Text>}
         <Text style={styles.caption}>有効期限：{new Date(invite.invitation.body.expiresAt).toLocaleString('ja-JP')}。信頼する相手にだけ渡してください。</Text>
         {qr ? <SettingsAction placement="page" title="招待リンクを共有" disabled={busy} onPress={() => void Share.share({ message: invite.url }).catch(() => undefined)} /> : null}
-        <SettingsAction title="この招待を取り消す" intent="destructive" disabled={busy} onPress={() => void run(async () => { await workspace.cloud.revokeInvitation(invite.invitation.body.inviteId); setInvite(null); reloadRequests(); })} />
       </> : null}
-      </View>
+      {openInvitations.filter(entry => entry.invitation.body.expiresAt > clock).map(({ invitation, createdAtMs }) => {
+        const { inviteId, expiresAt } = invitation.body;
+        const label = `招待 ${inviteId.slice(-6)}`;
+        const dateLabel = (value: number) => new Date(value).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        return <View key={inviteId} style={styles.invitationRow}>
+          <View style={styles.invitationText}><Text style={styles.label}>{label}</Text>
+            <Text style={styles.caption}>{createdAtMs != null ? `${dateLabel(createdAtMs)}に発行 · ` : ''}{dateLabel(expiresAt)}まで</Text></View>
+          <SettingsAction title="取り消す" accessibilityLabel={`${label}を取り消す`} intent="destructive" disabled={busy}
+            onPress={() => Alert.alert(`${label}を取り消しますか？`, 'このリンクから新しい参加申請はできなくなります。', [
+              { text: 'キャンセル', style: 'cancel' }, { text: '取り消す', style: 'destructive', onPress: () => void run(async () => {
+                await workspace.cloud.revokeInvitation(inviteId);
+                if (currentWorkspace.current !== workspace) return;
+                setOpenInvitations(previous => previous.filter(entry => entry.invitation.body.inviteId !== inviteId));
+                setInvite(previous => previous?.invitation.body.inviteId === inviteId ? null : previous);
+                reloadRequests();
+              }) },
+            ])} />
+        </View>;
+      })}
+      </SettingsGroup>
     </> : null}
     </> : null}
     {(!section || section === 'sync') ? <SettingsGroup title="同期・復旧">
@@ -322,6 +366,8 @@ function userMessage(error: unknown): string {
 const styles = StyleSheet.create({
   settingsPage: { paddingTop: 14 },
   entryPage: { paddingTop: 16, gap: 20 }, entryIntro: { gap: 6 }, entryForm: { gap: 12 },
+  invitationRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  invitationText: { flex: 1, minWidth: 0, gap: 2 },
   entryTabs: { alignItems: 'center' }, hiddenEntry: { display: 'none' },
   body: { ...typography.body, color: palette.ink }, label: { ...typography.subheading, fontWeight: '700', color: palette.ink },
   caption: { ...typography.caption, color: palette.muted }, error: { ...typography.label, color: palette.warning },

@@ -13,6 +13,8 @@ import type { ReactNode } from 'react';
 import { v2RegionChoices } from '../v2-ui/group-settings-fields';
 import { V2Choices, V2TextField } from '../v2-ui/form-controls';
 import type { PrivatePreferenceSync } from './preference-sync';
+import { privatePreferenceDifferences } from './preference-differences';
+import { AccordionSection } from '../../../components/accordion-section';
 import { useAccountOperation } from '../../settings/account-operation';
 
 type Session = { store: PrivatePlannerPreferenceStore; defaults: PrivatePlannerPreferences;
@@ -93,8 +95,7 @@ function PrivatePreferenceEditor({ session, saved, onBack, onReload, notice, foo
       {syncError ? <Text accessibilityRole="alert" style={styles.error}>同期を確認できませんでした。保存済みの設定と送信待ちは保持しています。</Text> : null}
       {syncStatus?.nextRetryAt ? <Text accessibilityRole="alert" style={styles.error}>前回の同期を確認できませんでした。保存済みの設定を保ち、再試行します。</Text> : null}
       {syncStatus?.review && syncStatus.local ? <>
-        <PreferenceSummary title="この端末の設定" value={syncStatus.local} />
-        <PreferenceSummary title="別の本人端末の設定" value={syncStatus.review.preferences} />
+        <PreferenceComparison local={syncStatus.local} remote={syncStatus.review.preferences} />
         <SettingsAction placement={embedded ? 'panel' : 'page'} title="この端末の設定を使う" compact={embedded} disabled={disabled} onPress={() => { void syncAction(() => session.sync!.engine.resolve(syncStatus.local!.revision, syncStatus.review!.cursor, 'local')); }} />
         <SettingsAction placement={embedded ? 'panel' : 'page'} title="別の本人端末の設定を使う" compact={embedded} disabled={disabled} onPress={() => { void syncAction(() => session.sync!.engine.resolve(syncStatus.local!.revision, syncStatus.review!.cursor, 'remote')); }} />
       </> : !embedded || syncStatus?.configured ? <SettingsAction placement={embedded ? 'panel' : 'page'} title={syncBusy ? '本人設定を同期中…' : embedded ? '今すぐ同期' : '本人設定を今すぐ同期'} compact={embedded} disabled={disabled || !syncStatus?.configured}
@@ -126,12 +127,32 @@ function PrivatePreferenceEditor({ session, saved, onBack, onReload, notice, foo
   </>;
   return embedded ? <View style={{ gap: 10 }}>{content}</View> : <Page header={<BackButton onPress={back} />}>{content}</Page>;
 }
-function PreferenceSummary({ title, value }: { title: string; value: PrivatePlannerPreferences }) {
-  return <View style={{ gap: 3 }}><Text style={typography.label}>{title}</Text>
-    <Text style={typography.caption}>{value.timeZone} · 休日：{value.restDays.map(day => weekdays[day - 1]).join('・') || 'なし'} · 重い{value.loadLimits.heavyDailyLimit}件／普通{value.loadLimits.normalDailyLimit}件</Text>
+function PreferenceComparison({ local, remote }: { local: PrivatePlannerPreferences; remote: PrivatePlannerPreferences }) {
+  const [expanded, setExpanded] = useState(false);
+  const rows = privatePreferenceDifferences(local, remote);
+  if (!rows.length) return <Text style={typography.caption}>設定内容は同じです。</Text>;
+  const show = (row: typeof rows[number]) => <View key={row.label} style={styles.comparisonRow}>
+    <Text style={typography.label}>{row.label}</Text>
+    <View style={styles.comparisonColumns}>
+      <Text accessibilityLabel={`この端末の設定、${row.label}、${row.local}`} style={styles.comparisonValue}>{row.local}</Text>
+      <Text accessibilityLabel={`別の本人端末の設定、${row.label}、${row.remote}`} style={styles.comparisonValue}>{row.remote}</Text>
+    </View>
+  </View>;
+  return <View>
+    <View style={styles.comparisonColumns}>
+      <Text style={styles.comparisonValue}>この端末の設定</Text>
+      <Text style={styles.comparisonValue}>別の本人端末の設定</Text>
+    </View>
+    {rows.slice(0, 4).map(show)}
+    {rows.length > 4 ? <AccordionSection plain title={`ほかの違い（${rows.length - 4}件）`} expanded={expanded} onToggle={() => setExpanded(value => !value)}>
+      {rows.slice(4).map(show)}
+    </AccordionSection> : null}
   </View>;
 }
 const styles = StyleSheet.create({
   error: { ...typography.caption, color: palette.warning }, choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   limits: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  comparisonColumns: { flexDirection: 'row', gap: 12 },
+  comparisonValue: { ...typography.caption, color: palette.ink, flex: 1, minWidth: 0 },
+  comparisonRow: { paddingVertical: 8, gap: 3, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border },
 });

@@ -62,6 +62,62 @@ export function timelineEvents(events: readonly CalendarOccurrence[], date: Loca
   }
   finish(); return rows;
 }
+
+export type TimelineEntry = ReturnType<typeof timelineEvents>[number];
+type TimelineHead = { top: number; entries: TimelineEntry[] };
+
+/** Align duration rails to time, allowing readable labels to stack independently. */
+export function compactTimelineHeads(entries: readonly TimelineEntry[], labelMinutes: number): TimelineHead[] {
+  const ordered = [...entries].sort((a, b) => a.start - b.start || a.end - b.end || a.row.id.localeCompare(b.row.id));
+  const result: TimelineHead[] = [];
+  const maximumHeads = Math.max(1, Math.floor(1440 / labelMinutes));
+  for (const entry of ordered) {
+    const last = result.at(-1);
+    const top = Math.max(entry.start, last ? last.top + labelMinutes : 0);
+    // The first three simultaneous appointments each have a title. If the
+    // queue gets longer, keep the remainder accessible alongside the last one.
+    if (last && (result.length === maximumHeads || top - entry.start > 2 * labelMinutes + .0001)) last.entries.push(entry);
+    else result.push({ top, entries: [entry] });
+  }
+  // Near midnight there may be room above, even when no room remains below.
+  let boundary = 1440;
+  for (let i = result.length - 1; i >= 0; i--) {
+    const head = result[i];
+    head.top = Math.max(0, Math.min(head.top, boundary - labelMinutes));
+    boundary = head.top;
+  }
+  return result;
+}
+
+export function compactTimelineLink(railTop: number, railHeight: number, labelTop: number, labelHeight: number) {
+  const inset = Math.min(1, railHeight / 2);
+  const branchY = Math.max(railTop + inset, Math.min(railTop + railHeight - inset, labelTop + labelHeight / 2));
+  const edgeY = Math.max(labelTop + 5, Math.min(labelTop + labelHeight - 5, branchY));
+  return { branchY, edgeY };
+}
+
+export function compactAllDayLanes(days: readonly LocalDate[], eventsOn: (day: LocalDate) => readonly CalendarOccurrence[]) {
+  type Span = { event: CalendarOccurrence; start: number; end: number };
+  const events = new Map<string, Span>();
+  for (const [index, day] of days.entries()) {
+    for (const event of eventsOn(day)) {
+      if (!event.allDay || event.birthday || event.holiday) continue;
+      const span = events.get(event.id);
+      if (span) span.end = index;
+      else events.set(event.id, { event, start: index, end: index });
+    }
+  }
+  const active = minimumHeap<{ end: number; lane: number }>((a, b) => a.end - b.end || a.lane - b.lane);
+  const free = minimumHeap<number>((a, b) => a - b);
+  const lanes: Span[][] = [];
+  for (const span of events.values()) {
+    while (active.peek()?.end < span.start) free.push(active.pop()!.lane);
+    const lane = free.pop() ?? lanes.length;
+    (lanes[lane] ??= []).push(span);
+    active.push({ end: span.end, lane });
+  }
+  return lanes;
+}
 export function calendarSwipe(startX: number, dx: number, dy: number, width: number, minimum = 45): 'home' | 'chores' | 'previous' | 'next' | null {
   if (Math.abs(dx) < minimum || Math.abs(dx) < Math.abs(dy) * 1.4) return null;
   if (startX <= 24 && dx > 0) return 'home';

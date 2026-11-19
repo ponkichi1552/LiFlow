@@ -86,6 +86,7 @@ export function screenHarness(filename, options = {}) {
         getTranslateTransform() { return [{ translateX: this.value.x }, { translateY: this.value.y }]; }
       } },
       AppState: { currentState: 'active', addEventListener: (_event, listener) => { options.appStateListener?.(listener); return { remove() {} }; } },
+      BackHandler: { addEventListener: (_event, listener) => { options.hardwareBackListener?.(listener); return { remove() {} }; } },
       Linking: { openURL: async () => {}, openSettings: options.openSettings ?? (async () => {}) },
       Alert: { alert: (...args) => options.alert?.(...args) },
     },

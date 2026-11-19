@@ -35,11 +35,11 @@ export default function UiReviewScreen({ initialArea, initialScenario }: { initi
     else router.replace('/settings');
   };
   return <SafeAreaView edges={['top', 'bottom']} style={styles.root} onLayout={finishStartupDisplay}>
-    <View style={styles.header}><SettingsHeader title={selected?.label ?? 'UI確認用データ'} onBack={back}
-      backAccessibilityLabel={selected ? 'UI確認用データ一覧へ戻る' : undefined} hideBack={uiReviewBuild && !selected} /></View>
+    {!selected || area !== 'calendar' ? <View style={styles.header}><SettingsHeader title={selected?.label ?? 'UI確認用データ'} onBack={back}
+      backAccessibilityLabel={selected ? 'UI確認用データ一覧へ戻る' : undefined} hideBack={uiReviewBuild && !selected} /></View> : null}
     {selected
       ? <View style={styles.body}><WorkspaceContext.Provider value={null}>
-          <section.Review key={`${area}:${selected.id}`} scenario={selected.id} />
+          <section.Review key={`${area}:${selected.id}`} scenario={selected.id} onExit={closeScenario} />
         </WorkspaceContext.Provider></View>
       : <View style={styles.body}>
           <View style={styles.control}><SettingsSegments<ReviewArea> value={area} options={areas} onValueChange={setArea} tone="quiet" fitContent /></View>

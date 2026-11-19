@@ -40,6 +40,31 @@ async function open(f, platform, options = {}) {
 }
 
 for (const platform of ['ios', 'android']) {
+  test(`${platform} configuration conflicts show the actual rotation order and switching condition before confirming a candidate`, async t => {
+    const f = await setup(); t.after(f.close);
+    const savedModel = await f.first.readModel(range);
+    const labels = new Map([['owner', '葵'], ['member', '光']]);
+    const model = { ...savedModel, plan: { ...savedModel.plan,
+      members: savedModel.plan.members.map(member => ({ ...member, displayName: labels.get(member.userId) ?? member.displayName })) } };
+    const original = model.configurations[0];
+    const sequences = [['member', 'owner', 'member'], ['owner', 'member']];
+    const candidates = original.candidates.map((candidate, index) => ({ ...candidate, configuration: { ...candidate.configuration,
+      policy: { ...candidate.configuration.policy, assignment: { mode: 'selected', memberIds: ['member', 'owner'],
+        rotation: { sequence: sequences[index], advanceOn: index === 0 ? 'completion' : 'occurrence' } } } } }));
+    const saved = [];
+    const ui = screenHarness('src/features/sharing/v2-ui/configuration-conflict.tsx', { exportName: 'V2ConfigurationConflict', platform,
+      props: { model, row: { ...original, candidates }, controller: { actions: { configureChore: async (_id, value) => { saved.push(value.policy.assignment.rotation); } } }, onSaved: async () => {} } });
+    t.after(() => ui.unmount());
+    await ui.press('設定候補1を開く');
+    assert.match(ui.text(), /光 → 葵 → 光/u);
+    assert.match(ui.text(), /完了したら交代/u);
+    await ui.press('設定候補2を開く');
+    assert.match(ui.text(), /葵 → 光/u);
+    assert.match(ui.text(), /予定ごとに交代/u);
+    await ui.press('設定候補2で解決する');
+    assert.deepEqual(saved, [{ sequence: sequences[1], advanceOn: 'occurrence' }]);
+  });
+
   test(`${platform} shared configuration conflicts show explicit candidates and resolve the current selection without rewriting completed history`, async () => {
     const f = await setup();
     try {

@@ -100,6 +100,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const readOnly = Boolean(initial.eventId && local.canEditEvent?.(initial.eventId, draft.scope === 'one' ? draft.anchorDate : null) === false);
   const reminderScope = draft.audience === 'group' ? local.shared?.notificationScope ?? (reminderWorkspace?.userId ? calendarReminderScope(reminderWorkspace.userId, draft.groupId) : '') : 'personal';
   const reminderMinutes = draft.reminderMinutes !== undefined ? draft.reminderMinutes : calendarReminderMinutes(reminderSettings.settings, reminderScope, draft.eventId, draft.scope === 'one' ? draft.anchorDate : null);
+  const reminderUnavailable = reminderSettings.loading || Boolean(reminderSettings.error) || !reminderScope;
   const repeated = original && original.recurrence !== 'none'; const value = draft.value;
   const change = (fn: (before: CalendarEditorDraft) => CalendarEditorDraft) => { const next = fn(latest.current); latest.current = next; setDraft(next); setExitActions(false); choreForm?.entry?.onChange(next.value); };
   const patch = (patch: Partial<EventDraft>) => change(before => ({ ...before, value: { ...before.value, ...patch } }));
@@ -170,7 +171,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
     onSaved(savedDisplayDate(d)); void local.refresh();
   });
   const saveReminderOnly = () => void work(async () => {
-    if (!local.database || !initial.eventId) return;
+    if (!local.database || !initial.eventId || reminderUnavailable) return;
     local.assertDraftAccess?.(latest.current);
     await saveCalendarReminder(local.database, { scope: reminderScope, eventId: initial.eventId, anchorDate: draft.scope === 'one' ? draft.anchorDate : null, minutes: reminderMinutes });
     onSaved(savedDisplayDate(draft));
@@ -240,6 +241,10 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   };
   const clocks = choreForm?.entry?.clocks;
   const timeError = readOnly || choreForm ? null : calendarInputTimeError(value);
+  const reminderField = reminderSettings.error ? <View style={styles.reminderFailure}>
+    <Text accessibilityRole="alert" style={styles.error}>通知設定を読み込めませんでした。</Text>
+    <SettingsAction title="通知設定を再読み込み" placement="page" disabled={busy} onPress={reminderSettings.retry} />
+  </View> : <CalendarReminderField minutes={reminderMinutes} enabled={reminderSettings.settings.enabled} disabled={busy || reminderUnavailable} onChange={reminderMinutes => change(before => ({ ...before, reminderMinutes }))} />;
   if (draft.audience === 'group' && local.draftOwnerScope !== undefined && local.draftOwnerScope !== draft.ownerScope) return null;
   return <CalendarEditorSurface key={modalRevision} embedded={Boolean(choreForm)} visible={!hiddenForChore} animationType="slide" presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'overFullScreen'} transparent={Platform.OS === 'android'}
     allowSwipeDismissal={!busy && !choreBusy && !needsExitChoice} onRequestClose={() => {
@@ -261,8 +266,9 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
             if (local.database) await draftSession.clear(local.database);
             onSaved(date, notice);
           }); }, onBusyChange: onChoreBusyChange }} /> : <>
-        <CalendarSheetHeader title={initial.eventId ? '予定を編集' : value.birthday ? '誕生日を追加' : '予定を追加'} busy={busy || choreForm?.busy}
-          closeTitle={exitActions ? '戻る' : '閉じる'} closeExpanded={exitActions} onClose={() => { if (exitActions) setExitActions(false); else close(); }} onSave={choreForm ? choreForm.onSave : readOnly ? saveReminderOnly : saveReviewed} saveDisabled={Boolean(categoryEdit || timeError || review) || (readOnly && reminderSettings.loading) || (choreForm ? choreForm.disabled : !value.title.trim())} />
+        <CalendarSheetHeader title={readOnly ? '予定の詳細' : initial.eventId ? '予定を編集' : value.birthday ? '誕生日を追加' : '予定を追加'} busy={busy || choreForm?.busy}
+          saveLabel={readOnly ? '予定の通知を保存' : undefined}
+          closeTitle={exitActions ? '戻る' : '閉じる'} closeExpanded={exitActions} onClose={() => { if (exitActions) setExitActions(false); else close(); }} onSave={choreForm ? choreForm.onSave : readOnly ? value.birthday ? undefined : saveReminderOnly : saveReviewed} saveDisabled={Boolean(categoryEdit || timeError || review) || (readOnly && reminderUnavailable) || (choreForm ? choreForm.disabled : !value.title.trim())} />
         {exitActions ? <View style={styles.exitActions} accessibilityLabel="閉じるときの入力の扱い">
           <View style={{ flex: 1 }}><SettingsAction title="入力を破棄" intent="destructive" disabled={busy} onPress={discardAndClose} /></View>
           <View style={{ flex: 1 }}><SettingsAction title="下書き保存" placement="page" disabled={busy} onPress={saveDraftAndClose} /></View>
@@ -294,7 +300,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
             <SettingsAction title="重なる箇所は入力を残す" placement="page" onPress={() => applyRebase(review.basis, review.values.keepInput)} />
             <SettingsAction title="重なる箇所は最新を使う" placement="page" onPress={() => applyRebase(review.basis, review.values.useLatest)} />
           </View> : null}
-          {readOnly && !value.birthday ? <CalendarReminderField minutes={reminderMinutes} enabled={reminderSettings.settings.enabled} disabled={busy || reminderSettings.loading || !reminderScope} onChange={reminderMinutes => change(before => ({ ...before, reminderMinutes }))} /> : null}
+          {readOnly && !value.birthday ? reminderField : null}
           <View pointerEvents={readOnly || review ? 'none' : 'auto'} accessibilityElementsHidden={Boolean(review)} importantForAccessibility={review ? 'no-hide-descendants' : 'auto'} style={[styles.editorSections, choreForm && styles.choreSections]}>
           {repeated && !value.birthday ? <View style={styles.optionsGroup}><Pressable accessibilityRole="button" accessibilityLabel="変更する範囲を選択" accessibilityValue={{ text: CALENDAR_EDIT_SCOPES.find(row => row.value === draft.scope)?.label ?? '' }} disabled={busy || readOnly || !initial.anchorDate} onPress={() => setScopeOpen(true)} style={styles.optionSelect}>
             <Text style={[styles.value, styles.optionLabel, labelWidths.option]}>変更範囲</Text><View style={styles.optionInput}><Text style={[styles.value, styles.optionValue]}>{CALENDAR_EDIT_SCOPES.find(row => row.value === draft.scope)?.label}</Text><Chevron direction="down" /></View>
@@ -355,7 +361,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
             </ScrollView><View style={styles.categoryActions}><SettingsAction title="分類を追加" placement="page" disabled={busy} onPress={() => { setCategoryOpen(false); setCategoryEdit({ revision: 0, name: '', color: CATEGORY_PRESETS[0] }); setCustom(false); }} />
               {selectedCategory ? <SettingsAction title="分類の色を編集" placement="page" disabled={busy} onPress={() => { setCategoryOpen(false); setCategoryEdit({ ...selectedCategory }); setCustom(false); }} /> : null}</View></View> : null}
           </View>
-          {!value.birthday && !readOnly ? <View style={{ borderTopWidth: 1, borderColor: palette.border }}><CalendarReminderField minutes={reminderMinutes} enabled={reminderSettings.settings.enabled} disabled={busy || reminderSettings.loading || !reminderScope} onChange={reminderMinutes => change(before => ({ ...before, reminderMinutes }))} /></View> : null}
+          {!value.birthday && !readOnly ? <View style={{ borderTopWidth: 1, borderColor: palette.border }}>{reminderField}</View> : null}
           </View> : null}
           {categoryEdit ? <View style={styles.colorPanel}><Text style={styles.heading}>{categoryEdit.id ? '分類の色' : '新しい分類'}</Text>
             <FormTextInput accessibilityLabel="分類名" style={styles.categoryInput} value={categoryEdit.name} placeholder="例：学校" maxLength={40} editable={!busy} onChangeText={name => setCategoryEdit(before => before && ({ ...before, name }))} />
@@ -454,6 +460,7 @@ function CalendarTextInput({ icon, style, ...props }: TextInputProps & { icon: S
   </View>;
 }
 const baseStyles = StyleSheet.create({
+  reminderFailure: { gap: 8, paddingVertical: 8 },
   inputShell: { flexDirection: 'row', alignItems: 'center', backgroundColor: palette.surface },
   inputIcon: { paddingLeft: 12, height: 48, justifyContent: 'center' }, inputContents: { flex: 1, minWidth: 0, borderWidth: 0, backgroundColor: 'transparent' },
   notesMeasure: { position: 'absolute', left: 42, right: 12, top: 10, fontSize: typography.body.fontSize, includeFontPadding: false, opacity: 0 },

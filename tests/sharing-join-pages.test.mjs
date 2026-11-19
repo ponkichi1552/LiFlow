@@ -7,6 +7,48 @@ import { createDeviceIdentity } from '../src/features/sharing/crypto.ts';
 import { createSharedRoster } from '../src/features/sharing/roster.ts';
 import { createSharedInvitation, createSharedJoinRequest } from '../src/features/sharing/invitations.ts';
 
+for (const platform of ['ios', 'android']) test(`${platform} already issued invitations can be revoked after returning to group settings`, async t => {
+  const identity = await createDeviceIdentity(crypto); const roster = createSharedRoster('invite-management', 'owner', identity);
+  const issued = await Promise.all(['invite-old001', 'invite-new002'].map(id => createSharedInvitation(crypto, roster, identity, id, Date.now())));
+  let invitations = issued.map(link => ({ invitation: link.invitation, status: 'open', createdAtMs: Date.now() }));
+  let readCount = 0;
+  const revoked = [];
+  let confirm;
+  const workspace = { protocol: 2, userId: 'owner', groupId: 'invite-management', identity,
+    roster: () => roster, record: async () => ({ status: 'active', displayName: '家族' }), checkpoint: async () => ({ pendingCount: 0 }),
+    readOverview: async () => ({ members: [{ id: 'owner', displayName: '自分' }], timeZone: 'Asia/Tokyo' }),
+    manager: {}, cloud: {
+      listInvitations: async () => { readCount++; return invitations; },
+      listJoinRequests: async () => ({ requests: [], invalidUserIds: [], nextCursor: null }),
+      revokeInvitation: async id => { revoked.push(id); invitations = invitations.filter(row => row.invitation.body.inviteId !== id); },
+    } };
+  const screen = screenHarness('src/features/sharing/sharing-manager-screen.tsx', { platform, exportName: 'GroupDetail',
+    props: { workspace, section: 'members', busy: false, run: async work => { await work(); return true; } },
+    alert: (_title, _message, choices) => { confirm = choices.find(choice => choice.style === 'destructive').onPress; },
+    effectDependencies: true, focusDependencies: true, effect: callback => callback(), mocks: {
+      '@/hooks/use-workspace': { useWorkspace: () => ({ userId: 'owner' }) }, 'expo-image': { Image: 'Image' },
+      '@/features/sharing/v2-ui/workspace-data': { useOptionalWorkspaceDisplay: () => null },
+      '@/platform/sharing/auth': { isSharingAppleSignInAvailable: async () => false },
+      '@/platform/sharing/firebase-services': { isSharingConfigured: () => true },
+      '@/platform/sharing/workspaces': { subscribeSharingChanges: () => () => {}, sharingFailureMessage: () => '通信を確認してください。' },
+      '@/features/settings/chore-settings-sources': { ChoreSettingsSources: () => null },
+      './group-management-links': { GroupManagementLinks: () => null },
+      '@/features/sharing/v2/recovery-panel': { V2RecoveryPanel: () => null },
+      '@/features/sharing/v2/legacy-migration-panel': { LegacyMigrationPanel: () => null },
+    } });
+  t.after(() => screen.unmount());
+  for (let i = 0; i < 4; i++) await screen.flush();
+  assert.equal(readCount, 1);
+  assert.doesNotMatch(screen.text(), /houseworkplanner:/u);
+  await screen.press('招待 old001を取り消す');
+  assert.deepEqual(revoked, []);
+  confirm();
+  for (let i = 0; i < 4; i++) await screen.flush();
+  assert.deepEqual(revoked, ['invite-old001']);
+  assert.throws(() => screen.button('招待 old001を取り消す'), /missing button/u);
+  assert.ok(screen.button('招待 new002を取り消す'));
+});
+
 for (const platform of ['ios', 'android']) test(`${platform} group requests retain continuation after failure and never hide valid requests behind an invalid page`, async t => {
   const identity = await createDeviceIdentity(crypto); const roster = createSharedRoster('join-pages', 'owner', identity);
   const link = await createSharedInvitation(crypto, roster, identity, 'paged-invite', Date.now());

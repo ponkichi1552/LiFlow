@@ -45,6 +45,25 @@ for (const platform of ['ios', 'android']) {
     await ui.screen.press('別の本人端末の設定を使う'); for (let i = 0; i < 16; i++) await ui.screen.flush();
     assert.equal((await h.left.store.read()).timeZone, 'America/New_York'); assert.equal((await h.left.sync.readStatus()).kind, 'synchronized'); assert.equal(h.wire.writes, 2);
   });
+  test(`${platform} private preference conflicts display daily and date-specific capacity before applying a choice`, async t => {
+    const h = await privatePlannerSyncFixture(t);
+    await h.left.store.save(0, input()); await h.left.sync.synchronize(); await h.right.sync.synchronize();
+    const date = '2026-11-19';
+    const local = { ...input(), maximumMinutes: 17, dayOverrides: [{ date, allowedBands: [], maximumMinutes: 0 }] };
+    const other = { ...input(), maximumMinutes: 93, dayOverrides: [{ date, allowedBands: [{ startMinute: 540, endMinute: 600 }] }] };
+    await h.left.store.save(1, local); await h.right.store.save(1, other);
+    await h.right.sync.synchronize(); await h.left.sync.synchronize();
+    const ui = await open(h, platform); t.after(ui.close);
+    assert.ok(ui.screen.nodes().some(node => node.props.accessibilityLabel === 'この端末の設定、1日の家事時間の上限、17分'));
+    assert.ok(ui.screen.nodes().some(node => node.props.accessibilityLabel === '別の本人端末の設定、1日の家事時間の上限、93分'));
+    assert.match(ui.screen.text(), /0分.*通常の設定に従う/su);
+    assert.match(ui.screen.text(), /実施しない.*09:00〜10:00/su);
+    await ui.screen.press('別の本人端末の設定を使う');
+    for (let i = 0; i < 16; i++) await ui.screen.flush();
+    const saved = await h.left.store.read();
+    assert.equal(saved.maximumMinutes, 93);
+    assert.deepEqual(saved.dayOverrides, other.dayOverrides);
+  });
   test(`${platform} private preference synchronization UI never starts a network action or discards incomplete new input`, async t => {
     const h = await privatePlannerSyncFixture(t); await h.left.store.save(0, input()); let started = 0;
     const ui = await open(h, platform, { synchronize: async () => started++ }); t.after(ui.close);

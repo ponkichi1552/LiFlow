@@ -32,6 +32,63 @@ const day = '2026-11-11';
 const event = (extra = {}) => ({ ...newEventDraft(day, 'Asia/Tokyo'), id: 'appointment', revision: 2, title: '会議', startMinute: 600, endMinute: 660, ...extra });
 const binding = (extra = {}) => ({ database: {}, loading: false, error: null, snapshot: { events: [event()], exceptions: [], categories: [], drafts: [] }, refresh: async () => {}, ...extra });
 const find = (ui, id) => { const node = ui.nodes().find(node => node.props.testID === id); assert.ok(node, id); return node; };
+for (const platform of ['ios', 'android']) test(`${platform} overlapping appointments keep their real duration and each of three simultaneous labels can be opened`, async t => {
+  const names = ['短い予定', '夜間の作業', '長い予定'];
+  const parts = [660, 740, 840].map((endMinute, index) => event({ id: `overlap-${index}`, title: names[index], endMinute }));
+  parts.push(event({ id: 'later', title: '途中の別件', startMinute: 827, endMinute: 835 }));
+  const opened = [];
+  const local = binding({ snapshot: { events: parts, exceptions: [], categories: [], drafts: [] },
+    prepareDraft: draft => { opened.push(draft); return draft; } });
+  const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, layoutEffect: effect => effect(),
+    props: { today: day, timeZone: 'Asia/Tokyo', local, dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null } });
+  t.after(() => ui.unmount());
+  const style = node => Object.assign({}, ...node.props.style.flat(Infinity).filter(Boolean));
+  for (const mode of ['3日表示', '7日表示']) {
+    await selectCalendarView(ui, mode);
+    const rails = names.map((_name, index) => style(find(ui, `calendar-duration-overlap-${index}:${day}`)));
+    const cards = names.map((_name, index) => style(find(ui, `calendar-movable-overlap-${index}:${day}`)));
+    assert.deepEqual(rails.map(rail => rail.top), [rails[0].top, rails[0].top, rails[0].top]);
+    assert.ok(rails[0].height < rails[1].height && rails[1].height < rails[2].height);
+    for (const [i, rail] of rails.entries()) {
+      const link = style(find(ui, `calendar-connector-overlap-${i}:${day}`));
+      assert.ok(link.top >= rail.top && link.top < rail.top + rail.height, 'each connector starts on its own event’s time rail');
+      assert.ok(link.left >= rail.left && link.left < rail.left + rail.width);
+      assert.equal(link.backgroundColor, rail.backgroundColor);
+    }
+    assert.equal(cards[0].top, rails[0].top);
+    assert.ok(cards.every((card, index) => !index || card.top >= cards[index - 1].top + cards[index - 1].height));
+    assert.equal(new Set(cards.map(card => card.width)).size, 1, 'a long event does not consume horizontal space from its neighbours');
+    const later = style(find(ui, `calendar-movable-later:${day}`));
+    assert.equal(later.width, cards[0].width);
+    assert.equal(later.top, style(find(ui, `calendar-duration-later:${day}`)).top);
+    for (const [index, name] of names.entries()) {
+      await ui.press(`${name}を編集`);
+      assert.equal(opened.at(-1).eventId, `overlap-${index}`);
+      assert.equal(opened.at(-1).value.startMinute, 600);
+      await ui.press('閉じる');
+    }
+  }
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} a dense cluster keeps every event accessible and can switch to its one-day timeline`, async t => {
+  const parts = [620, 630, 660, 680, 720].map((endMinute, index) => event({ id: `dense-${index}`, title: `重なる予定 ${index + 1}`, endMinute }));
+  const opened = [];
+  const local = binding({ snapshot: { events: parts, exceptions: [], categories: [], drafts: [] },
+    prepareDraft: draft => { opened.push(draft); return draft; } });
+  const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, layoutEffect: effect => effect(),
+    props: { today: day, timeZone: 'Asia/Tokyo', local, dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null } });
+  t.after(() => ui.unmount());
+  await selectCalendarView(ui, '3日表示');
+  const group = `${formatJapaneseDate(day)} 10:00、重なった予定3件を開く`;
+  await ui.press(group);
+  await ui.press('重なる予定 5、10:00〜12:00');
+  assert.equal(opened.at(-1).eventId, 'dense-4');
+  await ui.press('閉じる');
+  await ui.press(group);
+  await ui.press('この日を1日表示');
+  for (const entry of parts) assert.ok(ui.button(`${entry.title}を編集`));
+});
+
 for (const platform of ['ios', 'android']) test(`${platform} three and seven day calendars open one full-width chore list outside the timeline`, async t => {
   const next = addDays(day, 1); const name = 'エアコンのフィルターと吹き出し口の掃除';
   const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform,
@@ -123,7 +180,7 @@ for (const [platform, ...testNames] of [
       dayInfo: date => ({ loaded: date !== day, total: date === day ? undefined : 1 }), renderChores: date => `家事:${date}`,
       timedChores: [{ id: 'chore', name: '時刻付き家事', start: Date.parse(`${day}T12:00:00+09:00`), end: Date.parse(`${day}T12:30:00+09:00`), onOpen: () => opened++ }],
     } }); t.after(() => ui.unmount());
-    await selectCalendarView(ui, '7日表示'); assert.match(ui.text(), /未取得/u); ui.button('旅行、終日予定を編集'); ui.button('誕生日を編集');
+    await selectCalendarView(ui, '7日表示'); assert.match(ui.text(), /未取得/u); assert.match(ui.button('旅行を編集').props.accessibilityHint, /終日/u); ui.button('誕生日を編集');
     assert.equal(ui.button('会議を編集').props.onLongPress, undefined);
     await ui.press('時刻付き家事を編集'); assert.equal(opened, 1);
     assert.equal(ui.button('時刻付き家事を編集').props.onLongPress, undefined);

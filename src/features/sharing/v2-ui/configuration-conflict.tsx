@@ -38,11 +38,14 @@ export function V2ConfigurationConflict({ model, row, controller, onSaved, onBac
         onChangeText={(value) => { if (!pending.current) { input.current = value; setFrom(value); setError(null); } }} /> : null}
       {row.candidates.map((candidate, index) => {
         const cfg = candidate.configuration; const policy = cfg.policy;
+        const rotation = policy.assignment.mode === 'selected' ? policy.assignment.rotation : undefined;
         return <AccordionSection key={candidate.operationId} title={`設定候補${index + 1}`} expanded={expanded[candidate.operationId] === true}
           onToggle={() => setExpanded(value => ({ ...value, [candidate.operationId]: !value[candidate.operationId] }))}>
           <Text style={styles.caption}>変更者：{nameOf(candidate.authorUserId)}</Text>
-          <Text style={styles.body}>{policy.completion === 'perMember' ? '対象者ごとに実施' : policy.assignment.mode === 'open' ? '誰か1人が実施' : '指定した担当者が実施'}</Text>
-          {policy.assignment.mode === 'selected' ? <Text style={styles.caption}>担当：{policy.assignment.memberIds.map(nameOf).join('・')}</Text>
+          <Text style={styles.body}>{rotation ? rotation.advanceOn === 'completion' ? '完了したら交代' : '予定ごとに交代'
+            : policy.completion === 'perMember' ? '対象者ごとに実施' : policy.assignment.mode === 'open' ? '誰か1人が実施' : '指定した担当者が実施'}</Text>
+          {rotation ? <Text style={styles.caption}>交代の順番：{rotation.sequence.map(nameOf).join(' → ')}</Text>
+            : policy.assignment.mode === 'selected' ? <Text style={styles.caption}>担当：{policy.assignment.memberIds.map(nameOf).join('・')}</Text>
             : policy.completion === 'perMember' ? <Text style={styles.caption}>対象：{(cfg.targetMemberIds ?? model.plan.members.filter(member => member.active).map(member => member.userId)).map(nameOf).join('・')}</Text> : null}
           <Text style={styles.body}>{cfg.active === false ? '無効' : '有効'} · 開始日 {cfg.anchorDate} · {v2CadenceLabel(cfg)}</Text>
           <Text style={styles.caption}>実施期間：基準日の{cfg.windowBeforeDays}日前〜{cfg.windowAfterDays}日後</Text>

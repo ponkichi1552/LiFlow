@@ -53,6 +53,59 @@ for (const platform of ['ios', 'android']) {
       assert.ok(!ui.nodes().some(node => node.props.accessibilityLabel?.includes('の家事を開く')));
     } finally { ui.unmount(); }
   });
+  test(`${platform} agenda keeps existing events visible and waits for the local read before declaring an empty day`, async t => {
+    const date = '2026-11-14';
+    const existing = { ...newEventDraft(date, 'Asia/Tokyo'), id: 'existing', revision: 1, title: '保存済みの予定' };
+    const local = { database: {}, snapshot: { events: [existing], exceptions: [], categories: [], drafts: [] }, loading: true, error: null, refresh: async () => {} };
+    const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { platform, exportName: 'PlannerCalendar', props: {
+      today: date, timeZone: 'Asia/Tokyo', local, wasteSchedules: [], dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
+    } });
+    t.after(() => ui.unmount());
+    await selectCalendarView(ui, 'リスト表示');
+    assert.match(ui.text(), /予定を読み込み中/u);
+    assert.doesNotMatch(ui.text(), /予定なし/u);
+    assert.ok(ui.button('保存済みの予定を編集'));
+    local.loading = false; ui.render(); await ui.flush();
+    assert.doesNotMatch(ui.text(), /予定を読み込み中/u);
+    assert.match(ui.text(), /予定なし/u);
+    assert.ok(ui.button('保存済みの予定を編集'));
+  });
+  test(`${platform} a read-only event can retry loading reminders and save only its own notification`, async t => {
+    const h = await setup(t);
+    const date = '2026-11-14';
+    const value = { ...newEventDraft(date, 'Asia/Tokyo'), title: '閲覧のみの予定' };
+    const eventId = await store.saveCalendarEvent(h.database, { expectedRevision: 0, value });
+    await reminders.setCalendarNotificationsEnabled(h.database, true);
+    const snapshot = await store.readLocalCalendar(h.database);
+    const read = h.database.getAllAsync;
+    let reads = 0;
+    h.database.getAllAsync = async (sql, ...params) => {
+      if (sql === 'SELECT * FROM calendar_notification_rules' && ++reads === 1) throw new Error('temporary SQLite read failure');
+      return read(sql, ...params);
+    };
+    let saved = 0;
+    const local = { database: h.database, snapshot, loading: false, error: null, refresh: async () => {}, canEditEvent: () => false };
+    const ui = screenHarness('src/features/calendar/calendar-editor.tsx', { platform, exportName: 'CalendarEditor',
+      effectDependencies: true, effect: cb => cb(), props: { local, initial: { eventId, revision: 1, exceptionRevision: 0, scope: 'series', anchorDate: null, value },
+        onClose() {}, onSaved() { saved++; } } });
+    t.after(() => ui.unmount());
+    await flush(ui);
+    assert.match(ui.text(), /予定の詳細.*通知設定を読み込めませんでした/su);
+    assert.equal(ui.button('予定の通知を保存').props.disabled, true);
+    assert.equal(saved, 0);
+    await ui.press('通知設定を再読み込み'); await flush(ui);
+    assert.doesNotMatch(ui.text(), /通知設定を読み込めませんでした/u);
+    assert.equal(reads, 2);
+    await ui.press('予定の通知を選択');
+    if (platform === 'ios') {
+      ui.nodes().find(node => node.props.testID === 'calendar-option-wheel').props.onValueChange('10');
+      await ui.press('予定の通知の選択を完了');
+    } else await ui.press('10分前');
+    await ui.press('予定の通知を保存'); await flush(ui);
+    assert.equal(saved, 1);
+    assert.equal(reminders.calendarReminderMinutes(await reminders.readCalendarReminders(h.database), 'personal', eventId, null), 10);
+    assert.deepEqual((await store.readLocalCalendar(h.database)).events, snapshot.events);
+  });
   test(`${platform} chore search candidates are loaded only when search opens`, async () => {
     const local = { database: {}, snapshot: { events: [], exceptions: [], categories: [], drafts: [] }, loading: false, error: null, refresh: async () => {} };
     let loads = 0; const selected = [];

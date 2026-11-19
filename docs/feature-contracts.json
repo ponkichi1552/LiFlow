@@ -16381,12 +16381,58 @@
         "name": "calendar review searches fixture memos, inspects personal and shared events, and keeps device preferences isolated"
       },
       {
+        "file": "tests/ui-review-calendar-fixtures.test.mjs",
+        "name": "the midnight overlap review can open each of the three continuing entries and return with one back action"
+      },
+      {
         "file": "tests/development-appliance-review.test.mjs",
         "name": "${platform} unreadable appliance sample retries locally and retains only the chosen shared task"
       },
       {
         "file": "tests/ui-review-failures.test.mjs",
         "name": "${platform} review Google sync retries its read and requires a dummy account confirmation to recover authorization"
+      }
+    ]
+  },
+  {
+    "feature": "compact-calendar-labels-and-loading",
+    "tests": [
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "${platform} overlapping appointments keep their real duration and each of three simultaneous labels can be opened"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "${platform} a dense cluster keeps every event accessible and can switch to its one-day timeline"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "${platform} agenda keeps existing events visible and waits for the local read before declaring an empty day"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "${platform} a read-only event can retry loading reminders and save only its own notification"
+      }
+    ]
+  },
+  {
+    "feature": "sharing-invitation-and-conflict-review",
+    "tests": [
+      {
+        "file": "tests/sharing-join-lifecycle.test.mjs",
+        "name": "${platform} signed-out invitation waits for explicit ${method} sign-in before submitting"
+      },
+      {
+        "file": "tests/sharing-join-pages.test.mjs",
+        "name": "${platform} already issued invitations can be revoked after returning to group settings"
+      },
+      {
+        "file": "tests/sharing-private-planner-sync-ui.test.mjs",
+        "name": "${platform} private preference conflicts display daily and date-specific capacity before applying a choice"
+      },
+      {
+        "file": "tests/sharing-v2-configuration-conflict-ui.test.mjs",
+        "name": "${platform} configuration conflicts show the actual rotation order and switching condition before confirming a candidate"
       }
     ]
   }

@@ -4,6 +4,43 @@ import assert from 'node:assert/strict';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { workspaceHarness } from './helpers/sharing-workspaces-harness.mjs';
 import { encodeSharedInvitation } from '../src/features/sharing/invitations.ts';
+
+for (const [platform, method] of [['ios', 'apple'], ['ios', 'google'], ['android', 'google']]) test(`${platform} signed-out invitation waits for explicit ${method} sign-in before submitting`, async t => {
+  const h = await workspaceHarness({ pending: true, deferWorkspaceTimers: true });
+  const link = encodeSharedInvitation(h.link);
+  const calls = [];
+  let owner = null;
+  let canceled = true;
+  const signIn = async provider => {
+    calls.push(provider);
+    if (canceled) { canceled = false; throw new Error('ログインをキャンセルしました。'); }
+    owner = 'member';
+    return { uid: owner };
+  };
+  const screen = screenHarness('src/app/sharing/join.tsx', { platform, effectDependencies: true, effect: callback => callback(),
+    navigate: (_action, route) => { if (route.params?.groupId === 'joined-group') calls.push('navigated'); },
+    mocks: {
+      'expo-linking': { useLinkingURL: () => link },
+      '@/hooks/use-workspace': { useWorkspace: () => ({ ready: true, userId: owner, group: null, refreshSharing: async () => {} }) },
+      '@/platform/sharing/auth': { isSharingAppleSignInAvailable: async () => platform === 'ios',
+        signInSharingWithGoogle: () => signIn('google'), signInSharingWithApple: () => signIn('apple') },
+      '@/platform/sharing/workspaces': { enableSharingSession: async () => { calls.push('enabled'); },
+        sharingSessionUser: async () => owner ? { uid: owner } : null,
+        requestSharingWorkspace: async target => { assert.equal(target, link); assert.equal(owner, 'member'); calls.push('submitted'); return { groupId: 'joined-group' }; } },
+    } });
+  t.after(async () => { screen.unmount(); await h.close(); });
+  await screen.flush();
+  assert.deepEqual(calls, []);
+  if (platform === 'android') assert.throws(() => screen.button('Appleで続ける'), /missing button/u);
+  const label = method === 'apple' ? 'Appleで続ける' : 'Googleで続ける';
+  await screen.press(label);
+  assert.deepEqual(calls, [method]);
+  assert.match(screen.text(), /ログインをキャンセル/u);
+  await screen.press(label);
+  await screen.flush();
+  assert.deepEqual(calls, [method, method, 'enabled', 'submitted', 'navigated']);
+});
+
 for (const platform of ['ios', 'android']) for (const after of ['current', 'account-change', 'unmount']) test(`${platform} invite join ignores a late ${after} result unless the original screen and account still own it`, async () => {
   const h = await workspaceHarness({ pending: true, deferWorkspaceTimers: true }); let screen; let release;
   const routes = []; let owner = 'member'; let starts = 0;

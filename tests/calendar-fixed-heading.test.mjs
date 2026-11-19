@@ -133,10 +133,12 @@ for (const platform of ['ios', 'android']) test(`${platform} all-day appointment
       await screen.press(`${formatJapaneseDate(date, { year: true, weekday: true })}を表示`);
       const clock = screen.nodes().find(node => node.props.testID === 'calendar-timeline');
       const visible = Array.from({ length: days }, (_, index) => addDays(date, index)).filter(day => day <= end);
-      const appointments = screen.nodes().filter(node => node.props.accessibilityLabel === `${title}を編集`);
-      assert.equal(appointments.length, visible.length, 'each included day has one row, without copying its saved definition');
+      const label = `${title}を編集`;
+      const appointments = screen.nodes().filter(node => node.props.accessibilityLabel === label);
+      assert.equal(appointments.length, days === 3 ? 1 : visible.length);
       assert.ok(appointments.every(row => !descendants(clock).includes(row)), 'clock positioning and scrolling must not carry all-day rows away');
-      for (const day of visible) {
+      if (days === 3) assert.equal(appointments[0].props.accessibilityHint, `終日、${visible.map(day => formatJapaneseDate(day)).filter((_, index) => index === 0 || index === visible.length - 1).join('〜')}`);
+      else for (const day of visible) {
         const pane = screen.nodes().find(node => node.props.accessibilityLabel === `${formatJapaneseDate(day, { year: true })}の終日予定`);
         assert.ok(pane && descendants(pane).some(node => node.props.accessibilityLabel === `${title}を編集`));
       }
@@ -144,11 +146,11 @@ for (const platform of ['ios', 'android']) test(`${platform} all-day appointment
       screen.nodes().find(node => node.props.testID === 'calendar-timeline-days').props.onLayout({ nativeEvent: { layout: { height: 0 } } });
       clock.props.onLayout({ nativeEvent: { layout: { height: 350 } } });
       clock.props.onScroll({ nativeEvent: { contentOffset: { y: 900 } } }); await screen.flush();
-      assert.equal(screen.nodes().filter(node => node.props.accessibilityLabel === `${title}を編集`).length, visible.length);
+      assert.equal(screen.nodes().filter(node => node.props.accessibilityLabel === label).length, appointments.length);
       if (date === end) assert.equal(screen.nodes().some(node => node.props.accessibilityLabel === 'Synthetic midnight endpointを編集'), false, 'timed midnight end stays exclusive');
     }
     await screen.press(`${formatJapaneseDate('2026-12-02', { year: true, weekday: true })}を表示`);
-    assert.equal(screen.nodes().some(node => node.props.testID === 'calendar-fixed-all-day'), false, 'no empty all-day pane remains after the inclusive end');
+    assert.equal(screen.nodes().some(node => ['calendar-fixed-all-day', 'calendar-compact-all-day'].includes(node.props.testID)), false, 'no empty all-day pane remains after the inclusive end');
   }
   assert.equal(h.writes.length, writes, 'view changes and clock scrolling never persist per-day copies');
   await screen.press(`${formatJapaneseDate(end, { year: true, weekday: true })}を表示`); await screen.press(`${title}を編集`);
@@ -166,7 +168,7 @@ for (const platform of ['ios', 'android']) test(`${platform} measured all-day co
     today: day, timeZone: 'Asia/Tokyo', local, dayInfo: () => ({ loaded: true, pending: 12, total: 12 }), renderChores: () => '展開した家事一覧',
   } }); t.after(() => screen.unmount());
   const style = node => Object.assign({}, ...node.props.style.flat(Infinity).filter(value => value && typeof value === 'object'));
-  for (const mode of ['1日表示', '2日表示', '3日表示']) {
+  for (const mode of ['1日表示', '2日表示']) {
     await selectCalendarView(screen, mode);
     const expand = `${formatJapaneseDate(day, { year: true })}の家事を開く`;
     if (screen.nodes().some(node => node.props.accessibilityLabel === expand)) await screen.press(expand);
@@ -237,6 +239,8 @@ for (const platform of ['ios', 'android']) test(`${platform} all-day measurement
     previous = current;
   }
   await screen.press(`${formatJapaneseDate('2026-12-02', { year: true, weekday: true })}を表示`);
+  await screen.flush();
+  assert.deepEqual(observed.heights, {}, 'no measurements are retained when no measured rows are present');
   const beforeRetired = observed.heights;
   for (const old of previous) old.props.onContentSizeChange(150, 9000);
   await screen.flush(); assert.equal(observed.heights, beforeRetired);
@@ -258,22 +262,25 @@ for (const platform of ['ios', 'android']) test(`${platform} compact all-day row
   } }); t.after(() => screen.unmount());
   const writes = h.writes.length;
   let ordinaryTitleStyle;
-  for (const [mode, compact, visibleDays] of [['1日表示', false, 1], ['2日表示', true, 2], ['3日表示', true, 3], ['リスト表示', false, 3]]) {
+  for (const [mode, compact, visibleDays] of [['1日表示', false, 1], ['2日表示', true, 2], ['3日表示', true, 1], ['7日表示', true, 1], ['リスト表示', false, 3]]) {
     await selectCalendarView(screen, mode);
+    const combined = ['3日表示', '7日表示'].includes(mode);
     const rows = screen.nodes().filter(node => node.props.accessibilityLabel === `${title}を編集`);
-    assert.equal(rows.length, visibleDays, 'each included day retains one accessible action for the same occurrence');
+    assert.equal(rows.length, visibleDays, 'each view keeps an accessible action for the saved occurrence');
     for (const row of rows) {
       assert.equal(row.props.accessibilityRole, 'button');
       const label = descendants(row).find(node => node.type === 'Text' && node.children?.includes(title));
       assert.ok(label, 'display truncation never replaces the saved or accessible title with shortened text');
       if (compact) {
         assert.ok(label.props.numberOfLines > 0 && label.props.numberOfLines <= 2, 'compact columns must bound a long title instead of wrapping indefinitely');
-        assert.equal(label.props.ellipsizeMode, 'tail');
+        if (!combined) assert.equal(label.props.ellipsizeMode, 'tail');
       } else assert.ok(!label.props.numberOfLines, 'the one-day and list rows retain their existing unrestricted title');
       assert.notEqual(label.props.allowFontScaling, false, 'compact display respects the system text size');
-      if (!ordinaryTitleStyle) ordinaryTitleStyle = label.props.style;
-      assert.deepEqual(label.props.style, ordinaryTitleStyle, 'compact rows retain the ordinary title typography and theme');
-      assert.ok(descendants(row).some(node => node.type === 'Text' && node.children?.includes(location)), 'the saved location remains available');
+      if (!combined) {
+        if (!ordinaryTitleStyle) ordinaryTitleStyle = label.props.style;
+        assert.deepEqual(label.props.style, ordinaryTitleStyle, 'ordinary rows retain the same title typography and theme');
+        assert.ok(descendants(row).some(node => node.type === 'Text' && node.children?.includes(location)), 'the saved location remains on ordinary rows');
+      }
     }
     await rows[0].props.onPress(); await screen.flush();
     const draft = opened.at(-1);

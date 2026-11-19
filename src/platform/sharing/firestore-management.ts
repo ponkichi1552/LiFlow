@@ -118,7 +118,10 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
         guard(); const result = await getDocsFromServer(query(collection(firestore, 'sharingInvites'), where('groupId', '==', groupId),
           ...(activeAt === undefined ? [] : [where('status', '==', 'open'), where('expiresAt', '>', Timestamp.fromMillis(activeAt)), orderBy('expiresAt')]),
           orderBy(documentId()), ...(after ? [startAfter(after)] : []), limit(100))); guard();
-        invitations.push(...result.docs.map(item => ({ id: item.id, ...invitationData(item.data()) })));
+        invitations.push(...result.docs.map(item => {
+          const raw = item.data();
+          return { id: item.id, ...invitationData(raw), createdAtMs: raw.createdAt instanceof Timestamp ? raw.createdAt.toMillis() : null };
+        }));
         if (result.docs.length < 100) return invitations;
         after = result.docs.at(-1)!;
       }

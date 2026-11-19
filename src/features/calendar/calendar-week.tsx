@@ -4,16 +4,16 @@ import { ScrollView } from 'react-native-gesture-handler';
 import { palette, typography } from '../../components/planner-ui';
 import { Chevron } from '../../components/chevron';
 import { usePlannerBorderStyles } from '../../components/use-planner-border-styles';
-import { addDays, formatJapaneseDate } from '../../domain/scheduling/local-date';
+import { addDays } from '../../domain/scheduling/local-date';
 import type { LocalDate } from '../../domain/shared/types';
 import { calendarWeekDays, calendarWeekLabel } from './week-layout';
 
 export type WeekRecenter = (minute?: number | null) => void;
 /** The month calendar's seven columns, extended vertically by appointment time. */
-export function CalendarWeek({ date, height, currentMinute, defaultMinute, dragging, activeDay, hourHeight, renderHeading, renderAllDay, renderChores, renderDay, onSelect, onReady, onScroll }: {
+export function CalendarWeek({ date, height, currentMinute, defaultMinute, dragging, activeDay, hourHeight, renderHeading, allDayHeight = 0, renderAllDay, renderChores, renderDay, onSelect, onReady, onScroll }: {
   date: LocalDate; height: number; currentMinute: number | null; defaultMinute: number; dragging: boolean; activeDay: LocalDate | null; hourHeight: number;
   renderHeading(day: LocalDate): ReactNode;
-  renderAllDay?(day: LocalDate): ReactNode;
+  allDayHeight?: number; renderAllDay?(heightLimit: number): ReactNode;
   renderChores?(heightLimit: number): ReactNode;
   renderDay(day: LocalDate, days: readonly LocalDate[], columnWidth: number): ReactNode;
   onSelect(date: LocalDate): void; onReady(recenter: WeekRecenter | null): void; onScroll(): void;
@@ -22,11 +22,9 @@ export function CalendarWeek({ date, height, currentMinute, defaultMinute, dragg
   const days = calendarWeekDays(date), start = days[0];
   const [width, setWidth] = useState(0), [viewportHeight, setViewportHeight] = useState(0);
   const [headingHeight, setHeadingHeight] = useState(0), [navigationHeight, setNavigationHeight] = useState(44);
-  const [allDayHeights, setAllDayHeights] = useState<Record<string, number>>({});
   const remaining = Math.max(0, height - navigationHeight - headingHeight - Math.min(120, height * .25));
-  const allDayHeight = renderAllDay ? Math.min(height * .23, remaining * (renderChores ? .5 : 1),
-    Math.max(...days.map(day => allDayHeights[day] ?? 32))) : 0;
-  const choresLimit = Math.min(height * .32, remaining - allDayHeight);
+  const allDayLimit = Math.min(allDayHeight, height * .24, remaining * (renderChores ? .5 : 1));
+  const choresLimit = Math.min(height * .33, remaining - allDayLimit);
   const vertical = useRef<ComponentRef<typeof ScrollView>>(null), positioned = useRef('');
   const pendingPosition = useRef<{ minute?: number | null } | null>(null);
   const position = (force = false, minute?: number | null) => {
@@ -50,15 +48,7 @@ export function CalendarWeek({ date, height, currentMinute, defaultMinute, dragg
       {days.map(day => <View key={day} style={styles.column}>{renderHeading(day)}</View>)}
     </View>
     {renderChores?.(choresLimit)}
-    {renderAllDay ? <View style={[styles.headerRow, { height: allDayHeight }]}>
-      {days.map(day => <View key={day} style={styles.column}>
-        <ScrollView nestedScrollEnabled enabled={!dragging} scrollEnabled={!dragging}
-          onContentSizeChange={(_width, value) => setAllDayHeights(before => before[day] === value ? before : { ...before, [day]: value })}
-          accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の終日予定`}>
-          {renderAllDay(day)}
-        </ScrollView>
-      </View>)}
-    </View> : null}
+    {allDayLimit > 0 ? renderAllDay?.(allDayLimit) : null}
     <ScrollView ref={vertical} testID="calendar-week-time-scroll" style={styles.vertical} nestedScrollEnabled enabled={!dragging} scrollEnabled={!dragging}
       onLayout={event => setViewportHeight(event.nativeEvent.layout.height)} onContentSizeChange={() => position()} onScroll={onScroll} scrollEventThrottle={16} contentContainerStyle={styles.timeContent}>
       <View testID="calendar-week-grid" style={[styles.columns, { height: hourHeight * 24 + 16 }]}>

@@ -25,6 +25,7 @@ import { createCalendarReviewPreferences } from './calendar-preferences';
 export const calendarReviewScenarios = [
   { id: 'three', label: '3日表示の個人・共有家事' },
   { id: 'week', label: '7日表示の個人・共有家事' },
+  { id: 'overlap', label: '深夜に重なる予定' },
   { id: 'month', label: '予定が重なる月' },
   { id: 'list', label: '長い予定・日をまたぐ予定' },
   { id: 'partial', label: '共有家事だけ取得した日' },
@@ -165,10 +166,11 @@ function ReviewDetails({ selection, close, move }: { selection: Selection; close
 
 type ScenarioId = typeof calendarReviewScenarios[number]['id'];
 
-function CalendarReviewSession({ scenario }: { scenario: ScenarioId }) {
+function CalendarReviewSession({ scenario, onExit }: { scenario: ScenarioId; onExit?(): void }) {
   const empty = scenario === 'empty';
   const partial = scenario === 'partial';
-  const initialView = scenario === 'empty' ? 'list' : scenario === 'partial' ? 'three' : scenario;
+  const overlapping = scenario === 'overlap';
+  const initialView = empty ? 'list' : partial || overlapping ? 'three' : scenario;
   const [preferences] = useState(() => createCalendarReviewPreferences(initialView));
   useEffect(() => () => preferences.display.dispose(), [preferences]);
   const [chores, setChores] = useState(() => empty ? [] : partial
@@ -200,8 +202,8 @@ function CalendarReviewSession({ scenario }: { scenario: ScenarioId }) {
   const todayInScenario = empty ? day(1) : today;
   return <View style={styles.calendar}>
     <PlannerCalendar today={todayInScenario} timeZone={zone} local={local} extendedChoreDates={scheduledDates} wasteSchedules={empty ? undefined : wasteSchedules}
-      preview={{ preferences, currentMinute: 10 * 60 + 15, initialExpandedDay: initialView === 'three' || initialView === 'week' ? today : undefined,
-        onInspectEvent: event => setSelection({ event }) }} timedChores={timedChores} searchChoresIncomplete={partial}
+      preview={{ preferences, currentMinute: overlapping ? 0 : 10 * 60 + 15, initialExpandedDay: !overlapping && (initialView === 'three' || initialView === 'week') ? today : undefined,
+        onInspectEvent: event => setSelection({ event }), onExit }} timedChores={timedChores} searchChoresIncomplete={partial}
       loadSearchChores={() => chores.map(chore => ({ key: chore.key, title: chore.definition.name, date: chore.date, source: chore.source, minute: chore.clocks?.[0] }))}
       dayInfo={date => {
         const rows = rowsByDate.get(date) ?? [];
@@ -225,9 +227,9 @@ function CalendarReviewSession({ scenario }: { scenario: ScenarioId }) {
   </View>;
 }
 
-export function CalendarReview({ scenario }: { scenario: string }) {
+export function CalendarReview({ scenario, onExit }: { scenario: string; onExit?(): void }) {
   const id = calendarReviewScenarios.find(entry => entry.id === scenario)?.id ?? 'three';
-  return <CalendarReviewSession key={id} scenario={id} />;
+  return <CalendarReviewSession key={id} scenario={id} onExit={onExit} />;
 }
 
 const styles = StyleSheet.create({
