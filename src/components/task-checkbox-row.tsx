@@ -45,14 +45,13 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
     ? `${formatJapaneseDate(executionWindow.start)}〜${formatJapaneseDate(executionWindow.end)}` : undefined;
   const checkbox = <Pressable accessibilityRole="checkbox" accessibilityLabel={`${actionName}を${completed ? '未完了に戻す' : '完了'}`}
     accessibilityState={{ checked: completed, disabled: !onToggle }} disabled={!onToggle} onPress={toggle} hitSlop={8}
-    style={[styles.checkbox, !animateCheckDirectly && completed && styles.checkboxCompleted, animateCheckDirectly && styles.checkboxFrame]}>
-    {animateCheckDirectly ? <>
-      <View pointerEvents="none" style={styles.checkbox} />
+    style={[styles.checkbox, !animateCheckDirectly && completed && styles.checkboxCompleted]}>
+    {animateCheckDirectly ?
       <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" ref={checkedLayer}
-        style={[styles.checkbox, StyleSheet.absoluteFill, styles.checkboxCompleted, { opacity: completed ? 1 : 0 }]}>
+        style={[styles.checkbox, styles.checkboxLayer, styles.checkboxCompleted, { opacity: completed ? 1 : 0 }]}>
         <Text style={styles.checkmark}>✓</Text>
       </View>
-    </> : completed ? <Text style={styles.checkmark}>✓</Text> : null}
+    : completed ? <Text style={styles.checkmark}>✓</Text> : null}
   </Pressable>;
   const compactSource = source === 'shared' || source === 'instructed' ? '共有の家事' : source === 'personal' && mixedSources ? '個人の家事' : undefined;
   const compactValue = [completed ? '完了済み' : '', calendarTimeLabel].filter(Boolean).join('、');
@@ -128,6 +127,6 @@ const baseStyles = StyleSheet.create({
   name: { ...typography.subheading, color: palette.ink, fontWeight: '600' }, category: { ...typography.caption, color: palette.muted, flexShrink: 1 },
   deemphasizedText: { color: palette.muted }, completedText: { color: palette.muted, textDecorationLine: 'line-through' }, completedCategory: { color: palette.muted },
   checkbox: { width: 28, height: 28, borderRadius: 8, borderWidth: 1.5, borderColor: palette.inputBorder, backgroundColor: palette.surface, alignItems: 'center', justifyContent: 'center' },
-  checkboxFrame: { borderWidth: 0, backgroundColor: 'transparent' },
+  checkboxLayer: { position: 'absolute' },
   checkboxCompleted: { borderColor: palette.accent, backgroundColor: palette.accent }, checkmark: { color: palette.accentInk, fontSize: 16, fontWeight: '800', lineHeight: 20 },
 });
