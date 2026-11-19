@@ -83,7 +83,12 @@ for (const [platform, inputName, manualName, boundaryName, detailName, guidanceN
     const ui = screenHarness('src/features/calendar/calendar-editor.tsx', { exportName: 'CalendarEditor', platform, datePicker: value => { picker = value; }, props: { initial: draft(), local, onClose() {}, onSaved() {} } }); t.after(() => ui.unmount());
     await ui.change('予定名', '明日18時に食事'); await ui.press('開始を選択');
     const picked = new Date('2026-11-16T20:00:00Z');
-    if (platform === 'ios') { ui.nodes().find(node => node.type === 'DateTimePicker').props.onValueChange({}, picked); await ui.flush(); await ui.press('日時選択を閉じる'); }
+    if (platform === 'ios') {
+      const pick = async () => { ui.nodes().find(node => node.type === 'DateTimePicker').props.onValueChange({}, picked); await ui.flush(); };
+      await pick(); await ui.press('日時選択を閉じる');
+      assert.equal(ui.button('開始を選択').props.accessibilityValue.text, '18:00');
+      await ui.press('開始を選択'); await pick(); await ui.press('開始の選択を完了');
+    }
     else { picker.onValueChange({}, picked); await ui.flush(); }
     await ui.change('予定名', '明日19時に食事'); assert.equal(ui.button('開始を選択').props.accessibilityValue.text, '20:00'); assert.equal(ui.button('終了を選択').props.accessibilityValue.text, '21:00');
   });

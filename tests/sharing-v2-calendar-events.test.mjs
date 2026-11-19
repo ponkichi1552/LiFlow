@@ -2,12 +2,25 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fixture } from './helpers/sharing-v2-plan-fixture.mjs';
-import { newEventDraft } from '../src/domain/calendar/events.ts';
+import { UNCATEGORIZED_CALENDAR_CATEGORY, newEventDraft } from '../src/features/calendar/events.ts';
+import { projectSharedCalendarRecords } from '../src/features/calendar/shared-events.ts';
 import { readSharedCalendar } from '../src/features/sharing/v2/calendar-state.ts';
 const category = { id: 'personal', name: '私用', color: '#3D906A' };
 const value = (extra = {}) => ({ ...newEventDraft('2026-10-27', 'Asia/Tokyo'), title: '食事', ...extra });
 const change = (eventId, values = {}) => ({ eventId, scope: 'series', anchorDate: null, basisOperationIds: [], resetExceptionIds: [], value: value(), category, ...values });
 const accepted = (f, op) => !f.state().assessment.rejected.some(row => row.operationId === op.operationId);
+
+test('shared uncategorized events retain their selection without adding a group category', async () => {
+  const f = await fixture();
+  const { id, name, color } = UNCATEGORIZED_CALENDAR_CATEGORY;
+  const create = f.make('calendarEvent', change('calendar.unclassified', {
+    value: value({ categoryId: id, recurrence: 'weekly' }), category: { id, name, color },
+  }), { actor: 'a', operationId: 'calendar.unclassified' });
+  assert.equal(accepted(f, create), true);
+  const projected = projectSharedCalendarRecords(readSharedCalendar(f.state().assessment.view), 'group.example');
+  assert.equal(projected.events[0].categoryId, id);
+  assert.equal(projected.groupCategories.size, 0);
+});
 
 test('shared general events allow member creation and creator or administrator edits but reject another member', async () => {
   const f = await fixture(); const create = f.make('calendarEvent', change('calendar.a'), { actor: 'a', operationId: 'calendar.a' });

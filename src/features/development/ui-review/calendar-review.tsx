@@ -14,7 +14,7 @@ import { orderTaskRows } from '@/domain/scheduling/task-row-order';
 import type { LocalDate } from '@/domain/shared/types';
 import { CalendarSheetHeader } from '../../calendar/calendar-sheet-header';
 import { calendarChoreTimeLabel } from '../../calendar/chore-time-label';
-import { INITIAL_CATEGORIES, minuteLabel, newEventDraft, recurrenceLabel, type CalendarEvent, type CalendarOccurrence, type EventDraft } from '../../calendar/events';
+import { INITIAL_CATEGORIES, UNCATEGORIZED_CALENDAR_CATEGORY, minuteLabel, newEventDraft, recurrenceLabel, type CalendarEvent, type CalendarOccurrence, type EventDraft } from '../../calendar/events';
 import { PlannerCalendar } from '../../calendar/planner-calendar';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
 import { V2ChoreProcedures } from '../../sharing/v2-ui/chore-procedures';
@@ -47,7 +47,9 @@ const reading = appointment('review-reading', '図書館の読書会', -7, {
 });
 const shortOverlapEvents = [
   appointment('review-brief-call', '朝の連絡', 2, { startMinute: 25, endMinute: 30, categoryId: 'work' }),
-  appointment('review-brief-check', '荷物の受け取り', 2, { startMinute: 25, endMinute: 35, categoryId: 'school' }),
+  appointment('review-brief-check', '荷物の受け取り', 2, { startMinute: 25, endMinute: 35, categoryId: 'work' }),
+  appointment('review-uncategorized-a', '荷物を整理する', 1, { startMinute: 65, endMinute: 110, categoryId: UNCATEGORIZED_CALENDAR_CATEGORY.id }),
+  appointment('review-uncategorized-b', '家族に連絡する', 1, { startMinute: 75, endMinute: 100, categoryId: UNCATEGORIZED_CALENDAR_CATEGORY.id }),
 ];
 const personalEvents = [
   reading,
@@ -153,7 +155,7 @@ function ReviewDetails({ selection, close, move }: { selection: Selection; close
       <ScrollView contentContainerStyle={styles.content}>
         <Text accessibilityRole="header" style={styles.name}>{event?.title ?? chore?.definition.name}</Text>
         {event ? <>
-          <Text style={styles.meta}>{sourceLabel(sharedEventIds.has(event.eventId) ? 'shared' : 'personal')} · {categories.find(category => category.id === event.categoryId)?.name}</Text>
+          <Text style={styles.meta}>{sourceLabel(sharedEventIds.has(event.eventId) ? 'shared' : 'personal')} · {categories.find(category => category.id === event.categoryId)?.name ?? UNCATEGORIZED_CALENDAR_CATEGORY.name}</Text>
           <Text style={styles.body}>{eventDate}{event.recurrence !== 'none' ? ` · ${recurrenceLabel(event)}` : ''}</Text>
           {event.location ? <Text style={styles.body}>{event.location}</Text> : null}
           {event.notes ? <Text style={styles.body}>{event.notes}</Text> : null}

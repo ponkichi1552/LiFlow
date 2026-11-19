@@ -16,14 +16,13 @@ export default function CalendarRepeatRoute() {
     && (row.audience !== 'group' || Boolean(local.draftOwnerScope && row.ownerScope === local.draftOwnerScope)));
   const [leaving, setLeaving] = useState(false); const leaveLock = useRef(false); const saving = useRef(false);
   const disableNavigationGuard = useRef<() => void>(() => {});
-  const leave = async (returned = draft) => {
+  const leave = (returned = draft) => {
     if (leaveLock.current || saving.current) return; leaveLock.current = true;
-    await local.refresh();
-    if (returned) { try { local.assertDraftAccess?.(returned); } catch { leaveLock.current = false; return; } }
+    if (returned) { try { local.assertDraftAccess?.(returned); } catch { returned = undefined; } }
     setLeaving(true); disableNavigationGuard.current();
     router.dismissTo({ pathname: '/(tabs)/explore', params: returned ? { calendarDraft: calendarDraftKey(returned), calendarDraftVersion: calendarDraftVersion(returned) } : {} });
   };
-  const back = () => { void leave(); };
+  const back = () => { leave(); };
   const disablePrevention = usePreventRemove(!leaving, back);
   useLayoutEffect(() => { disableNavigationGuard.current = disablePrevention; }, [disablePrevention]);
   if (!draft) return <Page header={<BackButton accessibilityLabel="予定の入力に戻る" onPress={back} />}><Text style={{ ...typography.body, color: palette.muted }}>{local.error ?? (local.loading ? '入力内容を読み込んでいます。' : '入力途中の予定が見つかりません。カレンダーへ戻ってください。')}</Text></Page>;
@@ -31,8 +30,12 @@ export default function CalendarRepeatRoute() {
   return <CustomRecurrenceScreen key={key} date={draft.value.startDate} initial={draft.value.customRecurrence} onBack={back} onSave={async rule => {
     if (!database) throw new Error('入力内容の保存先を確認してください。'); if (saving.current) return; saving.current = true;
     const next: CalendarEditorDraft = { ...draft, value: { ...draft.value, recurrence: 'custom', customRecurrence: rule } };
-    try { local.assertDraftAccess?.(next); await saveCalendarDraft(database, next, false, local.assertDraftAccess); }
+    try {
+      local.assertDraftAccess?.(next);
+      await saveCalendarDraft(database, next, false, local.assertDraftAccess);
+      await (local.refreshDrafts ?? local.refresh)();
+    }
     finally { saving.current = false; }
-    await leave(next);
+    leave(next);
   }} />;
 }

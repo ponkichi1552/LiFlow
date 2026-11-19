@@ -78,6 +78,8 @@ test('partial calendar shows only available chores and empty calendar has no fix
   assert.deepEqual(sourceHints(partial, mirror).map(hint => hint.split('。')[0]), ['共有の家事']);
   await partial.press('2026年11月24日の家事を開く');
   assert.ok(sourceHints(partial, mirror).some(hint => hint.startsWith('個人の家事')));
+  assert.match(partial.text(), /この日の個人家事は未取得/u);
+  await partial.press('2026年11月23日の家事を閉じる');
   assert.doesNotMatch(partial.text(), /この日の個人家事は未取得/u);
   assert.match(empty.text(), /予定なし/u);
   assert.equal(empty.nodes().some(node => node.props.accessibilityLabel?.includes('日の家事を開く')), false);

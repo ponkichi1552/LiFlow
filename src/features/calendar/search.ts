@@ -9,8 +9,8 @@ import { calendarTitleDisplay } from './title-display.ts';
 
 const normalize = normalizeSearchText;
 export interface CalendarSearchEntry { key: string; text: string; draft: CalendarEditorDraft }
-export interface CalendarSearchDestination { date: LocalDate; minute: number | null; anchorDate?: LocalDate; choreKey?: string }
-export interface CalendarSearchChore { key: string; title: string; date: LocalDate; source: 'personal' | 'shared'; minute?: number | null }
+export interface CalendarSearchDestination { date: LocalDate; minute: number | null; anchorDate?: LocalDate; choreKey?: string; timedChoreId?: string }
+export interface CalendarSearchChore { key: string; title: string; date: LocalDate; source: 'personal' | 'shared'; minute?: number | null; timedChoreId?: string }
 export type CalendarSearchResult = CalendarSearchEntry | CalendarSearchChore;
 export function searchCalendarWithChores(index: readonly CalendarSearchEntry[], chores: readonly CalendarSearchChore[], query: string, limit = 60, focus: LocalDate = localDateFromDate(new Date())) {
   const terms = searchTerms(query);
@@ -35,8 +35,20 @@ export function searchCalendarWithChores(index: readonly CalendarSearchEntry[], 
 export function calendarSearchIndex(events: readonly CalendarEvent[], exceptions: readonly CalendarException[], referenceDate: LocalDate = localDateFromDate(new Date())): CalendarSearchEntry[] {
   const appointments = events.filter(event => !event.holiday);
   const byId = new Map(appointments.map(event => [event.id, event]));
+  const cancelled = new Map<string, Set<LocalDate>>();
+  for (const exception of exceptions) if (!exception.override) {
+    const dates = cancelled.get(exception.eventId) ?? new Set<LocalDate>();
+    dates.add(exception.anchorDate);
+    cancelled.set(exception.eventId, dates);
+  }
   const text = (value: CalendarEvent | CalendarEditorDraft['value']) => normalize(`${value.title}\n${calendarTitleDisplay.label(value.title, referenceDate)}\n${value.location}\n${value.notes}`);
-  const rows: CalendarSearchEntry[] = appointments.map(event => ({ key: `series:${event.id}`, text: text(event),
+  const visibleSeries = appointments.filter(event => {
+    const hidden = cancelled.get(event.id);
+    if (!hidden || event.recurrence !== 'none' && !event.untilDate) return true;
+    if (!hidden.has(event.startDate) && isCalendarAnchor(event, event.startDate)) return true;
+    return seekSearchOccurrence(event, event.startDate, 1, anchor => hidden.has(anchor) ? undefined : true);
+  });
+  const rows: CalendarSearchEntry[] = visibleSeries.map(event => ({ key: `series:${event.id}`, text: text(event),
     draft: { eventId: event.id, revision: event.revision, exceptionRevision: 0, anchorDate: null, scope: 'series', value: event } }));
   for (const exception of exceptions) {
     const event = byId.get(exception.eventId); if (!event || !exception.override || !exception.detached && !isCalendarAnchor(event, exception.anchorDate)) continue;
@@ -66,7 +78,7 @@ function boundedShift(day: LocalDate, amount: number) {
 const monthIndex = (date: LocalDate) => Number(date.slice(0, 4)) * 12 + Number(date.slice(5, 7)) - 1;
 type SearchOccurrence = { source: CalendarOccurrence; visible: CalendarOccurrence };
 
-function seekSearchOccurrence(event: CalendarEvent, start: LocalDate, direction: 1 | -1, get: (date: LocalDate) => SearchOccurrence | undefined) {
+function seekSearchOccurrence<T>(event: CalendarEvent, start: LocalDate, direction: 1 | -1, get: (date: LocalDate) => T | undefined) {
   const upper = event.recurrence === 'none' ? event.startDate : event.untilDate ?? lastDate;
   const recurrence = event.recurrence === 'custom' ? event.customRecurrence : undefined;
   const months = recurrence?.unit === 'year' ? recurrence.interval * 12 : recurrence?.unit === 'month' ? recurrence.interval : 0;

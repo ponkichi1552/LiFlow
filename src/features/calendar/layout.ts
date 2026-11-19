@@ -54,8 +54,8 @@ export function timelineGroups(events: readonly CalendarOccurrence[], date: Loca
     }
     return row;
   }).filter(row => row.end > row.start).map(row => {
-    // At the end of the day, keep the minimum size inside the visible interval.
-    // Only an actual continuation can extend below midnight.
+    // At the day boundary, leave room for the title above the start when needed.
+    // The duration still begins at start, and only a continuation extends below midnight.
     const bottom = Math.max(row.end, Math.min(timelineDayMinutes, row.start + minimumVisibleMinutes));
     return { ...row, top: Math.max(0, Math.min(row.start, bottom - minimumVisibleMinutes)), bottom };
   }).sort((a, b) => a.top - b.top || b.bottom - a.bottom || a.start - b.start || b.end - a.end || a.row.id.localeCompare(b.row.id));
@@ -158,9 +158,51 @@ export function compactTimelineLayout(group: readonly TimelineEntry[], before: n
       if (nextHeads) index++;
     }
     columns.sort((a, b) => a.top - b.top || b.bottom - a.bottom);
-    blocks.push({ kind: 'columns', cards: assignTimelineLanes(columns).flat() });
+    const localized = fitLongLabelsAroundShortCards(columns, Math.min(before, runs[index + 1]?.[0].top ?? before), options);
+    if (localized) blocks.push(...localized);
+    else for (const cards of assignTimelineLanes(columns)) blocks.push({ kind: 'columns', cards });
   }
   return blocks;
+}
+
+function fitLongLabelsAroundShortCards(
+  columns: readonly (TimelineHead & { bottom: number })[],
+  before: number,
+  { minimumLabel, gap, railBottom, label }: CompactTimelineOptions,
+): CompactTimelineBlock[] | null {
+  const short: (typeof columns)[number][] = [], long: (typeof columns)[number][] = [];
+  for (const card of columns) {
+    const item = card.entries[0];
+    (railBottom(item) - item.start < 2 * minimumLabel + gap ? short : long).push(card);
+  }
+  if (!short.length || !long.length) return null;
+
+  // Reserve the short cards where they started. A later collision should not
+  // force a multi-hour appointment into a narrow column for its whole duration.
+  const shortGroups = assignTimelineLanes(short);
+  const reserved = shortGroups.map(group => ({
+    top: group[0].top,
+    bottom: group.reduce((bottom, card) => Math.max(bottom, card.bottom), 0),
+  }));
+  const placed: { entries: TimelineEntry[]; top: number; limit: number }[] = [];
+  let nextTop = 0, obstacle = 0;
+  for (const { entries } of long) {
+    const item = entries[0];
+    let top = Math.max(item.start, nextTop);
+    while (obstacle < reserved.length && top + minimumLabel + gap > reserved[obstacle].top) {
+      top = Math.max(top, reserved[obstacle++].bottom + gap);
+    }
+    const limit = Math.min(railBottom(item), before, obstacle < reserved.length ? reserved[obstacle].top - gap : Infinity);
+    if (top + minimumLabel > limit + 1e-6) return null;
+    placed.push({ entries, top, limit });
+    nextTop = top + minimumLabel + gap;
+  }
+  return [
+    ...shortGroups.map(cards => ({ kind: 'columns' as const, cards })),
+    { kind: 'stacked', cards: placed.map(({ entries, top, limit }, index) => ({
+      entries, top, size: label(entries[0], Math.min(limit, (placed[index + 1]?.top ?? Infinity) - gap) - top),
+    })) },
+  ];
 }
 
 function stackTimelineHeads(heads: readonly TimelineHead[], before: number, { minimumLabel, gap, railBottom, label }: CompactTimelineOptions) {
@@ -171,14 +213,14 @@ function stackTimelineHeads(heads: readonly TimelineHead[], before: number, { mi
   for (let index = heads.length - 1; index >= 0; index--) {
     const item = heads[index].entries[0];
     const latest = Math.min(railBottom(item), limit) - minimumLabel;
-    if (latest + 1e-6 < item.top) return null;
+    if (latest + 1e-6 < item.start) return null;
     latestStarts[index] = latest;
     limit = latest - gap;
   }
   let nextTop = 0;
   return heads.map(({ entries }, index) => {
     const item = entries[0];
-    const top = Math.max(item.top, nextTop);
+    const top = Math.max(item.start, nextTop);
     const end = Math.min(railBottom(item), index + 1 < heads.length ? latestStarts[index + 1] - gap : before);
     const size = label(item, end - top);
     nextTop = top + size.minutes + gap;

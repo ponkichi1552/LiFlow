@@ -24,7 +24,7 @@ export function CalendarDateStrip({ date, today, days, onSelect }: {
       accessibilityState={{ selected }} accessibilityValue={status ? { text: status } : undefined} onPress={() => onSelect(day)} style={({ pressed }) => [styles.cell, pressed && { opacity: .65 }]}>
       <Text style={styles.weekday}>{['日', '月', '火', '水', '木', '金', '土'][parseLocalDate(day).getUTCDay()]}</Text>
       <View style={[styles.number, selected && styles.range, selected && day === date && styles.rangeStart, selected && day === last && styles.rangeEnd]}>
-        <Text style={[styles.date, focused && styles.selectedDate, holiday && { color: palette.warning }, current && { color: colors.calendarToday }]}>{Number(day.slice(-2))}</Text>
+        <Text style={[styles.date, holiday && { color: palette.warning }, current && { color: colors.calendarToday }, focused && styles.selectedDate]}>{Number(day.slice(-2))}</Text>
       </View>
     </Pressable>;
   })}</View>;

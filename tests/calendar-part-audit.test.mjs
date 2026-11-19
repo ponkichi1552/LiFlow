@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
-import { newEventDraft, INITIAL_CATEGORIES } from '../src/features/calendar/events.ts';
+import { INITIAL_CATEGORIES, UNCATEGORIZED_CALENDAR_CATEGORY, newAppointmentValue, newEventDraft } from '../src/features/calendar/events.ts';
 import { personalLongCalendarPreviews } from '../src/features/calendar/long-cycle-preview.ts';
 const store = await import('../src/platform/storage/calendar-events.ts');
 const repository = await import('../src/platform/storage/repository.ts');
@@ -16,6 +16,22 @@ async function fixture(t) {
     refresh: async () => { local.snapshot = await store.readLocalCalendar(h.database); } };
   return { ...h, local };
 }
+test('uncategorized events save and split a local series without writing a category record', async t => {
+  const h = await fixture(t);
+  const unclassified = newAppointmentValue(date, 'Asia/Tokyo');
+  const original = { ...unclassified, title: '週の予定', recurrence: 'weekly', categoryId: 'work' };
+  const id = await store.saveCalendarEvent(h.database, { expectedRevision: 0, value: original });
+  const anchorDate = '2026-11-06';
+  await store.saveCalendarEvent(h.database, { id, expectedRevision: 1, scope: 'one', anchorDate, expectedExceptionRevision: 0,
+    value: { ...unclassified, title: '今回の予定', startDate: anchorDate, endDate: anchorDate } });
+  await store.saveCalendarFutureEvent(h.database, draft({ eventId: id, revision: 1, anchorDate: '2026-11-13', scope: 'future',
+    value: { ...unclassified, title: 'これからの予定', startDate: '2026-11-13', endDate: '2026-11-13', recurrence: 'weekly' } }));
+  const snapshot = await store.readLocalCalendar(h.database);
+  assert.equal(snapshot.events.find(event => event.id === id).categoryId, 'work');
+  assert.equal(snapshot.events.find(event => event.title === 'これからの予定').categoryId, UNCATEGORIZED_CALENDAR_CATEGORY.id);
+  assert.equal(snapshot.exceptions[0].override.categoryId, UNCATEGORIZED_CALENDAR_CATEGORY.id);
+  assert.ok(snapshot.categories.every(category => category.id !== UNCATEGORIZED_CALENDAR_CATEGORY.id));
+});
 test('calendar drafts retain whitespace-only unfinished titles without trapping the editor on close', async t => {
   const h = await fixture(t); const input = draft({ value: value({ title: ' \t ' }) });
   await store.saveCalendarDraft(h.database, input);
@@ -72,7 +88,7 @@ for (const platform of ['ios', 'android']) {
       assert.equal(shown, '02:30'); picker.onValueChange({}, picker.value); assert.deepEqual(accepted, [150]);
     } finally { screen.unmount(); if (before === undefined) delete process.env.TZ; else process.env.TZ = before; }
   });
-  test(`${platform} adding an appointment defaults to the personal draft even when a newer group draft is waiting`, async () => {
+  test(`${platform} adding opens a fresh uncategorized appointment and saved personal and group drafts remain available`, async () => {
     const personal = draft({ value: value({ title: '個人の下書き' }) }); const group = draft({ audience: 'group', groupId: 'test-group', value: value({ title: '共有の下書き' }) });
     const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
       today: date, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
@@ -80,7 +96,24 @@ for (const platform of ['ios', 'android']) {
     } });
     try {
       await screen.press('予定を追加'); assert.equal(screen.button('個人').props.accessibilityState.selected, true);
-      assert.equal(screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '予定名').props.defaultValue, personal.value.title);
+      const title = () => screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '予定名').props.defaultValue;
+      const category = () => screen.button('分類を選択').props.accessibilityValue.text;
+      assert.equal(title(), '');
+      assert.equal(category(), '未分類');
+      await screen.press('分類を選択');
+      await screen.press('仕事の分類を選択');
+      assert.equal(category(), '仕事');
+      await screen.press('グループ共通');
+      assert.equal(category(), '仕事');
+      await screen.press('分類を選択');
+      await screen.press('未分類を選択');
+      await screen.press('個人');
+      assert.equal(category(), '未分類');
+      await screen.press('閉じる');
+      await screen.press('入力中の予定を再開');
+      assert.ok(screen.button('共有の下書きの下書きを再開'));
+      await screen.press('個人の下書きの下書きを再開');
+      assert.equal(title(), personal.value.title);
     } finally { screen.unmount(); }
   });
   test(`${platform} classification save captures the latest typed name before a React repaint`, async () => {

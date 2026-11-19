@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { AppState, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import { AppButton, BackButton, Card, Page, ScreenHeading, palette, typography } from '../../components/planner-ui';
-import { subscriptionSnapshot, subscribeSubscription, refreshSubscription, startSubscriptions } from '../../platform/subscription/runtime';
+import { subscriptionSnapshot, subscribeSubscription, refreshSubscription, startSubscriptions, subscriptionCurrentTime } from '../../platform/subscription/runtime';
 
 type Purchases = typeof import('../../platform/subscription/purchases');
 const empty = { product: null, busy: false, pending: false, message: null };
@@ -40,18 +40,26 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void }) {
     catch (error) { setMessage(error instanceof Error ? error.message : 'Googleとの紐づけを完了できませんでした。'); }
     finally { setLoginBusy(false); }
   };
-  const paymentPending = store.pending || Boolean(subscription.entitlement && ['pending', 'onHold'].includes(subscription.entitlement.body.status));
+  const entitlement = subscription.entitlement?.body;
+  const paymentPending = store.pending || entitlement?.status === 'pending' || entitlement?.status === 'onHold';
+  const requiresCheck = !active && entitlement && ['active', 'grace'].includes(entitlement.status) && entitlement.expiresAt > subscriptionCurrentTime();
+  const status = active ? entitlement?.status === 'grace' ? '支払い方法を確認してください' : '利用できます'
+    : paymentPending ? entitlement?.status === 'onHold' ? '支払い方法を確認してください' : '支払いの確認待ち'
+    : requiresCheck ? '通信して契約を再確認してください'
+    : entitlement?.status === 'revoked' ? '契約が取り消されています'
+    : entitlement?.status === 'expired' || entitlement && ['active', 'grace'].includes(entitlement.status) ? '利用期限が過ぎています'
+    : '1人分の月額プラン';
   const legal = { terms: process.env.EXPO_PUBLIC_LIFLOW_TERMS_URL, privacy: process.env.EXPO_PUBLIC_LIFLOW_PRIVACY_URL };
   const ready = Boolean(legal.terms && legal.privacy && store.product && purchases);
   return <Page header={onBack ? <BackButton onPress={onBack} /> : undefined}>
     <ScreenHeading title={active ? 'LiFlowの契約' : 'LiFlowを利用する'} />
-    <Card><Text style={styles.title}>{active ? '利用できます' : '1人分の月額プラン'}</Text>
-      {active && subscription.entitlement ? <Text style={styles.body}>有効期限：{new Date(subscription.entitlement.body.expiresAt).toLocaleDateString('ja-JP')}</Text> : null}
+    <Card><Text style={styles.title}>{status}</Text>
+      {active && entitlement ? <Text style={styles.body}>{new Date(entitlement.expiresAt).toLocaleDateString('ja-JP')}まで利用可能{entitlement.autoRenew ? '' : ' · 自動更新オフ'}</Text> : null}
       <Text style={styles.body}>家事・カレンダー・共有・家電のお手入れを利用できます。</Text>
       {!subscription.userId ? <>
         <AppButton title={loginBusy ? 'ログイン中…' : 'Googleでログイン'} disabled={loginBusy} onPress={() => void login(false)} />
         {Platform.OS === 'ios' && process.env.EXPO_PUBLIC_APPLE_SHARING_ENABLED === 'true' ? <AppButton title="Appleでログイン" variant="secondary" disabled={loginBusy} onPress={() => void login(true)} /> : null}
-      </> : active || paymentPending ? <AppButton title="契約・支払いを確認" variant="secondary" disabled={!purchases} onPress={() => void purchases?.manageSubscription().catch(() => setMessage('購入元のストアで契約を確認してください。'))} /> : <>
+      </> : active || paymentPending ? <AppButton title="契約・支払いを確認" variant="secondary" disabled={!purchases || store.busy || loginBusy} onPress={() => void purchases?.manageSubscription().catch(() => setMessage('購入元のストアで契約を確認してください。'))} /> : requiresCheck ? null : <>
         <AppButton title={store.busy ? '購入を確認中…' : store.product ? `月額${store.product.price}で利用する` : '購入の準備中'} disabled={!ready || store.busy}
           onPress={() => void purchases?.purchaseSubscription()} />
         <Text style={styles.note}>解約するまで毎月自動更新されます。解約後も支払い済みの期限までは利用できます。</Text>
@@ -68,7 +76,12 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void }) {
       {legal.terms ? <AppButton title="利用規約" variant="quiet" onPress={() => void Linking.openURL(legal.terms!)} /> : null}
       {legal.privacy ? <AppButton title="プライバシー" variant="quiet" onPress={() => void Linking.openURL(legal.privacy!)} /> : null}
     </View>
-    {subscription.userId ? <AppButton title="アカウントを変更" variant="quiet" onPress={() => { void import('../../platform/sharing/auth').then(module => module.signOutSharing()).catch(() => setMessage('ログアウトを完了できませんでした。')); }} /> : null}
+    {subscription.userId ? <AppButton title="ログアウト" variant="quiet" disabled={loginBusy || store.busy} onPress={() => {
+      if (loginBusy || store.busy) return;
+      setLoginBusy(true);
+      void import('../../platform/sharing/auth').then(module => module.signOutSharing())
+        .catch(() => setMessage('ログアウトを完了できませんでした。')).finally(() => setLoginBusy(false));
+    }} /> : null}
   </Page>;
 }
 const styles = StyleSheet.create({ title: { ...typography.section, color: palette.ink }, body: { ...typography.body, color: palette.ink },

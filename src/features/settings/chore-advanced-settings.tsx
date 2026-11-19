@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { router } from 'expo-router';
-import { Text, View, StyleSheet, useColorScheme } from 'react-native';
+import { Alert, Text, View, StyleSheet, useColorScheme } from 'react-native';
 import { Page, typography } from '../../components/planner-ui';
 import { SettingsHeader } from '../../components/settings-header';
 import { SettingsAction, SettingsPanel, SettingsSegments } from '../../components/settings-controls';
@@ -48,7 +48,16 @@ export function ChoreAdvancedSettings({ chore, today, save }: { chore: ChoreDefi
       {raw.sections.length ? raw.sections.map((section, index) => <View key={index} style={styles.section}>
         <V2TextField label={`見出し${index + 1}`} value={section.title} onChangeText={title => changeSection(index, { title })} onEndEditing={() => void editor.flush()} />
         <V2TextField label={`見出し${index + 1}の手順`} displayLabel={false} multiline placeholder="1行に1手順" value={section.text} onChangeText={text => changeSection(index, { text })} onEndEditing={() => void editor.flush()} />
-        <View style={{ alignSelf: 'flex-end' }}><SettingsAction placement="page" compact title="見出しを削除" accessibilityLabel={`見出し${index + 1}を削除`} onPress={() => editor.changeSections(raw.sections.filter((_, position) => position !== index))} /></View>
+        <View style={{ alignSelf: 'flex-end' }}><SettingsAction placement="page" compact title="見出しと手順を削除" intent="destructive" accessibilityLabel={`見出し${index + 1}と手順を削除`} onPress={() => {
+          const remove = () => {
+            const sections = editor.getSnapshot().raw.sections;
+            if (sections[index] === section) editor.changeSections(sections.filter((_, position) => position !== index));
+          };
+          if (section.text.trim()) Alert.alert('見出しと手順を削除しますか？', section.title, [
+            { text: 'キャンセル', style: 'cancel' }, { text: '削除', style: 'destructive', onPress: remove },
+          ]);
+          else remove();
+        }} /></View>
       </View>) : null}
       <V2TextField label={raw.sections.length ? '見出しを使わない場合の手順' : '手順'} displayLabel={raw.sections.length ? undefined : false} placeholder="1行に1手順" multiline value={raw.instructions}
         onChangeText={value => editor.changeText('instructions', value)} onEndEditing={() => void editor.flush()} />

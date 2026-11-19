@@ -1,5 +1,7 @@
 import { categoryColor as originalCategoryColor } from '../../domain/calendar/events.ts';
+import { UNCATEGORIZED_CALENDAR_CATEGORY } from './events.ts';
 import { plannerColorsForScheme } from '../../components/planner-theme.ts';
+import type { TimelineEntry } from './layout.ts';
 
 const channels = (color: string) => color.slice(1).match(/../g)!.map(value => parseInt(value, 16));
 const hex = (rgb: number[]) => '#' + rgb.map(value => Math.round(value).toString(16).padStart(2, '0')).join('');
@@ -32,4 +34,33 @@ export function calendarEventAppearance(color: string, dark: boolean) {
     foregroundColor = mix(dark ? '#FFFFFF' : '#000000', accent, amount);
   }
   return { accent, backgroundColor, foregroundColor };
+}
+
+export function uncategorizedOverlapAppearances(
+  groups: readonly TimelineEntry[][],
+  available: readonly ReturnType<typeof calendarEventAppearance>[],
+) {
+  const appearances = new Map<string, ReturnType<typeof calendarEventAppearance>>();
+  if (!available.length) return appearances;
+  for (const group of groups) {
+    if (group.length < 2 || !group.some(item => item.row.categoryId === UNCATEGORIZED_CALENDAR_CATEGORY.id)) continue;
+    // Layout groups also cover room for titles. Compare only the displayed time intervals.
+    const ordered = [...group].sort((a, b) => a.start - b.start);
+    for (let cursor = 0; cursor < ordered.length;) {
+      const first = cursor;
+      let end = ordered[cursor++].end;
+      while (cursor < ordered.length && ordered[cursor].start < end) end = Math.max(end, ordered[cursor++].end);
+      if (cursor - first < 2) continue;
+      const occupiedUntil = available.map(() => -Infinity);
+      for (let index = first; index < cursor; index++) {
+        const item = ordered[index];
+        if (item.row.categoryId !== UNCATEGORIZED_CALENDAR_CATEGORY.id) continue;
+        const slot = occupiedUntil.findIndex(end => end <= item.start);
+        if (slot < 0) continue;
+        occupiedUntil[slot] = item.end;
+        appearances.set(item.row.id, available[slot]);
+      }
+    }
+  }
+  return appearances;
 }

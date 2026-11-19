@@ -129,7 +129,7 @@ export function CalendarSearchContent({ local, chores = [], choresIncomplete, fo
       renderItem={({ item }) => {
         if (!('draft' in item)) {
           const detail = `${formatJapaneseDate(item.date, { year: true })}${item.minute == null ? '' : ` ${minuteLabel(item.minute)}`} · ${item.source === 'personal' ? '個人の家事' : '共有の家事'}`;
-          return <Pressable accessibilityRole="button" accessibilityLabel={`${item.title}の検索結果を開く`} accessibilityValue={{ text: detail }} onPress={() => { if (closing.current) return; pending.current = { date: item.date, minute: item.minute ?? null, choreKey: item.key }; close(); }}
+          return <Pressable accessibilityRole="button" accessibilityLabel={`${item.title}の検索結果を開く`} accessibilityValue={{ text: detail }} onPress={() => { if (closing.current) return; pending.current = { date: item.date, minute: item.minute ?? null, choreKey: item.key, timedChoreId: item.timedChoreId }; close(); }}
           style={{ padding: 14, minHeight: 64, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <View style={{ flex: 1, gap: 4 }}><Text style={{ ...typography.body, color: colors.ink }} numberOfLines={2}>{item.title}</Text>
             <Text style={{ ...typography.caption, color: colors.muted }}>{detail}</Text>

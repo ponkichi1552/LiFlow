@@ -33,7 +33,8 @@ export function V2NativePairRoute() {
     onChoreCreated={choreId => navigate('details', { choreId })} onHistory={() => navigate('history')} onCalendar={() => navigate('calendar')}
     onRound={(occurrenceId, subjectId, anchorDate) => navigate('round', { occurrenceId, subjectId, ...(anchorDate ? { anchorDate } : {}) })}
     onDate={(occurrenceId, subjectId) => navigate('date', { occurrenceId, subjectId, ...(params.anchorDate ? { anchorDate: params.anchorDate } : {}) })}
-    onAssignment={(occurrenceId, subjectId) => navigate('assignment', { occurrenceId, subjectId, ...(params.anchorDate ? { anchorDate: params.anchorDate } : {}) })}
+    onAssignment={(occurrenceId, subjectId, day) => navigate('assignment', { occurrenceId, ...(subjectId ? { subjectId } : {}),
+      ...(day ? { anchorDate: day } : params.anchorDate ? { anchorDate: params.anchorDate } : {}) })}
     onRequests={() => navigate('requests')} onAssignmentRequests={() => navigate('assignmentRequests')} onGroupPolicy={() => navigate('groupPolicy')}
     onDateRights={choreId => navigate('dateRights', { choreId })} onWaste={() => navigate('waste')} onAppliances={() => navigate('appliances')}
     onAppliance={applianceId => navigate('appliance', { applianceId })} onApplianceReview={applianceId => navigate('applianceReview', applianceId ? { applianceId } : {})} />;

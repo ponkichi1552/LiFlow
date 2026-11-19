@@ -51,7 +51,7 @@ export function V2WorkspaceRoute({ view }: { view: V2GroupScreenProps['view'] })
     }}
     onRound={(occurrenceId, subjectId, anchorDate) => router.push({ pathname: '/group-v2/round', params: { occurrenceId, subjectId, ...(anchorDate ? { anchorDate } : anchorContext) } })}
     onDate={(occurrenceId, subjectId, targetDate, anchorDate) => router.push({ pathname: '/group-v2/date', params: { occurrenceId, subjectId, ...anchorContext, ...(anchorDate ? { anchorDate } : {}), ...(targetDate ? { targetDate } : {}) } })}
-    onAssignment={(occurrenceId, subjectId) => router.push({ pathname: '/group-v2/assignment', params: { occurrenceId, subjectId, ...anchorContext } })}
+    onAssignment={(occurrenceId, subjectId, day) => router.push({ pathname: '/group-v2/assignment', params: { occurrenceId, ...(subjectId ? { subjectId } : {}), ...(day ? { anchorDate: day } : anchorContext) } })}
     onConfiguration={(choreId) => router.push({ pathname: '/group-v2/configuration', params: { choreId } })}
     onDetails={(choreId) => router.push({ pathname: '/group-v2/details', params: { choreId } })}
     onChoreCreated={(choreId) => { if (params.returnTo === 'calendar') router.back(); else router.replace({ pathname: '/group-v2/details', params: { choreId } }); }}

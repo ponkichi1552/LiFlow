@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import type { CalendarCategory } from '../../../domain/calendar/events';
+import { UNCATEGORIZED_CALENDAR_CATEGORY } from '../../calendar/events.ts';
 import type { CalendarDraftCleanup, CalendarEditorDraft, CalendarFutureSave } from '../../../platform/storage/calendar-events';
 import { calendarDraftKey, clearSubmittedCalendarDrafts, newCalendarSubmissionId, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent, saveCalendarFutureEvent, deleteCalendarEvent, restoreCalendarOccurrence } from '../../../platform/storage/calendar-events';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
@@ -39,7 +40,7 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
     if (!personalSnapshot) return undefined;
     const drafts = (personalSnapshot.drafts ?? (personalSnapshot.draft ? [personalSnapshot.draft] : [])).filter(draft => canReadCalendarDraft(draft, groupId, accountMatches ? ownerScope : undefined));
     const draftCategories = drafts.flatMap(draft => draft.audience === 'group' && draft.editorCategory ? [draft.editorCategory] : []);
-    const allCategories = [...new Map([...personalSnapshot.categories, ...projected.groupCategories.values(), ...draftCategories, ...categories].map(category => [category.id, category])).values()];
+    const allCategories = [...new Map([...personalSnapshot.categories, ...projected.groupCategories.values(), ...draftCategories, ...categories, UNCATEGORIZED_CALENDAR_CATEGORY].map(category => [category.id, category])).values()];
     return { ...personalSnapshot, events, exceptions,
       categories: allCategories, drafts, draft: drafts[0] ?? null };
   }, [personalSnapshot, projected, groupId, ownerScope, accountMatches, categories, events, exceptions]);

@@ -8930,6 +8930,10 @@
       },
       {
         "file": "tests/calendar-custom-recurrence.test.mjs",
+        "name": "leaving custom recurrence without applying returns the exact draft without refreshing appointment history"
+      },
+      {
+        "file": "tests/calendar-custom-recurrence.test.mjs",
         "name": "direct custom route links cannot change birthday cadence or a single occurrence and cannot redirect outside the calendar"
       }
     ]
@@ -11299,6 +11303,10 @@
       },
       {
         "file": "tests/sharing-cloud.integration.mjs",
+        "name": "a declined join request cannot be resent automatically but a fresh invitation can be submitted"
+      },
+      {
+        "file": "tests/sharing-cloud.integration.mjs",
         "name": "join request pagination reaches a valid applicant after ${count - 1} invalid documents"
       },
       {
@@ -13293,7 +13301,7 @@
       },
       {
         "file": "tests/calendar-part-audit.test.mjs",
-        "name": "${platform} adding an appointment defaults to the personal draft even when a newer group draft is waiting"
+        "name": "${platform} adding opens a fresh uncategorized appointment and saved personal and group drafts remain available"
       },
       {
         "file": "tests/calendar-part-audit.test.mjs",
@@ -16403,11 +16411,43 @@
       },
       {
         "file": "tests/calendar-week.test.mjs",
+        "name": "${platform} short overlaps after midnight only narrow their own labels"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "${platform} cramped timeline columns reveal every title without altering the duration rails"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "${platform} multi-day all-day labels start in the first chore-free column of their own span"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "${platform} only committed day swipes animate and reduce motion keeps them instant"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "${platform} the selected holiday uses the same date color as any selected day"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
         "name": "${platform} time grids show the overnight continuation with a midnight scale and keep the real end editable"
       },
       {
         "file": "tests/calendar-layout-additional.test.mjs",
         "name": "overnight calendar previews stop at their actual end or half past midnight"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "only overlapping uncategorized events borrow unused colors in calendar time grids"
+      },
+      {
+        "file": "tests/calendar-part-audit.test.mjs",
+        "name": "uncategorized events save and split a local series without writing a category record"
+      },
+      {
+        "file": "tests/sharing-v2-calendar-events.test.mjs",
+        "name": "shared uncategorized events retain their selection without adding a group category"
       },
       {
         "file": "tests/calendar-week.test.mjs",
@@ -16420,6 +16460,10 @@
       {
         "file": "tests/calendar-everyday-usability.test.mjs",
         "name": "${platform} a read-only event can retry loading reminders and save only its own notification"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "${platform} selecting a timed chore search result highlights the corresponding timeline entry in display time"
       }
     ]
   },
@@ -16441,6 +16485,10 @@
       {
         "file": "tests/sharing-v2-configuration-conflict-ui.test.mjs",
         "name": "${platform} configuration conflicts show the actual rotation order and switching condition before confirming a candidate"
+      },
+      {
+        "file": "tests/sharing-v2-assignment-form.test.mjs",
+        "name": "${platform} v2 assignment scope seeds the next rounds assignees and never submits an untouched form"
       }
     ]
   }

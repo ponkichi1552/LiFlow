@@ -172,6 +172,7 @@ function useObservedLocalCalendar(database?: SQLiteDatabase, prioritizeCachedHom
     attempt.promise = work; return work;
   }, [database, source, account, readAccount]);
   const refresh = useCallback(() => reload(false), [reload]);
+  const refreshDrafts = useCallback(() => reload(true), [reload]);
   const loadRange = useCallback((from: LocalDate, through: LocalDate) => {
     const previous = requestedRange.current;
     if (previous.from === from && previous.through === through) return;
@@ -227,12 +228,13 @@ function useObservedLocalCalendar(database?: SQLiteDatabase, prioritizeCachedHom
     const drafts = (currentSnapshot.drafts ?? (currentSnapshot.draft ? [currentSnapshot.draft] : [])).filter(draft => canReadCalendarDraft(draft, groupId, ownerScope));
     return { ...currentSnapshot, drafts, draft: drafts[0] ?? null };
   }, [currentSnapshot, groupId, ownerScope]);
-  return { database, snapshot: visible, draftOwnerScope: ownerScope ?? null, assertDraftAccess, error, loading: loading || Boolean(database && observedState?.database !== database), refresh, ensureRead,
+  return { database, snapshot: visible, draftOwnerScope: ownerScope ?? null, assertDraftAccess, error, loading: loading || Boolean(database && observedState?.database !== database), refresh, refreshDrafts, ensureRead,
     historyLimited, historyGeneration, loadRange, readHistoryPage,
     canEditEvent: (id, anchorDate) => canEditPrivateCalendarEvent(currentSnapshot, id, anchorDate) };
 }
 export interface LocalCalendarBinding {
   database?: SQLiteDatabase; snapshot: LocalCalendarSnapshot; loading: boolean; error: string | null; refresh: () => Promise<void>;
+  refreshDrafts?: () => Promise<void>;
   ensureRead?: () => void;
   shared?: { groupId: string; name: string; enabled: boolean; notificationScope?: string };
   prepareDraft?: (draft: CalendarEditorDraft) => CalendarEditorDraft;

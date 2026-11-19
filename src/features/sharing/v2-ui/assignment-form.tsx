@@ -34,7 +34,8 @@ function AssignmentEditor({ model, round, actions, busy, run }: Props) {
       claimIds: round.claimOperationIds, claimantUserIds: round.claimantUserIds, fixed: round.assignmentFixed, active: round.activeInPeriod,
       completion: round.configuration.policy.completion } satisfies Target }));
   const [target, setTarget] = useState<Target | null>(source.target);
-  const [draft, setDraft] = useState({ validity: 'once' as Validity, memberIds: [...round.assigneeIds], fixed: round.assignmentFixed, reviewed: false, mappingIds: [] as string[] });
+  const [draft, setDraft] = useState({ validity: 'once' as Validity, memberIds: [...round.assigneeIds], fixed: round.assignmentFixed,
+    membersEdited: false, fixedEdited: false, reviewed: false, mappingIds: [] as string[] });
   const input = useRef(draft); const alive = useRef(true); const inFlight = useRef(false);
   const [loading, setLoading] = useState(false); const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null); const [saved, setSaved] = useState<string | null>(null);
@@ -50,7 +51,14 @@ function AssignmentEditor({ model, round, actions, busy, run }: Props) {
     edit({ validity, reviewed: false, mappingIds: [] }); setTarget(null);
     inFlight.current = true; setLoading(true);
     try { await run(async () => {
-      try { const value = await actions.readAssignmentTarget(source.ref, validity === 'fromNext' ? 'next' : 'this'); if (alive.current) setTarget(value); }
+      try {
+        const value = await actions.readAssignmentTarget(source.ref, validity === 'fromNext' ? 'next' : 'this');
+        if (!alive.current) return;
+        const members = input.current.membersEdited ? input.current.memberIds : [...value.assigneeIds];
+        input.current = { ...input.current, memberIds: members,
+          fixed: members.length > 0 && (input.current.fixedEdited ? input.current.fixed : value.fixed) };
+        setDraft(input.current); setTarget(value);
+      }
       catch (cause) { if (alive.current) setError(cause instanceof Error ? cause.message : '対象の家事回を確認できません。'); }
     }); } finally { inFlight.current = false; if (alive.current) setLoading(false); }
   };
@@ -59,10 +67,14 @@ function AssignmentEditor({ model, round, actions, busy, run }: Props) {
   const mapping = mappingIds.map((id) => model.assignmentRules.find((fact) => fact.operationId === id));
   const needsReview = Boolean(target?.conflictIds.length || target && target.claimantUserIds.length > 1 || mappingIds.length);
   const canSubmit = !disabled && target !== null && target.active && (admin || target.assigneeIds.includes(model.viewerUserId));
+  const changesAssignment = (current: typeof draft) => Boolean(target && (current.fixed !== target.fixed ||
+    current.memberIds.length !== target.assigneeIds.length || current.memberIds.some(id => !target.assigneeIds.includes(id))
+    || current.validity !== 'once' && (current.membersEdited || current.fixedEdited)));
   const submit = async () => {
     if (!canSubmit || !target || inFlight.current) return;
     const current = input.current; const scope = current.validity === 'once' ? 'once' : 'from';
     const chosenMappings = [...new Set([...target.mappingReviewIds, ...current.mappingIds])].map((id) => model.assignmentRules.find((fact) => fact.operationId === id));
+    if (!changesAssignment(current) && !target.conflictIds.length && target.claimantUserIds.length <= 1 && !chosenMappings.length) return;
     if ((target.conflictIds.length || target.claimantUserIds.length > 1 || chosenMappings.length) && !current.reviewed) {
       setError('元の担当・競合と実施履歴を確認してください。'); return;
     }
@@ -104,10 +116,11 @@ function AssignmentEditor({ model, round, actions, busy, run }: Props) {
     </View> : <AppButton title="対象の家事回を再確認" variant="secondary" disabled={disabled} onPress={() => selectValidity(input.current.validity)} />}
     <SectionHeading title="変更後の担当" />
     {model.plan.members.filter((member) => member.active).map((member) => <V2Flag key={member.userId} label={`担当：${nameOf(member.userId)}`} value={draft.memberIds.includes(member.userId)} disabled={disabled}
-      onChange={(selected) => { const memberIds = [...new Set(selected ? [...input.current.memberIds, member.userId] : input.current.memberIds.filter((uid) => uid !== member.userId))].sort();
-        edit({ memberIds, ...(memberIds.length ? {} : { fixed: false }) }); }} />)}
+      onChange={(selected) => {
+        const memberIds = [...new Set(selected ? [...input.current.memberIds, member.userId] : input.current.memberIds.filter((uid) => uid !== member.userId))].sort();
+        edit({ memberIds, membersEdited: true, ...(memberIds.length ? {} : { fixed: false }) }); }} />)}
     {!draft.memberIds.length ? <Text style={styles.caption}>{target?.completion === 'perMember' ? 'この回の実施対象者をなしにします。過去の実施履歴は残ります。' : '担当未確定に戻し、メンバーが引き受けられるようにします。'}</Text> : null}
-    <V2Flag label="管理者による固定担当にする" value={draft.fixed} disabled={disabled || !draft.memberIds.length} onChange={(fixed) => edit({ fixed })} />
+    <V2Flag label="管理者による固定担当にする" value={draft.fixed} disabled={disabled || !draft.memberIds.length} onChange={(fixed) => edit({ fixed, fixedEdited: true })} />
     {!admin ? <Text style={styles.caption}>固定担当の変更・解除は申請として保存し、管理者の承認までは正式な担当を変えません。</Text> : null}
     {admin && orphanIds.length ? <View style={{ gap: 8 }}><SectionHeading title="対応付けが必要な以前の担当指定" />
       <Text style={styles.caption}>この家事回へ移す元の指定だけを選んでください。選ばなかった指定は保持します。</Text>
@@ -120,6 +133,6 @@ function AssignmentEditor({ model, round, actions, busy, run }: Props) {
       <V2Flag label="元の担当・競合と履歴への影響を確認した" value={draft.reviewed} disabled={disabled} onChange={(reviewed) => edit({ reviewed })} />
     </View> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    <AppButton title={admin ? '担当変更を保存' : '担当変更を申請'} disabled={!canSubmit} onPress={submit} />
+    <AppButton title={admin ? '担当変更を保存' : '担当変更を申請'} disabled={!canSubmit || !changesAssignment(draft) && !needsReview} onPress={submit} />
   </Card>;
 }

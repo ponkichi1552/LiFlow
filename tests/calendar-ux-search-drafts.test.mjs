@@ -146,7 +146,9 @@ test('calendar search includes retained detached overrides and never opens an om
   assert.deepEqual(calendarSearchDestination(match.draft, [parent], overrides, date, 'Asia/Tokyo'),
     { date: '2026-11-17', minute: 540, anchorDate: '2026-11-10' });
   assert.throws(() => calendarSearchDestination(match.draft, [parent], overrides.slice(1), date, 'Asia/Tokyo'), /表示できる予定/);
-  const series = calendarSearchIndex([parent], overrides.slice(1))[0].draft;
+  assert.deepEqual(calendarSearchIndex([parent], overrides.slice(1)), []);
+  assert.equal(calendarSearchIndex([parent], overrides.slice(2)).length, 1, 'one uncancelled round still makes the series searchable');
+  const series = calendarSearchIndex([parent], [])[0].draft;
   assert.equal(calendarSearchSelection(series, [parent], overrides.slice(1), date), null);
   assert.throws(() => calendarSearchDestination(series, [parent], overrides.slice(1), date, 'Asia/Tokyo'), /表示できる予定/);
 });
@@ -315,9 +317,14 @@ for (const platform of ['ios', 'android']) {
     const saved = h.local.snapshot.events[0];
     await store.saveCalendarDraft(h.database, draft({ eventId: saved.id, revision: 1, value: { ...saved, title: '歯科の変更途中' } }));
     await store.saveCalendarDraft(h.database, draft({ value: { ...newEventDraft(date, 'Asia/Tokyo'), title: '新しい予定の途中' } })); await h.local.refresh();
-    let picked; const drafts = screenHarness('src/features/calendar/calendar-draft-list.tsx', { exportName: 'CalendarDraftList', platform, props: { local: h.local, drafts: h.local.snapshot.drafts, onClose() {}, onSelect: value => { picked = value; } } });
+    let picked; let actions;
+    const drafts = screenHarness('src/features/calendar/calendar-draft-list.tsx', { exportName: 'CalendarDraftList', platform,
+      alert: (_title, _body, buttons) => { actions = buttons; },
+      props: { local: h.local, drafts: h.local.snapshot.drafts, onClose() {}, onSelect: value => { picked = value; } } });
     t.after(() => drafts.unmount()); await drafts.press('歯科の変更途中の下書きを再開'); assert.equal(picked.eventId, saved.id);
     await drafts.press('新しい予定の途中の下書きを破棄'); await flush(drafts);
+    assert.equal((await store.readLocalCalendar(h.database)).drafts.length, 2, 'opening the confirmation cannot discard the draft');
+    actions.find(button => button.style === 'destructive').onPress(); await flush(drafts);
     assert.deepEqual((await store.readLocalCalendar(h.database)).drafts.map(row => row.value.title), ['歯科の変更途中']);
   });
   test(`${platform} recurring search highlight identifies only the selected occurrence anchor`, async t => {

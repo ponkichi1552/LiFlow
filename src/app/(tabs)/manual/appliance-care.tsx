@@ -154,7 +154,7 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
     }, verifiedResult.analysis, approvedTasks, analysisManual.current);
     savedApplianceId.current = saved.applianceId;
     setAnalysisSaved(true);
-    setMessage(`解析結果を保存し、${saved.scheduledTaskCount}件を予定へ登録しました。${saved.noCycleTaskCount ? ` 周期なしの${saved.noCycleTaskCount}件も説明を保存しました。` : ''}${saved.duplicateTaskCount ? ` 同名の${saved.duplicateTaskCount}件は重複登録していません。` : ''}`);
+    setMessage(`解析結果を保存しました。${saved.scheduledTaskCount ? ` 定期予定は${saved.scheduledTaskCount}件です。` : ''}${saved.duplicateTaskCount ? ` 同名の${saved.duplicateTaskCount}件は既に登録されています。` : ''}`);
     await refreshSavedAppliance(verifiedResult);
   };
 
@@ -189,7 +189,7 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
           manualTouched.current = true; manualRef.current = value; setManual(value); setFilename(name); setResult(null); setAnalysisSaved(false); setMessage(null); setDisplayError(false);
         }} onAnalyze={() => void analyze()} onCancel={() => analysisRequest.current?.abort()} />
 
-      {message ? <Card><Text style={message.includes('件を予定へ登録') ? styles.savedMessage : styles.message}>{message}</Text></Card> : null}
+      {message ? <Card><Text style={analysisSaved ? styles.savedMessage : styles.message}>{message}</Text></Card> : null}
       {displayError ? <Card><Text accessibilityRole="alert" style={styles.message}>保存済みです。表示を更新できませんでした。</Text>
         <AppButton title="表示を再読込" variant="secondary" disabled={working || picking} onPress={() => void retryDisplay()} /></Card> : null}
       {result?.status === 'not_found' ? (
@@ -223,7 +223,6 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
             />
           ))}
           <AppButton title={working ? '保存中…' : analysisSaved ? '周期の変更を保存' : '解析結果の保存を再試行'} onPress={() => void saveChanges()} disabled={working || picking} />
-          <Text style={styles.note}>周期を入力した項目だけ定期予定に追加します。</Text>
         </>
       ) : null}
     </Page>
@@ -243,7 +242,7 @@ function TaskReviewCard({ task, working, cycleValue, onChangeCycle }: {
         </View>
         <NumberInputField value={cycleValue} editable={!working} onChangeText={onChangeCycle} accessibilityLabel={`${task.name}の周期`} placeholder="任意" />
       </View>
-      {task.recommendedIntervalDays === undefined ? <Text style={styles.note}>空欄なら定期予定に追加しません。</Text> : null}
+      <Text style={styles.note}>{task.recommendedIntervalDays === undefined ? '空欄なら定期予定なし' : `空欄なら推奨の${task.recommendedIntervalDays}日`}</Text>
     </View>} />;
 }
 

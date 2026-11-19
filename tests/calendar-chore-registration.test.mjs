@@ -375,6 +375,12 @@ for (const platform of ['ios', 'android']) {
     await ui.press('部屋・玄関の家事を開く'); await ui.press('片付けを選択'); assert.equal(picked.at(-1), first);
     await ui.press('部屋・玄関の家事を閉じる');
     await ui.change('追加する既存の家事を検索', '浴室・トイレ'); await ui.press('片付けを選択'); assert.equal(picked.at(-1), second);
+    await ui.change('追加する既存の家事を検索', 'ﾄｲﾚ　片付け');
+    assert.equal(ui.nodes().filter(node => node.props.accessibilityLabel === '片付けを選択').length, 1);
+    await ui.press('片付けを選択');
+    assert.equal(picked.at(-1), second);
+    await ui.change('追加する既存の家事を検索', '片付け といれ');
+    assert.equal(ui.nodes().filter(node => node.props.accessibilityLabel === '片付けを選択').length, 1);
     await ui.change('追加する既存の家事を検索', '片付け');
     assert.equal(ui.nodes().filter(node => node.props.accessibilityLabel === '片付けを選択').length, 2, 'same names in different chores remain separate choices');
     await ui.change('追加する既存の家事を検索', '古い家事'); assert.equal(ui.nodes().some(node => node.props.accessibilityLabel === '古い家事を選択'), false);

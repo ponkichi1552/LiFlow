@@ -95,20 +95,30 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
     },
     async submitJoinRequest(invitation: SignedSharedInvitation, request: SharedJoinRequest): Promise<void> {
       checkAccount(); const actual = await readInvitation(invitation.body.inviteId);
-      if (canonicalJson(actual.invitation) !== canonicalJson(invitation) || actual.status !== 'open') throw new Error('この招待リンクは使用済み、または取り消されています。');
-      verifySharedJoinRequest(request, invitation, userId, Date.now());
-      await runTransaction(firestore, async transaction => {
+      const now = Date.now();
+      if (canonicalJson(actual.invitation) !== canonicalJson(invitation) || actual.status !== 'open' || invitation.body.expiresAt <= now) {
+        const message = actual.status === 'revoked' ? 'この招待は取り消されています。' : 'この招待は終了しました。新しい招待リンクで参加してください。';
+        throw Object.assign(new Error(message), { code: 'sharing/invitation-ended' });
+      }
+      verifySharedJoinRequest(request, invitation, userId, now);
+      const rejected = await runTransaction(firestore, async transaction => {
         checkAccount();
         const ref = doc(inviteRef(invitation.body.inviteId), 'requests', userId);
         const membershipRef = doc(firestore, 'sharingUsers', userId, 'memberships', 'current');
         const membership = await transaction.get(membershipRef); const old = await transaction.get(ref);
         if (old.exists()) {
           if (old.data().requestJson !== canonicalJson(request)) throw new Error('このアカウントには別の端末の参加要求があります。');
-          return;
+          return false;
         }
-        if (!membership.exists() || membership.data().groupId !== invitation.body.groupId) transaction.set(membershipRef, { groupId: invitation.body.groupId, invitationId: invitation.body.inviteId, createdAt: serverTimestamp() });
+        const previous = membership.data();
+        // The pointer and request were created atomically. If the owner removed the
+        // request, retain that decision instead of automatically sending it again.
+        if (previous?.groupId === invitation.body.groupId && previous.invitationId === invitation.body.inviteId) return true;
+        transaction.set(membershipRef, { groupId: invitation.body.groupId, invitationId: invitation.body.inviteId, createdAt: serverTimestamp() });
         transaction.set(ref, { userId, deviceId: request.body.identity.deviceId, requestJson: canonicalJson(request), createdAt: serverTimestamp() });
+        return false;
       }); checkAccount();
+      if (rejected) throw Object.assign(new Error('参加が承認されませんでした。新しい招待リンクで参加してください。'), { code: 'sharing/invitation-rejected' });
     },
     async listInvitations(groupId: string, options: { activeAtMs?: number } = {}) {
       const activeAt = options.activeAtMs;

@@ -5,6 +5,7 @@ import { createDatabase } from './helpers/sqlite.mjs';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { selectCalendarView } from './helpers/calendar-ui.mjs';
 import { calendarSearchIndex, searchCalendarWithChores } from '../src/features/calendar/search.ts';
+import { timedCalendarChoreSearchTarget } from '../src/features/calendar/timed-chores.ts';
 import { calendarNotificationRequests, calendarNotificationDestination, CALENDAR_NOTIFICATION_PREFIX } from '../src/features/calendar/calendar-notifications.ts';
 import { newEventDraft } from '../src/features/calendar/events.ts';
 import { reconcileLocalNotifications } from '../src/features/notifications/reconcile-local-notifications.ts';
@@ -29,6 +30,24 @@ test('calendar search includes dated personal and shared chores with normalized 
   assert.equal(JSON.stringify([index, chores]), before);
 });
 for (const platform of ['ios', 'android']) {
+  test(`${platform} selecting a timed chore search result highlights the corresponding timeline entry in display time`, async t => {
+    const id = 'personal:timed';
+    const start = Date.parse('2026-11-15T08:20:00Z'); const timeZone = 'Asia/Tokyo';
+    const timedChore = { id, name: '時刻付きの家事', start, end: start + 30 * 60_000, onOpen: () => assert.fail('search must only focus the timeline card') };
+    const local = { database: {}, snapshot: { events: [], exceptions: [], categories: [], drafts: [] }, loading: false, error: null, refresh: async () => {} };
+    const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { platform, exportName: 'PlannerCalendar', layoutEffect: effect => effect(), props: {
+      today: '2026-11-14', timeZone, local, timedChores: [timedChore], dayInfo: () => ({ loaded: true, total: 1 }),
+      renderChores: date => `CHORE:${date}`,
+      searchChores: [{ key: id, title: timedChore.name, source: 'personal', ...timedCalendarChoreSearchTarget(id, start, timeZone) }],
+    } });
+    t.after(() => ui.unmount());
+    await selectCalendarView(ui, '3日表示');
+    await ui.press('予定を検索する'); await ui.change('予定を検索', '時刻付き');
+    assert.match(ui.button('時刻付きの家事の検索結果を開く').props.accessibilityValue.text, /17:20/u);
+    await ui.press('時刻付きの家事の検索結果を開く');
+    if (platform === 'ios') { ui.nodes().find(row => row.type === 'Modal').props.onDismiss(); await ui.flush(); }
+    assert.equal(ui.button('時刻付きの家事を編集').props.accessibilityState.selected, true);
+  });
   test(`${platform} selecting a chore search result opens its date and chore section without opening an editor or writing data`, async () => {
     const local = { database: {}, snapshot: { events: [], exceptions: [], categories: [], drafts: [] }, loading: false, error: null, refresh: async () => {} };
     const selected = []; const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { platform, exportName: 'PlannerCalendar', props: {

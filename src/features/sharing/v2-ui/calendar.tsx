@@ -26,14 +26,15 @@ import { PlannerCalendar } from '../../calendar/planner-calendar';
 import type { CalendarDayInfo, PlannerCalendarProps } from '../../calendar/planner-calendar';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
 import { calendarChoreDisplayThrough } from '../../calendar/chore-display-range';
+import { timedCalendarChoreSearchTarget } from '../../calendar/timed-chores';
 import { V2CalendarChoreRegistration } from './calendar-chore-registration';
 import type { V2DateFormProps } from './date-form';
 
-export function V2Calendar({ model, personal, privateOverlay: privateValue, privateSource, selectedDate, busy, actions, run, onMonth, onSelectDate, onRound, onDate, header, feedback, local: personalLocal, onNavigate, perform, workspaceName, onGuide, readOwnCalendar }: {
+export function V2Calendar({ model, personal, privateOverlay: privateValue, privateSource, selectedDate, busy, actions, run, onMonth, onReloadMonth = onMonth, onSelectDate, onRound, onDate, header, feedback, local: personalLocal, onNavigate, perform, workspaceName, onGuide, readOwnCalendar }: {
   perform?: (work: () => Promise<unknown>) => Promise<V2MutationOutcome>; onGuide?: (choreId: string, source: 'shared' | 'personal') => void; feedback?: CompletionFeedback; local?: LocalCalendarBinding; onNavigate?: PlannerCalendarProps['onNavigate']; workspaceName?: string;
   model: V2GroupScreenModel; personal?: V2PersonalPlan; month: LocalDate; selectedDate: LocalDate; busy: boolean;
   actions: V2GroupController['actions']; run: (work: () => Promise<unknown>) => Promise<void>;
-  onMonth: (month: LocalDate) => void; onSelectDate: (date: LocalDate) => void;
+  onMonth: (month: LocalDate) => void; onReloadMonth?: (month: LocalDate) => void; onSelectDate: (date: LocalDate) => void;
   onRound: (occurrenceId: string, subjectId: string, anchorDate: LocalDate) => void; header?: ReactElement;
   onDate?: (occurrenceId: string, subjectId: string, targetDate: LocalDate, anchorDate: LocalDate) => void;
   privateOverlay?: V2PrivateOverlayState; privateSource?: V2PrivateTaskSource;
@@ -153,8 +154,14 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
   ];
   return <PlannerCalendar today={model.plan.range.asOfDate} timeZone={model.plan.timeZone} selectedDate={selectedDate} local={local} busy={busy} workspaceName={workspaceName}
     timedChores={timedChores}
-    loadSearchChores={() => [...[...projection.byDate].flatMap(([date, rows]) => loaded(date) ? rows.map(entry => ({ key: `shared:${entry.id}:${date}`, title: chores.get(entry.round.choreId)?.name ?? '共有家事', date, source: 'shared' as const })) : []),
-      ...[...privateRowsByDate].flatMap(([date, rows]) => rows.map(row => ({ key: row.key, title: row.chore.name, date, source: 'personal' as const })))]} searchChoresIncomplete
+    loadSearchChores={() => {
+      const timed = new Map(timedChores.map(chore => [chore.id, timedCalendarChoreSearchTarget(chore.id, chore.start, model.plan.timeZone)]));
+      return [...[...projection.byDate].flatMap(([date, rows]) => loaded(date) ? rows.map(entry => {
+        const target = timed.get(entry.subject.id);
+        return { key: target?.timedChoreId ?? `shared:${entry.id}:${date}`, title: chores.get(entry.round.choreId)?.name ?? '共有家事', date, source: 'shared' as const, ...target };
+      }) : []), ...[...privateRowsByDate].flatMap(([date, rows]) => rows.map(row => ({ key: row.key, title: row.chore.name, date,
+        source: 'personal' as const, ...timed.get(`personal:${row.entryId ?? row.key}`) })))];
+    }} searchChoresIncomplete
     extendedChoreDates={extendedDates}
     repeatReturnTo="group" onSelectDate={onSelectDate} onMonth={onMonth} monthLoaded={target => { const grid = v2CalendarMonth(target); const through = grid.through < choreThrough ? grid.through : choreThrough;
       return loaded(grid.from) && loaded(through) && Boolean(wasteLoaded(grid.from) && wasteLoaded(through))
@@ -170,8 +177,10 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
     renderChores={(date, view) => <Animated.FlatList testID="calendar-chore-list" data={entriesFor(date)} scrollEnabled={false} itemLayoutAnimation={LinearTransition.duration(240)} keyExtractor={entry => entry.key} initialNumToRender={8}
       ListHeaderComponent={<View style={{ gap: 6 }}>
         <V2PrivateTaskNotice overlay={privateOverlay} sharedTimeZone={model.plan.timeZone} date={date} />
-        {date <= choreThrough && privateValue && !privateReady(date) ? <Text style={caption}>この月の個人家事は未取得です。月を再読込してください。</Text> : null}
-        {!loaded(date) ? <><Text style={caption}>{busy ? '共有予定を読み込んでいます…' : 'この月の共有予定を取得できていません。'}</Text><AppButton title="この月を再読込" variant="quiet" compact disabled={busy} onPress={() => onMonth(v2CalendarMonth(date).month)} /></> : null}
+        {date <= choreThrough && privateValue && !privateReady(date) && privateOverlay?.status !== 'unavailable' ? <Text style={caption}>この月の個人家事は未取得です。</Text> : null}
+        {!loaded(date) ? <Text style={caption}>{busy ? '共有予定を読み込んでいます…' : 'この月の共有予定を取得できていません。'}</Text> : null}
+        {!loaded(date) || date <= choreThrough && privateValue && !privateReady(date) ?
+          <AppButton title="この月を再読込" variant="quiet" compact disabled={busy} onPress={() => onReloadMonth(v2CalendarMonth(date).month)} /> : null}
         {model.waste?.rows.some(row => !row.deleted && row.needsReview) ? <Text style={caption}>確認が必要な収集ルールは共有のゴミ収集日で確認できます。</Text> : null}
       </View>}
       ListEmptyComponent={loaded(date) && !busy ? <Card><Text style={caption}>この日の共有家事はありません。</Text></Card> : undefined}

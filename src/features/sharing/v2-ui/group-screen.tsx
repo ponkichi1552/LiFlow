@@ -73,7 +73,7 @@ export interface V2GroupScreenProps {
   loadSession: () => Promise<V2GroupUiSession>; view: 'home' | 'configuration' | 'history' | 'round' | 'date' | 'requests' | 'assignment' | 'assignmentRequests' | 'calendar' | 'chores' | 'details' | 'advancedSettings' | 'addChore' | 'groupPolicy' | 'dateRights' | 'waste' | 'appliances' | 'appliance' | 'applianceReview' | 'guide'; choreId?: string; applianceId?: string;
   occurrenceId?: string; subjectId?: string; anchorDate?: string; targetDate?: string; calendarAdd?: boolean; onRound?: (occurrenceId: string, subjectId: string, anchorDate?: string) => void; onDate?: (occurrenceId: string, subjectId: string, targetDate?: LocalDate, anchorDate?: LocalDate) => void;
   onBack: () => void; onConfiguration: (choreId: string) => void; onHistory: () => void; onRequests?: () => void;
-  onAssignment?: (occurrenceId: string, subjectId: string) => void; onAssignmentRequests?: () => void;
+  onAssignment?: (occurrenceId: string, subjectId?: string, anchorDate?: LocalDate) => void; onAssignmentRequests?: () => void;
   onCalendar?: () => void; personalGuide?: PersonalGuideSource; guideSource?: 'shared' | 'personal'; onGuide?: (choreId: string, source: 'shared' | 'personal') => void;
   onManageChores?: () => void; onDetails?: (choreId: string) => void; onAddChore?: (date?: LocalDate) => void; onChoreCreated?: (choreId: string) => void;
   onGroupPolicy?: () => void; onNotifications?: () => void; onGoogleTasks?: () => void; onPersonalCopy?: () => void;
@@ -331,7 +331,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     <AppButton title="読み込みを再試行" variant="quiet" onPress={() => void refresh()} /></V2ScreenFrame>;
   if (view === 'calendar') {
     const month = calendarMonth ?? v2CalendarMonth(model.plan.range.asOfDate).month;
-    const selectMonth = async (day: LocalDate, selectedDate?: LocalDate) => {
+    const selectMonth = async (day: LocalDate, selectedDate?: LocalDate, forceRead = false) => {
       if (!alive.current) return;
       try {
         const next = v2CalendarMonth(day); setCalendarMonth(next.month);
@@ -346,7 +346,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         const covered = model.plan.range.from <= next.from && requiredThrough <= model.plan.range.through
           && wasteCovered
           && (privateOverlay?.status !== 'ready' || privateOverlay.range.from <= next.from && requiredThrough <= privateOverlay.range.through);
-        if (covered) return;
+        if (covered && !forceRead) return;
         const range = v2CalendarDisplayRange(next.month, model.plan.range);
         readOptions.current = { calendarMonth: next.month, calendarRange: { ...range, through: range.through < through ? range.through : through }, waste: true, wasteCalendarPolicy: true };
         if (running.current) { refreshQueued.current = true; return; }
@@ -355,16 +355,17 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     };
     return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}><V2Calendar model={model} personal={personal} privateOverlay={privateOverlay} privateSource={session.privateTasks} month={month}
       selectedDate={calendarDay ?? model.plan.range.asOfDate} feedback={feedback} busy={busy} actions={controller.actions} run={run} perform={perform} local={localCalendar} onNavigate={onCalendarNavigate} onGuide={onGuide} workspaceName={groupName}
-      onMonth={selectMonth} onSelectDate={(day) => { if (day.slice(0, 7) === month.slice(0, 7)) setCalendarDay(day); else void selectMonth(day, day); }}
+      onMonth={selectMonth} onReloadMonth={day => void selectMonth(day, undefined, true)}
+      onSelectDate={(day) => { if (day.slice(0, 7) === month.slice(0, 7)) setCalendarDay(day); else void selectMonth(day, day); }}
       onRound={(id, subject, anchor) => onRound?.(id, subject, anchor)} readOwnCalendar={session.readOwnCalendar}
       onDate={onDate ? (id, subject, clickedDate, anchor) => onDate(id, subject, clickedDate, anchor) : undefined}
-      header={purpose === 'development' ? <View>{notice}{error ? <AppButton title="この月を再読込" compact variant="quiet" disabled={busy} onPress={() => void selectMonth(month)} /> : null}</View>
-        : workspaceError || error ? <View style={{ padding: 8 }}><Text accessibilityRole="alert" style={styles.error}>{workspaceError ?? error}</Text><AppButton title="この月を再読込" compact variant="quiet" disabled={busy} onPress={() => void selectMonth(month)} /></View> : undefined} /></V2ScreenFrame>;
+      header={purpose === 'development' ? <View>{notice}{error ? <AppButton title="この月を再読込" compact variant="quiet" disabled={busy} onPress={() => void selectMonth(month, undefined, true)} /> : null}</View>
+        : workspaceError || error ? <View style={{ padding: 8 }}><Text accessibilityRole="alert" style={styles.error}>{workspaceError ?? error}</Text><AppButton title="この月を再読込" compact variant="quiet" disabled={busy} onPress={() => void selectMonth(month, undefined, true)} /></View> : undefined} /></V2ScreenFrame>;
   }
   if (view === 'assignmentRequests') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
     <NavigationHeader><BackButton onPress={onBack} disabled={busy} /></NavigationHeader>
     <V2AssignmentRequests model={model} actions={controller.actions} busy={busy} run={run}
-      onResolve={onAssignment ? (id) => { const round = model.plan.occurrences.find((entry) => entry.id === id); if (round?.subjects[0]) onAssignment(id, round.subjects[0].id); } : undefined}
+      onResolve={onAssignment ? (id, day) => onAssignment(id, model.plan.occurrences.find(entry => entry.id === id)?.subjects[0]?.id, day) : undefined}
       header={<View style={{ gap: 16 }}>{notice}<ScreenHeading title="担当の変更申請" /></View>} />
   </V2ScreenFrame>;
   if (view === 'requests') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
@@ -373,7 +374,8 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
       header={<View style={{ gap: 16 }}>{notice}<ScreenHeading title="日時の変更申請" /></View>} />
   </V2ScreenFrame>;
   if (view === 'round' || view === 'date' || view === 'assignment') {
-    const round = model.plan.occurrences.find((entry) => entry.id === occurrenceId); const subject = round?.subjects.find((entry) => entry.id === subjectId);
+    const round = model.plan.occurrences.find((entry) => entry.id === occurrenceId);
+    const subject = round?.subjects.find((entry) => entry.id === subjectId) ?? (view === 'assignment' ? round?.subjects[0] : undefined);
     const chore = round ? model.plan.chores.find((entry) => entry.id === round.choreId) : undefined;
     return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}><V2FormScrollView contentContainerStyle={styles.page} header={view === 'date' && calendarRegistrationDate(targetDate)
       ? <SettingsHeader title="家事の日付変更" onBack={onBack} backDisabled={busy} /> : <BackButton onPress={onBack} disabled={busy} />}>

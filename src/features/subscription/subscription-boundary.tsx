@@ -1,7 +1,8 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { PropsWithChildren } from 'react';
-import { AppState, View } from 'react-native';
-import { palette } from '../../components/planner-colors';
+import { ActivityIndicator, AppState, Text, View, useColorScheme } from 'react-native';
+import { plannerColorsForScheme } from '../../components/planner-theme';
+import { typography } from '../../components/planner-ui';
 import { finishStartupDisplay } from '../../platform/diagnostics/startup-splash';
 import { startSubscriptions, subscribeSubscription, subscriptionRequired, subscriptionSnapshot, refreshSubscription } from '../../platform/subscription/runtime';
 import { SubscriptionScreen } from './subscription-screen';
@@ -34,7 +35,19 @@ function RequiredSubscription({ children }: PropsWithChildren) {
     const listener = AppState.addEventListener('change', next => { if (next === 'active') recover(); });
     return () => { live = false; clearTimeout(timer); listener.remove(); };
   }, [state.userId]);
-  if (state.phase === 'checking') return <View onLayout={finishStartupDisplay} style={{ flex: 1, backgroundColor: palette.background }} />;
+  if (state.phase === 'checking') return <SubscriptionChecking />;
   if (state.phase !== 'active') return <SubscriptionScreen />;
   return children;
+}
+
+function SubscriptionChecking() {
+  const colors = plannerColorsForScheme(useColorScheme());
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(true), 500);
+    return () => clearTimeout(timer);
+  }, []);
+  return <View onLayout={finishStartupDisplay} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, backgroundColor: colors.background }}>
+    {visible ? <><ActivityIndicator color={colors.accent} /><Text accessibilityLiveRegion="polite" style={{ ...typography.body, color: colors.ink }}>契約を確認中…</Text></> : null}
+  </View>;
 }

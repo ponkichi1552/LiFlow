@@ -3,13 +3,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { typography } from '../../components/planner-ui';
-import { SettingsPanel } from '../../components/settings-controls';
+import { SettingsAction, SettingsPanel } from '../../components/settings-controls';
 import { plannerColorsForScheme } from '../../components/planner-theme';
 import { CalendarField } from './calendar-field';
 import { CalendarSheetHeader } from './calendar-sheet-header';
-import { addDays, parseLocalDate } from '../../domain/scheduling/local-date';
+import { addDays, formatJapaneseDate, parseLocalDate } from '../../domain/scheduling/local-date';
 import { choreCalendarTiming, type ChoreCalendarTiming } from '../../domain/chores/calendar-timing';
-import { newEventDraft, type EventDraft } from './events';
+import { minuteLabel, newEventDraft, type EventDraft } from './events';
 import { moveCalendarStart } from './event-editing';
 import { newCalendarSubmissionId } from '../../platform/storage/calendar-events';
 import { movePersonalChoreDate, readPersonalChoreDate } from '../../platform/storage/repository';
@@ -26,20 +26,33 @@ function ChoreDateEditor({ params }: { params: { choreId: string; entryId: strin
   const [date, setDate] = useState<LocalDate | null>(null); const [error, setError] = useState<string | null>(null);
   const [timed, setTimed] = useState<EventDraft | null>(null); const capturedDatabase = useRef(data.database);
   const [busy, setBusy] = useState(false); const lock = useRef(false);
-  const [operation] = useState(() => ({ operationId: newCalendarSubmissionId(), recordedAt: new Date().toISOString() }));
+  const [readAttempt, setReadAttempt] = useState(0);
+  const [readState, setReadState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [reviewDate, setReviewDate] = useState(false);
+  const retryInput = useRef<{ date: LocalDate | null } | null>(null);
+  const operation = useRef<{ digest: string; operationId: string; recordedAt: string } | null>(null);
   const entry = data.snapshot?.scheduleEntries.find(row => row.choreId === params.choreId && row.id === params.entryId);
   useEffect(() => {
     let live = true;
+    const kept = capturedDatabase.current === data.database ? retryInput.current : null;
     void readPersonalChoreDate(data.database, params.choreId, params.entryId).then(value => {
       if (!live) return;
-      if (!value.roundId || value.roundId !== params.entryId) { setError('この回の予定は更新されています。元の画面で開き直してください。'); return; }
-      capturedDatabase.current = data.database; setCaptured(value); setDate(null); setTimed(null); setError(null);
-      if (value.calendarTiming && !value.calendarTiming.allDay && value.date) setTimed({ ...newEventDraft(value.date, value.calendarTiming.timeZone),
+      if (!kept) { setDate(null); setTimed(null); }
+      if (!value.roundId || value.roundId !== params.entryId) {
+        setCaptured(null); setReadState('failed'); setError('この家事回は更新されました。カレンダーをご確認ください。'); return;
+      }
+      capturedDatabase.current = data.database; setCaptured(value); setError(null); setReviewDate(Boolean(kept)); setReadState('ready');
+      if (value.calendarTiming && !value.calendarTiming.allDay && value.date) {
+        const latest = { ...newEventDraft(value.date, value.calendarTiming.timeZone),
         allDay: false, startMinute: value.calendarTiming.startMinute, endMinute: value.calendarTiming.endMinute,
-        endDate: addDays(value.date, value.calendarTiming.endDayOffset) });
-    }).catch(cause => { if (live) setError(cause instanceof Error ? cause.message : '家事を読み込めませんでした。'); });
+          endDate: addDays(value.date, value.calendarTiming.endDayOffset) };
+        setTimed(current => kept && current ? current : kept?.date ? moveCalendarStart(latest, { startDate: kept.date }) : latest);
+      }
+    }).catch(cause => {
+      if (live) { setReadState('failed'); setError(cause instanceof Error ? cause.message : '家事を読み込めませんでした。'); }
+    });
     return () => { live = false; };
-  }, [data.database, params.choreId, params.entryId]);
+  }, [data.database, params.choreId, params.entryId, readAttempt]);
   const selected = timed?.startDate ?? date ?? captured?.date ?? entry?.suggestedDate;
   const displayTimeZone = data.snapshot?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   let validation: string | null = null;
@@ -49,14 +62,23 @@ function ChoreDateEditor({ params }: { params: { choreId: string; entryId: strin
   const changed = selected !== (captured?.date ?? entry?.suggestedDate) || Boolean(timing &&
     (timing.startMinute !== originalTiming?.startMinute || timing.endMinute !== originalTiming?.endMinute
       || timing.endDayOffset !== originalTiming?.endDayOffset));
-  const canSave = !validation && changed && captured && selected && entry;
+  const canSave = readState === 'ready' && !validation && changed && captured && selected && entry;
+  const fieldDisabled = busy || readState === 'loading' || !captured;
+  const reload = () => {
+    if (lock.current || readState === 'loading') return;
+    retryInput.current = captured ? changed ? { date } : null : retryInput.current;
+    setReadState('loading'); setError(null); setReadAttempt(attempt => attempt + 1);
+  };
   const save = async () => {
     if (lock.current || !canSave || !captured?.roundId || !captured.planRevision || !selected
       || captured.definition.id !== params.choreId || captured.roundId !== params.entryId || capturedDatabase.current !== data.database) return;
     lock.current = true; setBusy(true); setError(null);
     try {
-      await movePersonalChoreDate(data.database, { ...operation, choreId: params.choreId, roundId: captured.roundId, planRevision: captured.planRevision, definition: captured.signature, date: selected,
-        ...(timing ? { timing } : {}) });
+      const command = { choreId: params.choreId, roundId: captured.roundId, planRevision: captured.planRevision, definition: captured.signature,
+        date: selected, ...(timing ? { timing } : {}) };
+      const digest = JSON.stringify(command);
+      if (operation.current?.digest !== digest) operation.current = { digest, operationId: newCalendarSubmissionId(), recordedAt: new Date().toISOString() };
+      await movePersonalChoreDate(data.database, { operationId: operation.current.operationId, recordedAt: operation.current.recordedAt, ...command });
       void data.refresh(); router.back();
     } catch (cause) { setError(cause instanceof Error ? cause.message : '日付を保存できませんでした。'); }
     finally { lock.current = false; setBusy(false); }
@@ -67,24 +89,27 @@ function ChoreDateEditor({ params }: { params: { choreId: string; entryId: strin
       onSave={() => void save()} saveLabel={timed ? '今回の日時を保存' : '今回の実施日を保存'} busy={busy} saveDisabled={!canSave} /></View>
     <ScrollView style={styles.body} contentContainerStyle={styles.content}>
       <Text accessibilityRole="header" style={[styles.name, { color: colors.ink }]}>{captured?.definition.name ?? data.snapshot?.chores.find(row => row.id === params.choreId)?.name ?? '家事'}</Text>
+      {readState === 'loading' ? <Text accessibilityLiveRegion="polite" style={[styles.message, { color: colors.muted }]}>家事を読み込み中…</Text> : null}
+      {readState === 'ready' && reviewDate && captured?.date ? <Text accessibilityLiveRegion="polite" style={[styles.message, { color: colors.muted }]}>現在の実施日 {formatJapaneseDate(captured.date)}{captured.calendarTiming && !captured.calendarTiming.allDay ? ` ${minuteLabel(captured.calendarTiming.startMinute)}〜${minuteLabel(captured.calendarTiming.endMinute)}` : ''}</Text> : null}
       {timed ? <SettingsPanel>
         <View style={styles.dateFields}>
         <View style={styles.dateRow}><Text style={[typography.body, { color: colors.ink }]}>開始</Text>
-          <CalendarField borderless hideLabel commitOnDone label="開始日" date={timed.startDate} minute={0} mode="date" disabled={busy} onDate={startDate => setTimed(before => before && moveCalendarStart(before, { startDate }))} />
-          <View style={styles.timeField}><CalendarField borderless hideLabel commitOnDone label="開始時刻" date={timed.startDate} minute={timed.startMinute} mode="time" disabled={busy} onMinute={startMinute => setTimed(before => before && moveCalendarStart(before, { startMinute }))} /></View>
+          <CalendarField borderless hideLabel commitOnDone label="開始日" date={timed.startDate} minute={0} mode="date" disabled={fieldDisabled} onDate={startDate => setTimed(before => before && moveCalendarStart(before, { startDate }))} />
+          <View style={styles.timeField}><CalendarField borderless hideLabel commitOnDone label="開始時刻" date={timed.startDate} minute={timed.startMinute} mode="time" disabled={fieldDisabled} onMinute={startMinute => setTimed(before => before && moveCalendarStart(before, { startMinute }))} /></View>
         </View>
         <View style={styles.dateRow}><Text style={[typography.body, { color: colors.ink }]}>終了</Text>
-          <CalendarField borderless hideLabel commitOnDone label="終了日" date={timed.endDate} minute={0} mode="date" disabled={busy} onDate={endDate => setTimed(before => before && { ...before, endDate })} />
-          <View style={styles.timeField}><CalendarField borderless hideLabel commitOnDone label="終了時刻" date={timed.endDate} minute={timed.endMinute} mode="time" disabled={busy} onMinute={endMinute => setTimed(before => before && { ...before, endMinute })} /></View>
+          <CalendarField borderless hideLabel commitOnDone label="終了日" date={timed.endDate} minute={0} mode="date" disabled={fieldDisabled} onDate={endDate => setTimed(before => before && { ...before, endDate })} />
+          <View style={styles.timeField}><CalendarField borderless hideLabel commitOnDone label="終了時刻" date={timed.endDate} minute={timed.endMinute} mode="time" disabled={fieldDisabled} onMinute={endMinute => setTimed(before => before && { ...before, endMinute })} /></View>
         </View>
         </View>
         {timed.timeZone !== displayTimeZone ? <Text style={[styles.message, { color: colors.muted }]}>地域：{timed.timeZone}</Text> : null}
       </SettingsPanel> : selected ? Platform.OS === 'ios' ? <DateTimePicker accessibilityLabel="今回の実施日" value={parseLocalDate(selected)} mode="date" display="spinner" locale="ja-JP" timeZoneName="UTC"
-        themeVariant={scheme === 'dark' ? 'dark' : 'light'} textColor={colors.ink} accentColor={colors.accent} disabled={busy} style={styles.picker}
-        onValueChange={(_event, value) => { if (!busy && value && Number.isFinite(value.getTime())) setDate(value.toISOString().slice(0, 10) as LocalDate); }} />
-        : <CalendarField label="今回の実施日" date={selected} minute={0} mode="date" disabled={busy} onDate={setDate} />
-        : !error && !data.error ? <Text style={[styles.message, { color: colors.muted }]}>読み込み中…</Text> : null}
+        themeVariant={scheme === 'dark' ? 'dark' : 'light'} textColor={colors.ink} accentColor={colors.accent} disabled={fieldDisabled} style={styles.picker}
+        onValueChange={(_event, value) => { if (!fieldDisabled && value && Number.isFinite(value.getTime())) setDate(value.toISOString().slice(0, 10) as LocalDate); }} />
+        : <CalendarField label="今回の実施日" date={selected} minute={0} mode="date" disabled={fieldDisabled} onDate={setDate} />
+        : null}
       {validation || error || data.error ? <Text accessibilityRole="alert" style={[styles.message, { color: colors.warning }]}>{validation ?? error ?? data.error}</Text> : null}
+      {error && readState !== 'loading' ? <SettingsAction placement="page" title="現在の家事を再読込" disabled={busy} onPress={reload} /> : null}
     </ScrollView>
   </View>;
 }

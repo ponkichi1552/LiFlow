@@ -29,6 +29,7 @@ const page = { padding: 16, paddingBottom: 40, gap: 14 };
 const body = { ...typography.body, color: palette.ink };
 const caption = { ...typography.caption, color: palette.muted };
 const warning = { ...typography.caption, color: palette.warning };
+type ManualSelection = { input: UploadedManualInput; filename?: string };
 
 /** Review is explicit. No API completion, navigation or refresh can silently replace shared chores. */
 export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, perform, onBack, onOpen, onReview, onConfiguration, onDetails, header, personalDatabase }: {
@@ -42,10 +43,13 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   const loadedDetail = model.appliances?.detail;
   const detail = loadedDetail?.row.id === applianceId ? loadedDetail : undefined;
   // Retain the displayed basis throughout an API request and review. A remote refresh cannot bless an old draft.
-  const [basis] = useState(() => detail); const starting = basis?.appliance;
+  const [firstDetail] = useState(() => detail);
+  const [analysisReview, setAnalysisReview] = useState<{ response: ProductVerifiedResponse; manual: ManualSelection; basis: typeof detail } | null>(null);
+  const basis = analysisReview ? analysisReview.basis : firstDetail ?? detail;
+  const starting = basis?.appliance;
+  const response = analysisReview?.response;
   const [canAnalyze, setCanAnalyze] = useState(false);
-  const [manual, setManual] = useState<UploadedManualInput>(); const manualRef = useRef<UploadedManualInput | undefined>(undefined);
-  const [filename, setFilename] = useState<string>();
+  const [manual, setManual] = useState<ManualSelection>(); const manualRef = useRef<ManualSelection | undefined>(undefined);
   const [picking, setPicking] = useState(false); const pickingRef = useRef(false);
   const [retainedManual, setRetainedManual] = useState<UploadedManualInput>();
   const manualTouched = useRef(false);
@@ -54,11 +58,13 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
     if (!digest || !personalDatabase || mode !== 'applianceReview') return;
     let current = true;
     void readApplianceManual(personalDatabase, digest).then(base64 => {
-      if (base64 && current && !manualTouched.current) { const input: UploadedManualInput = { base64, rightsConfirmed: true }; setRetainedManual(input); manualRef.current = input; setManual(input); }
+      if (base64 && current && !manualTouched.current) {
+        const input: UploadedManualInput = { base64, rightsConfirmed: true };
+        setRetainedManual(input); manualRef.current = { input }; setManual(manualRef.current);
+      }
     }).catch(() => { /* A legacy or unreadable PDF can be selected again without changing its saved analysis. */ });
     return () => { current = false; };
   }, [starting, personalDatabase, mode]);
-  const [response, setResponse] = useState<ProductVerifiedResponse | null>(null);
   const [chosen, setChosen] = useState<string[]>([]); const chosenRef = useRef(chosen);
   const [reviewed, setReviewed] = useState(false); const reviewedRef = useRef(false);
   const [candidateId, setCandidateId] = useState<string | null>(null); const [deleting, setDeleting] = useState(false);
@@ -72,19 +78,20 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
     if (working.current || locked || pickingRef.current || savedRef.current) return;
     if (model.manualStorageSupported === false) { setError('解析前に、グループ管理で互換更新を行ってください。'); return; }
     if (!canAnalyze) { setError('ログインと正規端末の確認が済むまで家電AIは利用できません。'); return; }
+    if (applianceId && !basis) { setError('再解析する家電を表示できません。'); return; }
     const submittedManual = manualRef.current;
     if (!submittedManual) { setError('取扱説明書PDFを選んでください。'); return; }
     working.current = true; const controller = beginRequest(() => { working.current = false; setAnalyzing(false); });
-    setAnalyzing(true); setResponse(null); check(false); setError(null); setSaved(null);
+    setAnalyzing(true); setAnalysisReview(null); check(false); setError(null); setSaved(null);
     try {
-      const input: ApplianceCareApiRequest = { identifyFromManual: true, manual: submittedManual,
+      const input: ApplianceCareApiRequest = { identifyFromManual: true, manual: submittedManual.input,
         ...(starting ? { manufacturer: starting.manufacturer, productName: starting.productName, modelNumber: starting.modelNumber,
           ...(starting.category ? { category: starting.category } : {}), forceReanalysis: true } : {}) };
       const { deviceAnalysisDeliveries } = await import('../../../platform/storage/analysis-deliveries');
       const result = await analyzeApplianceCareRequest(input, undefined, undefined, undefined, controller.signal,
         personalDatabase ? deviceAnalysisDeliveries(personalDatabase) : undefined);
       if (request.current !== controller || controller.signal.aborted) return;
-      if (result.status === 'verified') { setResponse(result); chosenRef.current = []; setChosen([]); }
+      if (result.status === 'verified') { setAnalysisReview({ response: result, manual: submittedManual, basis }); chosenRef.current = []; setChosen([]); }
       else setError(result.status === 'ambiguous' ? '製品を特定できませんでした。別の取扱説明書PDFを選んでください。' : result.message);
     } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : '解析結果を取得できませんでした。'); }
     finally { if (request.current === controller) { request.current = null; working.current = false; setAnalyzing(false); } }
@@ -94,13 +101,13 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
     try {
       const outcome = await perform(work);
       if (!outcome.committed) throw outcome.error instanceof Error ? outcome.error : new Error('家電の変更を保存できませんでした。');
-      setPendingRead(!outcome.refreshed); setDeleting(false); setCandidateId(null); setResponse(null); check(false);
+      setPendingRead(!outcome.refreshed); setDeleting(false); setCandidateId(null); setAnalysisReview(null); check(false);
     } catch (cause) { setError(cause instanceof Error ? cause.message : '家電の変更を保存できませんでした。'); }
     finally { working.current = false; }
   };
   const save = (review: V2ApplianceReview) => execute(async () => {
     if (!reviewedRef.current) throw new Error('メーカー・型番・手順・注意事項を確認してください。');
-    const selectedManual = manualRef.current;
+    const selectedManual = analysisReview?.manual.input;
     const result = await actions.reviewAppliance({ ...review, ...(review.result.analysis.manualSource && selectedManual ? { manual: selectedManual } : {}) }); savedRef.current = result; setSaved(result);
   });
   const executeRead = async () => {
@@ -139,15 +146,16 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
         {basis?.source.kind === 'conflict' ? <Text style={warning}>確認して共有すると、表示開始時にあった解析の競合を新しい内容で解決します。元の履歴は保持します。</Text> : null}
         {basis?.row.deleted || basis?.alive.kind === 'conflict' ? <Text style={warning}>確認して共有すると、この家電をグループ全員の一覧へ復元します。既存家事の削除状態は変更しません。</Text> : null}
         {applianceId && !detail ? <Text style={warning}>対象の共有家電を読み込めません。家電一覧から開き直してください。</Text> : null}
-        {!saved ? <ManualAnalysisForm retained={retainedManual} filename={filename} shared reanalysis={Boolean(starting)} working={analyzing} picking={picking}
+        {!saved ? <ManualAnalysisForm retained={retainedManual} filename={manual?.filename} shared reanalysis={Boolean(applianceId)} working={analyzing} picking={picking}
           canAnalyze={canAnalyze} onReady={setCanAnalyze} usage={response?.usage} onPickingChange={value => {
             if (value && (working.current || savedRef.current)) return false;
             pickingRef.current = value; setPicking(value);
           }}
-          disabled={model.manualStorageSupported === false || !manual || locked || Boolean(applianceId && !detail)} inputDisabled={locked}
+          disabled={model.manualStorageSupported === false || !manual || locked || Boolean(applianceId && !basis)} inputDisabled={locked}
           onManual={(value, name) => {
             if (working.current || locked || saved) return;
-            manualTouched.current = true; manualRef.current = value; setManual(value); setFilename(name); setResponse(null); check(false);
+            manualTouched.current = true; manualRef.current = value ? { input: value, filename: name } : undefined;
+            setManual(manualRef.current); setAnalysisReview(null); check(false);
           }} onAnalyze={() => void analyze()} onCancel={() => request.current?.abort()} /> : null}
       </> : !detail ? <Text style={warning}>対象の共有家電を表示できません。一覧から開き直してください。</Text> : <>
         {detail.row.needsReview ? <Card><Text style={warning}>{detail.row.deleted ? 'この家電は削除されています。' : detail.alive.kind === 'conflict' ? '削除と編集が重なっています。' : '解析内容の確認が必要です。'}署名付きの履歴は保持しています。</Text>
@@ -180,8 +188,9 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
           <AppButton title="共有家電の削除を確定" disabled={locked} onPress={() => void execute(() => actions.deleteAppliance(detail.row.selection))} />
           <AppButton title="削除をやめる" disabled={locked} variant="quiet" onPress={() => setDeleting(false)} /></Card> : null}
       </> : null}
-      {mode === 'applianceReview' && response && !saved ? <>{reviewToggle}<AppButton title="確認した解析結果を共有する" disabled={locked || !reviewed}
-        onPress={() => void save({ reviewed: true, result: response, addTaskNames: chosenRef.current, ...(basis ? { selection: basis.row.selection,
+      {mode === 'applianceReview' && analysisReview && !saved ? <><Text numberOfLines={1} style={caption}>{analysisReview.manual.filename ?? '保存した取扱説明書PDF'}</Text>
+        {reviewToggle}<AppButton title="確認した解析結果を共有する" disabled={locked || !reviewed}
+        onPress={() => void save({ reviewed: true, result: analysisReview.response, addTaskNames: chosenRef.current, ...(basis ? { selection: basis.row.selection,
           ...(basis.source.kind === 'conflict' ? { resolveOperationIds: basis.candidates.map(candidate => candidate.operationId) } : {}),
           ...(basis.row.deleted || basis.alive.kind === 'conflict' ? { restorePresence: true } : {}) } : {}) })} /></> : null}
       {mode === 'appliance' && appliance && detail?.row.needsReview ? <>{reviewToggle}<AppButton title={detail.source.kind === 'conflict' ? 'この候補で競合を解決' : '確認した内容で家電を残す'} disabled={locked || !reviewed}

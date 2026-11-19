@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { FlatList, Pressable, Text, View, useColorScheme } from 'react-native';
+import { Alert, FlatList, Pressable, Text, View, useColorScheme } from 'react-native';
 import { SettingsHeader } from '../../components/settings-header';
 import { SettingsAction } from '../../components/settings-controls';
 import { Chevron } from '../../components/chevron';
@@ -26,7 +26,8 @@ export function CalendarDraftList({ drafts, local, onClose, onSelect }: { drafts
         <Pressable accessibilityRole="button" accessibilityLabel={`${item.value.title || '無題の予定'}の下書きを再開`} disabled={busy} onPress={() => { if (!pending.current) onSelect(item); }} style={{ flex: 1, paddingVertical: 14, gap: 10, flexDirection: 'row', alignItems: 'center' }}>
           <View style={{ flex: 1, gap: 4 }}><Text numberOfLines={1} style={{ ...typography.body, color: colors.ink }}>{item.value.title || '無題の予定'}</Text>
           <Text numberOfLines={1} style={{ ...typography.caption, color: colors.muted }}>{formatJapaneseDate(item.value.startDate, { year: true })}</Text></View><Chevron color={colors.accent} />
-        </Pressable><SettingsAction title="破棄" accessibilityLabel={`${item.value.title || '無題の予定'}の下書きを破棄`} intent="destructive" disabled={busy} onPress={() => void discard(item)} />
+        </Pressable><SettingsAction title="破棄" accessibilityLabel={`${item.value.title || '無題の予定'}の下書きを破棄`} intent="destructive" disabled={busy} onPress={() => Alert.alert('下書きを破棄しますか？',
+          item.value.title || '無題の予定', [{ text: 'キャンセル', style: 'cancel' }, { text: '破棄', style: 'destructive', onPress: () => void discard(item) }])} />
       </View>} />
   </View>;
 }

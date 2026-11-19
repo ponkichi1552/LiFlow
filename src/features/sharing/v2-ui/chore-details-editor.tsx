@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { Text, View } from 'react-native';
+import { Alert, Text, View } from 'react-native';
 import { AppButton, BackButton, Card, ScreenHeading, SectionHeading } from '../../../components/planner-ui';
 import { AccordionSection } from '../../../components/accordion-section';
 import type { JsonValue } from '../operations';
@@ -76,8 +76,17 @@ function Details({ model, choreId, controller, source, onSaved, onBack, onConfig
             onChangeText={(title) => updateSection(index, { title })} onEndEditing={() => void autosave.flush()} />
           <V2TextField label={`手順の区分${index + 1}（1行に1手順）`} displayLabel={unfolded ? false : undefined} placeholder={unfolded ? '1行に1手順' : undefined} value={section.text} multiline editable={!disabled}
             onChangeText={(text) => updateSection(index, { text })} onEndEditing={() => void autosave.flush()} />
-          <View style={unfolded ? { alignSelf: 'flex-end' } : undefined}><AppButton title={unfolded ? '見出しを削除' : `区分${index + 1}を削除`} accessibilityLabel={`区分${index + 1}を削除`} compact variant={unfolded ? 'secondary' : 'quiet'} disabled={disabled} onPress={() => autosave.changeWith('procedureSections',
-            (value) => (value as unknown as V2SectionDraft[]).filter((_, position) => position !== index) as unknown as JsonValue)} /></View>
+          <View style={unfolded ? { alignSelf: 'flex-end' } : undefined}><SettingsAction title="見出しと手順を削除" accessibilityLabel={`区分${index + 1}の見出しと手順を削除`} compact intent="destructive" disabled={disabled} onPress={() => {
+            const remove = () => autosave.changeWith('procedureSections', value => {
+              const latest = value as unknown as V2SectionDraft[];
+              if (latest[index]?.title !== section.title || latest[index]?.text !== section.text) return value;
+              return latest.filter((_, position) => position !== index) as unknown as JsonValue;
+            });
+            if (section.text.trim()) Alert.alert('見出しと手順を削除しますか？', section.title, [
+              { text: 'キャンセル', style: 'cancel' }, { text: '削除', style: 'destructive', onPress: remove },
+            ]);
+            else remove();
+          }} /></View>
         </View>)}
         <View style={unfolded ? { alignSelf: 'flex-start', paddingTop: 4 } : undefined}><SettingsAction title={unfolded ? '手順に見出しを追加' : '手順の区分を追加'} accessibilityLabel="手順の区分を追加" placement="page" compact disabled={disabled} onPress={() => autosave.changeWith('procedureSections',
           (value) => [...value as JsonValue[], { title: '', text: '' }])} /></View>

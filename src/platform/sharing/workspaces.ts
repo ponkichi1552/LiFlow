@@ -139,6 +139,8 @@ export function sharingFailureMessage(error: unknown): string {
   if (code === 'sharing/key-version-changed') return '共有鍵の更新を待っています。管理者の端末で同期してください。';
   if (code === 'sharing/recovery-in-progress') return '管理者が共有の復旧を進めています。変更はこの端末に保存され、復旧後に送信されます。';
   if (code === 'sharing/scheduler-version-mismatch') return 'この共有グループの計算ルールに対応するLiFlowへ更新してください。';
+  if (code === 'sharing/invitation-rejected') return '参加が承認されませんでした。新しい招待リンクで参加してください。';
+  if (code === 'sharing/invitation-ended') return 'この招待は終了しました。新しい招待リンクで参加してください。';
   return '同期を完了できませんでした。端末内の変更は保持し、再送します。';
 }
 
@@ -364,6 +366,9 @@ function buildPendingWorkspace(context: WorkspaceOpenContext): PendingSharedWork
       if (running) return running;
       const task = (async () => {
         const current = await access.readRecord(); if (current.status !== 'joining') throw new SharingAccessError('参加申請の状態を確認してください。');
+        if (current.lastErrorCode === 'sharing/invitation-rejected' || current.lastErrorCode === 'sharing/invitation-ended') {
+          return { sent: 0, received: 0, pending: 0, waitingForApproval: false, complete: true };
+        }
         await submitWorkspaceJoin(context, current); access.assertAccount();
         let metadata;
         try { metadata = await context.cloud.readGroup(context.selection.groupId); }

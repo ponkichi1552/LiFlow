@@ -2,7 +2,7 @@ import { checkedReminderMinutes, saveCalendarReminderInside, notifyCalendarRemin
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
-import { INITIAL_CATEGORIES, isCalendarAnchor, newEventDraft, validateEventDraft } from '../../features/calendar/events.ts';
+import { INITIAL_CATEGORIES, UNCATEGORIZED_CALENDAR_CATEGORY, isCalendarAnchor, newEventDraft, validateEventDraft } from '../../features/calendar/events.ts';
 import type { CalendarEvent, CalendarCategory, CalendarException, EventDraft } from '../../features/calendar/events.ts';
 import { OWN_BIRTHDAY_EVENT_ID } from '../../domain/calendar/own-birthday.ts';
 import type { LocalDate } from '../../domain/shared/types.ts';
@@ -249,7 +249,8 @@ export async function saveCalendarFutureEvent(database: SQLiteDatabase, draft: C
       if ((exceptions.find(row => row.anchor_date === draft.anchorDate)?.revision ?? 0) !== draft.exceptionRevision) throw conflict();
       const old = { ...validateEventDraft(JSON.parse(prior.definition_json)), id: sourceId, revision: prior.revision };
       const split = splitCalendarFuture(old, draft.anchorDate!, draft.value, exceptions.map(row => ({ eventId: sourceId, anchorDate: row.anchor_date, revision: row.revision, override: row.override_json ? validateEventDraft(JSON.parse(row.override_json)) : null })));
-      if (!await tx.getFirstAsync('SELECT id FROM calendar_categories WHERE id=?', split.next.categoryId)) throw new Error('分類を選び直してください。');
+      if (split.next.categoryId !== UNCATEGORIZED_CALENDAR_CATEGORY.id &&
+        !await tx.getFirstAsync('SELECT id FROM calendar_categories WHERE id=?', split.next.categoryId)) throw new Error('分類を選び直してください。');
       const rules = await readRules(tx);
       await tx.runAsync('UPDATE calendar_events SET definition_json=?,revision=revision+1,deleted=? WHERE id=?', split.past ? JSON.stringify(split.past) : prior.definition_json, split.past ? 0 : 1, sourceId);
       await tx.runAsync('INSERT INTO calendar_events(id,definition_json,revision,deleted) VALUES(?,?,1,0)', nextId, JSON.stringify(split.next));
@@ -313,7 +314,7 @@ async function writeCalendarEvent(database: SQLiteDatabase, input: CalendarEvent
   await withPlannerDatabaseOperation(database, async () => { await personal(database);
     await withIsolatedSqliteTransaction(database, async tx => {
       await assertEditableGoogleEvent(tx, id, input.scope === 'one' ? input.anchorDate : undefined, input.resetExceptions === true);
-      if (!await tx.getFirstAsync('SELECT id FROM calendar_categories WHERE id=?', body.categoryId)) {
+      if (body.categoryId !== UNCATEGORIZED_CALENDAR_CATEGORY.id && !await tx.getFirstAsync('SELECT id FROM calendar_categories WHERE id=?', body.categoryId)) {
         // Creation remains usable before the first calendar read finishes. Only a
         // built-in initial category can be seeded; unknown/deleted custom IDs stay invalid.
         const initial = INITIAL_CATEGORIES.find(category => category.id === body.categoryId);
@@ -396,6 +397,7 @@ export async function deleteCalendarEvent(database: SQLiteDatabase, input: { id:
 }
 export async function saveCalendarCategory(database: SQLiteDatabase, value: { id?: string; expectedRevision: number; name: string; color: string }) {
   const id = value.id ?? newId('category'); identifier(id);
+  if (id === UNCATEGORIZED_CALENDAR_CATEGORY.id) throw new Error('変更する分類を選んでください。');
   if (typeof value.name !== 'string' || !value.name.trim() || value.name.length > 40 || !/^#[0-9a-f]{6}$/i.test(value.color)) throw new Error('分類名と色を確認してください。');
   await withPlannerDatabaseOperation(database, async () => { await personal(database); await withIsolatedSqliteTransaction(database, async tx => {
     const before = await tx.getFirstAsync<{ revision: number }>('SELECT revision FROM calendar_categories WHERE id=?', id);

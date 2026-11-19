@@ -95,11 +95,13 @@ for (const platform of ['ios', 'android']) {
         assert.match(screen.text(), /参加者/u);
         const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('');
         const has = title => screen.nodes().some(node => node.props.accessibilityRole === 'button' && (node.props.accessibilityLabel === title || text(node) === title));
-        assert.equal(has('招待リンクとQRを作る'), owner); assert.equal(has('このメンバーを除名'), owner);
-        assert.equal(has('このメンバーへ管理者権限を引き継ぐ'), owner);
+        assert.equal(has('招待リンクとQRを作る'), owner); assert.equal(has('参加者を除名'), owner);
+        const transfer = '参加者の端末 r-deviceに管理者権限を引き継ぐ';
+        assert.equal(has(transfer), owner);
         if (owner) {
-          await screen.press('このメンバーを除名'); assert.deepEqual(ui.commands, []);
-          const confirmation = ui.alerts.at(-1); assert.equal(confirmation[0], 'メンバーを除名しますか？');
+          await screen.press(transfer); assert.match(ui.alerts.at(-1)[1], /参加者の端末 r-device/u);
+          await screen.press('参加者を除名'); assert.deepEqual(ui.commands, []);
+          const confirmation = ui.alerts.at(-1); assert.equal(confirmation[0], '参加者を除名しますか？');
           await confirmation[2].find(choice => choice.text === '除名する').onPress(); await screen.flush();
           assert.deepEqual(ui.commands, [['remove', ['member']]]);
         }

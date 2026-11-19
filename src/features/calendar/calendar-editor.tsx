@@ -14,7 +14,7 @@ import { SettingsCheckbox } from '../../components/settings-checkbox';
 import { SettingsAction, SettingsSegments } from '../../components/settings-controls';
 import { Chevron } from '../../components/chevron';
 import { addDays, formatJapaneseDate } from '../../domain/scheduling/local-date';
-import { CATEGORY_PRESETS, RECURRENCE_LABELS, isCalendarAnchor, minuteLabel, recurrenceLabel, newEventDraft, validateEventDraft } from './events';
+import { CATEGORY_PRESETS, RECURRENCE_LABELS, UNCATEGORIZED_CALENDAR_CATEGORY, isCalendarAnchor, minuteLabel, recurrenceLabel, newAppointmentValue, newEventDraft, validateEventDraft } from './events';
 import { calendarDisplayColor as categoryColor } from './event-appearance';
 import type { CalendarEvent, CalendarException, CalendarRecurrence, EventDraft } from './events';
 import { createCalendarGesture } from './gesture-control';
@@ -73,6 +73,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const [exitActions, setExitActions] = useState(false);
   const [registeringChore, setRegisteringChore] = useState(false);
   const [choreInput, setChoreInput] = useState<CalendarChoreInput>();
+  const [exitBaseline, setExitBaseline] = useState(initial.value);
   const [choreBusy, setChoreBusy] = useState(false); const choreLock = useRef(false);
   const onChoreBusyChange = useCallback((value: boolean) => { choreLock.current = value; setChoreBusy(value); }, []);
   const [ownDetailsOpen, setDetailsOpen] = useState(false); const detailsOpen = choreForm?.entry?.detailsExpanded ?? ownDetailsOpen;
@@ -113,7 +114,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
     finally { lock.current = false; setBusy(false); }
   };
   const hasInput = (current: CalendarEditorDraft) => Boolean(current.value.title.trim() || current.value.location.trim() || current.value.notes.trim());
-  const hasChanges = (current: CalendarEditorDraft) => JSON.stringify(current.value) !== JSON.stringify(initial.value)
+  const hasChanges = (current: CalendarEditorDraft) => JSON.stringify(current.value) !== JSON.stringify(exitBaseline)
     || (current.audience ?? 'personal') !== (initial.audience ?? 'personal')
     || current.scope !== initial.scope || current.reminderMinutes !== initial.reminderMinutes;
   const emptyLegacyDraft = !initial.draftId && !initial.eventId && initial.audience !== 'group' && initial.reminderMinutes === undefined
@@ -219,8 +220,12 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const pull = useMemo(() => createCalendarGesture(), []);
   useLayoutEffect(() => { pull.update({ canStart: gesture => !registeringChore && !lock.current && scrollTop.current <= 0 && gesture.dy > 18 && gesture.dy > Math.abs(gesture.dx) * 1.5,
     release: gesture => { if (gesture.dy > 85) close(); } }); });
-  const categoryOptions = local.categoriesFor?.(draft.audience ?? 'personal') ?? local.snapshot.categories;
+  const categoriesFor = (audience: 'personal' | 'group') => local.categoriesFor?.(audience) ?? local.snapshot.categories;
+  const uncategorized = UNCATEGORIZED_CALENDAR_CATEGORY;
+  const categoryOptions = [uncategorized, ...categoriesFor(draft.audience ?? 'personal').filter(category => category.id !== uncategorized.id)];
   const selectedCategory = categoryOptions.find(row => row.id === value.categoryId);
+  const audienceCategory = (categoryId: string, audience: 'personal' | 'group') =>
+    categoriesFor(audience).some(category => category.id === categoryId) ? categoryId : uncategorized.id;
   const matches = value.title.trim() ? chores.filter(chore => chore.name.includes(value.title.trim()) || value.title.trim().includes(chore.name)).slice(0, 4) : [];
   const textKey = `${draft.scope}:${initial.eventId ?? 'new'}:${initial.anchorDate ?? ''}:${inputRevision}`;
   const openCustomRecurrence = () => void work(async () => {
@@ -257,9 +262,10 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
         {registeringChore && renderChoreRegistration ? <CalendarSheetContent render={renderChoreRegistration} form={{ date: value.startDate, initialValue: value, initialInput: choreInput, audience: draft.audience ?? 'personal',
           onAudienceChange: (audience, input) => { if (choreLock.current) return; setChoreInput(input);
             change(before => ({ ...before, audience, groupId: audience === 'group' ? local.shared?.groupId : undefined, ownerScope: audience === 'group' ? local.shared?.notificationScope : undefined, basisRevision: undefined })); },
-          onBack: audience => { if (!choreLock.current) { setRegisteringChore(false); if (audience) change(before => ({ ...before, audience, groupId: audience === 'group' ? local.shared?.groupId : undefined, ownerScope: audience === 'group' ? local.shared?.notificationScope : undefined, value: { ...before.value, categoryId: 'personal' } })); } },
+          onBack: audience => { if (!choreLock.current) { setRegisteringChore(false); if (audience) change(before => ({ ...before, audience, groupId: audience === 'group' ? local.shared?.groupId : undefined, ownerScope: audience === 'group' ? local.shared?.notificationScope : undefined, value: { ...before.value, categoryId: audienceCategory(before.value.categoryId, audience) } })); } },
           onCancel: () => { if (choreLock.current) return; setRegisteringChore(false); setChoreInput(undefined); setError(null); setInputRevision(before => before + 1);
-            change(before => ({ ...before, value: newEventDraft(initial.value.startDate, initial.value.timeZone) }));
+            const value = newAppointmentValue(initial.value.startDate, initial.value.timeZone);
+            setExitBaseline(value); change(before => ({ ...before, value }));
             if (local.database) void draftSession.clear(local.database).then(() => setStoredDrafts(new Set())).catch(cause => setError(cause instanceof Error ? cause.message : '入力内容を破棄できませんでした。')); },
           onClose: () => { if (choreLock.current) return; setRegisteringChore(false); close(); },
           onSaved: (date, notice) => { onChoreBusyChange(false); void work(async () => {
@@ -280,7 +286,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
             <SettingsSegments tone="quiet" wide value={draft.audience === 'group' ? 'group' : 'personal'} disabled={busy}
               options={[{ id: 'personal', label: '個人' }, { id: 'group', label: 'グループ共通', disabled: !local.shared.enabled }]}
               onValueChange={audience => { if (choreForm) { if (audience !== draft.audience) onChoreAudience?.(audience); return; } change(before => audience === 'group' ? { ...before, audience, groupId: local.shared!.groupId, ownerScope: local.shared!.notificationScope }
-                : { ...before, audience, groupId: undefined, ownerScope: undefined, basisRevision: undefined, value: { ...before.value, categoryId: 'personal' } }); }} /></View>
+                : { ...before, audience, groupId: undefined, ownerScope: undefined, basisRevision: undefined, value: { ...before.value, categoryId: audienceCategory(before.value.categoryId, audience) } }); }} /></View>
           {!local.shared.enabled ? <Text style={styles.caption}>共有予定は、管理者がグループの互換更新を行うと利用できます。</Text> : null}</View> : initial.eventId && local.shared ? <Text style={styles.caption}>{draft.audience === 'group' ? `${local.shared.name} · グループ共通` : '個人 · 本人のみ'}</Text> : null}
           {readOnly ? googleReadOnly ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(googleReadOnly.externalUrl ?? 'https://calendar.google.com/calendar/u/0/r')}><Text style={styles.action}>Googleカレンダーで編集 ↗</Text></Pressable>
             : <Text style={styles.caption}>共有予定は作成者または管理者が変更できます。</Text> : null}
@@ -329,12 +335,12 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           {choreForm?.entry?.details ? <View style={styles.optionsGroup}><Pressable accessibilityRole="button" accessibilityLabel="家事の詳細設定" accessibilityState={{ expanded: detailsOpen }} onPress={() => { if (choreForm.entry?.onDetailsToggle) choreForm.entry.onDetailsToggle(); else setDetailsOpen(before => !before); }} style={styles.optionSelect}><Text style={[styles.value, { flex: 1 }]}>詳細設定</Text><Chevron direction={detailsOpen ? 'up' : 'down'} /></Pressable>{detailsOpen ? <View>{choreForm.entry.details}</View> : null}</View> : null}
           <View style={styles.scheduleContent}>
           <View style={styles.scheduleTop}><Text style={styles.scheduleTitle}>{value.birthday ? '誕生日' : '日時'}</Text>{!value.birthday ? <View style={styles.allDayControl}><Text style={styles.value}>終日</Text><SettingsCheckbox accessibilityLabel="終日" value={value.allDay} disabled={busy || readOnly} onValueChange={allDay => { titleDateTime.manual('allDay'); patch({ allDay }); }} /></View> : null}</View>
-          <View style={styles.dateRow}>{!value.birthday ? <Text style={[styles.dateLabel, labelWidths.date]}>開始</Text> : null}<CalendarField borderless hideLabel disabled={busy || readOnly} label={value.birthday ? '誕生日' : '開始日'} date={value.startDate} minute={value.startMinute} mode="date" onDate={date => {
+          <View style={styles.dateRow}>{!value.birthday ? <Text style={[styles.dateLabel, labelWidths.date]}>開始</Text> : null}<CalendarField borderless hideLabel commitOnDone disabled={busy || readOnly} label={value.birthday ? '誕生日' : '開始日'} date={value.startDate} minute={value.startMinute} mode="date" onDate={date => {
             titleDateTime.manual('startDate'); change(before => ({ ...before, value: moveCalendarStart(before.value, { startDate: date }) }));
-          }} />{!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel disabled={busy || readOnly} label="開始" date={value.startDate} minute={clocks?.start ?? value.startMinute} empty={Boolean(clocks && clocks.start === null)} commitOnDone={Boolean(clocks)} mode="time" onMinute={startMinute => { titleDateTime.manual('startMinute'); if (clocks) clocks.onChange('start', startMinute); else change(before => ({ ...before, value: moveCalendarStart(before.value, { startMinute }) })); }} /></View> : null}</View>
+          }} />{!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel commitOnDone disabled={busy || readOnly} label="開始" date={value.startDate} minute={clocks?.start ?? value.startMinute} empty={Boolean(clocks && clocks.start === null)} mode="time" onMinute={startMinute => { titleDateTime.manual('startMinute'); if (clocks) clocks.onChange('start', startMinute); else change(before => ({ ...before, value: moveCalendarStart(before.value, { startMinute }) })); }} /></View> : null}</View>
           {!value.birthday ? <View style={styles.dateRow}><Text style={[styles.dateLabel, labelWidths.date]}>終了</Text>
-            <CalendarField borderless hideLabel disabled={busy || readOnly} label="終了日" date={value.endDate} minute={value.endMinute} mode="date" onDate={endDate => { titleDateTime.manual('endDate'); patch({ endDate }); }} />
-            {!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel disabled={busy || readOnly} label="終了" date={value.endDate} minute={clocks?.end ?? value.endMinute} empty={Boolean(clocks && clocks.end === null)} commitOnDone={Boolean(clocks)} mode="time" onMinute={endMinute => { titleDateTime.manual('endMinute'); if (clocks) clocks.onChange('end', endMinute); else patch({ endMinute }); }} /></View> : null}
+            <CalendarField borderless hideLabel commitOnDone disabled={busy || readOnly} label="終了日" date={value.endDate} minute={value.endMinute} mode="date" onDate={endDate => { titleDateTime.manual('endDate'); patch({ endDate }); }} />
+            {!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel commitOnDone disabled={busy || readOnly} label="終了" date={value.endDate} minute={clocks?.end ?? value.endMinute} empty={Boolean(clocks && clocks.end === null)} mode="time" onMinute={endMinute => { titleDateTime.manual('endMinute'); if (clocks) clocks.onChange('end', endMinute); else patch({ endMinute }); }} /></View> : null}
           </View> : null}
           {timeError ? <Text accessibilityLiveRegion="polite" style={styles.error}>{timeError}</Text> : null}
           {value.timeZone !== displayTimeZone ? <Text style={[styles.caption, { textAlign: 'right' }]}>地域：{value.timeZone}</Text> : null}
@@ -350,7 +356,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
               <Text style={[styles.value, styles.optionLabel, labelWidths.option]}>分類</Text><View style={styles.optionInput}><View style={styles.categoryValue}>{selectedCategory ? <View style={[styles.swatchSmall, { backgroundColor: selectedCategory.color }]} /> : null}<Text style={styles.value}>{selectedCategory?.name ?? '分類を選択'}</Text></View><Chevron direction={categoryOpen ? 'up' : 'down'} /></View>
             </Pressable>
             {categoryOpen ? <View style={styles.categoryMenu}><ScrollView nestedScrollEnabled style={styles.categoryOptions} keyboardShouldPersistTaps="handled">
-              {categoryOptions.map(category => <Pressable key={category.id} accessibilityRole="button" accessibilityLabel={`${category.name}の分類を選択`} accessibilityState={{ selected: category.id === value.categoryId }} disabled={busy || readOnly}
+              {categoryOptions.map(category => <Pressable key={category.id} accessibilityRole="button" accessibilityLabel={category.id === uncategorized.id ? '未分類を選択' : `${category.name}の分類を選択`} accessibilityState={{ selected: category.id === value.categoryId }} disabled={busy || readOnly}
                 style={[styles.categoryOption, category.id === value.categoryId && { backgroundColor: palette.accentSoft }]} onPress={() => {
                   const birthday = !initial.eventId && draft.audience !== 'group' && category.id === 'birthday';
                   patch({ categoryId: category.id, ...(!initial.eventId && draft.audience !== 'group' ? { birthday } : {}),
@@ -359,7 +365,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
                 }}>
                 <View style={[styles.swatchSmall, { backgroundColor: category.color }]} /><Text style={[styles.value, { flex: 1 }]}>{category.name}</Text>{category.id === value.categoryId ? <Text style={styles.action}>✓</Text> : null}</Pressable>)}
             </ScrollView><View style={styles.categoryActions}><SettingsAction title="分類を追加" placement="page" disabled={busy} onPress={() => { setCategoryOpen(false); setCategoryEdit({ revision: 0, name: '', color: CATEGORY_PRESETS[0] }); setCustom(false); }} />
-              {selectedCategory ? <SettingsAction title="分類の色を編集" placement="page" disabled={busy} onPress={() => { setCategoryOpen(false); setCategoryEdit({ ...selectedCategory }); setCustom(false); }} /> : null}</View></View> : null}
+              {selectedCategory && selectedCategory.id !== uncategorized.id ? <SettingsAction title={draft.audience === 'group' ? 'この予定の分類を変更' : '分類を編集'} placement="page" disabled={busy} onPress={() => { setCategoryOpen(false); setCategoryEdit({ ...selectedCategory }); setCustom(false); }} /> : null}</View></View> : null}
           </View>
           {!value.birthday && !readOnly ? <View style={{ borderTopWidth: 1, borderColor: palette.border }}>{reminderField}</View> : null}
           </View> : null}
@@ -376,7 +382,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
             }} /></View>)}</View> : null}
             <View style={[styles.colorPreview, { borderColor: categoryColor(categoryEdit.color, scheme === 'dark') }]}><View style={[styles.swatchSmall, { backgroundColor: categoryEdit.color }]} /><Text style={styles.value}>{categoryEdit.name || 'プレビュー'} · {categoryEdit.color}</Text></View>
             <View style={styles.row}><SettingsAction title="閉じる" accessibilityLabel="分類の編集を閉じる" disabled={busy} onPress={() => setCategoryEdit(null)} />
-              <SettingsAction title="分類を保存" disabled={busy || !categoryEdit.name.trim() || custom && !rgb.every(v => v !== '' && Number(v) <= 255)} onPress={() => void work(async () => {
+              <SettingsAction title={draft.audience === 'group' ? '予定に適用' : '分類を保存'} disabled={busy || !categoryEdit.name.trim() || custom && !rgb.every(v => v !== '' && Number(v) <= 255)} onPress={() => void work(async () => {
                 if (!local.database) throw new Error('保存先を確認してください。');
                 if (custom && !latestRgb.current.every(v => v !== '' && Number(v) <= 255)) throw new Error('RGBを0〜255で入力してください。');
                 const category = latestCategory.current; if (!category) throw new Error('保存する分類を選び直してください。');
@@ -386,7 +392,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
               })} /></View>
           </View> : null}
           {choreForm ? choreForm.content : <View style={[styles.inputGroup, styles.notesGroup]}><CalendarTextInput icon={{ ios: 'note.text', android: 'notes' }} key={`${textKey}:notes`} accessibilityLabel="予定のメモ" multiline defaultValue={value.notes} style={[styles.textInput, styles.notesInput]} maxLength={4000} placeholder="メモ（任意）" editable={!busy && !readOnly && !review} onChangeText={notes => patch({ notes })} /></View>}
-          {initial.eventId && !value.birthday && onDuplicate ? <SettingsAction title="予定を複製" placement="page" disabled={busy} onPress={() => {
+          {!readOnly && initial.eventId && !value.birthday && onDuplicate ? <SettingsAction title="予定を複製" placement="page" disabled={busy} onPress={() => {
             if (lock.current) return;
             const current = latest.current;
             const category = (local.categoriesFor?.(current.audience ?? 'personal') ?? local.snapshot.categories).find(row => row.id === current.value.categoryId);

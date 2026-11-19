@@ -100,7 +100,12 @@ function DateRequestCard({ model, actions, busy, run, requestId, readOwnCalendar
     if (busy || inFlight.current) return;
     setDisplayed({ request: liveRequest, review: liveReview }); setSaved(false); setError(null);
     inputRevision.current++; resetConfirmation();
-    input.current = { offerOpen: false, reviewed: false, fields: v2InitialTargetFields(liveRequest.proposal.proposed, liveRequest.timeZone) }; setDraft(input.current);
+    const fields = v2InitialTargetFields(request.proposal.proposed, request.timeZone);
+    const keepOffer = !saved && request.timeZone === liveRequest.timeZone && request.proposal.proposedMode === liveRequest.proposal.proposedMode
+      && (input.current.offerOpen || canonicalJson(input.current.fields) !== canonicalJson(fields));
+    input.current = keepOffer ? { ...input.current, reviewed: false }
+      : { offerOpen: false, reviewed: false, fields: v2InitialTargetFields(liveRequest.proposal.proposed, liveRequest.timeZone) };
+    setDraft(input.current);
   };
   const removal = request.proposal.cancellation;
   const selector = removal ? removal.selector : request.proposal.selector;
@@ -138,9 +143,10 @@ function DateRequestCard({ model, actions, busy, run, requestId, readOwnCalendar
     {previousRegion ? <Text style={styles.caption}>この申請と回答は申請時の地域（{request.timeZone}）を維持します。現在のグループ地域は{model.plan.timeZone}です。</Text> : null}
     {!model.plan.initialized ? <Text style={styles.error}>地域・共通設定を確認してから回答してください。</Text> : null}
     {stale || saved ? <SettingsAction placement="page" title="最新の申請内容を表示" disabled={busy || saving} onPress={reload} /> : null}
-    {request.kind === 'conflict' ? <><Text style={styles.error}>異なる回答を保持しています。表示した回答を確認してから解決してください。到着順では決めません。</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><Text style={[styles.label, { flex: 1 }]}>競合している回答を確認した</Text>
-        <SettingsCheckbox accessibilityLabel="競合している回答を確認した" value={draft.reviewed} disabled={disabled} onValueChange={(reviewed) => edit({ reviewed })} /></View></> : null}
+    {request.kind === 'conflict' ? <><Text style={styles.error}>複数の回答が重なっています。</Text>
+      {review.canVote || review.canCounteroffer || review.acceptableCounterofferIds.length ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><Text style={[styles.label, { flex: 1 }]}>競合している回答を確認した</Text>
+        <SettingsCheckbox accessibilityLabel="競合している回答を確認した" value={draft.reviewed} disabled={disabled} onValueChange={(reviewed) => edit({ reviewed })} /></View>
+        : <Text style={styles.caption}>回答できるメンバーの確認を待っています。</Text>}</> : null}
     {review.canVote ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
       <SettingsAction placement="page" title={removal ? '日時指定の解除を承認' : '日時変更を承認'} intent="primary" compact disabled={!canAnswer} onPress={() => answer('approve')} />
       <SettingsAction placement="page" title={removal ? '解除申請を拒否' : '日時変更を拒否'} intent="destructive" compact disabled={!canAnswer} onPress={() => answer('reject')} />

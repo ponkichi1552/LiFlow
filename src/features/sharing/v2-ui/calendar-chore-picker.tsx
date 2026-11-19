@@ -9,6 +9,7 @@ import { plannerColorsForScheme } from '../../../components/planner-theme';
 import type { ChoreDefinition } from '../../../domain/chores/types';
 import { groupChores } from '../../../domain/chores/chore-groups';
 import { choreDisplayCategory } from '../../../domain/chores/chore-presentation';
+import { normalizeSearchText, searchTerms } from '../../../domain/search/normalized-search';
 export type CalendarChoreChoice = Omit<ChoreDefinition, 'householdId'>;
 type ChoiceRow = { kind: 'category'; category: string; count: number } | { kind: 'chore'; chore: CalendarChoreChoice; nested: boolean };
 
@@ -17,17 +18,19 @@ export function CalendarChorePicker({ chores, onSelect, onNew, onClose }: {
 }) {
   const colors = plannerColorsForScheme(useColorScheme()); const [query, setQuery] = useState('');
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
-  const search = query.normalize('NFKC').trim().toLocaleLowerCase('ja');
-  const matches = useMemo(() => {
-    return chores.filter(chore => !chore.archived && (!search || `${chore.name} ${chore.category} ${choreDisplayCategory(chore)}`.normalize('NFKC').toLocaleLowerCase('ja').includes(search)));
-  }, [chores, search]);
+  const terms = useMemo(() => searchTerms(query), [query]);
+  const searching = terms.length > 0;
+  const index = useMemo(() => chores.filter(chore => !chore.archived).map(chore => ({
+    chore, text: normalizeSearchText(`${chore.name} ${chore.category} ${choreDisplayCategory(chore)}`),
+  })), [chores]);
+  const matches = useMemo(() => index.filter(({ text }) => terms.every(term => text.includes(term))).map(({ chore }) => chore), [index, terms]);
   const rows = useMemo(() => groupChores(matches).flatMap<ChoiceRow>(([name, items]) => {
     const category = name || 'その他';
-    return search ? items.map(chore => ({ kind: 'chore' as const, chore, nested: false })) : [
+    return searching ? items.map(chore => ({ kind: 'chore' as const, chore, nested: false })) : [
       { kind: 'category', category, count: items.length },
       ...(opened.has(category) ? items.map(chore => ({ kind: 'chore' as const, chore, nested: true })) : []),
     ];
-  }), [matches, opened, search]);
+  }), [matches, opened, searching]);
   return <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <View style={{ paddingHorizontal: 12 }}><SettingsHeader title="家事を選択" onBack={onClose} /></View>
       <FormTextInput accessibilityLabel="追加する既存の家事を検索" placeholder="家事名で検索" value={query} onChangeText={setQuery}

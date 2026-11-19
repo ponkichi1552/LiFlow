@@ -210,6 +210,24 @@ test('custom repeat route applies only a personal draft and returns to the origi
   assert.equal(JSON.stringify(navigation).includes('端末だけの予定'), false); assert.equal(disabled, 1);
   assert.equal((await readLocalCalendar(h.database)).events.length, 0, 'the custom page never creates a second event');
 });
+test('leaving custom recurrence without applying returns the exact draft without refreshing appointment history', async t => {
+  const h = await fixture(t), navigation = [], reads = [];
+  await saveCalendarDraft(h.database, { eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series',
+    value: { ...newEventDraft(date, 'Asia/Tokyo'), title: '入力を保持する予定' } });
+  await h.local.refresh();
+  const draft = h.local.snapshot.draft, writes = h.writes.length;
+  const screen = screenHarness('src/app/calendar-repeat.tsx', { database: h.database, params: { draft: calendarDraftKey(draft) },
+    layoutEffect: effect => effect(), navigate: (...args) => navigation.push(args),
+    mocks: { '@/features/calendar/use-local-calendar': { useLocalCalendar: () => ({
+      ...h.local, refresh: async () => reads.push('history'), refreshDrafts: async () => reads.push('drafts'),
+    }) } } });
+  t.after(() => screen.unmount());
+  await screen.change('繰り返しの間隔', '4');
+  await screen.press('予定の入力に戻る');
+  assert.deepEqual(reads, []);
+  assert.equal(navigation[0][1].params.calendarDraftVersion, calendarDraftVersion(draft));
+  assert.equal(h.writes.length, writes);
+});
 test('direct custom route links cannot change birthday cadence or a single occurrence and cannot redirect outside the calendar', async t => {
   const h = await fixture(t);
   for (const kind of ['birthday', 'one']) {

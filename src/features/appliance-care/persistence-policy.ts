@@ -145,7 +145,8 @@ export function planReviewedApplianceSave(options: {
       if (matched) retain({ ...definition, name: matched.name, enabled: false });
       continue;
     }
-    retain(definition); if (!matched) newChoreIds.add(definition.id); scheduledTaskCount++;
+    retain(definition); if (!matched) newChoreIds.add(definition.id);
+    if (definition.enabled) scheduledTaskCount++;
   }
   for (const chore of previous) if (!matchedIds.has(chore.id)) definitions.set(chore.id,
     currentNames.has(chore.applianceTaskName ?? chore.name) ? { ...chore, enabled: false } : retireApplianceTaskSnapshot(chore));

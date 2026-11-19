@@ -43,7 +43,7 @@ for (const platform of ['ios', 'android']) {
       let snapshot = await repository.loadPlannerSnapshot(h.database); const date = localDateFromDate(new Date());
       screen = screenHarness('src/app/(tabs)/explore.tsx', { platform, database: h.database, snapshot: () => snapshot });
       await openCalendarDay(screen, date);
-      const identity = () => screen.nodes().find(node => node.type === 'AnimatedView')?.key;
+      const identity = () => screen.nodes().find(node => node.type === 'AnimatedView' && node.key?.endsWith(`:${date}`))?.key;
       const original = identity(); assert.ok(original);
       const entry = snapshot.scheduleEntries.find(row => row.choreId === h.chore.id);
       const receipt = await repository.completeChoreWithReceipt(h.database, entry);
@@ -90,7 +90,7 @@ for (const platform of ['ios', 'android']) {
     const { fixture, seeds, now } = await import('./helpers/sharing-v2-repository-fixture.mjs');
     const { createV2GroupController } = await import('../src/features/sharing/v2/controller.ts');
     const { createV2ScreenSession } = await import('../src/features/sharing/v2-ui/screen-session.ts');
-    const projection = await import('../src/features/sharing/v2-ui/calendar-projection.ts');
+    const projection = await import('../src/features/sharing/v2-ui/home-rows.ts');
     const f = await fixture(); const d = await f.device();
     try {
       await d.repository.commit(seeds());
@@ -105,7 +105,7 @@ for (const platform of ['ios', 'android']) {
         props: { purpose: 'workspace', view: 'home', lifecycleManaged: true, initialDisplay: { session, model }, loadSession: async () => session,
           subscribe: callback => { changed = callback; return () => {}; }, onBack: () => {}, onConfiguration: () => {}, onHistory: () => {} },
         focusEffect: callback => { focus = callback; },
-        mocks: { './calendar-projection': { ...projection, v2CalendarProjection: (...args) => { projections++; return projection.v2CalendarProjection(...args); } } } });
+        mocks: { './home-rows': { ...projection, buildHomeRows: (...args) => { projections++; return projection.buildHomeRows(...args); } } } });
       const leave = focus(); const initial = projections;
       await screen.flush(); assert.match(screen.text(), /床を掃除する/);
       assert.equal(screen.nodes().some(node => node.type === 'ActivityIndicator'), false, 'a pending refresh keeps the existing content');

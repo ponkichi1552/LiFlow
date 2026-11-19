@@ -5,7 +5,7 @@ import { MONTH_HEADING_HEIGHT, type CalendarMonthRow } from './month-rows.ts';
 import type { CalendarEditorDraft } from '../../platform/storage/calendar-events';
 import { v2WallTimeCandidates } from '../sharing/v2/local-time.ts';
 import { moveCalendarStart } from './event-editing.ts';
-import { isCalendarAnchor, newEventDraft, validateEventDraft } from './events.ts';
+import { isCalendarAnchor, newAppointmentValue, validateEventDraft } from './events.ts';
 import type { CalendarEvent, CalendarOccurrence, EventDraft } from './events.ts';
 import { calendarFutureBase } from '../../domain/calendar/future-series.ts';
 import { rebasedCalendarExceptionDate } from '../../domain/calendar/exception-slots.ts';
@@ -112,7 +112,7 @@ export function changeCalendarDraftScope(draft: CalendarEditorDraft, scope: Cale
 export function calendarSlotDraft(day: LocalDate, minute: number, timeZone: string): CalendarEditorDraft {
   const startMinute = Math.max(0, Math.min(1435, Math.round(minute / 5) * 5));
   return { eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series',
-    value: moveCalendarStart(newEventDraft(day, timeZone), { startMinute }) };
+    value: moveCalendarStart(newAppointmentValue(day, timeZone), { startMinute }) };
 }
 
 export function calendarDragTarget(start: { day: LocalDate; minute: number }, days: readonly LocalDate[], columnWidth: number,

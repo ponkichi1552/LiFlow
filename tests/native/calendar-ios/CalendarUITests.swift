@@ -91,8 +91,9 @@ import XCUIAutomation
       XCTAssertTrue(title.waitForExistence(timeout: 15))
       XCTAssertTrue(["QA-LiFlow-calendar", "QA-LiFlow-calendarQA-LiFlow-calendar-today"].contains(title.value as? String ?? ""))
       XCTAssertEqual(app.textFields["予定の場所"].firstMatch.value as? String, "QA room", "Never delete an unrelated event")
-      if app.buttons["繰り返し全体"].exists { tap(app, "繰り返し全体") }
-      tap(app, "予定を削除"); let remove = app.alerts.buttons["削除"].firstMatch
+      let repeating = app.buttons["変更する範囲を選択"].exists
+      if repeating { tap(app, "変更する範囲を選択"); tap(app, "繰り返し全体") }
+      tap(app, repeating ? "繰り返し全体を削除" : "予定を削除"); let remove = app.alerts.buttons["削除"].firstMatch
       XCTAssertTrue(remove.waitForExistence(timeout: 10)); remove.tap()
       expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["予定を保存"]); waitForExpectations(timeout: 90)
       XCTAssertTrue(app.buttons["予定を追加"].waitForExistence(timeout: 15))
@@ -199,13 +200,14 @@ import XCUIAutomation
     XCTAssertTrue(app.buttons["予定を追加"].waitForExistence(timeout: 15)); view(app, "1日表示")
     let event = app.buttons["QA-LiFlow-calendarを編集"].firstMatch
     XCTAssertTrue(event.waitForExistence(timeout: 15)); shot(app, "06-day-with-collapsed-chores"); tap(app, "QA-LiFlow-calendarを編集")
-    XCTAssertTrue(app.buttons["今回だけ"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons["変更する範囲を選択"].waitForExistence(timeout: 10))
     replace(app.textFields["予定名"].firstMatch, "QA-LiFlow-edited"); tap(app, "予定を保存")
     expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["予定を保存"]); waitForExpectations(timeout: 90)
     let edited = app.buttons["QA-LiFlow-editedを編集"].firstMatch
-    XCTAssertTrue(edited.waitForExistence(timeout: 15)); tap(app, "QA-LiFlow-editedを編集"); tap(app, "繰り返し全体")
+    XCTAssertTrue(edited.waitForExistence(timeout: 15)); tap(app, "QA-LiFlow-editedを編集")
+    tap(app, "変更する範囲を選択"); tap(app, "繰り返し全体")
     XCTAssertEqual(app.textFields["予定名"].firstMatch.value as? String, "QA-LiFlow-calendar")
-    tap(app, "予定を削除")
+    tap(app, "繰り返し全体を削除")
     let remove = app.alerts.buttons["削除"].firstMatch
     XCTAssertTrue(remove.waitForExistence(timeout: 10)); remove.tap()
       expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["予定を保存"]); waitForExpectations(timeout: 90)
@@ -259,16 +261,32 @@ import XCUIAutomation
 
   func testDevelopmentReviewCalendarChorePanelsAndHorizontalSwipe() throws {
     let app = XCUIApplication(bundleIdentifier: "jp.jphacks.tkb2633")
-    app.launchArguments = ["-LiFlowUiReviewArea", "calendar", "-LiFlowUiReviewScenario", "three"]
     app.launch()
+    app.open(URL(string: "houseworkplanner://development/ui-review?area=calendar&scenario=three")!)
     let monday = "2026年11月23日"
     let tuesday = "2026年11月24日"
     XCTAssertTrue(app.buttons[monday + "の家事を閉じる"].waitForExistence(timeout: 20))
-    shot(app, "review-three-day-chores")
+    let more = app.buttons[monday + "の家事一覧の続きを表示"]
+    XCTAssertTrue(more.waitForExistence(timeout: 10))
+    XCTAssertTrue(more.isHittable)
+    for _ in 0..<8 {
+      if app.buttons[monday + "の家事一覧の先頭に戻る"].exists { break }
+      more.tap()
+    }
+    XCTAssertTrue(app.buttons[monday + "の家事一覧の先頭に戻る"].waitForExistence(timeout: 10))
+    tap(app, monday + "の家事一覧の先頭に戻る")
+    XCTAssertTrue(more.waitForExistence(timeout: 10))
     tap(app, tuesday + "の家事を開く")
     XCTAssertTrue(app.buttons[tuesday + "の家事を閉じる"].waitForExistence(timeout: 10))
-    XCTAssertTrue(app.buttons[monday + "の家事を開く"].exists)
+    XCTAssertTrue(app.buttons[monday + "の家事を閉じる"].exists)
+    shot(app, "review-three-day-chores")
     tap(app, tuesday + "の家事を閉じる")
+    shot(app, "review-three-day-chores-monday")
+    tap(app, monday + "の家事を閉じる")
+    tap(app, tuesday + "の家事を開く")
+    shot(app, "review-three-day-chores-tuesday")
+    tap(app, tuesday + "の家事を閉じる")
+    tap(app, monday + "の家事を開く")
 
     let timeline = app.descendants(matching: .any).matching(identifier: "calendar-timeline").firstMatch
     XCTAssertTrue(timeline.waitForExistence(timeout: 10))
@@ -282,18 +300,17 @@ import XCUIAutomation
       let forwardLeft = timeline.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.28))
       let forwardRight = timeline.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.28))
       forwardLeft.press(forDuration: 0.05, thenDragTo: forwardRight, withVelocity: .fast, thenHoldForDuration: 0)
-      XCTAssertTrue(app.buttons[monday + "の家事を開く"].waitForExistence(timeout: 10))
+      XCTAssertTrue(app.buttons[monday + "の家事を閉じる"].waitForExistence(timeout: 10))
       XCTAssertFalse(thursday.exists)
     }
     XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "入力途中の予定が見つかりません")).firstMatch.exists)
 
     view(app, "7日表示")
-    tap(app, monday + "の家事を開く")
     XCTAssertTrue(app.buttons[monday + "の家事を閉じる"].exists)
-    shot(app, "review-seven-day-chores")
     tap(app, tuesday + "の家事を開く")
     XCTAssertTrue(app.buttons[tuesday + "の家事を閉じる"].exists)
-    XCTAssertTrue(app.buttons[monday + "の家事を開く"].exists)
+    XCTAssertTrue(app.buttons[monday + "の家事を閉じる"].exists)
+    shot(app, "review-seven-day-chores")
   }
 
   func testCoreScreenAppearance() throws {

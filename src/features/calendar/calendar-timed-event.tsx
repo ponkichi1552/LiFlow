@@ -27,10 +27,10 @@ function createTimedDragControl() {
   });
   return { panHandlers: control.panHandlers, update: (next: typeof actions) => { actions = next; } };
 }
-export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hourHeight, draggable, style, selected, children,
+export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hourHeight, draggable, style, selected, children, background,
   onOpen, onBegin, onCommit, onActive, onResolveTarget, dateOnly = false, helpTarget, accessibleTime }: {
   event: CalendarOccurrence; day: LocalDate; days: readonly LocalDate[]; columnWidth: number; hourHeight: number;
-  draggable: boolean; style: StyleProp<ViewStyle>; selected: boolean; children: ReactNode;
+  draggable: boolean; style: StyleProp<ViewStyle>; selected: boolean; children: ReactNode; background?: ReactNode;
   onOpen(): void; onBegin(): Capture | null; onCommit(capture: Capture, target: Target): Promise<void>; onActive(day: LocalDate | null): void;
   helpTarget?: RegisterCalendarHelpTarget; onResolveTarget?(gesture: PanResponderGestureState): Target | null; dateOnly?: boolean;
   accessibleTime?: string;
@@ -81,6 +81,7 @@ export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hou
   useLayoutEffect(() => { alive.current = true; return () => { alive.current = false; if (session.current) onActive(null); }; }, [onActive]);
   return <Animated.View ref={setHost} {...control.panHandlers} testID={`calendar-movable-${event.id}`} onTouchEnd={() => { if (session.current && !claimed.current) reset(); }}
     onTouchCancel={() => { if (session.current && !claimed.current) reset(); }} style={[style, { transform: animation.transform }, target && styles.active]}>
+    {background}
     {target ? <Text pointerEvents="none" style={styles.target}>{target.day.slice(5).replace('-', '/')}{dateOnly ? '' : ` ${minuteLabel(target.minute)}`}</Text> : null}
     <Pressable accessibilityRole="button" accessibilityLabel={dateOnly ? `${calendarDisplayedTitle(event)}、${day}の予定` : `${calendarDisplayedTitle(event)}を編集`} accessibilityHint={draggable ? `長押しして${dateOnly ? '日付' : '日時'}を移動できます` : undefined}
       accessibilityValue={accessibleTime ? { text: accessibleTime } : undefined}

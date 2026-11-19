@@ -1,5 +1,6 @@
 import type { CalendarCategory, CalendarEvent, CalendarException } from '../../domain/calendar/events';
 import { isCalendarAnchor } from '../../domain/calendar/events.ts';
+import { UNCATEGORIZED_CALENDAR_CATEGORY } from './events.ts';
 import type { LocalDate } from '../../domain/shared/types';
 import { sharedDocumentDigest } from '../sharing/crypto.ts';
 import { sharedCalendarPayload } from '../sharing/v2/calendar-state.ts';
@@ -22,6 +23,7 @@ export function projectSharedCalendarRecords(records: readonly SharedCalendarRec
     if (record.heads.length !== 1) { conflicted = true; continue; }
     const payload = sharedCalendarPayload(record.heads[0]); if (!payload.value || !payload.category) continue;
     const category = (value: NonNullable<typeof payload.category>) => {
+      if (value.id === UNCATEGORIZED_CALENDAR_CATEGORY.id) return value.id;
       const key = JSON.stringify([value.id, value.name, value.color]); const existing = categoryIds.get(key);
       if (existing) return existing;
       const result = { ...value, id: `gcat.${sharedDocumentDigest([groupId, value])}`, revision: 1 };

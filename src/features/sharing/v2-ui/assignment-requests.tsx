@@ -4,12 +4,13 @@ import type { ReactElement } from 'react';
 import { FlatList, Text, View } from 'react-native';
 import { Card, SectionHeading } from '../../../components/planner-ui';
 import { SettingsAction } from '../../../components/settings-controls';
+import type { LocalDate } from '../../../domain/shared/types';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import { v2FormStyles as styles } from './form-controls';
 import { v2TargetLabel } from './target-form';
 
 type Props = { model: V2GroupScreenModel; actions: V2GroupController['actions']; busy: boolean; header?: ReactElement; embedded?: boolean;
-  run: (work: () => Promise<unknown>) => Promise<void>; onResolve?: (occurrenceId: string) => void };
+  run: (work: () => Promise<unknown>) => Promise<void>; onResolve?: (occurrenceId: string, anchorDate: LocalDate) => void };
 const labels = { pendingDelivery: '端末に保存済み · 申請の送信待ち', awaiting: '管理者の回答待ち', approved: '承認済み', rejected: '拒否されました',
   expired: '期限切れ', tooLate: '受付時に申請期限を過ぎていました', conflict: '回答が競合しています' };
 
@@ -73,8 +74,7 @@ function AssignmentRequestCard({ model, actions, busy, run, requestId, onResolve
       <SettingsAction placement="page" title="担当変更を拒否" intent="destructive" disabled={disabled} onPress={() => answer('reject')} />
     </View> : null}
     {review.canResolve && !resolved ? <><Text style={styles.error}>異なる回答を保持しています。管理者が対象の家事回で正式な担当を確認して解決します。</Text>
-      {onResolve ? <SettingsAction placement="page" title="家事回で担当の競合を解決" disabled={disabled || !model.plan.occurrences.some((round) => round.id === p.occurrenceId)} onPress={() => onResolve(p.occurrenceId)} /> : null}
-      {!model.plan.occurrences.some((round) => round.id === p.occurrenceId) ? <Text style={styles.caption}>対象の家事回が表示期間外です。期間を変えて確認してください。</Text> : null}</> : null}
+      {onResolve ? <SettingsAction placement="page" title="家事回で担当の競合を解決" disabled={disabled} onPress={() => onResolve(p.occurrenceId, p.anchorDate)} /> : null}</> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
   </Card>;
 }

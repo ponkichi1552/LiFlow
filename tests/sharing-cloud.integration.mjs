@@ -296,6 +296,22 @@ test('rejecting a stale invitation request never reads or changes the applicants
   await assert.rejects(getDocFromServer(doc(h.store.firestore, 'sharingUsers', 'former-applicant', 'memberships', 'current')), error => error.code === 'permission-denied');
 });
 
+test('a declined join request cannot be resent automatically but a fresh invitation can be submitted', async () => {
+  const { owner, roster, store } = await fixture();
+  const applicant = client('member'); const identity = await createDeviceIdentity(crypto);
+  const link = await createSharedInvitation(crypto, roster, owner, 'reject-request', Date.now());
+  await store.cloud.createInvitation(link.invitation);
+  const request = createSharedJoinRequest(link, 'member', identity, Date.now());
+  await applicant.cloud.submitJoinRequest(link.invitation, request);
+  await store.cloud.withdrawOrRejectJoinRequest(link.invitation.body.inviteId, 'member');
+  await assert.rejects(applicant.cloud.submitJoinRequest(link.invitation, request), { code: 'sharing/invitation-rejected' });
+  assert.equal((await store.cloud.listJoinRequests(link.invitation)).requests.length, 0);
+  const fresh = await createSharedInvitation(crypto, roster, owner, 'fresh-request', Date.now());
+  await store.cloud.createInvitation(fresh.invitation);
+  await applicant.cloud.submitJoinRequest(fresh.invitation, createSharedJoinRequest(fresh, 'member', identity, Date.now()));
+  assert.equal((await store.cloud.listJoinRequests(fresh.invitation)).requests.length, 1);
+});
+
 for (const count of [99, 100, 101]) test(`join request pagination reaches a valid applicant after ${count - 1} invalid documents`, async () => {
   const h = await fixture(); const link = await createSharedInvitation(crypto, h.roster, h.owner, 'paged-requests', Date.now());
   await h.store.cloud.createInvitation(link.invitation);

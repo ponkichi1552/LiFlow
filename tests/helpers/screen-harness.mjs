@@ -78,7 +78,7 @@ export function screenHarness(filename, options = {}) {
       },
       Platform: { OS: options.platform ?? process.env.HOUSEWORK_TEST_PLATFORM ?? 'ios' }, StatusBar: { currentHeight: 0 }, StyleSheet: { flatten: value => Array.isArray(value) ? Object.assign({}, ...value.map(part => Array.isArray(part) ? Object.assign({}, ...part) : part)) : value, create: (styles) => styles, hairlineWidth: 1, absoluteFill: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 } },
       useColorScheme: () => options.colorScheme ?? 'light',
-      useWindowDimensions: () => ({ width: options.width ?? 390, height: options.height ?? 844, fontScale: 1, scale: 3 }),
+      useWindowDimensions: () => ({ width: options.width ?? 390, height: options.height ?? 844, fontScale: options.fontScale ?? 1, scale: 3 }),
       PanResponder: { create: callbacks => ({ panHandlers: callbacks }) },
       Animated: { View: 'AnimatedView', ValueXY: class {
         constructor(value = { x: 0, y: 0 }) { this.value = value; }
@@ -96,7 +96,8 @@ export function screenHarness(filename, options = {}) {
     'react-native-reanimated': {
       __esModule: true, default: { View: 'AnimatedView', FlatList: (props) => mocks['react-native'].FlatList(props) }, LinearTransition: transition,
       SlideInLeft: transition, SlideInRight: transition, ReduceMotion: { System: 'system' },
-      useSharedValue: (value) => hook(() => ({ value, get() { return this.value; }, set(next) { this.value = typeof next === 'function' ? next(this.value) : next; } }))[0], useAnimatedStyle: (fn) => fn(), withTiming: (value) => value,
+      useSharedValue: (value) => hook(() => ({ value, get() { return this.value; }, set(next) { this.value = typeof next === 'function' ? next(this.value) : next; } }))[0], useAnimatedStyle: (fn) => fn(),
+      useReducedMotion: () => options.reduceMotion ?? false, withTiming: (value, config) => { options.onTiming?.(value, config); return value; },
     },
     'expo-router': {
       useLocalSearchParams: () => options.params ?? {},

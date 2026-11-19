@@ -42,6 +42,7 @@ for (const platform of ['ios', 'android']) {
       screen.nodes().find((node) => node.type === 'Switch' && node.props.accessibilityLabel === '担当：owner').props.onValueChange(true);
       screen.nodes().find((node) => node.type === 'Switch' && node.props.accessibilityLabel === '担当：member').props.onValueChange(false);
       assert.equal((await listSharingOutbox(f.owner.database, groupId)).length, before);
+      await screen.flush();
       await screen.press('担当変更を保存'); assert.ok(screen.text().includes('端末に保存しました'));
       const state = await f.owner.repository.readState(); const op = state.assessment.view.ofType('assignmentRule').at(-1);
       assert.equal(op.payload.scope, 'once'); assert.deepEqual(op.payload.memberIds, ['owner']); assert.equal(Object.hasOwn(op.payload, 'expectedAssignmentIds'), false);
@@ -60,6 +61,24 @@ for (const platform of ['ios', 'android']) {
       await flag(screen, '担当：owner', true); await flag(screen, '担当：member', false); await screen.press('担当変更を保存');
       const op = (await f.owner.repository.readState()).assessment.view.ofType('assignmentRule').at(-1);
       assert.equal(op.payload.fromAnchorDate, '2026-10-29'); assert.equal(op.payload.ruleVersion, 2); assert.equal(op.payload.scope, 'from');
+    } finally { f.close(); }
+  });
+  test(`${platform} v2 assignment scope seeds the next rounds assignees and never submits an untouched form`, async () => {
+    const f = await decisionFixture({ fixed: true });
+    try {
+      await f.a.actions.assign(ref, ['owner'], 'next', false);
+      const { screen } = await form(f, 'owner', platform);
+      const before = (await listSharingOutbox(f.owner.database, groupId)).length;
+      const next = screen.nodes().find(node => node.props.accessibilityRole === 'radio' && node.props.accessibilityLabel === '次回から');
+      await next.props.onPress(); await screen.flush();
+      const switches = label => screen.nodes().find(node => node.type === 'Switch' && node.props.accessibilityLabel === label).props.value;
+      assert.equal(switches('担当：owner'), true);
+      assert.equal(switches('担当：member'), false);
+      assert.equal(switches('管理者による固定担当にする'), false);
+      assert.equal(screen.button('担当変更を保存').props.disabled, true);
+      await screen.button('担当変更を保存').props.onPress();
+      assert.equal((await listSharingOutbox(f.owner.database, groupId)).length, before);
+      screen.unmount();
     } finally { f.close(); }
   });
   test(`${platform} v2 member assignment edits remain requests and the administrators explicit answer waits for its receipt`, async () => {
