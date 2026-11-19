@@ -16369,6 +16369,10 @@
     "description": "Development UI review can exercise production display controls with repeatable synthetic data and local simulated actions.",
     "tests": [
       {
+        "file": "tests/ui-review-affordances.test.mjs",
+        "name": "a device review build opens review cases from the main settings menu and starts on the regular home"
+      },
+      {
         "file": "tests/ui-review-home-data.test.mjs",
         "name": "${platform} fixture claims, completion, overdue undo and weekly switches stay within one home review session"
       },

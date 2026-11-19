@@ -2,11 +2,37 @@ import './helpers/typescript-loader.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { screenHarness } from './helpers/screen-harness.mjs';
+import { loadNativeModule } from './helpers/native-module.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { newEventDraft } from '../src/features/calendar/events.ts';
 const { initializeLocalDatabase } = await import('../src/platform/storage/repository.ts');
 const { readLocalCalendar } = await import('../src/platform/storage/calendar-events.ts');
 const day = '2026-11-14';
+test('a device review build opens review cases from the main settings menu and starts on the regular home', async () => {
+  const key = 'EXPO_PUBLIC_LIFLOW_UI_REVIEW';
+  const previous = process.env[key];
+  try {
+    for (const [mode, enabled, autoOpen] of [[undefined, false, false], ['menu', true, false], ['1', true, true]]) {
+      if (mode === undefined) delete process.env[key]; else process.env[key] = mode;
+      const gate = loadNativeModule('src/features/development/ui-review/enabled.ts', {});
+      assert.deepEqual(gate, { uiReviewEnabled: enabled, uiReviewBuild: autoOpen });
+      const destinations = [];
+      const ui = screenHarness('src/features/settings/settings-navigation.tsx', { exportName: 'SettingsNavigationScreen',
+        mocks: { '../development/ui-review/enabled': gate }, navigate: (...args) => destinations.push(args) });
+      try {
+        if (enabled) {
+          await ui.press('UI確認用データ');
+          assert.deepEqual(destinations, [['push', '/development/ui-review']]);
+        } else {
+          assert.doesNotMatch(ui.text(), /UI確認用データ/u);
+        }
+      } finally { ui.unmount(); }
+    }
+  } finally {
+    if (previous === undefined) delete process.env[key]; else process.env[key] = previous;
+  }
+});
+
 for (const platform of ['ios', 'android']) {
   test(`${platform} unsupported shared single registrations explain the disabled save and offer the update destination without writing`, async t => {
     const destinations = []; let writes = 0;

@@ -1,5 +1,4 @@
 import { CalendarNotificationSettings } from '@/features/calendar/calendar-notification-settings';
-import { uiReviewEnabled } from '@/features/development/ui-review/enabled';
 import { NotificationPermissionRecovery, useDeviceNotificationPermission } from '@/features/notifications/notification-permission-recovery';
 import { useSettingsAutosave } from '@/features/settings/use-settings-autosave';
 import { BackgroundSyncDiagnostics } from '@/features/google-sync/background-diagnostics';
@@ -688,9 +687,6 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
         </AccountOperationContext.Provider>
       </SettingsSection>
       {section === 'diagnostics' && typeof __DEV__ !== 'undefined' && __DEV__ ? <BackgroundSyncDiagnostics /> : null}
-      {section === 'general' && uiReviewEnabled ? <SettingsList>
-        <SettingsRow title="UI確認用データ" onPress={() => router.push('/development/ui-review')} />
-      </SettingsList> : null}
       {section === 'general' && typeof __DEV__ !== 'undefined' && __DEV__ ? <SettingsList>
         <SettingsRow title="開発検査" onPress={() => router.push('/development')} />
         <SettingsRow title="バックグラウンド同期の実行記録" onPress={() => router.push({ pathname: '/settings', params: { section: 'diagnostics' } })} />

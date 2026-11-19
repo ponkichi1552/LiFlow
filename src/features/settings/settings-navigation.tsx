@@ -11,6 +11,7 @@ import { ChoreSettingsSources, ChoreSettingsSourcePicker, useChoreSettingsGroup,
 import { plannerColorsForScheme } from '../../components/planner-theme';
 import { SettingsHeader } from '../../components/settings-header';
 import { SettingsGroup, SettingsSegments } from '../../components/settings-controls';
+import { uiReviewEnabled } from '../development/ui-review/enabled';
 
 export { SettingsHeader } from '../../components/settings-header';
 
@@ -50,6 +51,7 @@ export function SettingsNavigationScreen({ section }: { section?: 'chores' | 'ap
       <SettingsRow title="共有グループ" onPress={() => router.push(groupDestination)} />
       <SettingsRow title={settingsTitles.account} onPress={() => openSettingsCategory('account')} />
       <SettingsRow title={settingsTitles.general} onPress={() => openSettingsCategory('general')} />
+      {uiReviewEnabled ? <SettingsRow title="UI確認用データ" onPress={() => router.push('/development/ui-review')} /> : null}
     </SettingsList>
   </Page>;
 }
