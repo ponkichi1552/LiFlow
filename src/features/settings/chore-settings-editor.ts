@@ -1,6 +1,7 @@
 import type { ChoreDefinition, FrequencyMode } from '../../domain/chores/types';
 import type { ChoreSettingsPatch } from '../../domain/chores/settings-patch';
-import { applyChoreSettingsPatch, parseSettingInteger } from '../../domain/chores/settings-patch.ts';
+import { parseSettingInteger } from '../../domain/chores/settings-patch.ts';
+import { applyPersonalChoreSettingsPatch } from '../../domain/chores/personal-settings-patch.ts';
 import { createAutosaveQueue } from './autosave-queue.ts';
 import { createDraftNavigation } from './draft-navigation.ts';
 import { registeredChoreCycleDays } from '../../domain/chores/cycle-policy.ts';
@@ -30,7 +31,7 @@ export function createChoreSettingsEditor(chore: ChoreDefinition, mode: Frequenc
   type PendingPatch = ChoreSettingsPatch & { resetGeneration?: number };
   const queue = createAutosaveQueue<PendingPatch>({ save: async pending => {
     const { resetGeneration, ...patch } = pending; const writingRevision = revision;
-    await savePatch(patch, displayedBase); displayedBase = applyChoreSettingsPatch(displayedBase, patch);
+    await savePatch(patch, displayedBase); displayedBase = applyPersonalChoreSettingsPatch(displayedBase, patch);
     const accepted = {
       ...('cycleDays' in patch || patch.resetSchedule ? { cycleText: cycleTextFor(displayedBase, mode) } : {}),
       ...('cycleDays' in patch || patch.resetSchedule ? { cycleMode: cycleModeFor(displayedBase) } : {}),
@@ -62,7 +63,7 @@ export function createChoreSettingsEditor(chore: ChoreDefinition, mode: Frequenc
   const update = (patch: Partial<typeof draft>) => { for (const field of Object.keys(patch) as (keyof typeof draft)[]) draftRevisions.set(field, ++revision); draft = { ...draft, ...patch }; emit(); };
   const resetCycle = () => {
     emptyCyclePending = false;
-    const reset = applyChoreSettingsPatch(displayedBase, { cycleDays: null });
+    const reset = applyPersonalChoreSettingsPatch(displayedBase, { cycleDays: null });
     update({ cycleText: cycleTextFor(reset, mode), cycleMode: cycleModeFor(reset), ...(reset.requiresCycleSelection ? { enabled: false } : {}) });
     queue.enqueue({ cycleDays: null, ...(reset.requiresCycleSelection ? { enabled: false } : {}) }, true);
   };
@@ -93,7 +94,7 @@ export function createChoreSettingsEditor(chore: ChoreDefinition, mode: Frequenc
       queue.enqueue({ cycleDays: days }, true);
     },
     resetSchedule() {
-      const reset = applyChoreSettingsPatch(displayedBase, { resetSchedule: true }); emptyCyclePending = false;
+      const reset = applyPersonalChoreSettingsPatch(displayedBase, { resetSchedule: true }); emptyCyclePending = false;
       for (const field of ['cycleDays', 'windowRadiusDays', 'load', 'holidayPriority', 'laundryDryingPreference'] as const) queue.remove(field);
       update({ cycleText: cycleTextFor(reset, mode), cycleMode: cycleModeFor(reset),
         radiusText: String(reset.windowRadiusDays), load: reset.load, holidayPriority: reset.holidayPriority, dryingPreference: reset.laundryDryingPreference ?? 'either' });

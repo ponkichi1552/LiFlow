@@ -1,6 +1,7 @@
 import type { ChoreDefinition } from '../../domain/chores/types';
 import type { LocalDate } from '../../domain/shared/types';
-import { applyChoreSettingsPatch, parseSettingInteger, type ChoreSettingsPatch } from '../../domain/chores/settings-patch.ts';
+import { parseSettingInteger } from '../../domain/chores/settings-patch.ts';
+import { applyPersonalChoreSettingsPatch, type PersonalChoreSettingsPatch } from '../../domain/chores/personal-settings-patch.ts';
 import { createAutosaveQueue } from './autosave-queue.ts';
 import { createDraftNavigation } from './draft-navigation.ts';
 
@@ -8,7 +9,7 @@ export interface ChoreSectionDraft { title: string; text: string }
 const lines = (text: string) => text.split(/\r?\n/u).map(value => value.trim()).filter(Boolean);
 
 /** Private fields only. Each write is a patch against the latest definition, not a stale whole-document replacement. */
-export function createChoreAdvancedEditor(chore: ChoreDefinition, today: LocalDate, save: (patch: ChoreSettingsPatch) => Promise<void>) {
+export function createChoreAdvancedEditor(chore: ChoreDefinition, today: LocalDate, save: (patch: PersonalChoreSettingsPatch) => Promise<void>) {
   let base = chore;
   const format = (value: ChoreDefinition) => ({ name: value.name, description: value.description,
     instructions: value.instructions.join('\n'), tools: value.tools.join('\n'), cautions: value.cautions.join('\n'),
@@ -17,8 +18,8 @@ export function createChoreAdvancedEditor(chore: ChoreDefinition, today: LocalDa
     monthlyDay: value.personalSchedule?.monthlyDay?.toString() ?? '' });
   let raw = format(chore); let persisted = raw; let errors: Record<string, string> = {};
   const listeners = new Set<() => void>(); let publish = () => {};
-  const queue = createAutosaveQueue<ChoreSettingsPatch>({ save: async patch => {
-    const accepted = applyChoreSettingsPatch(base, patch); await save(patch); base = accepted;
+  const queue = createAutosaveQueue<PersonalChoreSettingsPatch>({ save: async patch => {
+    const accepted = applyPersonalChoreSettingsPatch(base, patch); await save(patch); base = accepted;
     // Preserve partial/invalid text being entered in another field during this save.
     const formatted = format(base);
     const keys = Object.keys(patch).flatMap(key => {
@@ -35,8 +36,8 @@ export function createChoreAdvancedEditor(chore: ChoreDefinition, today: LocalDa
   let snapshot = { raw, errors, status: queue.getSnapshot(), hasDraft: dirty(), ...navigation.state() };
   publish = () => { snapshot = { raw, errors, status: queue.getSnapshot(), hasDraft: dirty(), ...navigation.state() }; for (const listener of listeners) listener(); };
   queue.subscribe(publish);
-  const validate = (field: keyof ChoreSettingsPatch, patch: ChoreSettingsPatch, immediate = false) => {
-    try { applyChoreSettingsPatch(base, patch); const { [field]: _, ...remaining } = errors; errors = remaining; queue.enqueue(patch, immediate); }
+  const validate = (field: keyof PersonalChoreSettingsPatch, patch: PersonalChoreSettingsPatch, immediate = false) => {
+    try { applyPersonalChoreSettingsPatch(base, patch); const { [field]: _, ...remaining } = errors; errors = remaining; queue.enqueue(patch, immediate); }
     catch (cause) { queue.remove(field); errors = { ...errors, [field]: cause instanceof Error ? cause.message : '入力を確認してください。' }; }
     publish();
   };

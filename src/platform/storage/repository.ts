@@ -16,8 +16,7 @@ import { personalChoreHistoryCutoffInstant } from '../../domain/chores/history-r
 import { compareBuiltInChoreOrder } from '@/domain/chores/catalog';
 import { choreScheduleDefaults, resetChoreSchedule } from '@/domain/chores/schedule-defaults';
 import { validateChoreToggle } from '@/domain/chores/chore-groups';
-import { applyChoreSettingsPatch } from '@/domain/chores/settings-patch';
-import type { ChoreSettingsPatch } from '@/domain/chores/settings-patch';
+import { applyPersonalChoreSettingsPatch, type PersonalChoreSettingsPatch } from '@/domain/chores/personal-settings-patch';
 import type {
   ChoreCompletion,
   ChoreDefinition,
@@ -1130,14 +1129,14 @@ async function clearWeatherLocationImpl(database: SQLiteDatabase): Promise<void>
   );
 }
 
-async function updateChoreSettingsImpl(database: SQLiteDatabase, choreId: EntityId, patch: ChoreSettingsPatch, _displayedBase?: ChoreDefinition): Promise<boolean> {
+async function updateChoreSettingsImpl(database: SQLiteDatabase, choreId: EntityId, patch: PersonalChoreSettingsPatch, _displayedBase?: ChoreDefinition): Promise<boolean> {
   const row = await database.getFirstAsync<{ enabled: number; definition_json: string }>(
     'SELECT enabled, definition_json FROM chore_definitions WHERE id = ? AND household_id = ?', choreId, LOCAL_HOUSEHOLD_ID,
   );
   if (!row) throw new Error('家事が見つかりません。');
   const current = { ...JSON.parse(row.definition_json) as ChoreDefinition, enabled: Boolean(row.enabled) };
   if (current.archived) throw new Error('この家事は現在の家事一覧から削除されています。');
-  const updated = applyChoreSettingsPatch(current, patch);
+  const updated = applyPersonalChoreSettingsPatch(current, patch);
   if (JSON.stringify(current) === JSON.stringify(updated)) return false;
   await updateChoreDefinitionImpl(database, updated);
   plannerVersions.set(database, (plannerVersions.get(database) ?? 0) + 1);
@@ -1271,7 +1270,7 @@ async function registerPersonalCalendarChoreImpl(database: SQLiteDatabase, input
     const configure = !observed || input.repeat || !observed.definition.enabled || !observed.roundId || contextBefore?.suppressedChoreIds?.has(id);
     const period = input.repeat ? input.monthly ? 30 : input.intervalDays : observed?.definition.frequencyDaysByMode.balanced ?? 7;
     let definition = observed?.definition ?? createCustomPersonalChore(id, LOCAL_HOUSEHOLD_ID, input.name, period ?? 7, options);
-    if (configure) definition = applyChoreSettingsPatch(definition, { enabled: true, ...(input.repeat ? { cycleDays: period } : {}), windowRadiusDays: options.windowRadiusDays,
+    if (configure) definition = applyPersonalChoreSettingsPatch(definition, { enabled: true, ...(input.repeat ? { cycleDays: period } : {}), windowRadiusDays: options.windowRadiusDays,
       ...(definition.customPersonal ? { estimatedMinutes: options.estimatedMinutes } : {}), load: options.load, holidayPriority: options.holidayPriority,
       ...(!observed ? { instructions: options.instructions } : {}),
       personalSchedule: { startDate: input.date, ...(input.repeat ? input.monthly ? { monthlyDay: Number(input.date.slice(8)) } : {} : { once: true }), ...(timing ? { calendarTiming: timing } : {}) } });

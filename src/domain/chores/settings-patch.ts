@@ -1,5 +1,4 @@
 import type { ChoreDefinition, ChoreLoad, LaundryDryingPreference, PersonalChoreSchedule } from './types';
-import type { LocalDate } from '../shared/types';
 import { resetChoreSchedule } from './schedule-defaults.ts';
 import { builtInChoreCatalogEntry } from './catalog.ts';
 import { isPersonalConditionBasedAppliance } from './cycle-policy.ts';
@@ -16,8 +15,6 @@ export interface ChoreSettingsPatch {
   holidayPriority?: boolean;
   laundryDryingPreference?: LaundryDryingPreference;
   personalSchedule?: PersonalChoreSchedule | null;
-  personalScheduleStartDate?: LocalDate;
-  personalScheduleCadence?: { startDateWhenMissing: LocalDate } & ({ mode: 'once' | 'interval' } | { mode: 'monthly'; day: number });
   name?: string;
   description?: string;
   instructions?: string[];
@@ -37,20 +34,9 @@ export function parseSettingInteger(text: string, min: number, max: number): num
 export function applyChoreSettingsPatch(chore: ChoreDefinition, patch: ChoreSettingsPatch): ChoreDefinition {
   if (chore.personalSchedulingKind === 'seasonal' && (patch.cycleDays != null || patch.windowRadiusDays !== undefined || patch.holidayPriority !== undefined)) throw new Error('季節家事は地域別の固定日を使います。');
   const next = patch.resetSchedule ? resetChoreSchedule(chore) : { ...chore };
-  if (patch.personalSchedule !== undefined || patch.personalScheduleStartDate !== undefined || patch.personalScheduleCadence) {
+  if (patch.personalSchedule !== undefined) {
     if (chore.personalSchedulingKind === 'seasonal') throw new Error('季節家事は地域別の固定日を使います。');
-    if (patch.personalSchedule !== undefined) {
-      next.personalSchedule = patch.personalSchedule === null ? undefined : checkedPersonalSchedule(patch.personalSchedule);
-    }
-    const cadence = patch.personalScheduleCadence;
-    const startDate = patch.personalScheduleStartDate ?? next.personalSchedule?.startDate ?? cadence?.startDateWhenMissing;
-    if (startDate !== undefined && (patch.personalScheduleStartDate !== undefined || cadence)) {
-      next.personalSchedule = checkedPersonalSchedule({
-        ...next.personalSchedule,
-        startDate,
-        ...(cadence ? { once: cadence.mode === 'once' ? true : undefined, monthlyDay: cadence.mode === 'monthly' ? cadence.day : undefined } : {}),
-      });
-    }
+    next.personalSchedule = patch.personalSchedule === null ? undefined : checkedPersonalSchedule(patch.personalSchedule);
     if (next.personalSchedule?.once) next.requiresCycleSelection = false;
   }
   if (patch.name !== undefined) {
@@ -78,9 +64,7 @@ export function applyChoreSettingsPatch(chore: ChoreDefinition, patch: ChoreSett
       throw new RangeError('周期は1日以上の整数で入力してください。');
     }
     const cycle = patch.cycleDays === null ? undefined : patch.cycleDays;
-    if (cycle !== undefined && next.personalSchedule?.once) {
-      next.personalSchedule = checkedPersonalSchedule({ ...next.personalSchedule, once: undefined });
-    }
+    if (cycle !== undefined && next.personalSchedule?.once) next.personalSchedule = { startDate: next.personalSchedule.startDate };
     next.recommendedCycleDays = cycle;
     // The scheduler prefers userIntervalDays; never leave an older override shadowing a new cycle.
     next.userIntervalDays = chore.applianceId ? cycle : undefined;

@@ -12,9 +12,9 @@ import { useV2DraftLifecycle } from '../sharing/v2-ui/use-draft-lifecycle';
 import { createChoreAdvancedEditor } from './chore-advanced-editor';
 import type { ChoreDefinition } from '../../domain/chores/types';
 import type { LocalDate } from '../../domain/shared/types';
-import type { ChoreSettingsPatch } from '../../domain/chores/settings-patch';
+import type { PersonalChoreSettingsPatch } from '../../domain/chores/personal-settings-patch';
 
-export function ChoreAdvancedSettings({ chore, today, save }: { chore: ChoreDefinition; today: LocalDate; save(patch: ChoreSettingsPatch): Promise<void> }) {
+export function ChoreAdvancedSettings({ chore, today, save }: { chore: ChoreDefinition; today: LocalDate; save(patch: PersonalChoreSettingsPatch): Promise<void> }) {
   const [editor] = useState(() => createChoreAdvancedEditor(chore, today, save));
   const { snapshot, navigateAfterSave } = useV2DraftLifecycle(editor);
   const colors = plannerColorsForScheme(useColorScheme()); const { raw, errors, status } = snapshot;
