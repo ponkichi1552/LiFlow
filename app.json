@@ -8,24 +8,24 @@
       "android"
     ],
     "orientation": "portrait",
-    "icon": "./assets/images/liflow-wordmark-icon.png",
+    "icon": "./assets/images/liflow-monogram.png",
     "scheme": "houseworkplanner",
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "jp.jphacks.tkb2633",
       "icon": {
-        "light": "./assets/images/liflow-wordmark-icon.png",
-        "dark": "./assets/images/liflow-wordmark-icon.png"
+        "light": "./assets/images/liflow-monogram.png",
+        "dark": "./assets/images/liflow-monogram.png"
       }
     },
     "android": {
       "package": "jp.jphacks.tkb2633",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/liflow-wordmark-icon.png",
-        "backgroundColor": "#4E9FB4"
+        "foregroundImage": "./assets/images/liflow-monogram-adaptive.png",
+        "backgroundColor": "#358091"
       },
       "predictiveBackGestureEnabled": false,
-      "icon": "./assets/images/liflow-wordmark-icon.png"
+      "icon": "./assets/images/liflow-monogram.png"
     },
     "plugins": [
       "expo-router",

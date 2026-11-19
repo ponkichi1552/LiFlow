@@ -2547,18 +2547,21 @@
       },
       {
         "file": "tests/app-branding.test.mjs",
-        "name": "LiFlow icon is opaque and its white artwork fits the circular mask and Android safe zone"
+        "name": "LiFlow shares the launcher drawing across the opaque icon and the Android adaptive safe circle"
       },
       {
         "file": "tests/app-branding.test.mjs",
-        "name": "LiFlow managed icon plugin generates inset adaptive resources and keeps manifest attributes"
+        "name": "LiFlow launcher manifest selects standard and round resources and keeps existing attributes"
       },
       {
         "file": "tests/ios-build-config.test.mjs",
         "name": "local reminders do not require APNs, while widget App Groups remain configured"
       }
     ],
-    "manualReview": "docs/audits/2026-11-14-wordmark-app-icon.md"
+    "manualReview": [
+      "docs/audits/2026-11-14-wordmark-app-icon.md",
+      "docs/audits/2026-11-19-monogram-app-icon.md"
+    ]
   },
   {
     "feature": "shared-causal-events-and-targeted-undo",

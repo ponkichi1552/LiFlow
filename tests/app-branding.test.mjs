@@ -6,64 +6,100 @@ import { PNG } from 'pngjs';
 
 const require = createRequire(import.meta.url);
 const config = JSON.parse(readFileSync(new URL('../app.json', import.meta.url))).expo;
+const adaptive = config.android.adaptiveIcon;
+
+function readIcon(asset) {
+  return PNG.sync.read(readFileSync(new URL(`../${asset}`, import.meta.url)));
+}
 
 test('LiFlow uses the same app name and icon artwork on iOS and Android without changing app identity', () => {
   assert.equal(config.name, 'LiFlow');
-  assert.equal(config.icon, './assets/images/liflow-wordmark-icon.png');
   assert.equal(config.ios.icon.light, config.icon);
   assert.equal(config.ios.icon.dark, config.icon);
   assert.equal(config.android.icon, config.icon);
-  assert.equal(config.android.adaptiveIcon.foregroundImage, config.icon);
-  assert.equal(config.android.adaptiveIcon.backgroundImage, undefined);
-  assert.equal(config.android.adaptiveIcon.monochromeImage, undefined);
+  assert.notEqual(adaptive.foregroundImage, config.icon, 'The adaptive layer needs transparent margins');
+  assert.equal(adaptive.backgroundImage, undefined);
+  assert.equal(adaptive.monochromeImage, undefined);
   assert.equal(config.ios.bundleIdentifier, 'jp.jphacks.tkb2633');
   assert.equal(config.android.package, 'jp.jphacks.tkb2633');
   assert.equal(config.scheme, 'houseworkplanner');
   assert.ok(config.plugins.includes('./plugins/with-liflow-launcher-icons'));
   const splash = config.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-splash-screen');
-  assert.equal(splash[1].image, './assets/images/liflow-icon.png', 'Changing the launcher must not change the launch screen');
+  assert.equal(splash[1].image, './assets/images/liflow-icon.png');
   assert.equal(splash[1].dark.image, './assets/images/liflow-icon-dark.png');
 });
 
-test('LiFlow icon is opaque and its white artwork fits the circular mask and Android safe zone', () => {
-  const png = PNG.sync.read(readFileSync(new URL(`../${config.icon}`, import.meta.url)));
-  assert.equal(png.width, png.height);
-  assert.ok(png.width >= 1024);
-  let whitePixels = 0, maxRadius = 0;
-  for (let y = 0; y < png.height; y += 1) for (let x = 0; x < png.width; x += 1) {
-    const i = (y * png.width + x) * 4;
-    assert.equal(png.data[i + 3], 255);
-    if (png.data[i] > 235 && png.data[i + 1] > 235 && png.data[i + 2] > 235) {
-      whitePixels += 1;
-      maxRadius = Math.max(maxRadius, Math.hypot(x - (png.width - 1) / 2, y - (png.height - 1) / 2));
+function artworkBounds(png, background) {
+  const { width, height, data } = png;
+  const center = (width - 1) / 2;
+  let left = width, right = -1, top = height, bottom = -1, maxRadius = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      if (background) {
+        assert.equal(data[i + 3], 255, 'The iOS and legacy icon must be opaque');
+        if (data[i] === background[0] && data[i + 1] === background[1] && data[i + 2] === background[2]) continue;
+      } else if (data[i + 3] === 0) continue;
+      left = Math.min(left, x);
+      right = Math.max(right, x);
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y);
+      maxRadius = Math.max(maxRadius, Math.hypot(x - center, y - center));
     }
   }
-  assert.ok(whitePixels > 0, 'The supplied artwork must not be empty');
-  assert.ok(maxRadius / png.width < 0.5, 'The complete wordmark must survive a circular launcher mask');
+  assert.ok(right > left && bottom > top, 'The icon must contain visible artwork');
+  return { left, top, right, bottom, maxRadius };
+}
+
+test('LiFlow shares the launcher drawing across the opaque icon and the Android adaptive safe circle', () => {
+  const full = readIcon(config.icon);
+  const layer = readIcon(adaptive.foregroundImage);
+  for (const png of [full, layer]) {
+    assert.equal(png.width, png.height);
+    assert.ok(png.width >= 1024);
+  }
+  const background = Buffer.from(adaptive.backgroundColor.slice(1), 'hex');
+  assert.deepEqual(full.data.subarray(0, 3), background);
+  const artwork = artworkBounds(full, background);
+  const foreground = artworkBounds(layer);
+  assert.ok(artwork.maxRadius < full.width / 2, 'The entire drawing survives the legacy round mask');
+  assert.ok(foreground.maxRadius * 108 / layer.width < 33, 'All visible foreground pixels stay in the safe circle');
+
+  // Compare the same points in each drawing, allowing for resampling and antialiasing.
+  function sample(png, bounds, u, v) {
+    const x = Math.round(bounds.left + (bounds.right - bounds.left) * u);
+    const y = Math.round(bounds.top + (bounds.bottom - bounds.top) * v);
+    const i = (y * png.width + x) * 4;
+    const opacity = png.data[i + 3] / 255;
+    return Array.from(background, (color, c) => opacity * png.data[i + c] + (1 - opacity) * color);
+  }
+  const samples = 32;
+  let difference = 0;
+  for (let y = 0; y < samples; y++) {
+    for (let x = 0; x < samples; x++) {
+      const u = (x + 0.5) / samples, v = (y + 0.5) / samples;
+      const ios = sample(full, artwork, u, v);
+      const android = sample(layer, foreground, u, v);
+      difference += ios.reduce((sum, value, c) => sum + Math.abs(value - android[c]), 0);
+    }
+  }
+  assert.ok(difference / (samples * samples * 3) < 8, 'Both icons display the same drawing over the same background');
 });
 
-test('LiFlow managed icon plugin generates inset adaptive resources and keeps manifest attributes', async () => {
+test('LiFlow launcher manifest selects standard and round resources and keeps existing attributes', () => {
   const plugin = require('../plugins/with-liflow-launcher-icons.js');
-  const manifest = { manifest: { application: [{ $: { 'android:name': '.MainApplication', 'android:label': '@string/app_name', 'android:allowBackup': 'false' } }] } };
+  const attributes = {
+    'android:name': '.MainApplication',
+    'android:label': '@string/app_name',
+    'android:allowBackup': 'false',
+    'android:icon': '@mipmap/liflow_launcher',
+    'android:roundIcon': '@mipmap/liflow_launcher',
+  };
+  const manifest = { manifest: { application: [{ $: { ...attributes } }] } };
   const result = plugin.setLauncherManifest(manifest);
-  assert.equal(result.manifest.application[0].$['android:icon'], '@mipmap/liflow_launcher');
-  assert.equal(result.manifest.application[0].$['android:roundIcon'], '@mipmap/liflow_launcher');
-  assert.equal(result.manifest.application[0].$['android:name'], '.MainApplication');
-  assert.equal(result.manifest.application[0].$['android:allowBackup'], 'false');
-  const xml = plugin.adaptiveIconXml();
-  const inset = side => Number(new RegExp(`android:inset${side}="([0-9.]+)%"`).exec(xml)[1]) / 100;
-  const width = 1 - inset('Left') - inset('Right'), height = 1 - inset('Top') - inset('Bottom');
-  assert.ok(width > 0 && height > 0 && width === height, 'The square source must retain its aspect ratio');
-  const png = PNG.sync.read(readFileSync(new URL(`../${config.icon}`, import.meta.url)));
-  let maxRadius=0;
-  for (let y=0;y<png.height;y++) for(let x=0;x<png.width;x++) {
-    const i=(y*png.width+x)*4;
-    if (Math.min(...png.data.subarray(i,i+3)) > 235) {
-      maxRadius=Math.max(maxRadius,Math.hypot(inset('Left')+width*x/png.width-.5,inset('Top')+height*y/png.height-.5)*108);
-    }
-  }
-  assert.ok(maxRadius<33, 'all white tips remain in the Android safe circle');
-  assert.ok(xml.includes('@mipmap/ic_launcher_foreground'));
-  assert.ok(xml.includes('@color/iconBackground'));
-  assert.ok(!xml.includes('ic_launcher_monochrome'));
+  assert.deepEqual(result.manifest.application[0].$, {
+    ...attributes,
+    'android:icon': '@mipmap/ic_launcher',
+    'android:roundIcon': '@mipmap/ic_launcher_round',
+  });
 });
