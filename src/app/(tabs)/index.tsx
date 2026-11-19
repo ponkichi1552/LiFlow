@@ -2,7 +2,7 @@ import { Tabs, router } from 'expo-router';
 import { WorkspaceTab } from '@/components/workspace-tab';
 import { useCallback, useContext, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
-import Animated, { LinearTransition } from 'react-native-reanimated';
+import { HomeMotionRow, HomeRowMotionScope } from '@/components/home-row-motion';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ActionLabel, AppButton, Card, Page, SectionHeading, palette, typography } from '@/components/planner-ui';
@@ -109,10 +109,10 @@ function PersonalHomeScreen() {
   const todayWaste = sources.flatMap(scope => scope.snapshot.upcomingWasteDates.filter(occurrence => occurrence.date === scope.today)
     .map(occurrence => ({ occurrence, source: scope.source, key: `${scope.snapshot.household.id}:${occurrence.scheduleId}:${occurrence.date}` })));
   const groupName = workspace?.active ? workspace.group?.displayName ?? snapshot.household.name : snapshot.household.name;
-  const renderTask = (row: HomeTaskRow, last: boolean) => {
+  const renderTask = (row: HomeTaskRow, index: number, last: boolean) => {
     const { task, chore, source } = row;
     const region = combined && source === 'personal' && personal.snapshot?.timeZone !== snapshot.timeZone ? personal.snapshot?.timeZone : undefined;
-    return <Animated.View key={row.key} layout={LinearTransition.duration(240)}>
+    return <HomeMotionRow key={row.key} index={index}>
       <TaskCheckboxRow chore={chore} home lastInList={last} completed={task.completed} source={source} mixedSources={combined}
         seasonalWork={task.entry?.seasonalWork ?? task.completion?.seasonalWork}
         contextLabel={combined ? source === 'personal' ? '個人' : groupName : undefined} detail={region}
@@ -120,11 +120,11 @@ function PersonalHomeScreen() {
         urgent={isTaskUrgent({ completed: task.completed, load: chore.load, recommendedDate: task.suggestedDate, windowStart: task.entry?.windowStart ?? task.completion?.scheduledWindowStart, windowEnd: task.entry?.windowEnd ?? task.completion?.scheduledWindowEnd }, row.today)}
         onOpen={() => router.navigate({ pathname: '/(tabs)/guide', params: { choreId: chore.id, returnTo: 'home', ...(combined ? { source: source === 'personal' ? 'personal' : undefined } : {}) } })}
         onToggle={completion.canToggle(task) ? () => void completion.toggle(task) : undefined} />
-    </Animated.View>;
+    </HomeMotionRow>;
   };
 
   return (
-    <>
+    <HomeRowMotionScope>
       <Tabs.Screen options={{ tabBarStyle: { ...plannerTabBarLayout(insets.bottom), backgroundColor: palette.surface, borderTopColor: palette.border, borderTopWidth: 1 } }} />
       <Page header={<HomeHeader today={today} workspaceName={snapshot.sharing ? groupName : undefined} />} headerStyle={homeHeaderContainerStyle(snapshot.sharing ? groupName : undefined)} contentStyle={styles.homePage} floatingFooter footerHasTabBar footer={completion.undoAvailable ? <CompletionToast onUndo={() => void completion.undoLast()} /> : undefined}>
         {error || actionError ? <Card><Text style={styles.error}>{actionError ?? error}</Text><AppButton title={completion.recoveryLabel ?? '表示を再読込'} variant="quiet" compact
@@ -155,7 +155,7 @@ function PersonalHomeScreen() {
       ))}
 
       <SectionHeading title="今日の家事" trailing={<LoadSortButton order={display.order} onPress={display.toggle} />} />
-      {todayTotal > 0 ? <View style={taskListStyle}>{orderedDueToday.map((row, index) => renderTask(row, index === orderedDueToday.length - 1))}</View> : null}
+      {todayTotal > 0 ? <View style={taskListStyle}>{orderedDueToday.map((row, index) => renderTask(row, index, index === orderedDueToday.length - 1))}</View> : null}
       {todayTotal === 0 ? (
         <Card style={styles.emptyCard}>
           <Text style={styles.emptyTitle}>今日の予定はありません</Text>
@@ -166,7 +166,7 @@ function PersonalHomeScreen() {
 
       {expiredRows.length ? <View>
         <HomeExpiredHeading count={expiredRows.length} expanded={expiredExpanded} onToggle={() => setExpiredExpanded(value => !value)} />
-        {expiredExpanded ? <View style={taskListStyle}>{expiredRows.map((row, index) => renderTask(row, index === expiredRows.length - 1))}</View> : null}
+        {expiredExpanded ? <View style={taskListStyle}>{expiredRows.map((row, index) => renderTask(row, index, index === expiredRows.length - 1))}</View> : null}
       </View> : null}
 
       <HomeWeekSwitcher scope={weekScope} onChange={setWeekScope} />
@@ -174,7 +174,7 @@ function PersonalHomeScreen() {
       {upcomingByDate.length ? upcomingByDate.map(([date, entries]) => (
         <View key={date} style={styles.dayGroup}>
           <HomeUpcomingDate date={date} />
-          <View style={taskListStyle}>{entries.map((row, index) => renderTask(row, index === entries.length - 1))}</View>
+          <View style={taskListStyle}>{entries.map((row, index) => renderTask(row, index, index === entries.length - 1))}</View>
         </View>
       )) : (
         <Text style={[styles.emptyBody, styles.emptyWeek]}>{weekScope === 'current' ? '今週の残りの家事はありません。' : '来週の家事はありません。'}</Text>
@@ -182,7 +182,7 @@ function PersonalHomeScreen() {
 
       <HomeLinks onHistory={() => router.push('/history')} onWaste={() => router.push('/waste')} />
       </Page>
-    </>
+    </HomeRowMotionScope>
   );
 }
 

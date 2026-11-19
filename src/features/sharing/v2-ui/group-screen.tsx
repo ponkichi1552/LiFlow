@@ -45,7 +45,7 @@ import { V2ApplianceLibrary } from './appliance-library';
 import { V2ChoreBook, type PersonalGuideSource } from './chore-book';
 import { orderTaskRows } from './task-order';
 import type { CompletionFeedback } from './completion-feedback';
-import Animated, { LinearTransition } from 'react-native-reanimated';
+import { HomeMotionList } from '../../../components/home-row-motion';
 import { HomeHeader, homeHeaderContainerStyle, HomeLinks, HomeProgress, HomeWeekSwitcher, HomeUpcomingDate, HomeExpiredHeading, LoadSortButton, CompletionToast } from '../../../components/home-ui';
 import { finishStartupDisplay } from '../../../platform/diagnostics/startup-splash';
 import { useHomeDisplay } from '../../../hooks/use-home-display';
@@ -129,8 +129,8 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   const homeProjection = useMemo(() => view === 'home' && composition
     ? v2CalendarProjection(composition.model, composition.personal, completionValues, false, {
       from: composition.model.plan.range.asOfDate,
-      through: homeUpcomingRange(composition.model.plan.range.asOfDate, 'next').through,
-    }) : null, [view, composition, completionValues]);
+      through: homeUpcomingRange(composition.model.plan.range.asOfDate, weekScope).through,
+    }) : null, [view, composition, completionValues, weekScope]);
   const feedbackEpoch = useRef(0);
   const display = useHomeDisplay();
   const insets = useSafeAreaInsets();
@@ -435,7 +435,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   const summary = homeSummary(total, done);
   return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
     <View style={homeHeaderContainerStyle(groupName)}><HomeHeader today={model.plan.range.asOfDate} birthdayDate={privateOverlay?.status === 'ready' ? privateOverlay.today : personalGuide?.snapshot.today} workspaceName={groupName} onGroup={onManage ?? onBack} /></View>
-    <Animated.FlatList data={listRows} itemLayoutAnimation={LinearTransition.duration(240)} keyExtractor={(entry) => entry.key} contentContainerStyle={[styles.page, styles.homeContent]} initialNumToRender={8}
+    <HomeMotionList data={listRows} keyExtractor={(entry) => entry.key} contentContainerStyle={[styles.page, styles.homeContent]} initialNumToRender={8}
       ListHeaderComponent={<>
         <HomeProgress summary={summary} total={total} done={done} />
         {workspaceError || actionError || display.error ? <Text accessibilityRole="alert" style={styles.error}>{actionError ?? workspaceError ?? display.error}</Text> : null}
