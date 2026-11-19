@@ -90,7 +90,10 @@ test('month all-day moves retain civil dates span and occurrence scope without i
   assert.equal(moved.value.timeZone, 'America/New_York'); assert.equal(moved.scope, 'one'); assert.equal(moved.anchorDate, day);
 });
 
-for (const platform of ['ios', 'android']) {
+for (const [platform, timedDragTest] of [
+  ['ios', 'ios timed dragging tracks the original touch through capture and release'],
+  ['android', 'android timed dragging tracks the original touch through capture and release'],
+]) {
   const make = (local, options = {}) => screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, layoutEffect: effect => effect(), effect: effect => effect(), ...options, props: {
     today: day, selectedDate: day, timeZone: 'Asia/Tokyo', local, dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
   } });
@@ -125,6 +128,36 @@ for (const platform of ['ios', 'android']) {
       button.props.onAccessibilityAction({ nativeEvent: { actionName: 'moveLater' } }); await screen.flush();
       assert.equal(writes.length, 1); assert.equal(writes[0].value.startMinute, 547); assert.equal(writes[0].value.endMinute, 607);
     } finally { screen.unmount(); }
+  });
+  test(timedDragTest, async t => {
+    const writes = [];
+    const screen = make(binding({ saveEvent: async draft => { writes.push(draft); } }));
+    t.after(() => screen.unmount());
+    await selectCalendarView(screen, '1日表示');
+    const touch = pageY => ({ nativeEvent: { pageX: 125, pageY } });
+    const hold = () => {
+      screen.button('会議を編集').props.onLongPress(touch(120));
+      const card = screen.nodes().find(node => node.props.testID?.startsWith('calendar-movable-'));
+      card.props.onPanResponderGrant(touch(150), { dx: 0, dy: 0 });
+      return card.props;
+    };
+    let drag = hold();
+    drag.onPanResponderMove(touch(197), { dx: 0, dy: 47, numberActiveTouches: 1 });
+    await screen.flush();
+    assert.match(screen.text(), /11\/14 10:45/u);
+    assert.deepEqual(writes, []);
+    drag.onPanResponderTerminate();
+    drag.onPanResponderRelease(touch(208), { dx: 0, dy: 47 });
+    await screen.flush();
+    assert.deepEqual(writes, []);
+
+    drag = hold();
+    drag.onPanResponderMove(touch(197), { dx: 0, dy: 47, numberActiveTouches: 1 });
+    drag.onPanResponderRelease(touch(208), { dx: 0, dy: 47 });
+    await screen.flush();
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].value.startMinute, 660);
+    assert.equal(writes[0].value.endMinute, 720);
   });
   if (platform === 'android') test('Android month scrolling wins over small movement before the event hold timer', () => {
     const screen = make(binding());

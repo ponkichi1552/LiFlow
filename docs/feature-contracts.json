@@ -1197,6 +1197,14 @@
       },
       {
         "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "ios timed dragging tracks the original touch through capture and release"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
+        "name": "android timed dragging tracks the original touch through capture and release"
+      },
+      {
+        "file": "tests/calendar-direct-actions.test.mjs",
         "name": "calendar moves retain occurrence revisions and real duration while translating display time zones and rejecting DST ambiguity"
       },
       {

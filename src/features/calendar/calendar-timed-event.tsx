@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type ComponentRef } from 'react';
-import { Animated, PanResponder, Pressable, StyleSheet, Text, View, type PanResponderGestureState, type StyleProp, type ViewStyle } from 'react-native';
+import { Animated, PanResponder, Pressable, StyleSheet, Text, View, type GestureResponderEvent, type PanResponderGestureState, type StyleProp, type ViewStyle } from 'react-native';
 import type { LocalDate } from '../../domain/shared/types';
 import { palette, typography } from '../../components/planner-ui';
 import type { CalendarOccurrence } from './events';
@@ -10,13 +10,15 @@ import { addDays } from '../../domain/scheduling/local-date';
 import { calendarDisplayedTitle } from './title-display';
 
 type Target = { day: LocalDate; minute: number };
+type PagePoint = Pick<GestureResponderEvent['nativeEvent'], 'pageX' | 'pageY'>;
 function createTimedDragControl() {
-  let actions = { active: () => false, grant: () => {}, move: (_gesture: PanResponderGestureState) => {}, finish: (_gesture: PanResponderGestureState) => {}, cancel: () => {} };
+  let actions = { active: () => false, grant: () => {}, cancel: () => {},
+    move: (_gesture: PanResponderGestureState, _point?: PagePoint) => {}, finish: (_gesture: PanResponderGestureState, _point?: PagePoint) => {} };
   const control = PanResponder.create({
     onMoveShouldSetPanResponderCapture: (_event, gesture) => actions.active() && gesture.numberActiveTouches === 1,
     onMoveShouldSetPanResponder: (_event, gesture) => actions.active() && gesture.numberActiveTouches === 1,
-    onPanResponderGrant: () => actions.grant(), onPanResponderMove: (_event, gesture) => actions.move(gesture),
-    onPanResponderRelease: (_event, gesture) => actions.finish(gesture), onPanResponderTerminate: () => actions.cancel(),
+    onPanResponderGrant: () => actions.grant(), onPanResponderMove: (event, gesture) => actions.move(gesture, event?.nativeEvent),
+    onPanResponderRelease: (event, gesture) => actions.finish(gesture, event?.nativeEvent), onPanResponderTerminate: () => actions.cancel(),
     onPanResponderTerminationRequest: () => !actions.active(), onShouldBlockNativeResponder: () => actions.active(),
   });
   return { panHandlers: control.panHandlers, update: (next: typeof actions) => { actions = next; } };
@@ -33,27 +35,35 @@ export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hou
   const pan = animation.pan;
   const control = useMemo(() => createTimedDragControl(), []);
   const [target, setTarget] = useState<Target | null>(null);
-  const session = useRef<{ capture: Capture; origin: Target; days: readonly LocalDate[]; columnWidth: number; hourHeight: number;
+  const session = useRef<{ capture: Capture; origin: Target; touch?: PagePoint; days: readonly LocalDate[]; columnWidth: number; hourHeight: number;
     resolve?: (gesture: PanResponderGestureState) => Target | null } | null>(null);
   const claimed = useRef(false); const held = useRef(false); const saving = useRef(false); const alive = useRef(true);
   const reset = () => {
     session.current = null; claimed.current = false; pan.setValue({ x: 0, y: 0 });
     onActive(null); if (alive.current) setTarget(null);
   };
-  const destination = (gesture: PanResponderGestureState) => {
+  const destination = (gesture: PanResponderGestureState, pointer?: PagePoint) => {
     const value = session.current;
-    return value && (value.resolve ? value.resolve(gesture) : calendarDragTarget(value.origin, value.days, value.columnWidth, value.hourHeight, gesture.dx, gesture.dy));
+    if (!value) return null;
+    // PanResponder resets dx/dy when it takes over from the long-press button.
+    const translation = value.touch && pointer
+      ? { x: pointer.pageX - value.touch.pageX, y: pointer.pageY - value.touch.pageY }
+      : { x: gesture.dx, y: gesture.dy };
+    const next = value.resolve ? value.resolve(gesture)
+      : calendarDragTarget(value.origin, value.days, value.columnWidth, value.hourHeight, translation.x, translation.y);
+    return next && { next, translation };
   };
   useLayoutEffect(() => {
     control.update({ active: () => Boolean(session.current), grant: () => { claimed.current = true; }, cancel: reset,
-      move: gesture => {
+      move: (gesture, pointer) => {
         if (!session.current) return;
         if (gesture.numberActiveTouches !== 1) { reset(); return; }
-        const next = destination(gesture); if (!next) return;
-        pan.setValue({ x: gesture.dx, y: gesture.dy });
+        const drop = destination(gesture, pointer); if (!drop) return;
+        const { next, translation } = drop;
+        pan.setValue(translation);
         setTarget(previous => previous?.day === next.day && previous.minute === next.minute ? previous : next);
-      }, finish: gesture => {
-      const value = session.current; const next = destination(gesture);
+      }, finish: (gesture, pointer) => {
+      const value = session.current; const next = destination(gesture, pointer)?.next;
       if (!value || !next || saving.current || next.day === value.origin.day && next.minute === value.origin.minute) { reset(); return; }
       session.current = null; saving.current = true;
       // The parent installs its pending position synchronously before the save awaits storage.
@@ -78,12 +88,14 @@ export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hou
         void onCommit(capture, next).catch(() => { /* The calendar owns save-error feedback. */ }).finally(() => { saving.current = false; });
       }}
       accessibilityState={{ selected }} style={dateOnly ? undefined : styles.hit} onPressIn={() => { if (!saving.current) held.current = false; }}
-      onPress={() => { if (!held.current && !saving.current) onOpen(); }} delayLongPress={CALENDAR_DRAG_HOLD_MS} onLongPress={draggable ? () => {
+      onPress={() => { if (!held.current && !saving.current) onOpen(); }} delayLongPress={CALENDAR_DRAG_HOLD_MS} onLongPress={draggable ? touchEvent => {
         if (saving.current || session.current) return;
         const capture = onBegin(); if (!capture) return;
         held.current = true; claimed.current = false;
         const origin = { day: event.startDate, minute: event.startMinute };
-        session.current = { capture, origin, days: [...days], columnWidth, hourHeight, resolve: onResolveTarget }; setTarget(origin); onActive(day);
+        const native = touchEvent?.nativeEvent;
+        const touch = native && { pageX: native.pageX, pageY: native.pageY };
+        session.current = { capture, origin, touch, days: [...days], columnWidth, hourHeight, resolve: onResolveTarget }; setTarget(origin); onActive(day);
       } : undefined}>{children}</Pressable>
     {target ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.outline]} /> : null}
   </Animated.View>;
