@@ -19,6 +19,15 @@ import { calendarTitleDisplay } from './title-display';
 import { searchTerms } from '../../domain/search/normalized-search';
 
 type HistorySearchState = { events: CalendarEvent[]; exceptions: CalendarException[]; loading: boolean; error?: boolean };
+const EMPTY_HISTORY: Pick<HistorySearchState, 'events' | 'exceptions'> = { events: [], exceptions: [] };
+
+function indexSearchData(input: { historyEvents: CalendarEvent[]; historyExceptions: CalendarException[];
+  localEvents: readonly CalendarEvent[]; localExceptions: readonly CalendarException[]; focusDate: LocalDate }) {
+  const events = [...new Map([...input.historyEvents, ...input.localEvents].map(event => [event.id, event])).values()];
+  const exceptions = [...new Map([...input.historyExceptions, ...input.localExceptions]
+    .map(exception => [`${exception.eventId}:${exception.anchorDate}`, exception])).values()];
+  return { input, events, exceptions, index: calendarSearchIndex(events, exceptions, input.focusDate) };
+}
 
 export function CalendarSearch({ local, chores = [], choresIncomplete, focusDate = localDateFromDate(new Date()), onClose, onSelect, resolveSelection }: { local: LocalCalendarBinding; chores?: readonly CalendarSearchChore[]; choresIncomplete?: boolean; focusDate?: LocalDate; onClose(): void; onSelect(destination: CalendarSearchDestination): void; resolveSelection(draft: CalendarEditorDraft, events: readonly CalendarEvent[], exceptions: readonly CalendarException[]): CalendarSearchDestination }) {
   const scheme = useColorScheme(); const colors = plannerColorsForScheme(scheme); const [query, setQuery] = useState(''); const [selectionError, setSelectionError] = useState<string | null>(null);
@@ -28,13 +37,13 @@ export function CalendarSearch({ local, chores = [], choresIncomplete, focusDate
   const [visible, setVisible] = useState(true); const closing = useRef(false); const finished = useRef(false); const pending = useRef<CalendarSearchDestination | null>(null);
   const finish = () => { if (finished.current) return; finished.current = true; if (pending.current) onSelect(pending.current); else onClose(); };
   const close = () => { if (closing.current) return; closing.current = true; setVisible(false); if (Platform.OS !== 'ios') finish(); };
-  const terms = searchTerms(query);
+  const hasSearchTerms = searchTerms(query).length > 0;
   const readHistoryPage = local.readHistoryPage;
   const historyGeneration = local.historyGeneration ?? 0;
   const historyKey = JSON.stringify([historyGeneration, focusDate, query]);
-  const searchHistory = local.historyLimited === true && terms.length > 0 && Boolean(readHistoryPage);
+  const searchHistory = local.historyLimited === true && hasSearchTerms && Boolean(readHistoryPage);
   const history: HistorySearchState = searchHistory && historyState.key === historyKey ? historyState
-    : { events: [], exceptions: [], loading: searchHistory };
+    : { ...EMPTY_HISTORY, loading: searchHistory };
   useEffect(() => {
     if (!searchHistory || !readHistoryPage) return;
     let live = true; let afterId: string | undefined;
@@ -63,10 +72,15 @@ export function CalendarSearch({ local, chores = [], choresIncomplete, focusDate
     const timer = setTimeout(() => { void run(); }, 160);
     return () => { live = false; clearTimeout(timer); };
   }, [searchHistory, readHistoryPage, historyGeneration, historyKey, focusDate, query]);
-  const searchEvents = useMemo(() => [...new Map([...history.events, ...local.snapshot.events].map(event => [event.id, event])).values()], [history.events, local.snapshot.events]);
-  const searchExceptions = useMemo(() => [...new Map([...history.exceptions, ...local.snapshot.exceptions].map(exception => [`${exception.eventId}:${exception.anchorDate}`, exception])).values()], [history.exceptions, local.snapshot.exceptions]);
-  const index = useMemo(() => calendarSearchIndex(searchEvents, searchExceptions, focusDate), [searchEvents, searchExceptions, focusDate]);
-  const result = useMemo(() => searchCalendarWithChores(index, chores, query, Infinity, focusDate), [index, chores, query, focusDate]);
+  const input = useMemo(() => ({ historyEvents: history.events, historyExceptions: history.exceptions,
+    localEvents: local.snapshot.events, localExceptions: local.snapshot.exceptions, focusDate }),
+  [history.events, history.exceptions, local.snapshot.events, local.snapshot.exceptions, focusDate]);
+  const [indexed, setIndexed] = useState<ReturnType<typeof indexSearchData> | null>(null);
+  // An empty search never builds an index. Keep the last index only while its input stays current.
+  const searchData = indexed?.input === input ? indexed : hasSearchTerms ? indexSearchData(input) : null;
+  if (indexed !== searchData) setIndexed(searchData);
+  const result = useMemo(() => searchCalendarWithChores(searchData?.index ?? [], chores, query, Infinity, focusDate),
+    [searchData, chores, query, focusDate]);
   const rows = useMemo(() => result.matches.slice(0, visibleCount), [result, visibleCount]);
   const more = rows.length < result.matches.length;
   const showMore = () => setVisibleCount(count => Math.min(count + 60, result.matches.length));
@@ -98,7 +112,13 @@ export function CalendarSearch({ local, chores = [], choresIncomplete, focusDate
           </View><Chevron color={colors.accent} /></Pressable>;
         const value = item.draft.value; const appearance = calendarEventAppearance(categories.get(value.categoryId) ?? colors.muted, scheme === 'dark');
         const title = calendarTitleDisplay.label(value.title, focusDate, titleDisplay.value);
-        return <Pressable accessibilityRole="button" accessibilityLabel={`${title}の検索結果を開く`} onPress={() => { if (closing.current) return; try { pending.current = resolveSelection(item.draft, searchEvents, searchExceptions); close(); } catch (cause) { setSelectionError(cause instanceof Error ? cause.message : '予定を表示できませんでした。'); } }}
+        return <Pressable accessibilityRole="button" accessibilityLabel={`${title}の検索結果を開く`} onPress={() => {
+          if (closing.current || !searchData) return;
+          try {
+            pending.current = resolveSelection(item.draft, searchData.events, searchData.exceptions);
+            close();
+          } catch (cause) { setSelectionError(cause instanceof Error ? cause.message : '予定を表示できませんでした。'); }
+        }}
           style={{ padding: 14, minHeight: 64, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <View style={{ flex: 1, gap: 4 }}><Text style={{ ...typography.body, color: appearance.foregroundColor }} numberOfLines={2}>{title}</Text>
             <Text style={{ ...typography.caption, color: colors.muted }} numberOfLines={1}>{value.recurrence !== 'none' && item.draft.scope === 'series' ? recurrenceLabel(value) : formatJapaneseDate(value.startDate, { year: true, weekday: false })}{value.allDay ? ' · 終日' : ` ${minuteLabel(value.startMinute)}`}</Text>

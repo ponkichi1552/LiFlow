@@ -7,6 +7,7 @@ import { calendarMonthContentHeight, calendarMonthEventSlots, calendarMonthUsedH
 import { calendarMonthRows, MONTH_HEADING_HEIGHT } from '../src/features/calendar/month-rows.ts';
 import { selectCalendarView } from './helpers/calendar-ui.mjs';
 import { calendarSearchDestination, calendarSearchIndex, calendarSearchSelection, searchCalendarIndex } from '../src/features/calendar/search.ts';
+import * as calendarSearch from '../src/features/calendar/search.ts';
 import { newEventDraft } from '../src/features/calendar/events.ts';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { CALENDAR_HELP_SEEN_KEY } from '../src/features/calendar/help-store.ts';
@@ -88,6 +89,32 @@ test('search destinations follow the displayed time zone and actual recurring ex
     { eventId: weekly.id, anchorDate: '2026-11-19', revision: 2, override: { ...newEventDraft('2026-11-20', 'Asia/Tokyo'), title: '変更後の面談' } }];
   const rows = calendarSearchIndex([weekly], exceptions);
   for (const row of rows) assert.deepEqual(calendarSearchDestination(row.draft, [weekly], exceptions, date, 'Asia/Tokyo'), { date: '2026-11-20', minute: 9 * 60, anchorDate: '2026-11-19' });
+});
+test('calendar search builds its index only when a query needs changed event data', async t => {
+  const first = event('meeting', { title: '家族との面談' });
+  const local = { snapshot: { events: [first], exceptions: [], categories: [] }, loading: false, error: null };
+  let builds = 0;
+  const ui = screenHarness('src/features/calendar/calendar-search.tsx', { exportName: 'CalendarSearch', platform: 'ios',
+    mocks: { './search': { ...calendarSearch, calendarSearchIndex: (...args) => { builds++; return calendarSearchIndex(...args); } } },
+    props: { focusDate: date, local, onClose() {}, onSelect() {}, resolveSelection() {} } });
+  t.after(() => ui.unmount());
+  assert.equal(builds, 0, 'opening an empty search must not index calendar notes and titles');
+  await ui.change('予定を検索', '　');
+  assert.equal(builds, 0, 'whitespace does not have search terms');
+  await ui.change('予定を検索', '家');
+  ui.button('家族との面談の検索結果を開く');
+  for (const query of ['家族', '面談', '', '面談']) await ui.change('予定を検索', query);
+  ui.button('家族との面談の検索結果を開く');
+  assert.equal(builds, 1, 'typing, clearing, and searching again reuse the same data');
+
+  await ui.change('予定を検索', '');
+  local.snapshot = { ...local.snapshot, events: [{ ...first, title: '友人との面談', revision: 2 }] };
+  ui.render();
+  assert.equal(builds, 1, 'a change with no query defers rebuilding until it is needed');
+  await ui.change('予定を検索', '面談');
+  ui.button('友人との面談の検索結果を開く');
+  assert.ok(!ui.text().includes('家族との面談'));
+  assert.equal(builds, 2);
 });
 for (const platform of ['ios', 'android']) test(`${platform} bounded-history search pages older appointments and resolves their retained moved override`, async t => {
   const series = event('historic-series', { title: '過去の定例会議', recurrence: 'weekly', startDate: '2010-11-11', endDate: '2010-11-11' });

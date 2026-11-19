@@ -32,8 +32,12 @@ export function V2ChoreBook({ model, personal, selectedId, source = 'shared', on
   onConfiguration: (choreId: string) => void; groupName: string; hasTabBar?: boolean;
 }) {
   const [selection, setSelection] = useState({ source, id: selectedId });
-  const shared = useMemo(() => model.plan.chores.filter(chore => !chore.archived && hasChoreGuide(chore)).map(chore => ({ ...chore, householdId: model.plan.groupId })), [model.plan.chores, model.plan.groupId]);
-  const individuals = (personal?.snapshot.chores ?? []).filter(chore => !chore.archived && hasChoreGuide(chore));
+  // A scheduled chore can be opened directly from Home even before procedures have been added.
+  const shared = useMemo(() => model.plan.chores.filter(chore => !chore.archived
+    && (hasChoreGuide(chore) || source === 'shared' && chore.id === selectedId))
+    .map(chore => ({ ...chore, householdId: model.plan.groupId })), [model.plan.chores, model.plan.groupId, source, selectedId]);
+  const individuals = (personal?.snapshot.chores ?? []).filter(chore => !chore.archived
+    && (hasChoreGuide(chore) || source === 'personal' && chore.id === selectedId));
   const isPersonal = selection.source === 'personal'; const chores = isPersonal ? individuals : shared;
   const picker = (visible?: ChoreDefinition) => {
     const destination = selection.source === 'personal' ? 'shared' : 'personal';

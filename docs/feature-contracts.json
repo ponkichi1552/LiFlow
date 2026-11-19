@@ -1465,6 +1465,10 @@
       },
       {
         "file": "tests/chore-library-navigation.test.mjs",
+        "name": "${platform} the chore catalog restores its scrolled position after returning from a guide"
+      },
+      {
+        "file": "tests/chore-library-navigation.test.mjs",
         "name": "${platform} chore book continues a backward gesture after restoring each preceding range and deduplicates boundary callbacks"
       },
       {
@@ -9637,6 +9641,10 @@
       {
         "file": "tests/guide-audience.test.mjs",
         "name": "${platform} guide audience is explicit and scrolling cannot change the source of a planned chore"
+      },
+      {
+        "file": "tests/guide-audience.test.mjs",
+        "name": "${platform} a scheduled custom chore without procedures opens its own details from a direct guide link"
       }
     ]
   },
@@ -16173,6 +16181,10 @@
       {
         "file": "tests/calendar-ux-search-drafts.test.mjs",
         "name": "${platform} bounded-history search pages older appointments and resolves their retained moved override"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "calendar search builds its index only when a query needs changed event data"
       },
       {
         "file": "tests/calendar-observer-recovery.test.mjs",

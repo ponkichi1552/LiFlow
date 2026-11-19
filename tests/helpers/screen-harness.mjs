@@ -60,6 +60,7 @@ export function screenHarness(filename, options = {}) {
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' },
     'react-native': {
       ...Object.fromEntries(['Text', 'View', 'Pressable', 'TextInput', 'Switch', 'ScrollView', 'KeyboardAvoidingView', 'ActivityIndicator', 'Modal'].map((name) => [name, name])),
+      Keyboard: { dismiss() {} },
       FlatList: (props) => {
         const [position, setPosition] = hook(null); const first = position ?? props.initialScrollIndex ?? 0;
         return jsx('FlatList', { ...props, onScroll: event => {

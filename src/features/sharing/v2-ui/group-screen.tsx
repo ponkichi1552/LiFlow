@@ -1,5 +1,5 @@
 import { V2ChoreSettingsBook } from './chore-settings-book';
-import { useChoreLibraryState } from '../../chores/chore-library';
+import { ChoreLibraryPane, useChoreLibraryState } from '../../chores/chore-library';
 import { v2HomeUpcomingRows, type V2HomeUpcomingRow } from './home-upcoming';
 import { homeUpcomingRange, isHomeTaskExpired, type HomeWeekScope } from '../../planner/home-presentation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -293,11 +293,12 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     <V2GroupPolicyEditor model={model} controller={controller} onBack={onBack} header={notice}
       onSaved={async () => { if (!await refresh()) throw new Error('保存済みです。表示を更新するため画面を開き直してください。'); }} />
   </V2ScreenFrame>;
-  if (view === 'guide') return <V2ChoreBook key={`${guideSource}:${choreId}`} model={model} personal={personalGuide} selectedId={choreId} source={guideSource} onBack={onBack} onConfiguration={onConfiguration} groupName={groupName} actions={controller.actions} perform={perform} hasTabBar />;
-  if (view === 'chores') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
-    <V2ChoreList model={model} busy={busy} onDetails={onDetails ?? onConfiguration} onConfiguration={onConfiguration} onAdd={onAddChore} personal={personalGuide} onOpen={onGuide} libraryState={libraryState}
-      header={<View style={{ gap: 14 }}><ScreenHeading title="家事一覧" />{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}</View>} />
-  </V2ScreenFrame>;
+  if (view === 'chores' || view === 'guide') return <ChoreLibraryPane
+    library={<V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
+      <V2ChoreList model={model} busy={busy} onDetails={onDetails ?? onConfiguration} onConfiguration={onConfiguration} onAdd={onAddChore} personal={personalGuide} onOpen={onGuide} libraryState={libraryState}
+        header={<View style={{ gap: 14 }}><ScreenHeading title="家事一覧" />{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}</View>} />
+    </V2ScreenFrame>}
+    detail={view === 'guide' ? <V2ChoreBook key={`${guideSource}:${choreId}`} model={model} personal={personalGuide} selectedId={choreId} source={guideSource} onBack={onBack} onConfiguration={onConfiguration} groupName={groupName} actions={controller.actions} perform={perform} hasTabBar /> : null} />;
   if (view === 'addChore') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
     {calendarAdd && !calendarRegistrationDate(anchorDate) ? <><BackButton onPress={onBack} /><Text accessibilityRole="alert" style={styles.error}>家事を登録する日付を選び直してください。</Text></> : <V2AddChore model={model} actions={controller.actions} busy={busy} run={run} header={notice} onBack={onBack} onCreated={onChoreCreated ?? onDetails ?? onConfiguration}
       calendarDate={calendarAdd ? calendarRegistrationDate(anchorDate) : undefined}

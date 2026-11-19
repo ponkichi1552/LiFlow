@@ -31,6 +31,45 @@ for (const platform of ['ios', 'android']) {
     screen.button('浴室の清掃の説明を開く');
     assert.deepEqual(rows, before);
   });
+  test(`${platform} the chore catalog restores its scrolled position after returning from a guide`, async t => {
+    const chores = Array.from({ length: 40 }, (_, index) => ({ ...chore(`item-${index}`, `家事 ${index}`), recommendedCycleDays: 7 }));
+    const options = { platform, flatListItemHeight: 50,
+      snapshot: () => ({ household: { id: 'local-household' }, chores, settings: { frequencyMode: 'balanced' } }),
+      mocks: { '@/components/workspace-tab': { WorkspaceTab: ({ children }) => children } } };
+    const ui = screenHarness('src/app/(tabs)/guide.tsx', options);
+    t.after(() => ui.unmount());
+    await ui.press('追加した家事、40件');
+    const list = () => ui.nodes().find(row => row.type === 'FlatList');
+    const index = 20, offset = index * 50;
+    const target = list().props.data[index];
+    const label = `${target.chore.name}の説明を開く`;
+    list().props.onScroll({ nativeEvent: { contentOffset: { y: offset }, contentSize: { height: 2050 }, layoutMeasurement: { height: 350 } } });
+    ui.render();
+    const visibleRows = () => ui.nodes().filter(row => row.props.accessibilityLabel?.endsWith('の説明を開く')).map(row => row.props.accessibilityLabel);
+    const before = visibleRows();
+    await ui.press(label);
+    assert.match(ui.text(), /布で拭く/u);
+    assert.equal(list(), undefined);
+    assert.deepEqual(visibleRows(), [], 'background catalog rows are hidden from accessibility while reading');
+    await ui.press('戻る');
+    assert.deepEqual(visibleRows(), before);
+    const lastOffset = 1700;
+    const lastIndex = lastOffset / 50;
+    const bottom = list().props.data[lastIndex];
+    list().props.onScroll({ nativeEvent: { contentOffset: { y: lastOffset }, contentSize: { height: 2050 }, layoutMeasurement: { height: 350 } } });
+    ui.render();
+    const end = visibleRows();
+    await ui.press(`${bottom.chore.name}の説明を開く`);
+    await ui.press('戻る');
+    assert.deepEqual(visibleRows(), end);
+    await ui.change('家事名を検索', '家事 3');
+    assert.equal(visibleRows()[0], `${list().props.data[0].chore.name}の説明を開く`);
+
+    const fresh = screenHarness('src/app/(tabs)/guide.tsx', { ...options, params: {} });
+    t.after(() => fresh.unmount());
+    assert.equal(fresh.button('追加した家事、40件').props.accessibilityState.expanded, false);
+    assert.ok(!fresh.nodes().some(node => node.props.accessibilityLabel === label));
+  });
   test(`${platform} chore book continues a backward gesture after restoring each preceding range and deduplicates boundary callbacks`, async t => {
     const frames = controlledFrames();
     const chores = Array.from({ length: 20 }, (_, index) => chore(`item-${index}`));

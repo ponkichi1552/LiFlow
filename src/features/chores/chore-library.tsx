@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { FlatList, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Keyboard, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { FormTextInput } from '../../components/form-text-input';
 import { Card, SectionHeading, palette, typography } from '../../components/planner-ui';
 import { Chevron } from '../../components/chevron';
@@ -14,10 +14,21 @@ import { normalizeSearchText, searchTerms } from '../../domain/search/normalized
 export const normalizeChoreName = normalizeSearchText;
 type Row = { kind: 'category'; id: string; name: string; count: number; expanded: boolean } | { kind: 'chore'; id: string; chore: ChoreDefinition }
   | { kind: 'trivia'; id: string; count: number };
-
 export function useChoreLibraryState() {
   const [query, setQuery] = useState(''); const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   return { query, setQuery, expanded, setExpanded };
+}
+
+/** Retain the native list after it has been opened. Deep links to a guide can skip mounting it. */
+export function ChoreLibraryPane({ library, detail }: { library: ReactNode; detail: ReactNode }) {
+  const covered = detail != null;
+  const [hasVisited, setHasVisited] = useState(!covered);
+  if (!covered && !hasVisited) setHasVisited(true);
+  return <View style={baseStyles.pane}>
+    {hasVisited || !covered ? <View style={[baseStyles.pane, covered && baseStyles.covered]} pointerEvents={covered ? 'none' : 'auto'}
+      accessibilityElementsHidden={covered} importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}>{library}</View> : null}
+    {covered ? <View style={StyleSheet.absoluteFill}>{detail}</View> : null}
+  </View>;
 }
 /** Categories expand in place; the parent can retain search and expansion while reading a guide. */
 export function ChoreLibrary({ chores, onOpen, header, footer, onTrivia, triviaCount = 0, disabled = false, state }: {
@@ -29,6 +40,10 @@ export function ChoreLibrary({ chores, onOpen, header, footer, onTrivia, triviaC
   const groups = useMemo(() => groupChores(chores.filter(chore => !chore.archived && hasChoreGuide(chore))), [chores]);
   const index = useMemo(() => groups.flatMap(([, values]) => values).map((chore, index) => ({ chore, index, text: normalizeChoreName(chore.name) })), [groups]);
   const search = normalizeChoreName(query.trim());
+  const openFromList = (open: () => void) => {
+    Keyboard.dismiss();
+    open();
+  };
   const rows = useMemo<Row[]>(() => {
     if (!search) return [...groups.flatMap(([name, chores]): Row[] => [{ kind: 'category', id: name, name, count: chores.length, expanded: expanded.has(name) },
       ...(expanded.has(name) ? chores.map(chore => ({ kind: 'chore' as const, id: chore.id, chore })) : [])]),
@@ -47,15 +62,16 @@ export function ChoreLibrary({ chores, onOpen, header, footer, onTrivia, triviaC
     keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
     contentContainerStyle={styles.content} ListEmptyComponent={search ? <Text style={styles.empty}>一致する家事はありません。</Text> : <Card><Text style={typography.body}>家事がまだ登録されていません。</Text></Card>}
     renderItem={({ item }) => item.kind === 'chore'
-      ? <Pressable accessibilityRole="button" accessibilityLabel={`${item.chore.name}の説明を開く`} accessibilityState={{ disabled }} disabled={disabled} onPress={() => onOpen(item.id)} style={({ pressed }) => [styles.row, !search && styles.choreRow, disabled && styles.disabled, pressed && styles.pressed]}>
+      ? <Pressable accessibilityRole="button" accessibilityLabel={`${item.chore.name}の説明を開く`} accessibilityState={{ disabled }} disabled={disabled} onPress={() => openFromList(() => onOpen(item.id))} style={({ pressed }) => [styles.row, !search && styles.choreRow, disabled && styles.disabled, pressed && styles.pressed]}>
         <Text style={[styles.name, styles.choreName]}>{item.chore.name}</Text><Chevron />
       </Pressable> : <Pressable accessibilityRole="button" accessibilityLabel={item.kind === 'trivia' ? `豆知識、${item.count}件の豆知識` : `${item.name}、${item.count}件`}
         accessibilityState={item.kind === 'category' ? { expanded: item.expanded } : undefined}
-        onPress={() => item.kind === 'trivia' ? onTrivia?.() : setExpanded(before => { const next = new Set(before); if (next.has(item.name)) next.delete(item.name); else next.add(item.name); return next; })} style={({ pressed }) => [styles.row, item.kind === 'category' && item.expanded && styles.openCategory, pressed && styles.pressed]}>
+        onPress={() => item.kind === 'trivia' ? onTrivia && openFromList(onTrivia) : setExpanded(before => { const next = new Set(before); if (next.has(item.name)) next.delete(item.name); else next.add(item.name); return next; })} style={({ pressed }) => [styles.row, item.kind === 'category' && item.expanded && styles.openCategory, pressed && styles.pressed]}>
         <Text style={styles.name}>{item.kind === 'trivia' ? '豆知識' : item.name}</Text><Text style={styles.caption}>{item.count}件</Text><Chevron direction={item.kind === 'category' ? item.expanded ? 'up' : 'down' : 'right'} />
       </Pressable>} />{footer ? <View style={styles.footer}>{footer}</View> : null}</View>;
 }
 const baseStyles = StyleSheet.create({
+  pane: { flex: 1 }, covered: { opacity: 0 },
   safe: { flex: 1, backgroundColor: palette.background }, content: { paddingHorizontal: 18, paddingBottom: 24 }, header: { gap: 12, paddingHorizontal: 18, paddingTop: 18, paddingBottom: 12 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 50, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
   choreRow: { paddingLeft: 16 }, choreName: { fontWeight: '400' }, openCategory: { backgroundColor: palette.elevated }, disabled: { opacity: .45 },

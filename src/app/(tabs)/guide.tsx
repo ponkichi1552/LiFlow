@@ -1,5 +1,5 @@
 import { SafeAreaView } from '@/components/screen-safe-area';
-import { ChoreLibrary, useChoreLibraryState } from '@/features/chores/chore-library';
+import { ChoreLibrary, ChoreLibraryPane, useChoreLibraryState } from '@/features/chores/chore-library';
 import { ChorePlanToggle } from '@/features/chores/chore-plan-toggle';
 import { setChoresEnabled } from '@/platform/storage/repository';
 import { WorkspaceTab } from '@/components/workspace-tab';
@@ -60,25 +60,25 @@ function PersonalChoreGuideScreen() {
     return <PlannerLoadState title="家事の説明" message="家事を読み込んでいます。" error={error} retry={refresh} />;
   }
 
-  if (isTriviaCollectionOpen && !selectedChoreId) return <SafeAreaView style={styles.safeArea} edges={['top']}>
+  const trivia = <SafeAreaView style={styles.safeArea} edges={['top']}>
     <TriviaLibrary items={triviaItems} onOpen={id => router.push({ pathname: '/trivia', params: { id, householdId: snapshot.household.id,
       source: personalSource ? 'personal' : 'current', groupId: snapshot.sharing?.groupId ?? '', userId: snapshot.sharing ? workspace?.userId ?? '' : '' } })} onBack={returnFromTrivia} state={triviaState}
       notice={error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : undefined} />
   </SafeAreaView>;
 
-  if (!selectedChoreId) return <SafeAreaView style={styles.safeArea} edges={['top']}><ChoreLibrary chores={chores} onOpen={selectChoreFromList} state={libraryState}
+  const library = <SafeAreaView style={styles.safeArea} edges={['top']}><ChoreLibrary chores={chores} onOpen={selectChoreFromList} state={libraryState}
     footer={<AppButton title="家事を追加" accessibilityLabel="新しい個人家事を追加" onPress={() => router.push('/settings/add-chore')} />}
     header={<><ScreenHeading title="家事一覧" />{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}</>}
     triviaCount={triviaItems.length} onTrivia={() => { resetTrivia(); setIsTriviaCollectionOpen(true); }} /></SafeAreaView>;
 
-  return <ChoreBook chores={chores} selectedId={selectedChoreId} title="家事の説明" onBack={returnFromDetail} hasTabBar
+  const guide = selectedChoreId ? <ChoreBook chores={chores} selectedId={selectedChoreId} title="家事の説明" onBack={returnFromDetail} hasTabBar
     header={error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : undefined}
     renderChore={chore => <View style={{ gap: 12 }}>
       <ChoreGuide chore={chore} mode={snapshot.settings.frequencyMode} cadenceLabel={snapshot.personalCadences?.[chore.id]?.label} procedureAction={<ChorePlanToggle name={chore.name} enabled={chore.enabled} requiresCycleSelection={chore.requiresCycleSelection}
         onConfigure={() => router.push({ pathname: '/chores/[id]', params: { id: chore.id, source: 'personal' } })}
         retryRead={async () => { await refresh(); return !readError(); }} save={async enabled => { await setChoresEnabled(database, [chore.id], enabled); await refresh(); return { refreshed: !readError() }; }} />} />
-    </View>} />;
-
+    </View>} /> : null;
+  return <ChoreLibraryPane library={library} detail={guide ?? (isTriviaCollectionOpen ? trivia : null)} />;
 }
 
 const styles = StyleSheet.create({

@@ -47,3 +47,17 @@ for (const platform of ['ios', 'android']) test(`${platform} a custom guide with
   await other.props.onPress(); screen.render();
   assert.equal(screen.nodes().find(node => node.type === 'ChoreBook').props.selectedId, original.id);
 });
+
+for (const platform of ['ios', 'android']) test(`${platform} a scheduled custom chore without procedures opens its own details from a direct guide link`, t => {
+  const custom = { id: 'scheduled-chore', name: '花に水をやる', category: '追加した家事', enabled: true, estimatedMinutes: 10,
+    recommendedCycleDays: 7, description: '', instructions: [], procedureSections: [], tools: [], cautions: [] };
+  const unrelated = { ...custom, id: 'other', name: '別の家事', instructions: ['別の手順'] };
+  const model = { plan: { groupId: 'group', chores: [unrelated, custom] }, configurations: [], viewerUserId: 'member', adminUserId: 'owner' };
+  const ui = screenHarness('src/features/sharing/v2-ui/chore-book.tsx', { exportName: 'V2ChoreBook', platform,
+    props: { model, selectedId: custom.id, source: 'shared', onBack() {}, actions: {},
+      perform: () => assert.fail('reading a guide cannot save shared changes') } });
+  t.after(() => ui.unmount());
+  assert.equal(ui.nodes().find(node => node.type === 'FlatList').props.data[0]?.id, custom.id);
+  assert.match(ui.text(), /花に水をやる/u);
+  assert.doesNotMatch(ui.text(), /この家事を表示できません/u);
+});
