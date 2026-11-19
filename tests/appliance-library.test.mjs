@@ -7,10 +7,14 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} appliance kinds are visible alongside retained model identity and open the original saved item`, async () => {
     const item = { id: 'washer', source: 'personal', manufacturer: 'Panasonic', productName: 'NA-TEST', modelNumber: 'QA-1', category: 'washing_machine', displayName: 'Panasonic NA-TEST（QA-1）' };
     const before = structuredClone(item), calls = [];
+    const review = { ...item, id: 'review', source: 'shared', displayName: '二階の洗濯機', needsReview: true };
     const screen = screenHarness('src/features/appliance-care/appliance-library.tsx', { exportName: 'ApplianceLibrary', platform,
-      props: { items: [item], onOpen: (...args) => calls.push(args), onAdd() {} } });
+      props: { items: [item, review], onOpen: (...args) => calls.push(args), onAdd() {} } });
     assert.match(screen.text(), /洗濯機/u); assert.match(screen.text(), /Panasonic NA-TEST（QA-1）/u);
     await screen.press('洗濯機、Panasonic NA-TEST（QA-1）のお手入れを開く（個人）');
+    const status = screen.button('洗濯機、二階の洗濯機のお手入れを開く（グループ）');
+    assert.equal(status.props.accessibilityValue.text, '確認が必要です');
+    assert.match(screen.text(), /確認が必要です二階の洗濯機/u);
     assert.deepEqual(calls, [['personal', 'washer']]); assert.deepEqual(item, before);
   });
   test(`${platform} one appliance library opens personal and group items by scope even when their IDs match`, async () => {

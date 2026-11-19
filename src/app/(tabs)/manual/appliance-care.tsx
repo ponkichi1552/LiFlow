@@ -77,11 +77,12 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
   }, [applianceId, database, targetRetry]);
 
   const verified = result?.status === 'verified' ? result : undefined;
+  const invalidManual = result?.status === 'error' && result.code === 'INVALID_MANUAL';
   const verifiedName = verified ? applianceDisplayName(verified.product) : '';
   const primaryName = verified ? appliancePrimaryName({ ...verified.product, analysis: verified.analysis }, verifiedName) : '';
 
   const analyze = async () => {
-    if (savingRef.current || pickingRef.current || !applianceAvailable) return;
+    if (savingRef.current || pickingRef.current || !applianceAvailable || invalidManual) return;
     if (!canAnalyze) { setMessage('ログインと正規端末の確認が済むまで家電AIは利用できません。'); return; }
     const request = { identifyFromManual: true as const, manual: manualRef.current,
       ...(savedContext ? { manufacturer: savedContext.appliance.manufacturer, productName: savedContext.appliance.productName,
@@ -179,6 +180,7 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
         <AppButton title="家電を再読込" variant="secondary" onPress={() => { setTargetRead(null); setTargetRetry(before => before + 1); }} /></Card> : null}
       {loadingAppliance ? <Text style={styles.note}>家電を読み込んでいます。</Text> : null}
       <ManualAnalysisForm retained={retainedManual} filename={filename} working={working} picking={picking} canAnalyze={canAnalyze} reanalysis={Boolean(savedContext)}
+        invalidManual={invalidManual}
         usage={result?.usage} onReady={setCanAnalyze} onPickingChange={value => {
           if (value && savingRef.current) return false;
           pickingRef.current = value; setPicking(value);

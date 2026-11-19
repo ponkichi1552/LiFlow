@@ -33,6 +33,8 @@ export function buildHomeRows(
     item.row.windowEnd, privateOverlay?.status === 'ready' ? privateOverlay.today : model.plan.range.asOfDate));
   const expiredKeys = new Set(privateExpired.map(item => item.key));
   const homeRows = allHomeRows.filter(item => !expiredKeys.has(item.key));
+  const sharedNames = new Set(homeRows.flatMap(row => row.source === 'shared' ? [choreById.get(row.round.choreId)?.name] : []));
+  const duplicateSourceNames = new Set(homeRows.flatMap(row => row.source === 'personal' && sharedNames.has(row.row.chore.name) ? [row.row.chore.name] : []));
   const upcoming = v2HomeUpcomingRows(model, projection, privateOverlay, range, order, completionValues);
   const expired = [...entries.filter(({ round, subject }) => {
     if (subject.showExpiredOnHome) return true;
@@ -40,10 +42,13 @@ export function buildHomeRows(
     const completion = visibility(round, subject).relatedWork.find(record => record.active && record.outcome === 'completed' && record.acceptance === 'accepted');
     return (completion?.schedule?.windowEnd ?? subject.executionWindowEnd) < model.plan.range.asOfDate;
   }).map(item => ({ ...item, source: 'shared' as const, key: `shared:${item.subject.id}` })), ...privateExpired];
-  type HomeListItem = { kind: 'today' | 'expired'; key: string; item: typeof allHomeRows[number] | typeof expired[number] } | { kind: 'upcoming'; key: string; item: V2HomeUpcomingRow }
+  type HomeListItem = { kind: 'today' | 'expired'; key: string; item: typeof allHomeRows[number] | typeof expired[number]; showSource?: boolean } | { kind: 'upcoming'; key: string; item: V2HomeUpcomingRow }
     | { kind: 'weeks' | 'emptyToday' | 'emptyWeek' | 'expiredHeading'; key: string } | { kind: 'upcomingDate'; key: string; date: LocalDate };
   const listRows: HomeListItem[] = [
-    ...(homeRows.length ? homeRows.map(item => ({ kind: 'today' as const, key: `today:${item.key}`, item })) : [{ kind: 'emptyToday' as const, key: 'emptyToday' }]),
+    ...(homeRows.length ? homeRows.map(item => {
+      const name = item.source === 'personal' ? item.row.chore.name : item.source === 'shared' ? choreById.get(item.round.choreId)?.name : undefined;
+      return { kind: 'today' as const, key: `today:${item.key}`, item, showSource: name !== undefined && duplicateSourceNames.has(name) };
+    }) : [{ kind: 'emptyToday' as const, key: 'emptyToday' }]),
     ...(expired.length ? [{ kind: 'expiredHeading' as const, key: 'expiredHeading' }, ...(expiredExpanded ? expired.map(item => ({ item, kind: 'expired' as const, key: `expired:${item.key}` })) : [])] : []),
     { kind: 'weeks', key: 'weeks' },
     ...upcoming.flatMap(({ date, rows }): HomeListItem[] => [{ kind: 'upcomingDate', key: `date:${date}`, date }, ...rows.map(item => ({ kind: 'upcoming' as const, key: `upcoming:${item.key}`, item }))]),

@@ -14,14 +14,14 @@ import type { CompletionFeedback } from './completion-feedback';
 import { v2BacklogTarget } from './backlog-target';
 import { calendarChoreTimeLabel } from '../../calendar/chore-time-label';
 
-export function V2RoundCard({ model, round: displayedRound, subject: displayedSubject, actions, busy, run, onOpen, onDate, onAssignment, onPast, onAssignmentRequest, showActions = false, recommendation: displayedRecommendation, feedback, home = false, compact = false, narrowCalendar = false, showCalendarTime = false }: {
+export function V2RoundCard({ model, round: displayedRound, subject: displayedSubject, actions, busy, run, onOpen, onDate, onAssignment, onPast, onAssignmentRequest, showActions = false, recommendation: displayedRecommendation, feedback, home = false, compact = false, narrowCalendar = false, showCalendarTime = false, showHomeSource = false }: {
   model: V2GroupScreenModel; round: V2PlannedOccurrence; subject: V2SubjectPlan;
   actions: Pick<V2GroupController['actions'], 'complete' | 'undoMany' | 'claim' | 'releaseClaim' | 'requestAssignment'>; busy: boolean;
   run: (work: () => Promise<unknown>) => Promise<void>; onOpen: () => void; onDate?: () => void; onAssignment?: () => void;
   onPast?: () => void; onAssignmentRequest?: () => void; showActions?: boolean;
   recommendation?: V2Recommendation;
   feedback?: CompletionFeedback;
-  home?: boolean; compact?: boolean; narrowCalendar?: boolean; showCalendarTime?: boolean;
+  home?: boolean; compact?: boolean; narrowCalendar?: boolean; showCalendarTime?: boolean; showHomeSource?: boolean;
 }) {
   const { round, subject } = showActions ? { round: displayedRound, subject: displayedSubject } : v2BacklogTarget(model.plan.occurrences, displayedRound, displayedSubject, model.plan.range.asOfDate);
   const recommendation = subject.id === displayedSubject.id ? displayedRecommendation : undefined;
@@ -99,6 +99,7 @@ export function V2RoundCard({ model, round: displayedRound, subject: displayedSu
       </View>
     </View> : undefined;
   return <TaskCheckboxRow chore={{ ...chore, householdId: '', category }} completed={displayCompleted} home={home} compact={compact} narrowCalendar={narrowCalendar} detail={home ? [category, formal.kind === 'manual' ? v2TargetLabel(formal.target, formal.timeZone) : ''].filter(Boolean).join(' · ') : undefined}
+      homeSourceLabel={showHomeSource ? '共有' : undefined}
       calendarTimeLabel={showCalendarTime && formal.kind === 'manual' && formal.mode === 'fixed' && formal.target.precision === 'interval'
         ? calendarChoreTimeLabel({ start: Date.parse(formal.target.start), end: Date.parse(formal.target.end) }, model.plan.timeZone) : undefined}
       sourceIcon={subject.subjectUserId === null ? 'person' : 'group'} footer={footer}

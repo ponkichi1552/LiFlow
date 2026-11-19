@@ -58,6 +58,7 @@ export function V2AddChore({ model, actions, busy, run, onCreated, onBack, heade
       ...calendarInput?.options, ...(calendarInput?.group ? { preset: calendarInput.group.preset, memberIds: [...calendarInput.group.memberIds], advanceOn: calendarInput.group.advanceOn } : {}) };
   });
   const [repeat, setRepeat] = useState(calendarInput?.repeat ?? (Boolean(initialChore) || !calendarDate)); const repeatInput = useRef(repeat);
+  const [atOpen] = useState(() => ({ draft, repeat }));
   const [pickerOpen, setPickerOpen] = useState(Boolean(calendarDate && !initialChore && !calendarInput));
   const [existing, setExisting] = useState<CalendarChoreChoice | null>(initialChore ?? null); const existingInput = useRef(existing);
   const hasChoice = useRef(Boolean(calendarInput));
@@ -191,7 +192,8 @@ export function V2AddChore({ model, actions, busy, run, onCreated, onBack, heade
         <V2TextField label="追加する手順（1行に1手順）" value={draft.steps} multiline editable={!busy && !createdId} onChangeText={steps => edit({ steps })} />
       </SettingsPanel></>}
   </>;
-  return renderCalendarForm ? <CalendarSheetContent render={renderCalendarForm} form={{ content: feedback, entry, onSave: () => void create(), disabled, busy: busy || saving }} />
+  return renderCalendarForm ? <CalendarSheetContent render={renderCalendarForm} form={{ content: feedback, entry, onSave: () => void create(), disabled, busy: busy || saving,
+    hasInput: Boolean(existing) || repeat !== atOpen.repeat || JSON.stringify(draft) !== JSON.stringify(atOpen.draft) }} />
     : <V2FormScrollView contentContainerStyle={{ padding: 18, gap: 12, paddingBottom: 16 }} header={<ChoreAddHeader disabled={busy || saving} onBack={() => { if (!pending.current) onBack(); }} />}
       footer={<><AppButton title={createdId ? '追加済みの家事を開く' : '追加'} accessibilityLabel={createdId ? undefined : administrator ? '追加' : 'この内容を共有家事に追加'} disabled={disabled} onPress={() => void create()} /></>}>{content}</V2FormScrollView>;
 }

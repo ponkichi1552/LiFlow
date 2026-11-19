@@ -27,6 +27,7 @@ export default function UiReviewScreen({ initialArea, initialScenario }: { initi
   const [scenario, setScenario] = useState(initialScenario);
   const section = areas.find(item => item.id === area)!;
   const selected = section.cases.find(item => item.id === scenario);
+  const title = selected && 'screenTitle' in selected ? selected.screenTitle : 'UI確認用データ';
   const closeScenario = () => setScenario(undefined);
   usePreventRemove(Boolean(selected), closeScenario);
   const back = () => {
@@ -35,7 +36,7 @@ export default function UiReviewScreen({ initialArea, initialScenario }: { initi
     else router.replace('/settings');
   };
   return <SafeAreaView edges={['top', 'bottom']} style={styles.root} onLayout={finishStartupDisplay}>
-    {!selected || area !== 'calendar' ? <View style={styles.header}><SettingsHeader title={selected?.label ?? 'UI確認用データ'} onBack={back}
+    {!selected || area === 'errors' ? <View style={styles.header}><SettingsHeader title={title} onBack={back}
       backAccessibilityLabel={selected ? 'UI確認用データ一覧へ戻る' : undefined} hideBack={uiReviewBuild && !selected} /></View> : null}
     {selected
       ? <View style={styles.body}><WorkspaceContext.Provider value={null}>

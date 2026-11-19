@@ -15,8 +15,9 @@ const { readLocalCalendar } = await import('../src/platform/storage/calendar-eve
 const flush = async ui => { for (let i=0;i<20;i++) await ui.flush(); };
 
 // Assemble the same public render slot as PlannerCalendar, with both real registration components.
-function harness(props, platform, data, datePicker) {
-  return screenHarness('src/features/calendar/calendar-editor.tsx', { exportName:'CalendarSwitchTest', platform, personalData:()=>data, datePicker,
+function harness(props, platform, data, datePicker, alert) {
+  return screenHarness('src/features/calendar/calendar-editor.tsx', { exportName:'CalendarSwitchTest', platform, personalData:()=>data, datePicker, alert,
+    ...(alert ? { effectDependencies: true, layoutEffect: effect => effect() } : {}),
     transformSource:(path, source)=>path.endsWith('/calendar/calendar-editor.tsx') ? source+`
       import { V2CalendarChoreRegistration as TestSharedRegistration } from '../sharing/v2-ui/calendar-chore-registration';
       import { PersonalCalendarChoreRegistration as TestPersonalRegistration } from './personal-chore-registration';
@@ -45,6 +46,51 @@ function field(ui,label){const node=ui.nodes().find(n=>n.type==='TextInput'&&n.p
 function check(ui,label,value){const node=ui.nodes().find(n=>n.props.accessibilityLabel===label&&n.props.onPress);assert.ok(node,`missing ${label}`);assert.equal(node.props.accessibilityState?.checked,value);}
 async function flag(ui,label){const node=ui.nodes().find(n=>n.props.accessibilityLabel===label&&n.props.onPress);assert.ok(node);node.props.onPress();await ui.flush();}
 for(const platform of ['ios','android']) {
+  test(`${platform} closing personal or shared chore entry protects entered fields without creating a draft`, async t => {
+    const h = await setup(t);
+    const outbox = (await listSharingOutbox(h.d.database, groupId)).length;
+    let closed = 0;
+    const alerts = [];
+    const open = () => harness({ local: h.local, model: h.model, actions: h.controller.actions,
+      initial: { eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series', value: newEventDraft('2026-11-05', 'Asia/Tokyo') },
+      onClose() { closed++; }, onSaved() { assert.fail('closing cannot save a chore'); } }, platform, h.data, undefined, (...args) => alerts.push(args));
+    const clean = open(); t.after(() => clean.unmount());
+    await clean.press('家事を追加'); await clean.press('新しい家事を作る');
+    await clean.press('予定の編集を閉じる');
+    assert.equal(closed, 1);
+    assert.equal(alerts.length, 0);
+    clean.unmount();
+    for (const destination of ['個人', 'グループ共通']) {
+      const ui = open(); t.after(() => ui.unmount());
+      if (destination === 'グループ共通') await ui.press(destination);
+      await ui.press('家事を追加'); await ui.press('新しい家事を作る');
+      await ui.change('家事名', '確認中の家事');
+      await ui.press('家事の詳細設定'); await flag(ui, '追加する家事を繰り返す');
+      await ui.change('追加する家事の周期', '12');
+      await ui.press('予定の編集を閉じる');
+      const [title, , buttons] = alerts.at(-1);
+      assert.equal(title, '家事の入力を破棄しますか？');
+      assert.deepEqual(buttons.map(item => item.text), ['入力を続ける', '破棄']);
+      buttons[0].onPress(); await ui.flush();
+      assert.equal(ui.button('予定を保存').props.disabled, false);
+      // Native text is uncontrolled while typing; remount the source to read the retained value.
+      await ui.press(destination === '個人' ? 'グループ共通' : '個人');
+      assert.equal(field(ui, '家事名'), '確認中の家事');
+      assert.equal(field(ui, '追加する家事の周期'), '12');
+      const modal = ui.nodes().find(node => node.type === 'Modal');
+      assert.equal(modal.props.allowSwipeDismissal, false);
+      modal.props.onRequestClose(); await ui.flush();
+      assert.equal(alerts.at(-1)[0], title);
+      alerts.at(-1)[2][1].onPress(); await ui.flush();
+      ui.unmount();
+    }
+    assert.equal(closed, 3);
+    assert.equal(alerts.length, 4);
+    assert.equal((await readLocalCalendar(h.p.database)).drafts.length, 0);
+    assert.equal((await listSharingOutbox(h.d.database, groupId)).length, outbox);
+    assert.equal(h.p.connection.prepare('SELECT count(*) AS count FROM chore_definitions WHERE name = ?').get('確認中の家事').count, 0);
+  });
+
   test(`${platform} deselecting a chore clears the same editor's saved shared draft before closing an empty personal form`, async t => {
     const h = await setup(t);
     let local;

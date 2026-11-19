@@ -292,6 +292,30 @@ for (const leave of ['back', 'unmount']) {
 }
 test('appliance analysis aborts when a retained screen blurs and permits another request', () => verifyApplianceAbortOnLeave('blur'));
 
+test('a rejected appliance PDF must be replaced before another analysis can start', async t => {
+  const messages = ['別の取扱説明書PDFを選んでください。', 'サーバーが応答しませんでした。'];
+  let requests = 0;
+  const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { effectDependencies: true, effect: callback => callback(), mocks: {
+    '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async () => {
+      const attempt = requests++;
+      return { status: 'error', code: attempt === 0 ? 'INVALID_MANUAL' : 'AI_SERVICE_NO_RESULT', message: messages[attempt] };
+    } },
+    '@/platform/storage/repository': { saveReviewedApplianceCare: () => assert.fail('invalid manuals cannot be saved') },
+  } });
+  t.after(() => screen.unmount());
+  await screen.press('取扱説明書PDFを選ぶ');
+  await screen.press('PDFを解析');
+  assert.match(screen.text(), /別の取扱説明書PDFを選んでください/u);
+  assert.doesNotMatch(screen.text(), /PDFを解析/u);
+  assert.equal(requests, 1);
+  await screen.press('PDFを変更');
+  assert.doesNotMatch(screen.text(), /別の取扱説明書PDFを選んでください/u);
+  await screen.press('PDFを解析');
+  assert.match(screen.text(), /サーバーが応答しませんでした/u);
+  assert.equal(screen.button('PDFを解析').props.accessibilityState.disabled, false);
+  assert.equal(requests, 2);
+});
+
 test('personal reanalysis keeps the appliance read failure visible until a read retry succeeds', async t => {
   let reads = 0;
   const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { params: { applianceId: 'saved-appliance' }, effectDependencies: true,

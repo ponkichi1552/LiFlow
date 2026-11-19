@@ -167,7 +167,7 @@ function PersonalHomeScreen() {
       {todayTotal > 0 ? <View style={taskListStyle}>{orderedDueToday.map((row, index) => renderTask(row, index, index === orderedDueToday.length - 1))}</View> : null}
       {todayTotal === 0 ? (
         <Card style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>今日の予定はありません</Text>
+          <Text style={styles.emptyTitle}>今日の家事はありません</Text>
           <Text style={styles.emptyBody}>家事一覧から予定や頻度を調整できます。</Text>
           <Pressable accessibilityRole="button" accessibilityLabel="家事一覧を見る" onPress={() => router.push('/chores')}><ActionLabel label="家事一覧を見る" style={styles.textLink} /></Pressable>
         </Card>

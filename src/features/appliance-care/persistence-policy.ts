@@ -27,6 +27,24 @@ export function hasExactChoreNameDuplicate(
   return existingChores.some((chore) => chore.id !== exceptChoreId && chore.name === proposedName);
 }
 
+/** Callers scope the candidates to this device, including older records linked by product identity. */
+export function findApplianceTaskChore(product: Pick<Appliance, 'productName' | 'category'>, chores: readonly ChoreDefinition[], taskName: string) {
+  const active = chores.filter(chore => !chore.archived);
+  const linked = active.filter(chore => chore.applianceTaskName === taskName);
+  if (linked.length) return linked.length === 1 ? linked[0] : undefined;
+  const displayName = applianceCareChoreName(product, taskName);
+  const legacy = active.filter(chore => !chore.applianceTaskName && (chore.name === displayName || chore.name === taskName));
+  return legacy.length === 1 ? legacy[0] : undefined;
+}
+
+/** Settings on another screen can change the same cadence while the editor is open. */
+export function applianceTaskCadenceKey(chore?: ChoreDefinition) {
+  return chore ? JSON.stringify([chore.id, chore.userIntervalDays, chore.recommendedCycleDays, chore.manufacturerRecommendedIntervalDays,
+    chore.frequencyDaysByMode, chore.requiresCycleSelection, chore.personalSchedule?.once, chore.personalSchedule?.monthlyDay]) : null;
+}
+
+export class ApplianceTaskCycleConflict extends Error {}
+
 export function buildReviewedApplianceChore(options: {
   id: EntityId;
   householdId: EntityId;

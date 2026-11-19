@@ -398,7 +398,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   }
   if (!home) return null;
   const { listRows, expiredCount, recommendations, total, done, summary } = home;
-  const card = (round: V2PlannedOccurrence, subject: V2SubjectPlan) => <V2RoundCard model={model} round={round} subject={subject} actions={controller.actions} busy={busy} run={run} feedback={feedback} home
+  const card = (round: V2PlannedOccurrence, subject: V2SubjectPlan, showHomeSource?: boolean) => <V2RoundCard model={model} round={round} subject={subject} actions={controller.actions} busy={busy} run={run} feedback={feedback} home showHomeSource={showHomeSource}
     recommendation={recommendations.get(subject.id)}
     onOpen={() => onGuide ? onGuide(round.choreId, 'shared') : onRound ? onRound(round.id, subject.id) : onConfiguration(round.choreId)} />;
   return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
@@ -417,12 +417,14 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         if (item.kind === 'expiredHeading') return <HomeExpiredHeading count={expiredCount} expanded={expiredExpanded} onToggle={() => setExpiredExpanded(value => !value)} />;
         if (item.kind === 'weeks') return <HomeWeekSwitcher scope={weekScope} onChange={setWeekScope} />;
         if (item.kind === 'upcomingDate') return <HomeUpcomingDate date={item.date} />;
-        if (item.kind === 'emptyToday') return <Card><Text style={styles.body}>{privateOverlay?.status === 'unavailable' ? '今日の共有家事はありません。個人家事は未取得です。' : '今日の家事はありません。'}</Text></Card>;
-        if (item.kind === 'emptyWeek') return <Text style={[styles.caption, styles.emptyWeek]}>{privateOverlay?.status === 'unavailable' ? '共有家事の予定はありません。個人家事は未取得です。' : weekScope === 'current' ? '今週の残りの家事はありません。' : '来週の家事はありません。'}</Text>;
+        if (item.kind === 'emptyToday') return <Card><Text style={styles.body}>{privateOverlay?.status === 'unavailable' ? '今日の共有家事はありません。' : '今日の家事はありません。'}</Text></Card>;
+        if (item.kind === 'emptyWeek') return <Text style={[styles.caption, styles.emptyWeek]}>{weekScope === 'current' ? '今週の残りの' : '来週の'}{privateOverlay?.status === 'unavailable' ? '共有家事' : '家事'}はありません。</Text>;
         if (item.kind !== 'today' && item.kind !== 'upcoming' && item.kind !== 'expired') return null;
         const row = item.item;
+        const showSource = item.kind === 'today' && item.showSource;
         return row.source === 'waste' ? <V2WasteOccurrence entry={row.entry} home />
-          : row.source === 'personal' ? <V2PrivateTaskCard row={row.row} onOpen={onGuide ? () => onGuide(row.row.chore.id, 'personal') : undefined} source={session.privateTasks} busy={busy} run={run} feedback={feedback} home mixedSources /> : card(row.round, row.subject);
+          : row.source === 'personal' ? <V2PrivateTaskCard row={row.row} onOpen={onGuide ? () => onGuide(row.row.chore.id, 'personal') : undefined} source={session.privateTasks} busy={busy} run={run} feedback={feedback} home mixedSources
+            showHomeSource={showSource} /> : card(row.round, row.subject, showSource);
       }}
       ListFooterComponent={<View style={styles.footer}>
         {purpose === 'development' ? notice : null}

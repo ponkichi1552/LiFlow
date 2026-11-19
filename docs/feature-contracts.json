@@ -434,6 +434,10 @@
         "name": "${platform} deselecting a chore clears the same editor's saved shared draft before closing an empty personal form"
       },
       {
+        "file": "tests/calendar-source-switch.test.mjs",
+        "name": "${platform} closing personal or shared chore entry protects entered fields without creating a draft"
+      },
+      {
         "file": "tests/sharing-v2-calendar-recovery.test.mjs",
         "name": "${platform} editing moving and deleting a detached shared occurrence of a single event changes only that occurrence"
       },
@@ -1840,6 +1844,14 @@
       {
         "file": "tests/appliance-care-persistence.test.mjs",
         "name": "reanalysis replaces manufacturer evidence while retaining exact-task user settings"
+      },
+      {
+        "file": "tests/appliance-care-repository.test.mjs",
+        "name": "setting and changing a single saved appliance cycle preserves the analysis and other chore settings"
+      },
+      {
+        "file": "tests/mobile-ui-audit.test.mjs",
+        "name": "a rejected appliance PDF must be replaced before another analysis can start"
       }
     ]
   },

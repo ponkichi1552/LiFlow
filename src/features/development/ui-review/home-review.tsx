@@ -21,18 +21,18 @@ import { V2WasteOccurrence } from '../../sharing/v2-ui/waste-occurrence';
 import { buildHomeRows } from '../../sharing/v2-ui/home-rows';
 import { v2MemberLabels } from '../../sharing/v2-ui/member-labels';
 import { v2CanShowCompletion } from '../../sharing/v2-ui/round-visibility';
-import { homeReviewData, homeReviewGroup, homeReviewToday, homeReviewViewer, type HomeReviewEdits } from './home-review-data';
+import { homeReviewData, homeReviewGroup, homeReviewScenarios, homeReviewToday, homeReviewViewer, type HomeReviewEdits } from './home-review-data';
 
 export { homeReviewScenarios } from './home-review-data';
 type Panel = 'ヘルプ' | 'グループ' | '設定' | '実施履歴' | 'ゴミ収集日' | '家事一覧' | '天気予報の出典' | ChoreDefinition;
 const runLocal = async (work: () => Promise<unknown>) => { await work(); };
 const noPending = new Map<string, boolean>();
 
-export function HomeReview({ scenario }: { scenario: string }) {
-  return <HomeReviewSession key={scenario} scenario={scenario} />;
+export function HomeReview(props: { scenario: string; onExit?(): void }) {
+  return <HomeReviewSession key={props.scenario} {...props} />;
 }
 
-function HomeReviewSession({ scenario }: { scenario: string }) {
+function HomeReviewSession({ scenario, onExit }: { scenario: string; onExit?(): void }) {
   const [edits, setEdits] = useState<HomeReviewEdits>(() => ({ completed: new Map(), assignees: new Map() }));
   const [scope, setScope] = useState<HomeWeekScope>('current');
   const [order, setOrder] = useState<LoadOrder>('heavy');
@@ -60,14 +60,14 @@ function HomeReviewSession({ scenario }: { scenario: string }) {
     if (item.kind === 'weeks') return <HomeWeekSwitcher scope={scope} onChange={setScope} />;
     if (item.kind === 'upcomingDate') return <HomeUpcomingDate date={item.date} />;
     if (item.kind === 'expiredHeading') return <HomeExpiredHeading count={expiredCount} expanded={expanded} onToggle={() => setExpanded(value => !value)} />;
-    if (item.kind === 'emptyWeek') return <Text style={styles.muted}>{overlay.status === 'unavailable' ? '共有家事の予定はありません。個人家事は未取得です。'
-      : scope === 'current' ? '今週の残りの家事はありません。' : '来週の家事はありません。'}</Text>;
+    if (item.kind === 'emptyWeek') return <Text style={styles.muted}>{scope === 'current' ? '今週の残りの' : '来週の'}{overlay.status === 'unavailable' ? '共有家事' : '家事'}はありません。</Text>;
     if (item.kind === 'emptyToday') return shared
-      ? <Card><Text style={styles.body}>{overlay.status === 'unavailable' ? '今日の共有家事はありません。個人家事は未取得です。' : '今日の家事はありません。'}</Text></Card>
-      : <Card><Text style={styles.strong}>今日の予定はありません</Text><Text style={styles.muted}>家事一覧から予定や頻度を調整できます。</Text>
+      ? <Card><Text style={styles.body}>{overlay.status === 'unavailable' ? '今日の共有家事はありません。' : '今日の家事はありません。'}</Text></Card>
+      : <Card><Text style={styles.strong}>今日の家事はありません</Text><Text style={styles.muted}>家事一覧から予定や頻度を調整できます。</Text>
         <Pressable accessibilityRole="button" accessibilityLabel="家事一覧を見る" onPress={() => setPanel('家事一覧')}><ActionLabel label="家事一覧を見る" style={styles.link} /></Pressable></Card>;
     if (!('item' in item)) return null;
     const row = item.item;
+    const showSource = item.kind === 'today' && item.showSource;
     if (row.source === 'waste') return <V2WasteOccurrence entry={row.entry} home />;
     if (row.source === 'personal') {
       const { chore, completed, entryId, windowStart, windowEnd, seasonalWork, suggestedDate } = row.row;
@@ -77,6 +77,7 @@ function HomeReviewSession({ scenario }: { scenario: string }) {
         executionWindow={windowStart && windowEnd ? { start: windowStart, end: windowEnd } : undefined}
         onOpen={() => setPanel(chore)} onToggle={entryId ? () => complete(entryId, !completed) : undefined} />;
       return <V2PrivateTaskCard row={row.row} busy={false} home mixedSources run={runLocal} onOpen={() => setPanel(chore)}
+        showHomeSource={showSource}
         feedback={{ values: noPending, supports: () => Boolean(entryId), request: (_key, value) => Boolean(entryId && complete(entryId, value)),
           run: (_key, _completed, work) => runLocal(work) }} />;
     }
@@ -95,12 +96,15 @@ function HomeReviewSession({ scenario }: { scenario: string }) {
       requestAssignment: async () => { throw new Error('担当変更の申請はこの確認画面の対象外です。'); },
     };
     return <V2RoundCard home model={model} round={round} subject={subject} actions={actions} busy={false} run={runLocal}
+      showHomeSource={showSource}
       recommendation={recommendations.get(subject.id)} onOpen={() => setPanel({ ...chore, householdId: model.plan.groupId })}
       feedback={{ values: noPending, supports: () => true, request: (_key, value) => complete(round.id, value),
         run: (_key, _value, work) => runLocal(work) }} />;
   };
   const groupName = shared ? homeReviewGroup : undefined;
   const list = <View style={styles.frame}>
+    {onExit ? <NavigationHeader><SettingsHeader title={homeReviewScenarios.find(item => item.id === scenario)?.label ?? 'ホーム'} wrapTitle
+      backAccessibilityLabel="UI確認用データ一覧へ戻る" onBack={onExit} /></NavigationHeader> : null}
     <View style={homeHeaderContainerStyle(groupName)}><HomeHeaderContent today={homeReviewToday} workspaceName={groupName} birthday={fixture.birthday}
       onHelp={() => setPanel('ヘルプ')} onGroup={() => setPanel('グループ')} onSettings={() => setPanel('設定')} /></View>
     <HomeMotionList data={listRows} keyExtractor={row => row.key} renderItem={({ item, index }) => renderRow(item, index)}

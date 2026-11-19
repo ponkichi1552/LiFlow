@@ -35,7 +35,7 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} appliance review opens scoped fixtures, long manuals and an empty legacy record`, async t => {
     const { screen, switchTo } = openPreview(t, platform, 'library');
     await screen.press('扇風機、書斎の卓上ファンのお手入れを開く（個人）');
-    assert.match(screen.text(), /予定周期：7日/u);
+    assert.match(screen.text(), /7日ごと/u);
     assert.match(screen.text(), /メーカー推奨：14日/u);
     await screen.press('家電一覧へ戻る');
     assert.match(screen.text(), /4台/u);
@@ -66,6 +66,7 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} unreadable appliance sample retries locally and retains only the chosen shared task`, async t => {
     const { screen, switchTo } = openPreview(t, platform, 'manual-error');
     assert.match(screen.text(), /文字を読み取れませんでした/u);
+    assert.doesNotMatch(screen.text(), /PDFを解析/u);
     await screen.press('PDFを変更');
     await screen.press(goodPdf);
     assert.doesNotMatch(screen.text(), /文字を読み取れませんでした/u);
@@ -105,7 +106,7 @@ for (const platform of ['ios', 'android']) {
     assert.match(screen.text(), /1〜3650日の整数/u);
     await screen.change('タンクの外側を拭くの周期', '１２');
     await screen.press('周期の変更を保存');
-    assert.match(screen.text(), /予定周期：12日/u);
+    assert.match(screen.text(), /12日ごと/u);
     await screen.press('水量表示を確認するへ移動');
     assert.match(screen.text(), /定期予定なし/u);
     await screen.press('家電一覧へ戻る');

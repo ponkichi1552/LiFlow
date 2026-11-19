@@ -62,10 +62,11 @@ function Connection({ runtime, control: initial, onBack, notice, embedded }: { r
     }
   }
   const state = control.state; const connected = state?.enabled === true && !state.disconnected;
+  const needsAuth = connected && state?.status === 'authRequired';
   const when = (value?: string) => value ? new Date(value).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '未実施';
   const blocked = accountOperation?.busy === true && busy === null;
   const disabled = busy !== null || blocked;
-  const connectionStatus = connected ? '連携中' : state?.disconnected ? '接続を解除済み' : state ? '一時停止中' : '未接続';
+  const connectionStatus = needsAuth ? '再認証が必要' : connected ? '連携中' : state?.disconnected ? '接続を解除済み' : state ? '一時停止中' : '未接続';
   const backgroundSync = () => {
     const version = generation.current;
     void runtime.synchronize({ force: true }).then(async () => {
@@ -90,14 +91,17 @@ function Connection({ runtime, control: initial, onBack, notice, embedded }: { r
       <Text style={typography.caption}>{embedded ? '共有家事を自分のGoogle Tasksへ同期します。' : '本人の家事名・推奨日・完了状態を、確認したGoogleアカウントの専用リストへ送ります。グループへGoogleの識別子やトークンは共有しません。'}</Text>
       {!embedded ? <Text style={typography.caption}>新しい家事は14日先まで、通信は100件以下ずつです。連携済みの家事は、予定日が先へ移動しても同じGoogleタスクを更新します。時刻の指定はLiFlowで確認してください。</Text> : null}
       {!embedded || connected ? <Text style={typography.caption}>完了と取消は双方向に反映します。取消対象は本人が記録した完了だけです。別のメンバーの実施をGoogleから取り消すことはありません。</Text> : null}
-      {state ? <Text style={typography.caption}>最終同期：{when(state.lastSuccessfulSyncAt)}{state.status === 'retryPending' ? `／再試行：${when(state.nextRetryAt)}` : state.status === 'authRequired' ? '／アカウントの確認が必要' : state.status === 'error' ? '／同期エラー' : ''}</Text> : null}
-      {!connection ? <SettingsAction placement={embedded ? 'panel' : 'page'} title="Googleアカウントを確認" compact={embedded} disabled={disabled} onPress={() => { void perform('review', async () => {
-        const selected = await runtime.reviewConnection(); if (alive.current) setReview(selected); return '表示したアカウントを確認して、連携を開始してください。';
+      {state ? <Text style={typography.caption}>最終同期：{when(state.lastSuccessfulSyncAt)}{state.status === 'retryPending' ? `／再試行：${when(state.nextRetryAt)}` : state.status === 'error' ? '／同期エラー' : ''}</Text> : null}
+      {needsAuth ? <Text accessibilityRole="alert" style={[typography.caption, { color: colors.warning }]}>{connection ? 'Googleの再認証が必要です。' : ''}送信待ちは保持しています。</Text> : null}
+      {!connection || (needsAuth && connection.ready) ? <SettingsAction intent={needsAuth && !review ? 'primary' : 'normal'} placement={embedded ? 'panel' : 'page'} title="Googleアカウントを確認" compact={embedded} disabled={disabled} onPress={() => { void perform('review', async () => {
+        const selected = await runtime.reviewConnection();
+        if (connection && selected.subject !== connection.account?.subject) throw new Error('Googleアカウントが変わりました。');
+        if (alive.current) setReview(selected); return '表示したアカウントを確認して、連携を開始してください。';
       }); }} /> : null}
       {review ? <Card><Text style={typography.label}>{review.label}</Text><SettingsAction placement={embedded ? 'panel' : 'page'} title="このアカウントで連携" compact={embedded} disabled={disabled} onPress={() => { const selected = { ...review }; void perform('connect', async () => {
         await runtime.connect(selected); if (alive.current) setReview(null); return resultMessage(await runtime.synchronize({ force: true }));
       }); }} /></Card> : null}
-      {state ? <SettingsAction placement={embedded ? 'panel' : 'page'} title="共有家事を今すぐ同期" compact={embedded} disabled={!connected || disabled} onPress={() => { void perform('sync', async () => resultMessage(await runtime.synchronize({ force: true }))); }} /> : null}
+      {state && !needsAuth ? <SettingsAction placement={embedded ? 'panel' : 'page'} title="共有家事を今すぐ同期" compact={embedded} disabled={!connected || disabled} onPress={() => { void perform('sync', async () => resultMessage(await runtime.synchronize({ force: true }))); }} /> : null}
       {connected && !connection ? <SettingsAction placement={embedded ? 'panel' : 'page'} title="Google連携を一時停止" compact={embedded} disabled={blocked || busy !== null && busy !== 'sync'} onPress={() => { void perform('pause', async () => {
         await runtime.pause(control.revision); return 'このグループのGoogle連携を一時停止しました。対応するタスクと履歴は保持しています。';
       }, true); }} /> : null}

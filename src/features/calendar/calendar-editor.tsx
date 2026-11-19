@@ -40,8 +40,8 @@ import { v2WallTimeCandidates } from '../sharing/v2/local-time';
 export interface ExistingCalendarChore { id: string; name: string; minutes?: number; onOpen: () => void }
 export type CalendarChoreRegistrationProps = { date: EventDraft['startDate']; initialValue?: EventDraft; initialInput?: CalendarChoreInput; audience?: 'personal' | 'group';
   onAudienceChange?(audience: 'personal' | 'group', input: CalendarChoreInput): void; onBack(audience?: 'personal' | 'group'): void; onCancel?(): void; onClose(): void;
-  onSaved(date: EventDraft['startDate'], notice?: string): void; onBusyChange(busy: boolean): void };
-export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, onDuplicate, repeatReturnTo = 'personal', renderChoreRegistration, displayTimeZone, choreForm, onChooseChore, onChoreAudience, onClearChore, hiddenForChore = false, onPreviewChore }: {
+  onSaved(date: EventDraft['startDate'], notice?: string): void; onBusyChange(busy: boolean): void; onInputChange?(hasInput: boolean): void };
+export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, onDuplicate, repeatReturnTo = 'personal', renderChoreRegistration, displayTimeZone, choreForm, onChooseChore, onChoreAudience, onClearChore, onChoreInputChange, hiddenForChore = false, onPreviewChore }: {
   initial: CalendarEditorDraft; local: LocalCalendarBinding; chores?: readonly ExistingCalendarChore[]; onClose: () => void; onSaved: (date: EventDraft['startDate'], notice?: string) => void;
   repeatReturnTo?: 'personal' | 'group';
   onDuplicate?(draft: CalendarEditorDraft): void;
@@ -49,6 +49,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   displayTimeZone?: string;
   hiddenForChore?: boolean; onPreviewChore?(open: () => void): void;
   choreForm?: CalendarSheetForm; onChooseChore?(): void; onChoreAudience?(audience: 'personal' | 'group'): void; onClearChore?(): void;
+  onChoreInputChange?(hasInput: boolean): void;
 }) {
   const styles = usePlannerBorderStyles(baseStyles);
   const { fontScale } = useWindowDimensions();
@@ -73,6 +74,20 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const [exitActions, setExitActions] = useState(false);
   const [registeringChore, setRegisteringChore] = useState(false);
   const [choreInput, setChoreInput] = useState<CalendarChoreInput>();
+  const [choreHasInput, setChoreHasInput] = useState(false);
+  const carriedChoreInput = useRef(false);
+  const appointmentBeforeChore = useRef<CalendarEditorDraft | null>(null);
+  const choreDiscardOpen = useRef(false);
+  const updateChoreInput = useCallback((hasInput: boolean) => setChoreHasInput(hasInput || carriedChoreInput.current), []);
+  const embeddedHasInput = Boolean(choreForm?.hasInput);
+  useLayoutEffect(() => { onChoreInputChange?.(embeddedHasInput); }, [onChoreInputChange, embeddedHasInput]);
+  const clearChoreEntry = () => {
+    setRegisteringChore(false);
+    setChoreInput(undefined);
+    setChoreHasInput(false);
+    carriedChoreInput.current = false;
+    appointmentBeforeChore.current = null;
+  };
   const [exitBaseline, setExitBaseline] = useState(initial.value);
   const [choreBusy, setChoreBusy] = useState(false); const choreLock = useRef(false);
   const onChoreBusyChange = useCallback((value: boolean) => { choreLock.current = value; setChoreBusy(value); }, []);
@@ -114,13 +129,13 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
     finally { lock.current = false; setBusy(false); }
   };
   const hasInput = (current: CalendarEditorDraft) => Boolean(current.value.title.trim() || current.value.location.trim() || current.value.notes.trim());
-  const hasChanges = (current: CalendarEditorDraft) => JSON.stringify(current.value) !== JSON.stringify(exitBaseline)
-    || (current.audience ?? 'personal') !== (initial.audience ?? 'personal')
+  const hasChanges = (current: CalendarEditorDraft, checkAudience = true) => JSON.stringify(current.value) !== JSON.stringify(exitBaseline)
+    || checkAudience && (current.audience ?? 'personal') !== (initial.audience ?? 'personal')
     || current.scope !== initial.scope || current.reminderMinutes !== initial.reminderMinutes;
   const emptyLegacyDraft = !initial.draftId && !initial.eventId && initial.audience !== 'group' && initial.reminderMinutes === undefined
     && JSON.stringify(initial.value) === JSON.stringify(newEventDraft(initial.value.startDate, initial.value.timeZone, initial.value.birthday));
-  const shouldChooseExit = (current: CalendarEditorDraft) => !readOnly
-    && (hasChanges(current) || (!emptyLegacyDraft && storedDrafts.has(calendarDraftKey(current))));
+  const shouldChooseExit = (current: CalendarEditorDraft, checkAudience = true) => !readOnly
+    && (hasChanges(current, checkAudience) || (!emptyLegacyDraft && storedDrafts.has(calendarDraftKey(current))));
   const needsExitChoice = shouldChooseExit(draft);
   const persistDraft = async (current: CalendarEditorDraft) => {
     if (!local.database) throw new Error('入力内容の保存先を確認してください。');
@@ -135,12 +150,28 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
     if (!local.database) throw new Error('入力内容の保存先を確認してください。');
     await persistDraft(latest.current); await draftSession.clear(local.database, latest.current); onClose();
   });
-  const close = (nativeDismissed = false) => {
+  const close = (nativeDismissed = false, checkAudience = true) => {
     if (lock.current || choreLock.current) return;
     if (choreForm) { if (!choreForm.busy) onClose(); return; }
-    if (shouldChooseExit(latest.current)) { setExitActions(true); if (nativeDismissed) setModalRevision(v => v + 1); return; }
+    if (shouldChooseExit(latest.current, checkAudience)) { setExitActions(true); if (nativeDismissed) setModalRevision(v => v + 1); return; }
     if (emptyLegacyDraft && draftSession.snapshot(latest.current)) { discardAndClose(); return; }
     onClose();
+  };
+  const requestCloseChore = (nativeDismissed = false) => {
+    if (lock.current || choreLock.current || choreDiscardOpen.current) return;
+    const leave = () => {
+      if (lock.current || choreLock.current) return;
+      const before = appointmentBeforeChore.current;
+      if (before) { latest.current = before; setDraft(before); }
+      clearChoreEntry();
+      close(nativeDismissed, false);
+    };
+    if (!choreHasInput) { leave(); return; }
+    choreDiscardOpen.current = true;
+    Alert.alert('家事の入力を破棄しますか？', undefined, [
+      { text: '入力を続ける', style: 'cancel', onPress: () => { choreDiscardOpen.current = false; } },
+      { text: '破棄', style: 'destructive', onPress: () => { choreDiscardOpen.current = false; leave(); } },
+    ]);
   };
   const savedDisplayDate = (submitted: CalendarEditorDraft) => {
     let value = submitted.value;
@@ -237,6 +268,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const canAddChore = Boolean(renderChoreRegistration && !initial.eventId && !value.birthday);
   const openChoreRegistration = () => {
     if (lock.current) return;
+    appointmentBeforeChore.current = latest.current;
     if (!hasInput(latest.current)) { setRegisteringChore(true); return; }
     void work(async () => {
       if (!local.database) throw new Error('入力内容の保存先を確認してください。');
@@ -251,23 +283,26 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
     <SettingsAction title="通知設定を再読み込み" placement="page" disabled={busy} onPress={reminderSettings.retry} />
   </View> : <CalendarReminderField minutes={reminderMinutes} enabled={reminderSettings.settings.enabled} disabled={busy || reminderUnavailable} onChange={reminderMinutes => change(before => ({ ...before, reminderMinutes }))} />;
   if (draft.audience === 'group' && local.draftOwnerScope !== undefined && local.draftOwnerScope !== draft.ownerScope) return null;
+  const canSwipeDismiss = !busy && !choreBusy && !needsExitChoice && !(registeringChore && choreHasInput);
   return <CalendarEditorSurface key={modalRevision} embedded={Boolean(choreForm)} visible={!hiddenForChore} animationType="slide" presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'overFullScreen'} transparent={Platform.OS === 'android'}
-    allowSwipeDismissal={!busy && !choreBusy && !needsExitChoice} onRequestClose={() => {
+    allowSwipeDismissal={canSwipeDismiss} onRequestClose={() => {
       if (lock.current || choreLock.current) return;
-      setRegisteringChore(false); close(Platform.OS === 'ios' && !needsExitChoice);
+      const nativeDismissed = Platform.OS === 'ios' && canSwipeDismiss;
+      if (registeringChore) requestCloseChore(nativeDismissed);
+      else close(nativeDismissed);
     }}>
     <KeyboardAvoidingView style={styles.overlay} behavior={!choreForm && Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={[styles.sheet, Platform.OS === 'android' && styles.androidSheet]} {...pull.panHandlers}>
         {!choreForm ? <View style={styles.grabber} /> : null}
         {registeringChore && renderChoreRegistration ? <CalendarSheetContent render={renderChoreRegistration} form={{ date: value.startDate, initialValue: value, initialInput: choreInput, audience: draft.audience ?? 'personal',
-          onAudienceChange: (audience, input) => { if (choreLock.current) return; setChoreInput(input);
+          onAudienceChange: (audience, input) => { if (choreLock.current) return; carriedChoreInput.current = choreHasInput; setChoreInput(input);
             change(before => ({ ...before, audience, groupId: audience === 'group' ? local.shared?.groupId : undefined, ownerScope: audience === 'group' ? local.shared?.notificationScope : undefined, basisRevision: undefined })); },
-          onBack: audience => { if (!choreLock.current) { setRegisteringChore(false); if (audience) change(before => ({ ...before, audience, groupId: audience === 'group' ? local.shared?.groupId : undefined, ownerScope: audience === 'group' ? local.shared?.notificationScope : undefined, value: { ...before.value, categoryId: audienceCategory(before.value.categoryId, audience) } })); } },
-          onCancel: () => { if (choreLock.current) return; setRegisteringChore(false); setChoreInput(undefined); setError(null); setInputRevision(before => before + 1);
+          onBack: audience => { if (!choreLock.current) { clearChoreEntry(); if (audience) change(before => ({ ...before, audience, groupId: audience === 'group' ? local.shared?.groupId : undefined, ownerScope: audience === 'group' ? local.shared?.notificationScope : undefined, value: { ...before.value, categoryId: audienceCategory(before.value.categoryId, audience) } })); } },
+          onCancel: () => { if (choreLock.current) return; clearChoreEntry(); setError(null); setInputRevision(before => before + 1);
             const value = newAppointmentValue(initial.value.startDate, initial.value.timeZone);
             setExitBaseline(value); change(before => ({ ...before, value }));
             if (local.database) void draftSession.clear(local.database).then(() => setStoredDrafts(new Set())).catch(cause => setError(cause instanceof Error ? cause.message : '入力内容を破棄できませんでした。')); },
-          onClose: () => { if (choreLock.current) return; setRegisteringChore(false); close(); },
+          onClose: () => requestCloseChore(), onInputChange: updateChoreInput,
           onSaved: (date, notice) => { onChoreBusyChange(false); void work(async () => {
             if (local.database) await draftSession.clear(local.database);
             onSaved(date, notice);

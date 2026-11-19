@@ -32,13 +32,17 @@ export function ApplianceLibrary({ items, joined = false, personalReady = true, 
         <Text style={styles.caption}>取扱説明書PDFから追加できます。</Text></View>}
       renderItem={({ item }) => {
         const primary = appliancePrimaryName(item, item.displayName);
-        const secondary = item.needsReview ? '確認が必要です' : applianceSecondaryLabel(primary,
-          [item.displayName, ...(item.productName ? [applianceDisplayName({ ...item, productName: item.productName })] : [item.manufacturer, item.modelNumber])]);
+        const savedLabel = applianceSecondaryLabel(primary, [item.displayName]);
+        const secondary = savedLabel || applianceSecondaryLabel(primary,
+          item.productName ? [applianceDisplayName({ ...item, productName: item.productName })] : [item.manufacturer, item.modelNumber]);
         return <Pressable accessibilityRole="button" disabled={busy} accessibilityState={{ disabled: busy }}
         accessibilityLabel={`${primary === item.displayName ? primary : `${primary}、${item.displayName}`}のお手入れを開く（${item.source === 'shared' ? 'グループ' : '個人'}）`}
+        accessibilityValue={item.needsReview ? { text: '確認が必要です' } : undefined}
         onPress={() => onOpen(item.source, item.id)} style={({ pressed }) => [styles.row, busy && styles.disabled, pressed && styles.pressed]}>
-        <View pointerEvents="none" style={styles.copy}><Text style={styles.name}>{primary}</Text>
-          {secondary ? <Text style={[styles.caption, item.needsReview && styles.warning]}>{secondary}</Text> : null}</View>
+        <View pointerEvents="none" style={styles.copy}>
+          <View style={styles.nameRow}><Text style={styles.name}>{primary}</Text>
+            {item.needsReview ? <Text style={styles.warning}>確認が必要です</Text> : null}</View>
+          {secondary ? <Text style={styles.caption}>{secondary}</Text> : null}</View>
         <Chevron />
       </Pressable>; }}
       ListFooterComponent={footer ? <>{footer}</> : undefined} />
@@ -58,6 +62,7 @@ const baseStyles = StyleSheet.create({
   titleRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 50, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
   copy: { flex: 1, minWidth: 0, gap: 4 }, name: { ...typography.control, fontWeight: '600', color: palette.ink },
+  nameRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 8 },
   body: { ...typography.body, color: palette.ink }, caption: { ...typography.caption, color: palette.muted, flexShrink: 1 }, warning: { ...typography.caption, color: palette.warning }, pressed: { opacity: 0.75 },
   disabled: { opacity: 0.45 }, empty: { gap: 6, paddingVertical: 12 },
   add: { padding: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border },

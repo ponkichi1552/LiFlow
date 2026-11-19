@@ -67,7 +67,8 @@ export function V2CalendarChoreRegistration({ model, actions, busy, run, readOwn
     };
     const binding = local ?? { snapshot: EMPTY_LOCAL_CALENDAR, loading: false, error: null, refresh: async () => {}, shared: { groupId: model.plan.groupId, name: '共有グループ', enabled: true } };
     return <CalendarEditor key={selected?.choreId ?? form.entry?.id ?? 'new'} initial={{ eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series', audience: 'group', groupId: model.plan.groupId, ownerScope: local?.shared?.notificationScope, value: entry.value }}
-      local={binding} choreForm={{ ...form, entry }} displayTimeZone={model.plan.timeZone} onClose={sheet.onClose} onSaved={sheet.onSaved}
+      local={binding} choreForm={{ ...form, entry, hasInput: Boolean(selected) || form.hasInput }} displayTimeZone={model.plan.timeZone}
+      onChoreInputChange={sheet.onInputChange} onClose={sheet.onClose} onSaved={sheet.onSaved}
       onChooseChore={selected ? () => { setSelected(null); setRepeating(false); } : form.entry?.onChoose} onClearChore={() => sheet.onCancel ? sheet.onCancel() : sheet.onBack()} onChoreAudience={audience => {
         const input = form.entry?.readInput?.() ?? selected?.input ?? sheet.initialInput ?? { value: entry.value, clocks: emptyChoreClocks(), repeat: repeating, interval: '7', monthly: false, options: initialCustomChoreOptions,
           selections: { group: selected?.choreId ?? null }, recipeId: selected ? sharedRecipeId(model.plan.groupId, selected.choreId) : undefined };

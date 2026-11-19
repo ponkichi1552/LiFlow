@@ -7,14 +7,14 @@ import { AppButton, Page, palette, typography } from '@/components/planner-ui';
 import { SettingsHeader } from '@/components/settings-header';
 import { ApplianceDetailContent } from '@/features/appliance-care/appliance-detail-content';
 import type { ApplianceCareReviewContext } from '@/platform/storage/repository';
-import { loadApplianceCareReviewContext } from '@/platform/storage/repository';
+import { loadApplianceCareReviewContext, setApplianceTaskCycle } from '@/platform/storage/repository';
 
 export default function ApplianceDetailScreen() {
   const params = useLocalSearchParams<{ id: string; returnTo?: string }>();
   const applianceId = Array.isArray(params.id) ? params.id[0] : params.id;
   const returnToParam = Array.isArray(params.returnTo) ? params.returnTo[0] : params.returnTo;
   const returnTo = returnToParam === '/chores' ? '/chores' : returnToParam === '/manual' ? '/manual' : undefined;
-  const { database } = usePlannerData({ personal: true });
+  const { database, refresh } = usePlannerData({ personal: true });
   const [saved, setSaved] = useState<{ id: string; context: ApplianceCareReviewContext | null; error?: string } | null>(null);
   const [retry, setRetry] = useState(0);
 
@@ -39,5 +39,12 @@ export default function ApplianceDetailScreen() {
   if (!saved || saved.id !== applianceId) return <Page header={header}><Text style={[typography.body, { color: palette.muted }]}>家電を読み込んでいます。</Text></Page>;
   if (!saved.context) return <Page header={header}><Text style={[typography.body, { color: palette.muted }]}>{saved.error ?? '家電が見つかりません。'}</Text>{saved.error ? <AppButton title="再読み込み" onPress={() => setRetry((value) => value + 1)} /> : null}</Page>;
 
-  return <ApplianceDetailContent context={saved.context} returnTo={returnTo} error={saved.error} database={database} />;
+  return <ApplianceDetailContent key={applianceId} context={saved.context} returnTo={returnTo} error={saved.error} database={database}
+    onReload={() => setRetry(value => value + 1)} onSaveCycle={async change => {
+      const chore = await setApplianceTaskCycle(database, applianceId, change);
+      setSaved(previous => previous && previous.id === applianceId && previous.context ? { ...previous, context: {
+        ...previous.context, chores: [...previous.context.chores.filter(current => current.id !== chore.id), chore],
+      } } : previous);
+      void refresh();
+    }} />;
 }

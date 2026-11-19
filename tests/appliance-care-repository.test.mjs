@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createDatabase } from './helpers/sqlite.mjs';
 import './helpers/typescript-loader.mjs';
 import test from 'node:test';
+import { ApplianceTaskCycleConflict, applianceTaskCadenceKey } from '../src/features/appliance-care/persistence-policy.ts';
 
 const repository = await import('../src/platform/storage/repository.ts');
 const { createPlannerRefreshController } = await import('../src/features/planner/refresh-controller.ts');
@@ -40,6 +41,44 @@ function product(productName, modelNumber) {
     manualUrl: `https://www.dyson.co.jp/support/journey/${modelNumber}`,
   };
 }
+
+test('setting and changing a single saved appliance cycle preserves the analysis and other chore settings', async t => {
+  const { database, connection } = createDatabase(); t.after(() => connection.close());
+  await repository.initializeLocalDatabase(database);
+  const identity = product('周期設定の掃除機', 'QA-CYCLE');
+  const conditional = task('汚れを確認', undefined, identity.manualUrl, '外側を拭く');
+  const recurring = task('フィルターを掃除', 30, identity.manualUrl, 'フィルターを外す');
+  const result = await repository.saveReviewedApplianceCare(database, identity, analysis('QA-CYCLE', [conditional, recurring], '2026-10-24T01:00:00.000Z'),
+    [{ task: conditional }, { task: recurring }]);
+  const id = result.applianceId;
+  const before = await repository.loadApplianceCareReviewContext(database, id);
+  assert.deepEqual(before.chores.map(chore => chore.applianceTaskName), [recurring.name]);
+  const save = (taskName, days, previous) => repository.setApplianceTaskCycle(database, id, {
+    analysisUpdatedAt: before.appliance.updatedAt, taskName, days, expectedCadence: applianceTaskCadenceKey(previous),
+  });
+  await assert.rejects(save(conditional.name, 0), RangeError);
+  const submissions = await Promise.allSettled([save(conditional.name, 14), save(conditional.name, 15)]);
+  const saved = submissions[0].value;
+  assert.equal(saved.userIntervalDays, 14);
+  assert.ok(submissions[1].reason instanceof ApplianceTaskCycleConflict);
+  assert.equal(saved.enabled, true);
+  assert.equal(connection.prepare('SELECT initial_pending FROM chore_state WHERE chore_id = ?').get(saved.id).initial_pending, 1);
+  assert.ok(connection.prepare('SELECT member_id FROM chore_assignments WHERE chore_id = ?').get(saved.id));
+  await repository.updateChoreDefinition(database, { ...saved, enabled: false, instructions: ['自分の手順'] });
+  connection.prepare(`INSERT INTO chore_completions (id, household_id, chore_id, completed_at, source, schedule_entry_id, outcome)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`).run('cycle-history', repository.LOCAL_HOUSEHOLD_ID, saved.id, '2026-10-20T10:00:00.000Z', 'inApp', 'cycle-history-entry', 'completed');
+  const changed = await save(conditional.name, 21, saved);
+  assert.equal(changed.id, saved.id);
+  assert.equal(changed.userIntervalDays, 21);
+  assert.equal(changed.enabled, false);
+  assert.deepEqual(changed.instructions, ['自分の手順']);
+  await assert.rejects(save(conditional.name, 15, saved), ApplianceTaskCycleConflict);
+  const after = await repository.loadApplianceCareReviewContext(database, id);
+  assert.deepEqual(after.appliance, before.appliance);
+  assert.deepEqual(after.chores.find(chore => chore.applianceTaskName === recurring.name), before.chores[0]);
+  assert.deepEqual(after.chores.find(chore => chore.id === saved.id), JSON.parse(JSON.stringify(changed)));
+  assert.ok(connection.prepare('SELECT id FROM chore_completions WHERE id = ?').get('cycle-history'));
+});
 
 test('appliance display names avoid a repeated manufacturer and preserve stored source data and custom names', async () => {
   const { connection, database } = createDatabase();

@@ -12,7 +12,7 @@ export type CalendarChoreEntry = {
   clocks?: ChoreClocks & { onChange(field: 'start' | 'end', minute: number): void };
   readInput?(): CalendarChoreInput;
 };
-export type CalendarSheetForm = { content: ReactNode; onSave?: () => void; disabled: boolean; busy: boolean; entry?: CalendarChoreEntry };
+export type CalendarSheetForm = { content: ReactNode; onSave?: () => void; disabled: boolean; busy: boolean; entry?: CalendarChoreEntry; hasInput?: boolean };
 
 /** A React boundary keeps render slots separate from the event handlers they receive. */
 export function CalendarSheetContent<T>({ render, form }: { render(form: T): ReactNode; form: T }) {

@@ -31,6 +31,7 @@ export function PersonalCalendarChoreRegistration({ local, ...sheet }: CalendarC
     endDate: sheet.initialInput?.value.endDate ?? sheet.initialValue?.endDate ?? sheet.date, allDay: sheet.initialInput?.value.allDay ?? sheet.initialValue?.allDay ?? false,
     startMinute: sheet.initialInput?.clocks.start ?? 540, endMinute: sheet.initialInput?.clocks.end ?? 600, clocks: sheet.initialInput?.clocks ?? emptyChoreClocks(),
     repeat: sheet.initialInput?.repeat ?? false, interval: sheet.initialInput?.interval ?? '7', monthly: sheet.initialInput?.monthly ?? false, ...initialCustomChoreOptions, ...sheet.initialInput?.options }));
+  const [initialDraft] = useState(draft);
   const input = useRef(draft); const pending = useRef(false); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
   const [initialOperation] = useState(newCalendarSubmissionId); const selected = useRef(selection); const operation = useRef(initialOperation);
   const [initialReading] = useState(() => { const reading = selection ? readPersonalCalendarChore(data.database, selection.id) : null; void reading?.catch(() => {}); return reading; });
@@ -85,7 +86,9 @@ export function PersonalCalendarChoreRegistration({ local, ...sheet }: CalendarC
       {draft.repeat && !selection ? <CustomChoreStepsField value={draft.steps} disabled={busy} onChange={steps => edit({ steps })} /> : null}
     </View> };
   return <CalendarEditor key={selection?.id ?? 'new'} local={local} initial={{ eventId: null, anchorDate: null, revision: 0, exceptionRevision: 0, scope: 'series', audience: 'personal', value: entry.value }}
-    choreForm={{ entry, busy, disabled: busy || !customChoreReady(draft.name, draft.repeat && !draft.monthly ? draft.interval : 1), onSave: () => void save(), content: error ? <Text accessibilityRole="alert" style={[typography.caption, { color: colors.warning }]}>{error}</Text> : null }}
+    choreForm={{ entry, busy, hasInput: Boolean(selection) || JSON.stringify(draft) !== JSON.stringify(initialDraft),
+      disabled: busy || !customChoreReady(draft.name, draft.repeat && !draft.monthly ? draft.interval : 1), onSave: () => void save(), content: error ? <Text accessibilityRole="alert" style={[typography.caption, { color: colors.warning }]}>{error}</Text> : null }}
     displayTimeZone={data.snapshot?.timeZone ?? 'Asia/Tokyo'} onChooseChore={() => setPickerOpen(true)} onClearChore={() => sheet.onCancel ? sheet.onCancel() : sheet.onBack()}
+    onChoreInputChange={sheet.onInputChange}
     onChoreAudience={audience => { if (!pending.current) { if (sheet.onAudienceChange) sheet.onAudienceChange(audience, readInput()); else sheet.onBack(audience); } }} onClose={sheet.onClose} onSaved={sheet.onSaved} />;
 }

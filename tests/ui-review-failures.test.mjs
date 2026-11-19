@@ -79,17 +79,18 @@ for (const platform of ['ios', 'android']) {
     await ui.press('Google連携を再読込'); await ui.flush();
     assert.match(ui.text(), /連携中/);
     changeScenario('sync-auth'); await ui.flush();
-    assert.match(ui.text(), /アカウントの確認が必要/);
-    await ui.press('共有家事を今すぐ同期');
+    assert.match(ui.text(), /再認証が必要/);
+    assert.doesNotMatch(ui.text(), /連携中|共有家事を今すぐ同期/);
     assert.match(ui.text(), /送信待ちは保持/);
     await ui.press('Googleアカウントを確認'); await ui.press('このアカウントで連携');
     assert.match(ui.text(), /更新1件/);
-    assert.doesNotMatch(ui.text(), /アカウントの確認が必要/);
+    assert.doesNotMatch(ui.text(), /再認証が必要/);
+    ui.button('共有家事を今すぐ同期');
   });
 
   test(`${platform} review startup hands both retry and the held loading state to the populated home fixture`, async t => {
     const { ui, changeScenario } = openReview(t, 'home-read', platform);
-    assert.match(ui.text(), /データを読み込めませんでした/);
+    assert.match(ui.text(), /端末に保存した家事を読み込めませんでした/);
     await ui.press('もう一度読み込む');
     assert.match(ui.text(), /ひより荘（サンプル）/);
     changeScenario('home-loading');

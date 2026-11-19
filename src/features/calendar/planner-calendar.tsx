@@ -642,11 +642,14 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
           titleAboveStart && { borderLeftWidth: 0, paddingLeft: compactTimeline ? 7 : 9 }, placement,
           { borderLeftColor: appearance.accent, backgroundColor: titleAboveStart ? palette.surface : appearance.backgroundColor },
           selected && !titleAboveStart && styles.selectedTimeline],
-        background: titleAboveStart && !stacked ? <View pointerEvents="none" testID={`calendar-duration-${item.row.id}`}
-          style={[styles.timedEventDuration, selected && styles.selectedTimeline, {
+        background: titleAboveStart ? <>
+          {!stacked ? <View pointerEvents="none" testID={`calendar-duration-${item.row.id}`}
+          style={[styles.timedEventDuration, {
             top: y(item.start - item.top), height: y(item.end - item.start),
             borderLeftColor: appearance.accent, backgroundColor: appearance.backgroundColor,
-          }]} /> : null,
+          }]} /> : null}
+          <View pointerEvents="none" style={[styles.timedEventTitleOutline, stacked && styles.stackedTimedEvent, selected && styles.selectedTimeline]} />
+        </> : null,
       };
     };
     const card = (item: TimelineEntry, placement: ViewStyle, content: ReactNode, stacked = false) => {
@@ -966,7 +969,7 @@ export function PlannerCalendar(props: PlannerCalendarProps) {
           const dateWaste = wasteForDate(day);
           const empty = !local?.loading && Boolean(dateWaste) && !japanesePublicHoliday(day) && !(dateWaste?.weeklyByColumn[parseLocalDate(day).getUTCDay()] ?? []).some(name => !dateWaste?.hiddenWeeklyByDate.get(day)?.includes(name)) && !(dateWaste?.byDate.get(day)?.length) && !events.length && (info?.total ?? info?.pending ?? 0) === 0 && info?.loaded !== false && !info?.partial && !local?.error && !projectionError;
           return empty ? (
-            <View style={[styles.agendaDay, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, minHeight: 44, gap: 8 }]}>
+            <View style={[styles.agendaDay, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 8, minHeight: 44, gap: 8 }]}>
               <Text style={styles.caption}>{formatJapaneseDate(day, { weekday: true })}</Text><Text style={styles.caption}>予定なし</Text>
             </View>
           ) : (
@@ -1108,6 +1111,8 @@ const baseStyles = StyleSheet.create({
   compactTimedEvent: { paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4 },
   stackedTimedEvent: { borderLeftWidth: 0, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 },
   timedEventDuration: { position: 'absolute', left: 0, right: 0, borderLeftWidth: 3 },
+  timedEventTitleOutline: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.inputBorder, borderRadius: 5 },
   timedContent: { flex: 1 },
   compactTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 2 }, compactTitle: { flex: 1, minWidth: 0 },
   weekTimedTitle: { fontSize: 11, lineHeight: 14, fontWeight: '600', includeFontPadding: false }, threeTimedTitle: { fontSize: 13, lineHeight: 16, fontWeight: '600', includeFontPadding: false },

@@ -18,12 +18,13 @@ export async function pickApplianceManual(): Promise<{ name: string; base64: str
   }
 }
 
-export function ManualUploadInput({ onChange, onPickingChange, disabled = false, retained, filename }: {
+export function ManualUploadInput({ onChange, onPickingChange, disabled = false, retained, filename, needsReplacement = false }: {
   onChange(manual: UploadedManualInput | undefined, filename?: string): void;
   onPickingChange?(picking: boolean): boolean | void;
   disabled?: boolean;
   retained?: UploadedManualInput;
   filename?: string;
+  needsReplacement?: boolean;
 }) {
   const [pickedName, setPickedName] = useState<string>();
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
@@ -31,7 +32,7 @@ export function ManualUploadInput({ onChange, onPickingChange, disabled = false,
   const selectedName = filename ?? pickedName ?? (retained ? '保存済みの取扱説明書' : null);
   return <View style={{ gap: 8 }}>
     {selectedName ? <Text style={[typography.body, { color: palette.ink }]} numberOfLines={2}>{selectedName}</Text> : null}
-    <AppButton variant="surface" title={busy ? 'PDFを読み込んでいます…' : selectedName ? 'PDFを変更' : '取扱説明書PDFを選ぶ'} disabled={disabled || busy}
+    <AppButton variant={needsReplacement ? 'primary' : 'surface'} title={busy ? 'PDFを読み込んでいます…' : selectedName ? 'PDFを変更' : '取扱説明書PDFを選ぶ'} disabled={disabled || busy}
       onPress={() => {
         if (picking.current || disabled || onPickingChange?.(true) === false) return;
         picking.current = true; setBusy(true); setError(null);

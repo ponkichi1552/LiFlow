@@ -17,21 +17,21 @@ import { V2GoogleTasksScreen, type V2GoogleTaskUiRuntime } from '../../sharing/v
 import { HomeReview } from './home-review';
 
 export const failureReviewScenarios = [
-  { id: 'home-read', label: 'ホームの読み込み失敗' },
-  { id: 'home-loading', label: 'ホームの読み込み中' },
-  { id: 'search-history', label: '予定検索で履歴を取得できない' },
-  { id: 'search-partial', label: '予定検索で一部だけ取得' },
-  { id: 'search-empty', label: '予定検索の一致が0件' },
-  { id: 'notification-denied', label: '端末で通知を拒否' },
-  { id: 'sync-read', label: 'Google連携の読み込み失敗' },
-  { id: 'sync-auth', label: 'Googleの再認証が必要' },
-] as const satisfies readonly { id: string; label: string }[];
+  { id: 'home-read', label: 'ホームの読み込み失敗', screenTitle: 'ホーム' },
+  { id: 'home-loading', label: 'ホームの読み込み中', screenTitle: 'ホーム' },
+  { id: 'search-history', label: '予定検索で履歴を取得できない', screenTitle: '予定の検索' },
+  { id: 'search-partial', label: '予定検索で一部だけ取得', screenTitle: '予定の検索' },
+  { id: 'search-empty', label: '予定検索の一致が0件', screenTitle: '予定の検索' },
+  { id: 'notification-denied', label: '端末で通知を拒否', screenTitle: '通知設定' },
+  { id: 'sync-read', label: 'Google連携の読み込み失敗', screenTitle: 'Google連携' },
+  { id: 'sync-auth', label: 'Googleの再認証が必要', screenTitle: 'Google連携' },
+] as const;
 
 type Scenario = typeof failureReviewScenarios[number]['id'];
 type SearchScenario = Extract<Scenario, `search-${string}`>;
 type SyncScenario = Extract<Scenario, `sync-${string}`>;
 
-export function FailureReview({ scenario }: { scenario: string }) {
+export function FailureReview({ scenario, onExit }: { scenario: string; onExit?(): void }) {
   switch (scenario) {
     case 'home-read':
     case 'home-loading':
@@ -39,7 +39,7 @@ export function FailureReview({ scenario }: { scenario: string }) {
     case 'search-history':
     case 'search-partial':
     case 'search-empty':
-      return <SearchReview key={scenario} scenario={scenario} />;
+      return <SearchReview key={scenario} scenario={scenario} onExit={onExit} />;
     case 'notification-denied':
       return <PermissionReview />;
     case 'sync-read':
@@ -84,14 +84,14 @@ function createSearchBinding(scenario: SearchScenario): LocalCalendarBinding {
   };
 }
 
-function SearchReview({ scenario }: { scenario: SearchScenario }) {
+function SearchReview({ scenario, onExit }: { scenario: SearchScenario; onExit?(): void }) {
   const [open, setOpen] = useState(true);
   const [selected, setSelected] = useState<CalendarSearchDestination>();
   const [local, setLocal] = useState(() => createSearchBinding(scenario));
   if (open) return <CalendarSearchContent local={local} initialQuery={scenario === 'search-empty' ? '棚卸し' : '点検'}
     focusDate={focusDate} displayTimeZone={timeZone} shortenTitles
     resolveSelection={(draft, events, exceptions) => calendarSearchDestination(draft, events, exceptions, focusDate, timeZone)}
-    onClose={() => setOpen(false)} onSelect={destination => { setSelected(destination); setOpen(false); }} />;
+    onClose={onExit ?? (() => setOpen(false))} onSelect={destination => { setSelected(destination); setOpen(false); }} />;
   const match = storedEvents.find(event => event.startDate === selected?.date);
   return <View style={styles.content}>
     {match ? <SettingsGroup compact title={match.title}><SettingsStatus>{formatJapaneseDate(match.startDate, { year: true })}</SettingsStatus></SettingsGroup> : null}

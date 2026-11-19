@@ -12,13 +12,13 @@ import { usePlannerBorderStyles } from './use-planner-border-styles';
 import { plannerColorsForScheme } from './planner-theme';
 
 export function TaskCheckboxRow({ chore, completed = false, deemphasized = false, source, urgent = false,
-  onToggle, onOpen, onChangeDate, home = false, immediateCheckbox = false, compact = false, narrowCalendar = false, provisional = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow, seasonalWork, calendarTimeLabel }: {
+  onToggle, onOpen, onChangeDate, home = false, immediateCheckbox = false, compact = false, narrowCalendar = false, provisional = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow, seasonalWork, calendarTimeLabel, homeSourceLabel }: {
   chore: ChoreDefinition; completed?: boolean; deemphasized?: boolean; source?: 'personal' | 'shared' | 'instructed';
   urgent?: boolean; onToggle?: () => boolean | void | Promise<void>; onOpen: () => void; onChangeDate?: () => void; home?: boolean; immediateCheckbox?: boolean; compact?: boolean; provisional?: boolean; mixedSources?: boolean;
   executionWindow?: { start: LocalDate; end: LocalDate };
   seasonalWork?: ChoreScheduleEntry['seasonalWork'];
   detail?: string; detailsExpanded?: boolean; lastInList?: boolean; contextLabel?: string; action?: ReactNode; footer?: ReactNode; sourceIcon?: 'person' | 'group';
-  calendarTimeLabel?: string; narrowCalendar?: boolean;
+  calendarTimeLabel?: string; narrowCalendar?: boolean; homeSourceLabel?: '個人' | '共有';
 }) {
   const styles = usePlannerBorderStyles(baseStyles);
   const colors = plannerColorsForScheme(useColorScheme());
@@ -39,7 +39,8 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
     checkedLayer.current.setNativeProps({ style: { opacity: completed ? 0 : 1 } });
   } : onToggle;
   const name = choreOccurrenceName(chore.name, seasonalWork);
-  const actionName = `${name}${contextLabel ? `（${contextLabel}）` : ''}`;
+  const qualifier = homeSourceLabel && contextLabel ? `${homeSourceLabel}・${contextLabel}` : homeSourceLabel ?? contextLabel;
+  const actionName = qualifier ? `${name}（${qualifier}）` : name;
   const minutes = Number.isFinite(chore.estimatedMinutes) && chore.estimatedMinutes! > 0 ? `約${chore.estimatedMinutes}分` : '';
   const period = executionWindow && executionWindow.start !== executionWindow.end
     ? `${formatJapaneseDate(executionWindow.start)}〜${formatJapaneseDate(executionWindow.end)}` : undefined;
@@ -86,7 +87,7 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
         {source === 'shared' || source === 'instructed' ? <View style={styles.sourceIcon}>{sourceIcon === 'person' ? <PersonIcon size={15} /> : <GroupIcon size={22} />}</View> : null}
         {source === 'personal' && mixedSources ? <View style={styles.sourceIcon}><PersonIcon size={15} /></View> : null}
         <Text style={[styles.category, urgent && !completed && styles.urgentText, completed && styles.completedCategory]}>{[
-          source === 'instructed' ? '日時指定' : '', minutes,
+          homeSourceLabel, source === 'instructed' ? '日時指定' : '', minutes,
           urgent && !completed ? '期限間近' : '', executionWindow && period ? calendarPeriodLabel(executionWindow.start, executionWindow.end) : undefined, detail,
         ].filter(Boolean).join(' · ')}</Text>
       </View> : source || urgent || chore.category || period ? <View style={styles.metadata}><Text style={[styles.category, completed && styles.completedCategory]}>{[

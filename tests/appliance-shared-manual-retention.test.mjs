@@ -193,7 +193,7 @@ for (const override of [undefined, 60]) test(`personal copied appliance details 
   await retainSharedApplianceCopies(h.database, groupId, [{ appliance, manual: input.manual.base64 }], () => {});
   const context = await repository.loadApplianceCareReviewContext(h.database, saved.applianceId); const chore = context.chores[0];
   const screen = screenHarness('src/features/appliance-care/appliance-detail-content.tsx', { exportName: 'MaintenanceTaskCard', props: { task: context.appliance.analysis.tasks[0], chore, frequencyMode: context.frequencyMode, index: 0 } });
-  assert.ok(screen.text().includes('メーカー推奨：90日')); assert.ok(screen.text().includes(`予定周期：${override ?? 30}日`));
+  assert.ok(screen.text().includes('メーカー推奨：90日')); assert.ok(screen.text().includes(`${override ?? 30}日ごと`));
   const entries = generateHouseworkSchedule({ chores: [chore], states: [{ choreId: chore.id, lastCompletedDate: '2026-10-01' }], completions: [], dependencies: [], assignments: [],
     settings: { frequencyMode: 'balanced', restDays: [], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 2 } }, today: '2026-10-02', from: '2026-10-02', through: '2026-12-31' });
   assert.equal(entries[0].cycleBaseDate, override ? '2026-11-30' : '2026-10-31');

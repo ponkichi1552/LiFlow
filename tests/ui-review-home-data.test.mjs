@@ -67,6 +67,10 @@ for (const platform of ['ios', 'android']) {
     const screen = device(platform, 'mixed');
     t.after(() => screen.unmount());
     assert.match(screen.text(), /4件中1件/);
+    checkbox(screen, '洗面台の清掃（個人）を完了');
+    checkbox(screen, '洗面台の清掃（共有）を完了');
+    assert.match(screen.text(), /個人 · 約5分/);
+    assert.match(screen.text(), /共有 · 約5分/);
     await screen.press('担う');
     assert.doesNotMatch(screen.text(), /担う/);
     await screen.press('期限を過ぎた家事（1件）を開く');

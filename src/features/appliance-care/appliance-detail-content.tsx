@@ -1,28 +1,34 @@
 import { router } from 'expo-router';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from '@/components/screen-safe-area';
 
 import { ProcedureStep } from '../../components/procedure-step';
 import { AppButton, Card, NavigationHeader, palette, typography } from '@/components/planner-ui';
 import { SettingsHeader } from '@/components/settings-header';
+import { SettingsAction } from '@/components/settings-controls';
 import type { ChoreDefinition, FrequencyMode } from '@/domain/chores/types';
-import { registeredChoreCycleDays } from '../../domain/chores/cycle-policy';
-import type { ApplianceCareReviewContext } from '@/platform/storage/repository';
+import { choreCadenceLabel, registeredChoreCycleDays } from '../../domain/chores/cycle-policy';
+import type { ApplianceCareReviewContext, ApplianceTaskCycleChange } from '@/platform/storage/repository';
 import { isRenderableApplianceAnalysis } from './analysis-validation';
 import { applianceDisplayName, appliancePrimaryName, applianceSecondaryLabel } from './display-name';
 import { applianceAnalysisDate } from './analysis-date';
 import { ApplianceTaskBook } from './appliance-task-book';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { ApplianceManualAction } from './appliance-manual-action';
+import { ApplianceCycleEditor } from './appliance-cycle-editor';
+import { applianceTaskCadenceKey, findApplianceTaskChore } from './persistence-policy';
 
-export function ApplianceDetailContent({ context, returnTo, error, database }: {
+export function ApplianceDetailContent({ context, returnTo, error, database, onSaveCycle, onReload }: {
   context: ApplianceCareReviewContext;
   returnTo?: '/manual' | '/chores';
   error?: string;
   database?: SQLiteDatabase;
+  onSaveCycle?(change: ApplianceTaskCycleChange): Promise<void>;
+  onReload?(): void;
 }) {
-  const { appliance, chores } = context;
+  const { appliance, chores, frequencyMode = 'balanced' } = context;
+  const [editing, setEditing] = useState<{ change: Omit<ApplianceTaskCycleChange, 'days'>; initialDays?: number }>();
   const manualDigest = appliance.analysis?.manualSource?.sha256;
   const productName = applianceDisplayName(appliance, appliance.displayName);
   const primaryName = appliancePrimaryName(appliance, productName);
@@ -37,7 +43,7 @@ export function ApplianceDetailContent({ context, returnTo, error, database }: {
         <AppButton title="この家電を再解析" variant="secondary" onPress={reanalyze} /></Card>
     </View>
   </SafeAreaView>;
-  return <ApplianceTaskBook tasks={appliance.analysis.tasks} label={primaryName} hasTabBar
+  return <><ApplianceTaskBook tasks={appliance.analysis.tasks} label={primaryName} hasTabBar
         onBack={goBack} backAccessibilityLabel="一覧へ戻る" header={<View style={styles.listHeader}>
         {error ? <Text style={styles.invalidLink}>{error}</Text> : null}
         <Text accessibilityRole="header" style={styles.modelTitle}>{primaryName}</Text>
@@ -46,36 +52,45 @@ export function ApplianceDetailContent({ context, returnTo, error, database }: {
         <Text style={styles.note}>お手入れ {appliance.analysis.tasks.length}項目</Text>
         </View>}
         renderTask={task => {
-          const chore = chores.find((item) => item.applianceTaskName === task.name);
-          return <MaintenanceTaskCard task={task} chore={chore} frequencyMode={context.frequencyMode} />;
+          const chore = findApplianceTaskChore(appliance, chores, task.name);
+          const edit = onSaveCycle ? () => {
+            if (chore?.personalSchedule?.once || chore?.personalSchedule?.monthlyDay !== undefined) {
+              router.push({ pathname: '/settings/chore/[id]', params: { id: chore.id, source: 'personal' } });
+            } else setEditing({ change: { taskName: task.name, analysisUpdatedAt: appliance.updatedAt, expectedCadence: applianceTaskCadenceKey(chore) },
+              initialDays: chore ? registeredChoreCycleDays(chore, frequencyMode) : undefined });
+          } : undefined;
+          return <MaintenanceTaskCard task={task} chore={chore} frequencyMode={frequencyMode} onCycleEdit={edit} />;
         }}
         footer={<View style={styles.listHeader}>
           <Text style={styles.note}>最終解析：{applianceAnalysisDate(appliance.analysis.analyzedAt)}</Text>
           <AppButton title="この家電を再解析" onPress={reanalyze} variant="quiet" />
         </View>}
-      />;
+      />{editing && onSaveCycle ? <ApplianceCycleEditor taskName={editing.change.taskName} initialDays={editing.initialDays}
+        onSave={days => onSaveCycle({ ...editing.change, days })} onReload={onReload} onClose={() => setEditing(undefined)} /> : null}</>;
 }
 
-export function MaintenanceTaskCard({ task, chore, schedule, frequencyMode = 'balanced' }: {
+export function MaintenanceTaskCard({ task, chore, schedule, frequencyMode = 'balanced', onCycleEdit }: {
   task: ApplianceCareReviewContext['appliance']['analysis']['tasks'][number];
   chore?: ChoreDefinition;
   /** Shared workspaces supply their own cadence status; a maker interval is not a shared schedule. */
   schedule?: ReactNode;
   frequencyMode?: FrequencyMode;
+  onCycleEdit?(): void;
 }) {
   const manufacturerDays = task.recommendedIntervalDays;
-  const userDays = chore?.userIntervalDays ?? chore?.recommendedCycleDays;
   const actualDays = chore ? registeredChoreCycleDays(chore, frequencyMode) : undefined;
-  const noSchedule = actualDays === undefined;
+  const scheduled = chore && (actualDays !== undefined || chore.personalSchedule?.once || chore.personalSchedule?.monthlyDay !== undefined);
   return (
     <Card>
       <Text accessibilityRole="header" style={styles.taskTitle}>{task.name}</Text>
-      {schedule === undefined ? <Text style={styles.note}>{noSchedule ? '定期予定なし' : `予定周期：${actualDays}日${chore?.enabled ? '' : '（オフ）'}`}</Text> : null}
+      {schedule === undefined ? <View style={styles.cadence}>
+        <Text style={[styles.note, styles.cadenceText]}>{scheduled ? `${choreCadenceLabel(chore, frequencyMode)}${chore.enabled ? '' : '（オフ）'}` : '定期予定なし'}</Text>
+        {onCycleEdit ? <SettingsAction title={scheduled ? '周期を変更' : '周期を設定'} intent="auxiliary" onPress={onCycleEdit} /> : null}
+      </View> : null}
       {task.recommendedConditions?.length || manufacturerDays !== undefined ? <View style={styles.supportingBlock}>
         <Text style={styles.supportingTitle}>実施の目安</Text>
         {manufacturerDays !== undefined ? <Text style={styles.body}>メーカー推奨：{manufacturerDays}日</Text> : null}
         {task.recommendedConditions?.map((condition) => <Text key={condition} style={styles.body}>• {condition}</Text>)}
-        {schedule === undefined && userDays !== undefined && userDays !== manufacturerDays ? <Text style={styles.note}>あなたの設定：{userDays}日</Text> : null}
       </View> : null}
       {task.steps.map((step, stepIndex) => <ProcedureStep key={`${stepIndex}-${step}`} step={step} index={stepIndex} />)}
       {task.tools.length ? <View style={styles.supportingBlock}><Text style={styles.supportingTitle}>必要な道具</Text><Text style={styles.body}>{task.tools.join('、')}</Text></View> : null}
@@ -99,6 +114,8 @@ const styles = StyleSheet.create({
   taskTitle: { ...typography.subheading, color: palette.ink, fontWeight: '700' },
   body: { ...typography.body, color: palette.muted },
   note: { ...typography.caption, color: palette.muted },
+  cadence: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  cadenceText: { flexShrink: 1 },
   supportingBlock: { gap: 4, marginTop: 4 },
   supportingTitle: { ...typography.label, color: palette.ink, fontWeight: '700' },
   cautionBox: { gap: 4, padding: 12, borderRadius: 12, backgroundColor: palette.warningSoft },

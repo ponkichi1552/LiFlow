@@ -49,8 +49,9 @@ import type { Appliance, ApplianceCareAnalysisDraft } from '@/features/appliance
 import type { UploadedManualInput } from '@/features/appliance-care/api-contracts';
 import { storeApplianceManualInside } from './appliance-manual-storage';
 import { applianceDisplayName } from '@/features/appliance-care/display-name';
-import type { ApprovedApplianceCareTask, ApplianceCareProductIdentity } from '@/features/appliance-care/to-chore-definition';
-import { planReviewedApplianceSave } from '@/features/appliance-care/persistence-policy';
+import { toApplianceCareChore, type ApprovedApplianceCareTask, type ApplianceCareProductIdentity } from '@/features/appliance-care/to-chore-definition';
+import { ApplianceTaskCycleConflict, applianceTaskCadenceKey, findApplianceTaskChore, planReviewedApplianceSave } from '@/features/appliance-care/persistence-policy';
+import { isRenderableApplianceAnalysis } from '@/features/appliance-care/analysis-validation';
 import type { WeatherScheduleOutcome } from '@/features/weather/optimize-laundry-schedule';
 import { optimizeLaundryScheduleForWeather } from '@/features/weather/optimize-laundry-schedule';
 import { WEATHER_FORECAST_CACHE_TTL_MS } from '@/features/weather/contracts';
@@ -1302,6 +1303,13 @@ async function updateChoreDefinitionImpl(
   database: SQLiteDatabase,
   definition: ChoreDefinition,
 ): Promise<void> {
+  await withAdaptiveOwnerTransaction(database, () => updateChoreDefinitionInside(database, definition));
+}
+
+async function updateChoreDefinitionInside(
+  database: SQLiteDatabase,
+  definition: ChoreDefinition,
+): Promise<void> {
   if (definition.archived) throw new Error('この家事は現在の家事一覧から削除されています。');
   const previous = await database.getFirstAsync<{ enabled: number; definition_json: string }>(
     'SELECT enabled, definition_json FROM chore_definitions WHERE id = ? AND household_id = ?', definition.id, LOCAL_HOUSEHOLD_ID,
@@ -1313,23 +1321,20 @@ async function updateChoreDefinitionImpl(
   if (savedDefinition.personalRecipeId && (definition.personalRecipeId !== savedDefinition.personalRecipeId || definition.personalSchedulingKind !== savedDefinition.personalSchedulingKind
     || JSON.stringify(definition.personalScheduleDefaults) !== JSON.stringify(savedDefinition.personalScheduleDefaults))) throw new Error('家事の初期設定を上書きできません。');
   if (definition.enabled && definition.requiresCycleSelection) throw new Error('周期を設定してから有効にしてください。');
-  const scheduleChanged = choreScheduleSignature(JSON.parse(previous.definition_json) as ChoreDefinition)
-    !== choreScheduleSignature(definition);
-  await withAdaptiveOwnerTransaction(database, async () => {
-    if (definition.personalRecipeId && definition.enabled) await disablePersonalCatalogAlternativesInside(database, [definition.id]);
-    await database.runAsync(
-      'UPDATE chore_definitions SET name = ?, enabled = ?, definition_json = ? WHERE id = ?',
-      definition.name, definition.enabled ? 1 : 0, JSON.stringify(definition), definition.id,
-    );
-    // Cached overdue periods otherwise retain the old width after a scheduling setting is edited.
-    if (scheduleChanged) await database.runAsync('DELETE FROM chore_schedule_entries WHERE chore_id = ?', definition.id);
-    if (definition.enabled && !previous.enabled) {
-      // Re-enabling an unstarted chore creates a new first plan from today; real completion history is retained.
-      await database.runAsync(`UPDATE chore_state SET initial_pending = 1, initial_scheduled_date = NULL,
-        unknown_reason = COALESCE(unknown_reason, 'unknown') WHERE chore_id = ? AND last_completed_date IS NULL`, definition.id);
-    }
-    if (usesPersonalAdaptivePlanner(definition) && scheduleChanged) await synchronizeAdaptiveRepositoryInside(database);
-  });
+  const scheduleChanged = choreScheduleSignature(savedDefinition) !== choreScheduleSignature(definition);
+  if (definition.personalRecipeId && definition.enabled) await disablePersonalCatalogAlternativesInside(database, [definition.id]);
+  await database.runAsync(
+    'UPDATE chore_definitions SET name = ?, enabled = ?, definition_json = ? WHERE id = ?',
+    definition.name, definition.enabled ? 1 : 0, JSON.stringify(definition), definition.id,
+  );
+  // Cached overdue periods otherwise retain the old width after a scheduling setting is edited.
+  if (scheduleChanged) await database.runAsync('DELETE FROM chore_schedule_entries WHERE chore_id = ?', definition.id);
+  if (definition.enabled && !previous.enabled) {
+    // Re-enabling an unstarted chore creates a new first plan from today; real completion history is retained.
+    await database.runAsync(`UPDATE chore_state SET initial_pending = 1, initial_scheduled_date = NULL,
+      unknown_reason = COALESCE(unknown_reason, 'unknown') WHERE chore_id = ? AND last_completed_date IS NULL`, definition.id);
+  }
+  if (usesPersonalAdaptivePlanner(definition) && scheduleChanged) await synchronizeAdaptiveRepositoryInside(database);
 }
 
 /** Only the enabled flags/cache change; replacing an aggregate never erases its settings or history. Caller owns the transaction. */
@@ -1409,6 +1414,50 @@ async function saveReviewedApplianceCareImpl(
     await synchronizeAdaptiveRepositoryInside(database);
   });
   return plan.result;
+}
+
+export interface ApplianceTaskCycleChange {
+  analysisUpdatedAt: string;
+  taskName: string;
+  expectedCadence: string | null;
+  days: number;
+}
+
+async function setApplianceTaskCycleImpl(database: SQLiteDatabase, id: EntityId, input: ApplianceTaskCycleChange): Promise<ChoreDefinition> {
+  if (!Number.isSafeInteger(input.days) || input.days < 1 || input.days > 3650) throw new RangeError('周期は1〜3650日で入力してください。');
+  await assertPersonalPlannerDatabase(database);
+  return withIsolatedSqliteTransaction(database, async transaction => {
+    const context = await loadApplianceCareReviewContextImpl(transaction, id);
+    if (!context || context.appliance.updatedAt !== input.analysisUpdatedAt || !isRenderableApplianceAnalysis(context.appliance.analysis)) {
+      throw new ApplianceTaskCycleConflict('家電の情報が更新されました。読み直してから設定してください。');
+    }
+    const { appliance, chores } = context;
+    const task = appliance.analysis.tasks.find(task => task.name === input.taskName);
+    if (!task) throw new ApplianceTaskCycleConflict('このお手入れ項目は更新されました。');
+    const current = findApplianceTaskChore(appliance, chores, task.name);
+    if (applianceTaskCadenceKey(current) !== input.expectedCadence || current?.personalSchedule?.once || current?.personalSchedule?.monthlyDay !== undefined) {
+      throw new ApplianceTaskCycleConflict('周期が更新されました。読み直してから設定してください。');
+    }
+    if (current) {
+      const updated = applyPersonalChoreSettingsPatch(current, {
+        cycleDays: input.days === current.manufacturerRecommendedIntervalDays ? null : input.days,
+        ...(current.requiresCycleSelection ? { enabled: true } : {}),
+      });
+      await updateChoreDefinitionInside(transaction, updated);
+      return updated;
+    }
+    const definition = toApplianceCareChore(createId('appliance-care'), LOCAL_HOUSEHOLD_ID,
+      { ...appliance, applianceId: id, manualUrl: appliance.officialManualUrl }, appliance.analysis, { task, userIntervalDays: input.days });
+    if (await transaction.getFirstAsync('SELECT id FROM chore_definitions WHERE household_id = ? AND name = ?', LOCAL_HOUSEHOLD_ID, definition.name)) {
+      throw new Error('同じ名前の家事があります。家事一覧から設定を確認してください。');
+    }
+    await transaction.runAsync('INSERT INTO chore_definitions (id, household_id, name, enabled, definition_json) VALUES (?, ?, ?, 1, ?)',
+      definition.id, definition.householdId, definition.name, JSON.stringify(definition));
+    await transaction.runAsync('INSERT INTO chore_state (chore_id, initial_pending, unknown_reason) VALUES (?, 1, ?)', definition.id, 'skipped');
+    await transaction.runAsync('INSERT INTO chore_assignments (chore_id, member_id) VALUES (?, ?)', definition.id, LOCAL_MEMBER_ID);
+    await synchronizeAdaptiveRepositoryInside(transaction);
+    return definition;
+  });
 }
 
 async function setChoreEnabledImpl(database: SQLiteDatabase, choreId: EntityId, enabled: boolean): Promise<void> {
@@ -2794,6 +2843,7 @@ export const registerPersonalCalendarChore = serializePlannerOperation(registerP
 export const updateChoreSettings = serializeDatabaseOperation(updateChoreSettingsImpl, 'updateChoreSettings');
 export const resetAllChoreSchedules = serializeDatabaseOperation(resetAllChoreSchedulesImpl);
 export const saveReviewedApplianceCare = serializePlannerOperation(saveReviewedApplianceCareImpl, 'saveReviewedApplianceCare');
+export const setApplianceTaskCycle = serializePlannerOperation(setApplianceTaskCycleImpl);
 export const setChoreEnabled = serializePlannerOperation(setChoreEnabledImpl, 'setChoreEnabled');
 export const setChoresEnabled = serializePlannerOperation(setChoresEnabledImpl, 'setChoresEnabled');
 export const completeChore = serializePlannerOperation(completeChoreImpl, 'completeChore');

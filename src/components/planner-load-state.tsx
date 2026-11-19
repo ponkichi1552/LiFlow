@@ -17,10 +17,10 @@ export function PlannerLoadState({ title, message, error, retry, onBack }: {
   };
   return (
     <Page startupReady={Boolean(error)} header={onBack ? <BackButton onPress={onBack} /> : undefined}>
-      <ScreenHeading title={title} description={error ? 'データを読み込めませんでした。' : message} />
+      <ScreenHeading title={title} description={error ? undefined : message} />
       {error ? (
         <Card>
-          <Text style={{ color: palette.warning }}>{error}</Text>
+          <Text accessibilityRole="alert" style={{ color: palette.warning }}>{error}</Text>
           <AppButton title={retrying ? '再読み込み中…' : 'もう一度読み込む'} onPress={() => void retryLoad()} disabled={retrying} />
         </Card>
       ) : null}
