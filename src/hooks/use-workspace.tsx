@@ -70,7 +70,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             // Present only authenticated local ciphertext. This does not construct
             // a writable workspace or skip the real restoration/authority checks.
             showStartupDisplay({ record, model }); setReady(true);
-            await waitForInitialFrame();
+            await waitForInitialFrame(true);
             if (!await check()) return;
           }
         }
@@ -107,9 +107,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         const saved = await traceStartup('workspace.savedStartup', readSavedStartupDisplay).catch(() => undefined);
         if (saved && alive.current && revision.current === 0) {
           showStartupDisplay(saved); setGroup(saved.record); setUserId(saved.record.userId); setReady(true);
-          await waitForInitialFrame();
+          await waitForInitialFrame(true);
         }
-        const selected = await readSharingSelection();
+        // The saved display already rechecked this protected selection. The
+        // session opened below still revalidates identity and current membership.
+        const selected = saved?.record ?? await readSharingSelection();
         const enabled = selected || await hasSharingSessionEnabled();
         if (enabled && !selected && await traceStartup('workspace.personalStartup', canShowPersonalStartup)
           && alive.current && revision.current === 0) {

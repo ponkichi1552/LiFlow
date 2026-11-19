@@ -56,3 +56,22 @@ test('a visible cached screen gets its normal frame opportunity before restorati
     advance(); await value; assert.equal(done, true); assert.equal(pending.size, 0);
   } finally { globalThis.requestAnimationFrame = previous; globalThis.cancelAnimationFrame = cancel; }
 });
+
+test('cached authentication can yield startup frames before starting its background work', async () => {
+  const previousFrame = globalThis.requestAnimationFrame, previousIdle = globalThis.requestIdleCallback;
+  const previousCancel = globalThis.cancelAnimationFrame;
+  let frame, idle, started = false;
+  globalThis.requestAnimationFrame = callback => { frame = callback; return 1; };
+  globalThis.cancelAnimationFrame = () => {};
+  globalThis.requestIdleCallback = callback => { idle = callback; return 1; };
+  try {
+    const restored = waitForInitialFrame(true).then(() => { started = true; });
+    frame(); frame();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(started, false);
+    idle(); await restored;
+    assert.equal(started, true);
+  } finally {
+    globalThis.requestAnimationFrame = previousFrame; globalThis.requestIdleCallback = previousIdle; globalThis.cancelAnimationFrame = previousCancel;
+  }
+});

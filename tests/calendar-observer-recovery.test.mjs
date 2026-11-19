@@ -119,6 +119,46 @@ test('calendar month scrolling under the history cap issues no additional databa
   } finally { small.unmount(); }
 });
 
+test('the first active announcement shares the calendar startup read and returning from background refreshes it', async () => {
+  const empty = { events: [], categories: [], exceptions: [], draft: null, drafts: [] };
+  let reads = 0, changeState, release;
+  const screen = screenHarness('tests/fixtures/calendar-observer-screen.tsx', {
+    database: {}, effectDependencies: true, effect: fn => fn(), layoutEffect: fn => fn(), appStateListener: listener => { changeState = listener; },
+    mocks: { '../../platform/storage/calendar-events': { EMPTY_LOCAL_CALENDAR: empty,
+      readLocalCalendar: async () => ++reads === 1 ? new Promise(resolve => { release = () => resolve(empty); }) : empty,
+      subscribeLocalCalendar: () => () => {}, readLocalCalendarDrafts: async () => empty },
+    './use-personal-google-sync': { usePersonalGoogleSync: () => () => {} } },
+  });
+  try {
+    await screen.flush(); changeState('active'); release(); await screen.flush();
+    assert.equal(reads, 1);
+    changeState('background'); changeState('active'); await screen.flush();
+    assert.equal(reads, 2);
+  } finally { release?.(); screen.unmount(); }
+});
+
+test('opening calendar from a cached home starts its read immediately and consumes the deferred prefetch', async () => {
+  const empty = { events: [], categories: [], exceptions: [], draft: null, drafts: [] };
+  const props = { observeOnly: true };
+  let reads = 0, releaseIdle;
+  const idle = new Promise(resolve => { releaseIdle = resolve; });
+  const screen = screenHarness('tests/fixtures/calendar-observer-screen.tsx', {
+    props, database: {}, effectDependencies: true, effect: fn => fn(), layoutEffect: fn => fn(),
+    mocks: { '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { startupDisplay: {} } } },
+      '../planner/initial-display-gate': { waitForInitialFrame: () => idle },
+      '../../platform/storage/calendar-events': { EMPTY_LOCAL_CALENDAR: empty,
+        readLocalCalendar: async () => { reads++; return { ...empty, events: [{ title: 'Calendar event' }] }; },
+        subscribeLocalCalendar: () => () => {}, readLocalCalendarDrafts: async () => empty },
+      './use-personal-google-sync': { usePersonalGoogleSync: () => () => {} } },
+  });
+  try {
+    await screen.flush(); assert.equal(reads, 0);
+    props.observeOnly = false; screen.render(); await screen.flush();
+    assert.equal(reads, 1); assert.match(screen.text(), /Calendar event/);
+    releaseIdle(); await screen.flush(); assert.equal(reads, 1);
+  } finally { releaseIdle?.(); screen.unmount(); }
+});
+
 test('switching calendar databases hides the previous database snapshot before the next read resolves', async () => {
   const first = {}, second = {}; let release;
   const empty = { events: [], categories: [], exceptions: [], draft: null, drafts: [] };

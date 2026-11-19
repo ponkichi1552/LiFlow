@@ -89,6 +89,12 @@ export function initializeSharingRegistry(database: SQLiteDatabase): Promise<voi
       user_id TEXT PRIMARY KEY NOT NULL,
       group_id TEXT
     );
+    CREATE TABLE IF NOT EXISTS sharing_startup_display (
+      user_id TEXT NOT NULL,
+      group_id TEXT NOT NULL,
+      encrypted_json TEXT NOT NULL,
+      PRIMARY KEY(user_id, group_id)
+    );
   `));
 }
 
@@ -161,21 +167,38 @@ export function readSharingWorkspace(database: SQLiteDatabase, userId: string, g
   });
 }
 
-/** Candidate for the separately authenticated display cache only. Never supplies live membership authority. */
+const currentDisplayWorkspace = `FROM sharing_current_workspace current
+  JOIN sharing_workspaces workspace ON workspace.user_id=current.user_id AND workspace.group_id=current.group_id`;
+
+function decodeDisplayCandidate(raw: string | undefined, userId: string, groupId: string) {
+  if (!raw || raw.length > 1_048_576) return null;
+  // The authenticated display commits to the anchor and archive. The actual
+  // session still verifies the signatures and never uses this presentation-only record.
+  const record = validate(JSON.parse(raw), false);
+  if (record.userId !== userId || record.groupId !== groupId) throw new Error('Stored workspace identity mismatch');
+  return record;
+}
+
+/** Read the current membership again after decrypting the saved display. */
 export function readSharingDisplayCandidate(database: SQLiteDatabase, userId: string, groupId: string): Promise<SharingWorkspaceRecord | null> {
   assertSharedIdentifier(userId); assertSharedIdentifier(groupId);
   return serial(database, async () => {
-    const row = await database.getFirstAsync<{ record_json: string }>(`
-      SELECT workspace.record_json FROM sharing_current_workspace current
-      JOIN sharing_workspaces workspace ON workspace.user_id=current.user_id AND workspace.group_id=current.group_id
+    const row = await database.getFirstAsync<{ record_json: string }>(
+      `SELECT workspace.record_json ${currentDisplayWorkspace} WHERE current.user_id=? AND current.group_id=?`, userId, groupId);
+    return decodeDisplayCandidate(row?.record_json, userId, groupId);
+  });
+}
+
+/** Batch the presentation-only record and ciphertext from the same SQLite snapshot. */
+export function readSharingDisplayEnvelope(database: SQLiteDatabase, userId: string, groupId: string) {
+  assertSharedIdentifier(userId); assertSharedIdentifier(groupId);
+  return serial(database, async () => {
+    const row = await database.getFirstAsync<{ record_json: string; encrypted_json: string }>(`
+      SELECT workspace.record_json, display.encrypted_json ${currentDisplayWorkspace}
+      JOIN sharing_startup_display display ON display.user_id=current.user_id AND display.group_id=current.group_id
       WHERE current.user_id=? AND current.group_id=?`, userId, groupId);
-    if (!row || row.record_json.length > 1_048_576) return null;
-    // Defer the expensive first Ed25519 initialization until the real session
-    // restores. The encrypted display's authenticated scope still commits to the
-    // exact anchor/archive/status/generation, and no result enters validatedRows.
-    const record = validate(JSON.parse(row.record_json), false);
-    if (record.userId !== userId || record.groupId !== groupId) throw new Error('Stored workspace identity mismatch');
-    return record;
+    const record = decodeDisplayCandidate(row?.record_json, userId, groupId);
+    return record && row ? { record, encrypted: row.encrypted_json } : null;
   });
 }
 

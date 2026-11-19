@@ -16,10 +16,13 @@ function androidStorage(source) {
       val sharedDirectory = java.io.File(noBackupFilesDir, "LiFlowSharedSQLite")
       check(sharedDirectory.isDirectory || sharedDirectory.mkdirs())
       check(sharingMarker.parentFile!!.isDirectory || sharingMarker.parentFile!!.mkdirs())
-      val temporaryMarker = java.io.File(sharingMarker.parentFile, "shared-location.tmp")
-      temporaryMarker.writeText(org.json.JSONObject().put("policyVersion", 1).put("platform", "android")
-        .put("databaseDirectory", sharedDirectory.canonicalPath).toString())
-      check(temporaryMarker.renameTo(sharingMarker))
+      val expectedMarker = org.json.JSONObject().put("policyVersion", 1).put("platform", "android")
+        .put("databaseDirectory", sharedDirectory.canonicalPath).toString()
+      if (!sharingMarker.isFile || sharingMarker.length() != expectedMarker.toByteArray().size.toLong() || sharingMarker.readText() != expectedMarker) {
+        val temporaryMarker = java.io.File(sharingMarker.parentFile, "shared-location.tmp")
+        temporaryMarker.writeText(expectedMarker)
+        check(temporaryMarker.renameTo(sharingMarker))
+      }
     } catch (_: Exception) {
       // Fail closed for sharing only. Never remove a database or interrupt personal mode.
       sharingMarker.delete()

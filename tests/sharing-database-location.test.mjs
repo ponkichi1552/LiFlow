@@ -9,10 +9,11 @@ import * as privateCalendarNames from '../src/features/sharing/private-calendar/
 
 function fixture(platform = 'android') {
   const directory = platform === 'android' ? '/data/user/0/jp.test/files/SQLite' : 'file:///var/mobile/Containers/Data/Application/app/Documents/SQLite';
-  let marker = null; const opens = [];
+  let marker = null, registryPresent = false; const opens = [];
   const module = loadNativeModule('src/platform/sharing/database-location.ts', {
-    'expo-file-system': { File: class { constructor(uri) { assert.ok(uri.startsWith('file:///'), 'FileSystem must receive an absolute file URI'); }
-      get exists() { return marker !== null; } async text() { return JSON.stringify(marker); } } },
+    'expo-file-system': { File: class { constructor(uri, name) { assert.ok(uri.startsWith('file:///'), 'FileSystem must receive an absolute file URI'); this.name = name; }
+      get exists() { return this.name === 'sharing-index.db' ? registryPresent : marker !== null; }
+      async text() { return JSON.stringify(marker); } } },
     'expo-sqlite': { defaultDatabaseDirectory: directory, async openDatabaseAsync(...args) { opens.push(args); return { name: args[0] }; } },
     'react-native': { Platform: { OS: platform } },
     '@noble/hashes/sha2.js': { sha256 }, '@noble/hashes/utils.js': { bytesToHex },
@@ -20,8 +21,23 @@ function fixture(platform = 'android') {
     '../../features/sharing/private-calendar/database-name.ts': privateCalendarNames,
   });
   const path = platform === 'android' ? '/data/user/0/jp.test/no_backup/LiFlowSharedSQLite' : '/var/mobile/Containers/Data/Application/app/Documents/SQLite/shared';
-  return { module, directory, path, opens, set: (value) => { marker = value; }, ready: () => { marker = { policyVersion: 1, platform, databaseDirectory: path }; } };
+  return { module, directory, path, opens, set: (value) => { marker = value; }, addRegistry: () => { registryPresent = true; },
+    ready: () => { marker = { policyVersion: 1, platform, databaseDirectory: path }; } };
 }
+
+test('startup can prepare an existing registry only in the validated backup-excluded location', async () => {
+  for (const platform of ['ios', 'android']) {
+    const h = fixture(platform);
+    await assert.rejects(h.module.existingSharingRegistryDirectory('sharing-index.db'), /ビルド/);
+    h.ready();
+    assert.equal(await h.module.existingSharingRegistryDirectory('sharing-index.db'), undefined);
+    h.addRegistry();
+    assert.equal(await h.module.existingSharingRegistryDirectory('sharing-index.db'), `file://${h.path}`);
+    h.set({ policyVersion: 1, platform, databaseDirectory: h.directory });
+    await assert.rejects(h.module.existingSharingRegistryDirectory('sharing-index.db'));
+    assert.equal(h.opens.length, 0);
+  }
+});
 
 test('private Calendar Native files remain account-scoped and backup-excluded on both mobile OSes', async () => {
   const before = globalThis.__DEV__;

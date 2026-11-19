@@ -7,6 +7,7 @@ const { compileModsAsync } = require('expo/config-plugins');
 const optionalApple = require('../plugins/with-optional-apple-sign-in');
 const autoApple = require('../node_modules/@expo/prebuild-config/build/plugins/unversioned/expo-apple-authentication').default;
 const storage = require('../plugins/with-sharing-private-storage');
+const startup = require('../plugins/with-android-startup-profile');
 
 test('Apple sharing capability follows the explicit flag even after Expo automatically reapplies installed plugins', async () => {
   for (const enabled of [false, true]) {
@@ -27,6 +28,7 @@ test('shared database native directories exclude OS backups without changing per
   const kotlin = storage.androidStorage(android); const swift = storage.iosStorage(ios);
   assert.equal(storage.androidStorage(kotlin), kotlin); assert.equal(storage.iosStorage(swift), swift);
   assert.match(kotlin, /java\.io\.File\(noBackupFilesDir, "LiFlowSharedSQLite"\)/);
+  assert.match(kotlin, /sharingMarker\.readText\(\) != expectedMarker[\s\S]*temporaryMarker\.renameTo\(sharingMarker\)/);
   assert.match(kotlin, /catch[\s\S]*sharingMarker\.delete\(\)/);
   assert.match(swift, /values\.isExcludedFromBackup = true/);
   assert.match(swift, /resourceValues[\s\S]*isExcludedFromBackup == true/);
@@ -40,4 +42,26 @@ test('shared database native directories exclude OS backups without changing per
   }
   assert.throws(() => storage.androidStorage('unsupported'));
   assert.throws(() => storage.iosStorage('unsupported'));
+});
+
+test('Android uses the default WorkManager configuration on demand and retains other App Startup initializers', () => {
+  const emoji = { $: { 'android:name': 'androidx.emoji2.text.EmojiCompatInitializer', 'android:value': 'androidx.startup' } };
+  const provider = { $: { 'android:name': 'androidx.startup.InitializationProvider' }, 'meta-data': [emoji] };
+  const manifest = { manifest: { $: {}, application: [{ provider: [provider] }] } };
+  startup.deferWorkManager(startup.deferWorkManager(manifest));
+  assert.deepEqual(provider['meta-data'], [emoji, { $: { 'android:name': 'androidx.work.WorkManagerInitializer',
+    'android:value': 'androidx.startup', 'tools:node': 'remove' } }]);
+  const app = startup.provideWorkManagerConfiguration('class MainApplication : Application(), ReactApplication {\n}');
+  assert.equal(startup.provideWorkManagerConfiguration(app), app);
+  assert.match(app, /androidx\.work\.Configuration\.Provider/);
+  assert.match(app, /override val workManagerConfiguration:[\s\S]*Configuration\.Builder\(\)\.build\(\)/);
+  const gradle = startup.addWorkManagerDependency('dependencies {\n}');
+  assert.equal(startup.addWorkManagerDependency(gradle), gradle);
+  assert.match(gradle, /implementation\('androidx\.work:work-runtime:2\.10\.5'\)/);
+});
+
+test('Android starts the embedded React host in parallel with its release launcher activity', () => {
+  const activity = startup.preloadLauncherReactHost('class MainActivity {\n  override fun onCreate(savedInstanceState: Bundle?) {\n    super.onCreate(null)\n  }\n}');
+  assert.equal(startup.preloadLauncherReactHost(activity), activity);
+  assert.match(activity, /!BuildConfig\.DEBUG[\s\S]*ACTION_MAIN[\s\S]*CATEGORY_LAUNCHER[\s\S]*reactHost\?\.start\(\)[\s\S]*super\.onCreate\(null\)/);
 });

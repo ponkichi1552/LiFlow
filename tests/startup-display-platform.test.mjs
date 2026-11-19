@@ -5,6 +5,7 @@ import { loadNativeModule } from './helpers/native-module.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { startupDisplayScope } from '../src/features/planner/startup-display.ts';
 import * as transactions from '../src/platform/storage/isolated-transaction.ts';
+import { initializeSharingRegistry, readSharingDisplayEnvelope } from '../src/platform/storage/sharing-registry.ts';
 
 test('native base64 display decryption keeps the existing AES-GCM nonce ciphertext AAD and sixteen-byte tag on both platforms', async () => {
   for (const platform of ['ios', 'android']) {
@@ -25,7 +26,7 @@ test('native base64 display decryption keeps the existing AES-GCM nonce cipherte
 
 function fixture() {
   let selection = { userId: 'owner', groupId: 'house' }; let afterRead = () => {}; let reads = 0; let rows = true; let onQuery = () => {};
-  let selectionReads = 0;
+  let selectionReads = 0, prefetches = 0;
   const record = { ...selection, status: 'active', anchor: { groupId: 'house' }, rosterArchive: [] }; let slot = 'house';
   const model = { viewerUserId: 'owner', plan: { groupId: 'house' } };
   let openedScope;
@@ -40,20 +41,24 @@ function fixture() {
       canReuse: input => startupDisplayScope(input) === openedScope,
     }) },
     './native-crypto.ts': {}, './secure-store.ts': {},
-    './workspaces.ts': { readSharingSelection: async () => { selectionReads++; return selection; }, sharingRegistryDatabase: async () => ({ getFirstAsync: async sql => {
+    './workspaces.ts': { prepareExistingSharingRegistry: () => { prefetches++; },
+      readSharingSelection: async () => { selectionReads++; return selection; }, sharingRegistryDatabase: async () => ({ getFirstAsync: async sql => {
       onQuery(); return sql.includes('SELECT 1') ? rows ? { present: 1 } : null : { group_id: slot };
     } }) },
     '../storage/sharing-registry.ts': { readSharingWorkspace: async () => record,
+      readSharingDisplayEnvelope: async (_db, userId, groupId) => userId === record.userId && groupId === slot ? { record, encrypted: 'opaque' } : null,
       readSharingDisplayCandidate: async (_db, userId, groupId) => userId === record.userId && groupId === slot ? record : null },
     '../storage/isolated-transaction.ts': transactions,
   });
-  return { module, record, model, reads: () => reads, selectionReads: () => selectionReads, select: value => { selection = value; }, rows: value => { rows = value; }, query: fn => { onQuery = fn; }, slot: value => { slot = value; }, after: work => { afterRead = work; } };
+  return { module, record, model, reads: () => reads, selectionReads: () => selectionReads, prefetches: () => prefetches,
+    select: value => { selection = value; }, rows: value => { rows = value; }, query: fn => { onQuery = fn; }, slot: value => { slot = value; }, after: work => { afterRead = work; } };
 }
 test('the foreground prefetch starts a single protected read and checks the current account again before presenting', async () => {
   const f = fixture();
   f.module.prepareSavedStartupDisplay();
   f.module.prepareSavedStartupDisplay();
   assert.equal(f.selectionReads(), 1);
+  assert.equal(f.prefetches(), 1);
   f.select({ userId: 'new-user', groupId: 'house' });
   assert.equal(await f.module.readSavedStartupDisplay(), undefined);
   assert.equal(f.reads(), 1, 'the old selection supplied the encrypted lookup');
@@ -64,6 +69,19 @@ test('startup presentation requires the protected selection and current single m
   f.slot('another'); assert.equal(await f.module.readSavedStartupDisplay(), undefined); assert.equal(f.reads(), 1);
   f.slot('house'); f.record.status = 'removed'; assert.equal(await f.module.readSavedStartupDisplay(), undefined); assert.equal(f.reads(), 1);
   f.select(null); assert.equal(await f.module.readSavedStartupDisplay(), undefined); assert.equal(f.reads(), 1);
+});
+test('one startup query binds encrypted presentation to the current membership and excludes a previous group', async t => {
+  const h = createDatabase(); t.after(() => h.connection.close());
+  await initializeSharingRegistry(h.database);
+  const record = { userId: 'owner', groupId: 'home', displayName: '検証', status: 'active',
+    anchor: { groupId: 'home' }, rosterArchive: [], createdAt: '2026-10-31T00:00:00Z' };
+  await h.database.runAsync('INSERT INTO sharing_workspaces VALUES (?,?,?)', record.userId, record.groupId, JSON.stringify(record));
+  await h.database.runAsync('INSERT INTO sharing_current_workspace VALUES (?,?)', record.userId, record.groupId);
+  assert.equal(await readSharingDisplayEnvelope(h.database, record.userId, record.groupId), null);
+  await h.database.runAsync('INSERT INTO sharing_startup_display VALUES (?,?,?)', record.userId, record.groupId, 'encrypted');
+  assert.deepEqual(await readSharingDisplayEnvelope(h.database, record.userId, record.groupId), { record, encrypted: 'encrypted' });
+  await h.database.runAsync('UPDATE sharing_current_workspace SET group_id=? WHERE user_id=?', 'another', record.userId);
+  assert.equal(await readSharingDisplayEnvelope(h.database, record.userId, record.groupId), null);
 });
 test('a logout or account switch during encrypted startup restoration discards the old presentation before it can render', async () => {
   for (const selection of [null, { userId: 'different', groupId: 'house' }, { userId: 'owner', groupId: 'new-house' }]) {
@@ -104,6 +122,7 @@ test('historical memberships never delay personal startup while active pending a
 
 test('retention retries purge stale encrypted displays while current-scope writes survive and an older in-flight write is refused', async t => {
   const h = createDatabase(); t.after(() => h.connection.close());
+  await initializeSharingRegistry(h.database);
   const record = { userId: 'owner', groupId: 'house', status: 'active', anchor: { groupId: 'house' }, rosterArchive: [],
     historyRetention: { cutoff: '2026-10-01', throughSequence: 10, digest: 'a'.repeat(64) } };
   let writer;
@@ -126,7 +145,7 @@ test('retention retries purge stale encrypted displays while current-scope write
 
 test('cache-missing startup diagnostics require both opt-in flags and never delete the encrypted saved display', async t => {
   const h = createDatabase(); t.after(() => h.connection.close()); let read;
-  await h.database.execAsync('CREATE TABLE sharing_startup_display(user_id TEXT, group_id TEXT, encrypted_json TEXT, PRIMARY KEY(user_id,group_id))');
+  await initializeSharingRegistry(h.database);
   await h.database.runAsync('INSERT INTO sharing_startup_display VALUES(?,?,?)', 'owner', 'house', 'preserved encrypted view');
   const trace = process.env.EXPO_PUBLIC_LIFLOW_STARTUP_TRACE, skip = process.env.EXPO_PUBLIC_LIFLOW_STARTUP_NO_CACHE;
   loadNativeModule('src/platform/sharing/startup-display.ts', {

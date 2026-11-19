@@ -27,9 +27,9 @@ import { SubscriptionBoundary } from '@/features/subscription/subscription-bound
 import { initializeAppAppearance } from '@/hooks/use-app-appearance';
 
 const initialize = (database: Parameters<typeof initializeLocalDatabase>[0]) => traceStartup('database.initialize', () => initializeLocalDatabase(database));
-initializeAppAppearance();
 prepareStartupDisplay(SplashScreen);
 prepareSavedStartupDisplay();
+initializeAppAppearance();
 
 function WidgetInteractionBridge() {
   const { database, refresh } = usePlannerData();

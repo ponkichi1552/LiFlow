@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
+import { useLayoutEffect, useRef, type ComponentRef, type ReactNode } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import type { ChoreDefinition, ChoreScheduleEntry } from '@/domain/chores/types';
 import { choreOccurrenceName } from '../domain/chores/occurrence-name';
@@ -12,9 +12,9 @@ import { usePlannerBorderStyles } from './use-planner-border-styles';
 import { plannerColorsForScheme } from './planner-theme';
 
 export function TaskCheckboxRow({ chore, completed = false, deemphasized = false, source, urgent = false,
-  onToggle, onOpen, onChangeDate, home = false, compact = false, provisional = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow, seasonalWork, calendarTimeLabel }: {
+  onToggle, onOpen, onChangeDate, home = false, immediateCheckbox = false, compact = false, provisional = false, mixedSources = false, detail, detailsExpanded, lastInList = false, contextLabel, action, footer, sourceIcon, executionWindow, seasonalWork, calendarTimeLabel }: {
   chore: ChoreDefinition; completed?: boolean; deemphasized?: boolean; source?: 'personal' | 'shared' | 'instructed';
-  urgent?: boolean; onToggle?: () => void; onOpen: () => void; onChangeDate?: () => void; home?: boolean; compact?: boolean; provisional?: boolean; mixedSources?: boolean;
+  urgent?: boolean; onToggle?: () => boolean | void | Promise<void>; onOpen: () => void; onChangeDate?: () => void; home?: boolean; immediateCheckbox?: boolean; compact?: boolean; provisional?: boolean; mixedSources?: boolean;
   executionWindow?: { start: LocalDate; end: LocalDate };
   seasonalWork?: ChoreScheduleEntry['seasonalWork'];
   detail?: string; detailsExpanded?: boolean; lastInList?: boolean; contextLabel?: string; action?: ReactNode; footer?: ReactNode; sourceIcon?: 'person' | 'group';
@@ -22,15 +22,37 @@ export function TaskCheckboxRow({ chore, completed = false, deemphasized = false
 }) {
   const styles = usePlannerBorderStyles(baseStyles);
   const colors = plannerColorsForScheme(useColorScheme());
+  const animateCheckDirectly = home && immediateCheckbox && Platform.OS === 'android';
+  const checkedLayer = useRef<ComponentRef<typeof View>>(null);
+  const earlyCheck = useRef<boolean | null>(null);
+  useLayoutEffect(() => {
+    // The accepted queue remains the source of truth, including save failures,
+    // rapid toggles and the verified replacement of a cached home.
+    if (earlyCheck.current !== null && earlyCheck.current !== completed) {
+      checkedLayer.current?.setNativeProps({ style: { opacity: completed ? 1 : 0 } });
+    }
+    earlyCheck.current = null;
+  });
+  const toggle = animateCheckDirectly && onToggle ? () => {
+    if (onToggle() !== true || !checkedLayer.current) return;
+    earlyCheck.current = !completed;
+    checkedLayer.current.setNativeProps({ style: { opacity: completed ? 0 : 1 } });
+  } : onToggle;
   const name = choreOccurrenceName(chore.name, seasonalWork);
   const actionName = `${name}${contextLabel ? `（${contextLabel}）` : ''}`;
   const minutes = Number.isFinite(chore.estimatedMinutes) && chore.estimatedMinutes! > 0 ? `約${chore.estimatedMinutes}分` : '';
   const period = executionWindow && executionWindow.start !== executionWindow.end
     ? `${formatJapaneseDate(executionWindow.start)}〜${formatJapaneseDate(executionWindow.end)}` : undefined;
   const checkbox = <Pressable accessibilityRole="checkbox" accessibilityLabel={`${actionName}を${completed ? '未完了に戻す' : '完了'}`}
-    accessibilityState={{ checked: completed, disabled: !onToggle }} disabled={!onToggle} onPress={onToggle} hitSlop={8}
-    style={[styles.checkbox, completed && styles.checkboxCompleted]}>
-    {completed ? <Text style={styles.checkmark}>✓</Text> : null}
+    accessibilityState={{ checked: completed, disabled: !onToggle }} disabled={!onToggle} onPress={toggle} hitSlop={8}
+    style={[styles.checkbox, !animateCheckDirectly && completed && styles.checkboxCompleted, animateCheckDirectly && styles.checkboxFrame]}>
+    {animateCheckDirectly ? <>
+      <View pointerEvents="none" style={styles.checkbox} />
+      <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" ref={checkedLayer}
+        style={[styles.checkbox, StyleSheet.absoluteFill, styles.checkboxCompleted, { opacity: completed ? 1 : 0 }]}>
+        <Text style={styles.checkmark}>✓</Text>
+      </View>
+    </> : completed ? <Text style={styles.checkmark}>✓</Text> : null}
   </Pressable>;
   const compactSource = source === 'shared' || source === 'instructed' ? '共有の家事' : source === 'personal' && mixedSources ? '個人の家事' : undefined;
   const compactValue = [completed ? '完了済み' : '', calendarTimeLabel].filter(Boolean).join('、');
@@ -106,5 +128,6 @@ const baseStyles = StyleSheet.create({
   name: { ...typography.subheading, color: palette.ink, fontWeight: '600' }, category: { ...typography.caption, color: palette.muted, flexShrink: 1 },
   deemphasizedText: { color: palette.muted }, completedText: { color: palette.muted, textDecorationLine: 'line-through' }, completedCategory: { color: palette.muted },
   checkbox: { width: 28, height: 28, borderRadius: 8, borderWidth: 1.5, borderColor: palette.inputBorder, backgroundColor: palette.surface, alignItems: 'center', justifyContent: 'center' },
+  checkboxFrame: { borderWidth: 0, backgroundColor: 'transparent' },
   checkboxCompleted: { borderColor: palette.accent, backgroundColor: palette.accent }, checkmark: { color: palette.accentInk, fontSize: 16, fontWeight: '800', lineHeight: 20 },
 });

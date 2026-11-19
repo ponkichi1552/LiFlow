@@ -35,6 +35,27 @@ const checkbox = screen => {
   assert.ok(node, 'the real screen must expose a chore checkbox'); return node;
 };
 
+test('Android paints the check layer only after the queue accepts the gesture and restores an unconfirmed value', () => {
+  let accepted = false;
+  const paint = [];
+  const screen = screenHarness('src/components/task-checkbox-row.tsx', {
+    exportName: 'TaskCheckboxRow', platform: 'android', layoutEffect: callback => callback(),
+    props: { home: true, immediateCheckbox: true, chore: { name: '床を掃除する' }, onOpen() {}, onToggle: () => accepted },
+  });
+  try {
+    const layer = screen.nodes().find(node => node.props.ref && node.props.accessibilityElementsHidden);
+    assert.ok(layer, 'the existing native layer can be painted without mounting a glyph after the touch');
+    layer.props.ref.current = { setNativeProps: ({ style }) => paint.push(style.opacity) };
+    checkbox(screen).props.onPress();
+    assert.deepEqual(paint, []);
+    accepted = true;
+    checkbox(screen).props.onPress();
+    assert.deepEqual(paint, [1]);
+    screen.render(); // A refused write keeps the row on its original unchecked value.
+    assert.deepEqual(paint, [1, 0]);
+  } finally { screen.unmount(); }
+});
+
 for (const platform of ['ios', 'android']) {
   test(`${platform} expired shared Undo stays in the expanded expired section while persistence and refreshed recommendations are pending`, async () => {
     const f = await sharedFixture(); const d = await f.device(); let screen; let runtime;
@@ -190,14 +211,19 @@ for (const platform of ['ios', 'android']) {
       runtime = runtimeFixture({ at: now, apply: intent => controller.actions.setCompletedIntent({ id: intent.id, digest: completionIntentDigest('shared-ui', intent) },
         intent.target.ref, intent.completed, { createdAt: intent.createdAt, expectedAssigneeIds: intent.target.expectedAssigneeIds, observedCompletionIds: intent.target.observedCompletionIds, precedingCompletionIntentIds: intent.target.precedingCompletionIntentIds, retainedUndo: intent.target.retainedUndo }) });
       await runtime.queue.activate();
+      let deferOrder = false; let lastOrderedCompletions;
       screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen', platform,
         effectDependencies: true, focusDependencies: true, effect: callback => callback(), layoutEffect: callback => callback(),
+        deferredValue: value => deferOrder ? lastOrderedCompletions : (lastOrderedCompletions = value),
         props: { purpose: 'workspace', view: 'home', lifecycleManaged: true, initialDisplay: { session, model }, loadSession: async () => session,
           sharedCompletion: runtime, onBack() {}, onConfiguration() {}, onHistory() {} } });
-      await screen.flush(); checkbox(screen).props.onPress(); screen.render();
+      await screen.flush();
+      deferOrder = true;
+      checkbox(screen).props.onPress(); screen.render();
       assert.equal(checkbox(screen).props.accessibilityState.checked, true); assert.equal(operations, 0);
       await screen.press('直前の完了を元に戻す');
       assert.equal(checkbox(screen).props.accessibilityState.checked, false); assert.equal(operations, 0);
+      deferOrder = false;
       checkbox(screen).props.onPress(); screen.render();
       assert.equal(checkbox(screen).props.accessibilityState.checked, true);
       runtime.release(); await runtime.queue.settled(); await screen.flush();

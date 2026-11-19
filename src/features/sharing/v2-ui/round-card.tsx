@@ -47,11 +47,11 @@ export function V2RoundCard({ model, round: displayedRound, subject: displayedSu
   // A partial undo must keep another member's completion visible. Its existing
   // receipt path preserves that distinction; ordinary toggles use the durable queue.
   const queueable = feedback?.supports?.('shared') && feedback.request && !partialUndo;
-  const onToggle = queueable && (work || feedback!.values.has(key)) ? () => feedback!.request!(key, !displayedValue,
+  const queuedToggle = queueable && (work || feedback!.values.has(key)) ? () => feedback!.request!(key, !displayedValue,
     { kind: 'shared', ref, expectedAssigneeIds: subject.subjectUserId === null ? round.assigneeIds : [subject.subjectUserId],
-      observedCompletionIds: undo, ...(retainedUndo ? { retainedUndo } : {}) })
-    : busy || feedback?.values.has(key) || !work ? undefined : () => feedback
-      ? feedback.run(key, subject.completed ? partialUndo : true, work) : run(work);
+      observedCompletionIds: undo, ...(retainedUndo ? { retainedUndo } : {}) }) : undefined;
+  const onToggle = queuedToggle ?? (busy || feedback?.values.has(key) || !work ? undefined : () => feedback
+    ? feedback.run(key, subject.completed ? partialUndo : true, work) : run(work));
   const category = subject.subjectUserId ? nameOf(subject.subjectUserId) : round.assigneeIds.length
     ? `${round.claimState === 'provisional' ? '暫定：' : ''}${round.assigneeIds.map(nameOf).join('・')}` : '';
   const formal = subject.formalDate;
@@ -105,7 +105,7 @@ export function V2RoundCard({ model, round: displayedRound, subject: displayedSu
       source={formal.kind === 'manual' ? 'instructed' : 'shared'}
       executionWindow={{ start: recordedWindow?.windowStart ?? subject.executionWindowStart, end: recordedWindow?.windowEnd ?? subject.executionWindowEnd }}
       urgent={isTaskUrgent({ completed: displayCompleted, load: chore.load, recommendedDate, windowStart: subject.executionWindowStart, windowEnd: subject.executionWindowEnd }, model.plan.range.asOfDate)}
-      deemphasized={subject.cooldownSuppressed || subject.virtuallyConsumed} onOpen={onOpen} onToggle={onToggle}
+      deemphasized={subject.cooldownSuppressed || subject.virtuallyConsumed} onOpen={onOpen} onToggle={onToggle} immediateCheckbox={Boolean(queuedToggle)}
       onChangeDate={compact && !displayCompleted ? onDate : undefined} />;
 }
 const styles = StyleSheet.create({

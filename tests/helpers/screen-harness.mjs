@@ -43,6 +43,8 @@ export function screenHarness(filename, options = {}) {
     useId: () => hook(() => `screen-harness-${++nextId}`)[0],
     createContext: value => { const context = { _currentValue: value }; context.Provider = { harnessContext: context }; return context; },
     useState: hook,
+    startTransition: callback => callback(),
+    useDeferredValue: value => options.deferredValue?.(value) ?? value,
     useRef: (value) => hook(() => ({ current: value }))[0],
     useMemo: (fn, deps) => {
       const [memo] = hook(() => ({ deps, value: fn() }));

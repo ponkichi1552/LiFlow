@@ -56,10 +56,10 @@ export function createStartupDisplayCache(input: {
   const now = input.now ?? (() => new Date());
   const verified = new WeakMap<Model, { scope: string; savedAt: number }>();
   async function readFromSelection(selection: Pick<SharingWorkspaceRecord, 'userId' | 'groupId'>,
-    candidate: Promise<SharingWorkspaceRecord | null>): Promise<{ record: SharingWorkspaceRecord; model: Model } | undefined> {
+    candidate: Promise<SharingWorkspaceRecord | null>, encrypted?: Promise<string | null>): Promise<{ record: SharingWorkspaceRecord; model: Model } | undefined> {
     const { userId, groupId } = selection;
     try {
-      const [record, raw, key] = await Promise.all([candidate, input.read(userId, groupId), input.key(userId, false)]);
+      const [record, raw, key] = await Promise.all([candidate, encrypted ?? input.read(userId, groupId), input.key(userId, false)]);
       if (!record || record.status !== 'active' || record.userId !== userId || record.groupId !== groupId) return;
       if (!raw || !key || key.length !== 32 || raw.length > MAX_BYTES * 3) return;
       const envelope = JSON.parse(raw);

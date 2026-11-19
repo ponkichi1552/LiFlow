@@ -51,7 +51,7 @@ function useReminderHistory(database: SQLiteDatabase | undefined, historyLimited
 
 /** One app-wide observer reconciles only calendar keys; housework settings and queues remain independent. */
 export function CalendarNotificationBridge() {
-  const { database } = usePlannerData({ personal: true }); const local = useLocalCalendar(database);
+  const { database } = usePlannerData({ personal: true }); const local = useLocalCalendar(database, false, true);
   const reminders = useCalendarReminders(database); const workspace = useWorkspace(); const display = useWorkspaceDisplay();
   const peek = useCallback(() => display.peek(), [display]);
   const prepared = useSyncExternalStore(display.subscribe, peek, peek);
@@ -116,15 +116,22 @@ export function CalendarNotificationBridge() {
     return () => { live = false; };
   }, [sameActive, restoringScope, identity, local.loading, local.error, reminders.loading, reminders.error, reminders.settings, sources, tick, workspace.ready, historyLimited, waitingForPersonal]);
   const handled = useRef(new Set<string>());
-  const timeZone = sameActive && preparedModel?.plan.groupId === sameActive.groupId ? preparedModel.plan.timeZone : Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const groupTimeZone = sameActive && preparedModel?.plan.groupId === sameActive.groupId ? preparedModel.plan.timeZone : undefined;
+  const ensureLocalRead = local.ensureRead;
   useEffect(() => {
-    if (!workspace.ready || local.loading && !historyLimited) return;
+    if (!workspace.ready) return;
+    if (local.loading && !historyLimited) {
+      if (getLastNotificationResponse()?.notification.request.content.data?.kind === 'calendar-event') ensureLocalRead?.();
+      return;
+    }
     let live = true;
     const resolving = new Set<string>();
     const receive: Parameters<typeof addNotificationResponseReceivedListener>[0] = response => {
       const key = `${response.notification.request.identifier}:${response.actionIdentifier}`;
       if (handled.current.has(key)) return;
       const data = response.notification.request.content.data;
+      if (data?.kind !== 'calendar-event') return;
+      const timeZone = groupTimeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
       const open = (destination: ReturnType<typeof calendarNotificationDestination>) => {
         if (!live || !destination || handled.current.has(key)) return;
         handled.current.add(key);
@@ -132,7 +139,7 @@ export function CalendarNotificationBridge() {
         const last = getLastNotificationResponse();
         if (last?.notification.request.identifier === response.notification.request.identifier && last.actionIdentifier === response.actionIdentifier) clearLastNotificationResponse();
       };
-      if (!database || !historyLimited || data?.kind !== 'calendar-event' || data.scope !== 'personal') {
+      if (!database || !historyLimited || data.scope !== 'personal') {
         open(calendarNotificationDestination(data, sources, timeZone)); return;
       }
       if (typeof data.eventId !== 'string' || typeof data.anchorDate !== 'string') return;
@@ -147,6 +154,6 @@ export function CalendarNotificationBridge() {
     const stop = addNotificationResponseReceivedListener(receive);
     const last = getLastNotificationResponse(); if (last) receive(last);
     return () => { live = false; stop.remove(); };
-  }, [sources, timeZone, workspace.ready, local.loading, database, historyLimited]);
+  }, [sources, groupTimeZone, workspace.ready, local.loading, database, historyLimited, ensureLocalRead]);
   return null;
 }

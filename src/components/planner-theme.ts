@@ -4,10 +4,13 @@ export type PlannerColorName = keyof typeof values;
 export type PlannerColorScheme = 'light' | 'dark';
 export type PlannerColors = Readonly<Record<PlannerColorName, string>>;
 
-export function plannerColorsForScheme(scheme?: string | null): PlannerColors {
-  const key = scheme === 'dark' ? 'dark' : 'light';
-  return Object.fromEntries(Object.entries(values).map(([name, colors]) => [name, colors[key]])) as PlannerColors;
+function colorsFor(scheme: PlannerColorScheme): PlannerColors {
+  return Object.freeze(Object.fromEntries(Object.entries(values).map(([name, colors]) => [name, colors[scheme]]))) as PlannerColors;
 }
 
-export const plannerLightColors = plannerColorsForScheme('light');
-export const plannerDarkColors = plannerColorsForScheme('dark');
+export const plannerLightColors = colorsFor('light');
+export const plannerDarkColors = colorsFor('dark');
+
+export function plannerColorsForScheme(scheme?: string | null): PlannerColors {
+  return scheme === 'dark' ? plannerDarkColors : plannerLightColors;
+}

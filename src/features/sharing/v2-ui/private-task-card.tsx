@@ -39,7 +39,7 @@ export function V2PrivateTaskCard({ row, source, busy, run, feedback, today = ro
       urgent={isTaskUrgent({ completed, load: chore.load, recommendedDate: row.suggestedDate, windowStart: row.windowStart, windowEnd: row.windowEnd }, today)}
       onOpen={onOpen ?? (() => setOpen((value) => !value))}
       onChangeDate={compact && !completed && row.entryId && !row.provisional ? () => router.navigate({ pathname: '/calendar-chore-date', params: { choreId: chore.id, entryId: row.entryId } }) : undefined}
-      onToggle={row.provisional ? undefined : queueable ? () => feedback!.request!(row.key, !completed, { kind: 'personal',
+      immediateCheckbox={Boolean(queueable)} onToggle={row.provisional ? undefined : queueable ? () => feedback!.request!(row.key, !completed, { kind: 'personal',
         command: { date: row.date, graceDays: row.graceDays, choreId: row.chore.id, revision: row.revision } }) : !busy && source && !feedback?.values.has(row.key) ? () => feedback
         ? feedback.run(row.key, !row.completed, async () => {
           const changed = await source.setCompleted(row.key, row.revision, !row.completed);

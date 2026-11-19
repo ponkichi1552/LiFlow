@@ -18,7 +18,8 @@ for (const [platform, snapshot, name] of [
       const controller = { getSnapshot: () => ({ snapshot: currentSnapshot }), subscribe: () => () => {}, invalidate() { invalidated++; } };
       const { PlannerDataProvider } = loadNativeModule('src/hooks/use-planner-data.ts', {
         'expo-sqlite': { useSQLiteContext: () => ({}) },
-        react: { createContext: () => ({}), useMemo: (callback) => callback(),
+        react: { createContext: () => ({}), useContext: () => null, useState: initializer => [initializer()],
+          useMemo: (callback) => callback(),
           useEffect: (callback) => effects.push(callback), createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
           useSyncExternalStore: (subscribe, getSnapshot, getServerSnapshot) => {
             assert.equal(subscribe, controller.subscribe); assert.equal(getSnapshot(), getServerSnapshot()); return getSnapshot();
@@ -41,6 +42,7 @@ for (const [platform, snapshot, name] of [
         }, sharedPlannerChangeScope: () => scope },
         '@/features/sharing/group-clock': {}, '@/platform/sharing/workspaces': { subscribeSharingChanges: () => () => {} },
         '@/contexts/planner-issues-context': { PlannerIssuesContext: { Provider: 'PlannerIssuesProvider' } },
+        '@/contexts/workspace-context': {},
       });
       const provider = PlannerDataProvider({ children: null, databaseOverride: {} });
       const issues = provider.props.children[0];

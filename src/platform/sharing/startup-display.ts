@@ -1,21 +1,13 @@
 import { createStartupDisplayCache, startupDisplayScope } from '../../features/planner/startup-display.ts';
 import { decryptNativeBase64, nativeSharingCrypto } from './native-crypto.ts';
 import { sharingSecureVault } from './secure-store.ts';
-import { readSharingSelection, sharingRegistryDatabase } from './workspaces.ts';
-import { readSharingWorkspace, readSharingDisplayCandidate } from '../storage/sharing-registry.ts';
+import { prepareExistingSharingRegistry, readSharingSelection, sharingRegistryDatabase } from './workspaces.ts';
+import { readSharingWorkspace, readSharingDisplayCandidate, readSharingDisplayEnvelope } from '../storage/sharing-registry.ts';
 import { withIsolatedSqliteTransaction } from '../storage/isolated-transaction.ts';
 import { traceStartup } from '@/platform/diagnostics/startup-timing';
 
-let initialization: Promise<void> | undefined;
-async function database() {
-  const db = await sharingRegistryDatabase({ presentationOnly: true });
-  if (!initialization) {
-    initialization = db.execAsync(`CREATE TABLE IF NOT EXISTS sharing_startup_display (
-      user_id TEXT NOT NULL, group_id TEXT NOT NULL, encrypted_json TEXT NOT NULL, PRIMARY KEY(user_id, group_id));`);
-    void initialization.catch(() => { initialization = undefined; });
-  }
-  await initialization; return db;
-}
+const database = () => sharingRegistryDatabase({ presentationOnly: true });
+const skipSavedDisplay = () => process.env.EXPO_PUBLIC_LIFLOW_STARTUP_TRACE === '1' && process.env.EXPO_PUBLIC_LIFLOW_STARTUP_NO_CACHE === '1';
 const keys = new Map<string, Promise<Uint8Array | null>>();
 const writes = new Map<string, Promise<unknown>>();
 let firstCandidate: ReturnType<typeof loadStartupCandidate> | undefined;
@@ -27,6 +19,7 @@ export function prepareSavedStartupDisplay() {
   startedCandidate = true;
   firstCandidate = loadStartupCandidate();
   void firstCandidate.catch(() => undefined);
+  prepareExistingSharingRegistry();
 }
 
 function serializeWrite<T>(userId: string, groupId: string, work: () => Promise<T>): Promise<T> {
@@ -57,7 +50,7 @@ export const startupDisplayCache = createStartupDisplayCache({ crypto: { ...nati
   read: (userId, groupId) => {
     // Exercise a genuinely cache-missing startup without deleting any user data.
     // This switch has no effect in an ordinary (non-diagnostic) Release build.
-    if (process.env.EXPO_PUBLIC_LIFLOW_STARTUP_TRACE === '1' && process.env.EXPO_PUBLIC_LIFLOW_STARTUP_NO_CACHE === '1') return Promise.resolve(null);
+    if (skipSavedDisplay()) return Promise.resolve(null);
     return traceStartup('startup.displayRead', async () => (await (await database()).getFirstAsync<{ encrypted_json: string }>(
       'SELECT encrypted_json FROM sharing_startup_display WHERE user_id=? AND group_id=?', userId, groupId))?.encrypted_json ?? null);
   },
@@ -97,11 +90,13 @@ export async function canShowPersonalStartup() {
 }
 
 async function loadStartupCandidate() {
+  if (skipSavedDisplay()) return;
   const selection = await traceStartup('startup.selection', readSharingSelection); if (!selection) return;
-  const database = traceStartup('startup.registry', () => sharingRegistryDatabase({ presentationOnly: true }));
-  const candidate = database.then(db => traceStartup('startup.record', () => readSharingDisplayCandidate(db, selection.userId, selection.groupId)));
-  const saved = await traceStartup('startup.savedModel', () => startupDisplayCache.readFromSelection(selection, candidate)); if (!saved) return;
-  return { selection, model: saved.model, db: await database };
+  const open = traceStartup('startup.registry', database);
+  const envelope = open.then(db => traceStartup('startup.displayEnvelope', () => readSharingDisplayEnvelope(db, selection.userId, selection.groupId)));
+  const saved = await traceStartup('startup.savedModel', () => startupDisplayCache.readFromSelection(selection,
+    envelope.then(value => value?.record ?? null), envelope.then(value => value?.encrypted ?? null)));
+  if (saved) return { selection, model: saved.model, db: await open };
 }
 
 /** Restore the last verified local view while Firebase initializes. No live session or authority is created here. */

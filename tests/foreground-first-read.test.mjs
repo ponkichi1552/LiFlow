@@ -52,7 +52,8 @@ for (const [platform, name] of [
     "android Tasks automatic startup waits for its own forced local refresh and backgrounding cancels the pending launch"
   ]
 ]) test(name, async () => {
-  for (const phase of ['foreground', 'background-during-read', 'background-before-frame', 'unmount-before-frame']) {
+  for (const phase of ['foreground', 'cached-foreground', 'background-during-read', 'background-before-frame', 'unmount-before-frame']) {
+    const cachedHome = phase === 'cached-foreground';
     const background = phase === 'background-during-read'; const beforeFrame = phase.endsWith('before-frame');
     const effects = [], calls = []; let finish, changed, paint;
     const firstFrame = new Promise(resolve => { paint = resolve; }); let frames = 0;
@@ -61,7 +62,8 @@ for (const [platform, name] of [
     const controller = { getSnapshot: () => state, refresh: () => { calls.push('local'); return local; }, subscribe: () => () => {}, invalidate() {} };
     const { PlannerDataProvider } = loadNativeModule('src/hooks/use-planner-data.ts', {
       'expo-sqlite': { useSQLiteContext: () => ({}) },
-      react: { createContext: () => ({}), useMemo: work => work(), useEffect: work => effects.push(work), createElement: () => null },
+      react: { createContext: () => ({}), useContext: () => cachedHome ? { startupDisplay: {} } : null,
+        useState: initialize => [initialize()], useMemo: work => work(), useEffect: work => effects.push(work), createElement: () => null },
       'react-native': { AppState: { currentState: 'active', addEventListener: (_event, listener) => { changed = listener; return { remove() {} }; } } },
       '@/domain/scheduling/local-date': { millisecondsUntilNextLocalDay: () => 1000000 },
       '@/platform/storage/repository': { LOCAL_HOUSEHOLD_ID: 'local-household', loadGoogleSyncState: async () => { calls.push('state'); return { enabled: true }; } },
@@ -79,7 +81,13 @@ for (const [platform, name] of [
       } },
       '@/platform/storage/shared-repository-adapter': { sharedRepositoryAdapter: () => undefined },
       '@/features/google-sync/workspace-policy': {}, '@/features/sharing/group-clock': {}, '@/platform/sharing/workspaces': {}, '@/contexts/planner-issues-context': {},
-      '@/features/planner/initial-display-gate': { waitForInitialFrame: async () => { calls.push('frame'); if (++frames === 1 && beforeFrame) await firstFrame; } },
+      '@/contexts/workspace-context': {},
+      '@/features/planner/initial-display-gate': { waitForInitialFrame: async preferIdle => {
+        calls.push('frame'); if (++frames === 1) {
+          assert.equal(preferIdle, cachedHome);
+          if (beforeFrame) await firstFrame;
+        }
+      } },
     });
     PlannerDataProvider({ children: null }); const cleanup = effects[0](); await new Promise(setImmediate);
     if (beforeFrame) {

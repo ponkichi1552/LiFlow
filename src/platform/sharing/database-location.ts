@@ -31,6 +31,11 @@ export async function sharingDatabaseDirectory(): Promise<string> {
   return validateSharingDatabaseLocation(JSON.parse(await marker.text()), defaultDatabaseDirectory, Platform.OS);
 }
 
+export async function existingSharingRegistryDirectory(filename: string): Promise<string | undefined> {
+  const directory = await sharingDatabaseDirectory();
+  return new File(directory, filename).exists ? directory : undefined;
+}
+
 export function sharingDatabaseFilename(userId: string, groupId: string, localGeneration?: string): string {
   assertSharedIdentifier(userId); assertSharedIdentifier(groupId);
   if (localGeneration) assertSharedIdentifier(localGeneration);

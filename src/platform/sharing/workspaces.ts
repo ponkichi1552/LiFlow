@@ -7,7 +7,7 @@ import { getSharingServices, isSharingConfigured } from './firebase-services.ts'
 import { nativeSharingCrypto } from './native-crypto.ts';
 import { initializeNativeSignatureCache } from './signature-verification-cache.ts';
 import { loadOrCreateSharingDeviceIdentity, loadSharingGroupKey, saveSharingGroupKey, sharingSecureVault } from './secure-store.ts';
-import { openSharingDatabase, openSharingV2Database, sharingDatabaseDirectory, sharingDatabaseFilename, sharingDatabaseFileExists } from './database-location.ts';
+import { existingSharingRegistryDirectory, openSharingDatabase, openSharingV2Database, sharingDatabaseDirectory, sharingDatabaseFilename, sharingDatabaseFileExists } from './database-location.ts';
 import { createSharingCloud } from './firestore-cloud.ts';
 import { createSharedRoster, sharedRosterDigest } from '../../features/sharing/roster.ts';
 import type { VerifiedSharedRoster } from '../../features/sharing/roster.ts';
@@ -55,17 +55,29 @@ function changed(selection?: SharingChange) { if (!selection?.statusOnly) localP
 export function notifySharingWorkspaceChanged() { changed(); }
 const keyForScope = (selection: SharingSelection) => canonicalJson([selection.userId, selection.groupId]);
 let registryPromise: Promise<SQLiteDatabase> | null = null;
-export function sharingRegistryDatabase(options?: { presentationOnly?: boolean }): Promise<SQLiteDatabase> {
+const registryFilename = 'sharing-index.db';
+function openSharingRegistry(directory?: string): Promise<SQLiteDatabase> {
   if (!registryPromise) {
-    const pending = (async () => { const db = await openDatabaseAsync('sharing-index.db', { useNewConnection: true }, await sharingDatabaseDirectory());
+    const pending = (async () => { const db = await openDatabaseAsync(registryFilename, { useNewConnection: true }, directory ?? await sharingDatabaseDirectory());
       try { await initializeSharingRegistry(db); return db; }
       catch (error) { await db.closeAsync().catch(() => undefined); throw error; }
     })(); registryPromise = pending;
     void pending.catch(() => { if (registryPromise === pending) registryPromise = null; });
   }
+  return registryPromise;
+}
+/** Start opening an existing device-local index while the protected selection is read. */
+export function prepareExistingSharingRegistry(): void {
+  if (registryPromise) return;
+  void existingSharingRegistryDirectory(registryFilename).then(directory => {
+    if (directory) return openSharingRegistry(directory);
+  }).catch(() => undefined);
+}
+export function sharingRegistryDatabase(options?: { presentationOnly?: boolean }): Promise<SQLiteDatabase> {
+  const registry = openSharingRegistry();
   // An encrypted saved view never supplies authority. Its first frame need not
   // wait for the independent signature memo used by the verified live session.
-  return options?.presentationOnly ? registryPromise : registryPromise.then(async db => { await initializeNativeSignatureCache(db); return db; });
+  return options?.presentationOnly ? registry : registry.then(async db => { await initializeNativeSignatureCache(db); return db; });
 }
 export async function sharingSessionUser(): Promise<User | null> {
   if (!isSharingConfigured()) return null;

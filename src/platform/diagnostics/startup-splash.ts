@@ -1,4 +1,4 @@
-let splash: { setOptions(options: { duration: number; fade: boolean }): void; preventAutoHideAsync(): Promise<unknown>; hideAsync(): Promise<unknown> } | undefined;
+let splash: { setOptions(options: { duration: number; fade: boolean }): void; preventAutoHideAsync(): Promise<unknown>; hide(): void } | undefined;
 let finishing = false;
 // Only the foreground Router layout supplies native APIs; workers and domain readers have no native splash side effect.
 export function prepareStartupDisplay(native: NonNullable<typeof splash>) {
@@ -11,5 +11,5 @@ export function finishStartupDisplay() {
   if (finishing || !splash) return; finishing = true;
   // The native splash may suppress drawing (including animation frames). The ready
   // surface's layout already ran; waiting for another frame can prevent hiding forever.
-  void splash.hideAsync().catch(() => { finishing = false; });
+  try { splash.hide(); } catch { finishing = false; }
 }

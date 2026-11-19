@@ -1,6 +1,6 @@
 import { useSQLiteContext } from 'expo-sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { createContext, createElement, useContext, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import { createContext, createElement, useContext, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 import { AppState } from 'react-native';
 
@@ -23,6 +23,7 @@ import { subscribeSharingChanges } from '@/platform/sharing/workspaces';
 import { PlannerIssuesContext } from '@/contexts/planner-issues-context';
 import { waitForInitialFrame } from '@/features/planner/initial-display-gate';
 import { AdaptiveOwnerInputsChangedError } from '@/platform/storage/adaptive-owner-inputs';
+import { WorkspaceContext } from '@/contexts/workspace-context';
 
 type PlannerController = ReturnType<typeof createPlannerRefreshController<PlannerSnapshot>>;
 type PlannerBinding = { database: SQLiteDatabase; controller: PlannerController };
@@ -43,6 +44,8 @@ function SharedPlannerIssuesProvider({ children, controller, groupId }: {
 
 /** The only foreground owner of planner reads, lifecycle subscriptions and snapshot side effects. */
 export function PlannerDataProvider({ children, databaseOverride }: { children: ReactNode; databaseOverride?: SQLiteDatabase }) {
+  const workspace = useContext(WorkspaceContext);
+  const [startedWithCachedHome] = useState(() => Boolean(workspace?.startupDisplay));
   const personalDatabase = useSQLiteContext();
   const database = databaseOverride ?? personalDatabase;
   const shared = sharedRepositoryAdapter(database);
@@ -85,11 +88,11 @@ export function PlannerDataProvider({ children, databaseOverride }: { children: 
       }, (controller.getSnapshot().snapshot?.timeZone
         ? millisecondsUntilNextSharedDay(new Date(), controller.getSnapshot().snapshot!.timeZone!) : millisecondsUntilNextLocalDay(new Date())) + 100);
     };
-    const resume = () => {
+    const resume = (preferIdle = false) => {
       const current = ++activation;
       // Native/background work can use another SQLite connection, so bypass the JS cache on resume.
       // Remote imports must not invalidate or occupy the database before its first local result.
-      void waitForInitialFrame().then(async () => {
+      void waitForInitialFrame(preferIdle).then(async () => {
         // A saved home is already usable. Let it paint before protected-owner
         // restoration and cold plan validation occupy the JS runtime.
         if (!live || current !== activation || appState === 'background' || appState === 'inactive') return;
@@ -99,7 +102,7 @@ export function PlannerDataProvider({ children, databaseOverride }: { children: 
       }).catch(() => undefined);
       scheduleMidnight();
     };
-    if (appState !== 'background' && appState !== 'inactive') resume();
+    if (appState !== 'background' && appState !== 'inactive') resume(startedWithCachedHome);
     const refresh = () => {
       if (appState === 'background' || appState === 'inactive') return false;
       void controller.refresh();
@@ -143,7 +146,7 @@ export function PlannerDataProvider({ children, databaseOverride }: { children: 
         settings: { notificationHour: 9, notificationMinute: 0, notificationsEnabled: false, setupCompleted: false },
       }).catch(() => undefined);
     };
-  }, [controller, database, shared]);
+  }, [controller, database, shared, startedWithCachedHome]);
 
   const value = useMemo(() => ({ database, controller }), [database, controller]);
   const scoped = createElement(PlannerContext.Provider, { value }, shared

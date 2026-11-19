@@ -18,9 +18,9 @@ export function createInitialDisplayGate<Scope extends object>() {
 }
 
 /** Give cached content a frame to paint without making session restoration depend on a visible surface. */
-export function waitForInitialFrame(): Promise<void> {
+export function waitForInitialFrame(preferIdle = false): Promise<void> {
   if (typeof requestAnimationFrame !== 'function') return new Promise(resolve => setTimeout(resolve, 0));
-  return new Promise(resolve => {
+  return new Promise<void>(resolve => {
     let finished = false; let frame: number | undefined; let afterFrame: ReturnType<typeof setTimeout> | undefined;
     const finish = () => {
       if (finished) return;
@@ -33,5 +33,8 @@ export function waitForInitialFrame(): Promise<void> {
     frame = requestAnimationFrame(() => {
       if (!finished) frame = requestAnimationFrame(() => { if (!finished) afterFrame = setTimeout(finish, 0); });
     });
+  }).then(() => {
+    if (!preferIdle || typeof requestIdleCallback !== 'function') return;
+    return new Promise<void>(resolve => requestIdleCallback(() => resolve(), { timeout: 150 }));
   });
 }

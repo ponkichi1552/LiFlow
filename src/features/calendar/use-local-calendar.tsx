@@ -18,6 +18,7 @@ import { recoverCalendarReminderUndos } from '../../platform/storage/calendar-re
 import { CalendarHistoryLimitError } from '../../platform/storage/calendar-event-rows';
 import { addDays, localDateFromDate } from '../../domain/scheduling/local-date';
 import { calendarMonth } from './events';
+import { waitForInitialFrame } from '../planner/initial-display-gate';
 
 // A personal-only calendar must not initialize the native sharing runtime.
 function groupDraftAuth() {
@@ -35,16 +36,18 @@ export function useOwnBirthday(date: LocalDate) {
 }
 /** Loads local events once at app startup and keeps every page on the same subscription. */
 export function LocalCalendarProvider({ children }: { children: ReactNode }) {
-  const database = useSQLiteContext(); const value = useObservedLocalCalendar(database);
+  const database = useSQLiteContext(); const value = useObservedLocalCalendar(database, true);
   const { waitForInitialRead } = usePlannerData({ personal: true });
   const requestRange = usePersonalGoogleSync(database, waitForInitialRead);
   const binding = useMemo(() => ({ ...value, requestRange }), [value, requestRange]);
   return <LocalCalendarContext.Provider value={binding}>{children}</LocalCalendarContext.Provider>;
 }
-export function useLocalCalendar(database?: SQLiteDatabase, includeGroupDrafts = false): LocalCalendarBinding {
+export function useLocalCalendar(database?: SQLiteDatabase, includeGroupDrafts = false, observeOnly = false): LocalCalendarBinding {
   const provided = useContext(LocalCalendarContext);
   const shared = provided?.database === database ? provided : null;
   const fallback = useObservedLocalCalendar(shared ? undefined : database);
+  const ensureRead = shared?.ensureRead;
+  useEffect(() => { if (!observeOnly) ensureRead?.(); }, [observeOnly, ensureRead]);
   const binding = shared ?? fallback;
   const snapshot = binding.snapshot;
   const visible = useMemo(() => {
@@ -56,8 +59,12 @@ export function useLocalCalendar(database?: SQLiteDatabase, includeGroupDrafts =
 }
 
 /** Read personal events and only the current viewer's unpublished group drafts from this SQLite file. */
-function useObservedLocalCalendar(database?: SQLiteDatabase): LocalCalendarBinding {
+function useObservedLocalCalendar(database?: SQLiteDatabase, prioritizeCachedHome = false): LocalCalendarBinding {
   const workspace = useContext(WorkspaceContext);
+  const [cachedAtMount] = useState(() => prioritizeCachedHome && Boolean(workspace?.startupDisplay));
+  const initialRead = useRef<(() => void) | undefined>(undefined);
+  const requested = useRef(false);
+  const ensureRead = useCallback(() => { requested.current = true; initialRead.current?.(); }, []);
   // An encrypted startup view can show its calendar before authentication. Drafts
   // still need live membership and should not bring Auth onto the initial render.
   const selected = workspace?.active?.protocol === 2 ? workspace.active : undefined;
@@ -190,12 +197,29 @@ function useObservedLocalCalendar(database?: SQLiteDatabase): LocalCalendarBindi
   }, [database, source, account, readAccount]);
   useEffect(() => {
     if (!database) return;
-    // Account changes only affect drafts unless a previous observer had a read in flight.
-    void reload(!pending.current || pending.current.source === source);
-    const unsubscribe = subscribeLocalCalendar(database, change => { if (change !== 'syncStatus') void reload(change === 'drafts'); });
-    const appState = AppState.addEventListener('change', state => { if (state === 'active') void refresh(); });
-    return () => { unsubscribe(); appState.remove(); };
-  }, [database, source, refresh, reload]);
+    let live = true, started = false;
+    const begin = () => {
+      if (!live || started) return;
+      started = true;
+      // Account changes only affect drafts unless a previous observer had a read in flight.
+      void reload(!pending.current || pending.current.source === source);
+    };
+    initialRead.current = begin;
+    // A cached Home can accept a completion before the full calendar history is read.
+    // Opening the calendar or resolving its notification starts the read on demand.
+    if (cachedAtMount && !requested.current && !observed.current) void waitForInitialFrame(true).then(begin);
+    else begin();
+    const unsubscribe = subscribeLocalCalendar(database, change => {
+      if (change === 'syncStatus') return;
+      if (!started) begin(); else void reload(change === 'drafts');
+    });
+    let away = AppState.currentState === 'background' || AppState.currentState === 'inactive';
+    const appState = AppState.addEventListener('change', state => {
+      if (state === 'background' || state === 'inactive') away = true;
+      else if (state === 'active' && away) { away = false; if (!started) begin(); else void refresh(); }
+    });
+    return () => { live = false; initialRead.current = undefined; unsubscribe(); appState.remove(); };
+  }, [database, source, refresh, reload, cachedAtMount]);
   const currentSnapshot = observedState && observedState.database === database ? observedState.snapshot : EMPTY_LOCAL_CALENDAR;
   const historyLimited = Boolean(observedState && observedState.database === database && observedState.historyLimited);
   const historyGeneration = observedState && observedState.database === database ? observedState.generation : 0;
@@ -203,12 +227,13 @@ function useObservedLocalCalendar(database?: SQLiteDatabase): LocalCalendarBindi
     const drafts = (currentSnapshot.drafts ?? (currentSnapshot.draft ? [currentSnapshot.draft] : [])).filter(draft => canReadCalendarDraft(draft, groupId, ownerScope));
     return { ...currentSnapshot, drafts, draft: drafts[0] ?? null };
   }, [currentSnapshot, groupId, ownerScope]);
-  return { database, snapshot: visible, draftOwnerScope: ownerScope ?? null, assertDraftAccess, error, loading: loading || Boolean(database && observedState?.database !== database), refresh,
+  return { database, snapshot: visible, draftOwnerScope: ownerScope ?? null, assertDraftAccess, error, loading: loading || Boolean(database && observedState?.database !== database), refresh, ensureRead,
     historyLimited, historyGeneration, loadRange, readHistoryPage,
     canEditEvent: (id, anchorDate) => canEditPrivateCalendarEvent(currentSnapshot, id, anchorDate) };
 }
 export interface LocalCalendarBinding {
   database?: SQLiteDatabase; snapshot: LocalCalendarSnapshot; loading: boolean; error: string | null; refresh: () => Promise<void>;
+  ensureRead?: () => void;
   shared?: { groupId: string; name: string; enabled: boolean; notificationScope?: string };
   prepareDraft?: (draft: CalendarEditorDraft) => CalendarEditorDraft;
   draftOwnerScope?: string | null;
