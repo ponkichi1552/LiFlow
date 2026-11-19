@@ -292,6 +292,51 @@ for (const leave of ['back', 'unmount']) {
 }
 test('appliance analysis aborts when a retained screen blurs and permits another request', () => verifyApplianceAbortOnLeave('blur'));
 
+test('personal reanalysis keeps the appliance read failure visible until a read retry succeeds', async t => {
+  let reads = 0;
+  const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { params: { applianceId: 'saved-appliance' }, effectDependencies: true,
+    effect: callback => callback(), mocks: {
+      '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: () => assert.fail('a read retry must not start an analysis') },
+      '@/platform/storage/repository': { ...repository, loadApplianceCareReviewContext: async () => {
+        if (++reads === 1) throw new Error('temporary read failure');
+        return { appliance: { category: '掃除機', analysis: null }, chores: [] };
+      } },
+    } });
+  t.after(() => screen.unmount());
+  await screen.flush();
+  assert.match(screen.text(), /登録した家電を読み込めませんでした/u);
+  assert.equal(screen.button('取扱説明書PDFを選ぶ').props.accessibilityState.disabled, true);
+  await screen.press('家電を再読込');
+  await screen.flush();
+  assert.equal(reads, 2);
+  assert.doesNotMatch(screen.text(), /登録した家電を読み込めませんでした/u);
+  assert.equal(screen.button('取扱説明書PDFを選ぶ').props.accessibilityState.disabled, false);
+});
+
+test('an appliance display failure after saving can retry the read without repeating analysis or writing', async t => {
+  const f = await fixture(); t.after(() => f.connection.close());
+  let requests = 0, saves = 0, reads = 0;
+  const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { ...f.options, mocks: {
+    '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async ({ manual }) => { requests++; return withUploadedManual(applianceResult(), manual); } },
+    '@/platform/storage/repository': { ...repository,
+      saveReviewedApplianceCare: async (...args) => { saves++; return repository.saveReviewedApplianceCare(...args); },
+      loadApplianceCareReviewContext: async (...args) => {
+        if (++reads === 1) throw new Error('display read failed');
+        return repository.loadApplianceCareReviewContext(...args);
+      },
+    },
+  } });
+  t.after(() => screen.unmount());
+  await screen.press('取扱説明書PDFを選ぶ'); await screen.press('PDFを解析');
+  for (let n = 0; n < 20 && !screen.text().includes('保存済みです。表示を更新できませんでした。'); n++) await screen.flush();
+  assert.match(screen.text(), /保存済みです。表示を更新できませんでした。/u);
+  assert.doesNotMatch(screen.text(), /解析結果を保存できませんでした/u);
+  await screen.press('表示を再読込');
+  for (let n = 0; n < 20 && screen.text().includes('表示を更新できませんでした'); n++) await screen.flush();
+  assert.doesNotMatch(screen.text(), /表示を更新できませんでした/u);
+  assert.deepEqual([requests, saves, reads], [1, 1, 2]);
+});
+
 test('leaving a personal appliance during its committed save preserves the save lock until SQLite finishes', async () => {
   const f = await fixture(); const gate = deferred(); const done = deferred(); let blur; let signal; let requests = 0; let saves = 0; let screen; const cleanups = [];
   try {

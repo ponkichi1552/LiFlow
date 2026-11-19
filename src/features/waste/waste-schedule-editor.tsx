@@ -1,6 +1,6 @@
 import { Chevron } from '../../components/chevron';
 import { FormTextInput as TextInput } from '../../components/form-text-input';
-import { useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { NumberInputField } from '@/components/number-input-field';
 import { WeekdayChoices } from '@/components/weekday-choices';
@@ -17,24 +17,49 @@ import { nextWasteWeekday, normalizeWasteSchedule, wasteWeekdays } from './sched
 import { searchWasteTypes } from './waste-types';
 import { useWasteTypeColor } from './use-waste-type-color';
 
+interface WasteScheduleForm {
+  query: string;
+  label: string | null;
+  recurrence: WasteRecurrence;
+  weekdays: Weekday[];
+  anchorDate?: LocalDate;
+  monthlyDay: string;
+}
+
+export type WasteSetupStatus = 'idle' | 'ready' | 'saving';
+export interface WasteSetupEditor {
+  drafts: Map<string, WasteScheduleForm>;
+  setStatus: (status: WasteSetupStatus) => void;
+  registerSubmit: (submit: () => Promise<boolean>) => () => void;
+}
+
 /** The same editor is used in first-run setup and settings so the supported modes cannot drift. */
-export function WasteScheduleEditor({ initial, onSubmit, onCancel, disabled = false, referenceDate }: {
+export function WasteScheduleEditor({ initial, onSubmit, onCancel, disabled = false, referenceDate, setup }: {
   initial?: WasteScheduleInput;
   onSubmit: (schedule: WasteScheduleInput) => Promise<void>;
   onCancel?: () => void;
   disabled?: boolean;
   referenceDate?: LocalDate;
+  setup?: WasteSetupEditor;
 }) {
   const wasteTypeColor = useWasteTypeColor();
   const colors = plannerColorsForScheme(useColorScheme());
 
   const today = referenceDate ?? localDateFromDate(new Date());
-  const [form, setForm] = useState(() => ({ query: initial?.label ?? '', label: initial?.label ?? null as string | null,
-    recurrence: initial?.recurrence ?? 'weekly' as WasteRecurrence, weekdays: [...(initial?.collectionWeekdays ?? [])] as Weekday[],
-    anchorDate: initial?.anchorDate, monthlyDay: String(initial?.monthlyDay ?? Number(today.slice(-2))) }));
+  const initialId = initial?.id;
+  const formKey = initialId ?? '';
+  const [form, setForm] = useState<WasteScheduleForm>(() => setup?.drafts.get(formKey) ?? {
+    query: initial?.label ?? '', label: initial?.label ?? null,
+    recurrence: initial?.recurrence ?? 'weekly', weekdays: [...(initial?.collectionWeekdays ?? [])],
+    anchorDate: initial?.anchorDate, monthlyDay: String(initial?.monthlyDay ?? Number(today.slice(-2))),
+  });
   const draft = useRef(form);
   // Event handlers can run before React paints the preceding input event.
-  const update = (patch: Partial<typeof form>) => { draft.current = { ...draft.current, ...patch }; setForm(draft.current); };
+  const update = useCallback((patch: Partial<WasteScheduleForm>) => {
+    draft.current = { ...draft.current, ...patch };
+    setup?.drafts.set(formKey, draft.current);
+    setForm(draft.current);
+  }, [formKey, setup]);
   const { query, label, recurrence, weekdays, anchorDate, monthlyDay } = form;
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -61,21 +86,29 @@ export function WasteScheduleEditor({ initial, onSubmit, onCancel, disabled = fa
       update({ weekdays: remove ? [] : [day], anchorDate: remove ? undefined : nextWasteWeekday(today, day) });
     } else update({ weekdays: current.weekdays.includes(day) ? current.weekdays.filter(item => item !== day) : [...current.weekdays, day].sort() });
   };
-  const save = async () => {
+  const save = useCallback(async () => {
     const current = draft.current;
-    if (locked || savingRef.current || !current.label) return;
+    if (disabled || savingRef.current || !current.label) return false;
     savingRef.current = true;
     setSaving(true);
     setError(null);
     try {
       if (current.recurrence === 'monthly' && !/^\d{1,2}$/.test(current.monthlyDay)) throw new RangeError('毎月の収集日を1〜31日の整数で入力してください');
-      await onSubmit(normalizeWasteSchedule({ id: initial?.id, label: current.label, collectionWeekdays: current.weekdays, recurrence: current.recurrence,
+      await onSubmit(normalizeWasteSchedule({ id: initialId, label: current.label, collectionWeekdays: current.weekdays, recurrence: current.recurrence,
         anchorDate: current.anchorDate, ...(current.recurrence === 'monthly' ? { monthlyDay: Number(current.monthlyDay) } : {}) }));
       update({ query: '', label: null, weekdays: [], recurrence: 'weekly', anchorDate: undefined, monthlyDay: String(Number(today.slice(-2))) });
+      setup?.drafts.delete(formKey);
+      return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '収集日を保存できませんでした。');
+      return false;
     } finally { savingRef.current = false; setSaving(false); }
-  };
+  }, [disabled, formKey, initialId, onSubmit, setup, today, update]);
+  useLayoutEffect(() => {
+    if (!setup) return;
+    setup.setStatus(saving ? 'saving' : canSave ? 'ready' : 'idle');
+    return setup.registerSubmit(save);
+  }, [canSave, save, saving, setup]);
 
   return (
     <View style={styles.editor}>
@@ -130,7 +163,7 @@ export function WasteScheduleEditor({ initial, onSubmit, onCancel, disabled = fa
       ) : null}
       </View></SettingsPanel>
       {error ? <Text accessibilityLiveRegion="polite" style={styles.error}>{error}</Text> : null}
-      <AppButton title={saving ? '保存中…' : initial ? '変更を保存' : '収集日を追加'} onPress={() => void save()} disabled={locked || !canSave} />
+      <AppButton title={saving ? '保存中…' : initial ? '変更を保存' : '収集日を追加'} variant={setup ? 'secondary' : 'primary'} onPress={() => void save()} disabled={locked || !canSave} />
       {onCancel ? <SettingsAction title="編集をやめる" onPress={onCancel} placement="page" disabled={locked} /> : null}
     </View>
   );

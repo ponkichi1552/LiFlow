@@ -4,6 +4,6 @@ import { createCalendarTitleDisplayStore } from './title-display-store';
 
 export const calendarTitleDisplayStore = createCalendarTitleDisplayStore(Storage);
 export const readCalendarTitleShortening = calendarTitleDisplayStore.getSnapshot;
-export function useCalendarTitleDisplay() {
-  return { value: useSyncExternalStore(calendarTitleDisplayStore.subscribe, readCalendarTitleShortening, readCalendarTitleShortening), select: calendarTitleDisplayStore.select };
+export function useCalendarTitleDisplay(binding = calendarTitleDisplayStore) {
+  return { value: useSyncExternalStore(binding.subscribe, binding.getSnapshot, binding.getSnapshot), select: binding.select };
 }

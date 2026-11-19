@@ -18,19 +18,26 @@ export async function pickApplianceManual(): Promise<{ name: string; base64: str
   }
 }
 
-export function ManualUploadInput({ onChange, disabled = false, retained }: { onChange: (manual: UploadedManualInput | undefined) => void; disabled?: boolean; retained?: UploadedManualInput }) {
-  const [picked, setPicked] = useState<{ name: string; base64: string } | null>(null);
+export function ManualUploadInput({ onChange, onPickingChange, disabled = false, retained, filename }: {
+  onChange(manual: UploadedManualInput | undefined, filename?: string): void;
+  onPickingChange?(picking: boolean): boolean | void;
+  disabled?: boolean;
+  retained?: UploadedManualInput;
+  filename?: string;
+}) {
+  const [pickedName, setPickedName] = useState<string>();
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
   const picking = useRef(false);
-  const selected = picked ?? (retained ? { name: '保存済みの取扱説明書', base64: retained.base64 } : null);
+  const selectedName = filename ?? pickedName ?? (retained ? '保存済みの取扱説明書' : null);
   return <View style={{ gap: 8 }}>
-    {selected ? <Text style={[typography.body, { color: palette.ink }]} numberOfLines={2}>{selected.name}</Text> : null}
-    <AppButton variant="surface" title={selected ? 'PDFを変更' : '取扱説明書PDFを選ぶ'} disabled={disabled || busy}
+    {selectedName ? <Text style={[typography.body, { color: palette.ink }]} numberOfLines={2}>{selectedName}</Text> : null}
+    <AppButton variant="surface" title={busy ? 'PDFを読み込んでいます…' : selectedName ? 'PDFを変更' : '取扱説明書PDFを選ぶ'} disabled={disabled || busy}
       onPress={() => {
-        if (picking.current) return; picking.current = true; setBusy(true); setError(null);
-        void pickApplianceManual().then(value => { if (value) { setPicked(value); onChange({ base64: value.base64, rightsConfirmed: true }); } })
+        if (picking.current || disabled || onPickingChange?.(true) === false) return;
+        picking.current = true; setBusy(true); setError(null);
+        void pickApplianceManual().then(value => { if (value) { setPickedName(value.name); onChange({ base64: value.base64, rightsConfirmed: true }, value.name); } })
           .catch(cause => setError(cause instanceof Error ? cause.message : 'PDFを読み込めませんでした。'))
-          .finally(() => { picking.current = false; setBusy(false); });
+          .finally(() => { picking.current = false; onPickingChange?.(false); setBusy(false); });
       }} />
     <Text style={[typography.caption, { color: palette.muted }]}>6MiB・100ページ以内</Text>
     {error ? <Text accessibilityRole="alert" style={[typography.caption, { color: palette.warning }]}>{error}</Text> : null}

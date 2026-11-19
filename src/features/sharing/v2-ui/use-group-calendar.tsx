@@ -170,7 +170,7 @@ export function useGroupCalendar(local: LocalCalendarBinding | undefined, model:
       if (draft.audience === 'group') return saveGroup(draft, false, resetExceptions, draftCleanup);
       if (!local.database || recordsById.has(draft.eventId ?? '')) throw new Error('個人予定の保存先を確認してください。');
       if (draft.scope === 'future') { const result = await saveCalendarFutureEvent(local.database, draft, draftCleanup); void local.refresh(); return result; }
-      await saveCalendarEvent(local.database, { id: draft.eventId ?? undefined, expectedRevision: draft.revision, value: draft.value,
+      await saveCalendarEvent(local.database, { id: draft.eventId ?? undefined, draftId: draft.draftId, expectedRevision: draft.revision, value: draft.value,
         scope: draft.scope, anchorDate: draft.anchorDate ?? undefined, expectedExceptionRevision: draft.exceptionRevision, resetExceptions, reminderMinutes: draft.reminderMinutes, draftCleanup });
       void local.refresh();
     },

@@ -48,7 +48,7 @@ for (const platform of ['ios', 'android']) {
     scrollTo(boundary - 1); assert.deepEqual(changed, [2027, 2026]);
     scrollTo(Number.NaN); assert.deepEqual(changed, [2027, 2026]);
   });
-  test(`${platform} adding from year view uses the displayed year and resumes the saved personal draft when present`, async () => {
+  test(`${platform} adding from year view uses the displayed year and opens a new form independently of saved drafts`, async () => {
     const opened = [];
     const local = { database: {}, snapshot: { events: [], exceptions: [], categories: [], drafts: [] } };
     const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { platform, exportName: 'PlannerCalendar', props: {
@@ -63,11 +63,14 @@ for (const platform of ['ios', 'android']) {
       yearList.props.onScroll({ nativeEvent: { contentOffset: { y: yearList.props.getItemLayout(yearList.props.data, nextYearIndex).offset } } });
       await screen.flush(); await screen.press('予定を追加');
       assert.equal(opened.at(-1).value.startDate, '2027-12-10');
+      const firstDraftId = opened.at(-1).draftId;
 
       const groupDraft = { eventId: null, anchorDate: null, revision: 1, exceptionRevision: 0, scope: 'series', audience: 'group', value: { ...newEventDraft('2026-10-31', 'Asia/Tokyo'), title: '共有の入力中' } };
       const personalDraft = { eventId: null, anchorDate: null, revision: 2, exceptionRevision: 0, scope: 'series', audience: 'personal', value: { ...newEventDraft('2026-11-01', 'Asia/Tokyo'), title: '個人の入力中' } };
       local.snapshot.drafts = [groupDraft, personalDraft]; screen.render(); await screen.press('予定を追加');
-      assert.equal(opened.at(-1).value.title, '個人の入力中', 'the existing personal draft still takes precedence over a group draft when adding');
+      assert.equal(opened.at(-1).value.title, '');
+      assert.equal(opened.at(-1).value.startDate, '2027-12-10');
+      assert.ok(firstDraftId && opened.at(-1).draftId && firstDraftId !== opened.at(-1).draftId);
     } finally { screen.unmount(); }
   });
   test(`${platform} closing the calendar editor preserves the browsed year despite a native zero offset`, async () => {

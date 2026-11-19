@@ -5,6 +5,8 @@ import { Chevron } from '../../components/chevron';
 import { typography } from '../../components/planner-ui';
 import { plannerColorsForScheme } from '../../components/planner-theme';
 import { formatJapaneseDate, localDateFromDate } from '../../domain/scheduling/local-date';
+import { pinnedClockAt } from '../../domain/scheduling/zoned-clock';
+import { v2WallTimeCandidates } from '../sharing/v2/local-time';
 import type { CalendarEditorDraft } from '../../platform/storage/calendar-events';
 import type { LocalCalendarBinding } from './use-local-calendar';
 import type { CalendarEvent, CalendarException } from '../../domain/calendar/events';
@@ -29,10 +31,27 @@ function indexSearchData(input: { historyEvents: CalendarEvent[]; historyExcepti
   return { input, events, exceptions, index: calendarSearchIndex(events, exceptions, input.focusDate) };
 }
 
-export function CalendarSearch({ local, chores = [], choresIncomplete, focusDate = localDateFromDate(new Date()), onClose, onSelect, resolveSelection }: { local: LocalCalendarBinding; chores?: readonly CalendarSearchChore[]; choresIncomplete?: boolean; focusDate?: LocalDate; onClose(): void; onSelect(destination: CalendarSearchDestination): void; resolveSelection(draft: CalendarEditorDraft, events: readonly CalendarEvent[], exceptions: readonly CalendarException[]): CalendarSearchDestination }) {
-  const scheme = useColorScheme(); const colors = plannerColorsForScheme(scheme); const [query, setQuery] = useState(''); const [selectionError, setSelectionError] = useState<string | null>(null);
-  const titleDisplay = useCalendarTitleDisplay();
+interface CalendarSearchProps {
+  local: LocalCalendarBinding;
+  chores?: readonly CalendarSearchChore[];
+  choresIncomplete?: boolean;
+  focusDate?: LocalDate;
+  displayTimeZone?: string;
+  onClose(): void;
+  onSelect(destination: CalendarSearchDestination): void;
+  resolveSelection(draft: CalendarEditorDraft, events: readonly CalendarEvent[], exceptions: readonly CalendarException[]): CalendarSearchDestination;
+}
+
+export function CalendarSearch(props: CalendarSearchProps) {
+  const { value } = useCalendarTitleDisplay();
+  return <CalendarSearchContent {...props} shortenTitles={value} />;
+}
+
+export function CalendarSearchContent({ local, chores = [], choresIncomplete, focusDate = localDateFromDate(new Date()), displayTimeZone,
+  onClose, onSelect, resolveSelection, shortenTitles, initialQuery = '' }: CalendarSearchProps & { shortenTitles: boolean; initialQuery?: string }) {
+  const scheme = useColorScheme(); const colors = plannerColorsForScheme(scheme); const [query, setQuery] = useState(initialQuery); const [selectionError, setSelectionError] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(60);
+  const [historyAttempt, setHistoryAttempt] = useState(0);
   const [historyState, setHistoryState] = useState<HistorySearchState & { key: string }>({ key: '', events: [], exceptions: [], loading: false });
   const [visible, setVisible] = useState(true); const closing = useRef(false); const finished = useRef(false); const pending = useRef<CalendarSearchDestination | null>(null);
   const finish = () => { if (finished.current) return; finished.current = true; if (pending.current) onSelect(pending.current); else onClose(); };
@@ -40,7 +59,7 @@ export function CalendarSearch({ local, chores = [], choresIncomplete, focusDate
   const hasSearchTerms = searchTerms(query).length > 0;
   const readHistoryPage = local.readHistoryPage;
   const historyGeneration = local.historyGeneration ?? 0;
-  const historyKey = JSON.stringify([historyGeneration, focusDate, query]);
+  const historyKey = JSON.stringify([historyGeneration, focusDate, query, historyAttempt]);
   const searchHistory = local.historyLimited === true && hasSearchTerms && Boolean(readHistoryPage);
   const history: HistorySearchState = searchHistory && historyState.key === historyKey ? historyState
     : { ...EMPTY_HISTORY, loading: searchHistory };
@@ -93,26 +112,36 @@ export function CalendarSearch({ local, chores = [], choresIncomplete, focusDate
       <Pressable accessibilityRole="button" accessibilityLabel="予定の検索を閉じる" onPress={close} style={{ width: 64, minHeight: 44, justifyContent: 'center' }}><Text style={{ ...typography.body, color: colors.accent }}>閉じる</Text></Pressable>
       <Text style={{ ...typography.body, flex: 1, textAlign: 'center', fontWeight: '700', color: colors.ink }}>予定を検索</Text><View style={{ width: 64 }} />
     </View>
-    <FormTextInput accessibilityLabel="予定を検索" placeholder="予定名・家事名・場所・メモで検索" value={query} onChangeText={value => { setQuery(value); setVisibleCount(60); setSelectionError(null); }} autoFocus autoCorrect={false} returnKeyType="search"
+    <FormTextInput accessibilityLabel="予定を検索" placeholder="予定名・家事名・場所・メモで検索" value={query} onChangeText={value => { setQuery(value); setVisibleCount(60); setSelectionError(null); }} autoFocus={!initialQuery} autoCorrect={false} returnKeyType="search"
       style={{ ...typography.body, marginHorizontal: 12, paddingHorizontal: 12, minHeight: 46, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 10, color: colors.ink, backgroundColor: colors.surface }} />
-    {history.loading ? <Text style={{ ...typography.caption, color: colors.muted, paddingHorizontal: 14 }}>過去の予定を検索中</Text> : null}
-    {history.error ? <Text accessibilityRole="alert" style={{ ...typography.caption, color: colors.warning, paddingHorizontal: 14 }}>保存履歴を検索できませんでした</Text> : null}
+    {history.loading ? <Text accessibilityLiveRegion="polite" style={{ ...typography.caption, color: colors.muted, paddingHorizontal: 14 }}>過去の予定を検索中</Text> : null}
+    {history.error ? <View style={{ paddingHorizontal: 14 }}>
+      <Text accessibilityRole="alert" style={{ ...typography.caption, color: colors.warning }}>保存履歴を検索できませんでした</Text>
+      <SettingsAction title="検索を再試行" onPress={() => setHistoryAttempt(attempt => attempt + 1)} />
+    </View> : null}
     {choresIncomplete ? <Text style={{ ...typography.caption, color: colors.muted, paddingHorizontal: 14 }}>家事は取得済みの期間から検索します</Text> : null}
     {local.error ? <Text accessibilityRole="alert" style={{ ...typography.caption, color: colors.warning, paddingHorizontal: 14 }}>{local.error}</Text> : null}
     {selectionError ? <Text accessibilityRole="alert" style={{ ...typography.caption, color: colors.warning, paddingHorizontal: 14 }}>{selectionError}</Text> : null}
     <FlatList key={query.trim()} testID="calendar-search-results" data={rows} keyExtractor={item => item.key} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" initialNumToRender={10}
       onEndReached={more ? showMore : undefined} onEndReachedThreshold={0.25}
-      ListEmptyComponent={query.trim() ? <Text style={{ ...typography.caption, color: colors.muted, padding: 16 }}>{local.loading && !local.snapshot.events.length ? '予定を読み込んでいます' : '一致する予定はありません'}</Text> : undefined}
+      ListEmptyComponent={hasSearchTerms && !history.loading && !history.error && !local.error ? <Text accessibilityLiveRegion="polite" style={{ ...typography.caption, color: colors.muted, padding: 16 }}>{local.loading ? '予定を読み込んでいます' : '一致する予定はありません'}</Text> : undefined}
       ListFooterComponent={more ? <View style={{ padding: 12 }}><SettingsAction title="続きを表示" onPress={showMore} /></View> : undefined}
       renderItem={({ item }) => {
-        if (!('draft' in item)) return <Pressable accessibilityRole="button" accessibilityLabel={`${item.title}の検索結果を開く`} onPress={() => { if (closing.current) return; pending.current = { date: item.date, minute: item.minute ?? null, choreKey: item.key }; close(); }}
+        if (!('draft' in item)) {
+          const detail = `${formatJapaneseDate(item.date, { year: true })}${item.minute == null ? '' : ` ${minuteLabel(item.minute)}`} · ${item.source === 'personal' ? '個人の家事' : '共有の家事'}`;
+          return <Pressable accessibilityRole="button" accessibilityLabel={`${item.title}の検索結果を開く`} accessibilityValue={{ text: detail }} onPress={() => { if (closing.current) return; pending.current = { date: item.date, minute: item.minute ?? null, choreKey: item.key }; close(); }}
           style={{ padding: 14, minHeight: 64, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <View style={{ flex: 1, gap: 4 }}><Text style={{ ...typography.body, color: colors.ink }} numberOfLines={2}>{item.title}</Text>
-            <Text style={{ ...typography.caption, color: colors.muted }}>{formatJapaneseDate(item.date, { year: true, weekday: false })} · {item.source === 'personal' ? '個人の家事' : '共有の家事'}</Text>
+            <Text style={{ ...typography.caption, color: colors.muted }}>{detail}</Text>
           </View><Chevron color={colors.accent} /></Pressable>;
+        }
         const value = item.draft.value; const appearance = calendarEventAppearance(categories.get(value.categoryId) ?? colors.muted, scheme === 'dark');
-        const title = calendarTitleDisplay.label(value.title, focusDate, titleDisplay.value);
-        return <Pressable accessibilityRole="button" accessibilityLabel={`${title}の検索結果を開く`} onPress={() => {
+        const title = calendarTitleDisplay.label(value.title, focusDate, shortenTitles);
+        const repeat = value.recurrence !== 'none' && item.draft.scope === 'series';
+        const dateTime = searchResultDateTime(item.draft, displayTimeZone);
+        const dateLabel = repeat ? recurrenceLabel(value) : formatJapaneseDate(dateTime.date, { year: true });
+        const timeLabel = value.allDay ? ' · 終日' : dateTime.minute === null ? ` · 時刻要確認（${value.timeZone}）` : ` ${minuteLabel(dateTime.minute)}${repeat && displayTimeZone && value.timeZone !== displayTimeZone ? `（${value.timeZone}）` : ''}`;
+        return <Pressable accessibilityRole="button" accessibilityLabel={`${title}の検索結果を開く`} accessibilityValue={{ text: `${dateLabel}${timeLabel}${value.location ? ` · ${value.location}` : ''}` }} onPress={() => {
           if (closing.current || !searchData) return;
           try {
             pending.current = resolveSelection(item.draft, searchData.events, searchData.exceptions);
@@ -120,11 +149,22 @@ export function CalendarSearch({ local, chores = [], choresIncomplete, focusDate
           } catch (cause) { setSelectionError(cause instanceof Error ? cause.message : '予定を表示できませんでした。'); }
         }}
           style={{ padding: 14, minHeight: 64, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <View style={{ flex: 1, gap: 4 }}><Text style={{ ...typography.body, color: appearance.foregroundColor }} numberOfLines={2}>{title}</Text>
-            <Text style={{ ...typography.caption, color: colors.muted }} numberOfLines={1}>{value.recurrence !== 'none' && item.draft.scope === 'series' ? recurrenceLabel(value) : formatJapaneseDate(value.startDate, { year: true, weekday: false })}{value.allDay ? ' · 終日' : ` ${minuteLabel(value.startMinute)}`}</Text>
+          <View aria-hidden style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: appearance.foregroundColor }} />
+          <View style={{ flex: 1, gap: 4 }}><Text style={{ ...typography.body, color: colors.ink }} numberOfLines={2}>{title}</Text>
+            <Text style={{ ...typography.caption, color: colors.muted }}>{dateLabel}{timeLabel}</Text>
             {value.location ? <Text style={{ ...typography.caption, color: colors.muted }} numberOfLines={1}>{value.location}</Text> : null}
           </View><Chevron color={colors.accent} />
         </Pressable>;
       }} />
   </View></KeyboardAvoidingView></Modal>;
+}
+
+function searchResultDateTime(draft: CalendarEditorDraft, timeZone?: string): { date: LocalDate; minute: number | null } {
+  const value = draft.value;
+  if (value.allDay || (draft.scope === 'series' && value.recurrence !== 'none') || !timeZone || timeZone === value.timeZone) {
+    return { date: value.startDate, minute: value.startMinute };
+  }
+  const candidates = v2WallTimeCandidates({ date: value.startDate, timeZone: value.timeZone, hour: Math.floor(value.startMinute / 60), minute: value.startMinute % 60 });
+  if (candidates.length !== 1) return { date: value.startDate, minute: null };
+  return pinnedClockAt(candidates[0], timeZone);
 }

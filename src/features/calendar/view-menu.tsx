@@ -8,8 +8,9 @@ import { usePlannerBorderStyles } from '../../components/use-planner-border-styl
 import { SettingsCheckbox } from '../../components/settings-checkbox';
 export const CALENDAR_DETAIL_LABELS = { day: '1日', two: '2日', three: '3日', week: '7日', list: 'リスト' } as const;
 
-export function CalendarViewMenu({ value, onSelect, onClose, monthDetail, onMonthDetail, titleShortening, onTitleShortening }: {
+export function CalendarViewMenu({ value, onSelect, onClose, overview = false, monthDetail, onMonthDetail, titleShortening, onTitleShortening }: {
   value: CalendarDetailView; onSelect: (value: CalendarDetailView) => void; onClose: () => void;
+  overview?: boolean;
   monthDetail?: CalendarMonthDetail; onMonthDetail?(value: CalendarMonthDetail): void;
   titleShortening?: boolean; onTitleShortening?(value: boolean): void;
 }) {
@@ -19,6 +20,7 @@ export function CalendarViewMenu({ value, onSelect, onClose, monthDetail, onMont
     <Pressable accessibilityRole="button" accessibilityLabel="表示の選択を閉じる" style={StyleSheet.absoluteFill} onPress={onClose} />
     <View accessibilityViewIsModal style={[styles.menu, (monthDetail || onTitleShortening) && styles.detailMenu, { top: insets.top + 54, maxHeight: Math.max(100, height - insets.top - insets.bottom - 70) }]}>
       <ScrollView>
+      {overview ? <Text accessibilityRole="header" style={[styles.caption, { paddingTop: 8 }]}>日付を開くときの表示</Text> : null}
       {(Object.keys(CALENDAR_DETAIL_LABELS) as CalendarDetailView[]).map(mode => <Pressable key={mode} accessibilityRole="button" accessibilityLabel={`${CALENDAR_DETAIL_LABELS[mode]}表示`} accessibilityState={{ selected: value === mode }}
         onPress={() => { onSelect(mode); onClose(); }} style={({ pressed }) => [styles.option, value === mode && styles.pressed, pressed && { opacity: .7 }]}>
         <Text style={styles.label}>{CALENDAR_DETAIL_LABELS[mode]}</Text>{value === mode ? <Text aria-hidden style={styles.check}>✓</Text> : null}

@@ -1,7 +1,7 @@
-import { Tabs, router } from 'expo-router';
+import { Redirect, Tabs, router } from 'expo-router';
 import { WorkspaceTab } from '@/components/workspace-tab';
 import { useCallback, useContext, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
+import { Platform, Pressable, Settings, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { HomeMotionRow, HomeRowMotionScope } from '@/components/home-row-motion';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -28,8 +28,17 @@ import { isTaskUrgent } from '@/domain/scheduling/task-priority';
 import { commonChoreLinks } from '@/features/planner/common-chore-links';
 import { useCommonChoreHistory } from '@/hooks/use-common-chore-history';
 import { plannerColorsForScheme } from '@/components/planner-theme';
+import { uiReviewBuild } from '@/features/development/ui-review/enabled';
 
 export default function HomeScreen() {
+  if (uiReviewBuild) {
+    const area: unknown = Platform.OS === 'ios' ? Settings.get('LiFlowUiReviewArea') : undefined;
+    const scenario: unknown = Platform.OS === 'ios' ? Settings.get('LiFlowUiReviewScenario') : undefined;
+    return <Redirect href={{ pathname: '/development/ui-review', params: {
+      ...(typeof area === 'string' ? { area } : {}),
+      ...(typeof scenario === 'string' ? { scenario } : {}),
+    } }} />;
+  }
   return <WorkspaceTab view="home"><PersonalHomeScreen /></WorkspaceTab>;
 }
 

@@ -213,6 +213,89 @@ import XCUIAutomation
     view(app, "2日表示"); shot(app, "07-two-day"); view(app, "リスト表示"); shot(app, "08-list")
     tap(app, "月表示に戻る"); tap(app, "年表示に戻る"); shot(app, "09-year"); tap(app, "今日"); shot(app, "10-final-month")
   }
+  func testThreeDaySwipeAfterReturningFromCustomRecurrence() throws {
+    let app = XCUIApplication(bundleIdentifier: "jp.jphacks.tkb2633")
+    app.launch()
+    let next = app.buttons["次へ"]
+    if next.waitForExistence(timeout: 8) {
+      tap(app, "選択をすべて外す")
+      next.tap()
+      tap(app, "設定して始める")
+    }
+    let tab = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "カレンダー")).firstMatch
+    XCTAssertTrue(tab.waitForExistence(timeout: 20))
+    tab.tap()
+    let help = app.buttons["カレンダーのヘルプを閉じる"]
+    if help.waitForExistence(timeout: 4) { help.tap() }
+    view(app, "3日表示")
+    openBlankOwnCalendarEditor(app)
+    let name = app.textFields["予定名"].firstMatch
+    name.tap(); keyboardReady(app); typeLiteral(name, "QA recurrence navigation")
+    tap(app, "繰り返しを選択"); wheel(app, "カスタム")
+    tap(app, "カスタム繰り返しを適用")
+    XCTAssertTrue(name.waitForExistence(timeout: 15))
+    XCTAssertEqual(name.value as? String, "QA recurrence navigation")
+    shot(app, "review-returned-to-event-editor")
+    tap(app, "予定の編集を閉じる")
+    tap(app, "入力を破棄")
+
+    let timeline = app.descendants(matching: .any).matching(identifier: "calendar-timeline").firstMatch
+    XCTAssertTrue(timeline.waitForExistence(timeout: 10))
+    let headings = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "calendar-time-heading-"))
+    let original = try XCTUnwrap(headings.allElementsBoundByIndex.map(\.identifier).sorted().first)
+    let firstDate = app.descendants(matching: .any).matching(identifier: original).firstMatch
+    let x: [CGFloat] = [0.78, 0.22, 0.78, 0.22]
+    for start in x {
+      let end: CGFloat = start > 0.5 ? 0.22 : 0.78
+      timeline.coordinate(withNormalizedOffset: CGVector(dx: start, dy: 0.3))
+        .press(forDuration: 0.05, thenDragTo: timeline.coordinate(withNormalizedOffset: CGVector(dx: end, dy: 0.3)),
+          withVelocity: .fast, thenHoldForDuration: 0)
+      expectation(for: NSPredicate(format: start > 0.5 ? "exists == false" : "exists == true"), evaluatedWith: firstDate)
+      waitForExpectations(timeout: 10)
+      XCTAssertFalse(app.buttons["予定の入力に戻る"].exists)
+    }
+    shot(app, "review-three-day-after-recurrence")
+  }
+
+  func testDevelopmentReviewCalendarChorePanelsAndHorizontalSwipe() throws {
+    let app = XCUIApplication(bundleIdentifier: "jp.jphacks.tkb2633")
+    app.launchArguments = ["-LiFlowUiReviewArea", "calendar", "-LiFlowUiReviewScenario", "three"]
+    app.launch()
+    let monday = "2026年11月23日"
+    let tuesday = "2026年11月24日"
+    XCTAssertTrue(app.buttons[monday + "の家事を閉じる"].waitForExistence(timeout: 20))
+    shot(app, "review-three-day-chores")
+    tap(app, tuesday + "の家事を開く")
+    XCTAssertTrue(app.buttons[tuesday + "の家事を閉じる"].waitForExistence(timeout: 10))
+    XCTAssertTrue(app.buttons[monday + "の家事を開く"].exists)
+    tap(app, tuesday + "の家事を閉じる")
+
+    let timeline = app.descendants(matching: .any).matching(identifier: "calendar-timeline").firstMatch
+    XCTAssertTrue(timeline.waitForExistence(timeout: 10))
+    let left = timeline.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.28))
+    let right = timeline.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.28))
+    let thursday = app.buttons["2026年11月26日の家事を開く"]
+    for _ in 0..<3 {
+      right.press(forDuration: 0.05, thenDragTo: left, withVelocity: .fast, thenHoldForDuration: 0)
+      XCTAssertTrue(thursday.waitForExistence(timeout: 10))
+      XCTAssertFalse(app.buttons[monday + "の家事を開く"].exists)
+      let forwardLeft = timeline.coordinate(withNormalizedOffset: CGVector(dx: 0.22, dy: 0.28))
+      let forwardRight = timeline.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.28))
+      forwardLeft.press(forDuration: 0.05, thenDragTo: forwardRight, withVelocity: .fast, thenHoldForDuration: 0)
+      XCTAssertTrue(app.buttons[monday + "の家事を開く"].waitForExistence(timeout: 10))
+      XCTAssertFalse(thursday.exists)
+    }
+    XCTAssertFalse(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "入力途中の予定が見つかりません")).firstMatch.exists)
+
+    view(app, "7日表示")
+    tap(app, monday + "の家事を開く")
+    XCTAssertTrue(app.buttons[monday + "の家事を閉じる"].exists)
+    shot(app, "review-seven-day-chores")
+    tap(app, tuesday + "の家事を開く")
+    XCTAssertTrue(app.buttons[tuesday + "の家事を閉じる"].exists)
+    XCTAssertTrue(app.buttons[monday + "の家事を開く"].exists)
+  }
+
   func testCoreScreenAppearance() throws {
     let app = XCUIApplication(bundleIdentifier: "jp.jphacks.tkb2633")
     app.terminate(); app.launch()

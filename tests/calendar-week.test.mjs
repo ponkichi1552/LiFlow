@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { calendarWeekDays, calendarWeekLabel } from '../src/features/calendar/week-layout.ts';
 import { createCalendarDisplayStore, CALENDAR_IDLE_RESET_MS } from '../src/features/calendar/display-store.ts';
-import { addDays, daysBetween } from '../src/domain/scheduling/local-date.ts';
+import { addDays, daysBetween, formatJapaneseDate } from '../src/domain/scheduling/local-date.ts';
 import { newEventDraft } from '../src/features/calendar/events.ts';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { selectCalendarView } from './helpers/calendar-ui.mjs';
@@ -32,6 +32,29 @@ const day = '2026-11-11';
 const event = (extra = {}) => ({ ...newEventDraft(day, 'Asia/Tokyo'), id: 'appointment', revision: 2, title: '会議', startMinute: 600, endMinute: 660, ...extra });
 const binding = (extra = {}) => ({ database: {}, loading: false, error: null, snapshot: { events: [event()], exceptions: [], categories: [], drafts: [] }, refresh: async () => {}, ...extra });
 const find = (ui, id) => { const node = ui.nodes().find(node => node.props.testID === id); assert.ok(node, id); return node; };
+for (const platform of ['ios', 'android']) test(`${platform} three and seven day calendars open one full-width chore list outside the timeline`, async t => {
+  const next = addDays(day, 1); const name = 'エアコンのフィルターと吹き出し口の掃除';
+  const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform,
+    layoutEffect: effect => effect(), props: { today: day, timeZone: 'Asia/Tokyo', local: binding(),
+      dayInfo: date => ({ loaded: true, total: date === day || date === next ? 1 : 0 }),
+      renderChores: date => `${name} ${date}` } });
+  t.after(() => ui.unmount());
+  const label = (date, suffix) => `${formatJapaneseDate(date, { year: true })}の家事${suffix}`;
+  const descendants = node => [node, ...(node.children ?? []).flatMap(child => typeof child === 'object' ? descendants(child) : [child])];
+  for (const [mode, timeline] of [['3日表示', 'calendar-timeline'], ['7日表示', 'calendar-week-time-scroll']]) {
+    await selectCalendarView(ui, mode);
+    await ui.press(label(day, 'を開く'));
+    const pane = find(ui, 'calendar-fixed-chores');
+    assert.equal(descendants(find(ui, timeline)).some(node => node === pane), false);
+    assert.equal(descendants(pane).filter(node => node.props?.accessibilityLabel?.endsWith('の家事一覧')).length, 1);
+    assert.ok(ui.text().includes(`${name} ${day}`));
+    await ui.press(label(next, 'を開く'));
+    assert.ok(ui.text().includes(`${name} ${next}`));
+    assert.equal(ui.text().includes(`${name} ${day}`), false);
+    await ui.press(label(next, 'を閉じる'));
+    assert.equal(ui.nodes().some(node => node.props.testID === 'calendar-fixed-chores'), false);
+  }
+});
 for (const [platform, ...testNames] of [
   ['ios', 'ios week mode shows seven dated timeline columns and navigates by complete weeks without writing events', 'ios seven day mode retains seven aligned columns with horizontal rules and puts clocks inside appointments', 'ios three day mode keeps all three dates selected across a week boundary and slides by one day', 'ios weekly empty slot uses that weekday and clock and does not save until the normal save action', 'ios week drag uses the existing move authority and undo and releases both scroll directions', 'ios week mode preserves all-day metadata unknown chores and timed chore actions without allowing protected drags'],
   ['android', 'android week mode shows seven dated timeline columns and navigates by complete weeks without writing events', 'android seven day mode retains seven aligned columns with horizontal rules and puts clocks inside appointments', 'android three day mode keeps all three dates selected across a week boundary and slides by one day', 'android weekly empty slot uses that weekday and clock and does not save until the normal save action', 'android week drag uses the existing move authority and undo and releases both scroll directions', 'android week mode preserves all-day metadata unknown chores and timed chore actions without allowing protected drags']

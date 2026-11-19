@@ -61,17 +61,46 @@ export function calendarOccurrenceDraft(event: CalendarOccurrence, recurring: bo
     value: { ...calendarEventValue(source), recurrence: 'none', untilDate: null, customRecurrence: undefined } };
 }
 
+export function calendarDraftScopeValue(scope: CalendarEditorDraft['scope'], series: CalendarEvent, anchor: LocalDate, override?: EventDraft | null): EventDraft {
+  if (scope === 'series') return calendarEventValue(series);
+  if (scope === 'future') return calendarFutureBase(series, anchor);
+  const occurrence = override ?? { ...series, startDate: anchor, endDate: addDays(anchor, daysBetween(series.startDate, series.endDate)) };
+  return { ...calendarEventValue(occurrence), recurrence: 'none', untilDate: null, customRecurrence: undefined };
+}
+
+const mergeFields = [
+  { label: '予定名', fields: ['title'] },
+  { label: '場所', fields: ['location'] },
+  { label: 'メモ', fields: ['notes'] },
+  { label: '日時', fields: ['startDate', 'endDate', 'startMinute', 'endMinute', 'allDay', 'timeZone'] },
+  { label: '繰り返し', fields: ['recurrence', 'untilDate', 'customRecurrence'] },
+  { label: '分類', fields: ['categoryId'] },
+] as const;
+
+/** Keep related clocks and recurrence fields together when merging concurrent changes. */
+export function rebaseCalendarEventInput(current: EventDraft, latest: EventDraft, base?: EventDraft) {
+  const keepInput = { ...latest };
+  const useLatest = { ...latest };
+  const overlaps: (typeof mergeFields[number]['label'])[] = [];
+  for (const { label, fields } of mergeFields) {
+    const equals = (left: EventDraft, right: EventDraft) => fields.every(field => JSON.stringify(left[field]) === JSON.stringify(right[field]));
+    if (equals(current, latest) || base && equals(current, base)) continue;
+    const conflicted = !base || !equals(latest, base);
+    if (conflicted) overlaps.push(label);
+    for (const field of fields) {
+      Object.assign(keepInput, { [field]: current[field] });
+      if (!conflicted) Object.assign(useLatest, { [field]: current[field] });
+    }
+  }
+  return { keepInput, useLatest, overlaps };
+}
+
 /** Compare with the saved series or occurrence so edits persist even after reopening a draft. */
 export function changeCalendarDraftScope(draft: CalendarEditorDraft, scope: CalendarEditorDraft['scope'], series: CalendarEvent, override: EventDraft | null | undefined, editedFields: Set<keyof EventDraft>): CalendarEditorDraft {
   const anchor = draft.anchorDate;
   if (!anchor || draft.scope === scope) return draft;
-  const base = (choice: CalendarEditorDraft['scope']): EventDraft => {
-    if (choice === 'series') return calendarEventValue(series);
-    if (choice === 'future') return calendarFutureBase(series, anchor);
-    const occurrence = override ?? { ...series, startDate: anchor, endDate: addDays(anchor, daysBetween(series.startDate, series.endDate)) };
-    return { ...calendarEventValue(occurrence), recurrence: 'none', untilDate: null, customRecurrence: undefined };
-  };
-  const previous = base(draft.scope), next = base(scope), current = calendarEventValue(draft.value);
+  const previous = calendarDraftScopeValue(draft.scope, series, anchor, override);
+  const next = calendarDraftScopeValue(scope, series, anchor, override), current = calendarEventValue(draft.value);
   for (const key of Object.keys({ ...previous, ...current }) as (keyof EventDraft)[]) {
     if (JSON.stringify(current[key]) !== JSON.stringify(previous[key])) editedFields.add(key);
   }

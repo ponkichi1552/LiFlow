@@ -6,20 +6,21 @@ import { SettingsAction, SettingsGroup } from '../../components/settings-control
 import { palette, typography } from '../../components/planner-ui';
 
 /** Personal and shared registration both accept a PDF without a product-entry step. */
-export function ManualAnalysisForm({ retained, disabled, inputDisabled = false, working, canAnalyze, reanalysis = false, shared = false, usage, onReady, onManual, onAnalyze, onCancel }: {
+export function ManualAnalysisForm({ retained, filename, disabled, inputDisabled = false, working, picking, canAnalyze, reanalysis = false, shared = false, usage, onReady, onManual, onPickingChange, onAnalyze, onCancel }: {
   retained?: UploadedManualInput; disabled: boolean; inputDisabled?: boolean; working: boolean; canAnalyze: boolean; reanalysis?: boolean; shared?: boolean;
-  usage?: ApplianceCareUsage; onReady(ready: boolean): void; onManual(manual: UploadedManualInput | undefined): void;
+  filename?: string; picking?: boolean; onPickingChange?(picking: boolean): boolean | void;
+  usage?: ApplianceCareUsage; onReady(ready: boolean): void; onManual(manual: UploadedManualInput | undefined, filename?: string): void;
   onAnalyze(): void; onCancel?(): void;
 }) {
   return <View style={{ gap: 14 }}>
     <Text style={[typography.caption, { color: palette.muted }]}>PDFから製品情報とお手入れ方法を読み取ります。</Text>
     <SettingsGroup title="取扱説明書">
-      <Text style={[typography.caption, { color: palette.muted }]}>解析するとPDFをAI提供元へ送信します。{shared ? '保存したPDFと解析結果はグループにも共有します。' : 'PDFと解析結果はアプリに保存します。'}</Text>
-      <ManualUploadInput retained={retained} disabled={working || inputDisabled} onChange={onManual} />
+      <Text style={[typography.caption, { color: palette.muted }]}>解析するとPDFをAI提供元へ送信します。{shared ? '確認して保存したPDFと解析結果はグループに共有されます。' : 'PDFと解析結果は個人用に保存します。'}</Text>
+      <ManualUploadInput retained={retained} filename={filename} disabled={working || inputDisabled} onPickingChange={onPickingChange} onChange={onManual} />
     </SettingsGroup>
     <ApplianceAiAccount disabled={working} onReady={onReady} remainingOverride={usage?.remaining} />
     <SettingsAction intent="primary" placement="page" compact={false} title={working ? '解析しています…' : reanalysis ? 'PDFを再解析' : 'PDFを解析'}
-      disabled={disabled || !canAnalyze || working} onPress={onAnalyze} />
+      disabled={disabled || !canAnalyze || working || picking} onPress={onAnalyze} />
     {working ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><ActivityIndicator color={palette.accent} />
       <Text accessibilityLiveRegion="polite" style={[typography.caption, { color: palette.muted, flex: 1 }]}>製品情報とお手入れ方法を解析しています</Text>
       {onCancel ? <SettingsAction placement="page" title="解析を中止" onPress={onCancel} /> : null}

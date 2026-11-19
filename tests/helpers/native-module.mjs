@@ -22,7 +22,7 @@ export function loadNativeModule(filename, mocks, timers = {}) {
     if (!(name in mocks) && name === '@/platform/diagnostics/startup-timing') return require('../../src/platform/diagnostics/startup-timing.ts');
     if (!(name in mocks) && name === '@/platform/sharing/adaptive-personal-runtime') return {};
     if (!(name in mocks) && name === './src/platform/diagnostics/startup-clock') return require('../../src/platform/diagnostics/startup-clock.ts');
-    if (!(name in mocks) && name === '@/features/planner/initial-display-gate') return require('../../src/features/planner/initial-display-gate.ts');
+    if (!(name in mocks) && ['@/features/planner/initial-display-gate', '../planner/initial-display-gate'].includes(name)) return require('../../src/features/planner/initial-display-gate.ts');
     if (!(name in mocks) && name === '../google-sync/demand-worker') return require('../../src/features/google-sync/demand-worker.ts');
     if (!(name in mocks) && name === '../../features/google-sync/sync-policy.ts') return require('../../src/features/google-sync/sync-policy.ts');
     if (!(name in mocks) && name === '../../features/sharing/workspace-initial-sync.ts') return require('../../src/features/sharing/workspace-initial-sync.ts');

@@ -3,8 +3,8 @@ import { useFocusEffect } from 'expo-router';
 import { AppState } from 'react-native';
 import { createCalendarDisplayStore } from '../features/calendar/display-store';
 let store: ReturnType<typeof createCalendarDisplayStore> | undefined;
-export function useCalendarDisplay() {
-  const binding = store ??= createCalendarDisplayStore();
+export function useCalendarDisplay(override?: ReturnType<typeof createCalendarDisplayStore>) {
+  const binding = override ?? (store ??= createCalendarDisplayStore());
   const focused = useRef(false);
   useFocusEffect(useCallback(() => {
     focused.current = true; binding.enter();

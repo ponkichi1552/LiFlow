@@ -15,7 +15,7 @@ for (const platform of ['ios', 'android']) test(`${platform} an in-flight calend
   } });
   try {
     screen.button('予定を保存').props.onPress(); await started; screen.render();
-    const suggestion = screen.button('床掃除の既存の予定を開く');
+    const suggestion = screen.button('床掃除の説明を見る');
     if (!suggestion.props.disabled) await suggestion.props.onPress();
     assert.equal(opened, 0, 'a second action cannot move away while the first save still owns its completion callback');
     assert.equal(closed, 0); release(); await screen.flush(); assert.equal(saved, 1);

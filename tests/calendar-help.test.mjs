@@ -78,7 +78,10 @@ for (const [platform, firstName, waitingName, noLocalName] of names) {
     assert.equal(ui.nodes().find(node => node.props.testID === 'calendar-weeks').props.ref, list.props.ref);
     assert.equal(f.view(), 'month'); const reads = f.reads();
     await ui.press('カレンダーのヘルプを開く'); modal(ui).props.onShow(); await close(ui, platform, 'native');
-    assert.equal(f.reads(), reads); assert.equal(ui.button('カレンダーの表示を選択').props.accessibilityValue.text, '2日');
+    assert.equal(f.reads(), reads); assert.equal(ui.button('カレンダーの表示を選択').props.accessibilityValue.text, '月表示');
+    await ui.press('カレンダーの表示を選択');
+    assert.equal(ui.button('2日表示').props.accessibilityState.selected, true);
+    await ui.press('表示の選択を閉じる');
     assert.deepEqual(f.local.snapshot, before); assert.deepEqual(saved.writes, [[CALENDAR_HELP_SEEN_KEY, '1']]);
     await f.leave(); await f.focus(); assert.equal(modal(ui), undefined);
     assert.ok(ui.nodes().some(node => node.props.accessibilityLabel?.startsWith('2026年11月16日')));

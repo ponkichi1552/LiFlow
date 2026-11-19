@@ -15,7 +15,8 @@ import { v2BacklogTarget } from './backlog-target';
 import { calendarChoreTimeLabel } from '../../calendar/chore-time-label';
 
 export function V2RoundCard({ model, round: displayedRound, subject: displayedSubject, actions, busy, run, onOpen, onDate, onAssignment, onPast, onAssignmentRequest, showActions = false, recommendation: displayedRecommendation, feedback, home = false, compact = false, showCalendarTime = false }: {
-  model: V2GroupScreenModel; round: V2PlannedOccurrence; subject: V2SubjectPlan; actions: V2GroupController['actions']; busy: boolean;
+  model: V2GroupScreenModel; round: V2PlannedOccurrence; subject: V2SubjectPlan;
+  actions: Pick<V2GroupController['actions'], 'complete' | 'undoMany' | 'claim' | 'releaseClaim' | 'requestAssignment'>; busy: boolean;
   run: (work: () => Promise<unknown>) => Promise<void>; onOpen: () => void; onDate?: () => void; onAssignment?: () => void;
   onPast?: () => void; onAssignmentRequest?: () => void; showActions?: boolean;
   recommendation?: V2Recommendation;

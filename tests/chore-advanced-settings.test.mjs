@@ -94,6 +94,25 @@ test('an advanced private editor keeps unrelated queued fields and abandons inva
   assert.equal(departed, true); assert.equal(editor.getSnapshot().raw.name, chore.name); assert.ok(patches.every(patch => patch.name !== ' '));
 });
 
+test('editing an individual chore start date keeps a one-time rule and the latest saved clocks', async t => {
+  const h = await fixture(t);
+  const calendarTiming = { allDay: false, endDayOffset: 1, startMinute: 21 * 60, endMinute: 60, timeZone: 'Asia/Tokyo' };
+  const chore = await repository.registerPersonalCalendarChore(h.database, {
+    operationId: 'calendar-intent.edit-once', name: '夜の片付け', date: '2026-01-26', repeat: false, timing: calendarTiming,
+    options: { windowRadiusDays: 0, estimatedMinutes: 15, load: 'normal', holidayPriority: false },
+  });
+  const latestTiming = { ...calendarTiming, endMinute: 75 };
+  const editor = createChoreAdvancedEditor(chore, '2026-01-25', patch => repository.updateChoreSettings(h.database, chore.id, patch));
+  await repository.updateChoreSettings(h.database, chore.id, { personalSchedule: { ...chore.personalSchedule, calendarTiming: latestTiming } });
+  editor.changeSchedule({ startDate: '2026-01-27' });
+  assert.equal(await editor.flush(), true);
+  const snapshot = await h.snapshot();
+  assert.deepEqual(snapshot.chores.find(row => row.id === chore.id).personalSchedule, { startDate: '2026-01-27', once: true, calendarTiming: latestTiming });
+  assert.equal(snapshot.scheduleEntries.find(row => row.choreId === chore.id)?.suggestedDate, '2026-01-27');
+  await repository.updateChoreSettings(h.database, chore.id, { cycleDays: 7 });
+  assert.deepEqual((await h.snapshot()).chores.find(row => row.id === chore.id).personalSchedule, { startDate: '2026-01-27', calendarTiming: latestTiming });
+});
+
 test('unsubmitted shared initial dates survive only the internal details step and do not cross accounts groups or controllers', async () => {
   const scope = {}; const draft = initialConfigurationDraft(scope, 'group:owner:chore', '2026-11-12');
   draft.change({ ...draft.read(), preset: 'common', interval: '7' }); draft.openDetails(); await draft.navigateAfterSave(() => {});

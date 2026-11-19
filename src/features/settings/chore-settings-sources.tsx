@@ -60,7 +60,10 @@ export function ChoreSettingsSources({ first = 'personal', group, source, onPend
 type PaneProps = Pick<Parameters<typeof ChoreToggleList>[0], 'expanded' | 'setExpanded' | 'onPendingChange'>;
 function PersonalChoreSettings({ shared = false, expanded, setExpanded, onPendingChange }: PaneProps & { shared?: boolean }) {
   const data = usePersonalSettingsData();
-  if (!data.snapshot) return <Text style={styles.hint}>設定を読み込んでいます。</Text>;
+  if (!data.snapshot) return <View style={styles.body}>{data.error ? <>
+    <Text accessibilityRole="alert" style={styles.error}>{data.error}</Text>
+    <SettingsAction title="家事の設定を再読込" placement="page" onPress={() => void data.refresh()} />
+  </> : <Text style={styles.hint}>設定を読み込んでいます。</Text>}</View>;
   return <View style={styles.body}>{shared ? <Text style={styles.hint}>共通の家事はグループ設定を優先</Text> : null}
     {data.error ? <Text accessibilityRole="alert" style={styles.error}>{data.error}</Text> : null}
     <ChoreToggleList chores={data.snapshot.chores.filter(hasChoreScheduleSettings)} expanded={expanded} setExpanded={setExpanded} personalSelection onPendingChange={onPendingChange}
@@ -76,7 +79,6 @@ function GroupChoreSettings({ selection, expanded, setExpanded, onPendingChange,
   const data = useGroupChoreSettings(selection, includeWaste);
   const [choreBusy, setChoreBusy] = useState(false); const choreSaving = useRef(false); const [wasteBusy, setWasteBusy] = useState(false); const wasteSaving = useRef(false);
   const pendingChanged = (pending: boolean) => { choreSaving.current = pending; setChoreBusy(pending); onPendingChange?.(pending); };
-  const opening = useRef(false); const [openError, setOpenError] = useState<string | null>(null);
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const value = data.snapshot;
@@ -85,31 +87,26 @@ function GroupChoreSettings({ selection, expanded, setExpanded, onPendingChange,
     <SettingsAction title="グループの家事設定を再読込" placement="page" onPress={() => void data.source.refresh()} /></>}</View>;
   const readOnly = value.model.viewerUserId !== value.model.adminUserId;
   const configured = new Set(value.model.configurations.filter(row => row.configuration || row.candidates.length).map(row => row.choreId));
-  const open = async (id: string) => {
+  const open = (id: string) => {
     if (wasteSaving.current) return;
-    if (!personalChoiceSourceId(id)) { router.push({ pathname: '/settings/chore/[id]', params: { id, source: 'shared', groupId: selection.groupId } }); return; }
-    if (opening.current) return;
-    opening.current = true; setOpenError(null); onPendingChange?.(true);
-    try {
-      const selected = (await data.source.addPersonalChore(id, false)).id;
-      if (alive.current) router.push({ pathname: '/settings/chore/[id]', params: { id: selected, source: 'shared', groupId: selection.groupId } });
-    } catch (cause) { if (alive.current) setOpenError(cause instanceof Error ? cause.message : '家事の設定を開けませんでした。'); }
-    finally { opening.current = false; if (alive.current) onPendingChange?.(false); }
+    const personalId = personalChoiceSourceId(id);
+    router.push({ pathname: '/settings/chore/[id]', params: personalId
+      ? { id: personalId, source: 'personal' }
+      : { id, source: 'shared', groupId: selection.groupId } });
   };
   const performWaste = async (work: () => Promise<unknown>): Promise<V2MutationOutcome> => {
-    if (wasteSaving.current || choreSaving.current || opening.current) return { committed: false, refreshed: false, error: new Error('変更を保存中です。') };
+    if (wasteSaving.current || choreSaving.current) return { committed: false, refreshed: false, error: new Error('変更を保存中です。') };
     wasteSaving.current = true; setWasteBusy(true); onPendingChange?.(true);
     try { return await data.source.perform(work); }
     finally { wasteSaving.current = false; if (alive.current) { setWasteBusy(false); onPendingChange?.(false); } }
   };
   return <View style={styles.body}>{readOnly ? <Text style={styles.hint}>有効・無効と周期は管理者が変更できます。</Text> : null}
-    {openError ? <Text accessibilityRole="alert" style={styles.error}>{openError}</Text> : null}
     {value.personalChoicesError ? <><Text accessibilityRole="alert" style={styles.error}>{value.personalChoicesError}</Text>
       <SettingsAction title="追加できる家事を再読込" placement="page" onPress={() => void data.source.refresh()} /></> : null}
     <ChoreToggleList chores={[...value.model.plan.chores, ...(value.personalChoices ?? [])].filter(chore => configured.has(chore.id) || hasChoreScheduleSettings(chore))}
       expanded={expanded} setExpanded={setExpanded} readOnly={readOnly || wasteBusy} onPendingChange={pendingChanged}
       save={data.source.saveEnabled} retryRead={async () => { await data.source.refresh(); return !data.source.getSnapshot().error; }}
-      onOpen={id => void open(id)} />
+      onOpen={open} pendingGroupAddition={id => Boolean(personalChoiceSourceId(id))} />
     <SettingsAction title="家事を追加" accessibilityLabel="新しい共有家事を追加" placement="page" compact={false} disabled={wasteBusy} onPress={() => router.push('/group-v2/add-chore')} />
     {!readOnly ? <ScheduleResetAction all disabled={wasteBusy} onReset={async () => { pendingChanged(true); try { await data.source.resetSchedules(); } finally { pendingChanged(false); } }} /> : null}
     {includeWaste ? <View style={{ gap: 12, marginTop: 20 }}><Text accessibilityRole="header" style={[typography.label, { color: palette.ink, fontWeight: '600' }]}>ゴミ収集日</Text>

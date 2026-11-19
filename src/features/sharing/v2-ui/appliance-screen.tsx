@@ -45,6 +45,8 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   const [basis] = useState(() => detail); const starting = basis?.appliance;
   const [canAnalyze, setCanAnalyze] = useState(false);
   const [manual, setManual] = useState<UploadedManualInput>(); const manualRef = useRef<UploadedManualInput | undefined>(undefined);
+  const [filename, setFilename] = useState<string>();
+  const [picking, setPicking] = useState(false); const pickingRef = useRef(false);
   const [retainedManual, setRetainedManual] = useState<UploadedManualInput>();
   const manualTouched = useRef(false);
   useEffect(() => {
@@ -67,7 +69,7 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   const locked = busy || pendingRead || analyzing;
   const check = (value: boolean) => { reviewedRef.current = value; setReviewed(value); };
   const analyze = async () => {
-    if (working.current || locked || savedRef.current) return;
+    if (working.current || locked || pickingRef.current || savedRef.current) return;
     if (model.manualStorageSupported === false) { setError('解析前に、グループ管理で互換更新を行ってください。'); return; }
     if (!canAnalyze) { setError('ログインと正規端末の確認が済むまで家電AIは利用できません。'); return; }
     const submittedManual = manualRef.current;
@@ -88,7 +90,7 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
     finally { if (request.current === controller) { request.current = null; working.current = false; setAnalyzing(false); } }
   };
   const execute = async (work: () => Promise<unknown>) => {
-    if (working.current || locked) return; working.current = true; setError(null);
+    if (working.current || locked || pickingRef.current) return; working.current = true; setError(null);
     try {
       const outcome = await perform(work);
       if (!outcome.committed) throw outcome.error instanceof Error ? outcome.error : new Error('家電の変更を保存できませんでした。');
@@ -137,18 +139,22 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
         {basis?.source.kind === 'conflict' ? <Text style={warning}>確認して共有すると、表示開始時にあった解析の競合を新しい内容で解決します。元の履歴は保持します。</Text> : null}
         {basis?.row.deleted || basis?.alive.kind === 'conflict' ? <Text style={warning}>確認して共有すると、この家電をグループ全員の一覧へ復元します。既存家事の削除状態は変更しません。</Text> : null}
         {applianceId && !detail ? <Text style={warning}>対象の共有家電を読み込めません。家電一覧から開き直してください。</Text> : null}
-        {!saved ? <ManualAnalysisForm retained={retainedManual} shared reanalysis={Boolean(starting)} working={analyzing}
-          canAnalyze={canAnalyze} onReady={setCanAnalyze} usage={response?.usage}
+        {!saved ? <ManualAnalysisForm retained={retainedManual} filename={filename} shared reanalysis={Boolean(starting)} working={analyzing} picking={picking}
+          canAnalyze={canAnalyze} onReady={setCanAnalyze} usage={response?.usage} onPickingChange={value => {
+            if (value && (working.current || savedRef.current)) return false;
+            pickingRef.current = value; setPicking(value);
+          }}
           disabled={model.manualStorageSupported === false || !manual || locked || Boolean(applianceId && !detail)} inputDisabled={locked}
-          onManual={value => {
+          onManual={(value, name) => {
             if (working.current || locked || saved) return;
-            manualTouched.current = true; manualRef.current = value; setManual(value); setResponse(null); check(false);
+            manualTouched.current = true; manualRef.current = value; setManual(value); setFilename(name); setResponse(null); check(false);
           }} onAnalyze={() => void analyze()} onCancel={() => request.current?.abort()} /> : null}
       </> : !detail ? <Text style={warning}>対象の共有家電を表示できません。一覧から開き直してください。</Text> : <>
         {detail.row.needsReview ? <Card><Text style={warning}>{detail.row.deleted ? 'この家電は削除されています。' : detail.alive.kind === 'conflict' ? '削除と編集が重なっています。' : '解析内容の確認が必要です。'}署名付きの履歴は保持しています。</Text>
           {detail.candidates.map((candidate, index) => <AppButton key={candidate.operationId} title={`家電の候補${index + 1}を確認`} variant="quiet" disabled={locked}
             onPress={() => { setCandidateId(candidate.operationId); check(false); setDeleting(false); }} />)}
           {currentCandidate ? <Text style={caption}>候補の作成者：{currentCandidate.authorUserId} · {currentCandidate.recordedAt ?? '受付前'}{!currentCandidate.appliance ? '\nこの候補は再解析が必要です。' : ''}</Text> : null}
+          {!analysis && onReview ? <AppButton title="この共有家電を再解析" variant="secondary" disabled={locked} onPress={() => onReview(applianceId)} /> : null}
         </Card> : null}
 
       </>}

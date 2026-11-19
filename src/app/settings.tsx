@@ -1,5 +1,6 @@
 import { CalendarNotificationSettings } from '@/features/calendar/calendar-notification-settings';
-import { NotificationPermissionRecovery } from '@/features/notifications/notification-permission-recovery';
+import { uiReviewEnabled } from '@/features/development/ui-review/enabled';
+import { NotificationPermissionRecovery, useDeviceNotificationPermission } from '@/features/notifications/notification-permission-recovery';
 import { useSettingsAutosave } from '@/features/settings/use-settings-autosave';
 import { BackgroundSyncDiagnostics } from '@/features/google-sync/background-diagnostics';
 import { subscribeToGoogleAccountChanges } from '@/features/google-sync/account-change-events';
@@ -72,6 +73,7 @@ const weekdays: { id: Weekday; label: string }[] = [
   { id: 5, label: '金' }, { id: 6, label: '土' }, { id: 7, label: '日' },
 ];
 const notificationGateway = new ExpoLocalNotificationGateway();
+const readNotificationPermission = () => notificationGateway.hasPermission();
 const weatherSearchDrafts = new WeakMap<SQLiteDatabase, { base: string; query: string }>();
 
 export default function SettingsScreen() {
@@ -165,6 +167,7 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
   const [notificationUpdating, setNotificationUpdating] = useState(false);
   const [notificationPermissionDenied, setNotificationPermissionDenied] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
+  const deviceNotificationPermission = useDeviceNotificationPermission(database, snapshot.settings.notificationsEnabled, readNotificationPermission);
   const [accountTasksOpened, setAccountTasksOpened] = useState(false);
   const [googleSyncState, setGoogleSyncState] = useState<GoogleSyncState | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
@@ -614,7 +617,9 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
           minute={snapshot.settings.notificationHour * 60 + snapshot.settings.notificationMinute} commitOnDone borderless disabled={notificationUpdating}
           onMinute={minute => { void changeNotificationTime(minute); }} /> : null}
         {notificationMessage ? <Text accessibilityLiveRegion="polite" style={notificationMessage.kind === 'success' ? styles.success : styles.error}>{notificationMessage.text}</Text> : null}
-        {notificationPermissionDenied ? <NotificationPermissionRecovery scope={database} disabled={notificationUpdating} checkPermission={() => notificationGateway.hasPermission()} onGranted={() => toggleNotifications(true)} /> : null}
+        {deviceNotificationPermission === false && !notificationPermissionDenied ? <Text accessibilityLiveRegion="polite" style={styles.error}>端末の通知がオフです。</Text> : null}
+        {notificationPermissionDenied || deviceNotificationPermission === false ? <NotificationPermissionRecovery scope={database} disabled={notificationUpdating}
+          checkPermission={readNotificationPermission} onGranted={notificationPermissionDenied ? () => toggleNotifications(true) : undefined} /> : null}
         <CalendarNotificationSettings database={database} />
         {v2 ? <><View style={[styles.divider, { backgroundColor: colors.border }]} /><GeneralGroupNotifications /></> : null}
       </SettingsSection>
@@ -683,6 +688,9 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
         </AccountOperationContext.Provider>
       </SettingsSection>
       {section === 'diagnostics' && typeof __DEV__ !== 'undefined' && __DEV__ ? <BackgroundSyncDiagnostics /> : null}
+      {section === 'general' && uiReviewEnabled ? <SettingsList>
+        <SettingsRow title="UI確認用データ" onPress={() => router.push('/development/ui-review')} />
+      </SettingsList> : null}
       {section === 'general' && typeof __DEV__ !== 'undefined' && __DEV__ ? <SettingsList>
         <SettingsRow title="開発検査" onPress={() => router.push('/development')} />
         <SettingsRow title="バックグラウンド同期の実行記録" onPress={() => router.push({ pathname: '/settings', params: { section: 'diagnostics' } })} />

@@ -21,7 +21,7 @@ export default function CalendarRepeatRoute() {
     await local.refresh();
     if (returned) { try { local.assertDraftAccess?.(returned); } catch { leaveLock.current = false; return; } }
     setLeaving(true); disableNavigationGuard.current();
-    router.navigate({ pathname: '/(tabs)/explore', params: returned ? { calendarDraft: calendarDraftKey(returned), calendarDraftVersion: calendarDraftVersion(returned) } : {} });
+    router.dismissTo({ pathname: '/(tabs)/explore', params: returned ? { calendarDraft: calendarDraftKey(returned), calendarDraftVersion: calendarDraftVersion(returned) } : {} });
   };
   const back = () => { void leave(); };
   const disablePrevention = usePreventRemove(!leaving, back);

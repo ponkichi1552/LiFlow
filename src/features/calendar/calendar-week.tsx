@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ComponentRef, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import { palette, typography } from '../../components/planner-ui';
 import { Chevron } from '../../components/chevron';
@@ -10,19 +10,23 @@ import { calendarWeekDays, calendarWeekLabel } from './week-layout';
 
 export type WeekRecenter = (minute?: number | null) => void;
 /** The month calendar's seven columns, extended vertically by appointment time. */
-export function CalendarWeek({ date, currentMinute, defaultMinute, dragging, activeDay, hourHeight, renderHeading, renderSummary, renderDay, onSelect, onReady, onScroll }: {
-  date: LocalDate; currentMinute: number | null; defaultMinute: number; dragging: boolean; activeDay: LocalDate | null; hourHeight: number;
-  renderHeading(day: LocalDate): ReactNode; renderSummary(day: LocalDate): ReactNode;
+export function CalendarWeek({ date, height, currentMinute, defaultMinute, dragging, activeDay, hourHeight, renderHeading, renderAllDay, renderChores, renderDay, onSelect, onReady, onScroll }: {
+  date: LocalDate; height: number; currentMinute: number | null; defaultMinute: number; dragging: boolean; activeDay: LocalDate | null; hourHeight: number;
+  renderHeading(day: LocalDate): ReactNode;
+  renderAllDay?(day: LocalDate): ReactNode;
+  renderChores?(heightLimit: number): ReactNode;
   renderDay(day: LocalDate, days: readonly LocalDate[], columnWidth: number): ReactNode;
   onSelect(date: LocalDate): void; onReady(recenter: WeekRecenter | null): void; onScroll(): void;
 }) {
-  const styles = usePlannerBorderStyles(baseStyles), { height } = useWindowDimensions();
+  const styles = usePlannerBorderStyles(baseStyles);
   const days = calendarWeekDays(date), start = days[0];
   const [width, setWidth] = useState(0), [viewportHeight, setViewportHeight] = useState(0);
-  const [headingHeights, setHeadingHeights] = useState<Record<string, number>>({}), [summaryHeights, setSummaryHeights] = useState<Record<string, number>>({});
-  const headingHeight = Math.max(44, ...days.map(day => headingHeights[day] ?? 44));
-  const summaryLimit = Math.max(0, Math.min(170, height * .23, height * .4 - headingHeight));
-  const summaryHeight = Math.min(summaryLimit, Math.max(0, ...days.map(day => summaryHeights[day] ?? 0)));
+  const [headingHeight, setHeadingHeight] = useState(0), [navigationHeight, setNavigationHeight] = useState(44);
+  const [allDayHeights, setAllDayHeights] = useState<Record<string, number>>({});
+  const remaining = Math.max(0, height - navigationHeight - headingHeight - Math.min(120, height * .25));
+  const allDayHeight = renderAllDay ? Math.min(height * .23, remaining * (renderChores ? .5 : 1),
+    Math.max(...days.map(day => allDayHeights[day] ?? 32))) : 0;
+  const choresLimit = Math.min(height * .32, remaining - allDayHeight);
   const vertical = useRef<ComponentRef<typeof ScrollView>>(null), positioned = useRef('');
   const pendingPosition = useRef<{ minute?: number | null } | null>(null);
   const position = (force = false, minute?: number | null) => {
@@ -37,19 +41,24 @@ export function CalendarWeek({ date, currentMinute, defaultMinute, dragging, act
   useLayoutEffect(() => { onReady(minute => position(true, minute)); position(); });
   useLayoutEffect(() => () => onReady(null), [onReady]);
   return <View testID="calendar-week" style={styles.root} onLayout={event => setWidth(event.nativeEvent.layout.width)}>
-    <View style={styles.navigation}>
+    <View style={styles.navigation} onLayout={event => setNavigationHeight(event.nativeEvent.layout.height)}>
       <Pressable accessibilityRole="button" accessibilityLabel="前の7日間" disabled={dragging} onPress={() => onSelect(addDays(date, -7))} style={styles.arrow}><Chevron direction="left" /></Pressable>
       <Text accessibilityRole="header" style={styles.range}>{calendarWeekLabel(date)}</Text>
       <Pressable accessibilityRole="button" accessibilityLabel="次の7日間" disabled={dragging} onPress={() => onSelect(addDays(date, 7))} style={styles.arrow}><Chevron direction="right" /></Pressable>
     </View>
-    <View testID="calendar-week-heading" style={[styles.headerRow, { height: headingHeight + summaryHeight + 1 }]}>
+    <View testID="calendar-week-heading" style={styles.headerRow} onLayout={event => setHeadingHeight(event.nativeEvent.layout.height)}>
+      {days.map(day => <View key={day} style={styles.column}>{renderHeading(day)}</View>)}
+    </View>
+    {renderChores?.(choresLimit)}
+    {renderAllDay ? <View style={[styles.headerRow, { height: allDayHeight }]}>
       {days.map(day => <View key={day} style={styles.column}>
-        <View style={{ height: headingHeight }}><View onLayout={event => { const value = event.nativeEvent.layout.height; setHeadingHeights(before => before[day] === value ? before : { ...before, [day]: value }); }}>{renderHeading(day)}</View></View>
-        <ScrollView nestedScrollEnabled enabled={!dragging} scrollEnabled={!dragging} style={{ height: summaryHeight }} onContentSizeChange={(_width, value) => setSummaryHeights(before => before[day] === value ? before : { ...before, [day]: value })} accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の終日予定と家事`}>
-          {renderSummary(day)}
+        <ScrollView nestedScrollEnabled enabled={!dragging} scrollEnabled={!dragging}
+          onContentSizeChange={(_width, value) => setAllDayHeights(before => before[day] === value ? before : { ...before, [day]: value })}
+          accessibilityLabel={`${formatJapaneseDate(day, { year: true })}の終日予定`}>
+          {renderAllDay(day)}
         </ScrollView>
       </View>)}
-    </View>
+    </View> : null}
     <ScrollView ref={vertical} testID="calendar-week-time-scroll" style={styles.vertical} nestedScrollEnabled enabled={!dragging} scrollEnabled={!dragging}
       onLayout={event => setViewportHeight(event.nativeEvent.layout.height)} onContentSizeChange={() => position()} onScroll={onScroll} scrollEventThrottle={16} contentContainerStyle={styles.timeContent}>
       <View testID="calendar-week-grid" style={[styles.columns, { height: hourHeight * 24 + 16 }]}>

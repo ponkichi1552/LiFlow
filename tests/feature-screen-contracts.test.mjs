@@ -76,6 +76,29 @@ test('feature screen contract: waste onboarding can be skipped', async () => {
   } finally { h.connection.close(); }
 });
 
+test('feature screen contract: onboarding keeps an unfinished waste entry and saves it when continuing', async () => {
+  const h = await initialContext();
+  try {
+    const layout = [];
+    const screen = screenHarness('src/features/onboarding/first-run-setup.tsx', {
+      exportName: 'FirstRunSetup', database: h.database, effectDependencies: true, layoutEffect: callback => layout.push(callback),
+      props: { snapshot: h.snapshot, onComplete: async () => {} },
+    });
+    await reachWasteStep(screen);
+    await screen.change('ゴミの種類', 'かね'); await screen.press('可燃ごみを選択');
+    await screen.press('設定を続ける'); await screen.press('ゴミ収集日');
+    assert.equal(screen.nodes().find(node => node.props.accessibilityLabel === 'ゴミの種類' && node.props.value)?.props.value, '可燃ごみ');
+    await screen.press('火曜');
+    for (const callback of layout.splice(0)) callback();
+    await screen.flush();
+    await screen.press('収集日を追加して戻る');
+    await screen.press('設定して始める');
+    const saved = await repository.loadPlannerSnapshot(h.database, today);
+    assert.deepEqual(saved.wasteSchedules.map(schedule => [schedule.label, schedule.collectionWeekdays]), [['可燃ごみ', [2]]]);
+    screen.unmount();
+  } finally { h.connection.close(); }
+});
+
 test('feature screen contract: waste settings keep live kana suggestions, recurrence controls and always visible upcoming list', async () => {
   const h = await initialContext();
   try {

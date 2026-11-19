@@ -71,7 +71,9 @@ export function createPersonalCapacityEditor(input: PersonalCapacitySource & { d
   }, setDateMaximum(date: LocalDate, value: string) {
     parseLocalDate(date); form.change(raw => {
       const prior = raw.days.find(day => day.date === date);
-      return { ...raw, days: [...raw.days.filter(day => day.date !== date), { ...(prior ?? { id: nextId++, date }), maximum: value }] };
+      const others = raw.days.filter(day => day.date !== date);
+      const replacement = { ...(prior ?? { id: nextId++, date }), maximum: value };
+      return { ...raw, days: value.trim() || prior?.holiday !== undefined || prior?.allowedBands !== undefined ? [...others, replacement] : others };
     });
   }, setMaximum(kind: DayType, value: string) { changeType(kind, profile => ({ ...profile, maximum: value })); },
   setBandTime(kind: DayType, id: number | undefined, edge: 'startMinute' | 'endMinute', minute: number, shown?: AdaptiveAllowedBand) {

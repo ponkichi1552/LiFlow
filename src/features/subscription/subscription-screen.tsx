@@ -51,7 +51,7 @@ export function SubscriptionScreen({ onBack }: { onBack?: () => void }) {
       {!subscription.userId ? <>
         <AppButton title={loginBusy ? 'ログイン中…' : 'Googleでログイン'} disabled={loginBusy} onPress={() => void login(false)} />
         {Platform.OS === 'ios' && process.env.EXPO_PUBLIC_APPLE_SHARING_ENABLED === 'true' ? <AppButton title="Appleでログイン" variant="secondary" disabled={loginBusy} onPress={() => void login(true)} /> : null}
-      </> : active || paymentPending ? <AppButton title="契約・支払いを確認" variant="secondary" onPress={() => void purchases?.manageSubscription().catch(() => setMessage('購入元のストアで契約を確認してください。'))} /> : <>
+      </> : active || paymentPending ? <AppButton title="契約・支払いを確認" variant="secondary" disabled={!purchases} onPress={() => void purchases?.manageSubscription().catch(() => setMessage('購入元のストアで契約を確認してください。'))} /> : <>
         <AppButton title={store.busy ? '購入を確認中…' : store.product ? `月額${store.product.price}で利用する` : '購入の準備中'} disabled={!ready || store.busy}
           onPress={() => void purchases?.purchaseSubscription()} />
         <Text style={styles.note}>解約するまで毎月自動更新されます。解約後も支払い済みの期限までは利用できます。</Text>

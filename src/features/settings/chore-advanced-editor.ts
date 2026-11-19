@@ -13,15 +13,19 @@ export function createChoreAdvancedEditor(chore: ChoreDefinition, today: LocalDa
   const format = (value: ChoreDefinition) => ({ name: value.name, description: value.description,
     instructions: value.instructions.join('\n'), tools: value.tools.join('\n'), cautions: value.cautions.join('\n'),
     sections: (value.procedureSections ?? []).map(section => ({ title: section.title, text: section.steps.join('\n') })),
-    startDate: value.personalSchedule?.startDate ?? today, monthly: value.personalSchedule?.monthlyDay !== undefined,
-    monthlyDay: String(value.personalSchedule?.monthlyDay ?? Number((value.personalSchedule?.startDate ?? today).slice(8))) });
+    startDate: value.personalSchedule?.startDate ?? today, once: Boolean(value.personalSchedule?.once), monthly: value.personalSchedule?.monthlyDay !== undefined,
+    monthlyDay: value.personalSchedule?.monthlyDay?.toString() ?? '' });
   let raw = format(chore); let persisted = raw; let errors: Record<string, string> = {};
   const listeners = new Set<() => void>(); let publish = () => {};
   const queue = createAutosaveQueue<ChoreSettingsPatch>({ save: async patch => {
     const accepted = applyChoreSettingsPatch(base, patch); await save(patch); base = accepted;
     // Preserve partial/invalid text being entered in another field during this save.
     const formatted = format(base);
-    const keys: (keyof typeof raw)[] = Object.keys(patch).flatMap(key => key === 'personalSchedule' ? ['startDate', 'monthly', 'monthlyDay'] : key === 'procedureSections' ? ['sections'] : [key]) as (keyof typeof raw)[];
+    const keys = Object.keys(patch).flatMap(key => {
+      if (key === 'personalScheduleStartDate') return ['startDate'];
+      if (key === 'personalScheduleCadence') return ['once', 'monthly', 'monthlyDay'];
+      return key === 'procedureSections' ? ['sections'] : [key];
+    }) as (keyof typeof raw)[];
     for (const key of keys) persisted = { ...persisted, [key]: formatted[key] };
   } });
   const dirty = () => JSON.stringify(raw) !== JSON.stringify(persisted);
@@ -36,11 +40,23 @@ export function createChoreAdvancedEditor(chore: ChoreDefinition, today: LocalDa
     catch (cause) { queue.remove(field); errors = { ...errors, [field]: cause instanceof Error ? cause.message : '入力を確認してください。' }; }
     publish();
   };
-  const changeSchedule = (patch: Partial<Pick<typeof raw, 'startDate' | 'monthly' | 'monthlyDay'>>) => {
-    raw = { ...raw, ...patch };
+  const changeSchedule = (patch: Partial<Pick<typeof raw, 'startDate' | 'once' | 'monthly' | 'monthlyDay'>>) => {
+    const changedCadence = patch.once !== undefined || patch.monthly !== undefined || patch.monthlyDay !== undefined;
+    const monthly = patch.monthly ?? (patch.once ? false : raw.monthly);
+    const startDate = patch.startDate ?? raw.startDate;
+    const monthlyDay = patch.monthlyDay ?? (monthly ? raw.monthly ? raw.monthlyDay : String(Number(startDate.slice(8))) : '');
+    raw = { ...raw, startDate, monthly, monthlyDay, once: patch.once ?? (patch.monthly === undefined && raw.once) };
+    if (patch.startDate !== undefined) validate('personalScheduleStartDate', { personalScheduleStartDate: startDate }, true);
+    if (!changedCadence) return;
     const day = parseSettingInteger(raw.monthlyDay, 1, 31);
-    if (raw.monthly && day === undefined) { queue.remove('personalSchedule'); errors = { ...errors, personalSchedule: '毎月の日付は1〜31日で入力してください。' }; publish(); return; }
-    validate('personalSchedule', { personalSchedule: { startDate: raw.startDate, ...(raw.monthly ? { monthlyDay: day! } : {}) } }, 'monthly' in patch || 'startDate' in patch);
+    if (raw.monthly && day === undefined) {
+      queue.remove('personalScheduleCadence');
+      errors = { ...errors, personalScheduleCadence: '毎月の日付は1〜31日で入力してください。' };
+      publish();
+      return;
+    }
+    const cadence = raw.monthly && day !== undefined ? { mode: 'monthly' as const, day } : { mode: raw.once ? 'once' as const : 'interval' as const };
+    validate('personalScheduleCadence', { personalScheduleCadence: { startDateWhenMissing: startDate, ...cadence } }, patch.once !== undefined || patch.monthly !== undefined);
   };
   return {
     getSnapshot: () => snapshot, subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },

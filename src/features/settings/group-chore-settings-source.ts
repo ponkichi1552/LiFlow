@@ -53,7 +53,6 @@ export function createGroupChoreSettingsSource(selection: SharingSelection, open
     return { id: sharedId, refreshed: !controller.getSnapshot().error };
   };
   return { ...controller,
-    addPersonalChore,
     async perform(work: () => Promise<unknown>): Promise<V2MutationOutcome> {
       let committed = false;
       try {

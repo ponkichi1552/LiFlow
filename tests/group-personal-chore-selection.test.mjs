@@ -144,14 +144,14 @@ test('the group settings source saves inline choices through its signed source a
   } finally { h.close(); }
 });
 
-for (const platform of ['ios', 'android']) test(`${platform} group settings select a missing personal chore inline and open its group configuration without a separate copy page`, async () => {
+for (const platform of ['ios', 'android']) test(`${platform} group settings preview an unshared chore without copying it and require a separate group addition`, async () => {
   const custom = createCustomPersonalChore('custom-chore-plants', 'local-household', '植物の水やり', 4);
   const navigation = [], writes = []; let release;
   const wait = new Promise(resolve => { release = resolve; });
   const record = { userId: 'owner', groupId: 'family', status: 'active' };
   const value = { workspace: { session: { controller: { actions: {} } } }, model: { viewerUserId: 'owner', adminUserId: 'owner', configurations: [], plan: { chores: [] } }, personalChoices: [{ ...custom, id: choices.personalChoiceId(custom.id), enabled: false }] };
   const source = { saveEnabled: async (ids, enabled) => { writes.push([ids, enabled]); await wait; value.personalChoices = []; value.model.plan.chores = [{ ...custom, id: 'shared-plants', enabled }]; },
-    addPersonalChore: async (id, enabled) => { writes.push([id, enabled]); return { id: 'shared-plants', refreshed: true }; }, refresh: async () => {} };
+    refresh: async () => {} };
   const props = { group: record };
   const screen = screenHarness('src/features/settings/chore-settings-sources.tsx', { exportName: 'ChoreSettingsSources', platform, props,
     effect: callback => callback(), effectDependencies: true, navigate: (...args) => navigation.push(args), personalData: () => { throw new Error('full personal settings must not load'); }, mocks: {
@@ -161,9 +161,9 @@ for (const platform of ['ios', 'android']) test(`${platform} group settings sele
     } });
   await screen.press('追加した家事の家事を開く');
   await screen.press('植物の水やりの設定を開く');
-  assert.deepEqual(writes, [[choices.personalChoiceId(custom.id), false]]);
-  assert.deepEqual(navigation.at(-1), ['push', { pathname: '/settings/chore/[id]', params: { id: 'shared-plants', source: 'shared', groupId: 'family' } }]);
-  writes.length = 0; navigation.length = 0;
+  assert.deepEqual(writes, []);
+  assert.deepEqual(navigation.at(-1), ['push', { pathname: '/settings/chore/[id]', params: { id: custom.id, source: 'personal' } }]);
+  navigation.length = 0;
   const toggle = screen.nodes().find(row => row.props.accessibilityRole === 'checkbox');
   assert.equal(toggle.props.accessibilityState.checked, false);
   toggle.props.onPress(); toggle.props.onPress(); await screen.flush();

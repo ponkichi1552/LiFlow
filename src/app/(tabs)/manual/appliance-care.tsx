@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ActionLabel, AppButton, Card, Page, SectionHeading, palette, typography } from '@/components/planner-ui';
@@ -18,21 +18,21 @@ import { usePlannerData } from '@/hooks/use-planner-data';
 import { loadApplianceCareReviewContext, saveReviewedApplianceCare } from '@/platform/storage/repository';
 import type { ApplianceCareReviewContext } from '@/platform/storage/repository';
 import { readApplianceManual } from '@/platform/storage/appliance-manuals';
-import { WorkspaceContext } from '@/contexts/workspace-context';
-import type { V2SharedWorkspace } from '@/platform/sharing/workspace-types';
-import { supportsRetainedManuals } from '@/features/sharing/v2/payload-schema';
 
 export default function ApplianceCareScreen() {
   const params = useLocalSearchParams<{ applianceId?: string; returnTo?: string }>();
   const applianceId = Array.isArray(params.applianceId) ? params.applianceId[0] : params.applianceId;
   const returnToParam = Array.isArray(params.returnTo) ? params.returnTo[0] : params.returnTo;
   const returnTo = returnToParam === '/chores' ? '/chores' : returnToParam === '/manual' ? '/manual' : undefined;
-  const { database, refresh, snapshot } = usePlannerData({ personal: true });
-  const workspace = useContext(WorkspaceContext); const workspaceRef = useRef(workspace);
-  useEffect(() => { workspaceRef.current = workspace; }, [workspace]);
-  const analysisTarget = useRef<V2SharedWorkspace | null>(null);
+  return <PrivateApplianceEditor key={applianceId ?? 'new'} applianceId={applianceId} returnTo={returnTo} />;
+}
+
+function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: string; returnTo?: '/chores' | '/manual' }) {
+  const { database, refresh, readError } = usePlannerData({ personal: true });
   const [canAnalyze, setCanAnalyze] = useState(false);
   const [manual, setManual] = useState<UploadedManualInput>();
+  const [filename, setFilename] = useState<string>();
+  const [picking, setPicking] = useState(false); const pickingRef = useRef(false);
   const manualRef = useRef<UploadedManualInput | undefined>(undefined); const analysisManual = useRef<UploadedManualInput | undefined>(undefined);
   const [retainedManual, setRetainedManual] = useState<UploadedManualInput>();
   const manualTouched = useRef(false);
@@ -46,7 +46,13 @@ export default function ApplianceCareScreen() {
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [savedContext, setSavedContext] = useState<ApplianceCareReviewContext | null>(null);
-  const loadingAppliance = Boolean(applianceId) && !savedContext && !message;
+  const [targetRead, setTargetRead] = useState<{ database: typeof database; found: boolean } | null>(null);
+  const [targetRetry, setTargetRetry] = useState(0);
+  const [displayError, setDisplayError] = useState(false);
+  const currentTarget = targetRead?.database === database ? targetRead : null;
+  const targetError = Boolean(applianceId && currentTarget?.found === false);
+  const loadingAppliance = Boolean(applianceId) && !currentTarget;
+  const applianceAvailable = !applianceId || currentTarget?.found === true;
   const beginRequest = useAbortApplianceRequestOnLeave(analysisRequest);
 
   useEffect(() => {
@@ -55,11 +61,9 @@ export default function ApplianceCareScreen() {
     void loadApplianceCareReviewContext(database, applianceId).then(async (context) => {
       if (cancelled) return;
       setSavedContext(context);
-      if (!context) {
-        setMessage('登録した家電を読み込めませんでした。家事一覧からもう一度開いてください。');
-        return;
-      }
-      const digest = context.appliance.analysis.manualSource?.sha256;
+      setTargetRead({ database, found: Boolean(context) });
+      if (!context) return;
+      const digest = context.appliance.analysis?.manualSource?.sha256;
       if (digest) {
         const base64 = await readApplianceManual(database, digest).catch(() => null);
         if (cancelled) return;
@@ -67,24 +71,18 @@ export default function ApplianceCareScreen() {
       }
       setCategory(context.appliance.category ?? '');
     }).catch(() => {
-      if (!cancelled) setMessage('登録した家電を読み込めませんでした。');
+      if (!cancelled) { setSavedContext(null); setTargetRead({ database, found: false }); }
     });
     return () => { cancelled = true; };
-  }, [applianceId, database]);
+  }, [applianceId, database, targetRetry]);
 
   const verified = result?.status === 'verified' ? result : undefined;
   const verifiedName = verified ? applianceDisplayName(verified.product) : '';
   const primaryName = verified ? appliancePrimaryName({ ...verified.product, analysis: verified.analysis }, verifiedName) : '';
 
   const analyze = async () => {
-    if (savingRef.current) return;
+    if (savingRef.current || pickingRef.current || !applianceAvailable) return;
     if (!canAnalyze) { setMessage('ログインと正規端末の確認が済むまで家電AIは利用できません。'); return; }
-    const context = workspaceRef.current;
-    if (context?.group && !context.active) { setMessage('グループの確認後に解析できます。'); return; }
-    analysisTarget.current = context?.active?.protocol === 2 ? context.active : null;
-    if (analysisTarget.current && !supportsRetainedManuals(analysisTarget.current.roster()?.body.schedulerVersion ?? '')) {
-      setMessage('解析前に、グループ管理で互換更新を行ってください。'); return;
-    }
     const request = { identifyFromManual: true as const, manual: manualRef.current,
       ...(savedContext ? { manufacturer: savedContext.appliance.manufacturer, productName: savedContext.appliance.productName,
         modelNumber: savedContext.appliance.modelNumber, category: savedContext.appliance.category, forceReanalysis: true } : {}) };
@@ -96,6 +94,7 @@ export default function ApplianceCareScreen() {
     setMessage(null);
     setResult(null);
     setAnalysisSaved(false);
+    setDisplayError(false);
     let responseReceived = false;
     try {
       const { deviceAnalysisDeliveries } = await import('@/platform/storage/analysis-deliveries');
@@ -107,9 +106,7 @@ export default function ApplianceCareScreen() {
       if (nextResult.status === 'verified') {
         const values = defaultApplianceCycles(nextResult.analysis, savedContext?.chores);
         setCycleValues(values);
-        if (snapshot?.sharing) {
-          setMessage('内容を確認してから、共有グループへ保存してください。');
-        } else try {
+        try {
           await persistAnalysis(nextResult, values);
         } catch (cause) {
           setMessage(cause instanceof Error ? `解析結果を保存できませんでした：${cause.message}` : '解析結果を保存できませんでした。');
@@ -126,6 +123,24 @@ export default function ApplianceCareScreen() {
     }
   };
 
+  const refreshSavedAppliance = async (verifiedResult: ProductVerifiedResponse) => {
+    if (!savedApplianceId.current) return;
+    try {
+      const context = await loadApplianceCareReviewContext(database, savedApplianceId.current);
+      if (!context) throw new Error('保存した家電を読み込めませんでした。');
+      await refresh();
+      if (readError?.()) throw new Error('家電一覧を読み直せませんでした。');
+      setSavedContext(context);
+      setCycleValues(defaultApplianceCycles(verifiedResult.analysis, context.chores));
+      setDisplayError(false);
+    } catch { setDisplayError(true); }
+  };
+  const retryDisplay = async () => {
+    if (!verified || savingRef.current || pickingRef.current) return;
+    savingRef.current = true; setWorking(true);
+    try { await refreshSavedAppliance(verified); }
+    finally { savingRef.current = false; setWorking(false); }
+  };
   const persistAnalysis = async (verifiedResult: ProductVerifiedResponse, values: Record<number, string>) => {
     const approvedTasks = automaticApplianceTasks(verifiedResult.analysis, values);
     const saved = await saveReviewedApplianceCare(database, {
@@ -138,22 +153,13 @@ export default function ApplianceCareScreen() {
       manualUrl: verifiedResult.officialSources.manualUrl,
     }, verifiedResult.analysis, approvedTasks, analysisManual.current);
     savedApplianceId.current = saved.applianceId;
-    const target = analysisTarget.current;
-    if (target) {
-      if (workspaceRef.current?.active !== target || workspaceRef.current.userId !== target.userId) throw new Error('共有先が変わりました。保存した家電は保持しています。');
-      await target.session.controller.actions.reviewAppliance({ reviewed: true, result: verifiedResult, manual: analysisManual.current,
-        addTaskNames: verifiedResult.analysis.tasks.map(task => task.name) });
-    }
     setAnalysisSaved(true);
-    const context = await loadApplianceCareReviewContext(database, saved.applianceId);
-    setSavedContext(context);
-    setCycleValues(defaultApplianceCycles(verifiedResult.analysis, context?.chores));
-    await refresh();
     setMessage(`解析結果を保存し、${saved.scheduledTaskCount}件を予定へ登録しました。${saved.noCycleTaskCount ? ` 周期なしの${saved.noCycleTaskCount}件も説明を保存しました。` : ''}${saved.duplicateTaskCount ? ` 同名の${saved.duplicateTaskCount}件は重複登録していません。` : ''}`);
+    await refreshSavedAppliance(verifiedResult);
   };
 
   const saveChanges = async () => {
-    if (!verified || savingRef.current) return;
+    if (!verified || savingRef.current || pickingRef.current) return;
     savingRef.current = true;
     setWorking(true);
     setMessage(null);
@@ -169,15 +175,23 @@ export default function ApplianceCareScreen() {
 
   return (
     <Page keyboardAware header={<SettingsHeader title={applianceId ? 'PDFを再解析' : '家電を追加'} onBack={() => { analysisRequest.current?.abort(); if (returnTo) router.dismissTo(returnTo); else router.back(); }} />}>
-      <ManualAnalysisForm retained={retainedManual} working={working} canAnalyze={canAnalyze} reanalysis={Boolean(savedContext)}
-        shared={Boolean(workspace?.group)} usage={result?.usage} onReady={setCanAnalyze}
-        disabled={!manual || loadingAppliance || (Boolean(applianceId) && !savedContext)} inputDisabled={loadingAppliance || working}
-        onManual={value => {
+      {targetError ? <Card><Text accessibilityRole="alert" style={styles.message}>登録した家電を読み込めませんでした。</Text>
+        <AppButton title="家電を再読込" variant="secondary" onPress={() => { setTargetRead(null); setTargetRetry(before => before + 1); }} /></Card> : null}
+      {loadingAppliance ? <Text style={styles.note}>家電を読み込んでいます。</Text> : null}
+      <ManualAnalysisForm retained={retainedManual} filename={filename} working={working} picking={picking} canAnalyze={canAnalyze} reanalysis={Boolean(savedContext)}
+        usage={result?.usage} onReady={setCanAnalyze} onPickingChange={value => {
+          if (value && savingRef.current) return false;
+          pickingRef.current = value; setPicking(value);
+        }}
+        disabled={!manual || !applianceAvailable} inputDisabled={!applianceAvailable || working}
+        onManual={(value, name) => {
           if (savingRef.current) return;
-          manualTouched.current = true; manualRef.current = value; setManual(value); setResult(null); setAnalysisSaved(false); setMessage(null);
+          manualTouched.current = true; manualRef.current = value; setManual(value); setFilename(name); setResult(null); setAnalysisSaved(false); setMessage(null); setDisplayError(false);
         }} onAnalyze={() => void analyze()} onCancel={() => analysisRequest.current?.abort()} />
 
       {message ? <Card><Text style={message.includes('件を予定へ登録') ? styles.savedMessage : styles.message}>{message}</Text></Card> : null}
+      {displayError ? <Card><Text accessibilityRole="alert" style={styles.message}>保存済みです。表示を更新できませんでした。</Text>
+        <AppButton title="表示を再読込" variant="secondary" disabled={working || picking} onPress={() => void retryDisplay()} /></Card> : null}
       {result?.status === 'not_found' ? (
         <Card><Text style={styles.resultTitle}>製品不明</Text><Text style={styles.body}>{result.message}</Text></Card>
       ) : null}
@@ -208,7 +222,7 @@ export default function ApplianceCareScreen() {
               onChangeCycle={(value) => setCycleValues((current) => ({ ...current, [index]: value }))}
             />
           ))}
-          <AppButton title={working ? '保存中…' : analysisSaved ? '周期の変更を保存' : snapshot?.sharing ? '内容を確認して共有グループへ保存' : '解析結果の保存を再試行'} onPress={() => void saveChanges()} disabled={working} />
+          <AppButton title={working ? '保存中…' : analysisSaved ? '周期の変更を保存' : '解析結果の保存を再試行'} onPress={() => void saveChanges()} disabled={working || picking} />
           <Text style={styles.note}>周期を入力した項目だけ定期予定に追加します。</Text>
         </>
       ) : null}

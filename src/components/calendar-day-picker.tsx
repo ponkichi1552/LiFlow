@@ -7,9 +7,9 @@ import { monthDates, parseLocalDate, weekdayOf } from '../domain/scheduling/loca
 import type { LocalDate } from '../domain/shared/types';
 
 /** A bounded, inline month shared by date-based settings; it performs no schedule reads. */
-export function CalendarDayPicker({ today, initialDate = today, selected, onSelect, label = '日付カレンダー', describe, selectionHint, caption, disabled = false, isDateDisabled }: {
+export function CalendarDayPicker({ today, initialDate = today, selected, marked, onSelect, label = '日付カレンダー', describe, selectionHint, caption, disabled = false, isDateDisabled }: {
   today: LocalDate; selected(date: LocalDate): boolean; onSelect(date: LocalDate): void; label?: string;
-  initialDate?: LocalDate; isDateDisabled?(date: LocalDate): boolean;
+  initialDate?: LocalDate; isDateDisabled?(date: LocalDate): boolean; marked?(date: LocalDate): boolean;
   describe?(date: LocalDate, selected: boolean): string; selectionHint?(selected: boolean): string; caption?: string; disabled?: boolean;
 }) {
   const [month, setMonth] = useState(() => `${initialDate.slice(0, 7)}-01` as LocalDate);
@@ -37,7 +37,7 @@ export function CalendarDayPicker({ today, initialDate = today, selected, onSele
       return <Pressable key={date} accessibilityRole="button" accessibilityLabel={describe?.(date, active) ?? `${date.replaceAll('-', '/')}を選択`}
         accessibilityState={{ selected: active, disabled: locked }} accessibilityHint={selectionHint?.(active)} disabled={locked} onPress={() => { if (!locked) onSelect(date); }} style={[styles.cell, locked && { opacity: 0.35 }]}>
         <View style={[styles.day, active && { backgroundColor: colors.accentSoft }, date === today && { borderWidth: 1, borderColor: colors.accent }]}>
-          <Text style={[styles.dayText, { color: active ? colors.accent : colors.ink }, active && { fontWeight: '700' }]}>{Number(date.slice(8, 10))}</Text>
+          <Text style={[styles.dayText, { color: active ? colors.accent : marked?.(date) ? colors.warning : colors.ink }, active && { fontWeight: '700' }]}>{Number(date.slice(8, 10))}</Text>
         </View>
       </Pressable>;
     })}</View>)}

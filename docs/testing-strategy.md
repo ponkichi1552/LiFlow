@@ -44,6 +44,8 @@ Nodeの画面ハーネスが成功しても、実際の描画位置やアニメ�
 
 `docs/feature-contracts.json`の`manualReview`はこの確認先を示す。自動検査を通ったことだけで、その視覚要件まで合格したとは扱わない。
 
+開発ビルドの「設定 → UI確認用データ」で、ホーム・カレンダー・家電・エラーのシナリオを開ける。デモ画面は合成したデータを使い、閉じて開き直すと初期状態に戻る。確認専用ビルドは `EXPO_PUBLIC_LIFLOW_UI_REVIEW=1` で作り、起動時にUI確認用データを開く。通常の配布ビルドでは設定を空にする。iOSシミュレーターで特定のケースから開く場合は、`simctl launch` のアプリ引数に `-LiFlowUiReviewArea calendar -LiFlowUiReviewScenario three` のように指定する。
+
 ## 実行範囲
 
 テスト整理では、編集した操作テスト、契約登録の検査、lint、型検査を実行する。UI変更が一段落したら`npm run check`、隔離Auth／Firestoreの結合検査、両OSの実画面検査を通す。`npm test`やCIから機能・セキュリティ検査をまとめて外すスキップ設定は設けない。

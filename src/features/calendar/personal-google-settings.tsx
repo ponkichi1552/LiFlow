@@ -11,6 +11,9 @@ import { useAccountOperation } from '../settings/account-operation';
 import { isGoogleAuthenticationError } from '../google-sync/auth-error';
 import { subscribeToGoogleAccountChanges } from '../google-sync/account-change-events';
 import { useGoogleConnection } from '../settings/google-connection';
+import { formatJapaneseDate } from '../../domain/scheduling/local-date';
+import { googleImportedEvent } from './google-event-import';
+import { minuteLabel, recurrenceLabel, type EventDraft } from './events';
 
 type Conflict = Awaited<ReturnType<PersonalGoogleCalendarSync['readConflicts']>>[number];
 export function PersonalGoogleCalendarSettings({ database, embedded = false }: { database: SQLiteDatabase; embedded?: boolean }) {
@@ -134,10 +137,9 @@ export function PersonalGoogleCalendarSettings({ database, embedded = false }: {
         await connectAndSync(value, isCurrent);
       }); }} /> : null}
     {conflicts.length ? <Text style={{ ...typography.label, color: palette.ink }}>同時に変更された予定</Text> : null}
-    {conflicts.map(row => <View key={`${row.calendarId}:${row.googleId}`} style={{ gap: 8, borderWidth: 1, borderColor: palette.border, borderRadius: 12, padding: 12 }}>
-      <Text style={{ ...typography.label, color: palette.ink }}>{row.local?.title ?? row.remote.summary ?? '削除した予定'}</Text>
-      <Text style={{ ...typography.caption, color: palette.muted }}>LiFlow：{row.local ? `${row.local.startDate.replaceAll('-', '/')} ${row.local.title}` : '削除'}</Text>
-      <Text style={{ ...typography.caption, color: palette.muted }}>Google：{row.remote.status === 'cancelled' ? '削除' : `${row.remote.start?.date ?? row.remote.start?.dateTime ?? ''} ${row.remote.summary ?? ''}`}</Text>
+    {conflicts.map(row => <View key={`${row.calendarId}:${row.googleId}`} style={{ gap: 10, borderWidth: 1, borderColor: palette.border, borderRadius: 12, padding: 12 }}>
+      <Text accessibilityRole="header" style={{ ...typography.label, color: palette.ink }}>{row.local?.title ?? row.remote.summary ?? '削除した予定'}</Text>
+      <GoogleConflictComparison row={row} />
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
         {(['local', 'google'] as const).filter(choice => choice !== 'local' || row.canKeepLocal).map(choice => <Pressable key={choice} accessibilityRole="button" disabled={disabled}
           accessibilityLabel={`${row.local?.title ?? row.remote.summary ?? '予定'}に${choice === 'local' ? 'LiFlow' : 'Google'}の変更を採用`}
@@ -147,4 +149,45 @@ export function PersonalGoogleCalendarSettings({ database, embedded = false }: {
       </View>
     </View>)}
   </View>;
+}
+
+function GoogleConflictComparison({ row }: { row: Conflict }) {
+  const canceled = row.remote.status === 'cancelled';
+  let google: EventDraft | undefined;
+  if (!canceled) {
+    try { google = googleImportedEvent(row.remote, row.local?.categoryId ?? 'personal', row.local?.timeZone); } catch { /* Keep the original Google values visible below. */ }
+  }
+  const local = row.local;
+  const recurrence = (value: EventDraft) => recurrenceLabel(value) + (value.untilDate ? ` · ${formatJapaneseDate(value.untilDate, { year: true })}まで` : '');
+  const clock = (value: EventDraft) => {
+    const date = formatJapaneseDate(value.startDate, { year: true });
+    if (value.allDay) return value.startDate === value.endDate ? `${date} · 終日` : `${date}〜${formatJapaneseDate(value.endDate, { year: true })} · 終日`;
+    const end = value.endDate === value.startDate ? minuteLabel(value.endMinute) : `${formatJapaneseDate(value.endDate, { year: true })} ${minuteLabel(value.endMinute)}`;
+    return `${date} ${minuteLabel(value.startMinute)}〜${end}（${value.timeZone}）`;
+  };
+  const showLocation = local?.location !== (google?.location ?? row.remote.location ?? '');
+  const showNotes = local?.notes !== (google?.notes ?? row.remote.description ?? '');
+  const showRepeat = !google || (local ? recurrence(local) !== recurrence(google) : google.recurrence !== 'none');
+  const body = { ...typography.caption, color: palette.ink };
+  return <>
+    <View style={{ gap: 3 }}>
+      <Text style={{ ...typography.label, color: palette.ink }}>LiFlow</Text>
+      {local ? <>
+        <Text style={body}>{local.title}</Text><Text style={body}>{clock(local)}</Text>
+        {showLocation && <Text style={body}>場所　{local.location || 'なし'}</Text>}
+        {showNotes && <Text style={body}>メモ　{local.notes || 'なし'}</Text>}
+        {showRepeat && <Text style={body}>{recurrence(local)}</Text>}
+      </> : <Text style={body}>削除</Text>}
+    </View>
+    <View style={{ gap: 3, borderTopWidth: 1, borderColor: palette.border, paddingTop: 8 }}>
+      <Text style={{ ...typography.label, color: palette.ink }}>Google</Text>
+      {canceled ? <Text style={body}>削除</Text> : <>
+        <Text style={body}>{google?.title ?? row.remote.summary ?? '無題の予定'}</Text>
+        <Text style={body}>{google ? clock(google) : [row.remote.start?.date ?? row.remote.start?.dateTime, row.remote.end?.date ?? row.remote.end?.dateTime].filter(Boolean).join('〜')}</Text>
+        {showLocation && <Text style={body}>場所　{(google?.location ?? row.remote.location) || 'なし'}</Text>}
+        {showNotes && <Text style={body}>メモ　{(google?.notes ?? row.remote.description) || 'なし'}</Text>}
+        {showRepeat && <Text style={body}>{google ? recurrence(google) : row.remote.recurrence?.length ? 'Google上で繰り返しを確認してください。' : '繰り返さない'}</Text>}
+      </>}
+    </View>
+  </>;
 }

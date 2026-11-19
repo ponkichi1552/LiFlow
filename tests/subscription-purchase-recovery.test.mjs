@@ -10,12 +10,12 @@ async function fixture(platform, run) {
   const state = { userId: 'person-a', phase: 'locked', account: { appAccountToken: '12345678-1234-1234-1234-123456789012', obfuscatedAccountId: 'a'.repeat(64) } };
   let catalogueFailures = 0; let queries = 0; let available = []; let request = async () => {}; let verify = async () => ({ body: {
     userId: 'person-a', status: 'active', checkedAt: Date.now(), expiresAt: Date.now() + 60_000, validUntil: Date.now() + 60_000 } });
-  const updated = []; const removed = []; const finished = []; let accepted = 0; const requests = [];
+  const updated = []; const removed = []; const finished = []; let accepted = 0; const requests = []; const opened = [];
   const product = platform === 'ios' ? { id: 'monthly', type: 'subs', platform, displayPrice: '¥90', subscriptionPeriodUnitIOS: 'month', subscriptionPeriodNumberIOS: '1', typeIOS: 'auto-renewable-subscription' }
     : { id: 'monthly', type: 'subs', platform, subscriptionOffers: [{ basePlanIdAndroid: 'monthly', offerTokenAndroid: 'offer', pricingPhasesAndroid: { pricingPhaseList: [{ billingPeriod: 'P1M', recurrenceMode: 1, formattedPrice: '¥90' }] } }] };
   try {
     const api = loadNativeModule('src/platform/subscription/purchases.ts', {
-      'react-native': { Platform: { OS: platform }, Linking: {} }, '../../features/subscription/purchase-flow': purchaseFlow,
+      'react-native': { Platform: { OS: platform }, Linking: { openURL: async url => { opened.push(url); } } }, '../../features/subscription/purchase-flow': purchaseFlow,
       './runtime': { subscriptionSnapshot: () => state, subscriptionCurrentTime: () => state.clock ?? Date.now(), acceptSubscription: async () => { accepted++; },
         subscriptionRequest: async (path, evidence) => path === 'status' ? {} : verify(evidence) },
       'expo-iap': { initConnection: async () => true, purchaseUpdatedListener: fn => { updated.push(fn); return { remove() { removed.push(fn); } }; },
@@ -25,7 +25,7 @@ async function fixture(platform, run) {
         restorePurchases: async () => {}, finishTransaction: async value => { finished.push(value.purchase.id); } },
     });
     const receipt = { id: 'receipt-a', productId: 'monthly', store: platform === 'ios' ? 'apple' : 'google', storeId: platform === 'ios' ? 'apple' : 'play', purchaseState: 'purchased', purchaseToken: 'synthetic-paid-proof' };
-    await run({ api, state, updated, removed, receipt, requests, finished, accepted: () => accepted, queries: () => queries,
+    await run({ api, state, updated, removed, receipt, requests, finished, opened, accepted: () => accepted, queries: () => queries,
       failCatalogue: count => { catalogueFailures = count; }, setAvailable: value => { available = value; }, setRequest: fn => { request = fn; }, setVerify: fn => { verify = fn; } });
   } finally { fields.forEach((key, i) => { if (old[i] === undefined) delete process.env[key]; else process.env[key] = old[i]; }); }
 }
@@ -60,6 +60,14 @@ test('audit100 an expired finished purchase is verified again before reporting a
 });
 
 for (const platform of ['ios', 'android']) {
+  test(`${platform} pending billing uses the device store until the confirmed purchase store is known`, () => fixture(platform, async h => {
+    await h.api.manageSubscription();
+    const appleOnDevice = platform === 'ios';
+    assert.equal(new URL(h.opened[0]).hostname, appleOnDevice ? 'apps.apple.com' : 'play.google.com');
+    h.state.entitlement = { body: { store: appleOnDevice ? 'google' : 'apple' } };
+    await h.api.manageSubscription();
+    assert.equal(new URL(h.opened[1]).hostname, appleOnDevice ? 'play.google.com' : 'apps.apple.com');
+  }));
   test(`${platform} a recovered store catalogue can be fetched again without signing out or losing the purchase observer`, () => fixture(platform, async h => {
     h.failCatalogue(1); await h.api.startSubscriptionPurchases('person-a');
     assert.equal(h.api.subscriptionPurchaseSnapshot().product, null);

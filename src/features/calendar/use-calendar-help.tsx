@@ -5,7 +5,7 @@ import { createCalendarHelpStore } from './help-store';
 
 const store = createCalendarHelpStore(Storage);
 
-export function useCalendarHelp(allowed: boolean) {
+export function useCalendarHelp(allowed: boolean, binding = store) {
   const [open, setOpen] = useState(false);
   const focused = useRef(false); const showing = useRef(false);
   const introduction = useRef<ReturnType<typeof store.claimIntroduction>>(null);
@@ -15,17 +15,17 @@ export function useCalendarHelp(allowed: boolean) {
   useFocusEffect(useCallback(() => {
     focused.current = true;
     if (allowed) {
-      introduction.current = store.claimIntroduction();
+      introduction.current = binding.claimIntroduction();
       if (introduction.current) { showing.current = true; setOpen(true); }
     }
     return () => { focused.current = false; close(); };
-  }, [allowed, close]));
+  }, [allowed, binding, close]));
   return { open, close,
     show() { if (focused.current && allowed) { showing.current = true; setOpen(true); } },
     onShow() {
       if (!focused.current || !showing.current) return;
       if (introduction.current) { introduction.current.shown(); introduction.current = null; }
-      else store.shown();
+      else binding.shown();
     },
   };
 }

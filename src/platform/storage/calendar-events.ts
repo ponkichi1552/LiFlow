@@ -19,10 +19,10 @@ import { personalGoogleCategoryId } from './personal-google-store.ts';
 import { splitCalendarFuture } from '../../domain/calendar/future-series.ts';
 import { rebasedCalendarExceptionDates } from '../../domain/calendar/exception-slots.ts';
 
-export interface CalendarEditorDraft { reminderMinutes?: number | null; audience?: 'personal' | 'group'; groupId?: string; ownerScope?: string; basisRevision?: string; editorCategory?: CalendarCategory; submission?: { id: string; digest: string }; eventId: string | null; anchorDate: LocalDate | null; revision: number; exceptionRevision: number; scope: 'one' | 'future' | 'series'; value: EventDraft }
-export function calendarDraftKey(draft: Pick<CalendarEditorDraft, 'audience' | 'groupId' | 'ownerScope' | 'eventId' | 'scope' | 'anchorDate'> & { value: Pick<EventDraft, 'birthday'> }) {
+export interface CalendarEditorDraft { draftId?: string; reminderMinutes?: number | null; audience?: 'personal' | 'group'; groupId?: string; ownerScope?: string; basisRevision?: string; editorCategory?: CalendarCategory; submission?: { id: string; digest: string }; eventId: string | null; anchorDate: LocalDate | null; revision: number; exceptionRevision: number; scope: 'one' | 'future' | 'series'; value: EventDraft }
+export function calendarDraftKey(draft: Pick<CalendarEditorDraft, 'draftId' | 'audience' | 'groupId' | 'ownerScope' | 'eventId' | 'scope' | 'anchorDate'> & { value: Pick<EventDraft, 'birthday'> }) {
   const prefix = draft.audience !== 'group' ? '' : draft.ownerScope ? `owned:${draft.ownerScope}:` : `group:${draft.groupId}:`;
-  return prefix + (draft.eventId ? `event:${draft.eventId}:${draft.scope}:${draft.scope !== 'series' ? draft.anchorDate : ''}` : draft.value.birthday ? 'birthday:new' : 'new');
+  return prefix + (draft.eventId ? `event:${draft.eventId}:${draft.scope}:${draft.scope !== 'series' ? draft.anchorDate : ''}` : draft.value.birthday ? 'birthday:new' : draft.draftId ? `new:${draft.draftId}` : 'new');
 }
 export type CalendarDraftAccess = (draft: CalendarEditorDraft) => void;
 export interface CalendarDraftCleanup { snapshots: readonly CalendarEditorDraft[]; assertAccess?: CalendarDraftAccess }
@@ -45,7 +45,14 @@ function storageKey(database: SQLiteDatabase): string | SQLiteDatabase {
 let idSequence = 0;
 function newId(prefix: string) { return `${prefix}.${Date.now().toString(36)}.${(++idSequence).toString(36)}.${Math.random().toString(36).slice(2, 12)}`; }
 export function newCalendarSubmissionId() { return newId('calendar-intent'); }
-const conflict = () => new Error('予定が別の画面で変更されました。再読込してから編集してください。');
+export function newCalendarDraftId() { return newId('draft'); }
+export class CalendarEventConflictError extends Error {
+  constructor() {
+    super('予定が別の画面で変更されました。');
+    this.name = 'CalendarEventConflictError';
+  }
+}
+const conflict = () => new CalendarEventConflictError();
 function identifier(id: string) { if (!/^[A-Za-z0-9._-]{1,100}$/.test(id)) throw new Error('予定・分類の識別子が無効です。'); }
 async function personal(database: SQLiteDatabase) {
   if (sharedRepositoryAdapter(database)) throw new Error('個人のカレンダーは個人の保存先で開いてください。');
@@ -86,7 +93,7 @@ export function subscribeLocalCalendar(database: SQLiteDatabase, callback: (chan
 export type LocalCalendarDrafts = Pick<LocalCalendarSnapshot, 'draft' | 'drafts' | 'draftError'>;
 type DraftReadOwner = string | null | (() => string | null | undefined);
 // The original single-slot editor may contain either audience. Unknown group authors stay archived.
-const personalDraftSlots = `(slot IN ('new','birthday:new') OR slot GLOB 'event:*'
+const personalDraftSlots = `(slot IN ('new','birthday:new') OR slot GLOB 'new:*' OR slot GLOB 'event:*'
   OR (slot='editor' AND CASE WHEN json_valid(draft_json) THEN coalesce(json_extract(draft_json,'$.audience'),'personal')<>'group' ELSE 1 END))`;
 async function readDrafts(database: SQLiteDatabase, owner?: DraftReadOwner): Promise<LocalCalendarDrafts> {
   const scope = typeof owner === 'function' ? owner() : owner;
@@ -153,6 +160,10 @@ function parseEditorDraft(draft: CalendarEditorDraft): CalendarEditorDraft {
   if (!draft || typeof draft !== 'object' || !['one', 'future', 'series'].includes(draft.scope) || !Number.isInteger(draft.revision) || draft.revision < 0
     || !Number.isInteger(draft.exceptionRevision) || draft.exceptionRevision < 0) throw new Error('入力途中の予定を確認してください。');
   if (draft.eventId !== null) identifier(draft.eventId); if (draft.anchorDate !== null) parseLocalDate(draft.anchorDate);
+  if (draft.draftId !== undefined) {
+    if (typeof draft.draftId !== 'string' || draft.eventId !== null || draft.value.birthday) throw new Error('入力途中の予定を確認してください。');
+    identifier(draft.draftId);
+  }
   if (draft.scope !== 'series' && (!draft.eventId || !draft.anchorDate)) throw new Error('今回だけ変更する予定と基準日を確認してください。');
   // Empty titles are valid in a draft; saved events require a title.
   parseLocalDate(draft.value.endDate); if (draft.value.untilDate !== null) parseLocalDate(draft.value.untilDate);
@@ -167,15 +178,15 @@ function parseEditorDraft(draft: CalendarEditorDraft): CalendarEditorDraft {
   if (draft.reminderMinutes !== undefined) checkedReminderMinutes(draft.reminderMinutes);
   const category = draft.editorCategory;
   if (category && (!/^[A-Za-z0-9._-]{1,100}$/.test(category.id) || typeof category.name !== 'string' || category.name.length > 40 || !Number.isSafeInteger(category.revision) || category.revision < 0 || !/^#[0-9a-f]{6}$/i.test(category.color))) throw new Error('分類を確認してください。');
-  return { ...(draft.reminderMinutes !== undefined ? { reminderMinutes: draft.reminderMinutes } : {}), ...(draft.audience ? { audience: draft.audience } : {}), ...(draft.audience === 'group' ? { groupId: draft.groupId } : {}),
+  return { ...(draft.draftId ? { draftId: draft.draftId } : {}), ...(draft.reminderMinutes !== undefined ? { reminderMinutes: draft.reminderMinutes } : {}), ...(draft.audience ? { audience: draft.audience } : {}), ...(draft.audience === 'group' ? { groupId: draft.groupId } : {}),
     ...(draft.audience === 'group' && draft.ownerScope ? { ownerScope: draft.ownerScope } : {}),
     ...(draft.basisRevision ? { basisRevision: draft.basisRevision } : {}), ...(draft.audience === 'group' && draft.submission ? { submission: { ...draft.submission } } : {}), ...(category ? { editorCategory: { id: category.id, name: category.name, color: category.color, revision: category.revision } } : {}), eventId: draft.eventId, anchorDate: draft.anchorDate, revision: draft.revision, exceptionRevision: draft.exceptionRevision, scope: draft.scope,
     value: { ...value, title: draft.value.title, allDay: draft.value.allDay, birthday: draft.value.birthday, endDate: draft.value.endDate, untilDate: draft.value.untilDate } };
 }
-async function clearRelatedDrafts(database: SQLiteDatabase, id: string | null, scope?: 'one' | 'future' | 'series', anchorDate?: LocalDate | null, birthday = false, audience: Pick<CalendarEditorDraft, 'audience' | 'groupId' | 'ownerScope'> = {}, submitted?: CalendarEditorDraft) {
+async function clearRelatedDrafts(database: SQLiteDatabase, id: string | null, scope?: 'one' | 'future' | 'series', anchorDate?: LocalDate | null, birthday = false, audience: Pick<CalendarEditorDraft, 'draftId' | 'audience' | 'groupId' | 'ownerScope'> = {}, submitted?: CalendarEditorDraft) {
   let removed = false;
   const exactSlot = scope || id === null ? calendarDraftKey({ ...audience, eventId: id, scope: scope ?? 'series', anchorDate: anchorDate ?? null, value: { birthday } }) : null;
-  const where = exactSlot === null ? personalDraftSlots : audience.audience === 'group' ? 'slot=?' : `(slot=? OR (slot='editor' AND ${personalDraftSlots}))`;
+  const where = exactSlot === null ? personalDraftSlots : audience.audience === 'group' || audience.draftId ? 'slot=?' : `(slot=? OR (slot='editor' AND ${personalDraftSlots}))`;
   const rows = await database.getAllAsync<{ slot: string; draft_json: string }>(
     `SELECT slot,draft_json FROM calendar_drafts WHERE ${where} LIMIT 51`, ...(exactSlot === null ? [] : [exactSlot]));
   for (const row of rows) {
@@ -183,7 +194,7 @@ async function clearRelatedDrafts(database: SQLiteDatabase, id: string | null, s
     try { draft = parseEditorDraft(JSON.parse(row.draft_json)); } catch { continue; }
     if (submitted && (draft.revision !== submitted.revision || scope === 'one' && draft.exceptionRevision !== submitted.exceptionRevision
       || draft.reminderMinutes !== submitted.reminderMinutes || JSON.stringify(draft.value) !== JSON.stringify(submitted.value))) continue;
-    if ((draft.audience ?? 'personal') === (audience.audience ?? 'personal') && draft.groupId === audience.groupId && draft.ownerScope === audience.ownerScope && draft.eventId === id && (id !== null || draft.value.birthday === birthday) && (!scope || draft.scope === scope && (scope === 'series' || draft.anchorDate === anchorDate))) {
+    if ((draft.audience ?? 'personal') === (audience.audience ?? 'personal') && draft.groupId === audience.groupId && draft.ownerScope === audience.ownerScope && draft.eventId === id && (id !== null || draft.value.birthday === birthday && draft.draftId === audience.draftId) && (!scope || draft.scope === scope && (scope === 'series' || draft.anchorDate === anchorDate))) {
       const result = await database.runAsync('DELETE FROM calendar_drafts WHERE slot=?', row.slot); removed ||= Boolean(result.changes);
     }
   }
@@ -213,7 +224,7 @@ export function saveOwnBirthday(database: SQLiteDatabase, input: { date: LocalDa
 }
 type CalendarEventInput = {
   reminderMinutes?: number | null; id?: string; expectedRevision: number; value: EventDraft; anchorDate?: LocalDate; expectedExceptionRevision?: number; scope?: 'one' | 'series'; resetExceptions?: boolean;
-  draftCleanup?: CalendarDraftCleanup;
+  draftId?: string; draftCleanup?: CalendarDraftCleanup;
 };
 export function saveCalendarEvent(database: SQLiteDatabase, input: CalendarEventInput) { return writeCalendarEvent(database, input); }
 export interface CalendarFutureSave { undoFuture(): Promise<void> }
@@ -297,7 +308,7 @@ async function writeCalendarEvent(database: SQLiteDatabase, input: CalendarEvent
   const body = validateEventDraft(input.value); const id = input.id ?? newId('event'); identifier(id);
   const bodyJson = JSON.stringify(body); let eventChanged = false; let draftsChanged = false; let remindersChanged = false;
   if (input.anchorDate !== undefined) parseLocalDate(input.anchorDate);
-  const submitted = parseEditorDraft({ reminderMinutes: input.reminderMinutes, eventId: input.id ?? null, revision: input.expectedRevision, scope: input.scope ?? 'series',
+  const submitted = parseEditorDraft({ draftId: input.draftId, reminderMinutes: input.reminderMinutes, eventId: input.id ?? null, revision: input.expectedRevision, scope: input.scope ?? 'series',
     anchorDate: input.anchorDate ?? null, exceptionRevision: input.expectedExceptionRevision ?? 0, value: input.value });
   await withPlannerDatabaseOperation(database, async () => { await personal(database);
     await withIsolatedSqliteTransaction(database, async tx => {
@@ -357,7 +368,7 @@ async function writeCalendarEvent(database: SQLiteDatabase, input: CalendarEvent
           await saveCalendarReminderInside(tx, { scope: 'personal', eventId: id, anchorDate, minutes: input.reminderMinutes }); remindersChanged = true;
         }
       }
-      draftsChanged = await clearRelatedDrafts(tx, input.id ?? null, input.scope ?? 'series', input.anchorDate, body.birthday, {}, submitted);
+      draftsChanged = await clearRelatedDrafts(tx, input.id ?? null, input.scope ?? 'series', input.anchorDate, body.birthday, { draftId: input.draftId }, submitted);
       if (input.draftCleanup) draftsChanged = await deleteSubmittedDrafts(tx, input.draftCleanup) || draftsChanged;
     });
   });

@@ -8,6 +8,7 @@ import { AppButton, BackButton, Card, ChoiceChip, Page, ScreenHeading, SectionHe
 import type { ChoreDefinition } from '@/domain/chores/types';
 import { choreCadenceLabel } from '@/domain/chores/cycle-policy';
 import { PlannerLoadState } from '@/components/planner-load-state';
+import { isRenderableApplianceAnalysis } from '@/features/appliance-care/analysis-validation';
 import { usePlannerData } from '@/hooks/use-planner-data';
 import { setChoreEnabled } from '@/platform/storage/repository';
 
@@ -68,7 +69,8 @@ export default function ChoresScreen() {
             <Card key={appliance.id} style={styles.savedApplianceCard}>
               <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/manual/appliances/[id]', params: { id: appliance.id, returnTo: '/chores' } }, { withAnchor: true })} style={styles.choreCopy}>
                 <Text style={styles.choreName}>{appliance.displayName}</Text>
-                <Text style={styles.meta}>{appliance.analysis.tasks.length}件のお手入れ項目 · 詳細と出典</Text>
+                <Text style={styles.meta}>{isRenderableApplianceAnalysis(appliance.analysis)
+                  ? `${appliance.analysis.tasks.length}件のお手入れ項目 · 詳細と出典` : '内容を確認'}</Text>
               </Pressable>
               <AppButton title="再解析" onPress={() => router.push({ pathname: '/manual/appliance-care', params: { applianceId: appliance.id, returnTo: '/chores' } }, { withAnchor: true })} variant="secondary" compact />
             </Card>

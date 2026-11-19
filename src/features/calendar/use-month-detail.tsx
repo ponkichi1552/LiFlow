@@ -2,6 +2,6 @@ import { useSyncExternalStore } from 'react';
 import Storage from 'expo-sqlite/kv-store';
 import { createCalendarMonthDetailStore } from './month-detail-store';
 const store = createCalendarMonthDetailStore(Storage);
-export function useCalendarMonthDetail() {
-  return { value: useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot), select: store.select };
+export function useCalendarMonthDetail(binding = store) {
+  return { value: useSyncExternalStore(binding.subscribe, binding.getSnapshot, binding.getSnapshot), select: binding.select };
 }

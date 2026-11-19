@@ -11,7 +11,7 @@ import { createV2ReminderEditor } from './reminder-editor';
 import { useV2DraftLifecycle } from './use-draft-lifecycle';
 import type { ReactNode } from 'react';
 import { SettingsCheckbox } from '../../../components/settings-checkbox';
-import { NotificationPermissionRecovery } from '../../notifications/notification-permission-recovery';
+import { NotificationPermissionRecovery, useDeviceNotificationPermission } from '../../notifications/notification-permission-recovery';
 
 export function V2ReminderScreen({ load, onBack, notice, embedded = false }: { load: () => Promise<V2ReminderRuntime>; onBack: () => void; notice?: ReactNode; embedded?: boolean }) {
   const [attempt, setAttempt] = useState(0);
@@ -47,6 +47,7 @@ function ReminderEditor({ runtime, saved, onBack, notice, embedded }: { runtime:
   // Finish delivery of an accepted preference even if navigation unmounts this editor; alive guards UI feedback.
   useLayoutEffect(() => { store.setAfterSave(() => { void updateDelivery(); }); }, [store, updateDelivery]);
   const { snapshot: state, navigateAfterSave } = useV2DraftLifecycle(store);
+  const devicePermission = useDeviceNotificationPermission(runtime, state.raw.enabled, runtime.permissionStatus);
   async function toggle(enabled: boolean) {
     if (working.current) return; working.current = true; setBusy(true); setMessage(null);
     try {
@@ -80,8 +81,9 @@ function ReminderEditor({ runtime, saved, onBack, notice, embedded }: { runtime:
       </> : null}
     </Container>
     {message ? <Text accessibilityRole="alert" style={typography.caption}>{message}</Text> : null}
-    {permissionDenied ? <NotificationPermissionRecovery scope={runtime} disabled={busy} checkPermission={runtime.permissionStatus}
-      onGranted={() => state.raw.enabled ? updateDelivery() : toggle(true)} /> : null}
+    {devicePermission === false && !permissionDenied ? <Text accessibilityLiveRegion="polite" style={typography.caption}>端末の通知がオフです。</Text> : null}
+    {permissionDenied || devicePermission === false ? <NotificationPermissionRecovery scope={runtime} disabled={busy} checkPermission={runtime.permissionStatus}
+      onGranted={permissionDenied ? () => state.raw.enabled ? updateDelivery() : toggle(true) : undefined} /> : null}
   </>;
   return embedded ? <View style={{ gap: 12 }}>{content}</View> : <Page keyboardAware header={<BackButton disabled={busy} onPress={() => { void navigateAfterSave(onBack); }} />}>{content}</Page>;
 }

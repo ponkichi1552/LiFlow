@@ -6,6 +6,10 @@
 
 `testCoreScreenAppearance` はホーム、設定、家事一覧と浴室の説明、家電一覧、登録済みならSV20の説明、カレンダーを読み取る。外観を変えて画像を見比べる用途であり、画像の一致を自動判定するテストではない。
 
+`testDevelopmentReviewCalendarChorePanelsAndHorizontalSwipe` は確認専用ビルドで3日・7日表示の家事を開いて日付を切り替え、3日表示を左右に操作する。確認専用ビルドを入れた場合は、以下のコマンドに `-only-testing:CalendarUITests/CalendarUITests/testDevelopmentReviewCalendarChorePanelsAndHorizontalSwipe` を加える。通常のビルドではこのテストを除外する。
+
+`testThreeDaySwipeAfterReturningFromCustomRecurrence` は通常の検査用ビルドで、繰り返し設定を終えた後も入力が戻り、予定編集を閉じて3日表示を左右に送れることを確認する。入力した確認用の予定は保存せず破棄する。
+
 XcodeとCocoaPodsの `xcodeproj` Ruby gemが必要。LiFlowを更新して起動できることを先に確認する。生成するXcodeプロジェクト・ビルド・結果はリポジトリ外へ置く。
 
 ```sh

@@ -451,6 +451,10 @@
     "tests": [
       {
         "file": "tests/calendar-week.test.mjs",
+        "name": "${platform} three and seven day calendars open one full-width chore list outside the timeline"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
         "name": "calendar weeks retain the month weekday order across months years leap days and DST dates"
       },
       {
@@ -1517,6 +1521,14 @@
     "tests": [
       {
         "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "${platform} a stale calendar edit preserves unrelated saved changes and asks about overlapping input"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
+        "name": "${platform} saving a new appointment consumes its own draft and retains other personal drafts"
+      },
+      {
+        "file": "tests/calendar-ux-search-drafts.test.mjs",
         "name": "calendar classification adapts white and black for visibility without changing source colors"
       },
       {
@@ -1768,6 +1780,10 @@
       {
         "file": "tests/feature-screen-contracts.test.mjs",
         "name": "feature screen contract: waste onboarding can be skipped"
+      },
+      {
+        "file": "tests/feature-screen-contracts.test.mjs",
+        "name": "feature screen contract: onboarding keeps an unfinished waste entry and saves it when continuing"
       }
     ]
   },
@@ -5872,6 +5888,14 @@
     "tests": [
       {
         "file": "tests/mobile-ui-audit.test.mjs",
+        "name": "personal reanalysis keeps the appliance read failure visible until a read retry succeeds"
+      },
+      {
+        "file": "tests/mobile-ui-audit.test.mjs",
+        "name": "an appliance display failure after saving can retry the read without repeating analysis or writing"
+      },
+      {
+        "file": "tests/mobile-ui-audit.test.mjs",
         "name": "leaving a personal appliance during its committed save preserves the save lock until SQLite finishes"
       },
       {
@@ -8848,7 +8872,7 @@
     "tests": [
       {
         "file": "tests/mobile-theme-and-waste-icons.test.mjs",
-        "name": "mobile themes preserve body warning and dark-action contrast while light actions follow the requested brand palette"
+        "name": "mobile themes keep body warnings and action text legible on both light and dark surfaces"
       },
       {
         "file": "tests/mobile-theme-and-waste-icons.test.mjs",
@@ -10717,6 +10741,10 @@
       {
         "file": "tests/subscription-purchase-recovery.test.mjs",
         "name": "${platform} a recovered store catalogue can be fetched again without signing out or losing the purchase observer"
+      },
+      {
+        "file": "tests/subscription-purchase-recovery.test.mjs",
+        "name": "${platform} pending billing uses the device store until the confirmed purchase store is known"
       },
       {
         "file": "tests/subscription-purchase-recovery.test.mjs",
@@ -15504,7 +15532,7 @@
       },
       {
         "file": "tests/group-personal-chore-selection.test.mjs",
-        "name": "${platform} group settings select a missing personal chore inline and open its group configuration without a separate copy page"
+        "name": "${platform} group settings preview an unshared chore without copying it and require a separate group addition"
       },
       {
         "file": "tests/group-personal-chore-selection.test.mjs",
@@ -15712,6 +15740,10 @@
   {
     "feature": "personal-and-shared-chore-advanced-settings",
     "tests": [
+      {
+        "file": "tests/chore-advanced-settings.test.mjs",
+        "name": "editing an individual chore start date keeps a one-time rule and the latest saved clocks"
+      },
       {
         "file": "tests/chore-advanced-settings.test.mjs",
         "name": "personal monthly dates use real calendar months and restore 31 after February instead of drifting or inventing 30-day rules"
@@ -16227,7 +16259,7 @@
       },
       {
         "file": "tests/calendar-navigation-ux.test.mjs",
-        "name": "${platform} adding from year view uses the displayed year and resumes the saved personal draft when present"
+        "name": "${platform} adding from year view uses the displayed year and opens a new form independently of saved drafts"
       },
       {
         "file": "tests/calendar-navigation-ux.test.mjs",
@@ -16329,6 +16361,28 @@
       {
         "file": "tests/adaptive-owner-integration.test.mjs",
         "name": "a composed owner read stays single-attempt while the ordinary personal overlay retains three fresh attempts"
+      }
+    ]
+  },
+  {
+    "feature": "development-ui-review-fixtures",
+    "description": "Development UI review can exercise production display controls with repeatable synthetic data and local simulated actions.",
+    "tests": [
+      {
+        "file": "tests/ui-review-home-data.test.mjs",
+        "name": "${platform} fixture claims, completion, overdue undo and weekly switches stay within one home review session"
+      },
+      {
+        "file": "tests/ui-review-calendar-fixtures.test.mjs",
+        "name": "calendar review searches fixture memos, inspects personal and shared events, and keeps device preferences isolated"
+      },
+      {
+        "file": "tests/development-appliance-review.test.mjs",
+        "name": "${platform} unreadable appliance sample retries locally and retains only the chosen shared task"
+      },
+      {
+        "file": "tests/ui-review-failures.test.mjs",
+        "name": "${platform} review Google sync retries its read and requires a dummy account confirmation to recover authorization"
       }
     ]
   }

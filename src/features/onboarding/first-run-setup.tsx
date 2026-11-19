@@ -16,7 +16,7 @@ import { LocationAttribution, WeatherAttribution } from '@/components/data-credi
 import { useMunicipalitySuggestions } from '@/features/weather/use-municipality-suggestions';
 import type { PlannerSnapshot } from '@/platform/storage/repository';
 import type { WasteScheduleInput } from '@/features/waste/contracts';
-import { WasteScheduleEditor } from '@/features/waste/waste-schedule-editor';
+import { WasteScheduleEditor, type WasteSetupEditor, type WasteSetupStatus } from '@/features/waste/waste-schedule-editor';
 import { wasteScheduleDescription } from '@/features/waste/schedule-policy';
 import { generateWasteCollectionDates } from '@/features/waste/weekly-scheduler';
 import { useWasteTypeColor } from '@/features/waste/use-waste-type-color';
@@ -77,7 +77,19 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
   const [error, setError] = useState<string | null>(null);
   const [wasteSchedules, setWasteSchedules] = useState<WasteScheduleInput[]>(() => [...snapshot.wasteSchedules]);
   const [editingWaste, setEditingWaste] = useState<WasteScheduleInput | undefined>();
+  const [wasteStatus, setWasteStatus] = useState<WasteSetupStatus>('idle');
+  const wasteSubmit = useRef<() => Promise<boolean>>(undefined);
+  const [wasteEditor] = useState<WasteSetupEditor>(() => ({
+    drafts: new Map(), setStatus: setWasteStatus,
+    registerSubmit(submit) {
+      wasteSubmit.current = submit;
+      return () => { if (wasteSubmit.current === submit) wasteSubmit.current = undefined; };
+    },
+  }));
   const wasteSequence = useRef(0);
+  const finishWaste = async () => {
+    if (wasteStatus === 'idle' || (wasteStatus === 'ready' && await wasteSubmit.current?.())) go(1);
+  };
 
   const toggleRestDay = (weekday: Weekday) => {
     setRestDays((current) => current.includes(weekday)
@@ -147,7 +159,7 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']} onLayout={finishStartupDisplay}>
-      <SettingsHeader backAccessibilityLabel="戻る" title={optional ? optional === 'previous' ? '前回の実施' : optional === 'weather' ? '天気予報' : 'ゴミ収集日' : '初回設定'} onBack={() => go(optional ? 1 : 0)} hideBack={!optional && step === 0} />
+      <SettingsHeader backAccessibilityLabel="戻る" title={optional ? optional === 'previous' ? '前回の実施' : optional === 'weather' ? '天気予報' : 'ゴミ収集日' : '初回設定'} onBack={() => go(optional ? 1 : 0)} backDisabled={saving || optional === 'waste' && wasteStatus === 'saving'} hideBack={!optional && step === 0} />
       <ScrollView ref={scroll}
         style={styles.scroll}
         contentContainerStyle={styles.content}
@@ -258,8 +270,8 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
         {optional === 'waste' ? (
           <>
 
-            <WasteScheduleEditor key={editingWaste?.id ?? 'new'} initial={editingWaste} disabled={saving}
-              onCancel={editingWaste ? () => setEditingWaste(undefined) : undefined}
+            <WasteScheduleEditor key={editingWaste?.id ?? 'new'} initial={editingWaste} disabled={saving} setup={wasteEditor}
+              onCancel={editingWaste ? () => { wasteEditor.drafts.delete(editingWaste.id ?? ''); setEditingWaste(undefined); } : undefined}
               onSubmit={async (schedule) => {
                 const draft = { ...schedule, id: schedule.id ?? `setup-waste-${Date.now()}-${wasteSequence.current++}` };
                 setWasteSchedules((current) => current.some((item) => item.id === draft.id)
@@ -274,6 +286,7 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
                 <View style={styles.chipRow}>
                   <AppButton title={`${schedule.label}を編集`} onPress={() => setEditingWaste(schedule)} variant="secondary" compact />
                   <AppButton title={`${schedule.label}を削除`} onPress={() => {
+                    wasteEditor.drafts.delete(schedule.id ?? '');
                     setWasteSchedules((current) => current.filter((item) => item.id !== schedule.id));
                     if (editingWaste?.id === schedule.id) setEditingWaste(undefined);
                   }} variant="danger" compact />
@@ -292,7 +305,9 @@ export function FirstRunSetup({ snapshot, onComplete, loadError }: { snapshot: P
 
       <View style={styles.footer}>
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        {optional ? <SettingsAction title="設定を続ける" intent="primary" onPress={() => go(1)} disabled={saving} />
+        {optional === 'waste' ? <SettingsAction title={wasteStatus === 'saving' ? '保存中…' : wasteStatus === 'ready' ? editingWaste ? '変更を保存して戻る' : '収集日を追加して戻る' : '設定を続ける'}
+          intent="primary" onPress={() => void finishWaste()} disabled={saving || wasteStatus === 'saving'} />
+          : optional ? <SettingsAction title="設定を続ける" intent="primary" onPress={() => go(1)} disabled={saving} />
           : step === 0 ? <SettingsAction title="次へ" intent="primary" onPress={() => go(1)} disabled={saving} />
             : <SettingsAction title={saving ? '設定中…' : '設定して始める'} intent="primary" onPress={() => void saveSetup()} disabled={saving} />}
 

@@ -48,7 +48,10 @@ export function CalendarHelp({ onClose, onShow, measureTargets, view = 'month' }
           <Text style={[styles.body, { color: colors.ink }]}>{current.body}</Text><Text style={[styles.detail, { color: colors.muted }]}>{current.detail}</Text>
         </ScrollView>
         <View style={styles.actions}><Pressable accessibilityRole="button" accessibilityLabel="カレンダーのヘルプを閉じる" onPress={close} style={styles.close}><Text style={[styles.body, { color: colors.accent }]}>閉じる</Text></Pressable>
-          <AppButton title={step === steps.length - 1 ? '完了' : '次へ'} accessibilityLabel={step === steps.length - 1 ? 'カレンダーの案内を完了' : 'カレンダーの案内を次へ'} compact onPress={() => { if (step === steps.length - 1) close(); else setStep(value => value + 1); }} />
+          <View style={styles.stepControls}>
+            {step > 0 ? <AppButton title="前へ" accessibilityLabel="カレンダーの案内を前へ" compact variant="quiet" onPress={() => setStep(value => Math.max(0, value - 1))} /> : null}
+            <AppButton title={step === steps.length - 1 ? '完了' : '次へ'} accessibilityLabel={step === steps.length - 1 ? 'カレンダーの案内を完了' : 'カレンダーの案内を次へ'} compact onPress={() => { if (step === steps.length - 1) close(); else setStep(value => value + 1); }} />
+          </View>
         </View>
       </View>
     </View>
@@ -58,5 +61,6 @@ const styles = StyleSheet.create({
   root: { flex: 1 }, shade: { position: 'absolute' }, outline: { position: 'absolute', borderWidth: 2, borderRadius: 10 },
   card: { position: 'absolute', borderRadius: 16, borderWidth: 1, padding: 16, gap: 12, boxShadow: '0 4px 20px #00000025' },
   copy: { gap: 10 }, count: { ...typography.caption }, title: { ...typography.control, fontWeight: '600' }, body: { ...typography.label }, detail: { ...typography.caption },
-  actions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 }, close: { minWidth: 64, minHeight: 44, justifyContent: 'center' },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, close: { minWidth: 64, minHeight: 44, justifyContent: 'center' },
+  stepControls: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
 });

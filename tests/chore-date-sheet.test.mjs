@@ -63,7 +63,13 @@ for (const platform of ['ios', 'android']) {
     };
     let ui = open();
     try {
-      await flush(ui); assert.ok(ui.text().includes(chore.name), 'the date sheet must identify the complete chore name'); await pick(ui);
+      await flush(ui); assert.ok(ui.text().includes(chore.name), 'the date sheet must identify the complete chore name');
+      const unchanged = ui.button('今回の実施日を保存');
+      assert.equal(unchanged.props.accessibilityState?.disabled ?? unchanged.props.disabled, true);
+      unchanged.props.onPress(); await flush(ui);
+      assert.equal(closed, 0);
+      assert.deepEqual(await repo.readPersonalChoreDate(h.database, chore.id, entry.id), before, 'a no-op must not fix the automatically placed date');
+      await pick(ui);
       assert.deepEqual(await repo.readPersonalChoreDate(h.database, chore.id, entry.id), before, 'selection alone must not save');
       await ui.press('家事の日付変更を閉じる'); assert.equal(closed, 1);
     } finally { ui.unmount(); }

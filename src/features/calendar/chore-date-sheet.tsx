@@ -8,7 +8,7 @@ import { plannerColorsForScheme } from '../../components/planner-theme';
 import { CalendarField } from './calendar-field';
 import { CalendarSheetHeader } from './calendar-sheet-header';
 import { addDays, parseLocalDate } from '../../domain/scheduling/local-date';
-import { choreCalendarTiming } from '../../domain/chores/calendar-timing';
+import { choreCalendarTiming, type ChoreCalendarTiming } from '../../domain/chores/calendar-timing';
 import { newEventDraft, type EventDraft } from './events';
 import { moveCalendarStart } from './event-editing';
 import { newCalendarSubmissionId } from '../../platform/storage/calendar-events';
@@ -43,14 +43,20 @@ function ChoreDateEditor({ params }: { params: { choreId: string; entryId: strin
   const selected = timed?.startDate ?? date ?? captured?.date ?? entry?.suggestedDate;
   const displayTimeZone = data.snapshot?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   let validation: string | null = null;
-  if (timed) { try { choreCalendarTiming(timed); } catch (cause) { validation = cause instanceof Error ? cause.message : '開始・終了を確認してください。'; } }
+  let timing: ChoreCalendarTiming | undefined;
+  if (timed) { try { timing = choreCalendarTiming(timed); } catch (cause) { validation = cause instanceof Error ? cause.message : '開始・終了を確認してください。'; } }
+  const originalTiming = captured?.calendarTiming;
+  const changed = selected !== (captured?.date ?? entry?.suggestedDate) || Boolean(timing &&
+    (timing.startMinute !== originalTiming?.startMinute || timing.endMinute !== originalTiming?.endMinute
+      || timing.endDayOffset !== originalTiming?.endDayOffset));
+  const canSave = !validation && changed && captured && selected && entry;
   const save = async () => {
-    if (lock.current || !captured?.roundId || !captured.planRevision || !selected || validation
+    if (lock.current || !canSave || !captured?.roundId || !captured.planRevision || !selected
       || captured.definition.id !== params.choreId || captured.roundId !== params.entryId || capturedDatabase.current !== data.database) return;
     lock.current = true; setBusy(true); setError(null);
     try {
       await movePersonalChoreDate(data.database, { ...operation, choreId: params.choreId, roundId: captured.roundId, planRevision: captured.planRevision, definition: captured.signature, date: selected,
-        ...(timed ? { timing: choreCalendarTiming(timed) } : {}) });
+        ...(timing ? { timing } : {}) });
       void data.refresh(); router.back();
     } catch (cause) { setError(cause instanceof Error ? cause.message : '日付を保存できませんでした。'); }
     finally { lock.current = false; setBusy(false); }
@@ -58,7 +64,7 @@ function ChoreDateEditor({ params }: { params: { choreId: string; entryId: strin
   return <View collapsable={false} style={{ backgroundColor: colors.surface }}>
     <Stack.Screen options={{ gestureEnabled: !busy }} />
     <View style={styles.header}><CalendarSheetHeader title={timed ? '日時を変更' : '実施日を変更'} onClose={() => router.back()} closeLabel="家事の日付変更を閉じる"
-      onSave={() => void save()} saveLabel={timed ? '今回の日時を保存' : '今回の実施日を保存'} busy={busy} saveDisabled={!captured || !selected || !entry || Boolean(validation)} /></View>
+      onSave={() => void save()} saveLabel={timed ? '今回の日時を保存' : '今回の実施日を保存'} busy={busy} saveDisabled={!canSave} /></View>
     <ScrollView style={styles.body} contentContainerStyle={styles.content}>
       <Text accessibilityRole="header" style={[styles.name, { color: colors.ink }]}>{captured?.definition.name ?? data.snapshot?.chores.find(row => row.id === params.choreId)?.name ?? '家事'}</Text>
       {timed ? <SettingsPanel>

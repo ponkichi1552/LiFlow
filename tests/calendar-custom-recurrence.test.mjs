@@ -135,6 +135,7 @@ for (const platform of ['ios', 'android']) {
     for (let n = 0; n < 20 && !navigation.length; n++) await screen.flush();
     const saved = (await readLocalCalendar(h.database, first.ownerScope)).drafts.find(row => row.ownerScope === first.ownerScope);
     assert.equal(saved.value.customRecurrence.interval, 3); assert.equal(navigation.length, 1);
+    assert.equal(navigation[0][0], 'dismissTo');
     assert.equal(navigation[0][1].params.calendarDraftVersion, calendarDraftVersion(saved));
     const otherRows = rows => rows.filter(row => row.slot !== calendarDraftKey(first));
     assert.deepEqual(otherRows(await stored()), otherRows(before));
@@ -204,6 +205,7 @@ test('custom repeat route applies only a personal draft and returns to the origi
   for (let n = 0; n < 20 && !navigation.length; n++) await screen.flush();
   const saved = (await readLocalCalendar(h.database)).draft;
   assert.equal(saved.value.title, '端末だけの予定'); assert.deepEqual(saved.value.customRecurrence, { unit: 'week', interval: 3, weekdays: [1, 4] });
+  assert.equal(navigation[0][0], 'dismissTo');
   assert.equal(navigation[0][1].pathname, '/(tabs)/explore'); assert.equal(navigation[0][1].params.calendarDraftVersion, calendarDraftVersion(saved));
   assert.equal(JSON.stringify(navigation).includes('端末だけの予定'), false); assert.equal(disabled, 1);
   assert.equal((await readLocalCalendar(h.database)).events.length, 0, 'the custom page never creates a second event');
@@ -217,6 +219,7 @@ test('direct custom route links cannot change birthday cadence or a single occur
     const screen = screenHarness('src/app/calendar-repeat.tsx', { database: h.database, params: { draft: calendarDraftKey(draft), returnTo: 'https://invalid.example' }, layoutEffect: fn => fn(), navigate: (...args) => navigation.push(args), mocks: { '@/features/calendar/use-local-calendar': { useLocalCalendar: () => h.local } } });
     assert.equal(screen.nodes().some(node => node.props.accessibilityLabel === 'カスタム繰り返しを適用'), false); assert.equal(h.writes.length, writes);
     await screen.press('予定の入力に戻る'); for (let n = 0; n < 15 && !navigation.length; n++) await screen.flush();
+    assert.equal(navigation[0][0], 'dismissTo');
     assert.equal(navigation[0][1].pathname, '/(tabs)/explore');
   }
 });

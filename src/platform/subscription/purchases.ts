@@ -150,7 +150,7 @@ export async function restoreSubscription() {
   finally { if (isCurrent()) publish({ busy: false }); }
 }
 export async function manageSubscription() {
-  const store = subscriptionSnapshot().entitlement?.body.store;
+  const store = subscriptionSnapshot().entitlement?.body.store ?? (Platform.OS === 'ios' ? 'apple' : 'google');
   if (store === 'apple') await Linking.openURL('https://apps.apple.com/account/subscriptions');
   else await Linking.openURL(`https://play.google.com/store/account/subscriptions?package=jp.jphacks.tkb2633&sku=${encodeURIComponent(process.env.EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_PRODUCT_ID ?? '')}`);
 }

@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import { useWorkspace } from '../hooks/use-workspace';
+import { uiReviewBuild } from '../features/development/ui-review/enabled';
 
 /** All workspaces use the same tabs; group data stays in its own repository. */
 export function WorkspaceNavigator() {
@@ -19,6 +20,7 @@ export function WorkspaceNavigator() {
     <Stack.Screen name="settings/chore-options" options={{ headerShown: false }} />
     <Stack.Screen name="history" />
     <Stack.Screen name="help" options={{ headerShown: false }} />
+    <Stack.Screen name="development/ui-review" options={{ animation: uiReviewBuild ? 'none' : 'slide_from_right', gestureEnabled: !uiReviewBuild }} />
     <Stack.Screen name="calendar-repeat" options={{ headerShown: false }} />
     <Stack.Screen name="sharing" options={{ headerShown: false }} />
   </Stack>;

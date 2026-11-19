@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
+import { StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { palette, typography } from '../../components/planner-ui';
-import { Chevron } from '../../components/chevron';
+import { SettingsCheckbox } from '../../components/settings-checkbox';
+import { formatJapaneseDate, weekdayOf } from '../../domain/scheduling/local-date';
 import { NumberInputField } from '../../components/number-input-field';
 import { SettingsAction, SettingsPanel } from '../../components/settings-controls';
 import { CalendarField } from '../calendar/calendar-field';
@@ -33,7 +34,7 @@ function CapacityForm({ source, today, restDays, limits, onDraftChange, onBlocke
   onDraftChange(value: boolean): void; onBlocked?(): void; render(content: ReactNode): ReactNode;
 }) {
   const [editor] = useState(() => createPersonalCapacityEditor(source)); const { snapshot } = useV2DraftLifecycle(editor);
-  const [selectedDate, selectDate] = useState<LocalDate | null>(null); const [dateLimit, showDateLimit] = useState(false);
+  const [selectedDate, selectDate] = useState<LocalDate | null>(null);
   const unsettled = snapshot.hasDraft || ['pending', 'saving', 'error'].includes(snapshot.status.phase);
   useEffect(() => { onDraftChange(unsettled); return () => onDraftChange(false); }, [onDraftChange, unsettled]);
   useEffect(() => { if (snapshot.navigationBlocked) onBlocked?.(); }, [snapshot.navigationBlocked, onBlocked]);
@@ -66,17 +67,16 @@ function CapacityForm({ source, today, restDays, limits, onDraftChange, onBlocke
         {configured === undefined && raw.allowedBands.length > 0 ? <Text style={styles.hint}>設定済みの曜日別時間帯を使用中</Text> : null}
       </View>;
     })}</SettingsPanel>
-    <Text accessibilityRole="header" style={styles.heading}>カレンダーで休日を登録</Text>
+    <Text accessibilityRole="header" style={styles.heading}>日ごとの設定</Text>
     <View style={styles.dateSection}>
-      <HolidayCalendar today={today} restDays={restDays} days={raw.days} onToggle={date => {
-        selectDate(date); showDateLimit(Boolean(raw.days.find(day => day.date === date)?.maximum)); editor.toggleHoliday(date, restDays);
-      }} />
+      <HolidayCalendar today={today} restDays={restDays} days={raw.days} selectedDate={selectedDate} onSelect={selectDate} />
       {selectedDate ? <View>
-        <Pressable accessibilityRole="button" accessibilityLabel="選択日の時間上限を変更" accessibilityState={{ expanded: dateLimit }} onPress={() => showDateLimit(value => !value)} style={styles.disclosure}>
-          <Text style={styles.actionText}>{Number(selectedDate.slice(5, 7))}/{Number(selectedDate.slice(8, 10))}の時間上限</Text><Chevron direction={dateLimit ? 'up' : 'down'} />
-        </Pressable>
-        {dateLimit ? <View style={styles.dateLimit}><Text style={styles.label}>家事合計時間</Text><NumberInputField editIndicator accessibilityLabel={`${selectedDate}の家事時間上限`} suffix="分" inputWidth={96} placeholder="通常どおり" value={selectedDay?.maximum ?? ''}
-          onChangeText={maximum => editor.setDateMaximum(selectedDate, maximum)} onBlur={() => { void editor.flush(); }} maxLength={7} /></View> : null}
+        <Text accessibilityRole="header" style={styles.heading}>{formatJapaneseDate(selectedDate, { weekday: true })}</Text>
+        <View style={styles.dateRow}><Text style={styles.label}>休日として扱う</Text><SettingsCheckbox
+          accessibilityLabel={`${selectedDate}を休日として扱う`} value={selectedDay?.holiday ?? restDays.includes(weekdayOf(selectedDate))}
+          onValueChange={() => editor.toggleHoliday(selectedDate, restDays)} /></View>
+        <View style={styles.dateRow}><Text style={styles.label}>家事時間の上限</Text><NumberInputField editIndicator accessibilityLabel={`${selectedDate}の家事時間上限`} suffix={selectedDay?.maximum ? '分' : ''} inputWidth={96} placeholder="通常どおり" value={selectedDay?.maximum ?? ''}
+          onChangeText={maximum => editor.setDateMaximum(selectedDate, maximum)} onBlur={() => { void editor.flush(); }} maxLength={7} /></View>
         {selectedDay ? <SettingsAction title="この日の変更を解除" intent="destructive" onPress={() => editor.change(value => ({ ...value, days: value.days.filter(day => day.date !== selectedDate) }))} /> : null}
       </View> : null}
     </View>
@@ -89,8 +89,8 @@ const styles = StyleSheet.create({
   row: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderTopWidth: 1, borderTopColor: palette.border },
   timeSection: { paddingVertical: 10, gap: 6, borderTopWidth: 1, borderTopColor: palette.border },
   timeHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 24 },
-  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 6 }, actionText: { ...typography.control, color: palette.accent },
-  hint: { ...typography.caption, color: palette.muted }, disclosure: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  dateSection: { gap: 8 }, dateLimit: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  hint: { ...typography.caption, color: palette.muted },
+  dateSection: { gap: 12 }, dateRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   error: { ...typography.caption, color: palette.warning },
 });

@@ -38,14 +38,21 @@ export function HomeHeader({ today, birthdayDate = today, workspaceName, onGroup
   today: LocalDate; birthdayDate?: LocalDate; workspaceName?: string; onGroup?: () => void;
 }) {
   const birthday = useOwnBirthday(birthdayDate);
-  return <View onLayout={recordHomeFirstLayout}><View style={styles.header}>
+  return <HomeHeaderContent today={today} birthday={birthday} workspaceName={workspaceName} onLayout={recordHomeFirstLayout}
+    onHelp={() => router.push('/help')} onGroup={onGroup} onSettings={() => router.push('/settings')} />;
+}
+export function HomeHeaderContent({ today, birthday, workspaceName, onLayout, onHelp, onGroup, onSettings }: {
+  today: LocalDate; birthday: boolean; workspaceName?: string; onLayout?: () => void;
+  onHelp: () => void; onGroup: () => void; onSettings: () => void;
+}) {
+  return <View onLayout={onLayout}><View style={styles.header}>
     <View style={styles.identity}><Text style={styles.date}>{formatJapaneseDate(today, { year: true, weekday: true })}</Text>
       {workspaceName ? <Text numberOfLines={1} style={styles.workspace}>{workspaceName}</Text> : null}</View>
     <View style={styles.actions}>
-      <Pressable accessibilityRole="button" accessibilityLabel="ヘルプを開く" onPress={() => router.push('/help')} style={styles.iconButton}>
+      <Pressable accessibilityRole="button" accessibilityLabel="ヘルプを開く" onPress={onHelp} style={styles.iconButton}>
         <SymbolView name={{ ios: 'questionmark.circle', android: 'help_outline' }} size={23} tintColor={palette.muted} /></Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="グループを開く" onPress={onGroup} style={styles.iconButton}><GroupIcon /></Pressable>
-      <Pressable accessibilityRole="button" accessibilityLabel="設定を開く" onPress={() => router.push('/settings')} style={styles.iconButton}>
+      <Pressable accessibilityRole="button" accessibilityLabel="設定を開く" onPress={onSettings} style={styles.iconButton}>
         <SymbolView name={{ ios: 'gearshape', android: 'settings' }} size={23} tintColor={palette.muted} /></Pressable>
     </View>
   </View>{birthday ? <View accessible accessibilityLabel="お誕生日おめでとう！" style={styles.birthdayGreeting}>

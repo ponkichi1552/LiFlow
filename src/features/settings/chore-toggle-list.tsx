@@ -13,12 +13,12 @@ import { SettingsCheckbox } from '../../components/settings-checkbox';
 
 type ToggleChore = Pick<ChoreDefinition, 'id' | 'name' | 'category' | 'archived' | 'enabled'>
   & Partial<Pick<ChoreDefinition, 'personalRecipeId' | 'applianceId' | 'applianceCareSource'>>;
-export function ChoreToggleList({ chores, expanded, setExpanded, save, onOpen, retryRead, readOnly = false, personalSelection = false, onPendingChange }: {
+export function ChoreToggleList({ chores, expanded, setExpanded, save, onOpen, retryRead, readOnly = false, personalSelection = false, onPendingChange, pendingGroupAddition }: {
   chores: readonly ToggleChore[]; expanded: Set<string>; setExpanded: Dispatch<SetStateAction<Set<string>>>;
   save(ids: string[], enabled: boolean): Promise<void | { refreshed: boolean }>; onOpen(id: string): void;
   retryRead?: () => Promise<boolean>;
   readOnly?: boolean;
-  personalSelection?: boolean; onPendingChange?(pending: boolean): void;
+  personalSelection?: boolean; onPendingChange?(pending: boolean): void; pendingGroupAddition?(id: string): boolean;
 }) {
   const colors = plannerColorsForScheme(useColorScheme());
   const groups = useMemo(() => groupChores(chores).map(([category, rows]) => ({ category, rows, families: choreFamilies(rows) })), [chores]);
@@ -46,14 +46,18 @@ export function ChoreToggleList({ chores, expanded, setExpanded, save, onOpen, r
     finally { running.current = false; setBusy(false); if (!retain) setValues(new Map()); onPendingChange?.(retain); }
   };
   const isEnabled = (chore: ToggleChore) => values.get(chore.id) ?? chore.enabled;
-  const renderRow = (chore: ToggleChore, nested = false) => <View key={chore.id} style={[styles.row, { borderTopColor: colors.border }]}>
-    <Pressable accessibilityRole="button" accessibilityLabel={`${chore.name}の個別設定`} onPress={() => onOpen(chore.id)} style={styles.copy}>
+  const renderRow = (chore: ToggleChore, nested = false) => {
+    const unshared = pendingGroupAddition?.(chore.id) === true;
+    return <View key={chore.id} style={[styles.row, { borderTopColor: colors.border }]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={`${chore.name}の個別設定`} accessibilityHint={unshared ? '個人の設定を開きます' : undefined} onPress={() => onOpen(chore.id)} style={styles.copy}>
       <Text style={[styles.name, nested && styles.nestedName]}>{chore.name}</Text>
+      {unshared ? <Text style={styles.countLabel}>個人のみ</Text> : null}
     </Pressable>
-    <SettingsCheckbox accessibilityLabel={`${chore.name}を有効にする`} value={isEnabled(chore)} disabled={readOnly || busy || values.size > 0}
+    <SettingsCheckbox accessibilityLabel={`${chore.name}を${unshared ? 'グループに追加' : '有効にする'}`} value={isEnabled(chore)} disabled={readOnly || busy || values.size > 0}
       onValueChange={value => void toggle([chore], value)} />
-    <Pressable accessibilityRole="button" accessibilityLabel={`${chore.name}の設定を開く`} onPress={() => onOpen(chore.id)} style={styles.arrowTarget}><Chevron color={colors.accent} /></Pressable>
+    <Pressable accessibilityRole="button" accessibilityLabel={`${chore.name}の設定を開く`} accessibilityHint={unshared ? '個人の設定を開きます' : undefined} onPress={() => onOpen(chore.id)} style={styles.arrowTarget}><Chevron color={colors.accent} /></Pressable>
   </View>;
+  };
   return <View>{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     {values.size && error && retryRead ? <SettingsAction title="家事の設定を再読込" placement="page" disabled={busy} onPress={() => {
       if (running.current) return; running.current = true; onPendingChange?.(true); setBusy(true);
@@ -89,6 +93,7 @@ const styles = StyleSheet.create({
   title: { ...typography.body, color: palette.ink, fontWeight: '600', flex: 1 },
   name: { ...typography.label, color: palette.ink, fontWeight: '600' },
   count: { ...typography.caption, color: palette.muted, minWidth: 32, textAlign: 'right', fontVariant: ['tabular-nums'] },
+  countLabel: { ...typography.caption, color: palette.muted },
   arrowTarget: { minHeight: 44, minWidth: 36, alignItems: 'center', justifyContent: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 52, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border, paddingLeft: 4 },
   splitDisclosure: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 44, alignSelf: 'flex-start', paddingHorizontal: 4 },

@@ -7,21 +7,21 @@ import { router } from 'expo-router';
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import type { TextInputProps } from 'react-native';
-import { Alert, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useColorScheme, useWindowDimensions } from 'react-native';
+import { Alert, Keyboard, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useColorScheme, useWindowDimensions } from 'react-native';
 import { AppButton, palette, typography } from '../../components/planner-ui';
 import { FormTextInput } from '../../components/form-text-input';
 import { SettingsCheckbox } from '../../components/settings-checkbox';
 import { SettingsAction, SettingsSegments } from '../../components/settings-controls';
 import { Chevron } from '../../components/chevron';
-import { addDays } from '../../domain/scheduling/local-date';
-import { CATEGORY_PRESETS, RECURRENCE_LABELS, isCalendarAnchor, recurrenceLabel, newEventDraft } from './events';
+import { addDays, formatJapaneseDate } from '../../domain/scheduling/local-date';
+import { CATEGORY_PRESETS, RECURRENCE_LABELS, isCalendarAnchor, minuteLabel, recurrenceLabel, newEventDraft, validateEventDraft } from './events';
 import { calendarDisplayColor as categoryColor } from './event-appearance';
-import type { CalendarRecurrence, EventDraft } from './events';
+import type { CalendarEvent, CalendarException, CalendarRecurrence, EventDraft } from './events';
 import { createCalendarGesture } from './gesture-control';
 import { CalendarField } from './calendar-field';
 import type { LocalCalendarBinding } from './use-local-calendar';
 import type { CalendarEditorDraft } from '../../platform/storage/calendar-events';
-import { calendarDraftKey, clearCalendarEditorDraft, saveCalendarFutureEvent, deleteCalendarEvent, discardCalendarDraftIfUnchanged, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent } from '../../platform/storage/calendar-events';
+import { calendarDraftKey, clearCalendarEditorDraft, saveCalendarFutureEvent, deleteCalendarEvent, discardCalendarDraftIfUnchanged, readLocalCalendarEventSource, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent } from '../../platform/storage/calendar-events';
 import { CALENDAR_EDIT_SCOPES, CalendarRecurrenceScopePicker, type CalendarEditScope } from './calendar-recurrence-scope';
 import { CalendarOptionPicker } from './calendar-option-picker';
 import { moveCalendarStart } from './event-editing';
@@ -31,7 +31,7 @@ import { plannerColorsForScheme } from '../../components/planner-theme';
 import { CalendarSheetContent, CalendarSheetHeader, type CalendarSheetForm } from './calendar-sheet-header';
 import type { CalendarChoreInput } from './chore-registration-input';
 import { createEditorDraftSession } from './editor-draft-session';
-import { changeCalendarDraftScope, duplicateCalendarDraft } from './direct-actions';
+import { calendarDraftScopeValue, changeCalendarDraftScope, duplicateCalendarDraft, rebaseCalendarEventInput } from './direct-actions';
 import { createTitleDateTimeInput } from './title-datetime';
 import { pinnedClockAt } from '../../domain/scheduling/zoned-clock';
 import { rebasedCalendarExceptionDate } from '../../domain/calendar/exception-slots';
@@ -41,12 +41,13 @@ export interface ExistingCalendarChore { id: string; name: string; minutes?: num
 export type CalendarChoreRegistrationProps = { date: EventDraft['startDate']; initialValue?: EventDraft; initialInput?: CalendarChoreInput; audience?: 'personal' | 'group';
   onAudienceChange?(audience: 'personal' | 'group', input: CalendarChoreInput): void; onBack(audience?: 'personal' | 'group'): void; onCancel?(): void; onClose(): void;
   onSaved(date: EventDraft['startDate'], notice?: string): void; onBusyChange(busy: boolean): void };
-export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, onDuplicate, repeatReturnTo = 'personal', renderChoreRegistration, displayTimeZone, choreForm, onChooseChore, onChoreAudience, onClearChore }: {
+export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, onDuplicate, repeatReturnTo = 'personal', renderChoreRegistration, displayTimeZone, choreForm, onChooseChore, onChoreAudience, onClearChore, hiddenForChore = false, onPreviewChore }: {
   initial: CalendarEditorDraft; local: LocalCalendarBinding; chores?: readonly ExistingCalendarChore[]; onClose: () => void; onSaved: (date: EventDraft['startDate'], notice?: string) => void;
   repeatReturnTo?: 'personal' | 'group';
   onDuplicate?(draft: CalendarEditorDraft): void;
   renderChoreRegistration?(props: CalendarChoreRegistrationProps): ReactNode;
   displayTimeZone?: string;
+  hiddenForChore?: boolean; onPreviewChore?(open: () => void): void;
   choreForm?: CalendarSheetForm; onChooseChore?(): void; onChoreAudience?(audience: 'personal' | 'group'): void; onClearChore?(): void;
 }) {
   const styles = usePlannerBorderStyles(baseStyles);
@@ -56,7 +57,10 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const [draft, setDraft] = useState(initial); const latest = useRef(draft);
   const editedScopeFields = useRef(new Set<keyof EventDraft>());
   const [titleDateTime] = useState(() => createTitleDateTimeInput(initial.value, pinnedClockAt(new Date(), initial.value.timeZone).date));
-  const draftSession = useRef(createEditorDraftSession((local.snapshot.drafts ?? (local.snapshot.draft ? [local.snapshot.draft] : [])).some(row => calendarDraftKey(row) === calendarDraftKey(initial)) ? initial : undefined, local.assertDraftAccess));
+  const [openedStoredDraft] = useState(() => (local.snapshot.drafts ?? (local.snapshot.draft ? [local.snapshot.draft] : []))
+    .some(row => calendarDraftKey(row) === calendarDraftKey(initial)));
+  const [draftSession] = useState(() => createEditorDraftSession(openedStoredDraft ? initial : undefined, local.assertDraftAccess));
+  const [storedDrafts, setStoredDrafts] = useState(() => new Set(openedStoredDraft ? [calendarDraftKey(initial)] : []));
   useLayoutEffect(() => { latest.current = draft; }, [draft]);
   const [ownBusy, setBusy] = useState(false); const busy = ownBusy || Boolean(choreForm?.busy); const lock = useRef(false); const scrollTop = useRef(0);
   const externalEntry = choreForm?.entry?.value;
@@ -73,6 +77,14 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const onChoreBusyChange = useCallback((value: boolean) => { choreLock.current = value; setChoreBusy(value); }, []);
   const [ownDetailsOpen, setDetailsOpen] = useState(false); const detailsOpen = choreForm?.entry?.detailsExpanded ?? ownDetailsOpen;
   const [error, setError] = useState<string | null>(null); const [repeatOpen, setRepeatOpen] = useState(false); const [scopeOpen, setScopeOpen] = useState(false); const [categoryOpen, setCategoryOpen] = useState(false); const scheme = useColorScheme();
+  type EventBasis = { series?: CalendarEvent; exception?: CalendarException };
+  const [basis, setBasis] = useState<EventBasis>(() => ({
+    series: local.snapshot.events.find(event => event.id === initial.eventId && event.revision === initial.revision),
+    exception: local.snapshot.exceptions.find(row => row.eventId === initial.eventId && row.anchorDate === initial.anchorDate && row.revision === initial.exceptionRevision),
+  }));
+  const [canReloadEvent, setCanReloadEvent] = useState(false);
+  const [review, setReview] = useState<{ basis: EventBasis; values: ReturnType<typeof rebaseCalendarEventInput> } | null>(null);
+  const [mergeNotice, setMergeNotice] = useState(false);
   type CategoryEdit = { id?: string; revision: number; name: string; color: string } | null;
   const [categoryEdit, setCategoryEditState] = useState<CategoryEdit>(null);
   const latestCategory = useRef(categoryEdit);
@@ -83,7 +95,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const [custom, setCustom] = useState(false); const [rgb, setRgbState] = useState(['52', '141', '194']);
   const latestRgb = useRef(rgb);
   const setRgb = (next: string[]) => { latestRgb.current = next; setRgbState(next); };
-  const original = local.snapshot.events.find(event => event.id === initial.eventId);
+  const original = basis.series ?? local.snapshot.events.find(event => event.id === initial.eventId);
   const googleReadOnly = initial.eventId ? privateCalendarReadOnlySource(local.snapshot, initial.eventId, draft.scope === 'one' ? draft.anchorDate : null) : undefined;
   const readOnly = Boolean(initial.eventId && local.canEditEvent?.(initial.eventId, draft.scope === 'one' ? draft.anchorDate : null) === false);
   const reminderScope = draft.audience === 'group' ? local.shared?.notificationScope ?? (reminderWorkspace?.userId ? calendarReminderScope(reminderWorkspace.userId, draft.groupId) : '') : 'personal';
@@ -93,31 +105,39 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const patch = (patch: Partial<EventDraft>) => change(before => ({ ...before, value: { ...before.value, ...patch } }));
   const work = async (task: () => Promise<void>) => {
     if (lock.current) return false; lock.current = true; setBusy(true); setError(null);
-    try { await task(); return true; } catch (cause) { setError(cause instanceof Error ? cause.message : '保存できませんでした。もう一度お試しください。'); return false; }
+    try { await task(); return true; } catch (cause) {
+      if (cause instanceof Error && cause.name === 'CalendarEventConflictError' && latest.current.eventId && latest.current.audience !== 'group') setCanReloadEvent(true);
+      setError(cause instanceof Error ? cause.message : '保存できませんでした。もう一度お試しください。'); return false;
+    }
     finally { lock.current = false; setBusy(false); }
   };
   const hasInput = (current: CalendarEditorDraft) => Boolean(current.value.title.trim() || current.value.location.trim() || current.value.notes.trim());
-  const hasStoredDraft = (local.snapshot.drafts ?? (local.snapshot.draft ? [local.snapshot.draft] : []))
-    .some(row => calendarDraftKey(row) === calendarDraftKey(initial));
-  const shouldChooseExit = (current: CalendarEditorDraft) => !readOnly && (hasStoredDraft || JSON.stringify(current) !== JSON.stringify(initial)) && (Boolean(initial.eventId) || hasInput(current));
+  const hasChanges = (current: CalendarEditorDraft) => JSON.stringify(current.value) !== JSON.stringify(initial.value)
+    || (current.audience ?? 'personal') !== (initial.audience ?? 'personal')
+    || current.scope !== initial.scope || current.reminderMinutes !== initial.reminderMinutes;
+  const emptyLegacyDraft = !initial.draftId && !initial.eventId && initial.audience !== 'group' && initial.reminderMinutes === undefined
+    && JSON.stringify(initial.value) === JSON.stringify(newEventDraft(initial.value.startDate, initial.value.timeZone, initial.value.birthday));
+  const shouldChooseExit = (current: CalendarEditorDraft) => !readOnly
+    && (hasChanges(current) || (!emptyLegacyDraft && storedDrafts.has(calendarDraftKey(current))));
   const needsExitChoice = shouldChooseExit(draft);
   const persistDraft = async (current: CalendarEditorDraft) => {
     if (!local.database) throw new Error('入力内容の保存先を確認してください。');
     if (current.audience === 'group' && !local.persistDraft) throw new Error('共有予定の保存先を確認してください。');
     const stored = local.persistDraft ? await local.persistDraft(current) : await saveCalendarDraft(local.database, current, false, local.assertDraftAccess);
     local.assertDraftAccess?.(current);
-    draftSession.current.remember(stored ?? current);
+    draftSession.remember(stored ?? current);
+    setStoredDrafts(previous => new Set(previous).add(calendarDraftKey(stored ?? current)));
   };
-  const discardAndClose = () => void work(async () => { if (local.database) { await clearCalendarEditorDraft(local.database, draftSession.current.snapshot(initial) ?? initial, local.assertDraftAccess); await draftSession.current.clear(local.database); } onClose(); });
+  const discardAndClose = () => void work(async () => { if (local.database) { await clearCalendarEditorDraft(local.database, draftSession.snapshot(initial) ?? initial, local.assertDraftAccess); await draftSession.clear(local.database); } onClose(); });
   const saveDraftAndClose = () => void work(async () => {
     if (!local.database) throw new Error('入力内容の保存先を確認してください。');
-    await persistDraft(latest.current); await draftSession.current.clear(local.database, latest.current); onClose();
+    await persistDraft(latest.current); await draftSession.clear(local.database, latest.current); onClose();
   });
   const close = (nativeDismissed = false) => {
     if (lock.current || choreLock.current) return;
     if (choreForm) { if (!choreForm.busy) onClose(); return; }
     if (shouldChooseExit(latest.current)) { setExitActions(true); if (nativeDismissed) setModalRevision(v => v + 1); return; }
-    if (!initial.eventId && !hasInput(latest.current)) { discardAndClose(); return; }
+    if (emptyLegacyDraft && draftSession.snapshot(latest.current)) { discardAndClose(); return; }
     onClose();
   };
   const savedDisplayDate = (submitted: CalendarEditorDraft) => {
@@ -141,11 +161,11 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const save = (resetExceptions = false) => void work(async () => {
     if (!local.database) throw new Error('予定の保存先を読み込んでください。');
     const d = latest.current;
-    const draftCleanup = draftSession.current.cleanup();
+    const draftCleanup = draftSession.cleanup();
     if (local.saveEvent) { await local.saveEvent(d, resetExceptions, draftCleanup); onSaved(savedDisplayDate(d)); return; }
     if (d.audience === 'group') throw new Error('共有予定の保存先を確認してください。');
     if (d.scope === 'future') await saveCalendarFutureEvent(local.database, d, draftCleanup);
-    else await saveCalendarEvent(local.database, { id: d.eventId ?? undefined, expectedRevision: d.revision, value: d.value,
+    else await saveCalendarEvent(local.database, { id: d.eventId ?? undefined, draftId: d.draftId, expectedRevision: d.revision, value: d.value,
       scope: d.scope, anchorDate: d.anchorDate ?? undefined, expectedExceptionRevision: d.exceptionRevision, resetExceptions, reminderMinutes: d.reminderMinutes, draftCleanup });
     onSaved(savedDisplayDate(d)); void local.refresh();
   });
@@ -158,8 +178,35 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const saveReviewed = () => {
     save();
   };
-  const deleteLabel = draft.scope === 'one' ? 'この回を削除' : '予定を削除';
-  const remove = () => Alert.alert(deleteLabel, 'この予定を削除しますか？', [
+  const applyRebase = (fresh: EventBasis, value: EventDraft) => {
+    if (!fresh.series) return;
+    setBasis(fresh);
+    change(before => ({ ...before, value, revision: fresh.series!.revision, exceptionRevision: fresh.exception?.revision ?? 0 }));
+    setInputRevision(version => version + 1);
+    setReview(null); setCanReloadEvent(false); setMergeNotice(true);
+  };
+  const reloadEvent = () => void work(async () => {
+    const submitted = latest.current;
+    if (!local.database || !submitted.eventId) return;
+    const saved = await readLocalCalendarEventSource(local.database, undefined, { eventId: submitted.eventId, anchorDate: submitted.anchorDate ?? undefined });
+    const series = saved.events.find(row => row.id === submitted.eventId);
+    const exception = saved.exceptions.find(row => row.eventId === submitted.eventId && row.anchorDate === submitted.anchorDate);
+    if (!series || series.readOnly || submitted.scope !== 'series' && (exception?.override === null || !exception && !isCalendarAnchor(series, submitted.anchorDate!))) {
+      setCanReloadEvent(false);
+      throw new Error('編集していた予定を開けません。入力内容は下書きに保存できます。');
+    }
+    const anchor = submitted.anchorDate ?? series.startDate;
+    const base = basis.series && (submitted.scope === 'series' || (basis.exception?.revision ?? 0) === submitted.exceptionRevision)
+      ? calendarDraftScopeValue(submitted.scope, basis.series, anchor, basis.exception?.override) : undefined;
+    const values = rebaseCalendarEventInput(submitted.value, calendarDraftScopeValue(submitted.scope, series, anchor, exception?.override), base);
+    const fresh = { series, exception };
+    if (values.overlaps.length) { Keyboard.dismiss(); setReview({ basis: fresh, values }); }
+    else applyRebase(fresh, values.keepInput);
+  });
+  const deleteLabel = draft.scope === 'one' ? 'この回を削除' : repeated ? '繰り返し全体を削除' : '予定を削除';
+  const remove = () => Alert.alert(deleteLabel, draft.scope === 'one'
+    ? `${formatJapaneseDate(value.startDate, { year: true })}の「${value.title}」を削除しますか？`
+    : repeated ? `「${value.title}」の繰り返し全体を削除しますか？` : `「${value.title}」を削除しますか？`, [
     { text: 'キャンセル', style: 'cancel' }, { text: '削除', style: 'destructive', onPress: () => void work(async () => {
       if (!local.database || !initial.eventId) return; const d = latest.current;
       if (local.deleteEvent) { await local.deleteEvent(d); onClose(); return; }
@@ -192,8 +239,9 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
     });
   };
   const clocks = choreForm?.entry?.clocks;
+  const timeError = readOnly || choreForm ? null : calendarInputTimeError(value);
   if (draft.audience === 'group' && local.draftOwnerScope !== undefined && local.draftOwnerScope !== draft.ownerScope) return null;
-  return <CalendarEditorSurface key={modalRevision} embedded={Boolean(choreForm)} visible animationType="slide" presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'overFullScreen'} transparent={Platform.OS === 'android'}
+  return <CalendarEditorSurface key={modalRevision} embedded={Boolean(choreForm)} visible={!hiddenForChore} animationType="slide" presentationStyle={Platform.OS === 'ios' ? 'pageSheet' : 'overFullScreen'} transparent={Platform.OS === 'android'}
     allowSwipeDismissal={!busy && !choreBusy && !needsExitChoice} onRequestClose={() => {
       if (lock.current || choreLock.current) return;
       setRegisteringChore(false); close(Platform.OS === 'ios' && !needsExitChoice);
@@ -207,14 +255,14 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           onBack: audience => { if (!choreLock.current) { setRegisteringChore(false); if (audience) change(before => ({ ...before, audience, groupId: audience === 'group' ? local.shared?.groupId : undefined, ownerScope: audience === 'group' ? local.shared?.notificationScope : undefined, value: { ...before.value, categoryId: 'personal' } })); } },
           onCancel: () => { if (choreLock.current) return; setRegisteringChore(false); setChoreInput(undefined); setError(null); setInputRevision(before => before + 1);
             change(before => ({ ...before, value: newEventDraft(initial.value.startDate, initial.value.timeZone) }));
-            if (local.database) void draftSession.current.clear(local.database).catch(cause => setError(cause instanceof Error ? cause.message : '入力内容を破棄できませんでした。')); },
+            if (local.database) void draftSession.clear(local.database).then(() => setStoredDrafts(new Set())).catch(cause => setError(cause instanceof Error ? cause.message : '入力内容を破棄できませんでした。')); },
           onClose: () => { if (choreLock.current) return; setRegisteringChore(false); close(); },
           onSaved: (date, notice) => { onChoreBusyChange(false); void work(async () => {
-            if (local.database) await draftSession.current.clear(local.database);
+            if (local.database) await draftSession.clear(local.database);
             onSaved(date, notice);
           }); }, onBusyChange: onChoreBusyChange }} /> : <>
         <CalendarSheetHeader title={initial.eventId ? '予定を編集' : value.birthday ? '誕生日を追加' : '予定を追加'} busy={busy || choreForm?.busy}
-          closeTitle={exitActions ? '戻る' : '閉じる'} closeExpanded={exitActions} onClose={() => { if (exitActions) setExitActions(false); else close(); }} onSave={choreForm ? choreForm.onSave : readOnly ? saveReminderOnly : saveReviewed} saveDisabled={Boolean(categoryEdit) || (readOnly && reminderSettings.loading) || (choreForm ? choreForm.disabled : !value.title.trim())} />
+          closeTitle={exitActions ? '戻る' : '閉じる'} closeExpanded={exitActions} onClose={() => { if (exitActions) setExitActions(false); else close(); }} onSave={choreForm ? choreForm.onSave : readOnly ? saveReminderOnly : saveReviewed} saveDisabled={Boolean(categoryEdit || timeError || review) || (readOnly && reminderSettings.loading) || (choreForm ? choreForm.disabled : !value.title.trim())} />
         {exitActions ? <View style={styles.exitActions} accessibilityLabel="閉じるときの入力の扱い">
           <View style={{ flex: 1 }}><SettingsAction title="入力を破棄" intent="destructive" disabled={busy} onPress={discardAndClose} /></View>
           <View style={{ flex: 1 }}><SettingsAction title="下書き保存" placement="page" disabled={busy} onPress={saveDraftAndClose} /></View>
@@ -230,12 +278,24 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           {!local.shared.enabled ? <Text style={styles.caption}>共有予定は、管理者がグループの互換更新を行うと利用できます。</Text> : null}</View> : initial.eventId && local.shared ? <Text style={styles.caption}>{draft.audience === 'group' ? `${local.shared.name} · グループ共通` : '個人 · 本人のみ'}</Text> : null}
           {readOnly ? googleReadOnly ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(googleReadOnly.externalUrl ?? 'https://calendar.google.com/calendar/u/0/r')}><Text style={styles.action}>Googleカレンダーで編集 ↗</Text></Pressable>
             : <Text style={styles.caption}>共有予定は作成者または管理者が変更できます。</Text> : null}
-          {error && !exitActions ? <View><Text accessibilityRole="alert" style={styles.error}>{error}</Text><AppButton title="予定を再読込" variant="quiet" compact onPress={() => void local.refresh()} />
-            {initial.eventId && local.database ? <AppButton title="下書きを破棄して閉じる" variant="quiet" compact disabled={busy} onPress={() => void work(async () => {
-              await discardCalendarDraftIfUnchanged(local.database!, initial, local.assertDraftAccess); onClose(); void local.refresh();
+          {error && !exitActions ? <View><Text accessibilityRole="alert" style={styles.error}>{error}</Text>
+            {canReloadEvent ? <AppButton title="最新の予定を確認" variant="quiet" compact disabled={busy} onPress={reloadEvent} /> : null}
+            {initial.eventId && local.database && storedDrafts.has(calendarDraftKey(initial)) ? <AppButton title="下書きを破棄して閉じる" variant="quiet" compact disabled={busy} onPress={() => void work(async () => {
+              await discardCalendarDraftIfUnchanged(local.database!, draftSession.snapshot(initial) ?? initial, local.assertDraftAccess); onClose(); void local.refresh();
             })} /> : null}</View> : null}
+          {mergeNotice && !error ? <Text style={styles.caption} accessibilityLiveRegion="polite">最新の予定に入力を反映しました。保存すると確定します。</Text> : null}
+          {review ? <View style={styles.optionsGroup}>
+            <Text accessibilityRole="header" style={styles.label}>変更が重なっています</Text>
+            {review.values.overlaps.map(label => <View key={label} style={styles.optionField}>
+              <Text style={styles.label}>{label}</Text>
+              <Text style={styles.caption}>最新　{calendarReviewText(label, review.values.useLatest, local.snapshot.categories)}</Text>
+              <Text style={styles.caption}>入力　{calendarReviewText(label, review.values.keepInput, local.snapshot.categories)}</Text>
+            </View>)}
+            <SettingsAction title="重なる箇所は入力を残す" placement="page" onPress={() => applyRebase(review.basis, review.values.keepInput)} />
+            <SettingsAction title="重なる箇所は最新を使う" placement="page" onPress={() => applyRebase(review.basis, review.values.useLatest)} />
+          </View> : null}
           {readOnly && !value.birthday ? <CalendarReminderField minutes={reminderMinutes} enabled={reminderSettings.settings.enabled} disabled={busy || reminderSettings.loading || !reminderScope} onChange={reminderMinutes => change(before => ({ ...before, reminderMinutes }))} /> : null}
-          <View pointerEvents={readOnly ? 'none' : 'auto'} style={[styles.editorSections, choreForm && styles.choreSections]}>
+          <View pointerEvents={readOnly || review ? 'none' : 'auto'} accessibilityElementsHidden={Boolean(review)} importantForAccessibility={review ? 'no-hide-descendants' : 'auto'} style={[styles.editorSections, choreForm && styles.choreSections]}>
           {repeated && !value.birthday ? <View style={styles.optionsGroup}><Pressable accessibilityRole="button" accessibilityLabel="変更する範囲を選択" accessibilityValue={{ text: CALENDAR_EDIT_SCOPES.find(row => row.value === draft.scope)?.label ?? '' }} disabled={busy || readOnly || !initial.anchorDate} onPress={() => setScopeOpen(true)} style={styles.optionSelect}>
             <Text style={[styles.value, styles.optionLabel, labelWidths.option]}>変更範囲</Text><View style={styles.optionInput}><Text style={[styles.value, styles.optionValue]}>{CALENDAR_EDIT_SCOPES.find(row => row.value === draft.scope)?.label}</Text><Chevron direction="down" /></View>
           </Pressable></View> : null}
@@ -244,10 +304,14 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           {/* Native text stays authoritative while typing; JS still captures every change for saving. */}
           {choreForm && !choreForm.entry?.titleEditable ? <Pressable accessibilityRole="button" accessibilityLabel="追加する家事を選び直す" accessibilityValue={{ text: value.title }} disabled={busy} onPress={onChooseChore} style={styles.choreName}>
             <SymbolView name={{ ios: 'text.alignleft', android: 'title' }} size={18} tintColor={palette.muted} /><Text style={[styles.value, styles.titleInput, styles.nameLabel, { flex: 1 }]}>{value.title}</Text><Chevron />
-          </Pressable> : <CalendarTextInput icon={{ ios: 'text.alignleft', android: 'title' }} key={`${textKey}:title`} accessibilityLabel={choreForm ? '家事名' : '予定名'} defaultValue={value.title} placeholder={choreForm ? '家事名' : value.birthday ? '名前・誕生日' : '予定名'} style={[styles.textInput, styles.titleInput]} maxLength={160} editable={!busy && !readOnly} onChangeText={title => change(before => ({ ...before, value: titleDateTime.change(before.value, title, !initial.eventId && !initial.value.title.trim() && !readOnly && !choreForm && !before.value.birthday) }))} />}
-          {matches.length && !value.birthday && !initial.eventId ? <View style={styles.existing}><Text style={styles.label}>登録済みの家事</Text>{matches.map(chore => <Pressable key={chore.id} accessibilityRole="button" accessibilityLabel={`${chore.name}の既存の予定を開く`} disabled={busy || readOnly} onPress={() => { if (lock.current) return; onClose(); chore.onOpen(); }} style={styles.existingRow}>
-            <Text style={styles.value}>{chore.name}{chore.minutes ? ` · 約${chore.minutes}分` : ''}</Text><Chevron /></Pressable>)}<Text style={styles.caption}>家事を選ぶと、登録済みの家事回が開きます。</Text></View> : null}
-          {!value.birthday && !choreForm ? <><View style={styles.inputSeparator} /><CalendarTextInput icon={{ ios: 'mappin', android: 'location_on' }} key={`${textKey}:location`} accessibilityLabel="予定の場所" autoCorrect={false} defaultValue={value.location} style={styles.textInput} maxLength={300} placeholder="場所（任意）" editable={!busy && !readOnly} onChangeText={location => patch({ location })} /></> : null}
+          </Pressable> : <CalendarTextInput icon={{ ios: 'text.alignleft', android: 'title' }} key={`${textKey}:title`} accessibilityLabel={choreForm ? '家事名' : '予定名'} defaultValue={value.title} placeholder={choreForm ? '家事名' : value.birthday ? '名前・誕生日' : '予定名'} style={[styles.textInput, styles.titleInput]} maxLength={160} editable={!busy && !readOnly && !review} onChangeText={title => change(before => ({ ...before, value: titleDateTime.change(before.value, title, !initial.eventId && !initial.value.title.trim() && !readOnly && !choreForm && !before.value.birthday) }))} />}
+          {matches.length && !choreForm && !value.birthday && !initial.eventId ? <View style={styles.existing}><Text style={styles.label}>登録済みの家事</Text>{matches.map(chore => <Pressable key={chore.id} accessibilityRole="button" accessibilityLabel={`${chore.name}の説明を見る`} disabled={busy || readOnly} onPress={() => {
+            if (lock.current) return;
+            if (onPreviewChore) onPreviewChore(chore.onOpen);
+            else { onClose(); chore.onOpen(); }
+          }} style={styles.existingRow}>
+            <Text style={styles.value}>{chore.name}{chore.minutes ? ` · 約${chore.minutes}分` : ''}</Text><Chevron /></Pressable>)}</View> : null}
+          {!value.birthday && !choreForm ? <><View style={styles.inputSeparator} /><CalendarTextInput icon={{ ios: 'mappin', android: 'location_on' }} key={`${textKey}:location`} accessibilityLabel="予定の場所" autoCorrect={false} defaultValue={value.location} style={styles.textInput} maxLength={300} placeholder="場所（任意）" editable={!busy && !readOnly && !review} onChangeText={location => patch({ location })} /></> : null}
           </View>
           {canAddChore || choreForm ? <View style={styles.choreControls}>
             {canAddChore || choreForm?.entry?.titleEditable ? <Pressable accessibilityRole="button" accessibilityLabel={choreForm ? '追加する家事を選び直す' : '家事を追加'} disabled={busy || readOnly} onPress={() => { if (choreForm) onChooseChore?.(); else openChoreRegistration(); }} style={styles.choreSelect}>
@@ -266,6 +330,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
             <CalendarField borderless hideLabel disabled={busy || readOnly} label="終了日" date={value.endDate} minute={value.endMinute} mode="date" onDate={endDate => { titleDateTime.manual('endDate'); patch({ endDate }); }} />
             {!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel disabled={busy || readOnly} label="終了" date={value.endDate} minute={clocks?.end ?? value.endMinute} empty={Boolean(clocks && clocks.end === null)} commitOnDone={Boolean(clocks)} mode="time" onMinute={endMinute => { titleDateTime.manual('endMinute'); if (clocks) clocks.onChange('end', endMinute); else patch({ endMinute }); }} /></View> : null}
           </View> : null}
+          {timeError ? <Text accessibilityLiveRegion="polite" style={styles.error}>{timeError}</Text> : null}
           {value.timeZone !== displayTimeZone ? <Text style={[styles.caption, { textAlign: 'right' }]}>地域：{value.timeZone}</Text> : null}
           </View>
           {!choreForm ? <View style={styles.optionsGroup}>
@@ -314,7 +379,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
                 await local.refresh(); patch({ categoryId: id }); setCategoryEdit(null);
               })} /></View>
           </View> : null}
-          {choreForm ? choreForm.content : <View style={[styles.inputGroup, styles.notesGroup]}><CalendarTextInput icon={{ ios: 'note.text', android: 'notes' }} key={`${textKey}:notes`} accessibilityLabel="予定のメモ" multiline defaultValue={value.notes} style={[styles.textInput, styles.notesInput]} maxLength={4000} placeholder="メモ（任意）" editable={!busy && !readOnly} onChangeText={notes => patch({ notes })} /></View>}
+          {choreForm ? choreForm.content : <View style={[styles.inputGroup, styles.notesGroup]}><CalendarTextInput icon={{ ios: 'note.text', android: 'notes' }} key={`${textKey}:notes`} accessibilityLabel="予定のメモ" multiline defaultValue={value.notes} style={[styles.textInput, styles.notesInput]} maxLength={4000} placeholder="メモ（任意）" editable={!busy && !readOnly && !review} onChangeText={notes => patch({ notes })} /></View>}
           {initial.eventId && !value.birthday && onDuplicate ? <SettingsAction title="予定を複製" placement="page" disabled={busy} onPress={() => {
             if (lock.current) return;
             const current = latest.current;
@@ -329,7 +394,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
     </KeyboardAvoidingView>
     {scopeOpen && original && initial.anchorDate ? <CalendarRecurrenceScopePicker value={draft.scope} futureDisabled={!isCalendarAnchor(original, initial.anchorDate)} onClose={() => setScopeOpen(false)} onSelect={(scope: CalendarEditScope) => {
       setScopeOpen(false);
-      const exception = local.snapshot.exceptions.find(row => row.eventId === original.id && row.anchorDate === initial.anchorDate);
+      const exception = basis.exception ?? local.snapshot.exceptions.find(row => row.eventId === original.id && row.anchorDate === initial.anchorDate);
       try {
         change(before => changeCalendarDraftScope(before, scope, original, exception?.override, editedScopeFields.current));
       } catch (cause) {
@@ -341,6 +406,31 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
         ...(recurrence === 'none' ? { untilDate: null } : {}) }); } }} /> : null}
   </CalendarEditorSurface>;
 }
+function calendarInputTimeError(value: EventDraft) {
+  try {
+    validateEventDraft({ ...value, title: '予定', location: '', notes: '' });
+    return null;
+  } catch (cause) {
+    return cause instanceof Error ? cause.message : '日時を確認してください。';
+  }
+}
+
+function calendarReviewText(label: ReturnType<typeof rebaseCalendarEventInput>['overlaps'][number], value: EventDraft, categories: LocalCalendarBinding['snapshot']['categories']) {
+  switch (label) {
+    case '予定名': return value.title || '未入力';
+    case '場所': return value.location || '未入力';
+    case 'メモ': return value.notes || '未入力';
+    case '分類': return categories.find(category => category.id === value.categoryId)?.name ?? '未分類';
+    case '繰り返し': return recurrenceLabel(value) + (value.untilDate ? ` · ${formatJapaneseDate(value.untilDate, { year: true })}まで` : '');
+    case '日時': {
+      const start = formatJapaneseDate(value.startDate, { year: true });
+      const end = value.startDate === value.endDate ? '' : formatJapaneseDate(value.endDate, { year: true });
+      return value.allDay ? `${start}${end ? `〜${end}` : ''} · 終日`
+        : `${start} ${minuteLabel(value.startMinute)} 〜 ${end ? `${end} ` : ''}${minuteLabel(value.endMinute)}（${value.timeZone}）`;
+    }
+  }
+}
+
 function CalendarEditorSurface({ embedded, children, ...props }: React.ComponentProps<typeof Modal> & { embedded: boolean }) {
   return embedded ? children : <Modal {...props}>{children}</Modal>;
 }

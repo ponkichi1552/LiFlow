@@ -30,13 +30,15 @@ export function ChoreAdvancedSettings({ chore, today, save }: { chore: ChoreDefi
         </View>
         <View style={row}><Text style={[typography.body, { color: colors.ink }]}>周期</Text>
           <View style={{ minWidth: 146, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
-            <SettingsSegments compact options={[{ id: 'interval', label: '日数' }, { id: 'monthly', label: '毎月' }]} value={raw.monthly ? 'monthly' : 'interval'}
-              onValueChange={value => editor.changeSchedule({ monthly: value === 'monthly' })} />
+            <SettingsSegments compact options={chore.personalSchedule?.once
+              ? [{ id: 'once', label: '1回限り' }, { id: 'interval', label: '日数' }, { id: 'monthly', label: '毎月' }]
+              : [{ id: 'interval', label: '日数' }, { id: 'monthly', label: '毎月' }]} value={raw.once ? 'once' : raw.monthly ? 'monthly' : 'interval'}
+              onValueChange={value => editor.changeSchedule({ once: value === 'once', monthly: value === 'monthly' })} />
             {raw.monthly ? <NumberInputField borderless accessibilityLabel="個人家事の毎月の日付" value={raw.monthlyDay} onChangeText={monthlyDay => editor.changeSchedule({ monthlyDay })} onEndEditing={() => void editor.flush()} /> : null}
           </View>
         </View>
         {raw.monthly && Number(raw.monthlyDay) > 28 ? <Text style={[typography.caption, { color: colors.muted }]}>日付のない月は月末になります。</Text> : null}
-        {errors.personalSchedule ? <Text accessibilityRole="alert" style={[typography.caption, { color: colors.warning }]}>{errors.personalSchedule}</Text> : null}
+        {errors.personalScheduleStartDate || errors.personalScheduleCadence ? <Text accessibilityRole="alert" style={[typography.caption, { color: colors.warning }]}>{errors.personalScheduleStartDate ?? errors.personalScheduleCadence}</Text> : null}
       </SettingsPanel>
     </View> : null}
     <View style={styles.section}><Text style={[typography.label, { color: colors.ink }]}>名前・手順の編集</Text>
@@ -53,7 +55,7 @@ export function ChoreAdvancedSettings({ chore, today, save }: { chore: ChoreDefi
       <View style={{ alignSelf: 'flex-start' }}><SettingsAction placement="page" compact title="手順に見出しを追加" onPress={() => editor.changeSections([...raw.sections, { title: '', text: '' }])} /></View>
       {(['tools', 'cautions'] as const).map(field => <V2TextField key={field} label={field === 'tools' ? '使う道具' : '注意点'} multiline placeholder="1行に1項目" value={raw[field]}
         onChangeText={value => editor.changeText(field, value)} onEndEditing={() => void editor.flush()} />)}
-      {Object.entries(errors).filter(([key]) => key !== 'personalSchedule').map(([key, error]) => <Text key={key} accessibilityRole="alert" style={[typography.caption, { color: colors.warning }]}>{error}</Text>)}
+      {Object.entries(errors).filter(([key]) => key !== 'personalScheduleStartDate' && key !== 'personalScheduleCadence').map(([key, error]) => <Text key={key} accessibilityRole="alert" style={[typography.caption, { color: colors.warning }]}>{error}</Text>)}
     </View>
     {status.error ? <Text accessibilityRole="alert" style={[typography.caption, { color: colors.warning }]}>{status.error}</Text> : null}
     {status.phase === 'error' ? <SettingsAction placement="page" title="保存を再試行" onPress={() => void editor.flush()} /> : null}

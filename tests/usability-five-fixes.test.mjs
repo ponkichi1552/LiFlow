@@ -175,7 +175,8 @@ for (const platform of ['ios', 'android']) {
       listener('active'); await flush(ui); assert.equal(enabled, 0);
       const button = ui.button('端末の設定を開く'); button.props.onPress(); button.props.onPress(); await flush(ui); assert.equal(opened, 1);
       listener('active'); await flush(ui); assert.equal(enabled, 0);
-      granted = true; listener('active'); listener('active'); await flush(ui); assert.equal(enabled, 1);
+      granted = true; listener('active'); await flush(ui); assert.equal(enabled, 0, 'a previous visit that ended without granting must not auto-enable later');
+      await ui.press('端末の設定を開く'); listener('active'); listener('active'); await flush(ui); assert.equal(enabled, 1);
       listener('active'); await flush(ui); assert.equal(enabled, 1);
       await ui.press('端末の設定を開く'); props.scope = 'another-account'; ui.render(); listener('active'); await flush(ui); assert.equal(enabled, 1);
     } finally { ui.unmount(); }

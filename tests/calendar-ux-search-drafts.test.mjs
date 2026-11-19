@@ -164,6 +164,45 @@ test('calendar search seeks sparse future and past rounds and compares their dis
     { date: '2026-11-13', minute: 960, anchorDate: date });
 });
 for (const platform of ['ios', 'android']) {
+  test(`${platform} a stale calendar edit preserves unrelated saved changes and asks about overlapping input`, async t => {
+    const h = await fixture(t);
+    const original = { ...newEventDraft(date, 'Asia/Tokyo'), title: '図書館', location: '本館', notes: '予約' };
+    const id = await store.saveCalendarEvent(h.database, { expectedRevision: 0, value: original });
+    await h.local.refresh();
+    const initial = draft({ eventId: id, revision: 1, value: original });
+    let saved = 0;
+    const ui = screenHarness('src/features/calendar/calendar-editor.tsx', { exportName: 'CalendarEditor', platform,
+      props: { initial, local: h.local, onClose() {}, onSaved: () => saved++ } });
+    t.after(() => ui.unmount());
+    await ui.change('予定のメモ', '手元のメモ');
+    await store.saveCalendarEvent(h.database, { id, expectedRevision: 1, value: { ...original, location: '分館', notes: 'ほかの端末のメモ' } });
+    await ui.press('予定を保存'); await flush(ui);
+    await ui.press('最新の予定を確認'); await flush(ui);
+    assert.match(ui.text(), /最新　ほかの端末のメモ/u);
+    assert.match(ui.text(), /入力　手元のメモ/u);
+    assert.equal(saved, 0);
+    await ui.press('重なる箇所は入力を残す'); await ui.press('予定を保存'); await flush(ui);
+    const [result] = (await store.readLocalCalendar(h.database)).events;
+    assert.equal(result.revision, 3); assert.equal(result.location, '分館'); assert.equal(result.notes, '手元のメモ'); assert.equal(saved, 1);
+  });
+
+  test(`${platform} saving a new appointment consumes its own draft and retains other personal drafts`, async t => {
+    const h = await fixture(t);
+    const older = draft({ value: { ...newEventDraft(date, 'Asia/Tokyo'), title: '以前の下書き' } });
+    const newer = draft({ draftId: store.newCalendarDraftId(), value: { ...older.value, title: '今回の下書き' } });
+    const third = { ...newer, draftId: store.newCalendarDraftId() };
+    for (const input of [older, newer, third]) await store.saveCalendarDraft(h.database, input);
+    await h.local.refresh();
+    const ui = screenHarness('src/features/calendar/calendar-editor.tsx', { exportName: 'CalendarEditor', platform, props: {
+      initial: h.local.snapshot.drafts.find(input => input.draftId === newer.draftId), local: h.local, onClose() {}, onSaved() {},
+    } });
+    t.after(() => ui.unmount());
+    await ui.press('予定を保存'); await flush(ui);
+    const saved = await store.readLocalCalendar(h.database);
+    assert.deepEqual(saved.events.map(event => event.title), ['今回の下書き']);
+    assert.deepEqual(saved.drafts.map(store.calendarDraftKey), [store.calendarDraftKey(third), store.calendarDraftKey(older)]);
+  });
+
   test(`${platform} calendar editor keeps a different event time zone explicit and saves its original clock`, async t => {
     const h = await fixture(t); const value = { ...newEventDraft(date, 'America/New_York'), title: '海外との面談', startMinute: 9 * 60, endMinute: 10 * 60 };
     const ui = screenHarness('src/features/calendar/calendar-editor.tsx', { exportName: 'CalendarEditor', platform,
