@@ -21,6 +21,8 @@ test('public OpenAI requests retain the model and schema and use the provider ou
   const controller = new AbortController(); let calls = 0; let sent; let requestSignal;
   const client = new OpenAIResponsesClient({ apiKey: 'synthetic-test-only', model: 'gpt-5.5', signal: controller.signal,
     maxToolCalls: 5, fetchImpl: async (_url, options) => {
+      assert.equal(options.redirect, 'error');
+      assert.equal(typeof options.dispatcher?.dispatch, 'function');
       calls++; sent = JSON.parse(options.body); requestSignal = options.signal; return Response.json({ output_text: '{"ok":true}' });
     } });
   const request = { name: 'synthetic', schema: { type: 'object' }, input: [], tools: [{ type: 'web_search' }], requireTool: true };

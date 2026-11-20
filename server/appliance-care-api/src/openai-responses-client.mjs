@@ -1,7 +1,11 @@
+import { Pool } from 'undici';
 import { ANALYSIS_TIMEOUT_MS } from './analysis-delivery-contract.mjs';
 
 const RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const DEFAULT_MODEL = 'gpt-6-luna';
+// Use the request and job abort signals as the response deadline. Undici otherwise
+// stops waiting for headers or the next body chunk at five minutes.
+const openAiDispatcher = new Pool(new URL(RESPONSES_URL).origin, { headersTimeout: 0, bodyTimeout: 0 });
 
 export class OpenAIResponsesClient {
   constructor({ apiKey = process.env.OPENAI_API_KEY, model = process.env.OPENAI_MODEL ?? DEFAULT_MODEL, fetchImpl = fetch,
@@ -42,6 +46,8 @@ export class OpenAIResponsesClient {
       const deadline = AbortSignal.timeout(ANALYSIS_TIMEOUT_MS);
       response = await this.fetchImpl(RESPONSES_URL, {
         method: 'POST',
+        redirect: 'error',
+        dispatcher: openAiDispatcher,
         headers: {
           authorization: 'Bearer ' + this.apiKey,
           'content-type': 'application/json',

@@ -18,6 +18,7 @@
     "@apple/app-store-server-library": "^3.1.0",
     "firebase-admin": "^14.5.0",
     "google-auth-library": "^11.3.2",
-    "pdfjs-dist": "^6.4.299"
+    "pdfjs-dist": "^6.4.299",
+    "undici": "7.30.2"
   }
 }

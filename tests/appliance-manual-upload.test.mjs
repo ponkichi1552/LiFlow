@@ -50,12 +50,15 @@ test('uploaded analysis sends only submitted bytes with no search or URL fetch a
   const manual = decodeUploadedManual(syntheticManual()); let sent; let calls = 0;
   const task = { name: 'フィルターのお手入れ', recommendedIntervalDays: null, recommendedConditions: ['汚れが目立った時'],
     steps: ['電源を切ってから汚れを落とす'], tools: [], safetyCautions: ['通電したまま作業しない'], estimatedMinutes: null,
-    evidence: [{ url: manual.reference, pageOrSection: '1ページ' }] };
+    evidence: [{ pageOrSection: '1ページ' }] };
   const request = { manufacturer: '検査メーカー', productName: '検査製品', modelNumber: 'QA', manual };
   const result = await analyzeUploadedManual(request, { analyzeUploaded: async value => { calls++; sent = value; return { value: { tasks: [task] } }; } });
   assert.equal(calls, 1); assert.equal(result.status, 'verified'); assert.equal(sent.tools, undefined);
   const file = sent.input[1].content.find(item => item.type === 'input_file');
   assert.equal(file.file_data, 'data:application/pdf;base64,' + syntheticManual().base64); assert.equal(file.file_url, undefined);
+  assert.deepEqual(sent.schema.properties.tasks.items.properties.evidence.items.required, ['pageOrSection']);
+  assert.equal(JSON.stringify(sent.input).includes(manual.reference), false);
+  assert.deepEqual(result.analysis.tasks[0].evidence, [{ url: manual.reference, pageOrSection: '1ページ' }]);
   assert.equal(isVerifiedApplianceAnalysis(result.analysis, request.manufacturer), true);
   assert.equal(matchesUploadedManual(result.officialSources.manualUrl, result.analysis), true);
   const saved = normalizeV2ReviewedAppliance({ ...result.product, displayName: '検査', officialManualUrl: result.officialSources.manualUrl,
