@@ -1,10 +1,13 @@
 const RESPONSES_URL = 'https://api.openai.com/v1/responses';
+const DEFAULT_MODEL = 'gpt-6-luna';
 
 export class OpenAIResponsesClient {
-  constructor({ apiKey = process.env.OPENAI_API_KEY, model = process.env.OPENAI_MODEL ?? 'gpt-5.5', fetchImpl = fetch,
+  constructor({ apiKey = process.env.OPENAI_API_KEY, model = process.env.OPENAI_MODEL ?? DEFAULT_MODEL, fetchImpl = fetch,
+    reasoningEffort = process.env.OPENAI_REASONING_EFFORT ?? (model === DEFAULT_MODEL ? 'max' : undefined),
     signal, maxOutputTokens, maxToolCalls } = {}) {
     this.apiKey = apiKey;
     this.model = model;
+    this.reasoningEffort = reasoningEffort?.trim();
     this.fetchImpl = fetchImpl;
     this.signal = signal;
     this.maxOutputTokens = maxOutputTokens;
@@ -23,6 +26,7 @@ export class OpenAIResponsesClient {
       model: this.model,
       input,
       store: false,
+      ...(this.reasoningEffort ? { reasoning: { effort: this.reasoningEffort } } : {}),
       text: { format: { type: 'json_schema', name, strict: true, schema } },
       ...(this.maxOutputTokens ? { max_output_tokens: this.maxOutputTokens } : {}),
     };

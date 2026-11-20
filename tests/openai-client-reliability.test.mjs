@@ -58,7 +58,7 @@ for (const [label, body, message] of [
 test('OpenAI client preserves alternate text output, source deduplication and a request without tools', async () => {
   let sent;
   const url = 'https://www.dyson.co.jp/support';
-  const client = new OpenAIResponsesClient({ apiKey: 'test-only-key', model: 'gpt-5.5', fetchImpl: async (_url, options) => {
+  const client = new OpenAIResponsesClient({ apiKey: 'test-only-key', model: 'gpt-5.5', reasoningEffort: '', fetchImpl: async (_url, options) => {
     sent = JSON.parse(options.body);
     return new Response(JSON.stringify({ output_text: '{"ok":true}', output: [
       { type: 'web_search_call', action: { sources: [{ url }, { url }, { title: 'without URL' }] } },
@@ -68,5 +68,36 @@ test('OpenAI client preserves alternate text output, source deduplication and a 
   assert.deepEqual(await client.createStructured(request), { value: { ok: true }, sourceUrls: [url] });
   assert.equal(sent.model, 'gpt-5.5'); assert.equal(sent.store, false);
   assert.equal(sent.tools, undefined); assert.equal(sent.tool_choice, undefined);
+  assert.equal(sent.reasoning, undefined);
   assert.equal(sent.text.format.strict, true);
+});
+
+test('OpenAI client sends the configured GPT-6 Luna model and max reasoning effort as separate parameters', async () => {
+  let sent;
+  const client = new OpenAIResponsesClient({ apiKey: 'test-only-key', model: 'gpt-6-luna', reasoningEffort: ' max ',
+    fetchImpl: async (_url, options) => {
+      sent = JSON.parse(options.body);
+      return Response.json({ output_text: '{"ok":true}' });
+    } });
+  await client.createStructured(request);
+  assert.equal(sent.model, 'gpt-6-luna');
+  assert.deepEqual(sent.reasoning, { effort: 'max' });
+  assert.equal(sent.store, false);
+});
+
+test('an unconfigured server model defaults to GPT-6 Luna with max effort', async t => {
+  const settings = ['OPENAI_MODEL', 'OPENAI_REASONING_EFFORT'];
+  for (const setting of settings) {
+    const original = process.env[setting];
+    t.after(() => { if (original !== undefined) process.env[setting] = original; });
+    delete process.env[setting];
+  }
+  let sent;
+  const client = new OpenAIResponsesClient({ apiKey: 'test-only-key', fetchImpl: async (_url, options) => {
+    sent = JSON.parse(options.body);
+    return Response.json({ output_text: '{"ok":true}' });
+  } });
+  await client.createStructured(request);
+  assert.equal(sent.model, 'gpt-6-luna');
+  assert.deepEqual(sent.reasoning, { effort: 'max' });
 });
