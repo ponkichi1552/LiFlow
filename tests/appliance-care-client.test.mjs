@@ -362,6 +362,26 @@ test('appliance cancellation and timeout finish promptly while authentication is
   } finally { release?.(); delete globalThis.syntheticApplianceAuthPause; globalThis.fetch = originalFetch; }
 });
 
+test('an appliance analysis stays open past two minutes and stops at ten minutes', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let jobSignal;
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    if (options.method === 'POST') return Response.json({ jobId: 'f'.repeat(64) });
+    jobSignal = options.signal;
+    return new Promise(() => {});
+  });
+  const pending = analyzeApplianceCareRequest(request, 'https://api.example.test');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(jobSignal);
+  t.mock.timers.tick(120_001);
+  assert.equal(jobSignal.aborted, false);
+  t.mock.timers.tick(479_998);
+  assert.equal(jobSignal.aborted, false);
+  t.mock.timers.tick(1);
+  assert.equal(jobSignal.aborted, true);
+  assert.match((await pending).message, /タイムアウト/u);
+});
+
 test('appliance authenticated upload and polls explicitly reject redirects rather than forwarding credentials to another host', async () => {
   const originalFetch = globalThis.fetch; const sent = [];
   try {

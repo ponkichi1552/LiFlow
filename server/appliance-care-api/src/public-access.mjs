@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
+import { ANALYSIS_TIMEOUT_MS } from './analysis-delivery-contract.mjs';
 
 export const PUBLIC_API_POLICY = Object.freeze({ monthlyLimit: 5, dailyGlobalLimit: 20, maxConcurrent: 3,
-  jobTimeoutMs: 10 * 60_000, retentionMs: 24 * 60 * 60_000 });
+  jobTimeoutMs: ANALYSIS_TIMEOUT_MS, retentionMs: 24 * 60 * 60_000 });
 
 export class PublicApiError extends Error {
   constructor(status, code, message, details = {}) { super(message); this.status = status; this.code = code; this.details = details; }

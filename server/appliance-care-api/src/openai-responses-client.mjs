@@ -1,16 +1,17 @@
+import { ANALYSIS_TIMEOUT_MS } from './analysis-delivery-contract.mjs';
+
 const RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const DEFAULT_MODEL = 'gpt-6-luna';
 
 export class OpenAIResponsesClient {
   constructor({ apiKey = process.env.OPENAI_API_KEY, model = process.env.OPENAI_MODEL ?? DEFAULT_MODEL, fetchImpl = fetch,
     reasoningEffort = process.env.OPENAI_REASONING_EFFORT ?? (model === DEFAULT_MODEL ? 'max' : undefined),
-    signal, maxOutputTokens, maxToolCalls } = {}) {
+    signal, maxToolCalls } = {}) {
     this.apiKey = apiKey;
     this.model = model;
     this.reasoningEffort = reasoningEffort?.trim();
     this.fetchImpl = fetchImpl;
     this.signal = signal;
-    this.maxOutputTokens = maxOutputTokens;
     this.maxToolCalls = maxToolCalls;
   }
 
@@ -28,7 +29,6 @@ export class OpenAIResponsesClient {
       store: false,
       ...(this.reasoningEffort ? { reasoning: { effort: this.reasoningEffort } } : {}),
       text: { format: { type: 'json_schema', name, strict: true, schema } },
-      ...(this.maxOutputTokens ? { max_output_tokens: this.maxOutputTokens } : {}),
     };
     if (tools?.length) {
       body.tools = tools;
@@ -39,6 +39,7 @@ export class OpenAIResponsesClient {
 
     let response;
     try {
+      const deadline = AbortSignal.timeout(ANALYSIS_TIMEOUT_MS);
       response = await this.fetchImpl(RESPONSES_URL, {
         method: 'POST',
         headers: {
@@ -46,7 +47,7 @@ export class OpenAIResponsesClient {
           'content-type': 'application/json',
         },
         body: JSON.stringify(body),
-        signal: this.signal ? AbortSignal.any([this.signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000),
+        signal: this.signal ? AbortSignal.any([this.signal, deadline]) : deadline,
       });
     } catch {
       throw temporaryNetworkError(!this.signal?.aborted);
@@ -62,6 +63,11 @@ export class OpenAIResponsesClient {
       payload = await response.json();
     } catch {
       const error = temporaryNetworkError(true); error.message = 'OpenAI response was not valid JSON'; throw error;
+    }
+
+    if (payload?.status === 'incomplete') {
+      if (payload.incomplete_details?.reason === 'content_filter') throw new Error('OpenAI returned no structured output (refused)');
+      throw temporaryNetworkError(true);
     }
 
     const outputText = getOutputText(payload);

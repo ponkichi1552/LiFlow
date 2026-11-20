@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 import { isOfficialApplianceUrl } from '@/features/appliance-care/official-url';
 import { applianceCarePollDelay, waitForAppliancePoll } from './polling';
 import { isAnalysisRecord as isRecord, nonemptyAnalysisString as nonemptyString, isVerifiedApplianceAnalysis } from './analysis-validation';
-import { analysisDeliveryJson, validAnalysisDelivery } from '../../../server/appliance-care-api/src/analysis-delivery-contract.mjs';
+import { ANALYSIS_TIMEOUT_MS, analysisDeliveryJson, validAnalysisDelivery } from '../../../server/appliance-care-api/src/analysis-delivery-contract.mjs';
 import type { AnalysisDeliveryStore, SavedAnalysisDelivery } from './analysis-delivery';
 import type { ApplianceApiSession } from '../../platform/appliance-care/auth';
 
@@ -15,7 +15,6 @@ import type {
   ApplianceCareApiResponse,
 } from '@/features/appliance-care/api-contracts';
 
-const DEFAULT_TIMEOUT_MS = 120_000;
 // Retain only unfinished transport attempts. A retry after a lost acknowledgement reuses the same paid admission.
 const pendingAdmissions = new Map<string, { id: string; expiresAt: number }>();
 
@@ -28,7 +27,7 @@ export function applianceCareApiBaseUrl(): string {
 export async function analyzeApplianceCareRequest(
   request: ApplianceCareApiRequest,
   baseUrl = applianceCareApiBaseUrl(),
-  timeoutMs = DEFAULT_TIMEOUT_MS,
+  timeoutMs = ANALYSIS_TIMEOUT_MS,
   onStage?: (stage: ApplianceCareAnalysisStage) => void,
   signal?: AbortSignal,
   deliveries?: AnalysisDeliveryStore,

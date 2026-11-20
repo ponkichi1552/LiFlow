@@ -12,19 +12,21 @@ test('public analysis bounds AI call count and stops all later work after the sh
   const request = { name: 'synthetic', schema: {}, input: [] };
   await deps.analyzeUploaded(request);
   await assert.rejects(deps.analyzeUploaded(request)); assert.equal(calls, 1);
-  assert.equal(received.maxOutputTokens, 16_384); assert.equal(received.maxToolCalls, 1);
+  assert.equal(received.maxOutputTokens, undefined); assert.equal(received.maxToolCalls, 1);
   controller.abort(); await assert.rejects(deps.analyzeUploaded(request)); assert.equal(calls, 1);
 });
 
-test('public OpenAI requests retain the model and schema while enforcing output tool and abort limits without retries', async () => {
+test('public OpenAI requests retain the model and schema and use the provider output limit without retries', async t => {
+  const timeout = t.mock.method(AbortSignal, 'timeout');
   const controller = new AbortController(); let calls = 0; let sent; let requestSignal;
   const client = new OpenAIResponsesClient({ apiKey: 'synthetic-test-only', model: 'gpt-5.5', signal: controller.signal,
-    maxOutputTokens: 16_384, maxToolCalls: 5, fetchImpl: async (_url, options) => {
+    maxToolCalls: 5, fetchImpl: async (_url, options) => {
       calls++; sent = JSON.parse(options.body); requestSignal = options.signal; return Response.json({ output_text: '{"ok":true}' });
     } });
   const request = { name: 'synthetic', schema: { type: 'object' }, input: [], tools: [{ type: 'web_search' }], requireTool: true };
   await client.createStructured(request);
-  assert.equal(sent.model, 'gpt-5.5'); assert.equal(sent.max_output_tokens, 16_384); assert.equal(sent.max_tool_calls, 5);
+  assert.deepEqual(timeout.mock.calls.map(call => call.arguments), [[600_000]]);
+  assert.equal(sent.model, 'gpt-5.5'); assert.equal(sent.max_output_tokens, undefined); assert.equal(sent.max_tool_calls, 5);
   assert.equal(sent.store, false); assert.equal(sent.text.format.strict, true);
   controller.abort(); assert.equal(requestSignal.aborted, true);
   await assert.rejects(client.createStructured(request)); assert.equal(calls, 1);
@@ -36,12 +38,15 @@ test('only server-observed OpenAI unavailability or no response is refundable wh
     await assert.rejects(client.createStructured({ input: [], name: 'synthetic', schema: {} }), e => e.providerNoResult === true);
   }
   for (const payload of [{}, { output: [] }, { output: {} }, { output_text: ' \n\t ' },
+    { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' }, output_text: '{"tasks":[]}' },
     { output: [{ type: 'message', content: [{ type: 'output_text', text: ' \t ' }] }] },
     { output: [{ type: 'message', content: {} }] }]) {
     const client = new OpenAIResponsesClient({ apiKey: 'synthetic', fetchImpl: async () => Response.json(payload) });
     await assert.rejects(client.createStructured({ input: [], name: 'synthetic', schema: {} }), e => e.providerNoResult === true);
   }
-  for (const payload of [{ output_text: 'not-json' }, { output: [{ type: 'message', content: [{ type: 'refusal', refusal: '合成した拒否' }] }] }]) {
+  for (const payload of [{ output_text: 'not-json' },
+    { status: 'incomplete', incomplete_details: { reason: 'content_filter' }, output_text: '{"tasks":[]}' },
+    { output: [{ type: 'message', content: [{ type: 'refusal', refusal: '合成した拒否' }] }] }]) {
     const client = new OpenAIResponsesClient({ apiKey: 'synthetic', fetchImpl: async () => Response.json(payload) });
     await assert.rejects(client.createStructured({ input: [], name: 'synthetic', schema: {} }), e => e.providerNoResult !== true);
   }

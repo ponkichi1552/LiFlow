@@ -9228,11 +9228,15 @@
       },
       {
         "file": "tests/appliance-public-analysis.test.mjs",
-        "name": "public OpenAI requests retain the model and schema while enforcing output tool and abort limits without retries"
+        "name": "public OpenAI requests retain the model and schema and use the provider output limit without retries"
       },
       {
         "file": "tests/appliance-care-client.test.mjs",
         "name": "appliance cancellation and timeout finish promptly while authentication is stalled and never send a late paid request"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "an appliance analysis stays open past two minutes and stops at ten minutes"
       }
     ],
     "cloudTests": [

@@ -2,7 +2,7 @@ import { startApplianceCareHttpServer } from './http-server.mjs';
 import { OpenAIResponsesClient } from './openai-responses-client.mjs';
 
 async function main() {
-  const ai = new OpenAIResponsesClient({ maxOutputTokens: 16_384, maxToolCalls: 1 });
+  const ai = new OpenAIResponsesClient({ maxToolCalls: 1 });
   const publicMode = process.env.APPLIANCE_CARE_MODE === 'public';
   // Keep the server-only Admin SDK out of the mobile dependency graph and local-only development path.
   const publicAccess = publicMode ? (await import('./firebase-public-runtime.mjs')).createFirebasePublicRuntime() : undefined;

@@ -2,7 +2,7 @@ import { OpenAIResponsesClient } from './openai-responses-client.mjs';
 
 /** Fixed per-job ceilings supplement admission counts; no automatic retries of paid requests. */
 export function createPublicAnalysisDependencies(signal, { createAi = options => new OpenAIResponsesClient(options) } = {}) {
-  const client = createAi({ signal, maxOutputTokens: 16_384, maxToolCalls: 1 });
+  const client = createAi({ signal, maxToolCalls: 1 });
   let calls = 0;
   const ai = { async createStructured(request) {
     signal.throwIfAborted();

@@ -1,3 +1,5 @@
+export const ANALYSIS_TIMEOUT_MS = 10 * 60_000;
+
 /** Portable wire canonicalization. Firestore object-key ordering is not significant. */
 export function analysisDeliveryJson(value) {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
