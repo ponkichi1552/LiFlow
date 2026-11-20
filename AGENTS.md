@@ -6,6 +6,21 @@ This is an Expo/React Native mobile application. Prioritize mobile-first pattern
 - Permanently remove temporary files, generated screenshots and obsolete build outputs once they have no remaining use. Do not move unused material to external storage merely to keep it.
 - Keep necessary source, unique unadopted work, current verification records and retained user data organized by purpose. Verify copies by content before removing their originals during a storage migration; confirm that duplicates are identical before deleting them.
 
+## Task continuity and device capacity
+
+- Treat a user's question, correction, or incident report as guidance for the active task. Check what actually happened after a failure, preserve completed results and pending inputs, and continue through a safe available method. If work remains, end the turn only at the user's instruction or when a specific technical or authorization dependency prevents further progress.
+- Check system memory pressure and free disk space before browser batches, builds, and large transfers. Recheck memory pressure and total open tab count before adding verification tabs. Reuse existing inputs and saved outputs. If the host shows memory pressure or an application crashes, stop the operation adding load, check the device and application state, and resume safely with fewer concurrent operations.
+- Count every open verification tab toward the user's requested tab limit, including finished tabs. When using about seven chats, keep at most seven verification tabs open in total. Save and verify a finished result before closing its tab and opening the next. Keep file attachment and send operations sequential. Response generation may overlap within the tab limit.
+- After a timeout or uncertain browser action, inspect the exact chat's posted messages, attachment and response before attempting another send. Report a request as sent only after the posted message is visible. Report a comparison as complete only after its response has finished and been saved.
+- Verify the exact screen, setting, or data the user identified before making changes. Preserve existing files and test records until the user clearly authorizes their removal. When reporting verification, state the actual surfaces and scenarios checked, including any open gaps.
+- When a step fails, fix and verify one occurrence before repeating it across cases. For recurring errors and incidents that disrupt the user's work, add the concrete preventive check to the project instructions or the existing workflow and apply it when resuming.
+
+## Manual-analysis verification
+
+- Verify the model and reasoning setting in the actual request before testing. Check the requested deadline across the app and HTTP transport, and inspect the effective output-token cap. Apply the user's specified limits to the actual test configuration.
+- Check that the PDF, its product label and source URL, and the saved API response identify the same case. Verify the PDF hash before pairing inputs. Keep subagents within their assigned role and use the reviewer designated by the user.
+- Give every trial a unique output path and record the observed usage, latency and outcome before reusing a slot. Record unavailable measurements explicitly. Preserve the inputs for any outstanding comparison so it can resume from the existing API response.
+
 ## Canonical development source
 
 - The canonical GitHub repository is the private `ponkichi1552/LiFlow` repository: `https://github.com/ponkichi1552/LiFlow`. `origin` points there.
