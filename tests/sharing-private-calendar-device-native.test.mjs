@@ -8,6 +8,7 @@ test('private device Native session composition is lazy UID scoped coalesced and
   let uid=null; let authReads=0; const calls=[]; const ports=[]; const auth={get currentUser(){return uid?{uid}:null;}}; const firestore={name:'authenticated-live-service'};
   const native={nativePrivateCalendarSecrets:{name:'private-secrets'}};
   for(const [name,kind] of [['RootSetup','roots'],['AuthorityIntents','intents'],['Pairing','candidates'],['Connections','connection-store'],['KeyOutbox','outbox'],['Cache','cache']]) native['nativePrivateCalendar'+name]=owner=>{calls.push([kind,owner]);return{kind,owner};};
+  native.nativePrivateCalendarHistoryPrefix = owner => async () => { assert.equal(owner, uid); return { owner }; };
   const module=loadNativeModule('src/platform/sharing/private-calendar-devices.ts',{
     './firebase-services':{getSharingServices:()=>{authReads++;return{auth,firestore};}}, './private-calendar-cloud':{createPrivateCalendarCloud:(db,owner,current)=>{
       assert.equal(db,firestore);assert.equal(current(),owner);calls.push(['cloud',owner]);return{kind:'cloud',owner};}}, './native-private-calendar-crypto':{nativePrivateCalendarCrypto:{}},
@@ -19,6 +20,7 @@ test('private device Native session composition is lazy UID scoped coalesced and
   uid='owner-a';const first=module.openPrivateCalendarDevices(uid);assert.equal(first,module.openPrivateCalendarDevices(uid));assert.equal(ports.length,1);assert.equal(await first.read(),'owner-a');
   uid='owner-b';await assert.rejects(()=>first.read(),/アカウント/u);assert.throws(()=>module.openPrivateCalendarDevices('owner-a'),/アカウント/u);
   const other=module.openPrivateCalendarDevices(uid);assert.notEqual(other,first);assert.equal(ports.length,2);assert.equal(await other.read(),'owner-b');
+  assert.deepEqual(await ports[1].historyPrefix(), { owner: 'owner-b' });
   assert.equal(calls.length,14);assert.ok(calls.every(([,owner])=>['owner-a','owner-b'].includes(owner)));uid='owner-a';assert.equal(module.openPrivateCalendarDevices(uid),first);
 });
 

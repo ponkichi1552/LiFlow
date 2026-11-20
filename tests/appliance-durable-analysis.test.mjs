@@ -122,6 +122,21 @@ test('failed AI final writes are observable and a cold worker retries only the p
   assert.equal((await f.work()).settled, 1); assert.equal(f.calls(), 1);
 });
 
+test('paid analysis settles once while progress storage stalls and the first result write fails transiently', async () => {
+  const f = fixture(); const receipt = await f.admit(); const store = f.restart();
+  let writes = 0; let progressStarted = false;
+  const traced = { ...store, progress: () => { progressStarted = true; return new Promise(() => {}); },
+    stageAnalysisResult: async (...args) => {
+      if (++writes === 1) throw Object.assign(new Error('temporary Firestore failure'), { code: 14 });
+      return store.stageAnalysisResult(...args);
+    } };
+  assert.equal((await f.work({ store: traced })).settled, 1);
+  assert.equal(progressStarted, true);
+  assert.equal(writes, 2);
+  assert.equal(f.calls(), 1);
+  assert.deepEqual((await store.read(principal, receipt.jobId)).result, result);
+});
+
 test('AI queued work rechecks user authority before the paid start and does not bypass it after a preparation restart', async () => {
   const f = fixture(); const receipt = await f.admit(); let checked = 0;
   const denied = () => f.work({ authorize: async (owner, createdAt) => {

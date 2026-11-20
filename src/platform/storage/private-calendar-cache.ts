@@ -21,6 +21,7 @@ export interface PrivateCalendarCacheStoragePort {
 }
 interface CacheMetadata {
   cursor_json: string; encrypted_length: number; pending: number; attempts: number; retry_at: number | null; failure_code: string | null;
+  receipt_digest: string | null;
 }
 interface SavedCache extends CacheMetadata { encrypted_json: string }
 type CacheInput = { authority: VerifiedPrivateCalendarAuthority; calendarBinding: string; accountKey: Uint8Array };
@@ -28,6 +29,8 @@ export type { PrivateCalendarDeliveryFailure } from '../../features/sharing/priv
 const TABLE = `CREATE TABLE IF NOT EXISTS private_calendar_cache (
   id TEXT PRIMARY KEY NOT NULL CHECK (id = 'current'), cursor_json TEXT NOT NULL, encrypted_json TEXT NOT NULL,
   pending INTEGER NOT NULL CHECK (pending IN (0, 1)), attempts INTEGER NOT NULL CHECK (attempts >= 0), retry_at INTEGER, failure_code TEXT
+); CREATE TABLE IF NOT EXISTS private_calendar_receipt (
+  id TEXT PRIMARY KEY NOT NULL CHECK(id='current'), authority_digest TEXT NOT NULL, manifest_digest TEXT NOT NULL
 )`;
 const MAX_ENVELOPE_CHARACTERS = MAX_PRIVATE_CALENDAR_CACHE_BYTES * 2 + 64 * 1024;
 function savedCursor(row: CacheMetadata): PrivateCalendarCacheCursor {
@@ -64,7 +67,8 @@ export function createPrivateCalendarCacheStorage(port: PrivateCalendarCacheStor
     });
     await port.assertOwner(userId); return result;
   }
-  const columns = 'cursor_json, length(encrypted_json) AS encrypted_length, pending, attempts, retry_at, failure_code';
+  const columns = `cursor_json, length(encrypted_json) AS encrypted_length, pending, attempts, retry_at, failure_code,
+    (SELECT manifest_digest FROM private_calendar_receipt WHERE id='current') AS receipt_digest`;
   const record = (db: SQLiteDatabase) => db.getFirstAsync<SavedCache>(`SELECT ${columns}, encrypted_json FROM private_calendar_cache WHERE id = ?`, 'current');
   const metadata = (db: SQLiteDatabase) => db.getFirstAsync<CacheMetadata>(`SELECT ${columns} FROM private_calendar_cache WHERE id = ?`, 'current');
   return {
@@ -73,6 +77,7 @@ export function createPrivateCalendarCacheStorage(port: PrivateCalendarCacheStor
         const row = await metadata(db); if (!row) return null;
         const cursor = savedCursor(row);
         return { cursor, authorityCurrent: cursor.authorityDigest === authority.digest, pending: row.pending === 1,
+          ...(cursor.authorityDigest === authority.digest && row.receipt_digest === cursor.manifestDigest ? { receiptPending: true } : {}),
           attempts: row.attempts, retryAt: row.retry_at, failureCode: row.failure_code as PrivateCalendarDeliveryFailure | null };
       });
     },
@@ -83,7 +88,7 @@ export function createPrivateCalendarCacheStorage(port: PrivateCalendarCacheStor
         return cursor.authorityDigest === authority.digest && cursor.manifestDigest === digest ? envelope(row, authority) : null;
       });
     },
-    async save(encrypted: EncryptedPrivateCalendarCache, input: CacheInput & { origin: 'local' | 'remote'; acquisition?: { lease: PrivateCalendarAcquisitionLease; now(): number } }) {
+    async save(encrypted: EncryptedPrivateCalendarCache, input: CacheInput & { origin: 'local' | 'remote'; requireReceipt?: boolean; acquisition?: { lease: PrivateCalendarAcquisitionLease; now(): number } }) {
       ownerAuthority(input.authority);
       if (!(input.accountKey instanceof Uint8Array) || input.accountKey.length !== 32) throw new Error('本人用Calendarの鍵が無効です。');
       assertSharedIdentifier(input.calendarBinding);
@@ -115,9 +120,17 @@ export function createPrivateCalendarCacheStorage(port: PrivateCalendarCacheStor
             VALUES ('current', ?, ?, ?, 0, NULL, NULL) ON CONFLICT(id) DO UPDATE SET cursor_json=excluded.cursor_json,
             encrypted_json=excluded.encrypted_json, pending=excluded.pending, attempts=0, retry_at=NULL, failure_code=NULL`,
           JSON.stringify(changed.cursor), encoded, input.origin === 'local' ? 1 : 0);
+          if (input.origin === 'remote' && input.requireReceipt) {
+            await db.runAsync(`INSERT INTO private_calendar_receipt VALUES('current',?,?) ON CONFLICT(id) DO UPDATE SET
+              authority_digest=excluded.authority_digest, manifest_digest=excluded.manifest_digest`, input.authority.digest, changed.cursor.manifestDigest);
+          }
           return changed;
         });
       } finally { input.accountKey.fill(0); }
+    },
+    confirmRemoteReceipt(authority: VerifiedPrivateCalendarAuthority, digest: string) {
+      hexBytes(digest, 32);
+      return locked(authority, false, db => db.runAsync("DELETE FROM private_calendar_receipt WHERE id='current' AND authority_digest=? AND manifest_digest=?", authority.digest, digest));
     },
     beginAcquisition(authority: VerifiedPrivateCalendarAuthority, options: { rangeDigest: string; now: number; force?: boolean; automatic?: boolean; randomFraction: number }) {
       const owned = { ...options }; hexBytes(owned.rangeDigest, 32); timestamp(owned.now);
@@ -132,6 +145,15 @@ export function createPrivateCalendarCacheStorage(port: PrivateCalendarCacheStor
       const owned = snapshotPrivateCalendarAcquisitionLease(lease); timestamp(now);
       if (owned.authorityDigest !== authority.digest) throw new Error('Calendarの取得元が一致しません。');
       return locked(authority, true, db => failPrivateCalendarAcquisition(db, owned, now, code, randomFraction));
+    },
+    finishUnchangedAcquisition(authority: VerifiedPrivateCalendarAuthority, lease: PrivateCalendarAcquisitionLease, now: number, digest: string) {
+      const owned = snapshotPrivateCalendarAcquisitionLease(lease);
+      if (owned.authorityDigest !== authority.digest) throw new Error('Calendarの取得元が一致しません。');
+      return locked(authority, true, async db => {
+        const current = await metadata(db);
+        if (!current || current.pending || savedCursor(current).manifestDigest !== digest) throw new Error('取得中に本人用Calendarが更新されました。');
+        await completePrivateCalendarAcquisition(db, owned, now, digest);
+      });
     },
     async read(input: CacheInput) {
       ownerAuthority(input.authority);

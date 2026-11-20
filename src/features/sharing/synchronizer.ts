@@ -79,7 +79,8 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
     readEnvelope: version => deps.cloud.readGroupKey(deps.groupId, version, deps.identity.deviceId),
   });
   async function perform(options: { force?: boolean; budgetMs?: number }): Promise<SharingSyncResult> {
-    let sent = 0; let received = 0; let metadata;
+    let sent = 0; let received = 0;
+    let metadata: Awaited<ReturnType<ReturnType<typeof createSharingCloud>['readGroup']>>;
     const waiting = async (): Promise<SharingSyncResult> => ({ sent, received,
       pending: (await readSharingCheckpoint(deps.database, deps.groupId)).pendingCount, waitingForApproval: true, complete: false });
     try { metadata = await deps.cloud.readGroup(deps.groupId); }
@@ -120,6 +121,7 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
       return { facts, evidence };
     }
     const acceptedV2: { fact: AuthenticatedSharedOperation; event: SharedCloudEvent }[] = [];
+    const localAcceptances = new Map<number, SharedCloudEvent>();
     const flushAcceptedV2 = async () => {
       const protocol = deps.v2; if (!protocol || !acceptedV2.length) return;
       const facts = acceptedV2.map((item) => item.fact); const events = acceptedV2.map((item) => item.event);
@@ -150,14 +152,15 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
     };
     try {
       await getKey(roster); await adoptSnapshot(metadata.group);
-      const pull = async () => {
+      const pull = async (first?: typeof metadata) => {
         if (now() >= deadline) return false;
         let races = 0;
         do {
           const checkpoint = await readSharingCheckpoint(deps.database, deps.groupId); let page;
           let recovered: Awaited<ReturnType<typeof authenticateEvents>> | undefined;
           try {
-            page = await deps.cloud.pull(deps.groupId, checkpoint.sequence, async events => { recovered = await authenticateEvents(events); });
+            const confirmed = first; first = undefined;
+            page = await deps.cloud.pull(deps.groupId, checkpoint.sequence, async events => { recovered = await authenticateEvents(events); }, confirmed, localAcceptances);
           }
           catch (error) { if (!(error instanceof SharingSnapshotRequiredError) || ++races > 3) throw error; await refreshMetadata(); continue; }
           if (sharedRosterDigest(page.roster) !== sharedRosterDigest(roster)) { await refreshMetadata(); continue; }
@@ -173,7 +176,7 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
         } while (now() < deadline);
         return false;
       };
-      let complete = await pull();
+      let complete = await pull(metadata);
       if (metadata.group.rotationRequired) throw new SharingKeyVersionError('退出したメンバーを除いて共有鍵を更新する必要があります。');
       let attemptedUpload = false;
       while (now() < deadline) {
@@ -214,6 +217,7 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
           const fact = await decryptAuthenticatedSharedOperation(deps.crypto, accepted.envelope, await getKey(epoch), deps.identity, deps.groupId, epoch.body.keyVersion);
           if (sharedDocumentDigest(fact.operation) !== sharedDocumentDigest(op)) throw new Error('Server acknowledged a different shared operation');
           if (deps.v2) {
+            localAcceptances.set(accepted.uploadSequence, accepted);
             acceptedV2.push({ fact, event: accepted });
             if (acceptedV2.length >= 25) await flushAcceptedV2();
           } else await acknowledgeSharingUpload(deps.database, op.operationId, { groupId: deps.groupId, envelope: encoded });

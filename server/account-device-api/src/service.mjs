@@ -16,6 +16,7 @@ function exact(value, keys) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).sort().join(',') !== keys.sort().join(',')) refuse(400, 'invalid_request');
 }
 const millis = value => value && typeof value.toMillis === 'function' ? value.toMillis() : NaN;
+const MAX_REVISIONS = 4096;
 
 /** Metadata only. This service never receives a device private key, plaintext group key or housework payload. */
 export function createAccountDeviceService({ firestore, now = Date.now, accountDailyLimit = 120, globalDailyLimit = 2000 }) {
@@ -24,6 +25,7 @@ export function createAccountDeviceService({ firestore, now = Date.now, accountD
   const requests = (groupId, uid) => root(groupId).collection('accountDeviceRestores').doc(uid).collection('accountDeviceRequests');
   const slotIds = Array.from({ length: ACCOUNT_DEVICE_RESTORE_SLOTS }, (_, slot) => String(slot));
   const slots = (groupId, uid) => slotIds.map(id => requests(groupId, uid).doc(id));
+  const histories = new Map();
   const signal = uid => firestore.doc(`sharingUsers/${uid}/deviceRestoreSignals/current`);
   function identify(actor, groupId) {
     checked(() => { assertSharedIdentifier(actor?.uid); assertSharedIdentifier(groupId); });
@@ -77,11 +79,18 @@ export function createAccountDeviceService({ firestore, now = Date.now, accountD
     if (request.body.requestId !== raw.requestId || request.body.identity.deviceId !== raw.deviceId || sharedDocumentDigest(request) !== raw.requestDigest) refuse(409, 'request_changed');
     return request;
   }
+  async function assertRecoveryIdle(tx, groupId, keyVersion) {
+    const lock = await tx.get(root(groupId).collection('recoveryLocks').doc('current'));
+    if (lock.exists && lock.data()?.keyVersion === keyVersion) refuse(409, 'recovery_active');
+  }
   async function verifiedHistory(groupId, expected, deviceId) {
     // The immutable creation record anchors the exact same verifier used on-device.
-    if (expected.body.revision > 4096) refuse(409, 'history_limit');
-    let previous, seen = false;
-    for (let first = 1; first <= expected.body.revision; first += 100) {
+    if (expected.body.revision > MAX_REVISIONS) refuse(409, 'history_limit');
+    const saved = histories.get(groupId);
+    if (saved && saved.roster.body.revision > expected.body.revision) refuse(409, 'history_changed');
+    let previous = saved?.roster;
+    const seenDevices = new Set(saved?.seenDevices);
+    for (let first = (previous?.body.revision ?? 0) + 1; first <= expected.body.revision; first += 100) {
       const refs = Array.from({ length: Math.min(100, expected.body.revision - first + 1) }, (_, index) => root(groupId).collection('rosters').doc(String(first + index)));
       const rows = await firestore.getAll(...refs);
       for (const row of rows) {
@@ -90,11 +99,15 @@ export function createAccountDeviceService({ firestore, now = Date.now, accountD
         const roster = JSON.parse(text);
         if (!previous && (roster.body?.revision !== 1 || roster.body?.groupId !== groupId)) refuse(409, 'history_changed');
         previous = previous ? verifySharedRosterTransition(previous, roster) : validateSharedRoster(roster);
-        seen ||= previous.body.members.some(member => member.devices.some(device => device.identity.deviceId === deviceId));
+        for (const member of previous.body.members) for (const device of member.devices) seenDevices.add(device.identity.deviceId);
       }
     }
     if (!previous || previous.body.revision !== expected.body.revision || sharedRosterDigest(previous) !== sharedRosterDigest(expected)) refuse(409, 'history_changed');
-    return { roster: previous, seen };
+    if ((histories.get(groupId)?.roster.body.revision ?? 0) <= previous.body.revision && seenDevices.size <= 16384) {
+      histories.delete(groupId); histories.set(groupId, { roster: previous, seenDevices });
+      if (histories.size > 32) histories.delete(histories.keys().next().value);
+    }
+    return { roster: previous, seen: seenDevices.has(deviceId) };
   }
   return {
     async read(actor, input) {
@@ -132,7 +145,10 @@ export function createAccountDeviceService({ firestore, now = Date.now, accountD
         if (request.body.rosterDigest !== sharedRosterDigest(roster)) refuse(409, 'group_changed');
         if (group.deviceOwners[request.body.identity.deviceId] && group.deviceOwners[request.body.identity.deviceId] !== actor.uid) refuse(403, 'device_mismatch');
         const devices = roster.body.members.find(member => member.userId === actor.uid)?.devices ?? [];
-        if (!devices.some(device => device.identity.deviceId === request.body.identity.deviceId) && devices.length >= ACCOUNT_DEVICE_RESTORE_SLOTS) refuse(409, 'device_limit');
+        if (!devices.some(device => device.identity.deviceId === request.body.identity.deviceId)) {
+          if (devices.length >= ACCOUNT_DEVICE_RESTORE_SLOTS) refuse(409, 'device_limit');
+          if (roster.body.revision >= MAX_REVISIONS) refuse(409, 'history_limit');
+        }
         const ref = slots(input.groupId, actor.uid)[input.slot], old = (await tx.get(ref)).data();
         if (old && old.requestJson === canonicalJson(request)) return;
         if (old && old.requestId !== input.replaceRequestId || !old && input.replaceRequestId !== null) refuse(409, 'request_changed');
@@ -157,8 +173,13 @@ export function createAccountDeviceService({ firestore, now = Date.now, accountD
         const accepted = raw.status === 'accepted' && raw.grantJson === canonicalJson(input.grant)
           || raw.status === 'acknowledged' && raw.grantDigest === sharedDocumentDigest(input.grant);
         if (!accepted && (raw.status !== 'requested' || millis(raw.createdAt) + ACCOUNT_DEVICE_RESTORE_TTL_MS <= now())) refuse(409, 'request_expired');
-        if (!accepted) { const min = await minimum(tx, { ...metadata.group, groupId: input.groupId });
-          checked(() => verifyAccountDeviceRestoreGrant(input.grant, request, metadata.roster, min)); }
+        if (!accepted) {
+          const existing = metadata.group.deviceOwners[request.body.identity.deviceId] === actor.uid;
+          if (!existing && metadata.roster.body.revision >= MAX_REVISIONS) refuse(409, 'history_limit');
+          await assertRecoveryIdle(tx, input.groupId, metadata.group.keyVersion);
+          const min = await minimum(tx, { ...metadata.group, groupId: input.groupId });
+          checked(() => verifyAccountDeviceRestoreGrant(input.grant, request, metadata.roster, min));
+        }
         return { ...metadata, request, accepted };
       });
       if (preflight.accepted) return { status: 'accepted' };
@@ -177,8 +198,8 @@ export function createAccountDeviceService({ firestore, now = Date.now, accountD
         if (!existing && history.seen) refuse(403, 'device_removed');
         const minimumVersion = await minimum(tx, { ...group, groupId: input.groupId });
         const next = checked(() => verifyAccountDeviceRestoreGrant(input.grant, request, history.roster, minimumVersion));
-        const recovery = await tx.get(root(input.groupId).collection('recoveryLocks').doc('current'));
-        if (recovery.exists && recovery.data()?.keyVersion === group.keyVersion) refuse(409, 'recovery_active');
+        if (next.body.revision > MAX_REVISIONS) refuse(409, 'history_limit');
+        await assertRecoveryIdle(tx, input.groupId, group.keyVersion);
         const count = await meter(tx, actor.uid); count();
         if (!existing) {
           tx.update(root(input.groupId), { ...rosterCloudFields(next), updatedAt: FieldValue.serverTimestamp() });

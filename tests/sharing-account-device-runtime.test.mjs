@@ -5,6 +5,7 @@ import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
 import { loadNativeModule } from './helpers/native-module.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import * as registry from '../src/platform/storage/sharing-registry.ts';
+import * as signedHistoryPrefix from '../src/platform/storage/signed-history-prefix.ts';
 import * as operations from '../src/features/sharing/operations.ts';
 import * as rosters from '../src/features/sharing/roster.ts';
 import * as protocols from '../src/features/sharing/workspace-protocol.ts';
@@ -40,7 +41,7 @@ async function fixture() {
       '../../features/sharing/account-device-controller.ts': controller, '../../features/sharing/account-device-restore.ts': restore,
       '../../features/sharing/operations.ts': operations, '../../features/sharing/roster.ts': rosters,
       '../../features/sharing/workspace-protocol.ts': protocols, '../../features/sharing/account-device-key-continuity.ts': continuity,
-      '../storage/sharing-registry.ts': registry, './account-device-api.ts': { createAccountDeviceApi: () => api },
+      '../storage/sharing-registry.ts': registry, '../storage/signed-history-prefix': signedHistoryPrefix, './account-device-api.ts': { createAccountDeviceApi: () => api },
       './firebase-services.ts': { isSharingConfigured: () => true, getSharingServices: () => ({ auth, firestore: {} }) },
       './firestore-cloud.ts': { createSharingCloud: () => cloud }, './native-crypto.ts': { nativeSharingCrypto: crypto },
       './secure-store.ts': { loadOrCreateSharingDeviceIdentity: async () => identity, loadSharingGroupKey: async (_uid, _group, version) => keys.get(version)?.slice() ?? null,

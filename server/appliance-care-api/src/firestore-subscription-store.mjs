@@ -1,5 +1,19 @@
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto';
-import { newSubscriptionAccount, SubscriptionError, subscriptionUserId, subscriptionHash } from './subscription-service.mjs';
+import { newSubscriptionAccount, SubscriptionError, subscriptionUserId, subscriptionHash, assertSubscriptionEntitlement, displacesPreviousPurchase } from './subscription-service.mjs';
+
+export function createFirestoreEntitlementReader({ firestore }) {
+  return {
+    async ready() {
+      const config = (await firestore.collection('serviceConfiguration').doc('billing').get()).data();
+      if (config?.enforced !== true) throw new Error('Paid Firestore access must be enabled before public startup');
+    },
+    async assertActive(userId) {
+      const ref = firestore.collection('billingEntitlements').doc(subscriptionUserId(userId));
+      const [document] = await firestore.getAll(ref, { fieldMask: ['schemaVersion', 'userId', 'status', 'expiresAt', 'validUntil'] });
+      assertSubscriptionEntitlement(document.data(), userId, Date.now());
+    },
+  };
+}
 
 /** Admin SDK only. Neither clients nor shared-group members can write these collections. */
 export function createFirestoreSubscriptionStore({ firestore, tokenKey }) {
@@ -7,6 +21,7 @@ export function createFirestoreSubscriptionStore({ firestore, tokenKey }) {
   const accounts = firestore.collection('billingAccounts'); const purchases = firestore.collection('billingPurchases');
   const entitlements = firestore.collection('billingEntitlements');
   const acknowledgements = firestore.collection('billingAcknowledgements');
+  const notifications = firestore.collection('billingNotifications');
   function encrypt(key, value) {
     const nonce = randomBytes(12); const cipher = createCipheriv('aes-256-gcm', tokenKey, nonce, { authTagLength: 16 });
     cipher.setAAD(Buffer.from(key)); const bytes = Buffer.concat([cipher.update(JSON.stringify(value)), cipher.final()]);
@@ -21,10 +36,7 @@ export function createFirestoreSubscriptionStore({ firestore, tokenKey }) {
     return JSON.parse(Buffer.concat([cipher.update(Buffer.from(value.bytes, 'base64')), cipher.final()]).toString());
   }
   return {
-    async ready() {
-      const config = (await firestore.collection('serviceConfiguration').doc('billing').get()).data();
-      if (config?.enforced !== true) throw new Error('Paid Firestore access must be enabled before public startup');
-    },
+    ready: createFirestoreEntitlementReader({ firestore }).ready,
     async begin(userId) {
       const ref = accounts.doc(subscriptionUserId(userId));
       return firestore.runTransaction(async tx => {
@@ -55,7 +67,7 @@ export function createFirestoreSubscriptionStore({ firestore, tokenKey }) {
         if (old.some(snapshot => snapshot.exists && snapshot.data().userId !== userId)) {
           throw new SubscriptionError(409, 'PURCHASE_ALREADY_BOUND', 'この購入は別のLiFlowアカウントに紐づいています。購入時のアカウントでログインしてください。');
         }
-        const linked = new Set(records.filter(record => record.linkedPurchaseId).map(record => `${record.store}-${subscriptionHash(record.linkedPurchaseId)}`));
+        const linked = new Set(records.filter(record => displacesPreviousPurchase(record, at)).map(record => `${record.store}-${subscriptionHash(record.linkedPurchaseId)}`));
         const current = records.filter(record => !linked.has(record.key));
         // Remove only old pointers. Permanent purchase ownership records still prevent token reuse by another UID.
         const nextKeys = current.filter(record => record.retired !== true
@@ -74,7 +86,10 @@ export function createFirestoreSubscriptionStore({ firestore, tokenKey }) {
           } else if (previous) tx.delete(acknowledgements.doc(key));
         }
         for (const record of records) tx.set(purchases.doc(record.key), { userId, store: record.store,
-          encryptedProof: encrypt(record.key, record), updatedAt: at });
+          ...(nextKeys.includes(record.key) ? { encryptedProof: encrypt(record.key, record), updatedAt: at } : {}) });
+        for (const key of linked) if (!records.some(record => record.key === key) && old.some(row => row.exists && row.id === key)) {
+          tx.set(purchases.doc(key), { userId, store: key.split('-')[0] });
+        }
         tx.set(accountRef, { ...account, revision: body.revision, purchaseKeys: nextKeys });
         tx.set(entitlements.doc(userId), body);
         return body;
@@ -83,6 +98,33 @@ export function createFirestoreSubscriptionStore({ firestore, tokenKey }) {
     async entitlement(userId) { return (await entitlements.doc(subscriptionUserId(userId)).get()).data() ?? null; },
     async account(userId) { return (await accounts.doc(subscriptionUserId(userId)).get()).data() ?? null; },
     async owner(key) { return (await purchases.doc(key).get()).data()?.userId ?? null; },
+    async recordNotification(key, event, at) {
+      if (!/^(apple|google)-[a-f0-9]{64}$/u.test(key) || !/^[a-f0-9]{64}$/u.test(event) || !Number.isSafeInteger(at)) throw new Error('Invalid purchase notification');
+      const ref = notifications.doc(key);
+      return firestore.runTransaction(async transaction => {
+        const saved = (await transaction.get(ref)).data();
+        if (saved?.expiresAt?.toMillis() > at && saved.event === event) return saved.pending ? saved.event : null;
+        transaction.set(ref, { event, pending: true, expiresAt: new Date(at + 24 * 60 * 60_000) }); return event;
+      });
+    },
+    async pendingNotification(key, at) {
+      const value = (await notifications.doc(key).get()).data();
+      return value?.pending === true && value.expiresAt?.toMillis() > at ? value.event : null;
+    },
+    async settleNotification(key, event) {
+      const ref = notifications.doc(key);
+      await firestore.runTransaction(async transaction => {
+        const saved = (await transaction.get(ref)).data();
+        if (saved?.pending && saved.event === event) transaction.update(ref, { pending: false });
+      });
+    },
+    async pruneNotifications(at) {
+      const expired = await notifications.where('expiresAt', '<=', new Date(at)).select('expiresAt').limit(32).get();
+      if (expired.empty) return;
+      const batch = firestore.batch();
+      for (const row of expired.docs) batch.delete(row.ref, { lastUpdateTime: row.updateTime });
+      await batch.commit();
+    },
     async dueAcknowledgements(at, limit = 10) {
       if (!Number.isSafeInteger(at) || !Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('Invalid acknowledgement batch');
       const result = await acknowledgements.where('nextAttemptAt', '<=', at).orderBy('nextAttemptAt').limit(limit).get();

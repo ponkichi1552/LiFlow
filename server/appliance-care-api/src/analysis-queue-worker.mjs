@@ -1,5 +1,5 @@
 import { analyzeUploadedManual, inspectUploadedManual } from './uploaded-manual.mjs';
-import { persistAnalysisResult } from './persist-result.mjs';
+import { persistAnalysisResult, retryAnalysisWrite } from './persist-result.mjs';
 import { PublicApiError } from './public-access.mjs';
 import { manualPreflightErrorCodes } from './manual-upload-server.mjs';
 
@@ -20,7 +20,7 @@ export async function runAnalysisQueueBatch({ store, createDependencies, authori
   try {
     const ids = await store.listAnalysisWork(limit);
     const outcomes = await Promise.all(ids.map(async jobId => {
-    let phase = 'claim'; let timeout; let abort; let request; let encrypted = false;
+    let phase = 'claim'; let timeout; let renewal; let abort; let request;
     try {
       if (signal?.aborted) return 'deferred';
       const claim = await store.claimAnalysis(jobId);
@@ -28,38 +28,55 @@ export async function runAnalysisQueueBatch({ store, createDependencies, authori
       const { admission } = claim;
       let result = claim.result;
       if (!result) {
-        encrypted = claim.inputManifest?.version === 3;
+        let preparing = true;
+        let renewing = false;
+        renewal = setInterval(() => {
+          if (!preparing || renewing || signal?.aborted) return;
+          renewing = true;
+          void store.renewAnalysisPreparation(admission).then(current => { preparing = current; }).catch(() => {
+            monitor({ event: 'analysis_worker_persistence_failed', jobId, stage: 'prepare' });
+          }).finally(() => { renewing = false; });
+        }, 10_000); renewal.unref();
+        const encrypted = claim.inputManifest?.version === 3;
         phase = 'claimed'; await checkpoint(phase, jobId);
+        phase = 'authorization'; await authorize(claim.owner, claim.createdAt);
+        const checkedAt = now();
+        if (signal?.aborted || !preparing || checkedAt >= admission.deadlineAt) return 'deferred';
         phase = 'input';
         try {
           request = await store.readAnalysisInput(claim);
-          if (encrypted) await inspectUploadedManual(request.manual.bytes, { waitForSlot: true });
+          if (encrypted) await inspectUploadedManual(request.manual.bytes, { waitForSlot: true, verifiedReference: request.manual.reference });
         } catch (error) {
           if (!encrypted || !(error instanceof PublicApiError) || !manualPreflightErrorCodes.includes(error.code)) throw error;
           result = { status: 'error', code: error.code, message: error.message };
         }
-        if (signal?.aborted || now() >= admission.deadlineAt) return 'deferred';
+        if (signal?.aborted || !preparing || now() >= admission.deadlineAt) return 'deferred';
         const beforeStart = !!result;
         if (!beforeStart) {
-          phase = 'authorization'; await authorize(claim.owner, claim.createdAt);
-          if (signal?.aborted) return 'deferred';
+          if (now() - checkedAt >= 30_000) {
+            phase = 'authorization'; await authorize(claim.owner, claim.createdAt);
+          }
+          if (signal?.aborted || !preparing) return 'deferred';
           const controller = new AbortController(); abort = () => controller.abort();
           signal?.addEventListener('abort', abort, { once: true });
           timeout = setTimeout(abort, Math.max(1, admission.deadlineAt - now())); timeout.unref();
           let progress = Promise.resolve();
           phase = 'start'; if (!await store.startAnalysis(admission)) return 'deferred';
+          preparing = false;
+          clearInterval(renewal);
           phase = 'analysisStarted'; await checkpoint(phase, jobId);
           phase = 'analysis';
           try { result = await analyze(request, createDependencies(controller.signal), stage => {
-            progress = progress.then(() => store.progress(admission, stage)).catch(() => {
+            progress = progress.then(() => phase === 'analysis' ? store.progress(admission, stage) : undefined).catch(() => {
               monitor({ event: 'analysis_worker_persistence_failed', jobId, stage: 'progress' });
             });
           }); } catch { result = failed; }
           phase = 'providerReturned'; await checkpoint(phase, jobId);
-          await progress;
         }
         phase = 'resultStaging';
-        if (!await store.stageAnalysisResult(admission, result, { beforeStart })) throw new Error('Analysis settlement rejected');
+        if (!await retryAnalysisWrite(() => store.stageAnalysisResult(admission, result, { beforeStart }), admission.deadlineAt, now)) {
+          throw new Error('Analysis settlement rejected');
+        }
         phase = 'resultStaged'; await checkpoint(phase, jobId);
       }
       phase = 'settlement';
@@ -68,7 +85,7 @@ export async function runAnalysisQueueBatch({ store, createDependencies, authori
     } catch {
       monitor({ event: 'analysis_worker_failed', jobId, stage: phase });
       return 'failed';
-    } finally { if (encrypted) request?.manual.bytes.fill(0); clearTimeout(timeout); if (abort) signal?.removeEventListener('abort', abort); }
+    } finally { request?.manual.bytes.fill(0); clearInterval(renewal); clearTimeout(timeout); if (abort) signal?.removeEventListener('abort', abort); }
     }));
     return { attempted: outcomes.length, settled: outcomes.filter(value => value === 'settled').length,
       failed: outcomes.filter(value => value === 'failed').length, deferred: outcomes.filter(value => value === 'deferred').length };

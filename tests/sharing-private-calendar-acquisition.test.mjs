@@ -62,7 +62,11 @@ test('private Calendar automatic acquisition skips a fresh identical horizon but
   const f = await configured(t); assert.equal((await f.openCapture().capture({ range, automatic: true })).kind, 'published');
   assert.equal((await f.openCapture().capture({ range, automatic: true })).kind, 'fresh'); assert.equal(f.state.googleReads, 1);
   assert.equal((await f.openCapture().capture({ range, force: true })).kind, 'published'); assert.equal(f.state.googleReads, 2);
-  f.state.now += 10 * 60 * 1000; assert.equal((await f.openCapture().capture({ range, automatic: true })).kind, 'published');
+  f.state.now += 10 * 60 * 1000; assert.equal((await f.openCapture().capture({ range, automatic: true })).kind, 'fresh');
+  assert.equal(f.state.googleReads, 3); assert.equal(f.state.uploads, 2);
+  f.state.now += 24 * 60 * 60 * 1000;
+  assert.equal((await f.openCapture().capture({ range, automatic: true })).kind, 'published');
+  assert.equal(f.state.uploads, 3);
 });
 
 test('private Calendar acquisition is exclusive across independent SQLite connections and a manual force cannot steal live work', async t => {

@@ -19,6 +19,20 @@ import type {
 // Retain only unfinished transport attempts. A retry after a lost acknowledgement reuses the same paid admission.
 const pendingAdmissions = new Map<string, { id: string; expiresAt: number }>();
 
+async function analysisCacheKeys(baseUrl: string, request: ApplianceCareApiRequest) {
+  const text = JSON.stringify([baseUrl, request]);
+  const forceSuffix = ',"forceReanalysis":true}]';
+  const ordinary = request.forceReanalysis && text.endsWith(forceSuffix) ? `${text.slice(0, -forceSuffix.length)}}]` : text;
+  const hash = async (value: string) => {
+    if (value.length < 128 * 1024) return bytesToHex(sha256(utf8ToBytes(value)));
+    // Avoid a PDF-sized temporary UTF-8 array and a long synchronous hash on Hermes.
+    const crypto = await import('expo-crypto');
+    return crypto.digestStringAsync(crypto.CryptoDigestAlgorithm.SHA256, value);
+  };
+  const retryKey = await hash(text);
+  return { retryKey, cacheKey: ordinary === text ? retryKey : await hash(ordinary) };
+}
+
 export function applianceCareApiBaseUrl(): string {
   const configured = process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL?.trim();
   if (configured) return configured.replace(/\/+$/, '');
@@ -57,18 +71,15 @@ export async function analyzeApplianceCareRequest(
   const abort = () => controller.abort();
   signal?.addEventListener('abort', abort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const payload = JSON.stringify(normalized);
-  const retryKey = bytesToHex(sha256(utf8ToBytes(`[${JSON.stringify(baseUrl)},${payload}]`)));
-  const cacheKey = normalized.forceReanalysis
-    ? bytesToHex(sha256(utf8ToBytes(JSON.stringify([baseUrl, { ...normalized, forceReanalysis: undefined }]))))
-    : retryKey;
   let admissionId: string | undefined;
-  const finishAttempt = () => { if (pendingAdmissions.get(retryKey)?.id === admissionId) pendingAdmissions.delete(retryKey); };
   try {
+    const { retryKey, cacheKey } = await abortApplianceWait(() => analysisCacheKeys(baseUrl, normalized), controller.signal);
     const session = await abortApplianceWait(async () => {
       const { authorizeApplianceCareApi } = await import('../../platform/appliance-care/auth');
       return authorizeApplianceCareApi(baseUrl);
     }, controller.signal);
+    const attemptKey = JSON.stringify([session.userId, retryKey]);
+    const finishAttempt = () => { if (pendingAdmissions.get(attemptKey)?.id === admissionId) pendingAdmissions.delete(attemptKey); };
     if (deliveries && session.userId) {
       // Receipts carry no PDF/result. Retry them only when there is real local pending work.
       void flushAnalysisReceipts(deliveries, session, baseUrl).catch(() => undefined);
@@ -80,43 +91,57 @@ export async function analyzeApplianceCareRequest(
     const startHeaders = await abortApplianceWait(() => session.headers(), controller.signal);
     if (controller.signal.aborted) return temporaryError('解析の通信を中断しました。');
     for (const [key, item] of pendingAdmissions) if (item.expiresAt <= Date.now()) pendingAdmissions.delete(key);
-    const previous = pendingAdmissions.get(retryKey);
-    if (previous) startHeaders['x-idempotency-key'] = previous.id;
-    else if (startHeaders['x-idempotency-key']) {
-      pendingAdmissions.set(retryKey, { id: startHeaders['x-idempotency-key'], expiresAt: Date.now() + 24 * 60 * 60_000 });
-      while (pendingAdmissions.size > 32) pendingAdmissions.delete(pendingAdmissions.keys().next().value!);
-    }
-    admissionId = startHeaders['x-idempotency-key'];
+    const proposedId = startHeaders['x-idempotency-key'];
+    const previous = pendingAdmissions.get(attemptKey);
+    admissionId = previous?.id ?? proposedId;
     let jobId: string | undefined;
     if (deliveries && session.userId && admissionId) {
       const saved = await deliveries.admission(session.userId, retryKey, admissionId);
       admissionId = saved.id;
-      startHeaders['x-idempotency-key'] = saved.id;
       if (isJobAccepted(saved)) jobId = saved.jobId;
     }
+    if (admissionId) {
+      startHeaders['x-idempotency-key'] = admissionId;
+      if (previous?.id !== admissionId) {
+        pendingAdmissions.set(attemptKey, { id: admissionId, expiresAt: Date.now() + 24 * 60 * 60_000 });
+        while (pendingAdmissions.size > 32) pendingAdmissions.delete(pendingAdmissions.keys().next().value!);
+      }
+    }
     if (!jobId) {
-      const startResponse = await abortApplianceWait(async () => {
-        const endpoint = `${baseUrl}/api/appliance-care/jobs`;
-        const options = { method: 'POST', redirect: 'error' as const, signal: controller.signal };
-        if (normalized.manual) {
-          const { encryptManualUpload } = await import('./manual-upload-crypto');
-          const body = await encryptManualUpload({ ...normalized, manual: normalized.manual }, session.userId, admissionId ?? '');
-          const native = await import('expo/fetch');
-          controller.signal.throwIfAborted();
-          return native.fetch(endpoint, { ...options, headers: { ...startHeaders, 'content-type': MANUAL_UPLOAD_CONTENT_TYPE }, body });
-        }
-        return fetch(endpoint, { ...options, headers: { ...startHeaders, 'content-type': 'application/json' }, body: payload });
-      }, controller.signal);
-      const startPayload: unknown = await abortApplianceWait(() => readJson(startResponse), controller.signal);
+      const endpoint = `${baseUrl}/api/appliance-care/jobs`;
+      const resumeUpload = normalized.manual && admissionId && (previous || admissionId !== proposedId);
+      const receiptResponse = resumeUpload ? await abortApplianceWait(() => fetch(`${endpoint}/admission`, {
+        method: 'GET', redirect: 'error', headers: startHeaders, signal: controller.signal,
+      }), controller.signal) : undefined;
+      let startResponse = receiptResponse;
+      let startPayload = receiptResponse ? await abortApplianceWait(() => readJson(receiptResponse), controller.signal) : undefined;
+      // Only the authenticated admission endpoint can confirm that this PDF still needs to be uploaded.
+      if (!startResponse || (startResponse.status === 404 && isRecord(startPayload) && startPayload.code === 'ADMISSION_NOT_FOUND')) {
+        const uploadResponse = await abortApplianceWait(async () => {
+          const options = { method: 'POST', redirect: 'error' as const, signal: controller.signal };
+          if (normalized.manual) {
+            const { encryptManualUpload } = await import('./manual-upload-crypto');
+            const body = await encryptManualUpload({ ...normalized, manual: normalized.manual }, session.userId, admissionId ?? '');
+            const native = await import('expo/fetch');
+            controller.signal.throwIfAborted();
+            return native.fetch(endpoint, { ...options, headers: { ...startHeaders, 'content-type': MANUAL_UPLOAD_CONTENT_TYPE }, body });
+          }
+          return fetch(endpoint, { ...options, headers: { ...startHeaders, 'content-type': 'application/json' }, body: JSON.stringify(normalized) });
+        }, controller.signal);
+        startResponse = uploadResponse;
+        startPayload = await abortApplianceWait(() => readJson(uploadResponse), controller.signal);
+      }
       controller.signal.throwIfAborted();
       if (isApiResponse(startPayload)) {
         // An expired admission is retired only once the server reports it. The next attempt requires another explicit action.
         if (startPayload.status === 'error' && startPayload.code === 'REQUEST_CONFLICT' && deliveries && session.userId && admissionId) {
           await deliveries.completeAdmission(session.userId, retryKey, admissionId);
         }
-        finishAttempt(); return startPayload;
+        if (startPayload.status === 'error' && startPayload.code === 'REQUEST_CONFLICT'
+          || startResponse !== receiptResponse && startResponse && startResponse.status < 500 && startResponse.status !== 429) finishAttempt();
+        return startPayload;
       }
-      if (!startResponse.ok || !isJobAccepted(startPayload)) {
+      if (!startResponse?.ok || !isJobAccepted(startPayload)) {
         return temporaryError('家電解析APIに接続できません。APIサーバーの状態を確認してください。');
       }
       jobId = startPayload.jobId;

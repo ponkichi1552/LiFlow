@@ -1,6 +1,7 @@
 import { DELIVERY_PROOF_COLLECTION, DELIVERY_TTL_MS, parseDeliveryPolicy, readSignedDeliveryProgress,
   validRecoveryReceipt } from '../../../src/features/sharing/delivery-proof.ts';
 import { sharedDocumentDigest } from '../../../src/features/sharing/crypto.ts';
+import { assertSharedIdentifier } from '../../../src/features/sharing/identifier.ts';
 import { verifiedDeliveryAuthority } from './delivery-authority.mjs';
 import { randomBytes } from 'node:crypto';
 
@@ -8,15 +9,15 @@ const requestBatch = 32;
 const time = value => typeof value?.toMillis === 'function' ? value.toMillis() : value instanceof Date ? value.getTime() : NaN;
 const sameTimestamp = (a, b) => Number.isSafeInteger(a?.seconds) && Number.isInteger(a.nanoseconds)
   && a.seconds === b?.seconds && a.nanoseconds === b.nanoseconds;
-const id = /^[A-Za-z0-9_.:-]{1,150}$/u;
+function safeId(value) { try { assertSharedIdentifier(value); return true; } catch { return false; } }
 const digest = /^[a-f0-9]{64}$/u;
 const inactive = () => ({ active: false, deleted: 0, nextAt: null });
 const projectIdFrom = firestore => firestore.projectId;
 const proofScope = (projectId, kind, root, policy, authority) => ({ projectId, kind, scopeId: root.id,
   enrollmentId: policy.enrollmentId, authorityDigest: authority.digest, keyVersion: authority.metadata.keyVersion });
 
-async function readEnrollments(firestore, transaction, root, kind, raw, policy, projectId) {
-  const authority = await verifiedDeliveryAuthority(firestore, root, raw, kind);
+async function readEnrollments(firestore, transaction, root, kind, raw, policy, projectId, verified) {
+  const authority = verified ?? await verifiedDeliveryAuthority(firestore, root, raw, kind);
   if (!authority) return null;
   const scope = proofScope(projectId, kind, root, policy, authority);
   const refs = authority.devices.map(device => root.collection(DELIVERY_PROOF_COLLECTION).doc(device.identity.deviceId));
@@ -57,17 +58,18 @@ export async function inspectDeliveryReadiness(firestore, projectId = projectIdF
         if (!raw || kind === 'shared' && raw.schemaVersion !== 2) return null;
         const policy = parseDeliveryPolicy(policyDoc.data());
         const enabled = policy?.enabled === true;
-        if (kind === 'shared' && raw.closed) return { closed: true, enabled };
-        const authority = await verifiedDeliveryAuthority(firestore, root, raw, kind).catch(() => null);
-        if (!authority) return { invalid: true, enabled };
-        const enrollment = policy ? await readEnrollments(firestore, transaction, root, kind, raw, policy, projectId) : null;
         const lock = kind === 'shared' ? (await transaction.get(root.collection('recoveryLocks').doc('current'))).data() : undefined;
+        const locked = lock?.keyVersion === raw.keyVersion;
+        const authority = await verifiedDeliveryAuthority(firestore, root, raw, kind).catch(() => null);
+        if (!authority) return { invalid: true, enabled, locked };
+        if (kind === 'shared' && authority.metadata.closed) return { closed: true, enabled, locked };
+        const enrollment = policy ? await readEnrollments(firestore, transaction, root, kind, raw, policy, projectId, authority) : null;
         return { approved: authority.devices.length, ready: enrollment?.ready ?? 0, caughtUp: await countCaughtUp(transaction, root, kind, enrollment),
-          enabled,
-          locked: lock?.keyVersion === raw.keyVersion };
+          enabled, locked };
       }, { readOnly: true });
       if (!outcome) continue;
       if (outcome.enabled) total.enabledScopes++;
+      if (outcome.locked) total.recoveryLockedScopes++;
       if (outcome.closed) {
         if (outcome.enabled) total.closedEnabledScopes++;
         continue;
@@ -77,7 +79,6 @@ export async function inspectDeliveryReadiness(firestore, projectId = projectIdF
       total.approved += outcome.approved; total.ready += outcome.ready; total.caughtUp += outcome.caughtUp;
       if (outcome.approved > 0 && outcome.ready === outcome.approved) total.fullyReadyScopes++;
       if (outcome.approved > 0 && outcome.caughtUp === outcome.approved) total.fullyCaughtUpScopes++;
-      if (outcome.locked) total.recoveryLockedScopes++;
     }
     output[kind] = total;
   }
@@ -85,7 +86,7 @@ export async function inspectDeliveryReadiness(firestore, projectId = projectIdF
 }
 
 export async function setDeliveryPolicyState(firestore, { kind, scopeId, action }, projectId = projectIdFrom(firestore)) {
-  if (!['shared', 'private'].includes(kind) || typeof scopeId !== 'string' || !id.test(scopeId)
+  if (!['shared', 'private'].includes(kind) || !safeId(scopeId)
     || !['enroll', 'enable', 'pause'].includes(action)) throw new Error('Invalid delivery policy action');
   const root = firestore.collection(kind === 'shared' ? 'sharingGroups' : 'privateCalendars').doc(scopeId);
   const policyRef = root.collection('deliveryControl').doc('policy');
@@ -142,19 +143,19 @@ async function currentSnapshotDigest(transaction, root, group) {
     ? sharedDocumentDigest(manifest) : null;
 }
 
-async function* deliveryPages(transaction, query) {
+async function* deliveryPages(transaction, query, cursor, continued) {
   const size = 25;
-  let next = query.limit(size);
-  for (;;) {
-    const page = await transaction.get(next);
+  for (let count = 0; count < 2; count++) {
+    const page = await transaction.get((cursor ? query.startAfter(cursor) : query).limit(size));
     if (page.docs.length) yield page.docs;
     if (page.docs.length < size) return;
-    next = query.startAfter(page.docs.at(-1)).limit(size);
+    cursor = page.docs.at(-1);
   }
+  continued(cursor);
 }
 
-export async function sweepSharedDeliveries(firestore, groupId, now = Date.now(), projectId = projectIdFrom(firestore)) {
-  if (!id.test(groupId) || !Number.isSafeInteger(now)) throw new Error('Invalid delivery sweep scope');
+export async function sweepSharedDeliveries(firestore, groupId, now = Date.now(), projectId = projectIdFrom(firestore), previousScan) {
+  if (!safeId(groupId) || !Number.isSafeInteger(now)) throw new Error('Invalid delivery sweep scope');
   const root = firestore.collection('sharingGroups').doc(groupId);
   let claim;
   const result = await firestore.runTransaction(async transaction => {
@@ -163,6 +164,10 @@ export async function sweepSharedDeliveries(firestore, groupId, now = Date.now()
     const [current, policyDoc, recovery] = await transaction.getAll(root, policyRef, root.collection('recoveryLocks').doc('current'));
     const raw = current.data(), policyData = policyDoc.data(), policy = parseDeliveryPolicy(policyData);
     if (!policy?.enabled || raw?.schemaVersion !== 2) return inactive();
+    if (recovery.data()?.keyVersion === raw.keyVersion || raw.rotationRequired) {
+      if (policyData.active === true) transaction.update(policyRef, { active: false });
+      return inactive();
+    }
     const enrolled = await readEnrollments(firestore, transaction, root, 'shared', raw, policy, projectId);
     const { metadata: group, approved, ready, progress } = enrolled;
     const recovering = recovery.data()?.keyVersion === group.keyVersion;
@@ -183,10 +188,17 @@ export async function sweepSharedDeliveries(firestore, groupId, now = Date.now()
     const owner = progress[enrolled.devices.findIndex(device => device.identity.deviceId === group.ownerDeviceId)];
     // Owner recovery reads a continuous raw prefix from its last durable cursor, including unreadable originals.
     const ceiling = closed ? group.headSequence : holdsCurrent(owner) ? owner.sequence : 0;
+    const scanKey = JSON.stringify([enrolled.scope.enrollmentId, enrolled.digest, group.snapshotId, snapshotDigest, floor, ceiling,
+      group.retentionThroughSequence, group.retentionKeyVersion, holders.length, closed]);
+    const scan = previousScan?.key === scanKey ? previousScan : undefined;
+    const continuation = { key: scanKey, events: scan?.events, chunks: scan?.chunks,
+      eventsDone: scan?.eventsDone ?? ceiling === 0, chunksDone: scan?.chunksDone ?? false, nextAt: scan?.nextAt ?? null };
+    result.nextAt = continuation.nextAt;
     const deletions = [];
-    if (ceiling > 0) {
+    if (!continuation.eventsDone) {
       const events = root.collection('events').where('uploadSequence', '<=', ceiling).orderBy('uploadSequence').select('uploadSequence', 'createdAt', 'keyVersion');
-      for await (const page of deliveryPages(transaction, events)) {
+      let more = false;
+      for await (const page of deliveryPages(transaction, events, scan?.events, cursor => { continuation.events = cursor; more = true; })) {
         let waiting = false;
         const eligible = page.filter(event => {
           const { createdAt, uploadSequence } = event.data();
@@ -203,28 +215,43 @@ export async function sweepSharedDeliveries(firestore, groupId, now = Date.now()
         }
         if (deletions.length === 5 || waiting) break;
       }
+      continuation.eventsDone = !more && deletions.length < 5;
     }
     const chunkLimit = deletions.length + 5;
     const chunks = root.collection('snapshotChunks').orderBy('createdAt').select('snapshotId', 'keyVersion', 'createdAt');
-    for await (const page of deliveryPages(transaction, chunks)) {
-      const currentEpoch = page.filter(chunk => Number.isSafeInteger(chunk.data().keyVersion) && chunk.data().keyVersion <= group.keyVersion);
-      const candidates = [...new Set(currentEpoch.map(chunk => chunk.data().snapshotId)
-        .filter(snapshotId => typeof snapshotId === 'string' && id.test(snapshotId) && snapshotId !== group.snapshotId))];
+    let moreChunks = false;
+    if (!continuation.chunksDone) for await (const page of deliveryPages(transaction, chunks, scan?.chunks, cursor => { continuation.chunks = cursor; moreChunks = true; })) {
+      const candidates = [...new Set(page.map(chunk => chunk.data())
+        .filter(({ snapshotId, keyVersion }) => safeId(snapshotId) && snapshotId !== group.snapshotId && keyVersion <= group.keyVersion + 1)
+        .map(({ snapshotId }) => snapshotId))];
       const manifests = candidates.length ? await transaction.getAll(...candidates.map(snapshotId => root.collection('snapshots').doc(snapshotId))) : [];
-      const staged = new Set(manifests.filter(manifest => !manifest.exists).map(manifest => manifest.id));
-      for (const chunk of currentEpoch) {
-        const { createdAt, snapshotId } = chunk.data();
-        if (due(result, createdAt, closed || staged.has(snapshotId) || Boolean(group.snapshotId) && holders.length > 0,
+      const unpublished = manifests.filter(manifest => !manifest.exists).map(manifest => manifest.id);
+      const stages = unpublished.length ? await transaction.getAll(...unpublished.map(id => root.collection('snapshotStages').doc(id))) : [];
+      const stageData = new Map(stages.map(stage => [stage.id, stage.data()]));
+      for (const chunk of page) {
+        const { createdAt, snapshotId, keyVersion } = chunk.data();
+        if (!Number.isSafeInteger(keyVersion) || keyVersion > group.keyVersion + 1) continue;
+        const stage = stageData.get(snapshotId);
+        const prepared = stage?.keyVersion === keyVersion;
+        if (keyVersion > group.keyVersion && !prepared) continue;
+        const recoverable = closed || stageData.has(snapshotId) || Boolean(group.snapshotId) && holders.length > 0;
+        if (due(result, prepared ? stage.updatedAt : createdAt, recoverable,
           active && snapshotId === group.snapshotId && holders.length === approved, now)) deletions.push(chunk.ref);
         if (deletions.length === chunkLimit) break;
       }
       if (deletions.length === chunkLimit) break;
     }
+    continuation.chunksDone ||= !moreChunks && deletions.length < chunkLimit;
     if (policyData.active !== active || active && policyData.activatedAt === undefined) transaction.update(policyRef, {
       active, ...(active && policyData.activatedAt === undefined ? { activatedAt: now } : {}),
     });
     for (const target of deletions) transaction.delete(target);
     result.deleted = deletions.length;
+    if (!continuation.eventsDone || !continuation.chunksDone) {
+      continuation.nextAt = result.nextAt;
+      result.continuation = continuation;
+      result.nextAt = now;
+    }
     if (result.deleted) result.nextAt = now;
     claim = { ...enrolled, authorityJson: raw.rosterJson };
     return result;
@@ -234,7 +261,7 @@ export async function sweepSharedDeliveries(firestore, groupId, now = Date.now()
 }
 
 export async function sweepPrivateDeliveries(firestore, userId, now = Date.now(), projectId = projectIdFrom(firestore)) {
-  if (!id.test(userId) || !Number.isSafeInteger(now)) throw new Error('Invalid private delivery scope');
+  if (!safeId(userId) || !Number.isSafeInteger(now)) throw new Error('Invalid private delivery scope');
   const root = firestore.collection('privateCalendars').doc(userId);
   let claim;
   const result = await firestore.runTransaction(async transaction => {
@@ -356,6 +383,13 @@ export async function pruneDeliveryRequests(root, result, now, firestore, claim)
 /** Wakes only for changes or a known expiry. Listener failures retry with backoff. */
 export function startSharedDeliveryWorker(firestore, monitor = () => {}, projectId = projectIdFrom(firestore)) {
   const groups = new Map(); let stopped = false;
+  const queuedSweeps = new Set(); let activeSweeps = 0;
+  function dispatch() {
+    while (!stopped && activeSweeps < 2 && queuedSweeps.size) {
+      const run = queuedSweeps.values().next().value; queuedSweeps.delete(run); activeSweeps++;
+      void run().finally(() => { activeSweeps--; dispatch(); });
+    }
+  }
   function observe(target, changed) {
     let ended = false, unsubscribe, retry, failures = 0;
     const connect = () => {
@@ -398,20 +432,28 @@ export function startSharedDeliveryWorker(firestore, monitor = () => {}, project
       if (!root) continue;
       if (change.type === 'removed' || !parseDeliveryPolicy(change.doc.data())) { groups.get(root.path)?.stop(); groups.delete(root.path); continue; }
       if (groups.has(root.path)) { groups.get(root.path).wake(); continue; }
-      let running = false, again = false, timer, disposed = false;
-      const schedule = delay => { clearTimeout(timer); if (!stopped && !disposed) timer = setTimeout(run, Math.max(50, delay)); };
+      let running = false, again = false, timer, disposed = false, next = Infinity, failures = 0, errorUntil = 0;
+      let continuation;
+      const schedule = delay => {
+        const at = Math.max(errorUntil, Date.now() + Math.max(50, delay));
+        if (stopped || disposed || at >= next) return;
+        next = at; clearTimeout(timer); timer = setTimeout(() => { queuedSweeps.add(run); dispatch(); }, at - Date.now());
+      };
       const run = async () => {
         if (stopped || disposed) return; if (running) { again = true; return; }
-        running = true; clearTimeout(timer);
+        running = true; next = Infinity;
         try {
           const sweep = root.parent.id === 'privateCalendars' ? sweepPrivateDeliveries : sweepSharedDeliveries;
-          const result = await sweep(firestore, root.id, Date.now(), projectId);
+          const result = await sweep(firestore, root.id, Date.now(), projectId, continuation);
+          continuation = result.continuation;
+          failures = 0; errorUntil = 0;
           if (result.deleted) monitor({ event: 'shared_delivery_erased', records: result.deleted });
           if (again) { again = false; schedule(50); }
           else if (result.nextAt !== null) schedule(result.nextAt - Date.now());
         } catch (error) {
           monitor({ event: 'shared_delivery_cleanup_failed', ...(Number.isInteger(error?.code) ? { code: error.code } : {}) });
-          schedule(30_000);
+          errorUntil = Date.now() + Math.min(30 * 60_000, 30_000 * 2 ** Math.min(failures++, 6));
+          schedule(0);
         }
         finally { running = false; }
       };
@@ -420,8 +462,9 @@ export function startSharedDeliveryWorker(firestore, monitor = () => {}, project
       const subscriptions = [observe(root, wake), ...[DELIVERY_PROOF_COLLECTION, 'deliveryRequests'].map(name => observe(root.collection(name), wake)),
         // Private preference publication is followed by a durable signed receipt, which already wakes this worker.
         ...(privateScope ? [] : [observe(root.collection('snapshotChunks').orderBy('createdAt', 'desc').limit(1), wake),
+          observe(root.collection('snapshotStages').orderBy('updatedAt', 'desc').limit(1), wake),
           observe(root.collection('recoveryLocks').doc('current'), wake)])];
-      groups.set(root.path, { wake, stop() { disposed = true; clearTimeout(timer); subscriptions.forEach(unsubscribe => unsubscribe()); } }); wake();
+      groups.set(root.path, { wake, stop() { disposed = true; clearTimeout(timer); queuedSweeps.delete(run); subscriptions.forEach(unsubscribe => unsubscribe()); } }); wake();
     }
   });
   return () => { stopped = true; discovery(); for (const group of groups.values()) group.stop(); groups.clear(); };

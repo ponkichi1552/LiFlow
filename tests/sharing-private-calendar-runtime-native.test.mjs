@@ -12,6 +12,7 @@ function fixture() {
   const auth = { get currentUser() { return state.uid ? { uid: state.uid } : null; } }; const firestore = { name: 'named-authenticated-Firestore' };
   const services = { auth, firestore }; const native = { nativePrivateCalendarSecrets: { name: 'protected-secrets' } };
   for (const name of ['Source', 'AuthorityIntents', 'Cache']) native['nativePrivateCalendar' + name] = owner => ({ owner, kind: name });
+  native.nativePrivateCalendarHistoryPrefix = owner => async () => { assert.equal(owner, state.uid); return { owner }; };
   native.nativePrivatePlannerPreferences = owner => ({ owner, kind: 'PlannerPreferences', read: async () => null });
   native.nativePrivateDeliveryArchive = async owner => {
     state.deliveryOpenings = (state.deliveryOpenings ?? 0) + 1;
@@ -54,6 +55,7 @@ test('private Calendar Native runtime is lazy one per authenticated UID and inva
   const f = fixture(); assert.equal(f.state.authReads, 0); assert.equal(f.state.ports.length, 0);
   assert.throws(() => f.module.openPrivateCalendarRuntime('owner-a'), /アカウント/u); assert.equal(f.state.ports.length, 0);
   f.state.uid = 'owner-a'; const first = f.module.openPrivateCalendarRuntime('owner-a'); assert.equal(f.module.openPrivateCalendarRuntime('owner-a'), first);
+  assert.deepEqual(await first.port.sourceController.authoritySync.historyPrefix(), { owner: 'owner-a' });
   f.state.uid = 'owner-b'; f.state.callbacks[0]({ uid: 'owner-b' }); assert.deepEqual(f.state.invalidations, ['owner-a']);
   assert.throws(() => first.port.assertOwner(), /アカウント/u); const other = f.module.openPrivateCalendarRuntime('owner-b'); assert.notEqual(other, first);
   f.state.uid = null; f.state.callbacks[0](null); assert.ok(f.state.invalidations.includes('owner-b')); assert.equal(f.state.ports.length, 2);

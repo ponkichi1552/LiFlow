@@ -14,6 +14,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { getSharingServices } from './firebase-services.ts';
 import { openPrivateCalendarDatabase } from './database-location';
 import { nativePrivateCalendarCrypto } from './native-private-calendar-crypto';
+import type { VerifiedPrivateCalendarAuthority } from '../../features/sharing/private-calendar/authority.ts';
 
 function nativeStore(development: boolean) {
   const options: SecureStore.SecureStoreOptions = { keychainService: development
@@ -95,6 +96,19 @@ export const nativePrivateCalendarConnections = native.connections;
 export const nativePrivateCalendarSource = native.source;
 export const nativePrivatePlannerPreferences = native.preferences;
 export const nativePrivateDeliveryArchive = native.deliveryArchive;
+export function nativePrivateCalendarHistoryPrefix(userId: string) {
+  let current: { anchor: string; prefix: ReturnType<typeof import('../storage/signed-history-prefix').createSignedHistoryPrefix> } | undefined;
+  const assertOwner = () => { if (getSharingServices().auth.currentUser?.uid !== userId) throw new Error('本人用Calendarのアカウントが変わりました。'); };
+  return async (authority: VerifiedPrivateCalendarAuthority['anchor']) => {
+    assertOwner();
+    const anchor = JSON.stringify([authority.accountGeneration, authority.rootDigest]);
+    if (current?.anchor === anchor) return current.prefix;
+    const { createSignedHistoryPrefix } = await import('../storage/signed-history-prefix');
+    const connection = await openPrivateCalendarDatabase(userId, false); assertOwner();
+    const prefix = createSignedHistoryPrefix(connection.database, `private:${userId}`, anchor);
+    current = { anchor, prefix }; return prefix;
+  };
+}
 let qaStore: ReturnType<typeof nativeStore> | undefined;
 export function developmentPrivateCalendarSecrets() {
   if (!__DEV__) throw new Error('検査用の鍵保存は開発ビルドだけで使用できます。');

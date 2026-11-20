@@ -10,13 +10,14 @@ process.env.NODE_ENV = 'production';
 process.once('SIGTERM', () => controller.abort()); process.once('SIGINT', () => controller.abort());
 try {
   const runtime = createFirebasePublicRuntime(process.env, { worker: true });
-  if (!runtime.securityReady || !runtime.analysisQueueReady || !runtime.subscriptions || !new OpenAIResponsesClient().isConfigured) {
+  if (!runtime.analysisQueueReady || !runtime.entitlements || !new OpenAIResponsesClient().isConfigured) {
     throw new Error('Public AI security is not ready');
   }
   await runtime.store.ready();
+  await runtime.entitlements.ready();
   const result = await runAnalysisQueueBatch({ store: runtime.store, authorize: runtime.authorizeQueuedAnalysis,
     createDependencies: createPublicAnalysisDependencies, signal: controller.signal });
-  await runtime.store.prune();
+  await runtime.store.pruneIfDue();
   process.stdout.write(JSON.stringify({ event: 'analysis_worker_batch', ...result }) + '\n');
   if (result.failed) process.exitCode = 1;
 } catch {

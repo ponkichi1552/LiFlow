@@ -10,5 +10,6 @@ export interface SharedDeliveryArchive<Artifact = EncryptedSharedSnapshotChunk> 
 }
 export class SharedDeliveryPendingError extends Error {
   readonly code = 'sharing/delivery-pending';
-  constructor() { super('最新データを持つ端末から受信を待っています。'); }
+  readonly retryAt?: number;
+  constructor(retryAt?: number) { super('最新データを持つ端末から受信を待っています。'); this.retryAt = retryAt; }
 }

@@ -1,5 +1,5 @@
 import { authenticateFirebaseUser } from './public-access.mjs';
-import { SubscriptionError } from './subscription-service.mjs';
+import { SubscriptionError, subscriptionHash } from './subscription-service.mjs';
 import { createFixedWindowRateLimit } from './rate-limit.mjs';
 
 /** Mounted on the existing API listener, before AI/device admission. Buying/restoring must remain usable without AI. */
@@ -24,15 +24,18 @@ export function createSubscriptionHttp({ service, providers, verifyIdToken }) {
       if (request.method === 'POST' && ['/api/subscriptions/notifications/apple', '/api/subscriptions/notifications/google'].includes(url.pathname)) {
         const store = url.pathname.endsWith('/apple') ? 'apple' : 'google';
         if (!providers[store]?.notification) throw new SubscriptionError(503, 'STORE_NOT_CONFIGURED', '購入確認は準備中です。');
-        const purchaseId = await providers[store].notification(await body(), request.headers);
-        if (purchaseId) await service.reconcile(store, purchaseId);
+        const notification = await body();
+        const purchaseId = await providers[store].notification(notification, request.headers);
+        if (purchaseId) await service.reconcile(store, purchaseId, subscriptionHash(store === 'apple' ? notification.signedPayload : notification.message.data));
         send(200, { received: true }); return true;
       }
+      const readStatus = request.method === 'GET' && url.pathname === '/api/subscriptions/status';
+      const verifyPurchase = request.method === 'POST' && url.pathname === '/api/subscriptions/verify';
+      if (!readStatus && !verifyPurchase) { send(404, { code: 'NOT_FOUND', message: '購入の確認先が見つかりません。' }); return true; }
       const { uid } = await authenticateFirebaseUser(request, verifyIdToken);
       if (!allowUser(uid)) throw new SubscriptionError(429, 'RATE_LIMITED', '契約の確認が多すぎます。少し待ってから再試行してください。');
-      if (request.method === 'GET' && url.pathname === '/api/subscriptions/status') { send(200, await service.status(uid, url.searchParams.get('refresh') === 'true')); return true; }
-      if (request.method === 'POST' && url.pathname === '/api/subscriptions/verify') { send(200, await service.verify(uid, await body())); return true; }
-      send(404, { code: 'NOT_FOUND', message: '購入の確認先が見つかりません。' }); return true;
+      const value = readStatus ? await service.status(uid, url.searchParams.get('refresh') === 'true') : await service.verify(uid, await body());
+      send(200, value); return true;
     },
   };
 }

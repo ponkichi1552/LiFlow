@@ -397,16 +397,33 @@ service cloud.firestore {
             || group(groupId).deviceOwners[resource.data.deviceId] == request.auth.uid && resource.data.keyVersion == group(groupId).keyVersion
               && signedDeliveryPolicy('sharingGroups', groupId) && reportSignedDeliveryReceipt(resource.data, request.resource.data));
         allow delete: if false;
+        match /responses/_relay {
+          function validRelay(d) {
+            return validTarget(currentRequest()) && d.keys().hasOnly(['deviceId','userId','digest','ready','updatedAt'])
+              && safeId(d.deviceId) && d.deviceId != currentRequest().deviceId && d.userId == request.auth.uid
+              && group(groupId).deviceOwners[d.deviceId] == d.userId && validProofDigest(d.digest) && d.ready is bool
+              && d.updatedAt == request.time && (!d.ready || finishedResponse(d));
+          }
+          function finishedResponse(d) {
+            let p = get(/databases/$(database)/documents/sharingGroups/$(groupId)/deliveryRequests/$(requestId)/responses/$(d.deviceId)).data;
+            return p.ready == true && p.digest == d.digest;
+          }
+          allow create: if validRelay(request.resource.data) && request.resource.data.ready == false;
+          allow update: if validRelay(request.resource.data)
+            && (resource.data.deviceId == request.resource.data.deviceId && !resource.data.ready
+              || resource.data.ready && resource.data.digest != request.resource.data.digest
+              || resource.data.updatedAt + duration.value(30,'s') <= request.time);
+        }
         match /responses/{deviceId} {
           allow read: if memberOf(group(groupId));
-          allow create: if validTarget(currentRequest()) && group(groupId).deviceOwners[deviceId] == request.auth.uid
+          allow create: if deviceId != '_relay' && validTarget(currentRequest()) && group(groupId).deviceOwners[deviceId] == request.auth.uid
             && request.resource.data.keys().hasOnly(['schemaVersion','userId','deviceId','digest','size','parts','ready','expiresAt','createdAt'])
             && request.resource.data.schemaVersion == 1 && request.resource.data.userId == request.auth.uid
             && request.resource.data.deviceId == deviceId && request.resource.data.digest is string && request.resource.data.digest.matches('^[a-f0-9]{64}$')
             && request.resource.data.size is int && request.resource.data.size > 0 && request.resource.data.size <= 16777216
             && request.resource.data.parts is int && request.resource.data.parts > 0 && request.resource.data.parts <= 128 && request.resource.data.ready == false
             && request.resource.data.expiresAt == currentRequest().expiresAt && request.resource.data.createdAt == request.time;
-          allow update: if validTarget(currentRequest()) && group(groupId).deviceOwners[deviceId] == request.auth.uid
+          allow update: if deviceId != '_relay' && validTarget(currentRequest()) && group(groupId).deviceOwners[deviceId] == request.auth.uid
             && resource.data.ready == false && request.resource.data.ready == true
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ready']);
           allow delete: if false;
@@ -427,8 +444,12 @@ service cloud.firestore {
         }
       }
       match /snapshots/{snapshotId} {
+        function preparedStage() {
+          return /databases/$(database)/documents/sharingGroups/$(groupId)/snapshotStages/$(snapshotId);
+        }
         allow read: if memberOf(group(groupId));
         allow create: if ownerOf(group(groupId)) && safeId(snapshotId)
+          && (!exists(preparedStage()) || get(preparedStage()).data.updatedAt + duration.value(24,'h') > request.time)
           && request.resource.data.keys().hasOnly(['keyVersion', 'throughSequence', 'retentionCutoff', 'retentionThroughSequence', 'retentionKeyVersion', 'manifestJson', 'createdAt'])
           && request.resource.data.keyVersion == afterGroup(groupId).keyVersion
           && (!group(groupId).rotationRequired || request.resource.data.keyVersion > group(groupId).keyVersion)
@@ -440,6 +461,14 @@ service cloud.firestore {
         allow update: if false;
         allow delete: if ownerOf(group(groupId)) && !recoveryActive(groupId, group(groupId)) && snapshotId != group(groupId).snapshotId
           && (!signedDeliveryPolicy('sharingGroups', groupId) || coveredByRetention(group(groupId), resource.data.throughSequence, resource.data.keyVersion));
+      }
+      match /snapshotStages/{snapshotId} {
+        allow read: if memberOf(group(groupId));
+        allow create, update: if ownerOf(group(groupId)) && safeId(snapshotId)
+          && request.resource.data.keys().hasOnly(['keyVersion','updatedAt'])
+          && request.resource.data.keyVersion is int && request.resource.data.keyVersion >= group(groupId).keyVersion
+          && request.resource.data.keyVersion <= group(groupId).keyVersion + 1 && request.resource.data.updatedAt == request.time;
+        allow delete: if false;
       }
       match /snapshotChunks/{chunkId} {
         allow read: if memberOf(group(groupId));

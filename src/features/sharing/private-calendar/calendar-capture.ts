@@ -1,5 +1,6 @@
 import type { CalendarQueryRange } from '../../google-sync/calendar-availability.ts';
 import { createCalendarQueryRange } from '../../google-sync/calendar-availability.ts';
+import { CALENDAR_REFRESH_INTERVAL_MS } from '../../google-sync/calendar-timing.ts';
 import type { createPrivateCalendarSecretStore } from './secret-store.ts';
 import type { createPrivateCalendarSourceStorage } from '../../../platform/storage/private-calendar-source.ts';
 import type { createPrivateCalendarCacheStorage } from '../../../platform/storage/private-calendar-cache.ts';
@@ -108,6 +109,18 @@ export function createPrivateCalendarCapture(port: PrivateCalendarCapturePort) {
       let key = await secrets.currentKey(userId, authority);
       try {
         if (!key) throw new Error('本人用Calendarの鍵の受信を確認してください。');
+        if (automatic && !force && local?.authorityCurrent && !local.pending && cache.finishUnchangedAcquisition
+          && acceptedHead.cacheHead?.manifestDigest === local.cursor.manifestDigest) {
+          const prior = await cache.read({ authority, accountKey: key, calendarBinding: binding });
+          const fetched = Date.parse(prior?.fetchedAt ?? '');
+          if (prior && fetched <= start && start - fetched < CALENDAR_REFRESH_INTERVAL_MS
+            && prior.coverage.start === range.timeMin && prior.coverage.end === range.timeMax && prior.timeZone === range.timeZone
+            && prior.intervals.length === intervals.length && prior.intervals.every((part, index) => part.start === intervals[index].start && part.end === intervals[index].end)) {
+            await assertContext();
+            await cache.finishUnchangedAcquisition(authority, acquisition.lease, now(), local.cursor.manifestDigest);
+            return { kind: 'fresh' as const };
+          }
+        }
         const body = { ownerUserId: userId, accountGeneration: authority.anchor.accountGeneration, mainDeviceId: state.identity.deviceId,
           mainRevision: authority.signed.body.revision, calendarBinding: binding, timeZone: range.timeZone, fetchedAt: new Date(start).toISOString(),
           coverage: { start: range.timeMin, end: range.timeMax }, intervals };

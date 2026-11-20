@@ -1,4 +1,4 @@
-import { doc, onSnapshot, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { doc, getDocFromServer, onSnapshot, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore';
 import type { DocumentData, Firestore } from 'firebase/firestore';
 import { assertSharedIdentifier } from '../../features/sharing/identifier.ts';
 import type { VerifiedPrivateCalendarAuthority } from '../../features/sharing/private-calendar/authority.ts';
@@ -34,6 +34,7 @@ function erasedCursor(data: DocumentData) {
 /** One bounded encrypted snapshot per UID. A server arrival never resolves an offline edit conflict. */
 export function createPrivatePlannerCloud(firestore: Firestore, ownerUserId: string, currentUserId: () => string | null, delivery?: PrivateDeliveryPort) {
   assertSharedIdentifier(ownerUserId); const root = doc(firestore, 'privateCalendars', ownerUserId); const reference = doc(root, 'plannerPreferences', 'current');
+  let observed: { data: DocumentData | null } | undefined;
   const check = () => { if (currentUserId() !== ownerUserId) throw Object.assign(new Error('本人設定のアカウントが切り替わりました。'), { code: 'private-planner/access-denied' }); };
   function assertRoot(data: DocumentData | undefined, authority: VerifiedPrivateCalendarAuthority) {
     if (!data || authority.signed.body.ownerUserId !== ownerUserId || !(data.createdAt instanceof Timestamp) || !(data.updatedAt instanceof Timestamp)) throw new Error('本人端末の承認を確認してください。');
@@ -43,10 +44,16 @@ export function createPrivatePlannerCloud(firestore: Firestore, ownerUserId: str
   const read = async (authority: VerifiedPrivateCalendarAuthority, assertBudget: () => void = () => {}) => {
     const guard = () => { check(); assertBudget(); };
     guard();
-    const result = await runTransaction(firestore, async transaction => {
-      guard(); const [head, saved] = await Promise.all([transaction.get(root), transaction.get(reference)]); guard(); assertRoot(head.data(), authority);
-      return saved.exists() ? saved.data() : null;
-    }); guard();
+    const supplied = observed;
+    let result: DocumentData | null;
+    if (supplied) {
+      const head = await getDocFromServer(root); guard(); assertRoot(head.data(), authority);
+      result = observed ? observed.data : supplied.data;
+    } else result = await runTransaction(firestore, async transaction => {
+        guard(); const [head, saved] = await Promise.all([transaction.get(root), transaction.get(reference)]); guard(); assertRoot(head.data(), authority);
+        return saved.exists() ? saved.data() : null;
+    });
+    guard();
     const value = !result ? null : result.encryptedJson === null && delivery
       ? snapshotEncryptedPrivatePreferences(await delivery.recover(authority, `preferences.${erasedCursor(result).digest}`) as EncryptedPrivatePreferences)
       : decode(result);
@@ -100,11 +107,12 @@ export function createPrivatePlannerCloud(firestore: Firestore, ownerUserId: str
           check(); if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return;
           const data = snapshot.data();
           const next = snapshot.exists() ? data!.encryptedJson === null && delivery ? erasedCursor(data!).digest : privatePreferenceCursor(decode(data!)).digest : null;
+          observed = { data: data ?? null };
           if (next !== last) { last = next; changed(); }
-        } catch { failed(); }
-      }, () => { if (!stopped) failed(); });
+        } catch { observed = undefined; failed(); }
+      }, () => { observed = undefined; if (!stopped) failed(); });
       const stopDelivery = delivery?.watch(changed, failed);
-      return () => { stopped = true; unsubscribe(); stopDelivery?.(); };
+      return () => { stopped = true; observed = undefined; unsubscribe(); stopDelivery?.(); };
     },
   });
 }

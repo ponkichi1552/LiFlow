@@ -11,7 +11,6 @@ async function main() {
     // Refuse the public listener if credentials, the project or quota-store permissions are not ready.
     await publicAccess.store.ready();
     await publicAccess.subscriptions.service.ready();
-    void publicAccess.store.prune().catch(() => undefined);
   }
   const server = startApplianceCareHttpServer({
     dependencies: ai ? { analyzeUploaded: request => ai.createStructured(request) } : {},
@@ -37,11 +36,6 @@ async function main() {
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
-  if (publicAccess) {
-    const cleanup = setInterval(() => { void publicAccess.store.prune().catch(() => undefined); }, 60 * 60_000);
-    cleanup.unref();
-    server.on('close', () => clearInterval(cleanup));
-  }
 }
 
 void main().catch(() => {

@@ -43,8 +43,9 @@ export function uploadedManualReference(bytes) {
 /** Parse untrusted PDF structure off the HTTP thread, with a memory/time limit and no inherited credentials. */
 const inspected = new Map();
 const inspecting = new Set();
-export async function inspectUploadedManual(bytes, { waitForSlot = false } = {}) {
-  const key = publicKey(bytes); const at = Date.now();
+export async function inspectUploadedManual(bytes, { waitForSlot = false, verifiedReference } = {}) {
+  const key = /^liflow-manual:\/\/sha256\/([a-f0-9]{64})$/u.exec(verifiedReference ?? '')?.[1] ?? publicKey(bytes);
+  const at = Date.now();
   for (const [key, value] of inspected) if (value.expiresAt <= at) inspected.delete(key);
   if (inspected.has(key)) return inspected.get(key).promise;
   while (inspecting.size >= 2) {

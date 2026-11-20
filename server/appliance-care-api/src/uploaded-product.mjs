@@ -28,7 +28,6 @@ export function productFromUploadedManual(value, expected) {
     .sort(([left], [right]) => left.localeCompare(right)).map(([, model]) => model);
   const product = { manufacturer: value.manufacturer.trim(), productName: value.productName.trim(), modelNumber: models.join(' / '),
     ...(value.category ? { category: value.category } : {}) };
-  if (!field(product.modelNumber)) return null;
   if (expected?.manufacturer !== undefined) {
     if (![expected.manufacturer, expected.productName, expected.modelNumber].every(field)) return null;
     const expectedModels = expected.modelNumber.split(' / ').map(normalized);
@@ -37,5 +36,5 @@ export function productFromUploadedManual(value, expected) {
     return { manufacturer: expected.manufacturer, productName: expected.productName, modelNumber: expected.modelNumber,
       ...(expected.category || product.category ? { category: expected.category ?? product.category } : {}) };
   }
-  return product;
+  return field(product.modelNumber) ? product : null;
 }

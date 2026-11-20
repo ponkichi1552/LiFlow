@@ -981,6 +981,10 @@
         "name": "expired durable AI admissions retire without an automatic paid retry and legacy completed jobs still permit a new explicit reanalysis"
       },
       {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "a lost PDF acceptance response uses persisted admission lookup and resends only on an explicit miss"
+      },
+      {
         "file": "tests/sharing-delivery-worker.test.mjs",
         "name": "delivery cleanup listeners retry actual failures without idle polling and shutdown cancels reconnection"
       },
@@ -11551,6 +11555,10 @@
       },
       {
         "file": "tests/appliance-durable-analysis.test.mjs",
+        "name": "paid analysis settles once while progress storage stalls and the first result write fails transiently"
+      },
+      {
+        "file": "tests/appliance-durable-analysis.test.mjs",
         "name": "AI queued work rechecks user authority before the paid start and does not bypass it after a preparation restart"
       },
       {
@@ -12803,6 +12811,10 @@
       {
         "file": "tests/sharing-account-device-controller.test.mjs",
         "name": "same-account automatic restoration needs no invitation or owner and acknowledges only after durable recipient keys and activation"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "native background sharing restores only a pending request belonging to the signed-in account"
       },
       {
         "file": "tests/sharing-account-device-controller.test.mjs",

@@ -78,7 +78,7 @@ for (const platform of ['ios', 'android']) {
       const button = screen.button('PDFを解析'); const latest = { ...syntheticManual(), base64: Buffer.from('synthetic latest PDF').toString('base64') };
       selected(latest); button.props.onPress(); await screen.flush(); assert.deepEqual(f.requests()[0].manual, latest);
       assert.equal(f.requests()[0].identifyFromManual, true); assert.equal(f.requests()[0].manufacturer, undefined);
-      const before = await listSharingOutbox(f.device.database, groupId); await screen.press('解析を中止'); assert.equal(aborted, true);
+      const before = await listSharingOutbox(f.device.database, groupId); await screen.press('結果の待機をやめる'); assert.equal(aborted, true);
       release(applianceResult()); await screen.flush(); assert.equal(checkbox(screen, reviewLabel), undefined); assert.deepEqual(await listSharingOutbox(f.device.database, groupId), before);
       f.analyzeWith(async () => ({ status: 'ambiguous', candidates: [] })); await screen.press('PDFを解析');
       await settle(screen, () => screen.text().includes('製品を特定できませんでした'));

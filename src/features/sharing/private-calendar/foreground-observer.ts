@@ -18,6 +18,7 @@ export function observePrivateCalendarForeground(port: {
   const now = port.now ?? Date.now;
   let stopped = false; let remote: (() => void) | null = null; let failedAt: number | null = null;
   let checking: Promise<void> | null = null; let recheck = false;
+  let configurationChanged = false;
   let listenerRetry: ReturnType<typeof setTimeout> | undefined;
   let listenerFailures = 0;
   const sync = createDemandWorker({ active: () => !stopped, run: async () => {
@@ -33,14 +34,17 @@ export function observePrivateCalendarForeground(port: {
     clearTimeout(listenerRetry); if (stopped) return;
     listenerRetry = setTimeout(() => { listenerRetry = undefined; failedAt = null; reconcile(); }, delay(listenerFailures++));
   }
-  function reconcile() {
+  function reconcile(configuration = false) {
+    configurationChanged ||= configuration;
     const stamp = now();
-    if (stopped || remote || failedAt !== null && stamp >= failedAt && stamp - failedAt < PRIVATE_CALENDAR_REFRESH_MS) return;
+    if (stopped || remote && !configurationChanged || failedAt !== null && stamp >= failedAt && stamp - failedAt < PRIVATE_CALENDAR_REFRESH_MS) return;
     if (checking) { recheck = true; return; }
-    recheck = false;
+    recheck = false; configurationChanged = false;
     const pending = (async () => {
-      await port.assertOwner(); if (stopped || !await port.configured()) return;
       await port.assertOwner(); if (stopped) return;
+      if (!await port.configured()) { remote?.(); remote = null; return; }
+      await port.assertOwner(); if (stopped) return;
+      if (remote) { synchronize(); return; }
       void Promise.resolve().then(() => { if (!stopped) return port.onReady?.(); }).catch(() => {});
       try {
         let failed = false;
@@ -54,6 +58,6 @@ export function observePrivateCalendarForeground(port: {
     void pending.finally(() => { if (checking === pending) { checking = null; if (recheck && !stopped) reconcile(); } }).catch(() => { if (!stopped) { failedAt = now(); retryListener(); } });
   }
   const local = port.subscribeLocal(reconcile); reconcile();
-  const configuration = port.subscribeConfiguration?.(() => { if (remote) synchronize(); else reconcile(); });
+  const configuration = port.subscribeConfiguration?.(() => reconcile(true));
   return () => { stopped = true; sync.stop(); clearTimeout(listenerRetry); local(); configuration?.(); remote?.(); remote = null; };
 }

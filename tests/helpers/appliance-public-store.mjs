@@ -8,16 +8,24 @@ export const syntheticAnalysisQueueKeys = () => ({ activeKeyId: 'synthetic-queue
 export function publicStoreFixture(options = {}) {
   const analysisQueueKeys = options.analysisQueueKeys ?? syntheticAnalysisQueueKeys();
   const records = new Map(); let queued = Promise.resolve(); let fail = false; let committedWrites = 0;
+  const versions = new Map();
+  function applyWrites(writes) {
+    for (const [path, data] of writes) {
+      if (data === undefined) records.delete(path); else records.set(path, structuredClone(data));
+      versions.set(path, (versions.get(path) ?? 0) + 1);
+    }
+    committedWrites += writes.length;
+  }
   function snapshot(path, selected) {
     const original = records.get(path);
     const value = original && selected ? Object.fromEntries(selected.map(key => [key, original[key]]).filter(([, value]) => value !== undefined)) : original;
-    return { id: path.split('/').at(-1), ref: ref(path), exists: value !== undefined, data() {
+    return { id: path.split('/').at(-1), ref: ref(path), exists: value !== undefined, updateTime: versions.get(path), data() {
       const copy = structuredClone(value);
       if (copy?.expiresAt instanceof Date) copy.expiresAt = { toMillis: () => value.expiresAt.getTime() };
       return copy;
     } };
   }
-  function ref(path) { return { path, collection: collection => query(`${path}/${collection}`), get: async () => snapshot(path) }; }
+  function ref(path) { return { path, id: path.split('/').at(-1), collection: collection => query(`${path}/${collection}`), get: async () => snapshot(path) }; }
   function query(collection, filters = [], sorting = [], maximum = Infinity, selected) {
     return { doc: name => ref(`${collection}/${name}`),
       where: (field, operator, value) => query(collection, [...filters, [field, operator, value]], sorting, maximum, selected),
@@ -29,6 +37,7 @@ export function publicStoreFixture(options = {}) {
         rows = rows.filter(([, record]) => filters.every(([field, operator, value]) => {
           if (operator === '<=') return record[field] <= value;
           if (operator === '==') return record[field] === value;
+          if (operator === 'in') return value.includes(record[field]);
           throw new Error('Unsupported fixture query');
         }));
         rows.sort((a, b) => { for (const field of sorting) { const diff = a[1][field] - b[1][field]; if (diff) return diff; } return a[0].localeCompare(b[0]); });
@@ -36,7 +45,18 @@ export function publicStoreFixture(options = {}) {
       } };
   }
   const firestore = { collection: name => query(name),
-    getAll: async (...targets) => targets.map(target => snapshot(target.path)),
+    getAll: async (...targets) => {
+      const fields = targets.at(-1)?.fieldMask;
+      if (fields) targets.pop();
+      return targets.map(target => snapshot(target.path, fields));
+    },
+    batch() {
+      const deletes = [];
+      return { delete: (target, conditions) => deletes.push([target.path, conditions]), async commit() {
+        if (fail || deletes.some(([path, conditions]) => conditions?.lastUpdateTime !== versions.get(path))) throw new Error('synthetic batch rejected');
+        applyWrites(deletes.map(([path]) => [path, undefined]));
+      } };
+    },
     runTransaction(callback) {
       const pending = queued.then(async () => {
         if (fail) throw new Error('synthetic storage unavailable');
@@ -46,8 +66,7 @@ export function publicStoreFixture(options = {}) {
             if (records.has(target.path)) throw new Error('already exists'); writes.push([target.path, data]);
           }, update: (target, data) => writes.push([target.path, { ...records.get(target.path), ...data }]),
           delete: target => writes.push([target.path, undefined]) });
-        for (const [path, data] of writes) { if (data === undefined) records.delete(path); else records.set(path, structuredClone(data)); }
-        committedWrites += writes.length;
+        applyWrites(writes);
         return result;
       }); queued = pending.catch(() => undefined); return pending;
     } };

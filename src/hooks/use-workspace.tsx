@@ -150,7 +150,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         if (!await attempt.promise || !live()) return;
       }
       const sharedRecovery = createDemandWorker({ active: live, run: async () => {
-        const result = await syncSharingWorkspace();
+        const result = await syncSharingWorkspace(20_000, { restoreAccount: false });
         if (!live() || result.kind !== 'pending' || result.waitingForSignal) return false;
         return result.retryAt ? { retryAt: result.retryAt } : true;
       } });

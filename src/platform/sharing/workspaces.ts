@@ -85,6 +85,10 @@ export async function sharingSessionUser(): Promise<User | null> {
 }
 export async function enableSharingSession(): Promise<void> { await sharingSecureVault.setItem('sharing-enabled', 'true'); }
 export async function hasSharingSessionEnabled(): Promise<boolean> { return await sharingSecureVault.getItem('sharing-enabled') === 'true'; }
+async function hasPendingAccountDeviceRestoration(userId: string): Promise<boolean> {
+  return Boolean(process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL?.trim()
+    && await sharingSecureVault.getItem(`account-group-restore:${userId}`));
+}
 async function requireUser(): Promise<User> {
   const user = await sharingSessionUser(); if (!user) throw new SharingAccessError('共有グループ用のアカウントでログインしてください。'); return user;
 }
@@ -741,11 +745,13 @@ export async function requestSharingWorkspace(linkText: string): Promise<SharedW
 }
 
 /** Foreground and the single OS worker call the same bounded coordinator. */
-export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOnly?: boolean; pendingOnly?: boolean } = {}): Promise<{ kind: 'success' | 'pending' | 'skipped'; waitingForSignal?: true; retryAt?: number }> {
+export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOnly?: boolean; pendingOnly?: boolean; restoreAccount?: boolean } = {}): Promise<{ kind: 'success' | 'pending' | 'skipped'; waitingForSignal?: true; retryAt?: number }> {
   if (!await hasSharingSessionEnabled()) return { kind: 'skipped' };
-  const start = Date.now(); const owner = (await sharingSessionUser())?.uid;
+  const start = Date.now(); const user = await sharingSessionUser(); const owner = user?.uid;
+  if (!owner) return { kind: 'skipped' };
+  const pendingRestoration = options.pendingOnly && !user.isAnonymous && await hasPendingAccountDeviceRestoration(owner);
   let record = await currentSharingWorkspace();
-  if (options.pendingOnly) {
+  if (options.pendingOnly && !pendingRestoration) {
     if (!record) return { kind: 'skipped' };
     if (record.status === 'active' && !record.lastErrorCode) {
       const workspace = await openSharedWorkspace(record); const checkpoint = await workspace.checkpoint();
@@ -759,20 +765,30 @@ export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOn
   }
   const failures: unknown[] = [];
   let restoring = false;
-  if (!options.pendingOnly && owner && process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL?.trim()) {
+  let restoreDeferred = false;
+  let restoreRetryAt: number | undefined;
+  if (options.restoreAccount !== false && (!options.pendingOnly || pendingRestoration) && process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL?.trim()) {
     const { syncAccountDeviceRestoration } = await import('./account-device-runtime');
     try {
-      const result = await syncAccountDeviceRestoration(Math.min(20_000, budgetMs));
-      restoring = result === 'waiting';
-      if (hasEndedSharingInvitation(record) && ['active', 'restored', 'sent'].includes(result)) record = await currentSharingWorkspace();
+      const remaining = budgetMs - (Date.now() - start);
+      if ((await sharingSessionUser())?.uid !== owner) throw new SharingAccessError('同期する共有アカウントが変わりました。');
+      if (remaining >= 1000) {
+        const result = await syncAccountDeviceRestoration(Math.min(20_000, remaining));
+        restoring = result === 'waiting';
+        if ((!record || hasEndedSharingInvitation(record)) && ['active', 'restored', 'sent'].includes(result)) record = await currentSharingWorkspace();
+      } else restoreDeferred = Boolean(pendingRestoration);
     }
-    catch (error) { failures.push(error); }
+    catch (error) {
+      if (error instanceof Error && 'retryAt' in error && typeof error.retryAt === 'number' && error.retryAt > Date.now()) {
+        restoreDeferred = true;
+        restoreRetryAt = error.retryAt;
+      } else failures.push(error);
+    }
   }
   if ((await sharingSessionUser())?.uid !== owner) throw new SharingAccessError('同期する共有アカウントが変わりました。');
-  if (!owner) return { kind: 'skipped' };
   let pending = Boolean(record);
   let waitingForSignal = restoring;
-  let retryNeeded = false; let retryAt: number | undefined;
+  let retryNeeded = false; let retryAt = restoreRetryAt;
   const defer = (deadline?: number, waitForSignal = false) => {
     pending = true;
     if (waitForSignal) waitingForSignal = true;
@@ -793,10 +809,16 @@ export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOn
       const workspace = await openSharedWorkspace(record);
       const syncBudget = budgetMs - (Date.now() - start);
       if (syncBudget < 1000) { if (failures.length) throw failures[0]; return { kind: 'pending' }; }
-      const result = await workspace.sync({ budgetMs: syncBudget }).catch(error => { failures.push(error); return null; });
+      let deliveryWait: number | undefined;
+      const result = await workspace.sync({ budgetMs: syncBudget }).catch(error => {
+        if (error?.code === 'sharing/delivery-pending' && typeof error.retryAt === 'number' && error.retryAt > Date.now()) deliveryWait = error.retryAt;
+        else failures.push(error);
+        return null;
+      });
       pending = !result || !result.complete || result.pending > 0 || result.waitingForApproval;
       waitingForSignal = Boolean(result && (restoring || result.waitingForApproval));
-      retryNeeded = !result || !result.waitingForApproval && (!result.complete || result.pending > 0);
+      retryNeeded = !result ? deliveryWait === undefined : !result.waitingForApproval && (!result.complete || result.pending > 0);
+      if (deliveryWait !== undefined) defer(deliveryWait);
       if (workspace.protocol === 2) {
         if (budgetMs - (Date.now() - start) >= 1000) await workspace.reminders().then(runtime => {
           const remaining = budgetMs - (Date.now() - start); if (remaining >= 1000) return runtime.synchronize(Math.min(15_000, remaining));
@@ -837,7 +859,7 @@ export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOn
     } catch (error) { failures.push(error); }
   }
   if (failures.length) throw failures[0];
-  const kind = restoring ? 'pending' : !record ? 'skipped' : pending ? 'pending' : 'success';
+  const kind = restoring || restoreDeferred ? 'pending' : !record ? 'skipped' : pending ? 'pending' : 'success';
   return { kind, ...(kind === 'pending' && !retryNeeded ? (retryAt !== undefined ? { retryAt }
     : waitingForSignal ? { waitingForSignal: true as const } : {}) : {}) };
 }
@@ -864,8 +886,7 @@ export async function isSharedWorkerNeeded(): Promise<boolean> {
   if (!await hasSharingSessionEnabled()) return false;
   if (await currentSharingWorkspace()) return true;
   const user = await sharingSessionUser();
-  if (user && process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL?.trim()
-    && await sharingSecureVault.getItem(`account-group-restore:${user.uid}`)) return true;
+  if (user && !user.isAnonymous && await hasPendingAccountDeviceRestoration(user.uid)) return true;
   const { isPrivateCalendarWorkerNeeded } = await import('./private-calendar-sync');
   return isPrivateCalendarWorkerNeeded();
 }

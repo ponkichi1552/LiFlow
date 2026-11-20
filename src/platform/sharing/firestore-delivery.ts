@@ -13,7 +13,7 @@ import type { EncryptedSharedSnapshotChunk } from '../../features/sharing/crypto
 import { DELIVERY_TTL_MS, parseDeliveryPolicy, recoveryReceiptInput } from '../../features/sharing/delivery-proof.ts';
 import type { DeliveryProofClient } from './delivery-proof-cloud.ts';
 
-const TTL = DELIVERY_TTL_MS, PART_BYTES = 128 * 1024, MAX_BYTES = 16 * 1024 * 1024;
+const TTL = DELIVERY_TTL_MS, PART_BYTES = 128 * 1024, MAX_BYTES = 16 * 1024 * 1024, RELAY_LEASE_MS = 30_000;
 type Request = { schemaVersion: 1 | 2; userId: string; deviceId: string; kind: 'events' | 'chunk'; key: string;
   after: number; through: number; keyVersion: number; createdAt: Timestamp; expiresAt: Timestamp; receivedAt?: Timestamp; receiptSignature?: string };
 const validTime = (value: unknown): value is Timestamp => value instanceof Timestamp;
@@ -39,6 +39,8 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
   const receivedRequests = new Map<string, Pick<Request, 'kind' | 'key' | 'after' | 'through'> & { deadline: number; fingerprint: string | null }>();
   const knownRequests = new Map<string, Request>();
   const sentRequests = new Map<string, string>();
+  const delayedResponses = new Map<string, number>();
+  let relayTimer: ReturnType<typeof setTimeout> | undefined;
   let cursor: QueryDocumentSnapshot | undefined;
   let discoveryNeeded = true;
   let serving: Promise<void> | undefined;
@@ -46,11 +48,12 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
   let scope: { id: string; group: SharedCloudGroup } | undefined;
   let wake: (() => void) | undefined; let failure: ((error: unknown) => void) | undefined;
   const responseObservers = new Map<string, () => void>();
+  const responsePresent = new Map<string, boolean>();
   const fingerprintOf = (request: Request) => `${request.createdAt.seconds}:${request.createdAt.nanoseconds}:${request.keyVersion}`;
   const deadlineOf = (request: Request) => Math.min(request.expiresAt.toMillis(), request.createdAt.toMillis() + TTL);
   function forgetRequest(id: string) {
-    knownRequests.delete(id); sentRequests.delete(id); receivedRequests.delete(id);
-    responseObservers.get(id)?.(); responseObservers.delete(id);
+    knownRequests.delete(id); sentRequests.delete(id); receivedRequests.delete(id); delayedResponses.delete(id);
+    responseObservers.get(id)?.(); responseObservers.delete(id); responsePresent.delete(id);
   }
   function archiveChanged() {
     if (!scope || ![...knownRequests].some(([id, request]) => request.deviceId !== deviceId && request.receivedAt === undefined
@@ -68,15 +71,43 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
     let last = '';
     responseObservers.set(target.id, onSnapshot(collection(target, 'responses'), { includeMetadataChanges: true }, snapshot => {
       if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return;
-      const fingerprint = snapshot.docs.filter(item => item.data().ready === true).map(item => `${item.id}:${item.data().digest}`).sort().join(',');
+      const fingerprint = snapshot.docs.filter(item => item.id !== '_relay' && item.data().ready === true).map(item => `${item.id}:${item.data().digest}`).sort().join(',');
+      responsePresent.set(target.id, Boolean(fingerprint));
       if (fingerprint && fingerprint !== last) { last = fingerprint; wake?.(); }
-    }, error => { responseObservers.get(target.id)?.(); responseObservers.delete(target.id); failure?.(error); }));
+    }, error => { responseObservers.get(target.id)?.(); responseObservers.delete(target.id); responsePresent.delete(target.id); failure?.(error); }));
   }
-  async function writePages(groupId: string, requestId: string, request: Request, value: unknown) {
+  function scheduleRelay() {
+    clearTimeout(relayTimer);
+    if (!wake || !scope || !delayedResponses.size) return;
+    const at = Math.min(...delayedResponses.values());
+    relayTimer = setTimeout(() => { if (scope && wake) void serve(scope.id, scope.group, false).catch(error => failure?.(error)); }, Math.max(50, at - Date.now()));
+  }
+  async function leaseRelay(target: DocumentReference, digest: string, ready = false) {
+    const result = await runTransaction(firestore, async transaction => {
+      const stored = (await transaction.get(target)).data(); checkAccount();
+      if (stored?.deviceId === deviceId && stored?.ready === true && stored.digest === digest) return { kind: 'ready' as const };
+      if (stored?.deviceId !== deviceId && (stored?.ready === false || stored?.digest === digest) && validTime(stored?.updatedAt)) {
+        const retryAt = stored.updatedAt.toMillis() + RELAY_LEASE_MS;
+        if (retryAt > Date.now()) return { kind: 'waiting' as const, retryAt };
+      }
+      transaction.set(target, { deviceId, userId, digest, ready, updatedAt: serverTimestamp() });
+      return { kind: 'owned' as const };
+    }); checkAccount(); return result;
+  }
+  async function writePages(groupId: string, requestId: string, request: Request, value: unknown): Promise<number | null> {
     const bytes = utf8ToBytes(canonicalJson(value)); if (bytes.length > MAX_BYTES) throw new Error('Delivery recovery page is too large');
     const parent = doc(requests(groupId), requestId, 'responses', deviceId);
     const metadata = { schemaVersion: 1, userId, deviceId, digest: sharedDocumentDigest(value), size: bytes.length,
       parts: Math.ceil(bytes.length / PART_BYTES), expiresAt: request.expiresAt };
+    const lease = doc(requests(groupId), requestId, 'responses', '_relay');
+    let renewedAt = Date.now();
+    const acquired = await leaseRelay(lease, metadata.digest).catch(error => {
+      // During a Rules rollout older deployments still accept their original response format.
+      if ((error as { code?: string })?.code !== 'permission-denied') throw error;
+      return { kind: 'legacy' as const };
+    });
+    if (acquired.kind === 'ready') return null;
+    if (acquired.kind === 'waiting') return acquired.retryAt;
     const completed = await runTransaction(firestore, async transaction => {
       const existing = await transaction.get(parent); checkAccount();
       if (existing.exists()) {
@@ -86,18 +117,28 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
       }
       // The parent exists before any child is written, so interrupted uploads remain discoverable for deletion.
       transaction.set(parent, { ...metadata, ready: false, createdAt: serverTimestamp() }); return false;
-    }); checkAccount(); if (completed) return;
-    for (let offset = 0, index = 0; offset < bytes.length; offset += PART_BYTES, index++) {
-      const target = doc(parent, 'parts', String(index)); const existing = await getDocFromServer(target); checkAccount();
-      const data = fromByteArray(bytes.subarray(offset, offset + PART_BYTES));
-      if (existing.exists()) { if (existing.data().data !== data) throw new Error('Immutable recovery page collision'); }
-      else await setDoc(target, { index, data, expiresAt: request.expiresAt, createdAt: serverTimestamp() });
-      checkAccount();
-    }
-    await runTransaction(firestore, async transaction => {
-      const existing = await transaction.get(parent); checkAccount();
-      if (existing.data()?.ready === false) transaction.update(parent, { ready: true });
     }); checkAccount();
+    if (!completed) {
+      for (let offset = 0, index = 0; offset < bytes.length; offset += PART_BYTES, index++) {
+        if (acquired.kind === 'owned' && Date.now() - renewedAt >= RELAY_LEASE_MS / 2) {
+          const current = await leaseRelay(lease, metadata.digest);
+          if (current.kind === 'ready') return null;
+          if (current.kind === 'waiting') return current.retryAt;
+          renewedAt = Date.now();
+        }
+        const target = doc(parent, 'parts', String(index)); const existing = await getDocFromServer(target); checkAccount();
+        const data = fromByteArray(bytes.subarray(offset, offset + PART_BYTES));
+        if (existing.exists()) { if (existing.data().data !== data) throw new Error('Immutable recovery page collision'); }
+        else await setDoc(target, { index, data, expiresAt: request.expiresAt, createdAt: serverTimestamp() });
+        checkAccount();
+      }
+      await runTransaction(firestore, async transaction => {
+        const existing = await transaction.get(parent); checkAccount();
+        if (existing.data()?.ready === false) transaction.update(parent, { ready: true });
+      }); checkAccount();
+    }
+    if (acquired.kind === 'owned') await leaseRelay(lease, metadata.digest, true);
+    return null;
   }
   async function discover(groupId: string) {
     // Server-created timestamps plus the document cursor preserve all requests, including equal-time batches.
@@ -134,9 +175,17 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
             || group.revokedUserIds.includes(request.userId) || request.keyVersion !== group.keyVersion) continue;
           const fingerprint = fingerprintOf(request);
           if (sentRequests.get(id) === fingerprint) continue;
+          if ((delayedResponses.get(id) ?? 0) > Date.now()) continue;
+          delayedResponses.delete(id);
           const value = request.kind === 'chunk' ? await archive.chunk(request.key) : await archive.events(request.after, request.through);
           checkAccount(); if (value === null) continue;
-          try { await writePages(groupId, id, request, value); sentRequests.set(id, fingerprint); }
+          const compact = request.kind === 'events' && request.key === `compact.${request.after}` && Array.isArray(value);
+          const wire = compact ? value.map(({ envelope: _parsed, ...event }: SharedCloudEvent) => event) : value;
+          try {
+            const retryAt = await writePages(groupId, id, request, wire);
+            if (retryAt === null) sentRequests.set(id, fingerprint);
+            else delayedResponses.set(id, retryAt);
+          }
           catch (error) {
             checkAccount();
             if (!['permission-denied', 'not-found', 'failed-precondition'].includes(String((error as { code?: unknown })?.code))) throw error;
@@ -149,12 +198,18 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
           }
         }
       } while (again || discoveryNeeded);
+      scheduleRelay();
     })();
     serving = work;
     void work.finally(() => { if (serving === work) serving = undefined; }).catch(() => { discoveryNeeded = true; });
     return work;
   }
   async function recover(groupId: string, kind: Request['kind'], key: string, after: number, through: number, reusePrevious = true): Promise<unknown> {
+    checkAccount();
+    for (const [id, pending] of receivedRequests) {
+      if (responsePresent.get(id) === false && pending.kind === kind && pending.key === key && pending.after === after
+        && pending.through === through && pending.deadline > Date.now()) throw new SharedDeliveryPendingError(pending.deadline);
+    }
     checkAccount();
     const stamp = Date.now();
     const bucket = Math.floor(stamp / TTL);
@@ -203,7 +258,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
       receivedRequests.set(requestId, { kind, key, after, through, deadline: state.deadline, fingerprint: state.fingerprint });
       observeResponse(target);
     }
-    const responses = await getDocsFromServer(query(collection(target, 'responses'), limit(64))); checkAccount();
+    const responses = await getDocsFromServer(query(collection(target, 'responses'), limit(65))); checkAccount();
     for (const response of responses.docs) {
       if (state.deadline <= Date.now()) break;
       const metadata = response.data();
@@ -230,7 +285,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
       lastExhaustedClosedRequest = closed;
       if ('previous' in state) return recover(groupId, kind, key, after, through, false);
     }
-    throw new SharedDeliveryPendingError();
+    throw new SharedDeliveryPendingError(responseObservers.has(requestId) ? state.deadline : undefined);
   }
   return {
     archive: observedArchive,
@@ -243,11 +298,16 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
     async eventPage(groupId: string, after: number, head: number): Promise<SharedCloudEvent[]> {
       const through = Math.min(head, after + 10);
       const local = await archive.events(after, through); if (local) return local;
-      const result = await recover(groupId, 'events', String(after), after, through);
-      if (!Array.isArray(result) || result.length !== through - after || result.some((value, index) => value?.uploadSequence !== after + index + 1
-        || value?.envelope?.groupId !== groupId || !value.serverReceipt)) throw new Error('Invalid peer delivery page');
+      const result = await recover(groupId, 'events', `compact.${after}`, after, through);
+      if (!Array.isArray(result) || result.length !== through - after) throw new Error('Invalid peer delivery page');
+      const events = result.map((value, index) => {
+        if (value?.uploadSequence !== after + index + 1 || !value.serverReceipt || typeof value.envelopeJson !== 'string') throw new Error('Invalid peer delivery page');
+        const envelope = value.envelope ?? JSON.parse(value.envelopeJson);
+        if (envelope?.groupId !== groupId) throw new Error('Invalid peer delivery group');
+        return { ...value, envelope } as SharedCloudEvent;
+      });
       // Original signatures, encryption, causal history and independent server receipts are still checked by the normal receiver.
-      return result;
+      return events;
     },
     async snapshotChunk(groupId: string, id: string, through: number): Promise<Artifact> {
       const local = await archive.chunk(id); if (local) return local;
@@ -315,7 +375,9 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
           if (next !== enrollment) { enrollment = next; if (next !== null) changed(); }
         } catch (error) { failed(error); }
       }, failed);
-      return () => { unsubscribe(); stopPolicy?.(); wake = undefined; failure = undefined; for (const stop of responseObservers.values()) stop(); responseObservers.clear(); };
+      scheduleRelay();
+      return () => { unsubscribe(); stopPolicy?.(); wake = undefined; failure = undefined; clearTimeout(relayTimer);
+        for (const stop of responseObservers.values()) stop(); responseObservers.clear(); responsePresent.clear(); };
     },
   };
 }

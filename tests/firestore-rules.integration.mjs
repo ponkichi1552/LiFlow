@@ -108,7 +108,9 @@ test('Rules: member removal blocks old ciphertexts and key envelopes; recipients
   const owner = db('owner'); await createGroup(owner); await approve(owner);
   const member = db('member'); await assertSucceeds(getDoc(doc(root(member), 'keyEnvelopes', '2_member-device')));
   await assertFails(getDoc(doc(root(member), 'keyEnvelopes', '2_owner-device')));
-  assert.equal((await getDocs(query(collection(root(member), 'keyEnvelopes'), where('userId', '==', 'member')))).size, 1);
+  const keys = collection(root(member), 'keyEnvelopes');
+  await assertFails(getDocs(query(keys, where('userId', '==', 'member'))));
+  assert.equal((await getDocs(query(keys, where('userId', '==', 'member'), where('deviceId', '==', 'member-device')))).size, 1);
   await approve(owner, ['owner']);
   await assertFails(getDoc(doc(root(member), 'keyEnvelopes', '2_member-device')));
   await assertFails(createGroup(owner, 'group-b'));

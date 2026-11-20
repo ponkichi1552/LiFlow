@@ -9,6 +9,7 @@ import { readCloudWorkspaceArchive } from '../../features/sharing/workspace-prot
 import { resolveSharedGroupKey } from '../../features/sharing/account-device-key-continuity.ts';
 import { hasEndedSharingInvitation, readSharingWorkspace, saveSharingWorkspace, updateSharingWorkspace } from '../storage/sharing-registry.ts';
 import type { SharingWorkspaceRecord } from '../storage/sharing-registry.ts';
+import { createSignedHistoryPrefix } from '../storage/signed-history-prefix';
 import { createAccountDeviceApi } from './account-device-api.ts';
 import { getSharingServices, isSharingConfigured } from './firebase-services.ts';
 import { createSharingCloud } from './firestore-cloud.ts';
@@ -45,12 +46,13 @@ export function syncAccountDeviceRestoration(budgetMs = 20_000): Promise<string>
     if (currentLocal && !local && !endedInvitation) return 'absent';
     const registry = await sharingRegistryDatabase(); assertCurrent();
     const cloud = createSharingCloud(getSharingServices().firestore, user.uid, () => getSharingServices().auth.currentUser === user ? user.uid : null);
-    const confirmedGroup = endedInvitation ? await cloud.readMembership() : null; assertCurrent();
+    let confirmedGroup = endedInvitation ? await cloud.readMembership() : undefined; assertCurrent();
     if (endedInvitation && (!confirmedGroup || confirmedGroup === endedInvitation.groupId)) return 'absent';
     const knownWorkspace = confirmedGroup ? await readSharingWorkspace(registry, user.uid, confirmedGroup) : local; assertCurrent();
     if (knownWorkspace && knownWorkspace.status !== 'active') return 'absent';
     const identity = await loadOrCreateSharingDeviceIdentity(user.uid, knownWorkspace?.localGeneration); assertCurrent();
     const pendingKey = `account-group-restore:${user.uid}`;
+    let archivePrefix: ReturnType<typeof createSignedHistoryPrefix> | undefined;
     let activeGroupId: string | undefined;
     const readSavedKey = async (version: number, metadata: AccountDeviceRestoreMetadata) => {
       assertCurrent(); const groupId = metadata.archive.at(-1)!.body.groupId;
@@ -73,12 +75,21 @@ export function syncAccountDeviceRestoration(budgetMs = 20_000): Promise<string>
     const controller = createAccountDeviceController({ userId: user.uid, identity, crypto: nativeSharingCrypto, assertCurrent,
       api: createAccountDeviceApi({ url, userId: user.uid, assertCurrent, getToken: () => user.getIdToken(), budgetMs: Math.min(15_000, budgetMs) }),
       newRequestId: () => `restore.${randomUUID()}`,
-      loadPending: async () => { const raw = await sharingSecureVault.getItem(pendingKey); assertCurrent(); return raw ? validateAccountDeviceRestorePending(JSON.parse(raw), user.uid) : null; },
+      loadPending: async () => {
+        const raw = await sharingSecureVault.getItem(pendingKey); assertCurrent(); if (!raw) return null;
+        const pending = validateAccountDeviceRestorePending(JSON.parse(raw), user.uid);
+        const previousGroup = pending.request.body.groupId;
+        if (confirmedGroup === undefined && previousGroup !== local?.groupId) { confirmedGroup = await cloud.readMembership(); assertCurrent(); }
+        if (confirmedGroup && confirmedGroup !== previousGroup && (!local || confirmedGroup === local.groupId)) {
+          await sharingSecureVault.removeItem(pendingKey); assertCurrent(); return null;
+        }
+        return pending;
+      },
       savePending: async pending => { assertCurrent(); await sharingSecureVault.setItem(pendingKey, canonicalJson(pending)); assertCurrent();
         void import('../../features/google-sync/background-task').then(module => module.registerGoogleSyncBackgroundTask()).catch(() => undefined); },
       clearPending: async () => { assertCurrent(); await sharingSecureVault.removeItem(pendingKey); assertCurrent(); },
       discover: async (pending: AccountDeviceRestorePending | null) => {
-        const groupId = confirmedGroup ?? await cloud.readMembership(); assertCurrent(); if (!groupId) return null;
+        const groupId = confirmedGroup !== undefined ? confirmedGroup : local?.groupId ?? await cloud.readMembership(); assertCurrent(); if (!groupId) return null;
         if (local && local.groupId !== groupId || pending && pending.request.body.groupId !== groupId) throw new Error('Account group changed during restoration');
         const historical = await readSharingWorkspace(registry, user.uid, groupId); assertCurrent();
         if (historical && ['left', 'removed'].includes(historical.status)) return null;
@@ -91,7 +102,11 @@ export function syncAccountDeviceRestoration(budgetMs = 20_000): Promise<string>
           trusted = { userId: user.uid, groupId, displayName: '共有グループ', status: 'active', anchor, rosterArchive: [anchor],
             createdAt: new Date().toISOString(), lastSuccessfulSyncAt: null, lastErrorCode: null };
         }
-        const archive = await readCloudWorkspaceArchive(trusted, roster, cloud.readRoster); assertCurrent();
+        const anchorDigest = 'body' in trusted.anchor ? sharedRosterDigest(trusted.anchor) : trusted.anchor.digest;
+        archivePrefix = createSignedHistoryPrefix(registry, JSON.stringify(['shared', user.uid, groupId]), anchorDigest);
+        const archive = await readCloudWorkspaceArchive(trusted, roster, async (id, revision) => {
+          assertCurrent(); const value = await cloud.readRoster(id, revision); assertCurrent(); return value;
+        }, archivePrefix); assertCurrent();
         activeGroupId = groupId;
         if (!historical) updateStatus({ userId: user.uid, phase: 'waiting' });
         return { group, archive };
@@ -119,13 +134,18 @@ export function syncAccountDeviceRestoration(budgetMs = 20_000): Promise<string>
         }
         if (stored && !endedInvitation) await updateSharingWorkspace(registry, user.uid, groupId, previous => { assertCurrent();
           if (previous.status !== 'active' || previous.localGeneration !== local?.localGeneration) throw new Error('Restoration generation changed');
+          const commonRevision = Math.min(previous.rosterArchive.length, metadata.archive.length);
+          if (commonRevision > 0 && sharedRosterDigest(previous.rosterArchive[commonRevision - 1]) !== sharedRosterDigest(metadata.archive[commonRevision - 1])) {
+            throw new Error('Restoration membership changed');
+          }
+          if (previous.rosterArchive.length >= metadata.archive.length) return previous;
           return { ...previous, rosterArchive: metadata.archive, lastErrorCode: null }; });
         else {
           const record: SharingWorkspaceRecord = stored ?? { userId: user.uid, groupId, displayName: '共有グループ', status: 'active', anchor: metadata.archive[0],
             rosterArchive: metadata.archive, createdAt: new Date().toISOString(), lastSuccessfulSyncAt: null, lastErrorCode: null };
           assertCurrent(); await saveSharingWorkspace(registry, record, endedInvitation ? { endedInvitation, assertCurrent } : undefined);
         }
-        assertCurrent(); updateStatus(null); notifySharingWorkspaceChanged();
+        await archivePrefix?.clear(); assertCurrent(); updateStatus(null); notifySharingWorkspaceChanged();
       },
     });
     const result = await controller.run(); assertCurrent();
@@ -144,31 +164,42 @@ export function startAccountDeviceForeground(userId: string): () => void {
   const user = getSharingServices().auth.currentUser; if (user?.uid !== userId) return () => {};
   let stopped = false, failures = 0, timer: ReturnType<typeof setTimeout> | undefined;
   let requested = false, running = false;
+  let retryAt = 0, lastRevision: number | undefined;
   let listenerFailed = false; let unsubscribe = () => {};
   const live = () => !stopped && getSharingServices().auth.currentUser === user;
-  const schedule = (delay: number) => { clearTimeout(timer); if (live()) timer = setTimeout(() => { void run(); }, delay); };
+  const schedule = (delay: number) => { clearTimeout(timer); if (live()) timer = setTimeout(() => { void run(); }, Math.min(2_147_483_647, Math.max(delay, retryAt - Date.now()))); };
   const run = async () => {
     if (!live()) return; if (running) { requested = true; return; }
+    if (Date.now() < retryAt) { schedule(0); return; }
     running = true; requested = false;
     try {
-      const result = await syncAccountDeviceRestoration(); failures = 0;
+      const result = await syncAccountDeviceRestoration(); failures = 0; retryAt = 0;
       if (live()) {
-        if (listenerFailed) { listenerFailed = false; attach(); }
+        if (listenerFailed) { listenerFailed = false; attach(true); }
         if (requested || result === 'sent') schedule(250);
         else if (!listenerFailed) clearTimeout(timer); // Approval/grant changes arrive through the listener.
       }
-    } catch { failures++; if (live()) schedule(Math.min(10 * 60_000, 5_000 * 2 ** Math.min(failures, 6))); }
+    } catch (error) {
+      failures++;
+      if (error instanceof Error && 'retryAt' in error && typeof error.retryAt === 'number') retryAt = error.retryAt;
+      if (live()) schedule(Math.min(10 * 60_000, 5_000 * 2 ** Math.min(failures, 6)));
+    }
     finally { running = false; }
   };
   const cloud = createSharingCloud(getSharingServices().firestore, userId, () => live() ? userId : null);
-  const attach = () => {
+  const attach = (reattached = false) => {
     unsubscribe(); let initialSignal = true;
-    unsubscribe = cloud.watchAccountDeviceRestores(() => {
-      if (initialSignal) { initialSignal = false; return; }
-      if (running) requested = true; else schedule(250);
+    unsubscribe = cloud.watchAccountDeviceRestores(revision => {
+      if (!live()) return;
+      const first = initialSignal; initialSignal = false;
+      if (revision !== undefined && revision === lastRevision || first && reattached && revision === undefined) return;
+      lastRevision = revision;
+      if (running) requested = true;
+      else if (first && !reattached) { clearTimeout(timer); void run(); }
+      else schedule(250);
     }, () => { listenerFailed = true; schedule(30_000); });
   };
+  schedule(2000);
   attach();
-  void run();
   return () => { stopped = true; clearTimeout(timer); unsubscribe(); };
 }

@@ -28,7 +28,7 @@ import { createV2ReminderRuntime } from '../../src/features/sharing/v2/reminder-
 import { addDays } from '../../src/domain/scheduling/local-date.ts';
 
 /** Real signatures, event repository and SQLite; only native handles/account storage/cloud I/O are injected. */
-export async function workspaceHarness({ pending = false, version = 2, cloud: overrides = {}, deferWorkspaceTimers = false, workspaceTimers, privateCalendarNeeded = false, initiallyEmpty = false, v2Database, historyRuntime = retentionRuntime, initializeSignatureCache = async () => {} } = {}) {
+export async function workspaceHarness({ pending = false, version = 2, cloud: overrides = {}, deferWorkspaceTimers = false, workspaceTimers, privateCalendarNeeded = false, initiallyEmpty = false, v2Database, historyRuntime = retentionRuntime, initializeSignatureCache = async () => {}, restoreAccountDevice } = {}) {
   const handles = []; const calls = []; const cloudOptions = []; const reminderCalls = []; const taskCalls = []; const taskControl = { revision: 0, label: null, state: null }; let ordinal = 0;
   const create = () => { const h = createDatabase(); let closed = false;
     h.database.closeAsync = async () => { if (!closed) { closed = true; h.connection.close(); } }; handles.push(h); return h; };
@@ -84,6 +84,7 @@ export async function workspaceHarness({ pending = false, version = 2, cloud: ov
       loadGoogleSyncState: async () => { throw new Error('legacy Google state queried'); } },
     '../../features/google-sync/background-task': { registerGoogleSyncBackgroundTask: async () => {} },
     './private-calendar-sync': { isPrivateCalendarWorkerNeeded: async () => privateCalendarNeeded },
+    ...(restoreAccountDevice ? { './account-device-runtime': { syncAccountDeviceRestoration: restoreAccountDevice } } : {}),
     './v2-reminders': {
       createNativeV2Reminders(input) {
         reminderCalls.push('factory');

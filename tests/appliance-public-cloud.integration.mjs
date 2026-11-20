@@ -61,19 +61,21 @@ test('real Firestore removes a completed AI result only after its owner durable 
 
 test('real Firestore forwards an encrypted manual unchanged for workers and refunds rejected PDFs before any paid start', async t => {
   const principal = who('encrypted-manual-owner');
+  let at = Date.parse('2026-11-05T01:00:00Z'); const now = () => at;
   const { publicKey: recipient, privateKey } = generateKeyPairSync('x25519');
   const keyId = publicKey(recipient.export({ format: 'raw-public' }));
   const privateKeys = readManualUploadPrivateKeys({ APPLIANCE_CARE_UPLOAD_PRIVATE_KEYS: JSON.stringify([privateKey.export({ format: 'raw-private' }).toString('hex')]) });
-  const gateway = buildFirestoreUsageStore({ firestore });
-  const worker = buildFirestoreUsageStore({ firestore, manualUploadPrivateKeys: privateKeys });
+  const gateway = buildFirestoreUsageStore({ firestore, now });
+  const worker = buildFirestoreUsageStore({ firestore, now, manualUploadPrivateKeys: privateKeys });
   const kdf = { extract: (salt, data) => extract(sha256, data, salt), expand: (key, info, count) => expand(sha256, key, info, count) };
-  const publicAccess = { ...createPublicApiAccess({ verifyIdToken: async () => ({ uid: principal.uid, firebase: { sign_in_provider: 'google.com' } }),
-    verifyDevice: async () => ({ ...principal, reinstallProtection: 'verified' }), store: gateway }), uploadKeyIds: [keyId] };
+  const publicAccess = { ...createPublicApiAccess({ verifyIdToken: async token => ({ uid: token === 'other-client' ? 'other-owner' : principal.uid, firebase: { sign_in_provider: 'google.com' } }),
+    verifyDevice: async (_request, { uid }) => ({ ...who(uid), reinstallProtection: 'verified' }), store: gateway }), uploadKeyIds: [keyId] };
   const server = createApplianceCareHttpServer({ publicAccess });
   server.listen(0, '127.0.0.1'); await once(server, 'listening'); t.after(() => new Promise(resolve => server.close(resolve)));
   const endpoint = `http://127.0.0.1:${server.address().port}/api/appliance-care/jobs`;
   const authHeader = { authorization: 'Bearer synthetic-client' };
   const requestHeaders = key => ({ ...authHeader, 'x-idempotency-key': key, 'content-type': MANUAL_UPLOAD_CONTENT_TYPE });
+  const lookup = (id, auth = authHeader) => fetch(`${endpoint}/admission`, { headers: { ...auth, 'x-idempotency-key': id } });
   const seal = (pdf, admission) => {
     const manual = decodeUploadedManual({ base64: pdf.toString('base64'), rightsConfirmed: true });
     const identity = { identifyFromManual: true };
@@ -103,6 +105,12 @@ test('real Firestore forwards an encrypted manual unchanged for workers and refu
   assert.equal(plain.status, 415);
   const first = await start(validId, sealed); assert.equal(first.status, 202);
   const accepted = await first.json();
+  assert.deepEqual(await (await lookup(validId)).json(), { jobId: accepted.jobId }, 'recover the exact job without resending its 6 MiB PDF');
+  const foreign = await lookup(validId, { authorization: 'Bearer other-client' });
+  assert.equal(foreign.status, 404); assert.equal((await foreign.json()).code, 'ADMISSION_NOT_FOUND');
+  const alias = 'synthetic-reused-job';
+  assert.equal((await (await start(alias, seal(validPdf, alias))).json()).jobId, accepted.jobId);
+  assert.deepEqual(await (await lookup(alias)).json(), { jobId: accepted.jobId });
   const rerandomized = seal(validPdf, validId); assert.equal(rerandomized.equals(sealed), false);
   const retry = await start(validId, rerandomized);
   assert.equal((await retry.json()).jobId, accepted.jobId, 'lost responses can retry with fresh ciphertext without a duplicate job');
@@ -112,7 +120,7 @@ test('real Firestore forwards an encrypted manual unchanged for workers and refu
   assert.equal(Buffer.concat(orderedParts.map(part => part.bytes)).equals(sealed), true, 'storage preserves every byte of the encrypted upload');
   assert.equal((await firestore.doc(`applianceApi/v1/jobs/${accepted.jobId}`).get()).data().inputManifest.version, 3);
   let paid = 0;
-  const run = () => runAnalysisQueueBatch({ store: worker, authorize: async owner => assert.equal(owner, principal.uid), createDependencies: () => ({}),
+  const run = () => runAnalysisQueueBatch({ store: worker, now, authorize: async owner => assert.equal(owner, principal.uid), createDependencies: () => ({}),
     analyze: async request => { paid++; assert.equal(request.manual.bytes.equals(validPdf), true); return output; } });
   assert.equal((await run()).settled, 1);
   assert.equal(paid, 1); assert.equal((await gateway.usage(principal)).used, 1);
@@ -128,6 +136,28 @@ test('real Firestore forwards an encrypted manual unchanged for workers and refu
   }
   assert.equal(paid, 1);
   assert.equal((await firestore.collection('applianceApi/v1/analysisInputChunks').get()).size, 0);
+
+  const startedId = 'synthetic-expiring-started';
+  const { jobId: started } = await (await start(startedId, seal(blankPdf, startedId))).json();
+  assert.ok(started);
+  const claim = await worker.claimAnalysis(started);
+  assert.equal(await worker.startAnalysis(claim.admission), true);
+  at += PUBLIC_API_POLICY.jobTimeoutMs + 1;
+  await worker.heartbeatAnalysisWorker();
+  const queuedId = 'synthetic-expiring-unstarted';
+  const { jobId: queued } = await (await start(queuedId, seal(blankPdf, queuedId))).json();
+  assert.ok(queued);
+  assert.equal((await gateway.usage(principal)).used, 3);
+  at += PUBLIC_API_POLICY.retentionMs + 1;
+  const restarted = buildFirestoreUsageStore({ firestore, now, manualUploadPrivateKeys: privateKeys });
+  assert.ok(await restarted.prune() > 0, 'startup cleanup runs before any timed-out analysis has been settled');
+  assert.equal((await restarted.usage(principal)).used, 2, 'only the job that never started paid work is refunded');
+  assert.equal((await firestore.doc('applianceApi/v1/dailyUsage/2026-11-05').get()).data().count, 5);
+  assert.equal((await firestore.doc('applianceApi/v1/control/global').get()).data().active.length, 0);
+  assert.equal((await firestore.collection('applianceApi/v1/analysisInputChunks').get()).size, 0);
+  assert.deepEqual(await restarted.listAnalysisWork(), []);
+  const expired = await lookup(queuedId);
+  assert.equal(expired.status, 409); assert.equal((await expired.json()).code, 'REQUEST_CONFLICT');
 });
 
 test('real Firestore queues a maximum PDF atomically and independent workers claim paid execution once without exposing its chunks', async () => {

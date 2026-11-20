@@ -15,9 +15,11 @@ registerHooks({ resolve(specifier, context, nextResolve) {
   if (specifier === '../../platform/appliance-care/auth') return { url: 'data:text/javascript,let sequence=0;export async function authorizeApplianceCareApi(){if(globalThis.syntheticApplianceAuthPause)await globalThis.syntheticApplianceAuthPause;const id="synthetic-request-"+(++sequence);return {userId:"synthetic-owner",headers:async()=>({authorization:"Bearer synthetic-client", "x-idempotency-key":id})}}', shortCircuit: true };
   if (specifier === 'expo/fetch') return { url: 'data:text/javascript,export const fetch = (...args) => globalThis.fetch(...args);', shortCircuit: true };
   if (specifier === 'expo-crypto') return { url: 'data:text/javascript,' + encodeURIComponent(`
-    import { createCipheriv, randomBytes, randomUUID } from 'node:crypto';
+    import { createCipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
     export { randomUUID };
     export const getRandomBytesAsync = async length => randomBytes(length);
+    export const CryptoDigestAlgorithm = { SHA256: 'SHA-256' };
+    export const digestStringAsync = async (_algorithm, text) => createHash('sha256').update(text).digest('hex');
     export const AESEncryptionKey = { import: async bytes => bytes };
     export const AESSealedData = {};
     export const aesDecryptAsync = () => { throw new Error('the mobile upload must not decrypt'); };
@@ -194,6 +196,48 @@ test('PDF-only mobile analysis submits no product fields and accepts the same-ca
     assert.equal(result.analysis.tasks.length, 1);
     const invalid = await analyzeApplianceCareRequest({ ...input, manufacturer: 'partial' }, 'https://api.example.test');
     assert.equal(invalid.code, 'INVALID_REQUEST'); assert.equal(calls, 2, 'partial identity hints cannot trigger paid work');
+  } finally { globalThis.fetch = original; }
+});
+
+test('a lost PDF acceptance response uses persisted admission lookup and resends only on an explicit miss', async t => {
+  configureManualUpload(t);
+  const original = globalThis.fetch;
+  try {
+    for (const alreadyAccepted of [true, false]) {
+      const calls = []; let storedId; let job; let attempts = 0;
+      const result = { status: 'not_found', message: '検査用の解析結果' };
+      const id = 'b'.repeat(64);
+      const deliveries = { read: async () => null, pending: async () => [],
+        admission: async (_user, _key, proposed) => ({ id: storedId ??= proposed, jobId: job }),
+        recordJob: async (_user, _key, admitted, accepted) => { assert.equal(admitted, storedId); job = accepted; },
+        completeAdmission: async () => {} };
+      globalThis.fetch = async (url, options) => {
+        calls.push([options.method, url]);
+        if (options.method === 'POST') {
+          assert.equal(options.headers['x-idempotency-key'], storedId);
+          assert.ok(options.body.byteLength > 100);
+          if (++attempts === 1) throw new TypeError('lost upload response');
+          return Response.json({ jobId: id });
+        }
+        assert.equal(options.body, undefined);
+        if (url.endsWith('/admission')) {
+          assert.equal(options.headers['x-idempotency-key'], storedId);
+          if (calls.length === 2) return Response.json({ error: 'lookup unavailable' }, { status: 503 });
+          return alreadyAccepted ? Response.json({ jobId: id })
+            : Response.json({ status: 'error', code: 'ADMISSION_NOT_FOUND', message: '未受付' }, { status: 404 });
+        }
+        assert.equal(url.endsWith(`/${id}`), true);
+        return Response.json({ stage: 'official_manual_analysis', done: true, result });
+      };
+      const run = () => analyzeApplianceCareRequest({ identifyFromManual: true, manual: syntheticManual() },
+        `https://admission-${alreadyAccepted}.example.test`, 2000, undefined, undefined, deliveries);
+      assert.equal((await run()).code, 'TEMPORARY_NETWORK_ERROR');
+      assert.equal((await run()).code, 'TEMPORARY_NETWORK_ERROR');
+      assert.deepEqual(calls.map(([method]) => method), ['POST', 'GET']);
+      assert.deepEqual(await run(), result);
+      assert.equal(attempts, alreadyAccepted ? 1 : 2);
+      assert.equal(job, id);
+    }
   } finally { globalThis.fetch = original; }
 });
 

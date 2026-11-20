@@ -4,6 +4,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { createPublicApiAccess, PUBLIC_API_POLICY } from './public-access.mjs';
 import { createFirestoreUsageStore } from './firestore-usage-store.mjs';
 import { createFirebaseSubscriptionRuntime } from './firebase-subscription-runtime.mjs';
+import { createFirestoreEntitlementReader } from './firestore-subscription-store.mjs';
 import { readAnalysisQueueKeys } from './analysis-queue-input.mjs';
 import { readManualUploadKeyIds, readManualUploadPrivateKeys } from './manual-upload-server.mjs';
 
@@ -19,8 +20,7 @@ export function createFirebasePublicRuntime(env = process.env, { worker = false 
   if (env.NODE_ENV?.trim().toLowerCase() === 'production' && env.LIFLOW_SUBSCRIPTIONS_ENABLED !== 'true') {
     throw new Error('Verified subscriptions are required for the public service');
   }
-  const subscriptions = env.LIFLOW_SUBSCRIPTIONS_ENABLED === 'true'
-    ? createFirebaseSubscriptionRuntime({ firestore: getFirestore(app), auth: getAuth(app), env }) : undefined;
+  const firestore = getFirestore(app); const auth = getAuth(app);
   const policy = { ...PUBLIC_API_POLICY };
   for (const [setting, key, maximum] of [
     ['APPLIANCE_CARE_MONTHLY_LIMIT', 'monthlyLimit', 100], ['APPLIANCE_CARE_GLOBAL_DAILY_LIMIT', 'dailyGlobalLimit', 1000],
@@ -35,12 +35,18 @@ export function createFirebasePublicRuntime(env = process.env, { worker = false 
   const analysisQueueKeys = worker ? readAnalysisQueueKeys(env) : undefined;
   const manualUploadPrivateKeys = worker ? readManualUploadPrivateKeys(env) : undefined;
   const analysisQueueReady = worker ? Boolean(analysisQueueKeys || manualUploadPrivateKeys?.size) : uploadKeyIds.length > 0;
-  const access = createPublicApiAccess({ verifyIdToken: (token, checkRevoked) => getAuth(app).verifyIdToken(token, checkRevoked),
-    store: createFirestoreUsageStore({ firestore: getFirestore(app), policy, analysisQueueKeys, manualUploadPrivateKeys }), subscriptions });
-  return Object.freeze({ ...access, uploadKeyIds, analysisQueueReady, async authorizeQueuedAnalysis(uid, admittedAt) {
-    const user = await getAuth(app).getUser(uid);
-    if (user.disabled || !Number.isSafeInteger(admittedAt)
-      || Date.parse(user.tokensValidAfterTime ?? '') > admittedAt || !subscriptions) throw new Error('Queued analysis authorization expired');
-    await subscriptions.service.assertActive(uid);
-  } });
+  const store = createFirestoreUsageStore({ firestore, policy, analysisQueueKeys, manualUploadPrivateKeys });
+  const billingEnabled = env.LIFLOW_SUBSCRIPTIONS_ENABLED === 'true';
+  if (worker) {
+    const entitlements = billingEnabled ? createFirestoreEntitlementReader({ firestore }) : null;
+    return Object.freeze({ store, analysisQueueReady, entitlements, async authorizeQueuedAnalysis(uid, admittedAt) {
+      const user = await auth.getUser(uid);
+      if (user.disabled || !Number.isSafeInteger(admittedAt)
+        || Date.parse(user.tokensValidAfterTime ?? '') > admittedAt || !entitlements) throw new Error('Queued analysis authorization expired');
+      await entitlements.assertActive(uid);
+    } });
+  }
+  const subscriptions = billingEnabled ? createFirebaseSubscriptionRuntime({ firestore, auth, env }) : undefined;
+  const access = createPublicApiAccess({ verifyIdToken: (token, checkRevoked) => auth.verifyIdToken(token, checkRevoked), store, subscriptions });
+  return Object.freeze({ ...access, uploadKeyIds, analysisQueueReady });
 }

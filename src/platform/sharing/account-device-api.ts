@@ -4,7 +4,10 @@ import type { AccountDeviceRestoreApi } from '../../features/sharing/account-dev
 
 export class AccountDeviceRequestError extends Error {
   readonly code: string;
-  constructor(code: string) { super('共有グループを復元できませんでした。接続後に再試行します。'); this.code = code; }
+  readonly retryAt?: number;
+  constructor(code: string, retryAt?: number) {
+    super('共有グループを復元できませんでした。接続後に再試行します。'); this.code = code; this.retryAt = retryAt;
+  }
 }
 /** Never redirects an identity token or includes a provider response in an error. */
 export function createAccountDeviceApi(input: { url: string; userId: string; assertCurrent(): void;
@@ -34,7 +37,11 @@ export function createAccountDeviceApi(input: { url: string; userId: string; ass
         try { result = JSON.parse(raw); } catch { throw new AccountDeviceRequestError('invalid_response'); }
         if (!response.ok) {
           const code = (result as { code?: unknown })?.code;
-          throw new AccountDeviceRequestError(typeof code === 'string' && /^[a-z_]{1,80}$/u.test(code) ? code : 'retry_later');
+          const hint = response.status === 429 || response.status === 503 ? response.headers.get('retry-after') : null;
+          const at = Date.now();
+          const supplied = !hint ? NaN : /^\d{1,8}$/u.test(hint) ? at + Number(hint) * 1000 : Date.parse(hint);
+          throw new AccountDeviceRequestError(typeof code === 'string' && /^[a-z_]{1,80}$/u.test(code) ? code : 'retry_later',
+            Number.isFinite(supplied) && supplied > at ? supplied : undefined);
         }
         return result;
       })();

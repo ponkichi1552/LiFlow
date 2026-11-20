@@ -19,6 +19,7 @@ import type { PrivatePreferenceSync } from '../private-planner/preference-sync.t
 export interface PrivateCalendarRuntimePort extends PrivateCalendarCapturePort {
   devices: PrivateCalendarDeviceSession; sourceController: ReturnType<typeof createPrivateCalendarSourceController>;
   cloud: PrivateCalendarCapturePort['cloud'] & { readCache: (authority: NonNullable<Awaited<ReturnType<PrivateCalendarCapturePort['secrets']['authority']>>>, checkBudget?: () => void) => Promise<import('./cache-crypto').EncryptedPrivateCalendarCache | null>;
+    watchKey?: (authority: NonNullable<Awaited<ReturnType<PrivateCalendarCapturePort['secrets']['authority']>>>, deviceId: string, changed: () => void, failed: () => void) => () => void;
     watch?: (changed: () => void, failed: () => void) => () => void };
   timeZone(): string;
   currentGoogleAccount(): Promise<{ subject: string; label: string } | null>;
@@ -118,9 +119,10 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
     try { calendar = await updateCalendar(force, deadline, ensure, signal); }
     finally { preferences = await planner; }
     if (force) return calendar;
-    if (preferences?.kind === 'waiting') {
-      const calendarRetryAt = calendar.kind === 'waiting' ? calendar.retryAt : null;
-      return { kind: 'waiting' as const, retryAt: Math.min(preferences.retryAt, calendarRetryAt ?? Infinity) };
+    const calendarRetryAt = calendar.kind === 'waiting' || calendar.kind === 'inProgress' ? calendar.retryAt : null;
+    const next = Math.min(preferences?.kind === 'waiting' ? preferences.retryAt : Infinity, device.keyRetryAt ?? Infinity, calendarRetryAt ?? Infinity);
+    if (Number.isFinite(next)) {
+      return { kind: 'waiting' as const, retryAt: next };
     }
     if (preferences?.kind === 'retry' || preferences?.kind === 'changed') return { kind: 'waiting' as const, retryAt: null };
     return calendar;
@@ -134,7 +136,11 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
     ensure();
     if (!authority || !authority.signed.body.devices.some(value => value.deviceId === state.identity.deviceId)) return { kind: 'unavailable' as const };
     const confirmCacheDelivery = cloud.confirmCacheDelivery;
-    const confirmSaved = confirmCacheDelivery && ((digest: string) => confirmCacheDelivery(authority, digest, () => cache.copyForDelivery(authority, digest)));
+    const confirmSaved = confirmCacheDelivery && (async (digest: string) => {
+      const confirmed = await confirmCacheDelivery(authority, digest, () => cache.copyForDelivery(authority, digest));
+      if (confirmed) await cache.confirmRemoteReceipt?.(authority, digest);
+      return confirmed;
+    });
     if (authority.signed.body.mainDeviceId === state.identity.deviceId) {
       const profile = await source.read();
       if (profile?.active && !await sourceController.isCurrentSelection({ assertBudget: ensure, signal })) { requiresSourceReview = true; return { kind: 'sourceReview' as const }; }
@@ -152,6 +158,10 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
     if (!head) throw new Error('本人用Calendarのサーバー設定がありません。'); assertPrivateCalendarCloudAuthority(head, authority);
     if (!head.cacheHead || head.cacheHead.authorityDigest !== authority.digest) return { kind: 'missing' as const };
     const local = await cache.status(authority); ensure();
+    if (local?.receiptPending && local.authorityCurrent && local.cursor.manifestDigest === head.cacheHead.manifestDigest && confirmSaved) {
+      if (await confirmSaved(local.cursor.manifestDigest)) return { kind: 'unchanged' as const };
+      return { kind: 'waiting' as const, retryAt: null };
+    }
     if (!force && local?.authorityCurrent && !local.pending && local.cursor.manifestDigest === head.cacheHead.manifestDigest
       && (!confirmSaved || await confirmSaved(local.cursor.manifestDigest))) return { kind: 'unchanged' as const };
     const key = await secrets.currentKey(userId, authority);
@@ -160,7 +170,8 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
       if (!key) return { kind: 'awaitingKey' as const };
       const encrypted = await privateCalendarWork(() => cloud.readCache(authority, ensure), { assertBudget: ensure, signal }); if (!encrypted) return { kind: 'missing' as const };
       ensure();
-      const saved = await cache.save(encrypted, { authority, accountKey: key, calendarBinding: privateCalendarSourceBinding(authority), origin: 'remote' });
+      const saved = await cache.save(encrypted, { authority, accountKey: key, calendarBinding: privateCalendarSourceBinding(authority), origin: 'remote',
+        requireReceipt: Boolean(confirmSaved) });
       await port.assertOwner(); void confirmSaved?.(saved.cursor.manifestDigest).catch(() => undefined);
       return { kind: 'received' as const, sequence: encrypted.manifest.body.sequence };
     } finally { key?.fill(0); }
@@ -184,6 +195,28 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
     invalidatePlaintext() { refresh?.cancel(); invalidate(); }, subscribe,
     observeRemote(onReady?: () => void | Promise<void>) {
       const connections = devices.observeConnections?.();
+      let stopped = false, keyScope: string | undefined, stopKey: (() => void) | undefined, keyRetry: ReturnType<typeof setTimeout> | undefined;
+      let keyCheckGeneration = 0;
+      const watchKey = cloud.watchKey;
+      const reconcileKey = async () => {
+        if (stopped || !watchKey) return;
+        const generation = ++keyCheckGeneration;
+        const state = await secrets.publicState(userId);
+        if (stopped || keyCheckGeneration !== generation) return;
+        const authority = state?.authority;
+        const device = state?.identity.deviceId;
+        const scope = authority && device && !state?.hasCurrentKey && authority.signed.body.devices.some(value => value.deviceId === device)
+          ? JSON.stringify([authority.digest, device]) : undefined;
+        if (scope === keyScope) return;
+        stopKey?.(); stopKey = undefined; keyScope = scope;
+        if (scope && authority && device) stopKey = watchKey(authority, device,
+          () => { if (!stopped) void synchronizeAutomatically().catch(() => {}); },
+          () => { stopKey?.(); stopKey = undefined; keyScope = undefined; clearTimeout(keyRetry);
+            if (!stopped) keyRetry = setTimeout(checkKey, 30_000); });
+      };
+      const checkKey = () => { void reconcileKey().catch(() => {}); };
+      const unsubscribeKey = watchKey ? devices.subscribe(checkKey) : undefined;
+      checkKey();
       const common = { assertOwner: port.assertOwner, subscribeLocal: subscribe, now,
         configured: async () => { const view = await devices.read(); return view.phase === 'approved' || view.phase === 'firstPending'; },
         synchronize: synchronizeAutomatically };
@@ -194,7 +227,7 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
       const planner = plannerSync ? observePrivateCalendarForeground({ ...common,
         subscribeConfiguration: listener => { const device = devices.subscribe(listener); const prefs = plannerSync.store.subscribe(listener); return () => { device(); prefs(); }; },
         watchRemote: plannerSync.cloud.watch }) : null;
-      return () => { calendar(); planner?.(); connections?.(); };
+      return () => { stopped = true; clearTimeout(keyRetry); unsubscribeKey?.(); stopKey?.(); calendar(); planner?.(); connections?.(); };
     },
     async checkGoogleAccount() { await assertMain(); const account = await port.currentGoogleAccount(); await port.assertOwner(); return account; },
     async restoreCurrentGoogleAccount() {

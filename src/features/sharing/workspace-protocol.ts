@@ -1,7 +1,7 @@
 import type { SharingWorkspaceRecord } from '../../platform/storage/sharing-registry.ts';
 import { SHARED_SCHEDULER_VERSION } from './operations.ts';
 import { SharingSchedulerVersionError } from './cloud-contract.ts';
-import { sharedRosterDigest, validateSharedRoster, verifyPinnedSharedRoster, verifySharedRosterArchive } from './roster.ts';
+import { sharedRosterDigest, validateSharedRoster, verifyPinnedSharedRoster, verifySharedRosterArchive, verifySharedRosterTransition } from './roster.ts';
 import type { SignedSharedRoster, VerifiedSharedRoster } from './roster.ts';
 import { isSupportedV2Scheduler } from './v2/payload-schema.ts';
 
@@ -38,12 +38,39 @@ export function verifyWorkspaceArchive(record: SharingWorkspaceRecord, inputs: r
 
 /** Fetch only bounded public membership history; no database or group secret is needed to choose a format. */
 export async function readCloudWorkspaceArchive(record: SharingWorkspaceRecord, currentInput: SignedSharedRoster,
-  readRoster: (groupId: string, revision: number) => Promise<SignedSharedRoster>): Promise<VerifiedSharedRoster[]> {
+  readRoster: (groupId: string, revision: number) => Promise<SignedSharedRoster>, checkpoint?: {
+    read(after: number, through: number): Promise<unknown[]>;
+    append(first: number, entries: readonly VerifiedSharedRoster[]): Promise<void>;
+    clear(): Promise<void>;
+  }): Promise<VerifiedSharedRoster[]> {
   const current = validateSharedRoster(currentInput); const last = record.rosterArchive.at(-1);
   if (current.body.groupId !== record.groupId || current.body.revision > 4096 || last && current.body.revision < last.body.revision) throw new Error('Shared membership rollback or history limit');
   const inputs = [...record.rosterArchive];
-  for (let revision = inputs.length + 1; revision <= current.body.revision; revision++) inputs.push(
-    revision === current.body.revision ? current : await readRoster(record.groupId, revision));
+  let verified = checkpoint && inputs.length ? verifyWorkspaceArchive(record, inputs)?.at(-1) : undefined;
+  if (checkpoint && verified && inputs.length < current.body.revision) {
+    const start = inputs.length;
+    try {
+      for (const raw of await checkpoint.read(start, current.body.revision - 1)) {
+        verified = verifySharedRosterTransition(verified, raw as SignedSharedRoster); inputs.push(verified);
+      }
+    } catch {
+      inputs.length = start; verified = verifyWorkspaceArchive(record, inputs)?.at(-1);
+      await checkpoint.clear();
+    }
+  }
+  while (inputs.length < current.body.revision) {
+    const first = inputs.length + 1;
+    const page = await Promise.all(Array.from({ length: Math.min(8, current.body.revision - first + 1) }, (_, index) => {
+      const revision = first + index;
+      return revision === current.body.revision ? current : readRoster(record.groupId, revision);
+    }));
+    if (checkpoint && verified) {
+      const next: VerifiedSharedRoster[] = [];
+      for (const roster of page) { verified = verifySharedRosterTransition(verified, roster); next.push(verified); }
+      await checkpoint.append(first, next);
+    }
+    inputs.push(...page);
+  }
   const archive = verifyWorkspaceArchive(record, inputs);
   if (!archive || sharedRosterDigest(archive.at(-1)!) !== sharedRosterDigest(current)) throw new Error('Shared membership changed at an existing revision');
   return archive;

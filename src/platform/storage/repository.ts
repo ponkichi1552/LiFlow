@@ -797,10 +797,13 @@ export async function applyRegionalWeatherToPlannerSnapshot(database: SQLiteData
     try {
       assertCurrent(); await assertPlannerDataVersion(database, expected);
       let changed = false;
-      if (incoming) await withIsolatedSqliteTransaction(database, async transaction => {
+      if (incoming && incoming.revision !== prior?.revision) await withIsolatedSqliteTransaction(database, async transaction => {
         await sourceOwner?.assertCommitCurrent?.();
         assertCurrent(); await assertPlannerDataVersion(database, expected);
-        changed = await saveRegionalWeatherInside(transaction, incoming);
+        const saved = await saveRegionalWeatherInside(transaction, incoming);
+        const stamp = clock().getTime();
+        changed = saved && (!prior || JSON.stringify(prior.forecast) !== JSON.stringify(incoming.forecast)
+          || weatherCacheFreshness(prior, stamp).placement !== weatherCacheFreshness(incoming, stamp).placement);
         if (changed) await synchronizeAdaptiveRepositoryInside(transaction, clock(), assertCurrent);
         assertCurrent(); await sourceOwner?.assertCommitCurrent?.();
       });
@@ -810,7 +813,8 @@ export async function applyRegionalWeatherToPlannerSnapshot(database: SQLiteData
         current = await loadPlannerSnapshotImpl(database, day, clock(), zone);
       }
       const usable = weatherCacheFreshness(incoming ?? prior, clock().getTime()).placement;
-      const count = current.scheduleEntries.filter(entry => snapshot.scheduleEntries.some(old => old.id === entry.id && old.suggestedDate !== entry.suggestedDate)).length;
+      const oldDates = changed ? new Map(snapshot.scheduleEntries.map(entry => [entry.id, entry.suggestedDate])) : null;
+      const count = oldDates ? current.scheduleEntries.filter(entry => oldDates.has(entry.id) && oldDates.get(entry.id) !== entry.suggestedDate).length : 0;
       const outcome = usable ? count ? 'adjusted' : 'current' : 'unavailable';
       if (current.weatherOutcome === outcome && current.weatherAdjustmentCount === count) return current;
       const result: PlannerSnapshot = { ...current, weatherOutcome: outcome, weatherAdjustmentCount: count };

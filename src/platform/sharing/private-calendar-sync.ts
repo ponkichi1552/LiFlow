@@ -11,7 +11,7 @@ export async function syncKnownPrivateCalendar(budgetMs = PRIVATE_CALENDAR_AUTOM
     const { device, pendingTargetDigest } = await runtime.readSettings();
     const preferences = await runtime.plannerSync?.readStatus();
     const waiting = device.phase === 'firstPending' || Boolean(pendingTargetDigest) || Boolean(device.pendingChange && !device.pendingChange.reviewRequired)
-      || device.cache?.pending === true || device.pendingKeys > 0
+      || device.cache?.pending === true || device.cache?.receiptPending === true || device.pendingKeys > 0 || device.phase === 'approved' && !device.keyReady
       || preferences?.kind === 'pending' && (preferences.nextRetryAt === null || preferences.nextRetryAt <= Date.now());
     if (!waiting) return { kind: 'skipped' as const };
   }

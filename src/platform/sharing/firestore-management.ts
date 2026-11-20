@@ -219,6 +219,14 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
       const guard = sharingSequenceGuard(() => { checkAccount(); checkBudget(); });
       verifySharedSnapshotManifest(input.manifest, roster); const { body } = input.manifest;
       if (input.chunks.length !== body.chunks.length) throw new Error('Snapshot chunk count mismatch');
+      guard();
+      try {
+        await setDoc(doc(reference(body.groupId), 'snapshotStages', body.snapshotId), { keyVersion: body.keyVersion, updatedAt: serverTimestamp() });
+      } catch (error) {
+        // Older Rules do not yet recognize the optional staging marker. Their chunks are excluded from future-epoch cleanup.
+        if ((error as { code?: string })?.code !== 'permission-denied') throw error;
+      }
+      guard();
       if (deliveryRelay?.()) for (const [index, chunk] of input.chunks.entries()) {
         if (sharedDocumentDigest(chunk) !== body.chunks[index].digest) throw new Error('Snapshot chunk hash mismatch');
         await deliveryRelay()!.archive.saveChunk(body.chunks[index].id, chunk); guard();

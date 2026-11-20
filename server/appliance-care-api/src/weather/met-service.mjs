@@ -58,6 +58,9 @@ export function createMetWeatherService({ store, userAgent, fetcher = fetch, now
       if (!weatherRegion(id)) return { status: 404, code: 'weather_region_unknown' };
       if (!configured) return { status: 503, code: 'weather_not_configured' };
       const value = await store.reference(id); const cache = value?.cache;
+      if (value?.error === 'met_forbidden' && (!cache || !validMetForecast(cache.forecast) || !weatherCacheFreshness(cache, now()).display)) {
+        return { status: 503, code: 'weather_provider_forbidden' };
+      }
       if (!cache || !validMetForecast(cache.forecast) || !weatherCacheFreshness(cache, now()).display) return { status: 202, code: 'weather_pending' };
       return { status: 200, value: { schemaVersion: 1, regionId: id, revision: cache.revision, fetchedAt: cache.fetchedAt,
         checkedAt: cache.checkedAt, expiresAt: cache.expiresAt, lastModified: cache.lastModified, forecast: cache.forecast } };

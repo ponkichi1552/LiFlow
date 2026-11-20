@@ -96,19 +96,25 @@ export function createAccountDeviceController(deps: {
     }
     if (own?.status === 'requested' && own.receivedAt + ACCOUNT_DEVICE_RESTORE_TTL_MS > now()
       && own.request.body.rosterDigest === sharedRosterDigest(roster)) return 'waiting' as const;
-    // Preserve an ambiguous prior POST and retry its exact nonce. Never multiply pending slots.
-    if (pending && !own && pending.request.body.rosterDigest === sharedRosterDigest(roster)) {
-      const occupied = receipts.find(row => row.slot === pending.slot);
-      await work(() => deps.api.request({ groupId, slot: pending.slot, request: pending.request, replaceRequestId: occupied?.request.body.requestId ?? null }));
-      return 'waiting' as const;
+    // A lost POST keeps its exact signed nonce, including when a simultaneous request takes its proposed slot.
+    const resuming = pending && !own && pending.request.body.rosterDigest === sharedRosterDigest(roster) ? pending : null;
+    const request = resuming?.request ?? createAccountDeviceRestoreRequest(roster, deps.userId, deps.identity, deps.newRequestId());
+    const submit = async (rows: AccountDeviceRestoreReceipt[]) => {
+      const prior = rows.find(row => row.request.body.identity.deviceId === deps.identity.deviceId);
+      const available = (slot: number) => !rows.some(row => row.slot === slot);
+      const slot = prior?.slot ?? (resuming && available(resuming.slot) ? resuming.slot
+        : Array.from({ length: ACCOUNT_DEVICE_RESTORE_SLOTS }, (_, index) => index).find(available));
+      if (slot === undefined) throw new Error('All account restoration slots are occupied');
+      if (!resuming || resuming.slot !== slot) await work(() => deps.savePending({ anchor: archive[0], previousRevision: roster.body.revision, slot, request }));
+      if (!prior || sharedDocumentDigest(prior.request) !== sharedDocumentDigest(request)) {
+        await work(() => deps.api.request({ groupId, slot, request, replaceRequestId: prior?.request.body.requestId ?? null }));
+      }
+    };
+    try { await submit(receipts); }
+    catch (error) {
+      if (!['request_changed', 'slot_busy'].includes((error as { code?: string })?.code ?? '')) throw error;
+      await submit(await work(() => deps.api.read(groupId)));
     }
-    const prior = receipts.find(row => row.request.body.identity.deviceId === deps.identity.deviceId);
-    const slot = prior?.slot ?? Array.from({ length: ACCOUNT_DEVICE_RESTORE_SLOTS }, (_, index) => index).find(index => !receipts.some(row => row.slot === index));
-    if (slot === undefined) throw new Error('All account restoration slots are occupied');
-    const next: AccountDeviceRestorePending = { anchor: archive[0], previousRevision: roster.body.revision, slot,
-      request: createAccountDeviceRestoreRequest(roster, deps.userId, deps.identity, deps.newRequestId()) };
-    await work(() => deps.savePending(next));
-    await work(() => deps.api.request({ groupId, slot, request: next.request, replaceRequestId: prior?.request.body.requestId ?? null }));
     return 'waiting' as const;
   }
   const ownedKeys: Uint8Array[] = [];

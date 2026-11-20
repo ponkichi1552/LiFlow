@@ -73,7 +73,7 @@ export function prepareAnalysisQueueInput(request, requestKey, keys, context) {
   const chunks = [];
   // Binary ciphertext, not a second Base64 envelope. A maximum input plus
   // quota writes fits in one 10 MiB transaction. No key is stored in Firestore.
-  for (let offset = 0; offset < encrypted.length; offset += CHUNK_BYTES) chunks.push(Buffer.from(encrypted.subarray(offset, offset + CHUNK_BYTES)));
+  for (let offset = 0; offset < encrypted.length; offset += CHUNK_BYTES) chunks.push(encrypted.subarray(offset, offset + CHUNK_BYTES));
   return { manifest: { ...manifest, nonce: nonce.toString('hex'), tag: cipher.getAuthTag().toString('hex') }, chunks };
 }
 
@@ -141,7 +141,7 @@ export function decodeAnalysisQueueInput(manifest, chunks, keys, context, privat
   const key = keys?.keys.get(manifest.keyId); if (!key) throw unavailable();
   const parts = chunks.map((chunk, i) => {
     if (!(chunk instanceof Uint8Array)) throw new Error('Invalid analysis input chunk');
-    const bytes = Buffer.from(chunk);
+    const bytes = Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength);
     if (bytes.length !== Math.min(CHUNK_BYTES, manifest.bytes - i * CHUNK_BYTES)) throw new Error('Invalid analysis input chunk size');
     return bytes;
   });

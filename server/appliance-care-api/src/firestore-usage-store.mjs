@@ -10,6 +10,10 @@ const interrupted = { status: 'error', code: 'ANALYSIS_INTERRUPTED',
 const unstarted = { status: 'error', code: 'ANALYSIS_INTERRUPTED',
   message: '説明書の受付が中断されました。時間をおいて再試行してください。' };
 const encryptedAndUnstarted = job => job.inputManifest?.version === 3 && !Number.isSafeInteger(job.startedAt);
+const shouldRefundAnalysis = (job, result, receivedAt) => encryptedAndUnstarted(job)
+  || (Number.isSafeInteger(receivedAt) && receivedAt < job.deadlineAt && result?.status === 'error' && result.code === 'AI_SERVICE_NO_RESULT');
+const expiredAdmission = () => new PublicApiError(409, 'REQUEST_CONFLICT', 'この受付IDの結果保存期間は終了しました。新しい操作としてやり直してください。');
+const workStates = ['resultReady', 'queued', 'preparing', 'executing'];
 
 /** Server-only documents. All counters and the job reservation commit together before any paid work begins. */
 export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLICY, now = Date.now, analysisQueueKeys, manualUploadPrivateKeys }) {
@@ -20,6 +24,8 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
   const root = firestore.collection('applianceApi').doc('v1');
   const globalRef = root.collection('control').doc('global');
   const workerRef = root.collection('control').doc('analysisWorker');
+  const cleanupRef = root.collection('control').doc('analysisCleanup');
+  const keyedWorkerRef = keyId => root.collection('control').doc(`analysisWorker.${keyId}`);
   const dayRef = day => root.collection('dailyUsage').doc(day);
   const userRef = (uid, month) => root.collection('usage').doc(publicKey(JSON.stringify([uid, month])));
   const deviceRef = (deviceId, month) => root.collection('deviceUsage').doc(publicKey(JSON.stringify([deviceId, month])));
@@ -159,17 +165,66 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
     return { stage: job.stage, done: job.done, ...(job.done ? { result: job.result,
       ...(job.delivery ? { delivery: job.delivery } : {}) } : { pollAfterMs: 2000 }), usage: job.usage };
   }
+  function releaseActiveRun(transaction, global, jobId, runId) {
+    const active = global?.active ?? [];
+    const remaining = active.filter(item => item.jobId !== jobId || item.runId !== runId);
+    if (remaining.length !== active.length) transaction.update(globalRef, { active: remaining });
+  }
+  function deleteAnalysisInput(transaction, jobId, job) {
+    if (job.queueVersion === 1 && job.inputManifest) {
+      for (let index = 0; index < job.inputManifest.chunks; index++) transaction.delete(chunkRef(jobId, index));
+    }
+  }
+  function pruneUnsettledJob(ref, at) {
+    return firestore.runTransaction(async transaction => {
+      const [jobDoc, decisionDoc, globalDoc] = await transaction.getAll(ref, chargeRef(ref.id), globalRef);
+      const job = jobDoc.data();
+      if (!job || job.expiresAt.toMillis() > at.getTime()) return false;
+      if (!job.done) {
+        if (decisionDoc.data()?.state === 'pending') {
+          const refund = shouldRefundAnalysis(job, job.executionState === 'resultReady' ? job.result : undefined, job.resultReceivedAt);
+          transaction.update(decisionDoc.ref, { state: refund ? 'refunded' : 'charged' });
+        }
+        deleteAnalysisInput(transaction, ref.id, job);
+        releaseActiveRun(transaction, globalDoc.data(), ref.id, job.runId);
+      }
+      transaction.delete(ref);
+      return true;
+    });
+  }
   const store = {
     async ready() { await globalRef.get(); },
-    async prune() {
-      const at = new Date(now()); const batch = firestore.batch(); let count = 0;
-      for (const collection of ['jobs', 'reuse', 'usage', 'dailyUsage', 'deviceUsage', 'chargeDecisions', 'quotaStates', 'analysisInputChunks']) {
-        const expired = await root.collection(collection).where('expiresAt', '<=', at).limit(50).select('expiresAt').get();
-        // A cache pointer may be renewed after the query; never delete a newer value from that stale result.
-        for (const doc of expired.docs) { batch.delete(doc.ref, { lastUpdateTime: doc.updateTime }); count++; }
-      }
-      if (count) await batch.commit();
+    async pruneIfDue() {
+      const claimed = await firestore.runTransaction(async transaction => {
+        const current = (await transaction.get(cleanupRef)).data(); const at = now();
+        if (Number.isSafeInteger(current?.nextAttemptAt) && current.nextAttemptAt > at) return null;
+        const nonce = randomUUID();
+        transaction.set(cleanupRef, { nonce, nextAttemptAt: at + 120_000 }); return nonce;
+      });
+      if (!claimed) return 0;
+      const count = await store.prune();
+      await firestore.runTransaction(async transaction => {
+        const current = (await transaction.get(cleanupRef)).data();
+        if (current?.nonce === claimed) transaction.set(cleanupRef, { nextAttemptAt: count >= 50 ? now() : now() + 60 * 60_000 });
+      });
       return count;
+    },
+    async prune() {
+      const at = new Date(now()); const batch = firestore.batch(); let deletedJobs = 0; let batched = 0;
+      for (const collection of ['jobs', 'reuse', 'usage', 'dailyUsage', 'deviceUsage', 'chargeDecisions', 'quotaStates', 'analysisInputChunks']) {
+        const expired = await root.collection(collection).where('expiresAt', '<=', at).limit(50)
+          .select(...(collection === 'jobs' ? ['expiresAt', 'done'] : ['expiresAt'])).get();
+        // A cache pointer may be renewed after the query; never delete a newer value from that stale result.
+        for (const doc of expired.docs) {
+          if (collection === 'jobs' && doc.data().done !== true) {
+            if (await pruneUnsettledJob(doc.ref, at)) deletedJobs++;
+          } else {
+            batch.delete(doc.ref, { lastUpdateTime: doc.updateTime }); batched++;
+          }
+        }
+      }
+      if (batched) await batch.commit();
+      return deletedJobs + batched;
     },
     async admit(input) {
       const principal = Object.freeze({ uid: input.principal?.uid, anonymous: input.principal?.anonymous,
@@ -195,8 +250,8 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
         const at = now(); const periods = usagePeriods(at);
         const id = publicJobId(principal, idempotencyKey); const ref = jobRef(id);
         const reuseRef = root.collection('reuse').doc(publicKey(JSON.stringify([principal.uid, requestKey])));
-        const [jobDoc, globalDoc, userDoc, dailyDoc, reuseDoc, deviceDoc, chargeDoc, admissionDoc, workerDoc] = await transaction.getAll(ref, globalRef,
-          userRef(principal.uid, periods.month), dayRef(periods.day), reuseRef, deviceRef(principal.deviceId, periods.month), chargeRef(id), admissionRef(id), workerRef);
+        const [jobDoc, globalDoc, userDoc, dailyDoc, reuseDoc, deviceDoc, chargeDoc, admissionDoc] = await transaction.getAll(ref, globalRef,
+          userRef(principal.uid, periods.month), dayRef(periods.day), reuseRef, deviceRef(principal.deviceId, periods.month), chargeRef(id), admissionRef(id));
         const state = await quotaState(transaction, principal, userDoc.data(), deviceDoc.data(), at);
         const job = jobDoc.data();
         if (state.blocked) { writeQuota(transaction, principal, periods, state); return { denied: reinstallDenied() }; }
@@ -210,7 +265,7 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
           const previous = receipt.jobId === id ? job : (await transaction.get(jobRef(receipt.jobId))).data();
           writeQuota(transaction, principal, periods, state);
           if (!previous || previous.owner !== principal.uid || previous.requestDigest !== jobRequestDigest || previous.expiresAt.toMillis() <= at) {
-            return { denied: new PublicApiError(409, 'REQUEST_CONFLICT', 'この受付IDの結果保存期間は終了しました。新しい操作としてやり直してください。') };
+            return { denied: expiredAdmission() };
           }
           return { jobId: receipt.jobId, created: false, usage: publicUsage(state.count, at, policy) };
         }
@@ -221,7 +276,7 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
           writeQuota(transaction, principal, periods, state);
           return { jobId: id, created: false, usage: publicUsage(state.count, at, policy) };
         }
-        if (chargeDoc.exists) { writeQuota(transaction, principal, periods, state); return { denied: new PublicApiError(409, 'REQUEST_CONFLICT', 'この受付IDの結果保存期間は終了しました。新しい操作としてやり直してください。') }; }
+        if (chargeDoc.exists) { writeQuota(transaction, principal, periods, state); return { denied: expiredAdmission() }; }
         const reusedId = reuseDoc.data()?.jobId;
         if (!forceReanalysis && reusedId) {
           const previous = (await transaction.get(jobRef(reusedId))).data();
@@ -234,10 +289,10 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
           }
         }
         if (queuedInput) {
-          const heartbeat = workerDoc.data();
+          const { version, keyId } = queuedInput.manifest;
+          const heartbeat = (await transaction.get(version === 3 ? keyedWorkerRef(keyId) : workerRef)).data();
           if (!Number.isSafeInteger(heartbeat?.seenAt) || heartbeat.readyUntil !== heartbeat.seenAt + 90_000
-            || heartbeat.seenAt > at + 30_000 || heartbeat.readyUntil <= at
-            || (queuedInput.manifest.version === 3 && (!Array.isArray(heartbeat.manualKeyIds) || !heartbeat.manualKeyIds.includes(queuedInput.manifest.keyId)))) {
+            || heartbeat.seenAt > at + 30_000 || heartbeat.readyUntil <= at) {
             throw new PublicApiError(503, 'ANALYSIS_WORKER_UNAVAILABLE', '解析の準備ができていません。時間をおいてお試しください。');
           }
         }
@@ -272,6 +327,19 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
       if (admission.denied) throw admission.denied;
       return admission;
     },
+    async lookupAdmission(principal, key) {
+      checkPrincipal(principal);
+      const id = publicJobId(principal, key);
+      const receipt = (await admissionRef(id).get()).data();
+      if (receipt && (receipt.owner !== principal.uid || !/^[a-f0-9]{64}$/u.test(receipt.jobId))) throw expiredAdmission();
+      const jobId = receipt?.jobId ?? id;
+      const [snapshot] = await firestore.getAll(jobRef(jobId), { fieldMask: ['owner', 'requestDigest', 'expiresAt'] });
+      const job = snapshot.data();
+      if (job && job.owner === principal.uid && job.expiresAt.toMillis() > now()
+        && (!receipt || job.requestDigest === (receipt.jobRequestDigest ?? receipt.requestDigest))) return { jobId };
+      if (receipt || job || (await chargeRef(id).get()).exists) throw expiredAdmission();
+      return null;
+    },
     async read(principal, id) {
       checkPrincipal(principal);
       if (!/^[a-f0-9]{64}$/u.test(id)) return null;
@@ -305,25 +373,28 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
     /** A separate request-independent worker owns these server-only operations. */
     async heartbeatAnalysisWorker() {
       const at = now(); if (!Number.isSafeInteger(at)) throw new Error('Invalid worker clock');
-      await firestore.runTransaction(async transaction => { transaction.set(workerRef, { seenAt: at, readyUntil: at + 90_000,
-        ...(manualUploadPrivateKeys?.size ? { manualKeyIds: [...manualUploadPrivateKeys.keys()] } : {}) }); });
+      const lease = { seenAt: at, readyUntil: at + 90_000 };
+      await firestore.runTransaction(async transaction => {
+        if (queueKeys || !manualUploadPrivateKeys?.size) transaction.set(workerRef, lease);
+        for (const keyId of manualUploadPrivateKeys?.keys() ?? []) transaction.set(keyedWorkerRef(keyId), lease);
+      });
     },
     async listAnalysisWork(limit = 3) {
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10) throw new Error('Invalid worker limit');
-      const work = new Map();
-      for (const state of ['resultReady', 'queued', 'preparing', 'executing']) {
-        let query = root.collection('jobs').where('executionState', '==', state);
-        const dueField = state === 'executing' ? 'deadlineAt' : state === 'preparing' ? 'claimExpiresAt' : null;
-        if (dueField) query = query.where(dueField, '<=', now()).orderBy(dueField);
-        const snapshot = await query.limit(Math.max(limit, policy.maxConcurrent))
-          .select('executionState', 'deadlineAt', 'claimExpiresAt', 'queueVersion', 'done').get();
-        for (const doc of snapshot.docs) {
-          const job = doc.data();
-          if (job.queueVersion === 1 && !job.done && (state !== 'executing' || job.deadlineAt <= now())
-            && (state !== 'preparing' || job.claimExpiresAt <= now())) work.set(doc.id, doc.id);
-        }
-      }
-      return [...work.values()].slice(0, limit);
+      // Non-due production leases are bounded by admission concurrency. Extra slots allow this
+      // worker to see actionable jobs even when the first rows use a different upload key.
+      const snapshot = await root.collection('jobs').where('executionState', 'in', workStates)
+        .limit(policy.maxConcurrent + limit)
+        .select('executionState', 'deadlineAt', 'claimExpiresAt', 'queueVersion', 'done', 'inputManifest').get();
+      const at = now();
+      return snapshot.docs.flatMap(doc => {
+        const job = doc.data(); const state = job.executionState;
+        if (job.queueVersion !== 1 || job.done || state === 'executing' && job.deadlineAt > at
+          || state === 'preparing' && job.claimExpiresAt > at) return [];
+        if ((state === 'queued' || state === 'preparing') && job.deadlineAt > at && job.inputManifest?.version === 3
+          && !manualUploadPrivateKeys?.has(job.inputManifest.keyId)) return [];
+        return [{ id: doc.id, priority: workStates.indexOf(state), deadline: job.deadlineAt }];
+      }).sort((left, right) => left.priority - right.priority || left.deadline - right.deadline).slice(0, limit).map(job => job.id);
     },
     async claimAnalysis(id) {
       if (typeof id !== 'string' || !/^[a-f0-9]{64}$/u.test(id)) throw new Error('Invalid analysis job');
@@ -338,11 +409,22 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
           return { admission, result };
         }
         if (job.executionState !== 'queued' && !(job.executionState === 'preparing' && job.claimExpiresAt <= at)) return null;
+        if (job.inputManifest?.version === 3 && !manualUploadPrivateKeys?.has(job.inputManifest.keyId)) return null;
         // Input preparation can be leased safely; the separate start transition
         // fences this claim immediately before the first possible paid request.
         const claimId = randomUUID();
         transaction.update(ref, { executionState: 'preparing', claimId, claimExpiresAt: Math.min(at + 30_000, job.deadlineAt) });
         return { admission: { ...admission, claimId }, owner: job.owner, createdAt: job.createdAt, inputManifest: job.inputManifest, requestKey: job.inputRequestKey };
+      });
+    },
+    async renewAnalysisPreparation(admission) {
+      return firestore.runTransaction(async transaction => {
+        const ref = jobRef(admission.jobId);
+        const job = (await transaction.get(ref)).data(); const at = now();
+        if (!job || job.runId !== admission.runId || job.claimId !== admission.claimId || job.executionState !== 'preparing'
+          || job.done || at >= job.claimExpiresAt || at >= job.deadlineAt) return false;
+        transaction.update(ref, { claimExpiresAt: Math.min(at + 30_000, job.deadlineAt) });
+        return true;
       });
     },
     async startAnalysis(admission) {
@@ -397,15 +479,14 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
         }
         const receivedAt = job.queueVersion === 1 ? job.resultReceivedAt : at;
         const neverStarted = encryptedAndUnstarted(job);
-        const refund = neverStarted || (receivedAt < job.deadlineAt && result.status === 'error' && result.code === 'AI_SERVICE_NO_RESULT');
+        const refund = shouldRefundAnalysis(job, result, receivedAt);
         if (decisionDoc.exists) transaction.update(chargeRef(admission.jobId), { state: refund ? 'refunded' : 'charged' });
         const output = receivedAt >= job.deadlineAt ? (neverStarted ? unstarted : interrupted) : result;
         transaction.update(jobRef(admission.jobId), { done: true, result: output,
           delivery: { token: randomBytes(32).toString('hex'), digest: publicKey(analysisDeliveryJson(output)), expiresAt: job.expiresAt.toMillis() },
           ...(job.queueVersion === 1 ? { executionState: 'finished', inputManifest: null, inputRequestKey: null } : {}) });
-        if (job.queueVersion === 1) for (let i = 0; i < job.inputManifest.chunks; i++) transaction.delete(chunkRef(admission.jobId, i));
-        if (globalDoc.exists) transaction.update(globalRef, { active: (globalDoc.data().active ?? [])
-          .filter(item => item.jobId !== admission.jobId || item.runId !== admission.runId) });
+        deleteAnalysisInput(transaction, admission.jobId, job);
+        releaseActiveRun(transaction, globalDoc.data(), admission.jobId, admission.runId);
       });
     },
     async progress(admission, stage) {

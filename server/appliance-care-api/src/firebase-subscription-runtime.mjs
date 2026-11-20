@@ -6,6 +6,15 @@ import { createFirestoreSubscriptionStore } from './firestore-subscription-store
 import { createSubscriptionService, createSubscriptionSigner } from './subscription-service.mjs';
 import { createSubscriptionHttp } from './subscription-http.mjs';
 
+class BoundedAppleSubscriptionClient extends AppStoreServerAPIClient {
+  makeFetchRequest(path, parameters, method, body, headers) {
+    const base = new URL(this.urlBase);
+    const url = new URL(path, base); url.search = parameters.toString();
+    if (url.origin !== base.origin || url.protocol !== 'https:') throw new Error('Invalid Apple subscription endpoint');
+    return fetch(url, { method, body, headers, signal: AbortSignal.timeout(10_000), redirect: 'error' });
+  }
+}
+
 export function createFirebaseSubscriptionRuntime({ firestore, auth, env = process.env }) {
   const required = name => { const value = env[name]?.trim(); if (!value) throw new Error(`Subscription configuration is required: ${name}`); return value; };
   const bundleId = 'jp.jphacks.tkb2633';
@@ -21,7 +30,7 @@ export function createFirebaseSubscriptionRuntime({ firestore, auth, env = proce
     if (appleId !== undefined && (!Number.isSafeInteger(appleId) || appleId <= 0)) throw new Error('Invalid Apple application ID');
     const roots = required('LIFLOW_APPLE_ROOT_CERTIFICATE_FILES').split(',').map(path => readFileSync(path.trim()));
     const verifier = new SignedDataVerifier(roots, true, environment, bundleId, appleId);
-    const client = new AppStoreServerAPIClient(readFileSync(required('LIFLOW_APPLE_IAP_KEY_FILE'), 'utf8'),
+    const client = new BoundedAppleSubscriptionClient(readFileSync(required('LIFLOW_APPLE_IAP_KEY_FILE'), 'utf8'),
       required('LIFLOW_APPLE_IAP_KEY_ID'), required('LIFLOW_APPLE_IAP_ISSUER_ID'), bundleId, environment);
     providers.apple = createAppleSubscriptionProvider({ client, verifier, bundleId, productId: appleProduct, environment });
   }

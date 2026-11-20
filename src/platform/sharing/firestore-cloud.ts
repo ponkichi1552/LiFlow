@@ -312,16 +312,30 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
       const accepted = { ...result, serverReceipt: receipt };
       checkAccount(); return accepted;
     },
-    async pull(groupId: string, afterSequence: number, verifyRecovered?: (events: readonly SharedCloudEvent[]) => Promise<void>) {
+    async pull(groupId: string, afterSequence: number, verifyRecovered?: (events: readonly SharedCloudEvent[]) => Promise<void>,
+      confirmed?: Awaited<ReturnType<typeof readGroup>>, localAcceptances?: ReadonlyMap<number, SharedCloudEvent>) {
       if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) throw new Error('Invalid shared receive position');
-      const metadata = await readGroup(groupId); const { group } = metadata;
+      checkAccount();
+      const metadata = confirmed?.roster.body.groupId === groupId ? confirmed : await readGroup(groupId); const { group } = metadata;
       if (afterSequence > group.headSequence) throw new SharingSnapshotRequiredError('共有履歴が保存位置より前に戻っています。');
       if (afterSequence < group.snapshotThroughSequence) throw new SharingSnapshotRequiredError('共有データのSnapshotを取得します。');
       if (afterSequence === group.headSequence) {
         return { ...metadata, events: [], throughSequence: afterSequence };
       }
+      const local: SharedCloudEvent[] = [];
+      let ceiling = group.headSequence;
+      if (group.schemaVersion === 2 && localAcceptances?.size) {
+        for (let sequence = afterSequence + 1; sequence <= Math.min(group.headSequence, afterSequence + 100); sequence++) {
+          const event = localAcceptances.get(sequence);
+          if (!event) { if (local.length) break; continue; }
+          if (sequence !== afterSequence + local.length + 1) { ceiling = sequence - 1; break; }
+          local.push(event);
+        }
+      }
+      // Only use exact acceptances from this synchronization attempt and never leap over another device's sequence.
+      if (local.length) return { ...metadata, events: local, throughSequence: local.at(-1)!.uploadSequence };
       const page = await getDocsFromServer(query(collection(reference(groupId), 'events'), orderBy('uploadSequence'),
-        startAfter(afterSequence), where('uploadSequence', '<=', group.headSequence), limit(100)));
+        startAfter(afterSequence), where('uploadSequence', '<=', ceiling), limit(100)));
       checkAccount();
       let events = page.docs.map((item) => {
         const data = item.data(); const event = parseSharedCloudEvent(item.id, data, groupId);
@@ -333,7 +347,7 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
       if (gap > 0 && delivery && group.schemaVersion === 2) events = events.slice(0, gap);
       else if (gap >= 0 || !events.length && afterSequence < group.headSequence) {
         if (!delivery || group.schemaVersion !== 2) throw new SharingSnapshotRequiredError('共有履歴の保存位置が更新されました。');
-        const through = gap === 0 ? events[0].uploadSequence - 1 : group.headSequence;
+        const through = gap === 0 ? events[0].uploadSequence - 1 : ceiling;
         events = await recoverEventPage(groupId, afterSequence, through, verifyRecovered);
       }
       checkAccount();

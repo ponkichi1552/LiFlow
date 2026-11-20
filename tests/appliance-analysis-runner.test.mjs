@@ -55,9 +55,9 @@ test('errors are not cached and admission limits cap distinct paid analysis work
 });
 
 test('polling backs off, clamps server hints, and ends promptly on abort', async () => {
-  assert.deepEqual([0, 1, 2, 3, 4].map((attempt) => applianceCarePollDelay(attempt)), [1000, 1500, 2000, 3000, 3000]);
+  assert.deepEqual([0, 1, 2, 3, 4, 5, 6].map((attempt) => applianceCarePollDelay(attempt)), [1000, 1500, 2000, 3000, 5000, 8000, 8000]);
   assert.equal(applianceCarePollDelay(0, -10), 1000);
-  assert.equal(applianceCarePollDelay(0, 100_000), 5000);
+  assert.equal(applianceCarePollDelay(0, 100_000), 8000);
   assert.equal(applianceCarePollDelay(0, NaN), 1000);
   const controller = new AbortController();
   const wait = waitForAppliancePoll(5000, controller.signal);

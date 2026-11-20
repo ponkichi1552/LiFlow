@@ -26,6 +26,7 @@ export interface PrivateCalendarDeviceSessionPort {
   outbox: ReturnType<typeof createPrivateCalendarKeyOutbox>;
   cache: ReturnType<typeof createPrivateCalendarCacheStorage>;
   cloud: ReturnType<typeof createPrivateCalendarCloud>;
+  historyPrefix?: Parameters<typeof createPrivateCalendarAuthoritySync>[0]['historyPrefix'];
   connections?: PrivateCalendarConnectionPort;
 }
 export interface PrivateCalendarDeviceView {
@@ -36,7 +37,7 @@ export interface PrivateCalendarDeviceView {
   reference: PrivateCalendarPairingReference | null; request: PrivateCalendarPairingRequest | null;
   pendingChange: { digest: string; observedCurrentDigest: string; reviewRequired: boolean } | null;
   pendingKeys: number; keyRetryAt: number | null;
-  cache: { sequence: number; authorityCurrent: boolean; pending: boolean } | null;
+  cache: { sequence: number; authorityCurrent: boolean; pending: boolean; receiptPending?: boolean } | null;
   connectionExpiresAt?: number;
   connectionExpired?: boolean;
 }
@@ -45,7 +46,7 @@ export interface PrivateCalendarDeviceView {
 export function createPrivateCalendarDeviceSession(port: PrivateCalendarDeviceSessionPort) {
   const { userId, secrets, roots, intents, candidates, outbox, cache, cloud } = port; assertSharedIdentifier(userId);
   const first = createPrivateCalendarFirstDeviceSetup({ userId, secrets, intents: roots, cloud });
-  const authoritySync = createPrivateCalendarAuthoritySync({ userId, secrets, intents, cloud });
+  const authoritySync = createPrivateCalendarAuthoritySync({ userId, secrets, intents, cloud, historyPrefix: port.historyPrefix });
   const delivery = createPrivateCalendarKeyDelivery({ userId, secrets, outbox, cloud });
   const pairing = createPrivateCalendarPairingController({ userId, secrets, candidates, intents, authoritySync, delivery, cloud });
   const connections = port.connections ? createPrivateCalendarConnectionController({ ...port.connections, userId, assertOwner: port.assertOwner, secrets, pairing, authoritySync,
@@ -82,16 +83,18 @@ export function createPrivateCalendarDeviceSession(port: PrivateCalendarDeviceSe
       pendingChange: pending ? { digest: pending.digest, observedCurrentDigest: current!.digest,
         reviewRequired: pending.signed.body.previousDigest !== current!.digest && pending.digest !== current!.digest } : null,
       pendingKeys: keys?.pending ?? 0, keyRetryAt: keys?.retryAt ?? null,
-      cache: cached ? { sequence: cached.cursor.sequence, authorityCurrent: cached.authorityCurrent, pending: cached.pending } : null };
+      cache: cached ? { sequence: cached.cursor.sequence, authorityCurrent: cached.authorityCurrent, pending: cached.pending,
+        ...(cached.receiptPending ? { receiptPending: true } : {}) } : null };
   }
   const listeners = new Set<() => void>();
+  const notifyDevices = () => { for (const listener of listeners) try { listener(); } catch { /* Committed settings are independent of observers. */ } };
   let mutation: Promise<unknown> | null = null;
   function exclusive<T>(work: () => Promise<T>, notify = true): Promise<T> {
     if (mutation) return Promise.reject(new Error('本人端末の操作が終わってから再試行してください。'));
     const pending = (async () => { await port.assertOwner(); const result = await work(); await port.assertOwner(); return result; })();
     mutation = pending; void pending.finally(() => {
       if (mutation === pending) mutation = null;
-      if (notify) for (const listener of listeners) try { listener(); } catch { /* A view cannot roll back a committed device setting. */ }
+      if (notify) notifyDevices();
     }).catch(() => {}); return pending;
   }
   async function deliver(force: boolean, control: PrivateCalendarWorkControl = {}) {
@@ -126,7 +129,10 @@ export function createPrivateCalendarDeviceSession(port: PrivateCalendarDeviceSe
       if (resumed.kind === 'review') return read();
       if (resumed.kind === 'idle') await authoritySync.refresh(options);
       assertPrivateCalendarWork(options);
-      await deliver(force, options); assertPrivateCalendarWork(options); return read();
+      await deliver(force, options); assertPrivateCalendarWork(options);
+      const after = await read();
+      if (!force && (before.phase !== after.phase || before.keyReady !== after.keyReady || before.authorityDigest !== after.authorityDigest)) notifyDevices();
+      return after;
     }, force);
     sync = { force, promise: pending }; void pending.finally(() => { if (sync?.promise === pending) sync = null; }).catch(() => {}); return pending;
   };
@@ -143,6 +149,7 @@ export function createPrivateCalendarDeviceSession(port: PrivateCalendarDeviceSe
       let waiting: Promise<unknown> | null = null;
       let expiry: ReturnType<typeof setTimeout> | undefined;
       const watches = new Map<string, () => void>();
+      const retries = new Map<string, ReturnType<typeof setTimeout>>();
       const process = () => {
         if (stopped) return; dirty = true; if (processing) return;
         if (mutation) {
@@ -164,7 +171,16 @@ export function createPrivateCalendarDeviceSession(port: PrivateCalendarDeviceSe
           if (!bootstrapped) { bootstrapped = true; if (pending.length) process(); }
           const ids = new Set(pending.filter(row => row.expiresAt > Date.now()).map(row => row.id));
           for (const [id, stop] of watches) if (!ids.has(id)) { stop(); watches.delete(id); }
-          for (const id of ids) if (!watches.has(id)) watches.set(id, connections.watch(id, process, () => {}));
+          for (const [id, timer] of retries) if (!ids.has(id)) { clearTimeout(timer); retries.delete(id); }
+          for (const id of ids) if (!watches.has(id) && !retries.has(id)) {
+            const failed = () => {
+              if (stopped) return;
+              watches.get(id)?.(); watches.delete(id);
+              if (!retries.has(id)) retries.set(id, setTimeout(() => { retries.delete(id); process(); void reconcile(); }, 30_000));
+            };
+            const unsubscribe = connections.watch(id, process, failed);
+            if (retries.has(id)) unsubscribe(); else watches.set(id, unsubscribe);
+          }
           clearTimeout(expiry); const next = pending.filter(row => row.expiresAt > Date.now()).map(row => row.expiresAt);
           if (next.length) expiry = setTimeout(() => { process(); void reconcile(); }, Math.max(1, Math.min(...next) - Date.now() + 1));
         } catch { /* An account change or unavailable transport cannot grant a device. */ }
@@ -172,7 +188,8 @@ export function createPrivateCalendarDeviceSession(port: PrivateCalendarDeviceSe
       };
       const changed = () => { void reconcile(); if (dirty) process(); };
       listeners.add(changed); void reconcile();
-      stopConnections = () => { stopped = true; clearTimeout(expiry); listeners.delete(changed); for (const stop of watches.values()) stop(); watches.clear(); };
+      stopConnections = () => { stopped = true; clearTimeout(expiry); listeners.delete(changed); for (const stop of watches.values()) stop(); watches.clear();
+        for (const timer of retries.values()) clearTimeout(timer); retries.clear(); };
     }
     let live = true;
     return () => { if (!live) return; live = false; if (--connectionObservers === 0) { stopConnections?.(); stopConnections = null; } };

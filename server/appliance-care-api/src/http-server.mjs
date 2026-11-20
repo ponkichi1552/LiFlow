@@ -9,6 +9,7 @@ import { SubscriptionError } from './subscription-service.mjs';
 import { createFixedWindowRateLimit } from './rate-limit.mjs';
 import { MANUAL_UPLOAD_CONTENT_TYPE, MAX_MANUAL_UPLOAD_BYTES } from './manual-upload-contract.mjs';
 import { readManualUploadEnvelope, unavailableManualUpload } from './manual-upload-server.mjs';
+import { validAnalysisDelivery } from './analysis-delivery-contract.mjs';
 
 const MAX_BODY_BYTES = 8 * 1024;
 const JOB_RETENTION_MS = 10 * 60_000;
@@ -107,14 +108,26 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
       throw new PublicApiError(429, 'RATE_LIMITED', 'リクエストが多すぎます。少し待って再試行してください。');
     }
     if (subscriptionAccess && await subscriptionAccess.handle(request, response, url)) return;
+    const isAnalyzeRequest = request.method === 'POST' && url.pathname === '/api/appliance-care/analyze';
+    const isJobRequest = request.method === 'POST' && url.pathname === '/api/appliance-care/jobs';
+    const jobStatusMatch = request.method === 'GET'
+      ? url.pathname.match(/^\/api\/appliance-care\/jobs\/([0-9a-f-]{36}|[0-9a-f]{64})$/iu) : null;
+    const isUsage = publicAccess && request.method === 'GET' && url.pathname === '/api/appliance-care/usage';
+    const isAdmission = publicAccess && request.method === 'GET' && url.pathname === '/api/appliance-care/jobs/admission';
     const receiptMatch = request.method === 'POST' && url.pathname.match(/^\/api\/appliance-care\/jobs\/([a-f0-9]{64})\/receipt$/u);
     if (publicAccess && receiptMatch) {
       // A deletion receipt is not a new paid analysis. An expired subscription must not retain its old result.
       const identity = await publicAccess.authenticateIdentity(request);
       if (!allowPublicUser(identity.uid)) throw new PublicApiError(429, 'RATE_LIMITED', '少し待って再試行してください。');
-      const body = await readJsonBody(request, 1024);
+      let body;
+      try { body = await readJsonBody(request, 1024); }
+      catch { throw new PublicApiError(400, 'INVALID_REQUEST', '解析結果の受領情報を確認してください。'); }
+      if (!validAnalysisDelivery(body)) throw new PublicApiError(400, 'INVALID_REQUEST', '解析結果の受領情報を確認してください。');
       const removed = await publicAccess.store.acknowledgeResult(identity, receiptMatch[1], body);
       sendJson(response, removed ? 200 : 404, { acknowledged: removed }); return;
+    }
+    if (!isAnalyzeRequest && !isJobRequest && !jobStatusMatch && !isUsage && !isAdmission) {
+      rejectRequest(request, response, 404, { error: { code: 'NOT_FOUND', message: 'API endpointが見つかりません。' } }); return;
     }
     if (billingOnly) {
       sendJson(response, 503, { code: 'DEVICE_VERIFICATION_UNAVAILABLE', message: '家電AIは安全な端末確認の準備中です。購入・復元は利用できます。' }); return;
@@ -124,12 +137,16 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
       throw new PublicApiError(429, 'RATE_LIMITED', 'リクエストが多すぎます。少し待って再試行してください。');
     }
     if (principal && subscriptionAccess && publicAccess.subscriptions !== subscriptionAccess) await subscriptionAccess.service.assertActive(principal.uid);
-    if (publicAccess && request.method === 'GET' && url.pathname === '/api/appliance-care/usage') {
+    if (isUsage) {
       sendJson(response, 200, { usage: await publicAccess.store.usage(principal) }); return;
     }
-    const jobStatusMatch = request.method === 'GET'
-      ? url.pathname.match(/^\/api\/appliance-care\/jobs\/([0-9a-f-]{36}|[0-9a-f]{64})$/iu)
-      : null;
+    if (isAdmission) {
+      const admission = await publicAccess.store.lookupAdmission(principal, request.headers['x-idempotency-key']);
+      sendJson(response, admission ? 200 : 404, admission ?? {
+        status: 'error', code: 'ADMISSION_NOT_FOUND', message: 'この受付IDで受け付けた解析はありません。',
+      });
+      return;
+    }
     if (jobStatusMatch) {
       if (publicAccess) {
         const job = await publicAccess.store.read(principal, jobStatusMatch[1]);
@@ -150,14 +167,8 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
       });
       return;
     }
-    const isAnalyzeRequest = request.method === 'POST' && url.pathname === '/api/appliance-care/analyze';
-    const isJobRequest = request.method === 'POST' && url.pathname === '/api/appliance-care/jobs';
     if (publicAccess && isAnalyzeRequest) {
       sendJson(response, 405, { status: 'error', code: 'INVALID_REQUEST', message: '家電AIは解析ジョブとして開始してください。' }); return;
-    }
-    if (!isAnalyzeRequest && !isJobRequest) {
-      sendJson(response, 404, { error: { code: 'NOT_FOUND', message: 'API endpointが見つかりません。' } });
-      return;
     }
     // Cheap identity validation precedes either upload format.
     if (publicAccess) publicJobId(principal, request.headers['x-idempotency-key']);

@@ -189,6 +189,13 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
       const after = await readHead(checkBudget); if (!after) throw new PrivateCalendarCloudConflict(); assertPrivateCalendarCloudAuthority(after, authority);
       return key.exists() ? parseKey(key.data(), authority, deviceId) : null;
     },
+    watchKey(authority: VerifiedPrivateCalendarAuthority, deviceId: string, changed: () => void, failed: () => void) {
+      checkAccount(); authorityForUser(authority); assertSharedIdentifier(deviceId);
+      if (!authority.signed.body.devices.some(device => device.deviceId === deviceId)) throw new Error('未承認の本人端末です。');
+      return onSnapshot(doc(reference, 'keyEnvelopes', keyId(authority, deviceId)), { includeMetadataChanges: true }, snapshot => {
+        if (currentUserId() === userId && snapshot.exists() && !snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) changed();
+      }, () => { if (currentUserId() === userId) failed(); });
+    },
     async uploadCache(authority: VerifiedPrivateCalendarAuthority, incoming: EncryptedPrivateCalendarCache, checkBudget: () => void = () => {}) {
       const guard = () => { checkAccount(); checkBudget(); }; guard();
       authorityForUser(authority);
@@ -255,7 +262,7 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
         if (sharedDocumentDigest(verified.manifest) !== digest) return false;
         await delivery.remember(authority, id, verified);
       }
-      void delivery.confirm(authority, 'calendar', digest).catch(() => undefined); return true;
+      await delivery.confirm(authority, 'calendar', digest); return true;
     } : undefined,
     async readCache(authority: VerifiedPrivateCalendarAuthority, checkBudget: () => void = () => {}) {
       const guard = () => { checkAccount(); checkBudget(); }; guard();

@@ -16,6 +16,7 @@ try {
   }
   const app = initializeApp({ projectId, credential: applicationDefault() }, 'liflow-account-device-api');
   const firestore = getFirestore(app), auth = getAuth(app);
+  await firestore.doc('serviceConfiguration/billing').get();
   const server = createAccountDeviceHttpServer({ service: createAccountDeviceService({ firestore }), verifyIdToken: (token, revoked) => auth.verifyIdToken(token, revoked) });
   server.listen(port, '0.0.0.0');
   process.once('SIGTERM', () => { server.close(() => { void firestore.terminate(); }); });

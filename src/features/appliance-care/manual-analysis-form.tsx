@@ -24,7 +24,7 @@ export function ManualAnalysisForm({ retained, filename, disabled, inputDisabled
       disabled={disabled || !canAnalyze || working || picking} onPress={onAnalyze} /> : null}
     {working ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><ActivityIndicator color={palette.accent} />
       <Text accessibilityLiveRegion="polite" style={[typography.caption, { color: palette.muted, flex: 1 }]}>製品情報とお手入れ方法を解析しています</Text>
-      {onCancel ? <SettingsAction placement="page" title="解析を中止" onPress={onCancel} /> : null}
+      {onCancel ? <SettingsAction placement="page" title="結果の待機をやめる" onPress={onCancel} /> : null}
     </View> : null}
   </View>;
 }

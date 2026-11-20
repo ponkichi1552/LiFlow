@@ -52,7 +52,7 @@ async function privateResponsesReady(userId) {
   await eventually(async () => {
     const requests = await store.collection(`privateCalendars/${userId}/deliveryRequests`).get();
     const ready = await Promise.all(requests.docs.filter(request => request.data().receivedAt === undefined).map(async request => {
-      const replies = await request.ref.collection('responses').get(); return replies.docs.some(reply => reply.data().ready === true);
+      const replies = await request.ref.collection('responses').get(); return replies.docs.some(reply => reply.id !== '_relay' && reply.data().ready === true);
     }));
     return ready.every(Boolean);
   }, 'the private peer did not finish its independent response');
@@ -272,10 +272,13 @@ test('an obsolete calendar from an earlier authority does not block current priv
   assert.equal((await root.collection('plannerPreferences').doc('current').get()).data().encryptedJson, null);
   assert.ok((await root.collection('caches').doc(h.encrypted.manifest.body.cacheId).collection('parts').get()).size > 0);
 });
-async function fixture(testEnvironment = environment, testStore = store) {
+async function fixture(testEnvironment = environment, testStore = store, withPeer = false) {
   const owner = await createDeviceIdentity(crypto); const member = await createDeviceIdentity(crypto); const key = await crypto.randomBytes(32);
   const first = createSharedRoster(groupId, 'owner', owner, { schemaVersion: 2 });
-  const roster = approveSharedDevice(first, owner, 'member', member); const archive = [first, roster]; const dbs = [];
+  const admitted = approveSharedDevice(first, owner, 'member', member);
+  const peer = withPeer ? await createDeviceIdentity(crypto) : undefined;
+  const roster = peer ? approveSharedDevice(admitted, owner, 'peer', peer) : admitted;
+  const archive = peer ? [first, admitted, roster] : [first, admitted]; const dbs = [];
   const root = testStore.doc(`sharingGroups/${groupId}`);
   await root.set({ ...rosterCloudFields(roster), headSequence: 0, lastOperationId: null,
     snapshotId: null, snapshotThroughSequence: 0, createdAt: new Date(), updatedAt: new Date() });
@@ -316,8 +319,54 @@ async function fixture(testEnvironment = environment, testStore = store) {
   }
   const transport = (target, uid, identity, local = target.local) => tracedDeliveryRelay({ firestore: target.firestore, userId: uid,
     checkAccount: target.checkAccount, reference: id => doc(target.firestore, 'sharingGroups', id), readGroup: id => target.cloud.readGroup(id) }, identity.deviceId, local);
-  return { owner, member, key, roster, archive, device, upload, transport, verifyApplied, close: () => dbs.forEach(db => db.connection.close()) };
+  return { owner, member, peer, key, roster, archive, device, upload, transport, verifyApplied, close: () => dbs.forEach(db => db.connection.close()) };
 }
+
+test('shared recovery uses one compatible responder and another device can take over an abandoned lease', async () => {
+  const f = await fixture(environment, store, true);
+  try {
+    const owner = await f.device('owner', f.owner, false), peer = await f.device('peer', f.peer, false);
+    const receiver = await f.device('member', f.member, false);
+    const sender = f.transport(owner, 'owner', f.owner).relay, alternate = f.transport(peer, 'peer', f.peer).relay;
+    const target = f.transport(receiver, 'member', f.member).relay;
+    const value = { encryptedPayload: 'synthetic-relay-data' };
+    const requests = store.collection(`sharingGroups/${groupId}/deliveryRequests`);
+    const through = 0;
+    const find = async key => (await requests.where('key', '==', key).get()).docs[0].ref;
+    const begin = async key => {
+      await owner.local.saveChunk(key, value); await peer.local.saveChunk(key, value);
+      await assert.rejects(target.snapshotChunk(groupId, key, through), error => error.code === 'sharing/delivery-pending');
+      return await find(key);
+    };
+    const first = await begin('synthetic-shared-relay-once');
+    await Promise.all([sender.serve(groupId), alternate.serve(groupId)]);
+    const responses = await first.collection('responses').get();
+    assert.equal(responses.docs.filter(row => row.id !== '_relay' && row.data().ready).length, 1);
+    assert.deepEqual(await target.snapshotChunk(groupId, 'synthetic-shared-relay-once', through), value);
+
+    const second = await begin('synthetic-shared-relay-handoff');
+    await second.collection('responses').doc('_relay').set({ deviceId: f.owner.deviceId, userId: 'owner',
+      digest: sharedDocumentDigest(value), ready: false, updatedAt: new Date(Date.now() - 31_000) });
+    await alternate.serve(groupId);
+    assert.equal((await second.collection('responses').doc(f.peer.deviceId).get()).data()?.ready, true);
+    assert.deepEqual(await target.snapshotChunk(groupId, 'synthetic-shared-relay-handoff', through), value);
+  } finally { f.close(); }
+});
+
+test('shared download reuses this pass’s exact accepted bodies without crossing another device sequence', async () => {
+  const f = await fixture();
+  try {
+    const sender = await f.device('owner', f.owner, false);
+    const one = (await f.upload(sender, 1)).event, middle = (await f.upload(sender, 2)).event, three = (await f.upload(sender, 3)).event;
+    const events = store.collection(`sharingGroups/${groupId}/events`);
+    await Promise.all([events.doc(one.operationId).delete(), events.doc(three.operationId).delete()]);
+    const local = new Map([[1, one], [3, three]]);
+    const head = await sender.cloud.readGroup(groupId);
+    assert.deepEqual((await sender.cloud.pull(groupId, 0, undefined, head, local)).events, [one]);
+    assert.deepEqual((await sender.cloud.pull(groupId, 1, undefined, head, local)).events, [middle]);
+    assert.deepEqual((await sender.cloud.pull(groupId, 2, undefined, head, local)).events, [three]);
+  } finally { f.close(); }
+});
 
 test('more than eight simultaneous recovery artifacts all arrive and completed replies never reread or upload the same ciphertext', async () => {
   const f = await fixture();
@@ -402,7 +451,7 @@ test('a lost local copy recovers from an unexpired acknowledged reply but skips 
     await closed.ref.delete(); await pending(); await sender.relay.serve(groupId);
     assert.deepEqual(await restored.relay.snapshotChunk(groupId, id, 0), value, 'a freshly created request with the same daily ID must receive again');
     const replacement = (await requests.get()).docs[0];
-    const reply = (await replacement.ref.collection('responses').get()).docs[0];
+    const reply = await replacement.ref.collection('responses').doc(f.owner.deviceId).get();
     const slightlyLater = new Date(Date.now() + 30_000);
     await replacement.ref.update({ createdAt: new Date(Date.now() - 86400_001), expiresAt: slightlyLater });
     await reply.ref.update({ expiresAt: slightlyLater });
@@ -447,7 +496,7 @@ test('a recovery crossing a UTC day reuses a live reply and requests again after
     await store.recursiveDelete(sameDay.ref);
     assert.deepEqual(await resumed.relay.snapshotChunk(groupId, key, 0), value);
     assert.equal(resumed.counts.writes, 0, 'the available prior-day data needs no retransmission');
-    const reply = (await previous.collection('responses').get()).docs[0];
+    const reply = await previous.collection('responses').doc(f.owner.deviceId).get();
     await store.recursiveDelete(reply.ref.collection('parts'));
     assert.equal((await reply.ref.get()).exists, true, 'a reply header can remain after an interrupted cleanup');
     await assert.rejects(resumed.relay.snapshotChunk(groupId, key, 0), error => error.code === 'sharing/delivery-pending');
@@ -885,19 +934,40 @@ test('shared cleanup progresses past a full page of quarantined events and stage
   try {
     const source = await f.device('owner', f.owner), receiver = await f.device('member', f.member);
     const root = store.doc(`sharingGroups/${groupId}`), batch = store.batch();
-    for (let sequence = 1; sequence <= 26; sequence++) {
+    for (let sequence = 1; sequence <= 51; sequence++) {
       const { event } = await f.upload(source, sequence);
-      if (sequence < 26) batch.set(root.collection('quarantines').doc(event.operationId), { synthetic: true });
+      if (sequence < 51) batch.set(root.collection('quarantines').doc(event.operationId), { synthetic: true });
       batch.set(root.collection('snapshotChunks').doc(`scan-chunk-${sequence}`), { snapshotId: `scan-snapshot-${sequence}`,
-        keyVersion: f.roster.body.keyVersion + (sequence < 26 ? 1 : 0), createdAt: new Date(Date.now() - (27 - sequence) * 1000) });
+        keyVersion: f.roster.body.keyVersion + (sequence < 51 ? 1 : 0), createdAt: new Date(Date.now() - (52 - sequence) * 1000) });
     }
     await batch.commit();
-    await source.cloud.acknowledge(groupId, f.owner.deviceId, 26); await receiver.cloud.acknowledge(groupId, f.member.deviceId, 26);
-    await sweepSharedDeliveries(store, groupId, Date.now() + 86401_000);
-    assert.equal((await root.collection('events').get()).size, 25);
-    assert.equal((await root.collection('snapshotChunks').get()).size, 25);
-    assert.equal((await root.collection('events').doc('synthetic-delivery-26').get()).exists, false);
-    assert.equal((await root.collection('snapshotChunks').doc('scan-chunk-26').get()).exists, false);
+    await source.cloud.acknowledge(groupId, f.owner.deviceId, 51); await receiver.cloud.acknowledge(groupId, f.member.deviceId, 51);
+    const now = Date.now() + 86401_000;
+    const initial = await sweepSharedDeliveries(store, groupId, now);
+    assert.equal(initial.deleted, 0); assert.equal(initial.nextAt, now); assert.ok(initial.continuation);
+    await sweepSharedDeliveries(store, groupId, now, undefined, initial.continuation);
+    assert.equal((await root.collection('events').get()).size, 50);
+    assert.equal((await root.collection('snapshotChunks').get()).size, 50);
+    assert.equal((await root.collection('events').doc('synthetic-delivery-51').get()).exists, false);
+    assert.equal((await root.collection('snapshotChunks').doc('scan-chunk-51').get()).exists, false);
+  } finally { f.close(); }
+});
+
+test('snapshot preparation keeps current and future ciphertext while its renewed staging lease is valid', async () => {
+  const f = await fixture();
+  try {
+    const owner = await f.device('owner', f.owner), receiver = await f.device('member', f.member);
+    await owner.cloud.acknowledge(groupId, f.owner.deviceId, 0); await receiver.cloud.acknowledge(groupId, f.member.deviceId, 0);
+    const root = store.doc(`sharingGroups/${groupId}`), now = Date.now();
+    for (const offset of [0, 1]) {
+      const keyVersion = f.roster.body.keyVersion + offset, snapshotId = `synthetic-retained-stage-${offset}`;
+      await root.collection('snapshotChunks').doc(`${snapshotId}.0`).set({ snapshotId, keyVersion, createdAt: new Date(now - 86401_000) });
+      await setDoc(doc(owner.firestore, 'sharingGroups', groupId, 'snapshotStages', snapshotId), { keyVersion, updatedAt: serverTimestamp() });
+    }
+    const early = await sweepSharedDeliveries(store, groupId, now);
+    assert.equal(early.deleted, 0); assert.ok(early.nextAt >= now + 86400_000);
+    const late = await sweepSharedDeliveries(store, groupId, now + 86415_000);
+    assert.equal(late.deleted, 2); assert.equal((await root.collection('snapshotChunks').get()).size, 0);
   } finally { f.close(); }
 });
 

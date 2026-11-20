@@ -15,6 +15,35 @@ import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
 import { createV2WorkspaceSession } from '../src/features/sharing/v2/workspace-session.ts';
 const { syncGoogleTasksWithDependencies } = await import('../src/features/google-sync/coordinator.ts');
 
+test('native background sharing restores only a pending request belonging to the signed-in account', async t => {
+  const original = process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL;
+  process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL = 'https://synthetic-restore.example.test';
+  t.after(() => { if (original === undefined) delete process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL; else process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL = original; });
+  let restored = 0;
+  const h = await workspaceHarness({ initiallyEmpty: true, restoreAccountDevice: async budget => {
+    assert.ok(budget >= 1000 && budget <= 20_000);
+    restored++;
+    return 'waiting';
+  } });
+  t.after(h.close);
+  const background = (budget = 30_000) => h.api.syncSharingWorkspace(budget, { pendingOnly: true, deltaOnly: true });
+  h.vault.set('account-group-restore:owner', 'local-pin');
+  assert.deepEqual(await background(), { kind: 'skipped' });
+  await h.api.enableSharingSession();
+  h.auth.uid = 'other';
+  assert.equal(await h.api.isSharedWorkerNeeded(), false);
+  assert.deepEqual(await background(), { kind: 'skipped' });
+  h.auth.uid = 'owner';
+  assert.equal(await h.api.isSharedWorkerNeeded(), true);
+  assert.deepEqual(await background(500), { kind: 'pending' });
+  assert.equal(restored, 0);
+  assert.deepEqual(await background(), { kind: 'pending', waitingForSignal: true });
+  assert.equal(restored, 1);
+  h.vault.delete('account-group-restore:owner');
+  assert.deepEqual(await background(), { kind: 'skipped' });
+  assert.equal(restored, 1);
+});
+
 test('native shared synchronization separates a human approval wait from unfinished transport work', async () => {
   const h = await workspaceHarness({ deferWorkspaceTimers: true });
   try {

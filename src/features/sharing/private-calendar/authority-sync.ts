@@ -13,17 +13,40 @@ import type { PrivateCalendarWorkControl } from './sync-deadline.ts';
 
 type Cloud = Pick<ReturnType<typeof createPrivateCalendarCloud>, 'authorityPage' | 'commitAuthority'>;
 type VerifiedHistory = { authority: VerifiedPrivateCalendarAuthority; history: readonly SignedPrivateCalendarAuthority[]; bytes: number };
+type HistoryPrefix = {
+  read(after: number, through: number): Promise<unknown[]>;
+  append(first: number, entries: readonly SignedPrivateCalendarAuthority[]): Promise<void>;
+  clear(): Promise<void>;
+};
 /** Used for approval/recovery, not per-card rendering. A cloud checkpoint cannot substitute for the pinned signature chain. */
 export async function collectPrivateCalendarAuthorityHistory(cloud: Pick<Cloud, 'authorityPage'>, expected: VerifiedPrivateCalendarAuthority,
   initialPage?: Awaited<ReturnType<Cloud['authorityPage']>>, control: PrivateCalendarWorkControl = {}) {
   return collectHistory(cloud, expected, initialPage, control);
 }
 async function collectHistory(cloud: Pick<Cloud, 'authorityPage'>, expected: VerifiedPrivateCalendarAuthority,
-  initialPage: Awaited<ReturnType<Cloud['authorityPage']>> | undefined, control: PrivateCalendarWorkControl, seed?: VerifiedHistory) {
+  initialPage: Awaited<ReturnType<Cloud['authorityPage']>> | undefined, control: PrivateCalendarWorkControl, seed?: VerifiedHistory, prefix?: HistoryPrefix) {
   const history = seed ? [...seed.history] : []; let current: VerifiedPrivateCalendarAuthority | null = seed?.authority ?? null;
   let bytes = seed?.bytes ?? 0; let observedRevision = Math.max(expected.signed.body.revision, current?.signed.body.revision ?? 0);
   let expectedFound = Boolean(seed && history[expected.signed.body.revision - 1]
     && sharedDocumentDigest(history[expected.signed.body.revision - 1]) === expected.digest);
+  const append = (raw: unknown) => {
+    assertPrivateCalendarWork(control);
+    const signed = snapshotPrivateCalendarAuthority(raw as SignedPrivateCalendarAuthority); bytes += canonicalJson(signed).length;
+    if (history.length >= MAX_PRIVATE_CALENDAR_AUTHORITIES || bytes > MAX_PRIVATE_CALENDAR_AUTHORITY_HISTORY_BYTES) throw new Error('本人端末の署名履歴が上限を超えています。');
+    current = current ? verifyPrivateCalendarAuthorityUpdate(current, signed) : verifyPrivateCalendarRoot(signed, expected.anchor);
+    history.push(current.signed);
+    if (current.signed.body.revision === expected.signed.body.revision) {
+      if (current.digest !== expected.digest) throw new Error('本人端末で保護した設定と署名履歴が分岐しています。'); expectedFound = true;
+    }
+  };
+  if (!seed && prefix) {
+    try { for (const row of await prefix.read(0, MAX_PRIVATE_CALENDAR_AUTHORITIES)) append(row); }
+    catch {
+      assertPrivateCalendarWork(control);
+      history.length = 0; current = null; bytes = 0; expectedFound = false;
+      await prefix.clear();
+    }
+  }
   while (history.length <= MAX_PRIVATE_CALENDAR_AUTHORITIES) {
     assertPrivateCalendarWork(control);
     const page = history.length === 0 && initialPage ? initialPage : await privateCalendarWork(() => cloud.authorityPage(history.length, control.assertBudget), control);
@@ -31,16 +54,9 @@ async function collectHistory(cloud: Pick<Cloud, 'authorityPage'>, expected: Ver
       || page.head.ownerUserId !== expected.anchor.ownerUserId || page.head.authorityRevision < observedRevision
       || page.authorities.length > 100 || !page.authorities.length && (!current || current.signed.body.revision !== page.head.authorityRevision)) throw new Error('本人端末の署名履歴と確認済みの設定が一致しません。');
     observedRevision = page.head.authorityRevision;
-    for (const raw of page.authorities) {
-      assertPrivateCalendarWork(control);
-      const signed = snapshotPrivateCalendarAuthority(raw); bytes += canonicalJson(signed).length;
-      if (history.length >= MAX_PRIVATE_CALENDAR_AUTHORITIES || bytes > MAX_PRIVATE_CALENDAR_AUTHORITY_HISTORY_BYTES) throw new Error('本人端末の署名履歴が上限を超えています。');
-      current = current ? verifyPrivateCalendarAuthorityUpdate(current, signed) : verifyPrivateCalendarRoot(signed, expected.anchor);
-      history.push(current.signed);
-      if (current.signed.body.revision === expected.signed.body.revision) {
-        if (current.digest !== expected.digest) throw new Error('本人端末で保護した設定と署名履歴が分岐しています。'); expectedFound = true;
-      }
-    }
+    const first = history.length;
+    for (const raw of page.authorities) append(raw);
+    if (history.length > first) await prefix?.append(first + 1, history.slice(first));
     if (current!.signed.body.revision === page.head.authorityRevision) {
       assertPrivateCalendarCloudAuthority(page.head, current!);
       if (!expectedFound) throw new Error('確認済みの本人端末の設定まで署名履歴がありません。');
@@ -52,7 +68,8 @@ async function collectHistory(cloud: Pick<Cloud, 'authorityPage'>, expected: Ver
 }
 
 export function createPrivateCalendarAuthoritySync(port: { userId: string; secrets: ReturnType<typeof createPrivateCalendarSecretStore>;
-  intents: ReturnType<typeof createPrivateCalendarAuthorityIntentStorage>; cloud: Cloud }) {
+  intents: ReturnType<typeof createPrivateCalendarAuthorityIntentStorage>; cloud: Cloud;
+  historyPrefix?(anchor: VerifiedPrivateCalendarAuthority['anchor']): Promise<HistoryPrefix> }) {
   const { userId, secrets, intents, cloud } = port; assertSharedIdentifier(userId);
   let verified: VerifiedHistory | undefined;
   // The runtime creates a new AbortSignal for each bounded synchronization. Reuse only within that exact work scope.
@@ -68,7 +85,8 @@ export function createPrivateCalendarAuthoritySync(port: { userId: string; secre
     const sameWork = control.signal ? workHistory.get(control.signal) : undefined;
     const collected = contains(sameWork, before) && sameWork.authority.digest === before.digest
       ? { ...sameWork, history: [...sameWork.history] }
-      : await collectHistory(cloud, before, undefined, control, contains(verified, before) ? verified : undefined);
+      : await collectHistory(cloud, before, undefined, control, contains(verified, before) ? verified : undefined,
+        await port.historyPrefix?.(before.anchor));
     // Another runtime may have applied a prefix while the server pages were being read.
     let current = await secrets.authority(userId); if (!current) throw new Error('本人端末の信頼が変わりました。');
     for (;;) {
