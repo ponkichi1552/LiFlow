@@ -78,7 +78,8 @@
     "test:sharing-cloud": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test --test-concurrency=1 tests/firestore-rules.integration.mjs tests/sharing-cloud.integration.mjs tests/sharing-flow.integration.mjs tests/sharing-v2-cloud.integration.mjs tests/sharing-private-calendar-cloud.integration.mjs tests/sharing-private-planner-cloud.integration.mjs tests/security-cloud-attacks.integration.mjs tests/sharing-v2-owner-recovery.integration.mjs tests/appliance-public-cloud.integration.mjs tests/sharing-v2-retention-cloud.integration.mjs tests/subscription-cloud.integration.mjs tests/met-weather-cloud.integration.mjs tests/shared-google-task-claims.integration.mjs tests/sharing-account-device-cloud.integration.mjs tests/sharing-delivery-cloud.integration.mjs",
     "test:appliance-cloud": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test --test-concurrency=1 tests/appliance-public-cloud.integration.mjs",
     "check": "npm run lint && npm run typecheck && npm test",
-    "doctor": "npx expo-doctor"
+    "doctor": "npx expo-doctor",
+    "doctor:native": "node scripts/native-preflight.mjs"
   },
   "private": true
 }

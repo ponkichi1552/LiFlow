@@ -25,6 +25,25 @@
 
 SQLiteの外部キー既定値は公式config pluginの`customBuildFlags`で設定する。JavaScriptだけの更新では、新しいネイティブ接続の既定値は変わらない。ネイティブ再ビルド後、別接続の制約、不正な参照の拒否、親削除時の整合性を両OSで確認する。
 
+## ネイティブ環境の復元と事前確認
+
+復元前後に`npm run doctor:native`を実行する。インストール済みのExpo・React Nativeがロックファイルと一致するか、Android SDKにCMake 3.22.1とNinjaがあるか、`.cxx`がシンボリックリンクになっていないかを確認する。iOSではPodsのロックファイル、`node_modules`への参照、Xcodeの同一ターゲット内での`ExpoModulesProvider.swift`の重複を確認する。
+
+`android/local.properties`に`sdk.dir`があれば、そのSDKを確認する。未指定ならSDKの環境変数か標準パスを確認する。CMake・Ninjaが不足していれば、選択したSDKの`sdkmanager`で`cmake;3.22.1`を追加する。`.cxx`のシンボリックリンクが原因でビルドに失敗している場合は、Gradleを停止し、表示されたリンクを`unlink`してから再ビルドする。
+
+通常はチェックアウト、`node_modules`、`ios/Pods`、Androidの`.cxx`を同じAPFSの作業場所に置く。macOSでExFATの外付けストレージを利用するときは、SDKやPodsをAPFSディスクイメージ内に置く。Podsを外に置く場合は、`PODS_ROOT/../../node_modules`が現在のチェックアウトを参照するようにする。Podsとロックファイルが一致しなければ`cd ios && pod install --deployment`で復元する。Xcodeの重複は各ターゲットのコンパイル対象を示す`PBXSourcesBuildPhase`で調べる。
+
+外部Podsを使ってXcodeを直接ビルドする場合は、チェックアウト直下で`LIFLOW_CHECKOUT="$(pwd -P)"`を実行する。次に`PODFILE_DIR="$LIFLOW_CHECKOUT/ios"`と`REACT_NATIVE_PATH="$LIFLOW_CHECKOUT/node_modules/react-native"`を`xcodebuild`のビルド設定引数に加える。
+
+`EXPO_PUBLIC_*`の値を変えたら、その値を設定した環境でJS bundle taskを強制再実行してからReleaseを作る。
+
+```sh
+cd android
+./gradlew :app:createBundleReleaseJsAndAssets --rerun :app:assembleRelease
+```
+
+Firebase Emulator検査は[READMEの固定コマンド](../README.md)（Firebase CLI 15.34.1、`demo-liflow-sharing`）を使う。Emulator用JDK 21はその子プロセスだけに設定し、Android native buildのJDK 17を保つ。
+
 ## iOS Releaseの検査用ビルド
 
 シミュレーターでもKeychainを使用するため、`CODE_SIGNING_ALLOWED=NO`で作った実行ファイルを、そのまま共有機能の検査に使わない。標準のシミュレーター用署名を有効にしてビルドする。SDKが生成する`Simulated.xcent`と、実行ファイルの`__TEXT,__entitlements`を確認する。実機用のentitlementsを後からシミュレーターへ付ける方法とは異なる。
