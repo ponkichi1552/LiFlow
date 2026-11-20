@@ -9325,6 +9325,10 @@
         "name": "only server-observed OpenAI unavailability or no response is refundable while refused or malformed returned analysis stays charged"
       },
       {
+        "file": "tests/appliance-public-analysis.test.mjs",
+        "name": "stopping the worker while an OpenAI response body is in progress is not an upstream refund"
+      },
+      {
         "file": "tests/appliance-ai-account-ui.test.mjs",
         "name": "${platform} appliance AI never becomes ready from login alone or a stale account binding response"
       },
@@ -12177,6 +12181,10 @@
         "name": "weather only uses an explicit self-hosted HTTPS URL and refuses Google endpoints and redirects"
       },
       {
+        "file": "tests/weather-provider-reliability.test.mjs",
+        "name": "a forecast path stays on the configured server and an older response keeps the saved forecast"
+      },
+      {
         "file": "tests/met-weather-cache.test.mjs",
         "name": "the appliance API has no weather route even when the former provider is supplied"
       },
@@ -12853,6 +12861,10 @@
       {
         "file": "tests/sharing-account-device-cloud.integration.mjs",
         "name": "same-account service admits one device transactionally across independent servers and physically clears an acknowledged encrypted grant"
+      },
+      {
+        "file": "tests/sharing-account-device-cloud.integration.mjs",
+        "name": "removing an approved device stops serving its pending key while the account stays a member"
       },
       {
         "file": "tests/sharing-account-device-cloud.integration.mjs",
@@ -16133,10 +16145,22 @@
       {
         "file": "tests/sharing-delivery-worker.test.mjs",
         "name": "delivery worker stays alive when discovery disconnects before any scope is loaded"
+      },
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "the account device API refuses to mix real Firebase authority with isolated test services"
+      },
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "delivery discovery reconnect closes the listeners for a scope paused during the interruption"
       }
     ],
     "manualReview": "docs/audits/2026-11-16-delivery-received-queue.md",
     "cloudTests": [
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "expired relay ciphertext is erased for live policies waiting for signatures without erasing the originals"
+      },
       {
         "file": "tests/sharing-delivery-cloud.integration.mjs",
         "name": "real recovery cleanup erases a received request behind pending work and drains large received batches without expiring pending bodies"

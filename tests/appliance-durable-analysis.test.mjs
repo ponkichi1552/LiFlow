@@ -100,6 +100,14 @@ test('a staged AI result survives termination and later settlement without rerun
       if (phase === 'resultStaged') throw new Error('synthetic termination after durable result');
     } })).failed, 1);
     f.advance(PUBLIC_API_POLICY.jobTimeoutMs + 1);
+    const waiting = await f.restart().read(principal, receipt.jobId);
+    assert.equal(waiting.done, false, 'a durable result remains pending until its usage and delivery receipt are committed');
+    assert.equal(waiting.result, undefined);
+    if (output.status === 'verified') {
+      const reused = await f.admit({ idempotencyKey: 'synthetic-durable-analysis-resubmitted' });
+      assert.equal(reused.jobId, receipt.jobId);
+      assert.equal(reused.created, false);
+    }
     assert.equal((await f.work({ analyze: async () => { throw new Error('must not rerun'); } })).settled, 1);
     assert.deepEqual((await f.restart().read(principal, receipt.jobId)).result, output); assert.equal(paidCalls, 1);
     assert.equal((await f.store.usage(principal)).used, output.status === 'error' ? 0 : 1);

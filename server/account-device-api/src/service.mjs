@@ -108,7 +108,8 @@ export function createAccountDeviceService({ firestore, now = Date.now, accountD
           const slot = Number(row.id); const raw = row.data();
           const request = validRecord(raw, groupId, actor.uid);
           if (millis(raw.createdAt) + ACCOUNT_DEVICE_RESTORE_TTL_MS <= now()
-            || raw.status === 'accepted' && raw.minimumKeyVersion <= (group.retentionKeyVersion ?? 0)) {
+            || raw.status === 'accepted' && (raw.minimumKeyVersion <= (group.retentionKeyVersion ?? 0)
+              || group.deviceOwners[request.body.identity.deviceId] !== actor.uid)) {
             tx.delete(row.ref); removed = true; continue;
           }
           result.push({ slot, request, receivedAt: millis(raw.createdAt), status: raw.status,

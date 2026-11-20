@@ -47,6 +47,19 @@ test('weather only uses an explicit self-hosted HTTPS URL and refuses Google end
   const provider = new MetServerForecastProvider({ fetcher: async () => redirected });
   assert.deepEqual(await provider.refresh(location, old), old);
 });
+test('a forecast path stays on the configured server and an older response keeps the saved forecast', async () => {
+  const saved = cache(location.municipalityId, start);
+  const older = cache(location.municipalityId, start - 60_000);
+  let endpoint;
+  const provider = new MetServerForecastProvider({ baseUrl: 'https://weather.liflow.invalid//gateway',
+    fetcher: async url => {
+      endpoint = new URL(url);
+      return new Response(JSON.stringify(older));
+    } });
+  assert.deepEqual(await provider.refresh(location, saved), saved);
+  assert.equal(endpoint.origin, 'https://weather.liflow.invalid');
+  assert.equal(endpoint.pathname, `//gateway/v1/weather/regions/${location.municipalityId}`);
+});
 test('forecast throttling and joined reads retain a newer durable forecast instead of returning an older attempt cache',async()=>{
   let stamp=start;let resolve;let calls=0;
   const old=cache(location.municipalityId,start-37*3_600_000);const newer=cache(location.municipalityId,start);

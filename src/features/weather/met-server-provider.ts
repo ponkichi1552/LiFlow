@@ -86,7 +86,9 @@ export class MetServerForecastProvider {
     const prior = this.attempts.get(key);
     if (prior && now >= prior.at && now < prior.retryAt) return newestCache(prior.value, saved);
     const existing = this.pending.get(key); if (existing) return newestCache(await existing, saved);
-    const request = this.request(new URL(`${base.pathname.replace(/\/$/u, '')}/v1/weather/regions/${region.id}`, base).href,
+    const endpoint = new URL(base);
+    endpoint.pathname = `${base.pathname.replace(/\/+$/u, '')}/v1/weather/regions/${region.id}`;
+    const request = this.request(endpoint.href,
       region.id, saved).then(value => {
       const stamp = this.options.now?.() ?? Date.now();
       this.attempts.set(key, { at: stamp, retryAt: stamp + (value && weatherCacheFreshness(value, stamp).placement ? 15 * 60_000 : 60_000), value });
@@ -105,7 +107,7 @@ export class MetServerForecastProvider {
       if (response.status !== 200 || Number(response.headers.get('content-length') ?? 0) > MAX_FORECAST_BYTES) return cached;
       const value: unknown = await forecastJson(response, controller.signal);
       if (controller.signal.aborted || !isRegionalWeatherCache(value, regionId)) return cached;
-      return copyCache(value);
+      return newestCache(value, cached);
     })();
     const deadline = new Promise<RegionalWeatherCache | null>(resolve => { timer = setTimeout(() => { controller.abort(); resolve(cached); }, this.options.timeoutMs ?? 15_000); });
     try { return await Promise.race([work.catch(() => cached), deadline]); }

@@ -153,7 +153,9 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
   function readable(job, at) {
     if (job.deliveredAt !== undefined) return { stage: job.stage, done: true,
       result: { status: 'error', code: 'JOB_NOT_FOUND', message: '解析結果は端末に保存済みです。' }, usage: job.usage };
-    if (!job.done && job.deadlineAt <= at) return { stage: job.stage, done: true, result: encryptedAndUnstarted(job) ? unstarted : interrupted, usage: job.usage };
+    if (!job.done && job.executionState !== 'resultReady' && job.deadlineAt <= at) {
+      return { stage: job.stage, done: true, result: encryptedAndUnstarted(job) ? unstarted : interrupted, usage: job.usage };
+    }
     return { stage: job.stage, done: job.done, ...(job.done ? { result: job.result,
       ...(job.delivery ? { delivery: job.delivery } : {}) } : { pollAfterMs: 2000 }), usage: job.usage };
   }
@@ -224,7 +226,8 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
         if (!forceReanalysis && reusedId) {
           const previous = (await transaction.get(jobRef(reusedId))).data();
           if (previous && previous.owner === principal.uid && previous.expiresAt.toMillis() > at
-            && (!previous.done && previous.deadlineAt > at || previous.done && previous.result?.status === 'verified')) {
+            && (previous.result?.status === 'verified' && (previous.done || previous.executionState === 'resultReady')
+              || !previous.done && previous.deadlineAt > at)) {
             transaction.create(admissionRef(id), { owner: principal.uid, requestDigest, jobRequestDigest: previous.requestDigest, jobId: reusedId });
             writeQuota(transaction, principal, periods, state);
             return { jobId: reusedId, created: false, usage: publicUsage(state.count, at, policy) };

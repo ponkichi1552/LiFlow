@@ -34,6 +34,17 @@ test('public OpenAI requests retain the model and schema and use the provider ou
   await assert.rejects(client.createStructured(request)); assert.equal(calls, 1);
 });
 
+test('stopping the worker while an OpenAI response body is in progress is not an upstream refund', async () => {
+  const controller = new AbortController();
+  const client = new OpenAIResponsesClient({ apiKey: 'synthetic-test-only', signal: controller.signal,
+    fetchImpl: async () => ({ ok: true, async json() {
+      controller.abort();
+      throw new Error('Stopped before the response body finished');
+    } }) });
+  await assert.rejects(client.createStructured({ name: 'synthetic', schema: {}, input: [] }),
+    error => error.providerNoResult === false);
+});
+
 test('only server-observed OpenAI unavailability or no response is refundable while refused or malformed returned analysis stays charged', async () => {
   for (const status of [400, 401, 403, 408, 429, 500, 502, 503]) {
     const client = new OpenAIResponsesClient({ apiKey: 'synthetic', fetchImpl: async () => new Response('', { status }) });

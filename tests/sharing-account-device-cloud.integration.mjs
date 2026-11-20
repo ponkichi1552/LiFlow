@@ -138,6 +138,20 @@ test('retention removes an undelivered grant and the fifth device cannot allocat
   await assert.rejects(other.service.request(other.actor, { groupId, slot: 0, request, replaceRequestId: null }), error => error.code === 'device_limit');
 });
 
+test('removing an approved device stops serving its pending key while the account stays a member', async () => {
+  const h = await fixture();
+  await h.submit(); await h.accept();
+  const own = env.authenticatedContext(h.who.uid).firestore();
+  const version = h.grant.body.roster.body.keyVersion;
+  const envelope = doc(own, 'sharingGroups', groupId, 'keyEnvelopes', `${version}_${h.tablet.deviceId}`);
+  assert.equal((await assertSucceeds(getDocFromServer(envelope))).exists(), true);
+  const removed = removeSharedDevice(h.grant.body.roster, h.owner, h.tablet.deviceId);
+  await db.doc(`sharingGroups/${groupId}`).update(rosterCloudFields(removed));
+  assert.deepEqual(await h.service.read(h.actor, { groupId }), { records: [] });
+  assert.equal((await db.doc(`sharingGroups/${groupId}/accountDeviceRestores/${h.who.uid}/accountDeviceRequests/0`).get()).exists, false);
+  await assertFails(getDocFromServer(envelope));
+});
+
 test('valid refreshed Firebase sessions need no repeated 24-hour login but malformed entitlements fail closed', async () => {
   const h = await fixture();
   await h.service.request({ ...h.actor, authTime: Date.now() - 7 * 24 * 60 * 60_000 }, { groupId, slot: 0, request: h.request, replaceRequestId: null });

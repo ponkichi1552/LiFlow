@@ -68,7 +68,7 @@ export class OpenAIResponsesClient {
     try {
       payload = await response.json();
     } catch {
-      const error = temporaryNetworkError(true); error.message = 'OpenAI response was not valid JSON'; throw error;
+      const error = temporaryNetworkError(!this.signal?.aborted); error.message = 'OpenAI response was not valid JSON'; throw error;
     }
 
     if (payload?.status === 'incomplete') {

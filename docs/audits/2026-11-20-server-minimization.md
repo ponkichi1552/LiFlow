@@ -98,3 +98,58 @@ Raspberry Pi 3 Model BのmicroSDで同じ再起動・引き継ぎ検査を実行
 共有・本人同期は、本番で承認された全登録の最新受領署名と、期限後に別の実機から共有・本人同期を復旧した証跡の両方を、有効化の直前に確認する。
 
 本番の最新データの受領署名を iPhone・iPad・Android の修正版導入後に再確認した。共有4グループの承認登録7件中4件、本人同期2アカウントの承認登録2件中1件。全登録の署名がそろったのは共有2グループと本人同期1アカウント。削除を有効にした対象は0件。期限後の復旧は隔離環境で確認済みで、別の実機からの復旧証跡は未取得。
+
+## 11月21日のサーバー再監査
+
+6.2-astra（思考量max）8人に分担し、配送ワーカー、端末復元API、端末側の同期、説明書の受付・暗号化、解析キュー、課金・認証、ラズパイの天気、配備・CI・Firestore Rulesを確認した。監査担当はコードの読み取りと既存の隔離テスト、主担当は修正と回帰検査、本番ワーカーの起動と結果照合を担当した。監査の基準は `d674b69`。以下の回数や再現条件は、実測と書いたもの以外はコードから確認した。外部ストアやOpenAIに監査用のリクエストは送信していない。
+
+iPadとiPhoneで別の検証グループを新規作成し、署名後の期限切れ、別端末からの復旧、両端末の再起動、再配送コピーの消去まで確認した。本番はBの署名未確認2件を対象から外し、共有3グループと本人同期1件でワーカーを1台起動した。初回に専用アカウントの権限不足と再起動ループを見つけ、修正後のログで188件の削除を確認した。 [本番の確認記録](../security/signed-device-delivery.md)
+
+### 修正した内容
+
+- 停止が通知の切断中に行われても、再接続した時点で対象外の監視を解約する。原本の署名がそろうまで原本を保持し、期限切れの再配送コピーは別に回収する。期限の短い要求も選択し、同一要求の受領通知を優先する。 [配送ワーカー](../../server/account-device-api/src/sharing-delivery-worker.mjs)
+- 本人Calendarの消去済み分割の追加を拒否し、残っていた分割も受領署名の確認後に消す。端末を除名した場合は、その端末向けの未受領鍵の配送を止める。 [Rules](../../firestore.rules) [本人端末API](../../server/account-device-api/src/service.mjs)
+- 復元APIはAuthとFirestoreのエミュレーターを両方使用するループバックのテスト環境に限って模擬接続を受け付ける。通常のCIに端末APIの依存導入を追加した。 [起動設定](../../server/account-device-api/src/index.mjs) [CI](../../.github/workflows/ci.yml)
+- 解析結果を保存済みで確定を待っている受付は、期限を過ぎても処理中として返す。成功結果がある同じPDFの受付を再利用し、結果受信中のワーカー停止を外部サービス障害による返還として扱わない。 [解析受付](../../server/appliance-care-api/src/firestore-usage-store.mjs) [解析クライアント](../../server/appliance-care-api/src/openai-responses-client.mjs)
+- 天気APIのパスは確認済みの接続先に付ける。ラズパイが端末より古い予報を返した場合は、端末に保存済みの予報を使う。 [天気クライアント](../../src/features/weather/met-server-provider.ts)
+
+上記の追加修正はローカルの関連単体48件とFirestore統合98件で確認した。統合検査の初回は、除名の検査が古い鍵番号を指定して1件失敗した。実際に承認された鍵番号を使うよう検査を直し、本人端末APIの10件を再実行して通過した。lint・型検査・機能契約の検査も通った。本番で稼働を確認したワーカーは `d674b69`。
+
+### 残る配送・端末同期の所見
+
+| 条件と影響 | 修正候補と確認方法 |
+| --- | --- |
+| 復元の申請だけを持つ新端末は、OSの背景同期で所属なしとして処理を終える。相手の承認が前景へ戻るまで届かない。 | 本人の保留申請がある場合だけ起動時に復元し、保留なしのOS起動で追加通信がないことも確認する。 [共有同期](../../src/platform/sharing/workspaces.ts) |
+| 旧グループの保留申請が残る端末では、新所属でも毎回不一致になる。復元処理の並行実行では最新の所属履歴を古い版で上書きできる。 | 所属移動をサーバーで確認できた場合だけ旧申請を閉じ、保存時に署名済み履歴の版を再比較する。通信断と並行更新を検査する。 [復元の保管と適用](../../src/platform/sharing/account-device-runtime.ts) |
+| 所属履歴が長い新端末は、1件ずつ取得して時間上限を超えると最初から読み直す。本人同期でも、冷起動後に検証済みの履歴を再取得する。 | 署名検証済みの位置を本人・対象・起点に結び付けて端末に保存し、版の差分だけを取得する。超過・改変・欠落時の継続を検査する。 [共有履歴](../../src/features/sharing/workspace-protocol.ts) [本人の履歴](../../src/features/sharing/private-calendar/authority-sync.ts) |
+| 初回通知の受信直前に届いた承認を捨てる。無変更の通常復帰では所属・グループ・復元APIを重ねて読む。429・503の待機指定も使わず再送する。 | サーバーで確認した版と初回通知を照合し、承認を一度受け取る。待機時刻を守り、無変更時の通数を測る。 [復元の監視](../../src/platform/sharing/account-device-runtime.ts) [HTTPクライアント](../../src/platform/sharing/account-device-api.ts) |
+| 同時申請で使用済みの枠を選ぶと後着端末が空き枠を使えない。所属履歴が上限の状態で次の版を作ると、全端末が読めなくなる。 | 予約を再読して空き枠を取り、上限を変更後の版にも適用する。応答消失・同時申請と上限直前を検査する。 [申請枠](../../src/features/sharing/account-device-controller.ts) [承認API](../../server/account-device-api/src/service.mjs) |
+| 承認APIで上限・復旧ロックの一部を履歴全件の読み取り後に検査する。長い履歴ではワーカーの消去取引も検証完了を待つ。 | 不変の履歴を有界に再利用し、明らかな停止条件を先に確認する。確定時の版と署名の再照合を維持し、変更・読み取り回数を測る。 [承認API](../../server/account-device-api/src/service.mjs) [履歴検証](../../server/account-device-api/src/delivery-authority.mjs) |
+| 承認済み本人端末でも、鍵更新で鍵の送信が失敗した場合の再試行時刻が上位に伝わらない。鍵の到着は現在のデータ監視では通知されない。接続コードの監視も切断後に止まり得る。 | 鍵ごとの再試行時刻を使い、承認済み・鍵未取得の間だけ自端末宛てを監視する。コード・通常の鍵更新両方で回線断と遅延到着を確認する。 [端末セッション](../../src/features/sharing/private-calendar/device-session.ts) |
+| 本人端末を解除すると適用は止まるが、予定・設定の購読が前景中に残る。背景で本文を保存した直後に終了すると、受領署名だけが未送信になることがある。 | 解除時にデータ購読を閉じ、署名待ちだけを保護領域に保存して背景再開時に送る。余分な本文を取り直さず消去条件がそろうことを確認する。 [前景監視](../../src/features/sharing/private-calendar/foreground-observer.ts) [本人の受領](../../src/platform/sharing/private-delivery.ts) |
+| 共有同期では同一試行のグループ文書や送信済みの自端末の暗号本文を読み直す。復旧待ちは応答が空でも全体を定期再試行する。 | 確認済みのヘッドと連続する受付位置を再利用し、復旧は応答・再接続・期限で起こす。他端末が途中に書いた変更と応答消失を検査する。 [同期処理](../../src/features/sharing/synchronizer.ts) [再配送](../../src/platform/sharing/firestore-delivery.ts) |
+| 再配送では同じ暗号本文が二重の表現で入る。コピーを持つ複数端末が同じ要求に送るとすべて転送される。 | 互換性を維持した片方の表現と送信担当の交代を検討し、最初の端末が不在・切断中でも復旧することを確認する。 [再配送形式](../../src/platform/sharing/firestore-delivery.ts) |
+| 本人設定の監視直後に本文を再読する。空き時間が同じでも時刻だけを更新した取得が再暗号化と全分割書き換えを起こす。 | 署名と権限の確認後、同じ版なら受領だけ処理する。空き時間の変更判定は端末で行い、鮮度と本文を分けた場合の互換性を検査する。 [本人設定のクラウド処理](../../src/platform/sharing/private-planner-cloud.ts) [空き時間取得](../../src/features/sharing/private-calendar/calendar-capture.ts) |
+| 空き時間取得中に終了して再起動すると、残った予約期限を前景の自動再開が使わない。 | 取得中の予約が切れる時刻に一度だけ再試行する。途中終了・再起動・期限後に取得完了することを確認する。 [取得予約](../../src/platform/storage/private-calendar-acquisition.ts) |
+| ワーカーは暗号分割を含む監視と未受領・隔離済みの広い範囲を読む。連続通知で予約が先延ばしされ、恒久エラーでも30秒ごとに同じ巡回が起こる。 | 監視を小さな更新情報にし、安全な順序カーソルと同時実行予算を持たせる。早い予約を保持し、一時障害は段階的に再試行する。実行待ち時間と読み取り上限を試す。 [消去と監視](../../server/account-device-api/src/sharing-delivery-worker.mjs) |
+| 将来の鍵世代を準備して中断した分割は、その世代が有効になるまで掃除対象にならない。 | 進行中の準備には有効期限を付け、公開直前に不足分を補える設計で保護する。中断分の消去と正常な公開を両方確認する。 [準備分割](../../server/account-device-api/src/sharing-delivery-worker.mjs) |
+| CLIの対象IDの上限と文字種がアプリ・Rulesより狭い。終了済みグループの状態表示は署名履歴・復旧ロックを検証しない。 | 共通のID判定を使い、閉鎖と、署名・ロックで掃除ができない状態をそれぞれ検査する。 [対象と状態](../../server/account-device-api/src/sharing-delivery-worker.mjs) |
+
+### 残る解析・課金・天気の所見
+
+| 条件と影響 | 修正候補と確認方法 |
+| --- | --- |
+| 解析ワーカー停止が24時間を超え、未処理ジョブを先に掃除すると、使用枠を返す証拠がなくなる。 | PDF断片の期限は維持し、ジョブは返還の確定後に削除する。停止、掃除、再開後の月枠と日次受付数を検査する。 [利用枠の清掃](../../server/appliance-care-api/src/firestore-usage-store.mjs) |
+| 外部解析から応答が返った後、進捗表示の保存や結果の初回保存が遅いと、その結果を失う。準備が30秒を超えると単独ワーカーの予約も切れる。 | 同じ結果の保存を先行して再試行し、準備中の予約を期限内だけ更新する。有料処理を二重実行せず回復することを確認する。 [解析ワーカー](../../server/appliance-care-api/src/analysis-queue-worker.mjs) |
+| 新旧の暗号鍵を使うワーカーが併存すると、最後に通知した側の鍵だけで新規受付を判断する。認証失効後にも全文を復号・検査し得る。 | 鍵世代ごとに稼働期限を持ち、対応したワーカーが取得する。本人・利用権の確認を本文取得前に移す。 [暗号キュー](../../server/appliance-care-api/src/firestore-usage-store.mjs) |
+| 最初の受付応答を失うと、同じ説明書を最大6 MiB再送する。端末のJSON化、ワーカーのハッシュとバッファにも重複する仕事がある。 | 応答不明時だけ受付IDを軽く照会する。既存キー互換を保ち、検証済み情報と排他的に所有するバッファを再利用する。旧形式の平文と端末プレビューも不要時に消す。 [端末の送信](../../src/features/appliance-care/api-client.ts) [PDF検査](../../server/appliance-care-api/src/uploaded-manual.mjs) [端末プレビュー](../../src/platform/appliance-care/manual-viewer.ts) |
+| 実行待ちが空でも解析ワーカーはキュー4検索・清掃8検索を行う。長い解析を端末が頻繁に照会し、サーバーは毎回認証・利用権・端末証明を確認する。 | 次の処理時刻と稼働状態で起動し、照会を段階的に間引く。完了通知の遅れ、空の待機、再開の読み取り数を比較する。 [待ち行列](../../server/appliance-care-api/src/firestore-usage-store.mjs) [端末の待機](../../src/features/appliance-care/polling.ts) |
+| 多機種の説明書では、既存型番との照合前に全型番を結合し、表示上限を超えると拒否する。旧受付や不正な受領入力にも応答の不整合がある。 | 既存型番を個別に照合し、期限済みの受付は一貫して終了を返す。不正な受領は入力エラーとし、正しい署名でのみ消去する。 [型番照合](../../server/appliance-care-api/src/uploaded-product.mjs) [受付HTTP](../../server/appliance-care-api/src/http-server.mjs) |
+| 「解析を中止」は端末の結果待ちだけを止め、受付済みの有料処理を止めない。 | 実際の挙動が分かる表示を検討する。受付の取り消しを設ける場合は、解析前の状態と本人承認を同じ処理で確認する。 [解析フォーム](../../src/features/appliance-care/manual-analysis-form.tsx) |
+| 端末の購入確認よりストア通知が先に来ると、所有者未登録のため後続処理が始まらない。置換先の保留で有効な旧購入を除外する場合もある。 | 通知の短期保存と購入者の本人照合を行い、現在の購入状態とアカウント全体の利用権を扱い分ける。既存購入・通知先行・置換保留を検査する。 [購入処理](../../server/appliance-care-api/src/subscription-service.mjs) [購入証明](../../server/appliance-care-api/src/firestore-subscription-store.mjs) |
+| 重複した通知で全購入を再確認する。片方のストアが失敗すると別の購入で確認済みの取消も適用できない。Apple取得期限と端末・ワーカーの時間上限が一致しない。 | 購入ごとに確認し、短期の通知IDと時間上限で重複と待機を抑える。逆順、別ストア停止、通知続着を検査する。 [通知の適用](../../server/appliance-care-api/src/subscription-service.mjs) [外部照会](../../server/appliance-care-api/src/subscription-providers.mjs) |
+| 解析ワーカーが課金の秘密鍵まで必要とし、請求用APIはAIの掃除を行う。検索対象を外れた購入証明も残る。存在しないパスでも認証・契約・端末証明を行う場合がある。 | 読み取り専用の利用権確認と課金権限、掃除を分け、期限後は所有者・ハッシュだけを保持する。既知ルートの分類と利用権の型・本人照合を先に行う。 [起動構成](../../server/appliance-care-api/src/firebase-public-runtime.mjs) [課金の保存](../../server/appliance-care-api/src/firestore-subscription-store.mjs) |
+| ラズパイでは304やリース変更でも全部の予報をmicroSDに書く。端末は同じ予報でSQLite取引と二重の予定走査を行う。 | 本文と小さな状態を分け、版が同じときの書き込みを減らす。WAL書き込み量、表示と既存データの一致を実測する。 [Piの保存](../../server/appliance-care-api/src/weather/sqlite-runtime.mjs) [端末の反映](../../src/platform/storage/repository.ts) |
+| ラズパイの起動後に時計が補正されても相対タイマーが追随しない。METから403を受けた停止は再起動後も残り、原因と復帰可否を見分けにくい。 | 地域参照時に期限超過を検査し、403の原因が解決した場合にだけ停止解除と再予約を行う。起動時の時刻差と復帰を試す。 [Piのスケジューラ](../../server/appliance-care-api/src/weather/sqlite-runtime.mjs) [地域保存](../../server/appliance-care-api/src/weather/regional-store.mjs) |
+| 旧Cloud天気用の起動コマンドとDockerfileが残る。再配備時の設定次第で旧経路を戻せる。 | 通常の入口をPiに統一する。現状の端末はPiを使用し、旧Schedulerの停止・公開URLの無効化は上の記録で確認済み。 [起動コマンド](../../server/appliance-care-api/package.json) [旧イメージ](../../server/appliance-care-api/weather.Dockerfile) |
+| APIのヘルス応答だけではFirestore権限の不足を検出できない。リポジトリ全体を直接ビルド入力にすると、非追跡の検証ファイルが入り得る。 | デプロイした実行主体が無害な読み取りを行い、監視の開始と実処理を確認する。ビルド入力はコミット済みの依存・ソースの一覧から作る。 [APIヘルス](../../server/account-device-api/src/http.mjs) [配備記録](../security/signed-device-delivery.md) |

@@ -251,7 +251,8 @@ service cloud.firestore {
         allow delete: if ownerOf(group(groupId)) && !recoveryActive(groupId, group(groupId)) && coveredByRetention(group(groupId), resource.data.uploadSequence, resource.data.keyVersion);
       }
       match /keyEnvelopes/{keyId} {
-        allow read: if memberOf(group(groupId)) && resource.data.userId == request.auth.uid;
+        allow read: if memberOf(group(groupId)) && resource.data.userId == request.auth.uid
+          && group(groupId).deviceOwners[resource.data.deviceId] == request.auth.uid;
         allow create: if ownerForWrite(groupId)
           && request.resource.data.keys().hasOnly(['userId', 'deviceId', 'keyVersion', 'wrappedKeyJson', 'createdAt'])
           && request.resource.data.keyVersion == afterGroup(groupId).keyVersion
@@ -756,6 +757,7 @@ service cloud.firestore {
             && request.resource.data.schemaVersion == 1 && request.resource.data.index is int && index == string(request.resource.data.index)
             && request.resource.data.index >= 0 && request.resource.data.index < privateCalendarAfter(userId).cacheHead.chunkCount
             && cacheId == privateCalendarAfter(userId).cacheHead.cacheId
+            && !('erasedAt' in getAfter(/databases/$(database)/documents/privateCalendars/$(userId)/caches/$(cacheId)).data)
             && request.resource.data.partJson is string && request.resource.data.partJson.size() <= 140000 && request.resource.data.createdAt == request.time;
           allow update: if false;
           allow delete: if privateCalendarOwner(userId) && privateCalendarCacheReplaced(userId, cacheId);

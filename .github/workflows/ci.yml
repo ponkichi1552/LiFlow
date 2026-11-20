@@ -29,8 +29,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install isolated API parser dependencies for security regressions
-        run: npm run api:install
+      - name: Install API dependencies for security regressions
+        run: |
+          npm run api:install
+          npm --prefix server/account-device-api ci --ignore-scripts
 
       # These configurations do not depend on HOUSEWORK_TEST_PLATFORM. Keep both
       # behavioral matrices, while running the same static checks only once.

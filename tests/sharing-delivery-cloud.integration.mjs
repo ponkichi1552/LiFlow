@@ -98,7 +98,15 @@ test('private device delivery erases received preference and busy ciphertext whi
   assert.equal((await sweepPrivateDeliveries(store, h.uid)).active, true);
   const root = store.doc(`privateCalendars/${h.uid}`); const saved = (await root.collection('plannerPreferences').doc('current').get()).data();
   assert.equal(saved.encryptedJson, null); assert.ok(saved.erasedAt);
-  assert.equal((await root.collection('caches').doc(h.encrypted.manifest.body.cacheId).collection('parts').get()).size, 0);
+  const cacheId = h.encrypted.manifest.body.cacheId;
+  const parts = root.collection('caches').doc(cacheId).collection('parts');
+  assert.equal((await parts.get()).size, 0);
+  const own = environment.authenticatedContext(h.uid).firestore();
+  const part = { schemaVersion: 1, index: 0, partJson: canonicalJson(h.encrypted.chunks[0]), createdAt: serverTimestamp() };
+  await assertFails(setDoc(doc(own, 'privateCalendars', h.uid, 'caches', cacheId, 'parts', '0'), part));
+  await parts.doc('0').set({ ...part, createdAt: new Date() });
+  await sweepPrivateDeliveries(store, h.uid);
+  assert.equal((await parts.get()).size, 0, 'an existing leftover part is cleaned up after receipts are verified');
   assert.equal((await h.left.calendar.uploadCache(h.authority, h.encrypted)).published, false, 'a lost publication response does not upload erased bytes again');
   await h.right.f.exclusive(h.uid, database => database.execAsync('DELETE FROM private_delivery_archive'));
   const restored = h.device(h.right.f); const source = h.device(h.left.f);
@@ -687,6 +695,34 @@ test('shared delivery never activates erasure with an old unseeded approved devi
     const outsider = environment.authenticatedContext('outsider').firestore();
     await assertFails(getDocFromServer(doc(outsider, 'sharingGroups', groupId, 'deliveryControl', 'policy')));
   } finally { f.close(); }
+});
+
+test('expired relay ciphertext is erased for live policies waiting for signatures without erasing the originals', async t => {
+  const shared = await fixture();
+  const privateSetup = await privateFixture(t);
+  try {
+    const owner = await shared.device('owner', shared.owner);
+    const { event } = await shared.upload(owner);
+    await privateSetup.upload();
+    const now = Date.now();
+    const sharedRoot = store.doc(`sharingGroups/${groupId}`);
+    const privateRoot = store.doc(`privateCalendars/${privateSetup.uid}`);
+    for (const [root, sweep] of [[sharedRoot, sweepSharedDeliveries], [privateRoot, sweepPrivateDeliveries]]) {
+      const requests = root.collection('deliveryRequests');
+      const expired = requests.doc('synthetic-expired'), pending = requests.doc('synthetic-pending');
+      await expired.set({ createdAt: new Date(now - 86_401_000), expiresAt: new Date(now - 1_000) });
+      await pending.set({ createdAt: new Date(now - 1_000), expiresAt: new Date(now + 86_399_000) });
+      const body = expired.collection('responses').doc('source').collection('parts').doc('0');
+      await body.set({ index: 0, data: 'eA==' });
+      await body.parent.parent.set({ ready: true });
+      assert.equal((await sweep(store, root.id, now)).active, false);
+      assert.equal((await expired.get()).exists, false);
+      assert.equal((await body.get()).exists, false);
+      assert.equal((await pending.get()).exists, true);
+    }
+    assert.equal((await sharedRoot.collection('events').doc(event.operationId).get()).exists, true);
+    assert.equal(typeof (await privateRoot.collection('plannerPreferences').doc('current').get()).data().encryptedJson, 'string');
+  } finally { shared.close(); }
 });
 
 test('signed shared receipt from a previous authority cannot activate erasure after a key rotation', async () => {

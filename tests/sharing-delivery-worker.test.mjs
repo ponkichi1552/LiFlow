@@ -175,6 +175,21 @@ test('delivery worker refuses an implicit project, a mismatched project, and a p
   }
 });
 
+test('the account device API refuses to mix real Firebase authority with isolated test services', () => {
+  const entry = fileURLToPath(new URL('../server/account-device-api/src/index.mjs', import.meta.url));
+  const demo = { LIFLOW_FIREBASE_PROJECT_ID: 'demo-liflow-sharing' };
+  const both = { FIRESTORE_EMULATOR_HOST: '127.0.0.1:8187', FIREBASE_AUTH_EMULATOR_HOST: '127.0.0.1:9102' };
+  for (const env of [{ ...demo, FIREBASE_AUTH_EMULATOR_HOST: both.FIREBASE_AUTH_EMULATOR_HOST },
+    { ...both, LIFLOW_FIREBASE_PROJECT_ID: 'synthetic-real-project' }, { ...demo, ...both, NODE_ENV: 'production' },
+    { ...demo, ...both, GCLOUD_PROJECT: 'different-project' }]) {
+    const result = spawnSync(process.execPath, ['--disable-warning=MODULE_TYPELESS_PACKAGE_JSON', '--experimental-strip-types', entry],
+      { env, encoding: 'utf8', timeout: 5000 });
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.equal(JSON.parse(result.stderr).event, 'account_device_service_startup_refused');
+  }
+});
+
 test('delivery cleanup listeners retry actual failures without idle polling and shutdown cancels reconnection', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const listeners = []; const target = { where() { return this; }, onSnapshot(changed, failed) {
@@ -208,5 +223,31 @@ test('delivery worker stays alive when discovery disconnects before any scope is
     assert.equal(timers.length, 1);
     assert.equal(timers[0].hasRef(), true);
     assert.deepEqual(events, [{ event: 'shared_delivery_listener_retry', code: 7 }]);
+  } finally { stop(); }
+});
+
+test('delivery discovery reconnect closes the listeners for a scope paused during the interruption', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const observers = [];
+  const source = { where() { return this; }, onSnapshot(changed, failed) {
+    const subscription = { changed, failed, closed: false };
+    observers.push(subscription);
+    return () => { subscription.closed = true; };
+  } };
+  const root = { id: 'pause-during-disconnection', path: 'privateCalendars/pause-during-disconnection',
+    parent: { id: 'privateCalendars' }, ...source, collection: () => source };
+  const policy = { id: 'policy', ref: { parent: { parent: root } },
+    data: () => ({ schemaVersion: 2, enabled: true, enrollmentId: 'a'.repeat(64), ttlMs: 86_400_000 }) };
+  const db = { collectionGroup: () => source, collection: () => ({ doc: () => root }),
+    runTransaction: async () => ({ deleted: 0, nextAt: null }) };
+  const stop = startSharedDeliveryWorker(db, undefined, projectId);
+  try {
+    observers[0].changed({ docs: [policy], docChanges: () => [{ type: 'added', doc: policy }] });
+    assert.equal(observers.length, 4);
+    observers[0].failed();
+    t.mock.timers.tick(30_000);
+    observers[4].changed({ docs: [], docChanges: () => [] });
+    assert.ok(observers.slice(1, 4).every(subscription => subscription.closed));
+    assert.equal(observers[4].closed, false);
   } finally { stop(); }
 });
