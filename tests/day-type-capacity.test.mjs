@@ -110,6 +110,9 @@ for (const platform of ['ios', 'android']) test(`${platform} rhythm calendar and
       load: async () => ({ initial: saved, save: async (value, expected) => { assert.deepEqual(expected, saved); saved = value; writes++; } }), onDraftChange() {} } });
   t.after(effects.shift()()); const settle = async () => { for (let i = 0; i < 10; i++) await ui.flush(); }; await settle();
   assert.equal(writes, 0); await ui.press('2026/11/05 平日');
+  const holiday = ui.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '2026-11-05を休日として扱う');
+  assert.ok(holiday);
+  holiday.props.onPress();
   await ui.change('平日の家事時間上限', '30'); ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '平日の家事時間上限').props.onBlur(); await settle();
   assert.equal(saved.dayOverrides[0].holiday, true); assert.equal(saved.dayTypes.workday.maximumMinutes, 30);
   const pick = async (label, hour) => {

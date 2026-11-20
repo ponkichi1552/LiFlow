@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { fixture } from './helpers/sharing-v2-plan-fixture.mjs';
 import { v2CalendarProjection } from '../src/features/sharing/v2-ui/calendar-projection.ts';
 import { loadNativeModule } from './helpers/native-module.mjs';
-import { newEventDraft } from '../src/features/calendar/events.ts';
+import { newEventDraft, UNCATEGORIZED_CALENDAR_CATEGORY } from '../src/features/calendar/events.ts';
 import { sharedDocumentDigest } from '../src/features/sharing/crypto.ts';
 import { sharedCalendarPayload } from '../src/features/sharing/v2/calendar-state.ts';
 import { isCalendarAnchor } from '../src/domain/calendar/events.ts';
@@ -35,6 +35,7 @@ test('shared calendar projection derives each event and repeated category identi
     '../../domain/calendar/events.ts': { isCalendarAnchor },
     '../sharing/crypto.ts': { sharedDocumentDigest(value) { digests++; return sharedDocumentDigest(value); } },
     '../sharing/v2/calendar-state.ts': { sharedCalendarPayload }, './private-availability.ts': {},
+    './events.ts': { UNCATEGORIZED_CALENDAR_CATEGORY },
   });
   const category = { id: 'personal', name: '私用', color: '#348DC2' };
   const records = Array.from({ length: 100 }, (_, n) => ({ id: `event-${n}`, creatorUserId: 'owner', exceptions: [],

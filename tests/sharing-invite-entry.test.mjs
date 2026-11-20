@@ -15,7 +15,8 @@ function entry(platform, link, overrides = {}) {
       'expo-linking': { useLinkingURL: () => state.url },
       '@/hooks/use-workspace': { useWorkspace: () => ({ ready: state.ready, userId: state.uid, group: state.group,
         refreshSharing: async () => { calls.refresh++; } }) },
-      '@/platform/sharing/auth': { signInSharingWithGoogle: async () => { calls.login++; if (state.login) return state.login(); state.uid = 'member'; return { uid: state.uid }; } },
+      '@/platform/sharing/auth': { isSharingAppleSignInAvailable: async () => false,
+        signInSharingWithGoogle: async () => { calls.login++; if (state.login) return state.login(); state.uid = 'member'; return { uid: state.uid }; } },
       '@/platform/sharing/workspaces': { enableSharingSession: async () => {}, sharingSessionUser: async () => state.uid ? { uid: state.uid } : null,
         sharingFailureMessage: () => '申請できませんでした。', requestSharingWorkspace: async url => {
           calls.request.push(url); if (state.request) return state.request(url); return { groupId: 'joined-group' };
@@ -51,7 +52,9 @@ for (const platform of ['ios', 'android']) {
         const originalNow = Date.now;
         const { screen, state, calls } = entry(platform, link, { uid: null, login: () => gate.promise });
         try {
-          await settle(screen); assert.equal(calls.login, 1); assert.equal(calls.request.length, 0);
+          await settle(screen); assert.equal(calls.login, 0);
+          await screen.press('Googleで続ける'); await settle(screen);
+          assert.equal(calls.login, 1); assert.equal(calls.request.length, 0);
           state.url = 'houseworkplanner://oauth?code=synthetic'; screen.render(); await settle(screen);
           if (expired) t.mock.method(Date, 'now', () => h.link.invitation.body.expiresAt + 1);
           state.uid = 'member'; gate.resolve({ uid: 'member' }); await settle(screen);

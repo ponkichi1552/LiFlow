@@ -316,8 +316,15 @@ for (const platform of ['ios', 'android']) test(`${platform} early settings adds
   const settle = async () => { for (let i = 0; i < 12; i++) { cleanups.push(...effects.splice(0).map(effect => effect())); await screen.flush(); } };
   await settle();
   await screen.press('2026/11/04 平日'); await settle();
-  const field = screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '平日の家事時間上限');
-  assert.ok(field); field.props.onBlur(); await settle();
+  const dateLimit = () => screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '2026-11-04の家事時間上限');
+  assert.ok(dateLimit(), 'the selected day exposes its own settings');
+  dateLimit().props.onBlur(); await settle();
+  assert.equal(saved.revision, 1, 'selecting a date leaves its settings unchanged');
+  const holiday = screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '2026-11-04を休日として扱う');
+  assert.ok(holiday);
+  assert.equal(holiday.props.accessibilityState.checked, false);
+  holiday.props.onPress(); await settle();
+  dateLimit().props.onBlur(); await settle();
   assert.equal(saved.timeZone, 'Pacific/Honolulu');
   assert.deepEqual(saved.dayOverrides, [{ date: '2026-11-04', holiday: true }]);
 });

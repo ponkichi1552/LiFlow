@@ -87,7 +87,8 @@ for (const [platform, names] of [
     list().props.onScroll({ nativeEvent: { contentOffset: { y: 149 * 64 } } }); await ui.flush();
     const last = ui.nodes().filter(node => node.props.accessibilityLabel === '食器を洗うの検索結果を開く').at(-1); last.props.onPress(); await ui.flush();
     if (platform === 'ios') { ui.nodes().find(node => node.type === 'Modal').props.onDismiss(); await ui.flush(); }
-    assert.deepEqual(selected, [{ date: chores.at(-1).date, minute: null, choreKey: chores.at(-1).key }]); assert.deepEqual(chores, before);
+    assert.deepEqual(selected, [{ date: chores.at(-1).date, minute: null, choreKey: chores.at(-1).key, timedChoreId: undefined }]);
+    assert.deepEqual(chores, before);
   });
 
   test(names.words, async t => {
