@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { privateCalendarRuntimeFixture } from './helpers/private-calendar-runtime.mjs';
 import { createPrivatePlannerPreferenceStore } from '../src/features/sharing/private-planner/preference-store.ts';
+import { createPrivatePreferenceSync } from '../src/features/sharing/private-planner/preference-sync.ts';
+import { privatePreferenceCursor } from '../src/features/sharing/private-planner/preference-crypto.ts';
 
 test('private planner normal runtime reads only its protected profile without creating Calendar identity keys consent or cloud writes', async t => {
   const f = privateCalendarRuntimeFixture(t);
@@ -31,6 +33,38 @@ test('private planner synchronization failure cannot block a valid Calendar refr
   let calls = 0; h.port.plannerSync = { synchronize: async () => { calls++; throw new Error('controlled preference failure'); } };
   assert.equal((await runtime.refreshData()).kind, 'published'); assert.equal(calls, 1); assert.equal(h.state.googleReads, 1);
   assert.equal((await runtime.readForPlan()).ownerUserId, h.userId);
+});
+
+test('private preferences retry at the saved time and acknowledge durable data with Calendar disabled', async t => {
+  const h = privateCalendarRuntimeFixture(t);
+  await h.devices.initializeFirstDevice();
+  const store = createPrivatePlannerPreferenceStore({ ownerUserId: h.userId, vault: h.f.vault, exclusive: h.f.exclusive,
+    assertOwner: owner => assert.equal(h.f.state.currentUser, owner) });
+  await store.save(0, { timeZone: 'Asia/Tokyo', restDays: [2], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 3 }, allowedBands: [] });
+  let reads = 0;
+  let published;
+  const receipts = [];
+  h.port.plannerSync = createPrivatePreferenceSync({ ownerUserId: h.userId, assertOwner: h.port.assertOwner, store, secrets: h.f.secrets,
+    crypto: h.port.crypto, now: h.port.now, randomFraction: () => 0.5, cloud: {
+      async read() { if (++reads === 1) throw new Error('temporary preferences transport failure'); return published ?? null; },
+      async publish(_authority, value) { published = value; },
+      async confirmDelivery(_authority, digest) {
+        if (digest) receipts.push({ digest, saved: (await store.readSyncState()).baseline?.cursor.digest });
+      },
+    } });
+  const runtime = h.open();
+  assert.deepEqual(await runtime.synchronizeAutomatically(), { kind: 'waiting', retryAt: null });
+  const retryAt = (await store.readSyncState()).retry?.nextAt;
+  assert.ok(retryAt > h.state.now);
+  assert.deepEqual(await runtime.synchronizeAutomatically(), { kind: 'waiting', retryAt });
+  assert.equal(reads, 1);
+  h.state.now = retryAt;
+  assert.deepEqual(await runtime.synchronizeAutomatically(), { kind: 'disabled' });
+  const digest = privatePreferenceCursor(published).digest;
+  await t.waitFor(() => assert.deepEqual(receipts, [{ digest, saved: digest }]));
+  assert.equal(reads, 2);
+  assert.equal(h.state.googleReads, 0);
+  assert.deepEqual(h.state.consents, []);
 });
 test('private planner manual synchronization uses the approved device check and never retrieves Google Calendar or Tasks', async t => {
   const h = privateCalendarRuntimeFixture(t); let calls = 0; h.port.plannerSync = { synchronize: async (force, ensure) => { assert.equal(force, true); ensure(); calls++; return { kind: 'sent' }; } };

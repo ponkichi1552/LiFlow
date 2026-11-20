@@ -16598,6 +16598,10 @@
       {
         "file": "tests/sharing-private-calendar-runtime.test.mjs",
         "name": "the main device can enroll its already saved calendar without another acquisition or upload"
+      },
+      {
+        "file": "tests/sharing-private-planner-runtime.test.mjs",
+        "name": "private preferences retry at the saved time and acknowledge durable data with Calendar disabled"
       }
     ],
     "cloudTests": [

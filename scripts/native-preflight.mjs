@@ -69,8 +69,18 @@ function sdkRootFor(root) {
 
 function main() {
   const args = process.argv.slice(2);
+  if (args.length === 2 && args[0] === '--ios-app') {
+    const manifestPath = path.join(path.resolve(args[1]), 'EXConstants.bundle', 'app.config');
+    if (!existsSync(manifestPath)) throw new Error('The iOS app is missing Expo Constants configuration');
+    const oauth = readJson(manifestPath).extra?.googleSyncOAuth;
+    if (oauth?.configured !== true || ![oauth.webClientId, oauth.iosClientId].every(value => typeof value === 'string' && value.trim())) {
+      throw new Error('The iOS app is missing its Google OAuth configuration');
+    }
+    process.stdout.write('PASS iOS app contains both Google OAuth client IDs\n');
+    return;
+  }
   const rootArg = args.length === 2 && args[0] === '--root' ? args[1] : args.length === 0 ? process.cwd() : undefined;
-  if (!rootArg) throw new Error('Usage: node native-preflight.mjs [--root <repository-root>]');
+  if (!rootArg) throw new Error('Usage: node native-preflight.mjs [--root <repository-root> | --ios-app <built-app>]');
   const root = realpathSync(path.resolve(rootArg));
   const manifest = readJson(path.join(root, 'package.json'));
   const lock = readJson(path.join(root, 'package-lock.json'));

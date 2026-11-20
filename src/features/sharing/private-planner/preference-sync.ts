@@ -7,7 +7,9 @@ import { PrivatePlannerPreferenceConflict } from './preference-store.ts';
 import { openPrivatePreferences, privatePreferenceCursor, samePrivatePreferenceCursor, sealPrivatePreferences, PrivatePreferenceCloudConflict } from './preference-crypto.ts';
 import { preferenceValues, samePreferenceValues } from './preference-sync-state.ts';
 
-export type PrivatePreferenceSyncResult = { kind: 'unavailable' | 'empty' | 'received' | 'sent' | 'unchanged' | 'conflict' | 'awaitingReencryption' | 'waiting' | 'changed' };
+export type PrivatePreferenceSyncResult =
+  | { kind: 'unavailable' | 'empty' | 'received' | 'sent' | 'unchanged' | 'conflict' | 'awaitingReencryption' | 'changed' }
+  | { kind: 'waiting'; retryAt: number };
 /** All accepted plaintext and pending ciphertext stay in the owner's protected record, outside the group ledger. */
 export function createPrivatePreferenceSync(port: { ownerUserId: string; assertOwner(): void | Promise<void>;
   store: PrivatePlannerPreferenceStore; secrets: ReturnType<typeof createPrivateCalendarSecretStore>; crypto: SharingCryptoGateway;
@@ -27,7 +29,9 @@ export function createPrivatePreferenceSync(port: { ownerUserId: string; assertO
   }
   async function execute(force: boolean, assertBudget: () => void): Promise<PrivatePreferenceSyncResult> {
     assertBudget(); const a = await authority(); if (!a) return { kind: 'unavailable' }; let state = await ownedState(); assertBudget();
-    if (!force && state.retry && state.retry.attemptedAt <= now() && state.retry.nextAt > now()) return { kind: 'waiting' };
+    if (!force && state.retry && state.retry.attemptedAt <= now() && state.retry.nextAt > now()) {
+      return { kind: 'waiting', retryAt: state.retry.nextAt };
+    }
     let incoming;
     try { incoming = await cloud.read(a, assertBudget); }
     catch (error) {

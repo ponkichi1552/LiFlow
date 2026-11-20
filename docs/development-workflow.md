@@ -35,7 +35,7 @@ SQLiteの外部キー既定値は公式config pluginの`customBuildFlags`で設�
 
 ビルド中に外付けボリュームが切れた場合は、失敗したビルドのGradleプロセスとボリュームを参照する画面を閉じる。既存イメージが通常再接続できなければ、読み取り専用で接続して`diskutil verifyVolume`で整合性を確認する。問題がなければ通常接続に戻し、`doctor:native`を再実行する。APKの出力日時と埋め込みコードを確認してから端末に導入する。
 
-外部Podsを使ってXcodeを直接ビルドする場合は、チェックアウト直下で`LIFLOW_CHECKOUT="$(pwd -P)"`を実行する。次に`PODFILE_DIR="$LIFLOW_CHECKOUT/ios"`と`REACT_NATIVE_PATH="$LIFLOW_CHECKOUT/node_modules/react-native"`を`xcodebuild`のビルド設定引数に加える。
+外部Podsを使ってXcodeを直接ビルドする場合は、チェックアウト直下で`LIFLOW_CHECKOUT="$(pwd -P)"`を実行する。`PODFILE_DIR="$LIFLOW_CHECKOUT/ios"`、`REACT_NATIVE_PATH="$LIFLOW_CHECKOUT/node_modules/react-native"`、`PROJECT_ROOT="$LIFLOW_CHECKOUT"`を`xcodebuild`のビルド設定引数に加える。Podsの実体名が `Pods` と異なる場合は、Expo Constantsが設定の生成を省略するため `EXPO_CONSTANTS_ALLOW_NON_PODS=1` も渡す。Googleログインを使う実機版は、導入前に `npm run doctor:native -- --ios-app <LiFlow.appのパス>` で、実際に同梱されたGoogle OAuth設定を確認する。
 
 `EXPO_PUBLIC_*`の値を変えたら、その値を設定した環境でJS bundle taskを強制再実行してからReleaseを作る。
 

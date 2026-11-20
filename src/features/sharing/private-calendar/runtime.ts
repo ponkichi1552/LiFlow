@@ -112,9 +112,18 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
     ensure();
     const device = await devices.synchronizeDevices({ force, assertBudget: ensure, signal }); ensure();
     if (device.phase !== 'approved') return { kind: 'unavailable' as const };
-    const planner = port.plannerSync?.synchronize(force, ensure).catch(() => undefined);
-    try { return await updateCalendar(force, deadline, ensure, signal); }
-    finally { await planner; }
+    const planner = port.plannerSync?.synchronize(force, ensure).catch(() => ({ kind: 'retry' as const }));
+    let calendar;
+    let preferences;
+    try { calendar = await updateCalendar(force, deadline, ensure, signal); }
+    finally { preferences = await planner; }
+    if (force) return calendar;
+    if (preferences?.kind === 'waiting') {
+      const calendarRetryAt = calendar.kind === 'waiting' ? calendar.retryAt : null;
+      return { kind: 'waiting' as const, retryAt: Math.min(preferences.retryAt, calendarRetryAt ?? Infinity) };
+    }
+    if (preferences?.kind === 'retry' || preferences?.kind === 'changed') return { kind: 'waiting' as const, retryAt: null };
+    return calendar;
   }
   async function updateCalendar(force: boolean, deadline: number, ensure: () => void, signal: AbortSignal) {
     if ((await source.read())?.pending) {
