@@ -432,7 +432,7 @@ export function startSharedDeliveryWorker(firestore, monitor = () => {}, project
       if (!root) continue;
       if (change.type === 'removed' || !parseDeliveryPolicy(change.doc.data())) { groups.get(root.path)?.stop(); groups.delete(root.path); continue; }
       if (groups.has(root.path)) { groups.get(root.path).wake(); continue; }
-      let running = false, again = false, timer, disposed = false, next = Infinity, failures = 0, errorUntil = 0;
+      let running = false, changedDuringScan = false, timer, disposed = false, next = Infinity, failures = 0, errorUntil = 0;
       let continuation;
       const schedule = delay => {
         const at = Math.max(errorUntil, Date.now() + Math.max(50, delay));
@@ -440,7 +440,7 @@ export function startSharedDeliveryWorker(firestore, monitor = () => {}, project
         next = at; clearTimeout(timer); timer = setTimeout(() => { queuedSweeps.add(run); dispatch(); }, at - Date.now());
       };
       const run = async () => {
-        if (stopped || disposed) return; if (running) { again = true; return; }
+        if (stopped || disposed) return; if (running) { changedDuringScan = true; return; }
         running = true; next = Infinity;
         try {
           const sweep = root.parent.id === 'privateCalendars' ? sweepPrivateDeliveries : sweepSharedDeliveries;
@@ -448,7 +448,8 @@ export function startSharedDeliveryWorker(firestore, monitor = () => {}, project
           continuation = result.continuation;
           failures = 0; errorUntil = 0;
           if (result.deleted) monitor({ event: 'shared_delivery_erased', records: result.deleted });
-          if (again) { again = false; schedule(50); }
+          if (continuation) schedule(50);
+          else if (changedDuringScan) { changedDuringScan = false; schedule(50); }
           else if (result.nextAt !== null) schedule(result.nextAt - Date.now());
         } catch (error) {
           monitor({ event: 'shared_delivery_cleanup_failed', ...(Number.isInteger(error?.code) ? { code: error.code } : {}) });
@@ -457,7 +458,7 @@ export function startSharedDeliveryWorker(firestore, monitor = () => {}, project
         }
         finally { running = false; }
       };
-      const wake = () => { if (running) again = true; else schedule(50); };
+      const wake = () => { if (running || continuation) changedDuringScan = true; if (!running) schedule(50); };
       const privateScope = root.parent.id === 'privateCalendars';
       const subscriptions = [observe(root, wake), ...[DELIVERY_PROOF_COLLECTION, 'deliveryRequests'].map(name => observe(root.collection(name), wake)),
         // Private preference publication is followed by a durable signed receipt, which already wakes this worker.

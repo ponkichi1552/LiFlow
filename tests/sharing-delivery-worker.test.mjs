@@ -226,6 +226,37 @@ test('delivery worker stays alive when discovery disconnects before any scope is
   } finally { stop(); }
 });
 
+test('a change during a bounded delivery scan triggers one fresh scan after its continuation', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_800_000_000_000 });
+  const listeners = [];
+  const observed = { where() { return this; }, orderBy() { return this; }, limit() { return this; }, doc() { return this; },
+    onSnapshot(changed) { listeners.push(changed); return () => {}; } };
+  const root = { id: 'bounded-group', path: 'sharingGroups/bounded-group', parent: { id: 'sharingGroups' },
+    ...observed, collection: () => observed };
+  const policy = { id: 'policy', ref: { parent: { parent: root } },
+    data: () => ({ schemaVersion: 2, enabled: true, enrollmentId: 'a'.repeat(64), ttlMs: 86_400_000 }) };
+  let count = 0, release;
+  const db = { collectionGroup: () => observed, collection: () => ({ doc: () => root }), async runTransaction() {
+    count++;
+    if (count === 1) return new Promise(resolve => { release = resolve; });
+    return { deleted: 0, nextAt: null };
+  } };
+  const stop = startSharedDeliveryWorker(db, undefined, projectId);
+  try {
+    listeners[0]({ docs: [policy], docChanges: () => [{ type: 'added', doc: policy }] });
+    t.mock.timers.tick(50);
+    listeners[1]({});
+    release({ deleted: 0, nextAt: null, continuation: {} });
+    await new Promise(setImmediate);
+    t.mock.timers.tick(50); await new Promise(setImmediate);
+    assert.equal(count, 2);
+    t.mock.timers.tick(50); await new Promise(setImmediate);
+    assert.equal(count, 3);
+    t.mock.timers.tick(600_000); await new Promise(setImmediate);
+    assert.equal(count, 3);
+  } finally { stop(); }
+});
+
 test('delivery discovery reconnect closes the listeners for a scope paused during the interruption', t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const observers = [];
