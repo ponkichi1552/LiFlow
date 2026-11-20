@@ -18,10 +18,15 @@ export function decodeUploadedManual(value) {
     throw invalid('利用できる取扱説明書PDFを選択し、送信の確認をしてください（6MiB以内）。');
   }
   const bytes = Buffer.from(value.base64, 'base64');
-  if (bytes.length < 32 || bytes.length > MAX_MANUAL_BYTES || bytes.toString('base64') !== value.base64
-    || !bytes.subarray(0, 8).toString('ascii').match(/^%PDF-\d\.\d/u)
+  if (bytes.toString('base64') !== value.base64) throw invalid('PDF形式の取扱説明書を選択してください。');
+  return { bytes, reference: uploadedManualReference(bytes) };
+}
+
+/** Validate the PDF envelope directly when the caller already holds the decoded bytes. */
+export function uploadedManualReference(bytes) {
+  if (bytes.length < 32 || bytes.length > MAX_MANUAL_BYTES || !bytes.subarray(0, 8).toString('ascii').match(/^%PDF-\d\.\d/u)
     || !bytes.subarray(-1024).toString('ascii').includes('%%EOF')) throw invalid('PDF形式の取扱説明書を選択してください。');
-  return { bytes, reference: `liflow-manual://sha256/${publicKey(bytes)}` };
+  return `liflow-manual://sha256/${publicKey(bytes)}`;
 }
 
 /** Parse untrusted PDF structure off the HTTP thread, with a memory/time limit and no inherited credentials. */

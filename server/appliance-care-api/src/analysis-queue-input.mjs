@@ -3,7 +3,7 @@ import { Buffer } from 'node:buffer';
 import { publicKey, PublicApiError } from './public-access.mjs';
 import { analysisRequestKey } from './analysis-runner.mjs';
 import { validateApplianceCareRequest } from './service.mjs';
-import { decodeUploadedManual, MAX_MANUAL_BYTES } from './uploaded-manual.mjs';
+import { decodeUploadedManual, MAX_MANUAL_BYTES, uploadedManualReference } from './uploaded-manual.mjs';
 
 // Each private Firestore document stays well below its 1 MiB limit. Never put
 // tokens, client-supplied URLs or a filesystem path into a worker message.
@@ -47,13 +47,12 @@ export function prepareAnalysisQueueInput(request, requestKey, keys, context) {
   if (!validateApplianceCareRequest(request) || !Buffer.isBuffer(request.manual?.bytes)
     || request.manual.bytes.length > MAX_MANUAL_BYTES || analysisRequestKey(request) !== requestKey
     || publicKey(requestKey) !== context.requestDigest) throw new Error('Invalid analysis queue input');
+  const { bytes: manual, reference } = request.manual;
+  if (uploadedManualReference(manual) !== reference) throw new Error('Invalid analysis queue manual identity');
   const input = { ...(request.identifyFromManual === true ? { identifyFromManual: true } : {}),
     ...Object.fromEntries(['manufacturer', 'productName', 'modelNumber'].filter(field => typeof request[field] === 'string').map(field => [field, request[field]])),
     ...(typeof request.category === 'string' ? { category: request.category } : {}),
-    manual: { rightsConfirmed: true, base64: request.manual.bytes.toString('base64') } };
-  // Check the same canonical PDF envelope again without parsing it on the HTTP thread.
-  const decoded = decodeUploadedManual(input.manual);
-  if (decoded.reference !== request.manual.reference) throw new Error('Invalid analysis queue manual identity');
+    manual: { rightsConfirmed: true, base64: manual.toString('base64') } };
   const bytes = Buffer.from(JSON.stringify(input), 'utf8'); if (bytes.length > MAX_INPUT_BYTES) throw new Error('Analysis input limit');
   const manifest = { version: 1, keyId: keys.activeKeyId, bytes: bytes.length, sha256: publicKey(bytes), chunks: Math.ceil(bytes.length / CHUNK_BYTES) };
   const nonce = randomBytes(12); const cipher = createCipheriv('aes-256-gcm', keys.keys.get(keys.activeKeyId), nonce, { authTagLength: 16 });

@@ -108,6 +108,9 @@ test('AI input chunks preserve a maximum-size PDF and reject corrupt missing reo
   const prepared = prepareAnalysisQueueInput(input, key, keys, context);
   assert.ok(prepared.chunks.length > 1 && prepared.chunks.every(chunk => Buffer.byteLength(chunk) < 1024 * 1024));
   assert.deepEqual(decodeAnalysisQueueInput(prepared.manifest, prepared.chunks, keys, context).manual.bytes, bytes);
+  const otherManual = Buffer.from(bytes); otherManual[32] = 65;
+  assert.throws(() => prepareAnalysisQueueInput({ ...input, manual: { ...input.manual, bytes: otherManual } }, key, keys, context),
+    /Invalid analysis queue manual identity/u, 'valid PDF framing still requires the exact bytes that were accepted');
   const corrupt = Buffer.from(prepared.chunks[0]); corrupt[0] ^= 1;
   for (const chunks of [prepared.chunks.slice(1), [...prepared.chunks].reverse(), [Buffer.alloc(1024 * 1024), ...prepared.chunks.slice(1)],
     [corrupt, ...prepared.chunks.slice(1)]]) assert.throws(() => decodeAnalysisQueueInput(prepared.manifest, chunks, keys, context));
