@@ -54,6 +54,20 @@ async function forecastJson(response: Response, signal: AbortSignal): Promise<un
 }
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 interface ProviderOptions { baseUrl?: string; fetcher?: FetchLike; now?: () => number; timeoutMs?: number }
+const GOOGLE_WEATHER_HOST = /(^|\.)(run\.app|cloudfunctions\.net|appspot\.com|cloud\.goog|googleapis\.com|firebaseapp\.com|web\.app|googleusercontent\.com)\.?$/iu;
+
+async function fetchSelfHostedWeather(url: string, init: RequestInit): Promise<Response> {
+  const certificate = process.env.EXPO_PUBLIC_WEATHER_SELF_HOST_TLS_CERT?.trim();
+  if (!certificate) return (await import('expo/fetch')).fetch(url, init);
+  const { requireOptionalNativeModule } = await import('expo');
+  const transport = requireOptionalNativeModule<{
+    get(address: string, certificate: string, etag: string | null): Promise<{ status: number; body?: string }>;
+  }>('LiFlowWeatherTransport');
+  if (!transport || init.signal?.aborted) throw new Error('Self-hosted weather transport unavailable');
+  const response = await transport.get(url, certificate, new Headers(init.headers).get('If-None-Match'));
+  return new Response(response.body ?? null, { status: response.status });
+}
+
 export class MetServerForecastProvider {
   private readonly pending = new Map<string, Promise<RegionalWeatherCache | null>>();
   private readonly attempts = new Map<string, { at: number; retryAt: number; value: RegionalWeatherCache | null }>();
@@ -64,10 +78,10 @@ export class MetServerForecastProvider {
     const region = resolveWeatherMunicipality(location); if (!region) return null;
     const saved = cached && isRegionalWeatherCache(cached, region.id) ? copyCache(cached) : null;
     const now = this.options.now?.() ?? Date.now();
-    const configured = this.options.baseUrl ?? process.env.EXPO_PUBLIC_WEATHER_API_URL ?? process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL;
+    const configured = this.options.baseUrl ?? process.env.EXPO_PUBLIC_WEATHER_SELF_HOST_URL;
     let base: URL;
     try { base = new URL(configured?.trim() ?? ''); } catch { return saved; }
-    if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) return saved;
+    if (base.protocol !== 'https:' || GOOGLE_WEATHER_HOST.test(base.hostname) || base.username || base.password || base.search || base.hash) return saved;
     const key = `${base.href}:${region.id}`;
     const prior = this.attempts.get(key);
     if (prior && now >= prior.at && now < prior.retryAt) return newestCache(prior.value, saved);
@@ -84,9 +98,9 @@ export class MetServerForecastProvider {
   private async request(url: string, regionId: string, cached: RegionalWeatherCache | null) {
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
     const work = (async () => {
-      const response = await (this.options.fetcher ?? globalThis.fetch)(url, { signal: controller.signal,
+      const response = await (this.options.fetcher ?? fetchSelfHostedWeather)(url, { signal: controller.signal, redirect: 'error',
         headers: { Accept: 'application/json', ...(cached ? { 'If-None-Match': `"${cached.revision}"` } : {}) } });
-      if (controller.signal.aborted) return cached;
+      if (controller.signal.aborted || response.redirected || (response.url && response.url !== url)) return cached;
       if (response.status === 304) return cached;
       if (response.status !== 200 || Number(response.headers.get('content-length') ?? 0) > MAX_FORECAST_BYTES) return cached;
       const value: unknown = await forecastJson(response, controller.signal);

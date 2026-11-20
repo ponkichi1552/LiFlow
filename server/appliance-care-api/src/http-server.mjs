@@ -7,7 +7,6 @@ import { analyzeUploadedManual, decodeUploadedManual, inspectUploadedManual, MAX
 import { PublicApiError, publicJobId } from './public-access.mjs';
 import { SubscriptionError } from './subscription-service.mjs';
 import { createFixedWindowRateLimit } from './rate-limit.mjs';
-import { createWeatherHttpHandler } from './weather/http-handler.mjs';
 
 const MAX_BODY_BYTES = 8 * 1024;
 const JOB_RETENTION_MS = 10 * 60_000;
@@ -26,7 +25,7 @@ const STATUS_BY_ERROR = {
 };
 
 export function createApplianceCareHttpServer({ dependencies, aiConfigured = true, allowedOrigins = [], analysisLimits = {},
-  publicAccess, subscriptionAccess = publicAccess?.subscriptions, weather = publicAccess?.weather, billingOnly = false, manualUploadsOnly = Boolean(publicAccess) }) {
+  publicAccess, subscriptionAccess = publicAccess?.subscriptions, billingOnly = false, manualUploadsOnly = Boolean(publicAccess) }) {
   if (billingOnly && !subscriptionAccess?.service) throw new Error('Billing-only mode requires verified subscription services');
   if (publicAccess && !manualUploadsOnly) throw new Error('Public AI requires uploaded manuals');
   if (publicAccess && !billingOnly && !['heartbeatAnalysisWorker', 'claimAnalysis', 'startAnalysis', 'readAnalysisInput', 'stageAnalysisResult'].every(key => typeof publicAccess.store?.[key] === 'function')) {
@@ -48,7 +47,6 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
   const allowAddress = createFixedWindowRateLimit({ limit: 20 });
   const allowPublicAddress = createFixedWindowRateLimit({ limit: 300 });
   const allowPublicUser = createFixedWindowRateLimit({ limit: 90 });
-  const handleWeather = createWeatherHttpHandler({ weather });
   const jobsById = new Map();
   const jobsByRequest = new Map();
   const analyze = manualUploadsOnly ? analyzeUploadedManual : analyzeApplianceCare;
@@ -96,10 +94,13 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
       sendJson(response, 200, publicAccess ? { status: 'ok' } : { status: 'ok', aiConfigured });
       return;
     }
+    if (url.pathname.startsWith('/v1/weather/')) {
+      sendJson(response, 404, { code: 'not_found' });
+      return;
+    }
     if (publicAccess && !allowPublicAddress(request.socket.remoteAddress ?? 'unknown')) {
       throw new PublicApiError(429, 'RATE_LIMITED', 'リクエストが多すぎます。少し待って再試行してください。');
     }
-    if (await handleWeather(request, response, url)) return;
     if (subscriptionAccess && await subscriptionAccess.handle(request, response, url)) return;
     const receiptMatch = request.method === 'POST' && url.pathname.match(/^\/api\/appliance-care\/jobs\/([a-f0-9]{64})\/receipt$/u);
     if (publicAccess && receiptMatch) {

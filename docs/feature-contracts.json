@@ -11555,6 +11555,10 @@
       },
       {
         "file": "tests/appliance-durable-analysis.test.mjs",
+        "name": "AI queue still processes saved version 1 Base64 PDF jobs after switching to binary writes"
+      },
+      {
+        "file": "tests/appliance-durable-analysis.test.mjs",
         "name": "AI queue encryption binds the account job input and key version and rejects missing keys forged tags and rotated-away keys before paid work"
       },
       {
@@ -12160,6 +12164,14 @@
   {
     "feature": "met-regional-cache-static-municipalities-and-protected-adaptive-weather",
     "tests": [
+      {
+        "file": "tests/weather-provider-reliability.test.mjs",
+        "name": "weather only uses an explicit self-hosted HTTPS URL and refuses Google endpoints and redirects"
+      },
+      {
+        "file": "tests/met-weather-cache.test.mjs",
+        "name": "the appliance API has no weather route even when the former provider is supplied"
+      },
       {
         "file": "tests/weather-municipalities.test.mjs",
         "name": "bundled Japanese municipality index is pinned complete and uses four-decimal public representative points"

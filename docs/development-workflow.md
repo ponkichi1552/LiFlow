@@ -56,6 +56,8 @@ Firebase Emulator検査は[READMEの固定コマンド](../README.md)（Firebase
 
 環境変数だけを切り替えても、Gradleが埋め込みJavaScriptを再生成するとは限らない。計測フラグを変更した際は、対象の生成済みbundleを無効化して再生成したことと、APK内の実際のフラグを確認する。単に`BUILD SUCCESSFUL`だったことを、計測コードの導入証拠にしない。
 
+USB接続したAndroidの実画面はAndroid Studioの「Running Devices → ＋」で接続済み端末を選択して開く。Gradleのプロジェクト同期が失敗しても、USBの端末表示とCLIからのビルド・導入は個別に確認できる。
+
 計測後は、データを保持して診断OFFのReleaseへ戻す。作業コピーの一時的な計測コード、生成済みbundle、APK出力、端末へ導入した版を照合する。起動操作からの時間、JavaScript開始からの描画時間、操作ハンドラーからのlayout時間、自動操作ツールの検出待ちを区別する。
 
 ## 共有と本人の推奨計算の版

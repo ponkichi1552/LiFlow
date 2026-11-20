@@ -13,6 +13,9 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "bundleIdentifier": "jp.jphacks.tkb2633",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "自宅のラズベリーパイから天気予報を取得するために、ローカルネットワークを使用します。"
+      },
       "icon": {
         "light": "./assets/images/liflow-monogram.png",
         "dark": "./assets/images/liflow-monogram.png"

@@ -1,10 +1,12 @@
-import { createServer } from 'node:http';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import { createWeatherHttpHandler } from './weather/http-handler.mjs';
 
 /** No AI, billing, account or user-data routes are mounted here. */
-export function createWeatherHttpServer(options) {
+export function createWeatherHttpServer({ tls, ...options }) {
   const weather = createWeatherHttpHandler(options);
-  return createServer({ requestTimeout: 20_000, headersTimeout: 10_000, maxHeaderSize: 8_192 }, (request, response) => {
+  const limits = { requestTimeout: 20_000, headersTimeout: 10_000, maxHeaderSize: 8_192 };
+  function handle(request, response) {
     response.setHeader('x-content-type-options', 'nosniff'); response.setHeader('referrer-policy', 'no-referrer');
     response.setHeader('cache-control', 'no-store');
     void (async () => {
@@ -19,5 +21,6 @@ export function createWeatherHttpServer(options) {
     function json(status, value) {
       response.writeHead(status, { 'content-type': 'application/json; charset=utf-8' }); response.end(JSON.stringify(value));
     }
-  });
+  }
+  return tls ? createHttpsServer({ ...tls, ...limits, minVersion: 'TLSv1.2' }, handle) : createHttpServer(limits, handle);
 }

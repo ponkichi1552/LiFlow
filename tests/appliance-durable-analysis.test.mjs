@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
+import { createCipheriv } from 'node:crypto';
 import test from 'node:test';
 import { publicStoreFixture, syntheticAnalysisQueueKeys } from './helpers/appliance-public-store.mjs';
 import { syntheticManual } from './helpers/synthetic-pdf.mjs';
@@ -106,6 +107,8 @@ test('AI input chunks preserve a maximum-size PDF and reject corrupt missing reo
   const key = analysisRequestKey(input); const keys = syntheticAnalysisQueueKeys();
   const context = { owner: principal.uid, jobId: publicKey('synthetic-input-job'), requestDigest: publicKey(key) };
   const prepared = prepareAnalysisQueueInput(input, key, keys, context);
+  assert.equal(prepared.manifest.version, 2);
+  assert.ok(prepared.manifest.bytes < MAX_MANUAL_BYTES + 1024, 'the queue keeps the PDF in binary form');
   assert.ok(prepared.chunks.length > 1 && prepared.chunks.every(chunk => Buffer.byteLength(chunk) < 1024 * 1024));
   assert.deepEqual(decodeAnalysisQueueInput(prepared.manifest, prepared.chunks, keys, context).manual.bytes, bytes);
   const otherManual = Buffer.from(bytes); otherManual[32] = 65;
@@ -118,6 +121,28 @@ test('AI input chunks preserve a maximum-size PDF and reject corrupt missing reo
   assert.throws(() => prepareAnalysisQueueInput({ ...request, manual: { ...request.manual, reference: 'file:///private' } }, analysisRequestKey(request), keys, context));
   const f = fixture(); await f.admit(); const path = [...f.records.keys()].find(value => value.includes('/analysisInputChunks/'));
   f.records.get(path).runId = 'foreign-run'; assert.equal((await f.work()).failed, 1); assert.equal(f.calls(), 0);
+});
+
+test('AI queue still processes saved version 1 Base64 PDF jobs after switching to binary writes', () => {
+  const keys = syntheticAnalysisQueueKeys();
+  const context = { owner: principal.uid, jobId: publicKey('legacy-input-job'), requestDigest: publicKey(analysisRequestKey(request)) };
+  const plaintext = Buffer.from(JSON.stringify({
+    manufacturer: request.manufacturer,
+    productName: request.productName,
+    modelNumber: request.modelNumber,
+    manual: { rightsConfirmed: true, base64: request.manual.bytes.toString('base64') },
+  }), 'utf8');
+  const nonce = Buffer.alloc(12, 19);
+  const manifest = { version: 1, keyId: keys.activeKeyId, bytes: plaintext.length, sha256: publicKey(plaintext), chunks: 1,
+    nonce: nonce.toString('hex') };
+  const cipher = createCipheriv('aes-256-gcm', keys.keys.get(keys.activeKeyId), nonce, { authTagLength: 16 });
+  cipher.setAAD(Buffer.from(JSON.stringify(['liflow-analysis-input-v1', context.owner, context.jobId, context.requestDigest,
+    manifest.version, manifest.keyId, manifest.bytes, manifest.sha256, manifest.chunks]), 'utf8'));
+  const chunks = [Buffer.concat([cipher.update(plaintext), cipher.final()])];
+  const input = { ...manifest, tag: cipher.getAuthTag().toString('hex') };
+
+  assert.deepEqual(decodeAnalysisQueueInput(input, chunks, keys, context), request);
+  assert.throws(() => decodeAnalysisQueueInput({ ...input, version: 2 }, chunks, keys, context));
 });
 
 test('AI queue encryption binds the account job input and key version and rejects missing keys forged tags and rotated-away keys before paid work', async () => {

@@ -4,6 +4,7 @@ import { createRegionalWeatherStore, weatherRegionKey, weatherRegion } from '../
 import { createMetWeatherService, identifyingMetUserAgent } from '../server/appliance-care-api/src/weather/met-service.mjs';
 import { parseMetForecast, validMetForecast, metWeatherForWindow, weatherCacheFreshness } from '../server/appliance-care-api/src/weather/forecast.mjs';
 import { createApplianceCareHttpServer } from '../server/appliance-care-api/src/http-server.mjs';
+import { createWeatherHttpServer } from '../server/appliance-care-api/src/weather-http-server.mjs';
 const HOUR = 3_600_000; const now = Date.parse('2026-11-05T03:00:00Z');
 const userAgent = 'LiFlow/unit-test https://weather.liflow.app/contact'; // Mock transport only; never an operator setting or real MET request.
 const id = 'jp-municipal.13104';
@@ -186,10 +187,22 @@ test('missing contact configuration refuses MET work and public cache HTTP uses 
   const h = fixture(); let calls = 0; const disabled = h.service(async () => { calls++; return response(); }, { userAgent: undefined });
   assert.equal((await disabled.read(id)).status, 503); assert.equal(await disabled.tick(), 0); assert.equal(calls, 0); assert.equal(h.records.size, 0);
   const service = h.service(async () => response()); await service.read(id); await service.tick();
-  const server = createApplianceCareHttpServer({ dependencies: {}, weather: service, manualUploadsOnly: true });
+  const server = createWeatherHttpServer({ weather: service, now: () => now });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => new Promise(resolve => server.close(resolve)));
   const url = `http://127.0.0.1:${server.address().port}/v1/weather/regions/${id}`;
   const first = await fetch(url); assert.equal(first.status, 200); const value = await first.json(); assert.equal(value.regionId, id);
   const second = await fetch(url, { headers: { 'if-none-match': first.headers.get('etag') } }); assert.equal(second.status, 304); assert.equal(await second.text(), '');
   assert.equal((await fetch(url, { method: 'POST' })).status, 405);
+});
+
+test('the appliance API has no weather route even when the former provider is supplied', async t => {
+  let reads = 0;
+  const weather = { async read() { reads++; throw new Error('unexpected weather read'); } };
+  const server = createApplianceCareHttpServer({ dependencies: {}, weather, manualUploadsOnly: true });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  assert.equal((await fetch(`${origin}/v1/weather/regions/${id}`)).status, 404);
+  assert.equal(reads, 0);
+  assert.equal((await fetch(`${origin}/health`)).status, 200);
 });

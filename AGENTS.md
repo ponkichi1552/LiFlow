@@ -9,6 +9,8 @@ This is an Expo/React Native mobile application. Prioritize mobile-first pattern
 ## Task continuity and device capacity
 
 - Treat a user's question, correction, or incident report as guidance for the active task. Check what actually happened after a failure, preserve completed results and pending inputs, and continue through a safe available method. If work remains, end the turn only at the user's instruction or when a specific technical or authorization dependency prevents further progress.
+- Record batch-specific user instructions in the existing work record, including who owns each step, the total concurrency limit, and the evidence required for completion. Update the record when the user changes those instructions. Before starting or resuming the batch, check these requirements against the saved work state. Carry forward the assigned roles after a crash or interruption. When a handoff is needed, pass the work record, existing inputs, verified chat URLs, and last confirmed step, then confirm the recipient's role before proceeding.
+- For ongoing multi-step work, keep the primary agent's own assignments, completed evidence, remaining work, and next action in the project work record. Maintain this record separately from the list of delegated cases. Reread it when resuming after a handoff, interruption, or context compaction, and update it as each assignment progresses.
 - Check system memory pressure and free disk space before browser batches, builds, and large transfers. Recheck memory pressure and total open tab count before adding verification tabs. Reuse existing inputs and saved outputs. If the host shows memory pressure or an application crashes, stop the operation adding load, check the device and application state, and resume safely with fewer concurrent operations.
 - Count every open verification tab toward the user's requested tab limit, including finished tabs. When using about seven chats, keep at most seven verification tabs open in total. Save and verify a finished result before closing its tab and opening the next. Keep file attachment and send operations sequential. Response generation may overlap within the tab limit.
 - After a timeout or uncertain browser action, inspect the exact chat's posted messages, attachment and response before attempting another send. Report a request as sent only after the posted message is visible. Report a comparison as complete only after its response has finished and been saved.
@@ -19,7 +21,12 @@ This is an Expo/React Native mobile application. Prioritize mobile-first pattern
 
 - Verify the model and reasoning setting in the actual request before testing. Check the requested deadline across the app and HTTP transport, and inspect the effective output-token cap. Apply the user's specified limits to the actual test configuration.
 - Check that the PDF, its product label and source URL, and the saved API response identify the same case. Verify the PDF hash before pairing inputs. Keep subagents within their assigned role and use the reviewer designated by the user.
+- When the user assigns subagents to prepare inputs and coordinate comparisons, have them do that work and assign one operator to the shared browser. Use the designated normal chat to produce the initial answer and to reread the PDF after both answers are available. Before declaring the batch complete, match the saved comparisons to the full case list.
 - Give every trial a unique output path and record the observed usage, latency and outcome before reusing a slot. Record unavailable measurements explicitly. Preserve the inputs for any outstanding comparison so it can resume from the existing API response.
+
+## Weather service
+
+- Route weather requests only to the self-hosted Raspberry Pi weather API configured by `EXPO_PUBLIC_WEATHER_SELF_HOST_URL`. Keep Google Cloud out of the weather retrieval and refresh path. When the Pi is unavailable, use the device's existing weather cache according to its freshness rules. Keep this routing decision separate from the account and sharing services.
 
 ## Canonical development source
 

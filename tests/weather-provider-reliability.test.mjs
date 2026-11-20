@@ -15,6 +15,38 @@ function cache(regionId, checkedAt) {
   const value = { schemaVersion: 1, regionId, checkedAt: new Date(checkedAt).toISOString(), fetchedAt: new Date(checkedAt).toISOString(), expiresAt: null, lastModified: null, forecast };
   return { ...value, revision: weatherCacheRevision(value) };
 }
+test('weather only uses an explicit self-hosted HTTPS URL and refuses Google endpoints and redirects', async (t) => {
+  const weatherUrl = 'EXPO_PUBLIC_WEATHER_SELF_HOST_URL';
+  const legacyUrl = 'EXPO_PUBLIC_WEATHER_API_URL';
+  const applianceUrl = 'EXPO_PUBLIC_APPLIANCE_CARE_API_URL';
+  for (const name of [weatherUrl, legacyUrl, applianceUrl]) {
+    const value = process.env[name];
+    t.after(() => { if (value === undefined) delete process.env[name]; else process.env[name] = value; });
+  }
+  delete process.env[weatherUrl];
+  process.env[legacyUrl] = 'https://weather-test.run.app';
+  process.env[applianceUrl] = 'https://appliance-test.example';
+  const old = cache(location.municipalityId, start - 60_000);
+  const fresh = cache(location.municipalityId, start);
+  const calls = [];
+  const fetcher = async (url, init) => {
+    calls.push({ url, redirect: init.redirect });
+    return new Response(JSON.stringify(fresh));
+  };
+  assert.deepEqual(await new MetServerForecastProvider({ fetcher }).refresh(location, old), old);
+  for (const host of ['weather-test.run.app.', 'weather.cloudfunctions.net', 'weather.appspot.com', 'backend.googleapis.com']) {
+    assert.deepEqual(await new MetServerForecastProvider({ baseUrl: `https://${host}`, fetcher }).refresh(location, old), old);
+  }
+  assert.equal(calls.length, 0);
+
+  process.env[weatherUrl] = 'https://weather.liflow.invalid';
+  assert.deepEqual(await new MetServerForecastProvider({ fetcher }).refresh(location, old), fresh);
+  assert.deepEqual(calls, [{ url: `https://weather.liflow.invalid/v1/weather/regions/${location.municipalityId}`, redirect: 'error' }]);
+  const redirected = new Response(JSON.stringify(fresh));
+  Object.defineProperty(redirected, 'redirected', { value: true });
+  const provider = new MetServerForecastProvider({ fetcher: async () => redirected });
+  assert.deepEqual(await provider.refresh(location, old), old);
+});
 test('forecast throttling and joined reads retain a newer durable forecast instead of returning an older attempt cache',async()=>{
   let stamp=start;let resolve;let calls=0;
   const old=cache(location.municipalityId,start-37*3_600_000);const newer=cache(location.municipalityId,start);

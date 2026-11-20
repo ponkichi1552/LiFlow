@@ -2,7 +2,7 @@ import { createFixedWindowRateLimit } from '../rate-limit.mjs';
 import { weatherCacheFreshness } from './forecast.mjs';
 import { weatherRegion } from './regional-store.mjs';
 
-/** Shared by the appliance host and the weather-only host; never calls MET. */
+/** Serves the weather cache on the dedicated host without contacting MET from the request. */
 export function createWeatherHttpHandler({ weather, now = Date.now, cacheMs = 30_000, maximumKeys = 256,
   perAddress = 60, total = 300, readTimeoutMs = 10_000 } = {}) {
   if (![cacheMs, maximumKeys].every(value => Number.isSafeInteger(value) && value > 0)) throw new Error('Invalid weather HTTP cache');

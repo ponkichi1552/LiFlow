@@ -8,7 +8,12 @@ import { decodeUploadedManual, MAX_MANUAL_BYTES, uploadedManualReference } from 
 // Each private Firestore document stays well below its 1 MiB limit. Never put
 // tokens, client-supplied URLs or a filesystem path into a worker message.
 const CHUNK_BYTES = 480 * 1024;
-const MAX_INPUT_BYTES = Math.ceil(MAX_MANUAL_BYTES / 3) * 4 + 4096;
+const HEADER_LENGTH_BYTES = 4;
+const MAX_HEADER_BYTES = 4096;
+const MAX_LEGACY_INPUT_BYTES = Math.ceil(MAX_MANUAL_BYTES / 3) * 4 + MAX_HEADER_BYTES;
+const MAX_BINARY_INPUT_BYTES = MAX_MANUAL_BYTES + HEADER_LENGTH_BYTES + MAX_HEADER_BYTES;
+const PRODUCT_FIELDS = ['manufacturer', 'productName', 'modelNumber', 'category'];
+const REQUEST_FIELDS = ['identifyFromManual', ...PRODUCT_FIELDS];
 const keyId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/u.test(value);
 const unavailable = () => new PublicApiError(503, 'ANALYSIS_INPUT_SECURITY_UNAVAILABLE', '安全な解析受付の準備ができていません。');
 
@@ -49,15 +54,20 @@ export function prepareAnalysisQueueInput(request, requestKey, keys, context) {
     || publicKey(requestKey) !== context.requestDigest) throw new Error('Invalid analysis queue input');
   const { bytes: manual, reference } = request.manual;
   if (uploadedManualReference(manual) !== reference) throw new Error('Invalid analysis queue manual identity');
-  const input = { ...(request.identifyFromManual === true ? { identifyFromManual: true } : {}),
-    ...Object.fromEntries(['manufacturer', 'productName', 'modelNumber'].filter(field => typeof request[field] === 'string').map(field => [field, request[field]])),
-    ...(typeof request.category === 'string' ? { category: request.category } : {}),
-    manual: { rightsConfirmed: true, base64: manual.toString('base64') } };
-  const bytes = Buffer.from(JSON.stringify(input), 'utf8'); if (bytes.length > MAX_INPUT_BYTES) throw new Error('Analysis input limit');
-  const manifest = { version: 1, keyId: keys.activeKeyId, bytes: bytes.length, sha256: publicKey(bytes), chunks: Math.ceil(bytes.length / CHUNK_BYTES) };
+  const identity = { ...(request.identifyFromManual === true ? { identifyFromManual: true } : {}),
+    ...Object.fromEntries(PRODUCT_FIELDS.filter(field => typeof request[field] === 'string').map(field => [field, request[field]])) };
+  const header = Buffer.from(JSON.stringify(identity), 'utf8');
+  if (header.length > MAX_HEADER_BYTES) throw new Error('Analysis input limit');
+  const bytes = Buffer.allocUnsafe(HEADER_LENGTH_BYTES + header.length + manual.length);
+  bytes.writeUInt32BE(header.length);
+  header.copy(bytes, HEADER_LENGTH_BYTES);
+  manual.copy(bytes, HEADER_LENGTH_BYTES + header.length);
+  const manifest = { version: 2, keyId: keys.activeKeyId, bytes: bytes.length, sha256: publicKey(bytes), chunks: Math.ceil(bytes.length / CHUNK_BYTES) };
   const nonce = randomBytes(12); const cipher = createCipheriv('aes-256-gcm', keys.keys.get(keys.activeKeyId), nonce, { authTagLength: 16 });
   cipher.setAAD(aad(manifest, context));
-  const encrypted = Buffer.concat([cipher.update(bytes), cipher.final()]); bytes.fill(0);
+  let encrypted;
+  try { encrypted = Buffer.concat([cipher.update(bytes), cipher.final()]); }
+  finally { bytes.fill(0); }
   const chunks = [];
   // Binary ciphertext, not a second Base64 envelope. A maximum input plus
   // quota writes fits in one 10 MiB transaction. No key is stored in Firestore.
@@ -65,9 +75,34 @@ export function prepareAnalysisQueueInput(request, requestKey, keys, context) {
   return { manifest: { ...manifest, nonce: nonce.toString('hex'), tag: cipher.getAuthTag().toString('hex') }, chunks };
 }
 
+function decodeQueueRequest(bytes, version) {
+  if (version === 1) {
+    const input = JSON.parse(bytes.toString('utf8'));
+    if (!validateApplianceCareRequest(input) || Object.keys(input).some(key => ![...REQUEST_FIELDS, 'manual'].includes(key))) {
+      throw new Error('Invalid analysis queue product');
+    }
+    return { ...input, manual: decodeUploadedManual(input.manual) };
+  }
+  if (bytes.length <= HEADER_LENGTH_BYTES) throw new Error('Invalid analysis queue header');
+  const headerBytes = bytes.readUInt32BE();
+  const pdfOffset = HEADER_LENGTH_BYTES + headerBytes;
+  if (headerBytes < 2 || headerBytes > MAX_HEADER_BYTES || pdfOffset >= bytes.length) throw new Error('Invalid analysis queue header');
+  const input = JSON.parse(bytes.toString('utf8', HEADER_LENGTH_BYTES, pdfOffset));
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key => !REQUEST_FIELDS.includes(key))) {
+    throw new Error('Invalid analysis queue product');
+  }
+  const manual = bytes.subarray(pdfOffset);
+  const request = { ...input, manual: { bytes: manual, reference: uploadedManualReference(manual) } };
+  if (!validateApplianceCareRequest(request)) throw new Error('Invalid analysis queue product');
+  // The caller clears the decrypted envelope, so the returned PDF needs its own backing storage.
+  return { ...request, manual: { ...request.manual, bytes: Buffer.from(manual) } };
+}
+
 export function decodeAnalysisQueueInput(manifest, chunks, keys, context) {
-  if (manifest?.version !== 1 || !keyId(manifest.keyId) || !Number.isSafeInteger(manifest.bytes) || manifest.bytes < 1 || manifest.bytes > MAX_INPUT_BYTES
-    || !Number.isSafeInteger(manifest.chunks) || manifest.chunks < 1 || manifest.chunks > Math.ceil(MAX_INPUT_BYTES / CHUNK_BYTES)
+  const version = manifest?.version;
+  const maxInputBytes = version === 2 ? MAX_BINARY_INPUT_BYTES : MAX_LEGACY_INPUT_BYTES;
+  if ((version !== 1 && version !== 2) || !keyId(manifest.keyId) || !Number.isSafeInteger(manifest.bytes) || manifest.bytes < 1 || manifest.bytes > maxInputBytes
+    || !Number.isSafeInteger(manifest.chunks) || manifest.chunks < 1 || manifest.chunks > Math.ceil(maxInputBytes / CHUNK_BYTES)
     || !/^[a-f0-9]{64}$/u.test(manifest.sha256) || !/^[a-f0-9]{24}$/u.test(manifest.nonce) || !/^[a-f0-9]{32}$/u.test(manifest.tag)
     || chunks.length !== manifest.chunks || Object.keys(manifest).sort().join(',') !== 'bytes,chunks,keyId,nonce,sha256,tag,version') throw new Error('Invalid analysis queue manifest');
   const key = keys?.keys.get(manifest.keyId); if (!key) throw unavailable();
@@ -84,9 +119,7 @@ export function decodeAnalysisQueueInput(manifest, chunks, keys, context) {
     const partial = decipher.update(Buffer.concat(parts));
     try { bytes = Buffer.concat([partial, decipher.final()]); } finally { partial.fill(0); }
     if (bytes.length !== manifest.bytes || publicKey(bytes) !== manifest.sha256) throw new Error('Corrupt analysis queue input');
-    const input = JSON.parse(bytes.toString('utf8'));
-    if (!validateApplianceCareRequest(input) || Object.keys(input).some(key => !['identifyFromManual', 'manufacturer', 'productName', 'modelNumber', 'category', 'manual'].includes(key))) throw new Error('Invalid analysis queue product');
-    const request = { ...input, manual: decodeUploadedManual(input.manual) };
+    const request = decodeQueueRequest(bytes, version);
     if (publicKey(analysisRequestKey(request)) !== context.requestDigest) throw new Error('Analysis queue identity mismatch');
     return request;
   } finally { bytes?.fill(0); }

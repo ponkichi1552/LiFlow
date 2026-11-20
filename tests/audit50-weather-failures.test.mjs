@@ -6,9 +6,9 @@ const stamp = Date.parse('2026-11-07T00:00:00Z');
 const claim = { region: { latitude: 35, longitude: 139 }, cache: null };
 
 test('audit50 weather workers finish already leased work even when a later claim fails', async () => {
-  let claims = 0; let finished = 0; let calls = 0;
+  let finished = 0; let calls = 0;
   const service = createMetWeatherService({ userAgent: 'LiFlow/test https://weather.liflow.app/contact', now: () => stamp, store: {
-    claim: async () => { if (++claims === 1) return claim; throw new Error('temporary claim failure'); },
+    async *claimReady() { yield claim; throw new Error('temporary claim failure'); },
     finish: async () => { finished++; return true; }
   }, fetcher: async () => { calls++; return new Response(null, { status: 503 }); } });
   await assert.rejects(service.tick(), /temporary claim failure/u);
@@ -16,13 +16,16 @@ test('audit50 weather workers finish already leased work even when a later claim
 });
 
 test('audit50 weather batch failure waits for every issued claim to settle before the scheduled request ends', async () => {
-  let count = 0; let release; const gate = new Promise(done => { release = done; }); let settled = false;
+  let release; const gate = new Promise(done => { release = done; }); let settled = false;
   const service = createMetWeatherService({ userAgent: 'LiFlow/test https://weather.liflow.app/contact', now: () => stamp, store: {
-    claim: async () => ++count <= 2 ? { ...claim, n: count } : null,
+    async *claimReady() { yield { ...claim, n: 1 }; yield { ...claim, n: 2 }; },
     finish: async value => { if (value.n === 1) throw new Error('first commit failure'); await gate; }
   }, fetcher: async () => new Response(null, { status: 503 }) });
-  const work = service.tick().then(() => { settled = true; }, () => { settled = true; });
-  await new Promise(setImmediate); assert.equal(settled, false, 'do not release the scheduler while another region commit is still pending'); release(); await work;
+  const work = service.tick().finally(() => { settled = true; });
+  const rejected = assert.rejects(work, /first commit failure/u);
+  await new Promise(setImmediate);
+  try { assert.equal(settled, false, 'do not release the scheduler while another region commit is still pending'); }
+  finally { release(); await rejected; }
 });
 
 test('audit50 a stalled regional cache read cannot leave public weather requests waiting indefinitely', async () => {

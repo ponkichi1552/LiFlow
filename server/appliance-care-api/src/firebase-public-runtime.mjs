@@ -5,7 +5,6 @@ import { createPublicApiAccess, PUBLIC_API_POLICY } from './public-access.mjs';
 import { createFirestoreUsageStore } from './firestore-usage-store.mjs';
 import { createFirebaseSubscriptionRuntime } from './firebase-subscription-runtime.mjs';
 import { readAnalysisQueueKeys } from './analysis-queue-input.mjs';
-import { firebaseWeatherService } from './weather/firebase-runtime.mjs';
 
 export function createFirebasePublicRuntime(env = process.env) {
   const projectId = env.APPLIANCE_CARE_FIREBASE_PROJECT_ID;
@@ -34,7 +33,7 @@ export function createFirebasePublicRuntime(env = process.env) {
   const analysisQueueKeys = readAnalysisQueueKeys(env);
   const access = createPublicApiAccess({ verifyIdToken: (token, checkRevoked) => getAuth(app).verifyIdToken(token, checkRevoked),
     store: createFirestoreUsageStore({ firestore: getFirestore(app), policy, analysisQueueKeys }), subscriptions });
-  return Object.freeze({ ...access, weather: firebaseWeatherService(getFirestore(app), env), analysisQueueReady: Boolean(analysisQueueKeys), async authorizeQueuedAnalysis(uid, admittedAt) {
+  return Object.freeze({ ...access, analysisQueueReady: Boolean(analysisQueueKeys), async authorizeQueuedAnalysis(uid, admittedAt) {
     const user = await getAuth(app).getUser(uid);
     if (user.disabled || !Number.isSafeInteger(admittedAt)
       || Date.parse(user.tokensValidAfterTime ?? '') > admittedAt || !subscriptions) throw new Error('Queued analysis authorization expired');

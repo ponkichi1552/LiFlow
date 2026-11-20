@@ -1,0 +1,10 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["LiFlowWeatherTransportModule"],
+    "podspecPath": "./LiFlowWeatherTransport.podspec"
+  },
+  "android": {
+    "modules": ["expo.modules.liflowweathertransport.LiFlowWeatherTransportModule"]
+  }
+}
