@@ -16129,6 +16129,10 @@
       {
         "file": "tests/sharing-delivery-worker.test.mjs",
         "name": "delivery cleanup listeners retry actual failures without idle polling and shutdown cancels reconnection"
+      },
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "delivery worker stays alive when discovery disconnects before any scope is loaded"
       }
     ],
     "manualReview": "docs/audits/2026-11-16-delivery-received-queue.md",

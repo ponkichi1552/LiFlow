@@ -356,10 +356,12 @@ export function startSharedDeliveryWorker(firestore, monitor = () => {}, project
     let ended = false, unsubscribe, retry, failures = 0;
     const connect = () => {
       if (stopped || ended) return;
-      unsubscribe = target.onSnapshot(snapshot => { if (!stopped && !ended) { failures = 0; changed(snapshot); } }, () => {
+      unsubscribe = target.onSnapshot(snapshot => { if (!stopped && !ended) { failures = 0; changed(snapshot); } }, error => {
         if (stopped || ended) return;
-        unsubscribe?.(); monitor({ event: 'shared_delivery_listener_retry' });
-        retry = setTimeout(connect, Math.min(300_000, 30_000 * 2 ** Math.min(failures++, 4))); retry.unref?.();
+        unsubscribe?.();
+        monitor({ event: 'shared_delivery_listener_retry', ...(Number.isInteger(error?.code) ? { code: error.code } : {}) });
+        // A failed discovery stream can leave this timer as the process's only work.
+        retry = setTimeout(connect, Math.min(300_000, 30_000 * 2 ** Math.min(failures++, 4)));
       });
     };
     connect(); return () => { ended = true; clearTimeout(retry); unsubscribe?.(); };
@@ -371,7 +373,7 @@ export function startSharedDeliveryWorker(firestore, monitor = () => {}, project
       if (change.type === 'removed' || !parseDeliveryPolicy(change.doc.data())) { groups.get(root.path)?.stop(); groups.delete(root.path); continue; }
       if (groups.has(root.path)) { groups.get(root.path).wake(); continue; }
       let running = false, again = false, timer, disposed = false;
-      const schedule = delay => { clearTimeout(timer); if (!stopped && !disposed) { timer = setTimeout(run, Math.max(50, delay)); timer.unref?.(); } };
+      const schedule = delay => { clearTimeout(timer); if (!stopped && !disposed) timer = setTimeout(run, Math.max(50, delay)); };
       const run = async () => {
         if (stopped || disposed) return; if (running) { again = true; return; }
         running = true; clearTimeout(timer);
@@ -381,7 +383,10 @@ export function startSharedDeliveryWorker(firestore, monitor = () => {}, project
           if (result.deleted) monitor({ event: 'shared_delivery_erased', records: result.deleted });
           if (again) { again = false; schedule(50); }
           else if (result.nextAt !== null) schedule(result.nextAt - Date.now());
-        } catch { monitor({ event: 'shared_delivery_cleanup_failed' }); schedule(30_000); }
+        } catch (error) {
+          monitor({ event: 'shared_delivery_cleanup_failed', ...(Number.isInteger(error?.code) ? { code: error.code } : {}) });
+          schedule(30_000);
+        }
         finally { running = false; }
       };
       const wake = () => { if (running) again = true; else schedule(50); };

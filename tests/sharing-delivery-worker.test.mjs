@@ -190,3 +190,23 @@ test('delivery cleanup listeners retry actual failures without idle polling and 
     listeners[1].failed(); stop(); t.mock.timers.tick(86400_000); assert.equal(listeners.length, 2);
   } finally { stop(); }
 });
+
+test('delivery worker stays alive when discovery disconnects before any scope is loaded', t => {
+  const originalSetTimeout = globalThis.setTimeout;
+  const timers = [];
+  t.mock.method(globalThis, 'setTimeout', (...args) => {
+    const timer = originalSetTimeout(...args);
+    timers.push(timer);
+    return timer;
+  });
+  let fail;
+  const events = [];
+  const discovery = { where() { return this; }, onSnapshot(_changed, failed) { fail = failed; return () => {}; } };
+  const stop = startSharedDeliveryWorker({ collectionGroup: () => discovery }, event => events.push(event), projectId);
+  try {
+    fail({ code: 7, message: 'private diagnostic details' });
+    assert.equal(timers.length, 1);
+    assert.equal(timers[0].hasRef(), true);
+    assert.deepEqual(events, [{ event: 'shared_delivery_listener_retry', code: 7 }]);
+  } finally { stop(); }
+});
