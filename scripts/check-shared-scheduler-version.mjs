@@ -19,6 +19,8 @@ const draft58Implementations = [
   { storage: 2, verifier: 2, calendarProjection: 2, digest: 'f77ef950f6d51a38ff6b8420c1a15c3d06407d02061c19cdd64ca6dd2cd7474c' },
   { storage: 2, verifier: 2, calendarProjection: 3, digest: '3fe706c158b3016b0e6040364f6e9ed4d229895a12434db0a7bfbf6d2a2c9519' },
   { storage: 2, verifier: 2, calendarProjection: 3, calendarRegistration: 2, digest: '4d4f6013fa6dce7d4c7b25ac35aee24ddf41f3eba5ff92d52f2ac79913b636a0' },
+  // Only the XCFramework packaging changed. Both static archives are byte-identical.
+  { storage: 2, verifier: 2, calendarProjection: 3, calendarRegistration: 2, digest: 'fa775cc74276976e323a119d933431bcdcef0a62b2943e18fb53664ccecc5d48' },
 ];
 const draft58ImplementationIndex = manifest => draft58Implementations.findIndex(({ storage, verifier, calendarProjection, calendarRegistration = 1, digest }) =>
   manifest.sourceSha256 === digest && (manifest.receiveStorageRevision ?? 1) === storage

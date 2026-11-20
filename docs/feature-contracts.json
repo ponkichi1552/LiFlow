@@ -2717,6 +2717,10 @@
         "name": "libsodium positive results and Noble fallback preserve all public Ed25519 decisions including 169 legacy acceptances"
       },
       {
+        "file": "tests/sharing-ed25519-verifier.test.mjs",
+        "name": "iOS libsodium uses the same static library filename for device and simulator"
+      },
+      {
         "file": "tests/sharing-signature-cache.test.mjs",
         "name": "native signature memo persists through protected SQLite and vault without writing on every workspace read"
       },

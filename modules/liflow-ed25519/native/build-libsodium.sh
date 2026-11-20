@@ -151,13 +151,15 @@ build_apple_device_slice() {
 
 build_apple_simulator_slices() {
   local cc_sim
+  local simulator_archive="$build_root/ios-simulator-universal/libsodium.a"
   cc_sim=$(xcrun --sdk iphonesimulator -f clang)
   build_target ios-simulator-arm64 aarch64-apple-darwin "$cc_sim" iphonesimulator arm64 -mios-simulator-version-min=16.4
   build_target ios-simulator-x86_64 x86_64-apple-darwin "$cc_sim" iphonesimulator x86_64 -mios-simulator-version-min=16.4
+  mkdir -p "$(dirname "$simulator_archive")"
   lipo -create \
     "$build_root/ios-simulator-arm64/install/lib/libsodium.a" \
     "$build_root/ios-simulator-x86_64/install/lib/libsodium.a" \
-    -output "$build_root/libsodium-ios-simulator.a"
+    -output "$simulator_archive"
 }
 
 assemble_apple_xcframework() {
@@ -166,7 +168,7 @@ assemble_apple_xcframework() {
   xcodebuild -create-xcframework \
     -library "$build_root/ios-device-arm64/install/lib/libsodium.a" \
     -headers "$build_root/ios-device-arm64/install/include" \
-    -library "$build_root/libsodium-ios-simulator.a" \
+    -library "$build_root/ios-simulator-universal/libsodium.a" \
     -headers "$build_root/ios-device-arm64/install/include" \
     -output "$staging" \
     > "$build_root/ios-xcframework.log" 2>&1
@@ -208,7 +210,7 @@ write_artifact_manifest() {
       ios/include/sodium/version.h \
       vendor/libsodium.xcframework/Info.plist \
       vendor/libsodium.xcframework/ios-arm64/libsodium.a \
-      vendor/libsodium.xcframework/ios-arm64_x86_64-simulator/libsodium-ios-simulator.a \
+      vendor/libsodium.xcframework/ios-arm64_x86_64-simulator/libsodium.a \
       android/src/main/jniLibs/armeabi-v7a/libliflow_ed25519.so \
       android/src/main/jniLibs/arm64-v8a/libliflow_ed25519.so \
       android/src/main/jniLibs/x86/libliflow_ed25519.so \

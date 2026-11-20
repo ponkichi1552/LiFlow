@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import plist from '@expo/plist';
 import { createSharedEd25519Verifier } from '../src/features/sharing/ed25519-verifier.ts';
 import { readEd25519Fixture } from './helpers/ed25519-fixture.mjs';
 import { loadNativeModule } from './helpers/native-module.mjs';
@@ -11,6 +12,18 @@ const read = name => readFileSync(new URL(`./fixtures/ed25519-compatibility/${na
 const input = read('conformance.bin');
 const metadata = JSON.parse(read('conformance.json'));
 const records = readEd25519Fixture(input);
+
+test('iOS libsodium uses the same static library filename for device and simulator', () => {
+  const framework = new URL('../modules/liflow-ed25519/vendor/libsodium.xcframework/', import.meta.url);
+  const { AvailableLibraries: slices } = plist.default.parse(readFileSync(new URL('Info.plist', framework), 'utf8'));
+  assert.deepEqual(slices.map(slice => [slice.SupportedPlatform, slice.SupportedPlatformVariant ?? 'device']).sort(),
+    [['ios', 'device'], ['ios', 'simulator']]);
+  for (const slice of slices) {
+    assert.equal(slice.LibraryPath, 'libsodium.a');
+    assert.equal(slice.BinaryPath, slice.LibraryPath);
+    assert.ok(readFileSync(new URL(`${slice.LibraryIdentifier}/${slice.LibraryPath}`, framework)).length > 0);
+  }
+});
 
 test('libsodium positive results and Noble fallback preserve all public Ed25519 decisions including 169 legacy acceptances', () => {
   assert.equal(createHash('sha256').update(input).digest('hex'), metadata.fixtureSha256);

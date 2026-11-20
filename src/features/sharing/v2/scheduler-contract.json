@@ -172,7 +172,7 @@
     "modules/liflow-ed25519/native/build-libsodium.sh",
     "modules/liflow-ed25519/vendor/libsodium.xcframework/Info.plist",
     "modules/liflow-ed25519/vendor/libsodium.xcframework/ios-arm64/libsodium.a",
-    "modules/liflow-ed25519/vendor/libsodium.xcframework/ios-arm64_x86_64-simulator/libsodium-ios-simulator.a",
+    "modules/liflow-ed25519/vendor/libsodium.xcframework/ios-arm64_x86_64-simulator/libsodium.a",
     "modules/liflow-ed25519/android/src/main/jniLibs/armeabi-v7a/libliflow_ed25519.so",
     "modules/liflow-ed25519/android/src/main/jniLibs/arm64-v8a/libliflow_ed25519.so",
     "modules/liflow-ed25519/android/src/main/jniLibs/x86/libliflow_ed25519.so",
@@ -240,5 +240,5 @@
     "src/domain/chores/calendar-timing.ts",
     "src/domain/chores/personal-schedule.ts"
   ],
-  "sourceSha256": "4d4f6013fa6dce7d4c7b25ac35aee24ddf41f3eba5ff92d52f2ac79913b636a0"
+  "sourceSha256": "fa775cc74276976e323a119d933431bcdcef0a62b2943e18fb53664ccecc5d48"
 }
