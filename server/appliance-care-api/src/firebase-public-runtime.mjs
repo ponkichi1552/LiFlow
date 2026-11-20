@@ -5,8 +5,9 @@ import { createPublicApiAccess, PUBLIC_API_POLICY } from './public-access.mjs';
 import { createFirestoreUsageStore } from './firestore-usage-store.mjs';
 import { createFirebaseSubscriptionRuntime } from './firebase-subscription-runtime.mjs';
 import { readAnalysisQueueKeys } from './analysis-queue-input.mjs';
+import { readManualUploadKeyIds, readManualUploadPrivateKeys } from './manual-upload-server.mjs';
 
-export function createFirebasePublicRuntime(env = process.env) {
+export function createFirebasePublicRuntime(env = process.env, { worker = false } = {}) {
   const projectId = env.APPLIANCE_CARE_FIREBASE_PROJECT_ID;
   if (typeof projectId !== 'string' || !/^[a-z][a-z0-9-]{4,62}$/u.test(projectId)) throw new Error('Public API Firebase project is required');
   if (env.NODE_ENV?.trim().toLowerCase() === 'production' && (env.FIREBASE_AUTH_EMULATOR_HOST || env.FIRESTORE_EMULATOR_HOST)) {
@@ -30,10 +31,13 @@ export function createFirebasePublicRuntime(env = process.env) {
     if (!Number.isSafeInteger(value) || value < 1 || value > maximum) throw new Error('Invalid public API limit: ' + setting);
     policy[key] = value;
   }
-  const analysisQueueKeys = readAnalysisQueueKeys(env);
+  const uploadKeyIds = worker ? [] : readManualUploadKeyIds(env);
+  const analysisQueueKeys = worker ? readAnalysisQueueKeys(env) : undefined;
+  const manualUploadPrivateKeys = worker ? readManualUploadPrivateKeys(env) : undefined;
+  const analysisQueueReady = worker ? Boolean(analysisQueueKeys || manualUploadPrivateKeys?.size) : uploadKeyIds.length > 0;
   const access = createPublicApiAccess({ verifyIdToken: (token, checkRevoked) => getAuth(app).verifyIdToken(token, checkRevoked),
-    store: createFirestoreUsageStore({ firestore: getFirestore(app), policy, analysisQueueKeys }), subscriptions });
-  return Object.freeze({ ...access, analysisQueueReady: Boolean(analysisQueueKeys), async authorizeQueuedAnalysis(uid, admittedAt) {
+    store: createFirestoreUsageStore({ firestore: getFirestore(app), policy, analysisQueueKeys, manualUploadPrivateKeys }), subscriptions });
+  return Object.freeze({ ...access, uploadKeyIds, analysisQueueReady, async authorizeQueuedAnalysis(uid, admittedAt) {
     const user = await getAuth(app).getUser(uid);
     if (user.disabled || !Number.isSafeInteger(admittedAt)
       || Date.parse(user.tokensValidAfterTime ?? '') > admittedAt || !subscriptions) throw new Error('Queued analysis authorization expired');

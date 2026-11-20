@@ -1,16 +1,48 @@
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
+import { generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
 import {loadNativeModule} from './helpers/native-module.mjs';
+import { syntheticManual } from './helpers/synthetic-pdf.mjs';
+import { MANUAL_UPLOAD_CONTENT_TYPE } from '../server/appliance-care-api/src/manual-upload-contract.mjs';
+import { readManualUploadEnvelope } from '../server/appliance-care-api/src/manual-upload-server.mjs';
+import { prepareEncryptedAnalysisQueueInput, decodeAnalysisQueueInput } from '../server/appliance-care-api/src/analysis-queue-input.mjs';
+import { publicJobId, publicKey } from '../server/appliance-care-api/src/public-access.mjs';
 
 registerHooks({ resolve(specifier, context, nextResolve) {
   if (specifier === 'react-native') return { url: 'data:text/javascript,export const Platform = { OS: "ios" };', shortCircuit: true };
   if (specifier === '../../platform/appliance-care/auth') return { url: 'data:text/javascript,let sequence=0;export async function authorizeApplianceCareApi(){if(globalThis.syntheticApplianceAuthPause)await globalThis.syntheticApplianceAuthPause;const id="synthetic-request-"+(++sequence);return {userId:"synthetic-owner",headers:async()=>({authorization:"Bearer synthetic-client", "x-idempotency-key":id})}}', shortCircuit: true };
+  if (specifier === 'expo/fetch') return { url: 'data:text/javascript,export const fetch = (...args) => globalThis.fetch(...args);', shortCircuit: true };
+  if (specifier === 'expo-crypto') return { url: 'data:text/javascript,' + encodeURIComponent(`
+    import { createCipheriv, randomBytes, randomUUID } from 'node:crypto';
+    export { randomUUID };
+    export const getRandomBytesAsync = async length => randomBytes(length);
+    export const AESEncryptionKey = { import: async bytes => bytes };
+    export const AESSealedData = {};
+    export const aesDecryptAsync = () => { throw new Error('the mobile upload must not decrypt'); };
+    export async function aesEncryptAsync(plaintext, key, options) {
+      const cipher = createCipheriv('aes-256-gcm', key, options.nonce.bytes, { authTagLength: options.tagLength });
+      cipher.setAAD(options.additionalData);
+      const data = Buffer.concat([cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]);
+      return { ciphertext: async () => data };
+    }`), shortCircuit: true };
   return nextResolve(specifier, context);
 } });
 const { analyzeApplianceCareRequest, abortApplianceWait, isApplianceCareUsage } = await import('../src/features/appliance-care/api-client.ts');
 const request = { manufacturer: 'Dyson', productName: 'V12', modelNumber: 'SV20' };
+
+function configureManualUpload(t) {
+  const previous = process.env.EXPO_PUBLIC_APPLIANCE_CARE_UPLOAD_KEY;
+  t.after(() => {
+    if (previous === undefined) delete process.env.EXPO_PUBLIC_APPLIANCE_CARE_UPLOAD_KEY;
+    else process.env.EXPO_PUBLIC_APPLIANCE_CARE_UPLOAD_KEY = previous;
+  });
+  const { publicKey: recipient, privateKey } = generateKeyPairSync('x25519');
+  const bytes = recipient.export({ format: 'raw-public' });
+  process.env.EXPO_PUBLIC_APPLIANCE_CARE_UPLOAD_KEY = bytes.toString('hex');
+  return new Map([[publicKey(bytes), privateKey]]);
+}
 
 test('receipt sends coalesce within one account and host but never make a new account wait for the old accounts stalled request', async () => {
   const { flushAnalysisReceipts } = await import('../src/features/appliance-care/api-client.ts');
@@ -128,8 +160,8 @@ test('mobile analysis rejects a receipt for different result bytes before saving
   } finally { globalThis.fetch = original; }
 });
 
-test('PDF-only mobile analysis submits no product fields and accepts the same-call extracted identity and tasks', async () => {
-  const { syntheticManual } = await import('./helpers/synthetic-pdf.mjs');
+test('PDF-only mobile analysis submits no product fields and accepts the same-call extracted identity and tasks', async t => {
+  const keys = configureManualUpload(t);
   const { analyzeUploadedManual, decodeUploadedManual } = await import('../server/appliance-care-api/src/uploaded-manual.mjs');
   const manual = syntheticManual(); const input = { identifyFromManual: true, manual };
   const decoded = decodeUploadedManual(manual); let calls = 0; let received;
@@ -142,11 +174,23 @@ test('PDF-only mobile analysis submits no product fields and accepts the same-ca
   try {
     globalThis.fetch = async (_url, options) => {
       calls++;
-      if (options.method === 'POST') { received = JSON.parse(options.body); return Response.json({ jobId: 'synthetic-pdf-only-client' }); }
+      if (options.method === 'POST') {
+        assert.equal(options.headers['content-type'], MANUAL_UPLOAD_CONTENT_TYPE);
+        const bytes = Buffer.from(options.body);
+        assert.equal(bytes.includes(decoded.bytes), false);
+        const { requestKey } = readManualUploadEnvelope(bytes);
+        const { manifest, chunks } = prepareEncryptedAnalysisQueueInput(bytes, requestKey);
+        const owner = 'synthetic-owner';
+        const jobId = publicJobId({ uid: owner }, options.headers['x-idempotency-key']);
+        assert.throws(() => decodeAnalysisQueueInput(manifest, chunks, undefined, { owner, jobId, requestDigest: publicKey(requestKey) }), /安全な解析受付/u);
+        received = decodeAnalysisQueueInput(manifest, chunks, undefined, { owner, jobId, requestDigest: publicKey(requestKey) }, keys);
+        return Response.json({ jobId });
+      }
       return Response.json({ done: true, stage: 'official_manual_analysis', result: output });
     };
     const result = await analyzeApplianceCareRequest(input, 'https://api.example.test');
-    assert.deepEqual(received, input); assert.equal(calls, 2); assert.equal(result.status, 'verified'); assert.equal(result.product.modelNumber, 'SV20');
+    assert.deepEqual(received, { identifyFromManual: true, manual: decoded });
+    assert.equal(calls, 2); assert.equal(result.status, 'verified'); assert.equal(result.product.modelNumber, 'SV20');
     assert.equal(result.analysis.tasks.length, 1);
     const invalid = await analyzeApplianceCareRequest({ ...input, manufacturer: 'partial' }, 'https://api.example.test');
     assert.equal(invalid.code, 'INVALID_REQUEST'); assert.equal(calls, 2, 'partial identity hints cannot trigger paid work');
@@ -382,7 +426,8 @@ test('an appliance analysis stays open past two minutes and stops at ten minutes
   assert.match((await pending).message, /タイムアウト/u);
 });
 
-test('appliance authenticated upload and polls explicitly reject redirects rather than forwarding credentials to another host', async () => {
+test('appliance authenticated upload and polls explicitly reject redirects rather than forwarding credentials to another host', async t => {
+  configureManualUpload(t);
   const originalFetch = globalThis.fetch; const sent = [];
   try {
     globalThis.fetch = async (_url, options) => {
@@ -390,8 +435,13 @@ test('appliance authenticated upload and polls explicitly reject redirects rathe
       return options.method === 'POST' ? Response.json({ jobId: 'synthetic-redirect-test' }, { status: 202 })
         : Response.json({ stage: 'official_manual_analysis', done: true, result: { status: 'error', code: 'ANALYSIS_FAILED', message: '合成した検査結果' } });
     };
-    const result = await analyzeApplianceCareRequest({ ...request, manual: { base64: 'synthetic-file', rightsConfirmed: true } });
+    const value = { ...request, manual: syntheticManual() };
+    const result = await analyzeApplianceCareRequest(value);
     assert.equal(result.status, 'error'); assert.equal(sent.length, 2);
-    assert.deepEqual(JSON.parse(sent[0].body).manual, { base64: 'synthetic-file', rightsConfirmed: true });
+    assert.equal(sent[0].headers['content-type'], MANUAL_UPLOAD_CONTENT_TYPE);
+    assert.ok(sent[0].body instanceof ArrayBuffer);
+    delete process.env.EXPO_PUBLIC_APPLIANCE_CARE_UPLOAD_KEY;
+    assert.equal((await analyzeApplianceCareRequest(value)).code, 'ANALYSIS_INPUT_SECURITY_UNAVAILABLE');
+    assert.equal(sent.length, 2, 'a missing recipient can never send a plaintext fallback');
   } finally { globalThis.fetch = originalFetch; }
 });

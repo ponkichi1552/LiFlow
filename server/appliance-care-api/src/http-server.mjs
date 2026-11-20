@@ -7,6 +7,8 @@ import { analyzeUploadedManual, decodeUploadedManual, inspectUploadedManual, MAX
 import { PublicApiError, publicJobId } from './public-access.mjs';
 import { SubscriptionError } from './subscription-service.mjs';
 import { createFixedWindowRateLimit } from './rate-limit.mjs';
+import { MANUAL_UPLOAD_CONTENT_TYPE, MAX_MANUAL_UPLOAD_BYTES } from './manual-upload-contract.mjs';
+import { readManualUploadEnvelope, unavailableManualUpload } from './manual-upload-server.mjs';
 
 const MAX_BODY_BYTES = 8 * 1024;
 const JOB_RETENTION_MS = 10 * 60_000;
@@ -26,21 +28,24 @@ const STATUS_BY_ERROR = {
 
 export function createApplianceCareHttpServer({ dependencies, aiConfigured = true, allowedOrigins = [], analysisLimits = {},
   publicAccess, subscriptionAccess = publicAccess?.subscriptions, billingOnly = false, manualUploadsOnly = Boolean(publicAccess) }) {
+  const production = process.env.NODE_ENV?.trim().toLowerCase() === 'production';
+  const encryptedOnly = Boolean(publicAccess && (production || publicAccess.uploadKeyIds !== undefined));
+  const uploadKeyIds = new Set(publicAccess?.uploadKeyIds);
   if (billingOnly && !subscriptionAccess?.service) throw new Error('Billing-only mode requires verified subscription services');
   if (publicAccess && !manualUploadsOnly) throw new Error('Public AI requires uploaded manuals');
   if (publicAccess && !billingOnly && !['heartbeatAnalysisWorker', 'claimAnalysis', 'startAnalysis', 'readAnalysisInput', 'stageAnalysisResult'].every(key => typeof publicAccess.store?.[key] === 'function')) {
     throw new Error('Public AI requires durable worker storage');
   }
-  if (process.env.NODE_ENV?.trim().toLowerCase() === 'production' && publicAccess?.mode !== 'firebase-firestore') {
+  if (production && publicAccess?.mode !== 'firebase-firestore') {
     const error = new Error('Public user authentication and distributed usage limits are required before production deployment.');
     error.code = 'DEVELOPMENT_API_ONLY';
     throw error;
   }
-  if (process.env.NODE_ENV?.trim().toLowerCase() === 'production' && !publicAccess?.securityReady && !billingOnly) {
+  if (production && !publicAccess?.securityReady && !billingOnly) {
     const error = new Error('Verified native app, device continuity and reinstall protection are required for paid AI.');
     error.code = 'DEVICE_SECURITY_NOT_CONFIGURED'; throw error;
   }
-  if (process.env.NODE_ENV?.trim().toLowerCase() === 'production' && !subscriptionAccess?.service) {
+  if (production && !subscriptionAccess?.service) {
     const error = new Error('Verified subscriptions are required before public deployment');
     error.code = 'SUBSCRIPTIONS_NOT_CONFIGURED'; throw error;
   }
@@ -154,14 +159,39 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
       sendJson(response, 404, { error: { code: 'NOT_FOUND', message: 'API endpointが見つかりません。' } });
       return;
     }
-    // Cheap envelope validation precedes upload parsing. Quota reservation still
-    // follows full PDF inspection, so a bad document never consumes a slot.
+    // Cheap identity validation precedes either upload format.
     if (publicAccess) publicJobId(principal, request.headers['x-idempotency-key']);
     if (!allowAddress(request.socket.remoteAddress ?? 'unknown')) {
       rejectRequest(request, response, 429, { status: 'error', code: 'RATE_LIMITED', message: '短時間のリクエスト上限に達しました。少し待って再試行してください。' });
       return;
     }
     const contentType = request.headers['content-type'] ?? '';
+    if (encryptedOnly) {
+      if (!aiConfigured || !uploadKeyIds.size) throw unavailableManualUpload();
+      if (contentType.trim().toLowerCase() !== MANUAL_UPLOAD_CONTENT_TYPE) {
+        rejectRequest(request, response, 415, { status: 'error', code: 'ANALYSIS_INPUT_SECURITY_UNAVAILABLE',
+          message: '安全に説明書を送信するにはLiFlowを更新してください。' });
+        return;
+      }
+      let encryptedInput;
+      try {
+        if (Number(request.headers['content-length']) > MAX_MANUAL_UPLOAD_BYTES) {
+          throw Object.assign(new Error('Request body too large'), { code: 'BODY_TOO_LARGE' });
+        }
+        encryptedInput = await readBody(request, MAX_MANUAL_UPLOAD_BYTES);
+      } catch (error) {
+        const tooLarge = error?.code === 'BODY_TOO_LARGE';
+        rejectRequest(request, response, tooLarge ? 413 : 400, { status: 'error', code: 'INVALID_MANUAL',
+          message: tooLarge ? 'PDFは6MiB以内で選んでください。' : '説明書PDFの送信を確認できませんでした。' });
+        return;
+      }
+      const { keyId, requestKey, forceReanalysis } = readManualUploadEnvelope(encryptedInput);
+      if (!uploadKeyIds.has(keyId)) throw unavailableManualUpload();
+      const admission = await publicAccess.store.admit({ principal, requestKey, forceReanalysis,
+        idempotencyKey: request.headers['x-idempotency-key'], encryptedInput });
+      sendJson(response, 202, { jobId: admission.jobId, usage: admission.usage });
+      return;
+    }
     if (!/^application\/json(?:\s*;|$)/iu.test(contentType.trim())) {
       rejectRequest(request, response, 415, { status: 'error', code: 'INVALID_REQUEST', message: 'Content-Typeはapplication/jsonにしてください。' });
       return;
@@ -274,6 +304,10 @@ export function startApplianceCareHttpServer({
 }
 
 async function readJsonBody(request, maxBytes = MAX_BODY_BYTES) {
+  return JSON.parse((await readBody(request, maxBytes)).toString('utf8'));
+}
+
+function readBody(request, maxBytes) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let length = 0;
@@ -294,11 +328,7 @@ async function readJsonBody(request, maxBytes = MAX_BODY_BYTES) {
       if (tooLarge) {
         return;
       }
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-      } catch {
-        reject(new Error('Invalid JSON'));
-      }
+      resolve(Buffer.concat(chunks, length));
     });
     request.on('error', () => reject(new Error('Request read failed')));
     request.once('aborted', () => reject(new Error('Request aborted')));

@@ -1,9 +1,7 @@
 import { analyzeApplianceCare } from './service.mjs';
+import { analysisRequestKey } from './manual-upload-contract.mjs';
 
-export function analysisRequestKey(request) {
-  return JSON.stringify([...(request.identifyFromManual === true ? ['uploaded-product-v1'] : []), request.manual?.reference ?? 'official-manual-v1', ...['manufacturer', 'productName', 'modelNumber', 'category']
-    .map((field) => (request[field] ?? '').normalize('NFKC').trim().replace(/\s+/gu, ' ').toLocaleLowerCase('en-US'))]);
-}
+export { analysisRequestKey };
 
 /** Process-local, bounded reuse and admission control. No credentials or private planner data are cached. */
 export function createAnalysisRunner({ dependencies, analyze = analyzeApplianceCare, now = Date.now,

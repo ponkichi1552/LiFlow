@@ -1,5 +1,7 @@
-import { analyzeUploadedManual } from './uploaded-manual.mjs';
+import { analyzeUploadedManual, inspectUploadedManual } from './uploaded-manual.mjs';
 import { persistAnalysisResult } from './persist-result.mjs';
+import { PublicApiError } from './public-access.mjs';
+import { manualPreflightErrorCodes } from './manual-upload-server.mjs';
 
 const failed = { status: 'error', code: 'ANALYSIS_FAILED', message: '解析を完了できませんでした。受付状況から結果を確認してください。' };
 const report = value => process.stderr.write(JSON.stringify(value) + '\n');
@@ -18,7 +20,7 @@ export async function runAnalysisQueueBatch({ store, createDependencies, authori
   try {
     const ids = await store.listAnalysisWork(limit);
     const outcomes = await Promise.all(ids.map(async jobId => {
-    let phase = 'claim'; let timeout; let abort;
+    let phase = 'claim'; let timeout; let abort; let request; let encrypted = false;
     try {
       if (signal?.aborted) return 'deferred';
       const claim = await store.claimAnalysis(jobId);
@@ -26,10 +28,19 @@ export async function runAnalysisQueueBatch({ store, createDependencies, authori
       const { admission } = claim;
       let result = claim.result;
       if (!result) {
+        encrypted = claim.inputManifest?.version === 3;
         phase = 'claimed'; await checkpoint(phase, jobId);
-        phase = 'input'; const request = await store.readAnalysisInput(claim);
+        phase = 'input';
+        try {
+          request = await store.readAnalysisInput(claim);
+          if (encrypted) await inspectUploadedManual(request.manual.bytes, { waitForSlot: true });
+        } catch (error) {
+          if (!encrypted || !(error instanceof PublicApiError) || !manualPreflightErrorCodes.includes(error.code)) throw error;
+          result = { status: 'error', code: error.code, message: error.message };
+        }
         if (signal?.aborted || now() >= admission.deadlineAt) return 'deferred';
-        else {
+        const beforeStart = !!result;
+        if (!beforeStart) {
           phase = 'authorization'; await authorize(claim.owner, claim.createdAt);
           if (signal?.aborted) return 'deferred';
           const controller = new AbortController(); abort = () => controller.abort();
@@ -48,7 +59,7 @@ export async function runAnalysisQueueBatch({ store, createDependencies, authori
           await progress;
         }
         phase = 'resultStaging';
-        if (!await store.stageAnalysisResult(admission, result)) throw new Error('Analysis settlement rejected');
+        if (!await store.stageAnalysisResult(admission, result, { beforeStart })) throw new Error('Analysis settlement rejected');
         phase = 'resultStaged'; await checkpoint(phase, jobId);
       }
       phase = 'settlement';
@@ -57,7 +68,7 @@ export async function runAnalysisQueueBatch({ store, createDependencies, authori
     } catch {
       monitor({ event: 'analysis_worker_failed', jobId, stage: phase });
       return 'failed';
-    } finally { clearTimeout(timeout); if (abort) signal?.removeEventListener('abort', abort); }
+    } finally { if (encrypted) request?.manual.bytes.fill(0); clearTimeout(timeout); if (abort) signal?.removeEventListener('abort', abort); }
     }));
     return { attempted: outcomes.length, settled: outcomes.filter(value => value === 'settled').length,
       failed: outcomes.filter(value => value === 'failed').length, deferred: outcomes.filter(value => value === 'deferred').length };

@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { createCipheriv, encapsulate, generateKeyPairSync, randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
-import { syntheticManual } from './helpers/synthetic-pdf.mjs';
+import { syntheticManual, syntheticPdf } from './helpers/synthetic-pdf.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
@@ -10,7 +10,7 @@ import { spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { initializeTestEnvironment, assertFails } from '@firebase/rules-unit-testing';
 import { doc, getDocFromServer, setDoc } from 'firebase/firestore';
-import { createPublicApiAccess, PUBLIC_API_POLICY, publicKey } from '../server/appliance-care-api/src/public-access.mjs';
+import { createPublicApiAccess, PUBLIC_API_POLICY, publicJobId, publicKey } from '../server/appliance-care-api/src/public-access.mjs';
 import { createFirestoreUsageStore as buildFirestoreUsageStore } from '../server/appliance-care-api/src/firestore-usage-store.mjs';
 import { syntheticAnalysisQueueKeys } from './helpers/appliance-public-store.mjs';
 import { createApplianceCareHttpServer } from '../server/appliance-care-api/src/http-server.mjs';
@@ -18,6 +18,11 @@ import { createFirebasePublicRuntime } from '../server/appliance-care-api/src/fi
 import { runAnalysisQueueBatch } from '../server/appliance-care-api/src/analysis-queue-worker.mjs';
 import { analysisRequestKey } from '../server/appliance-care-api/src/analysis-runner.mjs';
 import { decodeUploadedManual, MAX_MANUAL_BYTES } from '../server/appliance-care-api/src/uploaded-manual.mjs';
+import { MANUAL_HEADER_BYTES, MANUAL_UPLOAD_CONTENT_TYPE, manualHpkeInfo, manualUploadAad } from '../server/appliance-care-api/src/manual-upload-contract.mjs';
+import { deriveManualAead } from '../server/appliance-care-api/src/manual-hpke.mjs';
+import { encryptedManualRequestKey, readManualUploadPrivateKeys } from '../server/appliance-care-api/src/manual-upload-server.mjs';
+import { expand, extract } from '@noble/hashes/hkdf.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 
 if (!process.env.FIRESTORE_EMULATOR_HOST || !process.env.FIREBASE_AUTH_EMULATOR_HOST
   || !/^127\.0\.0\.1:\d+$/u.test(process.env.FIRESTORE_EMULATOR_HOST)
@@ -52,6 +57,77 @@ test('real Firestore removes a completed AI result only after its owner durable 
   assert.equal(JSON.stringify(stored).includes(output.message), false);
   assert.equal((await api.admit(input('receipt-owner', 'durable-delivery'))).created, false);
   assert.equal((await api.usage(who('receipt-owner'))).used, 1);
+});
+
+test('real Firestore forwards an encrypted manual unchanged for workers and refunds rejected PDFs before any paid start', async t => {
+  const principal = who('encrypted-manual-owner');
+  const { publicKey: recipient, privateKey } = generateKeyPairSync('x25519');
+  const keyId = publicKey(recipient.export({ format: 'raw-public' }));
+  const privateKeys = readManualUploadPrivateKeys({ APPLIANCE_CARE_UPLOAD_PRIVATE_KEYS: JSON.stringify([privateKey.export({ format: 'raw-private' }).toString('hex')]) });
+  const gateway = buildFirestoreUsageStore({ firestore });
+  const worker = buildFirestoreUsageStore({ firestore, manualUploadPrivateKeys: privateKeys });
+  const kdf = { extract: (salt, data) => extract(sha256, data, salt), expand: (key, info, count) => expand(sha256, key, info, count) };
+  const publicAccess = { ...createPublicApiAccess({ verifyIdToken: async () => ({ uid: principal.uid, firebase: { sign_in_provider: 'google.com' } }),
+    verifyDevice: async () => ({ ...principal, reinstallProtection: 'verified' }), store: gateway }), uploadKeyIds: [keyId] };
+  const server = createApplianceCareHttpServer({ publicAccess });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening'); t.after(() => new Promise(resolve => server.close(resolve)));
+  const endpoint = `http://127.0.0.1:${server.address().port}/api/appliance-care/jobs`;
+  const authHeader = { authorization: 'Bearer synthetic-client' };
+  const requestHeaders = key => ({ ...authHeader, 'x-idempotency-key': key, 'content-type': MANUAL_UPLOAD_CONTENT_TYPE });
+  const seal = (pdf, admission) => {
+    const manual = decodeUploadedManual({ base64: pdf.toString('base64'), rightsConfirmed: true });
+    const identity = { identifyFromManual: true };
+    const requestKey = encryptedManualRequestKey(principal.uid, { ...identity, manual });
+    const { sharedKey, ciphertext: enc } = encapsulate(recipient);
+    const header = Buffer.alloc(MANUAL_HEADER_BYTES);
+    Buffer.from(keyId, 'hex').copy(header); enc.copy(header, 32);
+    Buffer.from(requestKey.split(':')[1], 'hex').copy(header, 64);
+    const metadata = Buffer.from(JSON.stringify(identity));
+    const length = Buffer.alloc(4); length.writeUInt32BE(metadata.length);
+    const { key, nonce } = deriveManualAead(sharedKey, manualHpkeInfo(), kdf);
+    const cipher = createCipheriv('aes-256-gcm', key, nonce);
+    cipher.setAAD(manualUploadAad(publicJobId(principal, admission), header));
+    return Buffer.concat([header, cipher.update(length), cipher.update(metadata), cipher.update(pdf), cipher.final(), cipher.getAuthTag()]);
+  };
+  const start = (admission, body) => fetch(endpoint, { method: 'POST', headers: requestHeaders(admission), body });
+  const blankPdf = syntheticPdf();
+  const trailerOffset = blankPdf.lastIndexOf('startxref');
+  const validPdf = Buffer.concat([blankPdf.subarray(0, trailerOffset), Buffer.alloc(MAX_MANUAL_BYTES - blankPdf.length, 32), blankPdf.subarray(trailerOffset)]);
+  const validId = 'synthetic-encrypted-valid'; const sealed = seal(validPdf, validId);
+  await gateway.heartbeatAnalysisWorker();
+  assert.equal((await start(validId, sealed)).status, 503, 'a legacy worker heartbeat cannot accept the new wire format');
+  assert.equal((await gateway.usage(principal)).used, 0);
+  await worker.heartbeatAnalysisWorker();
+  const plain = await fetch(endpoint, { method: 'POST', headers: { ...requestHeaders(validId), 'content-type': 'application/json' },
+    body: JSON.stringify({ identifyFromManual: true, manual: syntheticManual() }) });
+  assert.equal(plain.status, 415);
+  const first = await start(validId, sealed); assert.equal(first.status, 202);
+  const accepted = await first.json();
+  const rerandomized = seal(validPdf, validId); assert.equal(rerandomized.equals(sealed), false);
+  const retry = await start(validId, rerandomized);
+  assert.equal((await retry.json()).jobId, accepted.jobId, 'lost responses can retry with fresh ciphertext without a duplicate job');
+  const chunks = await firestore.collection('applianceApi/v1/analysisInputChunks').get();
+  assert.equal(chunks.size, 13);
+  const orderedParts = chunks.docs.map(doc => doc.data()).sort((left, right) => left.index - right.index);
+  assert.equal(Buffer.concat(orderedParts.map(part => part.bytes)).equals(sealed), true, 'storage preserves every byte of the encrypted upload');
+  assert.equal((await firestore.doc(`applianceApi/v1/jobs/${accepted.jobId}`).get()).data().inputManifest.version, 3);
+  let paid = 0;
+  const run = () => runAnalysisQueueBatch({ store: worker, authorize: async owner => assert.equal(owner, principal.uid), createDependencies: () => ({}),
+    analyze: async request => { paid++; assert.equal(request.manual.bytes.equals(validPdf), true); return output; } });
+  assert.equal((await run()).settled, 1);
+  assert.equal(paid, 1); assert.equal((await gateway.usage(principal)).used, 1);
+  assert.equal((await firestore.collection('applianceApi/v1/analysisInputChunks').get()).size, 0);
+  assert.deepEqual((await gateway.read(principal, accepted.jobId)).result, output);
+
+  for (const [admission, bad] of [['synthetic-wrong-job-binding', sealed], ['synthetic-over-page-limit', seal(syntheticPdf(101), 'synthetic-over-page-limit')]]) {
+    const response = await start(admission, bad); assert.equal(response.status, 202);
+    const { jobId } = await response.json();
+    assert.equal((await run()).settled, 1);
+    const refused = await gateway.read(principal, jobId);
+    assert.equal(refused.result.code, 'INVALID_MANUAL'); assert.equal(refused.usage.used, 1);
+  }
+  assert.equal(paid, 1);
+  assert.equal((await firestore.collection('applianceApi/v1/analysisInputChunks').get()).size, 0);
 });
 
 test('real Firestore queues a maximum PDF atomically and independent workers claim paid execution once without exposing its chunks', async () => {

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
-import { createCipheriv } from 'node:crypto';
+import { createCipheriv, createPrivateKey, decapsulate } from 'node:crypto';
+import { x25519 } from '@noble/curves/ed25519.js';
+import { expand, extract } from '@noble/hashes/hkdf.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import test from 'node:test';
 import { publicStoreFixture, syntheticAnalysisQueueKeys } from './helpers/appliance-public-store.mjs';
 import { syntheticManual } from './helpers/synthetic-pdf.mjs';
@@ -10,6 +13,27 @@ import { decodeUploadedManual, MAX_MANUAL_BYTES } from '../server/appliance-care
 import { prepareAnalysisQueueInput, decodeAnalysisQueueInput, readAnalysisQueueKeys } from '../server/appliance-care-api/src/analysis-queue-input.mjs';
 import { runAnalysisQueueBatch } from '../server/appliance-care-api/src/analysis-queue-worker.mjs';
 import { PUBLIC_API_POLICY, publicKey } from '../server/appliance-care-api/src/public-access.mjs';
+import { deriveManualAead, deriveManualKemSecret } from '../server/appliance-care-api/src/manual-hpke.mjs';
+
+test('manual upload HPKE matches the RFC 9180 X25519 AES-256-GCM reference vector', () => {
+  // CFRG HPKE test-vectors.json, base mode 0, KEM 32, KDF 1, AEAD 2, first message.
+  const hex = value => Buffer.from(value, 'hex');
+  const ephemeral = hex('179d4b53b6365c45b600c4163b61d95cbc2f4d9e36f1695558dce265ab8bab11');
+  const recipient = hex('430f4b9859665145a6b1ba274024487bd66f03a2dd577d7753c68d7d7d00c00c');
+  const recipientPrivate = createPrivateKey({ key: hex('497b4502664cfea5d5af0b39934dac72242a74f8480451e1aee7d6a53320333d'),
+    format: 'raw-private', asymmetricKeyType: 'x25519' });
+  const kdf = { extract: (salt, data) => extract(sha256, data, salt), expand: (key, info, count) => expand(sha256, key, info, count) };
+  const enc = x25519.getPublicKey(ephemeral);
+  assert.equal(Buffer.from(enc).toString('hex'), '6c93e09869df3402d7bf231bf540fadd35cd56be14f97178f0954db94b7fc256');
+  const secret = deriveManualKemSecret(x25519.getSharedSecret(ephemeral, recipient), enc, recipient, kdf);
+  assert.equal(Buffer.from(secret).toString('hex'), '3101c54c3a4f87439eaac080699ed9bbcc726ffe44e860c0424ccb7e3e2ead7b');
+  assert.deepEqual(decapsulate(recipientPrivate, enc), Buffer.from(secret));
+  const { key, nonce } = deriveManualAead(secret, hex('4f6465206f6e2061204772656369616e2055726e'), kdf);
+  const cipher = createCipheriv('aes-256-gcm', key, nonce);
+  cipher.setAAD(hex('436f756e742d30'));
+  const ciphertext = Buffer.concat([cipher.update(hex('4265617574792069732074727574682c20747275746820626561757479')), cipher.final(), cipher.getAuthTag()]);
+  assert.equal(ciphertext.toString('hex'), 'e5d84cd531cfb583096e7cfa9641bd3079cf3a91cda813c52deb5f512be9931980a41de125a925cdad859d5b7a');
+});
 
 const principal = { uid: 'synthetic-queue-owner', anonymous: false, deviceId: publicKey('synthetic-queue-device'), installationId: 'synthetic-installation-0001' };
 const request = { manufacturer: '検査', productName: '合成した製品', modelNumber: 'QA', manual: decodeUploadedManual(syntheticManual()) };

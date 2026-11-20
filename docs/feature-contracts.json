@@ -11559,6 +11559,10 @@
       },
       {
         "file": "tests/appliance-durable-analysis.test.mjs",
+        "name": "manual upload HPKE matches the RFC 9180 X25519 AES-256-GCM reference vector"
+      },
+      {
+        "file": "tests/appliance-durable-analysis.test.mjs",
         "name": "AI queue encryption binds the account job input and key version and rejects missing keys forged tags and rotated-away keys before paid work"
       },
       {
@@ -11574,6 +11578,10 @@
       {
         "file": "tests/appliance-public-cloud.integration.mjs",
         "name": "real Firestore queues a maximum PDF atomically and independent workers claim paid execution once without exposing its chunks"
+      },
+      {
+        "file": "tests/appliance-public-cloud.integration.mjs",
+        "name": "real Firestore forwards an encrypted manual unchanged for workers and refunds rejected PDFs before any paid start"
       },
       {
         "file": "tests/appliance-public-cloud.integration.mjs",
@@ -13168,6 +13176,10 @@
       {
         "file": "tests/appliance-manual-upload.test.mjs",
         "name": "an inspection deadline is a retryable server failure and never a permanent invalid-PDF verdict or a cached rejection"
+      },
+      {
+        "file": "tests/appliance-manual-upload.test.mjs",
+        "name": "accepted encrypted jobs wait for the bounded PDF inspection slots"
       },
       {
         "file": "tests/widget-ios-native-journal.test.mjs",

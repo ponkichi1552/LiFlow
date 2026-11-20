@@ -1,14 +1,18 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { PUBLIC_API_POLICY, PublicApiError, publicJobId, publicKey, publicUsage, usagePeriods } from './public-access.mjs';
-import { prepareAnalysisQueueInput, decodeAnalysisQueueInput, captureAnalysisQueueKeys } from './analysis-queue-input.mjs';
+import { prepareAnalysisQueueInput, prepareEncryptedAnalysisQueueInput, decodeAnalysisQueueInput, captureAnalysisQueueKeys } from './analysis-queue-input.mjs';
 import { analysisDeliveryJson, validAnalysisDelivery } from './analysis-delivery-contract.mjs';
+import { manualPreflightErrorCodes } from './manual-upload-server.mjs';
 
 const interrupted = { status: 'error', code: 'ANALYSIS_INTERRUPTED',
   message: '解析が中断されました。受付済みの1回分は記録されています。時間をおいて再試行してください。' };
+const unstarted = { status: 'error', code: 'ANALYSIS_INTERRUPTED',
+  message: '説明書の受付が中断されました。時間をおいて再試行してください。' };
+const encryptedAndUnstarted = job => job.inputManifest?.version === 3 && !Number.isSafeInteger(job.startedAt);
 
 /** Server-only documents. All counters and the job reservation commit together before any paid work begins. */
-export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLICY, now = Date.now, analysisQueueKeys }) {
+export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLICY, now = Date.now, analysisQueueKeys, manualUploadPrivateKeys }) {
   const queueKeys = captureAnalysisQueueKeys(analysisQueueKeys);
   for (const key of Object.keys(PUBLIC_API_POLICY)) {
     if (!Number.isSafeInteger(policy[key]) || policy[key] < 1) throw new Error('Invalid public API policy');
@@ -149,7 +153,7 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
   function readable(job, at) {
     if (job.deliveredAt !== undefined) return { stage: job.stage, done: true,
       result: { status: 'error', code: 'JOB_NOT_FOUND', message: '解析結果は端末に保存済みです。' }, usage: job.usage };
-    if (!job.done && job.deadlineAt <= at) return { stage: job.stage, done: true, result: interrupted, usage: job.usage };
+    if (!job.done && job.deadlineAt <= at) return { stage: job.stage, done: true, result: encryptedAndUnstarted(job) ? unstarted : interrupted, usage: job.usage };
     return { stage: job.stage, done: job.done, ...(job.done ? { result: job.result,
       ...(job.delivery ? { delivery: job.delivery } : {}) } : { pollAfterMs: 2000 }), usage: job.usage };
   }
@@ -175,7 +179,8 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
       const existing = admitting.get(key);
       if (existing) { const receipt = await existing; return { jobId: receipt.jobId, created: false, usage: receipt.usage }; }
       if (admitting.size >= 256) throw new PublicApiError(429, 'RATE_LIMITED', '受付が混み合っています。少し待ってください。');
-      if (input.analysisRequest) captured.queuedInput = prepareAnalysisQueueInput(input.analysisRequest, input.requestKey, queueKeys,
+      if (input.encryptedInput) captured.queuedInput = prepareEncryptedAnalysisQueueInput(input.encryptedInput, input.requestKey);
+      else if (input.analysisRequest) captured.queuedInput = prepareAnalysisQueueInput(input.analysisRequest, input.requestKey, queueKeys,
         { owner: principal.uid, jobId: publicJobId(principal, input.idempotencyKey), requestDigest: publicKey(input.requestKey) });
       const pending = store.reserve(captured); admitting.set(key, pending);
       try { return await pending; } finally { if (admitting.get(key) === pending) admitting.delete(key); }
@@ -228,7 +233,8 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
         if (queuedInput) {
           const heartbeat = workerDoc.data();
           if (!Number.isSafeInteger(heartbeat?.seenAt) || heartbeat.readyUntil !== heartbeat.seenAt + 90_000
-            || heartbeat.seenAt > at + 30_000 || heartbeat.readyUntil <= at) {
+            || heartbeat.seenAt > at + 30_000 || heartbeat.readyUntil <= at
+            || (queuedInput.manifest.version === 3 && (!Array.isArray(heartbeat.manualKeyIds) || !heartbeat.manualKeyIds.includes(queuedInput.manifest.keyId)))) {
             throw new PublicApiError(503, 'ANALYSIS_WORKER_UNAVAILABLE', '解析の準備ができていません。時間をおいてお試しください。');
           }
         }
@@ -296,7 +302,8 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
     /** A separate request-independent worker owns these server-only operations. */
     async heartbeatAnalysisWorker() {
       const at = now(); if (!Number.isSafeInteger(at)) throw new Error('Invalid worker clock');
-      await firestore.runTransaction(async transaction => { transaction.set(workerRef, { seenAt: at, readyUntil: at + 90_000 }); });
+      await firestore.runTransaction(async transaction => { transaction.set(workerRef, { seenAt: at, readyUntil: at + 90_000,
+        ...(manualUploadPrivateKeys?.size ? { manualKeyIds: [...manualUploadPrivateKeys.keys()] } : {}) }); });
     },
     async listAnalysisWork(limit = 3) {
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10) throw new Error('Invalid worker limit');
@@ -323,8 +330,9 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
         const admission = { jobId: id, runId: job.runId, deadlineAt: job.deadlineAt };
         if (job.executionState === 'resultReady') return { admission, result: job.result };
         if (job.deadlineAt <= at && ['queued', 'preparing', 'executing'].includes(job.executionState)) {
-          transaction.update(ref, { executionState: 'resultReady', result: interrupted, resultReceivedAt: at });
-          return { admission, result: interrupted };
+          const result = encryptedAndUnstarted(job) ? unstarted : interrupted;
+          transaction.update(ref, { executionState: 'resultReady', result, resultReceivedAt: at });
+          return { admission, result };
         }
         if (job.executionState !== 'queued' && !(job.executionState === 'preparing' && job.claimExpiresAt <= at)) return null;
         // Input preparation can be leased safely; the separate start transition
@@ -352,16 +360,21 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
         if (!value || value.jobId !== admission.jobId || value.runId !== admission.runId || value.index !== i) throw new Error('Missing analysis input');
         return value.bytes;
       });
-      return decodeAnalysisQueueInput(inputManifest, chunks, queueKeys, { owner: claim.owner, jobId: admission.jobId, requestDigest: claim.requestKey });
+      return decodeAnalysisQueueInput(inputManifest, chunks, queueKeys,
+        { owner: claim.owner, jobId: admission.jobId, requestDigest: claim.requestKey }, manualUploadPrivateKeys);
     },
-    async stageAnalysisResult(admission, result) {
+    async stageAnalysisResult(admission, result, { beforeStart = false } = {}) {
       if (Buffer.byteLength(JSON.stringify(result), 'utf8') > 700 * 1024) result = { status: 'error', code: 'ANALYSIS_FAILED', message: '解析結果の保存上限を超えました。' };
       return firestore.runTransaction(async transaction => {
         const ref = jobRef(admission.jobId); const job = (await transaction.get(ref)).data();
         if (!job || job.queueVersion !== 1 || job.runId !== admission.runId || job.done) return false;
         if (job.executionState === 'resultReady') return true;
-        if (job.executionState !== 'executing' || job.claimId !== admission.claimId) return false;
         const at = now();
+        if (job.claimId !== admission.claimId) return false;
+        if (beforeStart) {
+          if (!encryptedAndUnstarted(job) || job.executionState !== 'preparing' || at >= job.claimExpiresAt
+            || at >= job.deadlineAt || result.status !== 'error' || !manualPreflightErrorCodes.includes(result.code)) return false;
+        } else if (job.executionState !== 'executing') return false;
         transaction.update(ref, { executionState: 'resultReady', result: at >= job.deadlineAt ? interrupted : result, resultReceivedAt: at });
         return true;
       });
@@ -370,7 +383,7 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
       if (Buffer.byteLength(JSON.stringify(result), 'utf8') > 700 * 1024) {
         result = { status: 'error', code: 'ANALYSIS_FAILED', message: '解析結果の保存上限を超えました。' };
       }
-      // Only a persisted, server-classified OpenAI no-result failure releases the monthly slot. Client disconnects never do.
+      // A worker-settled preflight rejection or an OpenAI no-result failure releases the monthly slot.
       await firestore.runTransaction(async transaction => {
         const [jobDoc, globalDoc, decisionDoc] = await transaction.getAll(jobRef(admission.jobId), globalRef, chargeRef(admission.jobId));
         const job = jobDoc.data(); if (!job || job.runId !== admission.runId || job.done) return;
@@ -380,8 +393,10 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
           result = job.result;
         }
         const receivedAt = job.queueVersion === 1 ? job.resultReceivedAt : at;
-        if (decisionDoc.exists) transaction.update(chargeRef(admission.jobId), { state: receivedAt < job.deadlineAt && result.status === 'error' && result.code === 'AI_SERVICE_NO_RESULT' ? 'refunded' : 'charged' });
-        const output = receivedAt >= job.deadlineAt ? interrupted : result;
+        const neverStarted = encryptedAndUnstarted(job);
+        const refund = neverStarted || (receivedAt < job.deadlineAt && result.status === 'error' && result.code === 'AI_SERVICE_NO_RESULT');
+        if (decisionDoc.exists) transaction.update(chargeRef(admission.jobId), { state: refund ? 'refunded' : 'charged' });
+        const output = receivedAt >= job.deadlineAt ? (neverStarted ? unstarted : interrupted) : result;
         transaction.update(jobRef(admission.jobId), { done: true, result: output,
           delivery: { token: randomBytes(32).toString('hex'), digest: publicKey(analysisDeliveryJson(output)), expiresAt: job.expiresAt.toMillis() },
           ...(job.queueVersion === 1 ? { executionState: 'finished', inputManifest: null, inputRequestKey: null } : {}) });

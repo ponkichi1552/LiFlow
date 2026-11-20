@@ -46,6 +46,13 @@ test('an inspection deadline is a retryable server failure and never a permanent
   assert.equal(await inspectUploadedManual(bytes), 2, 'a subsequent attempt inspects the same valid document normally');
 });
 
+test('accepted encrypted jobs wait for the bounded PDF inspection slots', async () => {
+  const pages = [3, 4, 5];
+  const checks = pages.map(count => inspectUploadedManual(syntheticPdf(count), { waitForSlot: true }));
+  await assert.rejects(inspectUploadedManual(syntheticPdf(6)), error => error.code === 'RATE_LIMITED');
+  assert.deepEqual(await Promise.all(checks), pages);
+});
+
 test('uploaded analysis sends only submitted bytes with no search or URL fetch and validates exact digest-only provenance', async () => {
   const manual = decodeUploadedManual(syntheticManual()); let sent; let calls = 0;
   const task = { name: 'フィルターのお手入れ', recommendedIntervalDays: null, recommendedConditions: ['汚れが目立った時'],

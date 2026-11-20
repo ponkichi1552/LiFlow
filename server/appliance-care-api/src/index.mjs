@@ -2,11 +2,11 @@ import { startApplianceCareHttpServer } from './http-server.mjs';
 import { OpenAIResponsesClient } from './openai-responses-client.mjs';
 
 async function main() {
-  const ai = new OpenAIResponsesClient({ maxToolCalls: 1 });
   const publicMode = process.env.APPLIANCE_CARE_MODE === 'public';
+  const ai = publicMode ? undefined : new OpenAIResponsesClient({ maxToolCalls: 1 });
   // Keep the server-only Admin SDK out of the mobile dependency graph and local-only development path.
   const publicAccess = publicMode ? (await import('./firebase-public-runtime.mjs')).createFirebasePublicRuntime() : undefined;
-  const billingOnly = Boolean(publicAccess && (!publicAccess.securityReady || !publicAccess.analysisQueueReady || !ai.isConfigured));
+  const billingOnly = Boolean(publicAccess && (!publicAccess.securityReady || !publicAccess.analysisQueueReady));
   if (publicAccess) {
     // Refuse the public listener if credentials, the project or quota-store permissions are not ready.
     await publicAccess.store.ready();
@@ -14,9 +14,9 @@ async function main() {
     void publicAccess.store.prune().catch(() => undefined);
   }
   const server = startApplianceCareHttpServer({
-    dependencies: { analyzeUploaded: request => ai.createStructured(request) },
+    dependencies: ai ? { analyzeUploaded: request => ai.createStructured(request) } : {},
     manualUploadsOnly: true,
-    aiConfigured: ai.isConfigured,
+    aiConfigured: publicMode || ai?.isConfigured,
     publicAccess,
     billingOnly,
   });
@@ -24,8 +24,7 @@ async function main() {
   const port = Number(process.env.PORT ?? 8787);
   const host = process.env.HOST ?? '127.0.0.1';
   server.on('listening', () => {
-    process.stdout.write('Appliance-care API listening on ' + host + ':' + port
-      + ' (OpenAI configured: ' + String(ai.isConfigured) + ')\n');
+    process.stdout.write('Appliance-care API listening on ' + host + ':' + port + '\n');
   });
   server.on('error', () => {
     process.stderr.write('Appliance-care API failed to start. Check HOST and PORT.\n');

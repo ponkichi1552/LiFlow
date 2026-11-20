@@ -1,6 +1,7 @@
 import { createFirebasePublicRuntime } from './firebase-public-runtime.mjs';
 import { createPublicAnalysisDependencies } from './public-analysis.mjs';
 import { runAnalysisQueueBatch } from './analysis-queue-worker.mjs';
+import { OpenAIResponsesClient } from './openai-responses-client.mjs';
 
 // A scheduler must invoke this separate job within the admission deadline. The
 // API intentionally does not start it or rely on post-response CPU allocation.
@@ -8,8 +9,10 @@ const controller = new AbortController();
 process.env.NODE_ENV = 'production';
 process.once('SIGTERM', () => controller.abort()); process.once('SIGINT', () => controller.abort());
 try {
-  const runtime = createFirebasePublicRuntime();
-  if (!runtime.securityReady || !runtime.analysisQueueReady || !runtime.subscriptions) throw new Error('Public AI security is not ready');
+  const runtime = createFirebasePublicRuntime(process.env, { worker: true });
+  if (!runtime.securityReady || !runtime.analysisQueueReady || !runtime.subscriptions || !new OpenAIResponsesClient().isConfigured) {
+    throw new Error('Public AI security is not ready');
+  }
   await runtime.store.ready();
   const result = await runAnalysisQueueBatch({ store: runtime.store, authorize: runtime.authorizeQueuedAnalysis,
     createDependencies: createPublicAnalysisDependencies, signal: controller.signal });

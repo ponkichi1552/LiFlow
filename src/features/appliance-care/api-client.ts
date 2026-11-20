@@ -6,6 +6,7 @@ import { isOfficialApplianceUrl } from '@/features/appliance-care/official-url';
 import { applianceCarePollDelay, waitForAppliancePoll } from './polling';
 import { isAnalysisRecord as isRecord, nonemptyAnalysisString as nonemptyString, isVerifiedApplianceAnalysis } from './analysis-validation';
 import { ANALYSIS_TIMEOUT_MS, analysisDeliveryJson, validAnalysisDelivery } from '../../../server/appliance-care-api/src/analysis-delivery-contract.mjs';
+import { MANUAL_UPLOAD_CONTENT_TYPE } from '../../../server/appliance-care-api/src/manual-upload-contract.mjs';
 import type { AnalysisDeliveryStore, SavedAnalysisDelivery } from './analysis-delivery';
 import type { ApplianceApiSession } from '../../platform/appliance-care/auth';
 
@@ -94,13 +95,18 @@ export async function analyzeApplianceCareRequest(
       if (isJobAccepted(saved)) jobId = saved.jobId;
     }
     if (!jobId) {
-      const startResponse = await abortApplianceWait(() => fetch(`${baseUrl}/api/appliance-care/jobs`, {
-        method: 'POST',
-        redirect: 'error',
-        headers: { 'content-type': 'application/json', ...startHeaders },
-        body: payload,
-        signal: controller.signal,
-      }), controller.signal);
+      const startResponse = await abortApplianceWait(async () => {
+        const endpoint = `${baseUrl}/api/appliance-care/jobs`;
+        const options = { method: 'POST', redirect: 'error' as const, signal: controller.signal };
+        if (normalized.manual) {
+          const { encryptManualUpload } = await import('./manual-upload-crypto');
+          const body = await encryptManualUpload({ ...normalized, manual: normalized.manual }, session.userId, admissionId ?? '');
+          const native = await import('expo/fetch');
+          controller.signal.throwIfAborted();
+          return native.fetch(endpoint, { ...options, headers: { ...startHeaders, 'content-type': MANUAL_UPLOAD_CONTENT_TYPE }, body });
+        }
+        return fetch(endpoint, { ...options, headers: { ...startHeaders, 'content-type': 'application/json' }, body: payload });
+      }, controller.signal);
       const startPayload: unknown = await abortApplianceWait(() => readJson(startResponse), controller.signal);
       controller.signal.throwIfAborted();
       if (isApiResponse(startPayload)) {
@@ -176,8 +182,9 @@ export async function analyzeApplianceCareRequest(
     }
     return temporaryError(signal?.aborted ? '解析の通信を中断しました。' : '解析がタイムアウトしました。時間をおいて再試行してください。');
   } catch (cause) {
-    if (!controller.signal.aborted && cause instanceof Error && 'code' in cause && cause.code === 'AUTHENTICATION_REQUIRED') {
-      return { status: 'error', code: 'AUTHENTICATION_REQUIRED', message: cause.message };
+    if (!controller.signal.aborted && cause instanceof Error && 'code' in cause && (cause.code === 'AUTHENTICATION_REQUIRED'
+      || cause.code === 'ANALYSIS_INPUT_SECURITY_UNAVAILABLE' || cause.code === 'INVALID_MANUAL' || cause.code === 'INVALID_REQUEST')) {
+      return { status: 'error', code: cause.code, message: cause.message };
     }
     return temporaryError(signal?.aborted ? '解析の通信を中断しました。' : controller.signal.aborted
       ? '解析がタイムアウトしました。時間をおいて再試行してください。'

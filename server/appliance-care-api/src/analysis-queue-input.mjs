@@ -4,15 +4,17 @@ import { publicKey, PublicApiError } from './public-access.mjs';
 import { analysisRequestKey } from './analysis-runner.mjs';
 import { validateApplianceCareRequest } from './service.mjs';
 import { decodeUploadedManual, MAX_MANUAL_BYTES, uploadedManualReference } from './uploaded-manual.mjs';
+import { MANUAL_FIELDS, MANUAL_METADATA_LIMIT, MAX_MANUAL_UPLOAD_BYTES, MIN_MANUAL_UPLOAD_BYTES } from './manual-upload-contract.mjs';
+import { decryptManualUpload, encryptedManualRequestKey, invalidManualUpload, readManualUploadEnvelope } from './manual-upload-server.mjs';
 
 // Each private Firestore document stays well below its 1 MiB limit. Never put
 // tokens, client-supplied URLs or a filesystem path into a worker message.
 const CHUNK_BYTES = 480 * 1024;
 const HEADER_LENGTH_BYTES = 4;
-const MAX_HEADER_BYTES = 4096;
+const MAX_HEADER_BYTES = MANUAL_METADATA_LIMIT;
 const MAX_LEGACY_INPUT_BYTES = Math.ceil(MAX_MANUAL_BYTES / 3) * 4 + MAX_HEADER_BYTES;
 const MAX_BINARY_INPUT_BYTES = MAX_MANUAL_BYTES + HEADER_LENGTH_BYTES + MAX_HEADER_BYTES;
-const PRODUCT_FIELDS = ['manufacturer', 'productName', 'modelNumber', 'category'];
+const PRODUCT_FIELDS = MANUAL_FIELDS;
 const REQUEST_FIELDS = ['identifyFromManual', ...PRODUCT_FIELDS];
 const keyId = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/u.test(value);
 const unavailable = () => new PublicApiError(503, 'ANALYSIS_INPUT_SECURITY_UNAVAILABLE', '安全な解析受付の準備ができていません。');
@@ -98,8 +100,39 @@ function decodeQueueRequest(bytes, version) {
   return { ...request, manual: { ...request.manual, bytes: Buffer.from(manual) } };
 }
 
-export function decodeAnalysisQueueInput(manifest, chunks, keys, context) {
+export function prepareEncryptedAnalysisQueueInput(bytes, requestKey) {
+  const envelope = readManualUploadEnvelope(bytes);
+  if (envelope.requestKey !== requestKey) throw invalidManualUpload();
+  const chunks = [];
+  for (let start = 0; start < bytes.length; start += CHUNK_BYTES) chunks.push(bytes.subarray(start, start + CHUNK_BYTES));
+  return { manifest: { version: 3, keyId: envelope.keyId, bytes: bytes.length, chunks: chunks.length }, chunks };
+}
+
+function decodeEncryptedAnalysisQueueInput(manifest, chunks, privateKeys, context) {
+  if (!/^[a-f0-9]{64}$/u.test(manifest.keyId) || !Number.isSafeInteger(manifest.bytes)
+    || manifest.bytes < MIN_MANUAL_UPLOAD_BYTES || manifest.bytes > MAX_MANUAL_UPLOAD_BYTES
+    || manifest.chunks !== Math.ceil(manifest.bytes / CHUNK_BYTES) || chunks.length !== manifest.chunks
+    || Object.keys(manifest).sort().join(',') !== 'bytes,chunks,keyId,version') throw new Error('Invalid encrypted manual manifest');
+  chunks.forEach((chunk, index) => {
+    if (!(chunk instanceof Uint8Array) || chunk.length !== Math.min(CHUNK_BYTES, manifest.bytes - index * CHUNK_BYTES)) {
+      throw new Error('Invalid encrypted manual chunk');
+    }
+  });
+  const plaintext = decryptManualUpload(Buffer.concat(chunks, manifest.bytes), manifest.keyId, privateKeys, context);
+  let request;
+  try {
+    request = decodeQueueRequest(plaintext, 2);
+    if (publicKey(encryptedManualRequestKey(context.owner, request)) !== context.requestDigest) throw invalidManualUpload();
+    return request;
+  } catch {
+    request?.manual?.bytes.fill(0);
+    throw invalidManualUpload();
+  } finally { plaintext.fill(0); }
+}
+
+export function decodeAnalysisQueueInput(manifest, chunks, keys, context, privateKeys) {
   const version = manifest?.version;
+  if (version === 3) return decodeEncryptedAnalysisQueueInput(manifest, chunks, privateKeys, context);
   const maxInputBytes = version === 2 ? MAX_BINARY_INPUT_BYTES : MAX_LEGACY_INPUT_BYTES;
   if ((version !== 1 && version !== 2) || !keyId(manifest.keyId) || !Number.isSafeInteger(manifest.bytes) || manifest.bytes < 1 || manifest.bytes > maxInputBytes
     || !Number.isSafeInteger(manifest.chunks) || manifest.chunks < 1 || manifest.chunks > Math.ceil(maxInputBytes / CHUNK_BYTES)

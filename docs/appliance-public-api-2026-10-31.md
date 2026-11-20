@@ -66,13 +66,13 @@ Auth／Firestore Emulator上の106件の結合検査も成功した。実際のR
 
 Firebase Admin SDKの`verifyIdToken(token,true)`で署名・プロジェクト・期限・失効・無効化を検査し、Google／Appleだけを許可する。さらに正規端末検証を必須にする。認証前に有料処理を始めない。他人のjob IDは不在と同じ404。旧同期型`/analyze`からの迂回は不可。
 
-`POST /api/appliance-care/jobs`はBearer認証と`x-idempotency-key`、製品情報、`manual:{base64,rightsConfirmed:true}`を受け付ける。`GET /api/appliance-care/jobs/:id`は本人だけ、`GET /api/appliance-care/usage`は同期済みの本人の残回数だけを返す。`/health`は公開構成の秘密や設定状態を返さない。
+公開の `POST /api/appliance-care/jobs` はBearer認証、`x-idempotency-key`、端末で暗号化したバイナリ本文を受け付ける。`GET /api/appliance-care/jobs/:id` は本人だけ、`GET /api/appliance-care/usage` は同期済みの本人の残回数だけを返す。`/health` は公開構成の秘密や設定状態を返さない。 [暗号化と鍵の設定](security/paid-analysis-queue-2026-11-05.md)
 
 Firestoreの`applianceApi/v1`配下で、月次のアカウント・端末使用数、日次全体使用数、job、再利用先、実行予約、消費／返却の判断と使用数の根拠を管理する。上限照合のMAXと受付時の加算を不変な参照として残し、後から返却が起きてもコピー済みの使用数を再計算できる。正常な別の受付まで無料にしたり、同じ障害で二重に枠を増やしたりしない。
 
 全クライアントの直接read/writeをRulesで拒否する。AdminはRulesを迂回するためホストのIAMを別途保護する。アカウント／端末枠・job・暗号化入力は1トランザクションで確定し、独立ワーカーの実行開始を確定した後だけAIを始める。job・再利用先は7日、使用数と消費／返却の根拠は対象期間終了後90日保持。結果を削除した後も返却の証拠を失わない。期限切れ削除は8種類の私的collectionから各最大50件、合計最大400件を一度に処理し、更新時刻の条件付き削除で新しい値の誤削除を防ぐ。共有家事や個人Plannerは削除対象に含めない。
 
-OpenAI key・管理者資格情報・一時入力用の鍵はサーバーだけに置き、アプリへ同梱しない。APIホストはHTTPS、入口の要求制限、ログの秘匿を備え、解析は別のrequest-independentジョブで実行する。APIの応答後CPUに頼らない。ワーカーの新しい稼働確認がなければ、新しい利用枠を消費せず受付を止める。Dockerfileはビルド素材であり、公開や契約を自動で行うものではない。
+OpenAIの鍵と復号鍵は解析ワーカー側に設定する。端末は暗号化用の公開鍵を使う。APIホストはHTTPS、入口の要求制限、ログの秘匿を備え、解析は独立したジョブで実行する。ワーカーの稼働と受付に使われた鍵への対応を確認してから、新しい利用枠を確保する。
 
 ## 検査と公開までに必要なこと
 

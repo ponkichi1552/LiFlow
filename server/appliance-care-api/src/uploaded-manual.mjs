@@ -2,6 +2,7 @@ import { Worker } from 'node:worker_threads';
 import { publicKey, PublicApiError } from './public-access.mjs';
 import { ANALYSIS_SCHEMA, MANUAL_ANALYZER_INSTRUCTIONS, validateAndDeduplicateTasks } from './manual-analyzer.mjs';
 import { UPLOADED_PRODUCT_SCHEMA, productFromUploadedManual } from './uploaded-product.mjs';
+import { MAX_MANUAL_BYTES } from './manual-upload-contract.mjs';
 
 const taskList = ANALYSIS_SCHEMA.properties.tasks;
 const taskFields = taskList.items.properties;
@@ -16,7 +17,7 @@ const UPLOADED_CARE_SCHEMA = { ...ANALYSIS_SCHEMA, properties: { tasks: uploaded
 export const UPLOADED_MANUAL_SCHEMA = { ...UPLOADED_CARE_SCHEMA,
   properties: { product: UPLOADED_PRODUCT_SCHEMA, tasks: uploadedTasks }, required: ['product', 'tasks'] };
 
-export const MAX_MANUAL_BYTES = 6 * 1024 * 1024;
+export { MAX_MANUAL_BYTES };
 export const MAX_MANUAL_PAGES = 100;
 const invalid = message => new PublicApiError(400, 'INVALID_MANUAL', message);
 
@@ -40,14 +41,19 @@ export function uploadedManualReference(bytes) {
 }
 
 /** Parse untrusted PDF structure off the HTTP thread, with a memory/time limit and no inherited credentials. */
-const inspected = new Map(); let inspecting = 0;
-export async function inspectUploadedManual(bytes) {
+const inspected = new Map();
+const inspecting = new Set();
+export async function inspectUploadedManual(bytes, { waitForSlot = false } = {}) {
   const key = publicKey(bytes); const at = Date.now();
   for (const [key, value] of inspected) if (value.expiresAt <= at) inspected.delete(key);
   if (inspected.has(key)) return inspected.get(key).promise;
-  if (inspecting >= 2) throw new PublicApiError(429, 'RATE_LIMITED', '説明書の受付が混み合っています。少し待ってください。');
-  inspecting++;
-  const promise = inspect(bytes).finally(() => { inspecting--; });
+  while (inspecting.size >= 2) {
+    if (!waitForSlot) throw new PublicApiError(429, 'RATE_LIMITED', '説明書の受付が混み合っています。少し待ってください。');
+    await Promise.race(inspecting).catch(() => undefined);
+    if (inspected.has(key)) return inspected.get(key).promise;
+  }
+  const promise = inspect(bytes).finally(() => { inspecting.delete(promise); });
+  inspecting.add(promise);
   inspected.set(key, { promise, expiresAt: at + 3600_000 });
   while (inspected.size > 100) inspected.delete(inspected.keys().next().value);
   void promise.catch(() => { if (inspected.get(key)?.promise === promise) inspected.delete(key); });
