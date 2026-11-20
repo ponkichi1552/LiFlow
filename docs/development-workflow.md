@@ -33,6 +33,8 @@ SQLiteの外部キー既定値は公式config pluginの`customBuildFlags`で設�
 
 通常はチェックアウト、`node_modules`、`ios/Pods`、Androidの`.cxx`を同じAPFSの作業場所に置く。macOSでExFATの外付けストレージを利用するときは、SDKやPodsをAPFSディスクイメージ内に置く。Podsを外に置く場合は、`PODS_ROOT/../../node_modules`が現在のチェックアウトを参照するようにする。Podsとロックファイルが一致しなければ`cd ios && pod install --deployment`で復元する。Xcodeの重複は各ターゲットのコンパイル対象を示す`PBXSourcesBuildPhase`で調べる。
 
+ビルド中に外付けボリュームが切れた場合は、失敗したビルドのGradleプロセスとボリュームを参照する画面を閉じる。既存イメージが通常再接続できなければ、読み取り専用で接続して`diskutil verifyVolume`で整合性を確認する。問題がなければ通常接続に戻し、`doctor:native`を再実行する。APKの出力日時と埋め込みコードを確認してから端末に導入する。
+
 外部Podsを使ってXcodeを直接ビルドする場合は、チェックアウト直下で`LIFLOW_CHECKOUT="$(pwd -P)"`を実行する。次に`PODFILE_DIR="$LIFLOW_CHECKOUT/ios"`と`REACT_NATIVE_PATH="$LIFLOW_CHECKOUT/node_modules/react-native"`を`xcodebuild`のビルド設定引数に加える。
 
 `EXPO_PUBLIC_*`の値を変えたら、その値を設定した環境でJS bundle taskを強制再実行してからReleaseを作る。
