@@ -23,6 +23,34 @@ function budgetReady(global, stamp) {
 /** The atomic port is shared by the real Firestore adapter and isolated tests.
  * No in-memory fallback is installed in the production runtime. */
 export function createRegionalWeatherStore({ read, readControl, atomic, due, now = Date.now, token = randomUUID }) {
+  async function* claimReady(maximum) {
+    const stamp = now();
+    const candidates = await due(stamp);
+    if (!candidates.length) return;
+    // This is an early rejection only. Every admission still checks the shared budget in its transaction.
+    const budget = readControl ? activeBudget(await readControl(), stamp) : null;
+    if (budget && !budgetReady(budget, stamp)) return;
+    let remaining = budget ? Math.min(maximum, 2 - budget.starts.length, 4 - Object.keys(budget.leases).length) : maximum;
+    for (const key of candidates) {
+      const leaseToken = token();
+      const claim = await atomic(key, (current, savedGlobal) => {
+        if (!current || current.nextAttemptAt === null || current.nextAttemptAt > stamp || current.lease?.until > stamp) return { result: null };
+        const global = activeBudget(savedGlobal, stamp);
+        if (!budgetReady(global, stamp)) return { result: 'gate-closed' };
+        if (stamp < current.lastReferencedAt || stamp - current.lastReferencedAt >= 7 * DAY) return {
+          region: { ...current, status: 'inactive', nextAttemptAt: null, lease: null }, result: null };
+        const lease = { token: leaseToken, until: stamp + 60_000 };
+        global.starts.push(stamp); global.leases[key] = lease;
+        const region = { ...current, status: 'fetching', lease };
+        return { region, global, result: { ...region, leaseToken } };
+      }, true);
+      if (claim === 'gate-closed') return;
+      if (claim) {
+        yield claim;
+        if (--remaining === 0) return;
+      }
+    }
+  }
   return {
     async reference(id) {
       const region = weatherRegion(id); if (!region) return null;
@@ -38,27 +66,9 @@ export function createRegionalWeatherStore({ read, readControl, atomic, due, now
         return { region: current, result: current };
       });
     },
+    claimReady,
     async claim() {
-      const stamp = now();
-      const candidates = await due(stamp); if (!candidates.length) return null;
-      // Read-only rejection avoids 32 identical contended transactions when
-      // the application-wide gate is closed. Actual admission is still atomic.
-      if (readControl && !budgetReady(activeBudget(await readControl(), stamp), stamp)) return null;
-      for (const key of candidates) {
-        const leaseToken = token();
-        const claim = await atomic(key, (current, savedGlobal) => {
-          if (!current || current.nextAttemptAt === null || current.nextAttemptAt > stamp || current.lease?.until > stamp) return { result: null };
-          if (stamp < current.lastReferencedAt || stamp - current.lastReferencedAt >= 7 * DAY) return {
-            region: { ...current, status: 'inactive', nextAttemptAt: null, lease: null }, result: null };
-          const global = activeBudget(savedGlobal, stamp);
-          if (!budgetReady(global, stamp)) return { result: null };
-          const lease = { token: leaseToken, until: stamp + 60_000 };
-          global.starts.push(stamp); global.leases[key] = lease;
-          const region = { ...current, status: 'fetching', lease };
-          return { region, global, result: { ...region, leaseToken } };
-        }, true);
-        if (claim) return claim;
-      }
+      for await (const claim of claimReady(1)) return claim;
       return null;
     },
     async finish(claim, outcome) {
@@ -68,8 +78,17 @@ export function createRegionalWeatherStore({ read, readControl, atomic, due, now
         const global = { ...(savedGlobal ?? {}), leases: { ...(savedGlobal?.leases ?? {}) } };
         if (global.leases[claim.key]?.token === claim.leaseToken && !outcome.transportUnsettled) delete global.leases[claim.key];
         const region = { ...current, lease: null };
+        let cacheMetadata;
         if (outcome.cache) {
           region.cache = { ...outcome.cache, revision: weatherCacheRevision(outcome.cache) };
+          if (outcome.notModified && current.cache && current.cache.revision === claim.cache?.revision) {
+            cacheMetadata = {
+              'cache.checkedAt': region.cache.checkedAt,
+              'cache.expiresAt': region.cache.expiresAt,
+              'cache.lastModified': region.cache.lastModified,
+              'cache.revision': region.cache.revision,
+            };
+          }
           region.status = 'ready'; region.retryCount = 0;
           region.nextAttemptAt = Math.max(nextNormalWeatherCheck(claim.key, stamp), Date.parse(outcome.cache.expiresAt) || 0);
           region.error = null;
@@ -86,7 +105,7 @@ export function createRegionalWeatherStore({ read, readControl, atomic, due, now
             if (outcome.code === 'met_rate_limited') global.notBefore = Math.max(global.notBefore ?? 0, region.nextAttemptAt);
           }
         }
-        return { region, global, result: true };
+        return { region, global, cacheMetadata, result: true };
       }, true);
     },
     async releaseTransport(claim) {
@@ -116,9 +135,9 @@ export function createFirestoreRegionalWeatherStore({ firestore, now = Date.now 
         const current = region.data() ?? null;
         const result = update(current, global?.data() ?? null);
         if (Object.hasOwn(result, 'region')) {
-          if (current && result.region.cache === current.cache) {
+          if (current && (result.cacheMetadata || result.region.cache === current.cache)) {
             const { cache: _cache, ...metadata } = result.region;
-            transaction.update(ref, metadata);
+            transaction.update(ref, { ...metadata, ...result.cacheMetadata });
           } else transaction.set(ref, result.region);
         }
         if (Object.hasOwn(result, 'global') && result.global) transaction.set(globalRef, result.global);

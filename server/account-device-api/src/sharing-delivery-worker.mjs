@@ -48,29 +48,35 @@ async function countCaughtUp(transaction, root, kind, enrollment) {
 export async function inspectDeliveryReadiness(firestore, projectId = projectIdFrom(firestore)) {
   const output = {};
   for (const [kind, name] of [['shared', 'sharingGroups'], ['private', 'privateCalendars']]) {
-    const total = { scopes: 0, approved: 0, ready: 0, caughtUp: 0, fullyReadyScopes: 0, fullyCaughtUpScopes: 0, enabledScopes: 0,
+    const total = { scopes: 0, approved: 0, ready: 0, caughtUp: 0, fullyReadyScopes: 0, fullyCaughtUpScopes: 0, enabledScopes: 0, closedEnabledScopes: 0,
       invalidAuthorityScopes: 0, recoveryLockedScopes: 0 };
     for (const root of await firestore.collection(name).listDocuments()) {
       const outcome = await firestore.runTransaction(async transaction => {
         const [current, policyDoc] = await transaction.getAll(root, root.collection('deliveryControl').doc('policy'));
         const raw = current.data();
-        if (!raw || kind === 'shared' && (raw.closed || raw.schemaVersion !== 2)) return null;
+        if (!raw || kind === 'shared' && raw.schemaVersion !== 2) return null;
         const policy = parseDeliveryPolicy(policyDoc.data());
+        const enabled = policy?.enabled === true;
+        if (kind === 'shared' && raw.closed) return { closed: true, enabled };
         const authority = await verifiedDeliveryAuthority(firestore, root, raw, kind).catch(() => null);
-        if (!authority) return { invalid: true };
+        if (!authority) return { invalid: true, enabled };
         const enrollment = policy ? await readEnrollments(firestore, transaction, root, kind, raw, policy, projectId) : null;
         const lock = kind === 'shared' ? (await transaction.get(root.collection('recoveryLocks').doc('current'))).data() : undefined;
         return { approved: authority.devices.length, ready: enrollment?.ready ?? 0, caughtUp: await countCaughtUp(transaction, root, kind, enrollment),
-          enabled: policy?.enabled === true,
+          enabled,
           locked: lock?.keyVersion === raw.keyVersion };
       }, { readOnly: true });
       if (!outcome) continue;
+      if (outcome.enabled) total.enabledScopes++;
+      if (outcome.closed) {
+        if (outcome.enabled) total.closedEnabledScopes++;
+        continue;
+      }
       total.scopes++;
       if (outcome.invalid) { total.invalidAuthorityScopes++; continue; }
       total.approved += outcome.approved; total.ready += outcome.ready; total.caughtUp += outcome.caughtUp;
       if (outcome.approved > 0 && outcome.ready === outcome.approved) total.fullyReadyScopes++;
       if (outcome.approved > 0 && outcome.caughtUp === outcome.approved) total.fullyCaughtUpScopes++;
-      if (outcome.enabled) total.enabledScopes++;
       if (outcome.locked) total.recoveryLockedScopes++;
     }
     output[kind] = total;
@@ -271,35 +277,44 @@ function requestReference(requestId, row) {
     createdSeconds: row.createdAt.seconds, createdNanoseconds: row.createdAt.nanoseconds };
 }
 
-async function requestForCleanup(transaction, root, candidate, claim) {
-  const [current, policyDoc, document] = await transaction.getAll(root, root.collection('deliveryControl').doc('policy'), candidate.ref);
-  const policy = parseDeliveryPolicy(policyDoc.data()), row = document.data(), raw = current.data();
+async function requestsForCleanup(transaction, root, candidates, claim) {
   const shared = claim.scope.kind === 'shared';
-  if (!policy?.enabled || policy.enrollmentId !== claim.scope.enrollmentId || !row || !raw
-    || (shared ? raw.rosterJson : raw.authorityJson) !== claim.authorityJson || shared && raw.rotationRequired
-    || !sameTimestamp(row.createdAt, candidate.data().createdAt)) return null;
-  if (shared && (await transaction.get(root.collection('recoveryLocks').doc('current'))).data()?.keyVersion === raw.keyVersion) return null;
-  return { document, row };
+  const controls = [root, root.collection('deliveryControl').doc('policy')];
+  if (shared) controls.push(root.collection('recoveryLocks').doc('current'));
+  const snapshots = await transaction.getAll(...controls, ...candidates.map(candidate => candidate.ref));
+  const raw = snapshots[0].data(), policy = parseDeliveryPolicy(snapshots[1].data());
+  const recovery = shared ? snapshots[2].data() : undefined;
+  if (!policy?.enabled || policy.enrollmentId !== claim.scope.enrollmentId || !raw
+    || (shared ? raw.rosterJson : raw.authorityJson) !== claim.authorityJson
+    || shared && (raw.rotationRequired || recovery?.keyVersion === raw.keyVersion)) return [];
+  return snapshots.slice(controls.length).flatMap((document, index) => {
+    const candidate = candidates[index], row = document.data();
+    return row && sameTimestamp(row.createdAt, candidate.data().createdAt) ? [{ candidate, document, row }] : [];
+  });
 }
 
-async function closeRequest(firestore, root, candidate, claim, now) {
+async function closeRequests(firestore, root, candidates, claim, now) {
+  if (!candidates.length) return [];
   return firestore.runTransaction(async transaction => {
-    const current = await requestForCleanup(transaction, root, candidate, claim);
-    if (!current) return false;
-    const { document, row } = current;
-    const expires = Math.min(time(row.expiresAt), time(row.createdAt) + DELIVERY_TTL_MS);
-    const device = claim.devices.find(({ userId, identity }) => userId === row.userId && identity.deviceId === row.deviceId);
-    const proof = row.schemaVersion === 2 && device && validRecoveryReceipt(claim.scope, row.userId, device.identity, requestReference(document.id, row), row.receiptSignature);
-    if (!proof && !(Number.isFinite(expires) && expires <= now)) return false;
-    if (row.receivedAt === undefined) transaction.update(document.ref, { receivedAt: new Date(now) });
-    return true;
+    const requests = await requestsForCleanup(transaction, root, candidates, claim);
+    const sealed = [];
+    for (const { candidate, document, row } of requests) {
+      const expires = Math.min(time(row.expiresAt), time(row.createdAt) + DELIVERY_TTL_MS);
+      const device = claim.devices.find(({ userId, identity }) => userId === row.userId && identity.deviceId === row.deviceId);
+      const proof = row.schemaVersion === 2 && device
+        && validRecoveryReceipt(claim.scope, row.userId, device.identity, requestReference(document.id, row), row.receiptSignature);
+      if (!proof && !(Number.isFinite(expires) && expires <= now)) continue;
+      if (row.receivedAt === undefined) transaction.update(document.ref, { receivedAt: new Date(now) });
+      sealed.push(candidate);
+    }
+    return sealed;
   });
 }
 
 async function deleteSealedRequest(firestore, root, candidate, claim) {
   for (;;) {
     const result = await firestore.runTransaction(async transaction => {
-      const current = await requestForCleanup(transaction, root, candidate, claim);
+      const [current] = await requestsForCleanup(transaction, root, [candidate], claim);
       if (!current || current.row.receivedAt === undefined) return 'stopped';
       // Keep the parent and its incarnation in the transaction until the last child is gone.
       const response = (await transaction.get(current.document.ref.collection('responses').limit(1).select('ready'))).docs[0];
@@ -321,12 +336,14 @@ export async function pruneDeliveryRequests(root, result, now, firestore, claim)
   ]);
   const requests = new Map([...reported.docs, ...oldest.docs].map(request => [request.id, request]));
   const removed = new Set();
+  const candidates = [];
   for (const request of requests.values()) {
     const value = request.data();
     const expires = Math.min(time(value.expiresAt), time(value.createdAt) + DELIVERY_TTL_MS);
     if (expires > now) result.nextAt = Math.min(result.nextAt ?? Infinity, expires);
-    if (value.receiptReportedAt === undefined && !(expires <= now)) continue;
-    if (!await closeRequest(firestore, root, request, claim, now)) continue;
+    if (value.receiptReportedAt !== undefined || expires <= now) candidates.push(request);
+  }
+  for (const request of await closeRequests(firestore, root, candidates, claim, now)) {
     if (await deleteSealedRequest(firestore, root, request, claim)) { result.deleted++; removed.add(request.id); }
   }
   if ([reported, oldest].some(page => page.size === requestBatch && page.docs.some(request => removed.has(request.id)))) result.nextAt = now;

@@ -57,8 +57,11 @@ export async function analyzeApplianceCareRequest(
   const abort = () => controller.abort();
   signal?.addEventListener('abort', abort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const retryKey = bytesToHex(sha256(utf8ToBytes(JSON.stringify([baseUrl, normalized]))));
-  const cacheKey = bytesToHex(sha256(utf8ToBytes(JSON.stringify([baseUrl, { ...normalized, forceReanalysis: undefined }]))));
+  const payload = JSON.stringify(normalized);
+  const retryKey = bytesToHex(sha256(utf8ToBytes(`[${JSON.stringify(baseUrl)},${payload}]`)));
+  const cacheKey = normalized.forceReanalysis
+    ? bytesToHex(sha256(utf8ToBytes(JSON.stringify([baseUrl, { ...normalized, forceReanalysis: undefined }]))))
+    : retryKey;
   let admissionId: string | undefined;
   const finishAttempt = () => { if (pendingAdmissions.get(retryKey)?.id === admissionId) pendingAdmissions.delete(retryKey); };
   try {
@@ -84,37 +87,46 @@ export async function analyzeApplianceCareRequest(
       while (pendingAdmissions.size > 32) pendingAdmissions.delete(pendingAdmissions.keys().next().value!);
     }
     admissionId = startHeaders['x-idempotency-key'];
+    let jobId: string | undefined;
     if (deliveries && session.userId && admissionId) {
-      admissionId = await deliveries.admission(session.userId, retryKey, admissionId);
-      startHeaders['x-idempotency-key'] = admissionId;
+      const saved = await deliveries.admission(session.userId, retryKey, admissionId);
+      admissionId = saved.id;
+      startHeaders['x-idempotency-key'] = saved.id;
+      if (isJobAccepted(saved)) jobId = saved.jobId;
     }
-    const startResponse = await abortApplianceWait(() => fetch(`${baseUrl}/api/appliance-care/jobs`, {
-      method: 'POST',
-      redirect: 'error',
-      headers: { 'content-type': 'application/json', ...startHeaders },
-      body: JSON.stringify(normalized),
-      signal: controller.signal,
-    }), controller.signal);
-    const startPayload: unknown = await abortApplianceWait(() => readJson(startResponse), controller.signal);
-    if (controller.signal.aborted) return temporaryError(signal?.aborted ? '解析の通信を中断しました。' : '解析がタイムアウトしました。時間をおいて再試行してください。');
-    if (isApiResponse(startPayload)) {
-      // Retire an expired admission only after the server's terminal verdict.
-      // A fresh paid attempt still requires the user's next explicit action.
-      if (startPayload.status === 'error' && startPayload.code === 'REQUEST_CONFLICT' && deliveries && session.userId && admissionId) {
-        await deliveries.completeAdmission(session.userId, retryKey, admissionId);
+    if (!jobId) {
+      const startResponse = await abortApplianceWait(() => fetch(`${baseUrl}/api/appliance-care/jobs`, {
+        method: 'POST',
+        redirect: 'error',
+        headers: { 'content-type': 'application/json', ...startHeaders },
+        body: payload,
+        signal: controller.signal,
+      }), controller.signal);
+      const startPayload: unknown = await abortApplianceWait(() => readJson(startResponse), controller.signal);
+      controller.signal.throwIfAborted();
+      if (isApiResponse(startPayload)) {
+        // An expired admission is retired only once the server reports it. The next attempt requires another explicit action.
+        if (startPayload.status === 'error' && startPayload.code === 'REQUEST_CONFLICT' && deliveries && session.userId && admissionId) {
+          await deliveries.completeAdmission(session.userId, retryKey, admissionId);
+        }
+        finishAttempt(); return startPayload;
       }
-      finishAttempt(); return startPayload;
-    }
-    if (!startResponse.ok || !isJobAccepted(startPayload)) {
-      return temporaryError('家電解析APIに接続できません。APIサーバーの状態を確認してください。');
+      if (!startResponse.ok || !isJobAccepted(startPayload)) {
+        return temporaryError('家電解析APIに接続できません。APIサーバーの状態を確認してください。');
+      }
+      jobId = startPayload.jobId;
+      if (deliveries && session.userId && admissionId) {
+        await deliveries.recordJob(session.userId, retryKey, admissionId, jobId);
+      }
     }
 
+    const statusUrl = `${baseUrl}/api/appliance-care/jobs/${encodeURIComponent(jobId)}`;
     let lastStage: ApplianceCareAnalysisStage | undefined;
     let pollAttempt = 0;
     while (!controller.signal.aborted) {
       const headers = await abortApplianceWait(() => session.headers(), controller.signal);
       if (controller.signal.aborted) return temporaryError('解析の通信を中断しました。');
-      const statusResponse = await abortApplianceWait(() => fetch(`${baseUrl}/api/appliance-care/jobs/${encodeURIComponent(startPayload.jobId)}`, {
+      const statusResponse = await abortApplianceWait(() => fetch(statusUrl, {
         method: 'GET',
         redirect: 'error',
         headers,
@@ -147,7 +159,7 @@ export async function analyzeApplianceCareRequest(
           }
           if (deliveries && session.userId) {
             controller.signal.throwIfAborted();
-            await deliveries.save(session.userId, cacheKey, { jobId: startPayload.jobId, baseUrl, receipt: statusPayload.delivery }, output, request.manual);
+            await deliveries.save(session.userId, cacheKey, { jobId, baseUrl, receipt: statusPayload.delivery }, output, request.manual);
             // Deletion starts after the SQLite transaction. UI need not wait for its network round-trip.
             void flushAnalysisReceipts(deliveries, session, baseUrl)
               .then(() => flushAnalysisReceipts(deliveries, session, baseUrl)).catch(() => undefined);

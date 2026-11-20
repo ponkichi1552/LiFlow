@@ -175,8 +175,10 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
       };
       let complete = await pull();
       if (metadata.group.rotationRequired) throw new SharingKeyVersionError('退出したメンバーを除いて共有鍵を更新する必要があります。');
+      let attemptedUpload = false;
       while (now() < deadline) {
         const items = await listSharingOutbox(deps.database, deps.groupId, options.force ? Number.MAX_SAFE_INTEGER : now()); if (!items.length) break;
+        attemptedUpload = true;
         for (const item of items) {
           if (now() >= deadline) break;
           const op = item.operation;
@@ -219,8 +221,8 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
         }
         await flushAcceptedV2();
       }
-      if (now() < deadline) complete = await pull();
-      else complete = false;
+      if (now() >= deadline) complete = false;
+      else if (attemptedUpload) complete = await pull();
       const checkpoint = await readSharingCheckpoint(deps.database, deps.groupId);
       if (complete && now() < deadline && !(await loadSharedReplica(deps.database, deps.groupId)).pendingOperationIds.length) {
         await deps.cloud.acknowledge(deps.groupId, deps.identity.deviceId, checkpoint.sequence, async events => {

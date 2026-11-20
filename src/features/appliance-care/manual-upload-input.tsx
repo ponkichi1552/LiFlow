@@ -3,15 +3,44 @@ import { Text, View } from 'react-native';
 import { AppButton, palette, typography } from '../../components/planner-ui';
 import type { UploadedManualInput } from './api-contracts';
 
+const maxManualBytes = 6 * 1024 * 1024;
+const maxManualPages = 100;
+const invalidFormat = 'PDF形式の取扱説明書を選んでください。';
+
 /** Only the copied cache file is deleted. The original chosen in Files/Drive remains untouched. */
 export async function pickApplianceManual(): Promise<{ name: string; base64: string } | null> {
   const { getDocumentAsync } = await import('expo-document-picker');
-  const { File, Paths } = await import('expo-file-system');
+  const { File, FileMode, Paths } = await import('expo-file-system');
   const result = await getDocumentAsync({ type: 'application/pdf', multiple: false, copyToCacheDirectory: true });
   if (result.canceled) return null;
-  const asset = result.assets[0]; const file = new File(asset.uri);
+  const asset = result.assets[0];
+  const file = new File(asset.uri);
   try {
-    if (!Number.isSafeInteger(file.size) || file.size < 32 || file.size > 6 * 1024 * 1024) throw new Error('PDFは6MiB以内で選択してください。');
+    const size = file.size;
+    if (!Number.isSafeInteger(size) || size < 32) throw new Error(invalidFormat);
+    if (size > maxManualBytes) throw new Error('PDFは6MiB以内で選んでください。');
+
+    const handle = file.open(FileMode.ReadOnly);
+    try {
+      const prefix = String.fromCharCode(...await handle.readBytes(8));
+      if (!/^%PDF-\d\.\d$/u.test(prefix)) throw new Error(invalidFormat);
+      const tailBytes = Math.min(1024, size);
+      handle.offset = size - tailBytes;
+      const tail = String.fromCharCode(...await handle.readBytes(tailBytes));
+      if (!tail.includes('%%EOF')) throw new Error(invalidFormat);
+    } finally {
+      handle.close();
+    }
+
+    const { requireOptionalNativeModule } = await import('expo');
+    const inspection = requireOptionalNativeModule<{ pageCount(uri: string): Promise<number | null> }>('LiFlowPdfInspection');
+    if (inspection) {
+      const pages = await inspection.pageCount(file.uri).catch(() => null);
+      if (pages === null) throw new Error('PDFを確認できませんでした。もう一度選んでください。');
+      if (!Number.isInteger(pages) || pages < 1) throw new Error('PDFを開けません。パスワードなしで開けるPDFを選んでください。');
+      if (pages > maxManualPages) throw new Error('PDFは100ページ以内で選んでください。');
+    }
+
     return { name: asset.name, base64: await file.base64() };
   } finally {
     if (file.uri.startsWith(Paths.cache.uri.replace(/\/+$/u, '') + '/') && file.exists) file.delete();

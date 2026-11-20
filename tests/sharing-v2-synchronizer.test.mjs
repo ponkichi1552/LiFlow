@@ -70,6 +70,22 @@ async function fixture() {
   return { owner, member, first, roster, archive, keys, state, cloud, device };
 }
 
+test('a caught-up sync with an empty outbox only pulls once and still acknowledges its durable position', async () => {
+  const f = await fixture();
+  const owner = await f.device();
+  const original = f.cloud.pull;
+  let pulls = 0;
+  const acknowledgements = [];
+  f.cloud.pull = async (...args) => { pulls++; return original(...args); };
+  f.cloud.acknowledge = async (_group, _device, sequence) => { acknowledgements.push(sequence); };
+  try {
+    const result = await owner.sync.sync();
+    assert.equal(result.complete, true);
+    assert.equal(pulls, 1);
+    assert.deepEqual(acknowledgements, [0]);
+  } finally { owner.connection.close(); }
+});
+
 test('a sharing upload that consumes the remaining budget stays incomplete and does not acknowledge a stale receive cursor',async()=>{
   const f=await fixture();const owner=await f.device();let acknowledgements=0;
   const upload=f.cloud.upload;f.cloud.upload=async(...args)=>{const result=await upload(...args);f.state.clock+=1000;return result;};

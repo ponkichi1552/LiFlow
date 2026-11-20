@@ -32,8 +32,10 @@ export function createDeliveryProofClient(port: {
     sign(value) { check(); return port.sign(value); },
     async publish(root, scope, progress) {
       check();
+      const fingerprint = canonicalJson([scope, progress]);
+      if (written === fingerprint) return;
       const document = await signDeliveryProgress(scope, port.userId, port.deviceId, progress, port.sign);
-      check(); if (written === document.signature) return;
+      check(); if (written === fingerprint) return;
       await runTransaction(firestore, async transaction => {
         const target = doc(root, DELIVERY_PROOF_COLLECTION, port.deviceId);
         const [current, policy, old] = await Promise.all([transaction.get(root), transaction.get(policyRef(root)), transaction.get(target)]);
@@ -42,7 +44,7 @@ export function createDeliveryProofClient(port: {
         if (!actual || canonicalJson(actual) !== canonicalJson(scope)) throw new Error('Delivery approval changed');
         if (old.data()?.signature !== document.signature) transaction.set(target, { ...document, updatedAt: serverTimestamp() });
       });
-      check(); written = document.signature;
+      check(); written = fingerprint;
     },
   };
 }

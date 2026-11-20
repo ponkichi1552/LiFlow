@@ -17,6 +17,7 @@ const response = (data = body(), headers = {}) => new Response(JSON.stringify(da
   'last-modified': new Date(now).toUTCString(), ...headers } });
 function fixture(clock = () => now) {
   const records = new Map(); let global = null; let tail = Promise.resolve(); let writes = 0; let reads = 0;
+  let dueQueries = 0; let controlReads = 0;
   const atomic = (key, fn) => {
     const result = tail.then(() => {
       const value = fn(structuredClone(records.get(key) ?? null), structuredClone(global));
@@ -26,8 +27,15 @@ function fixture(clock = () => now) {
     }); tail = result.catch(() => {}); return result;
   };
   const store = createRegionalWeatherStore({ now: clock, atomic, read: async key => { reads++; return structuredClone(records.get(key) ?? null); },
-    due: async stamp => [...records].filter(([, row]) => row.nextAttemptAt !== null && row.nextAttemptAt <= stamp).sort((a, b) => a[1].nextAttemptAt - b[1].nextAttemptAt).slice(0, 32).map(([key]) => key) });
-  return { store, records, global: () => global, counts: () => ({ reads, writes }), service: (fetcher, extra = {}) => createMetWeatherService({ store, now: clock, userAgent, fetcher, ...extra }) };
+    readControl: async () => { controlReads++; return structuredClone(global); },
+    due: async stamp => {
+      dueQueries++;
+      return [...records].filter(([, row]) => row.nextAttemptAt !== null && row.nextAttemptAt <= stamp)
+        .sort((a, b) => a[1].nextAttemptAt - b[1].nextAttemptAt).slice(0, 32).map(([key]) => key);
+    },
+  });
+  return { store, records, global: () => global, counts: () => ({ reads, writes, dueQueries, controlReads }),
+    service: (fetcher, extra = {}) => createMetWeatherService({ store, now: clock, userAgent, fetcher, ...extra }) };
 }
 
 test('audit100 a late provider response cannot replace a newer generated weather forecast', async () => {
@@ -112,6 +120,17 @@ test('global durable weather gates apply across concurrent workers and retries w
   const final = serviceA.tick(); await new Promise(resolve => setImmediate(resolve));
   assert.equal(calls, 5); for (const resolve of resolvers.slice(4)) resolve(response()); assert.equal(await final, 1);
   assert.ok([...h.records.values()].every(row => row.cache && row.error === null));
+});
+test('a weather tick reuses one due query and one budget read for its two reservations', async () => {
+  const h = fixture();
+  const service = h.service(async () => response());
+  await service.read(id);
+  await service.read('jp-municipal.13101');
+  await service.read('jp-municipal.13102');
+  assert.equal(await service.tick(), 2);
+  assert.equal(h.counts().dueQueries, 1);
+  assert.equal(h.counts().controlReads, 1);
+  assert.equal([...h.records.values()].filter(row => row.status === 'queued').length, 1);
 });
 test('403 halts automatic fetching and records operator attention while 429 Retry-After slows all regions', async () => {
   let stamp = now; const h = fixture(() => stamp); const alerts = [];

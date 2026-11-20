@@ -19,7 +19,7 @@ function recoveryCleanupFixture(scope = 'sharingGroups/unit-sweep-group') {
       enrollmentId: policy.enrollmentId, authorityDigest: 'b'.repeat(64), keyVersion: 1 } };
   const records = new Map([[scope, { rosterJson: claim.authorityJson, authorityJson: claim.authorityJson, keyVersion: 1 }],
     [scope + '/deliveryControl/policy', policy]]), queries = [], deletes = new Map();
-  let clock = 1_800_000_000_000, batchNumber = 0, failBatch = 0, afterErase;
+  let clock = 1_800_000_000_000, batchNumber = 0, failBatch = 0, afterErase, documentReads = 0;
   const ref = path => ({ path, id: path.split('/').at(-1), collection: name => query(`${path}/${name}`),
     async delete() { deletes.set(path, (deletes.get(path) ?? 0) + 1); records.delete(path); } });
   const snapshot = path => ({ id: path.split('/').at(-1), ref: ref(path), exists: records.has(path), data: () => records.get(path) });
@@ -36,8 +36,10 @@ function recoveryCleanupFixture(scope = 'sharingGroups/unit-sweep-group') {
   }
   const firestore = { collection: path => query(path), async runTransaction(work) {
     const targets = [];
-    const result = await work({ getAll: async (...refs) => refs.map(target => snapshot(target.path)),
-      get: target => target.get ? target.get() : snapshot(target.path), update(target, update) { records.set(target.path, { ...records.get(target.path), ...update }); },
+    const result = await work({
+      getAll: async (...refs) => { documentReads += refs.length; return refs.map(target => snapshot(target.path)); },
+      get: target => { if (target.get) return target.get(); documentReads++; return snapshot(target.path); },
+      update(target, update) { records.set(target.path, { ...records.get(target.path), ...update }); },
       delete: target => targets.push(target) });
     if (targets.length) {
       if (++batchNumber === failBatch) { failBatch = 0; throw new Error('synthetic interrupted erasure'); }
@@ -47,7 +49,7 @@ function recoveryCleanupFixture(scope = 'sharingGroups/unit-sweep-group') {
     return result;
   },
   };
-  return { records, queries, deletes, now: () => clock, advance: ms => { clock += ms; }, failBatch: number => { failBatch = number; },
+  return { records, queries, deletes, documentReads: () => documentReads, now: () => clock, advance: ms => { clock += ms; }, failBatch: number => { failBatch = number; },
     afterErase: hook => { afterErase = hook; },
     async sweep() {
       const result = { active: true, deleted: 0, nextAt: null };
@@ -97,6 +99,14 @@ test('large received recovery backlogs make bounded progress and schedule anothe
   assert.ok(received.every(path => !f.records.has(path)));
   assert.ok(pending.every(path => f.records.has(path)));
   const idle = await f.sweep(); assert.equal(idle.deleted, 0); assert.ok(idle.nextAt > f.now(), 'only the pending TTL remains, not an immediate idle sweep');
+});
+
+test('a full cleanup page reads shared controls once to seal it while still rechecking each deletion', async () => {
+  const f = recoveryCleanupFixture();
+  for (let i = 0; i < 32; i++) f.add(`received-${i}`, { received: true });
+  assert.equal((await f.sweep()).deleted, 32);
+  // Three scope documents plus 32 requests to seal, followed by two four-document checks per request.
+  assert.equal(f.documentReads(), 35 + 2 * 4 * 32);
 });
 
 test('expired recovery backlogs return bounded continuation until cleared and duplicate queue membership deletes each request once', async () => {

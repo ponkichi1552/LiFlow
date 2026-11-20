@@ -86,9 +86,14 @@ test('device analysis inbox commits the PDF and result atomically before acknowl
   assert.equal(deviceAnalysisDeliveries(f.database), store, 'all callers on one connection share receipt serialization');
   assert.equal(await store.hasPending(), false);
   assert.equal(f.connection.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='appliance_analysis_deliveries'").get().n, 0, 'an empty check cannot add AI tables to cold startup');
+  f.connection.exec(`CREATE TABLE appliance_analysis_admissions (owner TEXT NOT NULL,request_key TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,PRIMARY KEY(owner,request_key));
+    INSERT INTO appliance_analysis_admissions VALUES('a','request','first-attempt');`);
   let changes = 0; const stop = store.subscribe(() => { changes++; });
-  assert.equal(await store.admission('a', 'request', 'first-attempt'), 'first-attempt');
-  assert.equal(await store.admission('a', 'request', 'retry-attempt'), 'first-attempt');
+  assert.deepEqual(await store.admission('a', 'request', 'retry-attempt'), { id: 'first-attempt', jobId: null });
+  await store.recordJob('a', 'request', 'first-attempt', saved.jobId);
+  await store.recordJob('a', 'request', 'different-attempt', 'different-job');
+  assert.deepEqual(await store.admission('a', 'request', 'retry-attempt'), { id: 'first-attempt', jobId: saved.jobId });
   f.connection.exec("CREATE TRIGGER synthetic_save_failure BEFORE INSERT ON appliance_analysis_deliveries BEGIN SELECT RAISE(ABORT,'synthetic full disk'); END");
   await assert.rejects(store.save('a', 'request', saved, output, syntheticManual()), /synthetic full disk/);
   assert.equal(manualChecks, 1, 'the inbox validates the PDF once per save attempt');
@@ -103,8 +108,10 @@ test('device analysis inbox commits the PDF and result atomically before acknowl
   assert.deepEqual(await store.read('a', 'request'), output); assert.equal(await store.read('b', 'request'), null);
   await store.acknowledged('b', saved.jobId); assert.equal((await store.pending('a')).length, 1);
   await store.acknowledged('a', saved.jobId); assert.deepEqual(await store.pending('a'), []); assert.deepEqual(await store.read('a', 'request'), output);
-  await store.completeAdmission('a', 'request', 'wrong-attempt'); assert.equal(await store.admission('a', 'request', 'new'), 'first-attempt');
-  await store.completeAdmission('a', 'request', 'first-attempt'); assert.equal(await store.admission('a', 'request', 'new'), 'new');
+  await store.completeAdmission('a', 'request', 'wrong-attempt');
+  assert.deepEqual(await store.admission('a', 'request', 'new'), { id: 'first-attempt', jobId: saved.jobId });
+  await store.completeAdmission('a', 'request', 'first-attempt');
+  assert.deepEqual(await store.admission('a', 'request', 'new'), { id: 'new', jobId: null });
   t.mock.timers.setTime(Date.now() - 5000);
   const newer = { ...output, message: '合成した最新の解析結果' };
   await store.save('a', 'request', { ...saved, jobId: 'd'.repeat(64) }, newer, syntheticManual());

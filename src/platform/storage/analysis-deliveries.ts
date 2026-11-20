@@ -23,7 +23,11 @@ export function deviceAnalysisDeliveries(database: SQLiteDatabase): DeviceAnalys
         receipt_json TEXT, result_json TEXT NOT NULL, saved_at INTEGER NOT NULL, PRIMARY KEY(owner,job_id));
         CREATE INDEX IF NOT EXISTS idx_analysis_delivery_request ON appliance_analysis_deliveries(owner,request_key,saved_at);
         CREATE TABLE IF NOT EXISTS appliance_analysis_admissions (owner TEXT NOT NULL,request_key TEXT NOT NULL,
-          idempotency_key TEXT NOT NULL,PRIMARY KEY(owner,request_key));`);
+          idempotency_key TEXT NOT NULL,job_id TEXT,PRIMARY KEY(owner,request_key));`);
+      const columns = await database.getAllAsync<{ name: string }>('PRAGMA table_info(appliance_analysis_admissions)');
+      if (!columns.some(column => column.name === 'job_id')) {
+        await database.execAsync('ALTER TABLE appliance_analysis_admissions ADD COLUMN job_id TEXT');
+      }
       initialized.add(database);
     }
     return work();
@@ -36,10 +40,15 @@ export function deviceAnalysisDeliveries(database: SQLiteDatabase): DeviceAnalys
     subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     admission: (owner, requestKey, proposed) => operation(() => withIsolatedSqliteTransaction(database, async transaction => {
       await transaction.runAsync('INSERT OR IGNORE INTO appliance_analysis_admissions(owner,request_key,idempotency_key) VALUES(?,?,?)', owner, requestKey, proposed);
-      const row = await transaction.getFirstAsync<{ idempotency_key: string }>('SELECT idempotency_key FROM appliance_analysis_admissions WHERE owner=? AND request_key=?', owner, requestKey);
+      const row = await transaction.getFirstAsync<{ idempotency_key: string; job_id: string | null }>(
+        'SELECT idempotency_key,job_id FROM appliance_analysis_admissions WHERE owner=? AND request_key=?', owner, requestKey);
       if (!row) throw new Error('解析の受付情報を端末に保存できませんでした。');
-      return row.idempotency_key;
+      return { id: row.idempotency_key, jobId: row.job_id };
     })),
+    recordJob: (owner, requestKey, id, jobId) => operation(async () => {
+      await database.runAsync('UPDATE appliance_analysis_admissions SET job_id=? WHERE owner=? AND request_key=? AND idempotency_key=? AND job_id IS NULL',
+        jobId, owner, requestKey, id);
+    }),
     completeAdmission: (owner, requestKey, id) => operation(async () => {
       await database.runAsync('DELETE FROM appliance_analysis_admissions WHERE owner=? AND request_key=? AND idempotency_key=?', owner, requestKey, id);
     }),

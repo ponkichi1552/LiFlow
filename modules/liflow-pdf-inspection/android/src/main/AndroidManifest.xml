@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <service
+      android:name="expo.modules.liflowpdfinspection.PdfPageCountService"
+      android:exported="false"
+      android:isolatedProcess="true"
+      android:process=":pdf_inspection" />
+  </application>
+</manifest>

@@ -408,6 +408,45 @@ test('a lost local copy recovers from an unexpired acknowledged reply but skips 
   } finally { f.close(); }
 });
 
+test('a recovery crossing a UTC day reuses a live reply and requests again after the previous reply is removed', async () => {
+  const f = await fixture();
+  try {
+    const source = await f.device('owner', f.owner, false), target = await f.device('member', f.member, false);
+    const sender = f.transport(source, 'owner', f.owner), receiver = f.transport(target, 'member', f.member);
+    const key = 'previous-day-copy', value = { encryptedPayload: 'synthetic recovery across midnight' };
+    await source.local.saveChunk(key, value);
+    await assert.rejects(receiver.relay.snapshotChunk(groupId, key, 0), error => error.code === 'sharing/delivery-pending');
+    await sender.relay.serve(groupId);
+    await target.local.saveChunk(key, await receiver.relay.snapshotChunk(groupId, key, 0));
+    await receiver.relay.acknowledge(groupId, 0);
+
+    const requests = store.collection(`sharingGroups/${groupId}/deliveryRequests`);
+    const sameDay = (await requests.get()).docs[0];
+    const old = sameDay.data();
+    const previous = requests.doc(sharedDocumentDigest([groupId, 'member', f.member.deviceId, old.kind, key, 0, 0,
+      old.keyVersion, Math.floor(old.expiresAt.toMillis() / 86400_000) - 2]));
+    const alone = await f.device('member', f.member, false);
+    const resumed = f.transport(alone, 'member', f.member);
+    // Represent a prior-day ID with a still-live server timestamp, without advancing the emulator clock.
+    const batch = store.batch();
+    batch.set(previous, old);
+    for (const reply of (await sameDay.ref.collection('responses').get()).docs) {
+      const copy = previous.collection('responses').doc(reply.id);
+      batch.set(copy, reply.data());
+      for (const part of (await reply.ref.collection('parts').get()).docs) batch.set(copy.collection('parts').doc(part.id), part.data());
+    }
+    await batch.commit();
+    await store.recursiveDelete(sameDay.ref);
+    assert.deepEqual(await resumed.relay.snapshotChunk(groupId, key, 0), value);
+    assert.equal(resumed.counts.writes, 0, 'the available prior-day data needs no retransmission');
+    const reply = (await previous.collection('responses').get()).docs[0];
+    await store.recursiveDelete(reply.ref.collection('parts'));
+    assert.equal((await reply.ref.get()).exists, true, 'a reply header can remain after an interrupted cleanup');
+    await assert.rejects(resumed.relay.snapshotChunk(groupId, key, 0), error => error.code === 'sharing/delivery-pending');
+    assert.ok((await sameDay.ref.get()).exists, 'closed prior-day metadata must not block a fresh request');
+  } finally { f.close(); }
+});
+
 test('an expired recovery releases its response listener and durable-receipt checks while a live sibling keeps listening', async t => {
   const f = await fixture();
   try {
@@ -596,6 +635,10 @@ test('a negotiated closed group with no remaining recipients still expires old c
     const fields = rosterCloudFields(closed), batch = store.batch();
     batch.update(root, fields); batch.set(root.collection('rosters').doc(String(closed.body.revision)), { rosterJson: fields.rosterJson });
     await batch.commit();
+    const { shared } = await inspectDeliveryReadiness(store);
+    assert.equal(shared.enabledScopes, 1);
+    assert.equal(shared.closedEnabledScopes, 1);
+    assert.equal(shared.approved, 0);
     assert.equal((await sweepSharedDeliveries(store, groupId, Date.now() + 86400_001)).active, false);
     assert.equal((await root.collection('events').get()).size, 0);
     assert.equal((await root.collection('receipts').doc(event.operationId).get()).exists, true);

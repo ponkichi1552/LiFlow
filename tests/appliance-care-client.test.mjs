@@ -37,7 +37,7 @@ test('an explicit reanalysis replaces the ordinary local result cache so a later
   const { publicKey } = await import('../server/appliance-care-api/src/public-access.mjs');
   const original = globalThis.fetch; const cache = new Map(); let posts = 0;
   const deliveries = { read: async (_owner, key) => cache.get(key), pending: async () => [], acknowledged: async () => {},
-    admission: async (_owner, _key, id) => id, completeAdmission: async () => {},
+    admission: async (_owner, _key, id) => ({ id, jobId: null }), recordJob: async () => {}, completeAdmission: async () => {},
     save: async (_owner, key, _delivery, value) => { cache.set(key, value); } };
   const input = { ...request, modelNumber: 'SYNTHETIC-LATEST-CACHE' };
   const source = 'https://www.dyson.co.jp/support/SV20';
@@ -62,7 +62,7 @@ test('expired durable AI admissions retire without an automatic paid retry and l
   const original = globalThis.fetch; let id = 'synthetic-expired-attempt', posts = 0; const ids = [];
   const deliveries = { read: async () => null, pending: async () => [], acknowledged: async () => {},
     save: async () => { throw new Error('A legacy server supplies no deletion receipt'); },
-    admission: async (_owner, _key, proposed) => id ??= proposed,
+    admission: async (_owner, _key, proposed) => ({ id: id ??= proposed, jobId: null }), recordJob: async () => {},
     completeAdmission: async (_owner, _key, finished) => { if (id === finished) id = undefined; } };
   try {
     globalThis.fetch = async (_url, options) => {
@@ -85,8 +85,9 @@ test('mobile analysis sends a deletion receipt only after durable storage and re
   const { flushAnalysisReceipts } = await import('../src/features/appliance-care/api-client.ts');
   const original = globalThis.fetch; const value = { status: 'not_found', message: '合成した配送検査結果' };
   const receipt = { token: 'a'.repeat(64), digest: publicKey(analysisDeliveryJson(value)), expiresAt: Date.now() + 86400_000 };
-  let saved = null, acknowledged = false, failSave = true, failReceipt = true, receipts = 0; const admissions = [];
-  const deliveries = { read: async () => null, admission: async (_owner, _key, id) => id, completeAdmission: async () => {},
+  let saved = null, jobId = null, acknowledged = false, failSave = true, failReceipt = true, receipts = 0; const admissions = [];
+  const deliveries = { read: async () => null, admission: async (_owner, _key, id) => ({ id, jobId }),
+    recordJob: async (_owner, _request, _id, accepted) => { jobId = accepted; }, completeAdmission: async () => {},
     save: async (owner, _request, delivery, result) => { assert.equal(owner, 'synthetic-owner'); if (failSave) throw new Error('synthetic disk full'); saved = { delivery, result }; },
     pending: async () => saved && !acknowledged ? [saved.delivery] : [], acknowledged: async () => { acknowledged = true; } };
   try {
@@ -103,7 +104,8 @@ test('mobile analysis sends a deletion receipt only after durable storage and re
     assert.equal(receipts, 0, 'no deletion on a failed SQLite commit');
     failSave = false;
     assert.deepEqual(await analyzeApplianceCareRequest(input, 'https://api.example.test', 1000, undefined, undefined, deliveries), value);
-    await new Promise(resolve => setImmediate(resolve)); assert.equal(admissions[0], admissions[1]); assert.ok(saved); assert.equal(acknowledged, false);
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(admissions.length, 1, 'retry resumes the accepted job without posting the PDF again');
+    assert.ok(saved); assert.equal(acknowledged, false);
     failReceipt = false;
     await flushAnalysisReceipts(deliveries, { userId: 'synthetic-owner', headers: async () => ({ authorization: 'Bearer synthetic' }) }, 'https://api.example.test');
     assert.equal(acknowledged, true); assert.equal(receipts, 2);
@@ -112,7 +114,8 @@ test('mobile analysis sends a deletion receipt only after durable storage and re
 
 test('mobile analysis rejects a receipt for different result bytes before saving or acknowledging it', async () => {
   const original = globalThis.fetch; let saved = false, receiptSent = false;
-  const deliveries = { read: async () => null, admission: async (_owner, _key, id) => id, completeAdmission: async () => {},
+  const deliveries = { read: async () => null, admission: async (_owner, _key, id) => ({ id, jobId: null }),
+    recordJob: async () => {}, completeAdmission: async () => {},
     save: async () => { saved = true; }, pending: async () => [], acknowledged: async () => {} };
   try {
     globalThis.fetch = async (url, options) => {

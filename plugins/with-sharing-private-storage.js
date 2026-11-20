@@ -10,8 +10,8 @@ const backupRules = `<?xml version="1.0" encoding="utf-8"?>\n<full-backup-conten
 const extractionRules = `<?xml version="1.0" encoding="utf-8"?>\n<data-extraction-rules>\n  <cloud-backup>\n${excludes}\n  </cloud-backup>\n  <device-transfer>\n${excludes}\n  </device-transfer>\n</data-extraction-rules>\n`;
 
 function androidStorage(source) {
-  return mergeContents({ tag: 'liflow-sharing-private-storage', src: source, anchor: /super\.onCreate\(\)/u,
-    offset: 1, comment: '//', newSrc: `    val sharingMarker = java.io.File(filesDir, "SQLite/shared-location.json")
+  return mergeContents({ tag: 'liflow-sharing-private-storage', src: source, anchor: /DefaultNewArchitectureEntryPoint\.releaseLevel = try/u,
+    offset: 0, comment: '//', newSrc: `    val sharingMarker = java.io.File(filesDir, "SQLite/shared-location.json")
     try {
       val sharedDirectory = java.io.File(noBackupFilesDir, "LiFlowSharedSQLite")
       check(sharedDirectory.isDirectory || sharedDirectory.mkdirs())

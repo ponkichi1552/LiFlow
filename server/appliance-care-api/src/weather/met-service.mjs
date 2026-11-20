@@ -34,7 +34,7 @@ export function createMetWeatherService({ store, userAgent, fetcher = fetch, now
       const lastModified = Number.isFinite(Date.parse(lastModifiedHeader)) && Date.parse(lastModifiedHeader) <= stamp ? lastModifiedHeader : null;
       if (response.status === 304) {
         if (!claim.cache || !validMetForecast(claim.cache.forecast)) return { code: 'met_invalid_not_modified' };
-        return { cache: { ...claim.cache, checkedAt: new Date(stamp).toISOString(), expiresAt: expiresAt ?? claim.cache.expiresAt,
+        return { notModified: true, cache: { ...claim.cache, checkedAt: new Date(stamp).toISOString(), expiresAt: expiresAt ?? claim.cache.expiresAt,
           lastModified: lastModified ?? claim.cache.lastModified } };
       }
       const body = await limitedJson(response, controller.signal);
@@ -67,7 +67,7 @@ export function createMetWeatherService({ store, userAgent, fetcher = fetch, now
       if (!configured) return 0;
       const claims = []; let claimFailure;
       try {
-        for (let index = 0; index < maximum; index++) { const claim = await store.claim(); if (!claim) break; claims.push(claim); }
+        for await (const claim of store.claimReady(maximum)) claims.push(claim);
       } catch (cause) { claimFailure = cause; }
       // A later claim/commit failure must not strand leases already acquired or
       // let a scheduled HTTP request end while another issued job is running.

@@ -23,6 +23,8 @@ const draft58Implementations = [
   { storage: 2, verifier: 2, calendarProjection: 3, calendarRegistration: 2, digest: 'fa775cc74276976e323a119d933431bcdcef0a62b2943e18fb53664ccecc5d48' },
   // Preserve the same facts and scheduler while archiving authenticated events after the local commit.
   { storage: 3, verifier: 2, calendarProjection: 3, calendarRegistration: 2, digest: '38dbf9826dfa0542e663df946b2ef893983dee98f42838ccb90249678e1723bd' },
+  // An empty outbox no longer needs another read. Fact, receipt and plan formats are identical.
+  { storage: 3, verifier: 2, calendarProjection: 3, calendarRegistration: 2, digest: 'd997df2aff16aa0bb2fc3331b983b7e923876075eda2472782fae782d4875f99' },
 ];
 const draft58ImplementationIndex = manifest => draft58Implementations.findIndex(({ storage, verifier, calendarProjection, calendarRegistration = 1, digest }) =>
   manifest.sourceSha256 === digest && (manifest.receiveStorageRevision ?? 1) === storage

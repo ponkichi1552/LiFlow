@@ -13,6 +13,12 @@ function fixture() {
   const services = { auth, firestore }; const native = { nativePrivateCalendarSecrets: { name: 'protected-secrets' } };
   for (const name of ['Source', 'AuthorityIntents', 'Cache']) native['nativePrivateCalendar' + name] = owner => ({ owner, kind: name });
   native.nativePrivatePlannerPreferences = owner => ({ owner, kind: 'PlannerPreferences', read: async () => null });
+  native.nativePrivateDeliveryArchive = async owner => {
+    state.deliveryOpenings = (state.deliveryOpenings ?? 0) + 1;
+    await state.deliveryWait;
+    if (owner !== state.uid) throw new Error('本人用Calendarのアカウントが変わりました。');
+    return { owner };
+  };
   const gateway = {
     getCurrentGoogleCalendarAccount: async () => ({ subject: state.subject, label: 'Synthetic label' }),
     restorePrivateGoogleCalendarAccount: async () => { state.restores++; return { subject: state.subject, label: 'Synthetic label' }; },
@@ -24,7 +30,11 @@ function fixture() {
     'firebase/auth': { onAuthStateChanged: (value, callback) => { assert.equal(value, auth); state.callbacks.push(callback); return () => {}; } },
     './firebase-services': { getSharingServices: () => { state.authReads++; return services; } },
     './private-calendar-devices': { openPrivateCalendarDevices: owner => ({ owner }) },
-    './private-calendar-cloud': { createPrivateCalendarCloud: (db, owner, current) => { assert.equal(db, firestore); assert.equal(current(), owner); state.cloud.push(owner); return { owner }; } },
+    './private-calendar-cloud': { createPrivateCalendarCloud: (db, owner, current, _crypto, delivery) => {
+      assert.equal(db, firestore); assert.equal(current(), owner); state.cloud.push(owner); return { owner, delivery };
+    } },
+    './private-delivery': { createPrivateDelivery: ({ archive }) => ({ prepare: async () => archive.owner }) },
+    '../../features/sharing/crypto': { signSharedDocument: () => 'synthetic-signature' },
     './private-planner-cloud': { createPrivatePlannerCloud: (db, owner, current) => { assert.equal(db, firestore); assert.equal(current(), owner); return { owner, kind: 'PrivatePlannerCloud' }; } },
     '../../features/sharing/private-planner/preference-sync': { createPrivatePreferenceSync: port => { assert.equal(port.ownerUserId, state.uid); return { port, kind: 'PrivatePreferenceSync' }; } },
     './native-private-calendar-crypto': { nativePrivateCalendarCrypto: {} }, './private-calendar-secrets': native,
@@ -48,6 +58,30 @@ test('private Calendar Native runtime is lazy one per authenticated UID and inva
   assert.throws(() => first.port.assertOwner(), /アカウント/u); const other = f.module.openPrivateCalendarRuntime('owner-b'); assert.notEqual(other, first);
   f.state.uid = null; f.state.callbacks[0](null); assert.ok(f.state.invalidations.includes('owner-b')); assert.equal(f.state.ports.length, 2);
   assert.deepEqual(f.state.cloud, ['owner-a', 'owner-b']); assert.deepEqual(f.state.tokens, []); assert.equal(f.state.restores, 0);
+});
+
+test('private delivery initialization retries after returning to the same account without restarting the app', async t => {
+  const flag = 'EXPO_PUBLIC_SHARING_EPHEMERAL_DELIVERY';
+  const previous = process.env[flag];
+  process.env[flag] = '1';
+  t.after(() => { if (previous === undefined) delete process.env[flag]; else process.env[flag] = previous; });
+  const f = fixture();
+  f.state.uid = 'owner-a';
+  const runtime = f.module.openPrivateCalendarRuntime(f.state.uid);
+  let release;
+  f.state.deliveryWait = new Promise(resolve => { release = resolve; });
+  const prepare = () => runtime.port.cloud.delivery.prepare();
+  const first = prepare();
+  await new Promise(setImmediate);
+  assert.equal(f.state.deliveryOpenings, 1);
+  f.state.uid = null;
+  f.state.callbacks[0](null);
+  release();
+  await assert.rejects(first, /アカウント/u);
+  f.state.uid = 'owner-a';
+  assert.equal(f.module.openPrivateCalendarRuntime(f.state.uid), runtime);
+  assert.deepEqual(await Promise.all([prepare(), prepare()]), ['owner-a', 'owner-a']);
+  assert.equal(f.state.deliveryOpenings, 2, 'both callers share the new initialization');
 });
 
 test('private Calendar Native acquisition refuses an expired Google mutex wait before requesting a token', async t => {

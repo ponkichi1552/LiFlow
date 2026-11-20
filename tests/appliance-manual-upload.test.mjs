@@ -78,20 +78,55 @@ test('public paid analysis cannot enable search external file URLs or a second u
 });
 
 for (const platform of ['ios', 'android']) test(`${platform} manual selection reads a PDF then deletes only its own copied cache file and cancellation sends nothing`, async () => {
-  const events = []; let cancelled = false; let tooLarge = false;
+  const events = [];
+  let cancelled = false;
+  let uri = 'file:///cache/selected.pdf';
+  let bytes = syntheticPdf(100);
+  let pages = 100;
+  let hasNativeInspection = true;
   const api = loadNativeModule('src/features/appliance-care/manual-upload-input.tsx', {
     'react/jsx-runtime': {}, react: {}, 'react-native': {}, '../../components/planner-ui': {},
     'expo-document-picker': { getDocumentAsync: async options => { assert.deepEqual(options, { type: 'application/pdf', multiple: false, copyToCacheDirectory: true });
-      return cancelled ? { canceled: true } : { canceled: false, assets: [{ uri: 'file:///cache/selected.pdf', name: 'original.pdf' }] }; } },
-    'expo-file-system': { Paths: { cache: { uri: 'file:///cache/' } }, File: class {
-      constructor(uri) { this.uri = uri; } get size() { return tooLarge ? MAX_MANUAL_BYTES + 1 : 100; } exists = true;
-      async base64() { events.push('read'); return 'synthetic-content'; } delete() { events.push(['delete', this.uri]); }
+      return cancelled ? { canceled: true } : { canceled: false, assets: [{ uri, name: 'original.pdf' }] }; } },
+    expo: { requireOptionalNativeModule: name => {
+      assert.equal(name, 'LiFlowPdfInspection');
+      return hasNativeInspection ? { async pageCount(path) { assert.equal(path, uri); events.push('inspect'); return pages; } } : null;
+    } },
+    'expo-file-system': { FileMode: { ReadOnly: 'r' }, Paths: { cache: { uri: 'file:///cache/' } }, File: class {
+      constructor(uri) { this.uri = uri; } get size() { return bytes.length; } exists = true;
+      open(mode) {
+        assert.equal(mode, 'r');
+        return { offset: 0, async readBytes(length) { return bytes.subarray(this.offset, this.offset + length); }, close() { events.push('close'); } };
+      }
+      async base64() { events.push('read'); return bytes.toString('base64'); } delete() { events.push(['delete', this.uri]); }
     } },
   });
-  const selected = await api.pickApplianceManual(); assert.equal(selected.name, 'original.pdf');
-  assert.deepEqual(events, ['read', ['delete', 'file:///cache/selected.pdf']]);
-  cancelled = true; assert.equal(await api.pickApplianceManual(), null); assert.equal(events.length, 2);
-  cancelled = false; tooLarge = true; await assert.rejects(api.pickApplianceManual(), /6MiB/); assert.equal(events.at(-1)[0], 'delete');
+  assert.deepEqual(await api.pickApplianceManual(), { name: 'original.pdf', base64: bytes.toString('base64') });
+  assert.deepEqual(events.splice(0), ['close', 'inspect', 'read', ['delete', uri]]);
+  cancelled = true;
+  assert.equal(await api.pickApplianceManual(), null);
+  assert.deepEqual(events, []);
+
+  cancelled = false;
+  for (const [count, message] of [[101, /100ページ/], [0, /開けません/], [null, /もう一度/]]) {
+    pages = count;
+    await assert.rejects(api.pickApplianceManual(), message);
+    assert.deepEqual(events.splice(0), ['close', 'inspect', ['delete', uri]], 'a failed inspection never reads the upload body');
+  }
+  for (const malformed of [Buffer.alloc(128), syntheticPdf().subarray(0, -6)]) {
+    bytes = malformed;
+    await assert.rejects(api.pickApplianceManual(), /PDF形式/);
+    assert.deepEqual(events.splice(0), ['close', ['delete', uri]]);
+  }
+  bytes = Buffer.alloc(MAX_MANUAL_BYTES + 1);
+  await assert.rejects(api.pickApplianceManual(), /6MiB/);
+  assert.deepEqual(events.splice(0), [['delete', uri]]);
+
+  hasNativeInspection = false;
+  uri = 'file:///documents/original.pdf';
+  bytes = syntheticPdf();
+  assert.ok(await api.pickApplianceManual());
+  assert.deepEqual(events, ['close', 'read'], 'older app builds keep server-side page validation and never remove the source');
 });
 
 test('only an internal OpenAI no-result classification returns a non-consuming analysis error', async () => {

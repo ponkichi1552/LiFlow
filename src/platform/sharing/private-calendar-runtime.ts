@@ -32,7 +32,7 @@ export function openPrivateCalendarRuntime(userId: string): PrivateCalendarRunti
   const saved = runtimes.get(userId); if (saved) return saved;
   const secrets = nativePrivateCalendarSecrets; const source = nativePrivateCalendarSource(userId); const intents = nativePrivateCalendarAuthorityIntents(userId);
   let deliveryPromise: Promise<PrivateDeliveryPort> | undefined;
-  const loadDelivery = () => deliveryPromise ??= (async () => {
+  const initializeDelivery = async () => {
     const [{ createPrivateDelivery }, { nativePrivateDeliveryArchive }, { signSharedDocument }] = await Promise.all([
       import('./private-delivery'), import('./private-calendar-secrets'), import('../../features/sharing/crypto'),
     ]);
@@ -43,7 +43,14 @@ export function openPrivateCalendarRuntime(userId: string): PrivateCalendarRunti
         return signSharedDocument(value, identity);
       },
       state: async () => { const value = await secrets.publicState(userId); return value ? { identity: value.identity, authority: value.authority ?? null } : null; } });
-  })();
+  };
+  const loadDelivery = () => {
+    if (deliveryPromise) return deliveryPromise;
+    const pending = initializeDelivery();
+    deliveryPromise = pending;
+    void pending.catch(() => { if (deliveryPromise === pending) deliveryPromise = undefined; });
+    return pending;
+  };
   const delivery: PrivateDeliveryPort | undefined = process.env.EXPO_PUBLIC_SHARING_EPHEMERAL_DELIVERY === '1' ? {
     remember: async (...args) => (await loadDelivery()).remember(...args), recover: async (...args) => (await loadDelivery()).recover(...args),
     confirm: async (...args) => (await loadDelivery()).confirm(...args), prepare: async (...args) => (await loadDelivery()).prepare(...args),

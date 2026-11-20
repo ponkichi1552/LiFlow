@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 
 const require = createRequire(import.meta.url);
 const { compileModsAsync } = require('expo/config-plugins');
@@ -23,7 +24,7 @@ test('Apple sharing capability follows the explicit flag even after Expo automat
 });
 
 test('shared database native directories exclude OS backups without changing personal SQLite backup or deleting business data', () => {
-  const android = 'class MainApplication {\n  override fun onCreate() {\n    super.onCreate()\n  }\n}';
+  const android = 'class MainApplication {\n  override fun onCreate() {\n    super.onCreate()\n    DefaultNewArchitectureEntryPoint.releaseLevel = try {}\n  }\n}';
   const ios = 'class AppDelegate: ExpoAppDelegate {\n  func application() {\n    let delegate = ReactNativeDelegate()\n  }\n}';
   const kotlin = storage.androidStorage(android); const swift = storage.iosStorage(ios);
   assert.equal(storage.androidStorage(kotlin), kotlin); assert.equal(storage.iosStorage(swift), swift);
@@ -64,4 +65,14 @@ test('Android starts the embedded React host in parallel with its release launch
   const activity = startup.preloadLauncherReactHost('class MainActivity {\n  override fun onCreate(savedInstanceState: Bundle?) {\n    super.onCreate(null)\n  }\n}');
   assert.equal(startup.preloadLauncherReactHost(activity), activity);
   assert.match(activity, /!BuildConfig\.DEBUG[\s\S]*ACTION_MAIN[\s\S]*CATEGORY_LAUNCHER[\s\S]*reactHost\?\.start\(\)[\s\S]*super\.onCreate\(null\)/);
+});
+
+test('Android PDF inspection is private and isolated from React and shared database setup', () => {
+  const template = 'class MainApplication {\n  override fun onCreate() {\n    super.onCreate()\n    DefaultNewArchitectureEntryPoint.releaseLevel = try {}\n    loadReactNative(this)\n  }\n  override fun onConfigurationChanged(newConfig: Configuration) {\n    super.onConfigurationChanged(newConfig)\n    ApplicationLifecycleDispatcher.onConfigurationChanged(this, newConfig)\n  }\n}';
+  const generated = startup.skipIsolatedProcessStartup(storage.androidStorage(template));
+  assert.equal(startup.skipIsolatedProcessStartup(generated), generated);
+  assert.match(generated, /onCreate\(\)[\s\S]*Process\.myUid\(\) != applicationInfo\.uid\) return[\s\S]*sharingMarker[\s\S]*loadReactNative/);
+  assert.match(generated, /super\.onConfigurationChanged\(newConfig\)[\s\S]*Process\.myUid\(\) != applicationInfo\.uid\) return[\s\S]*ApplicationLifecycleDispatcher\.onConfigurationChanged/);
+  const manifest = readFileSync(new URL('../modules/liflow-pdf-inspection/android/src/main/AndroidManifest.xml', import.meta.url), 'utf8');
+  assert.match(manifest, /PdfPageCountService"\s+android:exported="false"\s+android:isolatedProcess="true"/);
 });

@@ -1053,6 +1053,10 @@
       {
         "file": "tests/sharing-delivery-cloud.integration.mjs",
         "name": "a lost local copy recovers from an unexpired acknowledged reply but skips response queries at the parent expiry"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "a recovery crossing a UTC day reuses a live reply and requests again after the previous reply is removed"
       }
     ]
   },
@@ -1441,6 +1445,14 @@
   {
     "feature": "appliance-pdf-only-product-and-care-extraction-20261113",
     "tests": [
+      {
+        "file": "tests/appliance-manual-upload.test.mjs",
+        "name": "${platform} manual selection reads a PDF then deletes only its own copied cache file and cancellation sends nothing"
+      },
+      {
+        "file": "tests/sharing-native-config.test.mjs",
+        "name": "Android PDF inspection is private and isolated from React and shared database setup"
+      },
       {
         "file": "tests/appliance-pdf-only.test.mjs",
         "name": "PDF-only requests require no product fields and keep strict legacy and reanalysis validation"
@@ -6900,6 +6912,10 @@
       },
       {
         "file": "tests/sharing-private-calendar-runtime-native.test.mjs",
+        "name": "private delivery initialization retries after returning to the same account without restarting the app"
+      },
+      {
+        "file": "tests/sharing-private-calendar-runtime-native.test.mjs",
         "name": "private Calendar Native acquisition serializes with the existing Google worker and rechecks Google and Firebase identities after transport"
       },
       {
@@ -12162,6 +12178,18 @@
       },
       {
         "file": "tests/met-weather-cache.test.mjs",
+        "name": "a weather tick reuses one due query and one budget read for its two reservations"
+      },
+      {
+        "file": "tests/weather-self-host.test.mjs",
+        "name": "self-hosted weather wakes on first use and resumes a scheduled retry from SQLite after restarting"
+      },
+      {
+        "file": "tests/weather-self-host.test.mjs",
+        "name": "self-hosted weather waits for an interrupted worker lease and only its replacement may commit"
+      },
+      {
+        "file": "tests/met-weather-cache.test.mjs",
         "name": "regional 304 preserves original body generated time fetched time and exact Last-Modified while advancing checked time and revision"
       },
       {
@@ -13431,6 +13459,10 @@
   {
     "feature": "shared-sync-budget-coalescing-completion-and-diagnostics-20261107",
     "tests": [
+      {
+        "file": "tests/sharing-v2-synchronizer.test.mjs",
+        "name": "a caught-up sync with an empty outbox only pulls once and still acknowledges its durable position"
+      },
       {
         "file": "tests/sharing-v2-synchronizer.test.mjs",
         "name": "a sharing upload that consumes the remaining budget stays incomplete and does not acknowledge a stale receive cursor"
@@ -16053,6 +16085,10 @@
       {
         "file": "tests/sharing-delivery-worker.test.mjs",
         "name": "large received recovery backlogs make bounded progress and schedule another batch without spinning on live unreceived work"
+      },
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "a full cleanup page reads shared controls once to seal it while still rechecking each deletion"
       },
       {
         "file": "tests/sharing-delivery-worker.test.mjs",

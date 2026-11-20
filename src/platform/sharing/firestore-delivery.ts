@@ -35,7 +35,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
   const requests = (groupId: string) => collection(reference(groupId), 'deliveryRequests');
   const policyRef = (groupId: string) => doc(reference(groupId), 'deliveryControl', 'policy');
   let acknowledgement: Promise<void> = Promise.resolve();
-  let lastEmptyClosedRequest: string | undefined;
+  let lastExhaustedClosedRequest: string | undefined;
   const receivedRequests = new Map<string, Pick<Request, 'kind' | 'key' | 'after' | 'through'> & { deadline: number; fingerprint: string | null }>();
   const knownRequests = new Map<string, Request>();
   const sentRequests = new Map<string, string>();
@@ -154,41 +154,56 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
     void work.finally(() => { if (serving === work) serving = undefined; }).catch(() => { discoveryNeeded = true; });
     return work;
   }
-  async function recover(groupId: string, kind: Request['kind'], key: string, after: number, through: number): Promise<unknown> {
-    checkAccount(); const { group } = await readGroup(groupId); assertSharedCloudAccess(group, userId, deviceId);
-    // Stable within a bounded window: repeated wakeups reuse a request instead of uploading another full copy.
-    const requestId = sharedDocumentDigest([groupId, userId, deviceId, kind, key, after, through, group.keyVersion, Math.floor(Date.now() / TTL)]);
-    const target = doc(requests(groupId), requestId);
+  async function recover(groupId: string, kind: Request['kind'], key: string, after: number, through: number, reusePrevious = true): Promise<unknown> {
+    checkAccount();
+    const stamp = Date.now();
+    const bucket = Math.floor(stamp / TTL);
     const state = await runTransaction(firestore, async transaction => {
       const raw = (await transaction.get(reference(groupId))).data();
-      const current = context.parseRoot ? context.parseRoot(raw, groupId) : parseSharedCloudGroup(raw, groupId).group;
-      assertSharedCloudAccess(current, userId, deviceId); const old = await transaction.get(target); checkAccount();
+      const group = context.parseRoot ? context.parseRoot(raw, groupId) : parseSharedCloudGroup(raw, groupId).group;
+      assertSharedCloudAccess(group, userId, deviceId);
+      const requestRef = (window: number) => doc(requests(groupId), sharedDocumentDigest([
+        groupId, userId, deviceId, kind, key, after, through, group.keyVersion, window,
+      ]));
+      const existing = (target: DocumentReference, saved: DocumentData) => {
+        if (!validRequest(saved) || saved.userId !== userId || saved.deviceId !== deviceId || saved.keyVersion !== group.keyVersion
+          || saved.kind !== kind || saved.key !== key || saved.after !== after || saved.through !== through) return null;
+        const deadline = deadlineOf(saved);
+        return { target, group, deadline, closed: saved.receivedAt !== undefined, fingerprint: fingerprintOf(saved) };
+      };
+      const target = requestRef(bucket);
+      const old = await transaction.get(target); checkAccount();
       if (old.exists()) {
-        const saved = old.data();
-        if (!validRequest(saved)) return null;
-        return { deadline: deadlineOf(saved), closed: saved.receivedAt !== undefined, fingerprint: fingerprintOf(saved) };
+        return existing(target, old.data()) ?? { target, group, deadline: 0, closed: false, fingerprint: null };
+      }
+      // A daily ID bounds deduplication, but the previous day's response can still be within its actual lifetime.
+      if (reusePrevious) {
+        const previousTarget = requestRef(bucket - 1);
+        const previous = await transaction.get(previousTarget); checkAccount();
+        const live = previous.exists() && existing(previousTarget, previous.data());
+        if (live && live.deadline > stamp && (!live.closed || `${previousTarget.id}:${live.fingerprint}` !== lastExhaustedClosedRequest)) {
+          return { ...live, previous: true };
+        }
       }
       const policy = context.proof ? (await transaction.get(policyRef(groupId))).data() : null;
       const signedScope = context.proof?.resolve(groupId, policy, raw);
-      const expiresAt = Timestamp.fromMillis(Date.now() + TTL);
+      const expiresAt = Timestamp.fromMillis(stamp + TTL);
       transaction.set(target, { schemaVersion: signedScope ? 2 : 1, userId, deviceId, kind, key, after, through,
-        keyVersion: current.keyVersion, createdAt: serverTimestamp(), expiresAt });
-      return { deadline: expiresAt.toMillis(), closed: false, fingerprint: null };
+        keyVersion: group.keyVersion, createdAt: serverTimestamp(), expiresAt });
+      return { target, group, deadline: expiresAt.toMillis(), closed: false, fingerprint: null };
     }); checkAccount();
-    if (!state || state.deadline <= Date.now()) {
-      forgetRequest(requestId); throw new SharedDeliveryPendingError();
-    }
+    const { group, target } = state;
+    const requestId = target.id;
+    if (state.deadline <= Date.now()) { forgetRequest(requestId); throw new SharedDeliveryPendingError(); }
     const closed = state.closed && `${requestId}:${state.fingerprint}`;
     if (closed) {
       forgetRequest(requestId);
-      if (lastEmptyClosedRequest === closed) throw new SharedDeliveryPendingError();
+      if (lastExhaustedClosedRequest === closed) throw new SharedDeliveryPendingError();
     } else {
       receivedRequests.set(requestId, { kind, key, after, through, deadline: state.deadline, fingerprint: state.fingerprint });
       observeResponse(target);
     }
     const responses = await getDocsFromServer(query(collection(target, 'responses'), limit(64))); checkAccount();
-    // Unexpired replies can restore a lost local copy after ACK. A closed request cannot gain replies after an empty server listing.
-    if (closed && responses.empty) lastEmptyClosedRequest = closed;
     for (const response of responses.docs) {
       if (state.deadline <= Date.now()) break;
       const metadata = response.data();
@@ -209,6 +224,11 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
       if (!valid || offset !== bytes.length) continue;
       let value: unknown; try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { continue; }
       if (sharedDocumentDigest(value) === metadata.digest && state.deadline > Date.now()) return value;
+    }
+    // A sealed request cannot gain replies. An interrupted cleanup can leave a reply header without its parts.
+    if (closed) {
+      lastExhaustedClosedRequest = closed;
+      if ('previous' in state) return recover(groupId, kind, key, after, through, false);
     }
     throw new SharedDeliveryPendingError();
   }

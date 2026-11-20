@@ -43,6 +43,15 @@ function provideWorkManagerConfiguration(source) {
     newSrc: '  override val workManagerConfiguration: androidx.work.Configuration\n    get() = androidx.work.Configuration.Builder().build()\n' }).contents;
 }
 
+function skipIsolatedProcessStartup(source) {
+  // Isolated services share the Application class but run without access to app data.
+  const guard = '    if (android.os.Process.myUid() != applicationInfo.uid) return';
+  const contents = mergeContents({ tag: 'liflow-isolated-process-startup', src: source,
+    anchor: /super\.onCreate\(\)/u, offset: 1, comment: '//', newSrc: guard }).contents;
+  return mergeContents({ tag: 'liflow-isolated-process-configuration', src: contents,
+    anchor: /super\.onConfigurationChanged\(newConfig\)/u, offset: 1, comment: '//', newSrc: guard }).contents;
+}
+
 function addWorkManagerDependency(source) {
   // Expo BackgroundTask and Widgets use the same WorkManager release and initialize via getInstance(context).
   return mergeContents({ tag: 'liflow-work-manager-on-demand', src: source, anchor: /^dependencies \{/mu, offset: 1, comment: '//',
@@ -61,7 +70,10 @@ function preloadLauncherReactHost(source) {
 
 function withAndroidStartupProfile(config) {
   config = withAndroidManifest(config, mod => { mod.modResults = deferWorkManager(mod.modResults); return mod; });
-  config = withMainApplication(config, mod => { mod.modResults.contents = provideWorkManagerConfiguration(mod.modResults.contents); return mod; });
+  config = withMainApplication(config, mod => {
+    mod.modResults.contents = skipIsolatedProcessStartup(provideWorkManagerConfiguration(mod.modResults.contents));
+    return mod;
+  });
   config = withAppBuildGradle(config, mod => { mod.modResults.contents = addWorkManagerDependency(mod.modResults.contents); return mod; });
   config = withMainActivity(config, mod => {
     // An OTA updates delegate may select a bundle asynchronously. Let Expo
@@ -94,5 +106,6 @@ function withAndroidStartupProfile(config) {
 module.exports = withAndroidStartupProfile;
 module.exports.deferWorkManager = deferWorkManager;
 module.exports.provideWorkManagerConfiguration = provideWorkManagerConfiguration;
+module.exports.skipIsolatedProcessStartup = skipIsolatedProcessStartup;
 module.exports.addWorkManagerDependency = addWorkManagerDependency;
 module.exports.preloadLauncherReactHost = preloadLauncherReactHost;

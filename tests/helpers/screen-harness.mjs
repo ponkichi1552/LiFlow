@@ -152,7 +152,9 @@ export function screenHarness(filename, options = {}) {
     '../../appliance-care/ai-account': { ApplianceAiAccount: props => { props.onReady?.(true); return jsx('Text', { children: '検査用の正規端末・本人確認を注入済み' }); } },
     '@/features/appliance-care/ai-account': { ApplianceAiAccount: props => { props.onReady?.(true); return jsx('Text', { children: '検査用の正規端末・本人確認を注入済み' }); } },
     'expo-document-picker': { getDocumentAsync: async () => ({ canceled: false, assets: [{ uri: 'file:///synthetic-cache/manual.pdf', name: 'manual.pdf' }] }) },
-    'expo-file-system': { Paths: { cache: { uri: 'file:///synthetic-cache' } }, File: class { constructor(uri) { this.uri = uri; } size = syntheticPdf().length; exists = true;
+    expo: { requireOptionalNativeModule: () => null },
+    'expo-file-system': { FileMode: { ReadOnly: 'r' }, Paths: { cache: { uri: 'file:///synthetic-cache' } }, File: class { constructor(uri) { this.uri = uri; } size = syntheticPdf().length; exists = true;
+      open() { const bytes = syntheticPdf(); return { offset: 0, async readBytes(length) { return bytes.subarray(this.offset, this.offset + length); }, close() {} }; }
       async base64() { return syntheticPdf().toString('base64'); } delete() { this.exists = false; } } },
     // The real API client imports Native Platform. Screen tests inject responses explicitly; never start a paid API job implicitly.
     '../../appliance-care/api-client': { analyzeApplianceCareRequest: async () => { throw new Error('Appliance API transport was not injected by this screen test'); } },
