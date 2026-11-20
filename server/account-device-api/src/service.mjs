@@ -1,4 +1,4 @@
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { FieldPath, FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { assertSharedIdentifier, canonicalJson } from '../../../src/features/sharing/operations.ts';
 import { sharedDocumentDigest, verifySharedDocument } from '../../../src/features/sharing/crypto.ts';
 import { parseSharedCloudGroup, assertSharedCloudAccess, rosterCloudFields } from '../../../src/features/sharing/cloud-contract.ts';
@@ -21,7 +21,9 @@ const millis = value => value && typeof value.toMillis === 'function' ? value.to
 export function createAccountDeviceService({ firestore, now = Date.now, accountDailyLimit = 120, globalDailyLimit = 2000 }) {
   for (const limit of [accountDailyLimit, globalDailyLimit]) if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10000) throw new Error('Invalid account device service limit');
   const root = groupId => firestore.doc(`sharingGroups/${groupId}`);
-  const slots = (groupId, uid) => Array.from({ length: ACCOUNT_DEVICE_RESTORE_SLOTS }, (_, slot) => root(groupId).collection('accountDeviceRestores').doc(uid).collection('accountDeviceRequests').doc(String(slot)));
+  const requests = (groupId, uid) => root(groupId).collection('accountDeviceRestores').doc(uid).collection('accountDeviceRequests');
+  const slotIds = Array.from({ length: ACCOUNT_DEVICE_RESTORE_SLOTS }, (_, slot) => String(slot));
+  const slots = (groupId, uid) => slotIds.map(id => requests(groupId, uid).doc(id));
   const signal = uid => firestore.doc(`sharingUsers/${uid}/deviceRestoreSignals/current`);
   function identify(actor, groupId) {
     checked(() => { assertSharedIdentifier(actor?.uid); assertSharedIdentifier(groupId); });
@@ -98,20 +100,22 @@ export function createAccountDeviceService({ firestore, now = Date.now, accountD
     async read(actor, input) {
       exact(input, ['groupId']); input = JSON.parse(canonicalJson(input)); actor = { ...actor }; identify(actor, input.groupId); const { groupId } = input;
       return firestore.runTransaction(async tx => {
-        const { group } = await scope(tx, actor, groupId), refs = slots(groupId, actor.uid), rows = await tx.getAll(...refs), result = [];
+        const { group } = await scope(tx, actor, groupId);
+        const rows = await tx.get(requests(groupId, actor.uid).where(FieldPath.documentId(), 'in', slotIds));
+        const result = [];
         let removed = false;
-        for (let slot = 0; slot < rows.length; slot++) {
-          const raw = rows[slot].data(); if (!raw) continue;
+        for (const row of rows.docs) {
+          const slot = Number(row.id); const raw = row.data();
           const request = validRecord(raw, groupId, actor.uid);
           if (millis(raw.createdAt) + ACCOUNT_DEVICE_RESTORE_TTL_MS <= now()
             || raw.status === 'accepted' && raw.minimumKeyVersion <= (group.retentionKeyVersion ?? 0)) {
-            tx.delete(refs[slot]); removed = true; continue;
+            tx.delete(row.ref); removed = true; continue;
           }
           result.push({ slot, request, receivedAt: millis(raw.createdAt), status: raw.status,
             ...(raw.status === 'accepted' ? { grant: JSON.parse(raw.grantJson), acceptedAt: millis(raw.acceptedAt) } : {}) });
         }
         if (removed) publish(tx, actor.uid, groupId);
-        return { records: result };
+        return { records: result.sort((left, right) => left.slot - right.slot) };
       });
     },
     async request(actor, input) {

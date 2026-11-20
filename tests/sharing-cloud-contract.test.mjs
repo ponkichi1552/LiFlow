@@ -1,8 +1,8 @@
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createDeviceIdentity } from '../src/features/sharing/crypto.ts';
-import { createSharedRoster } from '../src/features/sharing/roster.ts';
+import { createDeviceIdentity, sharedDocumentDigest, signSharedDocument } from '../src/features/sharing/crypto.ts';
+import { createSharedRoster, sharedRosterDigest } from '../src/features/sharing/roster.ts';
 import { assertSharedCloudAccess, boundedSharingCloudBatches, MAX_SHARED_CLOUD_BATCH_BYTES,
   parseSharedCloudEvent, parseSharedCloudGroup, rosterCloudFields } from '../src/features/sharing/cloud-contract.ts';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
@@ -49,7 +49,7 @@ test('cloud event positions and author metadata must bind the encrypted envelope
 
 test('caught-up legacy shared pulls verify the live group without issuing an empty history query', async () => {
   const owner = await createDeviceIdentity(crypto); const roster = createSharedRoster('group-test', 'owner', owner);
-  const group = { ...rosterCloudFields(roster), headSequence: 2, lastOperationId: 'latest', snapshotId: null, snapshotThroughSequence: 0 };
+  let group = { ...rosterCloudFields(roster), headSequence: 2, lastOperationId: 'latest', snapshotId: null, snapshotThroughSequence: 0 };
   let rootReads = 0, queries = 0, user = 'owner';
   const cloud = loadNativeModule('src/platform/sharing/firestore-cloud.ts', {
     'firebase/firestore': {
@@ -58,9 +58,11 @@ test('caught-up legacy shared pulls verify the live group without issuing an emp
       async getDocsFromServer() { queries++; return { docs: [] }; },
     },
     '../../features/sharing/operations.ts': operations, '../../features/sharing/cloud-contract.ts': cloudContract, './network-deadline.ts': networkDeadline,
+    '../../features/sharing/crypto.ts': { sharedDocumentDigest, signSharedDocument }, '../../features/sharing/roster.ts': { sharedRosterDigest },
     './firestore-management.ts': { createSharingManagement: () => ({}) }, './firestore-recovery.ts': { createSharingRecovery: () => ({}) },
     './firestore-retention.ts': { createSharingHistoryRetention: () => ({}) }, './firestore-account-devices.ts': { createSharingAccountDevices: () => ({}) },
     './v2-receipts.ts': {}, './firestore-delivery.ts': {}, '../../features/sharing/v2/recovery-lock.ts': {},
+    '../../features/sharing/delivery-archive.ts': {}, '../../features/sharing/delivery-proof.ts': {}, './delivery-proof-cloud.ts': {},
   }).createSharingCloud({}, 'owner', () => user);
   for (let run = 0; run < 2; run++) {
     const page = await cloud.pull('group-test', 2);
@@ -73,4 +75,9 @@ test('caught-up legacy shared pulls verify the live group without issuing an emp
   user = 'other';
   await assert.rejects(cloud.pull('group-test', 2), { code: 'sharing/access-denied' });
   assert.equal(queries, 1);
+  user = 'owner';
+  group = { ...group, ...rosterCloudFields(createSharedRoster('group-test', 'owner', owner, { schemaVersion: 2 })) };
+  const current = await cloud.pull('group-test', 2);
+  assert.deepEqual(current.events, []); assert.equal(current.throughSequence, 2);
+  assert.equal(queries, 1, 'a caught-up V2 device also skips the empty event query');
 });

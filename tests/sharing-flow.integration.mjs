@@ -32,9 +32,17 @@ async function fixture(memberId = 'member') {
 
 test('real Firestore Rules + SQLite planner: explicit approval, concurrent edits/completion, undo, handover and departure converge without merging personal data', async () => {
   const f = await fixture(); const { a, b } = f; const choreId = 'group-flow.builtin-chore-08';
+  let stopWaiting;
+  let approveTimer;
+  const approval = new Promise((resolve, reject) => {
+    stopWaiting = f.memberCloud.watchPendingJoin(f.invitation.invitation, resolve, reject);
+    approveTimer = setTimeout(() => reject(new Error('Approval was not delivered to the pending client')), 10_000);
+  });
+  void approval.catch(() => {});
   try {
     assert.equal((await b.sync()).waitingForApproval, true);
-    await a.manager.approve(f.invitation.invitation, f.request); await b.sync();
+    await a.manager.approve(f.invitation.invitation, f.request);
+    await approval; await b.sync();
     assert.equal((await a.snapshot()).chores.length, 36); assert.equal((await b.snapshot()).chores.length, 36);
     assert.equal((await b.checkpoint()).snapshotId, (await f.cloud.readGroup('group-flow')).group.snapshotId);
     await a.repository.setChoreEnabled(a.database, choreId, true); await a.sync(); await b.sync();
@@ -64,7 +72,7 @@ test('real Firestore Rules + SQLite planner: explicit approval, concurrent edits
     assert.equal((await a.checkpoint()).pendingCount, 1);
     assert.equal((await b.snapshot()).chores.find((chore) => chore.id === choreId).load, 'normal');
     assert.equal((await b.checkpoint()).pendingCount, 0);
-  } finally { a.close(); b.close(); }
+  } finally { clearTimeout(approveTimer); stopWaiting?.(); a.close(); b.close(); }
 });
 
 test('removing a secondary device rotates keys and preserves the same-account owner and shared state', async () => {

@@ -77,6 +77,9 @@ test('real Firestore queues a maximum PDF atomically and independent workers cla
   await stores[0].finish(claim.admission, { status: 'error', code: 'AI_SERVICE_NO_RESULT' });
   assert.deepEqual((await stores[0].read(who('queue-owner'), receipt.jobId)).result, largeResult, 'settlement uses the single durable result field');
   assert.equal((await firestore.collection('applianceApi/v1/analysisInputChunks').get()).size, 0);
+  const finished = (await firestore.doc(`applianceApi/v1/jobs/${receipt.jobId}`).get()).data();
+  assert.equal(finished.inputManifest, null);
+  assert.equal(finished.inputRequestKey, null);
   assert.equal((await stores[1].usage(who('queue-owner'))).used, 1);
 });
 

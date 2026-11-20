@@ -104,13 +104,23 @@ export function createFirestoreRegionalWeatherStore({ firestore, now = Date.now 
   const store = createRegionalWeatherStore({ now,
     async read(key) { return (await collection.doc(key).get()).data() ?? null; },
     async readControl() { return (await globalRef.get()).data() ?? null; },
-    async due(stamp) { return (await collection.where('nextAttemptAt', '>=', 0).where('nextAttemptAt', '<=', stamp).orderBy('nextAttemptAt').limit(32).get()).docs.map(doc => doc.id); },
+    async due(stamp) {
+      const candidates = await collection.where('nextAttemptAt', '>=', 0).where('nextAttemptAt', '<=', stamp)
+        .orderBy('nextAttemptAt').limit(32).select().get();
+      return candidates.docs.map(doc => doc.id);
+    },
     atomic(key, update, withGlobal = false) {
       return firestore.runTransaction(async transaction => {
         const ref = collection.doc(key);
         const [region, global] = withGlobal ? await transaction.getAll(ref, globalRef) : [await transaction.get(ref), null];
-        const result = update(region.data() ?? null, global?.data() ?? null);
-        if (Object.hasOwn(result, 'region')) transaction.set(ref, result.region);
+        const current = region.data() ?? null;
+        const result = update(current, global?.data() ?? null);
+        if (Object.hasOwn(result, 'region')) {
+          if (current && result.region.cache === current.cache) {
+            const { cache: _cache, ...metadata } = result.region;
+            transaction.update(ref, metadata);
+          } else transaction.set(ref, result.region);
+        }
         if (Object.hasOwn(result, 'global') && result.global) transaction.set(globalRef, result.global);
         return result.result;
       });

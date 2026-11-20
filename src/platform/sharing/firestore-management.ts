@@ -1,4 +1,4 @@
-import { collection, doc, documentId, getDocFromServer, getDocsFromServer, limit, orderBy, query, runTransaction, serverTimestamp,
+import { collection, doc, documentId, getDocFromServer, getDocsFromServer, limit, onSnapshot, orderBy, query, runTransaction, serverTimestamp,
   setDoc, startAfter, Timestamp, updateDoc, where, writeBatch } from 'firebase/firestore';
 import type { DocumentData, DocumentReference, QueryDocumentSnapshot } from 'firebase/firestore';
 import { assertSharedIdentifier, canonicalJson } from '../../features/sharing/operations.ts';
@@ -78,6 +78,32 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
   };
   return {
     readInvitation,
+    watchPendingJoin(invitation: SignedSharedInvitation, changed: () => void, failed: (error: unknown) => void) {
+      checkAccount();
+      const invite = inviteRef(invitation.body.inviteId);
+      let notified = false;
+      let hadRequest = false;
+      const notify = () => {
+        if (notified) return;
+        notified = true; changed();
+      };
+      const expiry = setTimeout(notify, Math.max(0, invitation.body.expiresAt - Date.now()));
+      const stopInvite = onSnapshot(invite, { includeMetadataChanges: true }, snapshot => {
+        try {
+          checkAccount();
+          if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites && snapshot.data()?.status !== 'open') notify();
+        } catch (error) { failed(error); }
+      }, failed);
+      const stopRequest = onSnapshot(doc(invite, 'requests', userId), { includeMetadataChanges: true }, snapshot => {
+        try {
+          checkAccount();
+          if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return;
+          if (hadRequest && !snapshot.exists()) notify();
+          hadRequest = snapshot.exists();
+        } catch (error) { failed(error); }
+      }, failed);
+      return () => { clearTimeout(expiry); stopInvite(); stopRequest(); };
+    },
     async createInvitation(input: SignedSharedInvitation): Promise<void> {
       checkAccount(); const invitation = validateSharedInvitation(input);
       const { group, roster } = await readGroup(invitation.body.groupId);

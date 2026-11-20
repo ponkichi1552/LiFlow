@@ -111,6 +111,7 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
       if (!Number.isSafeInteger(afterRevision) || afterRevision < 0) throw new Error('本人用Calendarの取得位置が無効です。');
       const head = await readHead(checkBudget); if (!head) return null;
       if (afterRevision > head.authorityRevision) throw new PrivateCalendarCloudConflict();
+      if (afterRevision === head.authorityRevision) return { head, authorities: [] };
       guard(); const page = await getDocsFromServer(query(collection(reference, 'authorities'), where('revision', '>', afterRevision),
         where('revision', '<=', head.authorityRevision), orderBy('revision'), limit(100))); guard();
       const authorities = page.docs.map((entry, index) => {
@@ -118,7 +119,7 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
         if (entry.id !== String(revision) || signed.body.accountGeneration !== head.accountGeneration) throw new Error('本人端末の認証履歴が欠けているか異なります。');
         return signed;
       });
-      if (afterRevision < head.authorityRevision && !authorities.length) throw new Error('本人端末の認証履歴を取得できません。');
+      if (!authorities.length) throw new Error('本人端末の認証履歴を取得できません。');
       return { head, authorities };
     },
     async commitAuthority(before: VerifiedPrivateCalendarAuthority, next: VerifiedPrivateCalendarAuthority, checkBudget: () => void = () => {}) {

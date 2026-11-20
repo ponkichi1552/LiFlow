@@ -384,7 +384,7 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
         const output = receivedAt >= job.deadlineAt ? interrupted : result;
         transaction.update(jobRef(admission.jobId), { done: true, result: output,
           delivery: { token: randomBytes(32).toString('hex'), digest: publicKey(analysisDeliveryJson(output)), expiresAt: job.expiresAt.toMillis() },
-          ...(job.queueVersion === 1 ? { executionState: 'finished' } : {}) });
+          ...(job.queueVersion === 1 ? { executionState: 'finished', inputManifest: null, inputRequestKey: null } : {}) });
         if (job.queueVersion === 1) for (let i = 0; i < job.inputManifest.chunks; i++) transaction.delete(chunkRef(admission.jobId, i));
         if (globalDoc.exists) transaction.update(globalRef, { active: (globalDoc.data().active ?? [])
           .filter(item => item.jobId !== admission.jobId || item.runId !== admission.runId) });

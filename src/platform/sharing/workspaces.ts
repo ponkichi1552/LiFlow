@@ -357,16 +357,20 @@ async function submitWorkspaceJoin(context: WorkspaceOpenContext, record: Sharin
 function buildPendingWorkspace(context: WorkspaceOpenContext): PendingSharedWorkspace {
   const access = workspaceRegistryAccess(context); let running: Promise<SharingSyncResult> | null = null;
   const waiting = (): SharingSyncResult => ({ sent: 0, received: 0, pending: 0, waitingForApproval: true, complete: false });
+  const ended = (record: SharingWorkspaceRecord) => record.lastErrorCode === 'sharing/invitation-rejected' || record.lastErrorCode === 'sharing/invitation-ended';
   const workspace: PendingSharedWorkspace = { ...context.selection, protocol: null, database: null, manager: null, cloud: context.cloud, identity: context.identity,
     record: access.readRecord, roster: () => access.archive()?.at(-1), drain: async () => {}, cancelJoinRequest: access.cancelJoinRequest,
     checkpoint: async () => ({ cursor: null, sequence: 0, snapshotId: null, lastSuccessfulSyncAt: null, pendingCount: 0 }),
     readOverview: async () => { throw new SharingAccessError('参加承認と初回同期を完了してください。'); }, maintainHistory: async () => {},
-    watch: (callback, failed) => context.cloud.watch(context.selection.groupId, callback, failed),
+    watch(callback, failed) {
+      const record = access.record();
+      return record.join && !ended(record) ? context.cloud.watchPendingJoin(record.join.invitation, callback, failed) : () => {};
+    },
     sync(options = {}) {
       if (running) return running;
       const task = (async () => {
         const current = await access.readRecord(); if (current.status !== 'joining') throw new SharingAccessError('参加申請の状態を確認してください。');
-        if (current.lastErrorCode === 'sharing/invitation-rejected' || current.lastErrorCode === 'sharing/invitation-ended') {
+        if (ended(current)) {
           return { sent: 0, received: 0, pending: 0, waitingForApproval: false, complete: true };
         }
         await submitWorkspaceJoin(context, current); access.assertAccount();

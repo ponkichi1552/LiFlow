@@ -41,16 +41,28 @@ function serviceModule(mocks) {
 function transactionStore() {
   class Timestamp { constructor(value) { this.value = value; } toMillis() { return this.value; } static fromMillis(value) { return new Timestamp(value); } }
   class Transform { constructor(kind, value) { this.kind = kind; this.value = value; } }
+  const documentId = Symbol('documentId');
+  const FieldPath = { documentId: () => documentId };
   const FieldValue = { serverTimestamp: () => new Transform('timestamp'), increment: value => new Transform('increment', value), delete: () => new Transform('delete') };
   const copy = value => value instanceof Timestamp ? new Timestamp(value.value) : Array.isArray(value) ? value.map(copy)
     : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([key, part]) => [key, copy(part)])) : value;
   const records = new Map(); let tail = Promise.resolve(); let writes = 0;
-  const ref = path => ({ path, collection: name => ({ doc: id => ref(`${path}/${name}/${id}`) }) });
-  const snapshot = target => ({ exists: records.has(target.path), data: () => copy(records.get(target.path)) });
+  const ref = path => ({ path, id: path.split('/').at(-1), collection: name => ({
+    doc: id => ref(`${path}/${name}/${id}`),
+    where(field, operation, ids) {
+      assert.equal(field, documentId); assert.equal(operation, 'in'); assert.deepEqual(ids, ['0', '1', '2', '3']);
+      return { matches: ids.map(id => ref(`${path}/${name}/${id}`)) };
+    },
+  }) });
+  const snapshot = target => ({ ref: target, id: target.id, exists: records.has(target.path), data: () => copy(records.get(target.path)) });
   const firestore = { doc: ref, getAll: async (...targets) => targets.map(snapshot), runTransaction(work) {
     const result = tail.then(async () => {
       const staged = []; let writing = false;
-      const read = target => { assert.equal(writing, false, 'Firestore transactions must read before writing'); return snapshot(target); };
+      const read = target => {
+        assert.equal(writing, false, 'Firestore transactions must read before writing');
+        if (target.matches) return { docs: target.matches.map(snapshot).filter(row => row.exists) };
+        return snapshot(target);
+      };
       const stage = (kind, target, data, options) => { writing = true; staged.push({ kind, path: target.path, data, options }); };
       const value = await work({ get: async target => read(target), getAll: async (...targets) => targets.map(read),
         set: (target, data, options) => stage('set', target, data, options), update: (target, data) => stage('update', target, data),
@@ -73,7 +85,7 @@ function transactionStore() {
       return value;
     }); tail = result.catch(() => undefined); return result;
   } };
-  return { firestore, records, FieldValue, Timestamp, writes: () => writes };
+  return { firestore, records, FieldPath, FieldValue, Timestamp, writes: () => writes };
 }
 
 async function fixture({ oldAuthor = false } = {}) {
@@ -98,7 +110,7 @@ async function fixture({ oldAuthor = false } = {}) {
   memory.records.set(`${path}/snapshots/${encrypted.manifest.body.snapshotId}`, { keyVersion: current.body.keyVersion, throughSequence: 2, manifestJson: operations.canonicalJson(encrypted.manifest) });
   memory.records.set('sharingUsers/member/memberships/current', { groupId, invitationId: null });
   const service = serviceModule({
-    'firebase-admin/firestore': { FieldValue: memory.FieldValue, Timestamp: memory.Timestamp },
+    'firebase-admin/firestore': { FieldPath: memory.FieldPath, FieldValue: memory.FieldValue, Timestamp: memory.Timestamp },
     '../../../src/features/sharing/operations.ts': operations, '../../../src/features/sharing/crypto.ts': encryption,
     '../../../src/features/sharing/cloud-contract.ts': cloud, '../../../src/features/sharing/roster.ts': rosters,
     '../../../src/features/sharing/snapshots.ts': snapshots, '../../../src/features/sharing/account-device-restore.ts': restoration,

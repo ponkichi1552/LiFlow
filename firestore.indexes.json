@@ -59,6 +59,36 @@
       "indexes": []
     },
     {
+      "collectionGroup": "parts",
+      "fieldPath": "partJson",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "snapshots",
+      "fieldPath": "manifestJson",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "caches",
+      "fieldPath": "manifestJson",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "plannerPreferences",
+      "fieldPath": "encryptedJson",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "authorities",
+      "fieldPath": "authorityJson",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "privateCalendars",
+      "fieldPath": "authorityJson",
+      "indexes": []
+    },
+    {
       "collectionGroup": "rosters",
       "fieldPath": "rosterJson",
       "indexes": []
