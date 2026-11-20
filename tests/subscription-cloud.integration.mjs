@@ -6,7 +6,7 @@ import { after, before, beforeEach, test } from 'node:test';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { doc, setDoc, getDocFromServer } from 'firebase/firestore';
 import { createFirestoreSubscriptionStore } from '../server/appliance-care-api/src/firestore-subscription-store.mjs';
-import { createSubscriptionService, createSubscriptionSigner } from '../server/appliance-care-api/src/subscription-service.mjs';
+import { createSubscriptionService, createSubscriptionSigner, subscriptionHash } from '../server/appliance-care-api/src/subscription-service.mjs';
 
 if (!/^127\.0\.0\.1:\d+$/u.test(process.env.FIRESTORE_EMULATOR_HOST ?? '')) throw new Error('Subscription attack tests require the isolated local Firestore emulator');
 const require = createRequire(new URL('../server/appliance-care-api/package.json', import.meta.url));
@@ -92,4 +92,33 @@ test('public subscription startup refuses a missing disabled or client-forged en
   const h = service(); await assert.rejects(h.store.ready());
   await firestore.doc('serviceConfiguration/billing').set({ enforced: false }); await assert.rejects(h.store.ready());
   await firestore.doc('serviceConfiguration/billing').set({ enforced: true }); await h.store.ready();
+});
+
+test('store notices arriving before enrollment and replayed after another notice reconcile the purchase once each', async () => {
+  let reads = 0;
+  const provider = { refresh: async record => { reads++; return record; } };
+  const h = service(provider);
+  const proof = 'synthetic-early-store-notice';
+  const first = subscriptionHash('synthetic-first-notice'), second = subscriptionHash('synthetic-second-notice');
+  await h.value.reconcile('google', proof, first);
+  assert.equal(reads, 0);
+  await h.value.verify('person-a', { store: 'google', proof });
+  assert.equal(reads, 1);
+  await Promise.all(Array.from({ length: 8 }, () => h.value.reconcile('google', proof, second)));
+  await service(provider).value.reconcile('google', proof, first);
+  assert.equal(reads, 2);
+  const saved = (await firestore.doc(`billingNotifications/google-${subscriptionHash(proof)}`).get()).data();
+  assert.equal(saved.pending, false);
+  assert.deepEqual(saved.completed.map(item => item.event), [first, second]);
+});
+
+test('retired purchase ownership without proof clears obsolete acknowledgement work', async () => {
+  const h = service();
+  const key = `google-${subscriptionHash('synthetic-retired-proof')}`;
+  const pending = firestore.doc(`billingAcknowledgements/${key}`);
+  await firestore.doc(`billingPurchases/${key}`).set({ userId: 'person-a', store: 'google' });
+  await pending.set({ userId: 'person-a', nextAttemptAt: 0 });
+  assert.equal(await h.store.claimAcknowledgement(key, Date.now()), null);
+  assert.equal((await pending.get()).exists, false);
+  assert.equal(await h.store.owner(key), 'person-a');
 });

@@ -22,6 +22,7 @@ export function createFirestoreSubscriptionStore({ firestore, tokenKey }) {
   const entitlements = firestore.collection('billingEntitlements');
   const acknowledgements = firestore.collection('billingAcknowledgements');
   const notifications = firestore.collection('billingNotifications');
+  const noticeTtl = 24 * 60 * 60_000;
   function encrypt(key, value) {
     const nonce = randomBytes(12); const cipher = createCipheriv('aes-256-gcm', tokenKey, nonce, { authTagLength: 16 });
     cipher.setAAD(Buffer.from(key)); const bytes = Buffer.concat([cipher.update(JSON.stringify(value)), cipher.final()]);
@@ -103,19 +104,27 @@ export function createFirestoreSubscriptionStore({ firestore, tokenKey }) {
       const ref = notifications.doc(key);
       return firestore.runTransaction(async transaction => {
         const saved = (await transaction.get(ref)).data();
-        if (saved?.expiresAt?.toMillis() > at && saved.event === event) return saved.pending ? saved.event : null;
-        transaction.set(ref, { event, pending: true, expiresAt: new Date(at + 24 * 60 * 60_000) }); return event;
+        const live = saved?.expiresAt?.toMillis() > at;
+        const completed = !live ? [] : Array.isArray(saved.completed)
+          ? saved.completed.filter(item => item?.until > at)
+          : saved.pending === false ? [{ event: saved.event, until: saved.expiresAt.toMillis() }] : [];
+        if (completed.some(item => item.event === event) || live && saved.event === event && saved.pending === false) return null;
+        if (live && saved.event === event) return event;
+        transaction.set(ref, { event, pending: true, completed, expiresAt: new Date(at + noticeTtl) }); return event;
       });
     },
     async pendingNotification(key, at) {
       const value = (await notifications.doc(key).get()).data();
       return value?.pending === true && value.expiresAt?.toMillis() > at ? value.event : null;
     },
-    async settleNotification(key, event) {
+    async settleNotification(key, event, at) {
       const ref = notifications.doc(key);
       await firestore.runTransaction(async transaction => {
         const saved = (await transaction.get(ref)).data();
-        if (saved?.pending && saved.event === event) transaction.update(ref, { pending: false });
+        if (!(saved?.expiresAt?.toMillis() > at)) return;
+        const completed = Array.isArray(saved.completed) ? saved.completed.filter(item => item?.until > at && item.event !== event) : [];
+        completed.push({ event, until: at + noticeTtl });
+        transaction.update(ref, { completed: completed.slice(-16), ...(saved.event === event ? { pending: false } : {}) });
       });
     },
     async pruneNotifications(at) {
@@ -136,10 +145,12 @@ export function createFirestoreSubscriptionStore({ firestore, tokenKey }) {
         const ref = acknowledgements.doc(key); const pending = (await tx.get(ref)).data();
         if (!pending || pending.nextAttemptAt > at) return null;
         const purchase = (await tx.get(purchases.doc(key))).data();
-        const account = purchase ? (await tx.get(accounts.doc(subscriptionUserId(purchase.userId)))).data() : null;
-        const record = purchase ? decrypt(key, purchase.encryptedProof) : null;
-        if (!purchase || pending.userId !== purchase.userId || !account?.purchaseKeys.includes(key)
-          || record.store !== 'google' || record.acknowledgementPending !== true
+        const account = purchase?.encryptedProof ? (await tx.get(accounts.doc(subscriptionUserId(purchase.userId)))).data() : null;
+        if (!purchase?.encryptedProof || pending.userId !== purchase.userId || !account?.purchaseKeys.includes(key)) {
+          tx.delete(ref); return null;
+        }
+        const record = decrypt(key, purchase.encryptedProof);
+        if (record.store !== 'google' || record.acknowledgementPending !== true
           || !['active', 'grace'].includes(record.status) || record.expiresAt <= at) {
           tx.delete(ref); return null;
         }

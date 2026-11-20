@@ -44,6 +44,7 @@ export const displacesPreviousPurchase = (record, at) => record.linkedPurchaseId
 /** Store verification precedes any grant. The durable store owns identity binding and concurrent commits. */
 export function createSubscriptionService({ store, providers, signer, now = Date.now }) {
   if (!store || !signer || !providers) throw new Error('Subscription verification is not configured');
+  const pendingNotices = new Map();
   const check = record => {
     if (!record || !['apple', 'google'].includes(record.store) || typeof record.purchaseId !== 'string'
       || !record.purchaseId.length || record.purchaseId.length > 4096 || !statusOrder.includes(record.status)
@@ -119,7 +120,7 @@ export function createSubscriptionService({ store, providers, signer, now = Date
       const pending = await store.pendingNotification?.(submittedKey, now());
       if (pending) {
         const result = await refresh(userId, undefined, false, undefined, submittedKey);
-        await store.settleNotification(submittedKey, pending); return result;
+        await store.settleNotification(submittedKey, pending, now()); return result;
       }
     }
     return { entitlement: signer.sign(committed), account: {
@@ -166,13 +167,20 @@ export function createSubscriptionService({ store, providers, signer, now = Date
     },
     async reconcile(storeName, purchaseId, event) {
       const key = `${storeName}-${subscriptionHash(purchaseId)}`;
-      const notice = event && store.recordNotification ? await store.recordNotification(key, event, now()) : null;
-      if (event && store.recordNotification && !notice) return;
-      const owner = await store.owner(key);
-      if (owner) {
-        await refresh(owner, undefined, false, undefined, key);
-        if (notice) await store.settleNotification(key, notice);
-      }
+      const id = event ? `${key}:${event}` : key;
+      const existing = pendingNotices.get(id); if (existing) return existing;
+      const work = (async () => {
+        const notice = event && store.recordNotification ? await store.recordNotification(key, event, now()) : null;
+        if (event && store.recordNotification && !notice) return;
+        const owner = await store.owner(key);
+        if (owner) {
+          await refresh(owner, undefined, false, undefined, key);
+          if (notice) await store.settleNotification(key, notice, now());
+        }
+      })();
+      pendingNotices.set(id, work);
+      try { return await work; }
+      finally { pendingNotices.delete(id); }
     },
   };
 }
