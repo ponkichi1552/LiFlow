@@ -57,6 +57,7 @@ test('uploaded analysis sends only submitted bytes with no search or URL fetch a
   const file = sent.input[1].content.find(item => item.type === 'input_file');
   assert.equal(file.file_data, 'data:application/pdf;base64,' + syntheticManual().base64); assert.equal(file.file_url, undefined);
   assert.deepEqual(sent.schema.properties.tasks.items.properties.evidence.items.required, ['pageOrSection']);
+  assert.equal(sent.schema.properties.tasks.items.properties.steps.minItems, 1);
   assert.equal(JSON.stringify(sent.input).includes(manual.reference), false);
   assert.deepEqual(result.analysis.tasks[0].evidence, [{ url: manual.reference, pageOrSection: '1ページ' }]);
   assert.equal(isVerifiedApplianceAnalysis(result.analysis, request.manufacturer), true);
