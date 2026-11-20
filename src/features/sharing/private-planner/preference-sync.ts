@@ -48,6 +48,7 @@ export function createPrivatePreferenceSync(port: { ownerUserId: string; assertO
         if (incoming && !known && !key) return { kind: 'unavailable' };
         const preferences = known ? known.preferences : incoming ? await openPrivatePreferences(crypto, incoming, a, key!) : null; await ensureAuthority(a, assertBudget);
         state = await store.observeRemote(incoming ? { cursor: remoteCursor!, preferences: preferences! } : null);
+        void cloud.confirmDelivery?.(a, remoteCursor?.digest ?? null).catch(() => undefined);
       } finally { key?.fill(0); }
     }
     if (state.review) return { kind: 'conflict' };
@@ -69,7 +70,8 @@ export function createPrivatePreferenceSync(port: { ownerUserId: string; assertO
       try {
         if (!key) return { kind: 'unavailable' };
         const preferences = await openPrivatePreferences(crypto, pending.encrypted, a, key); await ensureAuthority(a, assertBudget);
-        await store.observeRemote({ cursor: privatePreferenceCursor(pending.encrypted), preferences }); return { kind: 'sent' };
+        await store.observeRemote({ cursor: privatePreferenceCursor(pending.encrypted), preferences });
+        void cloud.confirmDelivery?.(a, digest).catch(() => undefined); return { kind: 'sent' };
       } finally { key?.fill(0); }
     } catch (error) {
       if (error instanceof PrivatePreferenceCloudConflict) {

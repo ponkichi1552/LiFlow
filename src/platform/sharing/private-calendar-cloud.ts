@@ -226,7 +226,7 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
         return { published: true, head };
       });
       for (let retry = 0; ; retry++) {
-        try { const result = await publish(); guard(); if (delivery) void delivery.confirm(authority, 'calendar', digest).catch(() => undefined); return result; }
+        try { const result = await publish(); guard(); return result; }
         catch (error) {
           guard();
           if (!error || typeof error !== 'object' || !('code' in error) || !['permission-denied', 'aborted', 'failed-precondition', 'unavailable', 'deadline-exceeded'].includes(String(error.code))) throw error;
@@ -245,6 +245,17 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
         }
       }
     },
+    confirmCacheDelivery: delivery ? async (authority: VerifiedPrivateCalendarAuthority, digest: string,
+      readSaved?: () => Promise<EncryptedPrivateCalendarCache | null>) => {
+      const id = `calendar.${digest}`;
+      if (!await delivery.has(id)) {
+        const local = await readSaved?.(); if (!local) return false;
+        const verified = await verifyPrivateCalendarCacheCiphertext(crypto, local, authority);
+        if (sharedDocumentDigest(verified.manifest) !== digest) return false;
+        await delivery.remember(authority, id, verified);
+      }
+      void delivery.confirm(authority, 'calendar', digest).catch(() => undefined); return true;
+    } : undefined,
     async readCache(authority: VerifiedPrivateCalendarAuthority, checkBudget: () => void = () => {}) {
       const guard = () => { checkAccount(); checkBudget(); }; guard();
       authorityForUser(authority); const current = await readHead(checkBudget); if (!current) throw new PrivateCalendarCloudConflict();
@@ -260,7 +271,7 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
         const after = await readHead(checkBudget); if (!after) throw new PrivateCalendarCloudConflict(); assertPrivateCalendarCloudAuthority(after, authority);
         if (after.cacheHead?.manifestDigest !== current.cacheHead.manifestDigest || after.cacheHead.cacheId !== current.cacheHead.cacheId) throw new PrivateCalendarCloudConflict();
         await delivery.remember(authority, `calendar.${current.cacheHead.manifestDigest}`, checked); guard();
-        void delivery.confirm(authority, 'calendar', current.cacheHead.manifestDigest).catch(() => undefined); return checked;
+        return checked;
       }
       guard(); const page = await getDocsFromServer(query(collection(cacheRef, 'parts'), orderBy('index'), limit(33))); guard();
       if (page.size !== manifest.body.chunkCount) throw new Error('本人用Calendarの分割が揃っていません。');
@@ -270,7 +281,6 @@ export function createPrivateCalendarCloud(firestore: Firestore, userId: string,
       if (after.cacheHead?.manifestDigest !== current.cacheHead.manifestDigest || after.cacheHead.cacheId !== current.cacheHead.cacheId) throw new PrivateCalendarCloudConflict();
       if (delivery) {
         await delivery.remember(authority, `calendar.${current.cacheHead.manifestDigest}`, verified); guard();
-        void delivery.confirm(authority, 'calendar', current.cacheHead.manifestDigest).catch(() => undefined);
       }
       return verified;
     },

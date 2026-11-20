@@ -1,37 +1,67 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { startSharedDeliveryWorker, sweepSharedDeliveries, sweepPrivateDeliveries } from '../server/appliance-care-api/src/sharing-delivery-worker.mjs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { startSharedDeliveryWorker, pruneDeliveryRequests } from '../server/account-device-api/src/sharing-delivery-worker.mjs';
+import { Timestamp } from 'firebase/firestore';
+import { createDeviceIdentity, signSharedDocument } from '../src/features/sharing/crypto.ts';
+import { recoveryReceiptInput } from '../src/features/sharing/delivery-proof.ts';
+import { sharingTestCrypto } from './helpers/sharing-crypto.mjs';
+
+const device = await createDeviceIdentity(sharingTestCrypto);
+const projectId = 'demo-liflow-sharing';
 
 function recoveryCleanupFixture(scope = 'sharingGroups/unit-sweep-group') {
-  const records = new Map(), queries = [], deletes = new Map(); let clock = 1_800_000_000_000, batchNumber = 0, failBatch = 0;
+  const [collection, scopeId] = scope.split('/');
+  const policy = { schemaVersion: 2, enrollmentId: 'a'.repeat(64), enabled: true, ttlMs: 86400_000 };
+  const claim = { authorityJson: 'verified-fixture', devices: [{ userId: 'receiver', identity: device }],
+    scope: { projectId, kind: collection === 'sharingGroups' ? 'shared' : 'private', scopeId,
+      enrollmentId: policy.enrollmentId, authorityDigest: 'b'.repeat(64), keyVersion: 1 } };
+  const records = new Map([[scope, { rosterJson: claim.authorityJson, authorityJson: claim.authorityJson, keyVersion: 1 }],
+    [scope + '/deliveryControl/policy', policy]]), queries = [], deletes = new Map();
+  let clock = 1_800_000_000_000, batchNumber = 0, failBatch = 0, afterErase;
   const ref = path => ({ path, id: path.split('/').at(-1), collection: name => query(`${path}/${name}`),
     async delete() { deletes.set(path, (deletes.get(path) ?? 0) + 1); records.delete(path); } });
-  const snapshot = path => ({ id: path.split('/').at(-1), ref: ref(path), exists: records.has(path), data: () => structuredClone(records.get(path)) });
-  function query(path, order, maximum = Infinity, selected) {
-    return { doc: id => ref(`${path}/${id}`), orderBy: field => query(path, field, maximum, selected),
-      limit: count => query(path, order, count, selected), select: (...fields) => query(path, order, maximum, fields),
+  const snapshot = path => ({ id: path.split('/').at(-1), ref: ref(path), exists: records.has(path), data: () => records.get(path) });
+  function query(path, order, maximum = Infinity, selected, direction = 'asc') {
+    return { doc: id => ref(`${path}/${id}`), orderBy: (field, direction) => query(path, field, maximum, selected, direction),
+      limit: count => query(path, order, count, selected, direction), select: (...fields) => query(path, order, maximum, fields, direction),
       async get() {
         const rows = [...records].filter(([name, value]) => name.startsWith(`${path}/`) && name.split('/').length === path.split('/').length + 1
           && (!order || order in value));
-        rows.sort((a, b) => Number(a[1][order]) - Number(b[1][order]) || a[0].localeCompare(b[0]));
+        rows.sort((a, b) => (direction === 'desc' ? -1 : 1) * (Number(a[1][order]) - Number(b[1][order])) || a[0].localeCompare(b[0]));
         const docs = rows.slice(0, maximum).map(([name]) => snapshot(name));
-        queries.push({ path, returned: docs.length }); return { docs };
+        queries.push({ path, returned: docs.length }); return { docs, size: docs.length };
       } };
   }
-  const firestore = { collection: path => query(path),
-    runTransaction: async work => work({ getAll: async (...refs) => refs.map(target => snapshot(target.path)),
-      get: target => target.get ? target.get() : snapshot(target.path), update() { assert.fail('an inactive synthetic policy cannot be updated'); } }),
-    batch() { const targets = []; return { delete: target => targets.push(target), async commit() {
+  const firestore = { collection: path => query(path), async runTransaction(work) {
+    const targets = [];
+    const result = await work({ getAll: async (...refs) => refs.map(target => snapshot(target.path)),
+      get: target => target.get ? target.get() : snapshot(target.path), update(target, update) { records.set(target.path, { ...records.get(target.path), ...update }); },
+      delete: target => targets.push(target) });
+    if (targets.length) {
       if (++batchNumber === failBatch) { failBatch = 0; throw new Error('synthetic interrupted erasure'); }
       for (const target of targets) await target.delete();
-    } }; },
+      const hook = afterErase; afterErase = undefined; hook?.();
+    }
+    return result;
+  },
   };
   return { records, queries, deletes, now: () => clock, advance: ms => { clock += ms; }, failBatch: number => { failBatch = number; },
-    sweep: () => scope.startsWith('privateCalendars/') ? sweepPrivateDeliveries(firestore, scope.split('/')[1], clock)
-      : sweepSharedDeliveries(firestore, scope.split('/')[1], clock),
+    afterErase: hook => { afterErase = hook; },
+    async sweep() {
+      const result = { active: true, deleted: 0, nextAt: null };
+      await pruneDeliveryRequests(ref(scope), result, clock, firestore, claim);
+      return result;
+    },
     add(id, { age = 0, received = false, parts = 1 } = {}) {
       const path = `${scope}/deliveryRequests/${id}`;
-      records.set(path, { createdAt: new Date(clock - age), expiresAt: new Date(clock + 86400_000), ...(received ? { receivedAt: new Date(clock) } : {}) });
+      const createdAt = Timestamp.fromMillis(clock - age);
+      const position = { kind: 'chunk', key: id, after: 0, through: 0, keyVersion: 1 };
+      const receiptSignature = signSharedDocument(recoveryReceiptInput(claim.scope, 'receiver', device.deviceId, {
+        id, ...position, createdSeconds: createdAt.seconds, createdNanoseconds: createdAt.nanoseconds }), device);
+      records.set(path, { schemaVersion: 2, ...position, userId: 'receiver', deviceId: device.deviceId, createdAt,
+        expiresAt: new Date(clock + 86400_000), ...(received ? { receiptSignature, receiptReportedAt: new Date(clock) } : {}) });
       records.set(`${path}/responses/provider`, { ready: true });
       for (let index = 0; index < parts; index++) records.set(`${path}/responses/provider/parts/${index}`, { index, data: 'synthetic-ciphertext' });
       return path;
@@ -87,12 +117,60 @@ test('an interrupted recovery part erasure keeps its received parent retryable a
   assert.equal(f.deletes.get(target), 1);
 });
 
+test('a recovery receipt for an older incarnation cannot erase a replacement request', async () => {
+  const f = recoveryCleanupFixture();
+  const path = f.add('renewed', { received: true });
+  const original = f.records.get(path);
+  f.records.set(path, { ...original, createdAt: Timestamp.fromMillis(original.createdAt.toMillis() + 1) });
+  assert.equal((await f.sweep()).deleted, 0);
+  assert.equal(f.records.get(path).receivedAt, undefined);
+  assert.ok(f.records.has(path + '/responses/provider/parts/0'));
+});
+
+test('a resumed cleanup cannot delete a new request that reused an already cleared id', async () => {
+  const f = recoveryCleanupFixture();
+  const path = f.add('renewed', { received: true, parts: 70 });
+  f.afterErase(() => {
+    // Another sweep finished the sealed request and an approved receiver requested the artifact again.
+    for (const key of f.records.keys()) if (key === path || key.startsWith(path + '/')) f.records.delete(key);
+    f.advance(1);
+    f.add('renewed');
+  });
+  assert.equal((await f.sweep()).deleted, 0);
+  assert.equal(f.records.get(path).receivedAt, undefined);
+  assert.ok(f.records.has(path + '/responses/provider/parts/0'));
+});
+
+test('a newly acquired recovery lock stops split response erasure between transactions', async () => {
+  const scope = 'sharingGroups/unit-sweep-group', f = recoveryCleanupFixture(scope);
+  const path = f.add('recovery-lock', { received: true, parts: 70 });
+  const lock = scope + '/recoveryLocks/current';
+  f.afterErase(() => f.records.set(lock, { keyVersion: 1 }));
+  assert.equal((await f.sweep()).deleted, 0);
+  assert.equal([...f.records.keys()].filter(key => key.startsWith(path + '/responses/provider/parts/')).length, 38);
+  f.records.delete(lock);
+  assert.equal((await f.sweep()).deleted, 1);
+  assert.equal(f.records.has(path), false);
+});
+
+test('delivery worker refuses an implicit project, a mismatched project, and a production emulator before connecting', () => {
+  const main = fileURLToPath(new URL('../server/account-device-api/src/sharing-delivery-main.mjs', import.meta.url));
+  const target = { LIFLOW_FIREBASE_PROJECT_ID: 'demo-liflow-sharing' };
+  for (const env of [{}, { ...target, GOOGLE_CLOUD_PROJECT: 'different-project' },
+    { ...target, NODE_ENV: 'production', FIRESTORE_EMULATOR_HOST: '127.0.0.1:8187' }]) {
+    const output = spawnSync(process.execPath, ['--disable-warning=MODULE_TYPELESS_PACKAGE_JSON', '--experimental-strip-types', main, '--status'],
+      { env, encoding: 'utf8', timeout: 5000 });
+    assert.equal(output.status, 1); assert.equal(output.stdout, '');
+    assert.equal(JSON.parse(output.stderr).event, 'delivery_worker_command_refused');
+  }
+});
+
 test('delivery cleanup listeners retry actual failures without idle polling and shutdown cancels reconnection', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const listeners = []; const target = { where() { return this; }, onSnapshot(changed, failed) {
     const observer = { changed, failed, closed: false }; listeners.push(observer); return () => { observer.closed = true; };
   } };
-  const stop = startSharedDeliveryWorker({ collectionGroup: () => target });
+  const stop = startSharedDeliveryWorker({ collectionGroup: () => target }, undefined, projectId);
   try {
     listeners[0].changed({ docChanges: () => [] }); t.mock.timers.tick(86400_000); assert.equal(listeners.length, 1);
     listeners[0].failed(); assert.equal(listeners[0].closed, true);

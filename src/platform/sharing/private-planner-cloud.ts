@@ -62,11 +62,12 @@ export function createPrivatePlannerCloud(firestore: Firestore, ownerUserId: str
     if (value && delivery && value.body.authorityDigest === authority.digest) {
       verifyEncryptedPrivatePreferences(value, authority); const digest = privatePreferenceCursor(value).digest;
       await delivery.remember(authority, `preferences.${digest}`, value); guard();
-      void delivery.confirm(authority, 'preferences', digest).catch(() => undefined);
     }
     guard(); return value;
   };
   return sharingCloudWithDeadline({ read,
+    confirmDelivery: delivery ? (authority: VerifiedPrivateCalendarAuthority, digest: string | null) => digest === null
+      ? delivery.prepare(authority) : delivery.confirm(authority, 'preferences', digest) : undefined,
     async publish(authority: VerifiedPrivateCalendarAuthority, incoming: EncryptedPrivatePreferences, assertBudget: () => void = () => {}) {
       const guard = () => { check(); assertBudget(); };
       guard(); const own = verifyEncryptedPrivatePreferences(incoming, authority); const wanted = privatePreferenceCursor(own); const body = content(own);
@@ -80,7 +81,7 @@ export function createPrivatePlannerCloud(firestore: Firestore, ownerUserId: str
           if (!samePrivatePreferenceCursor(cursor, own.body.parent)) throw new PrivatePreferenceCloudConflict();
           transaction.set(reference, { ...body, createdAt: saved.exists() ? saved.data().createdAt : serverTimestamp(), updatedAt: serverTimestamp() });
           return { published: true };
-        }); guard(); if (delivery) void delivery.confirm(authority, 'preferences', wanted.digest).catch(() => undefined); return result;
+        }); guard(); return result;
       } catch (error) {
         guard(); if (error instanceof PrivatePreferenceCloudConflict) throw error;
         // The server can have committed before a lost reply. Read the exact envelope, never reseal/rebase in a transaction retry.

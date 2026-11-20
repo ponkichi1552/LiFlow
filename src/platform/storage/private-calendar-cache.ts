@@ -76,6 +76,13 @@ export function createPrivateCalendarCacheStorage(port: PrivateCalendarCacheStor
           attempts: row.attempts, retryAt: row.retry_at, failureCode: row.failure_code as PrivateCalendarDeliveryFailure | null };
       });
     },
+    async copyForDelivery(authority: VerifiedPrivateCalendarAuthority, digest: string) {
+      return locked(authority, false, async (db) => {
+        const row = await record(db); if (!row || row.pending) return null;
+        const cursor = savedCursor(row);
+        return cursor.authorityDigest === authority.digest && cursor.manifestDigest === digest ? envelope(row, authority) : null;
+      });
+    },
     async save(encrypted: EncryptedPrivateCalendarCache, input: CacheInput & { origin: 'local' | 'remote'; acquisition?: { lease: PrivateCalendarAcquisitionLease; now(): number } }) {
       ownerAuthority(input.authority);
       if (!(input.accountKey instanceof Uint8Array) || input.accountKey.length !== 32) throw new Error('本人用Calendarの鍵が無効です。');

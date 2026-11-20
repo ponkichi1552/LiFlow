@@ -2,6 +2,7 @@ import * as firestore from 'firebase/firestore';
 import * as base64 from 'base64-js';
 import * as hashUtils from '@noble/hashes/utils.js';
 import * as deliveryArchive from '../../src/features/sharing/delivery-archive.ts';
+import * as deliveryProof from '../../src/features/sharing/delivery-proof.ts';
 import * as cloudContract from '../../src/features/sharing/cloud-contract.ts';
 import * as operations from '../../src/features/sharing/operations.ts';
 import * as crypto from '../../src/features/sharing/crypto.ts';
@@ -36,6 +37,7 @@ export function tracedDeliveryRelay(context, deviceId, archive) {
   const module = loadNativeModule('src/platform/sharing/firestore-delivery.ts', {
     'firebase/firestore': sdk, 'base64-js': base64, '@noble/hashes/utils.js': hashUtils,
     '../../features/sharing/delivery-archive.ts': deliveryArchive,
+    '../../features/sharing/delivery-proof.ts': deliveryProof,
     '../../features/sharing/cloud-contract.ts': cloudContract,
     '../../features/sharing/operations.ts': operations, '../../features/sharing/crypto.ts': crypto,
   });

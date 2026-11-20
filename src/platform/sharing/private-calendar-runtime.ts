@@ -33,13 +33,21 @@ export function openPrivateCalendarRuntime(userId: string): PrivateCalendarRunti
   const secrets = nativePrivateCalendarSecrets; const source = nativePrivateCalendarSource(userId); const intents = nativePrivateCalendarAuthorityIntents(userId);
   let deliveryPromise: Promise<PrivateDeliveryPort> | undefined;
   const loadDelivery = () => deliveryPromise ??= (async () => {
-    const [{ createPrivateDelivery }, { nativePrivateDeliveryArchive }] = await Promise.all([import('./private-delivery'), import('./private-calendar-secrets')]);
+    const [{ createPrivateDelivery }, { nativePrivateDeliveryArchive }, { signSharedDocument }] = await Promise.all([
+      import('./private-delivery'), import('./private-calendar-secrets'), import('../../features/sharing/crypto'),
+    ]);
     return createPrivateDelivery({ firestore, userId, assertOwner, archive: await nativePrivateDeliveryArchive(userId),
+      async sign(value, deviceId) {
+        assertOwner(); const identity = await secrets.identity(userId); assertOwner();
+        if (identity.deviceId !== deviceId) throw new Error('本人用の端末が変わりました。');
+        return signSharedDocument(value, identity);
+      },
       state: async () => { const value = await secrets.publicState(userId); return value ? { identity: value.identity, authority: value.authority ?? null } : null; } });
   })();
   const delivery: PrivateDeliveryPort | undefined = process.env.EXPO_PUBLIC_SHARING_EPHEMERAL_DELIVERY === '1' ? {
     remember: async (...args) => (await loadDelivery()).remember(...args), recover: async (...args) => (await loadDelivery()).recover(...args),
-    confirm: async (...args) => (await loadDelivery()).confirm(...args),
+    confirm: async (...args) => (await loadDelivery()).confirm(...args), prepare: async (...args) => (await loadDelivery()).prepare(...args),
+    has: async (...args) => (await loadDelivery()).has(...args),
     watch(changed, failed) {
       let disposed = false; let unsubscribe: (() => void) | undefined;
       void loadDelivery().then(value => { if (!disposed) unsubscribe = value.watch(changed, failed); }).catch(error => { if (!disposed) failed(error); });

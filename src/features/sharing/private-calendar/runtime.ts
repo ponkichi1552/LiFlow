@@ -124,26 +124,35 @@ export function createPrivateCalendarRuntime(port: PrivateCalendarRuntimePort) {
     const state = await secrets.publicState(userId); const authority = state?.authority;
     ensure();
     if (!authority || !authority.signed.body.devices.some(value => value.deviceId === state.identity.deviceId)) return { kind: 'unavailable' as const };
+    const confirmCacheDelivery = cloud.confirmCacheDelivery;
+    const confirmSaved = confirmCacheDelivery && ((digest: string) => confirmCacheDelivery(authority, digest, () => cache.copyForDelivery(authority, digest)));
     if (authority.signed.body.mainDeviceId === state.identity.deviceId) {
       const profile = await source.read();
       if (profile?.active && !await sourceController.isCurrentSelection({ assertBudget: ensure, signal })) { requiresSourceReview = true; return { kind: 'sourceReview' as const }; }
       ensure();
       requiresSourceReview = false;
       const zone = port.timeZone(); const today = sharedLocalDate(new Date(now()), zone);
-      return capture.capture({ range: createCalendarQueryRange(today, addDays(today, 180), zone), force, automatic: !force, deadline, assertBudget: ensure, signal });
+      const result = await capture.capture({ range: createCalendarQueryRange(today, addDays(today, 180), zone), force, automatic: !force, deadline, assertBudget: ensure, signal });
+      if (result.kind === 'fresh' && confirmSaved) {
+        const local = await cache.status(authority); ensure();
+        if (local?.authorityCurrent && !local.pending) void confirmSaved(local.cursor.manifestDigest).catch(() => undefined);
+      }
+      return result;
     }
     const head = await privateCalendarWork(() => cloud.readHead(ensure), { assertBudget: ensure, signal }); ensure();
     if (!head) throw new Error('本人用Calendarのサーバー設定がありません。'); assertPrivateCalendarCloudAuthority(head, authority);
     if (!head.cacheHead || head.cacheHead.authorityDigest !== authority.digest) return { kind: 'missing' as const };
     const local = await cache.status(authority); ensure();
-    if (!force && local?.authorityCurrent && !local.pending && local.cursor.manifestDigest === head.cacheHead.manifestDigest) return { kind: 'unchanged' as const };
+    if (!force && local?.authorityCurrent && !local.pending && local.cursor.manifestDigest === head.cacheHead.manifestDigest
+      && (!confirmSaved || await confirmSaved(local.cursor.manifestDigest))) return { kind: 'unchanged' as const };
     const key = await secrets.currentKey(userId, authority);
     try {
       ensure();
       if (!key) return { kind: 'awaitingKey' as const };
       const encrypted = await privateCalendarWork(() => cloud.readCache(authority, ensure), { assertBudget: ensure, signal }); if (!encrypted) return { kind: 'missing' as const };
       ensure();
-      await cache.save(encrypted, { authority, accountKey: key, calendarBinding: privateCalendarSourceBinding(authority), origin: 'remote' }); await port.assertOwner();
+      const saved = await cache.save(encrypted, { authority, accountKey: key, calendarBinding: privateCalendarSourceBinding(authority), origin: 'remote' });
+      await port.assertOwner(); void confirmSaved?.(saved.cursor.manifestDigest).catch(() => undefined);
       return { kind: 'received' as const, sequence: encrypted.manifest.body.sequence };
     } finally { key?.fill(0); }
   }

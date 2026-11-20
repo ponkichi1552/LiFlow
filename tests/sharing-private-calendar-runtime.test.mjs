@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { privateCalendarRuntimeFixture } from './helpers/private-calendar-runtime.mjs';
 import { CALENDAR_AVAILABILITY_MAX_AGE_MS } from '../src/features/google-sync/calendar-timing.ts';
+import { sharedDocumentDigest } from '../src/features/sharing/crypto.ts';
 
 const busyTarget = { precision: 'interval', start: '2026-10-28T00:30:00.000Z', end: '2026-10-28T00:45:00.000Z' };
 const clearTarget = { precision: 'interval', start: '2026-10-28T03:00:00.000Z', end: '2026-10-28T03:15:00.000Z' };
@@ -56,6 +57,34 @@ test('private Calendar paired follower receives the current main ciphertext with
   assert.equal(await main.readForPlan(), null); assert.deepEqual(await follower.refreshData(), { kind: 'missing' });
   assert.deepEqual(await follower.readOwnCalendar(busyTarget), { kind: 'unknown', reason: 'missing' });
   assert.equal(a.state.googleReads, 1); assert.equal(b.state.googleReads, 0); assert.equal((await b.f.readProtected()).hasStoredKeys, true);
+});
+
+test('a follower reports the exact saved calendar even when the server head advances during download', async t => {
+  const a = privateCalendarRuntimeFixture(t), b = privateCalendarRuntimeFixture(t, a.transport);
+  const initial = await a.devices.initializeFirstDevice();
+  const request = await b.devices.prepareConfirmedReference(initial.reference);
+  await a.devices.approveConfirmedRequest(request.request); await b.devices.acceptApproval();
+  const main = a.open(); await a.connect(main); await main.refreshData();
+  const first = await a.transport.cloud.readHead(); await main.refreshData();
+  const second = await a.transport.cloud.readHead();
+  b.port.cloud.readHead = async () => first;
+  let recorded;
+  b.port.cloud.confirmCacheDelivery = async (authority, digest, readSaved) => { recorded = { digest, copy: await readSaved() }; return true; };
+  assert.deepEqual(await b.open().refreshData(), { kind: 'received', sequence: 2 });
+  await t.waitFor(() => assert.ok(recorded));
+  assert.equal(recorded.digest, second.cacheHead.manifestDigest);
+  assert.equal(sharedDocumentDigest(recorded.copy.manifest), recorded.digest);
+});
+
+test('the main device can enroll its already saved calendar without another acquisition or upload', async t => {
+  const f = await configured(t); await f.runtime.refreshData();
+  const head = await f.transport.cloud.readHead(); let recorded;
+  f.port.cloud.confirmCacheDelivery = async (authority, digest, readSaved) => { recorded = { digest, copy: await readSaved() }; return true; };
+  assert.deepEqual(await f.open().synchronizeAutomatically(), { kind: 'fresh' });
+  await t.waitFor(() => assert.ok(recorded));
+  assert.equal(recorded.digest, head.cacheHead.manifestDigest);
+  assert.equal(sharedDocumentDigest(recorded.copy.manifest), recorded.digest);
+  assert.equal(f.state.uploads, 1); assert.equal(f.state.googleReads, 1);
 });
 
 test('private Calendar returning to a former main cannot silently restore its old source after another main changed or disabled acquisition', async t => {

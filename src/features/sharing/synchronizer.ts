@@ -101,6 +101,24 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
       let bytes = keys.get(epoch.body.keyVersion);
       if (!bytes) { bytes = await keyFor(epoch, archive); keys.set(epoch.body.keyVersion, bytes); } return bytes;
     };
+    async function openEvents(events: readonly SharedCloudEvent[]) {
+      const facts: AuthenticatedSharedOperation[] = [];
+      for (const event of events) {
+        // Only account-device additions may retain the previous epoch's ciphertext and group key.
+        const epoch = archive.find(item => item.body.keyVersion === event.envelope.keyVersion);
+        if (!epoch || !continuousAccountDeviceEpochs(archive, epoch.body.keyVersion, roster.body.keyVersion)) throw new SharingKeyVersionError('共有履歴を最新の鍵で再取得する必要があります。');
+        const author = sharedAuthorIdentity(epoch, event.envelope.authorUserId, event.envelope.authorDeviceId, event.envelope.keyVersion);
+        const fact = await decryptAuthenticatedSharedOperation(deps.crypto, event.envelope, await getKey(epoch), author, deps.groupId, epoch.body.keyVersion);
+        if (fact.operation.schemaVersion !== roster.body.schemaVersion) throw new SharingSchedulerVersionError();
+        historicalAuthor(fact.operation.authorUserId, fact.operation.authorDeviceId, fact.operation.keyVersion); facts.push(fact);
+      }
+      return facts;
+    }
+    async function authenticateEvents(events: readonly SharedCloudEvent[]) {
+      const facts = await openEvents(events);
+      const evidence = facts.length ? await deps.v2?.eventEvidence(facts, events, archive) : undefined;
+      return { facts, evidence };
+    }
     const acceptedV2: { fact: AuthenticatedSharedOperation; event: SharedCloudEvent }[] = [];
     const flushAcceptedV2 = async () => {
       const protocol = deps.v2; if (!protocol || !acceptedV2.length) return;
@@ -111,6 +129,7 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
         await applyReceivedSharedFacts(deps.database, deps.groupId, facts, checkpoint.cursor ?? '0', deps.project, checkpoint.cursor, now(), evidence);
       });
       acceptedV2.length = 0; deps.changed();
+      await deps.cloud.archiveAppliedEvents?.(events);
     };
     const adoptSnapshot = async (group: SharedCloudGroup, force = false) => {
       const checkpoint = await readSharingCheckpoint(deps.database, deps.groupId);
@@ -136,25 +155,19 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
         let races = 0;
         do {
           const checkpoint = await readSharingCheckpoint(deps.database, deps.groupId); let page;
-          try { page = await deps.cloud.pull(deps.groupId, checkpoint.sequence); }
+          let recovered: Awaited<ReturnType<typeof authenticateEvents>> | undefined;
+          try {
+            page = await deps.cloud.pull(deps.groupId, checkpoint.sequence, async events => { recovered = await authenticateEvents(events); });
+          }
           catch (error) { if (!(error instanceof SharingSnapshotRequiredError) || ++races > 3) throw error; await refreshMetadata(); continue; }
           if (sharedRosterDigest(page.roster) !== sharedRosterDigest(roster)) { await refreshMetadata(); continue; }
           metadata = page;
           if (page.group.snapshotId && page.group.snapshotId !== checkpoint.snapshotId) { await adoptSnapshot(page.group); continue; }
-          const facts: AuthenticatedSharedOperation[] = [];
-          for (const event of page.events) {
-            // Account-only device additions retain the old snapshot and secret. No removal or other transition may take this path.
-            const epoch = archive.find(item => item.body.keyVersion === event.envelope.keyVersion);
-            if (!epoch || !continuousAccountDeviceEpochs(archive, epoch.body.keyVersion, roster.body.keyVersion)) throw new SharingKeyVersionError('共有履歴を最新の鍵で再取得する必要があります。');
-            const author = sharedAuthorIdentity(epoch, event.envelope.authorUserId, event.envelope.authorDeviceId, event.envelope.keyVersion);
-            const fact = await decryptAuthenticatedSharedOperation(deps.crypto, event.envelope, await getKey(epoch), author, deps.groupId, epoch.body.keyVersion);
-            if (fact.operation.schemaVersion !== roster.body.schemaVersion) throw new SharingSchedulerVersionError();
-            historicalAuthor(fact.operation.authorUserId, fact.operation.authorDeviceId, fact.operation.keyVersion); facts.push(fact);
-          }
+          const { facts, evidence } = recovered ?? await authenticateEvents(page.events);
           if (facts.length) {
-            const evidence = await deps.v2?.eventEvidence(facts, page.events, archive);
             await deps.serialized(() => applyReceivedSharedFacts(deps.database, deps.groupId, facts, String(page.throughSequence), deps.project, checkpoint.cursor, now(), evidence));
             received += facts.length; deps.changed();
+            if (deps.v2) await deps.cloud.archiveAppliedEvents?.(page.events);
           }
           if (page.throughSequence >= page.group.headSequence) return true;
         } while (now() < deadline);
@@ -209,7 +222,11 @@ export function createSharedSynchronizer(deps: SharedSyncDependencies) {
       if (now() < deadline) complete = await pull();
       else complete = false;
       const checkpoint = await readSharingCheckpoint(deps.database, deps.groupId);
-      if (complete && now() < deadline && !(await loadSharedReplica(deps.database, deps.groupId)).pendingOperationIds.length) await deps.cloud.acknowledge(deps.groupId, deps.identity.deviceId, checkpoint.sequence);
+      if (complete && now() < deadline && !(await loadSharedReplica(deps.database, deps.groupId)).pendingOperationIds.length) {
+        await deps.cloud.acknowledge(deps.groupId, deps.identity.deviceId, checkpoint.sequence, async events => {
+          await authenticateEvents(events);
+        });
+      }
       return { sent, received, pending: checkpoint.pendingCount, waitingForApproval: false, complete };
     } finally {
       try { await flushAcceptedV2(); }

@@ -407,7 +407,7 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
     if (process.env.EXPO_PUBLIC_SHARING_EPHEMERAL_DELIVERY === '1') {
       const { createSharedDeliveryArchive } = await import('../storage/sharing-delivery-archive');
       const archive = await createSharedDeliveryArchive(database, groupId, work => withPlannerDatabaseOperation(database, work), access.assertWritable);
-      cloud.setDeliveryArchive(identity.deviceId, archive, () => access.archive() ?? []);
+      cloud.setDeliveryArchive(identity, archive, () => access.archive() ?? [], () => readSharingCheckpoint(database, groupId));
     }
     let sync!: V2SharedWorkspace['sync'];
     const finishLocalHistoryRetention = async (snapshot: VerifiedSharedSnapshot) => {

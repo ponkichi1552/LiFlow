@@ -11,13 +11,14 @@ import { createSharingCloud } from '../src/platform/sharing/firestore-cloud.ts';
 import { createSharedDeliveryArchive } from '../src/platform/storage/sharing-delivery-archive.ts';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
-import { createDeviceIdentity, signSharedOperation, encryptSharedOperation, decryptAuthenticatedSharedOperation, sharedDocumentDigest } from '../src/features/sharing/crypto.ts';
-import { createSharedRoster, approveSharedDevice, sharedAuthorIdentity } from '../src/features/sharing/roster.ts';
+import { createDeviceIdentity, signSharedDocument, signSharedOperation, encryptSharedOperation, decryptAuthenticatedSharedOperation, sharedDocumentDigest } from '../src/features/sharing/crypto.ts';
+import { createSharedRoster, approveSharedDevice, removeSharedMembers, sharedRosterDigest, sharedAuthorIdentity } from '../src/features/sharing/roster.ts';
 import { rosterCloudFields } from '../src/features/sharing/cloud-contract.ts';
-import { v2AuthorProofDigest } from '../src/features/sharing/v2/server-receipts.ts';
+import { canonicalJson } from '../src/features/sharing/operations.ts';
+import { bindV2ServerReceipt, v2AuthorProofDigest } from '../src/features/sharing/v2/server-receipts.ts';
 import { buildSharedReplica } from '../src/features/sharing/replica.ts';
 import { createEncryptedSharedSnapshot, openEncryptedSharedSnapshot } from '../src/features/sharing/snapshots.ts';
-import { sweepSharedDeliveries, sweepPrivateDeliveries, startSharedDeliveryWorker } from '../server/appliance-care-api/src/sharing-delivery-worker.mjs';
+import { sweepSharedDeliveries, sweepPrivateDeliveries, startSharedDeliveryWorker, inspectDeliveryReadiness, setDeliveryPolicyState } from '../server/account-device-api/src/sharing-delivery-worker.mjs';
 import { privatePlannerSyncFixture, privatePreferenceInput } from './helpers/private-planner-sync.mjs';
 import { createPrivateDelivery } from '../src/platform/sharing/private-delivery.ts';
 import { createPrivateDeliveryArchive } from '../src/platform/storage/private-delivery-archive.ts';
@@ -26,6 +27,7 @@ import { createPrivatePlannerCloud } from '../src/platform/sharing/private-plann
 import { sealPrivatePreferences, privatePreferenceCursor } from '../src/features/sharing/private-planner/preference-crypto.ts';
 import { sealPrivateCalendarCache, openPrivateCalendarCache } from '../src/features/sharing/private-calendar/cache-crypto.ts';
 import { tracedDeliveryRelay } from './helpers/delivery-relay-trace.mjs';
+import { recoveryReceiptInput, signDeliveryProgress } from '../src/features/sharing/delivery-proof.ts';
 
 if (!/^127\.0\.0\.1:\d+$/u.test(process.env.FIRESTORE_EMULATOR_HOST ?? '')) throw new Error('Use the isolated local Firestore emulator only');
 const require = createRequire(new URL('../server/appliance-care-api/package.json', import.meta.url));
@@ -38,6 +40,10 @@ before(async () => {
 beforeEach(async () => { await environment.clearFirestore(); });
 after(async () => { await store?.terminate(); await deleteApp(admin); await environment?.cleanup(); });
 const groupId = 'synthetic-delivery-group';
+const projectId = 'demo-liflow-sharing';
+const enrollmentId = 'a'.repeat(64);
+const testPolicy = { schemaVersion: 2, enrollmentId, ttlMs: 86400_000, enabled: true };
+const fixtureScope = (kind, scopeId, authorityDigest, keyVersion) => ({ projectId, kind, scopeId, enrollmentId, authorityDigest, keyVersion });
 async function eventually(predicate, message) {
   const deadline = Date.now() + 5000;
   while (!await predicate()) { assert.ok(Date.now() < deadline, message); await new Promise(resolve => setTimeout(resolve, 20)); }
@@ -56,10 +62,12 @@ async function privateFixture(t) {
   const h = await privatePlannerSyncFixture(t, { ownerUserId: 'synthetic-private-delivery-owner' });
   const uid = h.ownerUserId; const db = environment.authenticatedContext(uid).firestore();
   const setup = createPrivateCalendarCloud(db, uid, () => uid, crypto); await setup.createRoot(h.root); await setup.commitAuthority(h.root, h.authority);
+  await store.doc('privateCalendars/' + uid + '/deliveryControl/policy').set(testPolicy);
   function device(f) {
     const assertOwner = () => assert.equal(f.state.currentUser, uid);
     const archive = createPrivateDeliveryArchive({ ownerUserId: uid, exclusive: f.exclusive, assertOwner });
     const delivery = createPrivateDelivery({ firestore: db, userId: uid, archive, assertOwner,
+      async sign(value, deviceId) { assertOwner(); const secret = await f.secrets.identity(uid); assert.equal(secret.deviceId, deviceId); return signSharedDocument(value, secret); },
       state: async () => { const current = await f.secrets.publicState(uid); return current ? { identity: current.identity, authority: current.authority } : null; } });
     const calendar = createPrivateCalendarCloud(db, uid, () => f.state.currentUser, crypto, delivery);
     const planner = createPrivatePlannerCloud(db, uid, () => f.state.currentUser, delivery);
@@ -112,52 +120,52 @@ test('private device delivery erases received preference and busy ciphertext whi
 test('a durable private receipt retries interrupted device readiness with the same digest and coalesces unchanged confirmations', async t => {
   const h = await privateFixture(t); await h.upload();
   const calendarDigest = sharedDocumentDigest(h.encrypted.manifest);
-  const preferencesId = `preferences.${privatePreferenceCursor(h.preferences).digest}`;
-  await h.right.archive.saveChunk(`calendar.${calendarDigest}`, h.encrypted);
-  await h.right.archive.saveChunk(preferencesId, h.preferences);
+  const preferencesDigest = privatePreferenceCursor(h.preferences).digest;
+  const calendarId = 'calendar.' + calendarDigest;
+  await h.right.archive.saveChunk(calendarId, h.encrypted);
   const originalChunk = h.right.archive.chunk;
-  let preferenceReads = 0;
+  let interrupted = false;
   t.mock.method(h.right.archive, 'chunk', async id => {
-    if (id === preferencesId && ++preferenceReads === 1) throw new Error('synthetic archive interruption');
+    if (id === calendarId && !interrupted) { interrupted = true; throw new Error('synthetic archive interruption'); }
     return originalChunk(id);
   });
   const confirm = () => h.right.delivery.confirm(h.authority, 'calendar', calendarDigest);
-  const root = store.doc(`privateCalendars/${h.uid}`);
+  const root = store.doc('privateCalendars/' + h.uid);
   const deviceId = (await h.right.f.secrets.publicState(h.uid)).identity.deviceId;
-  const receipt = root.collection('deliveryAcknowledgements').doc(deviceId);
-  const capability = root.collection('deliveryDevices').doc(deviceId);
+  const proof = root.collection('signedDeliveryDevices').doc(deviceId);
+  let failureNotified = false;
+  const stop = h.right.delivery.watch(() => {}, () => { failureNotified = true; throw new Error('synthetic observer failure'); });
+  t.after(stop);
   await assert.rejects(confirm(), /synthetic archive interruption/);
-  const durable = await receipt.get();
-  assert.equal(durable.data()?.calendarDigest, calendarDigest);
-  assert.equal((await capability.get()).exists, false);
+  assert.equal(failureNotified, true);
+  assert.equal((await proof.get()).exists, false);
   await Promise.all([confirm(), confirm()]);
-  const ready = await capability.get();
-  assert.equal(ready.exists, true, 'a receipt already saved before the interruption must still finish the readiness notification');
+  const partial = await proof.get();
+  assert.equal(partial.data().progress.calendarDigest, calendarDigest);
+  assert.equal(partial.data().progress.ready, false);
   await confirm();
-  assert.equal(preferenceReads, 2, 'concurrent retries share one seed check and settled confirmations skip it');
-  assert.ok((await receipt.get()).updateTime.isEqual(durable.updateTime));
-  assert.ok((await capability.get()).updateTime.isEqual(ready.updateTime));
+  assert.ok((await proof.get()).updateTime.isEqual(partial.updateTime), 'an unchanged receipt is not written again');
+  await h.right.delivery.remember(h.authority, 'preferences.' + preferencesDigest, h.preferences);
+  await h.right.delivery.confirm(h.authority, 'preferences', preferencesDigest);
+  assert.equal((await proof.get()).data().progress.ready, true);
 });
 
-test('an unchanged private receipt finishes readiness when its missing companion is later stored without another domain confirmation', async t => {
+test('private readiness requires an independent confirmation for each stored domain without rewriting an unchanged receipt', async t => {
   const h = await privateFixture(t); await h.upload();
-  const digest = sharedDocumentDigest(h.encrypted.manifest), calendarId = `calendar.${digest}`;
-  const preferenceId = `preferences.${privatePreferenceCursor(h.preferences).digest}`;
-  await h.right.delivery.remember(h.authority, calendarId, h.encrypted);
-  const root = store.doc(`privateCalendars/${h.uid}`), deviceId = (await h.right.f.secrets.publicState(h.uid)).identity.deviceId;
-  const receipt = root.collection('deliveryAcknowledgements').doc(deviceId), capability = root.collection('deliveryDevices').doc(deviceId);
-  const read = h.right.archive.chunk; let calendarReads = 0;
-  t.mock.method(h.right.archive, 'chunk', async id => { if (id === calendarId) calendarReads++; return read(id); });
-  const confirm = () => h.right.delivery.confirm(h.authority, 'calendar', digest);
-  await confirm(); const durable = await receipt.get();
-  assert.equal(durable.data()?.calendarDigest, digest);
-  const before = calendarReads; await confirm();
-  assert.equal(calendarReads - before, 1, 'waiting for the same missing companion must not re-read the whole calendar seed');
-  assert.equal((await capability.get()).exists, false);
-  await h.right.delivery.remember(h.authority, preferenceId, h.preferences);
-  await Promise.all([confirm(), confirm()]);
-  assert.equal((await capability.get()).exists, true, 'the same confirmed digest must resume readiness after its companion is stored');
-  assert.ok((await receipt.get()).updateTime.isEqual(durable.updateTime));
+  const digest = sharedDocumentDigest(h.encrypted.manifest);
+  const preferencesDigest = privatePreferenceCursor(h.preferences).digest;
+  await h.right.delivery.remember(h.authority, 'calendar.' + digest, h.encrypted);
+  await h.right.delivery.confirm(h.authority, 'calendar', digest);
+  const id = (await h.right.f.secrets.publicState(h.uid)).identity.deviceId;
+  const proof = store.doc('privateCalendars/' + h.uid + '/signedDeliveryDevices/' + id);
+  const partial = await proof.get();
+  await h.right.delivery.remember(h.authority, 'preferences.' + preferencesDigest, h.preferences);
+  await Promise.all([h.right.delivery.confirm(h.authority, 'calendar', digest), h.right.delivery.prepare(h.authority)]);
+  assert.ok((await proof.get()).updateTime.isEqual(partial.updateTime));
+  assert.equal((await proof.get()).data().progress.ready, false, 'archive staging alone does not establish successful receive and save');
+  await h.right.delivery.confirm(h.authority, 'preferences', preferencesDigest);
+  assert.equal((await proof.get()).data().progress.ready, true);
+
 });
 
 test('serving another private device cannot delay a normal preferences read and an account change cancels its delayed response', async t => {
@@ -186,6 +194,9 @@ test('expired private delivery rehydrates through a peer before merging and keep
   const leftBefore = await h.left.store.readSyncState(), rightBefore = await h.right.store.readSyncState();
   await h.left.store.save(leftBefore.local.revision, { ...privatePreferenceInput(), restDays: [1] });
   assert.equal((await h.left.sync.synchronize(true)).kind, 'sent');
+  const digest = (await h.left.store.readSyncState()).baseline.cursor.digest;
+  await eventually(async () => (await store.doc(`privateCalendars/${h.uid}/signedDeliveryDevices/${h.author.deviceId}`).get()).data()?.progress.preferencesDigest === digest,
+    'the receipt must follow the confirmed local SQLite write');
   await h.right.store.save(rightBefore.local.revision, { ...privatePreferenceInput(), restDays: [2] });
   await sweepPrivateDeliveries(store, h.uid, Date.now() + 86400_001);
   await h.right.f.exclusive(h.uid, database => database.execAsync('DELETE FROM private_delivery_archive'));
@@ -209,18 +220,83 @@ test('private delivery retains ciphertext while one approved device has not seed
   await assert.rejects(restored.planner.read(h.authority), error => error.code === 'sharing/delivery-pending');
   await assert.rejects(restored.planner.read(h.authority), error => error.code === 'sharing/delivery-pending');
 });
+
+test('signed private enrollment can be observed with deletion paused and requires a valid receipt from each approved device', async t => {
+  const h = await privateFixture(t);
+  const root = store.doc(`privateCalendars/${h.uid}`), policy = root.collection('deliveryControl').doc('policy');
+  await policy.set({ ...testPolicy, enabled: false });
+  await h.upload();
+  const receiving = (await h.right.f.secrets.publicState(h.uid)).identity;
+  const scope = fixtureScope('private', h.uid, h.authority.digest, h.authority.signed.body.keyVersion);
+  const unverified = await signDeliveryProgress(scope, h.uid, receiving.deviceId, { ready: true,
+    calendarDigest: sharedDocumentDigest(h.encrypted.manifest), preferencesDigest: privatePreferenceCursor(h.preferences).digest },
+  body => signSharedDocument(body, h.author));
+  await root.collection('signedDeliveryDevices').doc(receiving.deviceId).set(unverified);
+  const action = { kind: 'private', scopeId: h.uid, action: 'enable' };
+  await assert.rejects(setDeliveryPolicyState(store, action), /All approved devices/);
+  const [paused, initial] = await Promise.all([sweepPrivateDeliveries(store, h.uid, Date.now() + 2 * 86400_000), inspectDeliveryReadiness(store)]);
+  assert.equal(paused.deleted, 0);
+  assert.equal(initial.private.approved, 2); assert.equal(initial.private.ready, 1);
+  const client = environment.authenticatedContext(h.uid).firestore();
+  await assertFails(updateDoc(doc(client, policy.path), { enabled: true }));
+  await h.receive();
+  const after = await inspectDeliveryReadiness(store);
+  assert.equal(after.private.ready, 2); assert.equal(after.private.caughtUp, 2); assert.equal(after.private.enabledScopes, 0);
+  assert.equal((await sweepPrivateDeliveries(store, h.uid)).deleted, 0);
+  assert.deepEqual(await setDeliveryPolicyState(store, action), { enabled: true, approved: 2 });
+  assert.ok((await sweepPrivateDeliveries(store, h.uid)).deleted > 0);
+});
+
+test('an obsolete calendar from an earlier authority does not block current private preferences or count as a received cache', async t => {
+  const h = await privateFixture(t);
+  const root = store.doc(`privateCalendars/${h.uid}`), policy = root.collection('deliveryControl').doc('policy');
+  await policy.update({ enabled: false });
+  await h.left.calendar.uploadCache(h.authority, h.encrypted);
+  await root.update({ 'cacheHead.authorityDigest': 'b'.repeat(64) });
+  const digest = privatePreferenceCursor(h.preferences).digest;
+  await h.left.planner.publish(h.authority, h.preferences);
+  await h.right.planner.read(h.authority);
+  await h.left.delivery.confirm(h.authority, 'preferences', digest);
+  await h.right.delivery.confirm(h.authority, 'preferences', digest);
+  const enabled = await setDeliveryPolicyState(store, { kind: 'private', scopeId: h.uid, action: 'enable' });
+  assert.equal(enabled.approved, 2);
+  await sweepPrivateDeliveries(store, h.uid);
+  assert.equal((await root.collection('plannerPreferences').doc('current').get()).data().encryptedJson, null);
+  assert.ok((await root.collection('caches').doc(h.encrypted.manifest.body.cacheId).collection('parts').get()).size > 0);
+});
 async function fixture(testEnvironment = environment, testStore = store) {
   const owner = await createDeviceIdentity(crypto); const member = await createDeviceIdentity(crypto); const key = await crypto.randomBytes(32);
   const first = createSharedRoster(groupId, 'owner', owner, { schemaVersion: 2 });
   const roster = approveSharedDevice(first, owner, 'member', member); const archive = [first, roster]; const dbs = [];
-  await testStore.doc(`sharingGroups/${groupId}`).set({ ...rosterCloudFields(roster), headSequence: 0, lastOperationId: null,
+  const root = testStore.doc(`sharingGroups/${groupId}`);
+  await root.set({ ...rosterCloudFields(roster), headSequence: 0, lastOperationId: null,
     snapshotId: null, snapshotThroughSequence: 0, createdAt: new Date(), updatedAt: new Date() });
+  const membership = testStore.batch();
+  for (const epoch of archive) membership.set(root.collection('rosters').doc(String(epoch.body.revision)), { rosterJson: rosterCloudFields(epoch).rosterJson });
+  membership.set(root.collection('deliveryControl').doc('policy'), testPolicy);
+  await membership.commit();
+  async function verifyApplied(events) {
+    for (const event of events) {
+      const epoch = archive.find(value => value.body.keyVersion === event.envelope.keyVersion);
+      const author = sharedAuthorIdentity(epoch, event.envelope.authorUserId, event.envelope.authorDeviceId, event.envelope.keyVersion);
+      const fact = await decryptAuthenticatedSharedOperation(crypto, event.envelope, key, author, groupId, event.envelope.keyVersion);
+      bindV2ServerReceipt(event.serverReceipt, fact, archive);
+    }
+  }
   async function device(uid, identity, enabled = true) {
     const db = createDatabase(); dbs.push(db); let active = uid;
     const firestore = testEnvironment.authenticatedContext(uid).firestore();
     const cloud = createSharingCloud(firestore, uid, () => active);
     const local = await createSharedDeliveryArchive(db.database, groupId, async work => work(), () => { if (active !== uid) throw new Error('synthetic account changed'); });
-    if (enabled) cloud.setDeliveryArchive(identity.deviceId, local, () => archive);
+    if (enabled) {
+      let checkpoint = { sequence: 0, snapshotId: null };
+      cloud.setDeliveryArchive(identity, local, () => archive, async () => checkpoint);
+      const acknowledge = cloud.acknowledge;
+      cloud.acknowledge = async (id, deviceId, sequence) => {
+        checkpoint = { sequence, snapshotId: (await cloud.readGroup(id)).group.snapshotId };
+        return acknowledge(id, deviceId, sequence, verifyApplied);
+      };
+    }
     return { db, cloud, local, firestore, checkAccount: () => assert.equal(active, uid), switchAccount: () => { active = 'someone-else'; } };
   }
   async function upload(source, sequence = 1) {
@@ -232,7 +308,7 @@ async function fixture(testEnvironment = environment, testStore = store) {
   }
   const transport = (target, uid, identity, local = target.local) => tracedDeliveryRelay({ firestore: target.firestore, userId: uid,
     checkAccount: target.checkAccount, reference: id => doc(target.firestore, 'sharingGroups', id), readGroup: id => target.cloud.readGroup(id) }, identity.deviceId, local);
-  return { owner, member, key, roster, archive, device, upload, transport, close: () => dbs.forEach(db => db.connection.close()) };
+  return { owner, member, key, roster, archive, device, upload, transport, verifyApplied, close: () => dbs.forEach(db => db.connection.close()) };
 }
 
 test('more than eight simultaneous recovery artifacts all arrive and completed replies never reread or upload the same ciphertext', async () => {
@@ -499,6 +575,9 @@ test('shared ciphertext expires after twenty four hours without a receiver ackno
     await source.cloud.acknowledge(groupId, f.owner.deviceId, 0); await receiver.cloud.acknowledge(groupId, f.member.deviceId, 0);
     const { event } = await f.upload(source);
     await sweepSharedDeliveries(store, groupId, Date.now() + 86400_001);
+    assert.ok((await store.doc('sharingGroups/' + groupId + '/events/' + event.operationId).get()).exists, 'a timeout never deletes the only confirmed copy');
+    await source.cloud.acknowledge(groupId, f.owner.deviceId, 1);
+    await sweepSharedDeliveries(store, groupId, Date.now() + 86400_001);
     assert.equal((await store.doc(`sharingGroups/${groupId}/events/${event.operationId}`).get()).exists, false);
     for (let attempt = 0; attempt < 2; attempt++) await assert.rejects(receiver.cloud.pull(groupId, 0), error => error.code === 'sharing/delivery-pending');
     assert.equal((await store.collection(`sharingGroups/${groupId}/deliveryRequests`).get()).size, 1, 'pending work reuses one small request');
@@ -512,7 +591,11 @@ test('a negotiated closed group with no remaining recipients still expires old c
     const source = await f.device('owner', f.owner), receiver = await f.device('member', f.member);
     await source.cloud.acknowledge(groupId, f.owner.deviceId, 0); await receiver.cloud.acknowledge(groupId, f.member.deviceId, 0);
     const { event } = await f.upload(source); assert.equal((await sweepSharedDeliveries(store, groupId)).active, true);
-    const root = store.doc(`sharingGroups/${groupId}`); await root.update({ closed: true, revokedUserIds: ['owner', 'member'] });
+    const root = store.doc(`sharingGroups/${groupId}`);
+    const closed = removeSharedMembers(f.roster, f.owner, ['owner', 'member']);
+    const fields = rosterCloudFields(closed), batch = store.batch();
+    batch.update(root, fields); batch.set(root.collection('rosters').doc(String(closed.body.revision)), { rosterJson: fields.rosterJson });
+    await batch.commit();
     assert.equal((await sweepSharedDeliveries(store, groupId, Date.now() + 86400_001)).active, false);
     assert.equal((await root.collection('events').get()).size, 0);
     assert.equal((await root.collection('receipts').doc(event.operationId).get()).exists, true);
@@ -524,7 +607,8 @@ test('a durable relay receipt closes late and partial responders before recursiv
   try {
     const source = await f.device('owner', f.owner); const receiver = await f.device('member', f.member);
     await source.cloud.acknowledge(groupId, f.owner.deviceId, 0); await receiver.cloud.acknowledge(groupId, f.member.deviceId, 0);
-    const { event } = await f.upload(source); await sweepSharedDeliveries(store, groupId, Date.now() + 86400_001);
+    const { event } = await f.upload(source); await source.cloud.acknowledge(groupId, f.owner.deviceId, 1);
+    await sweepSharedDeliveries(store, groupId, Date.now() + 86400_001);
     await assert.rejects(receiver.cloud.pull(groupId, 0), error => error.code === 'sharing/delivery-pending');
     const request = (await store.collection(`sharingGroups/${groupId}/deliveryRequests`).get()).docs[0];
     const expiresAt = Timestamp.fromMillis(request.data().expiresAt.toMillis());
@@ -536,9 +620,13 @@ test('a durable relay receipt closes late and partial responders before recursiv
     await assertFails(deleteDoc(response));
     // Model another peer's complete, independently receipted delivery winning this race.
     await receiver.local.saveEvents([event]); await receiver.cloud.acknowledge(groupId, f.member.deviceId, 1);
-    assert.ok((await request.ref.get()).data().receivedAt);
-    await assertFails(updateDoc(response, { ready: true })); await assertFails(deleteDoc(doc(receiver.firestore, request.ref.path)));
+    const claimed = (await request.ref.get()).data();
+    assert.ok(claimed.receiptSignature);
+    assert.equal(claimed.receivedAt, undefined, 'only the worker can certify the receipt and fence a sender');
+    await assertFails(updateDoc(doc(receiver.firestore, request.ref.path), { receivedAt: serverTimestamp() }));
+    await assertFails(deleteDoc(doc(receiver.firestore, request.ref.path)));
     await sweepSharedDeliveries(store, groupId);
+    await assertFails(updateDoc(response, { ready: true }));
     assert.equal((await store.collection(`sharingGroups/${groupId}/deliveryRequests`).get()).size, 0);
     assert.equal((await store.collectionGroup('parts').get()).size, 0);
   } finally { f.close(); }
@@ -558,6 +646,182 @@ test('shared delivery never activates erasure with an old unseeded approved devi
   } finally { f.close(); }
 });
 
+test('signed shared receipt from a previous authority cannot activate erasure after a key rotation', async () => {
+  const f = await fixture();
+  try {
+    const source = await f.device('owner', f.owner), receiver = await f.device('member', f.member);
+    await source.cloud.acknowledge(groupId, f.owner.deviceId, 0); await receiver.cloud.acknowledge(groupId, f.member.deviceId, 0);
+    const { event } = await f.upload(source);
+    await source.cloud.acknowledge(groupId, f.owner.deviceId, 1);
+    const root = store.doc(`sharingGroups/${groupId}`);
+    const current = removeSharedMembers(f.roster, f.owner, ['member']);
+    const fields = rosterCloudFields(current), batch = store.batch();
+    batch.update(root, fields); batch.set(root.collection('rosters').doc(String(current.body.revision)), { rosterJson: fields.rosterJson });
+    await batch.commit();
+    const readiness = await inspectDeliveryReadiness(store);
+    assert.equal(readiness.shared.approved, 1); assert.equal(readiness.shared.ready, 0);
+    assert.equal((await sweepSharedDeliveries(store, groupId, Date.now() + 2 * 86400_000)).active, false);
+    assert.ok((await root.collection('events').doc(event.operationId).get()).exists);
+  } finally { f.close(); }
+});
+
+test('an active legacy delivery policy can be paused and enrolled without erasure or copying old readiness', async () => {
+  const f = await fixture();
+  try {
+    const root = store.doc(`sharingGroups/${groupId}`), policy = root.collection('deliveryControl').doc('policy');
+    const source = await f.device('owner', f.owner);
+    const { event } = await f.upload(source);
+    await policy.set({ schemaVersion: 1, ttlMs: 86400_000, enabled: true, active: true, activatedAt: Date.now() });
+    const command = { kind: 'shared', scopeId: groupId };
+    await assert.rejects(setDeliveryPolicyState(store, { ...command, action: 'enroll' }), /Legacy delivery must be stopped/);
+    await setDeliveryPolicyState(store, { ...command, action: 'pause' });
+    const pausedLegacy = await policy.get();
+    assert.equal(pausedLegacy.data().schemaVersion, 2, 'legacy compaction is fenced in the same transaction that pauses it');
+    await setDeliveryPolicyState(store, { ...command, action: 'enroll' });
+    const enrolledPolicy = await policy.get();
+    assert.ok(enrolledPolicy.updateTime.isEqual(pausedLegacy.updateTime));
+    const enrolled = enrolledPolicy.data();
+    assert.equal(enrolled.enabled, false); assert.equal(enrolled.schemaVersion, 2); assert.match(enrolled.enrollmentId, /^[a-f0-9]{64}$/u);
+    assert.equal((await inspectDeliveryReadiness(store)).shared.ready, 0);
+    assert.equal((await sweepSharedDeliveries(store, groupId, Date.now() + 2 * 86400_000)).deleted, 0);
+    assert.ok((await root.collection('events').doc(event.operationId).get()).exists);
+  } finally { f.close(); }
+});
+
+test('shared enrollment blocks legacy compaction and requires every device to acknowledge the current snapshot and head', async () => {
+  const f = await fixture();
+  try {
+    const root = store.doc(`sharingGroups/${groupId}`), policy = root.collection('deliveryControl').doc('policy');
+    await policy.update({ enabled: false });
+    const sender = await f.device('owner', f.owner), receiver = await f.device('member', f.member);
+    await sender.cloud.acknowledge(groupId, f.owner.deviceId, 0); await receiver.cloud.acknowledge(groupId, f.member.deviceId, 0);
+    const { event, fact } = await f.upload(sender);
+    const action = { action: 'enable', kind: 'shared', scopeId: groupId };
+    await assert.rejects(setDeliveryPolicyState(store, action), /acknowledge the current data/);
+    const author = (uid, id, version) => sharedAuthorIdentity(f.archive.find(epoch => epoch.body.keyVersion === version), uid, id, version);
+    const snapshot = await createEncryptedSharedSnapshot(crypto, buildSharedReplica(groupId, [fact.operation]), [fact], f.roster, f.owner, f.key, 'enrollment-snapshot', 1, author, f.archive);
+    await sender.cloud.prepareSnapshot(snapshot, f.roster); await sender.cloud.publishSnapshot(snapshot.manifest, f.roster);
+    const ownerEvent = doc(sender.firestore, 'sharingGroups', groupId, 'events', event.operationId);
+    await assertFails(deleteDoc(ownerEvent));
+    await root.collection('snapshotChunks').doc('superseded-chunk').set({ snapshotId: 'superseded', keyVersion: f.roster.body.keyVersion, createdAt: new Date() });
+    await assertFails(deleteDoc(doc(sender.firestore, 'sharingGroups', groupId, 'snapshotChunks', 'superseded-chunk')));
+    assert.deepEqual(await sender.cloud.compactHistory(groupId, Date.now() + 8 * 86400_000), { deleted: 0, waitingForDevices: false });
+    await sender.cloud.acknowledge(groupId, f.owner.deviceId, 1);
+    const partial = await inspectDeliveryReadiness(store);
+    assert.equal(partial.shared.ready, 2); assert.equal(partial.shared.caughtUp, 1);
+    await assert.rejects(setDeliveryPolicyState(store, action), /acknowledge the current data/);
+    const saved = await receiver.cloud.readSnapshot(groupId, snapshot.manifest.body.snapshotId, f.archive);
+    await openEncryptedSharedSnapshot(crypto, saved, f.key, f.roster, author, f.archive);
+    await receiver.cloud.acknowledge(groupId, f.member.deviceId, 1);
+    assert.deepEqual(await setDeliveryPolicyState(store, action), { enabled: true, approved: 2 });
+    await setDeliveryPolicyState(store, { ...action, action: 'pause' });
+    await assertFails(deleteDoc(ownerEvent));
+    assert.equal((await sweepSharedDeliveries(store, groupId, Date.now() + 2 * 86400_000)).deleted, 0);
+    assert.ok((await root.collection('events').doc(event.operationId).get()).exists);
+  } finally { f.close(); }
+});
+
+test('shared deletion retains a quarantined event while erasing other fully received events', async () => {
+  const f = await fixture();
+  try {
+    const source = await f.device('owner', f.owner), receiver = await f.device('member', f.member);
+    const first = await f.upload(source), second = await f.upload(source, 2);
+    await receiver.cloud.pull(groupId, 0);
+    await source.cloud.acknowledge(groupId, f.owner.deviceId, 2); await receiver.cloud.acknowledge(groupId, f.member.deviceId, 2);
+    const root = store.doc(`sharingGroups/${groupId}`);
+    await root.collection('quarantines').doc(first.event.operationId).set({ synthetic: true });
+    await sweepSharedDeliveries(store, groupId, Date.now() + 2 * 86400_000);
+    assert.equal((await root.collection('events').doc(first.event.operationId).get()).exists, true);
+    assert.equal((await root.collection('events').doc(second.event.operationId).get()).exists, false);
+  } finally { f.close(); }
+});
+
+test('shared backfill never signs unauthenticated legacy archive bytes and can still restore the real signed event from a peer', async () => {
+  const f = await fixture();
+  try {
+    const source = await f.device('owner', f.owner), receiver = await f.device('member', f.member);
+    await source.cloud.acknowledge(groupId, f.owner.deviceId, 0); await receiver.cloud.acknowledge(groupId, f.member.deviceId, 0);
+    const { event } = await f.upload(source); await source.cloud.acknowledge(groupId, f.owner.deviceId, 1);
+    const root = store.doc(`sharingGroups/${groupId}`), cloudEvent = root.collection('events').doc(event.operationId);
+    await sweepSharedDeliveries(store, groupId, Date.now() + 86400_001);
+    assert.equal((await cloudEvent.get()).exists, false);
+    const invalidEnvelope = { ...event.envelope, signature: '0'.repeat(128) };
+    const invalidEvent = { ...event, envelope: invalidEnvelope, envelopeJson: canonicalJson(invalidEnvelope) };
+    await receiver.db.database.runAsync('INSERT INTO sharing_delivery_archive VALUES(?,?,?,?,?)', groupId, 'event', event.operationId, 1, canonicalJson(invalidEvent));
+    await assert.rejects(receiver.cloud.acknowledge(groupId, f.member.deviceId, 1), error => error.code === 'sharing/delivery-pending');
+    assert.equal(await receiver.local.events(0, 1), null);
+    assert.equal((await root.collection('signedDeliveryDevices').doc(f.member.deviceId).get()).data().progress.sequence, 0);
+    await source.cloud.prepareDelivery(groupId);
+    await receiver.cloud.acknowledge(groupId, f.member.deviceId, 1);
+    assert.deepEqual(await receiver.local.events(0, 1), [event]);
+    assert.equal((await root.collection('signedDeliveryDevices').doc(f.member.deviceId).get()).data().progress.sequence, 1);
+  } finally { f.close(); }
+});
+
+test('shared expiry preserves the raw event while the owner recovery cursor is behind a caught-up member', async () => {
+  const f = await fixture();
+  try {
+    const source = await f.device('owner', f.owner), receiver = await f.device('member', f.member);
+    await source.cloud.acknowledge(groupId, f.owner.deviceId, 0); await receiver.cloud.acknowledge(groupId, f.member.deviceId, 0);
+    const { event } = await f.upload(source);
+    await receiver.cloud.acknowledge(groupId, f.member.deviceId, 1);
+    const row = store.doc(`sharingGroups/${groupId}/events/${event.operationId}`), afterExpiry = Date.now() + 86401_000;
+    await sweepSharedDeliveries(store, groupId, afterExpiry);
+    assert.ok((await row.get()).exists);
+    await source.cloud.acknowledge(groupId, f.owner.deviceId, 1);
+    await sweepSharedDeliveries(store, groupId, afterExpiry);
+    assert.equal((await row.get()).exists, false);
+  } finally { f.close(); }
+});
+
+test('shared rollout validates an old local prefix and a live Cloud suffix without asking a peer for the combined range', async () => {
+  const f = await fixture();
+  try {
+    const owner = await f.device('owner', f.owner), upgraded = await f.device('member', f.member);
+    await owner.cloud.acknowledge(groupId, f.owner.deviceId, 0); await upgraded.cloud.acknowledge(groupId, f.member.deviceId, 0);
+    const first = await f.upload(owner); await owner.cloud.acknowledge(groupId, f.owner.deviceId, 1);
+    const root = store.doc(`sharingGroups/${groupId}`);
+    await sweepSharedDeliveries(store, groupId, Date.now() + 86400_001);
+    assert.equal((await root.collection('events').doc(first.event.operationId).get()).exists, false);
+    await upgraded.db.database.runAsync('INSERT INTO sharing_delivery_archive VALUES(?,?,?,?,?)', groupId, 'event', first.event.operationId, 1, canonicalJson(first.event));
+    const second = await f.upload(owner, 2);
+    const restoredBeforeApplying = await upgraded.cloud.pull(groupId, 0, f.verifyApplied);
+    assert.deepEqual(restoredBeforeApplying.events, [first.event]);
+    assert.equal(restoredBeforeApplying.throughSequence, 1);
+    assert.equal(await upgraded.local.events(0, 1), null, 'a read cannot promote an event before the ledger commits it');
+    assert.deepEqual((await upgraded.cloud.pull(groupId, 1, f.verifyApplied)).events, [second.event]);
+    await upgraded.cloud.acknowledge(groupId, f.member.deviceId, 2);
+    assert.deepEqual(await upgraded.local.events(0, 2), [first.event, second.event]);
+    assert.equal((await root.collection('signedDeliveryDevices').doc(f.member.deviceId).get()).data().progress.sequence, 2);
+    assert.equal((await root.collection('deliveryRequests').get()).size, 0);
+    const newDevice = await f.device('member', f.member);
+    await assert.rejects(newDevice.cloud.pull(groupId, 0), error => error.code === 'sharing/delivery-pending');
+    const requests = await root.collection('deliveryRequests').get();
+    assert.deepEqual(requests.docs.map(row => [row.data().after, row.data().through]), [[0, 1]]);
+  } finally { f.close(); }
+});
+
+test('shared cleanup progresses past a full page of quarantined events and staged future-epoch chunks', async () => {
+  const f = await fixture();
+  try {
+    const source = await f.device('owner', f.owner), receiver = await f.device('member', f.member);
+    const root = store.doc(`sharingGroups/${groupId}`), batch = store.batch();
+    for (let sequence = 1; sequence <= 26; sequence++) {
+      const { event } = await f.upload(source, sequence);
+      if (sequence < 26) batch.set(root.collection('quarantines').doc(event.operationId), { synthetic: true });
+      batch.set(root.collection('snapshotChunks').doc(`scan-chunk-${sequence}`), { snapshotId: `scan-snapshot-${sequence}`,
+        keyVersion: f.roster.body.keyVersion + (sequence < 26 ? 1 : 0), createdAt: new Date(Date.now() - (27 - sequence) * 1000) });
+    }
+    await batch.commit();
+    await source.cloud.acknowledge(groupId, f.owner.deviceId, 26); await receiver.cloud.acknowledge(groupId, f.member.deviceId, 26);
+    await sweepSharedDeliveries(store, groupId, Date.now() + 86401_000);
+    assert.equal((await root.collection('events').get()).size, 25);
+    assert.equal((await root.collection('snapshotChunks').get()).size, 25);
+    assert.equal((await root.collection('events').doc('synthetic-delivery-26').get()).exists, false);
+    assert.equal((await root.collection('snapshotChunks').doc('scan-chunk-26').get()).exists, false);
+  } finally { f.close(); }
+});
+
 test('real recovery cleanup erases a received request behind pending work and drains large received batches without expiring pending bodies', async () => {
   const f = await fixture();
   try {
@@ -567,9 +831,13 @@ test('real recovery cleanup erases a received request behind pending work and dr
     async function seed(id, createdAt, received = false) {
       const request = root.collection('deliveryRequests').doc(id), expiresAt = new Date(createdAt + 86400_000);
       const response = request.collection('responses').doc(f.owner.deviceId), batch = store.batch();
-      batch.set(request, { schemaVersion: 1, userId: 'member', deviceId: f.member.deviceId, kind: 'chunk', key: id,
-        after: 0, through: 0, keyVersion: f.roster.body.keyVersion, createdAt: new Date(createdAt), expiresAt,
-        ...(received ? { receivedAt: new Date(at) } : {}) });
+      const stamp = Timestamp.fromMillis(createdAt);
+      const position = { kind: 'chunk', key: id, after: 0, through: 0, keyVersion: f.roster.body.keyVersion };
+      const scope = fixtureScope('shared', groupId, sharedRosterDigest(f.roster), f.roster.body.keyVersion);
+      const receiptSignature = signSharedDocument(recoveryReceiptInput(scope, 'member', f.member.deviceId, {
+        ...position, id, createdSeconds: stamp.seconds, createdNanoseconds: stamp.nanoseconds }), f.member);
+      batch.set(request, { schemaVersion: 2, userId: 'member', deviceId: f.member.deviceId, ...position,
+        createdAt: new Date(createdAt), expiresAt, ...(received ? { receiptSignature, receiptReportedAt: new Date(at) } : {}) });
       batch.set(response, { schemaVersion: 1, userId: 'owner', deviceId: f.owner.deviceId, digest: 'a'.repeat(64),
         size: 1, parts: 1, ready: true, createdAt: new Date(createdAt), expiresAt });
       batch.set(response.collection('parts').doc('0'), { index: 0, data: 'eA==', createdAt: new Date(createdAt), expiresAt });

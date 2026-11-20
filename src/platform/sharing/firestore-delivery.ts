@@ -10,13 +10,15 @@ import type { SharedCloudGroup, SharedCloudEvent } from '../../features/sharing/
 import { canonicalJson, assertSharedIdentifier } from '../../features/sharing/operations.ts';
 import { sharedDocumentDigest } from '../../features/sharing/crypto.ts';
 import type { EncryptedSharedSnapshotChunk } from '../../features/sharing/crypto';
+import { DELIVERY_TTL_MS, parseDeliveryPolicy, recoveryReceiptInput } from '../../features/sharing/delivery-proof.ts';
+import type { DeliveryProofClient } from './delivery-proof-cloud.ts';
 
-const TTL = 86400_000, PART_BYTES = 128 * 1024, MAX_BYTES = 16 * 1024 * 1024;
-type Request = { schemaVersion: 1; userId: string; deviceId: string; kind: 'events' | 'chunk'; key: string;
-  after: number; through: number; keyVersion: number; createdAt?: Timestamp; expiresAt: Timestamp; receivedAt?: Timestamp };
+const TTL = DELIVERY_TTL_MS, PART_BYTES = 128 * 1024, MAX_BYTES = 16 * 1024 * 1024;
+type Request = { schemaVersion: 1 | 2; userId: string; deviceId: string; kind: 'events' | 'chunk'; key: string;
+  after: number; through: number; keyVersion: number; createdAt: Timestamp; expiresAt: Timestamp; receivedAt?: Timestamp; receiptSignature?: string };
 const validTime = (value: unknown): value is Timestamp => value instanceof Timestamp;
 function validRequest(value: DocumentData): value is Request {
-  return value.schemaVersion === 1 && ['events', 'chunk'].includes(value.kind)
+  return [1, 2].includes(value.schemaVersion) && ['events', 'chunk'].includes(value.kind)
     && typeof value.userId === 'string' && typeof value.deviceId === 'string' && typeof value.key === 'string' && value.key.length <= 200
     && [value.after, value.through, value.keyVersion].every(Number.isSafeInteger) && value.after >= 0 && value.through >= value.after
     && (value.kind === 'chunk' || value.through - value.after <= 10) && validTime(value.createdAt) && validTime(value.expiresAt);
@@ -25,18 +27,16 @@ export interface DeliveryRelayContext {
   firestore: Firestore; userId: string; checkAccount(): void; reference(groupId: string): DocumentReference;
   readGroup(groupId: string): Promise<{ group: SharedCloudGroup }>;
   parseRoot?: (raw: unknown, groupId: string) => SharedCloudGroup;
+  proof?: DeliveryProofClient;
 }
 export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChunk>(context: DeliveryRelayContext, deviceId: string, archive: SharedDeliveryArchive<Artifact>) {
   const { firestore, userId, checkAccount, reference, readGroup } = context;
   assertSharedIdentifier(deviceId);
   const requests = (groupId: string) => collection(reference(groupId), 'deliveryRequests');
   const policyRef = (groupId: string) => doc(reference(groupId), 'deliveryControl', 'policy');
-  const capabilityRef = (groupId: string) => doc(reference(groupId), 'deliveryDevices', deviceId);
-  let advertised = false;
-  let advertising: Promise<void> | undefined;
   let acknowledgement: Promise<void> = Promise.resolve();
   let lastEmptyClosedRequest: string | undefined;
-  const receivedRequests = new Map<string, Pick<Request, 'kind' | 'key' | 'after' | 'through'> & { deadline: number }>();
+  const receivedRequests = new Map<string, Pick<Request, 'kind' | 'key' | 'after' | 'through'> & { deadline: number; fingerprint: string | null }>();
   const knownRequests = new Map<string, Request>();
   const sentRequests = new Map<string, string>();
   let cursor: QueryDocumentSnapshot | undefined;
@@ -46,8 +46,8 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
   let scope: { id: string; group: SharedCloudGroup } | undefined;
   let wake: (() => void) | undefined; let failure: ((error: unknown) => void) | undefined;
   const responseObservers = new Map<string, () => void>();
-  const fingerprintOf = (request: Request) => `${request.createdAt!.seconds}:${request.createdAt!.nanoseconds}:${request.keyVersion}`;
-  const deadlineOf = (request: Request) => Math.min(request.expiresAt.toMillis(), request.createdAt!.toMillis() + TTL);
+  const fingerprintOf = (request: Request) => `${request.createdAt.seconds}:${request.createdAt.nanoseconds}:${request.keyVersion}`;
+  const deadlineOf = (request: Request) => Math.min(request.expiresAt.toMillis(), request.createdAt.toMillis() + TTL);
   function forgetRequest(id: string) {
     knownRequests.delete(id); sentRequests.delete(id); receivedRequests.delete(id);
     responseObservers.get(id)?.(); responseObservers.delete(id);
@@ -60,7 +60,8 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
   const observedArchive: SharedDeliveryArchive<Artifact> = {
     saveEvents: async events => { await archive.saveEvents(events); checkAccount(); archiveChanged(); },
     saveChunk: async (id, value) => { await archive.saveChunk(id, value); checkAccount(); archiveChanged(); },
-    events: (after, through) => archive.events(after, through), chunk: id => archive.chunk(id), seedPosition: floor => archive.seedPosition(floor),
+    events: (after, through) => archive.events(after, through), legacyEvents: archive.legacyEvents,
+    chunk: id => archive.chunk(id), seedPosition: floor => archive.seedPosition(floor),
   };
   function observeResponse(target: DocumentReference) {
     if (!wake || responseObservers.has(target.id)) return;
@@ -125,7 +126,8 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
             forgetRequest(id); continue;
           }
           if (request.deviceId === deviceId && request.userId === userId) {
-            receivedRequests.set(id, { kind: request.kind, key: request.key, after: request.after, through: request.through, deadline: deadlineOf(request) });
+            receivedRequests.set(id, { kind: request.kind, key: request.key, after: request.after, through: request.through,
+              deadline: deadlineOf(request), fingerprint: fingerprintOf(request) });
             observeResponse(doc(requests(groupId), id)); continue;
           }
           if (request.deviceId === deviceId || group.deviceOwners[request.deviceId] !== request.userId
@@ -164,22 +166,24 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
       if (old.exists()) {
         const saved = old.data();
         if (!validRequest(saved)) return null;
-        return { deadline: deadlineOf(saved), closed: saved.receivedAt === undefined ? null : fingerprintOf(saved) };
+        return { deadline: deadlineOf(saved), closed: saved.receivedAt !== undefined, fingerprint: fingerprintOf(saved) };
       }
+      const policy = context.proof ? (await transaction.get(policyRef(groupId))).data() : null;
+      const signedScope = context.proof?.resolve(groupId, policy, raw);
       const expiresAt = Timestamp.fromMillis(Date.now() + TTL);
-      transaction.set(target, { schemaVersion: 1, userId, deviceId, kind, key, after, through,
+      transaction.set(target, { schemaVersion: signedScope ? 2 : 1, userId, deviceId, kind, key, after, through,
         keyVersion: current.keyVersion, createdAt: serverTimestamp(), expiresAt });
-      return { deadline: expiresAt.toMillis(), closed: null };
+      return { deadline: expiresAt.toMillis(), closed: false, fingerprint: null };
     }); checkAccount();
     if (!state || state.deadline <= Date.now()) {
       forgetRequest(requestId); throw new SharedDeliveryPendingError();
     }
-    const closed = state.closed && `${requestId}:${state.closed}`;
+    const closed = state.closed && `${requestId}:${state.fingerprint}`;
     if (closed) {
       forgetRequest(requestId);
       if (lastEmptyClosedRequest === closed) throw new SharedDeliveryPendingError();
     } else {
-      receivedRequests.set(requestId, { kind, key, after, through, deadline: state.deadline });
+      receivedRequests.set(requestId, { kind, key, after, through, deadline: state.deadline, fingerprint: state.fingerprint });
       observeResponse(target);
     }
     const responses = await getDocsFromServer(query(collection(target, 'responses'), limit(64))); checkAccount();
@@ -229,19 +233,10 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
       const local = await archive.chunk(id); if (local) return local;
       return await recover(groupId, 'chunk', id, through, through) as Artifact;
     },
-    async ready(groupId: string, position: number) {
-      if (advertised) return;
-      if (advertising) return advertising;
-      const work = runTransaction(firestore, async transaction => {
-        const [root, capability, policy] = await Promise.all([transaction.get(reference(groupId)), transaction.get(capabilityRef(groupId)), transaction.get(policyRef(groupId))]); checkAccount();
-        const group = context.parseRoot ? context.parseRoot(root.data(), groupId) : parseSharedCloudGroup(root.data(), groupId).group;
-        assertSharedCloudAccess(group, userId, deviceId);
-        if (!capability.exists()) transaction.set(capabilityRef(groupId), { schemaVersion: 1, userId, deviceId, seededThrough: position, createdAt: serverTimestamp() });
-        if (group.ownerDeviceId === deviceId && !policy.exists()) transaction.set(policyRef(groupId), { schemaVersion: 1, ttlMs: TTL, enabled: true, createdAt: serverTimestamp() });
-      }).then(() => { checkAccount(); advertised = true; });
-      advertising = work; try { await work; } finally { if (advertising === work) advertising = undefined; }
+    async active(groupId: string) {
+      checkAccount(); const result = await getDocFromServer(policyRef(groupId)); checkAccount();
+      return parseDeliveryPolicy(result.data())?.enabled === true && result.data()?.active === true;
     },
-    async active(groupId: string) { checkAccount(); const result = await getDocFromServer(policyRef(groupId)); checkAccount(); return result.data()?.active === true; },
     acknowledge(groupId: string, sequence: number) {
       const close = async () => {
         const targets: string[] = [];
@@ -252,16 +247,26 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
           checkAccount(); if (durable !== null) targets.push(id);
         }
         if (!targets.length) return;
-        // Close before erasing: another peer must not upload a child after the final listing.
-        // One receipt wakes the server worker; the phone need not enumerate/delete every encrypted part.
+        // Only the worker can close a signed request. It verifies the receipt before fencing late responders.
         for (let offset = 0; offset < targets.length; offset += 32) {
           await runTransaction(firestore, async transaction => {
             const current = await Promise.all(targets.slice(offset, offset + 32).map(id => transaction.get(doc(requests(groupId), id)))); checkAccount();
+            const proof = context.proof;
+            const signed = proof && current.some(row => row.data()?.schemaVersion === 2)
+              ? await Promise.all([transaction.get(policyRef(groupId)), transaction.get(reference(groupId))]).then(([policy, root]) => proof.resolve(groupId, policy.data(), root.data())) : null;
             for (const request of current) {
               const value = request.data(); const expected = receivedRequests.get(request.id);
-              if (expected && value?.userId === userId && value.deviceId === deviceId && value.through <= sequence && value.receivedAt === undefined
-                && value.kind === expected.kind && value.key === expected.key && value.after === expected.after && value.through === expected.through) {
-                transaction.update(request.ref, { receivedAt: serverTimestamp() });
+              if (!expected || !value || !validRequest(value) || value.userId !== userId || value.deviceId !== deviceId || value.through > sequence
+                || value.receivedAt !== undefined || value.kind !== expected.kind || value.key !== expected.key
+                || value.after !== expected.after || value.through !== expected.through) continue;
+              // A new request first has a client deadline. The server timestamp becomes available on its first read.
+              if (expected.fingerprint === null ? value.expiresAt.toMillis() !== expected.deadline : fingerprintOf(value) !== expected.fingerprint) continue;
+              if (value.schemaVersion === 1) { transaction.update(request.ref, { receivedAt: serverTimestamp() }); continue; }
+              if (signed && proof && signed.keyVersion === value.keyVersion && deadlineOf(value) > Date.now()) {
+                const signature = await proof.sign(recoveryReceiptInput(signed, userId, deviceId, { id: request.id, kind: value.kind, key: value.key,
+                  after: value.after, through: value.through, keyVersion: value.keyVersion, createdSeconds: value.createdAt.seconds, createdNanoseconds: value.createdAt.nanoseconds }));
+                checkAccount();
+                if (signature !== value.receiptSignature) transaction.update(request.ref, { receiptSignature: signature, receiptReportedAt: serverTimestamp() });
               }
             }
           }); checkAccount();
@@ -282,7 +287,15 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
           if (fingerprint !== latest) { latest = fingerprint; if (fingerprint) { discoveryNeeded = true; if (serving) again = true; changed(); } }
         } } catch (error) { failed(error); }
       }, failed);
-      return () => { unsubscribe(); wake = undefined; failure = undefined; for (const stop of responseObservers.values()) stop(); responseObservers.clear(); };
+      let enrollment: string | null | undefined;
+      const stopPolicy = context.proof && onSnapshot(policyRef(groupId), { includeMetadataChanges: true }, snapshot => {
+        if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return;
+        try {
+          checkAccount(); const policy = parseDeliveryPolicy(snapshot.data()); const next = policy ? `${policy.enrollmentId}:${policy.enabled}` : null;
+          if (next !== enrollment) { enrollment = next; if (next !== null) changed(); }
+        } catch (error) { failed(error); }
+      }, failed);
+      return () => { unsubscribe(); stopPolicy?.(); wake = undefined; failure = undefined; for (const stop of responseObservers.values()) stop(); responseObservers.clear(); };
     },
   };
 }

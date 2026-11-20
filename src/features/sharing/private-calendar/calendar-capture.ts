@@ -22,7 +22,8 @@ export interface PrivateCalendarCapturePort {
   userId: string; assertOwner(): void | Promise<void>;
   secrets: ReturnType<typeof createPrivateCalendarSecretStore>; source: ReturnType<typeof createPrivateCalendarSourceStorage>;
   cache: ReturnType<typeof createPrivateCalendarCacheStorage>; crypto: PrivateCalendarCryptoGateway;
-  cloud: Pick<ReturnType<typeof createPrivateCalendarCloud>, 'readHead' | 'uploadCache'>;
+  cloud: Pick<ReturnType<typeof createPrivateCalendarCloud>, 'readHead' | 'uploadCache'>
+    & Partial<Pick<ReturnType<typeof createPrivateCalendarCloud>, 'confirmCacheDelivery'>>;
   /** Noninteractive, bound to this explicit Google subject before and after acquisition. No Firebase-UID inference. */
   queryGoogle(subject: string, range: CalendarQueryRange, options?: { deadline?: number; assertBudget?: () => void; signal?: AbortSignal }): Promise<readonly { start: string; end: string }[]>;
   now?: () => number; randomFraction?: () => number;
@@ -83,7 +84,9 @@ export function createPrivateCalendarCapture(port: PrivateCalendarCapturePort) {
         const confirmed = await cache.status(authority!);
         if (!confirmed?.authorityCurrent || confirmed.cursor.manifestDigest !== digest || confirmed.pending) throw new Error('本人用Calendarの受付確認中に保存内容が変わりました。');
       }
-      await assertContext(); return { kind: 'published' as const, sequence: encrypted.manifest.body.sequence };
+      await assertContext();
+      void cloud.confirmCacheDelivery?.(authority!, digest).catch(() => undefined);
+      return { kind: 'published' as const, sequence: encrypted.manifest.body.sequence };
     }
     const status = await cache.status(authority);
     if (status?.authorityCurrent && status.pending) {

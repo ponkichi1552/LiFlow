@@ -103,6 +103,24 @@ service cloud.firestore {
       return exists(groupPath(groupId)) ? ownerOf(group(groupId)) : ownerOf(afterGroup(groupId));
     }
     function validProofDigest(value) { return value is string && value.matches('^[a-f0-9]{64}$'); }
+    function validDeliverySignature(value) { return value is string && value.matches('^[a-f0-9]{128}$'); }
+    function deliveryPolicyPath(scope, scopeId) { return /databases/$(database)/documents/$(scope)/$(scopeId)/deliveryControl/policy; }
+    function signedDeliveryPolicy(scope, scopeId) {
+      let path = deliveryPolicyPath(scope, scopeId);
+      return exists(path) && get(path).data.schemaVersion == 2 && validProofDigest(get(path).data.enrollmentId);
+    }
+    function validSignedDeliveryDevice(d, scope, scopeId, deviceId) {
+      return signedDeliveryPolicy(scope, scopeId) && d.schemaVersion == 2 && d.userId == request.auth.uid && d.deviceId == deviceId
+        && d.enrollmentId == get(deliveryPolicyPath(scope, scopeId)).data.enrollmentId && validProofDigest(d.authorityDigest)
+        && validDeliverySignature(d.signature) && d.updatedAt == request.time && d.progress is map
+        && d.keys().hasOnly(['schemaVersion','userId','deviceId','enrollmentId','authorityDigest','keyVersion','progress','signature','updatedAt']);
+    }
+    function reportSignedDeliveryReceipt(before, after) {
+      return before.schemaVersion == 2 && !('receivedAt' in before) && before.expiresAt > request.time
+        && before.createdAt + duration.value(24,'h') > request.time
+        && after.diff(before).affectedKeys().hasOnly(['receiptSignature','receiptReportedAt'])
+        && validDeliverySignature(after.receiptSignature) && after.receiptReportedAt == request.time;
+    }
     function recoveryLockPath(groupId) { return /databases/$(database)/documents/sharingGroups/$(groupId)/recoveryLocks/current; }
     function recoveryActive(groupId, g) {
       return g.schemaVersion == 2 && exists(recoveryLockPath(groupId)) && get(recoveryLockPath(groupId)).data.keyVersion == g.keyVersion;
@@ -211,6 +229,7 @@ service cloud.firestore {
           && request.resource.data.createdAt == request.time;
         allow update: if false;
         allow delete: if ownerOf(group(groupId)) && !recoveryActive(groupId, group(groupId)) && resource.data.uploadSequence <= group(groupId).snapshotThroughSequence
+          && (!signedDeliveryPolicy('sharingGroups', groupId) || coveredByRetention(group(groupId), resource.data.uploadSequence, resource.data.keyVersion))
           && (group(groupId).schemaVersion == 1 || !exists(/databases/$(database)/documents/sharingGroups/$(groupId)/quarantines/$(operationId))
             || coveredByRetention(group(groupId), resource.data.uploadSequence, resource.data.keyVersion));
       }
@@ -337,6 +356,19 @@ service cloud.firestore {
           && request.resource.data.createdAt == request.time;
         allow update, delete: if false;
       }
+      match /signedDeliveryDevices/{deviceId} {
+        allow get: if memberOf(group(groupId)) && group(groupId).deviceOwners[deviceId] == request.auth.uid;
+        allow list, delete: if false;
+        allow create, update: if memberOf(group(groupId)) && group(groupId).schemaVersion == 2 && !group(groupId).rotationRequired
+          && group(groupId).deviceOwners[deviceId] == request.auth.uid
+          && validSignedDeliveryDevice(request.resource.data, 'sharingGroups', groupId, deviceId)
+          && request.resource.data.keyVersion == group(groupId).keyVersion
+          && request.resource.data.progress.keys().hasOnly(['sequence','snapshotId','snapshotDigest'])
+          && request.resource.data.progress.sequence is int && request.resource.data.progress.sequence >= group(groupId).snapshotThroughSequence
+          && request.resource.data.progress.sequence <= group(groupId).headSequence
+          && request.resource.data.progress.snapshotId == group(groupId).snapshotId
+          && (request.resource.data.progress.snapshotId == null ? request.resource.data.progress.snapshotDigest == null : validProofDigest(request.resource.data.progress.snapshotDigest));
+      }
       match /deliveryRequests/{requestId} {
         function currentRequest() { return get(/databases/$(database)/documents/sharingGroups/$(groupId)/deliveryRequests/$(requestId)).data; }
         function validTarget(r) {
@@ -347,7 +379,8 @@ service cloud.firestore {
         allow read: if memberOf(group(groupId));
         allow create: if memberOf(group(groupId)) && group(groupId).schemaVersion == 2 && safeId(requestId)
           && request.resource.data.keys().hasOnly(['schemaVersion','userId','deviceId','kind','key','after','through','keyVersion','createdAt','expiresAt'])
-          && request.resource.data.schemaVersion == 1 && request.resource.data.userId == request.auth.uid
+          && (request.resource.data.schemaVersion == 1 || request.resource.data.schemaVersion == 2 && signedDeliveryPolicy('sharingGroups', groupId))
+          && request.resource.data.userId == request.auth.uid
           && group(groupId).deviceOwners[request.resource.data.deviceId] == request.auth.uid
           && request.resource.data.kind in ['events','chunk'] && request.resource.data.key is string && request.resource.data.key.size() <= 200
           && request.resource.data.after is int && request.resource.data.after >= 0
@@ -358,7 +391,10 @@ service cloud.firestore {
           && request.resource.data.expiresAt is timestamp && request.resource.data.expiresAt > request.time
           && request.resource.data.expiresAt <= request.time + duration.value(24,'h') + duration.value(1,'m');
         allow update: if memberOf(group(groupId)) && resource.data.userId == request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receivedAt']) && request.resource.data.receivedAt == request.time;
+          && (resource.data.schemaVersion == 1 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receivedAt'])
+              && request.resource.data.receivedAt == request.time
+            || group(groupId).deviceOwners[resource.data.deviceId] == request.auth.uid && resource.data.keyVersion == group(groupId).keyVersion
+              && signedDeliveryPolicy('sharingGroups', groupId) && reportSignedDeliveryReceipt(resource.data, request.resource.data));
         allow delete: if false;
         match /responses/{deviceId} {
           allow read: if memberOf(group(groupId));
@@ -384,7 +420,8 @@ service cloud.firestore {
               && request.resource.data.data.size() <= 174764 && request.resource.data.expiresAt == currentRequest().expiresAt
               && request.resource.data.createdAt == request.time;
             allow update: if false;
-            allow delete: if memberOf(group(groupId)) && currentRequest().userId == request.auth.uid;
+            allow delete: if memberOf(group(groupId)) && currentRequest().schemaVersion == 1 && currentRequest().userId == request.auth.uid
+              && !signedDeliveryPolicy('sharingGroups', groupId);
           }
         }
       }
@@ -400,7 +437,8 @@ service cloud.firestore {
           && request.resource.data.manifestJson is string && request.resource.data.manifestJson.size() <= 100000
           && request.resource.data.createdAt == request.time;
         allow update: if false;
-        allow delete: if ownerOf(group(groupId)) && !recoveryActive(groupId, group(groupId)) && snapshotId != group(groupId).snapshotId;
+        allow delete: if ownerOf(group(groupId)) && !recoveryActive(groupId, group(groupId)) && snapshotId != group(groupId).snapshotId
+          && (!signedDeliveryPolicy('sharingGroups', groupId) || coveredByRetention(group(groupId), resource.data.throughSequence, resource.data.keyVersion));
       }
       match /snapshotChunks/{chunkId} {
         allow read: if memberOf(group(groupId));
@@ -412,7 +450,8 @@ service cloud.firestore {
           && request.resource.data.envelopeJson is string && request.resource.data.envelopeJson.size() <= 800000
           && request.resource.data.createdAt == request.time;
         allow update: if false;
-        allow delete: if ownerOf(group(groupId)) && !recoveryActive(groupId, group(groupId)) && resource.data.snapshotId != group(groupId).snapshotId;
+        allow delete: if ownerOf(group(groupId)) && !recoveryActive(groupId, group(groupId)) && resource.data.snapshotId != group(groupId).snapshotId
+          && (!signedDeliveryPolicy('sharingGroups', groupId) || coveredByRetention(group(groupId), 0, resource.data.keyVersion));
       }
     }
     // No document is written here. A successful read proves only the caller's
@@ -545,6 +584,18 @@ service cloud.firestore {
           && request.resource.data.updatedAt == request.time;
         allow delete: if false;
       }
+      match /signedDeliveryDevices/{deviceId} {
+        allow get: if privateCalendarOwner(userId) && deviceId in privateCalendar(userId).deviceIds;
+        allow list, delete: if false;
+        allow create, update: if privateCalendarOwner(userId) && deviceId in privateCalendar(userId).deviceIds
+          && validSignedDeliveryDevice(request.resource.data, 'privateCalendars', userId, deviceId)
+          && request.resource.data.keyVersion == privateCalendar(userId).keyVersion
+          && request.resource.data.authorityDigest == privateCalendar(userId).authorityDigest
+          && request.resource.data.progress.keys().hasOnly(['ready','calendarDigest','preferencesDigest'])
+          && request.resource.data.progress.ready is bool
+          && (request.resource.data.progress.calendarDigest == null || validProofDigest(request.resource.data.progress.calendarDigest))
+          && (request.resource.data.progress.preferencesDigest == null || validProofDigest(request.resource.data.progress.preferencesDigest));
+      }
       match /deliveryRequests/{requestId} {
         function currentRequest() { return get(/databases/$(database)/documents/privateCalendars/$(userId)/deliveryRequests/$(requestId)).data; }
         function validPrivateDeliveryTarget(r) {
@@ -555,7 +606,8 @@ service cloud.firestore {
         allow read: if privateCalendarOwner(userId);
         allow create: if privateCalendarOwner(userId) && safeId(requestId)
           && request.resource.data.keys().hasOnly(['schemaVersion','userId','deviceId','kind','key','after','through','keyVersion','createdAt','expiresAt'])
-          && request.resource.data.schemaVersion == 1 && request.resource.data.userId == userId
+          && (request.resource.data.schemaVersion == 1 || request.resource.data.schemaVersion == 2 && signedDeliveryPolicy('privateCalendars', userId))
+          && request.resource.data.userId == userId
           && request.resource.data.deviceId in privateCalendar(userId).deviceIds && request.resource.data.kind == 'chunk'
           && request.resource.data.key is string && request.resource.data.key.size() <= 200
           && request.resource.data.after == 0 && request.resource.data.through == 0
@@ -563,7 +615,10 @@ service cloud.firestore {
           && request.resource.data.expiresAt is timestamp && request.resource.data.expiresAt > request.time
           && request.resource.data.expiresAt <= request.time + duration.value(24,'h') + duration.value(1,'m');
         allow update: if privateCalendarOwner(userId)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receivedAt']) && request.resource.data.receivedAt == request.time;
+          && (resource.data.schemaVersion == 1 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['receivedAt'])
+              && request.resource.data.receivedAt == request.time
+            || resource.data.deviceId in privateCalendar(userId).deviceIds && resource.data.keyVersion == privateCalendar(userId).keyVersion
+              && signedDeliveryPolicy('privateCalendars', userId) && reportSignedDeliveryReceipt(resource.data, request.resource.data));
         allow delete: if false;
         match /responses/{deviceId} {
           allow read: if privateCalendarOwner(userId);
@@ -588,7 +643,7 @@ service cloud.firestore {
               && partId == string(request.resource.data.index) && request.resource.data.data is string && request.resource.data.data.size() <= 174764
               && request.resource.data.expiresAt == currentRequest().expiresAt && request.resource.data.createdAt == request.time;
             allow update: if false;
-            allow delete: if privateCalendarOwner(userId);
+            allow delete: if privateCalendarOwner(userId) && currentRequest().schemaVersion == 1 && !signedDeliveryPolicy('privateCalendars', userId);
           }
         }
       }

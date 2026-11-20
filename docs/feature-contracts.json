@@ -1048,7 +1048,7 @@
       },
       {
         "file": "tests/sharing-delivery-cloud.integration.mjs",
-        "name": "an unchanged private receipt finishes readiness when its missing companion is later stored without another domain confirmation"
+        "name": "private readiness requires an independent confirmation for each stored domain without rewriting an unchanged receipt"
       },
       {
         "file": "tests/sharing-delivery-cloud.integration.mjs",
@@ -16505,6 +16505,77 @@
       {
         "file": "tests/sharing-v2-assignment-form.test.mjs",
         "name": "${platform} v2 assignment scope seeds the next rounds assignees and never submits an untouched form"
+      }
+    ]
+  },
+  {
+    "feature": "device-signed-delivery-and-paused-enrollment",
+    "tests": [
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "a recovery receipt for an older incarnation cannot erase a replacement request"
+      },
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "a resumed cleanup cannot delete a new request that reused an already cleared id"
+      },
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "a newly acquired recovery lock stops split response erasure between transactions"
+      },
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "delivery worker refuses an implicit project, a mismatched project, and a production emulator before connecting"
+      },
+      {
+        "file": "tests/sharing-private-calendar-runtime.test.mjs",
+        "name": "a follower reports the exact saved calendar even when the server head advances during download"
+      },
+      {
+        "file": "tests/sharing-private-calendar-runtime.test.mjs",
+        "name": "the main device can enroll its already saved calendar without another acquisition or upload"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "signed private enrollment can be observed with deletion paused and requires a valid receipt from each approved device"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "signed shared receipt from a previous authority cannot activate erasure after a key rotation"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "an active legacy delivery policy can be paused and enrolled without erasure or copying old readiness"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "shared enrollment blocks legacy compaction and requires every device to acknowledge the current snapshot and head"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "an obsolete calendar from an earlier authority does not block current private preferences or count as a received cache"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "shared backfill never signs unauthenticated legacy archive bytes and can still restore the real signed event from a peer"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "shared expiry preserves the raw event while the owner recovery cursor is behind a caught-up member"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "shared rollout validates an old local prefix and a live Cloud suffix without asking a peer for the combined range"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "shared cleanup progresses past a full page of quarantined events and staged future-epoch chunks"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "shared deletion retains a quarantined event while erasing other fully received events"
       }
     ]
   }

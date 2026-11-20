@@ -1,6 +1,6 @@
 {
   "version": "liflow-shared-2-draft-58",
-  "receiveStorageRevision": 2,
+  "receiveStorageRevision": 3,
   "signatureVerificationRevision": 2,
   "calendarProjectionRevision": 3,
   "calendarRegistrationRevision": 2,
@@ -240,5 +240,5 @@
     "src/domain/chores/calendar-timing.ts",
     "src/domain/chores/personal-schedule.ts"
   ],
-  "sourceSha256": "fa775cc74276976e323a119d933431bcdcef0a62b2943e18fb53664ccecc5d48"
+  "sourceSha256": "38dbf9826dfa0542e663df946b2ef893983dee98f42838ccb90249678e1723bd"
 }

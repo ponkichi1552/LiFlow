@@ -21,6 +21,8 @@ const draft58Implementations = [
   { storage: 2, verifier: 2, calendarProjection: 3, calendarRegistration: 2, digest: '4d4f6013fa6dce7d4c7b25ac35aee24ddf41f3eba5ff92d52f2ac79913b636a0' },
   // Only the XCFramework packaging changed. Both static archives are byte-identical.
   { storage: 2, verifier: 2, calendarProjection: 3, calendarRegistration: 2, digest: 'fa775cc74276976e323a119d933431bcdcef0a62b2943e18fb53664ccecc5d48' },
+  // Preserve the same facts and scheduler while archiving authenticated events after the local commit.
+  { storage: 3, verifier: 2, calendarProjection: 3, calendarRegistration: 2, digest: '38dbf9826dfa0542e663df946b2ef893983dee98f42838ccb90249678e1723bd' },
 ];
 const draft58ImplementationIndex = manifest => draft58Implementations.findIndex(({ storage, verifier, calendarProjection, calendarRegistration = 1, digest }) =>
   manifest.sourceSha256 === digest && (manifest.receiveStorageRevision ?? 1) === storage

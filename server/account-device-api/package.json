@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "engines": { "node": ">=24" },
-  "scripts": { "start": "node --experimental-strip-types src/index.mjs" },
+  "scripts": {
+    "start": "node --experimental-strip-types src/index.mjs",
+    "delivery:work": "node --experimental-strip-types src/sharing-delivery-main.mjs",
+    "delivery:status": "node --experimental-strip-types src/sharing-delivery-main.mjs --status"
+  },
   "dependencies": {
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",

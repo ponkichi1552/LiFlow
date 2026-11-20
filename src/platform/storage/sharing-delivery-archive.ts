@@ -5,33 +5,41 @@ import type { EncryptedSharedSnapshotChunk } from '../../features/sharing/crypto
 import { canonicalJson } from '../../features/sharing/operations.ts';
 import { withIsolatedSqliteTransaction } from './isolated-transaction.ts';
 
-/** Opaque, already signed/encrypted wire records. This never stores a server backup or private key. */
+/** Applied, authenticated wire records. Legacy archive rows are candidates until their original proofs are rechecked. */
 export async function createSharedDeliveryArchive(database: SQLiteDatabase, groupId: string,
   serialized: <T>(work: () => Promise<T>) => Promise<T>, assertCurrent: () => void): Promise<SharedDeliveryArchive> {
   await serialized(async () => {
     assertCurrent(); await database.execAsync(`CREATE TABLE IF NOT EXISTS sharing_delivery_archive (
       group_id TEXT NOT NULL,kind TEXT NOT NULL,id TEXT NOT NULL,sequence INTEGER NOT NULL,wire_json TEXT NOT NULL,
       PRIMARY KEY(group_id,kind,id));
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_shared_delivery_sequence ON sharing_delivery_archive(group_id,sequence) WHERE kind='event';`);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_shared_delivery_sequence ON sharing_delivery_archive(group_id,sequence) WHERE kind='event';
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_shared_delivery_applied_sequence ON sharing_delivery_archive(group_id,sequence) WHERE kind='applied-event';`);
   });
   const read = <T>(work: () => Promise<T>) => serialized(async () => { assertCurrent(); const value = await work(); assertCurrent(); return value; });
+  const events = (kind: 'event' | 'applied-event', after: number, through: number) => read(async () => {
+    if (![after, through].every(Number.isSafeInteger) || after < 0 || through < after || through - after > 100) throw new Error('Invalid delivery recovery range');
+    const rows = await database.getAllAsync<{ sequence: number; wire_json: string }>('SELECT sequence,wire_json FROM sharing_delivery_archive WHERE group_id=? AND kind=? AND sequence>? AND sequence<=? ORDER BY sequence', groupId, kind, after, through);
+    const gap = rows.findIndex((row, index) => row.sequence !== after + index + 1);
+    const prefix = gap < 0 ? rows : rows.slice(0, gap);
+    if (kind === 'applied-event' ? prefix.length !== through - after : !prefix.length) return null;
+    return prefix.map(row => JSON.parse(row.wire_json)) as SharedCloudEvent[];
+  });
   return {
     saveEvents: events => read(() => withIsolatedSqliteTransaction(database, async transaction => {
       for (const event of events) {
         if (event.envelope.groupId !== groupId || !Number.isSafeInteger(event.uploadSequence) || event.uploadSequence < 1) throw new Error('Delivery archive scope differs');
         const json = canonicalJson(event);
-        const previous = await transaction.getFirstAsync<{ wire_json: string }>('SELECT wire_json FROM sharing_delivery_archive WHERE group_id=? AND kind=? AND id=?', groupId, 'event', event.operationId);
+        const previous = await transaction.getFirstAsync<{ wire_json: string }>('SELECT wire_json FROM sharing_delivery_archive WHERE group_id=? AND kind=? AND id=?', groupId, 'applied-event', event.operationId);
         if (previous && previous.wire_json !== json) throw new Error('Immutable delivery archive collision');
-        if (!previous) await transaction.runAsync('INSERT INTO sharing_delivery_archive VALUES(?,?,?,?,?)', groupId, 'event', event.operationId, event.uploadSequence, json);
+        if (!previous) {
+          await transaction.runAsync('INSERT INTO sharing_delivery_archive VALUES(?,?,?,?,?)', groupId, 'applied-event', event.operationId, event.uploadSequence, json);
+          await transaction.runAsync("DELETE FROM sharing_delivery_archive WHERE group_id=? AND kind='event' AND sequence=?", groupId, event.uploadSequence);
+        }
       }
       assertCurrent();
     })),
-    events: (after, through) => read(async () => {
-      if (![after, through].every(Number.isSafeInteger) || after < 0 || through < after || through - after > 100) throw new Error('Invalid delivery recovery range');
-      const rows = await database.getAllAsync<{ sequence: number; wire_json: string }>('SELECT sequence,wire_json FROM sharing_delivery_archive WHERE group_id=? AND kind=? AND sequence>? AND sequence<=? ORDER BY sequence', groupId, 'event', after, through);
-      if (rows.length !== through - after || rows.some((row, index) => row.sequence !== after + index + 1)) return null;
-      return rows.map(row => JSON.parse(row.wire_json)) as SharedCloudEvent[];
-    }),
+    events: (after, through) => events('applied-event', after, through),
+    legacyEvents: (after, through) => events('event', after, through),
     saveChunk: (id, chunk) => read(async () => {
       const json = canonicalJson(chunk);
       const previous = await database.getFirstAsync<{ wire_json: string }>('SELECT wire_json FROM sharing_delivery_archive WHERE group_id=? AND kind=? AND id=?', groupId, 'chunk', id);
@@ -43,7 +51,7 @@ export async function createSharedDeliveryArchive(database: SQLiteDatabase, grou
       return row ? JSON.parse(row.wire_json) as EncryptedSharedSnapshotChunk : null;
     }),
     seedPosition: floor => read(async () => {
-      const rows = await database.getAllAsync<{ sequence: number }>('SELECT sequence FROM sharing_delivery_archive WHERE group_id=? AND kind=? AND sequence>? ORDER BY sequence', groupId, 'event', floor);
+      const rows = await database.getAllAsync<{ sequence: number }>('SELECT sequence FROM sharing_delivery_archive WHERE group_id=? AND kind=? AND sequence>? ORDER BY sequence', groupId, 'applied-event', floor);
       let next = floor; for (const row of rows) { if (row.sequence !== next + 1) break; next++; } return next;
     }),
   };

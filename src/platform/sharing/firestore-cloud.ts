@@ -4,12 +4,14 @@ import type { Firestore } from 'firebase/firestore';
 import { assertSharedIdentifier, canonicalJson } from '../../features/sharing/operations.ts';
 import { assertSharedCloudAccess, parseSharedCloudEvent, parseSharedCloudGroup, rosterCloudFields,
   SharingAccessError, SharingKeyVersionError, SharingSchedulerVersionError, SharingSnapshotRequiredError } from '../../features/sharing/cloud-contract.ts';
-import type { EncryptedSharedOperation, WrappedGroupKey } from '../../features/sharing/crypto.ts';
+import { sharedDocumentDigest, signSharedDocument } from '../../features/sharing/crypto.ts';
+import type { DeviceSecretIdentity, EncryptedSharedOperation, WrappedGroupKey } from '../../features/sharing/crypto.ts';
+import { sharedRosterDigest } from '../../features/sharing/roster.ts';
 import type { VerifiedSharedRoster } from '../../features/sharing/roster.ts';
 import { createSharingManagement } from './firestore-management.ts';
 import { createSharingRecovery, parseFirestoreRecoveryLock } from './firestore-recovery.ts';
 import { V2RecoveryInProgressError, verifyV2RecoveryLock } from '../../features/sharing/v2/recovery-lock.ts';
-import { sharingCloudWithDeadline } from './network-deadline.ts';
+import { sharingCloudWithDeadline, sharingSequenceGuard } from './network-deadline.ts';
 import { parseV2FirestoreReceipt } from './v2-receipts.ts';
 import type { V2ServerReceipt } from '../../features/sharing/v2/server-receipts.ts';
 import { createSharingHistoryRetention } from './firestore-retention.ts';
@@ -18,6 +20,9 @@ import { createSharingAccountDevices } from './firestore-account-devices.ts';
 import { createSharingDeliveryRelay } from './firestore-delivery.ts';
 import type { SharingDeliveryRelay } from './firestore-delivery';
 import type { SharedDeliveryArchive } from '../../features/sharing/delivery-archive';
+import { SharedDeliveryPendingError } from '../../features/sharing/delivery-archive.ts';
+import { parseDeliveryPolicy } from '../../features/sharing/delivery-proof.ts';
+import { createDeliveryProofClient } from './delivery-proof-cloud.ts';
 
 /** All reads use the server; Firestore's memory cache cannot acknowledge delivery. */
 export function createSharingCloud(firestore: Firestore, userId: string, currentUserId: () => string | null,
@@ -25,7 +30,9 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
   assertSharedIdentifier(userId);
   const recoveryEnabled = options.ownerRecoveryEnabled === true;
   let delivery: SharingDeliveryRelay | undefined;
-  let deliverySeeded = false;
+  let deliveryProof: ReturnType<typeof createDeliveryProofClient> | undefined;
+  let deliveryCheckpoint: (() => Promise<{ sequence: number; snapshotId: string | null }>) | undefined;
+  let seed: { snapshotId: string | null; digest: string | null; sequence: number } | undefined;
   let deliveryArchiveRosters: () => readonly VerifiedSharedRoster[] = () => [];
   const checkAccount = () => { if (currentUserId() !== userId) throw new SharingAccessError('共有アカウントが切り替わりました。'); };
   const reference = (groupId: string) => { assertSharedIdentifier(groupId); return doc(firestore, 'sharingGroups', groupId); };
@@ -44,44 +51,113 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
   };
   const context = { firestore, userId, checkAccount, reference, readGroup, recoveryEnabled, deliveryRelay: () => delivery };
   const management = createSharingManagement(context);
+  async function verifiedPeerEvents(groupId: string, events: readonly SharedCloudEvent[], after: number) {
+    if (!events.length || events.some((event, index) => event.uploadSequence !== after + index + 1)) throw new Error('Invalid peer delivery sequence');
+    const receipts = await getDocsFromServer(query(collection(reference(groupId), 'receipts'), where(documentId(), 'in', events.map(event => event.operationId)))); checkAccount();
+    const committed = new Map(receipts.docs.map(item => [item.id, parseV2FirestoreReceipt(item.data(), groupId, item.id)]));
+    return events.map(event => {
+      const parsed = parseSharedCloudEvent(event.operationId, { schemaVersion: event.envelope.schemaVersion,
+        authorUserId: event.envelope.authorUserId, authorDeviceId: event.envelope.authorDeviceId, keyVersion: event.envelope.keyVersion,
+        uploadSequence: event.uploadSequence, envelopeJson: event.envelopeJson, authorProofDigest: event.authorProofDigest }, groupId);
+      const receipt = committed.get(event.operationId);
+      if (!receipt || receipt.uploadSequence !== event.uploadSequence || receipt.authorProofDigest !== event.authorProofDigest
+        || receipt.receivedKeyVersion !== event.envelope.keyVersion || receipt.authorUserId !== parsed.envelope.authorUserId
+        || receipt.authorDeviceId !== parsed.envelope.authorDeviceId || canonicalJson(parsed.envelope) !== canonicalJson(event.envelope)) {
+        throw new Error('Peer delivery lacks an independent committed receipt');
+      }
+      return { ...parsed, serverReceipt: receipt };
+    });
+  }
+  async function recoverEventPage(groupId: string, after: number, through: number,
+    verify?: (events: readonly SharedCloudEvent[]) => Promise<void>) {
+    if (!delivery) throw new SharedDeliveryPendingError();
+    if (verify) {
+      const legacy = await delivery.archive.legacyEvents?.(after, Math.min(through, after + 10)).catch(() => null);
+      if (legacy) {
+        try {
+          const restored = await verifiedPeerEvents(groupId, legacy, after);
+          await verify(restored); return restored;
+        } catch { checkAccount(); }
+      }
+    }
+    const restored = await verifiedPeerEvents(groupId, await delivery.eventPage(groupId, after, through), after);
+    await verify?.(restored);
+    return restored;
+  }
   return sharingCloudWithDeadline({
     ...createSharingAccountDevices({ firestore, userId, checkAccount, reference, readGroup, recoveryEnabled }),
     ...management,
     ...createSharingHistoryRetention({ firestore, userId, checkAccount, reference, readGroup, recoveryEnabled }),
     ...createSharingRecovery({ firestore, userId, checkAccount, reference, readGroup, recoveryEnabled }),
     ownerRecoveryEnabled: recoveryEnabled,
-    setDeliveryArchive(deviceId: string, archive: SharedDeliveryArchive, trustedArchive: () => readonly VerifiedSharedRoster[]) {
-      delivery = createSharingDeliveryRelay(context, deviceId, archive); deliveryArchiveRosters = trustedArchive;
+    setDeliveryArchive(identity: DeviceSecretIdentity, archive: SharedDeliveryArchive, trustedArchive: () => readonly VerifiedSharedRoster[],
+      checkpoint: () => Promise<{ sequence: number; snapshotId: string | null }>) {
+      deliveryArchiveRosters = trustedArchive; deliveryCheckpoint = checkpoint; seed = undefined;
+      deliveryProof = createDeliveryProofClient({ firestore, kind: 'shared', userId, deviceId: identity.deviceId, check: checkAccount,
+        authority(raw) {
+          const roster = trustedArchive().at(-1);
+          return roster && raw?.rosterJson === canonicalJson(roster) && raw.keyVersion === roster.body.keyVersion
+            && raw.deviceOwners?.[identity.deviceId] === userId && !raw.closed && !raw.rotationRequired
+            ? { keyVersion: roster.body.keyVersion, digest: sharedRosterDigest(roster) } : null;
+        },
+        sign: value => signSharedDocument(value, identity),
+      });
+      delivery = createSharingDeliveryRelay({ ...context, proof: deliveryProof }, identity.deviceId, archive);
     },
     prepareDelivery: async (groupId: string) => { await delivery?.serve(groupId); },
+    async archiveAppliedEvents(events: readonly SharedCloudEvent[]) {
+      await delivery?.archive.saveEvents(events); checkAccount();
+    },
     minimumStorageActive: async (groupId: string) => delivery ? delivery.active(groupId) : false,
-    async acknowledge(groupId: string, deviceId: string, sequence: number): Promise<void> {
-      if (delivery && !deliverySeeded) {
+    async compactHistory(groupId: string, now?: number, checkBudget?: () => void) {
+      if (deliveryProof && parseDeliveryPolicy(await deliveryProof.readPolicy(reference(groupId)))) return { deleted: 0, waitingForDevices: false };
+      return management.compactHistory(groupId, now, checkBudget);
+    },
+    async acknowledge(groupId: string, deviceId: string, sequence: number, verifyApplied?: (events: readonly SharedCloudEvent[]) => Promise<void>): Promise<void> {
+      await management.acknowledge(groupId, deviceId, sequence);
+      if (delivery && deliveryProof && deliveryCheckpoint) {
+        const root = reference(groupId), policy = await deliveryProof.readPolicy(root);
+        if (!parseDeliveryPolicy(policy)) { await delivery.acknowledge(groupId, sequence); return; }
         const { group } = await readGroup(groupId);
-        if (group.snapshotId) {
-          // Seed an existing installation once before it promises it can restore other devices.
+        const authority = deliveryProof.resolve(groupId, policy, group);
+        const checkpoint = await deliveryCheckpoint(); checkAccount();
+        if (!authority || checkpoint.snapshotId !== group.snapshotId || checkpoint.sequence < sequence || sequence > group.headSequence) return;
+        let archived = seed?.snapshotId === group.snapshotId ? seed : undefined;
+        if (!archived && group.snapshotId) {
           const manifest = await management.readSnapshotManifest(groupId, group.snapshotId, deliveryArchiveRosters());
-          if ((await Promise.all(manifest.body.chunks.map(part => delivery!.archive.chunk(part.id)))).some(chunk => !chunk)) {
+          const chunks = await Promise.all(manifest.body.chunks.map(part => delivery!.archive.chunk(part.id)));
+          if (chunks.some((chunk, index) => !chunk || sharedDocumentDigest(chunk) !== manifest.body.chunks[index].digest)) {
             await management.readSnapshot(groupId, group.snapshotId, deliveryArchiveRosters());
           }
+          archived = { snapshotId: group.snapshotId, digest: sharedDocumentDigest(manifest), sequence: group.snapshotThroughSequence };
         }
-        let position = await delivery.archive.seedPosition(group.snapshotThroughSequence);
-        // A bounded page per sync preserves the UI budget. Pending seeding earns a demand retry.
-        if (position < sequence) {
-          const page = await getDocsFromServer(query(collection(reference(groupId), 'events'), where('uploadSequence', '>', position),
-            where('uploadSequence', '<=', sequence), orderBy('uploadSequence'), limit(100))); checkAccount();
+        if (!archived) archived = { snapshotId: null, digest: null, sequence: group.snapshotThroughSequence };
+        seed = archived;
+        const withinBudget = sharingSequenceGuard(checkAccount);
+        if (archived.sequence < sequence) archived.sequence = await delivery.archive.seedPosition(archived.sequence);
+        while (archived.sequence < sequence) {
+          if (!verifyApplied) throw new SharedDeliveryPendingError();
+          withinBudget(); const position = archived.sequence;
+          const page = await getDocsFromServer(query(collection(root, 'events'), where('uploadSequence', '>', position),
+            where('uploadSequence', '<=', sequence), orderBy('uploadSequence'), limit(100))); withinBudget();
           const events = page.docs.map(item => {
             const data = item.data(); const event = parseSharedCloudEvent(item.id, data, groupId); const { envelopeJson: _wire, ...receipt } = data;
             return { ...event, serverReceipt: parseV2FirestoreReceipt(receipt, groupId, item.id) };
           });
-          if (!events.length || events.some((event, index) => event.uploadSequence !== position + index + 1)) throw new Error('Cannot seed missing delivery history');
-          await delivery.archive.saveEvents(events); position = await delivery.archive.seedPosition(group.snapshotThroughSequence);
-          if (position < sequence) throw new (await import('../../features/sharing/delivery-archive.ts')).SharedDeliveryPendingError();
+          const firstGap = events.findIndex((event, index) => event.uploadSequence !== position + index + 1);
+          const contiguous = firstGap < 0 ? events : events.slice(0, firstGap);
+          let verified = contiguous;
+          if (!verified.length) {
+            const through = Math.min(sequence, (events[0]?.uploadSequence ?? sequence + 1) - 1);
+            withinBudget(); verified = await recoverEventPage(groupId, position, through, verifyApplied);
+          } else await verifyApplied(verified);
+          withinBudget(); await delivery.archive.saveEvents(verified);
+          archived.sequence = await delivery.archive.seedPosition(position);
+          if (archived.sequence <= position) throw new SharedDeliveryPendingError();
         }
-        await delivery.ready(groupId, sequence);
-        deliverySeeded = true;
+        withinBudget();
+        await deliveryProof.publish(root, authority, { sequence, snapshotId: group.snapshotId, snapshotDigest: archived.digest });
       }
-      await management.acknowledge(groupId, deviceId, sequence);
       await delivery?.acknowledge(groupId, sequence);
     },
     readGroup: async (groupId: string) => { const value = await readGroup(groupId); delivery?.request(groupId, value.group); return value; },
@@ -234,9 +310,9 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
       if (receipt.authorProofDigest !== options!.authorProofDigest || receipt.uploadSequence !== result.uploadSequence
         || receipt.receivedKeyVersion !== result.envelope.keyVersion) throw new Error('Committed server receipt mismatch');
       const accepted = { ...result, serverReceipt: receipt };
-      await delivery?.archive.saveEvents([accepted]); checkAccount(); return accepted;
+      checkAccount(); return accepted;
     },
-    async pull(groupId: string, afterSequence: number) {
+    async pull(groupId: string, afterSequence: number, verifyRecovered?: (events: readonly SharedCloudEvent[]) => Promise<void>) {
       if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) throw new Error('Invalid shared receive position');
       const metadata = await readGroup(groupId); const { group } = metadata;
       if (afterSequence > group.headSequence) throw new SharingSnapshotRequiredError('共有履歴が保存位置より前に戻っています。');
@@ -253,23 +329,14 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
         const { envelopeJson: _encrypted, ...receiptFields } = data;
         return { ...event, serverReceipt: parseV2FirestoreReceipt(receiptFields, groupId, item.id) };
       });
-      if (events.some((event, index) => event.uploadSequence !== afterSequence + index + 1)
-        || (!events.length && afterSequence < group.headSequence)) {
+      const gap = events.findIndex((event, index) => event.uploadSequence !== afterSequence + index + 1);
+      if (gap > 0 && delivery && group.schemaVersion === 2) events = events.slice(0, gap);
+      else if (gap >= 0 || !events.length && afterSequence < group.headSequence) {
         if (!delivery || group.schemaVersion !== 2) throw new SharingSnapshotRequiredError('共有履歴の保存位置が更新されました。');
-        const recovered = await delivery.eventPage(groupId, afterSequence, group.headSequence); checkAccount();
-        const receipts = await getDocsFromServer(query(collection(reference(groupId), 'receipts'), where(documentId(), 'in', recovered.map(event => event.operationId)))); checkAccount();
-        const committed = new Map(receipts.docs.map(item => [item.id, parseV2FirestoreReceipt(item.data(), groupId, item.id)]));
-        events = recovered.map(event => {
-          const parsed = parseSharedCloudEvent(event.operationId, { schemaVersion: event.envelope.schemaVersion,
-            authorUserId: event.envelope.authorUserId, authorDeviceId: event.envelope.authorDeviceId, keyVersion: event.envelope.keyVersion,
-            uploadSequence: event.uploadSequence, envelopeJson: event.envelopeJson, authorProofDigest: event.authorProofDigest }, groupId);
-          const receipt = committed.get(event.operationId);
-          if (!receipt || receipt.uploadSequence !== event.uploadSequence || receipt.authorProofDigest !== event.authorProofDigest
-            || receipt.receivedKeyVersion !== event.envelope.keyVersion || canonicalJson(parsed.envelope) !== canonicalJson(event.envelope)) throw new Error('Peer delivery lacks an independent committed receipt');
-          return { ...parsed, serverReceipt: receipt };
-        });
+        const through = gap === 0 ? events[0].uploadSequence - 1 : group.headSequence;
+        events = await recoverEventPage(groupId, afterSequence, through, verifyRecovered);
       }
-      await delivery?.archive.saveEvents(events); checkAccount();
+      checkAccount();
       return { ...metadata, events, throughSequence: events.at(-1)?.uploadSequence ?? afterSequence };
     },
     watch(groupId: string, changed: () => void, failed: (error: unknown) => void): () => void {
