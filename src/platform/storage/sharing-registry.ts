@@ -27,6 +27,11 @@ export interface SharingWorkspaceRecord {
   creation?: { timeZone: string; anchorDate: string; ownerDisplayName: string; wrappedKey: WrappedGroupKey; kind?: 'family' | 'roommates' };
   join?: { invitation: SignedSharedInvitation; request: SharedJoinRequest };
 }
+
+export function hasEndedSharingInvitation(record: SharingWorkspaceRecord | null): record is SharingWorkspaceRecord & { status: 'joining' } {
+  return record?.status === 'joining' && !!record.join
+    && (record.lastErrorCode === 'sharing/invitation-ended' || record.lastErrorCode === 'sharing/invitation-rejected');
+}
 const tails = new WeakMap<SQLiteDatabase, Promise<unknown>>();
 function serial<T>(database: SQLiteDatabase, operation: () => Promise<T>): Promise<T> {
   const next = (tails.get(database) ?? Promise.resolve()).then(operation, operation);
@@ -202,15 +207,31 @@ export function readSharingDisplayEnvelope(database: SQLiteDatabase, userId: str
   });
 }
 
-export function saveSharingWorkspace(database: SQLiteDatabase, input: SharingWorkspaceRecord): Promise<void> {
+export function saveSharingWorkspace(database: SQLiteDatabase, input: SharingWorkspaceRecord,
+  replacement?: { endedInvitation: SharingWorkspaceRecord; assertCurrent(): void }): Promise<void> {
   const record = validate(input);
   return serial(database, async () => {
     await database.withTransactionAsync(async () => {
-    await claimCurrentWorkspace(database, record);
-    await database.runAsync('INSERT OR IGNORE INTO sharing_workspaces (user_id, group_id, record_json) VALUES (?, ?, ?)', record.userId, record.groupId, canonicalJson(record));
-    const row = await database.getFirstAsync<{ record_json: string }>('SELECT record_json FROM sharing_workspaces WHERE user_id = ? AND group_id = ?', record.userId, record.groupId);
-    const stored = row ? decodeSavedWorkspace(database, row.record_json) : null;
-    if (!stored || anchorDigest(stored.anchor) !== anchorDigest(record.anchor)) throw new Error('A cloud response cannot replace a locally trusted group pin');
+      if (replacement) {
+        const ended = replacement.endedInvitation;
+        replacement.assertCurrent();
+        if (!hasEndedSharingInvitation(ended) || ended.userId !== record.userId
+          || ended.groupId === record.groupId || record.status !== 'active') throw new Error('Invalid restored membership transition');
+        // Compare the exact invitation that ended. A newly submitted request or
+        // an approval saved during discovery must keep its own selection.
+        const released = await database.runAsync(`UPDATE sharing_current_workspace SET group_id=NULL WHERE user_id=? AND group_id=?
+          AND EXISTS (SELECT 1 FROM sharing_workspaces WHERE user_id=? AND group_id=? AND record_json=?)`,
+        ended.userId, ended.groupId, ended.userId, ended.groupId, canonicalJson(ended));
+        if (released.changes !== 1) throw new Error('所属状態が更新されています。再読込してください。');
+        replacement.assertCurrent();
+      }
+      await claimCurrentWorkspace(database, record);
+      await database.runAsync('INSERT OR IGNORE INTO sharing_workspaces (user_id, group_id, record_json) VALUES (?, ?, ?)', record.userId, record.groupId, canonicalJson(record));
+      const row = await database.getFirstAsync<{ record_json: string }>('SELECT record_json FROM sharing_workspaces WHERE user_id = ? AND group_id = ?', record.userId, record.groupId);
+      const stored = row ? decodeSavedWorkspace(database, row.record_json) : null;
+      if (!stored || anchorDigest(stored.anchor) !== anchorDigest(record.anchor)
+        || replacement && (stored.status !== 'active' || stored.localGeneration !== record.localGeneration)) throw new Error('A cloud response cannot replace a locally trusted group pin');
+      replacement?.assertCurrent();
     });
   });
 }

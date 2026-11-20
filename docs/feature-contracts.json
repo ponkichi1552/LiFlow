@@ -16576,6 +16576,10 @@
     "feature": "device-signed-delivery-and-paused-enrollment",
     "tests": [
       {
+        "file": "tests/sharing-account-device-runtime.test.mjs",
+        "name": "a locally ended invitation cannot block restoration of a different confirmed group"
+      },
+      {
         "file": "tests/sharing-delivery-worker.test.mjs",
         "name": "a recovery receipt for an older incarnation cannot erase a replacement request"
       },

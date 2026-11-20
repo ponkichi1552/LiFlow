@@ -31,7 +31,7 @@ import { prepareSharedWorkspaceSelection } from '../../features/sharing/workspac
 import type { SharingSelection } from '../../features/sharing/workspace-selection.ts';
 import { SharingAccessError, SharingKeyVersionError, SharingSchedulerVersionError } from '../../features/sharing/cloud-contract.ts';
 import { sharingOwnerRecoveryEnabled } from '../../features/sharing/rollout.ts';
-import { initializeSharingRegistry, readCurrentSharingWorkspace, readSharingWorkspace, saveSharingWorkspace, updateSharingWorkspace, adoptConfirmedSharingWorkspace } from '../storage/sharing-registry.ts';
+import { hasEndedSharingInvitation, initializeSharingRegistry, readCurrentSharingWorkspace, readSharingWorkspace, saveSharingWorkspace, updateSharingWorkspace, adoptConfirmedSharingWorkspace } from '../storage/sharing-registry.ts';
 import type { SharingWorkspaceRecord } from '../storage/sharing-registry.ts';
 import { initializeSharedProjection } from '../storage/sharing-projection.ts';
 import { drainSharingLedger, initializeSharingLedger, loadSharedFacts, loadSharedReplica, readSharingCheckpoint } from '../storage/sharing-ledger.ts';
@@ -744,7 +744,7 @@ export async function requestSharingWorkspace(linkText: string): Promise<SharedW
 export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOnly?: boolean; pendingOnly?: boolean } = {}): Promise<{ kind: 'success' | 'pending' | 'skipped'; waitingForSignal?: true; retryAt?: number }> {
   if (!await hasSharingSessionEnabled()) return { kind: 'skipped' };
   const start = Date.now(); const owner = (await sharingSessionUser())?.uid;
-  const record = await currentSharingWorkspace();
+  let record = await currentSharingWorkspace();
   if (options.pendingOnly) {
     if (!record) return { kind: 'skipped' };
     if (record.status === 'active' && !record.lastErrorCode) {
@@ -761,7 +761,11 @@ export async function syncSharingWorkspace(budgetMs = 20_000, options: { deltaOn
   let restoring = false;
   if (!options.pendingOnly && owner && process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL?.trim()) {
     const { syncAccountDeviceRestoration } = await import('./account-device-runtime');
-    try { const result = await syncAccountDeviceRestoration(Math.min(20_000, budgetMs)); restoring = result === 'waiting'; }
+    try {
+      const result = await syncAccountDeviceRestoration(Math.min(20_000, budgetMs));
+      restoring = result === 'waiting';
+      if (hasEndedSharingInvitation(record) && ['active', 'restored', 'sent'].includes(result)) record = await currentSharingWorkspace();
+    }
     catch (error) { failures.push(error); }
   }
   if ((await sharingSessionUser())?.uid !== owner) throw new SharingAccessError('同期する共有アカウントが変わりました。');

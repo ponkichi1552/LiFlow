@@ -7,7 +7,7 @@ import { canonicalJson } from '../../features/sharing/operations.ts';
 import { sharedRosterDigest, validateSharedRoster } from '../../features/sharing/roster.ts';
 import { readCloudWorkspaceArchive } from '../../features/sharing/workspace-protocol.ts';
 import { resolveSharedGroupKey } from '../../features/sharing/account-device-key-continuity.ts';
-import { readSharingWorkspace, saveSharingWorkspace, updateSharingWorkspace } from '../storage/sharing-registry.ts';
+import { hasEndedSharingInvitation, readSharingWorkspace, saveSharingWorkspace, updateSharingWorkspace } from '../storage/sharing-registry.ts';
 import type { SharingWorkspaceRecord } from '../storage/sharing-registry.ts';
 import { createAccountDeviceApi } from './account-device-api.ts';
 import { getSharingServices, isSharingConfigured } from './firebase-services.ts';
@@ -39,11 +39,17 @@ export function syncAccountDeviceRestoration(budgetMs = 20_000): Promise<string>
     if (getSharingServices().auth.currentUser !== user || Date.now() >= deadline) throw new Error('Account restoration session changed or timed out');
   };
   const task = (async () => {
-    const local = await currentSharingWorkspace(); assertCurrent();
-    if (local && local.status !== 'active') return 'absent'; // Never replace a manual invitation or unfinished creation.
+    const currentLocal = await currentSharingWorkspace(); assertCurrent();
+    const endedInvitation = hasEndedSharingInvitation(currentLocal) ? currentLocal : null;
+    const local = currentLocal?.status === 'active' ? currentLocal : null;
+    if (currentLocal && !local && !endedInvitation) return 'absent';
     const registry = await sharingRegistryDatabase(); assertCurrent();
-    const identity = await loadOrCreateSharingDeviceIdentity(user.uid, local?.localGeneration); assertCurrent();
     const cloud = createSharingCloud(getSharingServices().firestore, user.uid, () => getSharingServices().auth.currentUser === user ? user.uid : null);
+    const confirmedGroup = endedInvitation ? await cloud.readMembership() : null; assertCurrent();
+    if (endedInvitation && (!confirmedGroup || confirmedGroup === endedInvitation.groupId)) return 'absent';
+    const knownWorkspace = confirmedGroup ? await readSharingWorkspace(registry, user.uid, confirmedGroup) : local; assertCurrent();
+    if (knownWorkspace && knownWorkspace.status !== 'active') return 'absent';
+    const identity = await loadOrCreateSharingDeviceIdentity(user.uid, knownWorkspace?.localGeneration); assertCurrent();
     const pendingKey = `account-group-restore:${user.uid}`;
     let activeGroupId: string | undefined;
     const readSavedKey = async (version: number, metadata: AccountDeviceRestoreMetadata) => {
@@ -72,7 +78,7 @@ export function syncAccountDeviceRestoration(budgetMs = 20_000): Promise<string>
         void import('../../features/google-sync/background-task').then(module => module.registerGoogleSyncBackgroundTask()).catch(() => undefined); },
       clearPending: async () => { assertCurrent(); await sharingSecureVault.removeItem(pendingKey); assertCurrent(); },
       discover: async (pending: AccountDeviceRestorePending | null) => {
-        const groupId = await cloud.readMembership(); assertCurrent(); if (!groupId) return null;
+        const groupId = confirmedGroup ?? await cloud.readMembership(); assertCurrent(); if (!groupId) return null;
         if (local && local.groupId !== groupId || pending && pending.request.body.groupId !== groupId) throw new Error('Account group changed during restoration');
         const historical = await readSharingWorkspace(registry, user.uid, groupId); assertCurrent();
         if (historical && ['left', 'removed'].includes(historical.status)) return null;
@@ -102,17 +108,22 @@ export function syncAccountDeviceRestoration(budgetMs = 20_000): Promise<string>
         assertCurrent(); const groupId = metadata.archive.at(-1)!.body.groupId;
         const stored = await readSharingWorkspace(registry, user.uid, groupId); assertCurrent();
         if (stored && stored.status !== 'active') throw new Error('Current workspace was left or replaced');
-        if (stored && canonicalJson(stored.rosterArchive) === canonicalJson(metadata.archive)) { updateStatus(null); return; }
+        if (stored && !endedInvitation && canonicalJson(stored.rosterArchive) === canonicalJson(metadata.archive)) { updateStatus(null); return; }
         const current = await cloud.readGroup(groupId); assertCurrent();
         if (sharedRosterDigest(current.roster) !== sharedRosterDigest(metadata.archive.at(-1)!) || current.group.deviceOwners[identity.deviceId] !== user.uid
           || current.group.revokedUserIds.includes(user.uid) || current.group.rotationRequired) throw new Error('Account device approval changed before activation');
-        if (stored) await updateSharingWorkspace(registry, user.uid, groupId, previous => { assertCurrent();
+        if (endedInvitation) {
+          if (await cloud.readMembership() !== groupId) throw new Error('Account group changed during restoration');
+          assertCurrent();
+          if (stored?.localGeneration !== knownWorkspace?.localGeneration) throw new Error('Restoration generation changed');
+        }
+        if (stored && !endedInvitation) await updateSharingWorkspace(registry, user.uid, groupId, previous => { assertCurrent();
           if (previous.status !== 'active' || previous.localGeneration !== local?.localGeneration) throw new Error('Restoration generation changed');
           return { ...previous, rosterArchive: metadata.archive, lastErrorCode: null }; });
         else {
-          const record: SharingWorkspaceRecord = { userId: user.uid, groupId, displayName: '共有グループ', status: 'active', anchor: metadata.archive[0],
+          const record: SharingWorkspaceRecord = stored ?? { userId: user.uid, groupId, displayName: '共有グループ', status: 'active', anchor: metadata.archive[0],
             rosterArchive: metadata.archive, createdAt: new Date().toISOString(), lastSuccessfulSyncAt: null, lastErrorCode: null };
-          assertCurrent(); await saveSharingWorkspace(registry, record);
+          assertCurrent(); await saveSharingWorkspace(registry, record, endedInvitation ? { endedInvitation, assertCurrent } : undefined);
         }
         assertCurrent(); updateStatus(null); notifySharingWorkspaceChanged();
       },

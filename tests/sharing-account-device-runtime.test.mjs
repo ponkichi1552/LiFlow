@@ -13,6 +13,7 @@ import * as controller from '../src/features/sharing/account-device-controller.t
 import * as continuity from '../src/features/sharing/account-device-key-continuity.ts';
 import { createDeviceIdentity } from '../src/features/sharing/crypto.ts';
 import { rosterCloudFields } from '../src/features/sharing/cloud-contract.ts';
+import { createSharedInvitation, createSharedJoinRequest } from '../src/features/sharing/invitations.ts';
 
 async function fixture() {
   const owner = await createDeviceIdentity(crypto), phone = await createDeviceIdentity(crypto), tablet = await createDeviceIdentity(crypto), key = await crypto.randomBytes(32);
@@ -111,5 +112,49 @@ test('same-account automation leaves an existing manual join alone and is disabl
     assert.equal(await second.reload().syncAccountDeviceRestoration(), 'absent'); assert.equal(second.vault.size, 0);
     delete process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL;
     assert.equal(await second.reload().syncAccountDeviceRestoration(), 'disabled'); assert.equal(second.keys.size, 0);
+  } finally { h.close(); reset(); }
+});
+
+test('a locally ended invitation cannot block restoration of a different confirmed group', async () => {
+  const reset = configured(), h = await fixture();
+  try {
+    const device = await h.device(h.phone);
+    device.keys.set(2, h.key.slice());
+    const owner = await createDeviceIdentity(crypto);
+    const oldGroup = rosters.createSharedRoster('old-invitation-group', 'other-owner', owner, { schemaVersion: 2 });
+    const issuedAt = Date.now() - 3_600_001;
+    const link = await createSharedInvitation(crypto, oldGroup, owner, 'old-invitation', issuedAt);
+    const waiting = { userId: device.user.uid, groupId: oldGroup.body.groupId, status: 'joining', displayName: '以前の招待',
+      anchor: link.invitation.body.pin, rosterArchive: [], createdAt: new Date(issuedAt).toISOString(), lastSuccessfulSyncAt: null,
+      lastErrorCode: 'sharing/invitation-ended', join: { invitation: link.invitation,
+        request: createSharedJoinRequest(link, device.user.uid, h.phone, issuedAt) } };
+    await registry.saveSharingWorkspace(device.database.database, waiting);
+    const runtime = device.reload();
+    const originalMembership = device.cloud.readMembership;
+    device.cloud.readMembership = async () => waiting.groupId;
+    assert.equal(await runtime.syncAccountDeviceRestoration(), 'absent');
+    assert.deepEqual(await registry.readCurrentSharingWorkspace(device.database.database, device.user.uid), waiting);
+    device.cloud.readMembership = originalMembership;
+
+    const readGroup = device.cloud.readGroup;
+    let changed = false;
+    device.cloud.readGroup = async (...args) => {
+      if (!changed) {
+        changed = true;
+        await registry.updateSharingWorkspace(device.database.database, device.user.uid, waiting.groupId, row => ({ ...row, lastErrorCode: null }));
+      }
+      return readGroup(...args);
+    };
+    await assert.rejects(runtime.syncAccountDeviceRestoration(), /所属状態が更新/);
+    assert.equal((await registry.readCurrentSharingWorkspace(device.database.database, device.user.uid)).groupId, waiting.groupId);
+    assert.equal(await registry.readSharingWorkspace(device.database.database, device.user.uid, h.archive()[0].body.groupId), null);
+    device.cloud.readGroup = readGroup;
+    await registry.updateSharingWorkspace(device.database.database, device.user.uid, waiting.groupId, row => ({ ...row, lastErrorCode: waiting.lastErrorCode }));
+    assert.equal(await runtime.syncAccountDeviceRestoration(), 'active');
+    const restored = await registry.readCurrentSharingWorkspace(device.database.database, device.user.uid);
+    assert.equal(restored.groupId, h.archive()[0].body.groupId);
+    assert.equal(restored.status, 'active');
+    assert.deepEqual(await registry.readSharingWorkspace(device.database.database, device.user.uid, waiting.groupId), waiting);
+    assert.equal(device.notifications(), 1);
   } finally { h.close(); reset(); }
 });
