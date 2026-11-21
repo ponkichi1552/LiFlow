@@ -10,7 +10,7 @@ import { loadSharedFacts, listSharingOutbox } from '../src/platform/storage/shar
 test('normal owner compatibility upgrade preserves 106 proofs and original keys with no additional network request or duplicate commit', async t => {
   const h = await groupMaintenanceFixture(t); await h.manager.upgradeScheduler(); await h.settled();
   assert.equal(h.record().rosterArchive.at(-1).body.schedulerVersion, 'liflow-shared-2-draft-58');
-  assert.deepEqual(h.counters, { readGroup: 3, readRoster: 0, readSnapshot: 1, readReceipts: 0, pull: 4, upload: 0, acknowledge: 2, prepare: 1, commit: 1 });
+  assert.deepEqual(h.counters, { readGroup: 3, readRoster: 0, readSnapshot: 1, readReceipts: 0, pull: 2, upload: 0, acknowledge: 2, prepare: 1, commit: 1 });
   const currentKey = h.keyDigest(4); assert.notEqual(currentKey, h.initialKeyDigest);
   await h.manager.upgradeScheduler(); assert.equal(h.counters.commit, 1); assert.equal(h.counters.prepare, 1); assert.equal(h.keyDigest(4), currentKey);
 });

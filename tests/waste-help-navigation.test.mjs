@@ -149,7 +149,9 @@ test('appliance details virtualize long instructions and return by popping to th
     await screen.press('作業9へ移動');
     assert.ok(screen.text().includes('作業9'), 'the index opens the requested unmounted task');
     screen.button('一覧へ戻る');
-    const analysis = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { params: { returnTo }, navigate: (...args) => calls.push(args), mocks: { '@/features/appliance-care/api-client': {} } });
+    const analysis = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { params: { returnTo }, navigate: (...args) => calls.push(args), mocks: {
+      '@/features/appliance-care/api-client': {}, '@/hooks/use-workspace': { useWorkspace: () => ({ userId: null }) },
+    } });
     await analysis.press('前の画面に戻る');
     assert.deepEqual(calls.at(-1), ['dismissTo', returnTo]);
   }

@@ -21,6 +21,7 @@ test('mobile back controls return to the previous route across screens', async (
         navigate: (...args) => calls.push(args),
         mocks: { '@/features/google-sync/background-task': {},
           '@/features/appliance-care/api-client': {},
+          '@/hooks/use-workspace': { useWorkspace: () => ({ userId: null }) },
           '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: false }) },
           '@/platform/google-tasks/google-sign-in-gateway': {},
         },

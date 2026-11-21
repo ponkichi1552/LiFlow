@@ -163,6 +163,7 @@ export function screenHarness(filename, options = {}) {
     '@/platform/storage/analysis-deliveries': { deviceAnalysisDeliveries: () => undefined },
     '../../../platform/storage/analysis-deliveries': { deviceAnalysisDeliveries: () => undefined },
     '@/platform/sharing/workspaces': { hasOtherGoogleWorkspaceConnections: async () => false },
+    '@/platform/sharing/firebase-services': { isSharingConfigured: () => true },
     // Native local-definition reads and signed additions have dedicated SQLite tests.
     '../../platform/sharing/v2-personal-chore-selection': { createNativeV2PersonalChoreSelection: () => ({
       read: async () => { throw new Error('Personal chore selection native port was not injected'); },

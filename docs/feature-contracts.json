@@ -16091,6 +16091,10 @@
       {
         "file": "tests/sharing-workspace-provider.test.mjs",
         "name": "${platform} restored membership remains pending until the first verified planner arrives and then opens automatically"
+      },
+      {
+        "file": "tests/sharing-workspace-provider.test.mjs",
+        "name": "personal startup and manual refresh do not access sharing services without an endpoint"
       }
     ],
     "manualReview": "docs/audits/2026-11-16-initial-group-sync.md"

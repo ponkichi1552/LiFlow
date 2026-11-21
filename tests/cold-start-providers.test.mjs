@@ -53,6 +53,7 @@ for (const platform of ['ios', 'android']) {
           '@/features/calendar/calendar-notification-bridge': { CalendarNotificationBridge: empty },
           '@/components/notification-workspace-bridge': { NotificationWorkspaceBridge: empty },
           '@/features/appliance-care/analysis-receipt-bridge': { AnalysisReceiptBridge: empty },
+          '@/features/appliance-care/analysis-work-bridge': { AnalysisWorkBridge: empty },
           '@/components/workspace-navigator': { WorkspaceNavigator: () => 'authorized-navigation' },
           '@/platform/notifications/configure-foreground-notifications': {},
           '@/platform/sharing/adaptive-personal-runtime': {}, '@/platform/sharing/install-native-ed25519': {},

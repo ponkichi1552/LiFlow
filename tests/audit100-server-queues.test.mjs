@@ -17,20 +17,21 @@ test('audit100 due analysis work cannot be hidden behind three unexpired executi
   }
 });
 
-test('audit100 concurrent retries prepare and encrypt one uploaded analysis input rather than every duplicate', async () => {
+test('audit100 concurrent retries prepare and encrypt one uploaded analysis input rather than every duplicate', async t => {
   const at = Date.parse('2026-11-07T03:00:00Z'); const f = publicStoreFixture({ now: () => at });
   await f.store.heartbeatAnalysisWorker();
   const request = { manufacturer: 'QA', productName: 'fixture', modelNumber: 'test', manual: decodeUploadedManual(syntheticManual()) };
   const input = { principal: { uid: 'synthetic-owner', anonymous: false, deviceId: publicKey('synthetic-device'), installationId: 'synthetic-installation-0001' },
     requestKey: analysisRequestKey(request), idempotencyKey: 'synthetic-request-100', analysisRequest: request };
-  const stringify = Buffer.prototype.toString; let encodings = 0;
-  Buffer.prototype.toString = function (...args) { if (this === request.manual.bytes && args[0] === 'base64') encodings++; return stringify.apply(this, args); };
-  try {
-    const results = await Promise.all(Array.from({ length: 16 }, () => f.store.admit(input)));
-    assert.equal(results.filter(value => value.created).length, 1);
-    assert.equal(encodings, 1, 'only the admitted copy needs a PDF Base64 envelope and encryption');
-    assert.equal((await f.store.usage(input.principal)).used, 1);
-  } finally { Buffer.prototype.toString = stringify; }
+  const copies = t.mock.method(request.manual.bytes, 'copy');
+  const results = await Promise.all(Array.from({ length: 16 }, () => f.store.admit(input)));
+  assert.equal(results.filter(value => value.created).length, 1);
+  assert.deepEqual(new Set(results.map(value => value.jobId)), new Set([results[0].jobId]));
+  assert.equal(copies.mock.callCount(), 1, 'only the admitted input copies the PDF into the binary encryption envelope');
+  assert.equal((await f.store.usage(input.principal)).used, 1);
+  const claim = await f.store.claimAnalysis(results[0].jobId);
+  assert.equal(claim.inputManifest.version, 2);
+  assert.ok((await f.store.readAnalysisInput(claim)).manual.bytes.equals(request.manual.bytes));
 });
 
 test('audit100 repeated weather slot evaluations do not scan the whole nine hundred interval forecast', () => {

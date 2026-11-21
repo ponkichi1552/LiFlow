@@ -3,6 +3,31 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 
+test('personal startup and manual refresh do not access sharing services without an endpoint', async t => {
+  const boot = []; const calls = [];
+  const ui = screenHarness('src/hooks/use-workspace.tsx', { exportName: 'WorkspaceProvider', effect: callback => boot.push(callback), mocks: {
+    '@/components/planner-ui': {}, '@/contexts/workspace-context': { WorkspaceContext: { Provider: 'WorkspaceContextProvider' } },
+    '@/platform/sharing/firebase-services': { isSharingConfigured: () => false },
+    '@/platform/sharing/startup-display': { readSavedStartupDisplay: async () => { calls.push('saved display'); } },
+    '@/platform/sharing/auth': { observeSharingUser: () => { calls.push('auth observer'); } },
+    '@/platform/sharing/private-calendar-sync': {},
+    '@/platform/sharing/workspaces': {
+      readSharingSelection: async () => { calls.push('saved selection'); },
+      subscribeSharingChanges: () => { calls.push('changes listener'); },
+      sharingSessionUser: async () => { calls.push('auth session'); },
+    },
+  } });
+  t.after(() => ui.unmount());
+  for (const effect of boot.slice()) effect();
+  await ui.flush();
+  const state = ui.nodes().find(node => node.props.value?.refreshSharing).props.value;
+  assert.equal(state.ready, true);
+  assert.equal(state.error, null);
+  assert.equal(state.userId, null);
+  await state.refreshSharing();
+  assert.deepEqual(calls, []);
+});
+
 for (const platform of ['ios', 'android']) test(`${platform} restored membership remains pending until the first verified planner arrives and then opens automatically`, async t => {
   const effects = []; let received = false, changed;
   const record = { userId: 'owner', groupId: 'restored-house', status: 'active', lastSuccessfulSyncAt: null };
@@ -121,6 +146,7 @@ for (const platform of ['ios', 'android']) test(`${platform} cold startup restor
   const provider = name => ({ children }) => { started.push(name); return children; };
   const screen = screenHarness('src/app/_layout.tsx', { platform, mocks: {
     '@/features/appliance-care/analysis-receipt-bridge': { AnalysisReceiptBridge: () => null },
+    '@/features/appliance-care/analysis-work-bridge': { AnalysisWorkBridge: () => null },
     'expo-router': { ThemeProvider: ({ children }) => children, DarkTheme: { colors: {} }, DefaultTheme: { colors: {} } },
     'expo-sqlite': { SQLiteProvider: ({ children }) => children },
     '@/platform/diagnostics/startup-splash': { prepareStartupDisplay() {} },

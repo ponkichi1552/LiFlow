@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { loadNativeModule as load } from './helpers/native-module.mjs';
 import * as applianceAnalysisValidation from '../src/features/appliance-care/analysis-validation.ts';
+import * as manualUploadContract from '../server/appliance-care-api/src/manual-upload-contract.mjs';
 
 for (const platform of ['ios', 'android']) {
   test(`${platform} notification gateway coalesces permission requests and creates Android channels before asking`, async () => {
@@ -58,6 +59,7 @@ for (const platform of ['ios', 'android']) {
         'react-native': { Platform: { OS: platform } },
         '@/features/appliance-care/official-url': {}, './polling': {},
         './analysis-validation': applianceAnalysisValidation, './manual-source': {},
+        '../../../server/appliance-care-api/src/manual-upload-contract.mjs': manualUploadContract,
         '@noble/hashes/sha2.js': { sha256 }, '@noble/hashes/utils.js': { bytesToHex, utf8ToBytes },
       });
       assert.equal(applianceCareApiBaseUrl(), platform === 'android' ? 'http://10.0.2.2:8787' : 'http://localhost:8787');
@@ -73,11 +75,13 @@ for (const platform of ['ios', 'android']) {
 test('native entry defines background work before Router can mount any screens', async () => {
   const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(packageJson.main, 'index.ts');
-  const events = []; let callback;
+  const events = []; const tasks = new Map();
+  const googleTask = 'housework-planner-google-tasks-sync';
+  const applianceTask = 'housework-planner-appliance-analysis-result';
   const backgroundMocks = {
     './background-audit': { createBackgroundAudit },
     'expo-background-task': { BackgroundTaskResult: { Success: 'success', Failed: 'failed' } },
-    'expo-task-manager': { defineTask: (name, run) => { events.push(`define:${name}`); callback = run; } },
+    'expo-task-manager': { defineTask: (name, run) => { events.push(`define:${name}`); tasks.set(name, run); } },
     'expo-sqlite': { openDatabaseAsync: async (_name, options) => { assert.equal(options.useNewConnection, true); return { closeAsync: async () => { events.push('close'); } }; } },
     '@/platform/google-calendar/personal-runtime': { nativePersonalGoogleCalendar: () => ({ sync: async () => ({ kind: 'skipped' }) }) },
     './background-work': { personalCalendarHasPendingWork: async () => true },
@@ -86,17 +90,30 @@ test('native entry defines background work before Router can mount any screens',
     '@/platform/sharing/workspaces': { syncSharingWorkspace: async (budget) => { assert.equal(budget, 30000); events.push('sharing'); } },
     '@/platform/storage/repository': { LOCAL_HOUSEHOLD_ID: 'home', initializeLocalDatabase: async () => { events.push('initialize'); },
       loadGoogleSyncState: async () => ({ enabled: true }) },
+    '../../platform/subscription/runtime': { subscriptionRequired: false },
+    '../../platform/appliance-care/analysis-work': { currentAnalysisOwner: async () => 'owner',
+      resumeAnalysisWork: async (_database, owner, options) => {
+        assert.equal(owner, 'owner'); assert.deepEqual(options, { timeoutMs: 20_000 });
+        events.push('resume-analysis'); return true;
+      } },
+    '../../platform/storage/analysis-deliveries': { deviceAnalysisDeliveries: database => database },
+    '../../platform/appliance-care/receipt-recovery': { recoverNativeAnalysisReceipts: async () => { events.push('recover-receipts'); } },
   };
   load(packageJson.main, {
     get './src/features/google-sync/background-task'() {
       return load('src/features/google-sync/background-task.ts', backgroundMocks);
     },
-    get 'expo-router/entry'() { assert.ok(callback); events.push('router'); return {}; },
+    get './src/features/appliance-care/analysis-background-task'() {
+      return load('src/features/appliance-care/analysis-background-task.ts', backgroundMocks);
+    },
+    get 'expo-router/entry'() { assert.ok(tasks.has(googleTask) && tasks.has(applianceTask)); events.push('router'); return {}; },
   });
-  assert.deepEqual(events, ['define:housework-planner-google-tasks-sync', 'router']);
-  assert.equal(await callback({}), 'success');
-  assert.deepEqual(events.slice(2), ['initialize', 'sync', 'close', 'private-calendar', 'sharing', 'close']);
-  assert.equal(await callback({ error: { message: 'OS error' } }), 'failed');
+  assert.deepEqual(events, [`define:${googleTask}`, `define:${applianceTask}`, 'router']);
+  assert.equal(await tasks.get(googleTask)({}), 'success');
+  assert.deepEqual(events.slice(3), ['initialize', 'sync', 'close', 'private-calendar', 'sharing', 'close']);
+  assert.equal(await tasks.get(applianceTask)({}), 'success');
+  assert.deepEqual(events.slice(-3), ['resume-analysis', 'recover-receipts', 'close']);
+  for (const run of tasks.values()) assert.equal(await run({ error: { message: 'OS error' } }), 'failed');
 });
 
 test('background tasks close their SQLite connection after a sync failure without mounting UI', async () => {
