@@ -37,6 +37,32 @@ test('connection codes authorize one same-account device automatically without e
   assert.equal(h.codeReads(), reads, 'ordinary background work must not read handoff documents');
 });
 
+test('a connection claim lost before transmission is sent by synchronization without preparing a new device', async t => {
+  const h = privateCalendarMemoryCloud(), a = device(t, h), b = device(t, h);
+  await a.session.initializeFirstDevice(); const codeText = await a.session.issueConnectionCode();
+  const claim = h.connectionCloud.claim; let called = 0;
+  h.connectionCloud.claim = async (...args) => { if (called++ === 0) throw new Error('connection interrupted before sending'); return claim(...args); };
+  await assert.rejects(b.session.connectWithCode(codeText), /interrupted/);
+  const saved = (await b.connections.read()).state.joining;
+  await b.reopen().synchronizeDevices();
+  const remote = h.codes.get(decodeConnectionCode(codeText).grant.body.codeId);
+  assert.equal(remote.state, 'claimed'); assert.deepEqual(remote.claim.request, saved.request);
+  await a.session.synchronizeDevices(); await b.reopen().synchronizeDevices();
+  assert.equal((await b.connections.read()).state.joining, null);
+  assert.equal((await b.session.read()).keyReady, true);
+});
+
+test('a code proven to have been claimed by another device does not block using a new code', async t => {
+  const h = privateCalendarMemoryCloud(), a = device(t, h), b = device(t, h), c = device(t, h);
+  await a.session.initializeFirstDevice(); const first = await a.session.issueConnectionCode();
+  await c.session.connectWithCode(first);
+  await assert.rejects(b.session.connectWithCode(first), /used code/);
+  await a.session.synchronizeDevices();
+  const second = await a.session.issueConnectionCode();
+  await b.session.connectWithCode(second);
+  assert.equal((await b.connections.read()).state.joining.code, second);
+});
+
 test('connection codes cannot be used by a second device or with a forged proof, modified signature, expired grant or foreign account', async t => {
   const h = privateCalendarMemoryCloud(), a = device(t, h), b = device(t, h), c = device(t, h);
   await a.session.initializeFirstDevice(); const text = await a.session.issueConnectionCode(), code = decodeConnectionCode(text);

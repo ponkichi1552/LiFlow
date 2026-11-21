@@ -101,7 +101,8 @@ test('paid widget expiry timeline preserves current pending actions and does not
 for (const platform of ['ios', 'android']) test(`${platform} store purchase uses the server account and store price while foreground recovery verifies and finishes a transaction once`, async () => {
   const fields = ['EXPO_PUBLIC_APPLE_SUBSCRIPTION_PRODUCT_ID', 'EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_PRODUCT_ID', 'EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_BASE_PLAN_ID'];
   const previous = fields.map(key => process.env[key]); fields.forEach((key, i) => { process.env[key] = i === 2 ? 'month' : 'monthly'; });
-  const state = { userId: 'person-a', phase: 'locked', account: { appAccountToken: '12345678-1234-1234-1234-123456789012', obfuscatedAccountId: 'a'.repeat(64) } };
+  const state = { userId: 'person-a', phase: 'locked', purchaseStores: { apple: true, google: true },
+    account: { appAccountToken: '12345678-1234-1234-1234-123456789012', obfuscatedAccountId: 'a'.repeat(64) } };
   const body = { userId: 'person-a', status: 'active', checkedAt: Date.now(), expiresAt: Date.now() + 86400_000, validUntil: Date.now() + 3600_000 };
   let available = []; let verify = 0, finish = 0, init = 0, queries = 0; const purchases = [];
   const product = platform === 'ios' ? { id: 'monthly', type: 'subs', platform, displayPrice: '¥90', typeIOS: 'auto-renewable-subscription', subscriptionPeriodUnitIOS: 'month', subscriptionPeriodNumberIOS: '1' }
@@ -149,16 +150,22 @@ for (const platform of ['ios', 'android']) test(`${platform} a product catalogue
 test('public store builds reject missing billing setup and keep the native Google billing provider pinned to Play', () => {
   const require = createRequire(import.meta.url); const configure = require('../app.config.js');
   const fields = ['EAS_BUILD_PROFILE', 'EXPO_PUBLIC_LIFLOW_SUBSCRIPTIONS', 'EXPO_PUBLIC_APPLE_SUBSCRIPTION_PRODUCT_ID', 'EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_PRODUCT_ID',
-    'EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_BASE_PLAN_ID', 'EXPO_PUBLIC_SUBSCRIPTION_PUBLIC_KEY', 'EXPO_PUBLIC_APPLIANCE_CARE_API_URL', 'EXPO_PUBLIC_LIFLOW_TERMS_URL', 'EXPO_PUBLIC_LIFLOW_PRIVACY_URL'];
+    'EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_BASE_PLAN_ID', 'EXPO_PUBLIC_SUBSCRIPTION_PUBLIC_KEY', 'EXPO_PUBLIC_APPLIANCE_CARE_API_URL', 'EXPO_PUBLIC_LIFLOW_TERMS_URL', 'EXPO_PUBLIC_LIFLOW_PRIVACY_URL',
+    'EXPO_PUBLIC_APPLIANCE_CARE_UPLOAD_KEY', 'EXPO_PUBLIC_FIREBASE_API_KEY', 'EXPO_PUBLIC_FIREBASE_PROJECT_ID', 'EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN',
+    'EXPO_PUBLIC_FIREBASE_APP_ID', 'EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID', 'EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID', 'EXPO_PUBLIC_APPLIANCE_NATIVE_PROOF',
+    'EXPO_PUBLIC_APPLIANCE_PLAY_PROJECT_NUMBER', 'EAS_BUILD_PLATFORM'];
   const old = fields.map(key => process.env[key]);
   try {
     fields.forEach(key => delete process.env[key]); process.env.EAS_BUILD_PROFILE = 'production';
     assert.throws(() => configure({ config: {} }), /require verified/);
-    process.env.EXPO_PUBLIC_LIFLOW_SUBSCRIPTIONS = 'required'; assert.throws(() => configure({ config: {} }), /required/);
-    const values = ['production', 'required', 'monthly', 'monthly', 'month', 'a'.repeat(64), 'https://api.example.invalid', 'https://example.invalid/terms', 'https://example.invalid/privacy'];
+    process.env.EXPO_PUBLIC_LIFLOW_SUBSCRIPTIONS = 'required'; assert.throws(() => configure({ config: {} }), /require appliance app attestation/);
+    const values = ['production', 'required', 'monthly', 'monthly', 'month', 'a'.repeat(64), 'https://api.example.invalid', 'https://example.invalid/terms', 'https://example.invalid/privacy',
+      'b'.repeat(64), 'fake-api-key', 'fake-project', 'fake-project.firebaseapp.com', 'firebase-app-id', 'web.apps.googleusercontent.com', 'ios.apps.googleusercontent.com', 'required',
+      '100000000', 'android'];
     fields.forEach((key, i) => { process.env[key] = values[i]; });
     const config = configure({ config: {} }); const plugin = config.plugins.find(item => Array.isArray(item) && item[0] === 'expo-iap');
     assert.equal(plugin[1].android.store, 'play');
+    assert.equal(config.ios.entitlements['com.apple.developer.devicecheck.appattest-environment'], 'production');
     process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL = 'http://localhost'; assert.throws(() => configure({ config: {} }), /HTTPS/);
   } finally { fields.forEach((key, i) => { if (old[i] === undefined) delete process.env[key]; else process.env[key] = old[i]; }); }
 });
@@ -172,7 +179,7 @@ for (const platform of ['ios', 'android']) test(`${platform} explicit restore co
       'react-native': { Platform: { OS: platform }, Linking: {} }, '../../features/subscription/purchase-flow': purchaseFlow,
       './runtime': { subscriptionSnapshot: () => state, subscriptionCurrentTime: () => Date.now(), acceptSubscription: async () => { state.phase = 'active'; }, subscriptionRequest: async (path, value) => {
         if (path === 'status') return {};
-        verified.push(value.proof); if (value.proof === 'foreign-proof') throw new Error('owned by another account');
+        verified.push(value.proof); if (value.proof === 'foreign-proof') throw Object.assign(new Error('owned by another account'), { code: 'PURCHASE_ALREADY_BOUND' });
         return { body: { userId: state.userId, status: 'active', checkedAt: Date.now(), validUntil: Date.now() + 60_000, expiresAt: Date.now() + 60_000 } };
       } },
       'expo-iap': { initConnection: async () => true, purchaseUpdatedListener: () => ({ remove() {} }), purchaseErrorListener: () => ({ remove() {} }),

@@ -3,6 +3,7 @@ import type { V2ApplianceReview } from '../sharing/v2/appliance-actions';
 
 export type AnalysisTarget = { groupId?: string; applianceId?: string };
 export type SharedAnalysisBasis = Pick<V2ApplianceReview, 'selection' | 'resolveOperationIds' | 'restorePresence'>;
+export type AnalysisWorkBasis = SharedAnalysisBasis & { personalUpdatedAt?: string };
 
 export interface AnalysisWorkSummary extends AnalysisTarget {
   id: string;
@@ -15,7 +16,7 @@ export interface AnalysisWork extends AnalysisWorkSummary {
   request: Omit<ApplianceCareApiRequest, 'manual'>;
   baseUrl: string;
   manualDigest: string;
-  basis?: SharedAnalysisBasis;
+  basis?: AnalysisWorkBasis;
   result: ApplianceCareApiResponse | null;
   attempts: number;
   retryAt: number;
@@ -27,6 +28,7 @@ export function analysisTargetKey(target: AnalysisTarget): string {
 }
 
 export function analysisRetryAt(result: ApplianceCareApiResponse, attempts: number, now: number): number | null {
-  if (result.status !== 'error' || (result.code !== 'TEMPORARY_NETWORK_ERROR' && result.code !== 'AUTHENTICATION_REQUIRED')) return null;
-  return now + Math.min(60_000, 5_000 * 2 ** Math.min(attempts, 4));
+  if (result.status !== 'error' || !['TEMPORARY_NETWORK_ERROR', 'AUTHENTICATION_REQUIRED', 'DEVICE_VERIFICATION_TEMPORARY'].includes(result.code)) return null;
+  const retryAt = result.code === 'DEVICE_VERIFICATION_TEMPORARY' ? Date.parse(result.retryAt ?? '') : NaN;
+  return Math.max(now + Math.min(60_000, 5_000 * 2 ** Math.min(attempts, 4)), Number.isFinite(retryAt) ? retryAt : 0);
 }

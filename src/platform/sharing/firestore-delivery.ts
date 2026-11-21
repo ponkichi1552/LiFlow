@@ -36,7 +36,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
   const policyRef = (groupId: string) => doc(reference(groupId), 'deliveryControl', 'policy');
   let acknowledgement: Promise<void> = Promise.resolve();
   let lastExhaustedClosedRequest: string | undefined;
-  const receivedRequests = new Map<string, Pick<Request, 'kind' | 'key' | 'after' | 'through'> & { deadline: number; fingerprint: string | null }>();
+  const receivedRequests = new Map<string, Pick<Request, 'kind' | 'key' | 'after' | 'through' | 'keyVersion'> & { groupId: string; deadline: number; fingerprint: string | null }>();
   const knownRequests = new Map<string, Request>();
   const sentRequests = new Map<string, string>();
   const delayedResponses = new Map<string, number>();
@@ -49,6 +49,18 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
   let wake: (() => void) | undefined; let failure: ((error: unknown) => void) | undefined;
   const responseObservers = new Map<string, () => void>();
   const responsePresent = new Map<string, boolean>();
+  function updateScope(id: string, group: SharedCloudGroup) {
+    if (scope && (scope.id !== id || canonicalJson([scope.group.deviceOwners, scope.group.revokedUserIds]) !== canonicalJson([group.deviceOwners, group.revokedUserIds]))) {
+      sentRequests.clear(); delayedResponses.clear();
+    }
+    scope = { id, group };
+  }
+  function usableResponse(group: SharedCloudGroup, responder: string, metadata: DocumentData | undefined) {
+    return metadata?.ready === true && group.deviceOwners[responder] === metadata.userId && typeof metadata.userId === 'string'
+      && !group.revokedUserIds.includes(metadata.userId) && Number.isSafeInteger(metadata.size) && metadata.size >= 1 && metadata.size <= MAX_BYTES
+      && Number.isSafeInteger(metadata.parts) && metadata.parts === Math.ceil(metadata.size / PART_BYTES)
+      && validTime(metadata.expiresAt) && metadata.expiresAt.toMillis() > Date.now();
+  }
   const fingerprintOf = (request: Request) => `${request.createdAt.seconds}:${request.createdAt.nanoseconds}:${request.keyVersion}`;
   const deadlineOf = (request: Request) => Math.min(request.expiresAt.toMillis(), request.createdAt.toMillis() + TTL);
   function forgetRequest(id: string) {
@@ -82,10 +94,13 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
     const at = Math.min(...delayedResponses.values());
     relayTimer = setTimeout(() => { if (scope && wake) void serve(scope.id, scope.group, false).catch(error => failure?.(error)); }, Math.max(50, at - Date.now()));
   }
-  async function leaseRelay(target: DocumentReference, digest: string, ready = false) {
+  async function leaseRelay(target: DocumentReference, digest: string, group: SharedCloudGroup, ready = false) {
     const result = await runTransaction(firestore, async transaction => {
       const stored = (await transaction.get(target)).data(); checkAccount();
-      if (stored?.deviceId === deviceId && stored?.ready === true && stored.digest === digest) return { kind: 'ready' as const };
+      if (stored?.ready === true && stored.digest === digest && typeof stored.deviceId === 'string' && stored.deviceId && !stored.deviceId.includes('/')) {
+        const completed = (await transaction.get(doc(target.parent, stored.deviceId))).data(); checkAccount();
+        if (completed?.digest === digest && usableResponse(group, stored.deviceId, completed)) return { kind: 'ready' as const };
+      }
       if (stored?.deviceId !== deviceId && (stored?.ready === false || stored?.digest === digest) && validTime(stored?.updatedAt)) {
         const retryAt = stored.updatedAt.toMillis() + RELAY_LEASE_MS;
         if (retryAt > Date.now()) return { kind: 'waiting' as const, retryAt };
@@ -94,14 +109,14 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
       return { kind: 'owned' as const };
     }); checkAccount(); return result;
   }
-  async function writePages(groupId: string, requestId: string, request: Request, value: unknown): Promise<number | null> {
+  async function writePages(groupId: string, group: SharedCloudGroup, requestId: string, request: Request, value: unknown): Promise<number | null> {
     const bytes = utf8ToBytes(canonicalJson(value)); if (bytes.length > MAX_BYTES) throw new Error('Delivery recovery page is too large');
     const parent = doc(requests(groupId), requestId, 'responses', deviceId);
     const metadata = { schemaVersion: 1, userId, deviceId, digest: sharedDocumentDigest(value), size: bytes.length,
       parts: Math.ceil(bytes.length / PART_BYTES), expiresAt: request.expiresAt };
     const lease = doc(requests(groupId), requestId, 'responses', '_relay');
     let renewedAt = Date.now();
-    const acquired = await leaseRelay(lease, metadata.digest).catch(error => {
+    const acquired = await leaseRelay(lease, metadata.digest, group).catch(error => {
       // During a Rules rollout older deployments still accept their original response format.
       if ((error as { code?: string })?.code !== 'permission-denied') throw error;
       return { kind: 'legacy' as const };
@@ -121,7 +136,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
     if (!completed) {
       for (let offset = 0, index = 0; offset < bytes.length; offset += PART_BYTES, index++) {
         if (acquired.kind === 'owned' && Date.now() - renewedAt >= RELAY_LEASE_MS / 2) {
-          const current = await leaseRelay(lease, metadata.digest);
+          const current = await leaseRelay(lease, metadata.digest, group);
           if (current.kind === 'ready') return null;
           if (current.kind === 'waiting') return current.retryAt;
           renewedAt = Date.now();
@@ -137,7 +152,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
         if (existing.data()?.ready === false) transaction.update(parent, { ready: true });
       }); checkAccount();
     }
-    if (acquired.kind === 'owned') await leaseRelay(lease, metadata.digest, true);
+    if (acquired.kind === 'owned') await leaseRelay(lease, metadata.digest, group, true);
     return null;
   }
   async function discover(groupId: string) {
@@ -157,18 +172,20 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
     if (serving) { again = true; return serving; }
     const work = (async () => {
       do {
-        again = false; checkAccount(); const group = current ?? (await readGroup(groupId)).group;
+        again = false; checkAccount();
+        let group = current ?? (await readGroup(groupId)).group;
+        if (scope?.id === groupId && scope.group.keyVersion > group.keyVersion) group = scope.group;
         assertSharedCloudAccess(group, userId, deviceId);
-        scope = { id: groupId, group };
+        updateScope(groupId, group);
         if (discoveryNeeded) { discoveryNeeded = false; await discover(groupId); }
         for (const [id, request] of knownRequests) {
           checkAccount();
-          if (deadlineOf(request) <= Date.now() || request.receivedAt !== undefined) {
+          if (deadlineOf(request) <= Date.now() || request.receivedAt !== undefined || request.keyVersion !== group.keyVersion) {
             forgetRequest(id); continue;
           }
           if (request.deviceId === deviceId && request.userId === userId) {
             receivedRequests.set(id, { kind: request.kind, key: request.key, after: request.after, through: request.through,
-              deadline: deadlineOf(request), fingerprint: fingerprintOf(request) });
+              groupId, keyVersion: request.keyVersion, deadline: deadlineOf(request), fingerprint: fingerprintOf(request) });
             observeResponse(doc(requests(groupId), id)); continue;
           }
           if (request.deviceId === deviceId || group.deviceOwners[request.deviceId] !== request.userId
@@ -182,7 +199,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
           const compact = request.kind === 'events' && request.key === `compact.${request.after}` && Array.isArray(value);
           const wire = compact ? value.map(({ envelope: _parsed, ...event }: SharedCloudEvent) => event) : value;
           try {
-            const retryAt = await writePages(groupId, id, request, wire);
+            const retryAt = await writePages(groupId, group, id, request, wire);
             if (retryAt === null) sentRequests.set(id, fingerprint);
             else delayedResponses.set(id, retryAt);
           }
@@ -207,8 +224,10 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
   async function recover(groupId: string, kind: Request['kind'], key: string, after: number, through: number, reusePrevious = true): Promise<unknown> {
     checkAccount();
     for (const [id, pending] of receivedRequests) {
+      if (pending.groupId !== groupId) continue;
+      if (scope?.id === groupId && pending.keyVersion !== scope.group.keyVersion) { forgetRequest(id); continue; }
       if (responsePresent.get(id) === false && pending.kind === kind && pending.key === key && pending.after === after
-        && pending.through === through && pending.deadline > Date.now()) throw new SharedDeliveryPendingError(pending.deadline);
+        && pending.through === through && pending.deadline > Date.now() && scope?.id === groupId) throw new SharedDeliveryPendingError(pending.deadline);
     }
     checkAccount();
     const stamp = Date.now();
@@ -248,6 +267,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
       return { target, group, deadline: expiresAt.toMillis(), closed: false, fingerprint: null };
     }); checkAccount();
     const { group, target } = state;
+    if (scope?.id === groupId && scope.group.keyVersion <= group.keyVersion) updateScope(groupId, group);
     const requestId = target.id;
     if (state.deadline <= Date.now()) { forgetRequest(requestId); throw new SharedDeliveryPendingError(); }
     const closed = state.closed && `${requestId}:${state.fingerprint}`;
@@ -255,17 +275,14 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
       forgetRequest(requestId);
       if (lastExhaustedClosedRequest === closed) throw new SharedDeliveryPendingError();
     } else {
-      receivedRequests.set(requestId, { kind, key, after, through, deadline: state.deadline, fingerprint: state.fingerprint });
+      receivedRequests.set(requestId, { kind, key, after, through, groupId, keyVersion: group.keyVersion, deadline: state.deadline, fingerprint: state.fingerprint });
       observeResponse(target);
     }
     const responses = await getDocsFromServer(query(collection(target, 'responses'), limit(65))); checkAccount();
     for (const response of responses.docs) {
       if (state.deadline <= Date.now()) break;
       const metadata = response.data();
-      if (metadata.ready !== true || !group.deviceOwners[response.id] || group.deviceOwners[response.id] !== metadata.userId
-        || group.revokedUserIds.includes(metadata.userId) || !Number.isSafeInteger(metadata.size) || metadata.size < 1 || metadata.size > MAX_BYTES
-        || !Number.isSafeInteger(metadata.parts) || metadata.parts !== Math.ceil(metadata.size / PART_BYTES)
-        || !validTime(metadata.expiresAt) || metadata.expiresAt.toMillis() <= Date.now()) continue;
+      if (!usableResponse(group, response.id, metadata)) continue;
       const pages = await getDocsFromServer(query(collection(response.ref, 'parts'), orderBy('index'), limit(129))); checkAccount();
       if (pages.docs.length !== metadata.parts) continue;
       const bytes = new Uint8Array(metadata.size); let offset = 0; let valid = true;
@@ -291,6 +308,7 @@ export function createSharingDeliveryRelay<Artifact = EncryptedSharedSnapshotChu
     archive: observedArchive,
     serve,
     request(groupId: string, group: SharedCloudGroup) {
+      if (scope?.id === groupId && scope.group.keyVersion <= group.keyVersion) updateScope(groupId, group);
       if (!discoveryNeeded && !knownRequests.size) return;
       // Recovery for other devices cannot extend a normal read/edit's network deadline.
       void serve(groupId, group, false).catch(error => failure?.(error));

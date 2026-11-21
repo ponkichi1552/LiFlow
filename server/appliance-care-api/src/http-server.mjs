@@ -63,6 +63,9 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
       if (response.headersSent) { response.destroy(); return; }
       const expected = error instanceof PublicApiError || error instanceof SubscriptionError;
       if (expected && error.status === 401) response.setHeader('www-authenticate', 'Bearer');
+      if (expected && error.code === 'DEVICE_VERIFICATION_TEMPORARY') {
+        response.setHeader('retry-after', String(Math.max(1, Math.ceil((Date.parse(error.details.retryAt) - Date.now()) / 1000))));
+      }
       rejectRequest(request, response, expected ? error.status : 503, { status: 'error',
         code: expected ? error.code : 'TEMPORARY_NETWORK_ERROR',
         message: expected ? error.message : '家電AIの受付を確認できませんでした。時間をおいてお試しください。',
@@ -82,7 +85,7 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
     if (request.method === 'OPTIONS') {
       response.writeHead(204, {
         'access-control-allow-methods': 'GET, POST, OPTIONS',
-        'access-control-allow-headers': publicAccess ? 'content-type, authorization, x-idempotency-key' : 'content-type',
+        'access-control-allow-headers': publicAccess ? 'content-type, authorization, x-idempotency-key, x-liflow-device-grant' : 'content-type',
         'access-control-max-age': '600',
       });
       response.end();
@@ -108,6 +111,17 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
       throw new PublicApiError(429, 'RATE_LIMITED', 'リクエストが多すぎます。少し待って再試行してください。');
     }
     if (subscriptionAccess && await subscriptionAccess.handle(request, response, url)) return;
+    if (publicAccess && request.method === 'POST' && ['/api/appliance-care/device/challenge', '/api/appliance-care/device/grant'].includes(url.pathname)) {
+      if (billingOnly || !publicAccess.nativeDevice) throw new PublicApiError(503, 'DEVICE_VERIFICATION_UNAVAILABLE', '家電AIは準備中です。');
+      const identity = await publicAccess.authenticateIdentity(request);
+      if (!allowPublicUser(identity.uid)) throw new PublicApiError(429, 'RATE_LIMITED', '少し待って再試行してください。');
+      if (subscriptionAccess) await subscriptionAccess.service.assertActive(identity.uid);
+      let body;
+      try { body = await readJsonBody(request, url.pathname.endsWith('/grant') ? 48 * 1024 : 1024); }
+      catch { throw new PublicApiError(400, 'INVALID_REQUEST', '端末の確認情報を確認できません。'); }
+      const result = url.pathname.endsWith('/grant') ? await publicAccess.nativeDevice.grant(identity, body) : await publicAccess.nativeDevice.challenge(identity, body);
+      sendJson(response, 200, result); return;
+    }
     const isAnalyzeRequest = request.method === 'POST' && url.pathname === '/api/appliance-care/analyze';
     const isJobRequest = request.method === 'POST' && url.pathname === '/api/appliance-care/jobs';
     const jobStatusMatch = request.method === 'GET'

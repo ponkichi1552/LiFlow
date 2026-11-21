@@ -64,7 +64,9 @@ export function createPublicApiAccess({ verifyIdToken, verifyDevice, store, subs
         || !/^[A-Za-z0-9_.:-]{16,200}$/u.test(proof.installationId) || proof.reinstallProtection !== 'verified') {
         throw new PublicApiError(403, 'DEVICE_VERIFICATION_REQUIRED', '正規アプリと端末の継続性を確認できないため解析できません。');
       }
-      return Object.freeze({ uid: decoded.uid, anonymous: false, deviceId: proof.deviceId, installationId: proof.installationId });
+      if (proof.deviceVerifiedUntil !== undefined && !Number.isSafeInteger(proof.deviceVerifiedUntil)) throw new PublicApiError(403, 'DEVICE_VERIFICATION_REQUIRED', '端末の確認情報が正しくありません。');
+      return Object.freeze({ uid: decoded.uid, anonymous: false, deviceId: proof.deviceId, installationId: proof.installationId,
+        ...(proof.deviceVerifiedUntil !== undefined ? { deviceVerifiedUntil: proof.deviceVerifiedUntil } : {}) });
     },
   });
 }

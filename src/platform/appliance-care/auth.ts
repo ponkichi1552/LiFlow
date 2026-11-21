@@ -3,7 +3,7 @@ import { getSharingServices, isSharingConfigured } from '../sharing/firebase-ser
 
 export interface ApplianceApiSession {
   readonly userId: string;
-  headers(): Promise<Record<string, string>>;
+  headers(options?: { deviceProof?: boolean; admissionId?: string }): Promise<Record<string, string>>;
 }
 
 function failure(message: string) { return Object.assign(new Error(message), { code: 'AUTHENTICATION_REQUIRED' }); }
@@ -19,8 +19,8 @@ export async function authorizeApplianceCareApi(baseUrl: string): Promise<Applia
 
 async function createSession(baseUrl: string): Promise<ApplianceApiSession> {
   const url = new URL(baseUrl);
-  const configured = process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL;
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !configured || new URL(configured).origin !== url.origin) {
+  const configured = process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL?.trim().replace(/\/+$/, '');
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || !configured || baseUrl !== configured) {
     throw failure('家電AIのHTTPS接続先が設定されていません。');
   }
   if (!isSharingConfigured()) throw failure('家電AIの利用者認証が設定されていません。');
@@ -30,13 +30,20 @@ async function createSession(baseUrl: string): Promise<ApplianceApiSession> {
   if (!user || user.isAnonymous) throw failure('家電AIを利用するにはGoogleまたはAppleでログインしてください。');
   const requestId = randomUUID();
   const current = () => sharedAuth.currentUser?.uid === user.uid;
-  return { userId: user.uid, async headers() {
+  return { userId: user.uid, async headers({ deviceProof, admissionId } = {}) {
     if (!current()) throw failure('利用者が切り替わりました。もう一度解析してください。');
     let token;
     try { token = await user.getIdToken(); }
     catch { throw failure('利用者認証を更新できませんでした。通信状態を確認して再試行してください。'); }
     if (!current()) throw failure('利用者が切り替わりました。もう一度解析してください。');
-    return { authorization: `Bearer ${token}`, 'x-idempotency-key': requestId };
+    const authorization = `Bearer ${token}`;
+    const headers: Record<string, string> = { authorization, 'x-idempotency-key': admissionId ?? requestId };
+    if (deviceProof && process.env.EXPO_PUBLIC_APPLIANCE_NATIVE_PROOF === 'required') {
+      const { applianceDeviceGrant } = await import('./device-proof');
+      headers['x-liflow-device-grant'] = await applianceDeviceGrant(baseUrl, user.uid, authorization, admissionId);
+      if (!current()) throw failure('利用者が切り替わりました。もう一度解析してください。');
+    }
+    return headers;
   } };
 }
 
@@ -44,12 +51,13 @@ async function createSession(baseUrl: string): Promise<ApplianceApiSession> {
 export async function bindApplianceAccount(uid: string): Promise<import('../../features/appliance-care/api-contracts').ApplianceCareUsage> {
   const baseUrl = process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL?.trim().replace(/\/+$/, '');
   if (!baseUrl) throw failure('家電AIの接続先が未設定のため、端末との紐づけはまだ確認できません。');
-  const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 10_000);
+  const timeout = process.env.EXPO_PUBLIC_APPLIANCE_NATIVE_PROOF === 'required' ? 45_000 : 10_000;
+  const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeout);
   try {
     const { isApplianceCareUsage, abortApplianceWait } = await import('../../features/appliance-care/api-client');
     const session = await abortApplianceWait(() => authorizeApplianceCareApi(baseUrl), controller.signal);
     if (getSharingServices().auth.currentUser?.uid !== uid) throw failure('利用者が切り替わりました。');
-    const headers = await abortApplianceWait(() => session.headers(), controller.signal);
+    const headers = await abortApplianceWait(() => session.headers({ deviceProof: true }), controller.signal);
     controller.signal.throwIfAborted();
     const response = await abortApplianceWait(() => fetch(`${baseUrl}/api/appliance-care/usage`, { headers, signal: controller.signal, redirect: 'error' }), controller.signal);
     const body: unknown = await abortApplianceWait(() => response.json(), controller.signal);

@@ -39,14 +39,22 @@ function iosStorage(source) {
     do {
       var shared = sqlite.appendingPathComponent("shared", isDirectory: true)
       try manager.createDirectory(at: shared, withIntermediateDirectories: true)
-      var values = URLResourceValues()
-      values.isExcludedFromBackup = true
-      try shared.setResourceValues(values)
+      if try shared.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup != true {
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try shared.setResourceValues(values)
+      }
       guard try shared.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true else {
         try? manager.removeItem(at: marker)
         return
       }
       try manager.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: shared.path)
+      if let data = try? Data(contentsOf: marker),
+         let saved = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+         saved["policyVersion"] as? Int == 1, saved["platform"] as? String == "ios",
+         saved["databaseDirectory"] as? String == shared.path {
+        return
+      }
       let data = try JSONSerialization.data(withJSONObject: ["policyVersion": 1, "platform": "ios", "databaseDirectory": shared.path])
       try data.write(to: marker, options: .atomic)
     } catch {

@@ -21,6 +21,6 @@ export interface AnalysisDeliveryStore {
   read(owner: string, requestKey: string): Promise<ApplianceCareApiResponse | null>;
   save(owner: string, requestKey: string, delivery: SavedAnalysisDelivery, result: ApplianceCareApiResponse,
     manual?: UploadedManualInput, work?: AnalysisWorkDelivery): Promise<void>;
-  pending(owner: string): Promise<SavedAnalysisDelivery[]>;
+  pending(owner: string, baseUrl?: string): Promise<SavedAnalysisDelivery[]>;
   acknowledged(owner: string, jobId: string): Promise<void>;
 }

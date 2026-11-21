@@ -71,6 +71,24 @@ test('public API concurrent resends start one job and charge once while other id
   await assert.rejects(f.store.admit(conflict), error => error.code === 'REQUEST_CONFLICT');
 });
 
+test('separate installations on one account cannot share an automatically reused erasable analysis result', async () => {
+  const { store } = publicStoreFixture(); const firstInput = admission('same-owner', 'selected-pdf');
+  const other = { ...firstInput, principal: principal('same-owner', 'other-device'), idempotencyKey: 'other-device-explicit-admission' };
+  const first = await store.admit(firstInput);
+  await assert.rejects(store.admit(other), error => error.code === 'RATE_LIMITED');
+  await store.finish(first, { status: 'verified', synthetic: true });
+  assert.equal(await store.read(other.principal, first.jobId), null);
+  await assert.rejects(store.lookupAdmission(other.principal, firstInput.idempotencyKey), { code: 'REQUEST_CONFLICT' });
+  await assert.rejects(store.admit({ ...firstInput, principal: other.principal }), { code: 'REQUEST_CONFLICT' });
+  const second = await store.admit(other);
+  assert.notEqual(second.jobId, first.jobId);
+  const { delivery } = await store.read(firstInput.principal, first.jobId);
+  assert.equal(await store.acknowledgeResult(firstInput.principal, first.jobId, delivery), true);
+  await store.finish(second, { status: 'verified', synthetic: true });
+  assert.equal((await store.read(other.principal, second.jobId)).result.status, 'verified');
+  assert.equal((await store.usage(other.principal)).used, 2);
+});
+
 test('public API global daily quota survives account churn and resets only at the server boundary', async () => {
   let clock = Date.parse('2026-11-01T23:59:59.999Z'); const f = publicStoreFixture({ now: () => clock });
   for (let i = 0; i < 20; i++) await f.store.finish(await f.store.admit(admission(`user-${i}`, `job-${i}`)), result);
@@ -134,7 +152,10 @@ test('steady AI status polls use read-only quota checks while device changes and
   assert.equal(transactions, 0, 'informational polling must not contend on the admission transaction');
   await f.store.finish(first, { status: 'error', code: 'AI_SERVICE_NO_RESULT', message: '合成したOpenAI無応答' });
   assert.equal((await f.store.read(principal('a'), first.jobId)).usage.used, 0);
-  assert.equal((await f.store.read(principal('a', 'new-phone'), first.jobId)).usage.used, 0);
+  const beforeOtherRead = transactions;
+  assert.equal(await f.store.read(principal('a', 'new-phone'), first.jobId), null);
+  assert.equal(transactions, beforeOtherRead);
+  assert.equal((await f.store.usage(principal('a', 'new-phone'))).used, 0);
   assert.ok(transactions > 1, 'a changed device or refund still persists its stricter quota evidence');
   await assert.rejects(f.store.usage(principal('b', 'new-phone', 'synthetic-reinstalled-0002')), error => error.code === 'REINSTALL_ACCOUNT_LOCKED');
   assert.equal(await f.store.read(principal('b', 'new-phone', 'synthetic-reinstalled-0002'), first.jobId), null);
@@ -210,7 +231,8 @@ test('public HTTP API rejects anonymous unauthenticated requests before paid wor
       assert.equal(denied.status, 403); assert.equal(denied.headers.has('access-control-allow-origin'), false);
     }
     const preflight = await fetch(f.base + '/api/appliance-care/jobs', { method: 'OPTIONS', headers: { origin: 'https://allowed.example' } });
-    assert.equal(preflight.status, 204); assert.equal(preflight.headers.get('access-control-allow-headers'), 'content-type, authorization, x-idempotency-key');
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers.get('access-control-allow-headers'), 'content-type, authorization, x-idempotency-key, x-liflow-device-grant');
     for (const path of ['/api/appliance-care/jobs', '/api/appliance-care/analyze']) {
       assert.equal((await fetch(f.base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body })).status, 401);
     }

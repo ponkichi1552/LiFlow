@@ -48,6 +48,10 @@
       },
       {
         "file": "tests/calendar-title-periods.test.mjs",
+        "name": "relative titles entered after the editor crosses midnight use the current day"
+      },
+      {
+        "file": "tests/calendar-title-periods.test.mjs",
         "name": "yearless and yearly dates seek the next actual date and explicit past years remain explicit"
       },
       {
@@ -199,6 +203,14 @@
       {
         "file": "tests/personal-google-calendar-sync.test.mjs",
         "name": "an unsupported exception of a locally exported series waits for its master on the next Google page"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "Google Calendar exports a retained individual edit after the new series rule removes its original day"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "a stored empty recurrence does not wake background Google Calendar sync again once inspected"
       },
       {
         "file": "tests/personal-google-calendar-sync.test.mjs",
@@ -5952,6 +5964,18 @@
       },
       {
         "file": "tests/analysis-delivery.test.mjs",
+        "name": "a changed appliance endpoint and a corrupt work record do not block healthy pending analyses or resend an old PDF"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "an old local analysis can receive a later server admission but never uploads again after a lookup miss"
+      },
+      {
+        "file": "tests/native-platform-gateways.test.mjs",
+        "name": "background keeps receipt recovery registered after a paid subscription expires and across a stale account callback"
+      },
+      {
+        "file": "tests/analysis-delivery.test.mjs",
         "name": "a transient stored PDF read failure preserves the attempted analysis and retries with the same admission"
       },
       {
@@ -9245,6 +9269,22 @@
       },
       {
         "file": "tests/appliance-public-api.test.mjs",
+        "name": "separate installations on one account cannot share an automatically reused erasable analysis result"
+      },
+      {
+        "file": "tests/appliance-native-device-proof.test.mjs",
+        "name": "native Apple proof keeps the lower account-device quota after an account switch and blocks a missing key until the next month"
+      },
+      {
+        "file": "tests/appliance-native-device-proof.test.mjs",
+        "name": "public app proof binds the vendor challenge to its account and gives an upload grant only to the exact admission"
+      },
+      {
+        "file": "tests/appliance-native-device-proof.test.mjs",
+        "name": "Android requires Play-signed app, evaluated Device Recall and a fresh exclusive enrollment before issuing a device grant"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
         "name": "public API admission rolls back busy requests and never refunds or repeats a possibly charged interrupted analysis"
       },
       {
@@ -10635,6 +10675,10 @@
       },
       {
         "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "long timed Google events remain readable and do not block subsequent imports or outgoing edits"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
         "name": "a Google 410 full snapshot removes a missing prior exception${localEdit ? ' as a conflict when it has a local edit' : ''}"
       },
       {
@@ -10721,6 +10765,10 @@
       {
         "file": "tests/sharing-v2-history-retention.test.mjs",
         "name": "monthly cleanup proposes and independently approves across isolated member databases before publishing a compacted snapshot"
+      },
+      {
+        "file": "tests/sharing-v2-history-retention.test.mjs",
+        "name": "certified history cleanup deletes retired delivery records and prevents replay restoring them"
       },
       {
         "file": "tests/sharing-v2-history-retention.test.mjs",
@@ -10890,6 +10938,14 @@
       {
         "file": "tests/subscription-native.test.mjs",
         "name": "${platform} a product catalogue outage or another account receipt cannot block recovery of this accounts paid transaction"
+      },
+      {
+        "file": "tests/subscription-purchase-recovery.test.mjs",
+        "name": "${platform} a store sheet without a result releases restore while preventing a duplicate purchase"
+      },
+      {
+        "file": "tests/subscription-purchase-recovery.test.mjs",
+        "name": "${platform} an unavailable verification service prevents showing the native payment sheet"
       },
       {
         "file": "tests/subscription-native.test.mjs",
@@ -12709,6 +12765,10 @@
       {
         "file": "tests/sharing-auth.test.mjs",
         "name": "explicit Google account switching selects an identity without signing out linking or deleting prior account state"
+      },
+      {
+        "file": "tests/sharing-auth.test.mjs",
+        "name": "account switching cannot replace the Firebase identity when the previous protected display cannot be cleared"
       },
       {
         "file": "tests/sharing-auth.test.mjs",
@@ -15553,6 +15613,14 @@
       {
         "file": "tests/private-calendar-connection-code.test.mjs",
         "name": "connection codes authorize one same-account device automatically without exporting private keys or a bearer secret to Cloud"
+      },
+      {
+        "file": "tests/private-calendar-connection-code.test.mjs",
+        "name": "a connection claim lost before transmission is sent by synchronization without preparing a new device"
+      },
+      {
+        "file": "tests/private-calendar-connection-code.test.mjs",
+        "name": "a code proven to have been claimed by another device does not block using a new code"
       },
       {
         "file": "tests/private-calendar-connection-code.test.mjs",

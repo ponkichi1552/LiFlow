@@ -7,7 +7,8 @@ import { loadNativeModule } from './helpers/native-module.mjs';
 async function fixture(platform, run) {
   const fields = ['EXPO_PUBLIC_APPLE_SUBSCRIPTION_PRODUCT_ID', 'EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_PRODUCT_ID', 'EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_BASE_PLAN_ID'];
   const old = fields.map(key => process.env[key]); fields.forEach(key => { process.env[key] = 'monthly'; });
-  const state = { userId: 'person-a', phase: 'locked', account: { appAccountToken: '12345678-1234-1234-1234-123456789012', obfuscatedAccountId: 'a'.repeat(64) } };
+  const state = { userId: 'person-a', phase: 'locked', purchaseStores: { apple: true, google: true },
+    account: { appAccountToken: '12345678-1234-1234-1234-123456789012', obfuscatedAccountId: 'a'.repeat(64) } };
   let catalogueFailures = 0; let queries = 0; let available = []; let request = async () => {}; let verify = async () => ({ body: {
     userId: 'person-a', status: 'active', checkedAt: Date.now(), expiresAt: Date.now() + 60_000, validUntil: Date.now() + 60_000 } });
   const updated = []; const removed = []; const finished = []; let accepted = 0; const requests = []; const opened = [];
@@ -60,6 +61,23 @@ test('audit100 an expired finished purchase is verified again before reporting a
 });
 
 for (const platform of ['ios', 'android']) {
+  test(`${platform} a store sheet without a result releases restore while preventing a duplicate purchase`, () => fixture(platform, async h => {
+    await h.api.purchaseSubscription();
+    assert.equal(h.api.subscriptionPurchaseSnapshot().busy, false);
+    assert.equal(h.api.subscriptionPurchaseSnapshot().pending, true);
+    await h.api.purchaseSubscription();
+    assert.equal(h.requests.length, 1);
+    await h.api.restoreSubscription();
+    assert.equal(h.api.subscriptionPurchaseSnapshot().pending, false);
+    await h.api.purchaseSubscription();
+    assert.equal(h.requests.length, 2);
+  }));
+  test(`${platform} an unavailable verification service prevents showing the native payment sheet`, () => fixture(platform, async h => {
+    h.state.purchaseStores[platform === 'ios' ? 'apple' : 'google'] = false;
+    await h.api.purchaseSubscription();
+    assert.equal(h.api.subscriptionPurchaseSnapshot().busy, false);
+    assert.equal(h.requests.length, 0);
+  }));
   test(`${platform} pending billing uses the device store until the confirmed purchase store is known`, () => fixture(platform, async h => {
     await h.api.manageSubscription();
     const appleOnDevice = platform === 'ios';

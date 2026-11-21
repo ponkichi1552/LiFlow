@@ -28,6 +28,7 @@ const workStoragePorts = {
   } },
   './appliance-manual-storage.ts': { storeApplianceManualInside },
   '../../features/appliance-care/analysis-work.ts': workPolicy,
+  '../../features/appliance-care/manual-document.ts': manualDocument,
 };
 
 test('pending analysis result, PDF and receipt survive cold reopen without sharing or a second upload', async t => {
@@ -74,7 +75,11 @@ test('pending analysis result, PDF and receipt survive cold reopen without shari
   assert.equal((await work.read(owner, target)).state, 'pending');
   assert.deepEqual(await inbox.pending(owner), []);
   file.connection.exec('DROP TRIGGER simulated_disk_failure');
+  file.connection.exec("UPDATE appliance_manual_documents SET content_base64='dGVzdA=='");
+  await assert.rejects(inbox.save(owner, 'ordinary-key', delivery, result, undefined, checkpoint));
+  assert.deepEqual(await inbox.pending(owner), []);
   await inbox.save(owner, 'ordinary-key', delivery, result, manual, checkpoint);
+  assert.equal(file.connection.prepare('SELECT content_base64 FROM appliance_manual_documents').get().content_base64, manual.base64);
   file.connection.close(); file = createDatabase(path);
   work = storage.deviceAnalysisWork(file.database); inbox = deviceAnalysisDeliveries(file.database);
   const ready = await work.read(owner, target);
@@ -183,6 +188,24 @@ test('a bounded analysis run leaves an active foreground request pending without
   assert.equal((await h.work.read(h.owner, h.target)).state, 'ready');
 });
 
+test('a changed appliance endpoint and a corrupt work record do not block healthy pending analyses or resend an old PDF', async t => {
+  const h = await analysisResumeFixture(t, async () => withUploadedManual(applianceResult(), syntheticManual()));
+  const baseUrl = 'https://analysis.example.invalid';
+  const request = { identifyFromManual: true, manual: h.manual };
+  h.connection.prepare('UPDATE appliance_analysis_work SET base_url=? WHERE id=?').run('https://retired.example.invalid', h.id);
+  await h.work.begin({ owner: h.owner, id: 'unreadable', target: { applianceId: 'bad' }, baseUrl, request });
+  h.connection.exec("UPDATE appliance_analysis_work SET request_json='[',created_at=0 WHERE id='unreadable'");
+  await h.work.begin({ owner: h.owner, id: 'healthy', target: { applianceId: 'healthy' }, baseUrl, request });
+  assert.equal(await h.resume(), false);
+  assert.equal((await h.work.read(h.owner, h.target)).result.code, 'JOB_NOT_FOUND');
+  assert.equal((await h.work.read(h.owner, { applianceId: 'bad' })).state, 'failed');
+  assert.equal((await h.work.read(h.owner, { applianceId: 'healthy' })).state, 'ready');
+  assert.equal(h.transport.mock.callCount(), 1);
+  assert.equal(h.transport.mock.calls[0].arguments[6].id, 'healthy');
+  await h.work.begin({ owner: h.owner, id: 'explicit-new', target: h.target, baseUrl, request });
+  assert.equal((await h.work.next(h.owner, baseUrl)).id, 'explicit-new');
+});
+
 test('analysis content is erased only by the authenticated owner exact durable receipt and survives wrong missing and premature receipts', async () => {
   const f = publicStoreFixture(); const accepted = await f.store.admit(input('a'));
   const bogus = { token: 'a'.repeat(64), digest: 'b'.repeat(64), expiresAt: Date.now() + 1000 };
@@ -273,9 +296,15 @@ test('device analysis inbox commits the PDF and result atomically before acknowl
   assert.equal(manualChecks, 2);
   assert.equal(changes, 1); assert.equal(await store.hasPending(), true);
   assert.deepEqual(await deviceAnalysisDeliveries(f.database).pending('a'), [saved]);
+  for (let index = 1; index <= 32; index++) {
+    await store.save('a', `old-request-${index}`, { ...saved, jobId: index.toString(16).padStart(64, '0'), baseUrl: 'https://retired.example.invalid' }, output);
+  }
+  f.connection.exec("UPDATE appliance_analysis_deliveries SET saved_at=0 WHERE base_url LIKE '%retired%'");
+  assert.deepEqual(await store.pending('a', saved.baseUrl), [saved]);
+  assert.equal(await store.hasPending('b', saved.baseUrl), false);
   assert.deepEqual(await store.read('a', 'request'), output); assert.equal(await store.read('b', 'request'), null);
-  await store.acknowledged('b', saved.jobId); assert.equal((await store.pending('a')).length, 1);
-  await store.acknowledged('a', saved.jobId); assert.deepEqual(await store.pending('a'), []); assert.deepEqual(await store.read('a', 'request'), output);
+  await store.acknowledged('b', saved.jobId); assert.equal((await store.pending('a', saved.baseUrl)).length, 1);
+  await store.acknowledged('a', saved.jobId); assert.deepEqual(await store.pending('a', saved.baseUrl), []); assert.deepEqual(await store.read('a', 'request'), output);
   await store.completeAdmission('a', 'request', 'wrong-attempt');
   assert.deepEqual(await store.admission('a', 'request', 'new'), { id: 'first-attempt', jobId: saved.jobId });
   await store.completeAdmission('a', 'request', 'first-attempt');

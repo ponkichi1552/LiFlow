@@ -1,8 +1,10 @@
+import { googleCalendarInstant } from './import-formatter.ts';
+
 /** Only fields LiFlow owns participate in conflict detection. Other Google fields survive PATCH. */
 export function googleOwnedFields(value: Record<string, unknown>): string {
   const date = (raw: unknown) => {
     const row = raw as { date?: string; dateTime?: string; timeZone?: string } | undefined;
-    return row?.date ? { date: row.date } : row?.dateTime ? { instant: Date.parse(row.dateTime),
+    return row?.date ? { date: row.date } : row?.dateTime ? { instant: googleCalendarInstant(row),
       ...(Array.isArray(value.recurrence) && value.recurrence.length ? { zone: row.timeZone ?? 'UTC' } : {}) } : null;
   };
   const recurrence = (Array.isArray(value.recurrence) ? value.recurrence : []).map(rule => {

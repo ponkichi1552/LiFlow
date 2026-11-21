@@ -1122,17 +1122,20 @@ async function clearWeatherLocationImpl(database: SQLiteDatabase): Promise<void>
 }
 
 async function updateChoreSettingsImpl(database: SQLiteDatabase, choreId: EntityId, patch: PersonalChoreSettingsPatch, _displayedBase?: ChoreDefinition): Promise<boolean> {
-  const row = await database.getFirstAsync<{ enabled: number; definition_json: string }>(
-    'SELECT enabled, definition_json FROM chore_definitions WHERE id = ? AND household_id = ?', choreId, LOCAL_HOUSEHOLD_ID,
-  );
-  if (!row) throw new Error('家事が見つかりません。');
-  const current = { ...JSON.parse(row.definition_json) as ChoreDefinition, enabled: Boolean(row.enabled) };
-  if (current.archived) throw new Error('この家事は現在の家事一覧から削除されています。');
-  const updated = applyPersonalChoreSettingsPatch(current, patch);
-  if (JSON.stringify(current) === JSON.stringify(updated)) return false;
-  await updateChoreDefinitionImpl(database, updated);
-  plannerVersions.set(database, (plannerVersions.get(database) ?? 0) + 1);
-  return true;
+  const changed = await withAdaptiveOwnerTransaction(database, async () => {
+    const row = await database.getFirstAsync<{ enabled: number; definition_json: string }>(
+      'SELECT enabled, definition_json FROM chore_definitions WHERE id = ? AND household_id = ?', choreId, LOCAL_HOUSEHOLD_ID,
+    );
+    if (!row) throw new Error('家事が見つかりません。');
+    const current = { ...JSON.parse(row.definition_json) as ChoreDefinition, enabled: Boolean(row.enabled) };
+    if (current.archived) throw new Error('この家事は現在の家事一覧から削除されています。');
+    const updated = applyPersonalChoreSettingsPatch(current, patch);
+    if (JSON.stringify(current) === JSON.stringify(updated)) return false;
+    await updateChoreDefinitionInside(database, updated);
+    return true;
+  });
+  if (changed) plannerVersions.set(database, (plannerVersions.get(database) ?? 0) + 1);
+  return changed;
 }
 
 async function resetAllChoreSchedulesImpl(database: SQLiteDatabase): Promise<void> {
@@ -1370,17 +1373,23 @@ async function saveReviewedApplianceCareImpl(
   analysis: ApplianceCareAnalysisDraft,
   approvedTasks: readonly ApprovedApplianceCareTask[],
   manual?: UploadedManualInput,
+  expectedUpdatedAt?: string | null,
 ): Promise<SaveReviewedApplianceResult> {
   await ensureLocalHouseholdImpl(database);
   const applianceId = product.applianceId ?? createId('appliance');
-  const existing = await database.getFirstAsync<{ created_at: string; manufacturer: string; product_name: string; model_number: string }>(
-    'SELECT created_at, manufacturer, product_name, model_number FROM appliances WHERE id=? AND household_id=?', applianceId, LOCAL_HOUSEHOLD_ID);
-  const rows = await database.getAllAsync<DefinitionRow>('SELECT id, enabled, definition_json FROM chore_definitions WHERE household_id=?', LOCAL_HOUSEHOLD_ID);
-  const plan = planReviewedApplianceSave({ householdId: LOCAL_HOUSEHOLD_ID, applianceId, now: new Date().toISOString(), product, analysis, approvedTasks,
-    ...(existing ? { existingAppliance: { createdAt: existing.created_at, manufacturer: existing.manufacturer, productName: existing.product_name, modelNumber: existing.model_number || null } } : {}),
-    allChores: rows.map((row) => ({ ...JSON.parse(row.definition_json) as ChoreDefinition, id: row.id, enabled: Boolean(row.enabled) })),
-    newChoreId: () => createId('appliance-care') });
-  await withAdaptiveOwnerTransaction(database, async () => {
+  return withAdaptiveOwnerTransaction(database, async () => {
+    const existing = await database.getFirstAsync<{ created_at: string; updated_at: string; manufacturer: string; product_name: string; model_number: string }>(
+      'SELECT created_at, updated_at, manufacturer, product_name, model_number FROM appliances WHERE id=? AND household_id=?', applianceId, LOCAL_HOUSEHOLD_ID);
+    if (expectedUpdatedAt !== undefined && (existing?.updated_at ?? null) !== expectedUpdatedAt) {
+      throw new ApplianceTaskCycleConflict('家電の情報が更新されました。保存済みの家電を読み直してください。');
+    }
+    const rows = await database.getAllAsync<DefinitionRow>('SELECT id, enabled, definition_json FROM chore_definitions WHERE household_id=?', LOCAL_HOUSEHOLD_ID);
+    const latestVersion = Date.parse(existing?.updated_at ?? '');
+    const now = new Date(Math.max(Date.now(), Number.isFinite(latestVersion) ? latestVersion + 1 : 0)).toISOString();
+    const plan = planReviewedApplianceSave({ householdId: LOCAL_HOUSEHOLD_ID, applianceId, now, product, analysis, approvedTasks,
+      ...(existing ? { existingAppliance: { createdAt: existing.created_at, manufacturer: existing.manufacturer, productName: existing.product_name, modelNumber: existing.model_number || null } } : {}),
+      allChores: rows.map((row) => ({ ...JSON.parse(row.definition_json) as ChoreDefinition, id: row.id, enabled: Boolean(row.enabled) })),
+      newChoreId: () => createId('appliance-care') });
     if (manual) {
       if (manual.rightsConfirmed !== true || !analysis.manualSource) throw new Error('解析したPDFの保存を確認してください。');
       await storeApplianceManualInside(database, manual.base64, analysis.manualSource.sha256);
@@ -1403,8 +1412,8 @@ async function saveReviewedApplianceCareImpl(
       }
     }
     await synchronizeAdaptiveRepositoryInside(database);
+    return plan.result;
   });
-  return plan.result;
 }
 
 export interface ApplianceTaskCycleChange {
@@ -1418,36 +1427,63 @@ async function setApplianceTaskCycleImpl(database: SQLiteDatabase, id: EntityId,
   if (!Number.isSafeInteger(input.days) || input.days < 1 || input.days > 3650) throw new RangeError('周期は1〜3650日で入力してください。');
   await assertPersonalPlannerDatabase(database);
   return withIsolatedSqliteTransaction(database, async transaction => {
-    const context = await loadApplianceCareReviewContextImpl(transaction, id);
-    if (!context || context.appliance.updatedAt !== input.analysisUpdatedAt || !isRenderableApplianceAnalysis(context.appliance.analysis)) {
-      throw new ApplianceTaskCycleConflict('家電の情報が更新されました。読み直してから設定してください。');
+    const context = await reviewedApplianceForCycle(transaction, id, input.analysisUpdatedAt);
+    return (await setApplianceTaskCycleInside(transaction, context, input))!;
+  });
+}
+
+type ApplianceReviewCycleEdit = Omit<ApplianceTaskCycleChange, 'analysisUpdatedAt' | 'days'> & { days?: number };
+
+async function reviewedApplianceForCycle(transaction: SQLiteDatabase, id: EntityId, updatedAt: string) {
+  const context = await loadApplianceCareReviewContextImpl(transaction, id);
+  if (!context || context.appliance.updatedAt !== updatedAt || !isRenderableApplianceAnalysis(context.appliance.analysis)) {
+    throw new ApplianceTaskCycleConflict('家電の情報が更新されました。読み直してから設定してください。');
+  }
+  return context;
+}
+
+async function setApplianceTaskCycleInside(transaction: SQLiteDatabase, context: ApplianceCareReviewContext, input: ApplianceReviewCycleEdit) {
+  const { appliance, chores } = context;
+  const task = appliance.analysis.tasks.find(task => task.name === input.taskName);
+  if (!task) throw new ApplianceTaskCycleConflict('このお手入れ項目は更新されました。');
+  const current = findApplianceTaskChore(appliance, chores, task.name);
+  if (applianceTaskCadenceKey(current) !== input.expectedCadence || current?.personalSchedule?.once || current?.personalSchedule?.monthlyDay !== undefined) {
+    throw new ApplianceTaskCycleConflict('周期が更新されました。読み直してから設定してください。');
+  }
+  if (current) {
+    const updated = applyPersonalChoreSettingsPatch(current, {
+      cycleDays: input.days === current.manufacturerRecommendedIntervalDays ? null : input.days ?? null,
+      ...(current.requiresCycleSelection && input.days !== undefined ? { enabled: true } : {}),
+    });
+    if (input.days === undefined && current.manufacturerRecommendedIntervalDays === undefined) {
+      updated.enabled = false;
+      updated.requiresCycleSelection = true;
     }
-    const { appliance, chores } = context;
-    const task = appliance.analysis.tasks.find(task => task.name === input.taskName);
-    if (!task) throw new ApplianceTaskCycleConflict('このお手入れ項目は更新されました。');
-    const current = findApplianceTaskChore(appliance, chores, task.name);
-    if (applianceTaskCadenceKey(current) !== input.expectedCadence || current?.personalSchedule?.once || current?.personalSchedule?.monthlyDay !== undefined) {
-      throw new ApplianceTaskCycleConflict('周期が更新されました。読み直してから設定してください。');
-    }
-    if (current) {
-      const updated = applyPersonalChoreSettingsPatch(current, {
-        cycleDays: input.days === current.manufacturerRecommendedIntervalDays ? null : input.days,
-        ...(current.requiresCycleSelection ? { enabled: true } : {}),
-      });
-      await updateChoreDefinitionInside(transaction, updated);
-      return updated;
-    }
-    const definition = toApplianceCareChore(createId('appliance-care'), LOCAL_HOUSEHOLD_ID,
-      { ...appliance, applianceId: id, manualUrl: appliance.officialManualUrl }, appliance.analysis, { task, userIntervalDays: input.days });
-    if (await transaction.getFirstAsync('SELECT id FROM chore_definitions WHERE household_id = ? AND name = ?', LOCAL_HOUSEHOLD_ID, definition.name)) {
-      throw new Error('同じ名前の家事があります。家事一覧から設定を確認してください。');
-    }
-    await transaction.runAsync('INSERT INTO chore_definitions (id, household_id, name, enabled, definition_json) VALUES (?, ?, ?, 1, ?)',
-      definition.id, definition.householdId, definition.name, JSON.stringify(definition));
-    await transaction.runAsync('INSERT INTO chore_state (chore_id, initial_pending, unknown_reason) VALUES (?, 1, ?)', definition.id, 'skipped');
-    await transaction.runAsync('INSERT INTO chore_assignments (chore_id, member_id) VALUES (?, ?)', definition.id, LOCAL_MEMBER_ID);
-    await synchronizeAdaptiveRepositoryInside(transaction);
-    return definition;
+    await updateChoreDefinitionInside(transaction, updated);
+    return updated;
+  }
+  if (input.days === undefined) return;
+  const definition = toApplianceCareChore(createId('appliance-care'), LOCAL_HOUSEHOLD_ID,
+    { ...appliance, applianceId: appliance.id, manualUrl: appliance.officialManualUrl }, appliance.analysis, { task, userIntervalDays: input.days });
+  if (await transaction.getFirstAsync('SELECT id FROM chore_definitions WHERE household_id = ? AND name = ?', LOCAL_HOUSEHOLD_ID, definition.name)) {
+    throw new Error('同じ名前の家事があります。家事一覧から設定を確認してください。');
+  }
+  await transaction.runAsync('INSERT INTO chore_definitions (id, household_id, name, enabled, definition_json) VALUES (?, ?, ?, 1, ?)',
+    definition.id, definition.householdId, definition.name, JSON.stringify(definition));
+  await transaction.runAsync('INSERT INTO chore_state (chore_id, initial_pending, unknown_reason) VALUES (?, 1, ?)', definition.id, 'skipped');
+  await transaction.runAsync('INSERT INTO chore_assignments (chore_id, member_id) VALUES (?, ?)', definition.id, LOCAL_MEMBER_ID);
+  await synchronizeAdaptiveRepositoryInside(transaction);
+  return definition;
+}
+
+async function saveReviewedApplianceCyclesImpl(database: SQLiteDatabase, id: EntityId, updatedAt: string, edits: readonly ApplianceReviewCycleEdit[]) {
+  if (edits.length === 0) return;
+  if (new Set(edits.map(edit => edit.taskName)).size !== edits.length || edits.some(edit => edit.days !== undefined
+    && (!Number.isSafeInteger(edit.days) || edit.days < 1 || edit.days > 3650))) throw new RangeError('周期は1〜3650日の整数で入力してください。');
+  await assertPersonalPlannerDatabase(database);
+  await withIsolatedSqliteTransaction(database, async transaction => {
+    const context = await reviewedApplianceForCycle(transaction, id, updatedAt);
+    for (const edit of edits) await setApplianceTaskCycleInside(transaction, context, edit);
   });
 }
 
@@ -2347,20 +2383,28 @@ async function saveWeeklyWasteScheduleImpl(
   schedule: WasteScheduleInput,
   base?: WasteScheduleInput,
 ): Promise<void> {
-  let normalized = normalizeWasteSchedule(schedule);
+  const normalized = normalizeWasteSchedule(schedule);
   if (base) {
-    const row = await database.getFirstAsync<{ label: string; weekdays_json: string; recurrence: WasteRecurrence; anchor_date: LocalDate | null; monthly_day: number | null }>(
-      'SELECT label, weekdays_json, recurrence, anchor_date, monthly_day FROM weekly_waste_schedules WHERE id=? AND household_id=?', schedule.id ?? '', LOCAL_HOUSEHOLD_ID);
-    if (!row) throw new Error('ゴミ収集日が見つかりません。');
-    normalized = mergeWasteScheduleEdits({ id: schedule.id, label: row.label, collectionWeekdays: JSON.parse(row.weekdays_json), recurrence: row.recurrence,
-      ...(row.anchor_date ? { anchorDate: row.anchor_date } : {}), ...(row.monthly_day ? { monthlyDay: row.monthly_day } : {}) }, normalized, base);
+    await withAdaptiveOwnerTransaction(database, async () => {
+      const id = schedule.id ?? '';
+      const row = await database.getFirstAsync<{ label: string; weekdays_json: string; recurrence: WasteRecurrence; anchor_date: LocalDate | null; monthly_day: number | null }>(
+        'SELECT label, weekdays_json, recurrence, anchor_date, monthly_day FROM weekly_waste_schedules WHERE id=? AND household_id=?', id, LOCAL_HOUSEHOLD_ID);
+      if (!row) throw new Error('ゴミ収集日が見つかりません。');
+      const edited = mergeWasteScheduleEdits({ id, label: row.label, collectionWeekdays: JSON.parse(row.weekdays_json), recurrence: row.recurrence,
+        ...(row.anchor_date ? { anchorDate: row.anchor_date } : {}), ...(row.monthly_day ? { monthlyDay: row.monthly_day } : {}) }, normalized, base);
+      await database.runAsync(`UPDATE weekly_waste_schedules SET label=?, weekdays_json=?, recurrence=?, anchor_date=?, monthly_day=?
+        WHERE id=? AND household_id=?`, edited.label, JSON.stringify(edited.collectionWeekdays), edited.recurrence, edited.anchorDate ?? null,
+      edited.monthlyDay ?? null, id, LOCAL_HOUSEHOLD_ID);
+    });
+    return;
   }
   const id = schedule.id ?? createId('waste');
   await database.runAsync(
     `INSERT INTO weekly_waste_schedules (id, household_id, label, weekdays_json, recurrence, anchor_date, monthly_day)
      VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET label = excluded.label, weekdays_json = excluded.weekdays_json,
-       recurrence = excluded.recurrence, anchor_date = excluded.anchor_date, monthly_day = excluded.monthly_day`,
+       recurrence = excluded.recurrence, anchor_date = excluded.anchor_date, monthly_day = excluded.monthly_day
+       WHERE weekly_waste_schedules.household_id = excluded.household_id`,
     id, LOCAL_HOUSEHOLD_ID, normalized.label, JSON.stringify(normalized.collectionWeekdays), normalized.recurrence,
     normalized.anchorDate ?? null, normalized.monthlyDay ?? null,
   );
@@ -2835,6 +2879,7 @@ export const updateChoreSettings = serializeDatabaseOperation(updateChoreSetting
 export const resetAllChoreSchedules = serializeDatabaseOperation(resetAllChoreSchedulesImpl);
 export const saveReviewedApplianceCare = serializePlannerOperation(saveReviewedApplianceCareImpl, 'saveReviewedApplianceCare');
 export const setApplianceTaskCycle = serializePlannerOperation(setApplianceTaskCycleImpl);
+export const saveReviewedApplianceCycles = serializePlannerOperation(saveReviewedApplianceCyclesImpl);
 export const setChoreEnabled = serializePlannerOperation(setChoreEnabledImpl, 'setChoreEnabled');
 export const setChoresEnabled = serializePlannerOperation(setChoresEnabledImpl, 'setChoresEnabled');
 export const completeChore = serializePlannerOperation(completeChoreImpl, 'completeChore');

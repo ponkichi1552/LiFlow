@@ -31,6 +31,16 @@ test('all seven requested calendar sentences resolve their full period and recur
   }
 });
 
+test('relative titles entered after the editor crosses midnight use the current day', () => {
+  let now = '2026-11-16';
+  const original = newEventDraft(selected, 'Asia/Tokyo');
+  const parser = titleInput.createTitleDateTimeInput(original, () => now);
+  const first = parser.change(original, '明日 飲み会', true);
+  assert.equal(first.startDate, '2026-11-17');
+  now = '2026-11-17';
+  assert.equal(parser.change(first, '明日 夕食', true).startDate, '2026-11-18');
+});
+
 test('yearless and yearly dates seek the next actual date and explicit past years remain explicit', () => {
   for (const [title, base, expected] of [
     ['4月11日旅行', today, '2027-04-11'], ['1/1 集合', today, '2027-01-01'],

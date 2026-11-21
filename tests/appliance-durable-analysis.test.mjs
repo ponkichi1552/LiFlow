@@ -217,8 +217,10 @@ test('AI queue encryption binds the account job input and key version and reject
   const metadata = f.records.get(`applianceApi/v1/jobs/${receipt.jobId}`);
   assert.doesNotMatch(JSON.stringify(metadata), /合成した製品|base64|manufacturer/u);
   const withoutKeys = createFirestoreUsageStore({ firestore: f.firestore, now: f.now });
-  const claim = await withoutKeys.claimAnalysis(receipt.jobId); await assert.rejects(withoutKeys.readAnalysisInput(claim));
+  assert.equal(await withoutKeys.claimAnalysis(receipt.jobId), null);
+  assert.deepEqual(await withoutKeys.listAnalysisWork(), []);
   assert.equal(f.calls(), 0);
+  assert.equal((await f.work()).settled, 1, 'the worker with the correct key can still process the job');
 });
 
 test('AI admission chunk failure rolls back the job receipt monthly quota and global reservation together', async () => {

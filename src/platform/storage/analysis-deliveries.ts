@@ -2,13 +2,14 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { ApplianceCareApiResponse } from '../../features/appliance-care/api-contracts';
 import type { AnalysisDeliveryStore, SavedAnalysisDelivery } from '../../features/appliance-care/analysis-delivery';
 import { notifyAnalysisWork } from './analysis-work.ts';
+import { verifyManualContent } from '../../features/appliance-care/manual-document.ts';
 import { storeApplianceManualInside } from './appliance-manual-storage.ts';
 import { withPlannerDatabaseOperation } from './repository.ts';
 import { withIsolatedSqliteTransaction } from './isolated-transaction.ts';
 
 const initialized = new WeakSet<SQLiteDatabase>();
 export interface DeviceAnalysisDeliveryStore extends AnalysisDeliveryStore {
-  hasPending(): Promise<boolean>; subscribe(listener: () => void): () => void;
+  hasPending(owner?: string, baseUrl?: string): Promise<boolean>; subscribe(listener: () => void): () => void;
 }
 const stores = new WeakMap<SQLiteDatabase, DeviceAnalysisDeliveryStore>();
 /** A transport inbox, separate from registering/replacing the user's appliance or chores. */
@@ -34,9 +35,11 @@ export function deviceAnalysisDeliveries(database: SQLiteDatabase): DeviceAnalys
     return work();
   });
   const result: DeviceAnalysisDeliveryStore = {
-    hasPending: () => withPlannerDatabaseOperation(database, async () => {
+    hasPending: (owner, baseUrl) => withPlannerDatabaseOperation(database, async () => {
       if (!await database.getFirstAsync("SELECT 1 FROM sqlite_master WHERE type='table' AND name='appliance_analysis_deliveries'")) return false;
-      return Boolean(await database.getFirstAsync('SELECT 1 FROM appliance_analysis_deliveries WHERE receipt_json IS NOT NULL LIMIT 1'));
+      return Boolean(await database.getFirstAsync(`SELECT 1 FROM appliance_analysis_deliveries WHERE receipt_json IS NOT NULL
+        ${owner === undefined ? '' : 'AND owner=?'} ${baseUrl === undefined ? '' : 'AND base_url=?'} LIMIT 1`,
+        ...(owner === undefined ? [] : [owner]), ...(baseUrl === undefined ? [] : [baseUrl])));
     }),
     subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     admission: (owner, requestKey, proposed) => operation(() => withIsolatedSqliteTransaction(database, async transaction => {
@@ -60,8 +63,13 @@ export function deviceAnalysisDeliveries(database: SQLiteDatabase): DeviceAnalys
     }),
     save: (owner, requestKey, delivery, result, manual, work) => operation(() => withIsolatedSqliteTransaction(database, async transaction => {
       if (work) {
-        const found = await transaction.getFirstAsync('SELECT 1 FROM appliance_manual_documents WHERE sha256=?', work.manualDigest);
-        if (!found || result.status === 'verified' && result.analysis.manualSource?.sha256 !== work.manualDigest) throw new Error('解析したPDFを端末で確認できませんでした。');
+        if (result.status === 'verified' && result.analysis.manualSource?.sha256 !== work.manualDigest) throw new Error('解析したPDFを端末で確認できませんでした。');
+        if (manual) await storeApplianceManualInside(transaction, manual.base64, work.manualDigest);
+        else {
+          const saved = await transaction.getFirstAsync<{ content_base64: string }>('SELECT content_base64 FROM appliance_manual_documents WHERE sha256=?', work.manualDigest);
+          if (!saved) throw new Error('解析したPDFを端末で確認できませんでした。');
+          verifyManualContent(saved.content_base64, work.manualDigest);
+        }
       } else if (manual) await storeApplianceManualInside(transaction, manual.base64,
         result.status === 'verified' ? result.analysis.manualSource?.sha256 : undefined);
       await transaction.runAsync(`INSERT INTO appliance_analysis_deliveries(owner,job_id,request_key,base_url,receipt_json,result_json,saved_at)
@@ -74,9 +82,10 @@ export function deviceAnalysisDeliveries(database: SQLiteDatabase): DeviceAnalys
           owner, work.requestKey, work.admissionId);
       }
     })).then(() => { notify(); if (work) notifyAnalysisWork(); }),
-    pending: owner => operation(async () => {
+    pending: (owner, baseUrl) => operation(async () => {
       const rows = await database.getAllAsync<{ job_id: string; base_url: string; receipt_json: string }>(
-        'SELECT job_id,base_url,receipt_json FROM appliance_analysis_deliveries WHERE owner=? AND receipt_json IS NOT NULL ORDER BY saved_at LIMIT 32', owner);
+        `SELECT job_id,base_url,receipt_json FROM appliance_analysis_deliveries WHERE owner=? AND receipt_json IS NOT NULL
+        ${baseUrl === undefined ? '' : 'AND base_url=?'} ORDER BY saved_at LIMIT 32`, owner, ...(baseUrl === undefined ? [] : [baseUrl]));
       return rows.map(row => ({ jobId: row.job_id, baseUrl: row.base_url, receipt: JSON.parse(row.receipt_json) })) as SavedAnalysisDelivery[];
     }),
     acknowledged: (owner, jobId) => operation(async () => {

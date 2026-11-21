@@ -29,16 +29,20 @@ export function signInSharingWithGoogle(options: { selectAccount?: boolean } = {
   const selectAccount = options.selectAccount === true;
   if (selectAccount && (signingIn || signingOut)) return Promise.reject(new Error('アカウントの操作が終わってから再試行してください。'));
   return oneSignIn(async () => {
-    const previousUserId = getSharingServices().auth.currentUser?.uid;
+    const { auth } = getSharingServices();
     if (!selectAccount) await sharingSecureVault.removeItem('active-workspace');
     const { idToken } = await authorizeGoogleSharingIdentity(selectAccount ? { selectAccount: true } : undefined);
-    const result = await signInWithCredential(getSharingServices().auth, GoogleAuthProvider.credential(idToken));
-    await loadOrCreateSharingDeviceIdentity(result.user.uid);
-    if (selectAccount && previousUserId !== result.user.uid) await sharingSecureVault.removeItem('active-workspace');
+    const guard = selectAccount ? auth.beforeAuthStateChanged(async user => {
+      if (user?.uid !== auth.currentUser?.uid) await sharingSecureVault.removeItem('active-workspace');
+    }) : undefined;
+    let user: User;
+    try { ({ user } = await signInWithCredential(auth, GoogleAuthProvider.credential(idToken))); }
+    finally { guard?.(); }
+    await loadOrCreateSharingDeviceIdentity(user.uid);
     await sharingSecureVault.setItem('sharing-enabled', 'true');
     void import('./workspaces.ts').then(module => module.notifySharingWorkspaceChanged()).catch(() => undefined);
-    void bindPaidAiIdentity(result.user.uid);
-    return result.user;
+    void bindPaidAiIdentity(user.uid);
+    return user;
   });
 }
 

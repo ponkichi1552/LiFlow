@@ -6,6 +6,7 @@ export interface SubscriptionSnapshot {
   phase: 'checking' | 'signedOut' | 'locked' | 'active'; userId: string | null;
   entitlement: SignedSubscriptionEntitlement | null; error: string | null;
   account: { appAccountToken: string; obfuscatedAccountId: string } | null;
+  purchaseStores?: { apple: boolean; google: boolean };
 }
 let snapshot: SubscriptionSnapshot = { phase: 'checking', userId: null, entitlement: null, error: null, account: null };
 const observers = new Set<() => void>();
@@ -152,7 +153,8 @@ export async function subscriptionRequest(path: 'status' | 'verify', evidence?: 
       headers: { authorization: `Bearer ${token}`, ...(evidence ? { 'content-type': 'application/json' } : {}) },
       ...(evidence ? { body: JSON.stringify(evidence) } : {}), signal: controller.signal, redirect: 'error' }), controller.signal);
     const value = await bounded(() => response.json(), controller.signal);
-    if (!response.ok) throw new Error(typeof value.message === 'string' && value.message.length < 500 ? value.message : 'ストアの購入情報を確認できませんでした。');
+    if (!response.ok) throw Object.assign(new Error(typeof value?.message === 'string' && value.message.length < 500 ? value.message : 'ストアの購入情報を確認できませんでした。'),
+      { code: typeof value?.code === 'string' ? value.code : undefined });
     if (current !== generation || auth?.currentUser?.uid !== user.uid) throw new Error('購入時のアカウントで確認してください。');
     const previous = snapshot.entitlement?.body;
     const entitlement = verifySubscriptionEntitlement(value.entitlement, { userId: user.uid, publicKey: configuration().publicKey,
@@ -161,7 +163,10 @@ export async function subscriptionRequest(path: 'status' | 'verify', evidence?: 
     if (path === 'status') await acceptSubscription(entitlement);
     if (typeof value.account?.appAccountToken !== 'string' || !/^[0-9a-f-]{36}$/u.test(value.account.appAccountToken)
       || !/^[a-f0-9]{64}$/u.test(value.account.obfuscatedAccountId)) throw new Error('購入するアカウントを確認できません。');
-    publish({ ...snapshot, account: { ...value.account } }); return entitlement;
+    if (current !== generation || auth?.currentUser?.uid !== user.uid) throw new Error('購入時のアカウントで確認してください。');
+    publish({ ...snapshot, account: { ...value.account }, ...(path === 'status' ? {
+      purchaseStores: { apple: value.purchaseStores?.apple === true, google: value.purchaseStores?.google === true },
+    } : {}) }); return entitlement;
   } finally { clearTimeout(timeout); }
 }
 export function refreshSubscription(options: { force?: boolean } = {}): Promise<void> {

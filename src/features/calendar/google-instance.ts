@@ -4,7 +4,7 @@ import type { LocalDate } from '../../domain/shared/types';
 import { projectCalendarEvents } from '../../domain/calendar/events.ts';
 import type { EventDraft } from '../../domain/calendar/events';
 import { googleEventBody } from './google-event-mapping.ts';
-import { calendarImportFormatter } from './import-formatter.ts';
+import { calendarImportFormatter, googleCalendarInstant } from './import-formatter.ts';
 
 /** A range can contain a preceding multi-day occurrence as well as this anchor. */
 export function calendarOccurrenceAt(series: EventDraft, eventId: string, anchorDate: LocalDate) {
@@ -14,8 +14,8 @@ export function calendarOccurrenceAt(series: EventDraft, eventId: string, anchor
 
 export function googleOriginalDate(remote: GoogleCalendarEvent, timeZone: string): string | null {
   if (remote.originalStartTime?.date) return remote.originalStartTime.date;
-  const at = remote.originalStartTime?.dateTime; if (!at || !Number.isFinite(Date.parse(at))) return null;
-  const parts = Object.fromEntries(calendarImportFormatter(timeZone).formatToParts(new Date(at)).map(part => [part.type, part.value]));
+  const at = googleCalendarInstant(remote.originalStartTime, timeZone); if (!Number.isFinite(at)) return null;
+  const parts = Object.fromEntries(calendarImportFormatter(timeZone).formatToParts(at).map(part => [part.type, part.value]));
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 

@@ -46,7 +46,7 @@ export async function analyzeApplianceCareRequest(
   onStage?: (stage: ApplianceCareAnalysisStage) => void,
   signal?: AbortSignal,
   deliveries?: AnalysisDeliveryStore,
-  work?: { owner: string; id: string; manualDigest: string; resuming: boolean },
+  work?: { owner: string; id: string; manualDigest: string; resuming: boolean; recoveryOnly?: boolean },
 ): Promise<ApplianceCareApiResponse> {
   if (signal?.aborted) return temporaryError('解析の通信を中断しました。');
   const normalized = {
@@ -94,11 +94,9 @@ export async function analyzeApplianceCareRequest(
           && (!work || cached.analysis.manualSource?.sha256 === work.manualDigest)) { finishAttempt(); return cached; }
       }
     }
-    const startHeaders = await abortApplianceWait(() => session.headers(), controller.signal);
-    if (controller.signal.aborted) return temporaryError('解析の通信を中断しました。');
     for (const [key, item] of pendingAdmissions) if (item.expiresAt <= Date.now()) pendingAdmissions.delete(key);
-    const proposedId = work?.id ?? startHeaders['x-idempotency-key'];
     const previous = pendingAdmissions.get(attemptKey);
+    const proposedId = work?.id ?? previous?.id ?? (await abortApplianceWait(() => session.headers(), controller.signal))['x-idempotency-key'];
     admissionId = previous?.id ?? proposedId;
     let jobId: string | undefined;
     if (deliveries && session.userId && admissionId) {
@@ -107,32 +105,45 @@ export async function analyzeApplianceCareRequest(
       if (isJobAccepted(saved)) jobId = saved.jobId;
     }
     if (admissionId) {
-      startHeaders['x-idempotency-key'] = admissionId;
       if (previous?.id !== admissionId) {
         pendingAdmissions.set(attemptKey, { id: admissionId, expiresAt: Date.now() + 24 * 60 * 60_000 });
         while (pendingAdmissions.size > 32) pendingAdmissions.delete(pendingAdmissions.keys().next().value!);
       }
     }
+    const jobHeaders = async () => {
+      const headers = await session.headers({ deviceProof: true, admissionId });
+      if (admissionId) headers['x-idempotency-key'] = admissionId;
+      return headers;
+    };
     if (!jobId) {
       const endpoint = `${baseUrl}/api/appliance-care/jobs`;
       const resumeUpload = normalized.manual && admissionId && (work?.resuming || previous || admissionId !== proposedId);
-      const receiptResponse = resumeUpload ? await abortApplianceWait(() => fetch(`${endpoint}/admission`, {
-        method: 'GET', redirect: 'error', headers: startHeaders, signal: controller.signal,
-      }), controller.signal) : undefined;
+      const receiptResponse = resumeUpload ? await abortApplianceWait(async () => {
+        const headers = await jobHeaders();
+        controller.signal.throwIfAborted();
+        return fetch(`${endpoint}/admission`, { method: 'GET', redirect: 'error', headers, signal: controller.signal });
+      }, controller.signal) : undefined;
       let startResponse = receiptResponse;
       let startPayload = receiptResponse ? await abortApplianceWait(() => readJson(receiptResponse), controller.signal) : undefined;
       // Only the authenticated admission endpoint can confirm that this PDF still needs to be uploaded.
       if (!startResponse || (startResponse.status === 404 && isRecord(startPayload) && startPayload.code === 'ADMISSION_NOT_FOUND')) {
+        if (work?.recoveryOnly) {
+          if (deliveries && session.userId && admissionId) await deliveries.completeAdmission(session.userId, retryKey, admissionId);
+          finishAttempt();
+          return { status: 'error', code: 'JOB_NOT_FOUND', message: '解析結果の受け取り期限が過ぎました。PDFを解析し直してください。' };
+        }
         const uploadResponse = await abortApplianceWait(async () => {
           const options = { method: 'POST', redirect: 'error' as const, signal: controller.signal };
+          const uploadHeaders = await jobHeaders();
           if (normalized.manual) {
             const { encryptManualUpload } = await import('./manual-upload-crypto');
             const body = await encryptManualUpload({ ...normalized, manual: normalized.manual }, session.userId, admissionId ?? '');
             const native = await import('expo/fetch');
             controller.signal.throwIfAborted();
-            return native.fetch(endpoint, { ...options, headers: { ...startHeaders, 'content-type': MANUAL_UPLOAD_CONTENT_TYPE }, body });
+            return native.fetch(endpoint, { ...options, headers: { ...uploadHeaders, 'content-type': MANUAL_UPLOAD_CONTENT_TYPE }, body });
           }
-          return fetch(endpoint, { ...options, headers: { ...startHeaders, 'content-type': 'application/json' }, body: JSON.stringify(normalized) });
+          controller.signal.throwIfAborted();
+          return fetch(endpoint, { ...options, headers: { ...uploadHeaders, 'content-type': 'application/json' }, body: JSON.stringify(normalized) });
         }, controller.signal);
         startResponse = uploadResponse;
         startPayload = await abortApplianceWait(() => readJson(uploadResponse), controller.signal);
@@ -160,7 +171,7 @@ export async function analyzeApplianceCareRequest(
     let lastStage: ApplianceCareAnalysisStage | undefined;
     let pollAttempt = 0;
     while (!controller.signal.aborted) {
-      const headers = await abortApplianceWait(() => session.headers(), controller.signal);
+      const headers = await abortApplianceWait(jobHeaders, controller.signal);
       if (controller.signal.aborted) return temporaryError('解析の通信を中断しました。');
       const statusResponse = await abortApplianceWait(() => fetch(statusUrl, {
         method: 'GET',
@@ -218,8 +229,11 @@ export async function analyzeApplianceCareRequest(
     return temporaryError(signal?.aborted ? '解析の通信を中断しました。' : '解析がタイムアウトしました。時間をおいて再試行してください。');
   } catch (cause) {
     if (!controller.signal.aborted && cause instanceof Error && 'code' in cause && (cause.code === 'AUTHENTICATION_REQUIRED'
-      || cause.code === 'ANALYSIS_INPUT_SECURITY_UNAVAILABLE' || cause.code === 'INVALID_MANUAL' || cause.code === 'INVALID_REQUEST')) {
-      return { status: 'error', code: cause.code, message: cause.message };
+      || cause.code === 'ANALYSIS_INPUT_SECURITY_UNAVAILABLE' || cause.code === 'INVALID_MANUAL' || cause.code === 'INVALID_REQUEST'
+      || cause.code === 'DEVICE_VERIFICATION_REQUIRED' || cause.code === 'DEVICE_VERIFICATION_UNAVAILABLE' || cause.code === 'DEVICE_VERIFICATION_TEMPORARY'
+      || cause.code === 'REINSTALL_ACCOUNT_LOCKED' || cause.code === 'ACCESS_DENIED' || cause.code === 'SUBSCRIPTION_REQUIRED'
+      || cause.code === 'TEMPORARY_NETWORK_ERROR')) {
+      return { status: 'error', code: cause.code, message: cause.message, ...('retryAt' in cause && typeof cause.retryAt === 'string' ? { retryAt: cause.retryAt } : {}) };
     }
     return temporaryError(signal?.aborted ? '解析の通信を中断しました。' : controller.signal.aborted
       ? '解析がタイムアウトしました。時間をおいて再試行してください。'
@@ -235,19 +249,20 @@ const receiptWorkers = new WeakMap<AnalysisDeliveryStore, Map<string, ReceiptRun
 export function analysisReceiptRetryAt(store: AnalysisDeliveryStore, userId: string, baseUrl: string): number {
   return receiptWorkers.get(store)?.get(JSON.stringify([userId, baseUrl]))?.retryAt ?? 0;
 }
-export function flushAnalysisReceipts(store: AnalysisDeliveryStore, session: ApplianceApiSession, baseUrl: string): Promise<void> {
+export function flushAnalysisReceipts(store: AnalysisDeliveryStore, session: ApplianceApiSession, baseUrl: string, background = false): Promise<void> {
   let scopes = receiptWorkers.get(store); if (!scopes) { scopes = new Map(); receiptWorkers.set(store, scopes); }
   const key = JSON.stringify([session.userId, baseUrl]); let state = scopes.get(key);
   if (!state) { state = { failures: 0, retryAt: 0 }; scopes.set(key, state); }
-  if (state.work) return state.work;
+  if (state.work) return background ? Promise.resolve() : state.work;
   const captured = state;
   const work = (async () => {
     try {
-      for (const delivery of await store.pending(session.userId)) {
+      for (const delivery of await store.pending(session.userId, baseUrl)) {
         if (delivery.baseUrl !== baseUrl || !validAnalysisDelivery(delivery.receipt)) continue;
         if (delivery.receipt.expiresAt <= Date.now()) { await store.acknowledged(session.userId, delivery.jobId); continue; }
         await sendAnalysisReceipt(delivery, session);
         await store.acknowledged(session.userId, delivery.jobId);
+        if (background) break;
       }
       captured.failures = 0; captured.retryAt = 0;
     } catch (error) { captured.retryAt = Date.now() + Math.min(300_000, 30_000 * 2 ** Math.min(captured.failures++, 4)); throw error; }

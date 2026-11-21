@@ -32,7 +32,7 @@ interface SharedSnapshotManifestBody {
 }
 export interface SignedSharedSnapshotManifest { body: SharedSnapshotManifestBody; signature: string }
 export interface EncryptedSharedSnapshot { manifest: SignedSharedSnapshotManifest; chunks: EncryptedSharedSnapshotChunk[] }
-export interface VerifiedSharedSnapshot { base: SharedSnapshotBase; facts: AuthenticatedSharedOperation[]; snapshotId: string; throughSequence: number }
+export interface VerifiedSharedSnapshot { base: SharedSnapshotBase; facts: AuthenticatedSharedOperation[]; snapshotId: string; throughSequence: number; keyVersion?: number }
 type SnapshotRecord = { kind: 'receipt'; value: SharedOperationReceipt } | { kind: 'fact'; value: AuthenticatedSharedOperation }
   | { kind: 'legacyMigrationWitness'; value: SignedLegacyMigrationWitness }
   | { kind: 'recoveryWitness'; value: SignedV2RecoveryHeader }
@@ -201,5 +201,5 @@ export async function openEncryptedSharedSnapshot(crypto: SharingCryptoGateway, 
   if (retention) { const checkpoint = assertV2RetentionBase({ ...base }, retention, archive!);
     if (checkpoint.cutoff !== body.retentionCutoff || checkpoint.throughSequence !== body.retentionThroughSequence
       || checkpoint.keyVersion !== body.retentionKeyVersion) throw new Error('Snapshot retention position differs from its collective certificate'); }
-  return { base, facts, snapshotId: body.snapshotId, throughSequence: body.throughSequence };
+  return { base, facts, snapshotId: body.snapshotId, throughSequence: body.throughSequence, keyVersion: body.keyVersion };
 }

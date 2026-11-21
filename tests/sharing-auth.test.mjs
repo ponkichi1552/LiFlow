@@ -5,7 +5,9 @@ import { loadNativeModule } from './helpers/native-module.mjs';
 
 function fixture(platform = 'android') {
   const events = []; const identityOptions = []; let rejectCredential = false; let blockedIdentity; let rejectIdentity = false;
-  const user = { uid: 'firebase-uid', providerData: [{ providerId: 'apple.com' }] }; const auth = { name: 'isolated-sharing-auth', currentUser: user, authStateReady: async () => {} };
+  let beforeChange; let failClear = false;
+  const user = { uid: 'firebase-uid', providerData: [{ providerId: 'apple.com' }] }; const auth = { name: 'isolated-sharing-auth', currentUser: user, authStateReady: async () => {},
+    beforeAuthStateChanged: handler => { beforeChange = handler; return () => { beforeChange = undefined; }; } };
   let credentialUser = user;
   let linkError;
   class OAuthProvider { constructor(provider) { this.provider = provider; } credential(value) { return { provider: this.provider, ...value }; } }
@@ -16,7 +18,8 @@ function fixture(platform = 'android') {
         user.providerData.push({ providerId: 'google.com' }); return { user };
       },
       async signInWithCredential(target, credential) {
-        assert.equal(target, auth); events.push(['credential', credential]); if (rejectCredential) throw new Error('synthetic auth failure'); auth.currentUser = credentialUser; return { user: credentialUser };
+        assert.equal(target, auth); events.push(['credential', credential]); if (rejectCredential) throw new Error('synthetic auth failure');
+        await beforeChange?.(credentialUser); auth.currentUser = credentialUser; return { user: credentialUser };
       }, async signOut(target) { assert.equal(target, auth); events.push(['firebase-sign-out']); },
       onAuthStateChanged(target, listener) { assert.equal(target, auth); listener(user); return () => events.push(['unsubscribe']); } },
     'expo-apple-authentication': { async isAvailableAsync() { return true; }, AppleAuthenticationScope: { FULL_NAME: 'name' },
@@ -34,19 +37,25 @@ function fixture(platform = 'android') {
     './workspaces.ts': { notifySharingWorkspaceChanged: () => {} },
     './secure-store.ts': { sharingSecureVault: {
       async setItem(key, value) { assert.equal(key, 'sharing-enabled'); assert.equal(value, 'true'); events.push(['enable-account-restore']); },
-      async removeItem(key) { assert.equal(key, 'active-workspace'); events.push(['clear-saved-home']); } },
+      async removeItem(key) { assert.equal(key, 'active-workspace'); events.push(['clear-saved-home']); if (failClear) throw new Error('synthetic vault failure'); } },
       async loadOrCreateSharingDeviceIdentity(uid) { assert.equal(uid, auth.currentUser.uid); events.push(['protected-device-identity', uid]); } },
   });
-  return { module, events, user, auth, identityOptions, resultUser: value => { credentialUser = value; }, failIdentity: value => { rejectIdentity = value; }, fail: (value) => { rejectCredential = value; }, block: (value) => { blockedIdentity = value; }, linkError: value => { linkError = value; } };
+  return { module, events, user, auth, identityOptions, resultUser: value => { credentialUser = value; }, failClear: () => { failClear = true; }, failIdentity: value => { rejectIdentity = value; }, fail: (value) => { rejectCredential = value; }, block: (value) => { blockedIdentity = value; }, linkError: value => { linkError = value; } };
 }
 
 test('explicit Google account switching selects an identity without signing out linking or deleting prior account state', async () => {
   const h = fixture('ios'); const selected = { uid: 'selected-firebase-uid', providerData: [{ providerId: 'google.com' }] }; h.resultUser(selected);
   assert.equal(await h.module.switchSharingGoogleAccount(), selected);
   assert.deepEqual(h.identityOptions, [{ selectAccount: true }]);
-  assert.deepEqual(h.events.map(([name]) => name), ['native-basic-identity', 'credential', 'protected-device-identity', 'clear-saved-home', 'enable-account-restore']);
+  assert.deepEqual(h.events.map(([name]) => name), ['native-basic-identity', 'credential', 'clear-saved-home', 'protected-device-identity', 'enable-account-restore']);
   assert.equal(h.events.find(([name]) => name === 'protected-device-identity')[1], selected.uid);
   assert.deepEqual(h.user.providerData, [{ providerId: 'apple.com' }], 'the old account must not be linked or merged');
+});
+test('account switching cannot replace the Firebase identity when the previous protected display cannot be cleared', async () => {
+  const h = fixture(); h.resultUser({ uid: 'selected-b' }); h.failClear();
+  await assert.rejects(h.module.switchSharingGoogleAccount(), /vault failure/);
+  assert.equal(h.auth.currentUser, h.user);
+  assert.deepEqual(h.events.map(([name]) => name), ['native-basic-identity', 'credential', 'clear-saved-home']);
 });
 test('explicitly selecting the same Google identity preserves the active workspace', async () => {
   const h = fixture('ios'); h.user.providerData.push({ providerId: 'google.com', uid: 'same-google' });

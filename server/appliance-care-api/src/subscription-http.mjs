@@ -35,7 +35,7 @@ export function createSubscriptionHttp({ service, providers, verifyIdToken }) {
       const { uid } = await authenticateFirebaseUser(request, verifyIdToken);
       if (!allowUser(uid)) throw new SubscriptionError(429, 'RATE_LIMITED', '契約の確認が多すぎます。少し待ってから再試行してください。');
       const value = readStatus ? await service.status(uid, url.searchParams.get('refresh') === 'true') : await service.verify(uid, await body());
-      send(200, value); return true;
+      send(200, readStatus ? { ...value, purchaseStores: { apple: Boolean(providers.apple), google: Boolean(providers.google) } } : value); return true;
     },
   };
 }

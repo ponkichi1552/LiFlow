@@ -1,0 +1,8 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["LiFlowDeviceCheckModule"],
+    "podspecPath": "./LiFlowDeviceCheck.podspec"
+  },
+  "android": { "modules": ["expo.modules.liflowdevicecheck.LiFlowApplianceSigningModule"] }
+}

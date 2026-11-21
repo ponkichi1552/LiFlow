@@ -154,7 +154,8 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} manual action opens the retained original once and cancels an opening after the displayed account changes`, async () => {
     const content = syntheticPdf().toString('base64'); const { sha256 } = verifyManualContent(content); let read; let reads = 0; const shown = [];
     const props = { database: {}, digest: sha256, label: '掃除機', accessKey: 'account-a:appliance' };
-    const ui = screenHarness('src/features/appliance-care/appliance-manual-action.tsx', { platform, exportName: 'ApplianceManualAction', props, effectDependencies: true, layoutEffect: fn => fn(), mocks: {
+    const ui = screenHarness('src/features/appliance-care/appliance-manual-action.tsx', { platform, exportName: 'ApplianceManualAction', props, effectDependencies: true,
+      focusDependencies: true, effect: fn => fn(), layoutEffect: fn => fn(), mocks: {
       '../../platform/storage/appliance-manuals': { readApplianceManual: async () => { reads++; return new Promise(resolve => { read = resolve; }); } },
       '../../platform/appliance-care/manual-viewer': { showManualPdf: async (bytes, digest, title, guard) => { assert.ok(guard()); shown.push({ bytes, digest, title }); } },
     } });

@@ -3,7 +3,7 @@ import type { EventDraft } from '../../domain/calendar/events';
 import type { LocalDate } from '../../domain/shared/types';
 import { isCalendarAnchor, validateEventDraft } from '../../domain/calendar/events.ts';
 import { addDays, parseLocalDate } from '../../domain/scheduling/local-date.ts';
-import { calendarImportFormatter } from './import-formatter.ts';
+import { calendarImportFormatter, googleCalendarInstant } from './import-formatter.ts';
 
 export class GoogleEventExpansionRequired extends Error {}
 const dayNames = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
@@ -11,8 +11,7 @@ const unsupported = () => new GoogleEventExpansionRequired('この繰り返し�
 
 function clock(value: NonNullable<GoogleCalendarEvent['start']>, fallbackZone: string) {
   if (value.date) { parseLocalDate(value.date as LocalDate); return { date: value.date as LocalDate, minute: 0, allDay: true, zone: fallbackZone }; }
-  if (!value.dateTime || !/(?:Z|[+-]\d{2}:\d{2})$/u.test(value.dateTime)) throw unsupported();
-  const at = Date.parse(value.dateTime); if (!Number.isFinite(at)) throw unsupported();
+  const at = googleCalendarInstant(value, fallbackZone); if (!Number.isFinite(at)) throw unsupported();
   // Seconds/folds cannot be represented losslessly in the current minute editor.
   if (at % 60_000 !== 0) throw unsupported();
   const zone = value.timeZone ?? fallbackZone;
@@ -92,7 +91,7 @@ function importRepresentableEvent(event: GoogleCalendarEvent, categoryId: string
     const match = /(?:^|;)UNTIL=(\d{8}T\d{6}Z)(?:;|$)/u.exec(event.recurrence[0].slice(6));
     if (match && !value.allDay) {
       const raw = match[1]; const at = Date.parse(`${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}T${raw.slice(9, 11)}:${raw.slice(11, 13)}:${raw.slice(13, 15)}Z`);
-      const untilClock = clock({ dateTime: new Date(at - at % 60_000).toISOString(), timeZone: value.timeZone }, value.timeZone);
+      const untilClock = clock({ dateTime: new Date(Math.floor(at / 60_000) * 60_000).toISOString(), timeZone: value.timeZone }, value.timeZone);
       if (untilClock.minute < value.startMinute && isCalendarAnchor({ ...value, id: event.id, revision: 1 }, value.untilDate)) throw unsupported();
     }
   }

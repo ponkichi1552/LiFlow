@@ -16,8 +16,9 @@ import { applianceDisplayName, appliancePrimaryName } from '@/features/appliance
 import { applianceAnalysisDate } from '@/features/appliance-care/analysis-date';
 import { manualModelPageLabel, manualModelPages } from '@/features/appliance-care/manual-model-pages';
 import { usePlannerData } from '@/hooks/use-planner-data';
-import { loadApplianceCareReviewContext, saveReviewedApplianceCare } from '@/platform/storage/repository';
+import { loadApplianceCareReviewContext, saveReviewedApplianceCare, saveReviewedApplianceCycles } from '@/platform/storage/repository';
 import type { ApplianceCareReviewContext } from '@/platform/storage/repository';
+import { applianceTaskCadenceKey, findApplianceTaskChore } from '@/features/appliance-care/persistence-policy';
 import { readApplianceManual } from '@/platform/storage/appliance-manuals';
 import { deviceAnalysisWork } from '@/platform/storage/analysis-work';
 
@@ -45,6 +46,7 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
   const [analysisSaved, setAnalysisSaved] = useState(false);
   const savingRef = useRef(false);
   const appliedWork = useRef<string | null>(null);
+  const expectedAnalysisUpdate = useRef<string | null>(null);
   const [cycleValues, setCycleValues] = useState<Record<number, string>>({});
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -96,6 +98,7 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
       if (!submitted) throw new Error('取扱説明書PDFを選んでください。');
       const { startAnalysisWork } = await import('@/platform/appliance-care/analysis-work');
       await startAnalysisWork(database, { owner, target: { applianceId }, filename: manualRef.current ? filename : previous?.filename,
+        ...(savedContext && applianceId ? { basis: { personalUpdatedAt: savedContext.appliance.updatedAt } } : {}),
         request: { identifyFromManual: true, manual: submitted,
           ...(savedContext && applianceId ? { manufacturer: savedContext.appliance.manufacturer, productName: savedContext.appliance.productName,
             modelNumber: savedContext.appliance.modelNumber, category: savedContext.appliance.category, forceReanalysis: true } : {}) } });
@@ -112,6 +115,10 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
     try {
       const context = await loadApplianceCareReviewContext(database, savedApplianceId.current);
       if (!context) throw new Error('保存した家電を読み込めませんでした。');
+      if (context.appliance.analysis.analyzedAt !== verifiedResult.analysis.analyzedAt
+        || context.appliance.analysis.manualSource?.sha256 !== verifiedResult.analysis.manualSource?.sha256) {
+        throw new Error('家電の解析結果が更新されました。');
+      }
       await refresh();
       if (readError?.()) throw new Error('家電一覧を読み直せませんでした。');
       setSavedContext(context);
@@ -125,8 +132,8 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
     try { await refreshSavedAppliance(verified); }
     finally { savingRef.current = false; setWorking(false); }
   };
-  const persistAnalysis = useCallback(async (verifiedResult: ProductVerifiedResponse, values: Record<number, string>) => {
-    const approvedTasks = automaticApplianceTasks(verifiedResult.analysis, values);
+  const persistAnalysis = useCallback(async (verifiedResult: ProductVerifiedResponse, values?: Record<number, string>) => {
+    const approvedTasks = values ? automaticApplianceTasks(verifiedResult.analysis, values) : verifiedResult.analysis.tasks.map(task => ({ task }));
     const modelPages = verifiedResult.analysis.manualSource && manualModelPages(verifiedResult.product.modelNumber, verifiedResult.product.modelPages);
     const saved = await saveReviewedApplianceCare(database, {
       ...(savedApplianceId.current ? { applianceId: savedApplianceId.current } : {}),
@@ -136,7 +143,7 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
       category: verifiedResult.product.category ?? category,
       officialProductUrl: verifiedResult.officialSources.productUrl,
       manualUrl: verifiedResult.officialSources.manualUrl,
-    }, { ...verifiedResult.analysis, ...(modelPages ? { modelPages } : {}) }, approvedTasks);
+    }, { ...verifiedResult.analysis, ...(modelPages ? { modelPages } : {}) }, approvedTasks, undefined, expectedAnalysisUpdate.current);
     savedApplianceId.current = saved.applianceId;
     setAnalysisSaved(true);
     setMessage(`解析結果を保存しました。${saved.scheduledTaskCount ? ` 定期予定は${saved.scheduledTaskCount}件です。` : ''}${saved.duplicateTaskCount ? ` 同名の${saved.duplicateTaskCount}件は既に登録されています。` : ''}`);
@@ -159,11 +166,18 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
       if (applianceId && !context) throw new Error('登録した家電を読み込めませんでした。');
       const values = defaultApplianceCycles(output.analysis, context?.chores);
       setCycleValues(values);
+      expectedAnalysisUpdate.current = analysis.basis?.personalUpdatedAt ?? context?.appliance.updatedAt ?? null;
       if (context?.appliance.analysis?.analyzedAt === output.analysis.analyzedAt
         && context.appliance.analysis?.manualSource?.sha256 === analysis.manualDigest) {
         setAnalysisSaved(true);
         await refreshSavedAppliance(output);
-      } else await persistAnalysis(output, values);
+      } else {
+        if (applianceId && context && !analysis.basis?.personalUpdatedAt && Date.parse(context.appliance.updatedAt) > analysis.createdAt) {
+          expectedAnalysisUpdate.current = null;
+          throw new Error('解析の開始後に家電が更新されました。最新の家電を開いてください。');
+        }
+        await persistAnalysis(output);
+      }
       await deviceAnalysisWork(database).remove(owner, analysis.id);
     }).catch(cause => {
       setMessage(cause instanceof Error ? `解析結果を保存できませんでした：${cause.message}` : '解析結果を保存できませんでした。');
@@ -176,7 +190,18 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
     setWorking(true);
     setMessage(null);
     try {
-      await persistAnalysis(verified, cycleValues);
+      if (analysisSaved) {
+        if (!savedContext) throw new Error('保存した家電を読み直してください。');
+        const baseline = defaultApplianceCycles(verified.analysis, savedContext.chores);
+        const edits = automaticApplianceTasks(verified.analysis, cycleValues).flatMap(({ task, userIntervalDays }, index) => {
+          if ((cycleValues[index] ?? '').normalize('NFKC').trim() === baseline[index]) return [];
+          const chore = findApplianceTaskChore(savedContext.appliance, savedContext.chores, task.name);
+          return [{ taskName: task.name, expectedCadence: applianceTaskCadenceKey(chore), days: userIntervalDays }];
+        });
+        await saveReviewedApplianceCycles(database, savedContext.appliance.id, savedContext.appliance.updatedAt, edits);
+        await refreshSavedAppliance(verified);
+        setMessage('周期の変更を保存しました。');
+      } else await persistAnalysis(verified, cycleValues);
       if (owner && analysis?.id === appliedWork.current) await deviceAnalysisWork(database).remove(owner, analysis.id);
     }
     catch (cause) { setMessage(cause instanceof Error ? cause.message : '家電情報を保存できませんでした。'); }

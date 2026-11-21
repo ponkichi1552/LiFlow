@@ -18,6 +18,7 @@ class BoundedAppleSubscriptionClient extends AppStoreServerAPIClient {
 export function createFirebaseSubscriptionRuntime({ firestore, auth, env = process.env }) {
   const required = name => { const value = env[name]?.trim(); if (!value) throw new Error(`Subscription configuration is required: ${name}`); return value; };
   const bundleId = 'jp.jphacks.tkb2633';
+  const production = env.NODE_ENV?.trim().toLowerCase() === 'production';
   const signer = createSubscriptionSigner(readFileSync(required('LIFLOW_SUBSCRIPTION_SIGNING_KEY_FILE')));
   const tokenKey = readFileSync(required('LIFLOW_BILLING_TOKEN_KEY_FILE'));
   const store = createFirestoreSubscriptionStore({ firestore, tokenKey });
@@ -26,6 +27,7 @@ export function createFirebaseSubscriptionRuntime({ firestore, auth, env = proce
   if (appleProduct) {
     const environment = required('LIFLOW_APPLE_STORE_ENVIRONMENT');
     if (![Environment.PRODUCTION, Environment.SANDBOX].includes(environment)) throw new Error('Invalid Apple subscription environment');
+    if (production && environment !== Environment.PRODUCTION) throw new Error('Production requires App Store production purchase verification');
     const appleId = environment === Environment.PRODUCTION ? Number(required('LIFLOW_APPLE_APPLICATION_ID')) : undefined;
     if (appleId !== undefined && (!Number.isSafeInteger(appleId) || appleId <= 0)) throw new Error('Invalid Apple application ID');
     const roots = required('LIFLOW_APPLE_ROOT_CERTIFICATE_FILES').split(',').map(path => readFileSync(path.trim()));
@@ -36,6 +38,7 @@ export function createFirebaseSubscriptionRuntime({ firestore, auth, env = proce
   }
   const googleProduct = env.LIFLOW_GOOGLE_SUBSCRIPTION_PRODUCT_ID?.trim();
   if (googleProduct) {
+    if (production && env.LIFLOW_GOOGLE_ALLOW_TEST_PURCHASES === 'true') throw new Error('Production cannot accept Google Play test purchases');
     const google = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/androidpublisher'] });
     const audience = required('LIFLOW_GOOGLE_PUBSUB_AUDIENCE'); const email = required('LIFLOW_GOOGLE_PUBSUB_SERVICE_ACCOUNT');
     const oidc = new OAuth2Client();

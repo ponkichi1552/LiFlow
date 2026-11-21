@@ -12,6 +12,7 @@ export async function createSharedDeliveryArchive(database: SQLiteDatabase, grou
     assertCurrent(); await database.execAsync(`CREATE TABLE IF NOT EXISTS sharing_delivery_archive (
       group_id TEXT NOT NULL,kind TEXT NOT NULL,id TEXT NOT NULL,sequence INTEGER NOT NULL,wire_json TEXT NOT NULL,
       PRIMARY KEY(group_id,kind,id));
+      CREATE TABLE IF NOT EXISTS sharing_delivery_archive_boundary (group_id TEXT PRIMARY KEY, through_sequence INTEGER NOT NULL, key_version INTEGER NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_shared_delivery_sequence ON sharing_delivery_archive(group_id,sequence) WHERE kind='event';
       CREATE UNIQUE INDEX IF NOT EXISTS idx_shared_delivery_applied_sequence ON sharing_delivery_archive(group_id,sequence) WHERE kind='applied-event';`);
   });
@@ -26,8 +27,13 @@ export async function createSharedDeliveryArchive(database: SQLiteDatabase, grou
   });
   return {
     saveEvents: events => read(() => withIsolatedSqliteTransaction(database, async transaction => {
+      const marker = await transaction.getFirstAsync<{ through_sequence: number }>('SELECT through_sequence FROM sharing_delivery_archive_boundary WHERE group_id=?', groupId);
       for (const event of events) {
         if (event.envelope.groupId !== groupId || !Number.isSafeInteger(event.uploadSequence) || event.uploadSequence < 1) throw new Error('Delivery archive scope differs');
+        // New peer recovery may replay removed rows. The previously retained
+        // event remains available; a pruned event cannot reenter the archive.
+        if (event.uploadSequence <= (marker?.through_sequence ?? 0) && !await transaction.getFirstAsync(`SELECT 1 FROM sharing_snapshot_state saved,
+          json_each(saved.snapshot_json,'$.facts') fact WHERE saved.group_id=? AND json_extract(fact.value,'$.operation.operationId')=? LIMIT 1`, groupId, event.operationId)) continue;
         const json = canonicalJson(event);
         const previous = await transaction.getFirstAsync<{ wire_json: string }>('SELECT wire_json FROM sharing_delivery_archive WHERE group_id=? AND kind=? AND id=?', groupId, 'applied-event', event.operationId);
         if (previous && previous.wire_json !== json) throw new Error('Immutable delivery archive collision');
@@ -40,12 +46,16 @@ export async function createSharedDeliveryArchive(database: SQLiteDatabase, grou
     })),
     events: (after, through) => events('applied-event', after, through),
     legacyEvents: (after, through) => events('event', after, through),
-    saveChunk: (id, chunk) => read(async () => {
+    saveChunk: (id, chunk) => read(() => withIsolatedSqliteTransaction(database, async transaction => {
+      if (chunk.groupId !== groupId) throw new Error('Delivery archive scope differs');
+      const boundary = await transaction.getFirstAsync<{ key_version: number }>('SELECT key_version FROM sharing_delivery_archive_boundary WHERE group_id=?', groupId);
+      if (boundary && chunk.keyVersion <= boundary.key_version) return;
       const json = canonicalJson(chunk);
-      const previous = await database.getFirstAsync<{ wire_json: string }>('SELECT wire_json FROM sharing_delivery_archive WHERE group_id=? AND kind=? AND id=?', groupId, 'chunk', id);
+      const previous = await transaction.getFirstAsync<{ wire_json: string }>('SELECT wire_json FROM sharing_delivery_archive WHERE group_id=? AND kind=? AND id=?', groupId, 'chunk', id);
       if (previous && previous.wire_json !== json) throw new Error('Immutable snapshot archive collision');
-      if (!previous) await database.runAsync('INSERT INTO sharing_delivery_archive VALUES(?,?,?,?,?)', groupId, 'chunk', id, 0, json);
-    }),
+      if (!previous) await transaction.runAsync('INSERT INTO sharing_delivery_archive VALUES(?,?,?,?,?)', groupId, 'chunk', id, 0, json);
+      assertCurrent();
+    })),
     chunk: id => read(async () => {
       const row = await database.getFirstAsync<{ wire_json: string }>('SELECT wire_json FROM sharing_delivery_archive WHERE group_id=? AND kind=? AND id=?', groupId, 'chunk', id);
       return row ? JSON.parse(row.wire_json) as EncryptedSharedSnapshotChunk : null;

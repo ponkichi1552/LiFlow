@@ -18,19 +18,17 @@ export function AnalysisWorkBridge() {
       await waitForInitialRead();
       await waitForInitialFrame();
       if (controller.signal.aborted) return;
-      const [{ deviceAnalysisWork, subscribeAnalysisWork }, { setAnalysisBackgroundTask }, { resumeAnalysisWork }, { applianceCareApiBaseUrl }] = await Promise.all([
+      const [{ subscribeAnalysisWork }, { setAnalysisBackgroundTask }, { currentAnalysisOwner, hasNativeAnalysisBackgroundWork, resumeAnalysisWork }, { deviceAnalysisDeliveries }] = await Promise.all([
         import('../../platform/storage/analysis-work'), import('./analysis-background-task'),
-        import('../../platform/appliance-care/analysis-work'), import('./api-client'),
+        import('../../platform/appliance-care/analysis-work'), import('../../platform/storage/analysis-deliveries'),
       ]);
       const live = () => !controller.signal.aborted;
       if (!live()) return;
-      let needsTask: boolean | undefined;
-      const synchronizeTask = async () => {
-        const pending = Boolean(userId && await deviceAnalysisWork(database).next(userId, applianceCareApiBaseUrl()));
-        if (!live() || pending === needsTask) return;
-        needsTask = pending;
-        await setAnalysisBackgroundTask(pending).catch(() => { needsTask = undefined; });
-      };
+      const synchronizeTask = () => setAnalysisBackgroundTask(async () => {
+        if (!live() || await currentAnalysisOwner() !== userId) return undefined;
+        const pending = Boolean(userId && await hasNativeAnalysisBackgroundWork(database, userId, true));
+        return live() ? pending : undefined;
+      });
       const worker = createDemandWorker({
         active: () => live() && AppState.currentState === 'active',
         run: async () => userId ? resumeAnalysisWork(database, userId, { signal: controller.signal }) : false,
@@ -40,8 +38,9 @@ export function AnalysisWorkBridge() {
         void synchronizeTask().catch(() => undefined);
       };
       const unsubscribe = subscribeAnalysisWork(wake);
+      const unsubscribeReceipts = deviceAnalysisDeliveries(database).subscribe(() => { void synchronizeTask().catch(() => undefined); });
       const lifecycle = AppState.addEventListener('change', state => { if (state === 'active') wake(); });
-      stop = () => { unsubscribe(); lifecycle.remove(); worker.stop(); };
+      stop = () => { unsubscribe(); unsubscribeReceipts(); lifecycle.remove(); worker.stop(); };
       wake();
     })().catch(() => undefined);
     return () => { controller.abort(); stop(); };

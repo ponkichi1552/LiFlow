@@ -483,6 +483,20 @@ export function applySharingSnapshot(db: SQLiteDatabase, groupId: string, snapsh
             AND CAST(json_extract(receipt_json,'$.uploadSequence') AS INTEGER)<=?
             AND operation_id NOT IN (SELECT value FROM json_each(?))`, groupId, retention.throughSequence, ids);
         }
+        if (await db.getFirstAsync("SELECT name FROM sqlite_master WHERE name='sharing_delivery_archive'")) {
+          await db.runAsync(`DELETE FROM sharing_delivery_archive WHERE group_id=? AND kind IN ('event','applied-event')
+            AND sequence<=? AND id NOT IN (SELECT value FROM json_each(?))`, groupId, retention.throughSequence, ids);
+          const retiredKeyVersion = snapshot.keyVersion && snapshot.keyVersion > retention.keyVersion ? retention.keyVersion : 0;
+          if (retiredKeyVersion) {
+            await db.runAsync(`DELETE FROM sharing_delivery_archive WHERE group_id=? AND kind='chunk'
+              AND CASE WHEN json_valid(wire_json) THEN CAST(json_extract(wire_json,'$.keyVersion') AS INTEGER) END<=?`, groupId, retiredKeyVersion);
+          }
+          if (await db.getFirstAsync("SELECT name FROM sqlite_master WHERE name='sharing_delivery_archive_boundary'")) {
+            await db.runAsync(`INSERT INTO sharing_delivery_archive_boundary VALUES(?,?,?) ON CONFLICT(group_id)
+              DO UPDATE SET through_sequence=max(through_sequence,excluded.through_sequence),key_version=max(key_version,excluded.key_version)`,
+            groupId, retention.throughSequence, retiredKeyVersion);
+          }
+        }
         if (await db.getFirstAsync("SELECT name FROM sqlite_master WHERE name='sharing_v2_recovery_review'")) {
           await db.runAsync("DELETE FROM sharing_v2_recovery_review WHERE (status='applied' OR cancelled=1) AND CAST(json_extract(draft_json,'$.review.throughSequence') AS INTEGER)<=?", retention.throughSequence);
           const active = await db.getFirstAsync("SELECT singleton FROM sharing_v2_recovery_review WHERE status='review' AND cancelled=0");

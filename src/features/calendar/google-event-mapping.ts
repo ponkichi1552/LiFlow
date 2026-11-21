@@ -18,16 +18,19 @@ function firstAnchor(value: EventDraft): LocalDate | null {
   const rule = value.customRecurrence;
   if (value.recurrence !== 'custom' || !rule || !['week', 'month'].includes(rule.unit) || rule.unit === 'month' && rule.on === 'date') return value.startDate;
   const base = parseLocalDate(value.startDate);
+  const duration = daysBetween(value.startDate, value.endDate);
+  const validClock = (date: LocalDate, minute: number) => v2WallTimeCandidates({ date, hour: Math.floor(minute / 60), minute: minute % 60, timeZone: value.timeZone }).length === 1;
   for (let period = 0; period < 4800; period++) {
     const from = rule.unit === 'week' ? period === 0 ? value.startDate : addDays(value.startDate, -calendarWeekday(value.startDate) + period * rule.interval * 7)
       : new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + period * rule.interval, 1)).toISOString().slice(0, 10) as LocalDate;
-    if (value.untilDate && from > value.untilDate) return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/u.test(from) || value.untilDate && from > value.untilDate) return null;
     const date = parseLocalDate(from);
     const through = rule.unit === 'week' ? addDays(from, 6) : monthDates(date.getUTCFullYear(), date.getUTCMonth()).at(-1)!;
-    const first = customRecurrenceDates(rule, value.startDate, from, value.untilDate && value.untilDate < through ? value.untilDate : through)[0];
+    const first = customRecurrenceDates(rule, value.startDate, from, value.untilDate && value.untilDate < through ? value.untilDate : through)
+      .find(day => value.allDay || validClock(day, value.startMinute) && validClock(addDays(day, duration), value.endMinute));
     if (first) return first;
   }
-  throw new Error('繰り返しの最初の日付を確認してください。');
+  return null;
 }
 /** null means a finite rule has no occurrences; it must not create a phantom start. */
 export function googleEventBody(input: EventDraft, instance = false, shortenTitle = false): Record<string, unknown> | null {

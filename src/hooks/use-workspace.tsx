@@ -41,9 +41,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false); const [error, setError] = useState<string | null>(null);
   const alive = useRef(true); const revision = useRef(0);
   const authenticatedRevision = useRef<{ revision: number; userId: string | null } | null>(null);
+  const clearForeignDisplay = useCallback((owner: string | null) => {
+    if (displayed.current && displayed.current.record.userId !== owner) showStartupDisplay(null);
+    if (activeRef.current && activeRef.current.userId !== owner) {
+      activeRef.current = null; setActive(null);
+      setRestoration(null); setInitialSyncPending(false);
+    }
+    setGroup(previous => previous?.userId === owner ? previous : null);
+    setUserId(previous => previous === owner ? previous : null);
+  }, [showStartupDisplay]);
   const refreshSharing = useCallback(async function refresh(): Promise<void> {
     if (!isSharingConfigured()) return;
     const current = ++revision.current; const user = await traceStartup('workspace.authentication', sharingSessionUser);
+    if (!alive.current || current !== revision.current) return;
+    clearForeignDisplay(user?.uid ?? null);
     const check = async () => {
       if (!alive.current || current !== revision.current) return false;
       if ((await sharingSessionUser())?.uid !== user?.uid) { void refresh(); return false; }
@@ -57,10 +68,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const keepStartupDisplay = alreadyDisplayed && record && record.userId === user?.uid
         && startupDisplayCache.canReuse(record, alreadyDisplayed.model);
       if (alreadyDisplayed && !keepStartupDisplay) showStartupDisplay(null);
-      if (activeRef.current?.userId !== user?.uid) {
-        activeRef.current = null; setActive(null);
-        setRestoration(null); setInitialSyncPending(false);
-      }
       setGroup(record); setUserId(user?.uid ?? null);
       const eligible = record && ['active', 'creating'].includes(record.status);
       let next = eligible ? activeRef.current : null;
@@ -101,7 +108,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       setError(pending ? null : cause instanceof Error ? cause.message : '所属グループを読み込めませんでした。保存内容を保持しています。');
     }
     if (alive.current && current === revision.current) setSessionStarted(true);
-  }, [showStartupDisplay]);
+  }, [clearForeignDisplay, showStartupDisplay]);
   useEffect(() => {
     if (!isSharingConfigured()) { setReady(true); return; }
     alive.current = true;
@@ -136,9 +143,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       // Firebase immediately emits its initial state for a new observer.
       const alreadyHandled = first && last?.revision === revision.current && last.userId === (user?.uid ?? null);
       first = false;
-      if (!alreadyHandled) void refreshSharing().catch(() => undefined);
+      if (!alreadyHandled) {
+        clearForeignDisplay(user?.uid ?? null);
+        void refreshSharing().catch(() => undefined);
+      }
     });
-  }, [refreshSharing, sessionStarted]);
+  }, [clearForeignDisplay, refreshSharing, sessionStarted]);
   const groupKey = JSON.stringify([group?.groupId, group?.status, group?.localGeneration,
     group?.rosterArchive?.at(-1)?.body.schedulerVersion]);
   useEffect(() => {

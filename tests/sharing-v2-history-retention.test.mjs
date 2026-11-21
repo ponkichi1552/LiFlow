@@ -136,6 +136,41 @@ test('monthly cleanup proposes and independently approves across isolated member
   assert.equal(state.replica.operations.find(op => op.operationId === 'later-name').payload.name, '申請後の名前');
   assert.equal((await owner.run()).kind, 'idle'); assert.equal(published, 1, 'unchanged history must not create redundant cleanup proposals');
 });
+
+test('certified history cleanup deletes retired delivery records and prevents replay restoring them', async t => {
+  const h = await prepared(t, '2026-11-03');
+  const { createSharedDeliveryArchive } = await import('../src/platform/storage/sharing-delivery-archive.ts');
+  const database = h.owner.database;
+  const archive = await createSharedDeliveryArchive(database, groupId, work => work(), () => {});
+  const retired = h.receipts.get('expired-work-report');
+  assert.ok(retired);
+  const makeWire = (operationId, uploadSequence) => ({ operationId, uploadSequence, envelope: { groupId } });
+  const old = makeWire('expired-work-report', retired.uploadSequence);
+  const recent = makeWire('delivery-after-checkpoint', h.head() + 2);
+  const retiredChunk = { groupId, keyVersion: h.plan.body.keyVersion };
+  const currentChunk = { groupId, keyVersion: retiredChunk.keyVersion + 1 };
+  await archive.saveEvents([old, recent]);
+  await archive.saveChunk('old-ciphertext', retiredChunk);
+  await archive.saveChunk('current-ciphertext', currentChunk);
+  const retained = new Set(h.base.operations.map(operation => operation.operationId));
+  assert.equal(retained.has(old.operationId), false);
+  const checkpoint = await readSharingCheckpoint(database, groupId);
+  await applySharingSnapshot(database, groupId, { base: h.base, facts: h.originals.filter(fact => retained.has(fact.operation.operationId)),
+    snapshotId: 'delivery-retention', throughSequence: h.head() }, h.owner.repository.project, checkpoint.cursor, h.now(), h.owner.repository.evidenceForServerReceipts([...h.receipts.values()]));
+  assert.equal(await archive.events(old.uploadSequence - 1, old.uploadSequence), null);
+  await archive.saveEvents([old]);
+  assert.equal(await archive.events(old.uploadSequence - 1, old.uploadSequence), null);
+  assert.deepEqual(await archive.events(recent.uploadSequence - 1, recent.uploadSequence), [recent]);
+  assert.deepEqual(await archive.chunk('old-ciphertext'), retiredChunk, 'a snapshot without a verified new key cannot retire ciphertext');
+  const applied = await readSharingCheckpoint(database, groupId);
+  await applySharingSnapshot(database, groupId, { base: h.base, facts: h.originals.filter(fact => retained.has(fact.operation.operationId)),
+    snapshotId: 'delivery-rotated-key', throughSequence: h.head(), keyVersion: currentChunk.keyVersion },
+  h.owner.repository.project, applied.cursor, h.now(), h.owner.repository.evidenceForServerReceipts([...h.receipts.values()]));
+  assert.equal(await archive.chunk('old-ciphertext'), null);
+  await archive.saveChunk('old-ciphertext', retiredChunk);
+  assert.equal(await archive.chunk('old-ciphertext'), null);
+  assert.deepEqual(await archive.chunk('current-ciphertext'), currentChunk);
+});
 test('a correctly owner-signed but invented cleanup summary is never automatically approved by another member', async t => {
   const h = await prepared(t, '2026-09-01', false); const checkpoint = structuredClone(h.plan.body);
   checkpoint.anchors[0].instant += 86400_000; checkpoint.anchors[0].date = '2026-09-03';

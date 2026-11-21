@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { analysisTargetKey } from '../../features/appliance-care/analysis-work.ts';
-import type { AnalysisTarget, AnalysisWork, AnalysisWorkSummary, SharedAnalysisBasis } from '../../features/appliance-care/analysis-work';
+import type { AnalysisTarget, AnalysisWork, AnalysisWorkSummary, AnalysisWorkBasis } from '../../features/appliance-care/analysis-work';
 import type { ApplianceCareApiRequest, ApplianceCareApiResponse } from '../../features/appliance-care/api-contracts';
 import { storeApplianceManualInside } from './appliance-manual-storage.ts';
 import { withIsolatedSqliteTransaction } from './isolated-transaction.ts';
@@ -39,10 +39,18 @@ const summary = (row: WorkSummaryRow): AnalysisWorkSummary => ({
   id: row.id, groupId: row.group_id || undefined, applianceId: row.appliance_id || undefined,
   filename: row.filename ?? undefined, state: row.state,
 });
+const invalidSavedWork: ApplianceCareApiResponse = { status: 'error', code: 'INVALID_REQUEST', message: '保存した解析を読み込めません。PDFを選び直してください。' };
+const changedEndpoint: ApplianceCareApiResponse = { status: 'error', code: 'JOB_NOT_FOUND', message: '家電AIの接続先が変わりました。PDFを選び直してください。' };
+function parseRecord<T>(json: string): T {
+  const value = JSON.parse(json);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SyntaxError('Invalid stored analysis record');
+  return value as T;
+}
+const workMetadata = (row: WorkRow) => ({ ...summary(row), owner: row.owner, baseUrl: row.base_url,
+  manualDigest: row.manual_digest, attempts: row.attempts, retryAt: row.retry_at, createdAt: row.created_at });
 const work = (row: WorkRow): AnalysisWork => ({
-  ...summary(row), owner: row.owner, request: JSON.parse(row.request_json), baseUrl: row.base_url,
-  manualDigest: row.manual_digest, basis: row.basis_json ? JSON.parse(row.basis_json) : undefined,
-  result: row.output_json ? JSON.parse(row.output_json) : null, attempts: row.attempts, retryAt: row.retry_at, createdAt: row.created_at,
+  ...workMetadata(row), request: parseRecord(row.request_json), basis: row.basis_json ? parseRecord(row.basis_json) : undefined,
+  result: row.output_json ? parseRecord(row.output_json) : null,
 });
 const hasTable = async (database: SQLiteDatabase) => {
   if (existing.has(database)) return true;
@@ -58,7 +66,7 @@ export function deviceAnalysisWork(database: SQLiteDatabase) {
     if (result.changes > 0) notifyAnalysisWork();
   };
   return {
-    async begin(input: { owner: string; id: string; target: AnalysisTarget; baseUrl: string; filename?: string; request: ApplianceCareApiRequest; basis?: SharedAnalysisBasis }) {
+    async begin(input: { owner: string; id: string; target: AnalysisTarget; baseUrl: string; filename?: string; request: ApplianceCareApiRequest; basis?: AnalysisWorkBasis }) {
       await withPlannerDatabaseOperation(database, async () => {
         if (await database.getFirstAsync("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sharing_workspace_metadata'")) {
           throw new Error('解析の個人保存先を確認してください。');
@@ -95,7 +103,11 @@ export function deviceAnalysisWork(database: SQLiteDatabase) {
         WHERE owner=? AND (group_id='' OR group_id=?) ORDER BY created_at DESC`, owner, groupId ?? '');
       return rows.map(summary);
     }),
-    read: (owner: string, target: AnalysisTarget) => withPlannerDatabaseOperation(database, async () => {
+    hasPending: (owner: string) => withPlannerDatabaseOperation(database, async () => {
+      if (!await hasTable(database)) return false;
+      return Boolean(await database.getFirstAsync("SELECT 1 FROM appliance_analysis_work WHERE owner=? AND state='pending' LIMIT 1", owner));
+    }),
+    read: (owner: string, target: AnalysisTarget) => withPlannerDatabaseOperation(database, async (): Promise<AnalysisWork | null> => {
       if (!await hasTable(database)) return null;
       const row = await database.getFirstAsync<WorkRow & { delivery_job_id: string | null }>(`SELECT ${pendingColumns},delivery_job_id,
         result_json AS output_json FROM appliance_analysis_work WHERE owner=? AND target=?`, owner, analysisTargetKey(target));
@@ -104,14 +116,35 @@ export function deviceAnalysisWork(database: SQLiteDatabase) {
         const delivery = await database.getFirstAsync<{ result_json: string }>('SELECT result_json FROM appliance_analysis_deliveries WHERE owner=? AND job_id=?', owner, row.delivery_job_id);
         row.output_json = delivery?.result_json ?? null;
       }
-      return work(row);
+      try { return work(row); }
+      catch (error) {
+        if (!(error instanceof SyntaxError)) throw error;
+        return { ...workMetadata(row), request: { identifyFromManual: true }, state: 'failed', result: invalidSavedWork };
+      }
     }),
-    next: (owner: string, baseUrl: string) => withPlannerDatabaseOperation(database, async () => {
-      if (!await hasTable(database)) return null;
-      const row = await database.getFirstAsync<WorkRow>(`SELECT ${pendingColumns},NULL AS output_json
-        FROM appliance_analysis_work WHERE owner=? AND base_url=? AND state='pending' ORDER BY retry_at,created_at LIMIT 1`, owner, baseUrl);
-      return row ? work(row) : null;
-    }),
+    async next(owner: string, baseUrl: string) {
+      let changed = false;
+      const read = await withPlannerDatabaseOperation(database, async () => {
+        if (!await hasTable(database)) return null;
+        const retired = await database.runAsync("UPDATE appliance_analysis_work SET state='failed',result_json=?,retry_at=0 WHERE owner=? AND base_url<>? AND state='pending'",
+          JSON.stringify(changedEndpoint), owner, baseUrl);
+        changed = retired.changes > 0;
+        for (;;) {
+          const row = await database.getFirstAsync<WorkRow>(`SELECT ${pendingColumns},NULL AS output_json
+            FROM appliance_analysis_work WHERE owner=? AND base_url=? AND state='pending' ORDER BY retry_at,created_at LIMIT 1`, owner, baseUrl);
+          if (!row) return null;
+          try { return work(row); }
+          catch (error) {
+            if (!(error instanceof SyntaxError)) throw error;
+            const failed = await database.runAsync("UPDATE appliance_analysis_work SET state='failed',result_json=?,retry_at=0 WHERE owner=? AND id=? AND state='pending'",
+              JSON.stringify(invalidSavedWork), owner, row.id);
+            changed ||= failed.changes > 0;
+          }
+        }
+      });
+      if (changed) notifyAnalysisWork();
+      return read;
+    },
     async markAttempt(owner: string, id: string) {
       const result = await withPlannerDatabaseOperation(database, () => database.runAsync("UPDATE appliance_analysis_work SET attempts=attempts+1 WHERE owner=? AND id=? AND state='pending'", owner, id));
       return result.changes === 1;

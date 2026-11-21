@@ -396,6 +396,41 @@ test('a third party edit after a lost personal insert stays an explicit conflict
   assert.equal([...h.events.values()][0].summary, '別の編集');
   assert.equal((await h.sync.readConflicts()).length, 1);
 });
+
+test('Google Calendar exports a retained individual edit after the new series rule removes its original day', async t => {
+  const h = await harness(t); await h.connect();
+  const parent = await h.local({ allDay: true, recurrence: 'daily' });
+  assert.equal((await h.sync.sync({ force: true })).kind, 'success');
+  const masterId = h.links()[0].google_id;
+  await saveCalendarEvent(h.database, { id: parent.id, expectedRevision: 1, scope: 'one', anchorDate: '2026-11-04', expectedExceptionRevision: 0,
+    value: { ...parent, title: '個別で変更した予定', startDate: '2026-11-04', endDate: '2026-11-04', recurrence: 'none' } });
+  await saveCalendarEvent(h.database, { id: parent.id, expectedRevision: 1, scope: 'series',
+    value: { ...parent, title: '毎月の予定', recurrence: 'monthly' } });
+  assert.equal((await readLocalCalendar(h.database)).exceptions[0].detached, true);
+  h.api.instances = async () => { assert.fail('an anchor missing from the new rule has no Google instance'); };
+  assert.equal((await h.sync.sync({ force: true })).kind, 'success');
+  assert.equal(h.events.get(masterId).summary, '毎月の予定');
+  const independent = [...h.events.values()].find(event => event.id !== masterId);
+  assert.equal(independent.summary, '個別で変更した予定');
+  assert.deepEqual(independent.start, { date: '2026-11-04' });
+  assert.equal(independent.recurringEventId, undefined);
+  assert.equal((await h.sync.sync({ force: true })).kind, 'success');
+  assert.equal(h.events.size, 2);
+  assert.equal((await readLocalCalendar(h.database)).exceptions[0].detached, true);
+});
+
+test('a stored empty recurrence does not wake background Google Calendar sync again once inspected', async t => {
+  const h = await harness(t); await h.connect();
+  const { id } = await h.local({ allDay: true, recurrence: 'custom', untilDate: '2026-11-03',
+    customRecurrence: { unit: 'week', interval: 1, weekdays: [0] } });
+  const sent = await h.local({ title: '同時に送る正常な予定' });
+  assert.equal((await h.sync.sync({ force: true })).kind, 'success');
+  assert.deepEqual([...h.events.values()].map(event => event.summary), [sent.title]);
+  const calls = h.calls.length;
+  assert.equal(await personalCalendarHasPendingWork(h.database), false);
+  assert.equal(h.calls.length, calls);
+  assert.ok((await readLocalCalendar(h.database)).events.some(event => event.id === id));
+});
 test('an unconfirmed personal write is not acknowledged before HTTP succeeds and later offline edits still converge', async t => {
   const h = await harness(t); await h.connect(); const event = await h.local();
   const insert = h.api.insert; h.api.insert = async () => { throw new Error('request never sent'); };
@@ -514,6 +549,20 @@ test('long all-day Google events retain their full read-only display span while 
   assert.equal(laterRange.events.find(row => row.id === imported.id)?.endDate, '2028-11-01', 'raw long-span dates keep the event visible in later requested months');
   assert.equal(h.connection.prepare('SELECT count(*) n FROM calendar_google_inbox WHERE dirty<>0').get().n, 0);
   assert.equal(h.calls.filter(call => call[0] === 'insert').length, 1);
+});
+
+test('long timed Google events remain readable and do not block subsequent imports or outgoing edits', async t => {
+  const h = await harness(t); await h.connect(); await h.local({ title: '送信する予定' });
+  const long = h.put(h.remote('a-long-timed', { start: { dateTime: '2026-11-01T19:15:00Z' }, end: { dateTime: '2028-11-02T20:45:00Z' } }));
+  h.put(h.remote('b-ordinary'));
+  const result = await h.sync.sync();
+  assert.deepEqual(result, { kind: 'success', received: 2, sent: 1 });
+  const link = h.links().find(link => link.google_id === long.id);
+  const { readCalendarEventRows } = await import('../src/platform/storage/calendar-event-rows.ts');
+  const { events } = await readCalendarEventRows(h.database, { from: '2028-01-01', through: '2028-01-31' });
+  const view = events.find(event => event.id === link.event_id);
+  assert.equal(view.readOnly, true);
+  assert.deepEqual([view.startDate, view.startMinute, view.endDate, view.endMinute], ['2026-11-01', 1155, '2028-11-02', 1245]);
 });
 
 test('an unsupported recurring replacement stays unpublished until its instance projection commits', async t => {

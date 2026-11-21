@@ -57,7 +57,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const reminderSettings = useCalendarReminders(local.database); const reminderWorkspace = useContext(WorkspaceContext);
   const [draft, setDraft] = useState(initial); const latest = useRef(draft);
   const editedScopeFields = useRef(new Set<keyof EventDraft>());
-  const [titleDateTime] = useState(() => createTitleDateTimeInput(initial.value, pinnedClockAt(new Date(), initial.value.timeZone).date));
+  const [titleDateTime] = useState(() => createTitleDateTimeInput(initial.value, timeZone => pinnedClockAt(new Date(), timeZone).date));
   const [openedStoredDraft] = useState(() => (local.snapshot.drafts ?? (local.snapshot.draft ? [local.snapshot.draft] : []))
     .some(row => calendarDraftKey(row) === calendarDraftKey(initial)));
   const [draftSession] = useState(() => createEditorDraftSession(openedStoredDraft ? initial : undefined, local.assertDraftAccess));

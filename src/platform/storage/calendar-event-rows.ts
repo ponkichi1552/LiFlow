@@ -5,6 +5,7 @@ import type { CalendarEvent, CalendarException, EventDraft } from '../../feature
 import { canWriteGoogleCalendar } from '../google-calendar/calendar-api.ts';
 import type { GoogleCalendarListEntry } from '../google-calendar/calendar-api';
 import { addDays, daysBetween, parseLocalDate } from '../../domain/scheduling/local-date.ts';
+import { googleCalendarInstant } from '../../features/calendar/import-formatter.ts';
 
 type ValidatedRow = { json: string | null; revision: number; value: EventDraft | null; retained?: boolean };
 type ValidatedProjection = { events: Map<string, ValidatedRow>; exceptions: Map<string, ValidatedRow> };
@@ -54,8 +55,10 @@ export async function readCalendarEventRows(database: SQLiteDatabase, range?: Ca
       AND l.subject=? AND l.calendar_id IN (SELECT value FROM json_each(?))))` : '';
   const parameters = hasGoogle ? [currentSubject ?? '', JSON.stringify([...currentCalendars.keys()])] : [];
   const longGoogleSpanSql = hasGoogle ? `EXISTS(SELECT 1 FROM calendar_google_links gl WHERE gl.event_id=e.id
-        AND gl.anchor_date='' AND gl.active=1 AND json_valid(gl.remote_json)
-        AND json_extract(gl.remote_json,'$.start.date')<=? AND json_extract(gl.remote_json,'$.end.date')>?)` : '0';
+        AND gl.anchor_date='' AND gl.active=1 AND gl.read_only=1 AND json_valid(gl.remote_json) AND gl.subject=?
+        AND gl.calendar_id IN (SELECT value FROM json_each(?))
+        AND substr(coalesce(json_extract(gl.remote_json,'$.start.date'),json_extract(gl.remote_json,'$.start.dateTime')),1,10)<=?
+        AND substr(coalesce(json_extract(gl.remote_json,'$.end.date'),json_extract(gl.remote_json,'$.end.dateTime')),1,10)>=?)` : '0';
   const rangeSql = range ? ` AND (
     (json_extract(e.definition_json,'$.recurrence')='none' AND json_extract(e.definition_json,'$.startDate')<=?
       AND (json_extract(e.definition_json,'$.endDate')>=? OR ${longGoogleSpanSql}))
@@ -65,7 +68,7 @@ export async function readCalendarEventRows(database: SQLiteDatabase, range?: Ca
       AND (xr.anchor_date BETWEEN ? AND ? OR (xr.override_json IS NOT NULL
         AND json_extract(xr.override_json,'$.startDate')<=? AND json_extract(xr.override_json,'$.endDate')>=?)))
   )` : '';
-  const rangeValues = projectionRange ? [projectionRange.through, projectionRange.from, ...(hasGoogle ? [projectionRange.through, projectionRange.from] : []),
+  const rangeValues = projectionRange ? [projectionRange.through, projectionRange.from, ...(hasGoogle ? [...parameters, projectionRange.through, projectionRange.from] : []),
     projectionRange.through, addDays(projectionRange.from, -366), projectionRange.from, projectionRange.through, projectionRange.through, projectionRange.from] : [];
   const eventScopeSql = target ? ' AND e.id=?' : `${rangeSql}${page?.afterId ? ' AND e.id>?' : ''}`;
   const eventScopeValues = target ? [target.eventId] : [...rangeValues, ...(page?.afterId ? [page.afterId] : [])];
@@ -105,25 +108,39 @@ export async function readCalendarEventRows(database: SQLiteDatabase, range?: Ca
   const googleMetadata = hasCurrentGoogle && (rows.length || exceptions.length) ? await database.getAllAsync<{
     calendar_id: string; event_id: string; anchor_date: string; read_only: number; transparency: unknown; html_link: unknown;
     event_type: unknown; active: number; remote_start_date: unknown; remote_end_date: unknown;
+    remote_start_clock: string | null; remote_end_clock: string | null;
   }>(`SELECT l.calendar_id,l.event_id,l.anchor_date,l.read_only,l.active,
     CASE WHEN json_valid(l.remote_json) THEN json_extract(l.remote_json,'$.transparency') END AS transparency,
     CASE WHEN json_valid(l.remote_json) THEN json_extract(l.remote_json,'$.htmlLink') END AS html_link,
     CASE WHEN json_valid(l.remote_json) THEN json_extract(l.remote_json,'$.eventType') END AS event_type,
     CASE WHEN json_valid(l.remote_json) THEN json_extract(l.remote_json,'$.start.date') END AS remote_start_date,
-    CASE WHEN json_valid(l.remote_json) THEN json_extract(l.remote_json,'$.end.date') END AS remote_end_date FROM ${metadataSource}
+    CASE WHEN json_valid(l.remote_json) THEN json_extract(l.remote_json,'$.end.date') END AS remote_end_date,
+    CASE WHEN json_valid(l.remote_json) THEN json_extract(l.remote_json,'$.start') END AS remote_start_clock,
+    CASE WHEN json_valid(l.remote_json) THEN json_extract(l.remote_json,'$.end') END AS remote_end_clock FROM ${metadataSource}
     JOIN calendar_events e ON e.id=l.event_id WHERE e.deleted=0 AND l.active=1 AND l.subject=? AND l.calendar_id IN (SELECT value FROM json_each(?))`,
     ...metadataParameters) : [];
   const metadata = new Map(googleMetadata.map(row => {
     let externalUrl: string | undefined;
     try { const url = new URL(typeof row.html_link === 'string' ? row.html_link : ''); if (url.protocol === 'https:' && ['calendar.google.com', 'www.google.com'].includes(url.hostname)) externalUrl = url.href; } catch { /* No external action for an invalid URL. */ }
     const holiday = row.calendar_id.endsWith('#holiday@group.v.calendar.google.com');
-    let allDayRange: { startDate: LocalDate; endDate: LocalDate } | undefined;
+    let longRange: Partial<Pick<EventDraft, 'startDate' | 'endDate' | 'allDay' | 'startMinute' | 'endMinute' | 'timeZone'>> | undefined;
     try {
       const startDate = row.remote_start_date, endExclusive = row.remote_end_date;
       if (typeof startDate === 'string' && typeof endExclusive === 'string' && daysBetween(startDate as LocalDate, endExclusive as LocalDate) > 367)
-        allDayRange = { startDate: startDate as LocalDate, endDate: addDays(endExclusive as LocalDate, -1) };
+        longRange = { startDate: startDate as LocalDate, endDate: addDays(endExclusive as LocalDate, -1), allDay: true };
+      else if (row.read_only && row.remote_start_clock && row.remote_end_clock) {
+        const zone = currentCalendars.get(row.calendar_id)?.timeZone ?? 'UTC';
+        const start = googleCalendarInstant(JSON.parse(row.remote_start_clock), zone);
+        const end = googleCalendarInstant(JSON.parse(row.remote_end_clock), zone);
+        if (Number.isFinite(start) && Number.isFinite(end) && Math.floor(Math.ceil(end / 60_000) / 1440) - Math.floor(start / 86_400_000) > 366) {
+          const first = new Date(Math.floor(start / 60_000) * 60_000);
+          const last = new Date(Math.ceil(end / 60_000) * 60_000);
+          longRange = { startDate: first.toISOString().slice(0, 10) as LocalDate, endDate: last.toISOString().slice(0, 10) as LocalDate,
+            allDay: false, timeZone: 'UTC', startMinute: first.getUTCHours() * 60 + first.getUTCMinutes(), endMinute: last.getUTCHours() * 60 + last.getUTCMinutes() };
+        }
+      }
     } catch { /* The validated stored projection remains available if private source JSON is damaged. */ }
-    return [JSON.stringify([row.event_id, row.anchor_date]), { readOnly: Boolean(row.read_only) || !canWriteGoogleCalendar(currentCalendars.get(row.calendar_id)!), active: row.active, blocksTime: !holiday && row.transparency !== 'transparent' && row.event_type !== 'birthday', ...(allDayRange ? { allDayRange } : {}), ...(holiday ? { holiday: true } : {}), ...(externalUrl ? { externalUrl } : {}) }];
+    return [JSON.stringify([row.event_id, row.anchor_date]), { readOnly: Boolean(row.read_only) || !canWriteGoogleCalendar(currentCalendars.get(row.calendar_id)!), active: row.active, blocksTime: !holiday && row.transparency !== 'transparent' && row.event_type !== 'birthday', ...(longRange ? { longRange } : {}), ...(holiday ? { holiday: true } : {}), ...(externalUrl ? { externalUrl } : {}) }];
   }));
   const read = (json: string | null, revision: number, prior?: ValidatedRow): ValidatedRow => {
     if (!Number.isSafeInteger(revision) || revision < 1) throw new Error('保存された予定の更新番号を確認してください。');
@@ -133,8 +150,8 @@ export async function readCalendarEventRows(database: SQLiteDatabase, range?: Ca
   };
   const events = rows.map(row => {
     const value = read(row.definition_json, row.revision, previous?.events.get(row.id)); next.events.set(row.id, value);
-    const { allDayRange, ...source } = metadata.get(JSON.stringify([row.id, ''])) ?? {};
-    return { ...copy(value.value!), ...(allDayRange ? { ...allDayRange, allDay: true } : {}), ...source, id: row.id, revision: row.revision };
+    const { longRange, ...source } = metadata.get(JSON.stringify([row.id, ''])) ?? {};
+    return { ...copy(value.value!), ...longRange, ...source, id: row.id, revision: row.revision };
   });
   const projectedExceptions = exceptions.map(row => {
     const key = `${row.event_id}:${row.anchor_date}`; parseLocalDate(row.anchor_date);

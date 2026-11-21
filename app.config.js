@@ -2,18 +2,26 @@ module.exports = ({ config }) => {
   const storeDistribution = process.env.EAS_BUILD_PROFILE === 'production' || process.env.LIFLOW_DISTRIBUTION === 'store';
   if (storeDistribution) {
     if (process.env.EXPO_PUBLIC_LIFLOW_SUBSCRIPTIONS !== 'required') throw new Error('Store builds require verified LiFlow subscriptions.');
+    if (process.env.EXPO_PUBLIC_APPLIANCE_NATIVE_PROOF !== 'required') throw new Error('Store builds require appliance app attestation.');
+    if (process.env.EAS_BUILD_PLATFORM !== 'ios' && !/^[0-9]{6,20}$/.test(process.env.EXPO_PUBLIC_APPLIANCE_PLAY_PROJECT_NUMBER ?? '')) {
+      throw new Error('Android builds require the Play Integrity project number.');
+    }
     for (const field of ['EXPO_PUBLIC_APPLE_SUBSCRIPTION_PRODUCT_ID', 'EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_PRODUCT_ID',
       'EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_BASE_PLAN_ID', 'EXPO_PUBLIC_SUBSCRIPTION_PUBLIC_KEY',
-      'EXPO_PUBLIC_APPLIANCE_CARE_API_URL', 'EXPO_PUBLIC_LIFLOW_TERMS_URL', 'EXPO_PUBLIC_LIFLOW_PRIVACY_URL']) {
+      'EXPO_PUBLIC_APPLIANCE_CARE_API_URL', 'EXPO_PUBLIC_APPLIANCE_CARE_UPLOAD_KEY', 'EXPO_PUBLIC_LIFLOW_TERMS_URL', 'EXPO_PUBLIC_LIFLOW_PRIVACY_URL',
+      'EXPO_PUBLIC_FIREBASE_API_KEY', 'EXPO_PUBLIC_FIREBASE_PROJECT_ID', 'EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN', 'EXPO_PUBLIC_FIREBASE_APP_ID',
+      'EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID', 'EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID']) {
       if (!process.env[field]?.trim()) throw new Error(`Store billing configuration is required: ${field}`);
     }
     if (!/^[a-f0-9]{64}$/.test(process.env.EXPO_PUBLIC_SUBSCRIPTION_PUBLIC_KEY)) throw new Error('Invalid subscription verification public key.');
+    if (!/^[a-f0-9]{64}$/.test(process.env.EXPO_PUBLIC_APPLIANCE_CARE_UPLOAD_KEY)) throw new Error('Invalid appliance manual encryption public key.');
     for (const field of ['EXPO_PUBLIC_APPLIANCE_CARE_API_URL', 'EXPO_PUBLIC_LIFLOW_TERMS_URL', 'EXPO_PUBLIC_LIFLOW_PRIVACY_URL']) {
       const url = new URL(process.env[field]);
-      if (url.protocol !== 'https:' || url.username || url.password || url.hash) throw new Error('Store services and legal links must use HTTPS.');
+      if (url.protocol !== 'https:' || url.username || url.password || url.hash || field === 'EXPO_PUBLIC_APPLIANCE_CARE_API_URL' && url.search) throw new Error('Store services and legal links must use HTTPS.');
     }
   }
   const appleTeamId = process.env.APPLE_TEAM_ID?.trim() || null;
+  const applianceAttest = process.env.EXPO_PUBLIC_APPLIANCE_NATIVE_PROOF === 'required';
   const appleSharingEnabled = process.env.EXPO_PUBLIC_APPLE_SHARING_ENABLED === 'true';
   if (appleTeamId && !/^[A-Z0-9]{10}$/.test(appleTeamId)) {
     throw new Error('APPLE_TEAM_ID must be a 10-character Apple development team ID.');
@@ -67,6 +75,8 @@ module.exports = ({ config }) => {
     ios: {
       ...config.ios,
       ...(appleTeamId ? { appleTeamId } : {}),
+      ...(applianceAttest ? { entitlements: { ...config.ios?.entitlements,
+        'com.apple.developer.devicecheck.appattest-environment': 'production' } } : {}),
       usesAppleSignIn: appleSharingEnabled,
     },
     plugins,

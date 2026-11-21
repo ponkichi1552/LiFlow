@@ -7,6 +7,9 @@ import { createFirebaseSubscriptionRuntime } from './firebase-subscription-runti
 import { createFirestoreEntitlementReader } from './firestore-subscription-store.mjs';
 import { readAnalysisQueueKeys } from './analysis-queue-input.mjs';
 import { readManualUploadKeyIds, readManualUploadPrivateKeys } from './manual-upload-server.mjs';
+import { configureAppleApplianceDevice } from './apple-appliance-device.mjs';
+import { configureAndroidApplianceDevice } from './android-appliance-device.mjs';
+import { createNativeDeviceAuthorization } from './native-device-authorization.mjs';
 
 export function createFirebasePublicRuntime(env = process.env, { worker = false } = {}) {
   const projectId = env.APPLIANCE_CARE_FIREBASE_PROJECT_ID;
@@ -47,6 +50,11 @@ export function createFirebasePublicRuntime(env = process.env, { worker = false 
     } });
   }
   const subscriptions = billingEnabled ? createFirebaseSubscriptionRuntime({ firestore, auth, env }) : undefined;
-  const access = createPublicApiAccess({ verifyIdToken: (token, checkRevoked) => auth.verifyIdToken(token, checkRevoked), store, subscriptions });
-  return Object.freeze({ ...access, uploadKeyIds, analysisQueueReady });
+  const ios = configureAppleApplianceDevice({ firestore, env });
+  const android = configureAndroidApplianceDevice({ firestore, env });
+  const nativeDevice = ios || android ? createNativeDeviceAuthorization({ secret: env.APPLIANCE_CARE_DEVICE_SECRET,
+    providers: { ...(ios ? { ios } : {}), ...(android ? { android } : {}) } }) : undefined;
+  const access = createPublicApiAccess({ verifyIdToken: (token, checkRevoked) => auth.verifyIdToken(token, checkRevoked),
+    verifyDevice: nativeDevice?.verifyDevice, store, subscriptions });
+  return Object.freeze({ ...access, uploadKeyIds, analysisQueueReady, nativeDevice });
 }

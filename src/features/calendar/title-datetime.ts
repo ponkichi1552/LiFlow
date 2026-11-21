@@ -201,14 +201,15 @@ export function calendarTitleLabel(title: string, referenceDate: LocalDate, shor
 
 type InferredField = 'startDate' | 'endDate' | 'startMinute' | 'endMinute' | 'allDay' | 'recurrence';
 /** Keep the title verbatim, restore removed automatic fields, and honor manual fields. */
-export function createTitleDateTimeInput(initial: EventDraft, today: LocalDate) {
+export function createTitleDateTimeInput(initial: EventDraft, today: LocalDate | ((timeZone: string) => LocalDate)) {
   const locked = new Set<InferredField>(initial.recurrence !== 'none' ? ['recurrence'] : []); let applied = false;
   const duration = Math.max(1, (stamp(initial.endDate) - stamp(initial.startDate)) / 60000 + initial.endMinute - initial.startMinute);
   return {
     manual(field: InferredField) { locked.add(field); },
     change(current: EventDraft, title: string, enabled: boolean): EventDraft {
       if (!enabled) return { ...current, title };
-      const parsed = parseTitleDateTime(title, today, locked.has('startDate') ? current.startDate : initial.startDate);
+      const reference = typeof today === 'function' ? today(current.timeZone) : today;
+      const parsed = parseTitleDateTime(title, reference, locked.has('startDate') ? current.startDate : initial.startDate);
       if (!parsed && !applied) return { ...current, title };
       applied = Boolean(parsed);
       const startDate = locked.has('startDate') ? current.startDate : parsed?.date ?? initial.startDate;

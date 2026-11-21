@@ -1,0 +1,11 @@
+*
+!src/
+!src/**
+!server/
+!server/account-device-api/
+!server/account-device-api/package.json
+!server/account-device-api/package-lock.json
+!server/account-device-api/src/
+!server/account-device-api/src/**
+**/.env*
+**/node_modules

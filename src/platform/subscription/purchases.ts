@@ -12,6 +12,7 @@ export const subscriptionPurchaseSnapshot = () => state;
 export function observeSubscriptionPurchases(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; }
 function publish(next: Partial<PurchaseState>) { state = { ...state, ...next }; for (const listener of listeners) { try { listener(); } catch { /* Store recovery must survive a failed view subscription. */ } } }
 const productId = () => Platform.OS === 'ios' ? process.env.EXPO_PUBLIC_APPLE_SUBSCRIPTION_PRODUCT_ID : process.env.EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_PRODUCT_ID;
+const CHECKOUT_HANDOFF_MS = 30_000;
 let current: { userId: string; ready: Promise<void>; flow: ReturnType<typeof createSubscriptionPurchaseFlow>;
   identity: object; catalogue: () => Promise<void>;
   receive: (purchase: IAP.Purchase) => Promise<void>; stop: () => void } | undefined;
@@ -42,7 +43,7 @@ export function startSubscriptionPurchases(userId: string): Promise<void> {
     const result = await flow.process(value);
     if (isCurrent()) publish({ busy: false, pending: result === 'pending', message: result === 'pending' ? 'ストアでの支払い確認を待っています。' : null });
   };
-  const updated = IAP.purchaseUpdatedListener(purchase => { void receive(purchase).catch(() => { if (isCurrent()) publish({ busy: false, message: '購入確認が終わっていません。購入時のアカウントで復元してください。' }); }); });
+  const updated = IAP.purchaseUpdatedListener(purchase => { void receive(purchase).catch(() => { if (isCurrent()) publish({ busy: false, pending: true, message: '購入確認が終わっていません。購入時のアカウントで復元してください。' }); }); });
   const errors = IAP.purchaseErrorListener(error => { if (isCurrent()) publish({ busy: false, pending: false, message: error.code === IAP.ErrorCode.UserCancelled ? null : '購入を確認できませんでした。もう一度お試しください。' }); });
   let cataloguePending: Promise<void> | undefined;
   const catalogue = () => {
@@ -97,9 +98,9 @@ export async function recoverSubscriptionPurchases(userId: string): Promise<void
   if (current?.userId !== userId) { await startSubscriptionPurchases(userId); return; }
   const session = current; await startSubscriptionPurchases(userId);
   if (current !== session || subscriptionSnapshot().userId !== userId) return;
-  const pending = await IAP.getAvailablePurchases({ alsoPublishToEventListenerIOS: false });
-  if (current === session) publish({ pending: false });
-  for (const purchase of pending.filter(item => item.productId === productId()).slice(0, 32)) {
+  const pending = (await IAP.getAvailablePurchases({ alsoPublishToEventListenerIOS: false }))
+    .filter(item => item.productId === productId()).slice(0, 32);
+  for (const purchase of pending) {
     if (current !== session || subscriptionSnapshot().userId !== userId) return;
     try { await session.receive(purchase); } catch { /* Keep unverified transactions unfinished for the next explicit restore. */ }
   }
@@ -111,6 +112,8 @@ export async function purchaseSubscription() {
   const ready = startSubscriptionPurchases(userId); const session = current;
   const isCurrent = () => current === session && subscriptionSnapshot().userId === userId;
   publish({ busy: true, message: null });
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let handoffTimedOut = false;
   try {
     await ready; if (!isCurrent()) return;
     await subscriptionRequest('status'); if (!isCurrent()) return;
@@ -118,13 +121,27 @@ export async function purchaseSubscription() {
     if (latest.entitlement && ['pending', 'onHold'].includes(latest.entitlement.body.status)) {
       publish({ busy: false, message: '購入元のストアで支払いを確認してください。' }); return;
     }
+    if (!(latest.purchaseStores?.[Platform.OS === 'ios' ? 'apple' : 'google'])) {
+      publish({ busy: false, message: 'このストアの購入は準備中です。' }); return;
+    }
     if (!state.product || !latest.account || latest.userId !== userId) throw new Error('購入情報を確認できません。');
-    await IAP.requestPurchase({ type: 'subs', request: Platform.OS === 'ios'
+    const handoff = IAP.requestPurchase({ type: 'subs', request: Platform.OS === 'ios'
       ? { apple: { sku: state.product.productId, appAccountToken: latest.account.appAccountToken } }
       : { google: { skus: [state.product.productId], obfuscatedAccountId: latest.account.obfuscatedAccountId,
         subscriptionOffers: [{ sku: state.product.productId, offerToken: state.product.offerToken! }] } } });
-    // A resolved request is not a verified purchase. The listener keeps the action pending until server confirmation.
-  } catch { if (isCurrent()) publish({ busy: false, message: '購入を確認できませんでした。再試行または復元してください。' }); }
+    await Promise.race([handoff, new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        handoffTimedOut = true;
+        reject(new Error('Store did not report the purchase result'));
+      }, CHECKOUT_HANDOFF_MS);
+    })]);
+    // Only verified callbacks grant access. Restore must be usable if the store
+    // accepted the request without ever reporting a result.
+    if (isCurrent() && state.busy) publish({ busy: false, pending: true, message: '購入結果を確認できない場合は、購入を復元してください。' });
+  } catch {
+    if (isCurrent() && state.busy) publish({ busy: false, pending: handoffTimedOut, message: '購入を確認できませんでした。再試行または復元してください。' });
+  }
+  finally { clearTimeout(timeout); }
 }
 export async function restoreSubscription() {
   if (state.busy) return;
@@ -135,17 +152,23 @@ export async function restoreSubscription() {
   try {
     await ready; if (!isCurrent()) return;
     await IAP.restorePurchases(); if (!isCurrent()) return;
-    const purchases = await IAP.getAvailablePurchases({ alsoPublishToEventListenerIOS: true });
+    const purchases = (await IAP.getAvailablePurchases({ alsoPublishToEventListenerIOS: false }))
+      .filter(item => item.productId === productId()).slice(0, 32);
     // Explicitly consume this result too: Android does not promise a new purchase callback for restore.
-    for (const purchase of purchases.filter(item => item.productId === productId()).slice(0, 32)) {
+    let unresolved = false;
+    for (const purchase of purchases) {
       if (!isCurrent()) return;
       try { await session!.receive(purchase); }
-      catch { /* A foreign or unverified receipt stays unfinished; continue to this account's receipts. */ }
+      catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'PURCHASE_ALREADY_BOUND')) unresolved = true;
+      }
     }
     if (!isCurrent()) return;
     await subscriptionRequest('status');
     if (!isCurrent()) return;
-    publish({ message: subscriptionSnapshot().phase === 'active' ? null : 'このアカウントの有効な購入は見つかりませんでした。' });
+    const active = subscriptionSnapshot().phase === 'active';
+    const pending = !active && (unresolved || purchases.some(purchase => purchase.purchaseState === 'pending'));
+    publish({ pending, message: active ? null : pending ? '支払いを確認できていません。ストアの購入状況を確認してください。' : 'このアカウントの有効な購入は見つかりませんでした。' });
   } catch { if (isCurrent()) publish({ message: '購入を復元できませんでした。購入時のアカウントと通信状態を確認してください。' }); }
   finally { if (isCurrent()) publish({ busy: false }); }
 }

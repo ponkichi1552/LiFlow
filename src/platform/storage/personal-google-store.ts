@@ -8,6 +8,7 @@ import type { EventDraft } from '../../domain/calendar/events';
 import { googleEventBody } from '../../features/calendar/google-event-mapping.ts';
 import { GoogleEventExpansionRequired, googleImportedEvent } from '../../features/calendar/google-event-import.ts';
 import { googleOwnedFields } from '../../features/calendar/google-owned-fields.ts';
+import { googleCalendarInstant, googleSourceTimeZone } from '../../features/calendar/import-formatter.ts';
 import type { GoogleCalendarEvent, GoogleCalendarListEntry } from '../google-calendar/calendar-api';
 import { canWriteGoogleCalendar } from '../google-calendar/calendar-api.ts';
 import type { PersonalGoogleCalendarControl } from './personal-google-calendar';
@@ -29,15 +30,18 @@ export interface PersonalGoogleWriteIntent {
 export interface PersonalGoogleItem {
   eventId: string; anchor: string; revision: number; value: EventDraft | null; link: PersonalGoogleLink | null;
   inheritedRemoteJson?: string | null;
+  detached?: boolean;
 }
 interface StoredGoogleItem { definition_json: string; revision: number; deleted: number; override_json?: string | null; exception_revision?: number | null }
 function projectStoredGoogleItem(master: StoredGoogleItem, eventId: string, anchor: string): PersonalGoogleItem {
   const value = validateEventDraft(JSON.parse(master.definition_json));
   if (!anchor) return { eventId, anchor, revision: master.revision, value: master.deleted ? null : value, link: null };
   const hasInstance = master.exception_revision !== null && master.exception_revision !== undefined;
+  const override = hasInstance && master.override_json ? JSON.parse(master.override_json) : null;
   const original = !hasInstance && !master.deleted ? calendarOccurrenceAt(value, eventId, anchor as LocalDate) : null;
   return { eventId, anchor, revision: hasInstance ? master.exception_revision! : -master.revision,
-    value: master.deleted ? null : hasInstance ? master.override_json ? validateEventDraft(JSON.parse(master.override_json)) : null : original, link: null };
+    value: master.deleted ? null : hasInstance ? override ? validateEventDraft(override) : null : original, link: null,
+    ...(override?._retainedOccurrence === true ? { detached: true } : {}) };
 }
 /** Old display expansion hid the parent without recording its local baseline.
  * This exact legacy combination cannot be edited through the read-only UI. */
@@ -117,7 +121,9 @@ export async function listPersonalGoogleItems(tx: SQLiteDatabase, control: Perso
       AND NOT EXISTS(SELECT 1 FROM calendar_google_links i WHERE i.subject=l.subject AND i.event_id=x.event_id AND i.anchor_date=x.anchor_date)`, control.subject);
   for (const row of exceptions) {
     if (!calendarIds.has(row.calendar_id)) continue;
-    const item = projectStoredGoogleItem(row, row.event_id, row.exception_anchor); result.push({ ...item, link: { ...row, anchor_date: row.exception_anchor, google_id: '', local_revision: 0, base_json: null, etag: null, remote_json: null } });
+    const item = projectStoredGoogleItem(row, row.event_id, row.exception_anchor); result.push({ ...item,
+      link: { ...row, anchor_date: row.exception_anchor, google_id: '', local_revision: 0, base_json: null, etag: null, remote_json: null,
+        pending_json: null, local_base_json: null } });
   }
   return result;
 }
@@ -177,16 +183,21 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
   const remoteBody = googleOwnedFields(source);
   const readOnly = !canWriteGoogleCalendar(calendar) || options.expanded === true || remote.locked === true || remote.eventType === 'birthday'
     || calendar.accessRole === 'writerWithoutPrivateAccess' && remote.visibility === 'private';
+  const sourceZone = (event: Pick<GoogleCalendarEvent, 'start'> | null | undefined) => googleSourceTimeZone(event, calendar.timeZone);
+  const remoteZone = sourceZone(remote);
+  let savedZone = sourceZone(known?.remote_json ? JSON.parse(known.remote_json) as GoogleCalendarEvent : null);
   if (known?.pending_json && local) {
     const intent = JSON.parse(known.pending_json) as PersonalGoogleWriteIntent;
     const marker = (intent.payload.extendedProperties as GoogleCalendarEvent['extendedProperties'])?.private?.liflowPersonal;
-    if (remoteBody === intent.owned && (remote.status === 'cancelled' || marker && source.extendedProperties?.private?.liflowPersonal === marker)) {
+    if (remoteBody === intent.owned && (remote.status === 'cancelled' || marker && source.extendedProperties?.private?.liflowPersonal === marker
+      && remoteZone === sourceZone(intent.payload))) {
       // This is evidence for the exact request that was sent, not for a later edit.
       // Preserve that later revision until it has its own Google acknowledgement.
       known = { ...known, base_json: remoteBody, local_base_json: personalGoogleLocalBaseline(intent.localOwned ?? intent.owned, known.local_base_json), local_revision: intent.revision,
         etag: remote.etag ?? known.etag, remote_json: JSON.stringify(source), pending_json: null };
+      savedZone = remoteZone;
       await writePersonalGoogleLink(tx, known);
-    } else if (remoteBody === known.base_json) return 'unchanged';
+    } else if (remoteBody === known.base_json && remoteZone === savedZone) return 'unchanged';
     else {
       await writePersonalGoogleLink(tx, { ...known, etag: remote.etag ?? known.etag, remote_json: JSON.stringify(source),
         conflict_json: JSON.stringify({ revision: local.revision, remote: remoteBody, etag: remote.etag ?? null }) });
@@ -238,12 +249,15 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
   const comparableRemoteBody = originalTitle === undefined ? remoteBody : googleOwnedFields({ ...source, summary: originalTitle });
   const localChanged = Boolean(known?.base_json && local && local.revision !== known.local_revision && localBody !== personalGoogleComparableBaseline(known.local_base_json ?? known.base_json)
     && !await isLegacyHiddenGoogleParent(tx,known,local));
-  if (known && local && localChanged && remoteBody !== known.base_json && localBody !== comparableRemoteBody) {
+  const priorZone = savedZone ?? local?.value?.timeZone;
+  const explicitZoneChange = !options.expanded && remoteZone !== undefined && priorZone !== undefined && remoteZone !== priorZone;
+  if (known && local && localChanged && (remoteBody !== known.base_json || explicitZoneChange)
+    && (localBody !== comparableRemoteBody || explicitZoneChange && remoteZone !== local.value?.timeZone)) {
     await writePersonalGoogleLink(tx, { ...known, etag: remote.etag ?? known.etag, remote_json: JSON.stringify(source), read_only: Number(readOnly),
       conflict_json: JSON.stringify({ revision: local.revision, remote: remoteBody, etag: remote.etag ?? null }) }); return 'applied';
   }
   // A remote edit to attendees/reminders alone must not overwrite a pending local content edit.
-  const pending = localChanged && remoteBody === known?.base_json;
+  const pending = localChanged && remoteBody === known?.base_json && !explicitZoneChange;
   let body: EventDraft | null = null;
   if (remote.status !== 'cancelled') {
     try { body = googleImportedEvent(remote, local?.value?.categoryId ?? await category(tx, control, calendar), calendar.timeZone ?? 'UTC', Boolean(anchor) || options.expanded); }
@@ -259,8 +273,10 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
   // today's visible fields match. Keep that boundary for later series edits.
   const missingInstance = Boolean(anchor && local && local.revision < 0);
   const projectionMoved = known && (known.event_id !== eventId || known.anchor_date !== anchor);
-  const unchangedProjection = local && known?.base_json === remoteBody && !localChanged && !missingInstance && !projectionMoved;
-  if (!pending && !unchangedProjection && (localBody !== comparableRemoteBody || missingInstance)) {
+  const acceptedGoogleConflict = known?.base_json === null && known.local_revision === local?.revision;
+  const zoneProjectionChanged = body && local?.value && (explicitZoneChange || acceptedGoogleConflict) && body.timeZone !== local.value.timeZone;
+  const unchangedProjection = local && known?.base_json === remoteBody && !localChanged && !missingInstance && !projectionMoved && !zoneProjectionChanged;
+  if (!pending && !unchangedProjection && (localBody !== comparableRemoteBody || missingInstance || zoneProjectionChanged)) {
     if (!body && !local) return 'ignored';
     modified = true;
     if (anchor) {
@@ -285,7 +301,7 @@ export async function receivePersonalGoogleEvent(tx: SQLiteDatabase, control: Pe
   return modified ? 'applied' : 'unchanged';
 }
 /** Read-only fallback for seconds/folds/long text. Exact raw Google content stays in the private link. */
-export function googleReadOnlyInstance(remote: GoogleCalendarEvent): GoogleCalendarEvent {
+export function googleReadOnlyInstance(remote: GoogleCalendarEvent, fallbackZone = 'UTC'): GoogleCalendarEvent {
   const value = { ...remote, summary: String(remote.summary ?? '').trim().slice(0, 160) || '予定', location: String(remote.location ?? '').slice(0, 300), description: String(remote.description ?? '').slice(0, 4000), eventType: 'default', recurrence: undefined };
   // EventDraft intentionally limits editable spans. Keep a bounded private row
   // for storage while calendar-event-rows restores the exact all-day end date
@@ -296,11 +312,15 @@ export function googleReadOnlyInstance(remote: GoogleCalendarEvent): GoogleCalen
     if (end > start && daysBetween(start, end) > 367) value.end = { date: addDays(start, 367) };
   }
   for (const field of ['start', 'end'] as const) {
-    const at = remote[field]?.dateTime; if (!at) continue;
-    const parsed = Date.parse(at); if (!Number.isFinite(parsed)) throw new Error('Googleの予定日時を確認してください。');
+    if (!remote[field]?.dateTime) continue;
+    const parsed = googleCalendarInstant(remote[field], fallbackZone); if (!Number.isFinite(parsed)) throw new GoogleEventExpansionRequired('Googleの予定日時を確認してください。');
     // Round outwards for display/availability, never export this representation.
     const rounded = (field === 'start' ? Math.floor(parsed / 60000) : Math.ceil(parsed / 60000)) * 60000;
     value[field] = { dateTime: new Date(rounded).toISOString(), timeZone: 'UTC' };
+  }
+  if (value.start?.dateTime && value.end?.dateTime) {
+    const start = value.start.dateTime.slice(0, 10) as LocalDate; const end = value.end.dateTime.slice(0, 10) as LocalDate;
+    if (daysBetween(start, end) > 366) value.end = { dateTime: `${addDays(start, 366)}${value.end.dateTime.slice(10)}`, timeZone: 'UTC' };
   }
   return value;
 }

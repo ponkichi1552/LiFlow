@@ -24,11 +24,14 @@ export function createPrivateCalendarConnectionController(port: PrivateCalendarC
   beforePairing?(authority: VerifiedPrivateCalendarAuthority, control: PrivateCalendarWorkControl): Promise<void>;
 }) {
   const { userId, secrets, store, cloud, pairing, authoritySync, now = Date.now } = port;
-  async function record(codeText: string, control: PrivateCalendarWorkControl = {}) {
+  async function readRecord(codeText: string, control: PrivateCalendarWorkControl = {}) {
     const code = decodeConnectionCode(codeText); await port.assertOwner();
     const remote = await privateCalendarWork(() => cloud.read(code.grant.body.codeId, control.assertBudget), control); await port.assertOwner();
-    if (!remote || canonicalJson(remote.grant) !== canonicalJson(code.grant)) throw new Error('接続コードが見つからないか、発行元が異なります。');
+    if (remote && canonicalJson(remote.grant) !== canonicalJson(code.grant)) throw new Error('接続コードの発行元が異なります。');
     return { code, remote };
+  }
+  function ownClaim({ code, remote }: Awaited<ReturnType<typeof readRecord>>, request: Parameters<typeof connectionClaim>[1]) {
+    return Boolean(remote?.claim && canonicalJson(remote.claim) === canonicalJson(connectionClaim(code, request)));
   }
   function sameClaim(remote: PrivateCalendarConnectionRecord, codeText: string) {
     if (!remote.claim) throw new Error('接続する端末がありません。');
@@ -75,7 +78,14 @@ export function createPrivateCalendarConnectionController(port: PrivateCalendarC
       if (before.state.joining?.code === text.trim()) {
         await privateCalendarWork(() => cloud.claim(code.grant, connectionClaim(code, before.state.joining!.request), control.assertBudget), control); return;
       }
-      if (before.state.joining && decodeConnectionCode(before.state.joining.code).grant.body.expiresAt > now()) throw new Error('別の端末との接続を処理中です。');
+      if (before.state.joining) {
+        const candidate = await readRecord(before.state.joining.code, control);
+        const active = candidate.code.grant.body.expiresAt > now();
+        const alreadyClaimed = ownClaim(candidate, before.state.joining.request);
+        if ((active || candidate.remote?.state === 'complete') && alreadyClaimed || active && candidate.remote?.state === 'open') {
+          throw new Error('別の端末との接続を処理中です。');
+        }
+      }
       const candidate = await pairing.prepareConfirmedReference(b.reference, async authority => {
         verifyConnectionGrant(code.grant, authority, userId, now());
         await port.beforePairing?.(authority, control);
@@ -91,8 +101,14 @@ export function createPrivateCalendarConnectionController(port: PrivateCalendarC
         if (!issued.acceptedRequestDigest && decoded.grant.body.expiresAt <= now()) {
           saved = await store.save(saved.revision, { ...saved.state, issued: null });
         } else {
-          assertPrivateCalendarWork(control); const { code, remote } = await record(issued.code, control); assertPrivateCalendarWork(control);
-          if (remote.claim) {
+          assertPrivateCalendarWork(control); const { code, remote } = await readRecord(issued.code, control); assertPrivateCalendarWork(control);
+          if (!remote) {
+            if (!issued.acceptedRequestDigest) {
+              await privateCalendarWork(() => cloud.create(code.grant, control.assertBudget), control);
+            } else {
+              saved = await store.save(saved.revision, { ...saved.state, issued: null });
+            }
+          } else if (remote.claim) {
             const claim = sameClaim(remote, issued.code), digest = connectionRequestDigest(claim);
             if (issued.acceptedRequestDigest && issued.acceptedRequestDigest !== digest) throw new Error('接続する端末が更新されています。');
             if (!issued.acceptedRequestDigest) {
@@ -115,14 +131,16 @@ export function createPrivateCalendarConnectionController(port: PrivateCalendarC
       }
       const joining = saved.state.joining;
       if (joining) {
-        assertPrivateCalendarWork(control); const { remote } = await record(joining.code, control); assertPrivateCalendarWork(control);
-        if (remote.claim) {
-          const claim = sameClaim(remote, joining.code);
-          if (canonicalJson(claim.request) !== canonicalJson(joining.request)) throw new Error('この接続コードは別の端末で使用されています。');
-          if (remote.state === 'complete') {
-            const joined = await pairing.join(control); assertPrivateCalendarWork(control);
-            if (joined.kind === 'ready') await store.save(saved.revision, { ...saved.state, joining: null });
-          }
+        assertPrivateCalendarWork(control);
+        const record = await readRecord(joining.code, control);
+        const { code, remote } = record;
+        if (remote?.state === 'open' && code.grant.body.expiresAt > now()) {
+          await privateCalendarWork(() => cloud.claim(code.grant, connectionClaim(code, joining.request), control.assertBudget), control);
+        } else if (!ownClaim(record, joining.request)) {
+          await store.save(saved.revision, { ...saved.state, joining: null });
+        } else if (remote?.state === 'complete') {
+          const joined = await pairing.join(control); assertPrivateCalendarWork(control);
+          if (joined.kind === 'ready') await store.save(saved.revision, { ...saved.state, joining: null });
         }
       }
       await port.assertOwner();

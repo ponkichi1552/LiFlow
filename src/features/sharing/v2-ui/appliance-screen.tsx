@@ -57,8 +57,9 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   const [manual, setManual] = useState<ManualSelection>(); const manualRef = useRef<ManualSelection | undefined>(undefined);
   const [picking, setPicking] = useState(false); const pickingRef = useRef(false);
   const retainedDigest = currentWork?.manualDigest ?? starting?.analysis.manualSource?.sha256;
-  const [chosen, setChosen] = useState<string[]>([]); const chosenRef = useRef(chosen);
-  const [reviewed, setReviewed] = useState(false); const reviewedRef = useRef(false);
+  const [selection, setSelection] = useState<{ key: string; names: string[] }>();
+  const selectionRef = useRef<typeof selection>(undefined);
+  const [reviewedKey, setReviewedKey] = useState<string>(); const reviewedRef = useRef<string | undefined>(undefined);
   const [candidateId, setCandidateId] = useState<string | null>(null); const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null); const [pendingRead, setPendingRead] = useState(false);
   const [saved, setSaved] = useState<V2ApplianceReviewResult | null>(null); const savedRef = useRef<V2ApplianceReviewResult | null>(null);
@@ -66,14 +67,18 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   const working = useRef(false);
   const analyzing = startingWork || analysisWork?.state === 'pending';
   const locked = busy || pendingRead || analyzing;
-  const check = (value: boolean) => { reviewedRef.current = value; setReviewed(value); };
+  const reviewKey = mode === 'applianceReview' ? currentWork && response ? JSON.stringify([model.viewerUserId, model.plan.groupId, currentWork.id]) : undefined
+    : detail ? JSON.stringify([model.viewerUserId, model.plan.groupId, detail.row.selection, candidateId ?? null]) : undefined;
+  const reviewed = Boolean(reviewKey && reviewedKey === reviewKey);
+  const chosen = selection?.key === reviewKey ? selection?.names ?? [] : [];
+  const check = (value: boolean) => { reviewedRef.current = value ? reviewKey : undefined; setReviewedKey(reviewedRef.current); };
   const analyze = async () => {
     if (working.current || locked || pickingRef.current || savedRef.current || invalidManual) return;
     if (model.manualStorageSupported === false) { setError('解析前に、グループ管理で互換更新を行ってください。'); return; }
     if (!canAnalyze || !personalDatabase) { setError('ログインと正規端末の確認が済むまで家電AIは利用できません。'); return; }
     if (applianceId && !basis) { setError('再解析する家電を表示できません。'); return; }
     working.current = true;
-    setStartingWork(true); check(false); setError(null); setSaved(null); chosenRef.current = []; setChosen([]);
+    setStartingWork(true); check(false); setError(null); setSaved(null); selectionRef.current = undefined; setSelection(undefined);
     try {
       const stored = !manualRef.current && retainedDigest ? await readApplianceManual(personalDatabase, retainedDigest) : null;
       const submitted = manualRef.current ?? (stored && { input: { base64: stored, rightsConfirmed: true as const }, filename: currentWork?.filename });
@@ -101,7 +106,7 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
     finally { working.current = false; }
   };
   const save = (review: V2ApplianceReview) => execute(async () => {
-    if (!reviewedRef.current) throw new Error(review.result.product.modelNumber === null
+    if (!reviewKey || reviewedRef.current !== reviewKey) throw new Error(review.result.product.modelNumber === null
       ? '製品情報・手順・注意事項を確認してください。' : 'メーカー・型番・手順・注意事項を確認してください。');
     let selectedManual: UploadedManualInput | undefined;
     if (mode === 'applianceReview' && currentWork && review.result.analysis.manualSource) {
@@ -183,7 +188,12 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
       {mode === 'applianceReview' ? <View style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         <Text style={[body, { flex: 1 }]}>無効の共有家事として追加</Text>
         <SettingsCheckbox accessibilityLabel={`「${task.name}」を無効の共有家事として追加`} value={chosen.includes(task.name)} disabled={locked}
-          onValueChange={() => { chosenRef.current = chosenRef.current.includes(task.name) ? chosenRef.current.filter(name => name !== task.name) : [...chosenRef.current, task.name]; setChosen(chosenRef.current); }} /></View>
+          onValueChange={() => {
+            if (!reviewKey) return;
+            const before = selectionRef.current?.key === reviewKey ? selectionRef.current.names : [];
+            const names = before.includes(task.name) ? before.filter(name => name !== task.name) : [...before, task.name];
+            selectionRef.current = { key: reviewKey, names }; setSelection(selectionRef.current);
+          }} /></View>
         : null}
     </View>} />;
   const bookFooter = analysis ? <View style={{ gap: 14 }}>
@@ -198,7 +208,8 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
       </> : null}
       {mode === 'applianceReview' && response && !saved ? <><Text numberOfLines={1} style={caption}>{currentWork?.filename ?? '保存した取扱説明書PDF'}</Text>
         {reviewToggle}<AppButton title="確認した解析結果を共有する" disabled={locked || !reviewed}
-        onPress={() => void save({ reviewed: true, result: response, addTaskNames: chosenRef.current, ...currentWork?.basis })} /></> : null}
+        onPress={() => void save({ reviewed: true, result: response,
+          addTaskNames: selectionRef.current?.key === reviewKey ? selectionRef.current?.names ?? [] : [], ...currentWork?.basis })} /></> : null}
       {mode === 'appliance' && appliance && detail?.row.needsReview ? <>{reviewToggle}<AppButton title={detail.source.kind === 'conflict' ? 'この候補で競合を解決' : '確認した内容で家電を残す'} disabled={locked || !reviewed}
         onPress={() => void save({ reviewed: true, result: responseFor(appliance), addTaskNames: [], selection: detail.row.selection, reviewedDisplayName: appliance.displayName,
           ...(detail.source.kind === 'conflict' ? { resolveOperationIds: detail.candidates.map(candidate => candidate.operationId) } : {}),

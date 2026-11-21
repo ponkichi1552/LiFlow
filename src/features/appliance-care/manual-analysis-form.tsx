@@ -19,7 +19,7 @@ export function ManualAnalysisForm({ retained, filename, disabled, inputDisabled
       <Text style={[typography.caption, { color: palette.muted }]}>解析するとPDFをAI提供元へ送信します。{shared ? '確認して保存したPDFと解析結果はグループに共有されます。' : 'PDFと解析結果は個人用に保存します。'}</Text>
       <ManualUploadInput retained={retained} filename={filename} disabled={working || inputDisabled} needsReplacement={invalidManual} onPickingChange={onPickingChange} onChange={onManual} />
     </SettingsGroup>
-    <ApplianceAiAccount disabled={working} onReady={onReady} remainingOverride={usage?.remaining} />
+    <ApplianceAiAccount disabled={working} onReady={onReady} usageOverride={usage} />
     {!invalidManual ? <SettingsAction intent="primary" placement="page" compact={false} title={working ? '解析しています…' : reanalysis ? 'PDFを再解析' : 'PDFを解析'}
       disabled={disabled || !canAnalyze || working || picking} onPress={onAnalyze} /> : null}
     {working ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><ActivityIndicator color={palette.accent} />

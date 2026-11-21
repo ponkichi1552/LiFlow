@@ -34,6 +34,29 @@ registerHooks({ resolve(specifier, context, nextResolve) {
 const { analyzeApplianceCareRequest, abortApplianceWait, isApplianceCareUsage } = await import('../src/features/appliance-care/api-client.ts');
 const request = { manufacturer: 'Dyson', productName: 'V12', modelNumber: 'SV20' };
 
+test('an old local analysis can receive a later server admission but never uploads again after a lookup miss', async t => {
+  const original = globalThis.fetch; t.after(() => { globalThis.fetch = original; });
+  const sent = []; const jobId = 'b'.repeat(64); let accepted = true; const completed = [];
+  const inbox = { read: async () => null, pending: async () => [], admission: async (_owner, _key, id) => ({ id, jobId: null }),
+    recordJob: async () => {}, completeAdmission: async (_owner, _key, id) => { completed.push(id); } };
+  globalThis.fetch = async (url, options) => {
+    sent.push([new URL(url).pathname, options.method, options.headers['x-idempotency-key']]);
+    assert.equal(options.method, 'GET');
+    if (url.endsWith('/admission')) return accepted ? Response.json({ jobId }) : Response.json({ status: 'error', code: 'ADMISSION_NOT_FOUND', message: '合成した未受付' }, { status: 404 });
+    assert.ok(url.endsWith(jobId));
+    return Response.json({ status: 'ready', done: true, stage: 'official_manual_analysis', result: { status: 'not_found', message: '合成した有効な結果' } });
+  };
+  const run = id => analyzeApplianceCareRequest({ identifyFromManual: true, manual: syntheticManual(), forceReanalysis: true }, 'https://api.example.test', 1000, undefined, undefined, inbox,
+    { owner: 'synthetic-owner', id, manualDigest: 'a'.repeat(64), resuming: true, recoveryOnly: true });
+  assert.equal((await run('synthetic-old-local-accepted')).status, 'not_found');
+  accepted = false;
+  assert.equal((await run('synthetic-old-local-missing')).code, 'JOB_NOT_FOUND');
+  assert.equal(sent.length, 3);
+  assert.equal(sent[0][2], 'synthetic-old-local-accepted');
+  assert.equal(sent[2][2], 'synthetic-old-local-missing');
+  assert.deepEqual(completed, ['synthetic-old-local-accepted', 'synthetic-old-local-missing']);
+});
+
 function configureManualUpload(t) {
   const previous = process.env.EXPO_PUBLIC_APPLIANCE_CARE_UPLOAD_KEY;
   t.after(() => {

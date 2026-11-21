@@ -81,7 +81,8 @@ test('native entry defines background work before Router can mount any screens',
   const backgroundMocks = {
     './background-audit': { createBackgroundAudit },
     'expo-background-task': { BackgroundTaskResult: { Success: 'success', Failed: 'failed' } },
-    'expo-task-manager': { defineTask: (name, run) => { events.push(`define:${name}`); tasks.set(name, run); } },
+    'expo-task-manager': { defineTask: (name, run) => { events.push(`define:${name}`); tasks.set(name, run); },
+      isAvailableAsync: async () => true, isTaskRegisteredAsync: async () => true },
     'expo-sqlite': { openDatabaseAsync: async (_name, options) => { assert.equal(options.useNewConnection, true); return { closeAsync: async () => { events.push('close'); } }; } },
     '@/platform/google-calendar/personal-runtime': { nativePersonalGoogleCalendar: () => ({ sync: async () => ({ kind: 'skipped' }) }) },
     './background-work': { personalCalendarHasPendingWork: async () => true },
@@ -92,6 +93,7 @@ test('native entry defines background work before Router can mount any screens',
       loadGoogleSyncState: async () => ({ enabled: true }) },
     '../../platform/subscription/runtime': { subscriptionRequired: false },
     '../../platform/appliance-care/analysis-work': { currentAnalysisOwner: async () => 'owner',
+      hasNativeAnalysisBackgroundWork: async () => true,
       resumeAnalysisWork: async (_database, owner, options) => {
         assert.equal(owner, 'owner'); assert.deepEqual(options, { timeoutMs: 20_000 });
         events.push('resume-analysis'); return true;
@@ -114,6 +116,34 @@ test('native entry defines background work before Router can mount any screens',
   assert.equal(await tasks.get(applianceTask)({}), 'success');
   assert.deepEqual(events.slice(-3), ['resume-analysis', 'recover-receipts', 'close']);
   for (const run of tasks.values()) assert.equal(await run({ error: { message: 'OS error' } }), 'failed');
+});
+
+test('background keeps receipt recovery registered after a paid subscription expires and across a stale account callback', async () => {
+  let callback; let owner = 'a'; let waiting = true; let fail = false; let changeAccount = false; let close = 0; let receipts = 0; let unregistered = 0;
+  load('src/features/appliance-care/analysis-background-task.ts', {
+    'expo-task-manager': { defineTask: (_name, run) => { callback = run; }, isAvailableAsync: async () => true, isTaskRegisteredAsync: async () => true },
+    'expo-background-task': { BackgroundTaskResult: { Success: 'success', Failed: 'failed' }, unregisterTaskAsync: async () => { unregistered++; } },
+    'expo-sqlite': { openDatabaseAsync: async () => ({ closeAsync: async () => { close++; } }) },
+    '../../platform/subscription/runtime': { subscriptionRequired: true, subscriptionAccessDeadline: async () => 0 },
+    '../../platform/appliance-care/analysis-work': { currentAnalysisOwner: async () => owner,
+      hasNativeAnalysisBackgroundWork: async (_db, selected, mayAnalyze) => { assert.equal(selected, owner); assert.equal(mayAnalyze, false); return waiting; },
+      resumeAnalysisWork: async () => { assert.fail('No paid analysis after expiry'); } },
+    '../../platform/storage/analysis-deliveries': { deviceAnalysisDeliveries: database => database },
+    '../../platform/appliance-care/receipt-recovery': { recoverNativeAnalysisReceipts: async (_store, scope) => {
+      assert.deepEqual(scope, { expectedOwner: 'a', background: true }); receipts++;
+      if (changeAccount) owner = 'b';
+      if (fail) throw new Error('offline');
+      return waiting ? { retryAt: Date.now() + 1000 } : false;
+    } },
+  });
+  assert.equal(await callback({}), 'success'); assert.equal(unregistered, 0);
+  fail = true;
+  assert.equal(await callback({}), 'failed'); assert.equal(unregistered, 0);
+  fail = false; waiting = false; changeAccount = true;
+  assert.equal(await callback({}), 'success'); assert.equal(unregistered, 0);
+  owner = 'a'; changeAccount = false;
+  assert.equal(await callback({}), 'success'); assert.equal(unregistered, 1);
+  assert.equal(receipts, 4); assert.equal(close, 4);
 });
 
 test('background tasks close their SQLite connection after a sync failure without mounting UI', async () => {
