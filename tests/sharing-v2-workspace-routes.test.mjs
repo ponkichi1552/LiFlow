@@ -17,8 +17,9 @@ const idleWork = new Map(); let idleId = 0;
 globalThis.requestIdleCallback = work => { const id = ++idleId; idleWork.set(id, () => { idleWork.delete(id); work({ didTimeout: false, timeRemaining: () => 50 }); }); return id; };
 globalThis.cancelIdleCallback = id => idleWork.delete(id);
 
-async function fixture() {
-  const h = createDatabase(); let id = 0; let syncs = 0; let clock = () => new Date();
+async function fixture(initialTime) {
+  const h = createDatabase(); let id = 0; let syncs = 0;
+  let clock = initialTime ? () => new Date(initialTime) : () => new Date();
   const preview = await createV2DevelopmentPreview({ development: true, crypto, makeId: () => `workspace-screen-${++id}`, now: () => clock(),
     openDatabase: async () => ({ database: h.database, close: async () => h.connection.close() }) });
   const name = (await preview.readModel({ management: true, groupPolicy: true })).groupSettings.name;
@@ -295,10 +296,12 @@ for (const platform of ['ios', 'android']) {
     } finally { f.dispose(); }
   });
   test(`${platform} shared home resume after midnight refreshes the same focused page without changing formal dates or outbox`, async () => {
-    const f = await fixture();
+    const f = await fixture('2026-10-31T14:59:00Z');
     try {
-      f.setNow('2026-10-31T14:59:00Z'); const r = await route(f, platform, 'index');
+      const r = await route(f, platform, 'index');
       const before = await f.preview.readModel(); const outbox = await listSharingOutbox(f.database, f.preview.groupId);
+      const initialAnchor = before.plan.occurrences[0]?.anchorDate;
+      assert.ok(initialAnchor, 'seed a formal occurrence before advancing past midnight');
       assert.ok(r.screen.text().includes('10月31日')); f.setNow('2026-10-31T15:01:00Z');
       assert.ok(f.appStateListeners.size > 0);
       const reads = f.calendarReads;
@@ -307,7 +310,7 @@ for (const platform of ['ios', 'android']) {
       assert.ok(r.screen.text().includes('2026年11月1日'), r.screen.text());
       assert.equal(f.calendarReads, reads + 1, 'duplicate foreground signals share one refresh');
       assert.equal(r.navigation.length, 0); assert.deepEqual(await listSharingOutbox(f.database, f.preview.groupId), outbox);
-      assert.equal((await f.preview.readModel()).plan.occurrences[0].anchorDate, before.plan.occurrences[0].anchorDate); r.leave?.();
+      assert.equal((await f.preview.readModel()).plan.occurrences[0]?.anchorDate, initialAnchor); r.leave?.();
     } finally { f.dispose(); }
   });
 }
