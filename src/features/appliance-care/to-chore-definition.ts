@@ -8,7 +8,7 @@ export interface ApplianceCareProductIdentity {
   applianceId: EntityId;
   manufacturer: string;
   productName: string;
-  modelNumber: string;
+  modelNumber: string | null;
   category?: string;
   officialProductUrl?: string;
   manualUrl: string;
@@ -42,7 +42,7 @@ export function toApplianceCareChore(
   const cycleRequired = userCycle === undefined && manufacturerCycle === undefined;
   const fallbackCycle = manufacturerCycle ?? 30;
   const selectedUserCycle = userCycle !== undefined && userCycle !== manufacturerCycle ? userCycle : undefined;
-  const applianceLabel = `${product.productName}（${product.modelNumber}）`;
+  const applianceLabel = product.modelNumber ? `${product.productName}（${product.modelNumber}）` : product.productName;
   const choreName = applianceCareChoreName(product, approved.task.name);
 
   return {
@@ -75,7 +75,7 @@ export function toApplianceCareChore(
     applianceCareSource: {
       manufacturer: product.manufacturer,
       productName: product.productName,
-      modelNumber: product.modelNumber,
+      modelNumber: product.modelNumber ?? '',
       ...(product.officialProductUrl ? { productUrl: product.officialProductUrl } : {}),
       manualUrl: product.manualUrl,
       analyzedAt: analysis.analyzedAt,

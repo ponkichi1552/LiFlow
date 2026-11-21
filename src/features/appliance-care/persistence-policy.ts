@@ -122,7 +122,7 @@ export function planReviewedApplianceSave(options: {
     productName: product.productName, modelNumber: product.modelNumber, category: product.category,
     displayName: applianceDisplayName(product), officialProductUrl: product.officialProductUrl, officialManualUrl: product.manualUrl,
     analysis, createdAt: existing?.createdAt ?? options.now, updatedAt: options.now };
-  const previous = allChores.filter((chore) => chore.applianceId === applianceId || (!chore.applianceId
+  const previous = allChores.filter((chore) => chore.applianceId === applianceId || (!chore.applianceId && product.modelNumber
     && chore.applianceCareSource?.manufacturer === product.manufacturer && chore.applianceCareSource.productName === product.productName
     && chore.applianceCareSource.modelNumber === product.modelNumber));
   const matchedIds = new Set<string>(); const definitions = new Map<string, ChoreDefinition>(); const newChoreIds = new Set<string>();

@@ -2,6 +2,9 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { once } from 'node:events';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { publicStoreFixture } from './helpers/appliance-public-store.mjs';
 import { createFirestoreUsageStore } from '../server/appliance-care-api/src/firestore-usage-store.mjs';
 import { createPublicApiAccess, publicKey, PUBLIC_API_POLICY } from '../server/appliance-care-api/src/public-access.mjs';
@@ -11,10 +14,82 @@ import { createDatabase } from './helpers/sqlite.mjs';
 import { loadNativeModule } from './helpers/native-module.mjs';
 import * as manualDocument from '../src/features/appliance-care/manual-document.ts';
 import { syntheticManual } from './helpers/synthetic-pdf.mjs';
+import { applianceResult, withUploadedManual } from './helpers/sharing-v2-appliance.mjs';
+import * as workPolicy from '../src/features/appliance-care/analysis-work.ts';
+import { storeApplianceManualInside } from '../src/platform/storage/appliance-manual-storage.ts';
 
 const principal = uid => ({ uid, anonymous: false, deviceId: publicKey(uid), installationId: 'synthetic-installation-001' });
 const input = uid => ({ principal: principal(uid), requestKey: 'synthetic-result', idempotencyKey: 'synthetic-delivery-attempt' });
 const output = { status: 'not_found', message: '合成した解析結果' };
+
+test('pending analysis result, PDF and receipt survive cold reopen without sharing or a second upload', async t => {
+  const folder = await mkdtemp(join(tmpdir(), 'liflow-analysis-db-'));
+  const path = join(folder, 'test.sqlite');
+  const ports = {
+    './repository.ts': { withPlannerDatabaseOperation: (_database, work) => work() },
+    './isolated-transaction.ts': { withIsolatedSqliteTransaction: async (database, work) => {
+      let value; await database.withTransactionAsync(async () => { value = await work(database); }); return value;
+    } },
+    './appliance-manual-storage.ts': { storeApplianceManualInside },
+  };
+  const storage = loadNativeModule('src/platform/storage/analysis-work.ts', { ...ports, '../../features/appliance-care/analysis-work.ts': workPolicy });
+  const { deviceAnalysisDeliveries } = loadNativeModule('src/platform/storage/analysis-deliveries.ts', { ...ports, './analysis-work.ts': storage });
+  let file = createDatabase(path);
+  t.after(async () => { file.connection.close(); await rm(folder, { recursive: true, force: true }); });
+  file.connection.exec('CREATE TABLE appliance_manual_documents (sha256 TEXT PRIMARY KEY, byte_length INTEGER, content_base64 TEXT)');
+  const owner = 'owner'; const groupId = 'group'; const applianceId = 'retained';
+  const target = { groupId, applianceId }; const id = 'one-paid-attempt'; const baseUrl = 'https://synthetic.invalid';
+  const basis = { selection: { groupId, applianceId, revision: 'original' }, resolveOperationIds: ['previous'] };
+  const manual = syntheticManual();
+  const input = { owner, id, target, baseUrl, filename: 'manual.pdf', request: { identifyFromManual: true, forceReanalysis: true, manual }, basis };
+  let work = storage.deviceAnalysisWork(file.database);
+  assert.equal(await work.next(owner, baseUrl), null);
+  await work.begin(input);
+  await work.begin({ ...input, id: 'duplicate-tap' });
+  const sameWork = await work.next(owner, baseUrl);
+  assert.equal(sameWork.id, id);
+  assert.deepEqual(sameWork.basis, basis);
+  assert.equal('manual' in sameWork.request, false, 'the durable request does not duplicate the PDF');
+  assert.equal((await work.list(owner, 'other-group')).length, 0);
+  assert.equal(await work.next('different-owner', baseUrl), null);
+  const requestKey = 'reanalysis-key'; const jobId = 'accepted-server-job';
+  let inbox = deviceAnalysisDeliveries(file.database);
+  await inbox.admission(owner, requestKey, id);
+  await inbox.recordJob(owner, requestKey, id, jobId);
+  assert.equal(await work.markAttempt(owner, id), true);
+  file.connection.close(); file = createDatabase(path);
+  work = storage.deviceAnalysisWork(file.database); inbox = deviceAnalysisDeliveries(file.database);
+  const resumed = await work.next(owner, baseUrl);
+  assert.equal(resumed.attempts, 1);
+  assert.deepEqual(await inbox.admission(owner, requestKey, 'new-uuid'), { id, jobId });
+  const result = withUploadedManual(applianceResult(), manual);
+  result.product.modelNumber = null;
+  result.analysis.model = null;
+  const receipt = { token: 'a'.repeat(64), digest: publicKey(analysisDeliveryJson(result)), expiresAt: Date.now() + 100_000 };
+  const delivery = { jobId, baseUrl, receipt };
+  const checkpoint = { workId: id, manualDigest: resumed.manualDigest, requestKey, admissionId: id };
+  file.connection.exec("CREATE TRIGGER simulated_disk_failure BEFORE UPDATE OF state ON appliance_analysis_work BEGIN SELECT RAISE(ABORT,'simulated failed commit'); END");
+  await assert.rejects(inbox.save(owner, 'ordinary-key', delivery, result, manual, checkpoint), /failed commit/);
+  assert.equal((await work.read(owner, target)).state, 'pending');
+  assert.deepEqual(await inbox.pending(owner), []);
+  file.connection.exec('DROP TRIGGER simulated_disk_failure');
+  await inbox.save(owner, 'ordinary-key', delivery, result, manual, checkpoint);
+  file.connection.close(); file = createDatabase(path);
+  work = storage.deviceAnalysisWork(file.database); inbox = deviceAnalysisDeliveries(file.database);
+  const ready = await work.read(owner, target);
+  assert.deepEqual(ready.result, result);
+  assert.deepEqual(ready.basis, basis);
+  assert.equal(ready.state, 'ready');
+  assert.equal(await work.markAttempt(owner, id), false, 'a stale pending read cannot start another upload');
+  assert.equal(await work.read('different-owner', target), null);
+  assert.equal(await work.next(owner, baseUrl), null);
+  assert.deepEqual(await inbox.pending(owner), [delivery]);
+  assert.equal(file.connection.prepare('SELECT COUNT(*) AS n FROM appliance_manual_documents').get().n, 1);
+  await inbox.acknowledged(owner, jobId);
+  assert.deepEqual((await work.read(owner, target)).result, result);
+  await work.remove(owner, id);
+  assert.equal(await work.read(owner, target), null);
+});
 
 test('analysis content is erased only by the authenticated owner exact durable receipt and survives wrong missing and premature receipts', async () => {
   const f = publicStoreFixture(); const accepted = await f.store.admit(input('a'));
@@ -80,6 +155,7 @@ test('device analysis inbox commits the PDF and result atomically before acknowl
     './repository.ts': { withPlannerDatabaseOperation: (_database, work) => work() },
     './isolated-transaction.ts': { withIsolatedSqliteTransaction: async (database, work) => { let value; await database.withTransactionAsync(async () => { value = await work(database); }); return value; } },
     './appliance-manual-storage.ts': manualStorage, '../../features/appliance-care/manual-document.ts': manualVerifier,
+    './analysis-work.ts': { notifyAnalysisWork() {} },
   });
   const store = deviceAnalysisDeliveries(f.database); const saved = { jobId: 'a'.repeat(64), baseUrl: 'https://synthetic.invalid',
     receipt: { token: 'b'.repeat(64), digest: 'c'.repeat(64), expiresAt: Date.now() + 100000 } };

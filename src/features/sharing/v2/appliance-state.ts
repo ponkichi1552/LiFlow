@@ -18,7 +18,8 @@ const text = (value: unknown) => typeof value === 'string' && value.trim().lengt
 export const normalizedApplianceModel = (value: string) => value.normalize('NFKC').trim().toLocaleLowerCase('en-US');
 const instant = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value));
 export interface V2ApplianceSelection { groupId: string; applianceId: string; revision: string }
-export interface V2ApplianceSummary { id: string; displayName: string; manufacturer: string; productName: string; modelNumber: string; category?: string;
+export interface V2ApplianceSummary { id: string; displayName: string; manufacturer: string; productName: string; modelNumber: string | null; category?: string;
+  manualDigest?: string;
   deleted: boolean; needsReview: boolean; revision: string; candidateCount: number; selection: V2ApplianceSelection }
 export interface V2ApplianceCandidate { operationId: string; authorUserId: string; recordedAt: string | null; appliance: Appliance | null }
 const touchesContent = (operation: SharedOperation) => contentFields.some(field => Object.hasOwn(operation.payload, field));
@@ -26,14 +27,19 @@ const touchesContent = (operation: SharedOperation) => contentFields.some(field 
 export function normalizeV2ReviewedAppliance(value: unknown): Record<string, JsonValue> | null {
   if (!isAnalysisRecord(value)) return null;
   const data = value;
-  if (!['manufacturer', 'productName', 'modelNumber', 'displayName', 'officialManualUrl'].every(field => text(data[field])) || data.reviewed !== true
-    || !isVerifiedApplianceAnalysis(data.analysis, data.manufacturer as string)
-    || !(isOfficialApplianceUrl(data.officialManualUrl as string, data.manufacturer as string) || matchesUploadedManual(data.officialManualUrl, data.analysis))
+  const unknownModel = (data.modelNumber === null || data.modelNumber === '') && isAnalysisRecord(data.analysis)
+    && (data.analysis.model === null || data.analysis.model === '') && matchesUploadedManual(data.officialManualUrl, data.analysis);
+  const analysis = unknownModel ? { ...data.analysis as Record<string, unknown>, model: null } : data.analysis;
+  if (!['manufacturer', 'productName', 'displayName', 'officialManualUrl'].every(field => text(data[field])) || data.reviewed !== true
+    || !unknownModel && !text(data.modelNumber) || !isVerifiedApplianceAnalysis(analysis, data.manufacturer as string)
+    || !(isOfficialApplianceUrl(data.officialManualUrl as string, data.manufacturer as string) || matchesUploadedManual(data.officialManualUrl, analysis))
     || data.officialProductUrl != null && (typeof data.officialProductUrl !== 'string' || !isOfficialApplianceUrl(data.officialProductUrl, data.manufacturer as string))
     || data.category != null && typeof data.category !== 'string') return null;
-  if (normalizedApplianceModel(data.analysis.model) !== normalizedApplianceModel(data.modelNumber as string)
-    || (applianceManufacturerIdentity(data.analysis.manufacturer) ?? normalizedApplianceModel(data.analysis.manufacturer)) !== (applianceManufacturerIdentity(data.manufacturer as string) ?? normalizedApplianceModel(data.manufacturer as string))) return null;
-  return JSON.parse(canonicalJson(Object.fromEntries(contentFields.map(field => [field, data[field] ?? (field === 'category' ? '' : null)]))));
+  if (!unknownModel && (!analysis.model || normalizedApplianceModel(analysis.model) !== normalizedApplianceModel(data.modelNumber as string))
+    || (applianceManufacturerIdentity(analysis.manufacturer) ?? normalizedApplianceModel(analysis.manufacturer)) !== (applianceManufacturerIdentity(data.manufacturer as string) ?? normalizedApplianceModel(data.manufacturer as string))) return null;
+  // Existing signed operations require strings. Missing models use an empty wire value and null in the app.
+  const wire = unknownModel ? { ...data, modelNumber: '', analysis: { ...analysis, model: '' } } : data;
+  return JSON.parse(canonicalJson(Object.fromEntries(contentFields.map(field => [field, wire[field] ?? (field === 'category' ? '' : null)]))));
 }
 
 function fieldAtSource(view: V2HistoryView, source: SharedOperation, field: string): JsonValue | undefined {
@@ -58,8 +64,9 @@ function materialize(view: V2HistoryView, candidate: V2EditableField['candidates
     const source = view.byId(candidate.operationId)!;
     const createdAt = fieldAtSource(view, source, 'createdAt'); const updatedAt = fieldAtSource(view, source, 'updatedAt');
     if (!instant(createdAt) || !instant(updatedAt)) return null;
-    const { reviewed: _reviewed, officialProductUrl, category, ...content } = candidate.value;
-    return { ...content, ...(officialProductUrl ? { officialProductUrl } : {}), ...(category ? { category } : {}),
+    const { reviewed: _reviewed, officialProductUrl, category, modelNumber, analysis, ...content } = candidate.value;
+    return { ...content, modelNumber: modelNumber || null, analysis: modelNumber ? analysis : { ...(analysis as Record<string, JsonValue>), model: null },
+      ...(officialProductUrl ? { officialProductUrl } : {}), ...(category ? { category } : {}),
       id: source.entityId, householdId: `shared:${view.groupId}`, createdAt, updatedAt } as unknown as Appliance;
   } catch { return null; }
 }
@@ -74,8 +81,8 @@ export function readV2Appliance(view: V2HistoryView, at: SharedOperation, id: st
   const category = description ? applianceCategoryFromContent(description) : undefined;
   const revision = sharedDocumentDigest([view.groupId, id, ids(alive), ids(source)]);
   const row: V2ApplianceSummary = { id, displayName: description ? applianceDisplayName(description, description.displayName) : '家電の内容を確認',
-    manufacturer: description?.manufacturer ?? '', productName: description?.productName ?? '', modelNumber: description?.modelNumber ?? '',
-    ...(category ? { category } : {}),
+    manufacturer: description?.manufacturer ?? '', productName: description?.productName ?? '', modelNumber: description?.modelNumber ?? null,
+    ...(category ? { category } : {}), ...(description?.modelNumber === null && description.analysis.manualSource ? { manualDigest: description.analysis.manualSource.sha256 } : {}),
     deleted: alive.kind === 'value' && alive.value === false, needsReview: !appliance, revision, candidateCount: candidates.length,
     selection: { groupId: view.groupId, applianceId: id, revision } };
   return { row, appliance, candidates, alive, source };

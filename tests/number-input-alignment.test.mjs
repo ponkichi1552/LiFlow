@@ -3,6 +3,7 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
+import { applianceAnalysisScreenWork } from './helpers/appliance-analysis-work.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { localDateFromDate } from '../src/domain/scheduling/local-date.ts';
 
@@ -56,9 +57,10 @@ test('appliance analysis cycle edits update the saved appliance', async () => {
     const task = { name: 'フィルターを洗う', recommendedIntervalDays: 30, steps: ['電源を切る'], tools: [], safetyCautions: [], evidence: [{ url: 'https://www.dyson.co.jp/support' }] };
     const verified = { status: 'verified', product: { manufacturer: 'Dyson', productName: 'V12', modelNumber: 'SV20' }, officialSources: { manualUrl: 'https://www.dyson.co.jp/support' },
       analysis: { manufacturer: 'Dyson', model: 'SV20', analyzedAt: new Date().toISOString(), requiresUserReview: true, tasks: [task] } };
-    const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { database: h.database,
-      mocks: { '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async request => withUploadedManual(verified, request.manual) } } });
+    const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { database: h.database, effectDependencies: true, effect: callback => callback(),
+      mocks: applianceAnalysisScreenWork(async request => withUploadedManual(verified, request.manual)).mocks });
     await screen.press('取扱説明書PDFを選ぶ'); await screen.flush(); await screen.press('PDFを解析');
+    for (let n = 0; n < 10 && !screen.text().includes('解析結果を保存しました'); n++) await screen.flush();
     await screen.change('フィルターを洗うの周期', '17'); await screen.press('周期の変更を保存');
     const snapshot = await repository.loadPlannerSnapshot(h.database);
     assert.equal(snapshot.chores.find((chore) => chore.applianceId).userIntervalDays, 17);

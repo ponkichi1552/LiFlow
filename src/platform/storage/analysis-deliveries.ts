@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { ApplianceCareApiResponse } from '../../features/appliance-care/api-contracts';
 import type { AnalysisDeliveryStore, SavedAnalysisDelivery } from '../../features/appliance-care/analysis-delivery';
+import { notifyAnalysisWork } from './analysis-work.ts';
 import { storeApplianceManualInside } from './appliance-manual-storage.ts';
 import { withPlannerDatabaseOperation } from './repository.ts';
 import { withIsolatedSqliteTransaction } from './isolated-transaction.ts';
@@ -57,13 +58,22 @@ export function deviceAnalysisDeliveries(database: SQLiteDatabase): DeviceAnalys
         'SELECT result_json FROM appliance_analysis_deliveries WHERE owner=? AND request_key=? ORDER BY rowid DESC LIMIT 1', owner, requestKey);
       return row ? JSON.parse(row.result_json) as ApplianceCareApiResponse : null;
     }),
-    save: (owner, requestKey, delivery, result, manual) => operation(() => withIsolatedSqliteTransaction(database, async transaction => {
-      if (manual) await storeApplianceManualInside(transaction, manual.base64,
+    save: (owner, requestKey, delivery, result, manual, work) => operation(() => withIsolatedSqliteTransaction(database, async transaction => {
+      if (work) {
+        const found = await transaction.getFirstAsync('SELECT 1 FROM appliance_manual_documents WHERE sha256=?', work.manualDigest);
+        if (!found || result.status === 'verified' && result.analysis.manualSource?.sha256 !== work.manualDigest) throw new Error('解析したPDFを端末で確認できませんでした。');
+      } else if (manual) await storeApplianceManualInside(transaction, manual.base64,
         result.status === 'verified' ? result.analysis.manualSource?.sha256 : undefined);
       await transaction.runAsync(`INSERT INTO appliance_analysis_deliveries(owner,job_id,request_key,base_url,receipt_json,result_json,saved_at)
         VALUES(?,?,?,?,?,?,?) ON CONFLICT(owner,job_id) DO UPDATE SET receipt_json=excluded.receipt_json,result_json=excluded.result_json`,
       owner, delivery.jobId, requestKey, delivery.baseUrl, JSON.stringify(delivery.receipt), JSON.stringify(result), Date.now());
-    })).then(() => { notify(); }),
+      if (work) {
+        await transaction.runAsync("UPDATE appliance_analysis_work SET state=?,delivery_job_id=?,retry_at=0 WHERE owner=? AND id=? AND state='pending'",
+          result.status === 'verified' ? 'ready' : 'failed', delivery.jobId, owner, work.workId);
+        if (work.admissionId) await transaction.runAsync('DELETE FROM appliance_analysis_admissions WHERE owner=? AND request_key=? AND idempotency_key=?',
+          owner, work.requestKey, work.admissionId);
+      }
+    })).then(() => { notify(); if (work) notifyAnalysisWork(); }),
     pending: owner => operation(async () => {
       const rows = await database.getAllAsync<{ job_id: string; base_url: string; receipt_json: string }>(
         'SELECT job_id,base_url,receipt_json FROM appliance_analysis_deliveries WHERE owner=? AND receipt_json IS NOT NULL ORDER BY saved_at LIMIT 32', owner);

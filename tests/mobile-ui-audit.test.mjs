@@ -1,4 +1,5 @@
 import { withUploadedManual } from './helpers/sharing-v2-appliance.mjs';
+import { applianceAnalysisScreenWork } from './helpers/appliance-analysis-work.mjs';
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -262,55 +263,60 @@ test('onboarding finish cannot initialize twice and a failed save keeps selectio
   } finally { h.connection.close(); }
 });
 
-async function verifyApplianceAbortOnLeave(leave) {
-    const pending = deferred(); const retry = deferred(); let signal; let saved = 0; let blur; let requests = 0; const effects = []; const navigation = [];
-    const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { params: { returnTo: '/manual' }, effect: (callback) => effects.push(callback), navigate: (...args) => navigation.push(args),
-      navigationListener: (event, listener) => { if (event === 'blur') blur = listener; }, mocks: {
-      '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async (_request, _fetch, _baseUrl, _stage, requestSignal) => { signal = requestSignal; requests++; return requests === 1 ? pending.promise : retry.promise; } },
-      '@/platform/storage/repository': { saveReviewedApplianceCare: async () => { saved++; } },
-    } });
-    const cleanups = effects.map((callback) => callback());
-    await screen.press('取扱説明書PDFを選ぶ'); await screen.flush();
-    await screen.press('PDFを解析'); assert.equal(signal.aborted, false);
-    if (leave === 'back') await screen.press('前の画面に戻る');
-    else if (leave === 'blur') { assert.equal(typeof blur, 'function', 'a retained stack screen needs a native blur listener'); blur(); }
-    else for (const cleanup of cleanups) cleanup?.();
-    assert.equal(signal.aborted, true);
-    if (leave === 'blur') {
-      await screen.flush();
-      assert.equal(screen.button('PDFを解析').props.accessibilityState.disabled, false, 'an aborted retained screen must allow another request');
-      await screen.press('PDFを解析'); assert.equal(requests, 2); assert.equal(saved, 0);
-      pending.resolve({ status: 'verified' }); await screen.flush();
-      assert.equal(screen.button('解析しています…').props.accessibilityState.disabled, true, 'an old attempt cannot unlock a newer pending request');
-      retry.resolve({ status: 'not_found', message: '入力を確認してください。' }); await screen.flush();
-    } else { pending.resolve({ status: 'verified' }); await screen.flush(); }
-    assert.equal(saved, 0); assert.ok(!screen.text().includes('メーカー公式情報で確認済み'));
-    if (leave === 'back') assert.deepEqual(navigation, [['dismissTo', '/manual']]);
+for (const leave of ['back', 'unmount', 'blur']) {
+  test(`personal appliance analysis survives ${leave} and restores the same result`, async t => {
+    const pending = deferred(); let saved = 0; let requests = 0; const navigation = [];
+    const job = applianceAnalysisScreenWork(request => {
+      requests++;
+      return pending.promise.then(() => withUploadedManual(applianceResult(), request.manual));
+    });
+    const mount = () => screenHarness('src/app/(tabs)/manual/appliance-care.tsx', {
+      params: { returnTo: '/manual' }, effectDependencies: true, effect: callback => callback(), navigate: (...args) => navigation.push(args),
+      mocks: { ...job.mocks, '@/platform/storage/repository': {
+        loadApplianceCareReviewContext: async () => null,
+        saveReviewedApplianceCare: async (_database, product) => { saved++; return { applianceId: product.applianceId }; },
+      } },
+    });
+    const screen = mount(); t.after(() => screen.unmount());
+    await screen.press('取扱説明書PDFを選ぶ');
+    const start = screen.button('PDFを解析'); start.props.onPress(); start.props.onPress(); await screen.flush();
+    assert.equal(requests, 1); assert.equal(job.get('owner').state, 'pending');
+    job.setFocused(false);
+    if (leave === 'back') { await screen.press('前の画面に戻る'); assert.deepEqual(navigation, [['dismissTo', '/manual']]); }
+    if (leave !== 'blur') screen.unmount();
+    pending.resolve();
+    await new Promise(setImmediate);
+    assert.equal(job.get('owner').state, 'ready'); assert.equal(saved, 0);
+    job.setFocused(true);
+    const returned = leave === 'blur' ? screen : mount();
+    if (returned !== screen) t.after(() => returned.unmount());
+    for (let n = 0; n < 10 && !returned.text().includes('解析結果を保存しました'); n++) await returned.flush();
+    assert.match(returned.text(), /解析結果を保存しました/u);
+    assert.deepEqual([requests, saved], [1, 1]);
+  });
 }
-for (const leave of ['back', 'unmount']) {
-  test(`appliance analysis aborts on ${leave} and ignores late results before saving`, () => verifyApplianceAbortOnLeave(leave));
-}
-test('appliance analysis aborts when a retained screen blurs and permits another request', () => verifyApplianceAbortOnLeave('blur'));
 
 test('a rejected appliance PDF must be replaced before another analysis can start', async t => {
   const messages = ['別の取扱説明書PDFを選んでください。', 'サーバーが応答しませんでした。'];
   let requests = 0;
   const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { effectDependencies: true, effect: callback => callback(), mocks: {
-    '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async () => {
+    ...applianceAnalysisScreenWork(async () => {
       const attempt = requests++;
       return { status: 'error', code: attempt === 0 ? 'INVALID_MANUAL' : 'AI_SERVICE_NO_RESULT', message: messages[attempt] };
-    } },
+    }).mocks,
     '@/platform/storage/repository': { saveReviewedApplianceCare: () => assert.fail('invalid manuals cannot be saved') },
   } });
   t.after(() => screen.unmount());
   await screen.press('取扱説明書PDFを選ぶ');
   await screen.press('PDFを解析');
+  await screen.flush();
   assert.match(screen.text(), /別の取扱説明書PDFを選んでください/u);
   assert.doesNotMatch(screen.text(), /PDFを解析/u);
   assert.equal(requests, 1);
   await screen.press('PDFを変更');
   assert.doesNotMatch(screen.text(), /別の取扱説明書PDFを選んでください/u);
   await screen.press('PDFを解析');
+  await screen.flush();
   assert.match(screen.text(), /サーバーが応答しませんでした/u);
   assert.equal(screen.button('PDFを解析').props.accessibilityState.disabled, false);
   assert.equal(requests, 2);
@@ -320,7 +326,7 @@ test('personal reanalysis keeps the appliance read failure visible until a read 
   let reads = 0;
   const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { params: { applianceId: 'saved-appliance' }, effectDependencies: true,
     effect: callback => callback(), mocks: {
-      '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: () => assert.fail('a read retry must not start an analysis') },
+      ...applianceAnalysisScreenWork(() => assert.fail('a read retry must not start an analysis')).mocks,
       '@/platform/storage/repository': { ...repository, loadApplianceCareReviewContext: async () => {
         if (++reads === 1) throw new Error('temporary read failure');
         return { appliance: { category: '掃除機', analysis: null }, chores: [] };
@@ -340,12 +346,12 @@ test('personal reanalysis keeps the appliance read failure visible until a read 
 test('an appliance display failure after saving can retry the read without repeating analysis or writing', async t => {
   const f = await fixture(); t.after(() => f.connection.close());
   let requests = 0, saves = 0, reads = 0;
-  const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { ...f.options, mocks: {
-    '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async ({ manual }) => { requests++; return withUploadedManual(applianceResult(), manual); } },
+  const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { ...f.options, effectDependencies: true, effect: callback => callback(), mocks: {
+    ...applianceAnalysisScreenWork(async ({ manual }) => { requests++; return withUploadedManual(applianceResult(), manual); }).mocks,
     '@/platform/storage/repository': { ...repository,
       saveReviewedApplianceCare: async (...args) => { saves++; return repository.saveReviewedApplianceCare(...args); },
       loadApplianceCareReviewContext: async (...args) => {
-        if (++reads === 1) throw new Error('display read failed');
+        if (++reads === 2) throw new Error('display read failed');
         return repository.loadApplianceCareReviewContext(...args);
       },
     },
@@ -358,16 +364,17 @@ test('an appliance display failure after saving can retry the read without repea
   await screen.press('表示を再読込');
   for (let n = 0; n < 20 && screen.text().includes('表示を更新できませんでした'); n++) await screen.flush();
   assert.doesNotMatch(screen.text(), /表示を更新できませんでした/u);
-  assert.deepEqual([requests, saves, reads], [1, 1, 2]);
+  assert.deepEqual([requests, saves, reads], [1, 1, 3]);
 });
 
 test('leaving a personal appliance during its committed save preserves the save lock until SQLite finishes', async () => {
-  const f = await fixture(); const gate = deferred(); const done = deferred(); let blur; let signal; let requests = 0; let saves = 0; let screen; const cleanups = [];
+  const f = await fixture(); const gate = deferred(); const done = deferred(); let requests = 0; let saves = 0; let screen; const cleanups = [];
+  const job = applianceAnalysisScreenWork(async request => { requests++; return withUploadedManual(applianceResult(), request.manual); });
   try {
-    screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { ...f.options,
+    screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { ...f.options, effectDependencies: true,
       effect: callback => { const cleanup = callback(); if (cleanup) cleanups.push(cleanup); },
-      navigationListener: (event, listener) => { if (event === 'blur') blur = listener; }, mocks: {
-        '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async (_request, _base, _timeout, _stage, inputSignal) => { requests++; signal = inputSignal; return withUploadedManual(applianceResult(), _request.manual); } },
+      mocks: {
+        ...job.mocks,
         '@/platform/storage/repository': { ...repository, saveReviewedApplianceCare: async (...args) => {
           saves++; await gate.promise; try { return await repository.saveReviewedApplianceCare(...args); } finally { done.resolve(); }
         } },
@@ -375,8 +382,8 @@ test('leaving a personal appliance during its committed save preserves the save 
     await screen.press('取扱説明書PDFを選ぶ'); await screen.flush();
     const originalStart = screen.button('PDFを解析'); originalStart.props.onPress();
     for (let n = 0; n < 30 && saves === 0; n++) await screen.flush(); assert.equal(saves, 1); assert.equal(requests, 1);
-    assert.equal(typeof blur, 'function'); blur(); await screen.flush();
-    assert.equal(signal.aborted, false, 'a completed network request is detached before the local save begins');
+    job.setFocused(false); await screen.flush();
+    assert.equal(job.get('owner').state, 'ready', 'leaving keeps the received result until the SQLite save finishes');
     assert.equal(screen.button('解析しています…').props.accessibilityState.disabled, true);
     originalStart.props.onPress(); await screen.flush(); assert.equal(requests, 1); assert.equal(saves, 1);
     gate.resolve(); await done.promise;

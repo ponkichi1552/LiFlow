@@ -26,7 +26,7 @@ export interface ApplianceCareTaskDraft {
 
 export interface ApplianceCareAnalysisDraft {
   manufacturer: string;
-  model: string;
+  model: string | null;
   tasks: ApplianceCareTaskDraft[];
   analyzedAt: ISODateTime;
   requiresUserReview: true;
@@ -39,7 +39,7 @@ export interface Appliance {
   householdId: EntityId;
   manufacturer: string;
   productName: string;
-  modelNumber: string;
+  modelNumber: string | null;
   category?: string;
   displayName: string;
   officialProductUrl?: string;

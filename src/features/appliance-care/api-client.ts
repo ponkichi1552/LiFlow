@@ -46,6 +46,7 @@ export async function analyzeApplianceCareRequest(
   onStage?: (stage: ApplianceCareAnalysisStage) => void,
   signal?: AbortSignal,
   deliveries?: AnalysisDeliveryStore,
+  work?: { owner: string; id: string; manualDigest: string; resuming: boolean },
 ): Promise<ApplianceCareApiResponse> {
   if (signal?.aborted) return temporaryError('解析の通信を中断しました。');
   const normalized = {
@@ -58,8 +59,11 @@ export async function analyzeApplianceCareRequest(
   };
   const fields = ['manufacturer', 'productName', 'modelNumber'] as const;
   const noIdentity = request.identifyFromManual === true && fields.every(field => request[field] === undefined);
-  if ((request.identifyFromManual === true && !request.manual) || (!noIdentity && fields.some(field => typeof request[field] !== 'string'
-    || !request[field]!.trim() || request[field]!.trim().length > 120 || /[\u0000-\u001f\u007f]/u.test(request[field]!)))) {
+  if ((request.identifyFromManual === true && !request.manual) || (!noIdentity && fields.some(field => {
+    const value = request[field];
+    if (field === 'modelNumber' && request.identifyFromManual === true && value == null) return false;
+    return typeof value !== 'string' || !value.trim() || value.trim().length > 120 || /[\u0000-\u001f\u007f]/u.test(value);
+  }))) {
     return {
       status: 'error',
       code: 'INVALID_REQUEST',
@@ -78,6 +82,7 @@ export async function analyzeApplianceCareRequest(
       const { authorizeApplianceCareApi } = await import('../../platform/appliance-care/auth');
       return authorizeApplianceCareApi(baseUrl);
     }, controller.signal);
+    if (work && session.userId !== work.owner) return temporaryError('解析を開始したアカウントで再開してください。');
     const attemptKey = JSON.stringify([session.userId, retryKey]);
     const finishAttempt = () => { if (pendingAdmissions.get(attemptKey)?.id === admissionId) pendingAdmissions.delete(attemptKey); };
     if (deliveries && session.userId) {
@@ -85,13 +90,14 @@ export async function analyzeApplianceCareRequest(
       void flushAnalysisReceipts(deliveries, session, baseUrl).catch(() => undefined);
       if (!normalized.forceReanalysis) {
         const cached = await deliveries.read(session.userId, cacheKey);
-        if (cached?.status === 'verified' && isApiResponse(cached)) { finishAttempt(); return cached; }
+        if (cached?.status === 'verified' && isApiResponse(cached)
+          && (!work || cached.analysis.manualSource?.sha256 === work.manualDigest)) { finishAttempt(); return cached; }
       }
     }
     const startHeaders = await abortApplianceWait(() => session.headers(), controller.signal);
     if (controller.signal.aborted) return temporaryError('解析の通信を中断しました。');
     for (const [key, item] of pendingAdmissions) if (item.expiresAt <= Date.now()) pendingAdmissions.delete(key);
-    const proposedId = startHeaders['x-idempotency-key'];
+    const proposedId = work?.id ?? startHeaders['x-idempotency-key'];
     const previous = pendingAdmissions.get(attemptKey);
     admissionId = previous?.id ?? proposedId;
     let jobId: string | undefined;
@@ -109,7 +115,7 @@ export async function analyzeApplianceCareRequest(
     }
     if (!jobId) {
       const endpoint = `${baseUrl}/api/appliance-care/jobs`;
-      const resumeUpload = normalized.manual && admissionId && (previous || admissionId !== proposedId);
+      const resumeUpload = normalized.manual && admissionId && (work?.resuming || previous || admissionId !== proposedId);
       const receiptResponse = resumeUpload ? await abortApplianceWait(() => fetch(`${endpoint}/admission`, {
         method: 'GET', redirect: 'error', headers: startHeaders, signal: controller.signal,
       }), controller.signal) : undefined;
@@ -182,6 +188,9 @@ export async function analyzeApplianceCareRequest(
       if (statusPayload.done) {
         if (!isApiResponse(statusPayload.result)) return temporaryError('解析結果を読み取れませんでした。時間をおいて再試行してください。');
         const output = { ...statusPayload.result, ...(isApplianceCareUsage(statusPayload.usage) ? { usage: statusPayload.usage } : {}) };
+        if (work && output.status === 'verified' && output.analysis.manualSource?.sha256 !== work.manualDigest) {
+          return temporaryError('解析結果と選んだPDFが一致しません。');
+        }
         if (statusPayload.delivery !== undefined) {
           if (!validAnalysisDelivery(statusPayload.delivery)
             || bytesToHex(sha256(utf8ToBytes(analysisDeliveryJson(statusPayload.result)))) !== statusPayload.delivery.digest) {
@@ -189,11 +198,12 @@ export async function analyzeApplianceCareRequest(
           }
           if (deliveries && session.userId) {
             controller.signal.throwIfAborted();
-            await deliveries.save(session.userId, cacheKey, { jobId, baseUrl, receipt: statusPayload.delivery }, output, request.manual);
+            await deliveries.save(session.userId, cacheKey, { jobId, baseUrl, receipt: statusPayload.delivery }, output, request.manual,
+              work ? { workId: work.id, manualDigest: work.manualDigest, requestKey: retryKey, admissionId } : undefined);
             // Deletion starts after the SQLite transaction. UI need not wait for its network round-trip.
             void flushAnalysisReceipts(deliveries, session, baseUrl)
               .then(() => flushAnalysisReceipts(deliveries, session, baseUrl)).catch(() => undefined);
-            if (admissionId) await deliveries.completeAdmission(session.userId, retryKey, admissionId);
+            if (!work && admissionId) await deliveries.completeAdmission(session.userId, retryKey, admissionId);
           }
         }
         else if (deliveries && session.userId && admissionId) {
@@ -296,7 +306,8 @@ function isApiResponse(value: unknown): value is ApplianceCareApiResponse {
       && isOfficialApplianceUrl(candidate.officialProductUrl, candidate.manufacturer));
   if (status !== 'verified' || !isRecord(value.product) || !isRecord(value.officialSources) || !isRecord(value.analysis)) return false;
   const { product, officialSources, analysis } = value;
-  if (!nonemptyString(product.manufacturer) || !nonemptyString(product.productName) || !nonemptyString(product.modelNumber)
+  if (!nonemptyString(product.manufacturer) || !nonemptyString(product.productName)
+    || !(nonemptyString(product.modelNumber) && analysis.model !== null || product.modelNumber === null && analysis.model === null && matchesUploadedManual(officialSources.manualUrl, analysis))
     || (product.category !== undefined && typeof product.category !== 'string')
     || !nonemptyString(officialSources.manualUrl) || !(isOfficialApplianceUrl(officialSources.manualUrl, product.manufacturer) || matchesUploadedManual(officialSources.manualUrl, analysis))
     || (officialSources.productUrl !== undefined && (typeof officialSources.productUrl !== 'string'

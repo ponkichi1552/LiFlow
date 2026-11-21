@@ -1,5 +1,6 @@
 import { CalendarNotificationBridge } from '@/features/calendar/calendar-notification-bridge';
 import { AnalysisReceiptBridge } from '@/features/appliance-care/analysis-receipt-bridge';
+import { AnalysisWorkBridge } from '@/features/appliance-care/analysis-work-bridge';
 import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { prepareStartupDisplay } from '@/platform/diagnostics/startup-splash';
@@ -78,6 +79,7 @@ export default function RootLayout() {
                     <NotificationWorkspaceBridge />
                     <CalendarNotificationBridge />
                     <AnalysisReceiptBridge />
+                    <AnalysisWorkBridge />
                     <WorkspaceNavigator />
                   </>
                 </ThemeProvider>

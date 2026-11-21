@@ -3,6 +3,7 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
+import { applianceAnalysisScreenWork } from './helpers/appliance-analysis-work.mjs';
 import { scrollCalendarToDate, openCalendarDay } from './helpers/calendar-ui.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { localDateFromDate, formatJapaneseDate } from '../src/domain/scheduling/local-date.ts';
@@ -190,11 +191,12 @@ test('feature screen contract: verified appliance analysis auto-saves maker inte
       officialSources: { manualUrl: 'https://www.dyson.co.jp/support' },
       analysis: { manufacturer: 'Dyson', model: 'SV20', analyzedAt: new Date().toISOString(), requiresUserReview: true, tasks } };
     let sent;
-    const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { database: h.database,
-      mocks: { '@/features/appliance-care/api-client': { analyzeApplianceCareRequest: async (request) => { sent = request; return withUploadedManual(verified, request.manual); } } },
+    const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { database: h.database, effectDependencies: true, effect: callback => callback(),
+      mocks: applianceAnalysisScreenWork(async request => { sent = request; return withUploadedManual(verified, request.manual); }).mocks,
     });
     await screen.press('取扱説明書PDFを選ぶ'); await screen.flush();
     await screen.press('PDFを解析');
+    for (let n = 0; n < 10 && !screen.text().includes('解析結果を保存しました'); n++) await screen.flush();
     assert.equal(sent.identifyFromManual, true);
     const saved = await repository.loadPlannerSnapshot(h.database, today);
     assert.equal(saved.appliances.length, 1, 'analysis must save without an additional button press');

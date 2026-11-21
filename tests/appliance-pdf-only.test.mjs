@@ -56,12 +56,30 @@ test('PDF-only product extraction does not invent missing identity or choose one
   assert.equal(productFromUploadedManual(combined).modelNumber, 'SV20 / SV21');
   assert.deepEqual(productFromUploadedManual({ ...combined, modelNumbers: ['SV20', 'SV21'] }), productFromUploadedManual(combined));
   for (const invalid of [undefined, { ...product, manufacturer: null }, { ...product, productName: '' },
-    { ...product, modelNumbers: [] }, { ...product, modelNumbers: ['x\nforged'] }, { ...product, modelNumbers: ['x'.repeat(121)] }, { ...product, category: 'invented_category' }]) {
+    { ...product, modelNumbers: ['x\nforged'] }, { ...product, modelNumbers: ['x'.repeat(121)] }, { ...product, category: 'invented_category' }]) {
     const input = automatic(); let calls = 0;
     const result = await analyzeUploadedManual(input, { analyzeUploaded: async () => { calls++; return { value: { product: invalid, tasks: [task(input.manual)], providerNoResult: true } }; } });
     assert.equal(calls, 1); assert.equal(result.code, 'ANALYSIS_FAILED'); assert.equal(result.product, undefined);
     assert.doesNotMatch(result.message, /入力/);
   }
+});
+
+test('a manual with a maker and product but no model produces a verified null model without another analysis', async () => {
+  const input = automatic();
+  const reported = { manufacturer: 'Vita-Mix Corporation', productName: 'Vitamix TurboBlend VS', modelNumbers: [], category: 'other_appliance' };
+  let calls = 0;
+  const output = await analyzeUploadedManual(input, { analyzeUploaded: async () => {
+    calls++;
+    return { value: { product: reported, tasks: [task(input.manual)] } };
+  } });
+  assert.equal(calls, 1);
+  assert.equal(output.status, 'verified');
+  assert.equal(output.product.modelNumber, null);
+  assert.equal(output.analysis.model, null);
+  assert.equal(isVerifiedApplianceAnalysis(output.analysis, reported.manufacturer), true);
+  assert.equal(productFromUploadedManual(reported, output.product).modelNumber, null);
+  assert.equal(productFromUploadedManual({ ...reported, productName: 'Another appliance' }, output.product), null);
+  assert.equal(productFromUploadedManual(reported, { ...output.product, modelNumber: 'Known' }), null);
 });
 
 test('automatic reanalysis validates PDF identity before preserving a saved name and never overwrites another product', async () => {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fixture, seeds, now, groupId, receiptsFor, draft } from './helpers/sharing-v2-repository-fixture.mjs';
 import { applianceResult, manualUrl, uploadedApplianceResult } from './helpers/sharing-v2-appliance.mjs';
+import { syntheticPdf } from './helpers/synthetic-pdf.mjs';
 import { createV2GroupController } from '../src/features/sharing/v2/controller.ts';
 import { v2ApplianceId } from '../src/features/sharing/v2/appliance-actions.ts';
 import { applyReceivedSharedFacts, listSharingOutbox, loadSharedFacts, readSharingCheckpoint } from '../src/platform/storage/sharing-ledger.ts';
@@ -36,6 +37,35 @@ test('v2 a member explicitly shares reviewed appliance content and only new disa
     assert.equal((await f.c.readModel(range)).appliances, undefined);
     assert.equal(Object.hasOwn(model.appliances.rows[0], 'analysis'), false); assert.equal(model.appliances.detail, undefined);
   } finally { f.close(); }
+});
+
+test('a shared PDF without a model preserves signed string fields and reads back null on another device', async () => {
+  const f = await setup(); const member = await f.base.device('member', f.base.member);
+  try {
+    const make = (pages, name) => {
+      const document = uploadedApplianceResult(syntheticPdf(pages));
+      document.result.product = { ...document.result.product, productName: name, modelNumber: null };
+      document.result.analysis.model = null;
+      return document;
+    };
+    const first = make(1, '型番なしの掃除機');
+    const saved = await f.save({ ...first, addTaskNames: ['フィルター清掃'] });
+    const authored = saved.operations.find(operation => operation.entityType === 'appliance');
+    assert.equal(authored.payload.modelNumber, '');
+    assert.equal(authored.payload.analysis.model, '');
+    const retry = await f.save({ ...first, addTaskNames: ['フィルター清掃'] });
+    assert.equal(retry.applianceId, saved.applianceId);
+    assert.equal(retry.operations.length, 0);
+    const second = await f.save({ ...make(2, '型番なしの掃除機'), addTaskNames: [] });
+    assert.notEqual(second.applianceId, saved.applianceId);
+    await receive(member, await loadSharedFacts(f.device.database, groupId));
+    const remote = await detail(controller(member), saved.applianceId);
+    assert.equal(remote.appliance.modelNumber, null);
+    assert.equal(remote.appliance.analysis.model, null);
+    assert.equal(remote.appliance.analysis.manualSource.sha256, first.result.analysis.manualSource.sha256);
+    assert.equal(remote.row.needsReview, false);
+    assert.equal((await member.repository.readState()).assessment.rejected.length, 0);
+  } finally { member.connection.close(); f.close(); }
 });
 
 test('v2 appliance reanalysis preserves user edited chores their common cadence completion and tombstones', async () => {

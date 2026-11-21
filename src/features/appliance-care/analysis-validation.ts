@@ -9,7 +9,7 @@ const strings = (value: unknown, verified: boolean): value is string[] => Array.
 
 function analysisShape(value: unknown, verified: boolean, manufacturer?: string): boolean {
   if (!isAnalysisRecord(value) || typeof value.analyzedAt !== 'string' || !Array.isArray(value.tasks)) return false;
-  if (verified && (!nonemptyAnalysisString(value.manufacturer) || !nonemptyAnalysisString(value.model)
+  if (verified && (!nonemptyAnalysisString(value.manufacturer) || !(nonemptyAnalysisString(value.model) || value.model === null && value.manualSource !== undefined)
     || !Number.isFinite(Date.parse(value.analyzedAt)) || value.requiresUserReview !== true || value.tasks.length < 1 || value.tasks.length > 40)) return false;
   if (verified && value.manualSource !== undefined && (!isAnalysisRecord(value.manualSource) || value.manualSource.kind !== 'user_upload' || typeof value.manualSource.sha256 !== 'string' || !/^[a-f0-9]{64}$/u.test(value.manualSource.sha256))) return false;
   return value.tasks.every(task => isAnalysisRecord(task) && (verified ? nonemptyAnalysisString(task.name) : typeof task.name === 'string')

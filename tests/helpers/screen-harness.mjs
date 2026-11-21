@@ -101,6 +101,7 @@ export function screenHarness(filename, options = {}) {
     },
     'expo-router': {
       useLocalSearchParams: () => options.params ?? {},
+      useIsFocused: () => options.isFocused?.() ?? true,
       useRouter: () => options.scopedRouter ?? mocks['expo-router'].router,
       useNavigation: () => ({ addListener: (event, listener) => { options.navigationListener?.(event, listener); return () => options.navigationUnsubscribe?.(event, listener); },
         setParams: (value) => { options.params = { ...options.params, ...value }; } }),

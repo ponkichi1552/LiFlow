@@ -2,6 +2,7 @@ import './helpers/typescript-loader.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { screenHarness } from './helpers/screen-harness.mjs';
+import { applianceAnalysisScreenWork } from './helpers/appliance-analysis-work.mjs';
 
 for (const platform of ['ios', 'android']) {
   test(`${platform} appliance kinds are visible alongside retained model identity and open the original saved item`, async () => {
@@ -52,13 +53,15 @@ for (const platform of ['ios', 'android']) {
     assert.equal(props.personalGuide.snapshot, personal.snapshot);
     props.onPersonalAppliance('private'); assert.deepEqual(navigation.at(-1), ['push', { pathname: '/manual/appliances/[id]', params: { id: 'private', returnTo: '/manual' } }]);
     assert.equal(props.onAddPersonalAppliance, undefined, 'a joined group has no second registration destination');
-    props.onApplianceReview(); assert.deepEqual(navigation.at(-1), ['push', { pathname: '/group-v2/appliance-review', params: {} }]);
+    props.onApplianceReview(); assert.deepEqual(navigation.at(-1), ['push', { pathname: '/manual/shared-review', params: {} }]);
   });
   test(`${platform} personal appliance detail and analysis always request the private planner while joined`, () => {
     const data = { database: {}, snapshot: { appliances: [], chores: [] }, refresh() {} }; let reads = 0;
     const mock = { usePlannerData: options => { assert.equal(options.personal, true); reads++; return data; } };
     for (const file of ['src/app/(tabs)/manual/appliances/[id]/index.tsx', 'src/app/(tabs)/manual/appliance-care.tsx']) {
-      screenHarness(file, { platform, params: { id: 'private', returnTo: '/manual' }, mocks: { '@/hooks/use-planner-data': mock, '@/features/appliance-care/api-client': { analyzeApplianceCareRequest() { throw new Error('No paid API calls in screen tests'); } } } });
+      screenHarness(file, { platform, params: { id: 'private', returnTo: '/manual' }, mocks: {
+        ...applianceAnalysisScreenWork(() => assert.fail('No paid API calls in screen tests')).mocks, '@/hooks/use-planner-data': mock,
+      } });
     }
     assert.equal(reads, 2);
   });

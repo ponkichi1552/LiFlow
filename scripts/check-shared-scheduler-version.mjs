@@ -27,6 +27,8 @@ const draft58Implementations = [
   { storage: 3, verifier: 2, calendarProjection: 3, calendarRegistration: 2, digest: 'd997df2aff16aa0bb2fc3331b983b7e923876075eda2472782fae782d4875f99' },
   // Reuse locally verified history and accepted transport bytes. Signed facts and scheduling are identical.
   { storage: 3, verifier: 2, calendarProjection: 3, calendarRegistration: 2, digest: '2aa500006542d32af195f3a96fbc83a6508b072db93c45a680dd6d6594ce86f7' },
+  // A missing model uses the existing string fields on the wire. Known models and scheduling are identical.
+  { storage: 3, verifier: 2, calendarProjection: 3, calendarRegistration: 2, digest: '9ba7ff1ae0c70767d81fe57c7538fafafdf05d77ba15cb25e01cd3368256aa5b' },
 ];
 const draft58ImplementationIndex = manifest => draft58Implementations.findIndex(({ storage, verifier, calendarProjection, calendarRegistration = 1, digest }) =>
   manifest.sourceSha256 === digest && (manifest.receiveStorageRevision ?? 1) === storage

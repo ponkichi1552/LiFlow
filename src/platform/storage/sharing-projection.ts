@@ -164,7 +164,7 @@ export async function persistSharedProjection(database: SQLiteDatabase, replica:
     model_number=excluded.model_number, category=excluded.category, display_name=excluded.display_name, official_product_url=excluded.official_product_url,
     official_manual_url=excluded.official_manual_url, analysis_json=excluded.analysis_json, updated_at=excluded.updated_at
     WHERE appliances.analysis_json != excluded.analysis_json OR appliances.display_name != excluded.display_name`, appliance.id, householdId, appliance.manufacturer,
-  appliance.productName, appliance.modelNumber, appliance.category ?? null, appliance.displayName, appliance.officialProductUrl ?? null, appliance.officialManualUrl ?? '',
+  appliance.productName, appliance.modelNumber ?? '', appliance.category ?? null, appliance.displayName, appliance.officialProductUrl ?? null, appliance.officialManualUrl ?? '',
   JSON.stringify(appliance.analysis), appliance.createdAt, appliance.updatedAt);
   await persistSharedScheduleRows(database, snapshot);
   await database.runAsync('UPDATE sharing_workspace_metadata SET projection_token=?, projection_day=?, projection_signature=? WHERE singleton=1',

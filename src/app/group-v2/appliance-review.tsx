@@ -1,2 +1,6 @@
-import { V2WorkspaceRoute } from '../../features/sharing/v2-ui/workspace-route';
-export default function ApplianceReviewRoute() { return <V2WorkspaceRoute view="applianceReview" />; }
+import { Redirect, useLocalSearchParams } from 'expo-router';
+
+export default function ApplianceReviewRoute() {
+  const params = useLocalSearchParams();
+  return <Redirect href={{ pathname: '/manual/shared-review', params }} />;
+}

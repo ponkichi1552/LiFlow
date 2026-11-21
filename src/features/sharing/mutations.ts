@@ -85,6 +85,7 @@ export function planSharedMutation(context: SharedMutationContext, kind: SharedR
   }
   if (kind === 'saveReviewedApplianceCare') {
     const product = args[0] as Omit<ApplianceCareProductIdentity, 'applianceId'> & { applianceId?: string };
+    if (!product.modelNumber) throw new Error('この共有形式では型番が必要です。');
     const applianceId = product.applianceId ?? `appliance.${sharedDocumentDigest([replica.groupId,
       product.manufacturer.normalize('NFKC').trim().toLowerCase(), product.modelNumber.normalize('NFKC').trim().toLowerCase()])}`;
     const existing = snapshot.appliances.find((item) => item.id === applianceId);

@@ -25,7 +25,7 @@ export interface V2ApplianceReviewResult { operations: SharedOperation[]; applia
 export class V2ApplianceAlreadyExistsError extends Error {
   readonly code = 'sharing/v2-appliance-exists';
   readonly applianceId: string;
-  constructor(applianceId: string) { super('同じメーカー・型番の共有家電があります。その家電を開いて内容を確認してください。'); this.applianceId = applianceId; }
+  constructor(applianceId: string) { super('同じ製品の共有家電があります。その家電を開いて内容を確認してください。'); this.applianceId = applianceId; }
 }
 export const v2ApplianceId = (groupId: string, manufacturer: string, modelNumber: string) => `appliance.${sharedDocumentDigest([groupId, applianceManufacturerIdentity(manufacturer) ?? normalizedApplianceModel(manufacturer), normalizedApplianceModel(modelNumber)])}`;
 const sameIds = (a: readonly string[], b: readonly string[]) => new Set(a).size === a.length && canonicalJson([...a].sort()) === canonicalJson([...b].sort());
@@ -51,24 +51,33 @@ export function createV2ApplianceActions(repository: ReturnType<typeof createV2E
         const result = input.result; const product = result.product;
         if (result.analysis.manualSource && !supportsUploadedManuals(state.archive.at(-1)!.body.schedulerVersion)) throw new Error('共有グループの管理者が共有画面から互換更新を行ってください。既存データは保持されます。');
         if (manual && !supportsRetainedManuals(state.archive.at(-1)!.body.schedulerVersion)) throw new Error('PDFの共有保存にはグループの互換更新が必要です。解析結果は再解析せず保存できます。');
-        if (![product.manufacturer, product.productName, product.modelNumber].every(value => typeof value === 'string' && value.trim())) throw new Error('メーカー・製品名・型番を確認してください。');
+        if (![product.manufacturer, product.productName].every(value => typeof value === 'string' && value.trim())
+          || product.modelNumber !== null && (typeof product.modelNumber !== 'string' || !product.modelNumber.trim())
+          || product.modelNumber === null && !result.analysis.manualSource) throw new Error('メーカー・製品名を確認してください。');
         const groupId = repository.scope.groupId; const selection = input.selection;
         if (selection && selection.groupId !== groupId) throw new V2StaleSettingsError();
-        const id = selection?.applianceId ?? v2ApplianceId(groupId, product.manufacturer, product.modelNumber);
+        const id = selection?.applianceId ?? (product.modelNumber
+          ? v2ApplianceId(groupId, product.manufacturer, product.modelNumber)
+          : `appliance.${sharedDocumentDigest([groupId, applianceManufacturerIdentity(product.manufacturer) ?? normalizedApplianceModel(product.manufacturer),
+            '', normalizedApplianceModel(product.productName), result.analysis.manualSource?.sha256])}`);
         const view = state.assessment.view; const at = v2ReadPoint(view, state.archive.at(-1)!); const current = readV2Appliance(view, at, id);
         if (selection && (current.alive.kind === 'missing' || current.row.revision !== selection.revision)) throw new V2StaleSettingsError();
         if ((current.alive.kind === 'conflict' || current.row.deleted) && (!selection || input.restorePresence !== true)) throw new V2StaleSettingsError();
         if (current.source.kind === 'conflict' && (!selection || !input.resolveOperationIds || !sameIds(input.resolveOperationIds, current.source.candidates.map(candidate => candidate.operationId)))) throw new V2StaleSettingsError();
         if (input.resolveOperationIds && current.source.kind !== 'conflict') throw new V2StaleSettingsError();
         const creating = current.alive.kind === 'missing';
-        const matches = (maker: string, model: string) => (applianceManufacturerIdentity(maker) ?? normalizedApplianceModel(maker)) === (applianceManufacturerIdentity(product.manufacturer) ?? normalizedApplianceModel(product.manufacturer))
-          && normalizedApplianceModel(model) === normalizedApplianceModel(product.modelNumber);
-        const prior = current.appliance ?? current.candidates.find(candidate => candidate.appliance && matches(candidate.appliance.manufacturer, candidate.appliance.modelNumber))?.appliance;
+        const matches = (maker: string, model: string | null, name: string) => (applianceManufacturerIdentity(maker) ?? normalizedApplianceModel(maker)) === (applianceManufacturerIdentity(product.manufacturer) ?? normalizedApplianceModel(product.manufacturer))
+          && normalizedApplianceModel(model ?? '') === normalizedApplianceModel(product.modelNumber ?? '')
+          && (product.modelNumber !== null || normalizedApplianceModel(name) === normalizedApplianceModel(product.productName));
+        const prior = current.appliance ?? current.candidates.find(candidate => candidate.appliance
+          && matches(candidate.appliance.manufacturer, candidate.appliance.modelNumber, candidate.appliance.productName))?.appliance;
         const makerField = readV2EditableField(view, at, 'appliance', id, 'manufacturer'); const modelField = readV2EditableField(view, at, 'appliance', id, 'modelNumber');
-        if (prior ? !matches(prior.manufacturer, prior.modelNumber) : !creating && !(makerField.kind === 'value' && typeof makerField.value === 'string'
-          && modelField.kind === 'value' && typeof modelField.value === 'string' && matches(makerField.value, modelField.value))) throw new Error('別のメーカー・型番は、新しい共有家電として登録してください。');
+        const nameField = readV2EditableField(view, at, 'appliance', id, 'productName');
+        if (prior ? !matches(prior.manufacturer, prior.modelNumber, prior.productName) : !creating && !(makerField.kind === 'value' && typeof makerField.value === 'string'
+          && modelField.kind === 'value' && typeof modelField.value === 'string' && matches(makerField.value, modelField.value,
+            nameField.kind === 'value' && typeof nameField.value === 'string' ? nameField.value : ''))) throw new Error('別の製品は、新しい共有家電として登録してください。');
         const oldName = readV2EditableField(view, at, 'appliance', id, 'displayName'); const oldCreated = readV2EditableField(view, at, 'appliance', id, 'createdAt');
-        const content = normalizeV2ReviewedAppliance({ manufacturer: product.manufacturer.trim(), productName: product.productName.trim(), modelNumber: product.modelNumber.trim(),
+        const content = normalizeV2ReviewedAppliance({ manufacturer: product.manufacturer.trim(), productName: product.productName.trim(), modelNumber: product.modelNumber?.trim() ?? null,
           displayName: input.reviewedDisplayName ?? applianceDisplayName(product, prior?.displayName ?? (oldName.kind === 'value' && typeof oldName.value === 'string' ? oldName.value : undefined)), category: product.category ?? '',
           officialProductUrl: result.officialSources.productUrl ?? null, officialManualUrl: result.officialSources.manualUrl, analysis: result.analysis, reviewed: true });
         if (!content) throw new Error('メーカーの公式資料と解析結果を確認してください。');

@@ -35,7 +35,11 @@ export function readApplianceManual(database: SQLiteDatabase, digest: string): P
   });
 }
 export interface SharedApplianceCopy { appliance: Appliance; manual: string | null }
-const identity = (maker: string, model: string) => [applianceManufacturerIdentity(maker) ?? maker.normalize('NFKC').trim().toLocaleLowerCase('en-US'), model.normalize('NFKC').trim().toLocaleLowerCase('en-US')];
+const normalize = (value: string) => value.normalize('NFKC').trim().toLocaleLowerCase('en-US');
+const identity = (maker: string, model: string | null, product?: string, manualDigest?: string) => [
+  applianceManufacturerIdentity(maker) ?? normalize(maker), normalize(model ?? ''),
+  ...(!model && product && manualDigest ? [normalize(product), manualDigest] : []),
+];
 
 /** Retain the appliance, not another set of chores. Group exit/removal does not erase this personal copy. */
 export function retainSharedApplianceCopies(database: SQLiteDatabase, groupId: string, copies: readonly SharedApplianceCopy[], assertAccess: () => void | Promise<void>): Promise<boolean> {
@@ -43,19 +47,24 @@ export function retainSharedApplianceCopies(database: SQLiteDatabase, groupId: s
     let changed = false;
     await assertAccess();
     if (await transaction.getFirstAsync("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sharing_workspace_metadata'")) throw new Error('家電の個人保存先を確認してください。');
-    const rows = await transaction.getAllAsync<{ id: string; manufacturer: string; model_number: string; display_name: string; created_at: string }>('SELECT id, manufacturer, model_number, display_name, created_at FROM appliances WHERE household_id=?', 'local-household');
+    const rows = await transaction.getAllAsync<{ id: string; manufacturer: string; product_name: string; model_number: string; manual_digest: string | null; display_name: string; created_at: string }>(
+      `SELECT id, manufacturer, product_name, model_number,
+       CASE WHEN model_number='' AND json_valid(analysis_json) THEN json_extract(analysis_json, '$.manualSource.sha256') END AS manual_digest,
+       display_name, created_at FROM appliances WHERE household_id=?`, 'local-household');
     const byIdentity = new Map<string, typeof rows>();
     for (const row of rows) {
-      const key = JSON.stringify(identity(row.manufacturer, row.model_number)); const matches = byIdentity.get(key) ?? [];
+      if (!row.model_number && !row.manual_digest) continue;
+      const key = JSON.stringify(identity(row.manufacturer, row.model_number, row.product_name, row.manual_digest ?? undefined)); const matches = byIdentity.get(key) ?? [];
       matches.push(row); byIdentity.set(key, matches);
     }
-    const savedCopies = new Map<string, string>();
+    const byId = new Map(rows.map(row => [row.id, row]));
+    const savedCopies = new Map<string, { shared_id: string; source_digest: string; personal_id: string }>();
     const existingManuals = new Set<string>();
     const ids = [...new Set(copies.map(copy => copy.appliance.id))];
     const digests = [...new Set(copies.flatMap(copy => copy.manual && copy.appliance.analysis.manualSource?.sha256 ? [copy.appliance.analysis.manualSource.sha256] : []))];
     for (let offset = 0; offset < ids.length; offset += 300) {
       const page = ids.slice(offset, offset + 300);
-      for (const row of await transaction.getAllAsync<{ shared_id: string; source_digest: string }>(`SELECT shared_id,source_digest FROM appliance_shared_copies WHERE group_id=? AND shared_id IN (${page.map(() => '?').join(',')})`, groupId, ...page)) savedCopies.set(row.shared_id, row.source_digest);
+      for (const row of await transaction.getAllAsync<{ shared_id: string; source_digest: string; personal_id: string }>(`SELECT shared_id,source_digest,personal_id FROM appliance_shared_copies WHERE group_id=? AND shared_id IN (${page.map(() => '?').join(',')})`, groupId, ...page)) savedCopies.set(row.shared_id, row);
     }
     for (let offset = 0; offset < digests.length; offset += 300) {
       const page = digests.slice(offset, offset + 300);
@@ -64,29 +73,31 @@ export function retainSharedApplianceCopies(database: SQLiteDatabase, groupId: s
     for (const { appliance, manual } of copies) {
       if (appliance.householdId !== `shared:${groupId}`) throw new Error('家電の共有元が一致しません。');
       const digest = sharedDocumentDigest(appliance);
-      const savedDigest = savedCopies.get(appliance.id);
+      const savedCopy = savedCopies.get(appliance.id);
       const manualDigest = appliance.analysis.manualSource?.sha256;
       // A historical appliance can arrive before a later retained PDF. Its metadata
       // fingerprint is unchanged, but the new document still belongs in this library.
       if (manualDigest && manual && !existingManuals.has(manualDigest)) {
         await storeApplianceManualInside(transaction, manual, manualDigest); existingManuals.add(manualDigest); changed = true;
       }
-      if (savedDigest === digest) continue;
+      if (savedCopy?.source_digest === digest) continue;
       changed = true;
-      const key = JSON.stringify(identity(appliance.manufacturer, appliance.modelNumber));
+      const product = identity(appliance.manufacturer, appliance.modelNumber, appliance.productName, manualDigest);
+      const key = JSON.stringify(product);
       const matches = byIdentity.get(key) ?? [];
       // Historical duplicate products stay recoverable. Do not overwrite an arbitrary one.
-      const prior = matches.length === 1 ? matches[0] : undefined;
-      const id = prior?.id ?? `retained-appliance.${sharedDocumentDigest(identity(appliance.manufacturer, appliance.modelNumber))}`;
+      const retained = !appliance.modelNumber && savedCopy ? byId.get(savedCopy.personal_id) : undefined;
+      const prior = retained ?? (matches.length === 1 ? matches[0] : undefined);
+      const id = prior?.id ?? `retained-appliance.${sharedDocumentDigest(product)}`;
       await assertAccess();
       await transaction.runAsync(`INSERT INTO appliances (id, household_id, manufacturer, product_name, model_number, category, display_name,
         official_product_url, official_manual_url, analysis_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET product_name=excluded.product_name, category=excluded.category, official_product_url=excluded.official_product_url,
         official_manual_url=excluded.official_manual_url, analysis_json=excluded.analysis_json, updated_at=excluded.updated_at`,
-      id, 'local-household', appliance.manufacturer, appliance.productName, appliance.modelNumber, appliance.category ?? null, prior?.display_name ?? appliance.displayName,
+      id, 'local-household', appliance.manufacturer, appliance.productName, appliance.modelNumber ?? '', appliance.category ?? null, prior?.display_name ?? appliance.displayName,
       appliance.officialProductUrl ?? null, appliance.officialManualUrl, JSON.stringify(appliance.analysis), prior?.created_at ?? appliance.createdAt, appliance.updatedAt);
       await transaction.runAsync('INSERT INTO appliance_shared_copies (group_id, shared_id, personal_id, source_digest) VALUES (?, ?, ?, ?) ON CONFLICT(group_id, shared_id) DO UPDATE SET personal_id=excluded.personal_id, source_digest=excluded.source_digest', groupId, appliance.id, id, digest);
-      savedCopies.set(appliance.id, digest);
+      savedCopies.set(appliance.id, { shared_id: appliance.id, personal_id: id, source_digest: digest });
     }
     await assertAccess();
     return changed;

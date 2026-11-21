@@ -1475,6 +1475,14 @@
       },
       {
         "file": "tests/appliance-pdf-only.test.mjs",
+        "name": "a manual with a maker and product but no model produces a verified null model without another analysis"
+      },
+      {
+        "file": "tests/sharing-v2-appliance.test.mjs",
+        "name": "a shared PDF without a model preserves signed string fields and reads back null on another device"
+      },
+      {
+        "file": "tests/appliance-pdf-only.test.mjs",
         "name": "PDF-only encrypted queue input preserves its identification mode and cannot share a legacy cache identity"
       },
       {
@@ -2125,7 +2133,7 @@
       },
       {
         "file": "tests/mobile-ui-audit.test.mjs",
-        "name": "appliance analysis aborts on"
+        "name": "personal appliance analysis survives"
       },
       {
         "file": "tests/mobile-ui-audit.test.mjs",
@@ -5882,7 +5890,7 @@
       },
       {
         "file": "tests/sharing-v2-appliance-ui.test.mjs",
-        "name": "a reviewed shared appliance submits the latest selected PDF and cancels without sharing partial or late analysis"
+        "name": "shared appliance submits the latest selected PDF and leaving does not share its result"
       },
       {
         "file": "tests/sharing-v2-appliance-ui.test.mjs",
@@ -5916,8 +5924,12 @@
     ]
   },
   {
-    "feature": "appliance-client-polling-stops-on-retained-route-blur-and-can-retry",
+    "feature": "appliance-client-receives-results-after-leaving-the-review-route",
     "tests": [
+      {
+        "file": "tests/analysis-delivery.test.mjs",
+        "name": "pending analysis result, PDF and receipt survive cold reopen without sharing or a second upload"
+      },
       {
         "file": "tests/mobile-ui-audit.test.mjs",
         "name": "personal reanalysis keeps the appliance read failure visible until a read retry succeeds"
@@ -5932,15 +5944,11 @@
       },
       {
         "file": "tests/mobile-ui-audit.test.mjs",
-        "name": "appliance analysis aborts when a retained screen blurs and permits another request"
+        "name": "personal appliance analysis survives"
       },
       {
         "file": "tests/sharing-v2-appliance-ui.test.mjs",
-        "name": "leaving a retained shared appliance review aborts polling and ignores a late result without preventing a fresh attempt"
-      },
-      {
-        "file": "tests/mobile-ui-audit.test.mjs",
-        "name": "appliance analysis aborts on"
+        "name": "leaving shared appliance review keeps one analysis and restores its unshared result"
       },
       {
         "file": "tests/appliance-care-client.test.mjs",

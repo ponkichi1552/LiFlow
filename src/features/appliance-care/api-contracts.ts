@@ -5,7 +5,7 @@ export interface ApplianceCareApiRequest {
   identifyFromManual?: true;
   manufacturer?: string;
   productName?: string;
-  modelNumber?: string;
+  modelNumber?: string | null;
   category?: string;
   forceReanalysis?: boolean;
   manual?: UploadedManualInput;
@@ -26,7 +26,7 @@ export interface ProductVerifiedResponse {
   product: {
     manufacturer: string;
     productName: string;
-    modelNumber: string;
+    modelNumber: string | null;
     category?: string;
   };
   officialSources: {

@@ -460,7 +460,7 @@ function applianceFromRow(row: ApplianceRow): Appliance { return {
     householdId: row.household_id,
     manufacturer: row.manufacturer,
     productName: row.product_name,
-    modelNumber: row.model_number,
+    modelNumber: row.model_number || null,
     ...(row.category ? { category: row.category } : {}),
     displayName: applianceDisplayName({ manufacturer: row.manufacturer, productName: row.product_name, modelNumber: row.model_number }, row.display_name),
     ...(row.official_product_url ? { officialProductUrl: row.official_product_url } : {}),
@@ -486,25 +486,12 @@ async function loadApplianceCareReviewContextImpl(
   );
   return {
     frequencyMode: settings?.frequency_mode ?? 'balanced',
-    appliance: {
-      id: row.id,
-      householdId: row.household_id,
-      manufacturer: row.manufacturer,
-      productName: row.product_name,
-      modelNumber: row.model_number,
-      ...(row.category ? { category: row.category } : {}),
-      displayName: applianceDisplayName({ manufacturer: row.manufacturer, productName: row.product_name, modelNumber: row.model_number }, row.display_name),
-      ...(row.official_product_url ? { officialProductUrl: row.official_product_url } : {}),
-      officialManualUrl: row.official_manual_url,
-      analysis: JSON.parse(row.analysis_json) as ApplianceCareAnalysisDraft,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    },
+    appliance: applianceFromRow(row),
     chores: definitionRows.map((definitionRow) => ({
       ...(JSON.parse(definitionRow.definition_json) as ChoreDefinition),
       id: definitionRow.id,
       enabled: Boolean(definitionRow.enabled),
-    })).filter((chore) => chore.applianceId === applianceId || (!chore.applianceId
+    })).filter((chore) => chore.applianceId === applianceId || (!chore.applianceId && row.model_number
       && chore.applianceCareSource?.manufacturer === row.manufacturer
       && chore.applianceCareSource.productName === row.product_name
       && chore.applianceCareSource.modelNumber === row.model_number)),
@@ -1390,7 +1377,7 @@ async function saveReviewedApplianceCareImpl(
     'SELECT created_at, manufacturer, product_name, model_number FROM appliances WHERE id=? AND household_id=?', applianceId, LOCAL_HOUSEHOLD_ID);
   const rows = await database.getAllAsync<DefinitionRow>('SELECT id, enabled, definition_json FROM chore_definitions WHERE household_id=?', LOCAL_HOUSEHOLD_ID);
   const plan = planReviewedApplianceSave({ householdId: LOCAL_HOUSEHOLD_ID, applianceId, now: new Date().toISOString(), product, analysis, approvedTasks,
-    ...(existing ? { existingAppliance: { createdAt: existing.created_at, manufacturer: existing.manufacturer, productName: existing.product_name, modelNumber: existing.model_number } } : {}),
+    ...(existing ? { existingAppliance: { createdAt: existing.created_at, manufacturer: existing.manufacturer, productName: existing.product_name, modelNumber: existing.model_number || null } } : {}),
     allChores: rows.map((row) => ({ ...JSON.parse(row.definition_json) as ChoreDefinition, id: row.id, enabled: Boolean(row.enabled) })),
     newChoreId: () => createId('appliance-care') });
   await withAdaptiveOwnerTransaction(database, async () => {
@@ -1404,7 +1391,7 @@ async function saveReviewedApplianceCareImpl(
       ON CONFLICT(id) DO UPDATE SET manufacturer=excluded.manufacturer, product_name=excluded.product_name, model_number=excluded.model_number,
       category=excluded.category, display_name=excluded.display_name, official_product_url=excluded.official_product_url,
       official_manual_url=excluded.official_manual_url, analysis_json=excluded.analysis_json, updated_at=excluded.updated_at`, appliance.id, appliance.householdId,
-      appliance.manufacturer, appliance.productName, appliance.modelNumber, appliance.category ?? null, appliance.displayName,
+      appliance.manufacturer, appliance.productName, appliance.modelNumber ?? '', appliance.category ?? null, appliance.displayName,
       appliance.officialProductUrl ?? null, appliance.officialManualUrl, JSON.stringify(appliance.analysis), appliance.createdAt, appliance.updatedAt);
     for (const chore of plan.definitions) {
       await database.runAsync(`INSERT INTO chore_definitions (id, household_id, name, enabled, definition_json) VALUES (?, ?, ?, ?, ?)

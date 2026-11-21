@@ -8,7 +8,7 @@ import { applianceDisplayName, appliancePrimaryName, applianceSecondaryLabel } f
 
 export type ApplianceAudience = 'personal' | 'shared';
 export interface ApplianceLibraryItem {
-  id: string; source: ApplianceAudience; displayName: string; manufacturer: string; modelNumber: string;
+  id: string; source: ApplianceAudience; displayName: string; manufacturer: string; modelNumber: string | null;
   category?: string; productName?: string; analysis?: { tasks?: readonly { name?: unknown }[] }; needsReview?: boolean;
 }
 

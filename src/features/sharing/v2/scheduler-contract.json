@@ -240,5 +240,5 @@
     "src/domain/chores/calendar-timing.ts",
     "src/domain/chores/personal-schedule.ts"
   ],
-  "sourceSha256": "2aa500006542d32af195f3a96fbc83a6508b072db93c45a680dd6d6594ce86f7"
+  "sourceSha256": "9ba7ff1ae0c70767d81fe57c7538fafafdf05d77ba15cb25e01cd3368256aa5b"
 }

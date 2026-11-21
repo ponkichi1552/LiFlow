@@ -82,6 +82,7 @@ export function validateApplianceCareRequest(value) {
   const noIdentity = value.identifyFromManual === true && fields.every(field => value[field] === undefined);
   for (const field of fields) {
     if (noIdentity) continue;
+    if (field === 'modelNumber' && value.identifyFromManual === true && value[field] == null) continue;
     if (typeof value[field] !== 'string') return false;
     const normalized = value[field].trim();
     if (normalized.length < 1 || normalized.length > 120 || /[\u0000-\u001f\u007f]/u.test(normalized)) return false;

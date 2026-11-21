@@ -3,7 +3,7 @@ import { applianceCategoryFromContent, applianceCategoryLabel } from './categori
 interface ProductName {
   manufacturer: string;
   productName: string;
-  modelNumber?: string;
+  modelNumber?: string | null;
 }
 
 export function appliancePrimaryName(product: { category?: string; productName?: string; displayName?: string;
@@ -29,7 +29,7 @@ export function applianceDisplayName(product: ProductName, savedDisplayName?: st
 }
 
 /** Keep useful product details for custom labels without repeating the visible name. */
-export function applianceSecondaryLabel(displayName: string, details: readonly (string | undefined)[]): string {
+export function applianceSecondaryLabel(displayName: string, details: readonly (string | null | undefined)[]): string {
   const normalize = (value: string) => value.normalize('NFKC').replace(/\s+/gu, ' ').trim().toLowerCase();
   let title = normalize(displayName);
   const seen = new Set<string>();

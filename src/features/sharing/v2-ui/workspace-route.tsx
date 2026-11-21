@@ -63,8 +63,9 @@ export function V2WorkspaceRoute({ view }: { view: V2GroupScreenProps['view'] })
     onWaste={() => router.push('/group-v2/waste')}
     onAppliances={() => router.navigate('/(tabs)/manual')}
     onAppliance={(applianceId) => router.push({ pathname: '/group-v2/appliance', params: { applianceId } })}
-    onApplianceReview={applianceId => router.push({ pathname: '/group-v2/appliance-review', params: applianceId ? { applianceId } : {} })}
+    onApplianceReview={applianceId => router.push({ pathname: '/manual/shared-review', params: applianceId ? { applianceId } : {} })}
     onPersonalAppliance={id => router.push({ pathname: '/manual/appliances/[id]', params: { id, returnTo: '/manual' } })}
+    onPersonalApplianceReview={applianceId => router.push({ pathname: '/manual/appliance-care', params: { applianceId, returnTo: '/manual' } })}
     onDateRights={(choreId) => router.push({ pathname: '/group-v2/date-rights', params: { choreId } })}
     onCalendar={() => router.navigate('/(tabs)/explore')} onHistory={() => router.push('/group-v2/history')}
     onRequests={() => router.push('/group-v2/requests')} onAssignmentRequests={() => router.push('/group-v2/assignment-requests')} />;

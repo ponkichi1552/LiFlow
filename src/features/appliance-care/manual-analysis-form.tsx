@@ -6,12 +6,12 @@ import { SettingsAction, SettingsGroup } from '../../components/settings-control
 import { palette, typography } from '../../components/planner-ui';
 
 /** Personal and shared registration both accept a PDF without a product-entry step. */
-export function ManualAnalysisForm({ retained, filename, disabled, inputDisabled = false, working, picking, canAnalyze, reanalysis = false, shared = false, invalidManual = false, usage, onReady, onManual, onPickingChange, onAnalyze, onCancel }: {
+export function ManualAnalysisForm({ retained, filename, disabled, inputDisabled = false, working, picking, canAnalyze, reanalysis = false, shared = false, invalidManual = false, usage, onReady, onManual, onPickingChange, onAnalyze }: {
   retained?: UploadedManualInput; disabled: boolean; inputDisabled?: boolean; working: boolean; canAnalyze: boolean; reanalysis?: boolean; shared?: boolean;
   filename?: string; picking?: boolean; onPickingChange?(picking: boolean): boolean | void;
   invalidManual?: boolean;
   usage?: ApplianceCareUsage; onReady(ready: boolean): void; onManual(manual: UploadedManualInput | undefined, filename?: string): void;
-  onAnalyze(): void; onCancel?(): void;
+  onAnalyze(): void;
 }) {
   return <View style={{ gap: 14 }}>
     <Text style={[typography.caption, { color: palette.muted }]}>PDFから製品情報とお手入れ方法を読み取ります。</Text>
@@ -24,7 +24,6 @@ export function ManualAnalysisForm({ retained, filename, disabled, inputDisabled
       disabled={disabled || !canAnalyze || working || picking} onPress={onAnalyze} /> : null}
     {working ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><ActivityIndicator color={palette.accent} />
       <Text accessibilityLiveRegion="polite" style={[typography.caption, { color: palette.muted, flex: 1 }]}>製品情報とお手入れ方法を解析しています</Text>
-      {onCancel ? <SettingsAction placement="page" title="結果の待機をやめる" onPress={onCancel} /> : null}
     </View> : null}
   </View>;
 }
