@@ -15,9 +15,11 @@ export function sharingCloudWithDeadline<T extends object>(cloud: T, millisecond
   const wrapped = { ...cloud };
   for (const key of Object.keys(cloud) as (keyof T)[]) {
     const method = cloud[key];
-    if (key === 'watch' || key === 'watchAccountDeviceRestores' || key === 'watchPendingJoin' || typeof method !== 'function') continue;
+    if (typeof method !== 'function') continue;
     wrapped[key] = ((...args: unknown[]) => {
-      const pending = Promise.resolve(Reflect.apply(method, cloud, args));
+      const result = Reflect.apply(method, cloud, args);
+      if (typeof result?.then !== 'function') return result;
+      const pending = Promise.resolve(result);
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(Object.assign(new Error('Sharing request timed out; delivery remains unconfirmed'), { code: 'unavailable' })), milliseconds);
         pending.then((value) => { clearTimeout(timer); resolve(value); }, (error) => { clearTimeout(timer); reject(error); });

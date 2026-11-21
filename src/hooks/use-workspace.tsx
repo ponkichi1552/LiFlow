@@ -7,6 +7,7 @@ import { currentSharingWorkspace, hasSharingSessionEnabled, openSharedWorkspace,
 import type { SharedWorkspace } from '@/platform/sharing/workspaces';
 import type { SharingWorkspaceRecord } from '@/platform/storage/sharing-registry';
 import { observeSharingUser } from '@/platform/sharing/auth';
+import { isSharingConfigured } from '@/platform/sharing/firebase-services';
 import { WorkspaceContext } from '@/contexts/workspace-context';
 import type { WorkspaceContextValue } from '@/contexts/workspace-context';
 import { startPrivateCalendarForeground, syncKnownPrivateCalendar } from '@/platform/sharing/private-calendar-sync';
@@ -41,6 +42,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const alive = useRef(true); const revision = useRef(0);
   const authenticatedRevision = useRef<{ revision: number; userId: string | null } | null>(null);
   const refreshSharing = useCallback(async function refresh(): Promise<void> {
+    if (!isSharingConfigured()) return;
     const current = ++revision.current; const user = await traceStartup('workspace.authentication', sharingSessionUser);
     const check = async () => {
       if (!alive.current || current !== revision.current) return false;
@@ -101,6 +103,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (alive.current && current === revision.current) setSessionStarted(true);
   }, [showStartupDisplay]);
   useEffect(() => {
+    if (!isSharingConfigured()) { setReady(true); return; }
     alive.current = true;
     void (async () => {
       try {

@@ -159,8 +159,8 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
   function readable(job, at) {
     if (job.deliveredAt !== undefined) return { stage: job.stage, done: true,
       result: { status: 'error', code: 'JOB_NOT_FOUND', message: '解析結果は端末に保存済みです。' }, usage: job.usage };
-    if (!job.done && job.executionState !== 'resultReady' && job.deadlineAt <= at) {
-      return { stage: job.stage, done: true, result: encryptedAndUnstarted(job) ? unstarted : interrupted, usage: job.usage };
+    if (!job.done && job.executionState !== 'resultReady' && job.deadlineAt <= at && !encryptedAndUnstarted(job)) {
+      return { stage: job.stage, done: true, result: interrupted, usage: job.usage };
     }
     return { stage: job.stage, done: job.done, ...(job.done ? { result: job.result,
       ...(job.delivery ? { delivery: job.delivery } : {}) } : { pollAfterMs: 2000 }), usage: job.usage };

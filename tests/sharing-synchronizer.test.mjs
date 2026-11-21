@@ -105,8 +105,13 @@ test('a stalled cloud response times out without losing local edits and a late s
 });
 
 test('network deadlines preserve synchronous unsubscribe handles and reject invalid timeout configuration', () => {
-  const unsubscribe = () => {}; const cloud = { watch: () => unsubscribe, async readGroup() { return 'group'; } };
-  assert.equal(sharingCloudWithDeadline(cloud).watch(), unsubscribe);
+  let active = true;
+  const unsubscribe = () => { active = false; };
+  const cloud = { watch: () => unsubscribe, watchKey: () => unsubscribe, async readGroup() { return 'group'; } };
+  const wrapped = sharingCloudWithDeadline(cloud);
+  assert.equal(wrapped.watch(), unsubscribe);
+  wrapped.watchKey()();
+  assert.equal(active, false);
   assert.throws(() => sharingCloudWithDeadline(cloud, 0));
 });
 

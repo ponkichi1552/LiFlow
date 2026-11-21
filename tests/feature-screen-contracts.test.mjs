@@ -187,7 +187,7 @@ test('feature screen contract: verified appliance analysis auto-saves maker inte
       { name: 'フィルターを洗う', recommendedIntervalDays: 30, recommendedConditions: [], steps: ['電源を切る'], tools: ['布'], safetyCautions: ['乾燥させる'], evidence: [{ url: 'https://www.dyson.co.jp/support' }] },
       { name: '汚れを拭く', steps: ['布で拭く'], tools: ['布'], safetyCautions: [], evidence: [{ url: 'https://www.dyson.co.jp/support' }] },
     ];
-    const verified = { status: 'verified', product: { manufacturer: 'Dyson', productName: 'V12', modelNumber: 'SV20', category: 'vacuum_cleaner' },
+    const verified = { status: 'verified', product: { manufacturer: 'Dyson', productName: 'V12', modelNumber: 'SV20', modelPages: [1], category: 'vacuum_cleaner' },
       officialSources: { manualUrl: 'https://www.dyson.co.jp/support' },
       analysis: { manufacturer: 'Dyson', model: 'SV20', analyzedAt: new Date().toISOString(), requiresUserReview: true, tasks } };
     let sent;
@@ -205,6 +205,8 @@ test('feature screen contract: verified appliance analysis auto-saves maker inte
     assert.ok(saved.scheduleEntries.some((entry) => entry.choreId === care[0].id), 'maker intervals must reach the actual Scheduler');
     screen.button('保存した家電のお手入れ詳細を開く');
     assert.equal(saved.appliances[0].category, 'vacuum_cleaner');
+    assert.deepEqual(saved.appliances[0].analysis.modelPages, [1]);
+    assert.ok(screen.text().includes('型番の記載　PDF 1ページ'));
     await screen.change('フィルターを洗うの周期', '45'); await screen.press('周期の変更を保存');
     const updated = await repository.loadPlannerSnapshot(h.database, today);
     assert.equal(updated.appliances.length, 1, 'cycle edits must not duplicate appliance');

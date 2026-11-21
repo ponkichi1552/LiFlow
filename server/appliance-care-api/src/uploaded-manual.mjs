@@ -73,9 +73,14 @@ async function inspect(bytes) {
     const unreadable = () => invalid('このPDFは読み取れません。パスワードなし・100ページ以内の取扱説明書を選択してください。');
     // A busy or suspended host has not established that the submitted PDF is invalid.
     // Keep the execution bound and let the client retry before any paid admission.
-    const timer = setTimeout(() => finish(new PublicApiError(503, 'TEMPORARY_NETWORK_ERROR', '説明書の検査が時間内に終わりませんでした。時間をおいて再試行してください。')), 5000);
-    worker.once('message', result => finish(!Number.isInteger(result.pages) || result.pages < 1 || result.pages > MAX_MANUAL_PAGES ? unreadable() : null, result.pages));
-    worker.once('error', () => finish(unreadable())); worker.once('exit', () => { if (!ended) finish(unreadable()); });
+    const unavailable = () => new PublicApiError(503, 'TEMPORARY_NETWORK_ERROR', '説明書の検査を完了できませんでした。時間をおいて再試行してください。');
+    const timer = setTimeout(() => finish(unavailable()), 5000);
+    worker.once('message', result => {
+      const pages = result?.pages;
+      finish(!Number.isInteger(pages) || pages < 1 || pages > MAX_MANUAL_PAGES ? unreadable() : null, pages);
+    });
+    worker.once('error', () => finish(unavailable()));
+    worker.once('exit', () => { if (!ended) finish(unavailable()); });
   });
 }
 
@@ -95,12 +100,13 @@ export async function analyzeUploadedManual(request, dependencies, onStage = () 
           + '\nお手入れの章に加え、図表・注意書き・保管や移動の章にある清掃・点検・交換・水抜きも確認する。作業者の年齢や監督、使用中止や修理依頼に関する明記された条件は関連する作業のsafetyCautionsに残す。利用者が行えない修理をstepsに入れない。'
           + '\n使用回数、運転時間、使用量、シーズンを基準とする時期や部品の寿命は、元の単位と適用条件をrecommendedConditionsに残し、日数へ換算しない。使用の前後や表示灯を合図とする作業も条件として記録する。'
           + '\n水洗い、洗剤、電源、冷却、すすぎ、乾燥、再装着の条件は対象部品ごとに確認し、別の部品から転用しない。つけ置き、乾燥、冷却などの待ち時間は該当する手順に残す。estimatedMinutesには明記された実作業時間だけを使う。'
-          + (identifyFromManual ? '\n同じ応答で、PDFの表紙・製品欄・仕様欄からメーカー名、製品名、対象型番と家電の種類をproductへ抽出する。categoryはPDFに記載された製品の種類に一致する選択肢とし、判別できなければnullにする。製品名は資料内の名称または製品種別を使う。指定された既存製品情報は照合用であり、PDFの記載の代わりに使わない。不明なmanufacturer・productNameはnull、型番の記載がなければmodelNumbersは空配列にし、捏造しない。複数の対象型番を載せた説明書は、対象の全型番をmodelNumbersへ記録し、一機種を勝手に選ばない。機種限定の手順・注意は適用型番を明記し、条件を混ぜない。既存製品の照合情報がある場合、お手入れ項目はその型番に適用されるものに限る。' : '') }] },
+          + (identifyFromManual ? '\n同じ応答で、PDFの表紙・製品欄・仕様欄からメーカー名、製品名、対象型番と家電の種類をproductへ抽出する。categoryはPDFに記載された製品の種類に一致する選択肢とし、判別できなければnullにする。製品名は資料内の名称または製品種別を使う。指定された既存製品情報は照合用であり、PDFの記載の代わりに使わない。不明なmanufacturer・productNameはnull、型番の記載がなければmodelNumbersは空配列にし、捏造しない。複数の対象型番を載せた説明書は、対象の全型番をmodelNumbersへ記録し、一機種を勝手に選ばない。機種限定の手順・注意は適用型番を明記し、条件を混ぜない。既存製品の照合情報がある場合、お手入れ項目はその型番に適用されるものに限る。'
+            + '\nmodelEvidenceには各対象型番と、その型番がPDF本文に最初に明記されたページを記録する。表紙を1ページ目として数え、紙面に印刷されたページ番号は使わない。ファイル名、PDFの文書プロパティ、ウェブの製品ページの情報を型番や記載ページの根拠にしない。記載箇所が確認できなければ該当項目を含めない。' : '') }] },
         { role: 'user', content: [{ type: 'input_text', text: JSON.stringify({ ...(Object.keys(expectedProduct).length ? { product: expectedProduct } : {}),
           instruction: '添付PDFのお手入れ項目だけを抽出。製品の一致は利用者が確認する。' }) },
         { type: 'input_file', filename: 'manual.pdf', file_data: `data:application/pdf;base64,${manual.bytes.toString('base64')}` }] },
       ] });
-    const product = identifyFromManual ? productFromUploadedManual(result.value?.product, expectedProduct) : expectedProduct;
+    const product = identifyFromManual ? productFromUploadedManual(result.value?.product, expectedProduct, manual.pages) : expectedProduct;
     if (!product) return { status: 'error', code: 'ANALYSIS_FAILED', message: expectedProduct.manufacturer
       ? '登録済みの家電とPDFの製品を照合できませんでした。対象の取扱説明書PDFを選んでください。'
       : 'PDFから製品情報を読み取れませんでした。別の取扱説明書PDFを選んでください。' };

@@ -204,6 +204,19 @@ test('legacy archive deletion checks the collective certificate every original i
   const input = { snapshot, groupId, archive: h.archive, assertAccess: async () => { events.push('access'); }, exists: async () => true,
     open: async () => ({ ...h.owner.database, closeAsync: async () => { events.push('close'); } }), remove: async () => { events.push('remove'); } };
   await removeRetainedLegacyArchive(input); assert.ok(events.indexOf('close') < events.indexOf('remove'));
+  events.length = 0;
+  await h.owner.database.runAsync('INSERT INTO sync_outbox (id, change_type, payload_json, created_at) VALUES (?, ?, ?, ?)', 'private-work', 'google-task', '{}', new Date(h.now()).toISOString());
+  await removeRetainedLegacyArchive(input);
+  assert.equal(events.includes('remove'), false); assert.equal(events.includes('close'), true);
+  assert.ok(await h.owner.database.getFirstAsync("SELECT 1 FROM sync_outbox WHERE id='private-work'"));
+  await h.owner.database.runAsync("DELETE FROM sync_outbox WHERE id='private-work'");
+  await h.owner.database.runAsync("INSERT INTO calendar_drafts (slot, draft_json) VALUES ('personal', '{}')");
+  events.length = 0; await removeRetainedLegacyArchive(input);
+  assert.equal(events.includes('remove'), false); assert.equal(events.includes('close'), true);
+  await h.owner.database.runAsync("DELETE FROM calendar_drafts WHERE slot='personal'");
+  await h.owner.database.execAsync("CREATE TABLE old_private_extension (value TEXT); INSERT INTO old_private_extension VALUES ('preserve')");
+  events.length = 0; await removeRetainedLegacyArchive(input);
+  assert.equal(events.includes('remove'), false); assert.equal(events.includes('close'), true);
   events.length = 0; await h.owner.repository.commit([draft('unsent-name', 'chore', 'floor', { name: '未送信' })]);
   await assert.rejects(removeRetainedLegacyArchive(input), /未送信/); assert.equal(events.includes('remove'), false); assert.equal(events.includes('close'), true);
   events.length = 0; await assert.rejects(removeRetainedLegacyArchive({ ...input, groupId: 'foreign-group' })); assert.deepEqual(events, []);

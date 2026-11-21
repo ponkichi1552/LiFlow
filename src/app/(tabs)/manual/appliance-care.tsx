@@ -14,6 +14,7 @@ import type { ApplianceCareTaskDraft } from '@/features/appliance-care/contracts
 import { automaticApplianceTasks, defaultApplianceCycles } from '@/features/appliance-care/auto-save-policy';
 import { applianceDisplayName, appliancePrimaryName } from '@/features/appliance-care/display-name';
 import { applianceAnalysisDate } from '@/features/appliance-care/analysis-date';
+import { manualModelPageLabel, manualModelPages } from '@/features/appliance-care/manual-model-pages';
 import { usePlannerData } from '@/hooks/use-planner-data';
 import { loadApplianceCareReviewContext, saveReviewedApplianceCare } from '@/platform/storage/repository';
 import type { ApplianceCareReviewContext } from '@/platform/storage/repository';
@@ -37,8 +38,6 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
   const [filename, setFilename] = useState<string>();
   const [picking, setPicking] = useState(false); const pickingRef = useRef(false);
   const manualRef = useRef<UploadedManualInput | undefined>(undefined);
-  const [retainedManual, setRetainedManual] = useState<UploadedManualInput>();
-  const manualTouched = useRef(false);
   const [category, setCategory] = useState('');
   const [received, setReceived] = useState<{ owner: string; result: ApplianceCareApiResponse } | null>(null);
   const result = received?.owner === owner ? received?.result ?? null : null;
@@ -58,21 +57,17 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
   const loadingAppliance = Boolean(applianceId) && !currentTarget;
   const applianceAvailable = !applianceId || currentTarget?.found === true;
   const analyzing = analysis?.state === 'pending';
+  const previous = analysis && analysis.state !== 'pending' ? analysis : null;
+  const retainedDigest = previous?.manualDigest ?? savedContext?.appliance.analysis?.manualSource?.sha256;
 
   useEffect(() => {
     if (!applianceId) return;
     let cancelled = false;
-    void loadApplianceCareReviewContext(database, applianceId).then(async (context) => {
+    void loadApplianceCareReviewContext(database, applianceId).then(context => {
       if (cancelled) return;
       setSavedContext(context);
       setTargetRead({ database, found: Boolean(context) });
       if (!context) return;
-      const digest = context.appliance.analysis?.manualSource?.sha256;
-      if (digest) {
-        const base64 = await readApplianceManual(database, digest).catch(() => null);
-        if (cancelled) return;
-        if (base64 && !manualTouched.current) { const retained: UploadedManualInput = { base64, rightsConfirmed: true }; setRetainedManual(retained); manualRef.current = retained; setManual(retained); }
-      }
       setCategory(context.appliance.category ?? '');
     }).catch(() => {
       if (!cancelled) { setSavedContext(null); setTargetRead({ database, found: false }); }
@@ -84,6 +79,7 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
   const invalidManual = result?.status === 'error' && result.code === 'INVALID_MANUAL';
   const verifiedName = verified ? applianceDisplayName(verified.product) : '';
   const primaryName = verified ? appliancePrimaryName({ ...verified.product, analysis: verified.analysis }, verifiedName) : '';
+  const modelPage = verified?.analysis.manualSource && manualModelPageLabel(verified.product.modelNumber, verified.product.modelPages);
 
   const analyze = async () => {
     if (savingRef.current || pickingRef.current || analyzing || !applianceAvailable || invalidManual) return;
@@ -95,11 +91,11 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
     setAnalysisSaved(false);
     setDisplayError(false);
     try {
-      const stored = !manualRef.current && analysis?.state === 'failed' ? await readApplianceManual(database, analysis.manualDigest) : null;
-      const submitted = manualRef.current ?? (stored ? { base64: stored, rightsConfirmed: true as const } : undefined);
+      const stored = !manualRef.current && retainedDigest ? await readApplianceManual(database, retainedDigest) : null;
+      const submitted = manualRef.current ?? (stored && { base64: stored, rightsConfirmed: true as const });
       if (!submitted) throw new Error('取扱説明書PDFを選んでください。');
       const { startAnalysisWork } = await import('@/platform/appliance-care/analysis-work');
-      await startAnalysisWork(database, { owner, target: { applianceId }, filename: filename ?? (manualTouched.current ? undefined : analysis?.filename),
+      await startAnalysisWork(database, { owner, target: { applianceId }, filename: manualRef.current ? filename : previous?.filename,
         request: { identifyFromManual: true, manual: submitted,
           ...(savedContext && applianceId ? { manufacturer: savedContext.appliance.manufacturer, productName: savedContext.appliance.productName,
             modelNumber: savedContext.appliance.modelNumber, category: savedContext.appliance.category, forceReanalysis: true } : {}) } });
@@ -131,6 +127,7 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
   };
   const persistAnalysis = useCallback(async (verifiedResult: ProductVerifiedResponse, values: Record<number, string>) => {
     const approvedTasks = automaticApplianceTasks(verifiedResult.analysis, values);
+    const modelPages = verifiedResult.analysis.manualSource && manualModelPages(verifiedResult.product.modelNumber, verifiedResult.product.modelPages);
     const saved = await saveReviewedApplianceCare(database, {
       ...(savedApplianceId.current ? { applianceId: savedApplianceId.current } : {}),
       manufacturer: verifiedResult.product.manufacturer,
@@ -139,7 +136,7 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
       category: verifiedResult.product.category ?? category,
       officialProductUrl: verifiedResult.officialSources.productUrl,
       manualUrl: verifiedResult.officialSources.manualUrl,
-    }, verifiedResult.analysis, approvedTasks);
+    }, { ...verifiedResult.analysis, ...(modelPages ? { modelPages } : {}) }, approvedTasks);
     savedApplianceId.current = saved.applianceId;
     setAnalysisSaved(true);
     setMessage(`解析結果を保存しました。${saved.scheduledTaskCount ? ` 定期予定は${saved.scheduledTaskCount}件です。` : ''}${saved.duplicateTaskCount ? ` 同名の${saved.duplicateTaskCount}件は既に登録されています。` : ''}`);
@@ -162,8 +159,8 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
       if (applianceId && !context) throw new Error('登録した家電を読み込めませんでした。');
       const values = defaultApplianceCycles(output.analysis, context?.chores);
       setCycleValues(values);
-      if (context?.appliance.analysis.analyzedAt === output.analysis.analyzedAt
-        && context.appliance.analysis.manualSource?.sha256 === analysis.manualDigest) {
+      if (context?.appliance.analysis?.analyzedAt === output.analysis.analyzedAt
+        && context.appliance.analysis?.manualSource?.sha256 === analysis.manualDigest) {
         setAnalysisSaved(true);
         await refreshSavedAppliance(output);
       } else await persistAnalysis(output, values);
@@ -196,16 +193,16 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
       {targetError ? <Card><Text accessibilityRole="alert" style={styles.message}>登録した家電を読み込めませんでした。</Text>
         <AppButton title="家電を再読込" variant="secondary" onPress={() => { setTargetRead(null); setTargetRetry(before => before + 1); }} /></Card> : null}
       {loadingAppliance ? <Text style={styles.note}>家電を読み込んでいます。</Text> : null}
-      <ManualAnalysisForm retained={retainedManual} filename={filename ?? analysis?.filename} working={working || analyzing} picking={picking} canAnalyze={canAnalyze} reanalysis={Boolean(applianceId)}
+      <ManualAnalysisForm retained={Boolean(retainedDigest)} filename={filename ?? analysis?.filename} working={working || analyzing} picking={picking} canAnalyze={canAnalyze} reanalysis={Boolean(applianceId)}
         invalidManual={invalidManual}
         usage={result?.usage} onReady={setCanAnalyze} onPickingChange={value => {
           if (value && (savingRef.current || analyzing)) return false;
           pickingRef.current = value; setPicking(value);
         }}
-        disabled={(!manual && analysis?.state !== 'failed') || !applianceAvailable} inputDisabled={!applianceAvailable || working}
+        disabled={(!manual && !retainedDigest) || !applianceAvailable} inputDisabled={!applianceAvailable || working}
         onManual={(value, name) => {
           if (savingRef.current) return;
-          manualTouched.current = true; manualRef.current = value; setManual(value); setFilename(name); setReceived(null); setAnalysisSaved(false); setMessage(null); setDisplayError(false);
+          manualRef.current = value; setManual(value); setFilename(name); setReceived(null); setAnalysisSaved(false); setMessage(null); setDisplayError(false);
         }} onAnalyze={() => void analyze()} />
 
       {message ? <Card><Text style={analysisSaved ? styles.savedMessage : styles.message}>{message}</Text></Card> : null}
@@ -227,6 +224,7 @@ function PrivateApplianceEditor({ applianceId, returnTo }: { applianceId?: strin
             {primaryName !== verifiedName ? <Text style={styles.note}>{verifiedName}</Text> : null}
             {analysisSaved ? <ActionLabel label="保存したお手入れ内容を見る" style={styles.link} /> : <Text style={styles.link}>解析結果は未保存です。下の保存ボタンから再試行できます。</Text>}
           </Pressable>
+          {modelPage ? <Text style={styles.note}>{modelPage}</Text> : null}
           <Card style={styles.verifiedCard}>
             <Text style={styles.verifiedLabel}>選択した説明書の解析結果・内容を確認してください</Text>
             <Text style={styles.note}>解析日時：{applianceAnalysisDate(verified.analysis.analyzedAt)} · {analysisSaved ? '解析結果を保存済みです。内容をご確認ください' : '未保存です'}</Text>

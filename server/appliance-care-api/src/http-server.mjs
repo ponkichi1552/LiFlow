@@ -130,7 +130,7 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
       rejectRequest(request, response, 404, { error: { code: 'NOT_FOUND', message: 'API endpointが見つかりません。' } }); return;
     }
     if (billingOnly) {
-      sendJson(response, 503, { code: 'DEVICE_VERIFICATION_UNAVAILABLE', message: '家電AIは安全な端末確認の準備中です。購入・復元は利用できます。' }); return;
+      sendJson(response, 503, { status: 'error', code: 'DEVICE_VERIFICATION_UNAVAILABLE', message: '家電AIは安全な端末確認の準備中です。購入・復元は利用できます。' }); return;
     }
     const principal = publicAccess ? await publicAccess.authenticate(request) : null;
     if (principal && !allowPublicUser(principal.uid)) {
@@ -232,7 +232,7 @@ export function createApplianceCareHttpServer({ dependencies, aiConfigured = tru
     let manual;
     if (manualUploadsOnly) {
       manual = decodeUploadedManual(body.manual);
-      await inspectUploadedManual(manual.bytes);
+      manual.pages = await inspectUploadedManual(manual.bytes);
     }
     const analysisRequest = {
       ...(body.identifyFromManual === true ? { identifyFromManual: true } : {}),

@@ -45,7 +45,7 @@ export async function runAnalysisQueueBatch({ store, createDependencies, authori
         phase = 'input';
         try {
           request = await store.readAnalysisInput(claim);
-          if (encrypted) await inspectUploadedManual(request.manual.bytes, { waitForSlot: true, verifiedReference: request.manual.reference });
+          if (encrypted) request.manual.pages = await inspectUploadedManual(request.manual.bytes, { waitForSlot: true, verifiedReference: request.manual.reference });
         } catch (error) {
           if (!encrypted || !(error instanceof PublicApiError) || !manualPreflightErrorCodes.includes(error.code)) throw error;
           result = { status: 'error', code: error.code, message: error.message };

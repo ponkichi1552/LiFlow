@@ -7,7 +7,7 @@ import { palette, typography } from '../../components/planner-ui';
 
 /** Personal and shared registration both accept a PDF without a product-entry step. */
 export function ManualAnalysisForm({ retained, filename, disabled, inputDisabled = false, working, picking, canAnalyze, reanalysis = false, shared = false, invalidManual = false, usage, onReady, onManual, onPickingChange, onAnalyze }: {
-  retained?: UploadedManualInput; disabled: boolean; inputDisabled?: boolean; working: boolean; canAnalyze: boolean; reanalysis?: boolean; shared?: boolean;
+  retained?: boolean; disabled: boolean; inputDisabled?: boolean; working: boolean; canAnalyze: boolean; reanalysis?: boolean; shared?: boolean;
   filename?: string; picking?: boolean; onPickingChange?(picking: boolean): boolean | void;
   invalidManual?: boolean;
   usage?: ApplianceCareUsage; onReady(ready: boolean): void; onManual(manual: UploadedManualInput | undefined, filename?: string): void;

@@ -917,6 +917,10 @@
     "feature": "server-data-minimization-and-authenticated-device-delivery",
     "tests": [
       {
+        "file": "tests/sharing-synchronizer.test.mjs",
+        "name": "network deadlines preserve synchronous unsubscribe handles and reject invalid timeout configuration"
+      },
+      {
         "file": "tests/analysis-delivery.test.mjs",
         "name": "analysis content is erased only by the authenticated owner exact durable receipt and survives wrong missing and premature receipts"
       },
@@ -1061,6 +1065,18 @@
       {
         "file": "tests/sharing-delivery-cloud.integration.mjs",
         "name": "a recovery crossing a UTC day reuses a live reply and requests again after the previous reply is removed"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "shared recovery uses one compatible responder and another device can take over an abandoned lease"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "shared download reuses this pass’s exact accepted bodies without crossing another device sequence"
+      },
+      {
+        "file": "tests/sharing-delivery-cloud.integration.mjs",
+        "name": "snapshot preparation keeps current and future ciphertext while its renewed staging lease is valid"
       }
     ]
   },
@@ -1861,6 +1877,10 @@
   {
     "feature": "appliance-auto-save-and-japanese-categories",
     "tests": [
+      {
+        "file": "tests/appliance-pdf-only.test.mjs",
+        "name": "uploaded model page references only cite confirmed models within the PDF"
+      },
       {
         "file": "tests/feature-screen-contracts.test.mjs",
         "name": "verified appliance analysis auto-saves maker intervals and Japanese category ids"
@@ -10871,6 +10891,10 @@
       {
         "file": "tests/subscription-security.test.mjs",
         "name": "subscription HTTP requires provider identity rejects body UID and never spends AI quota when no entitlement exists"
+      },
+      {
+        "file": "tests/subscription-security.test.mjs",
+        "name": "subscription uses the longest verified access when a different store has a longer paid period"
       }
     ],
     "cloudTests": [
@@ -10885,6 +10909,14 @@
       {
         "file": "tests/subscription-cloud.integration.mjs",
         "name": "public subscription startup refuses a missing disabled or client-forged enforcement switch"
+      },
+      {
+        "file": "tests/subscription-cloud.integration.mjs",
+        "name": "store notices arriving before enrollment and replayed after another notice reconcile the purchase once each"
+      },
+      {
+        "file": "tests/subscription-cloud.integration.mjs",
+        "name": "retired purchase ownership without proof clears obsolete acknowledgement work"
       },
       {
         "file": "tests/sharing-v2-cloud.integration.mjs",
@@ -16173,6 +16205,10 @@
       {
         "file": "tests/sharing-delivery-worker.test.mjs",
         "name": "delivery discovery reconnect closes the listeners for a scope paused during the interruption"
+      },
+      {
+        "file": "tests/sharing-delivery-worker.test.mjs",
+        "name": "a change during a bounded delivery scan triggers one fresh scan after its continuation"
       }
     ],
     "manualReview": "docs/audits/2026-11-16-delivery-received-queue.md",

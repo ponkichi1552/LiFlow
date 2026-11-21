@@ -32,11 +32,13 @@ function chosenEntitlement(userId, records, revision, now) {
   const normalized = records.map(record => ({ ...record,
     status: ['active', 'grace'].includes(record.status) && (record.expiresAt <= now || record.verifiedAt + WINDOW_MS <= now) ? 'expired' : record.status }));
   const priority = status => ['active', 'grace'].includes(status) ? 0 : statusOrder.indexOf(status);
-  normalized.sort((a, b) => priority(a.status) - priority(b.status) || b.expiresAt - a.expiresAt || a.key.localeCompare(b.key));
-  const best = normalized[0]; const active = best && ['active', 'grace'].includes(best.status);
+  const validUntil = record => record && priority(record.status) === 0 ? Math.min(record.expiresAt, (record.verifiedAt ?? now) + WINDOW_MS) : 0;
+  normalized.sort((a, b) => priority(a.status) - priority(b.status) || validUntil(b) - validUntil(a)
+    || b.expiresAt - a.expiresAt || a.key.localeCompare(b.key));
+  const best = normalized[0];
   return { schemaVersion: 1, userId, revision, status: best?.status ?? 'none', store: best?.store ?? null,
     productId: best?.productId ?? null, autoRenew: Boolean(best?.autoRenew), checkedAt: now,
-    expiresAt: best?.expiresAt ?? 0, validUntil: active ? Math.min(best.expiresAt, (best.verifiedAt ?? now) + WINDOW_MS) : 0 };
+    expiresAt: best?.expiresAt ?? 0, validUntil: validUntil(best) };
 }
 export const displacesPreviousPurchase = (record, at) => record.linkedPurchaseId
   && ['active', 'grace'].includes(record.status) && record.expiresAt > at;

@@ -14,6 +14,7 @@ import { isRenderableApplianceAnalysis } from './analysis-validation';
 import { applianceDisplayName, appliancePrimaryName, applianceSecondaryLabel } from './display-name';
 import { applianceAnalysisDate } from './analysis-date';
 import { ApplianceTaskBook } from './appliance-task-book';
+import { manualModelPageLabel } from './manual-model-pages';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { ApplianceManualAction } from './appliance-manual-action';
 import { ApplianceCycleEditor } from './appliance-cycle-editor';
@@ -33,6 +34,7 @@ export function ApplianceDetailContent({ context, returnTo, error, database, onS
   const productName = applianceDisplayName(appliance, appliance.displayName);
   const primaryName = appliancePrimaryName(appliance, productName);
   const secondaryName = applianceSecondaryLabel(primaryName, [productName, ...(appliance.productName ? [applianceDisplayName(appliance)] : [])]);
+  const modelPage = appliance.analysis?.manualSource && manualModelPageLabel(appliance.modelNumber, appliance.analysis.modelPages);
   const goBack = () => returnTo ? router.dismissTo(returnTo) : router.back();
   const reanalyze = () => router.push({ pathname: '/manual/appliance-care', params: { applianceId: appliance.id, returnTo: returnTo ?? '/manual' } });
   if (!isRenderableApplianceAnalysis(appliance.analysis)) return <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -48,6 +50,7 @@ export function ApplianceDetailContent({ context, returnTo, error, database, onS
         {error ? <Text style={styles.invalidLink}>{error}</Text> : null}
         <Text accessibilityRole="header" style={styles.modelTitle}>{primaryName}</Text>
         {secondaryName ? <Text style={styles.note}>{secondaryName}</Text> : null}
+        {modelPage ? <Text style={styles.note}>{modelPage}</Text> : null}
         {database && manualDigest ? <ApplianceManualAction database={database} digest={manualDigest} label={primaryName} accessKey={appliance.id} /> : null}
         <Text style={styles.note}>お手入れ {appliance.analysis.tasks.length}項目</Text>
         </View>}

@@ -51,7 +51,7 @@ export function ManualUploadInput({ onChange, onPickingChange, disabled = false,
   onChange(manual: UploadedManualInput | undefined, filename?: string): void;
   onPickingChange?(picking: boolean): boolean | void;
   disabled?: boolean;
-  retained?: UploadedManualInput;
+  retained?: boolean;
   filename?: string;
   needsReplacement?: boolean;
 }) {

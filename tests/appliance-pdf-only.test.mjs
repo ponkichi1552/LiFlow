@@ -66,7 +66,9 @@ test('PDF-only product extraction does not invent missing identity or choose one
 
 test('a manual with a maker and product but no model produces a verified null model without another analysis', async () => {
   const input = automatic();
-  const reported = { manufacturer: 'Vita-Mix Corporation', productName: 'Vitamix TurboBlend VS', modelNumbers: [], category: 'other_appliance' };
+  input.manual.pages = 1;
+  const reported = { manufacturer: 'Vita-Mix Corporation', productName: 'Vitamix TurboBlend VS', modelNumbers: [],
+    category: 'other_appliance', modelEvidence: [{ modelNumber: 'Unconfirmed', page: 1 }] };
   let calls = 0;
   const output = await analyzeUploadedManual(input, { analyzeUploaded: async () => {
     calls++;
@@ -76,6 +78,7 @@ test('a manual with a maker and product but no model produces a verified null mo
   assert.equal(output.status, 'verified');
   assert.equal(output.product.modelNumber, null);
   assert.equal(output.analysis.model, null);
+  assert.equal(output.product.modelPages, undefined);
   assert.equal(isVerifiedApplianceAnalysis(output.analysis, reported.manufacturer), true);
   assert.equal(productFromUploadedManual(reported, output.product).modelNumber, null);
   assert.equal(productFromUploadedManual({ ...reported, productName: 'Another appliance' }, output.product), null);
@@ -85,11 +88,28 @@ test('a manual with a maker and product but no model produces a verified null mo
 test('automatic reanalysis validates PDF identity before preserving a saved name and never overwrites another product', async () => {
   const expected = { manufacturer: 'ダイソン', productName: '保存した元の製品名', modelNumber: 'SV20' };
   const request = { ...automatic(), ...expected };
+  request.manual.pages = 2;
   const output = async actual => analyzeUploadedManual(request, { analyzeUploaded: async () => ({ value: { product: actual, tasks: [task(request.manual)] } }) });
   assert.deepEqual((await output(product)).product, { ...expected, category: 'vacuum_cleaner' });
   assert.deepEqual((await output({ ...product, category: null })).product, expected, 'unknown kind does not invent a type');
   assert.equal((await output({ ...product, modelNumbers: ['OTHER'] })).code, 'ANALYSIS_FAILED');
+  assert.equal((await output({ ...product, modelNumbers: ['SV46'], modelEvidence: [{ modelNumber: 'SV46', page: 1 }] })).code, 'ANALYSIS_FAILED');
+  const combined = await output({ ...product, modelNumbers: ['SV20', 'SV46'],
+    modelEvidence: [{ modelNumber: 'SV46', page: 1 }, { modelNumber: 'SV20', page: 2 }] });
+  assert.deepEqual(combined.product.modelPages, [2]);
   assert.equal((await output({ ...product, manufacturer: '別メーカー' })).code, 'ANALYSIS_FAILED');
+});
+
+test('uploaded model page references only cite confirmed models within the PDF', async () => {
+  const input = automatic();
+  input.manual.pages = 1;
+  const actual = { ...product, modelNumbers: ['SV46'], modelEvidence: [
+    { modelNumber: 'SV20', page: 1 }, { modelNumber: 'SV46', page: 2 }, { modelNumber: 'SV46', page: 1 },
+  ] };
+  const result = await analyzeUploadedManual(input, { analyzeUploaded: async () => ({ value: { product: actual, tasks: [task(input.manual)] } }) });
+  assert.equal(result.product.modelNumber, 'SV46');
+  assert.deepEqual(result.product.modelPages, [1]);
+  assert.equal(result.analysis.modelPages, undefined, 'the signed analysis schema remains compatible');
 });
 
 const contentPrompt = request => request.input.flatMap(message => typeof message.content === 'string' ? [message.content]
@@ -125,11 +145,14 @@ test('PDF-only HTTP admission cold worker retries and received product form one 
   const outcome = await runAnalysisQueueBatch({ store: createFirestoreUsageStore({ firestore: f.firestore, analysisQueueKeys: f.analysisQueueKeys }), authorize: async () => {},
     createDependencies: () => ({ analyzeUploaded: async sent => {
       paidCalls++; assert.equal(JSON.parse(sent.input[1].content[0].text).product, undefined);
-      return { value: { product, tasks: [task(automatic().manual)] } };
+      return { value: { product: { ...product, modelNumbers: ['SV46'],
+        modelEvidence: [{ modelNumber: 'SV20', page: 1 }, { modelNumber: 'SV46', page: 2 }, { modelNumber: 'SV46', page: 1 }] },
+        tasks: [task(automatic().manual)] } };
     } }) });
   assert.equal(outcome.settled, 1); assert.equal(paidCalls, 1);
   const finished = await (await fetch(url + '/api/appliance-care/jobs/' + admission.jobId, { headers })).json();
-  assert.equal(finished.done, true); assert.equal(finished.result.status, 'verified'); assert.equal(finished.result.product.modelNumber, 'SV20');
+  assert.equal(finished.done, true); assert.equal(finished.result.status, 'verified'); assert.equal(finished.result.product.modelNumber, 'SV46');
+  assert.equal(finished.result.analysis.modelPages, undefined);
   assert.equal((await f.store.usage(principal)).used, 1);
   assert.equal((await start()).jobId, admission.jobId); assert.equal(paidCalls, 1);
   assert.equal([...f.records.keys()].some(path => path.includes('/analysisInputChunks/')), false);

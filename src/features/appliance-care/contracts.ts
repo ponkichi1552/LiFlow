@@ -27,6 +27,8 @@ export interface ApplianceCareTaskDraft {
 export interface ApplianceCareAnalysisDraft {
   manufacturer: string;
   model: string | null;
+  /** Locations retained in the personal library for the scanned PDF. */
+  modelPages?: number[];
   tasks: ApplianceCareTaskDraft[];
   analyzedAt: ISODateTime;
   requiresUserReview: true;

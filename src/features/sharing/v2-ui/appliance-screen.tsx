@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { ReactNode } from 'react';
 import { FlatList, KeyboardAvoidingView, Platform, Text, View } from 'react-native';
@@ -13,6 +13,7 @@ import { useTargetAnalysisWork } from '../../appliance-care/use-analysis-work';
 import { MaintenanceTaskCard } from '../../appliance-care/appliance-detail-content';
 import { applianceDisplayName, appliancePrimaryName, applianceSecondaryLabel } from '../../appliance-care/display-name';
 import { applianceAnalysisDate } from '../../appliance-care/analysis-date';
+import { manualModelPageLabel } from '../../appliance-care/manual-model-pages';
 import { deviceAnalysisWork } from '../../../platform/storage/analysis-work';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { V2ApplianceReview, V2ApplianceReviewResult } from '../v2/appliance-actions';
@@ -55,20 +56,7 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   const invalidManual = failure?.status === 'error' && failure.code === 'INVALID_MANUAL';
   const [manual, setManual] = useState<ManualSelection>(); const manualRef = useRef<ManualSelection | undefined>(undefined);
   const [picking, setPicking] = useState(false); const pickingRef = useRef(false);
-  const [retainedManual, setRetainedManual] = useState<UploadedManualInput>();
-  const manualTouched = useRef(false);
-  useEffect(() => {
-    const digest = starting?.analysis.manualSource?.sha256;
-    if (!digest || !personalDatabase || mode !== 'applianceReview') return;
-    let current = true;
-    void readApplianceManual(personalDatabase, digest).then(base64 => {
-      if (base64 && current && !manualTouched.current) {
-        const input: UploadedManualInput = { base64, rightsConfirmed: true };
-        setRetainedManual(input); manualRef.current = { input }; setManual(manualRef.current);
-      }
-    }).catch(() => { /* A legacy or unreadable PDF can be selected again without changing its saved analysis. */ });
-    return () => { current = false; };
-  }, [starting, personalDatabase, mode]);
+  const retainedDigest = currentWork?.manualDigest ?? starting?.analysis.manualSource?.sha256;
   const [chosen, setChosen] = useState<string[]>([]); const chosenRef = useRef(chosen);
   const [reviewed, setReviewed] = useState(false); const reviewedRef = useRef(false);
   const [candidateId, setCandidateId] = useState<string | null>(null); const [deleting, setDeleting] = useState(false);
@@ -87,8 +75,8 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
     working.current = true;
     setStartingWork(true); check(false); setError(null); setSaved(null); chosenRef.current = []; setChosen([]);
     try {
-      const stored = !manualRef.current && currentWork?.state === 'failed' ? await readApplianceManual(personalDatabase, currentWork.manualDigest) : null;
-      const submitted = manualRef.current ?? (stored ? { input: { base64: stored, rightsConfirmed: true as const }, filename: currentWork?.filename } : undefined);
+      const stored = !manualRef.current && retainedDigest ? await readApplianceManual(personalDatabase, retainedDigest) : null;
+      const submitted = manualRef.current ?? (stored && { input: { base64: stored, rightsConfirmed: true as const }, filename: currentWork?.filename });
       if (!submitted) throw new Error('取扱説明書PDFを選んでください。');
       const { startAnalysisWork } = await import('../../../platform/appliance-care/analysis-work');
       await startAnalysisWork(personalDatabase, {
@@ -149,6 +137,7 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
   const productName = product ? applianceDisplayName(product, appliance?.displayName) : '';
   const primaryName = product ? appliancePrimaryName({ ...product, analysis }, productName) : 'お手入れ';
   const secondaryName = product ? applianceSecondaryLabel(primaryName, [productName, applianceDisplayName(product)]) : '';
+  const modelPage = response?.analysis.manualSource && manualModelPageLabel(response.product.modelNumber, response.product.modelPages);
   const instructionsDiffer = (name: string, steps: string[]) => model.plan.chores.some(chore => chore.applianceId === applianceId && chore.applianceTaskName === name
     && (chore.instructions.length !== steps.length || chore.instructions.some((step, index) => step !== steps[index])));
   const reviewLabel = product?.modelNumber === null ? '製品情報・手順・注意事項を確認した' : 'メーカー・型番・手順・注意事項を確認した';
@@ -164,15 +153,15 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
         {basis?.source.kind === 'conflict' ? <Text style={warning}>確認して共有すると、表示開始時にあった解析の競合を新しい内容で解決します。元の履歴は保持します。</Text> : null}
         {basis?.row.deleted || basis?.alive.kind === 'conflict' ? <Text style={warning}>確認して共有すると、この家電をグループ全員の一覧へ復元します。既存家事の削除状態は変更しません。</Text> : null}
         {applianceId && !detail ? <Text style={warning}>対象の共有家電を読み込めません。家電一覧から開き直してください。</Text> : null}
-        {!saved ? <ManualAnalysisForm retained={retainedManual} filename={manual?.filename ?? currentWork?.filename} shared reanalysis={Boolean(applianceId)} working={analyzing} picking={picking} invalidManual={invalidManual}
+        {!saved ? <ManualAnalysisForm retained={Boolean(retainedDigest)} filename={manual?.filename ?? currentWork?.filename} shared reanalysis={Boolean(applianceId)} working={analyzing} picking={picking} invalidManual={invalidManual}
           canAnalyze={canAnalyze} onReady={setCanAnalyze} usage={response?.usage} onPickingChange={value => {
             if (value && (working.current || savedRef.current)) return false;
             pickingRef.current = value; setPicking(value);
           }}
-          disabled={!personalDatabase || model.manualStorageSupported === false || !manual && currentWork?.state !== 'failed' || locked || Boolean(applianceId && !basis)} inputDisabled={locked}
+          disabled={!personalDatabase || model.manualStorageSupported === false || !manual && !retainedDigest || locked || Boolean(applianceId && !basis)} inputDisabled={locked}
           onManual={(value, name) => {
             if (working.current || locked || saved) return;
-            manualTouched.current = true; manualRef.current = value ? { input: value, filename: name } : undefined;
+            manualRef.current = value ? { input: value, filename: name } : undefined;
             setManual(manualRef.current); setIgnoredWork(analysisWork?.id); setError(null); check(false);
           }} onAnalyze={() => void analyze()} /> : null}
       </> : !detail ? <Text style={warning}>対象の共有家電を表示できません。一覧から開き直してください。</Text> : <>
@@ -186,6 +175,7 @@ export function V2ApplianceScreen({ model, mode, applianceId, actions, busy, per
       </>}
       {product && analysis ? <View style={{ gap: 6 }}><Text accessibilityRole="header" style={[typography.subheading, { color: palette.ink, fontWeight: '700' }]}>{primaryName}</Text>
         {secondaryName ? <Text style={caption}>{secondaryName}</Text> : null}
+        {modelPage ? <Text style={caption}>{modelPage}</Text> : null}
         <Text style={caption}>お手入れ {analysis.tasks.length}項目</Text></View> : null}
     </View>;
   const renderTask = (task: ApplianceCareTaskDraft) => <MaintenanceTaskCard task={task} schedule={<View style={{ gap: 8 }}>

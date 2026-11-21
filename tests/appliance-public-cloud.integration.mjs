@@ -148,6 +148,8 @@ test('real Firestore forwards an encrypted manual unchanged for workers and refu
   const { jobId: queued } = await (await start(queuedId, seal(blankPdf, queuedId))).json();
   assert.ok(queued);
   assert.equal((await gateway.usage(principal)).used, 3);
+  at += PUBLIC_API_POLICY.jobTimeoutMs + 1;
+  assert.equal((await gateway.read(principal, queued)).done, false, 'the unstarted refund must settle before the result is final');
   at += PUBLIC_API_POLICY.retentionMs + 1;
   const restarted = buildFirestoreUsageStore({ firestore, now, manualUploadPrivateKeys: privateKeys });
   assert.ok(await restarted.prune() > 0, 'startup cleanup runs before any timed-out analysis has been settled');

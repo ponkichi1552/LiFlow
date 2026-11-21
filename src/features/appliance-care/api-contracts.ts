@@ -27,6 +27,7 @@ export interface ProductVerifiedResponse {
     manufacturer: string;
     productName: string;
     modelNumber: string | null;
+    modelPages?: number[];
     category?: string;
   };
   officialSources: {

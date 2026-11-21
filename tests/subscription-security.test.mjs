@@ -38,6 +38,21 @@ test('recent server subscription reads reuse verified state without extending ex
   assert.equal((await h.service.status('person-a')).entitlement.body.status, 'revoked'); assert.equal(reads, 2);
 });
 
+test('subscription uses the longest verified access when a different store has a longer paid period', async () => {
+  const h = setup();
+  const verifyApple = h.providers.apple.verify;
+  h.providers.apple.verify = async proof => ({ ...await verifyApple(proof), expiresAt: at + 2 * month });
+  await h.service.verify('person-a', { store: 'apple', proof: 'synthetic-apple-original' });
+  h.providers.apple.refresh = async () => { throw new Error('Store temporarily unavailable'); };
+  const secondCheck = at + 24 * 60 * 60_000 - 60_000;
+  h.clock(secondCheck);
+  const result = await h.service.verify('person-a', { store: 'google', proof: 'synthetic-google-purchase' });
+  assert.equal(result.entitlement.body.store, 'google');
+  assert.equal(result.entitlement.body.validUntil, secondCheck + 24 * 60 * 60_000);
+  h.clock(secondCheck + 61_000);
+  await h.service.assertActive('person-a');
+});
+
 test('subscription certificates verify real Ed25519 across server and mobile and reject tampering accounts keys replay and expired access', async () => {
   const h = setup(); const result = await h.service.verify('person-a', { store: 'apple', proof: 'original-transaction-a' });
   const options = { userId: 'person-a', publicKey: h.signing.publicKey, now: at };
@@ -275,7 +290,13 @@ test('public billing and restore remain available when AI attestation is unavail
   await once(server, 'listening'); const base = `http://127.0.0.1:${server.address().port}`;
   try {
     assert.equal((await fetch(`${base}/api/subscriptions/status`, { headers: { authorization: 'Bearer synthetic-token' } })).status, 200);
-    for (const path of ['jobs', 'analyze', 'usage']) assert.equal((await fetch(`${base}/api/appliance-care/${path}`, { method: path === 'usage' ? 'GET' : 'POST' })).status, 503);
+    for (const path of ['jobs', 'analyze', 'usage']) {
+      const response = await fetch(`${base}/api/appliance-care/${path}`, { method: path === 'usage' ? 'GET' : 'POST' });
+      assert.equal(response.status, 503);
+      const body = await response.json();
+      assert.equal(body.status, 'error');
+      assert.equal(body.code, 'DEVICE_VERIFICATION_UNAVAILABLE');
+    }
     assert.equal(work, 0);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
