@@ -7,6 +7,8 @@ import { deviceProofRequired, deviceProofTemporary } from './native-device-autho
 export const ANDROID_APPLIANCE_PACKAGE = 'jp.jphacks.tkb2633';
 const KEY_ATTESTATION = '1.3.6.1.4.1.11129.2.1.17';
 const PROVISIONING_INFO = '1.3.6.1.4.1.11129.2.1.30';
+const SUBJECT_SERIAL_NUMBER = '2.5.4.5';
+const FACTORY_ROOT_SUBJECT_SERIAL = 'f92009e853b6b045';
 const STATUS_URL = 'https://android.googleapis.com/attestation/status';
 const googleRoots = JSON.parse(readFileSync(new URL('./android-hardware-attestation-roots.json', import.meta.url), 'utf8'));
 const MAX_STATUS_BYTES = 4 * 1024 * 1024;
@@ -72,7 +74,8 @@ function verifyKeyDescription(extension, challenge, signingDigests) {
   const software = authorizations(softwareEnforced);
   const hardware = authorizations(hardwareEnforced);
   requireSet(hardware.get(1), 2); // SIGN
-  requireSet(hardware.get(5), 4); // SHA-256
+  const digests = hardware.get(5) ?? software.get(5);
+  if (digests) requireSet(digests, 4); // The challenge signature itself is always verified with SHA-256.
   requireProof(numeric(hardware.get(2)) === 3 && numeric(hardware.get(3)) === 256 && numeric(hardware.get(10)) === 1
     && numeric(hardware.get(702)) === 0); // EC P-256, generated in secure hardware
   const trust = hardware.get(704);
@@ -91,6 +94,41 @@ function extensionOn(path, oid) {
     if (matches.length) return { index, extension: matches[0] };
   }
   return undefined;
+}
+
+function subjectSerial(cert) {
+  return cert.subject.typesAndValues.find(entry => entry.type === SUBJECT_SERIAL_NUMBER)?.value.valueBlock.value;
+}
+
+function readTrustedPath(path, trusted) {
+  const tail = path.at(-1);
+  const root = trusted.find(cert => cert.raw.equals(tail.raw) || (tail.issuer === cert.subject && tail.verify(cert.publicKey)));
+  requireProof(root);
+  const tailIsAnchor = tail.subject === root.subject
+    && tail.publicKey.export({ type: 'spki', format: 'der' }).equals(root.publicKey.export({ type: 'spki', format: 'der' }));
+  // Older factory devices include an older encoding of the very same Google root key.
+  return tailIsAnchor ? [...path.slice(0, -1), root] : [...path, root];
+}
+
+async function verifyCertificatePath(path, parsed, at, provisioning) {
+  const root = parsed.at(-1);
+  const factoryProvisioned = !provisioning && path.length === 4
+    && subjectSerial(root) === FACTORY_ROOT_SUBJECT_SERIAL && typeof subjectSerial(parsed.at(-2)) === 'string';
+  requireProof(path.every(cert => cert.validFromDate.getTime() <= at));
+  if (factoryProvisioned) {
+    // Google factory-provisioned chains can have expired issuers and a non-CA
+    // attestation signer. Still verify each link and use only the trusted leaf extension.
+    requireProof(path[2].ca && path.every((cert, index) => index === 0
+      || path[index - 1].issuer === cert.subject && path[index - 1].verify(cert.publicKey)));
+    return Math.min(path[0].validToDate.getTime(), path.at(-1).validToDate.getTime());
+  }
+  requireProof(path.every((cert, index) => index === 0 || cert.ca && path[index - 1].checkIssued(cert)));
+  const engine = new CertificateChainValidationEngine({ trustedCerts: [root], certs: parsed.slice(0, -1).reverse(), checkDate: new Date(at) });
+  // Revocation is checked separately against Google's Android-wide status list.
+  const result = await engine.verify({ passedWhenNotRevValues: true });
+  requireProof(result.result && result.certificatePath.length === parsed.length
+    && result.certificatePath.every((cert, index) => Buffer.from(cert.tbsView).equals(parsed[index].tbsView)));
+  return Math.min(...path.map(cert => cert.validToDate.getTime()));
 }
 
 async function readStatusList(response) {
@@ -152,38 +190,29 @@ export function createAndroidKeyAttestation({ signingDigests, roots = googleRoot
       try {
         requireProof(Array.isArray(chain) && chain.length >= 2 && chain.length <= 8);
         let size = 0;
-        const path = chain.map(base64 => {
+        const supplied = chain.map(base64 => {
           requireProof(typeof base64 === 'string' && (size += base64.length) <= 20 * 1024);
           const der = Buffer.from(base64, 'base64');
           requireProof(der.toString('base64') === base64);
           const cert = new X509Certificate(der);
-          requireProof(der.equals(cert.raw));
+          requireProof(der.equals(cert.raw) && serialPattern.test(cert.serialNumber));
           return cert;
         });
-        const tail = path.at(-1);
-        const root = trusted.find(cert => cert.raw.equals(tail.raw) || (tail.checkIssued(cert) && tail.verify(cert.publicKey)));
-        requireProof(root);
-        if (!tail.raw.equals(root.raw)) path.push(root);
+        const path = readTrustedPath(supplied, trusted);
         requireProof(path.length <= 8 && new Set(path.map(cert => cert.fingerprint256)).size === path.length);
         const [leaf] = path;
         requireProof(!leaf.ca && leaf.publicKey.asymmetricKeyType === 'ec' && leaf.publicKey.asymmetricKeyDetails?.namedCurve === 'prime256v1');
-        requireProof(path.every((cert, index) => serialPattern.test(cert.serialNumber)
-          && (index === 0 || cert.ca && path[index - 1].checkIssued(cert) && path[index - 1].verify(cert.publicKey))));
         const parsed = path.map(cert => Certificate.fromBER(cert.raw));
-        const at = now();
-        const engine = new CertificateChainValidationEngine({ trustedCerts: parsed.slice(-1), certs: parsed.slice(0, -1).reverse(), checkDate: new Date(at) });
-        // Revocation is checked separately against Google's Android-wide status list.
-        const result = await engine.verify({ passedWhenNotRevValues: true });
-        requireProof(result.result && result.certificatePath.length === parsed.length
-          && result.certificatePath.every((cert, index) => Buffer.from(cert.tbsView).equals(parsed[index].tbsView)));
         const attestation = extensionOn(parsed, KEY_ATTESTATION);
         const provisioning = extensionOn(parsed, PROVISIONING_INFO);
         requireProof(attestation?.index === 0 && (!provisioning || provisioning.index === 1));
+        const at = now();
+        const validUntil = Math.min(at + 90 * DAY_MS, await verifyCertificatePath(path, parsed, at, provisioning));
+        requireProof(validUntil > at);
         const attestedDigests = verifyKeyDescription(attestation.extension, challenge, signingDigests);
         const publicKey = leaf.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
-        const validUntil = Math.min(at + 90 * DAY_MS, ...path.map(cert => cert.validToDate.getTime()));
-        requireProof(validUntil > at && path.every(cert => cert.validFromDate.getTime() <= at));
-        record = { keyDigest: sha256(publicKey), publicKey, attestedDigests, validUntil, serials: path.map(cert => serialHash(cert.serialNumber)) };
+        const serials = [...new Set([...supplied, path.at(-1)].map(cert => serialHash(cert.serialNumber)))];
+        record = { keyDigest: sha256(publicKey), publicKey, attestedDigests, validUntil, serials };
       } catch {
         throw deviceProofRequired();
       }

@@ -9300,6 +9300,10 @@
         "name": "Android key attestation refreshes certificate revocation state and fails closed if the fresh list is unavailable"
       },
       {
+        "file": "tests/appliance-android-key-attestation.test.mjs",
+        "name": "Android factory attestation accepts authorized legacy issuer expiry while rejecting revoked or expired remotely provisioned chains"
+      },
+      {
         "file": "tests/appliance-public-api.test.mjs",
         "name": "expired Android attestation records are pruned without exceeding the Firestore write batch cap"
       },

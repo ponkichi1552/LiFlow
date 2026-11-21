@@ -82,6 +82,8 @@ Androidは、従来の端末署名鍵と、サーバー発行のチャレンジ�
 
 Googleのルート証明書の更新時は [Google公式のルート一覧](https://android.googleapis.com/attestation/root) を照合して `android-hardware-attestation-roots.json` を更新する。失効リストは [公式の失効情報](https://android.googleapis.com/attestation/status) の有効期間内だけ再利用する。期限後に取得できない間は端末照合を一時停止する。
 
+旧端末の出荷時に書き込まれた鍵は、Googleが指定するルートと証明書チェーンの形式に一致する場合に限り、発行側の証明書の期限切れを許容する。信頼ルートへの署名、失効、アプリとチャレンジの照合は引き続き行う。遠隔配布された証明書は有効期間も確認する。 [Googleの旧端末向け取り扱い](https://developer.android.com/privacy-and-security/security-key-attestation)
+
 ## 検査と公開までに必要なこと
 
 1. `npm ci`と`npm run api:install`を実行し、`npm run check`を通す。Admin SDK／PDF parserはサーバー専用packageへ隔離している。
