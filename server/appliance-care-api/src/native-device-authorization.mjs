@@ -38,7 +38,7 @@ export function createNativeDeviceAuthorization({ secret, providers, now = Date.
       const { platform, keyId, admissionId } = input ?? {};
       if (typeof platform !== 'string' || !Object.hasOwn(providers, platform)) throw deviceProofUnavailable();
       if (admissionId !== undefined && (typeof admissionId !== 'string' || !/^[A-Za-z0-9_-]{16,100}$/u.test(admissionId))) throw deviceProofRequired();
-      const mode = await providers[platform].prepare(keyId);
+      const mode = await providers[platform].prepare(keyId, input);
       return newChallenge(uid, platform, keyId, mode, admissionId);
     },
     async grant({ uid }, body) {
@@ -48,7 +48,8 @@ export function createNativeDeviceAuthorization({ secret, providers, now = Date.
       const at = now();
       if (!proof || claims.expiresAt <= at) throw deviceProofRequired();
       if (proof.enrollmentLease) return newChallenge(uid, claims.platform, claims.keyId, 'enroll', claims.admissionId, proof.enrollmentLease);
-      const ttlMs = Math.min(GRANT_MS, usagePeriods(at).monthResetAt - at);
+      const ttlMs = Math.min(GRANT_MS, usagePeriods(at).monthResetAt - at, (proof.validUntil ?? Number.MAX_SAFE_INTEGER) - at);
+      if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) throw deviceProofRequired();
       const installationId = pseudonym(claims.platform + '/install', proof.installationId);
       const deviceId = pseudonym(claims.platform, proof.deviceId);
       return { grant: encode('grant', { sub: uid, platform: claims.platform, installationId, deviceId,

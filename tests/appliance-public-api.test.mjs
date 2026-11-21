@@ -24,6 +24,26 @@ test('public API monthly boundary is every first day at 09:00 Japan time includi
   }
 });
 
+test('expired Android attestation records are pruned without exceeding the Firestore write batch cap', async () => {
+  const fixture = publicStoreFixture();
+  const collections = ['jobs', 'reuse', 'usage', 'dailyUsage', 'deviceUsage', 'chargeDecisions', 'quotaStates',
+    'analysisInputChunks', 'appleAttestations', 'androidEnrollments', 'androidAttestations'];
+  for (const collection of collections) {
+    for (let index = 0; index < 50; index++) fixture.records.set(`applianceApi/v1/${collection}/${index}`, { expiresAt: new Date(1), done: true });
+  }
+  const active = 'applianceApi/v1/androidAttestations/current';
+  fixture.records.set(active, { expiresAt: new Date(Date.now() + 60_000) });
+  const batches = [];
+  const firestore = { ...fixture.firestore, batch() {
+    const batch = fixture.firestore.batch();
+    let writes = 0;
+    return { delete(...args) { writes++; batch.delete(...args); }, async commit() { batches.push(writes); await batch.commit(); } };
+  } };
+  assert.equal(await createFirestoreUsageStore({ firestore }).prune(), 550);
+  assert.deepEqual(batches, [500, 50]);
+  assert.deepEqual([...fixture.records.keys()], [active]);
+});
+
 test('public API authenticates with revocation checking and rejects missing malformed expired foreign and disabled identities', async () => {
   const calls = [];
   const access = createPublicApiAccess({ verifyDevice: async (_req, { uid }) => ({ ...principal(uid), reinstallProtection: 'verified' }), store: publicStoreFixture().store, verifyIdToken: async (token, revoked) => {

@@ -15,10 +15,10 @@ let cached: { scope: string; grant: string; validBefore: number } | undefined;
 let playProviderUntil = 0;
 let pendingAttestation: { scope: string; keyId: string; challenge: string; queryToken: string; updateToken: string; expires: number; proof?: string } | undefined;
 
-async function nativeReply<T>(work: Promise<T>): Promise<T> {
+async function nativeReply<T>(work: Promise<T>, timeoutMs = 15_000): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([work, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(temporary()), 15_000); })]);
+    return await Promise.race([work, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(temporary()), timeoutMs); })]);
   } finally { clearTimeout(timer); }
 }
 
@@ -91,37 +91,54 @@ async function androidGrant(baseUrl: string, authorization: string, admissionId?
   const project = process.env.EXPO_PUBLIC_APPLIANCE_PLAY_PROJECT_NUMBER;
   const id = getAndroidId().toLowerCase();
   if (!project || !/^[0-9]{6,20}$/u.test(project) || !/^[a-f0-9]{16}$/u.test(id)) throw unavailable();
-  const signing = requireOptionalNativeModule<{ publicKey(): Promise<string>; sign(message: string): Promise<string> }>('LiFlowApplianceSigning');
-  if (!signing) throw unavailable();
-  const publicKey = await nativeReply(signing.publicKey());
-  const installation = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, publicKey);
-  const device = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `liflow-appliance:${id}`);
+  const signing = requireOptionalNativeModule<{
+    publicKey(): Promise<string>;
+    sign(message: string): Promise<string>;
+    attestedPublicKey(): Promise<string | null>;
+    attestKey(challenge: string): Promise<{ publicKey: string; certificateChain: string[] }>;
+    signAttested(message: string): Promise<string>;
+  }>('LiFlowApplianceSigning');
+  if (!signing || typeof signing.attestKey !== 'function') throw unavailable();
+  const digest = (value: string) => Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, value);
+  const [publicKey, attestedKey] = await Promise.all([nativeReply(signing.publicKey()), nativeReply(signing.attestedPublicKey())]);
+  const [installation, device] = await Promise.all([digest(publicKey), digest(`liflow-appliance:${id}`)]);
+  let hardwareKeyId = attestedKey ? await digest(attestedKey) : undefined;
   const keyId = `${device}.${installation}`;
   const integrity = await import('@expo/app-integrity');
-  async function prove(value: { challenge: string; mode: string }, mode: 'prove' | 'enroll') {
-    if (typeof value.challenge !== 'string' || value.challenge.length > 2048 || value.mode !== mode) throw unavailable();
-    // Play caches Device Recall at warmup. Enrollment uses a fresh warmup after the server grants its exclusive lease.
-    async function warm() {
-      await nativeReply(integrity.prepareIntegrityTokenProviderAsync(project!));
-      playProviderUntil = performance.now() + 3 * 60_000;
-    }
-    if (mode === 'enroll' || playProviderUntil <= performance.now()) await warm();
-    const message = JSON.stringify([value.challenge, keyId]);
-    const [hash, signature] = await Promise.all([Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, message), nativeReply(signing!.sign(message))]);
+  async function warm() {
+    await nativeReply(integrity.prepareIntegrityTokenProviderAsync(project!));
+    playProviderUntil = performance.now() + 3 * 60_000;
+  }
+  async function prove(value: { challenge: string; mode: string }, allowedModes: readonly string[]) {
+    const { challenge, mode } = value;
+    if (typeof challenge !== 'string' || challenge.length > 2048 || !allowedModes.includes(mode)) throw unavailable();
+    // Play caches Device Recall at warmup. Enrollment rewarms after the server grants its exclusive lease.
+    const [attestation] = await Promise.all([
+      mode === 'attest' ? nativeReply(signing!.attestKey(challenge), 35_000) : undefined,
+      mode === 'enroll' || playProviderUntil <= performance.now() ? warm() : undefined,
+    ]);
+    if (attestation) hardwareKeyId = await digest(attestation.publicKey);
+    if (!hardwareKeyId) throw unavailable();
+    const message = JSON.stringify([challenge, keyId, hardwareKeyId]);
+    const [hash, signature, hardwareSignature] = await Promise.all([
+      digest(message), nativeReply(signing!.sign(message)), nativeReply(signing!.signAttested(message)),
+    ]);
     let proof;
     try { proof = await nativeReply(integrity.requestIntegrityCheckAsync(hash)); }
     catch (error) {
       if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ERR_APP_INTEGRITY_PROVIDER_INVALID') throw error;
       await warm(); proof = await nativeReply(integrity.requestIntegrityCheckAsync(hash));
     }
-    try { return await request(baseUrl, authorization, 'grant', { challenge: value.challenge, proof, publicKey, signature }); }
+    try { return await request(baseUrl, authorization, 'grant', {
+      challenge, proof, publicKey, signature, hardwareKeyId, hardwareSignature, certificateChain: attestation?.certificateChain,
+    }); }
     catch (error) {
       if (error && typeof error === 'object' && 'code' in error && error.code === 'DEVICE_VERIFICATION_TEMPORARY') playProviderUntil = 0;
       throw error;
     } finally { if (mode === 'enroll') playProviderUntil = 0; }
   }
-  const first = await prove(await request(baseUrl, authorization, 'challenge', { platform: 'android', keyId, admissionId }), 'prove');
-  return first?.mode === 'enroll' ? prove(first, 'enroll') : first;
+  const first = await prove(await request(baseUrl, authorization, 'challenge', { platform: 'android', keyId, hardwareKeyId, admissionId }), ['attest', 'prove']);
+  return first?.mode === 'enroll' ? prove(first, ['enroll']) : first;
 }
 
 export function applianceDeviceGrant(baseUrl: string, owner: string, authorization: string, admissionId?: string): Promise<string> {

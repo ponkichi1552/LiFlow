@@ -14,6 +14,7 @@ const encryptedAndUnstarted = job => job.inputManifest?.version === 3 && !Number
 const shouldRefundAnalysis = (job, result, receivedAt) => encryptedAndUnstarted(job)
   || (Number.isSafeInteger(receivedAt) && receivedAt < job.deadlineAt && result?.status === 'error' && result.code === 'AI_SERVICE_NO_RESULT');
 const expiredAdmission = () => new PublicApiError(409, 'REQUEST_CONFLICT', 'この受付IDの結果保存期間は終了しました。新しい操作としてやり直してください。');
+const MAX_PRUNE_BATCH_WRITES = 500;
 const workStates = ['resultReady', 'queued', 'preparing', 'executing'];
 const installationDigest = principal => publicKey(JSON.stringify([principal.deviceId, principal.installationId]));
 const canReadJob = (job, principal) => job?.owner === principal.uid
@@ -220,8 +221,8 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
       return count;
     },
     async prune() {
-      const at = new Date(now()); const batch = firestore.batch(); let deletedJobs = 0; let batched = 0;
-      for (const collection of ['jobs', 'reuse', 'usage', 'dailyUsage', 'deviceUsage', 'chargeDecisions', 'quotaStates', 'analysisInputChunks', 'appleAttestations', 'androidEnrollments']) {
+      const at = new Date(now()); let batch = firestore.batch(); let deletedJobs = 0; let batched = 0;
+      for (const collection of ['jobs', 'reuse', 'usage', 'dailyUsage', 'deviceUsage', 'chargeDecisions', 'quotaStates', 'analysisInputChunks', 'appleAttestations', 'androidEnrollments', 'androidAttestations']) {
         const expired = await root.collection(collection).where('expiresAt', '<=', at).limit(50)
           .select(...(collection === 'jobs' ? ['expiresAt', 'done'] : ['expiresAt'])).get();
         // A cache pointer may be renewed after the query; never delete a newer value from that stale result.
@@ -230,10 +231,11 @@ export function createFirestoreUsageStore({ firestore, policy = PUBLIC_API_POLIC
             if (await pruneUnsettledJob(doc.ref, at)) deletedJobs++;
           } else {
             batch.delete(doc.ref, { lastUpdateTime: doc.updateTime }); batched++;
+            if (batched % MAX_PRUNE_BATCH_WRITES === 0) { await batch.commit(); batch = firestore.batch(); }
           }
         }
       }
-      if (batched) await batch.commit();
+      if (batched % MAX_PRUNE_BATCH_WRITES) await batch.commit();
       return deletedJobs + batched;
     },
     async admit(input) {

@@ -14,7 +14,7 @@
 
 iOSはApp Attestでアプリと鍵を検証し、署名カウンターで使い回しを拒否する。Appleの開発チームで共有されるDeviceCheckの2ビットをLiFlow用に確保する。登録時にbit1をセットし、bit0の値を反転して更新月を記録する。照会と更新には別々のトークンを使い、両方をApp Attestの証明に結び付ける。鍵の参照は端末固有のKeychainに保存する。
 
-AndroidはPlay署名、Playライセンス、端末の整合性と、Android Keystoreの非エクスポート鍵の署名を照合する。開発者アカウントで共有されるDevice RecallのbitFirstをLiFlow用に確保し、端末登録月を記録する。初回登録は、Device Recallの読み取りと更新が重ならないようサーバーで調整する。端末IDは端末内でハッシュ化し、サーバーでも専用鍵で仮名化する。Android Keystoreのハードウェア利用は端末内で確認する。サーバーによる個別鍵のハードウェア証明書の検証は未実装。
+Androidは、Play署名・ライセンス・端末の整合性に加え、Android Keystoreの署名とハードウェア鍵の証明書をサーバーで照合する。開発者アカウントで共有されるDevice RecallのbitFirstをLiFlow用に確保し、端末登録月を記録する。初回登録は、Device Recallの読み取りと更新が重ならないようサーバーで調整する。端末IDは端末内でハッシュ化し、サーバーでも専用鍵で仮名化する。
 
 短い受付証明はメモリにだけ保持する。新規解析の証明は、認証済みのアカウントと対象の受付IDに結び付ける。ビルドの署名や端末の継続性を確認できない場合は、新規解析の受付を停止する。
 
@@ -74,9 +74,13 @@ Firebase Admin SDKの`verifyIdToken(token,true)`で署名・プロジェクト�
 
 Firestoreの`applianceApi/v1`配下で、月次のアカウント・端末使用数、日次全体使用数、job、再利用先、実行予約、消費／返却の判断と使用数の根拠を管理する。上限照合のMAXと受付時の加算を不変な参照として残し、後から返却が起きてもコピー済みの使用数を再計算できる。正常な別の受付まで無料にしたり、同じ障害で二重に枠を増やしたりしない。
 
-全クライアントの直接read/writeをRulesで拒否する。AdminはRulesを迂回するためホストのIAMを別途保護する。アカウント／端末枠・job・暗号化入力は1トランザクションで確定し、独立ワーカーの実行開始を確定した後だけAIを始める。job・再利用先は7日、使用数と消費／返却の根拠は対象期間終了後90日保持。結果を削除した後も返却の証拠を失わない。期限切れ削除は8種類の私的collectionから各最大50件、合計最大400件を一度に処理し、更新時刻の条件付き削除で新しい値の誤削除を防ぐ。共有家事や個人Plannerは削除対象に含めない。
+全クライアントの直接read/writeをRulesで拒否する。AdminはRulesを迂回するためホストのIAMを別途保護する。アカウント／端末枠・job・暗号化入力は1トランザクションで確定し、独立ワーカーの実行開始を確定した後だけAIを始める。job・再利用先は7日、使用数と消費／返却の根拠は対象期間終了後90日保持。結果を削除した後も返却の証拠を失わない。期限切れ削除は私的collectionごとに最大50件を取得し、1バッチ最大500件の更新時刻付き削除で新しい値の誤削除を防ぐ。共有家事や個人Plannerは削除対象に含めない。
 
 OpenAIの鍵と復号鍵は解析ワーカー側に設定する。端末は暗号化用の公開鍵を使う。APIホストはHTTPS、入口の要求制限、ログの秘匿を備え、解析は独立したジョブで実行する。ワーカーの稼働と受付に使われた鍵への対応を確認してから、新しい利用枠を確保する。
+
+Androidは、従来の端末署名鍵と、サーバー発行のチャレンジを含む別のハードウェア鍵で同じ要求に署名する。サーバーはGoogleを信頼ルートとする証明書チェーン、失効情報、鍵の用途、セキュアハードウェア、起動時の状態、アプリID、Play App Signingの署名を照合する。Play Integrityの応答も同じ要求に結び付ける。サーバーに保存するのは検証済みの公開鍵、失効照合用のハッシュ、許可したアプリ署名、証明期限。証明書は初回と更新時にだけ送信する。証明期限や署名鍵の更新後も従来の端末署名鍵が保たれる限り、当月の利用枠を引き継ぐ。 [Androidの鍵証明](https://developer.android.com/privacy-and-security/security-key-attestation)
+
+Googleのルート証明書の更新時は [Google公式のルート一覧](https://android.googleapis.com/attestation/root) を照合して `android-hardware-attestation-roots.json` を更新する。失効リストは [公式の失効情報](https://android.googleapis.com/attestation/status) の有効期間内だけ再利用する。期限後に取得できない間は端末照合を一時停止する。
 
 ## 検査と公開までに必要なこと
 
@@ -86,6 +90,7 @@ OpenAIの鍵と復号鍵は解析ワーカー側に設定する。端末は暗�
 4. 実端末でアカウント切替、再インストール、翌月解除、配布署名の違うアプリ、コピーした保存データの拒否を確認する。現段階で本番Apple／Googleの応答を使う検査は未完。
 5. Firebaseプロジェクト、最小権限のADC／Workload Identity、サーバーSecret、HTTPSホストを設定する。匿名認証を有効化する必要はない。本番でAuth／Firestore Emulator設定を認めない。
 6. アプリに `EXPO_PUBLIC_APPLIANCE_CARE_API_URL`、`EXPO_PUBLIC_APPLIANCE_CARE_UPLOAD_KEY`、`EXPO_PUBLIC_APPLIANCE_NATIVE_PROOF=required` を設定する。Androidでは `EXPO_PUBLIC_APPLIANCE_PLAY_PROJECT_NUMBER` も指定する。通常の家電追加画面からPDFを送り、カレンダーに移動した後も解析結果を受け取り、SQLiteに保存した後で受領を返す。接続先は設定済みのHTTPSベースURLに固定する。
+7. 同一の `server/appliance-care-api` イメージを2サービスに配備する。HTTPSの背後で `node src/public-index.mjs` を実行し、APIとは独立して `node src/analysis-worker.mjs` を定期起動する。ワーカーの起動間隔を稼働確認の有効期間（90秒）より短くする。鍵の対応関係とストアの利用権を照合してから、実機のPDF解析で受付、結果表示、受領まで確認する。 [ワーカーと鍵の配置](security/paid-analysis-queue-2026-11-05.md) · [ストアの利用権検証](subscription-implementation-2026-11-02.md)
 
 この検査は開発工程内の検査であり、独立した第三者監査ではない。実施した範囲と未完の本番端末検証を分けて記録する。
 

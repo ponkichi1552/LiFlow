@@ -95,46 +95,95 @@ test('Android requires Play-signed app, evaluated Device Recall and a fresh excl
   const now = () => at;
   const fixture = publicStoreFixture({ now });
   const cert = Buffer.alloc(32, 36);
-  const proofs = new Map(); let written = false; let marks = 0;
+  const certDigest = cert.toString('hex');
+  const proofs = new Map(); const attestations = new Map(); let written = 0; let marks = 0;
   const android = createAndroidApplianceDevice({ firestore: fixture.firestore, now, secret: syntheticSecret, signingDigests: new Set([cert.toString('hex')]),
-    playIntegrity: { decode: async token => proofs.get(token), mark: async () => { written = true; marks++; } } });
+    playIntegrity: { decode: async token => proofs.get(token), mark: async () => { written = Number(usagePeriods(now()).month.replace('-', '')); marks++; } },
+    keyAttestation: {
+      async verify(chain, challenge) {
+        const key = attestations.get(challenge);
+        assert.deepEqual(chain, ['synthetic certificate']);
+        return { keyDigest: key.digest, publicKey: key.publicKey, attestedDigests: [certDigest], validUntil: now() + 3600_000 };
+      },
+      accepts: (record, digest) => record?.keyDigest === digest && record.validUntil > now(),
+    },
+  });
   const auth = createNativeDeviceAuthorization({ now, secret: syntheticSecret, providers: { android } });
   const signingKeys = new Map();
-  function installation(device) {
+  function signingPair() {
     const pair = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
     const publicKey = pair.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
-    const keyId = `${device}.${createHash('sha256').update(publicKey).digest('hex')}`;
-    signingKeys.set(keyId, { ...pair, publicKey });
+    return { ...pair, publicKey, digest: createHash('sha256').update(publicKey).digest('hex') };
+  }
+  function installation(device) {
+    const continuity = signingPair();
+    const keyId = `${device}.${continuity.digest}`;
+    signingKeys.set(keyId, { continuity, hardware: signingPair() });
     return keyId;
   }
   const key = installation('ab'.repeat(32));
-  const clone = installation('ef'.repeat(32));
+  const secondDevice = installation('ef'.repeat(32));
+  const reinstalled = installation('ab'.repeat(32));
   const owner = { uid: 'account-a' };
-  const get = keyId => auth.challenge(owner, { platform: 'android', keyId });
-  function submit({ challenge }, overrides) {
+  const other = { uid: 'account-b' };
+  const get = (keyId, identity = owner) => auth.challenge(identity, { platform: 'android', keyId, hardwareKeyId: signingKeys.get(keyId).hardware.digest });
+  function submit({ challenge, mode }, overrides, identity = owner, mutateBody) {
     const proof = `synthetic-android-play-integrity-${proofs.size}`;
     const { keyId } = JSON.parse(Buffer.from(challenge.split('.')[0], 'base64url'));
-    const payload = { requestDetails: { requestPackageName: 'jp.jphacks.tkb2633', requestHash: createHash('sha256').update(JSON.stringify([challenge, keyId])).digest('hex'), timestampMillis: String(at) },
+    const { continuity, hardware } = signingKeys.get(keyId);
+    const message = Buffer.from(JSON.stringify([challenge, keyId, hardware.digest]));
+    const payload = { requestDetails: { requestPackageName: 'jp.jphacks.tkb2633', requestHash: createHash('sha256').update(message).digest('hex'), timestampMillis: String(at) },
       appIntegrity: { appRecognitionVerdict: 'PLAY_RECOGNIZED', packageName: 'jp.jphacks.tkb2633', certificateSha256Digest: [cert.toString('base64url')] },
-      deviceIntegrity: { deviceRecognitionVerdict: ['MEETS_DEVICE_INTEGRITY'], deviceRecall: { values: { bitFirst: written }, writeDates: written ? { yyyymmFirst: 202611 } : {} } },
+      deviceIntegrity: { deviceRecognitionVerdict: ['MEETS_DEVICE_INTEGRITY'], deviceRecall: { values: { bitFirst: Boolean(written) }, writeDates: written ? { yyyymmFirst: written } : {} } },
       accountDetails: { appLicensingVerdict: 'LICENSED' } };
     overrides?.(payload);
     proofs.set(proof, payload);
-    const { publicKey, privateKey } = signingKeys.get(keyId);
-    const signature = sign('sha256', Buffer.from(JSON.stringify([challenge, keyId])), privateKey).toString('base64');
-    return auth.grant(owner, { challenge, proof, publicKey, signature });
+    const body = { challenge, proof, publicKey: continuity.publicKey, hardwareKeyId: hardware.digest,
+      signature: sign('sha256', message, continuity.privateKey).toString('base64'),
+      hardwareSignature: sign('sha256', message, hardware.privateKey).toString('base64') };
+    if (mode === 'attest') {
+      attestations.set(challenge, hardware);
+      body.certificateChain = ['synthetic certificate'];
+    }
+    mutateBody?.(body);
+    return auth.grant(identity, body);
   }
+  assert.equal((await get(key)).mode, 'attest');
   await assert.rejects(submit(await get(key), verdict => { verdict.appIntegrity.certificateSha256Digest = ['wrong']; }), { code: 'DEVICE_VERIFICATION_REQUIRED' });
   await assert.rejects(submit(await get(key), verdict => { verdict.deviceIntegrity.deviceRecall = {}; }), { code: 'DEVICE_VERIFICATION_UNAVAILABLE' });
   const lease = await submit(await get(key));
   assert.equal(lease.mode, 'enroll');
-  await assert.rejects(submit(await get(clone)), { code: 'DEVICE_VERIFICATION_TEMPORARY' });
-  assert.ok((await submit(lease)).grant);
+  await assert.rejects(submit(await get(secondDevice)), { code: 'DEVICE_VERIFICATION_TEMPORARY' });
+  const first = await submit(lease);
+  assert.ok(first.grant);
   assert.equal(marks, 1);
+  assert.equal((await get(key)).mode, 'prove');
+  await assert.rejects(submit(await get(key), undefined, owner, body => { body.hardwareSignature = body.signature; }), { code: 'DEVICE_VERIFICATION_REQUIRED' });
   assert.ok((await submit(await get(key))).grant);
   await assert.rejects(submit(await get(key), verdict => { verdict.deviceIntegrity.deviceRecall = { values: { bitFirst: false } }; }),
     { code: 'DEVICE_VERIFICATION_TEMPORARY' });
   at += 36_000;
-  await assert.rejects(submit(await get(clone)), { code: 'REINSTALL_ACCOUNT_LOCKED' });
+  await assert.rejects(submit(await get(reinstalled, other), undefined, other), { code: 'REINSTALL_ACCOUNT_LOCKED' });
+  await assert.rejects(submit(await get(secondDevice)), { code: 'REINSTALL_ACCOUNT_LOCKED' });
+
+  const principal = (identity, grant) => ({ ...auth.verifyDevice({ headers: { 'x-liflow-device-grant': grant } }, identity), uid: identity.uid, anonymous: false });
+  const firstPrincipal = principal(owner, first.grant);
+  for (let index = 0; index < 3; index++) {
+    const job = await fixture.store.admit({ principal: firstPrincipal, requestKey: `android-manual-${index}`, idempotencyKey: `synthetic-proof-and-quota-${index}` });
+    await fixture.store.finish(job, { status: 'not_found', message: '検査用の結果' });
+  }
+  const otherGrant = await submit(await get(key, other), undefined, other);
+  assert.equal((await fixture.store.usage(principal(other, otherGrant.grant))).remaining, 2);
+  at += 3600_000;
+  assert.equal((await get(key, other)).mode, 'attest');
+  signingKeys.get(key).hardware = signingPair();
+  const renewed = await submit(await get(key, other), undefined, other);
+  const renewedPrincipal = principal(other, renewed.grant);
+  assert.equal(renewedPrincipal.installationId, firstPrincipal.installationId);
+  assert.equal((await fixture.store.usage(renewedPrincipal)).remaining, 2);
   assert.equal(marks, 1);
+  at = Date.UTC(2026, 11, 1);
+  const nextMonthLease = await submit(await get(reinstalled, other), undefined, other);
+  const nextMonth = await submit(nextMonthLease, undefined, other);
+  assert.equal((await fixture.store.usage(principal(other, nextMonth.grant))).remaining, 5);
 });

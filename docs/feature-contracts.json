@@ -9292,6 +9292,18 @@
         "name": "Android requires Play-signed app, evaluated Device Recall and a fresh exclusive enrollment before issuing a device grant"
       },
       {
+        "file": "tests/appliance-android-key-attestation.test.mjs",
+        "name": "Android key attestation verifies Google-rooted certificate structure and insists on a hardware-generated key for the signed app and challenge"
+      },
+      {
+        "file": "tests/appliance-android-key-attestation.test.mjs",
+        "name": "Android key attestation refreshes certificate revocation state and fails closed if the fresh list is unavailable"
+      },
+      {
+        "file": "tests/appliance-public-api.test.mjs",
+        "name": "expired Android attestation records are pruned without exceeding the Firestore write batch cap"
+      },
+      {
         "file": "tests/appliance-public-api.test.mjs",
         "name": "public API admission rolls back busy requests and never refunds or repeats a possibly charged interrupted analysis"
       },
