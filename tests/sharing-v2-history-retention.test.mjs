@@ -214,6 +214,13 @@ test('legacy archive deletion checks the collective certificate every original i
   events.length = 0; await removeRetainedLegacyArchive(input);
   assert.equal(events.includes('remove'), false); assert.equal(events.includes('close'), true);
   await h.owner.database.runAsync("DELETE FROM calendar_drafts WHERE slot='personal'");
+  const originalReceipt = h.receipts.values().next().value;
+  const later = { ...originalReceipt, uploadSequence: h.head() + 1 };
+  const updateReceipt = 'UPDATE sharing_v2_server_receipts SET receipt_json=? WHERE group_id=? AND operation_id=?';
+  await h.owner.database.runAsync(updateReceipt, JSON.stringify(later), groupId, later.operationId);
+  events.length = 0; await removeRetainedLegacyArchive(input);
+  assert.equal(events.includes('remove'), false); assert.equal(events.includes('close'), true);
+  await h.owner.database.runAsync(updateReceipt, JSON.stringify(originalReceipt), groupId, originalReceipt.operationId);
   await h.owner.database.execAsync("CREATE TABLE old_private_extension (value TEXT); INSERT INTO old_private_extension VALUES ('preserve')");
   events.length = 0; await removeRetainedLegacyArchive(input);
   assert.equal(events.includes('remove'), false); assert.equal(events.includes('close'), true);
