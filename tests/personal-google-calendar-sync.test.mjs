@@ -431,6 +431,31 @@ test('a stored empty recurrence does not wake background Google Calendar sync ag
   assert.equal(h.calls.length, calls);
   assert.ok((await readLocalCalendar(h.database)).events.some(event => event.id === id));
 });
+
+test('an ambiguous Google recurrence update keeps its raw source and hides an obsolete time until it can be resolved', async t => {
+  const h = await harness(t); await h.connect();
+  const series = h.put(h.remote('series-ambiguous-offset', { recurrence: ['RRULE:FREQ=DAILY;COUNT=31'] }));
+  const instance = h.remote('ambiguous-civil-time', { recurringEventId: series.id, summary: '以前の正午',
+    start: { dateTime: '2026-11-01T12:00:00-05:00', timeZone: 'America/New_York' },
+    end: { dateTime: '2026-11-01T13:00:00-05:00', timeZone: 'America/New_York' } });
+  let source = instance;
+  h.api.instances = async () => ({ items: [source] });
+  assert.equal((await h.sync.sync({ force: true })).kind, 'success');
+  assert.deepEqual((await readLocalCalendar(h.database)).events.map(event => event.title), [instance.summary]);
+  source = { ...instance, summary: '新しい会議', start: { ...instance.start, dateTime: '2026-11-01T01:30:00' } };
+  h.put({ ...series, summary: 'Googleで更新' });
+  assert.equal((await h.sync.sync({ force: true })).kind, 'success');
+  assert.deepEqual((await readLocalCalendar(h.database)).events, []);
+  const retained = h.connection.prepare('SELECT event_json FROM calendar_google_inbox WHERE google_id=?').get(instance.id);
+  assert.deepEqual(JSON.parse(retained.event_json), source);
+  source = { ...source, start: { ...source.start, dateTime: '2026-11-01T01:30:00-05:00' } };
+  h.put({ ...series, summary: 'Googleで時刻を確定' });
+  assert.equal((await h.sync.sync({ force: true })).kind, 'success');
+  const restored = (await readLocalCalendar(h.database)).events;
+  assert.equal(restored[0]?.title, source.summary);
+  assert.equal(restored[0]?.readOnly, true);
+  assert.equal(h.calls.some(([method]) => method === 'patch' || method === 'insert' || method === 'remove'), false);
+});
 test('an unconfirmed personal write is not acknowledged before HTTP succeeds and later offline edits still converge', async t => {
   const h = await harness(t); await h.connect(); const event = await h.local();
   const insert = h.api.insert; h.api.insert = async () => { throw new Error('request never sent'); };

@@ -383,6 +383,12 @@ export function createPersonalGoogleCalendarSync(input: { database: SQLiteDataba
                       if (!(cause instanceof GoogleEventExpansionRequired)) throw cause;
                       await tx.runAsync(`INSERT INTO calendar_google_inbox(subject,calendar_id,google_id,event_json,dirty) VALUES(?,?,?,?,0)
                         ON CONFLICT(subject,calendar_id,google_id) DO UPDATE SET event_json=excluded.event_json`, control.subject, calendar.id, event.id, JSON.stringify(event));
+                      // An unresolvable time cannot supersede a user's local edit. Hide only
+                      // the obsolete read-only projection and keep the raw source for recovery.
+                      const displayed = await tx.getFirstAsync(`SELECT 1 FROM calendar_google_expanded x JOIN calendar_google_links l USING(subject,calendar_id,google_id)
+                        WHERE x.subject=? AND x.calendar_id=? AND x.parent_id=? AND x.google_id=? AND l.read_only=1 AND l.anchor_date='' LIMIT 1`,
+                      control.subject, calendar.id, expansion.parent_id, event.id);
+                      if (displayed && await receivePersonalGoogleEvent(tx, control, calendar, { id: event.id, status: 'cancelled' }, { expanded: true }) === 'applied') mutated = true;
                     }
                     if (projection && await receivePersonalGoogleEvent(tx, control, calendar, projection, { expanded: true, parentId: expansion.parent_id, original: event }) === 'applied') mutated = true;
                     await tx.runAsync('UPDATE calendar_google_expanded SET seen=1 WHERE subject=? AND calendar_id=? AND parent_id=? AND google_id=?', control.subject, calendar.id, expansion.parent_id, event.id);

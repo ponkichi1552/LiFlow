@@ -222,6 +222,41 @@ test('PDF-only mobile analysis submits no product fields and accepts the same-ca
   } finally { globalThis.fetch = original; }
 });
 
+test('a PDF covering many models preserves the full verified list through encrypted reanalysis', async t => {
+  const keys = configureManualUpload(t);
+  const { analyzeUploadedManual, decodeUploadedManual } = await import('../server/appliance-care-api/src/uploaded-manual.mjs');
+  const { validateApplianceCareRequest } = await import('../server/appliance-care-api/src/service.mjs');
+  const manual = syntheticManual(); const decoded = decodeUploadedManual(manual);
+  decoded.pages = 1;
+  const modelNumbers = Array.from({ length: 20 }, (_, index) => `${String(index).padStart(2, '0')}${'型'.repeat(118)}`);
+  const identity = { manufacturer: '検査用メーカー', productName: '検査用製品', modelNumbers, modelEvidence: [{ modelNumber: modelNumbers[0], page: 1 }] };
+  const analysis = { analyzeUploaded: async () => ({ value: { product: identity, tasks: [{ name: 'フィルター清掃',
+    recommendedIntervalDays: null, recommendedConditions: ['汚れたとき'], steps: ['電源を切る。'], tools: [], safetyCautions: [], estimatedMinutes: null,
+    evidence: [{ url: decoded.reference, pageOrSection: '1ページ' }] }] } }) };
+  const result = await analyzeUploadedManual({ identifyFromManual: true, manual: decoded }, analysis);
+  assert.equal(result.status, 'verified');
+  assert.equal(result.product.modelNumber, modelNumbers.join(' / '));
+  assert.equal(result.analysis.model, result.product.modelNumber);
+  assert.deepEqual(result.product.modelPages, [1]);
+
+  const { manufacturer, productName, modelNumber } = result.product;
+  const request = { manufacturer, productName, modelNumber, identifyFromManual: true, manual, forceReanalysis: true };
+  assert.equal(validateApplianceCareRequest({ ...request, modelNumber: `${modelNumber} / 追加のモデル` }), false);
+  assert.equal(validateApplianceCareRequest({ ...request, modelNumber: `${modelNumbers[0]}超` }), false);
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    if (options.method === 'GET') return Response.json({ done: true, stage: 'official_manual_analysis', result });
+    const bytes = Buffer.from(options.body);
+    const { requestKey } = readManualUploadEnvelope(bytes);
+    const { manifest, chunks } = prepareEncryptedAnalysisQueueInput(bytes, requestKey);
+    const owner = 'synthetic-owner'; const jobId = publicJobId({ uid: owner }, options.headers['x-idempotency-key']);
+    const received = decodeAnalysisQueueInput(manifest, chunks, undefined, { owner, jobId, requestDigest: publicKey(requestKey) }, keys);
+    assert.equal(received.modelNumber, modelNumber);
+    assert.equal((await analyzeUploadedManual(received, analysis)).product.modelNumber, modelNumber);
+    return Response.json({ jobId });
+  });
+  assert.equal((await analyzeApplianceCareRequest(request, 'https://api.example.test')).product.modelNumber, modelNumber);
+});
+
 test('a lost PDF acceptance response uses persisted admission lookup and resends only on an explicit miss', async t => {
   configureManualUpload(t);
   const original = globalThis.fetch;

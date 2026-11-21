@@ -214,6 +214,10 @@
       },
       {
         "file": "tests/personal-google-calendar-sync.test.mjs",
+        "name": "an ambiguous Google recurrence update keeps its raw source and hides an obsolete time until it can be resolved"
+      },
+      {
+        "file": "tests/personal-google-calendar-sync.test.mjs",
         "name": "personal title preference applies to the next content write while unchanged and category-only revisions never resend names"
       },
       {
@@ -1520,6 +1524,10 @@
       {
         "file": "tests/appliance-care-client.test.mjs",
         "name": "PDF-only mobile analysis submits no product fields and accepts the same-call extracted identity and tasks"
+      },
+      {
+        "file": "tests/appliance-care-client.test.mjs",
+        "name": "a PDF covering many models preserves the full verified list through encrypted reanalysis"
       }
     ],
     "manualReview": "docs/appliance-pdf-only-2026-11-13.md"

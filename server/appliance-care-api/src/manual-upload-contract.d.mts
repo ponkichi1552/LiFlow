@@ -1,11 +1,14 @@
 export const MANUAL_UPLOAD_CONTENT_TYPE: string;
 export const MAX_MANUAL_BYTES: number;
 export const MANUAL_FIELDS: readonly ['manufacturer', 'productName', 'modelNumber', 'category'];
+export const MAX_UPLOADED_MODELS: number;
 export const MANUAL_METADATA_LIMIT: number;
 export const MANUAL_HEADER_BYTES: number;
 export const MANUAL_TAG_BYTES: number;
 export const MAX_MANUAL_UPLOAD_BYTES: number;
 export const MIN_MANUAL_UPLOAD_BYTES: number;
+export function isManualIdentityText(value: unknown): value is string;
+export function isManualModelList(value: unknown): value is string;
 export function manualHpkeInfo(): Uint8Array;
 export function manualUploadAad(jobId: string, header: Uint8Array): Uint8Array;
 type ManualIdentity = { identifyFromManual?: boolean; manufacturer?: string; productName?: string; modelNumber?: string; category?: string; manual?: { reference: string } };

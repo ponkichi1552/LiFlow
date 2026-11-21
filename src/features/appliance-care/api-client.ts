@@ -6,7 +6,7 @@ import { isOfficialApplianceUrl } from '@/features/appliance-care/official-url';
 import { applianceCarePollDelay, waitForAppliancePoll } from './polling';
 import { isAnalysisRecord as isRecord, nonemptyAnalysisString as nonemptyString, isVerifiedApplianceAnalysis } from './analysis-validation';
 import { ANALYSIS_TIMEOUT_MS, analysisDeliveryJson, validAnalysisDelivery } from '../../../server/appliance-care-api/src/analysis-delivery-contract.mjs';
-import { MANUAL_UPLOAD_CONTENT_TYPE } from '../../../server/appliance-care-api/src/manual-upload-contract.mjs';
+import { MANUAL_UPLOAD_CONTENT_TYPE, isManualIdentityText, isManualModelList } from '../../../server/appliance-care-api/src/manual-upload-contract.mjs';
 import type { AnalysisDeliveryStore, SavedAnalysisDelivery } from './analysis-delivery';
 import type { ApplianceApiSession } from '../../platform/appliance-care/auth';
 
@@ -61,8 +61,8 @@ export async function analyzeApplianceCareRequest(
   const noIdentity = request.identifyFromManual === true && fields.every(field => request[field] === undefined);
   if ((request.identifyFromManual === true && !request.manual) || (!noIdentity && fields.some(field => {
     const value = request[field];
-    if (field === 'modelNumber' && request.identifyFromManual === true && value == null) return false;
-    return typeof value !== 'string' || !value.trim() || value.trim().length > 120 || /[\u0000-\u001f\u007f]/u.test(value);
+    if (field === 'modelNumber' && request.identifyFromManual === true) return value != null && !isManualModelList(value);
+    return !isManualIdentityText(value);
   }))) {
     return {
       status: 'error',
