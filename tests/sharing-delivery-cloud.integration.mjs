@@ -319,7 +319,8 @@ async function fixture(testEnvironment = environment, testStore = store, withPee
   }
   const transport = (target, uid, identity, local = target.local) => tracedDeliveryRelay({ firestore: target.firestore, userId: uid,
     checkAccount: target.checkAccount, reference: id => doc(target.firestore, 'sharingGroups', id), readGroup: id => target.cloud.readGroup(id) }, identity.deviceId, local);
-  return { owner, member, peer, key, roster, archive, device, upload, transport, verifyApplied, close: () => dbs.forEach(db => db.connection.close()) };
+  const snapshotWire = encryptedPayload => ({ groupId, keyVersion: roster.body.keyVersion, encryptedPayload });
+  return { owner, member, peer, key, roster, archive, device, upload, transport, snapshotWire, verifyApplied, close: () => dbs.forEach(db => db.connection.close()) };
 }
 
 test('shared recovery uses one compatible responder and another device can take over an abandoned lease', async () => {
@@ -329,7 +330,8 @@ test('shared recovery uses one compatible responder and another device can take 
     const receiver = await f.device('member', f.member, false);
     const sender = f.transport(owner, 'owner', f.owner).relay, alternate = f.transport(peer, 'peer', f.peer).relay;
     const target = f.transport(receiver, 'member', f.member).relay;
-    const value = { encryptedPayload: 'synthetic-relay-data' };
+    const value = f.snapshotWire('synthetic-relay-data');
+    await assert.rejects(owner.local.saveChunk('wrong-scope', { ...value, groupId: 'different-test-group' }), /archive scope differs/);
     const requests = store.collection(`sharingGroups/${groupId}/deliveryRequests`);
     const through = 0;
     const find = async key => (await requests.where('key', '==', key).get()).docs[0].ref;
@@ -374,7 +376,7 @@ test('more than eight simultaneous recovery artifacts all arrive and completed r
     const source = await f.device('owner', f.owner, false), target = await f.device('member', f.member, false);
     let reads = 0; const sender = f.transport(source, 'owner', f.owner, { ...source.local, chunk: async id => { reads++; return source.local.chunk(id); } });
     const receiver = f.transport(target, 'member', f.member);
-    const values = Array.from({ length: 12 }, (_, index) => ({ id: `synthetic-bulk-${index}`, wire: { encryptedPayload: `synthetic-opaque-${index}` } }));
+    const values = Array.from({ length: 12 }, (_, index) => ({ id: `synthetic-bulk-${index}`, wire: f.snapshotWire(`synthetic-opaque-${index}`) }));
     for (const value of values) await source.local.saveChunk(value.id, value.wire);
     for (const value of values) await assert.rejects(receiver.relay.snapshotChunk(groupId, value.id, 0), error => error.code === 'sharing/delivery-pending');
     await sender.relay.serve(groupId);
@@ -397,7 +399,7 @@ test('a pending recovery resumes when its source later acquires the artifact wit
   try {
     const source = await f.device('owner', f.owner, false), target = await f.device('member', f.member, false);
     const sender = f.transport(source, 'owner', f.owner), receiver = f.transport(target, 'member', f.member);
-    const id = 'synthetic-late-source-data', value = { encryptedPayload: 'synthetic-delayed-source' };
+    const id = 'synthetic-late-source-data', value = f.snapshotWire('synthetic-delayed-source');
     await assert.rejects(receiver.relay.snapshotChunk(groupId, id, 0), error => error.code === 'sharing/delivery-pending');
     await sender.relay.serve(groupId); const before = { ...sender.counts };
     await sender.relay.archive.saveChunk(id, value);
@@ -414,7 +416,7 @@ test('a durable receipt for one artifact never closes a second requested artifac
     const source = await f.device('owner', f.owner, false), target = await f.device('member', f.member, false);
     const sender = f.transport(source, 'owner', f.owner), receiver = f.transport(target, 'member', f.member);
     for (const id of ['synthetic-saved', 'synthetic-still-receiving']) {
-      await source.local.saveChunk(id, { encryptedPayload: id });
+      await source.local.saveChunk(id, f.snapshotWire(id));
       await assert.rejects(receiver.relay.snapshotChunk(groupId, id, 0), error => error.code === 'sharing/delivery-pending');
     }
     await sender.relay.serve(groupId);
@@ -423,7 +425,7 @@ test('a durable receipt for one artifact never closes a second requested artifac
     const requests = await store.collection(`sharingGroups/${groupId}/deliveryRequests`).get();
     const saved = requests.docs.find(row => row.data().key === 'synthetic-saved'), pending = requests.docs.find(row => row.data().key === 'synthetic-still-receiving');
     assert.ok(saved.data().receivedAt); assert.equal(pending.data().receivedAt, undefined);
-    assert.deepEqual(await receiver.relay.snapshotChunk(groupId, 'synthetic-still-receiving', 0), { encryptedPayload: 'synthetic-still-receiving' });
+    assert.deepEqual(await receiver.relay.snapshotChunk(groupId, 'synthetic-still-receiving', 0), f.snapshotWire('synthetic-still-receiving'));
   } finally { f.close(); }
 });
 
@@ -432,7 +434,7 @@ test('a lost local copy recovers from an unexpired acknowledged reply but skips 
   try {
     const source = await f.device('owner', f.owner, false), target = await f.device('member', f.member, false);
     const sender = f.transport(source, 'owner', f.owner), receiver = f.transport(target, 'member', f.member);
-    const id = 'received-then-restored', value = { encryptedPayload: 'synthetic-durable' };
+    const id = 'received-then-restored', value = f.snapshotWire('synthetic-durable');
     await source.local.saveChunk(id, value);
     await assert.rejects(receiver.relay.snapshotChunk(groupId, id, 0), error => error.code === 'sharing/delivery-pending');
     await sender.relay.serve(groupId);
@@ -470,7 +472,7 @@ test('a recovery crossing a UTC day reuses a live reply and requests again after
   try {
     const source = await f.device('owner', f.owner, false), target = await f.device('member', f.member, false);
     const sender = f.transport(source, 'owner', f.owner), receiver = f.transport(target, 'member', f.member);
-    const key = 'previous-day-copy', value = { encryptedPayload: 'synthetic recovery across midnight' };
+    const key = 'previous-day-copy', value = f.snapshotWire('synthetic recovery across midnight');
     await source.local.saveChunk(key, value);
     await assert.rejects(receiver.relay.snapshotChunk(groupId, key, 0), error => error.code === 'sharing/delivery-pending');
     await sender.relay.serve(groupId);
@@ -558,7 +560,7 @@ test('server confirmation of cached group metadata and recovery requests and rep
     clients.push(source.firestore, target.firestore);
     const sender = f.transport(source, 'owner', f.owner), receiver = f.transport(target, 'member', f.member);
     const id = 'cached-recovery';
-    await source.local.saveChunk(id, { encryptedPayload: 'synthetic-cached' });
+    await source.local.saveChunk(id, f.snapshotWire('synthetic-cached'));
     await assert.rejects(receiver.relay.snapshotChunk(groupId, id, 0), error => error.code === 'sharing/delivery-pending');
     await sender.relay.serve(groupId);
     const group = (await target.cloud.readGroup(groupId)).group;
@@ -629,7 +631,7 @@ test('a new recovery request behind forty older requests is observed once and on
     stop = sender.relay.watch(groupId, () => { wakes++; pending = sender.relay.serve(groupId).catch(error => { errors.push(error); }); }, error => errors.push(error));
     await eventually(() => wakes > 0, 'initial requests were not observed'); await pending;
     const before = { ...sender.counts }; const id = 'f'.repeat(64), key = 'synthetic-after-forty';
-    await source.local.saveChunk(key, { encryptedPayload: 'synthetic-new-opaque' });
+    await source.local.saveChunk(key, f.snapshotWire('synthetic-new-opaque'));
     await requests.doc(id).set({ ...value(key), createdAt: new Date() });
     await eventually(async () => (await requests.doc(id).collection('responses').doc(f.owner.deviceId).get()).data()?.ready === true, 'the new request remained hidden behind old ones');
     await pending; assert.deepEqual(errors, []);
