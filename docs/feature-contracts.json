@@ -5951,6 +5951,18 @@
         "name": "pending analysis result, PDF and receipt survive cold reopen without sharing or a second upload"
       },
       {
+        "file": "tests/analysis-delivery.test.mjs",
+        "name": "a transient stored PDF read failure preserves the attempted analysis and retries with the same admission"
+      },
+      {
+        "file": "tests/analysis-delivery.test.mjs",
+        "name": "a ${failure} stored PDF ends the pending analysis without a network request"
+      },
+      {
+        "file": "tests/analysis-delivery.test.mjs",
+        "name": "a bounded analysis run leaves an active foreground request pending without starting or waiting for another upload"
+      },
+      {
         "file": "tests/mobile-ui-audit.test.mjs",
         "name": "personal reanalysis keeps the appliance read failure visible until a read retry succeeds"
       },

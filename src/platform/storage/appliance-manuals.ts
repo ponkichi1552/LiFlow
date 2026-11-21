@@ -8,9 +8,11 @@ import { withIsolatedSqliteTransaction } from './isolated-transaction.ts';
 import { storeApplianceManualInside } from './appliance-manual-storage.ts';
 const verifiedDocuments = new WeakMap<SQLiteDatabase, { values: Map<string, { content: string; revision: string | null }>; characters: number }>();
 const MAX_VERIFIED_DOCUMENT_CHARACTERS = 12 * 1024 * 1024;
+export class InvalidStoredManualError extends Error {}
+
 export function readApplianceManual(database: SQLiteDatabase, digest: string): Promise<string | null> {
   return withPlannerDatabaseOperation(database, async () => {
-    if (!/^[a-f0-9]{64}$/u.test(digest)) throw new Error('説明書の保存先を確認してください。');
+    if (!/^[a-f0-9]{64}$/u.test(digest)) throw new InvalidStoredManualError('説明書の保存先を確認してください。');
     // data_version detects commits by other connections; total_changes also
     // detects writes on this connection, including writes outside this module.
     const version = await database.getFirstAsync<{ data_version: number; local_changes: number }>(
@@ -23,7 +25,8 @@ export function readApplianceManual(database: SQLiteDatabase, digest: string): P
     const row = await database.getFirstAsync<{ content_base64: string }>('SELECT content_base64 FROM appliance_manual_documents WHERE sha256=?', digest);
     if (!row) return null;
     if (cached?.content !== row.content_base64) {
-      verifyManualContent(row.content_base64, digest);
+      try { verifyManualContent(row.content_base64, digest); }
+      catch (cause) { throw new InvalidStoredManualError(cause instanceof Error ? cause.message : '説明書PDFのデータを確認できません。', { cause }); }
       if (!checked) { checked = { values: new Map(), characters: 0 }; verifiedDocuments.set(database, checked); }
       checked.characters -= checked.values.get(digest)?.content.length ?? 0;
       checked.values.delete(digest); checked.values.set(digest, { content: row.content_base64, revision }); checked.characters += row.content_base64.length;

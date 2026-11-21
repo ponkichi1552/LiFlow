@@ -6,7 +6,7 @@ import type { ApplianceCareApiRequest } from '../../features/appliance-care/api-
 import { analyzeApplianceCareRequest, applianceCareApiBaseUrl } from '../../features/appliance-care/api-client';
 import { deviceAnalysisDeliveries } from '../storage/analysis-deliveries';
 import { deviceAnalysisWork } from '../storage/analysis-work';
-import { readApplianceManual } from '../storage/appliance-manuals';
+import { InvalidStoredManualError, readApplianceManual } from '../storage/appliance-manuals';
 import { getSharingServices, isSharingConfigured } from '../sharing/firebase-services';
 
 const RESULT_RECOVERY_MS = 24 * 60 * 60_000;
@@ -39,12 +39,20 @@ export async function resumeAnalysisWork(database: SQLiteDatabase, owner: string
   if (entry.retryAt > Date.now()) return { retryAt: entry.retryAt };
   const key = JSON.stringify([owner, entry.id]);
   const existing = running.get(key);
+  // A headless pass must leave the pending work registered without waiting on
+  // a foreground request that can outlive the headless connection's budget.
+  if (existing && options.timeoutMs !== undefined) return true;
   const operation = existing ?? (async () => {
     if (Date.now() - entry.createdAt >= RESULT_RECOVERY_MS) {
       await store.finish(owner, entry.id, { status: 'error', code: 'JOB_NOT_FOUND', message: '解析結果の受け取り期限が過ぎました。PDFを解析し直してください。' });
       return;
     }
-    const base64 = await readApplianceManual(database, entry.manualDigest).catch(() => null);
+    let base64: string | null;
+    try { base64 = await readApplianceManual(database, entry.manualDigest); }
+    catch (error) {
+      if (!(error instanceof InvalidStoredManualError)) throw error;
+      base64 = null;
+    }
     if (options.signal?.aborted) return;
     if (!base64) {
       await store.finish(owner, entry.id, { status: 'error', code: 'INVALID_MANUAL', message: '説明書PDFを読み込めませんでした。選び直してください。' });

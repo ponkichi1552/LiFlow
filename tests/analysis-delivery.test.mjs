@@ -21,19 +21,20 @@ import { storeApplianceManualInside } from '../src/platform/storage/appliance-ma
 const principal = uid => ({ uid, anonymous: false, deviceId: publicKey(uid), installationId: 'synthetic-installation-001' });
 const input = uid => ({ principal: principal(uid), requestKey: 'synthetic-result', idempotencyKey: 'synthetic-delivery-attempt' });
 const output = { status: 'not_found', message: '合成した解析結果' };
+const workStoragePorts = {
+  './repository.ts': { withPlannerDatabaseOperation: (_database, work) => work() },
+  './isolated-transaction.ts': { withIsolatedSqliteTransaction: async (database, work) => {
+    let value; await database.withTransactionAsync(async () => { value = await work(database); }); return value;
+  } },
+  './appliance-manual-storage.ts': { storeApplianceManualInside },
+  '../../features/appliance-care/analysis-work.ts': workPolicy,
+};
 
 test('pending analysis result, PDF and receipt survive cold reopen without sharing or a second upload', async t => {
   const folder = await mkdtemp(join(tmpdir(), 'liflow-analysis-db-'));
   const path = join(folder, 'test.sqlite');
-  const ports = {
-    './repository.ts': { withPlannerDatabaseOperation: (_database, work) => work() },
-    './isolated-transaction.ts': { withIsolatedSqliteTransaction: async (database, work) => {
-      let value; await database.withTransactionAsync(async () => { value = await work(database); }); return value;
-    } },
-    './appliance-manual-storage.ts': { storeApplianceManualInside },
-  };
-  const storage = loadNativeModule('src/platform/storage/analysis-work.ts', { ...ports, '../../features/appliance-care/analysis-work.ts': workPolicy });
-  const { deviceAnalysisDeliveries } = loadNativeModule('src/platform/storage/analysis-deliveries.ts', { ...ports, './analysis-work.ts': storage });
+  const storage = loadNativeModule('src/platform/storage/analysis-work.ts', workStoragePorts);
+  const { deviceAnalysisDeliveries } = loadNativeModule('src/platform/storage/analysis-deliveries.ts', { ...workStoragePorts, './analysis-work.ts': storage });
   let file = createDatabase(path);
   t.after(async () => { file.connection.close(); await rm(folder, { recursive: true, force: true }); });
   file.connection.exec('CREATE TABLE appliance_manual_documents (sha256 TEXT PRIMARY KEY, byte_length INTEGER, content_base64 TEXT)');
@@ -89,6 +90,97 @@ test('pending analysis result, PDF and receipt survive cold reopen without shari
   assert.deepEqual((await work.read(owner, target)).result, result);
   await work.remove(owner, id);
   assert.equal(await work.read(owner, target), null);
+});
+
+async function analysisResumeFixture(t, analyze) {
+  const { database, connection } = createDatabase();
+  const owner = 'synthetic-owner'; const id = 'pending-analysis'; const target = {};
+  const baseUrl = 'https://analysis.example.invalid';
+  const previous = process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL;
+  process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL = baseUrl;
+  t.after(() => {
+    connection.close();
+    if (previous === undefined) delete process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL;
+    else process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL = previous;
+  });
+  connection.exec('CREATE TABLE appliance_manual_documents (sha256 TEXT PRIMARY KEY, byte_length INTEGER, content_base64 TEXT)');
+  const storage = loadNativeModule('src/platform/storage/analysis-work.ts', workStoragePorts);
+  const deliveries = loadNativeModule('src/platform/storage/analysis-deliveries.ts', { ...workStoragePorts, './analysis-work.ts': storage });
+  const storedManuals = loadNativeModule('src/platform/storage/appliance-manuals.ts', {
+    ...workStoragePorts, '../../features/appliance-care/manual-document.ts': manualDocument,
+    '../../features/appliance-care/official-url.ts': {}, '../../features/sharing/crypto.ts': {},
+  });
+  const transport = t.mock.fn(analyze);
+  const { resumeAnalysisWork } = loadNativeModule('src/platform/appliance-care/analysis-work.ts', {
+    'expo-crypto': {}, '../../features/appliance-care/analysis-work': workPolicy,
+    '../../features/appliance-care/api-client': { analyzeApplianceCareRequest: transport, applianceCareApiBaseUrl: () => baseUrl },
+    '../storage/appliance-manuals': storedManuals, '../storage/analysis-work': storage, '../storage/analysis-deliveries': deliveries,
+    '../sharing/firebase-services': { isSharingConfigured: () => true, getSharingServices: () => ({ auth: {
+      authStateReady: async () => {}, currentUser: { uid: owner, isAnonymous: false },
+    } }) },
+  });
+  const work = storage.deviceAnalysisWork(database);
+  const manual = syntheticManual();
+  await work.begin({ owner, id, baseUrl, target, request: { identifyFromManual: true, manual } });
+  return { database, connection, work, owner, id, manual, target, transport, resume: options => resumeAnalysisWork(database, owner, options) };
+}
+
+test('a transient stored PDF read failure preserves the attempted analysis and retries with the same admission', async t => {
+  const result = withUploadedManual(applianceResult(), syntheticManual());
+  const h = await analysisResumeFixture(t, async () => result);
+  await h.work.markAttempt(h.owner, h.id);
+  const query = h.database.getFirstAsync;
+  let busy = true;
+  t.mock.method(h.database, 'getFirstAsync', async (sql, ...args) => {
+    if (busy && sql.includes('SELECT content_base64')) { busy = false; throw new Error('SQLITE_BUSY'); }
+    return query(sql, ...args);
+  });
+  await assert.rejects(h.resume(), /SQLITE_BUSY/);
+  const pending = await h.work.read(h.owner, h.target);
+  assert.equal(pending.id, h.id);
+  assert.equal(pending.state, 'pending');
+  assert.equal(pending.attempts, 1);
+  assert.equal(h.transport.mock.callCount(), 0);
+  assert.equal(await h.resume(), false);
+  const call = h.transport.mock.calls[0].arguments;
+  assert.equal(h.transport.mock.callCount(), 1);
+  assert.deepEqual(call[0].manual, h.manual);
+  assert.deepEqual(call[6], { owner: h.owner, id: h.id, manualDigest: pending.manualDigest, resuming: true });
+  assert.deepEqual((await h.work.read(h.owner, h.target)).result, result);
+});
+
+for (const failure of ['missing', 'corrupt']) test(`a ${failure} stored PDF ends the pending analysis without a network request`, async t => {
+  const h = await analysisResumeFixture(t, async () => { throw new Error('invalid PDF reached transport'); });
+  if (failure === 'missing') h.connection.exec('DELETE FROM appliance_manual_documents');
+  else h.connection.exec("UPDATE appliance_manual_documents SET content_base64='dGVzdA=='");
+  assert.equal(await h.resume(), false);
+  const saved = await h.work.read(h.owner, h.target);
+  assert.equal(saved.state, 'failed');
+  assert.equal(saved.result.code, 'INVALID_MANUAL');
+  assert.equal(h.transport.mock.callCount(), 0);
+});
+
+test('a bounded analysis run leaves an active foreground request pending without starting or waiting for another upload', async t => {
+  const started = Promise.withResolvers();
+  const response = Promise.withResolvers();
+  const result = withUploadedManual(applianceResult(), syntheticManual());
+  const h = await analysisResumeFixture(t, async () => { started.resolve(); return response.promise; });
+  const foreground = h.resume();
+  await Promise.race([started.promise, foreground]);
+  assert.equal(h.transport.mock.callCount(), 1);
+  const joined = h.resume();
+  const background = h.resume({ timeoutMs: 20_000 });
+  try {
+    const turn = new Promise(resolve => setImmediate(resolve, 'pending'));
+    assert.equal(await Promise.race([background, turn]), true);
+    assert.equal(await Promise.race([joined, turn]), 'pending');
+    assert.equal((await h.work.read(h.owner, h.target)).state, 'pending');
+  } finally {
+    response.resolve(result);
+    await Promise.all([foreground, joined, background]);
+  }
+  assert.equal(h.transport.mock.callCount(), 1);
+  assert.equal((await h.work.read(h.owner, h.target)).state, 'ready');
 });
 
 test('analysis content is erased only by the authenticated owner exact durable receipt and survives wrong missing and premature receipts', async () => {
