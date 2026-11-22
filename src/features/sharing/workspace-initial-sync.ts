@@ -18,7 +18,12 @@ export function prepareSharedWorkspaceSelection(workspace: SharedWorkspace, reco
     catch (cause) {
       if (workspace.protocol !== 2 || record.status !== 'active' || record.lastSuccessfulSyncAt !== null) throw cause;
     }
-    const result = await workspace.sync({ budgetMs: 20_000 });
+    const result = await workspace.sync({ budgetMs: 20_000 }).catch((cause: unknown) => {
+      if (cause && typeof cause === 'object' && 'code' in cause && cause.code === 'sharing/delivery-pending') {
+        throw new SharingInitialSyncPendingError();
+      }
+      throw cause;
+    });
     if (!result.complete || result.waitingForApproval) throw new SharingInitialSyncPendingError();
     await workspace.readOverview();
   })();

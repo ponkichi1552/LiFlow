@@ -4,6 +4,7 @@ import { validateEventDraft } from '../../features/calendar/events.ts';
 import type { CalendarEvent, CalendarException, EventDraft } from '../../features/calendar/events.ts';
 import { canWriteGoogleCalendar } from '../google-calendar/calendar-api.ts';
 import type { GoogleCalendarListEntry } from '../google-calendar/calendar-api';
+import { googleCalendarEventLink } from '../google-calendar/event-link.ts';
 import { addDays, daysBetween, parseLocalDate } from '../../domain/scheduling/local-date.ts';
 import { googleCalendarInstant } from '../../features/calendar/import-formatter.ts';
 
@@ -120,8 +121,7 @@ export async function readCalendarEventRows(database: SQLiteDatabase, range?: Ca
     JOIN calendar_events e ON e.id=l.event_id WHERE e.deleted=0 AND l.active=1 AND l.subject=? AND l.calendar_id IN (SELECT value FROM json_each(?))`,
     ...metadataParameters) : [];
   const metadata = new Map(googleMetadata.map(row => {
-    let externalUrl: string | undefined;
-    try { const url = new URL(typeof row.html_link === 'string' ? row.html_link : ''); if (url.protocol === 'https:' && ['calendar.google.com', 'www.google.com'].includes(url.hostname)) externalUrl = url.href; } catch { /* No external action for an invalid URL. */ }
+    const externalUrl = googleCalendarEventLink(row.html_link);
     const holiday = row.calendar_id.endsWith('#holiday@group.v.calendar.google.com');
     let longRange: Partial<Pick<EventDraft, 'startDate' | 'endDate' | 'allDay' | 'startMinute' | 'endMinute' | 'timeZone'>> | undefined;
     try {

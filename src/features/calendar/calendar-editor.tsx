@@ -19,6 +19,7 @@ import { calendarDisplayColor as categoryColor } from './event-appearance';
 import type { CalendarEvent, CalendarException, CalendarRecurrence, EventDraft } from './events';
 import { createCalendarGesture } from './gesture-control';
 import { CalendarField } from './calendar-field';
+import { googleCalendarEventLink, googleCalendarHome } from '../../platform/google-calendar/event-link';
 import type { LocalCalendarBinding } from './use-local-calendar';
 import type { CalendarEditorDraft } from '../../platform/storage/calendar-events';
 import { calendarDraftKey, clearCalendarEditorDraft, saveCalendarFutureEvent, deleteCalendarEvent, discardCalendarDraftIfUnchanged, readLocalCalendarEventSource, saveCalendarCategory, saveCalendarDraft, saveCalendarEvent } from '../../platform/storage/calendar-events';
@@ -113,6 +114,12 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
   const setRgb = (next: string[]) => { latestRgb.current = next; setRgbState(next); };
   const original = basis.series ?? local.snapshot.events.find(event => event.id === initial.eventId);
   const googleReadOnly = initial.eventId ? privateCalendarReadOnlySource(local.snapshot, initial.eventId, draft.scope === 'one' ? draft.anchorDate : null) : undefined;
+  const [externalLinkFailed, setExternalLinkFailed] = useState(false);
+  const openGoogleEvent = () => {
+    setExternalLinkFailed(false);
+    void Linking.openURL(googleCalendarEventLink(googleReadOnly?.externalUrl) ?? googleCalendarHome)
+      .catch(() => setExternalLinkFailed(true));
+  };
   const readOnly = Boolean(initial.eventId && local.canEditEvent?.(initial.eventId, draft.scope === 'one' ? draft.anchorDate : null) === false);
   const reminderScope = draft.audience === 'group' ? local.shared?.notificationScope ?? (reminderWorkspace?.userId ? calendarReminderScope(reminderWorkspace.userId, draft.groupId) : '') : 'personal';
   const reminderMinutes = draft.reminderMinutes !== undefined ? draft.reminderMinutes : calendarReminderMinutes(reminderSettings.settings, reminderScope, draft.eventId, draft.scope === 'one' ? draft.anchorDate : null);
@@ -323,7 +330,10 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
               onValueChange={audience => { if (choreForm) { if (audience !== draft.audience) onChoreAudience?.(audience); return; } change(before => audience === 'group' ? { ...before, audience, groupId: local.shared!.groupId, ownerScope: local.shared!.notificationScope }
                 : { ...before, audience, groupId: undefined, ownerScope: undefined, basisRevision: undefined, value: { ...before.value, categoryId: audienceCategory(before.value.categoryId, audience) } }); }} /></View>
           {!local.shared.enabled ? <Text style={styles.caption}>共有予定は、管理者がグループの互換更新を行うと利用できます。</Text> : null}</View> : initial.eventId && local.shared ? <Text style={styles.caption}>{draft.audience === 'group' ? `${local.shared.name} · グループ共通` : '個人 · 本人のみ'}</Text> : null}
-          {readOnly ? googleReadOnly ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(googleReadOnly.externalUrl ?? 'https://calendar.google.com/calendar/u/0/r')}><Text style={styles.action}>Googleカレンダーで編集 ↗</Text></Pressable>
+          {readOnly ? googleReadOnly ? <View>
+            <Pressable accessibilityRole="link" onPress={openGoogleEvent}><Text style={styles.action}>Googleカレンダーで編集 ↗</Text></Pressable>
+            {externalLinkFailed ? <Text accessibilityRole="alert" style={styles.error}>Googleカレンダーを開けませんでした。</Text> : null}
+          </View>
             : <Text style={styles.caption}>共有予定は作成者または管理者が変更できます。</Text> : null}
           {error && !exitActions ? <View><Text accessibilityRole="alert" style={styles.error}>{error}</Text>
             {canReloadEvent ? <AppButton title="最新の予定を確認" variant="quiet" compact disabled={busy} onPress={reloadEvent} /> : null}

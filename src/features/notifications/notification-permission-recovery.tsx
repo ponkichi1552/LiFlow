@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useIsFocused } from 'expo-router';
 import { AppState, Text, View, useColorScheme } from 'react-native';
 import { SettingsAction } from '../../components/settings-controls';
 import { typography } from '../../components/planner-ui';
@@ -10,9 +11,10 @@ const readDevicePermission = () => expoLocalNotificationGateway.hasPermission();
 
 /** The app preference can stay on while the OS blocks delivery. */
 export function useDeviceNotificationPermission(scope: unknown, enabled: boolean, checkPermission = readDevicePermission) {
+  const focused = useIsFocused();
   const [status, setStatus] = useState<{ scope: unknown; allowed: boolean | null } | null>(null);
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !focused) return;
     let live = true;
     let latestCheck = 0;
     const check = () => {
@@ -26,8 +28,8 @@ export function useDeviceNotificationPermission(scope: unknown, enabled: boolean
     check();
     const subscription = AppState.addEventListener('change', state => { if (state === 'active') check(); });
     return () => { live = false; subscription.remove(); };
-  }, [scope, enabled, checkPermission]);
-  return enabled && status?.scope === scope ? status?.allowed ?? null : null;
+  }, [scope, enabled, focused, checkPermission]);
+  return enabled && focused && status?.scope === scope ? status?.allowed ?? null : null;
 }
 
 /** Finish the user's denied enable request only after they return with OS permission. */

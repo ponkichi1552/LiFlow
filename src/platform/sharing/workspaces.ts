@@ -89,8 +89,14 @@ async function hasPendingAccountDeviceRestoration(userId: string): Promise<boole
   return Boolean(process.env.EXPO_PUBLIC_SHARING_ACCOUNT_DEVICE_API_URL?.trim()
     && await sharingSecureVault.getItem(`account-group-restore:${userId}`));
 }
-async function requireUser(): Promise<User> {
-  const user = await sharingSessionUser(); if (!user) throw new SharingAccessError('共有グループ用のアカウントでログインしてください。'); return user;
+async function requireUser(expectedUserId?: string): Promise<User> {
+  const user = await sharingSessionUser();
+  if (!user) throw new SharingAccessError('共有グループ用のアカウントでログインしてください。');
+  if (expectedUserId !== undefined && user.uid !== expectedUserId) throw new SharingAccessError('共有アカウントが変わりました。');
+  return user;
+}
+function assertSharingIntentOwner(userId: string) {
+  if (getSharingServices().auth.currentUser?.uid !== userId) throw new SharingAccessError('共有アカウントが変わりました。');
 }
 export async function readSharingSelection(): Promise<SharingSelection | null> {
   const saved = await sharingSecureVault.getItem('active-workspace'); if (!saved) return null;
@@ -111,8 +117,9 @@ export async function saveSharingSelection(selection: SharingSelection | null): 
   }
   changed();
 }
-export async function currentSharingWorkspace(): Promise<SharingWorkspaceRecord | null> {
-  const user = await sharingSessionUser(); if (!user) return null;
+export async function currentSharingWorkspace(expectedUserId?: string): Promise<SharingWorkspaceRecord | null> {
+  const user = expectedUserId === undefined ? await sharingSessionUser() : await requireUser(expectedUserId);
+  if (!user) return null;
   const previous = await readSharingSelection();
   const registry = await sharingRegistryDatabase();
   let record: SharingWorkspaceRecord | null;
@@ -686,43 +693,50 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
 }
 
 /** The caller must explicitly choose a kind. New v2 groups never convert an existing workspace in place. */
-export async function createV2SharingWorkspace(name: string, kind: 'family' | 'roommates', timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone): Promise<V2SharedWorkspace> {
+export async function createV2SharingWorkspace(name: string, kind: 'family' | 'roommates', options: { userId: string; timeZone?: string }): Promise<V2SharedWorkspace> {
   if (!['family', 'roommates'].includes(kind)) throw new Error('グループの種類を選んでください。');
-  const workspace = await createWorkspaceIntent(name, timeZone, { protocol: 2, kind });
+  const workspace = await createWorkspaceIntent(name, options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone, { kind, userId: options.userId });
   if (workspace.protocol !== 2) throw new SharingSchedulerVersionError(); return workspace;
 }
 
-async function createWorkspaceIntent(name: string, timeZone: string, options: { protocol: 2; kind: 'family' | 'roommates' }): Promise<SharedWorkspace> {
+async function createWorkspaceIntent(name: string, timeZone: string, options: { kind: 'family' | 'roommates'; userId: string }): Promise<SharedWorkspace> {
   const trimmed = name.trim(); if (!trimmed || trimmed.length > 100) throw new Error('グループ名は1〜100文字で入力してください。');
   if (!isSharedTimeZone(timeZone)) throw new Error('共有するタイムゾーンを確認してください。');
-  const user = await requireUser();
-  if (await currentSharingWorkspace() || await createSharingCloud(getSharingServices().firestore, user.uid, () => getSharingServices().auth.currentUser?.uid ?? null).readMembership()) throw new Error('現在のグループから退出するか、参加申請を取り消してから作成してください。');
-  const groupId = `group.${randomUUID()}`; const userId = user.uid; const registry = await sharingRegistryDatabase();
+  const user = await requireUser(options.userId);
+  const userId = user.uid;
+  const assertCurrent = () => assertSharingIntentOwner(userId);
+  if (await currentSharingWorkspace(userId) || await createSharingCloud(getSharingServices().firestore, userId, () => getSharingServices().auth.currentUser?.uid ?? null).readMembership()) throw new Error('現在のグループから退出するか、参加申請を取り消してから作成してください。');
+  const groupId = `group.${randomUUID()}`; const registry = await sharingRegistryDatabase();
+  assertCurrent();
   const identity = await loadOrCreateSharingDeviceIdentity(userId); const roster = createSharedRoster(groupId, userId, identity, { schemaVersion: 2 }); const key = await nativeSharingCrypto.randomBytes(32);
   const now = new Date();
   try {
     const wrappedKey = await wrapGroupKey(nativeSharingCrypto, groupId, 1, key, identity, identity, userId);
+    assertCurrent();
     await saveSharingGroupKey(userId, groupId, 1, key);
     const creation = { wrappedKey, timeZone, anchorDate: sharedLocalDate(now, timeZone), ownerDisplayName: user.displayName?.trim() || '自分', kind: options.kind };
     await saveSharingWorkspace(registry, { userId, groupId, displayName: trimmed, status: 'creating', anchor: roster, rosterArchive: [roster],
-      createdAt: now.toISOString(), lastSuccessfulSyncAt: null, lastErrorCode: null, creation });
+      createdAt: now.toISOString(), lastSuccessfulSyncAt: null, lastErrorCode: null, creation }, { assertCurrent });
     const workspace = await openSharedWorkspace({ userId, groupId });
-    await enableSharingSession(); changed({ userId, groupId });
+    assertCurrent(); await enableSharingSession(); assertCurrent(); changed({ userId, groupId });
     void import('../../features/google-sync/background-task').then((module) => module.registerGoogleSyncBackgroundTask()).catch(() => undefined);
     void workspace.sync().catch(() => undefined); return workspace;
   } finally { key.fill(0); }
 }
 
-export async function requestSharingWorkspace(linkText: string): Promise<SharedWorkspace> {
-  const link = parseSharedInvitation(linkText.trim(), Date.now()); const user = await requireUser(); const userId = user.uid;
+export async function requestSharingWorkspace(linkText: string, expectedUserId: string): Promise<SharedWorkspace> {
+  const link = parseSharedInvitation(linkText.trim(), Date.now()); const user = await requireUser(expectedUserId); const userId = user.uid;
+  const assertCurrent = () => assertSharingIntentOwner(userId);
   const groupId = link.invitation.body.groupId;
-  const current = await currentSharingWorkspace();
+  const current = await currentSharingWorkspace(userId);
   const remote = await createSharingCloud(getSharingServices().firestore, userId, () => getSharingServices().auth.currentUser?.uid ?? null).readMembership();
   if (current && current.groupId !== groupId || remote && remote !== groupId) throw new Error('現在のグループから退出するか、参加申請を取り消してから参加してください。');
   const registry = await sharingRegistryDatabase(); const old = await readSharingWorkspace(registry, userId, groupId);
   const rejoining = old && ['left', 'removed'].includes(old.status);
   const generation = rejoining ? randomUUID() : old?.localGeneration;
+  assertCurrent();
   const identity = await loadOrCreateSharingDeviceIdentity(userId, generation);
+  assertCurrent();
   const request = createSharedJoinRequest(link, userId, identity, Date.now());
   if (old) {
     const pin = 'body' in old.anchor ? sharedRosterDigest(old.anchor) : old.anchor.digest;
@@ -735,11 +749,11 @@ export async function requestSharingWorkspace(linkText: string): Promise<SharedW
       const { v2Migration: _previousMigration, ...withoutMigration } = previous;
       return { ...(rejoining ? withoutMigration : previous), status: 'joining', join: { invitation: link.invitation, request }, lastErrorCode: null,
         ...(rejoining ? { localGeneration: generation, archivedLocalGenerations: [...new Set([...(previous.archivedLocalGenerations ?? []), previous.localGeneration ?? 'initial'])] } : {}) };
-    });
+    }, assertCurrent);
     if (rejoining) workspacePromises.delete(keyForScope({ userId, groupId }));
   } else await saveSharingWorkspace(registry, { userId, groupId, displayName: '参加を申請したグループ', status: 'joining', anchor: link.invitation.body.pin, rosterArchive: [],
-    createdAt: new Date().toISOString(), lastSuccessfulSyncAt: null, lastErrorCode: null, join: { invitation: link.invitation, request } });
-  const workspace = await openSharedWorkspace({ userId, groupId }); await enableSharingSession(); changed({ userId, groupId });
+    createdAt: new Date().toISOString(), lastSuccessfulSyncAt: null, lastErrorCode: null, join: { invitation: link.invitation, request } }, { assertCurrent });
+  const workspace = await openSharedWorkspace({ userId, groupId }); assertCurrent(); await enableSharingSession(); assertCurrent(); changed({ userId, groupId });
   void import('../../features/google-sync/background-task').then((module) => module.registerGoogleSyncBackgroundTask()).catch(() => undefined);
   await workspace.sync({ force: true }); return workspace;
 }

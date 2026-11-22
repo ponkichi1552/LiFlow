@@ -16,7 +16,7 @@ import { PLANNING_INPUT_CHANGED_CODE } from '../../planner/planning-input-change
 
 export interface V2GoogleConnectionReview { subject: string; label: string; connectionRevision: number }
 export function createV2GoogleTaskRuntime(input: { store: V2GoogleTaskStore; assertAccess(): void | Promise<void>;
-  restoreAccount(): Promise<{ subject: string; label: string }>; currentSubject(): Promise<string | null>; authorizeTasks(): Promise<void>; token(subject: string): Promise<string>;
+  restoreAccount(): Promise<{ subject: string; label: string }>; currentSubject(): Promise<string | null>; authorizeTasks(expectedSubject: string): Promise<void>; token(subject: string): Promise<string>;
   createApi(context: { budget: GoogleOperationBudget; assertCurrent(): Promise<void> }): GoogleTasksApi;
   wrapCreateJournal?(journal: GoogleTaskCreateJournal, context: { budget: GoogleOperationBudget; assertCurrent(): Promise<void> }): GoogleTaskCreateJournal;
   resolveTaskList?(request: GoogleTaskListResolution, context: { budget: GoogleOperationBudget; assertCurrent(): Promise<void> }): Promise<GoogleTaskList>;
@@ -191,7 +191,7 @@ export function createV2GoogleTaskRuntime(input: { store: V2GoogleTaskStore; ass
       return mutate(async () => {
         if (await input.currentSubject() !== expected.subject) throw new GoogleAccountMismatchError();
         const before = await input.store.readControl(); if (before.revision !== expected.connectionRevision) throw new Error('Google家事の接続が変わりました。もう一度確認してください。');
-        await input.authorizeTasks(); await input.assertAccess();
+        await input.authorizeTasks(expected.subject); await input.assertAccess();
         if (await input.currentSubject() !== expected.subject) throw new GoogleAccountMismatchError();
         return input.store.configure(expected.connectionRevision, expected, true);
       });

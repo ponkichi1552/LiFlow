@@ -213,18 +213,27 @@ export async function authorizeGoogleSharingIdentity(options: { selectAccount?: 
   return { idToken, googleUserId: user.user.id };
 }
 
-export async function authorizeGoogleTasks(): Promise<void> {
+export async function authorizeGoogleTasks(expectedSubject?: string): Promise<string> {
   if (AppState.currentState !== 'active') throw new GoogleSignInRequiredError();
   let module = await loadGoogleSignIn();
-  if (!await getGoogleUserForAction(module)) module = await signInForUserAction();
+  let user = await getGoogleUserForAction(module);
+  if (!user) { module = await signInForUserAction(); user = await getCurrentGoogleUser(module); }
+  if (!user?.user.id) throw new GoogleSignInRequiredError();
+  const subject = user.user.id;
+  if (expectedSubject !== undefined && subject !== expectedSubject) throw new GoogleAccountMismatchError();
+  const assertCurrent = async () => {
+    if ((await getCurrentGoogleUser(module))?.user.id !== subject) throw new GoogleAccountMismatchError();
+  };
   const googleSignIn = module.GoogleOneTapSignIn;
-
-  const currentUser = await authStep('current-session', () => googleSignIn.getCurrentUser());
-  if (!currentUser?.scopes.includes(GOOGLE_TASKS_SCOPE)) {
+  if (!user.scopes.includes(GOOGLE_TASKS_SCOPE)) {
     const authorization = await authStep('request-scopes', () => googleSignIn.requestScopes([GOOGLE_TASKS_SCOPE]));
     if (!authorization.accessToken) throw new GoogleAuthorizationCancelledError();
+    await assertCurrent();
   }
-  await authStep('get-tokens', () => googleSignIn.getTokens());
+  const tokens = await authStep('get-tokens', () => googleSignIn.getTokens());
+  await assertCurrent();
+  if (!tokens.accessToken) throw new GoogleSignInRequiredError();
+  return subject;
 }
 
 export type GoogleSyncConnection = { subject: string; label: string; authorized: boolean };

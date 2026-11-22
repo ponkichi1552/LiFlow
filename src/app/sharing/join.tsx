@@ -28,7 +28,10 @@ export default function SharingJoinScreen() {
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   // Display validation is stable; the async operation checks the actual clock before login and submission.
   const groupId = useMemo(() => { try { return invitationURL ? parseSharedInvitation(invitationURL, openedAt).invitation.body.groupId : null; } catch { return null; } }, [invitationURL, openedAt]);
-  const blocked = Boolean(groupId && workspace.group && ['active', 'creating', 'joining'].includes(workspace.group.status) && workspace.group.groupId !== groupId);
+  const group = workspace.group;
+  const blockingGroup = workspace.ready && workspace.userId && group?.userId === workspace.userId
+    && groupId && group.groupId !== groupId && ['active', 'creating', 'joining'].includes(group.status) ? group : null;
+  const blocked = Boolean(blockingGroup);
   const needsSignIn = Boolean(workspace.ready && !workspace.userId && groupId && !blocked);
   useEffect(() => {
     if (!needsSignIn) return;
@@ -66,7 +69,7 @@ export default function SharingJoinScreen() {
         if (existing.groupId !== destination) throw new Error('現在のグループから退出するか、参加申請を取り消してから参加してください。');
         router.replace({ pathname: '/sharing/group/[groupId]', params: { groupId: existing.groupId } }); return;
       }
-      const group = await requestSharingWorkspace(link);
+      const group = await requestSharingWorkspace(link, owner);
       if (!await current(owner)) return;
       await context.current.refreshSharing();
       if (!await current(owner)) return;
@@ -92,6 +95,8 @@ export default function SharingJoinScreen() {
           {appleAvailable ? <AppButton title="Appleで続ける" variant="secondary" onPress={() => void join(invitationURL, 'apple')} /> : null}
         </> : message ? <AppButton title="再試行" onPress={() => { if (invitationURL) void join(invitationURL); }} /> : null}
       </>}
-    {!busy ? <AppButton title="グループ画面へ" compact variant="quiet" onPress={() => router.replace('/sharing')} /> : null}
+    {!busy ? <AppButton title={blockingGroup ? '現在のグループを開く' : 'グループ画面へ'} compact variant="quiet"
+      onPress={() => router.replace(blockingGroup
+        ? { pathname: '/sharing/group/[groupId]', params: { groupId: blockingGroup.groupId } } : '/sharing')} /> : null}
   </Page>;
 }

@@ -46,6 +46,7 @@ export async function changeGoogleAccount(database: SQLiteDatabase) {
   const selected = google;
   await withGoogleSyncOperation(() => activate(database, { google: selected, firebase }), 'googleAccount.activate');
   notifyGoogleAccountChanged(database);
+  return selected;
 }
 
 /** Stop automatic Google work and forget credentials; mappings, pending changes and remote data remain. */

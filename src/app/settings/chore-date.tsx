@@ -7,6 +7,7 @@ import { SettingsPanel } from '../../components/settings-controls';
 import { PlannerLoadState } from '../../components/planner-load-state';
 import { plannerColorsForScheme } from '../../components/planner-theme';
 import { CalendarField } from '../../features/calendar/calendar-field';
+import { backOrReplace } from '../../features/settings/settings-back';
 import { newCalendarSubmissionId } from '../../platform/storage/calendar-events';
 import { movePersonalChoreDate, readPersonalChoreDate } from '../../platform/storage/repository';
 import { usePlannerData } from '../../hooks/use-planner-data';
@@ -19,6 +20,7 @@ export default function PersonalChoreDateRoute() {
   const [date, setDate] = useState<LocalDate | null>(null); const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false); const lock = useRef(false);
   const [operation] = useState(() => ({ operationId: newCalendarSubmissionId(), recordedAt: new Date().toISOString() }));
+  const onBack = () => backOrReplace(router, '/(tabs)/explore');
   const entry = data.snapshot?.scheduleEntries.find(row => row.choreId === params.choreId && row.id === params.entryId);
   useEffect(() => {
     let live = true;
@@ -35,12 +37,12 @@ export default function PersonalChoreDateRoute() {
     lock.current = true; setBusy(true); setError(null);
     try {
       await movePersonalChoreDate(data.database, { ...operation, choreId: params.choreId, roundId: captured.roundId, planRevision: captured.planRevision, definition: captured.signature, date: selected });
-      void data.refresh(); router.back();
+      void data.refresh(); onBack();
     } catch (cause) { setError(cause instanceof Error ? cause.message : '日付を保存できませんでした。'); }
     finally { lock.current = false; setBusy(false); }
   };
-  if (!data.snapshot) return <PlannerLoadState title="家事の日付変更" message="家事を読み込んでいます。" error={data.error} retry={data.refresh} />;
-  return <Page header={<SettingsHeader title="家事の日付変更" backDisabled={busy} action={{ title: '保存', accessibilityLabel: '今回の実施日を保存', onPress: () => void save(), disabled: busy || !captured || !selected || !entry }} />}>
+  if (!data.snapshot) return <PlannerLoadState header={<SettingsHeader title="家事の日付変更" onBack={onBack} />} message="家事を読み込んでいます。" error={data.error} retry={data.refresh} />;
+  return <Page header={<SettingsHeader title="家事の日付変更" onBack={onBack} backDisabled={busy} action={{ title: '保存', accessibilityLabel: '今回の実施日を保存', onPress: () => void save(), disabled: busy || !captured || !selected || !entry }} />}>
     <Text style={{ ...typography.title, color: colors.ink }}>{captured?.definition.name ?? data.snapshot.chores.find(row => row.id === params.choreId)?.name ?? '家事'}</Text>
     {selected ? <SettingsPanel><View style={{ padding: 12 }}><CalendarField label="今回の実施日" date={selected} minute={0} mode="date" disabled={busy} onDate={setDate} borderless /></View></SettingsPanel> : null}
     {error ? <Text accessibilityRole="alert" style={{ ...typography.caption, color: colors.warning }}>{error}</Text> : null}

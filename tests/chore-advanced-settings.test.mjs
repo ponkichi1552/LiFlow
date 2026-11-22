@@ -148,7 +148,7 @@ test('actual shared display fallback periods never turn guide-only recipes into 
 
 for (const platform of ['ios', 'android']) test(`${platform} personal advanced settings edits every private content field and monthly rule through the actual controls`, async t => {
   let chore = createPersonalChoreDefinitions('local-household')[0]; const effects = [];
-  const screen = screenHarness('src/features/settings/chore-advanced-settings.tsx', { exportName: 'ChoreAdvancedSettings', platform, effect: callback => effects.push(callback), props: { chore, today: '2026-11-12', save: async patch => { chore = applyPersonalChoreSettingsPatch(chore, patch); } } });
+  const screen = screenHarness('src/features/settings/chore-advanced-settings.tsx', { exportName: 'ChoreAdvancedSettings', platform, effect: callback => effects.push(callback), props: { chore, today: '2026-11-12', onBack() {}, save: async patch => { chore = applyPersonalChoreSettingsPatch(chore, patch); } } });
   t.after(() => screen.unmount()); for (const effect of effects.splice(0)) effect();
   for (const [field, value] of [['家事名', '確認の家事'], ['説明', '説明です'], ['手順', '準備\n実施'], ['使う道具', '布'], ['注意点', '電源を切る']]) { await screen.change(field, value); await screen.endEditing(field); for (let i = 0; i < 5; i++) await screen.flush(); }
   assert.equal(chore.name, '確認の家事'); assert.equal(chore.description, '説明です'); assert.deepEqual(chore.instructions, ['準備', '実施']); assert.deepEqual(chore.tools, ['布']); assert.deepEqual(chore.cautions, ['電源を切る']);

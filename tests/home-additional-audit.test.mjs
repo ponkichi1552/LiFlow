@@ -24,3 +24,17 @@ test('upcoming exact completion matching is linear while preserving first-match 
   const legacy = { id: 'legacy', householdId: 'home', choreId: entries[0].choreId, outcome: 'completed', completedAt: '2026-11-08T08:00Z' };
   assert.equal(homeUpcomingTasks(entries.slice(0, 1), [legacy, completions[0]], '2026-11-08', '2026-11-08', chores)[0].completion.id, 'legacy');
 });
+
+test('upcoming keeps orphan completions and frozen dates after skipping unrelated history in the index', () => {
+  const day = '2026-11-22';
+  const orphanChore = { ...chore, id: 'orphan' };
+  const entry = { id: 'planned', choreId: chore.id, householdId: 'home', suggestedDate: '2026-11-24',
+    windowStart: day, windowEnd: '2026-11-24' };
+  const records = [entry, { ...entry, id: 'retired-entry', choreId: orphanChore.id }].map(row => ({
+    id: `record-${row.id}`, scheduleEntryId: row.id, choreId: row.choreId, householdId: row.householdId,
+    outcome: 'completed', scheduledDate: day, completedAt: '2026-11-21T12:00:00Z',
+  }));
+  const result = homeUpcomingTasks([entry], records, day, day, [chore, orphanChore]);
+  assert.deepEqual(result.map(row => [row.suggestedDate, row.entry?.id, row.completion.id]),
+    [[day, entry.id, records[0].id], [day, undefined, records[1].id]]);
+});

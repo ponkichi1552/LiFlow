@@ -1,4 +1,5 @@
 import * as IAP from 'expo-iap';
+import { applicationId } from 'expo-application';
 import { Linking, Platform } from 'react-native';
 import { createSubscriptionPurchaseFlow } from '../../features/subscription/purchase-flow';
 import type { StorePurchase } from '../../features/subscription/purchase-flow';
@@ -173,7 +174,12 @@ export async function restoreSubscription() {
   finally { if (isCurrent()) publish({ busy: false }); }
 }
 export async function manageSubscription() {
-  const store = subscriptionSnapshot().entitlement?.body.store ?? (Platform.OS === 'ios' ? 'apple' : 'google');
-  if (store === 'apple') await Linking.openURL('https://apps.apple.com/account/subscriptions');
-  else await Linking.openURL(`https://play.google.com/store/account/subscriptions?package=jp.jphacks.tkb2633&sku=${encodeURIComponent(process.env.EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_PRODUCT_ID ?? '')}`);
+  const entitlement = subscriptionSnapshot().entitlement?.body;
+  const store = entitlement?.store ?? (Platform.OS === 'ios' ? 'apple' : 'google');
+  if (store === 'apple') return Linking.openURL('https://apps.apple.com/account/subscriptions');
+  const center = 'https://play.google.com/store/account/subscriptions';
+  const sku = entitlement?.productId ?? process.env.EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_PRODUCT_ID;
+  if (Platform.OS !== 'android' || !applicationId || !sku) return Linking.openURL(center);
+  const params = new URLSearchParams({ package: applicationId, sku });
+  return Linking.openURL(`${center}?${params}`);
 }

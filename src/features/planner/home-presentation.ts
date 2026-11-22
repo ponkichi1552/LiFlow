@@ -41,11 +41,13 @@ export function orderHomeTaskRows(rows: readonly HomeTaskRow[], today: LocalDate
 export function homeUpcomingTasks(entries: readonly ChoreScheduleEntry[], completions: readonly ChoreCompletion[],
   from: LocalDate, through: LocalDate, chores: readonly ChoreDefinition[]): DateTask[] {
   const active = new Map(chores.filter(chore => chore.enabled && !chore.archived).map(chore => [chore.id, chore.householdId]));
+  const entryIds = new Set(entries.map(entry => entry.id));
   type IndexedCompletion = { record: ChoreCompletion; index: number };
   const exact = new Map<string, IndexedCompletion>(); const legacy = new Map<string, IndexedCompletion[]>();
   completions.forEach((record, index) => {
     if (record.outcome !== 'completed') return;
     if (record.scheduleEntryId) {
+      if (!entryIds.has(record.scheduleEntryId)) return;
       const key = JSON.stringify([record.choreId, record.scheduleEntryId]); if (!exact.has(key)) exact.set(key, { record, index });
     } else {
       const rows = legacy.get(record.choreId) ?? []; rows.push({ record, index }); legacy.set(record.choreId, rows);

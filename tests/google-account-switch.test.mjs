@@ -13,13 +13,47 @@ const repository = await import('../src/platform/storage/repository.ts');
 const archive = await import('../src/platform/storage/google-account-archive.ts');
 const { stagePendingGoogleTaskStatus } = await import('../src/platform/storage/google-task-link-state.ts');
 const calendars = await import('../src/platform/storage/personal-google-calendar.ts');
-const { configurePersonalGoogleTaskSync } = await import('../src/features/google-sync/coordinator.ts');
+const { configurePersonalGoogleTaskSync, syncGoogleTasksWithDependencies } = await import('../src/features/google-sync/coordinator.ts');
 const householdId = repository.LOCAL_HOUSEHOLD_ID;
 const now = '2026-11-05T00:00:00.000Z';
 const state = subject => ({ householdId, accountSubject: subject, enabled: true, taskListId: `list-${subject}`, status: 'idle', retryCount: 0, updatedAt: now });
 const link = (subject, n = 0) => ({ householdId, scheduleEntryId: `entry-${n}`, choreId: 'synthetic', googleTaskId: `task-${subject}-${n}`, googleTaskListId: `list-${subject}`, createdAt: now, updatedAt: now });
 const rows = (h, name) => h.connection.prepare(`SELECT * FROM ${name} ORDER BY rowid`).all();
 const business = h => createHash('sha256').update(JSON.stringify(['household_settings', 'chore_definitions', 'chore_completions', 'chore_schedule_entries'].map(name => rows(h, name)))).digest('hex');
+test('disconnecting saved Google Tasks is owner bound and rolls back when its Calendar stop fails', async t => {
+  const h = await fixture(); t.after(() => h.connection.close());
+  await repository.setCalendarAvailabilityEnabled(h.database, true);
+  const disconnect = accountSubject => configurePersonalGoogleTaskSync(h.database, false, { accountSubject, disconnect: true });
+  await assert.rejects(disconnect('b'), binding.GoogleAccountMismatchError);
+  const run = h.database.runAsync;
+  h.database.runAsync = async function (sql, ...args) {
+    if (/^DELETE FROM calendar_availability_days/iu.test(sql)) throw new Error('test rollback');
+    return run.call(this, sql, ...args);
+  };
+  await assert.rejects(disconnect('a'), /test rollback/);
+  h.database.runAsync = run;
+  assert.equal((await repository.loadGoogleSyncState(h.database)).enabled, true);
+  assert.equal((await repository.loadCalendarAvailabilityState(h.database)).enabled, true);
+  const stopped = await disconnect('a');
+  assert.equal(stopped.enabled, false); assert.equal(stopped.disconnected, true);
+  assert.equal((await repository.loadCalendarAvailabilityState(h.database)).enabled, false);
+  assert.equal(stopped.taskListId, 'list-a');
+  assert.equal((await repository.listGoogleTaskLinks(h.database))[0].googleTaskId, 'task-a-0');
+});
+
+test('an explicit Google Tasks sync cannot join a run for a different subject', async () => {
+  const scope = {}; let release; let reads = 0;
+  const deps = { syncScope: scope, loadState: async () => {
+    reads++; return new Promise(resolve => { release = resolve; });
+  } };
+  const opts = { now: new Date('2026-11-22T12:00:00Z') };
+  const first = syncGoogleTasksWithDependencies(deps, opts);
+  await new Promise(setImmediate);
+  const other = assert.rejects(syncGoogleTasksWithDependencies(deps, { ...opts, expectedAccountSubject: 'a' }), binding.GoogleAccountMismatchError);
+  const same = syncGoogleTasksWithDependencies(deps, { ...opts, expectedAccountSubject: 'b' });
+  release({ ...state('b'), enabled: false });
+  await other; assert.deepEqual(await first, await same); assert.equal(reads, 1);
+});
 async function fixture() {
   const h = createDatabase(); await repository.initializeLocalDatabase(h.database);
   await repository.saveGoogleSyncState(h.database, state('a')); await repository.upsertGoogleTaskLink(h.database, link('a'));
@@ -238,8 +272,8 @@ for(const platform of ['ios','android'])test(`${platform} Google Tasks connect c
       '@/features/google-sync/account-switch':c.module,
       '@/features/google-sync/background-task':{registerGoogleSyncBackgroundTask:async()=>{}},
       '@/features/google-sync/google-oauth-config':{getGoogleSyncOAuthConfig:()=>({configured:true})},
-      '@/platform/google-tasks/google-sign-in-gateway':{authorizeGoogleTasks:async()=>{},hasGoogleTasksSession:async()=>false},
-      '@/features/google-sync/coordinator':{syncGoogleTasks:async()=>{
+      '@/platform/google-tasks/google-sign-in-gateway':{authorizeGoogleTasks:async()=> 'b',hasGoogleTasksSession:async()=>false},
+      '@/features/google-sync/coordinator':{configurePersonalGoogleTaskSync, syncGoogleTasks:async()=>{
         synced++;const current=await repository.loadGoogleSyncState(h.database);assert.equal(current.accountSubject,'b');assert.equal(current.taskListId,undefined);assert.deepEqual(await repository.listGoogleTaskLinks(h.database),[]);
         return{kind:'success',created:0,updated:0,imported:0};
       }},
@@ -259,7 +293,7 @@ for (const platform of ['ios', 'android']) test(`${platform} enabled Tasks reaut
         '@/features/google-sync/account-switch': c.module,
         '@/features/google-sync/background-task': { registerGoogleSyncBackgroundTask: async () => {} },
         '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: true }) },
-        '@/platform/google-tasks/google-sign-in-gateway': { authorizeGoogleTasks: async () => { calls.push('consent'); }, hasGoogleTasksSession: async expected => { calls.push(['identity', expected]); return false; } },
+        '@/platform/google-tasks/google-sign-in-gateway': { authorizeGoogleTasks: async expected => { assert.equal(expected, 'b'); calls.push('consent'); return expected; }, hasGoogleTasksSession: async expected => { calls.push(['identity', expected]); return false; } },
         '@/features/google-sync/coordinator': { configurePersonalGoogleTaskSync, syncGoogleTasks: async () => {
           calls.push('sync'); const saved = await repository.loadGoogleSyncState(h.database);
           assert.equal(saved.accountSubject, 'b'); assert.equal(saved.enabled, true); assert.notEqual(saved.disconnected, true);

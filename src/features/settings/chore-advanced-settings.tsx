@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { router } from 'expo-router';
 import { Alert, Text, View, StyleSheet, useColorScheme } from 'react-native';
 import { Page, typography } from '../../components/planner-ui';
 import { SettingsHeader } from '../../components/settings-header';
@@ -14,13 +13,13 @@ import type { ChoreDefinition } from '../../domain/chores/types';
 import type { LocalDate } from '../../domain/shared/types';
 import type { PersonalChoreSettingsPatch } from '../../domain/chores/personal-settings-patch';
 
-export function ChoreAdvancedSettings({ chore, today, save }: { chore: ChoreDefinition; today: LocalDate; save(patch: PersonalChoreSettingsPatch): Promise<void> }) {
+export function ChoreAdvancedSettings({ chore, today, save, onBack }: { chore: ChoreDefinition; today: LocalDate; save(patch: PersonalChoreSettingsPatch): Promise<void>; onBack(): void }) {
   const [editor] = useState(() => createChoreAdvancedEditor(chore, today, save));
   const { snapshot, navigateAfterSave } = useV2DraftLifecycle(editor);
   const colors = plannerColorsForScheme(useColorScheme()); const { raw, errors, status } = snapshot;
   const row = [styles.row, { borderBottomColor: colors.border }];
   const changeSection = (index: number, patch: { title?: string; text?: string }) => editor.changeSections(raw.sections.map((section, position) => position === index ? { ...section, ...patch } : section));
-  return <Page keyboardAware header={<SettingsHeader title="詳細設定" onBack={() => void navigateAfterSave(() => router.back())} />} contentStyle={styles.page}>
+  return <Page keyboardAware header={<SettingsHeader title="詳細設定" onBack={() => void navigateAfterSave(onBack)} />} contentStyle={styles.page}>
     <Text style={[typography.section, { color: colors.ink }]}>{chore.name}</Text>
     {chore.personalSchedulingKind !== 'seasonal' ? <View style={styles.section}>
       <Text style={[typography.label, { color: colors.ink }]}>日付</Text>

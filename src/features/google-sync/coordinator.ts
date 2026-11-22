@@ -8,6 +8,7 @@ import {
   acknowledgeGoogleTaskStatus,
   listEntriesForGoogleSync,
   listGoogleTaskLinks,
+  disconnectPersonalGoogleTaskState,
   loadGoogleSyncState,
   hasPendingGoogleTaskChanges,
   saveGoogleSyncState,
@@ -28,6 +29,7 @@ import { reconcileGoogleTasks, reconcileLocalGoogleTaskStatuses } from './reconc
 import type { GoogleSyncRepositoryPort } from './reconcile-google-tasks';
 import { notifyGooglePlannerChanges } from './planner-change-events';
 import { withGoogleSyncOperation } from './operation-lock';
+import { GoogleAccountMismatchError } from './account-binding';
 import { sharedRepositoryAdapter } from '@/platform/storage/shared-repository-adapter';
 import { sharedGoogleNamespace, sharedPlannerChangeScope } from './workspace-policy';
 import { createGoogleOperationBudget, withinGoogleOperationBudget } from './operation-budget.ts';
@@ -53,31 +55,44 @@ export interface GoogleSyncCoordinatorDependencies extends GoogleSyncRepositoryP
   refreshCalendar?(options: { now: Date; today: LocalDate; force: boolean }): Promise<{ plannerChanged: boolean }>;
 }
 
-const runningSync = new WeakMap<object, Promise<GoogleSyncRunResult>>();
+type RunningGoogleSync = { work: Promise<GoogleSyncRunResult>; binding: { stateRead: boolean; accountSubject?: string } };
+const runningSync = new WeakMap<object, RunningGoogleSync>();
 const runningBudgets = new WeakMap<object, GoogleOperationBudget>();
 const executingSync = new WeakSet<object>();
 const pendingCompletionSyncDatabases = new Set<SQLiteDatabase>();
 
 /** A settings change settles behind the interrupted attempt, so its late status
  * cannot re-enable a connection the user just paused. Existing facts stay saved. */
-export function configurePersonalGoogleTaskSync(database: SQLiteDatabase, enabled: boolean): Promise<GoogleSyncState> {
+export function configurePersonalGoogleTaskSync(database: SQLiteDatabase, enabled: boolean,
+  binding?: { accountSubject: GoogleSyncState['accountSubject']; disconnect?: true }): Promise<GoogleSyncState> {
   if (sharedRepositoryAdapter(database)) throw new Error('共有家事の同期設定を使用してください。');
-  if (!enabled) {
+  const stopPending = () => {
     runningBudgets.get(database)?.cancel();
     pendingCompletionSyncDatabases.delete(database);
-  }
+  };
+  if (!enabled && !binding) stopPending();
   return withGoogleSyncOperation(async () => {
+    if (binding?.disconnect) {
+      const next = await disconnectPersonalGoogleTaskState(database, binding.accountSubject);
+      stopPending();
+      notifyGooglePlannerChanges();
+      return next;
+    }
     const previous = await loadGoogleSyncState(database, 'local-household');
-    const next: GoogleSyncState = { ...(previous ?? { householdId: 'local-household', retryCount: 0 }), enabled, ...(enabled ? { disconnected: false } : {}), status: 'idle',
+    if (binding && previous?.accountSubject !== binding.accountSubject) throw new GoogleAccountMismatchError();
+    if (!enabled && binding) stopPending();
+    const next: GoogleSyncState = { ...(previous ?? { householdId: 'local-household', retryCount: 0 }), enabled,
+      ...(enabled ? { disconnected: false } : {}), status: 'idle',
       retryCount: enabled ? previous?.retryCount ?? 0 : 0, nextRetryAt: undefined, lastErrorCode: undefined,
       lastErrorAt: undefined, updatedAt: new Date().toISOString() };
-    await saveGoogleSyncState(database, next); return next;
+    await saveGoogleSyncState(database, next);
+    return next;
   }, 'googleTasks.configure');
 }
 
 export async function syncGoogleTasks(
   database: SQLiteDatabase,
-  options: GoogleSyncTriggerOptions & { now?: Date } = {},
+  options: GoogleSyncTriggerOptions & { now?: Date; expectedAccountSubject?: string } = {},
 ): Promise<GoogleSyncRunResult> {
   const now = options.now ?? new Date();
   const householdId = 'local-household';
@@ -135,6 +150,7 @@ export async function syncGoogleTasks(
     }, {
       ...googleSyncRunOptions(options),
       now,
+      expectedAccountSubject: options.expectedAccountSubject,
     });
     if (readRequests + writeRequests > 0 && typeof __DEV__ !== 'undefined' && __DEV__) {
       console.info('[google-sync]', {
@@ -167,34 +183,49 @@ export function syncGoogleTasksAfterLocalCompletion(database: SQLiteDatabase): v
 
 export async function syncGoogleTasksWithDependencies(
   dependencies: GoogleSyncCoordinatorDependencies,
-  options: { force?: boolean; forceCalendar?: boolean; now: Date; recoverInterruptedAttempt?: boolean; deltaOnly?: boolean },
+  options: { force?: boolean; forceCalendar?: boolean; now: Date; recoverInterruptedAttempt?: boolean; deltaOnly?: boolean; expectedAccountSubject?: string },
 ): Promise<GoogleSyncRunResult> {
   const scope = dependencies.syncScope ?? dependencies;
   const existing = runningSync.get(scope);
+  const expectedSubject = options.expectedAccountSubject;
+  const checkBinding = (subject: string | undefined) => {
+    if (expectedSubject !== undefined && subject !== expectedSubject) throw new GoogleAccountMismatchError();
+  };
   if (existing) {
+    if (existing.binding.stateRead) checkBinding(existing.binding.accountSubject);
     const activeBudget = runningBudgets.get(scope);
-    if (dependencies.budget && activeBudget && dependencies.budget !== activeBudget) {
+    if ((expectedSubject === undefined || existing.binding.stateRead) && dependencies.budget && activeBudget && dependencies.budget !== activeBudget) {
       try { activeBudget.shrink(dependencies.budget.remaining()); }
       catch (error) { if (error instanceof Error && error.name === 'AbortError') return { kind: 'retry', code: 'timeout' }; throw error; }
     }
-    return waitForSync(existing, dependencies.budget);
+    const result = await waitForSync(existing.work, dependencies.budget);
+    if (existing.binding.stateRead) checkBinding(existing.binding.accountSubject);
+    return result;
   }
+  const binding: RunningGoogleSync['binding'] = { stateRead: false };
   const run = withGoogleSyncOperation(async () => {
     dependencies.budget?.assert();
     executingSync.add(scope);
-    try { return await runSync(dependencies, {
-      force: options.force ?? false,
-      forceCalendar: options.forceCalendar ?? options.force ?? false,
-      now: options.now,
-      recoverInterruptedAttempt: options.recoverInterruptedAttempt ?? false,
-      deltaOnly: options.deltaOnly ?? false,
-    }); } finally { executingSync.delete(scope); }
+    try {
+      const state = await dependencies.loadState();
+      binding.accountSubject = state?.accountSubject;
+      binding.stateRead = true;
+      checkBinding(binding.accountSubject);
+      return await runSync(dependencies, state, {
+        force: options.force ?? false,
+        forceCalendar: options.forceCalendar ?? options.force ?? false,
+        now: options.now,
+        recoverInterruptedAttempt: options.recoverInterruptedAttempt ?? false,
+        deltaOnly: options.deltaOnly ?? false,
+      });
+    } finally { executingSync.delete(scope); }
   });
-  runningSync.set(scope, run);
+  const attempt = { work: run, binding };
+  runningSync.set(scope, attempt);
   if (dependencies.budget) runningBudgets.set(scope, dependencies.budget);
   // Keep the actual run registered until its cleanup finishes, even if its caller times out.
   void run.finally(() => {
-    if (runningSync.get(scope) === run) {
+    if (runningSync.get(scope) === attempt) {
       runningSync.delete(scope); runningBudgets.delete(scope);
       const database = scope as SQLiteDatabase;
       if (pendingCompletionSyncDatabases.delete(database)) {
@@ -218,15 +249,16 @@ async function waitForSync(run: Promise<GoogleSyncRunResult>, budget?: GoogleOpe
  * that work or releases its serialization lock before it actually settles. */
 export async function waitForGoogleSyncAttemptSettlement(scope: object): Promise<void> {
   const attempt = runningSync.get(scope);
-  if (attempt) await attempt.then(() => undefined, () => undefined);
+  if (attempt) await attempt.work.then(() => undefined, () => undefined);
 }
 
 async function runSync(
   dependencies: GoogleSyncCoordinatorDependencies,
+  initialState: GoogleSyncState | null,
   options: { force: boolean; forceCalendar: boolean; now: Date; recoverInterruptedAttempt: boolean; deltaOnly?: boolean },
 ): Promise<GoogleSyncRunResult> {
   const { now } = options;
-  let state = await dependencies.loadState();
+  let state = initialState;
   dependencies.budget?.assert();
   if (!state?.enabled) return { kind: 'success', skipped: true };
   try {

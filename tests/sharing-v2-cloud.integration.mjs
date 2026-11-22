@@ -288,7 +288,7 @@ test('normal v2 workspace creation uses the real gateway and Rules and a no-chan
   const f = { cloud: createSharingCloud(environment.authenticatedContext('owner').firestore(), 'owner', () => 'owner') };
   const h = await workspaceHarness({ cloud: f.cloud, deferWorkspaceTimers: true, initiallyEmpty: true });
   try {
-    const workspace = await h.api.createV2SharingWorkspace('新しい家族', 'family', 'Asia/Tokyo');
+    const workspace = await h.api.createV2SharingWorkspace('新しい家族', 'family', { userId: h.record.userId, timeZone: 'Asia/Tokyo' });
     const result = await workspace.sync({ force: true, budgetMs: 120_000 }); assert.equal(result.complete, true); assert.equal(result.pending, 0);
     const record = await workspace.record(); assert.equal(record.status, 'active'); assert.ok(record.lastSuccessfulSyncAt); assert.equal(record.lastErrorCode, null);
     assert.equal((await f.cloud.readGroup(workspace.groupId)).group.headSequence, expectedSharedBootstrapFactCount); assert.equal((await workspace.checkpoint()).pendingCount, 0);

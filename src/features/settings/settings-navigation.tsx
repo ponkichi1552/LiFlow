@@ -12,6 +12,7 @@ import { plannerColorsForScheme } from '../../components/planner-theme';
 import { SettingsHeader } from '../../components/settings-header';
 import { SettingsGroup, SettingsSegments } from '../../components/settings-controls';
 import { uiReviewEnabled } from '../development/ui-review/enabled';
+import { backOrReplace } from './settings-back';
 
 export { SettingsHeader } from '../../components/settings-header';
 
@@ -26,6 +27,9 @@ export function settingsCategory(value: unknown): SettingsCategory | undefined {
     ? value as SettingsCategory : undefined;
 }
 export const openSettingsCategory = (section: SettingsCategory) => router.push({ pathname: '/settings', params: { section } });
+export function returnFromSettings(section?: SettingsCategory) {
+  backOrReplace(router, section ? '/settings' : '/(tabs)');
+}
 
 export function SettingsList({ children }: { children: ReactNode }) { return <View style={styles.list}>{children}</View>; }
 export function SettingsRow({ title, summary, onPress, disabled = false }: { title: string; summary?: string; onPress: () => void; disabled?: boolean }) {
@@ -39,11 +43,11 @@ export function SettingsNavigationScreen({ section }: { section?: 'chores' | 'ap
   const workspace = useContext(WorkspaceContext);
   if (section === 'chores') return <ChoreSettingsPage />;
   if (section === 'appearance') return <AppearanceSettings />;
-  if (section === 'credits') return <Page header={<SettingsHeader title={settingsTitles.credits} />}><DataCredits inline /></Page>;
+  if (section === 'credits') return <Page header={<SettingsHeader title={settingsTitles.credits} onBack={() => returnFromSettings('credits')} />}><DataCredits inline /></Page>;
   const group = workspace?.group;
   const groupDestination = group && group.userId === workspace?.userId && ['active', 'creating', 'joining'].includes(group.status)
     ? { pathname: '/sharing/group/[groupId]' as const, params: { groupId: group.groupId } } : '/sharing' as const;
-  return <Page header={<SettingsHeader title="設定" appearance />} contentStyle={styles.page}>
+  return <Page header={<SettingsHeader title="設定" onBack={() => returnFromSettings()} appearance />} contentStyle={styles.page}>
     <SettingsList>
       <SettingsRow title={settingsTitles.chores} onPress={() => openSettingsCategory('chores')} />
       <SettingsRow title={settingsTitles.rhythm} onPress={() => openSettingsCategory('rhythm')} />
@@ -61,13 +65,13 @@ function ChoreSettingsPage() {
   const [selection, setSelection] = useState<{ scope: string; source: ChoreSettingsSource }>({ scope, source: readChoreSource(scope) });
   useFocusEffect(useCallback(() => { setSelection({ scope, source: readChoreSource(scope) }); }, [scope]));
   const source = group && selection.scope === scope ? selection.source : 'personal';
-  return <Page header={<View style={{ gap: 4 }}><SettingsHeader title={settingsTitles.chores} />
+  return <Page header={<View style={{ gap: 4 }}><SettingsHeader title={settingsTitles.chores} onBack={() => returnFromSettings('chores')} />
     {group ? <ChoreSettingsSourcePicker value={source} onChange={next => { rememberChoreSource(scope, next); setSelection({ scope, source: next }); }} /> : null}</View>} contentStyle={{ paddingTop: 10 }}>
     <ChoreSettingsSources key={scope} source={source} />
   </Page>;
 }
 function AppearanceSettings() {
-  return <Page header={<SettingsHeader title="表示" />} contentStyle={styles.page}><AppearanceControls /></Page>;
+  return <Page header={<SettingsHeader title="表示" onBack={() => returnFromSettings('appearance')} />} contentStyle={styles.page}><AppearanceControls /></Page>;
 }
 export function AppearanceControls({ embedded = false }: { embedded?: boolean }) {
   const colors = plannerColorsForScheme(useColorScheme());

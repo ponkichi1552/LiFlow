@@ -4,13 +4,24 @@ import { PlannerLoadState } from '../../components/planner-load-state';
 import { useWorkspace } from '../../hooks/use-workspace';
 import { SharedGoogleCalendarSettings } from '../../features/calendar/shared-google-settings';
 import type { SharedGoogleCalendarExport } from '../../features/calendar/shared-google-export';
+import { backOrReplace } from '../../features/settings/settings-back';
 
 export default function SharedGoogleCalendarRoute() {
-  const { active } = useWorkspace(); const [runtime, setRuntime] = useState<{ group: typeof active; value: SharedGoogleCalendarExport } | null>(null); const [error, setError] = useState<string | null>(null);
-  useEffect(() => { let alive = true;
-    if (active?.protocol === 2) void active.googleCalendar().then(value => { if (alive) setRuntime({ group: active, value }); }).catch(() => { if (alive) setError('Google接続を開けませんでした。'); });
+  const { active, userId } = useWorkspace();
+  const group = active?.protocol === 2 && active.userId === userId ? active : null;
+  const [state, setState] = useState<{ group: NonNullable<typeof group>; runtime?: SharedGoogleCalendarExport; error?: string }>();
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!group) return;
+    let alive = true;
+    void group.googleCalendar().then(runtime => { if (alive) setState({ group, runtime }); }).catch(() => {
+      if (alive) setState({ group, error: 'Google接続を開けませんでした。' });
+    });
     return () => { alive = false; };
-  }, [active]);
-  return runtime?.group === active && runtime ? <SharedGoogleCalendarSettings runtime={runtime.value} onBack={() => router.back()} />
-    : <PlannerLoadState title="共有予定とGoogle" message={active ? '接続設定を読み込んでいます。' : '参加中のグループを確認してください。'} error={error} retry={async () => { router.replace('/sharing'); }} />;
+  }, [group, attempt]);
+  const current = state?.group === group ? state : undefined;
+  const back = () => backOrReplace(router, group ? '/group-v2' : '/sharing');
+  return current?.runtime ? <SharedGoogleCalendarSettings runtime={current.runtime} onBack={back} />
+    : <PlannerLoadState title="共有予定とGoogle" message={group ? '接続設定を読み込んでいます。' : '参加中のグループを確認してください。'}
+      error={current?.error ?? null} retry={async () => { setState(undefined); setAttempt(value => value + 1); }} onBack={back} />;
 }

@@ -116,6 +116,23 @@ test('notification permission denial does not enable notifications and a later a
   } finally { h.connection.close(); }
 });
 
+test('only focused notification settings read the OS permission and check it on return', async t => {
+  const h = await fixture(); t.after(() => h.connection.close());
+  await repository.setNotificationsEnabled(h.database, true); await h.options.refresh();
+  let focused = false; let reads = 0; const listeners = [];
+  const options = { ...h.options, isFocused: () => focused, appStateListener: listener => listeners.push(listener), mocks: {
+    ...settingsMocks, '@/platform/notifications/expo-local-notification-gateway': { ExpoLocalNotificationGateway: class { async hasPermission() { reads++; return true; } } },
+  } };
+  const rhythm = settingsScreen('rhythm', options); t.after(() => rhythm.unmount());
+  focused = true; await rhythm.flush(); assert.equal(reads, 0);
+  focused = false;
+  const notifications = settingsScreen('notifications', options); t.after(() => notifications.unmount());
+  await notifications.flush(); assert.equal(reads, 0);
+  focused = true; await notifications.flush(); await notifications.flush(); assert.equal(reads, 1);
+  listeners.forEach(listener => listener('active'));
+  await notifications.flush(); assert.equal(reads, 2);
+});
+
 test('Google connection cannot open duplicate authorization flows and retries after cancellation', async () => {
   const h = await fixture();
   try {
@@ -135,6 +152,9 @@ test('Google connection cannot open duplicate authorization flows and retries af
 test('connected Google settings serialize sync, pause, calendar permissions and disconnect without deleting remote tasks', async () => {
   const h = await fixture();
   try {
+    const subject = 'fixture-user';
+    await repository.saveGoogleSyncState(h.database, { householdId: repository.LOCAL_HOUSEHOLD_ID, accountSubject: subject,
+      enabled: false, status: 'idle', retryCount: 0, updatedAt: new Date().toISOString() });
     let connected = false; let syncs = 0; let revoked = 0; let registrations = 0; let unregistrations = 0;
     let calendarState = { enabled: false, status: 'idle' }; const calendarChanges = []; const pending = deferred(); const effects = [];
     const screen = settingsScreen('tasks', { ...h.options, effect: (callback) => effects.push(callback), mocks: {
@@ -143,7 +163,7 @@ test('connected Google settings serialize sync, pause, calendar permissions and 
       '@/features/google-sync/coordinator': { configurePersonalGoogleTaskSync,
         syncGoogleTasks: async () => { syncs++; if (syncs === 2) await pending.promise; return { kind: 'success', created: 1, updated: 2, imported: 1 }; } },
       '@/platform/google-tasks/google-sign-in-gateway': {
-        authorizeGoogleTasks: async () => { connected = true; }, hasGoogleTasksSession: async () => connected,
+        authorizeGoogleTasks: async () => { connected = true; return subject; }, hasGoogleTasksSession: async () => connected,
         getGoogleTasksAccessToken: async () => 'test-token', disconnectGoogleTasksSession: async () => { revoked++; connected = false; },
         authorizeGoogleCalendarAvailability: async () => false,
       },
@@ -169,9 +189,12 @@ test('connected Google settings serialize sync, pause, calendar permissions and 
     const calendar = screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === 'Googleカレンダーの予定を家事日調整に使う');
     calendar.props.onPress(); await screen.flush(); assert.deepEqual(calendarChanges, [true]);
     assert.ok(screen.text().includes('追加の許可が必要')); assert.ok(screen.button('カレンダーの許可を確認'));
-    await screen.press('接続解除'); assert.deepEqual(calendarChanges, [true, false]); assert.equal(revoked, 1);
+    await repository.setCalendarAvailabilityEnabled(h.database, true);
+    await screen.press('接続解除'); assert.deepEqual(calendarChanges, [true]); assert.equal(revoked, 0); assert.equal(connected, true);
     assert.ok(unregistrations >= 2); assert.ok(screen.text().includes('Google Tasks上の家事は残しています'));
-    assert.equal((await repository.loadGoogleSyncState(h.database, repository.LOCAL_HOUSEHOLD_ID)).enabled, false);
+    const saved = await repository.loadGoogleSyncState(h.database, repository.LOCAL_HOUSEHOLD_ID);
+    assert.equal(saved.enabled, false); assert.equal(saved.disconnected, true);
+    assert.equal((await repository.loadCalendarAvailabilityState(h.database)).enabled, false);
     for (const cleanup of cleanups) cleanup?.();
   } finally { h.connection.close(); }
 });

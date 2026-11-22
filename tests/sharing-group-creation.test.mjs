@@ -87,7 +87,7 @@ for (const [platform, name] of [
   } });
   await ui.press('作成する'); await ui.change('グループ名', '旧アカウントのグループ'); await choose(ui, '同居人');
   const pending = ui.button('グループを作成').props.onPress();
-  assert.deepEqual(calls, [['create', '旧アカウントのグループ', 'roommates']]);
+  assert.deepEqual(calls, [['create', '旧アカウントのグループ', 'roommates', { userId: 'owner' }]]);
   context.userId = 'next-account'; await ui.flush();
   assert.equal(input(ui).props.value, '', 'switching account remounts the account-scoped form');
   resolve({ userId: 'owner', groupId: 'old-account-created' }); await pending; await ui.flush();

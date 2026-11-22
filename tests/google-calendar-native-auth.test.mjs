@@ -44,6 +44,18 @@ function harness(platform, { scopes = [tasksScope, calendarScope], cold = false,
 }
 
 for (const platform of ['ios', 'android']) {
+  test(`${platform} Tasks authorization returns the selected subject and rejects changes during consent`, async () => {
+    const existing = harness(platform, { scopes: [tasksScope] });
+    assert.equal(await existing.gateway.authorizeGoogleTasks('fixture-user'), 'fixture-user');
+    await assert.rejects(existing.gateway.authorizeGoogleTasks('other'), /アカウント/u);
+    const consent = harness(platform, { scopes: [] });
+    consent.sdk.requestScopes = async () => {
+      consent.changeAccount('other');
+      return { accessToken: 'fixture-access-token' };
+    };
+    await assert.rejects(consent.gateway.authorizeGoogleTasks('fixture-user'), /アカウント/u);
+    assert.equal(consent.events.includes('tokens'), false);
+  });
   test(`${platform} one explicit Google connection grants all sync scopes once and feature activation reuses that identity`, async () => {
     const h = harness(platform, { scopes: [], expectedScopes: unifiedScopes });
     assert.deepEqual(await h.gateway.readGoogleSyncConnection(), { subject: 'fixture-user', label: 'Googleアカウント', authorized: false });

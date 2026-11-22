@@ -4,7 +4,7 @@ import test from 'node:test';
 import * as purchaseFlow from '../src/features/subscription/purchase-flow.ts';
 import { loadNativeModule } from './helpers/native-module.mjs';
 
-async function fixture(platform, run) {
+async function fixture(platform, run, applicationId = 'app.current.build') {
   const fields = ['EXPO_PUBLIC_APPLE_SUBSCRIPTION_PRODUCT_ID', 'EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_PRODUCT_ID', 'EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_BASE_PLAN_ID'];
   const old = fields.map(key => process.env[key]); fields.forEach(key => { process.env[key] = 'monthly'; });
   const state = { userId: 'person-a', phase: 'locked', purchaseStores: { apple: true, google: true },
@@ -16,6 +16,7 @@ async function fixture(platform, run) {
     : { id: 'monthly', type: 'subs', platform, subscriptionOffers: [{ basePlanIdAndroid: 'monthly', offerTokenAndroid: 'offer', pricingPhasesAndroid: { pricingPhaseList: [{ billingPeriod: 'P1M', recurrenceMode: 1, formattedPrice: '¥90' }] } }] };
   try {
     const api = loadNativeModule('src/platform/subscription/purchases.ts', {
+      'expo-application': { applicationId },
       'react-native': { Platform: { OS: platform }, Linking: { openURL: async url => { opened.push(url); } } }, '../../features/subscription/purchase-flow': purchaseFlow,
       './runtime': { subscriptionSnapshot: () => state, subscriptionCurrentTime: () => state.clock ?? Date.now(), acceptSubscription: async () => { accepted++; },
         subscriptionRequest: async (path, evidence) => path === 'status' ? {} : verify(evidence) },
@@ -85,6 +86,9 @@ for (const platform of ['ios', 'android']) {
     h.state.entitlement = { body: { store: appleOnDevice ? 'google' : 'apple' } };
     await h.api.manageSubscription();
     assert.equal(new URL(h.opened[1]).hostname, appleOnDevice ? 'play.google.com' : 'apps.apple.com');
+    const playLink = new URL(appleOnDevice ? h.opened[1] : h.opened[0]);
+    assert.equal(playLink.searchParams.get('package'), appleOnDevice ? null : 'app.current.build');
+    assert.equal(playLink.searchParams.get('sku'), appleOnDevice ? null : 'monthly');
   }));
   test(`${platform} a recovered store catalogue can be fetched again without signing out or losing the purchase observer`, () => fixture(platform, async h => {
     h.failCatalogue(1); await h.api.startSubscriptionPurchases('person-a');
@@ -119,3 +123,15 @@ for (const platform of ['ios', 'android']) {
     assert.deepEqual(h.api.subscriptionPurchaseSnapshot(), replacement);
   }));
 }
+
+test('Google Play management uses the verified purchase SKU and falls back to subscriptions when metadata is missing', async () => {
+  await fixture('android', async h => {
+    h.state.entitlement = { body: { store: 'google', productId: 'verified-monthly' } };
+    await h.api.manageSubscription();
+    assert.equal(new URL(h.opened[0]).searchParams.get('sku'), 'verified-monthly');
+  });
+  await fixture('android', async h => {
+    await h.api.manageSubscription();
+    assert.equal(h.opened[0], 'https://play.google.com/store/account/subscriptions');
+  }, null);
+});

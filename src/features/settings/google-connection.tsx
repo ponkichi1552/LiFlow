@@ -7,7 +7,7 @@ import { palette, typography } from '../../components/planner-ui';
 import { useAccountOperation } from './account-operation';
 import { subscribeToGoogleAccountChanges, notifyGoogleAccountChanged } from '../google-sync/account-change-events';
 
-type ConnectionContext = { account: GoogleSyncConnection | null; ready: boolean; loading: boolean; busy: boolean; reconnect(): Promise<boolean> };
+type ConnectionContext = { account: GoogleSyncConnection | null; ready: boolean; loading: boolean; busy: boolean; reconnect(): Promise<GoogleSyncConnection | null> };
 const GoogleConnectionContext = createContext<ConnectionContext | null>(null);
 export const useGoogleConnection = () => useContext(GoogleConnectionContext);
 
@@ -36,23 +36,23 @@ export function GoogleConnectionProvider({ database, children }: PropsWithChildr
     return () => { current = false; alive.current = false; reads.current++; stop(); foreground.remove(); };
   }, [database]);
   const reconnect = async () => {
-    if (running.current || operation && !operation.acquire()) return false;
+    if (running.current || operation && !operation.acquire()) return null;
     const current = scope.current; const isCurrent = () => alive.current && current.active && current === scope.current;
     running.current = true; ++version.current; setBusy(true); setError(null);
     try {
       const { authorizeGoogleSyncConnection } = await import('../../platform/google-tasks/google-sign-in-gateway');
-      const connected = await authorizeGoogleSyncConnection(); if (!isCurrent()) return false;
+      const connected = await authorizeGoogleSyncConnection(); if (!isCurrent()) return null;
       const { activateCurrentGoogleTaskAccount } = await import('../google-sync/account-switch');
-      if (!isCurrent()) return false;
-      await activateCurrentGoogleTaskAccount(database, connected.subject); if (!isCurrent()) return false;
+      if (!isCurrent()) return null;
+      await activateCurrentGoogleTaskAccount(database, connected.subject); if (!isCurrent()) return null;
       notifyGoogleAccountChanged(database); setAccount(connected);
-      return true;
+      return connected;
     } catch (cause) {
       if (isCurrent()) {
         setAccount(null);
         if (!(cause instanceof Error && cause.name === 'GoogleAuthorizationCancelledError')) setError('Googleとの接続を完了できませんでした。権限を確認して再接続してください。');
       }
-      return false;
+      return null;
     } finally { running.current = false; operation?.release(); if (isCurrent()) { setLoading(false); setBusy(false); } }
   };
   const ready = account?.authorized === true;

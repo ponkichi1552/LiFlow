@@ -2182,6 +2182,47 @@
     ]
   },
   {
+    "feature": "settings-return-and-account-ownership",
+    "tests": [
+      {
+        "file": "tests/settings-departure.test.mjs",
+        "name": "chore details and shared Google settings can go back with no stack while loading"
+      },
+      {
+        "file": "tests/mobile-ui-audit.test.mjs",
+        "name": "only focused notification settings read the OS permission and check it on return"
+      },
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "disconnecting saved Google Tasks is owner bound and rolls back when its Calendar stop fails"
+      },
+      {
+        "file": "tests/google-account-switch.test.mjs",
+        "name": "an explicit Google Tasks sync cannot join a run for a different subject"
+      },
+      {
+        "file": "tests/google-calendar-native-auth.test.mjs",
+        "name": "${platform} Tasks authorization returns the selected subject and rejects changes during consent"
+      },
+      {
+        "file": "tests/sharing-v2-google-runtime.test.mjs",
+        "name": "v2 Tasks passes the reviewed subject to native consent when the account switches during the connection read"
+      },
+      {
+        "file": "tests/sharing-v2-native-workspace.test.mjs",
+        "name": "sharing creation and invitation stay tied to the original account across sign-in and storage waits"
+      },
+      {
+        "file": "tests/sharing-join-lifecycle.test.mjs",
+        "name": "native Google sign-in callbacks leave the current screen and LiFlow links intact"
+      },
+      {
+        "file": "tests/sharing-workspace-selection.test.mjs",
+        "name": "first workspace selection waits for peer delivery and still rejects invalid snapshot data"
+      }
+    ]
+  },
+  {
     "feature": "numeric-input-native-alignment",
     "tests": [
       {

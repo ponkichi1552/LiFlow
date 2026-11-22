@@ -6,10 +6,23 @@ import { googleEventBody } from '../src/features/calendar/google-event-mapping.t
 import { createLocalCalendarAvailability } from '../src/features/calendar/private-availability.ts';
 import { localCalendarIntervals } from '../src/features/calendar/local-availability.ts';
 import { googleImportedEvent } from '../src/features/calendar/google-event-import.ts';
+import { googleCalendarEventLink } from '../src/platform/google-calendar/event-link.ts';
 import { createDatabase } from './helpers/sqlite.mjs';
 const { initializeLocalDatabase } = await import('../src/platform/storage/repository.ts');
 const { readLocalCalendar, saveCalendarEvent, saveCalendarDraft, clearCalendarEditorDraft } = await import('../src/platform/storage/calendar-events.ts');
 const event = patch => ({ ...newEventDraft('2026-03-01', 'America/Havana'), title: '予定', id: 'qa', revision: 1, ...patch });
+
+test('Google event links accept Calendar destinations and reject unrelated URLs', () => {
+  for (const link of ['https://calendar.google.com/calendar/event?eid=event-qa', 'https://www.google.com/calendar/event?eid=old-event',
+    'https://calendar.google.com/calendar/u/0/r/eventedit/event-qa']) assert.equal(googleCalendarEventLink(link), link);
+  for (const link of ['https://www.google.com/search?q=calendar', 'https://example.invalid/calendar/event?eid=event-qa',
+    'http://calendar.google.com/calendar/event?eid=event-qa', 'https://calendar.google.com:8443/calendar/event?eid=event-qa',
+    'https://calendar.google.com/calendar/event', 'https://calendar.google.com/calendar/r/eventedit?action=TEMPLATE',
+    'https://calendar.google.com/calendar/event?eid=one&eid=two', null]) {
+    assert.equal(googleCalendarEventLink(link), undefined);
+  }
+  assert.equal(googleCalendarEventLink('https://www.google.com/calendar/event?action=VIEW&eid=fixture%3D'), 'https://www.google.com/calendar/event?eid=fixture%3D');
+});
 
 test('Google timed recurrence cutoff uses the actual next civil-day boundary across midnight gaps and folds', () => {
   const body = googleEventBody(event({ recurrence: 'daily', untilDate: '2026-03-07' }));

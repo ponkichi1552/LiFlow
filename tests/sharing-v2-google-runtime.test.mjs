@@ -5,6 +5,7 @@ import { googleFixture } from './helpers/sharing-v2-google.mjs';
 import { now } from './helpers/sharing-v2-repository-fixture.mjs';
 const { createV2GoogleTaskRuntime } = await import('../src/features/sharing/v2/google-tasks-runtime.ts');
 const { withGoogleSyncOperation } = await import('../src/features/google-sync/operation-lock.ts');
+const { GoogleAccountMismatchError } = await import('../src/features/google-sync/account-binding.ts');
 const turn = () => new Promise(setImmediate);
 
 test('shared Tasks pending checks retain real SQLite completions without Google traffic and skip disabled authentication and future retry states', async () => {
@@ -103,7 +104,12 @@ async function setup() {
   const h = await googleFixture(); const calls = []; let subject = 'synthetic-google-subject'; let currentContext;
   const runtime = createV2GoogleTaskRuntime({ store: h.store, now, assertAccess: h.scope.assertAccess,
     restoreAccount: async () => { calls.push('restore'); return { subject, label: '検査用のGoogle' }; },
-    currentSubject: async () => subject, authorizeTasks: async () => { calls.push('authorize'); }, token: async expected => { assert.equal(expected, subject); calls.push('token'); return 'synthetic-token'; },
+    currentSubject: async () => subject,
+    authorizeTasks: async (expectedSubject) => {
+      if (expectedSubject !== undefined && expectedSubject !== subject) throw new GoogleAccountMismatchError();
+      calls.push('authorize');
+    },
+    token: async expected => { assert.equal(expected, subject); calls.push('token'); return 'synthetic-token'; },
     preparePlan: async () => { calls.push('prepare'); }, createApi: context => { currentContext = context; return h.api; },
   });
   return { ...h, runtime, nativeCalls: calls, account(value) { subject = value; }, context: () => currentContext };
@@ -131,6 +137,23 @@ test('v2 Tasks refuses an account switched after review before requesting a gran
     const review = await h.runtime.reviewConnection(); h.account('different-subject');
     await assert.rejects(h.runtime.connect(review), { code: 'google_account_mismatch' }); assert.deepEqual(h.nativeCalls, ['restore']);
     assert.equal((await h.runtime.readControl()).state, null);
+  } finally { h.close(); }
+});
+
+test('v2 Tasks passes the reviewed subject to native consent when the account switches during the connection read', async () => {
+  const h = await setup();
+  try {
+    const review = await h.runtime.reviewConnection();
+    const originalRead = h.store.readControl.bind(h.store);
+    h.store.readControl = async () => {
+      const control = await originalRead();
+      h.account('different-subject');
+      return control;
+    };
+
+    await assert.rejects(h.runtime.connect(review), { code: 'google_account_mismatch' });
+    assert.deepEqual(h.nativeCalls, ['restore']);
+    assert.equal((await originalRead()).state, null);
   } finally { h.close(); }
 });
 

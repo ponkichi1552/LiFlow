@@ -29,7 +29,6 @@ import {
   loadGoogleSyncState,
   loadCalendarAvailabilityState,
   LOCAL_HOUSEHOLD_ID,
-  saveGoogleSyncState,
   saveWeatherLocation,
   setNotificationsEnabled,
   setHouseworkNotificationTime,
@@ -43,10 +42,11 @@ import { getGoogleSyncOAuthConfig } from '@/features/google-sync/google-oauth-co
 import type { GoogleSyncState } from '@/features/google-sync/contracts';
 import { configurePersonalGoogleTaskSync, syncGoogleTasks } from '@/features/google-sync/coordinator';
 import { registerGoogleSyncBackgroundTask, unregisterGoogleSyncBackgroundTask } from '@/features/google-sync/background-task';
-import { authorizeGoogleCalendarAvailability, authorizeGoogleTasks, disconnectGoogleTasksSession, getGoogleTasksAccessToken, hasGoogleTasksSession } from '@/platform/google-tasks/google-sign-in-gateway';
+import { authorizeGoogleCalendarAvailability, authorizeGoogleTasks, hasGoogleTasksSession } from '@/platform/google-tasks/google-sign-in-gateway';
 import type { CalendarAvailabilityState } from '@/features/google-sync/calendar-availability';
 import { configureGoogleCalendarAvailability } from '@/features/google-sync/calendar-settings';
-import { hasOtherGoogleWorkspaceConnections, sharingSessionUser } from '@/platform/sharing/workspaces';
+import { sharingSessionUser } from '@/platform/sharing/workspaces';
+import { GoogleAccountMismatchError } from '@/features/google-sync/account-binding';
 import { getDeviceTimeZone } from '@/features/google-sync/calendar-availability';
 import { createOwnerRhythmSettings, type PlannerRhythm } from '@/features/settings/owner-rhythm-settings';
 import { subscriptionRequired } from '@/platform/subscription/runtime';
@@ -60,7 +60,7 @@ import { AccountSignOut, GoogleAccountSwitch } from '@/features/settings/google-
 import { AccountConnections } from '@/features/settings/account-connections';
 import { AccountPersonalGoogleTasks } from '@/features/settings/personal-google-tasks-settings';
 import { AccountOperationContext } from '@/features/settings/account-operation';
-import { AppearanceControls, SettingsHeader, SettingsList, SettingsNavigationScreen, SettingsRow, SettingsSection, settingsCategory, settingsTitles, type SettingsCategory } from '@/features/settings/settings-navigation';
+import { AppearanceControls, SettingsHeader, SettingsList, SettingsNavigationScreen, SettingsRow, SettingsSection, returnFromSettings, settingsCategory, settingsTitles, type SettingsCategory } from '@/features/settings/settings-navigation';
 
 const modeOptions: { id: FrequencyMode; label: string }[] = [
   { id: 'frequent', label: 'こまめ' },
@@ -85,14 +85,14 @@ export default function SettingsScreen() {
 function SettingsDataScreen({ section }: { section: SettingsCategory }) {
   const { snapshot, error: loadError, refresh, database } = usePersonalSettingsData();
   const workspace = useContext(WorkspaceContext);
-  if (!snapshot) return <PlannerLoadState title={settingsTitles[section]} message="設定を読み込んでいます。" error={loadError} retry={refresh} onBack={() => router.back()} />;
+  if (!snapshot) return <PlannerLoadState title={settingsTitles[section]} message="設定を読み込んでいます。" error={loadError} retry={refresh} onBack={() => returnFromSettings(section)} />;
   if (workspace?.userId && section === 'rhythm') return <AccountSettings key={workspace.userId} section={section} userId={workspace.userId} snapshot={snapshot} loadError={loadError} refresh={refresh} database={database} />;
   return <SettingsContent key={section === 'account' ? workspace?.userId ?? 'local' : section} section={section} snapshot={snapshot} loadError={loadError} refresh={refresh} database={database} />;
 }
 
-async function activateCurrentGoogleTaskAccount(database: SQLiteDatabase) {
+async function activateCurrentGoogleTaskAccount(database: SQLiteDatabase, subject: string) {
   const accounts = await import('@/features/google-sync/account-switch');
-  return accounts.activateCurrentGoogleTaskAccount(database);
+  return accounts.activateCurrentGoogleTaskAccount(database, subject);
 }
 
 function AccountSettings(props: { section: SettingsCategory; userId: string; snapshot: PersonalSettingsView; loadError: string | null; refresh: () => Promise<void>; database: SQLiteDatabase }) {
@@ -117,7 +117,7 @@ function AccountSettings(props: { section: SettingsCategory; userId: string; sna
     })().catch(() => { if (current) setError('本人の生活リズムを読み込めませんでした。保存済みの内容は保持しています。'); });
     return () => { current = false; };
   }, [database, userId, attempt]);
-  if (!source || source.attempt !== attempt) return <PlannerLoadState title="設定" message="設定を読み込んでいます。" error={error} retry={async () => setAttempt(value => value + 1)} onBack={() => router.back()} />;
+  if (!source || source.attempt !== attempt) return <PlannerLoadState header={<SettingsHeader title={settingsTitles[props.section]} onBack={() => returnFromSettings(props.section)} />} message="設定を読み込んでいます。" error={error} retry={async () => setAttempt(value => value + 1)} />;
   const timeZone = source.value.timeZone();
   return <SettingsContent key={attempt} {...props} snapshot={{ ...props.snapshot, timeZone, today: sharedLocalDate(new Date(), timeZone),
     settings: { ...props.snapshot.settings, ...source.value.settings() } }} saveRhythm={source.value.save} capacity={source.value}
@@ -166,7 +166,8 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
   const [notificationUpdating, setNotificationUpdating] = useState(false);
   const [notificationPermissionDenied, setNotificationPermissionDenied] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState<{ text: string; kind: 'success' | 'error' } | null>(null);
-  const deviceNotificationPermission = useDeviceNotificationPermission(database, snapshot.settings.notificationsEnabled, readNotificationPermission);
+  const notificationSettingsVisible = section === 'notifications' || section === 'general';
+  const deviceNotificationPermission = useDeviceNotificationPermission(database, notificationSettingsVisible && snapshot.settings.notificationsEnabled, readNotificationPermission);
   const [accountTasksOpened, setAccountTasksOpened] = useState(false);
   const [googleSyncState, setGoogleSyncState] = useState<GoogleSyncState | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
@@ -224,24 +225,13 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
     setGoogleBusy(true);
     setGoogleMessage(null);
     try {
-      await authorizeGoogleTasks();
-      await activateCurrentGoogleTaskAccount(database);
-      const current = await loadGoogleSyncState(database, LOCAL_HOUSEHOLD_ID);
-      const now = new Date().toISOString();
-      await saveGoogleSyncState(database, {
-        householdId: LOCAL_HOUSEHOLD_ID,
-        enabled: true,
-        taskListId: current?.taskListId,
-        lastAttemptAt: current?.lastAttemptAt,
-        lastSuccessfulSyncAt: current?.lastSuccessfulSyncAt,
-        status: 'idle',
-        retryCount: 0,
-        updatedAt: now,
-      });
+      const subject = await authorizeGoogleTasks();
+      await activateCurrentGoogleTaskAccount(database, subject);
+      await configurePersonalGoogleTaskSync(database, true, { accountSubject: subject });
       setGoogleConnected(true);
       await refreshGoogleState();
       try { await registerGoogleSyncBackgroundTask(); } catch { /* Foreground sync remains available. */ }
-      const result = await syncGoogleTasks(database, { force: true });
+      const result = await syncGoogleTasks(database, { force: true, expectedAccountSubject: subject });
       await refreshGoogleState();
       setGoogleMessage(result.kind === 'success'
         ? result.skipped
@@ -258,39 +248,29 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
     }
   };
 
-  const toggleGoogleSync = async (enabled: boolean) => {
+  const toggleGoogleSync = async (enabled: boolean, selectedSubject?: string) => {
     if (googleBusy) return;
     if (!beginOperation('google')) return;
     setGoogleBusy(true);
     setGoogleMessage(null);
     try {
-      const current = await loadGoogleSyncState(database, LOCAL_HOUSEHOLD_ID);
-      const now = new Date().toISOString();
-      let previous: GoogleSyncState = current ?? {
-        householdId: LOCAL_HOUSEHOLD_ID,
-        enabled: false,
-        status: 'idle',
-        retryCount: 0,
-        updatedAt: now,
-      };
+      let subject = selectedSubject ?? googleSyncState?.accountSubject;
       if (enabled) {
-        if (previous.status === 'authRequired' || !await hasGoogleTasksSession()) await authorizeGoogleTasks();
-        else await getGoogleTasksAccessToken();
-        await activateCurrentGoogleTaskAccount(database);
-        previous = await loadGoogleSyncState(database, LOCAL_HOUSEHOLD_ID) ?? previous;
+        subject = section === 'account' && selectedSubject ? selectedSubject : await authorizeGoogleTasks(subject);
+        await activateCurrentGoogleTaskAccount(database, subject);
       }
-      const saved = await configurePersonalGoogleTaskSync(database, enabled);
+      const saved = await configurePersonalGoogleTaskSync(database, enabled, { accountSubject: subject });
       setGoogleSyncState(saved);
       if (enabled) {
         try { await registerGoogleSyncBackgroundTask(); } catch { /* Foreground sync remains available. */ }
         if (section === 'account') {
           const generation = googleReadGeneration.current;
-          void syncGoogleTasks(database, { force: true }).then(async () => {
+          void syncGoogleTasks(database, { force: true, expectedAccountSubject: subject }).then(async () => {
             if (generation === googleReadGeneration.current) await refreshGoogleState();
           }).catch(() => { /* The coordinator keeps pending changes and its retry status. */ });
           return;
         }
-        const result = await syncGoogleTasks(database, { force: true });
+        const result = await syncGoogleTasks(database, { force: true, expectedAccountSubject: subject });
         await refreshGoogleState();
         setGoogleMessage(result.kind === 'success'
           ? result.skipped
@@ -316,15 +296,16 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
     setGoogleBusy(true);
     setGoogleMessage(null);
     try {
-      if (googleSyncState.status === 'authRequired' || !await hasGoogleTasksSession(googleSyncState.accountSubject)) {
+      let subject = googleSyncState.accountSubject;
+      if (googleSyncState.status === 'authRequired' || !subject || !await hasGoogleTasksSession(subject)) {
         const { changeGoogleAccount } = await import('@/features/google-sync/account-switch');
-        await changeGoogleAccount(database);
-        await authorizeGoogleTasks(); await activateCurrentGoogleTaskAccount(database);
+        const selected = await changeGoogleAccount(database);
+        subject = await authorizeGoogleTasks(selected);
         // Switching accounts restores that account's saved controls (or a paused
         // new connection). This explicit retry also enables Tasks for that account.
-        await configurePersonalGoogleTaskSync(database, true);
+        await configurePersonalGoogleTaskSync(database, true, { accountSubject: subject });
       }
-      const result = await syncGoogleTasks(database, { force: true });
+      const result = await syncGoogleTasks(database, { force: true, expectedAccountSubject: subject });
       await refreshGoogleState();
       setGoogleMessage(result.kind === 'success'
         ? result.skipped
@@ -361,33 +342,21 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
   };
 
   const disconnectGoogle = async () => {
-    if (googleBusy) return;
+    if (googleBusy || !googleSyncState) return;
     if (!beginOperation('google')) return;
     setGoogleBusy(true);
     setGoogleMessage(null);
     try {
-      await configureGoogleCalendarAvailability(database, false, authorizeGoogleCalendarAvailability);
-      const current = await loadGoogleSyncState(database, LOCAL_HOUSEHOLD_ID);
-      if (current) {
-        await saveGoogleSyncState(database, {
-          ...current,
-          enabled: false,
-          disconnected: true,
-          status: 'idle',
-          retryCount: 0,
-          nextRetryAt: undefined,
-          lastErrorCode: undefined,
-          lastErrorAt: undefined,
-          updatedAt: new Date().toISOString(),
-        });
-      }
-      await unregisterGoogleSyncBackgroundTask().catch(() => undefined);
-      if (!await hasOtherGoogleWorkspaceConnections(database)) await disconnectGoogleTasksSession();
-      await refreshGoogleState();
-      setGoogleMessage({ text: 'Googleとの接続を解除しました。Google Tasks上の家事は残しています。', kind: 'success' });
-    } catch {
+      const saved = await configurePersonalGoogleTaskSync(database, false, { accountSubject: googleSyncState.accountSubject, disconnect: true });
+      cancelGoogleReads();
+      setGoogleSyncState(saved);
+      setGoogleConnected(false);
+      setCalendarAvailabilityState(previous => previous && { ...previous, enabled: false });
+      void unregisterGoogleSyncBackgroundTask().catch(() => undefined);
+      setGoogleMessage({ text: 'この端末の家事同期を解除しました。Google Tasks上の家事は残しています。', kind: 'success' });
+    } catch (cause) {
       await refreshGoogleState().catch(() => undefined);
-      setGoogleMessage({ text: '端末内の同期設定は停止しましたが、Googleのアクセス許可を解除できませんでした。', kind: 'error' });
+      setGoogleMessage({ text: cause instanceof GoogleAccountMismatchError ? 'Googleアカウントが変わりました。' : '家事同期の設定を変更できませんでした。', kind: 'error' });
     } finally {
       endOperation('google'); setGoogleBusy(false);
     }
@@ -520,7 +489,7 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
   </View> : null;
   const googleTasksForm = section === 'account' ? <AccountPersonalGoogleTasks state={googleSyncState} shared={v2} loaded={googleLoadStatus === 'ready'} busy={googleBusy}
     error={googleLoadStatus === 'error' ? '連携設定を読み込めませんでした。' : googleMessage?.kind === 'error' ? googleMessage.text : null}
-    onToggle={value => void toggleGoogleSync(value)} onSync={() => void syncGoogleNow()} /> : <View style={{ gap: 12 }}>
+    onToggle={(value, subject) => void toggleGoogleSync(value, subject)} onSync={() => void syncGoogleNow()} /> : <View style={{ gap: 12 }}>
         {googleLoadStatus === 'error' ? <Text accessibilityRole="alert" style={styles.error}>連携設定を読み込めませんでした。</Text> : null}
         <FeatureStatus
           title="Google Tasks"
@@ -558,7 +527,7 @@ function SettingsContent({ section = 'rhythm', snapshot, loadError, refresh, dat
   </View>;
 
   return (
-    <Page keyboardAware={section === 'general' || section === 'weather'} header={<SettingsHeader title={settingsTitles[section]} onBack={() => void autosave.navigate(() => router.back())} />}>
+    <Page keyboardAware={section === 'general' || section === 'weather'} header={<SettingsHeader title={settingsTitles[section]} onBack={() => void autosave.navigate(() => returnFromSettings(section))} />}>
       {autosave.status.phase === 'error' ? <Card><Text accessibilityRole="alert" style={styles.error}>{autosave.status.error}</Text><AppButton title="保存を再試行" variant="quiet" compact onPress={() => void autosave.flush()} />
         {reloadRhythm ? <AppButton title="未保存の入力を破棄して設定を読み直す" variant="quiet" compact onPress={() => {
           for (const key of Object.keys(currentDraft.current) as (keyof typeof currentDraft.current)[]) autosave.remove(key);

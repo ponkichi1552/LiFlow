@@ -1,5 +1,6 @@
 import { customChoreReady } from './custom-chore-readiness';
 import { router } from 'expo-router';
+import { backOrReplace, personalChoreSettings } from '../settings/settings-back';
 import { useEffect, useRef, useState } from 'react';
 import { Text } from 'react-native';
 import { AppButton, Page, SectionHeading, typography, palette } from '../../components/planner-ui';
@@ -31,7 +32,7 @@ export function AddPersonalChoreScreen() {
     } catch (cause) { if (alive.current) setError(created.current ? '端末に追加済みです。もう一度開いてください。' : cause instanceof Error ? cause.message : '追加できませんでした。'); }
     finally { pending.current = false; if (alive.current) setBusy(false); }
   };
-  return <Page keyboardAware header={<ChoreAddHeader onBack={() => router.back()} disabled={busy} />} contentStyle={{ paddingTop: 10 }}
+  return <Page keyboardAware header={<ChoreAddHeader onBack={() => backOrReplace(router, personalChoreSettings)} disabled={busy} />} contentStyle={{ paddingTop: 10 }}
     footer={<>{error ? <Text accessibilityRole="alert" style={[typography.caption, { color: palette.warning, paddingBottom: 8 }]}>{error}</Text> : null}
       <AppButton title={savedId ? '追加済みの家事を開く' : '追加'} onPress={() => void save()} disabled={busy || !savedId && !customChoreReady(draft.name, draft.interval)} /></>}>
     <SectionHeading title="必須" level="subsection" />

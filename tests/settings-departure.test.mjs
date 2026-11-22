@@ -4,6 +4,11 @@ import test from 'node:test';
 import { createAutosaveForm } from '../src/features/settings/autosave-form.ts';
 import { createAutosaveQueue } from '../src/features/settings/autosave-queue.ts';
 import { createChoreSettingsEditor } from '../src/features/settings/chore-settings-editor.ts';
+import { screenHarness } from './helpers/screen-harness.mjs';
+import { createDatabase } from './helpers/sqlite.mjs';
+
+const { initializeLocalDatabase } = await import('../src/platform/storage/repository.ts');
+const { readPersonalSettingsView } = await import('../src/platform/storage/personal-settings-view.ts');
 
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 function form(save) {
@@ -64,4 +69,65 @@ test('personal chore departure discards invalid numbers and preserves already sa
   assert.equal(backs, 1); assert.equal(editor.getSnapshot().draft.radiusText, '0'); assert.equal(attempts, 0);
   editor.resumeNavigation(); editor.changeRadius('2'); await editor.flush(); editor.changeRadius('bad');
   await editor.navigateAfterSave(() => backs++); assert.equal(editor.getSnapshot().draft.radiusText, '2'); assert.equal(attempts, 1);
+});
+
+test('settings Back preserves history and direct destinations work during loading or failure', async t => {
+  const { database, connection } = createDatabase();
+  t.after(() => connection.close());
+  await initializeLocalDatabase(database);
+  const snapshot = { ...await readPersonalSettingsView(database), today: '2026-11-22', timeZone: 'Asia/Tokyo' };
+  const cases = [
+    { hasHistory: true, expected: ['back'] },
+    { hasHistory: false, expected: ['replace', '/(tabs)'] },
+    { section: 'appearance', hasHistory: true, expected: ['back'] },
+    { section: 'appearance', hasHistory: false, expected: ['replace', '/settings'] },
+    { section: 'general', hasHistory: true, withData: true, expected: ['back'] },
+    { section: 'general', hasHistory: false, withData: true, expected: ['replace', '/settings'] },
+    { section: 'general', hasHistory: false, expected: ['replace', '/settings'] },
+    { section: 'general', hasHistory: false, error: '一時的なエラー', expected: ['replace', '/settings'] },
+    { section: 'rhythm', signedIn: true, hasHistory: false, withData: true, expected: ['replace', '/settings'] },
+  ];
+  for (const { section, signedIn, hasHistory, withData, error, expected } of cases) {
+    const navigation = [];
+    const screen = screenHarness('src/app/settings.tsx', {
+      params: { section }, canGoBack: () => hasHistory,
+      navigate: (action, ...args) => {
+        if (action !== 'back' || hasHistory) navigation.push([action, ...args]);
+      },
+      personalData: () => ({ database, snapshot: withData ? snapshot : null, error: error ?? null, refresh: async () => {} }),
+      mocks: {
+        '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: signedIn ? { userId: 'signed-in' } : null } },
+        '@/features/google-sync/background-task': {},
+        '@/features/google-sync/google-oauth-config': { getGoogleSyncOAuthConfig: () => ({ configured: false }) },
+        '@/platform/google-tasks/google-sign-in-gateway': { hasGoogleTasksSession: async () => false },
+        '@/platform/notifications/expo-local-notification-gateway': { ExpoLocalNotificationGateway: class {} },
+      },
+    });
+    await screen.press('前の画面に戻る');
+    assert.deepEqual(navigation, [expected], JSON.stringify({ section, hasHistory, withData, error, signedIn }));
+    screen.unmount();
+  }
+});
+
+test('chore details and shared Google settings can go back with no stack while loading', async () => {
+  const routes = [];
+  const options = { canGoBack: () => false, navigate: (...args) => routes.push(args) };
+  const chore = screenHarness('src/features/settings/chore-settings-screen.tsx', {
+    ...options, exportName: 'ChoreSettingsBook',
+    props: { choreId: 'fixture', data: { database: {}, snapshot: null, loading: true, error: null } },
+  });
+  await chore.press('前の画面に戻る');
+  assert.deepEqual(routes.pop(), ['replace', '/settings?section=chores']);
+  chore.unmount();
+  const owner = 'fixture-owner';
+  for (const group of [null, { protocol: 2, userId: owner, googleCalendar: async () => new Promise(() => {}) }]) {
+    const shared = screenHarness('src/app/group-v2/google-calendar.tsx', {
+      ...options, effect: callback => callback(),
+      mocks: { '../../hooks/use-workspace': { useWorkspace: () => ({ userId: owner, active: group }) },
+        '../../features/calendar/shared-google-settings': { SharedGoogleCalendarSettings: () => null } },
+    });
+    await shared.press('前の画面に戻る');
+    assert.deepEqual(routes.pop(), ['replace', group ? '/group-v2' : '/sharing']);
+    shared.unmount();
+  }
 });

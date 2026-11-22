@@ -483,13 +483,43 @@ test('a removed native workspace preserves its history and requests a fresh gene
   try {
     await updateSharingWorkspace(h.index.database, h.record.userId, h.record.groupId, record => ({ ...record, status: 'removed',
       v2Migration: { databaseGeneration: 'prior-conversion', sourceSnapshotDigest: 'a'.repeat(64), witnessDigest: 'b'.repeat(64) } }));
-    const workspace = await h.api.requestSharingWorkspace(encodeSharedInvitation(h.link));
+    const workspace = await h.api.requestSharingWorkspace(encodeSharedInvitation(h.link), h.record.userId);
     assert.equal(workspace.protocol, null);
     const stored = await readSharingWorkspace(h.index.database, h.record.userId, h.record.groupId);
     assert.equal(stored.status, 'joining'); assert.ok(stored.localGeneration); assert.deepEqual(stored.archivedLocalGenerations, ['initial']);
     assert.equal('v2Migration' in stored, false); assert.deepEqual(stored.anchor, h.record.anchor);
     assert.equal(h.calls.includes('legacy-open'), false); assert.equal(h.calls.some(call => Array.isArray(call) && call[0] === 'v2-open'), false);
   } finally { await h.close(); }
+});
+
+test('sharing creation and invitation stay tied to the original account across sign-in and storage waits', async () => {
+  for (const action of ['create', 'join', 'rejoin']) {
+    const h = await workspaceHarness({ pending: action !== 'create', initiallyEmpty: action !== 'rejoin', deferWorkspaceTimers: true });
+    try {
+      if (action === 'rejoin') await updateSharingWorkspace(h.index.database, h.record.userId, h.record.groupId, record => ({ ...record, status: 'removed' }));
+      const owner = h.record.userId;
+      const submit = () => action === 'create'
+        ? h.api.createV2SharingWorkspace('確認用', 'family', { userId: owner, timeZone: 'Asia/Tokyo' })
+        : h.api.requestSharingWorkspace(encodeSharedInvitation(h.link), owner);
+      let release;
+      h.auth.ready = () => new Promise(resolve => { release = resolve; });
+      const queued = submit();
+      const rejected = assert.rejects(queued, /共有アカウントが変わりました/u);
+      await new Promise(setImmediate); h.auth.uid = 'other'; release(); await rejected;
+      h.auth.ready = async () => {}; h.auth.uid = owner;
+      const write = h.index.database.runAsync;
+      h.index.database.runAsync = async function (sql, ...args) {
+        const result = await write.call(this, sql, ...args);
+        if (action === 'rejoin' ? /UPDATE sharing_workspaces SET record_json/i.test(sql) : /INSERT OR IGNORE INTO sharing_workspaces/i.test(sql)) h.auth.uid = 'other';
+        return result;
+      };
+      await assert.rejects(submit(), /共有アカウントが変わりました/u);
+      const stored = h.index.connection.prepare('SELECT user_id FROM sharing_workspaces').all();
+      assert.deepEqual(stored.map(row => row.user_id), action === 'rejoin' ? [owner] : []);
+      if (action === 'rejoin') assert.equal((await readSharingWorkspace(h.index.database, owner, h.record.groupId)).status, 'removed');
+      assert.equal(h.calls.includes('join') || h.calls.includes('create-cloud'), false);
+    } finally { await h.close(); }
+  }
 });
 
 test('a rejected cross-device creation releases its local membership slot without deleting unsent edits', async () => {

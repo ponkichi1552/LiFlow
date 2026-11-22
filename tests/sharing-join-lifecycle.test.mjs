@@ -1,9 +1,27 @@
 import './helpers/typescript-loader.mjs';
 import test from 'node:test';
+import { redirectSystemPath } from '../src/app/+native-intent.ts';
 import assert from 'node:assert/strict';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { workspaceHarness } from './helpers/sharing-workspaces-harness.mjs';
 import { encodeSharedInvitation } from '../src/features/sharing/invitations.ts';
+
+test('an invitation blocked by the signed-in user’s current group opens that group directly', async t => {
+  const h = await workspaceHarness({ pending: true, deferWorkspaceTimers: true });
+  t.after(() => h.close());
+  const routes = [];
+  const screen = screenHarness('src/app/sharing/join.tsx', { effectDependencies: true, effect: callback => callback(),
+    navigate: (action, route) => routes.push([action, route]), mocks: {
+      'expo-linking': { useLinkingURL: () => encodeSharedInvitation(h.link) },
+      '@/hooks/use-workspace': { useWorkspace: () => ({ ready: true, userId: 'member',
+        group: { userId: 'member', groupId: 'current-group', status: 'active' } }) },
+      '@/platform/sharing/auth': {},
+      '@/platform/sharing/workspaces': { requestSharingWorkspace: async () => assert.fail('A blocked invitation must not be sent') },
+    } });
+  t.after(() => screen.unmount());
+  await screen.press('現在のグループを開く');
+  assert.deepEqual(routes, [['replace', { pathname: '/sharing/group/[groupId]', params: { groupId: 'current-group' } }]]);
+});
 
 for (const [platform, method] of [['ios', 'apple'], ['ios', 'google'], ['android', 'google']]) test(`${platform} signed-out invitation waits for explicit ${method} sign-in before submitting`, async t => {
   const h = await workspaceHarness({ pending: true, deferWorkspaceTimers: true });
@@ -26,7 +44,7 @@ for (const [platform, method] of [['ios', 'apple'], ['ios', 'google'], ['android
         signInSharingWithGoogle: () => signIn('google'), signInSharingWithApple: () => signIn('apple') },
       '@/platform/sharing/workspaces': { enableSharingSession: async () => { calls.push('enabled'); },
         sharingSessionUser: async () => owner ? { uid: owner } : null,
-        requestSharingWorkspace: async target => { assert.equal(target, link); assert.equal(owner, 'member'); calls.push('submitted'); return { groupId: 'joined-group' }; } },
+        requestSharingWorkspace: async (target, expectedOwner) => { assert.equal(target, link); assert.equal(expectedOwner, 'member'); assert.equal(owner, 'member'); calls.push('submitted'); return { groupId: 'joined-group' }; } },
     } });
   t.after(async () => { screen.unmount(); await h.close(); });
   await screen.flush();
@@ -60,4 +78,14 @@ for (const platform of ['ios', 'android']) for (const after of ['current', 'acco
     assert.equal(routes.length, after === 'current' ? 1 : 0);
     if (after === 'current') assert.equal(routes[0][1].params.groupId, 'joined-group');
   } finally { release?.(); screen?.unmount(); await h.close(); }
+});
+test('native Google sign-in callbacks leave the current screen and LiFlow links intact', () => {
+  for (const initial of [true, false]) {
+    for (const path of ['oauth2callback', 'emmcallback', 'oauthredirect', 'oauth2redirect']) {
+      assert.equal(redirectSystemPath({ path: `com.googleusercontent.apps.synthetic:/${path}`, initial }), null);
+    }
+    for (const path of ['liflow-ui-check:///settings?section=general', 'liflow:///sharing/join?invite=sample', '/settings', 'liflow-ui-check://expo-development-client/?url=sample']) {
+      assert.equal(redirectSystemPath({ path, initial }), path);
+    }
+  }
 });

@@ -208,13 +208,13 @@ export function readSharingDisplayEnvelope(database: SQLiteDatabase, userId: str
 }
 
 export function saveSharingWorkspace(database: SQLiteDatabase, input: SharingWorkspaceRecord,
-  replacement?: { endedInvitation: SharingWorkspaceRecord; assertCurrent(): void }): Promise<void> {
+  options?: { endedInvitation?: SharingWorkspaceRecord; assertCurrent(): void }): Promise<void> {
   const record = validate(input);
   return serial(database, async () => {
     await database.withTransactionAsync(async () => {
-      if (replacement) {
-        const ended = replacement.endedInvitation;
-        replacement.assertCurrent();
+      options?.assertCurrent();
+      const ended = options?.endedInvitation;
+      if (ended) {
         if (!hasEndedSharingInvitation(ended) || ended.userId !== record.userId
           || ended.groupId === record.groupId || record.status !== 'active') throw new Error('Invalid restored membership transition');
         // Compare the exact invitation that ended. A newly submitted request or
@@ -223,22 +223,23 @@ export function saveSharingWorkspace(database: SQLiteDatabase, input: SharingWor
           AND EXISTS (SELECT 1 FROM sharing_workspaces WHERE user_id=? AND group_id=? AND record_json=?)`,
         ended.userId, ended.groupId, ended.userId, ended.groupId, canonicalJson(ended));
         if (released.changes !== 1) throw new Error('所属状態が更新されています。再読込してください。');
-        replacement.assertCurrent();
+        options?.assertCurrent();
       }
       await claimCurrentWorkspace(database, record);
+      options?.assertCurrent();
       await database.runAsync('INSERT OR IGNORE INTO sharing_workspaces (user_id, group_id, record_json) VALUES (?, ?, ?)', record.userId, record.groupId, canonicalJson(record));
       const row = await database.getFirstAsync<{ record_json: string }>('SELECT record_json FROM sharing_workspaces WHERE user_id = ? AND group_id = ?', record.userId, record.groupId);
       const stored = row ? decodeSavedWorkspace(database, row.record_json) : null;
       if (!stored || anchorDigest(stored.anchor) !== anchorDigest(record.anchor)
-        || replacement && (stored.status !== 'active' || stored.localGeneration !== record.localGeneration)) throw new Error('A cloud response cannot replace a locally trusted group pin');
-      replacement?.assertCurrent();
+        || ended && (stored.status !== 'active' || stored.localGeneration !== record.localGeneration)) throw new Error('A cloud response cannot replace a locally trusted group pin');
+      options?.assertCurrent();
     });
   });
 }
 
 /** Changes read the latest row inside the queue, so a late sync result cannot restore a departed workspace. */
 export function updateSharingWorkspace(database: SQLiteDatabase, userId: string, groupId: string,
-  change: (current: SharingWorkspaceRecord) => SharingWorkspaceRecord): Promise<SharingWorkspaceRecord> {
+  change: (current: SharingWorkspaceRecord) => SharingWorkspaceRecord, assertCurrent?: () => void): Promise<SharingWorkspaceRecord> {
   return serial(database, async () => {
     for (let attempt = 0; attempt < 8; attempt++) {
       const row = await database.getFirstAsync<{ record_json: string }>('SELECT record_json FROM sharing_workspaces WHERE user_id = ? AND group_id = ?', userId, groupId);
@@ -254,6 +255,7 @@ export function updateSharingWorkspace(database: SQLiteDatabase, userId: string,
       if (next.localGeneration !== previousGeneration && (!['left', 'removed'].includes(previousStatus) || next.status !== 'joining'
         || !next.localGeneration || !next.archivedLocalGenerations?.includes(previousGeneration ?? 'initial'))) throw new Error('Rejoining must preserve the previous local workspace');
       const encoded = canonicalJson(next);
+      assertCurrent?.();
       if (encoded === row.record_json) return next;
       let changed = false;
       const write = async () => {
@@ -262,10 +264,14 @@ export function updateSharingWorkspace(database: SQLiteDatabase, userId: string,
         changed = result.changes === 1;
       };
       const departed = (record: SharingWorkspaceRecord) => ['left', 'removed'].includes(record.status);
-      if (departed(old) === departed(next)) await write();
+      const membershipChanged = departed(old) !== departed(next);
+      if (!membershipChanged && !assertCurrent) await write();
       else await database.withTransactionAsync(async () => {
-        await claimCurrentWorkspace(database, next); await write();
-        if (changed && departed(next)) await database.runAsync('UPDATE sharing_current_workspace SET group_id = NULL WHERE user_id = ? AND group_id = ?', userId, groupId);
+        if (membershipChanged) await claimCurrentWorkspace(database, next);
+        assertCurrent?.();
+        await write();
+        if (membershipChanged && changed && departed(next)) await database.runAsync('UPDATE sharing_current_workspace SET group_id = NULL WHERE user_id = ? AND group_id = ?', userId, groupId);
+        assertCurrent?.();
       });
       if (changed) return next;
     }

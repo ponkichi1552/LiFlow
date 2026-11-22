@@ -364,13 +364,14 @@ export function createSharingManagement({ firestore, userId, checkAccount, refer
       const chunks: EncryptedSharedSnapshotChunk[] = await boundedReads(manifest.body.chunks, async descriptor => {
         assertSharedIdentifier(descriptor.id); const result = await getDocFromServer(doc(reference(groupId), 'snapshotChunks', descriptor.id)); guard();
         const data = result.data();
-        if (deliveryRelay?.() && !result.exists()) {
-          const chunk = await deliveryRelay()!.snapshotChunk(groupId, descriptor.id, manifest.body.throughSequence); guard();
+        const relay = deliveryRelay?.();
+        if (relay && !result.exists()) {
+          const chunk = await relay.snapshotChunk(groupId, descriptor.id, manifest.body.throughSequence); guard();
           if (sharedDocumentDigest(chunk) !== descriptor.digest || new TextEncoder().encode(canonicalJson(chunk)).length !== descriptor.bytes) throw new Error('Peer snapshot chunk hash mismatch');
-          await deliveryRelay()!.archive.saveChunk(descriptor.id, chunk); guard(); return chunk;
+          await relay.archive.saveChunk(descriptor.id, chunk); guard(); return chunk;
         }
         if (typeof data?.envelopeJson !== 'string' || data.envelopeJson.length > 800_000 || new TextEncoder().encode(data.envelopeJson).length !== descriptor.bytes
-          || data.snapshotId !== snapshotId || data.keyVersion !== manifest.body.keyVersion) throw new Error('Snapshot chunk is missing');
+          || data.snapshotId !== snapshotId || data.keyVersion !== manifest.body.keyVersion) throw new Error('共有データを取得できませんでした。');
         const chunk = JSON.parse(data.envelopeJson) as EncryptedSharedSnapshotChunk;
         if (sharedDocumentDigest(chunk) !== descriptor.digest) throw new Error('Snapshot chunk hash mismatch');
         await deliveryRelay?.()?.archive.saveChunk(descriptor.id, chunk); guard(); return chunk;

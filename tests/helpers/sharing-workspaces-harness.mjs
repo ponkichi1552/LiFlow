@@ -35,7 +35,7 @@ export async function workspaceHarness({ pending = false, version = 2, cloud: ov
   const index = create(); await registry.initializeSharingRegistry(index.database);
   const owner = await keys.createDeviceIdentity(crypto); const identity = pending ? await keys.createDeviceIdentity(crypto) : owner;
   const initial = rosters.createSharedRoster('native-v2-workspace', 'owner', owner, { schemaVersion: version });
-  const userId = pending ? 'member' : 'owner'; const auth = { uid: userId }; const vault = new Map(); const groupKeys = new Map();
+  const userId = pending ? 'member' : 'owner'; const auth = { uid: userId, ready: async () => {} }; const vault = new Map(); const groupKeys = new Map();
   const link = pending ? await invitations.createSharedInvitation(crypto, initial, owner, 'join-native', Date.now()) : null;
   const request = link ? invitations.createSharedJoinRequest(link, userId, identity, Date.now()) : null;
   const record = { userId, groupId: initial.body.groupId, displayName: '登録した共有グループ', status: pending ? 'joining' : 'creating',
@@ -51,7 +51,7 @@ export async function workspaceHarness({ pending = false, version = 2, cloud: ov
       deleteDatabaseAsync: async () => { throw new Error('unexpected legacy archive deletion'); } },
     './appliance-retention': { createNativeApplianceRetention: () => ({ refresh: async () => {} }) },
     './firebase-services.ts': { isSharingConfigured: () => true, getSharingServices: () => ({ firestore: {}, auth: {
-      authStateReady: async () => {}, get currentUser() { return auth.uid ? { uid: auth.uid, displayName: '自分' } : null; } } }) },
+      authStateReady: () => auth.ready(), get currentUser() { return auth.uid ? { uid: auth.uid, displayName: '自分' } : null; } } }) },
     './native-crypto.ts': { nativeSharingCrypto: crypto },
     './signature-verification-cache.ts': { initializeNativeSignatureCache: initializeSignatureCache },
     './secure-store.ts': { loadOrCreateSharingDeviceIdentity: async () => identity,

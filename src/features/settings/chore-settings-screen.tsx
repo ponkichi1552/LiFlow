@@ -25,6 +25,7 @@ import { choreScheduleDefaults } from '@/domain/chores/schedule-defaults';
 import { ScheduleResetAction } from '@/components/schedule-reset-action';
 import { choreInAudience, type ChoreAudienceSelection } from '../chores/audience-selection';
 import { V2AdvancedSettings } from '../sharing/v2-ui/advanced-settings';
+import { backOrReplace, personalChoreSettings } from './settings-back';
 
 const loadOptions: { id: ChoreLoad; label: string }[] = [
   { id: 'light', label: '軽い' }, { id: 'normal', label: '普通' }, { id: 'heavy', label: '重い' },
@@ -56,12 +57,12 @@ export function ChoreSettingsBook({ choreId, selection, data }: { choreId: strin
     for (const [, cache] of caches.entries()) cache.resumeNavigation();
     return () => { for (const [, cache] of caches.entries()) void cache.navigateAfterSave(() => {}); };
   }, [caches]));
-  if (!snapshot) return <PlannerLoadState title="家事ごとの設定" message="設定を読み込んでいます。" error={error} retry={refresh} />;
+  const back = () => void leaveAfterSave(() => backOrReplace(router, personalChoreSettings));
+  if (!snapshot) return <PlannerLoadState title="家事ごとの設定" message="設定を読み込んでいます。" error={error} retry={refresh} onBack={back} />;
   const rows = snapshot.chores.filter(hasChoreScheduleSettings);
   if (chore && !chore.archived && !hasChoreScheduleSettings(chore)) return <Redirect href={{ pathname: '/(tabs)/guide', params: { choreId: chore.id, source: 'personal' } }} />;
-  if (!chore && rows.length) return <Page header={<BackButton onPress={() => void leaveAfterSave(() => router.back())} />}><ScreenHeading title="家事が見つかりません" /></Page>;
-  const back = () => leaveAfterSave(() => router.back());
-  return <ChoreBook chores={rows} selectedId={selectedId} title="家事ごとの設定" onBack={() => void back()} collapseSplits
+  if (!chore && rows.length) return <Page header={<BackButton onPress={back} />}><ScreenHeading title="家事が見つかりません" /></Page>;
+  return <ChoreBook chores={rows} selectedId={selectedId} title="家事ごとの設定" onBack={back} collapseSplits
     beforeCollapse={async item => {
       const cache = caches.entries().find(([id]) => id === item.id)?.[1];
       if (cache) void cache.navigateAfterSave(() => {});

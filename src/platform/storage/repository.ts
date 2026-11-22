@@ -2762,14 +2762,29 @@ async function saveCalendarAvailabilityStateImpl(database: SQLiteDatabase, state
   );
 }
 
-async function setCalendarAvailabilityEnabledImpl(database: SQLiteDatabase, enabled: boolean, now = new Date()): Promise<void> {
+async function setCalendarAvailabilityEnabledInside(database: SQLiteDatabase, enabled: boolean, now: Date): Promise<void> {
   const previous = await loadCalendarAvailabilityStateImpl(database);
-  await withAdaptiveOwnerTransaction(database, async () => {
-    await saveCalendarAvailabilityStateImpl(database, {
-      ...previous, householdId: LOCAL_HOUSEHOLD_ID, enabled, status: 'idle', retryCount: 0,
-      nextRetryAt: undefined, lastErrorCode: undefined, updatedAt: now.toISOString(),
-    });
-    if (!enabled) await database.runAsync('DELETE FROM calendar_availability_days WHERE household_id = ?', LOCAL_HOUSEHOLD_ID);
+  await saveCalendarAvailabilityStateImpl(database, {
+    ...previous, householdId: LOCAL_HOUSEHOLD_ID, enabled, status: 'idle', retryCount: 0,
+    nextRetryAt: undefined, lastErrorCode: undefined, updatedAt: now.toISOString(),
+  });
+  if (!enabled) await database.runAsync('DELETE FROM calendar_availability_days WHERE household_id = ?', LOCAL_HOUSEHOLD_ID);
+}
+
+async function setCalendarAvailabilityEnabledImpl(database: SQLiteDatabase, enabled: boolean, now = new Date()): Promise<void> {
+  await withAdaptiveOwnerTransaction(database, () => setCalendarAvailabilityEnabledInside(database, enabled, now));
+}
+
+function disconnectPersonalGoogleTaskStateImpl(database: SQLiteDatabase, accountSubject: GoogleSyncState['accountSubject'], now = new Date()) {
+  if (sharedRepositoryAdapter(database)) throw new Error('共有家事の同期設定を使用してください。');
+  return withAdaptiveOwnerTransaction(database, async () => {
+    const previous = await loadGoogleSyncStateImpl(database, LOCAL_HOUSEHOLD_ID);
+    if (!previous || previous.accountSubject !== accountSubject) throw new GoogleAccountMismatchError();
+    const next: GoogleSyncState = { ...previous, enabled: false, disconnected: true, status: 'idle', retryCount: 0,
+      nextRetryAt: undefined, lastErrorCode: undefined, lastErrorAt: undefined, updatedAt: now.toISOString() };
+    await saveGoogleSyncStateImpl(database, next);
+    await setCalendarAvailabilityEnabledInside(database, false, now);
+    return next;
   });
 }
 
@@ -2849,6 +2864,7 @@ async function commitCalendarAvailabilitySuccessImpl(
 export const loadCalendarAvailabilityState = serializeDatabaseOperation(loadCalendarAvailabilityStateImpl);
 export const saveCalendarAvailabilityState = serializeDatabaseOperation(saveCalendarAvailabilityStateImpl);
 export const setCalendarAvailabilityEnabled = serializePlannerOperation(setCalendarAvailabilityEnabledImpl, 'setCalendarAvailabilityEnabled');
+export const disconnectPersonalGoogleTaskState = serializePlannerOperation(disconnectPersonalGoogleTaskStateImpl);
 export const listCalendarAvailabilityDays = serializeDatabaseOperation(listCalendarAvailabilityDaysImpl);
 export const getFreshCalendarAvailabilityDays = serializeDatabaseOperation(getFreshCalendarAvailabilityDaysImpl);
 export const readCalendarPlanningSignatures = serializeDatabaseOperation(readCalendarPlanningSignaturesImpl);

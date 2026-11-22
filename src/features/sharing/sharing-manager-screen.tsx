@@ -106,7 +106,8 @@ export default function SharingScreen({ detailOnly = false }: { detailOnly?: boo
       <View accessibilityElementsHidden={entryMode !== 'create'} importantForAccessibility={entryMode !== 'create' ? 'no-hide-descendants' : 'auto'} style={entryMode !== 'create' ? styles.hiddenEntry : styles.entryForm}>
         <GroupCreationForm key={context.userId} protocol={creationProtocol} busy={busy || entryMode !== 'create'} onCreate={(name, kind) => run(async () => {
           const owner = context.userId;
-          const workspace = await createV2SharingWorkspace(name, kind!);
+          if (!owner || currentUserId.current !== owner || !kind) return;
+          const workspace = await createV2SharingWorkspace(name, kind, { userId: owner });
           if (alive.current && currentUserId.current === owner) { setExpanded(null); router.push({ pathname: '/sharing/group/[groupId]', params: { groupId: workspace.groupId } }); }
         })} />
       </View>
@@ -115,7 +116,9 @@ export default function SharingScreen({ detailOnly = false }: { detailOnly?: boo
           placeholder="招待リンクを貼り付け" accessibilityLabel="招待リンク" editable={!busy && entryMode === 'join'} />
         <Text style={styles.caption}>グループの管理者が承認すると参加できます。</Text>
         <AppButton title="参加を申請" disabled={busy || entryMode !== 'join' || !link.trim()} onPress={() => void run(async () => {
-          const owner = context.userId; const workspace = await requestSharingWorkspace(link);
+          const owner = context.userId;
+          if (!owner || currentUserId.current !== owner) return;
+          const workspace = await requestSharingWorkspace(link, owner);
           if (alive.current && currentUserId.current === owner) { setLink(''); setExpanded(null); router.push({ pathname: '/sharing/group/[groupId]', params: { groupId: workspace.groupId } }); }
         })} />
       </View>
