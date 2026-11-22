@@ -109,6 +109,7 @@ for (const platform of ['ios', 'android']) test(`${platform} store purchase uses
     : { id: 'monthly', type: 'subs', platform, subscriptionOffers: [{ basePlanIdAndroid: 'month', offerTokenAndroid: 'native-offer', pricingPhasesAndroid: { pricingPhaseList: [{ billingPeriod: 'P1M', recurrenceMode: 1, formattedPrice: '￥90' }] } }] };
   try {
     const module = load('src/platform/subscription/purchases.ts', {
+      'expo-application': { applicationId: 'app.current.build' },
       'react-native': { Platform: { OS: platform }, Linking: { openURL: async () => {} } }, '../../features/subscription/purchase-flow': purchaseFlow,
       './runtime': { subscriptionSnapshot: () => state, subscriptionCurrentTime: () => Date.now(), acceptSubscription: async () => { state.phase = 'active'; }, subscriptionRequest: async path => { if (path === 'verify') verify++; return { body }; } },
       'expo-iap': { initConnection: async () => { init++; return true; }, purchaseUpdatedListener: () => ({ remove() {} }), purchaseErrorListener: () => ({ remove() {} }),
@@ -133,6 +134,7 @@ for (const platform of ['ios', 'android']) test(`${platform} a product catalogue
   const state = { userId: 'person-a', phase: 'locked' }; let finish = 0; const valid = { id: 'valid', productId: 'monthly', store: platform === 'ios' ? 'apple' : 'google', storeId: platform === 'ios' ? 'apple' : 'play', purchaseState: 'purchased', purchaseToken: 'owned-proof' };
   try {
     const module = load('src/platform/subscription/purchases.ts', {
+      'expo-application': { applicationId: 'app.current.build' },
       'react-native': { Platform: { OS: platform }, Linking: {} }, '../../features/subscription/purchase-flow': purchaseFlow,
       './runtime': { subscriptionSnapshot: () => state, subscriptionCurrentTime: () => Date.now(), acceptSubscription: async () => { state.phase = 'active'; }, subscriptionRequest: async (_path, value) => {
         if (value.proof === 'another-account-proof') throw new Error('wrong account');
@@ -176,6 +178,7 @@ for (const platform of ['ios', 'android']) test(`${platform} explicit restore co
   const purchase = proof => ({ id: proof, productId: 'monthly', store: platform === 'ios' ? 'apple' : 'google', storeId: platform === 'ios' ? 'apple' : 'play', purchaseState: 'purchased', purchaseToken: proof });
   try {
     const module = load('src/platform/subscription/purchases.ts', {
+      'expo-application': { applicationId: 'app.current.build' },
       'react-native': { Platform: { OS: platform }, Linking: {} }, '../../features/subscription/purchase-flow': purchaseFlow,
       './runtime': { subscriptionSnapshot: () => state, subscriptionCurrentTime: () => Date.now(), acceptSubscription: async () => { state.phase = 'active'; }, subscriptionRequest: async (path, value) => {
         if (path === 'status') return {};
