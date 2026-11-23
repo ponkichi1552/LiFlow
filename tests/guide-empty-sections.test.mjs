@@ -6,14 +6,15 @@ for (const platform of ['ios', 'android']) test(`${platform} an empty guide omit
   let changed = 0;
   const chore = { id: 'custom', name: '追加した家事', category: '追加した家事', recommendedCycleDays: 30,
     estimatedMinutes: 15, effort: 'normal', instructions: [' '], tools: ['\n'], cautions: [' '],
-    procedureSections: [{ title: '見出しだけ', steps: [' '] }], description: '', schedulingNotes: '' };
+    procedureSections: [{ title: '見出しだけ', steps: [' '] }], description: ' 追加した家事 \n', schedulingNotes: '' };
   const original = structuredClone(chore);
   const screen = screenHarness('src/features/chores/chore-guide.tsx', { exportName: 'ChoreGuide', platform, props: { chore, mode: 'balanced',
     procedureAction: { type: 'Pressable', props: { accessibilityRole: 'button', accessibilityLabel: '予定の有効化', onPress: () => { changed++; }, children: '予定に追加' } } } });
   for (const title of ['家事の手順', '必要な道具', '注意事項', '手順はまだ登録されていません。']) assert.ok(!screen.text().includes(title));
+  assert.equal(screen.text().split(chore.name).length, 2, 'the name appears once');
   await screen.press('予定の有効化'); assert.equal(changed, 1); assert.deepEqual(chore, original);
-  chore.instructions = ['外装を拭く']; chore.tools = ['布']; chore.cautions = ['電源を切る']; screen.render();
-  for (const value of ['家事の手順', '外装を拭く', '必要な道具', '布', '注意事項', '電源を切る']) assert.ok(screen.text().includes(value));
+  chore.description = '週末に外装を手入れする'; chore.instructions = ['外装を拭く']; chore.tools = ['布']; chore.cautions = ['電源を切る']; screen.render();
+  for (const value of [chore.description, '家事の手順', '外装を拭く', '必要な道具', '布', '注意事項', '電源を切る']) assert.ok(screen.text().includes(value));
   assert.ok(!screen.text().includes('見出しだけ'));
   await screen.press('予定の有効化'); assert.equal(changed, 2);
   chore.procedureSections = [{ title: '準備', steps: ['電源プラグを抜く'] }]; screen.render();

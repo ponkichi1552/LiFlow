@@ -39,13 +39,16 @@ export function usePersonalSettingsData() {
   const cached = useMemo<PersonalSettingsView | null>(() => plannerSnapshot ? {
     settings: plannerSnapshot.settings, chores: plannerSnapshot.chores, today: plannerSnapshot.today, timeZone: plannerSnapshot.timeZone,
   } : null, [plannerSnapshot]);
-  const refresh = useCallback(async (options?: { waitForWeather?: boolean; force?: boolean }) => {
+  const refresh = useCallback(async (options?: { waitForWeather?: boolean; force?: boolean; settingsOnly?: boolean }) => {
     await controller.refresh();
+    if (options?.settingsOnly) return;
     const background = waitForInitialFrame().then(() => refreshPlanner(options));
     if (options?.waitForWeather) await background; else void background.catch(() => undefined);
   }, [controller, refreshPlanner]);
   const readError = useCallback(() => controller.getSnapshot().error, [controller]);
   const snapshot = useMemo(() => state.snapshot ? { ...state.snapshot, today: cached?.today, timeZone: cached?.timeZone } : cached, [state.snapshot, cached]);
   const readSnapshot = useCallback(() => controller.getSnapshot().snapshot ?? cached, [controller, cached]);
-  return { ...state, snapshot, database, refresh, readError, readSnapshot };
+  const weatherOutcome = snapshot?.settings.weatherLocation && JSON.stringify(snapshot.settings.weatherLocation) === JSON.stringify(plannerSnapshot?.settings.weatherLocation)
+    ? plannerSnapshot?.weatherOutcome : undefined;
+  return { ...state, snapshot, database, refresh, readError, readSnapshot, weatherOutcome };
 }

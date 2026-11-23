@@ -6,7 +6,7 @@ import { addDays } from '../src/domain/scheduling/local-date.ts';
 import { createCalendarDisplayStore, CALENDAR_IDLE_RESET_MS } from '../src/features/calendar/display-store.ts';
 import { groupHistoryByDay } from '../src/features/planner/history-groups.ts';
 
-test('continuous month boundaries split the week without duplicating dates and put the month heading in day one weekday column', () => {
+test('continuous month boundaries split the week without duplicating dates and keep day one in its weekday column', () => {
   const weeks = Array.from({ length: 530 }, (_, i) => addDays('2025-01-05', i * 7));
   const rows = calendarMonthRows(weeks, 100); const dates = rows.flatMap(row => row.days.filter(Boolean));
   assert.equal(new Set(dates).size, weeks.length * 7); assert.equal(dates.length, weeks.length * 7);

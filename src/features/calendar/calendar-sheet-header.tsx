@@ -1,5 +1,6 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { palette, typography } from '../../components/planner-ui';
+import { plannerPressColorsForScheme } from '../../components/planner-theme';
 import { usePlannerBorderStyles } from '../../components/use-planner-border-styles';
 import type { ReactNode } from 'react';
 import type { EventDraft } from './events';
@@ -19,21 +20,43 @@ export function CalendarSheetContent<T>({ render, form }: { render(form: T): Rea
   return render(form);
 }
 
+export function CalendarTextAction({ title, label = title, onPress, disabled = false, expanded }: {
+  title: string; label?: string; onPress(): void; disabled?: boolean; expanded?: boolean;
+}) {
+  const pressColors = plannerPressColorsForScheme(useColorScheme());
+  return <View style={[baseStyles.button, baseStyles.textActionSlot]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ expanded, disabled }}
+      disabled={disabled} onPress={onPress} style={({ pressed }) => [
+        baseStyles.textActionSurface, pressed && !disabled && { backgroundColor: pressColors.tinted },
+      ]}>
+      <Text numberOfLines={1} adjustsFontSizeToFit style={[baseStyles.action, disabled && baseStyles.disabled]}>{title}</Text>
+    </Pressable>
+  </View>;
+}
+
 /** Appointment and chore entry share one sheet and the same close/save positions. */
 export function CalendarSheetHeader({ title, onClose, onSave, closeTitle = '閉じる', closeLabel = '予定の編集を閉じる', saveTitle = '保存', saveLabel = '予定を保存', busy = false, saveDisabled = false, closeExpanded }: {
   title: string; onClose(): void; onSave?(): void; closeTitle?: string; closeLabel?: string;
   saveTitle?: string; saveLabel?: string; busy?: boolean; saveDisabled?: boolean; closeExpanded?: boolean;
 }) {
   const styles = usePlannerBorderStyles(baseStyles);
+  const pressColors = plannerPressColorsForScheme(useColorScheme());
+  const savingDisabled = busy || saveDisabled;
   return <View style={styles.header}>
-    <Pressable accessibilityRole="button" accessibilityLabel={closeLabel} accessibilityState={closeExpanded === undefined ? undefined : { expanded: closeExpanded }} disabled={busy} onPress={onClose} style={styles.button}><Text style={[styles.action, busy && styles.disabled]}>{closeTitle}</Text></Pressable>
+    <CalendarTextAction title={closeTitle} label={closeLabel} expanded={closeExpanded} disabled={busy} onPress={onClose} />
     <Text numberOfLines={1} adjustsFontSizeToFit style={styles.heading}>{title}</Text>
-    {onSave ? <Pressable accessibilityRole="button" accessibilityLabel={saveLabel} disabled={busy || saveDisabled} onPress={onSave} style={[styles.button, styles.save, (busy || saveDisabled) && styles.saveDisabled]}><Text style={[styles.action, styles.saveLabel, (busy || saveDisabled) && styles.saveLabelDisabled]}>{busy ? '保存中' : saveTitle}</Text></Pressable> : <View style={styles.button} />}
+    {onSave ? <Pressable accessibilityRole="button" accessibilityLabel={saveLabel} accessibilityState={{ disabled: savingDisabled, busy }} disabled={savingDisabled} onPress={onSave}
+      style={({ pressed }) => [styles.button, styles.save, savingDisabled && styles.saveDisabled, pressed && !savingDisabled && { backgroundColor: pressColors.primary }]}>
+      <Text style={[styles.action, styles.saveLabel, savingDisabled && styles.saveLabelDisabled]}>{busy ? '保存中' : saveTitle}</Text></Pressable> : <View style={styles.button} />}
   </View>;
 }
 const baseStyles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border, paddingHorizontal: 14, gap: 8, minHeight: 52 },
-  button: { minHeight: 44, justifyContent: 'center', width: 64 }, save: { alignItems: 'center', backgroundColor: palette.accent, borderRadius: 10 }, saveDisabled: { backgroundColor: palette.elevated },
+  button: { minHeight: 44, justifyContent: 'center', width: 64, borderRadius: 10 },
+  textActionSlot: { alignItems: 'center' },
+  textActionSurface: { minWidth: 44, minHeight: 44, maxWidth: '100%', paddingHorizontal: 6, paddingVertical: 4, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center' },
+  save: { alignItems: 'center', backgroundColor: palette.accent }, saveDisabled: { backgroundColor: palette.elevated },
   saveLabel: { color: palette.accentInk, fontWeight: '600' }, saveLabelDisabled: { color: palette.disabled },
   heading: { ...typography.body, color: palette.ink, fontWeight: '700', flex: 1, textAlign: 'center' },
   action: { ...typography.body, color: palette.accent }, disabled: { opacity: .45 },

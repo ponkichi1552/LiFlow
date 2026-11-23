@@ -71,15 +71,24 @@ export function v2InitialTargetFields(target: DateTarget, timeZone: string) {
     endClockChoice: choice(values.endDay, values.endClock, target.precision === 'interval' ? target.end : undefined) };
 }
 export type V2TargetFields = ReturnType<typeof v2InitialTargetFields>;
-export function v2TargetLabel(target: DateTarget, timeZone: string, options: { includeYear?: boolean } = {}): string {
-  if (target.precision === 'date') { const date = parseLocalDate(target.date); return `${options.includeYear ? `${date.getUTCFullYear()}年` : ''}${date.getUTCMonth() + 1}月${date.getUTCDate()}日`; }
-  const label = (at: string) => {
-    const value = moment(at).tz(timeZone); const stamp = value.valueOf();
+export function v2TargetLabel(target: DateTarget, timeZone: string, options: { includeYear?: boolean; referenceDate?: LocalDate } = {}): string {
+  if (target.precision === 'date') {
+    if (target.date === options.referenceDate) return '';
+    const date = parseLocalDate(target.date);
+    return `${options.includeYear ? `${date.getUTCFullYear()}年` : ''}${date.getUTCMonth() + 1}月${date.getUTCDate()}日`;
+  }
+  const label = (value: moment.Moment, omitDate: boolean) => {
+    const stamp = value.valueOf();
     const candidates = v2WallTimeCandidates({ date: value.format('YYYY-MM-DD') as LocalDate, hour: value.hour(), minute: value.minute(),
       second: value.second(), millisecond: value.millisecond(), timeZone });
     const clock = value.millisecond() ? 'HH:mm:ss.SSS' : value.second() ? 'HH:mm:ss' : 'HH:mm';
-    return value.format(`${options.includeYear ? 'YYYY年' : ''}M月D日 ${clock}`)
+    return value.format(omitDate ? clock : `${options.includeYear ? 'YYYY年' : ''}M月D日 ${clock}`)
       + (candidates.length > 1 ? `（${candidates.indexOf(stamp) + 1}回目・UTC${value.format('Z')}）` : '');
   };
-  return target.precision === 'instant' ? label(target.at) : `${label(target.start)}〜${label(target.end)}`;
+  const start = moment(target.precision === 'instant' ? target.at : target.start).tz(timeZone);
+  const startDay = start.format('YYYY-MM-DD');
+  const first = label(start, startDay === options.referenceDate);
+  if (target.precision === 'instant') return first;
+  const end = moment(target.end).tz(timeZone);
+  return `${first}〜${label(end, options.referenceDate !== undefined && end.format('YYYY-MM-DD') === startDay)}`;
 }

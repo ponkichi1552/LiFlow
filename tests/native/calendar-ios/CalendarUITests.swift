@@ -75,8 +75,27 @@ import XCUIAutomation
     }
   }
   func jump(_ app: XCUIApplication, _ year: Int, _ month: Int) {
-    tap(app, "表示する年と月を選択"); tap(app, String(year) + "年"); tap(app, String(month) + "月")
+    tap(app, "表示する年と月を選択")
+    chooseMonthWheel(app, id: "calendar-year-wheel", value: year, unit: "年")
+    chooseMonthWheel(app, id: "calendar-month-wheel", value: month, unit: "月")
     tap(app, String(year) + "年" + String(month) + "月へ移動")
+  }
+  func chooseMonthWheel(_ app: XCUIApplication, id: String, value: Int, unit: String) {
+    let wheel = app.scrollViews[id].firstMatch
+    XCTAssertTrue(wheel.waitForExistence(timeout: 10))
+    let target = app.buttons[String(value) + unit].firstMatch
+    for _ in 0..<20 {
+      if target.exists && target.isHittable { target.tap(); return }
+      let selected = wheel.buttons.allElementsBoundByIndex.first { $0.isSelected && $0.isHittable }
+      guard let label = selected?.label, let current = Int(label.dropLast()) else {
+        return XCTFail("No selected value in \(id)")
+      }
+      let down = value > current
+      let start = wheel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? 0.78 : 0.22))
+      let end = wheel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? 0.22 : 0.78))
+      start.press(forDuration: 0.1, thenDragTo: end)
+    }
+    XCTFail("Could not reach \(value)\(unit)")
   }
   func removeOwnInterruptedEvent(_ app: XCUIApplication) {
     var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "Asia/Tokyo")!
@@ -266,16 +285,29 @@ import XCUIAutomation
     let monday = "2026年11月23日"
     let tuesday = "2026年11月24日"
     XCTAssertTrue(app.buttons[monday + "の家事を閉じる"].waitForExistence(timeout: 20))
-    let more = app.buttons[monday + "の家事一覧の続きを表示"]
-    XCTAssertTrue(more.waitForExistence(timeout: 10))
-    XCTAssertTrue(more.isHittable)
-    for _ in 0..<8 {
-      if app.buttons[monday + "の家事一覧の先頭に戻る"].exists { break }
-      more.tap()
+    let chores = app.descendants(matching: .any).matching(identifier: "calendar-chore-column:2026-11-23").firstMatch
+    XCTAssertTrue(chores.waitForExistence(timeout: 10))
+    let first = app.buttons["洗濯物を畳んで明日の着替えをそろえるの今回の日付を変更"].firstMatch
+    let last = app.buttons["寝具カバーの交換と洗濯の説明を開く"].firstMatch
+    func visible(_ item: XCUIElement) -> Bool {
+      item.isHittable && chores.frame.contains(CGPoint(x: item.frame.midX, y: item.frame.midY))
     }
-    XCTAssertTrue(app.buttons[monday + "の家事一覧の先頭に戻る"].waitForExistence(timeout: 10))
-    tap(app, monday + "の家事一覧の先頭に戻る")
-    XCTAssertTrue(more.waitForExistence(timeout: 10))
+    XCTAssertTrue(visible(first))
+    let needsScroll = !visible(last)
+    for _ in 0..<8 {
+      if visible(last) { break }
+      chores.swipeUp()
+    }
+    XCTAssertTrue(visible(last))
+    last.tap()
+    XCTAssertTrue(app.staticTexts["家事の詳細"].waitForExistence(timeout: 10))
+    tap(app, "詳細を閉じる")
+    if needsScroll { XCTAssertFalse(visible(first)) }
+    for _ in 0..<8 {
+      if visible(first) { break }
+      chores.swipeDown()
+    }
+    XCTAssertTrue(visible(first))
     tap(app, tuesday + "の家事を開く")
     XCTAssertTrue(app.buttons[tuesday + "の家事を閉じる"].waitForExistence(timeout: 10))
     XCTAssertTrue(app.buttons[monday + "の家事を閉じる"].exists)

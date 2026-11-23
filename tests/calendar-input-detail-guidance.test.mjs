@@ -53,6 +53,33 @@ test('calendar help measures real visible editable events and ignores offscreen 
   cancel(); late(0, 0, 20, 20); t.mock.timers.tick(200); assert.equal(calls, 1);
 });
 
+test('a calendar date chosen before tapping the background reaches the editor and is saved by the editor action', async t => {
+  const h = createDatabase(); t.after(() => h.connection.close()); await repository.initializeLocalDatabase(h.database);
+  const local = { database: h.database, snapshot: await calendars.readLocalCalendar(h.database), refresh: async () => {} };
+  const ui = screenHarness('src/features/calendar/calendar-editor.tsx', { exportName: 'CalendarEditor', platform: 'ios',
+    props: { initial: draft(), local, onClose() {}, onSaved() {} } }); t.after(() => ui.unmount());
+  await ui.change('予定名', '日付変更の確認'); await ui.press('開始日を選択');
+  const pick = ui.nodes().find(node => node.type === 'DateTimePicker').props.onValueChange;
+  pick({}, new Date('2026-11-21T12:00:00Z')); pick({}, new Date('2026-11-22T12:00:00Z'));
+  await ui.press('日時選択を閉じる');
+  assert.equal(ui.button('開始日を選択').props.accessibilityValue.text, '2026/11/22');
+  assert.equal((await calendars.readLocalCalendar(h.database)).events.length, 0);
+  await ui.press('予定を保存'); for (let n = 0; n < 16; n++) await ui.flush();
+  const saved = (await calendars.readLocalCalendar(h.database)).events;
+  assert.equal(saved.length, 1); assert.equal(saved[0].startDate, '2026-11-22');
+});
+
+test('closing an untouched calendar time picker keeps an unspecified time', async t => {
+  const chosen = [];
+  const ui = screenHarness('src/features/calendar/calendar-field.tsx', { exportName: 'CalendarField', platform: 'ios',
+    props: { label: '開始時刻', date, mode: 'time', minute: 540, empty: true, commitOnDone: 'or-backdrop', onMinute: value => chosen.push(value) } });
+  t.after(() => ui.unmount());
+  await ui.press('開始時刻を選択'); await ui.press('日時選択を閉じる');
+  assert.deepEqual(chosen, []); assert.equal(ui.button('開始時刻を選択').props.accessibilityValue.text, '未指定');
+  await ui.press('開始時刻を選択'); await ui.press('開始時刻の選択を完了');
+  assert.deepEqual(chosen, [540]);
+});
+
 for (const [platform, inputName, manualName, boundaryName, detailName, guidanceName] of [
   ['ios', 'ios new appointment titles fill civil dates and clocks and save the original sentence exactly once',
     'ios manually chosen appointment clocks take precedence over subsequent title expressions',
@@ -86,8 +113,7 @@ for (const [platform, inputName, manualName, boundaryName, detailName, guidanceN
     if (platform === 'ios') {
       const pick = async () => { ui.nodes().find(node => node.type === 'DateTimePicker').props.onValueChange({}, picked); await ui.flush(); };
       await pick(); await ui.press('日時選択を閉じる');
-      assert.equal(ui.button('開始を選択').props.accessibilityValue.text, '18:00');
-      await ui.press('開始を選択'); await pick(); await ui.press('開始の選択を完了');
+      assert.equal(ui.button('開始を選択').props.accessibilityValue.text, '20:00');
     }
     else { picker.onValueChange({}, picked); await ui.flush(); }
     await ui.change('予定名', '明日19時に食事'); assert.equal(ui.button('開始を選択').props.accessibilityValue.text, '20:00'); assert.equal(ui.button('終了を選択').props.accessibilityValue.text, '21:00');
@@ -120,10 +146,12 @@ for (const [platform, inputName, manualName, boundaryName, detailName, guidanceN
     const ui = screenHarness('src/features/calendar/calendar-help.tsx', { exportName: 'CalendarHelp', platform, props: { onClose: () => closed++, onShow: () => shown++, measureTargets: done => { done({ ...targets, event: { x: 50, y: phase ? 300 : 40, width: 80, height: 30 } }); return () => {}; } }, effectDependencies: true, effect: callback => effects.push(callback) }); t.after(() => ui.unmount());
     for (const effect of effects.splice(0)) effect(); await ui.flush();
     phase = 1; ui.nodes().find(node => node.type === 'Modal').props.onShow(); await ui.flush();
+    assert.match(ui.text(), /予定・家事を追加/u);
+    await ui.press('カレンダーの案内を次へ'); assert.match(ui.text(), /予定は、長押しして移動/u);
     const outline = ui.nodes().find(node => node.props.testID === 'calendar-help-target');
     const frame = Object.assign({}, ...outline.props.style);
     assert.ok(frame.top > 70 && frame.top <= 300 && frame.top + frame.height >= 330, 'native presentation remeasures the final control position');
-    for (const title of ['予定・家事を追加', '表示・詳しさを切り替える', '予定・家事を探す']) { await ui.press('カレンダーの案内を次へ'); assert.match(ui.text(), new RegExp(title)); }
+    for (const title of ['表示・詳しさを切り替える', '予定・家事を探す']) { await ui.press('カレンダーの案内を次へ'); assert.match(ui.text(), new RegExp(title)); }
     await ui.press('カレンダーの案内を完了'); if (platform === 'ios') ui.nodes().find(node => node.type === 'Modal').props.onDismiss();
     assert.equal(closed, 1); assert.equal(shown, 1); assert.deepEqual(targets.add, { x: 310, y: 60, width: 44, height: 44 });
   });

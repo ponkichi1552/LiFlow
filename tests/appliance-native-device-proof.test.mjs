@@ -8,11 +8,51 @@ import { createNativeDeviceAuthorization } from '../server/appliance-care-api/sr
 import { createPublicApiAccess, usagePeriods } from '../server/appliance-care-api/src/public-access.mjs';
 import { createApplianceCareHttpServer } from '../server/appliance-care-api/src/http-server.mjs';
 import { publicStoreFixture } from './helpers/appliance-public-store.mjs';
+import { loadNativeModule } from './helpers/native-module.mjs';
 
 const syntheticSecret = Buffer.alloc(32, 71).toString('hex');
 const asBase64 = value => Buffer.from(String(value)).toString('base64');
 const originalKey = Buffer.alloc(32, 11).toString('base64');
 const replacementKey = Buffer.alloc(32, 12).toString('base64');
+
+test('analysis polling reuses an unexpired device grant only for its exact account endpoint and admission', async t => {
+  const baseUrl = 'https://analysis.example.invalid';
+  const challenges = [];
+  let monotonic = 0;
+  let assertions = 0;
+  t.mock.method(performance, 'now', () => monotonic);
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (url.endsWith('/challenge')) {
+      const { admissionId } = JSON.parse(options.body);
+      challenges.push([url, options.headers.authorization, admissionId]);
+      return Response.json({ challenge: `synthetic-${challenges.length}`, mode: 'assert' });
+    }
+    assert.ok(url.endsWith('/grant'));
+    return Response.json({ grant: `grant-${assertions}.${'x'.repeat(43)}`, ttlMs: 60_000 });
+  });
+  const { applianceDeviceGrant } = loadNativeModule('src/platform/appliance-care/device-proof.ts', {
+    'react-native': { Platform: { OS: 'ios' } },
+    expo: { requireOptionalNativeModule: () => ({}) },
+    'expo-application': {}, 'expo-crypto': {},
+    'expo-secure-store': { getItemAsync: async () => 'synthetic-key' },
+    '@expo/app-integrity': { isSupported: true, async generateAssertionAsync() { return `assertion-${++assertions}`; } },
+  });
+  const obtain = (admissionId, owner = 'one', url = baseUrl) => applianceDeviceGrant(url, owner, `Bearer ${owner}`, admissionId);
+  const [first, duplicate] = await Promise.all([obtain('analysis-a'), obtain('analysis-a')]);
+  assert.equal(duplicate, first);
+  assert.notEqual(await obtain('analysis-b'), first);
+  assert.notEqual(await obtain(undefined), first, 'account binding requires its own unbound grant');
+  monotonic = 44_999;
+  assert.equal(await obtain('analysis-a'), first);
+  assert.equal(challenges.length, 3);
+  monotonic++;
+  const refreshed = await obtain('analysis-a');
+  assert.notEqual(refreshed, first);
+  assert.notEqual(await obtain('analysis-a', 'two'), refreshed);
+  assert.notEqual(await obtain('analysis-a', 'one', 'https://other.example.invalid'), refreshed);
+  assert.notEqual(await obtain('analysis-a'), refreshed, 'switching scope drops the prior grant');
+  assert.equal(challenges.length, 7);
+});
 
 test('native Apple proof keeps the lower account-device quota after an account switch and blocks a missing key until the next month', async () => {
   let at = Date.UTC(2026, 10, 21);
@@ -23,11 +63,13 @@ test('native Apple proof keeps the lower account-device quota after an account s
   const ios = createAppleApplianceDevice({ firestore: fixture.firestore, now, teamIdentifier: 'DEMO123456', deviceCheck: {
     read: async token => { assert.equal(token, queryToken); return { ...device }; },
     mark: async (token, previous) => { assert.equal(token, updateToken); device.bit0 = !previous.bit0; device.bit1 = true; device.month = usagePeriods(now()).month; },
-  }, attest: ({ keyId, allowDevelopmentEnvironment, challenge }) => {
+  }, attest: ({ keyId, allowDevelopmentEnvironment, challenge, bundleIdentifier }) => {
+    assert.equal(bundleIdentifier, 'b166a1b2cdc2f.v1ed948b4df18');
     assert.equal(allowDevelopmentEnvironment, false);
     assert.deepEqual(JSON.parse(challenge).slice(1), [queryToken, updateToken]);
     return { environment: 'production', keyId, publicKey: 'verified synthetic public key' };
-  }, assertKey: ({ assertion, signCount }) => {
+  }, assertKey: ({ assertion, signCount, bundleIdentifier }) => {
+    assert.equal(bundleIdentifier, 'b166a1b2cdc2f.v1ed948b4df18');
     const fresh = Number(assertion.toString());
     if (fresh <= signCount) throw new Error('replayed assertion');
     return { signCount: fresh };

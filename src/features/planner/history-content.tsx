@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { Page, palette, typography } from '@/components/planner-ui';
@@ -6,6 +7,7 @@ import { HistoryDayHeading } from '@/components/history-day-heading';
 import { HistoryOverview } from '@/components/history-record-row';
 import { localDateFromDate, monthKey } from '@/domain/scheduling/local-date';
 import { PlannerLoadState } from '@/components/planner-load-state';
+import { SettingsAction } from '@/components/settings-controls';
 import type { usePlannerData } from '@/hooks/use-planner-data';
 import { groupHistoryByDay } from './history-groups';
 import { completionHistoryDay } from './history-selection';
@@ -15,8 +17,16 @@ import { PersonalHistoryRecord } from './personal-history-record';
 export function PlannerHistoryContent({ data, requestedChoreId }: {
   data: Pick<ReturnType<typeof usePlannerData>, 'snapshot' | 'loading' | 'error' | 'refresh'>; requestedChoreId?: string;
 }) {
-  const { snapshot, loading, error, refresh } = data;
-  if (loading || !snapshot) return <PlannerLoadState title="実施履歴" message="履歴を読み込んでいます。" error={error} retry={refresh} />;
+  const { snapshot, error, refresh } = data;
+  const [retrying, setRetrying] = useState(false);
+  const back = () => router.back();
+  const reload = () => refresh({ force: true });
+  const retry = async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try { await reload(); } finally { setRetrying(false); }
+  };
+  if (!snapshot) return <PlannerLoadState title="実施履歴" message="履歴を読み込んでいます。" error={error} retry={reload} onBack={back} />;
   const choresById = new Map(snapshot.chores.map(chore => [chore.id, chore]));
   const selectedChore = requestedChoreId ? choresById.get(requestedChoreId) : undefined;
   const completions = snapshot.completions.filter(item => item.outcome === 'completed' && (!requestedChoreId || item.choreId === requestedChoreId));
@@ -24,9 +34,11 @@ export function PlannerHistoryContent({ data, requestedChoreId }: {
   const completedThisMonth = completions.filter(item => item.outcome === 'completed' && monthKey(completionHistoryDay(item, snapshot.timeZone)) === thisMonth).length;
   const recent = selectPersonalHistory(completions);
   const groups = groupHistoryByDay(recent, item => ({ id: item.id, timestamp: item.completedAt, date: completionHistoryDay(item, snapshot.timeZone) }));
-  return <Page header={<SettingsHeader title="実施履歴" onBack={() => router.back()} />} contentStyle={styles.page}>
+  return <Page header={<SettingsHeader title="実施履歴" onBack={back} />} contentStyle={styles.page}>
     {selectedChore ? <Text style={styles.chore}>{selectedChore.name}</Text> : null}
-    {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+    {error ? <View style={styles.recovery}><Text accessibilityRole="alert" style={styles.error}>{error}</Text>
+      <SettingsAction title={retrying ? '再読み込み中…' : 'もう一度読み込む'} intent="auxiliary" disabled={retrying} onPress={() => void retry()} />
+    </View> : null}
     {completions.length ? <HistoryOverview completedThisMonth={completedThisMonth} /> : <Text style={styles.empty}>実施履歴はありません。</Text>}
     {groups.map(group => <View key={group.date}>
       <HistoryDayHeading date={group.date} showMonth={group.showMonth} />
@@ -40,4 +52,5 @@ const styles = StyleSheet.create({
   page: { paddingTop: 10, gap: 12 }, chore: { ...typography.body, color: palette.ink, fontWeight: '600' },
   empty: { ...typography.body, color: palette.muted, paddingVertical: 12 },
   footnote: { ...typography.caption, color: palette.muted }, error: { ...typography.caption, color: palette.warning },
+  recovery: { gap: 8, alignItems: 'flex-start' },
 });

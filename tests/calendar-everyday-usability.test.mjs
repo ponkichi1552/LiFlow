@@ -125,6 +125,27 @@ for (const platform of ['ios', 'android']) {
     assert.equal(reminders.calendarReminderMinutes(await reminders.readCalendarReminders(h.database), 'personal', eventId, null), 10);
     assert.deepEqual((await store.readLocalCalendar(h.database)).events, snapshot.events);
   });
+  test(`${platform} a read-only Google event falls back safely and shows when the browser cannot open`, async t => {
+    const h = await setup(t);
+    const value = { ...newEventDraft('2026-11-14', 'Asia/Tokyo'), title: '閲覧のみの予定' };
+    const eventId = 'google-event';
+    const snapshot = await store.readLocalCalendar(h.database);
+    snapshot.events = [{ ...value, id: eventId, revision: 1, readOnly: true, externalUrl: 'https://www.google.com/search?q=calendar' }];
+    const local = { database: h.database, snapshot, loading: false, error: null, refresh: async () => {}, canEditEvent: () => false };
+    const opened = [];
+    const ui = screenHarness('src/features/calendar/calendar-editor.tsx', { platform, exportName: 'CalendarEditor',
+      openURL: async url => { opened.push(url); if (opened.length === 1) throw new Error('Browser unavailable'); },
+      props: { local, initial: { eventId, revision: 1, exceptionRevision: 0, scope: 'series', anchorDate: null, value }, onClose() {}, onSaved() {} } });
+    t.after(() => ui.unmount());
+    const link = ui.nodes().find(node => node.props.accessibilityRole === 'link');
+    assert.ok(link);
+    link.props.onPress(); await flush(ui);
+    assert.equal(opened[0], 'https://calendar.google.com/calendar/u/0/r');
+    assert.match(ui.text(), /Googleカレンダーを開けませんでした/u);
+    link.props.onPress(); await flush(ui);
+    assert.equal(opened.length, 2);
+    assert.doesNotMatch(ui.text(), /Googleカレンダーを開けませんでした/u);
+  });
   test(`${platform} chore search candidates are loaded only when search opens`, async () => {
     const local = { database: {}, snapshot: { events: [], exceptions: [], categories: [], drafts: [] }, loading: false, error: null, refresh: async () => {} };
     let loads = 0; const selected = [];

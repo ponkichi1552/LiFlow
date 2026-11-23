@@ -32,6 +32,7 @@ import type { EventDraft } from '../../calendar/events';
 import { changeChoreClock, emptyChoreClocks, withChoreClocks, type ChoreClocks } from '../../calendar/chore-clock-input';
 import { registrationOptions, type CalendarChoreInput } from '../../calendar/chore-registration-input';
 import { sharedRecipeId } from '../v2/standard-catalog';
+import { useChoreDraftExit } from '../../chores/use-chore-draft-exit';
 
 type SavedChore = { id: string; needsDateApproval: boolean };
 
@@ -65,13 +66,20 @@ export function V2AddChore({ model, actions, busy, run, onCreated, onBack, heade
   const input = useRef(draft); const pending = useRef(false); const alive = useRef(true);
   const durable = useRef<SavedChore | null>(null); const [createdId, setCreatedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null); const [saving, setSaving] = useState(false);
+  const changed = repeat !== atOpen.repeat || (draft !== atOpen.draft && JSON.stringify(draft) !== JSON.stringify(atOpen.draft));
+  const allowSavedExit = useChoreDraftExit(!renderCalendarForm && !createdId && changed, !renderCalendarForm && saving, pending);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const edit = (patch: Partial<typeof draft>) => { if (pending.current || busy || durable.current) return; input.current = { ...input.current, ...patch }; setDraft(input.current); setError(null); };
+  const openSaved = (saved: SavedChore, date: LocalDate) => {
+    if (!alive.current) return;
+    if (!renderCalendarForm) allowSavedExit();
+    onCreated(saved.id, date, saved.needsDateApproval);
+  };
   const create = async () => {
     if (pending.current || busy) return; pending.current = true; setSaving(true); onBusyChange?.(true); setError(null);
     try {
       if (durable.current) {
-        if (alive.current) onCreated(durable.current.id, input.current.startDate as LocalDate, durable.current.needsDateApproval);
+        openSaved(durable.current, input.current.startDate as LocalDate);
         return;
       }
       if (calendarDate && !administrator) throw new Error('家事の登録は管理者が行います。');
@@ -101,7 +109,7 @@ export function V2AddChore({ model, actions, busy, run, onCreated, onBack, heade
           if (alive.current) setCreatedId(created);
         }
       });
-      if (saved && alive.current) onCreated(saved.id, value.startDate as LocalDate, saved.needsDateApproval);
+      if (saved) openSaved(saved, value.startDate as LocalDate);
     } catch (cause) { if (alive.current) setError(durable.current ? '端末に追加済みです。もう一度開いてください。'
       : cause instanceof Error ? cause.message : '追加する内容を確認してください。'); }
     finally { pending.current = false; if (alive.current) setSaving(false); onBusyChange?.(false); }
@@ -193,7 +201,7 @@ export function V2AddChore({ model, actions, busy, run, onCreated, onBack, heade
       </SettingsPanel></>}
   </>;
   return renderCalendarForm ? <CalendarSheetContent render={renderCalendarForm} form={{ content: feedback, entry, onSave: () => void create(), disabled, busy: busy || saving,
-    hasInput: Boolean(existing) || repeat !== atOpen.repeat || JSON.stringify(draft) !== JSON.stringify(atOpen.draft) }} />
+    hasInput: Boolean(existing) || changed }} />
     : <V2FormScrollView contentContainerStyle={{ padding: 18, gap: 12, paddingBottom: 16 }} header={<ChoreAddHeader disabled={busy || saving} onBack={() => { if (!pending.current) onBack(); }} />}
       footer={<><AppButton title={createdId ? '追加済みの家事を開く' : '追加'} accessibilityLabel={createdId ? undefined : administrator ? '追加' : 'この内容を共有家事に追加'} disabled={disabled} onPress={() => void create()} /></>}>{content}</V2FormScrollView>;
 }

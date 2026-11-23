@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { searchWasteTypes } from '../src/features/waste/waste-types.ts';
+import { formatJapaneseDate } from '../src/domain/scheduling/local-date.ts';
 import { createDatabase } from './helpers/sqlite.mjs';
 const repository = await import('../src/platform/storage/repository.ts');
 
@@ -53,6 +54,26 @@ test('waste persistence rejects invalid weekdays, labels and nonexistent dates',
     await assert.rejects(repository.saveWeeklyWasteSchedule(h.database, { label: ' ', collectionWeekdays: [1] }));
     await assert.rejects(repository.setWasteOccurrenceHidden(h.database, 'qa', '2026-02-30', true));
   } finally { h.connection.close(); }
+});
+
+test('personal waste settings open from SQLite when the full planner is unavailable', async t => {
+  const h = createDatabase();
+  t.after(() => h.connection.close());
+  await repository.initializeLocalDatabase(h.database);
+  await repository.saveWeeklyWasteSchedule(h.database, { id: 'offline-waste', label: '資源ごみ', collectionWeekdays: [6] });
+  const { upcomingWasteDates: [hidden, next] } = await repository.readWasteScheduleSettings(h.database);
+  await repository.setWasteOccurrenceHidden(h.database, 'offline-waste', hidden.date, true);
+  const screen = screenHarness('src/app/waste.tsx', { database: h.database, effectDependencies: true, effect: callback => callback(),
+    mocks: { '@/hooks/use-planner-data': { usePlannerData: () => ({ snapshot: null, database: h.database, error: '全体データの取得エラー',
+      refresh: async () => assert.fail('opening saved waste settings must not refresh the planner') }) } },
+  });
+  t.after(() => screen.unmount());
+  for (let n = 0; n < 10 && !screen.text().includes('次の収集日'); n++) await screen.flush();
+  screen.button('「資源ごみ」の収集日を編集');
+  assert.doesNotMatch(screen.text(), /全体データの取得エラー|端末の収集日データを開けませんでした/u);
+  const upcoming = screen.text().split('非表示の収集日')[0];
+  assert.ok(upcoming.includes(formatJapaneseDate(next.date, { weekday: true })));
+  assert.ok(!upcoming.includes(formatJapaneseDate(hidden.date, { weekday: true })));
 });
 
 test('personal waste edits preserve newer untouched fields and never resurrect a deleted edited schedule', async () => {

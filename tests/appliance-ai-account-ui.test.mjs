@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
 
-for (const platform of ['ios', 'android']) test(`${platform} appliance AI never becomes ready from login alone or a stale account binding response`, async () => {
+for (const platform of ['ios', 'android']) test(`${platform} appliance AI never becomes ready from login alone or a stale account binding response`, async t => {
+  const existingApiUrl = process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL;
+  process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL = 'https://appliance.example.invalid';
+  t.after(() => {
+    if (existingApiUrl === undefined) delete process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL;
+    else process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL = existingApiUrl;
+  });
   let observe; const effects = []; const ready = []; const pending = new Map(); let logins = 0;
   const screen = screenHarness('src/features/appliance-care/ai-account.tsx', { platform, exportName: 'ApplianceAiAccount', props: { onReady: value => ready.push(value) },
     effect: callback => effects.push(callback), mocks: {

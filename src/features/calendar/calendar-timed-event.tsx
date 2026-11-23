@@ -4,7 +4,7 @@ import type { LocalDate } from '../../domain/shared/types';
 import { palette, typography } from '../../components/planner-ui';
 import type { CalendarOccurrence } from './events';
 import { minuteLabel } from './events';
-import { CALENDAR_DRAG_HOLD_MS, calendarDragTarget } from './direct-actions';
+import { CALENDAR_DRAG_HOLD_MS, calendarDragTarget, type CalendarDragColumn } from './direct-actions';
 import type { RegisterCalendarHelpTarget } from './help-targets';
 import { addDays } from '../../domain/scheduling/local-date';
 import { calendarDisplayedTitle } from './title-display';
@@ -28,11 +28,12 @@ function createTimedDragControl() {
   return { panHandlers: control.panHandlers, update: (next: typeof actions) => { actions = next; } };
 }
 export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hourHeight, draggable, style, selected, children, background,
-  onOpen, onBegin, onCommit, onActive, onResolveTarget, dateOnly = false, helpTarget, accessibleTime }: {
+  onOpen, onBegin, onCommit, onActive, onResolveTarget, dragColumns, dateOnly = false, helpTarget, accessibleTime }: {
   event: CalendarOccurrence; day: LocalDate; days: readonly LocalDate[]; columnWidth: number; hourHeight: number;
   draggable: boolean; style: StyleProp<ViewStyle>; selected: boolean; children: ReactNode; background?: ReactNode;
   onOpen(): void; onBegin(): Capture | null; onCommit(capture: Capture, target: Target): Promise<void>; onActive(day: LocalDate | null): void;
   helpTarget?: RegisterCalendarHelpTarget; onResolveTarget?(gesture: PanResponderGestureState): Target | null; dateOnly?: boolean;
+  dragColumns?(): readonly CalendarDragColumn[];
   accessibleTime?: string;
 }) {
   const setHost = useCallback((node: ComponentRef<typeof View> | null) => { helpTarget?.(`timed:${event.id}:${day}`, draggable ? node : null); }, [helpTarget, event.id, day, draggable]);
@@ -41,7 +42,7 @@ export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hou
   const control = useMemo(() => createTimedDragControl(), []);
   const [target, setTarget] = useState<Target | null>(null);
   const session = useRef<{ capture: Capture; origin: Target; touch?: PagePoint; days: readonly LocalDate[]; columnWidth: number; hourHeight: number;
-    resolve?: (gesture: PanResponderGestureState) => Target | null } | null>(null);
+    columns?: readonly CalendarDragColumn[]; resolve?: (gesture: PanResponderGestureState) => Target | null } | null>(null);
   const touchBeforeHold = useRef<PagePoint | undefined>(undefined);
   const claimed = useRef(false); const held = useRef(false); const saving = useRef(false); const alive = useRef(true);
   const reset = () => {
@@ -56,8 +57,8 @@ export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hou
       ? { x: pointer.pageX - value.touch.pageX, y: pointer.pageY - value.touch.pageY }
       : { x: gesture.dx, y: gesture.dy };
     const next = value.resolve ? value.resolve(gesture)
-      : calendarDragTarget(value.origin, value.days, value.columnWidth, value.hourHeight, translation.x, translation.y);
-    return next && { next, translation };
+      : calendarDragTarget(value.origin, value.days, value.columnWidth, value.hourHeight, translation.x, translation.y, value.columns);
+    return { next, translation };
   };
   useLayoutEffect(() => {
     control.update({ active: () => Boolean(session.current), grant: () => { claimed.current = true; }, cancel: reset,
@@ -67,7 +68,7 @@ export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hou
         const drop = destination(gesture, pointer); if (!drop) return;
         const { next, translation } = drop;
         pan.setValue(translation);
-        setTarget(previous => previous?.day === next.day && previous.minute === next.minute ? previous : next);
+        setTarget(previous => previous?.day === next?.day && previous?.minute === next?.minute ? previous : next);
       }, finish: (gesture, pointer) => {
       const value = session.current; const next = destination(gesture, pointer)?.next;
       if (!value || !next || saving.current || next.day === value.origin.day && next.minute === value.origin.minute) { reset(); return; }
@@ -95,7 +96,8 @@ export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hou
         saving.current = true;
         void onCommit(capture, next).catch(() => { /* The calendar owns save-error feedback. */ }).finally(() => { saving.current = false; });
       }}
-      accessibilityState={{ selected }} style={dateOnly ? undefined : styles.hit} onPressIn={touchEvent => {
+      accessibilityState={{ selected }} hitSlop={dateOnly ? undefined : 4}
+      style={({ pressed }) => [!dateOnly && styles.hit, pressed && !held.current && styles.pressed]} onPressIn={touchEvent => {
         if (saving.current) return;
         held.current = false;
         touchBeforeHold.current = pagePoint(touchEvent);
@@ -108,15 +110,16 @@ export function CalendarTimedEvent<Capture>({ event, day, days, columnWidth, hou
         held.current = true; claimed.current = false;
         const origin = { day: event.startDate, minute: event.startMinute };
         const touch = touchBeforeHold.current ?? pagePoint(touchEvent);
-        session.current = { capture, origin, touch, days: [...days], columnWidth, hourHeight, resolve: onResolveTarget }; setTarget(origin); onActive(day);
-      } : undefined}>{children}</Pressable>
+        session.current = { capture, origin, touch, days: [...days], columnWidth, hourHeight, columns: dragColumns?.(), resolve: onResolveTarget };
+        setTarget(origin); onActive(day);
+      } : undefined}>{dateOnly ? children : <View pointerEvents="none" style={styles.hit}>{children}</View>}</Pressable>
     {target ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.outline]} /> : null}
   </Animated.View>;
 }
 
 const styles = StyleSheet.create({
   // The outline must not reduce the text area, or clip the date tag above the card.
-  hit: { flex: 1 }, active: { zIndex: 20, overflow: 'visible' },
+  hit: { flex: 1 }, active: { zIndex: 20, overflow: 'visible' }, pressed: { opacity: .78 },
   outline: { borderWidth: 2, borderColor: palette.accent, borderRadius: 5 },
   target: { ...typography.small, position: 'absolute', bottom: '100%', left: 0, color: palette.ink, backgroundColor: palette.surface, paddingHorizontal: 4, borderRadius: 3 },
 });

@@ -9,9 +9,14 @@ const UiReviewScreen = lazy(() => import('@/features/development/ui-review/scree
 
 export default function UiReviewRoute() {
   const params = useLocalSearchParams<{ area?: string; scenario?: string }>();
-  const header = <SettingsHeader title="UI確認用データ" onBack={() => router.back()} />;
+  const area = typeof params.area === 'string' ? params.area : undefined;
+  const scenario = typeof params.scenario === 'string' ? params.scenario : undefined;
+  const header = <SettingsHeader title="UI確認用データ" onBack={() => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/settings');
+  }} />;
   if (!uiReviewEnabled) return <Page header={header}><Text style={{ ...typography.body, color: palette.muted }}>開発ビルド専用です。</Text></Page>;
   return <Suspense fallback={<Page header={header}><ActivityIndicator accessibilityLabel="確認用データを読み込み中" color={palette.accent} /></Page>}>
-    <UiReviewScreen initialArea={typeof params.area === 'string' ? params.area : undefined} initialScenario={typeof params.scenario === 'string' ? params.scenario : undefined} />
+    <UiReviewScreen key={`${area ?? ''}:${scenario ?? ''}`} initialArea={area} initialScenario={scenario} />
   </Suspense>;
 }

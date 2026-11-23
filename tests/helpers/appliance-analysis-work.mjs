@@ -11,7 +11,7 @@ export function applianceAnalysisScreenWork(run = async () => null) {
   };
   async function startAnalysisWork(_database, { owner, target, request, filename, basis }) {
     const slot = key(owner, target);
-    if (entries.get(slot)?.state === 'pending') return;
+    if (entries.get(slot)?.state === 'pending') return entries.get(slot).id;
     const id = `durable-screen-analysis-${++sequence}`;
     const entry = { id, ...target, filename, basis, manualDigest: id, state: 'pending', result: null };
     manuals.set(id, request.manual.base64);
@@ -19,12 +19,16 @@ export function applianceAnalysisScreenWork(run = async () => null) {
     void Promise.resolve().then(() => run(request)).then(result => {
       entries.set(slot, { ...entry, state: result?.status === 'verified' ? 'ready' : 'failed', result });
     });
+    return id;
   }
   const hooks = {
-    useTargetAnalysisWork: (_database, owner, groupId, applianceId) => ({ value: source.get(owner, groupId, applianceId), focused: source.focused }),
-    useAnalysisWorkList: (_database, owner, groupId) => [...entries.entries()].filter(([scope]) => {
+    useTargetAnalysisWork: (_database, owner, groupId, applianceId, id) => {
+      const work = source.get(owner, groupId, applianceId);
+      return { value: work && (!id || work.id === id) ? work : null, focused: source.focused };
+    },
+    useAnalysisWorkList: (_database, owner, groupId) => ({ items: [...entries.entries()].filter(([scope]) => {
       const [uid, group] = JSON.parse(scope); return uid === owner && (!group || group === groupId);
-    }).map(([, entry]) => entry),
+    }).map(([, entry]) => entry) }),
   };
   const storage = { deviceAnalysisWork: () => ({
     async remove(owner, id) {

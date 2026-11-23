@@ -9,7 +9,7 @@ import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import { v2FormStyles as styles } from './form-controls';
 import { v2TargetLabel } from './target-form';
 
-type Props = { model: V2GroupScreenModel; actions: V2GroupController['actions']; busy: boolean; header?: ReactElement; embedded?: boolean;
+type Props = { model: V2GroupScreenModel; actions: Pick<V2GroupController['actions'], 'answerAssignment'>; busy: boolean; header?: ReactElement; embedded?: boolean;
   run: (work: () => Promise<unknown>) => Promise<void>; onResolve?: (occurrenceId: string, anchorDate: LocalDate) => void };
 const labels = { pendingDelivery: '端末に保存済み · 申請の送信待ち', awaiting: '管理者の回答待ち', approved: '承認済み', rejected: '拒否されました',
   expired: '期限切れ', tooLate: '受付時に申請期限を過ぎていました', conflict: '回答が競合しています' };

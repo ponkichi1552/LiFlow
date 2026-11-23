@@ -2,7 +2,7 @@ import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { screenHarness } from './helpers/screen-harness.mjs';
-import { selectCalendarView } from './helpers/calendar-ui.mjs';
+import { jumpCalendarMonth, selectCalendarView } from './helpers/calendar-ui.mjs';
 import { CalendarProjectionLimitError, calendarEventsInTimeZone, calendarMonth, indexCalendarOccurrences, newEventDraft } from '../src/features/calendar/events.ts';
 import { projectPrivateCalendarDisplayEvents, projectPrivateCalendarEvents } from '../src/features/calendar/private-event-projection.ts';
 import { v2WallTimeCandidates } from '../src/features/sharing/v2/local-time.ts';
@@ -255,7 +255,7 @@ for (const platform of ['ios', 'android']) {
         props: { purpose: 'workspace', view: 'calendar', lifecycleManaged: true, initialDisplay: { session, model }, loadSession: async () => session,
           onBack: () => {}, onConfiguration: () => {}, onHistory: () => {} } });
       leave = focus(); await screen.flush(); const initial = reads.length;
-      await screen.press('表示する年と月を選択'); await screen.press('2027年'); await screen.press('11月'); await screen.press('2027年11月へ移動');
+      await jumpCalendarMonth(screen, 2027, 11);
       await selectCalendarView(screen, '1日表示'); await screen.flush();
       assert.equal(reads.length, initial, 'choosing a far date must not trigger a shared/private Scheduler refresh');
       assert.doesNotMatch(screen.text(), /家事は未取得|共有予定を読み込んで|家事.*読込/);
@@ -271,7 +271,7 @@ for (const platform of ['ios', 'android']) {
         dayInfo: day => { assert.ok(day <= '2027-01-31', `unnecessary housework calculation: ${day}`); return { loaded: true, total: 3, pending: 3 }; }, renderChores: () => null,
         local: { database: {}, snapshot: { events: [far], exceptions: [], categories: [], draft: null, drafts: [] }, loading: false, error: null, refresh: async () => {} },
       } });
-    await screen.press('表示する年と月を選択'); await screen.press('2027年'); await screen.press('11月'); await screen.press('2027年11月へ移動');
+    await jumpCalendarMonth(screen, 2027, 11);
     t.mock.timers.tick(300); await screen.flush();
     assert.deepEqual(requested, []); assert.ok(screen.text().includes('保存済みの予定'));
     screen.button('保存済みの予定、2027-11-07の予定');

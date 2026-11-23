@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createPlannerRefreshController } from '../src/features/planner/refresh-controller.ts';
 import { AdaptiveOwnerInputsChangedError } from '../src/platform/storage/adaptive-owner-inputs.ts';
+import { isTransientPlannerRead, plannerReadRetryDelays } from '../src/platform/storage/planner-read-retry.ts';
 
 function deferred() {
   let resolve;
@@ -105,6 +106,84 @@ test('a failed local attempt releases independent recovery while a cancelled sta
   const pending = controller.refresh(); await Promise.resolve(); controller.invalidate(); read.resolve(); await pending;
   assert.equal(ready, false);
   await controller.refresh(); assert.equal(ready, true); assert.equal(controller.getSnapshot().error, 'local read failed');
+});
+
+test('temporary local read failures retain the last home and recover without replaying a widget action', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const reads = [], published = []; let failures = 0;
+  const controller = createPlannerRefreshController({
+    load: async (ids, force) => {
+      reads.push({ ids, force });
+      if (failures > 0) { failures--; throw new Error('SQLite: database is locked'); }
+      return { snapshot: reads.length, canPublishWidget: true };
+    },
+    retryInBackground: isTransientPlannerRead,
+    weather: async () => null, publish: snapshot => published.push(snapshot),
+  });
+  await controller.refresh();
+  failures = 2;
+  await controller.refresh({ widgetCompletionIds: ['durable-action'] });
+  assert.deepEqual(published, [1]);
+  assert.equal(controller.getSnapshot().snapshot, 1);
+  assert.equal(controller.getSnapshot().retrying, true);
+  for (const delay of plannerReadRetryDelays.slice(0, 2)) {
+    t.mock.timers.tick(delay);
+    await new Promise(setImmediate);
+  }
+  assert.deepEqual(reads, [{ ids: [], force: false }, { ids: ['durable-action'], force: true },
+    { ids: [], force: true }, { ids: [], force: true }]);
+  assert.deepEqual(published, [1, 4]);
+  assert.deepEqual(controller.getSnapshot(), { snapshot: 4, loading: false, error: null });
+});
+
+test('cold home uses the committed fallback while retrying a transient read without publishing it', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const reads = [];
+  const published = [];
+  let fallbackReads = 0;
+  const controller = createPlannerRefreshController({
+    load: async (_ids, force) => {
+      reads.push(force);
+      if (reads.length === 1) throw new Error('SQLite: database is locked');
+      return { snapshot: 'current', canPublishWidget: true };
+    },
+    readPrevious: async () => { fallbackReads++; return 'committed'; },
+    retryInBackground: isTransientPlannerRead,
+    weather: async () => null,
+    publish: snapshot => published.push(snapshot),
+  });
+  await controller.refresh();
+  assert.equal(controller.getSnapshot().snapshot, 'committed');
+  assert.deepEqual(published, []);
+
+  t.mock.timers.tick(plannerReadRetryDelays[0]);
+  await new Promise(setImmediate);
+  assert.equal(fallbackReads, 1);
+  assert.deepEqual(reads, [false, true]);
+  assert.deepEqual(published, ['current']);
+  assert.deepEqual(controller.getSnapshot(), { snapshot: 'current', loading: false, error: null });
+});
+
+test('automatic planner recovery stops on departure and bounds retries while storage remains unavailable', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let attempts = 0;
+  const controller = createPlannerRefreshController({
+    load: async () => { attempts++; throw Object.assign(new Error('open failed'), { code: 'SQLITE_CANTOPEN' }); },
+    retryInBackground: isTransientPlannerRead, weather: async () => assert.fail('no local data'), publish: () => assert.fail('no local data'),
+  });
+  await controller.refresh();
+  controller.invalidate();
+  t.mock.timers.tick(30_000); await new Promise(setImmediate);
+  assert.equal(attempts, 1);
+  await controller.refresh();
+  for (const delay of plannerReadRetryDelays) {
+    t.mock.timers.tick(delay); await new Promise(setImmediate);
+  }
+  assert.equal(attempts, 5);
+  assert.deepEqual(controller.getSnapshot(), { snapshot: null, loading: false, error: 'open failed' });
+  t.mock.timers.tick(30_000); await new Promise(setImmediate);
+  assert.equal(attempts, 5);
+  assert.equal(isTransientPlannerRead(new Error('database disk image is malformed')), false);
 });
 
 test('concurrent refreshes share one load and merge widget actions', async () => {

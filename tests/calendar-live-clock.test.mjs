@@ -20,9 +20,11 @@ for (const platform of ['ios', 'android']) test(`${platform} entering a calendar
     today: '2026-10-31', timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, pending: 0 }), renderChores: () => null,
   } });
   advance('2026-10-31T06:47:30Z'); await selectCalendarView(screen, '1日表示');
-  assert.ok(screen.text().includes('現在 15:47'), 'the initial timeline layout must not use the clock captured when the month mounted');
+  const clock = () => screen.nodes().find(node => node.props.testID === 'calendar-now-clock');
+  assert.equal(clock().props.accessibilityLabel, '現在 15:47', 'the initial timeline layout uses the live clock');
+  assert.deepEqual(clock().children, ['15:47']);
   await screen.press('月表示に戻る'); advance('2026-10-31T10:03:00Z');
-  await selectCalendarView(screen, '2日表示'); assert.ok(screen.text().includes('現在 19:03'));
+  await selectCalendarView(screen, '2日表示'); assert.equal(clock().props.accessibilityLabel, '現在 19:03');
 });
 
 for (const platform of ['ios', 'android']) test(`${platform} calendar clock aligns one timer to the next minute pauses in background and cleans up after unmount`, t => {

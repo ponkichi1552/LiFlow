@@ -13,6 +13,7 @@ import * as operations from '../src/features/sharing/operations.ts';
 import * as localDates from '../src/domain/scheduling/local-date.ts';
 import { loadNativeModule } from './helpers/native-module.mjs';
 import * as registry from '../src/platform/storage/sharing-registry.ts';
+import * as workspaceCopyOrigin from '../src/features/sharing/v2/workspace-copy-origin.ts';
 async function fixture() {
   const h = createDatabase(); await registry.initializeSharingRegistry(h.database);
   const owner = await createDeviceIdentity(crypto); const anchor = createSharedRoster('group-test', 'owner', owner);
@@ -26,6 +27,7 @@ test('display candidates defer signature work only behind authenticated cipherte
     '../../features/sharing/operations.ts': operations,
     '../../features/sharing/roster.ts': { ...rosters, validateSharedRoster: value => { validations++; return rosters.validateSharedRoster(value); } },
     '../../domain/scheduling/local-date.ts': localDates,
+    '../../features/sharing/v2/workspace-copy-origin.ts': workspaceCopyOrigin,
   });
   await api.saveSharingWorkspace(h.database, h.record); validations = 0;
   const { createStartupDisplayCache } = await import('../src/features/planner/startup-display.ts');
@@ -54,6 +56,7 @@ test('unchanged registry bytes reuse validation while every read still checks SQ
     '../../features/sharing/operations.ts': operations,
     '../../features/sharing/roster.ts': { ...rosters, validateSharedRoster: (value) => { validations++; return rosters.validateSharedRoster(value); } },
     '../../domain/scheduling/local-date.ts': localDates,
+    '../../features/sharing/v2/workspace-copy-origin.ts': workspaceCopyOrigin,
   });
   const database = { ...h.database, getFirstAsync: async (...args) => { reads++; return h.database.getFirstAsync(...args); } };
   try {

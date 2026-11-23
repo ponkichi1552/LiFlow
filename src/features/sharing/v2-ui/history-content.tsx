@@ -26,9 +26,11 @@ export function V2HistoryContent({ model, choreId, personal, actions, busy, run,
     && (model.viewerUserId === model.adminUserId || model.plan.policy?.showCompletionStatus
       || record.performerUserId === model.viewerUserId || record.recorderUserId === model.viewerUserId));
   const personalRows = !choreId && personal ? selectPersonalHistory(personal.snapshot.completions, { groupId: model.plan.groupId, limit: Infinity }) : [];
+  const copied = (model.copiedHistory ?? []).filter(record => !choreId || record.copiedChoreId === choreId);
   const history = [
     ...current.map(record => ({ kind: 'current' as const, record, date: sharedLocalDate(new Date(record.performedAt), model.plan.timeZone), at: record.performedAt, id: `shared:${record.operationId}` })),
     ...legacy.map(record => ({ kind: 'legacy' as const, record, date: sharedLocalDate(new Date(record.performedAt), model.plan.timeZone), at: record.performedAt, id: `legacy:${record.operationId}` })),
+    ...copied.map(record => ({ kind: 'copied' as const, record, date: sharedLocalDate(new Date(record.performedAt), model.plan.timeZone), at: record.performedAt, id: `copied:${record.operationId}` })),
     ...personalRows.slice(0, 100).map(record => ({ kind: 'personal' as const, record, date: completionHistoryDay(record, personal?.snapshot.timeZone), at: record.completedAt, id: `personal:${record.id}` })),
   ];
   const groups = groupHistoryByDay(history, item => ({ id: item.id, date: item.date, timestamp: item.at }));
@@ -37,6 +39,7 @@ export function V2HistoryContent({ model, choreId, personal, actions, busy, run,
   const inMonth = (at: string) => sharedLocalDate(new Date(at), model.plan.timeZone).startsWith(month);
   const completedThisMonth = current.filter(record => record.active && record.outcome === 'completed' && record.acceptance !== 'pending' && record.acceptance !== 'rejected' && !record.approvalConflictIds.length && inMonth(record.performedAt)).length
     + legacy.filter(record => record.active && record.outcome === 'completed' && inMonth(record.performedAt)).length
+    + copied.filter(record => record.outcome === 'completed' && record.acceptance === 'accepted' && inMonth(record.performedAt)).length
     + personalRows.filter(record => record.outcome === 'completed' && completionHistoryDay(record, personal?.snapshot.timeZone).startsWith(month)).length;
   const personalChores = new Map(personal?.snapshot.chores.map(chore => [chore.id, chore.name]));
   const nameOf = v2MemberLabels(model.plan.members);
@@ -50,6 +53,10 @@ export function V2HistoryContent({ model, choreId, personal, actions, busy, run,
       renderItem={({ item }) => item.kind === 'date' ? <HistoryDayHeading date={item.date} showMonth={item.showMonth} />
         : item.kind === 'current' ? <V2CompletionHistoryCard grouped model={model} record={item.record} actions={actions} busy={busy} run={run} />
           : item.kind === 'personal' ? <PersonalHistoryRecord completion={item.record} name={personalChores.get(item.record.choreId) ?? '家事'} timeZone={personal?.snapshot.timeZone} />
+            : item.kind === 'copied' ? <HistoryRecordRow name={item.record.choreName} time={new Date(item.record.performedAt).toLocaleTimeString('ja-JP', { timeZone: model.plan.timeZone, hour: '2-digit', minute: '2-digit' })}
+              status={item.record.acceptance === 'pending' ? '承認待ち' : item.record.acceptance === 'rejected' ? '承認されなかった記録' : item.record.outcome === 'completed' ? undefined : '未実施の記録'}
+              details={<><Text style={styles.note}>当時の担当者：{item.record.originalAssigneeIds.map(nameOf).join('、') || '指定なし'}</Text>
+                <Text style={styles.note}>実施者：{nameOf(item.record.performerUserId)}</Text></>} />
             : <HistoryRecordRow name={item.record.choreName} time={new Date(item.record.performedAt).toLocaleTimeString('ja-JP', { timeZone: model.plan.timeZone, hour: '2-digit', minute: '2-digit' })}
               status={item.record.outcome === 'completed' ? undefined : '未実施の記録'}
               details={item.record.performerUserId ? <><Text style={styles.note}>当時の担当者：記録なし</Text><Text style={styles.note}>実施者：{nameOf(item.record.performerUserId)}</Text></> : undefined} />}

@@ -21,7 +21,7 @@ for (const platform of ['ios', 'android']) test(`${platform} waste management ca
     assert.ok(snapshot.hiddenWasteOccurrenceKeys.includes('undo-waste:2026-11-02'));
     await screen.press('再表示');
     assert.ok(!snapshot.hiddenWasteOccurrenceKeys.includes('undo-waste:2026-11-02'));
-    await screen.press('可燃ごみを元に戻す');
+    await screen.press('11月2日・可燃ごみを元に戻す');
     assert.ok(snapshot.hiddenWasteOccurrenceKeys.includes('undo-waste:2026-11-02'));
     assert.equal(snapshot.wasteSchedules.length, 1);
   } finally { screen?.unmount(); h.connection.close(); }
@@ -41,6 +41,22 @@ test('waste Undo can retry a failed durable restore without duplicating successf
     await screen.press('びんを元に戻す'); assert.equal(snapshot.wasteSchedules.length, 1); assert.equal(attempts, 2);
     assert.ok(!screen.nodes().some(node => node.props.accessibilityLabel === 'びんを元に戻す'));
   } finally { screen?.unmount(); h.connection.close(); }
+});
+
+test('waste display retry after a committed deletion never repeats the deletion', async t => {
+  const h = createDatabase(); t.after(() => h.connection.close());
+  await repository.initializeLocalDatabase(h.database);
+  await repository.saveWeeklyWasteSchedule(h.database, { id: 'retry-display', label: '古紙', collectionWeekdays: [1] });
+  let snapshot = await repository.loadPlannerSnapshot(h.database, '2026-11-01');
+  let deletes = 0, reads = 0;
+  const screen = screenHarness('src/app/waste.tsx', { database: h.database, snapshot: () => snapshot,
+    refresh: async () => { if (++reads === 1) throw new Error('synthetic display failure'); snapshot = await repository.loadPlannerSnapshot(h.database, '2026-11-01'); },
+    mocks: { '@/platform/storage/repository': { ...repository, deleteWeeklyWasteSchedule: (...args) => { deletes++; return repository.deleteWeeklyWasteSchedule(...args); } } } });
+  t.after(() => screen.unmount());
+  await screen.press('削除');
+  assert.match(screen.text(), /保存済みですが、表示を更新できませんでした/u);
+  await screen.press('表示を再読込');
+  assert.equal(deletes, 1); assert.equal(reads, 2); assert.deepEqual(snapshot.wasteSchedules, []);
 });
 
 

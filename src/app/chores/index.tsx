@@ -30,7 +30,8 @@ export default function ChoresScreen() {
     );
   }, [snapshot, chores, query, category]);
 
-  if (loading || !snapshot) return <PlannerLoadState title="家事一覧" message="家事を読み込んでいます。" error={error} retry={refresh} />;
+  const header = <BackButton onPress={() => router.back()} />;
+  if (loading || !snapshot) return <PlannerLoadState header={header} title="家事一覧" message="家事を読み込んでいます。" error={error} retry={refresh} />;
 
   const statusByChore = new Map<string, string>();
   for (const entry of snapshot.scheduleEntries) {
@@ -52,7 +53,7 @@ export default function ChoresScreen() {
   };
 
   return (
-    <Page header={<BackButton onPress={() => router.back()} />}>
+    <Page header={header}>
 
       <ScreenHeading eyebrow="CHORES" title="家事一覧" description={`${chores.filter((chore) => chore.enabled).length}件の家事を有効にしています。検索や設定変更ができます。`} />
       {error ? <Card><Text style={styles.error}>{error}</Text></Card> : null}

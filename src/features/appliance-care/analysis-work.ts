@@ -21,6 +21,7 @@ export interface AnalysisWork extends AnalysisWorkSummary {
   attempts: number;
   retryAt: number;
   createdAt: number;
+  firstAttemptAt?: number;
 }
 
 export function analysisTargetKey(target: AnalysisTarget): string {

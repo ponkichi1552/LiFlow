@@ -10,6 +10,7 @@ import { createGoogleTaskCreateJournal, reserveGoogleTaskCreateInside, rejectGoo
 import type { GoogleTaskCreateIdentity, GoogleTaskCreateIntent } from '../../features/google-sync/task-create-intent';
 import { createGoogleTaskReadCache } from './google-task-read-cache.ts';
 import { withIsolatedSqliteTransaction } from './isolated-transaction.ts';
+import { PlannerInputsChangedError } from './planner-read-retry.ts';
 import { actionCycleDate, previousCompletionState, appendCompletionActionInside, appendCompletionUndoInside, readCompletionJournalInside, seedCompletionJournalInside } from './completion-journal.ts';
 import { personalChoreHistoryCutoffInstant } from '../../domain/chores/history-retention.ts';
 
@@ -47,7 +48,7 @@ import { generateWeeklyCollectionDates } from '@/features/waste/weekly-scheduler
 import { splitWasteOccurrencesByVisibility } from '@/features/waste/occurrence-visibility';
 import type { Appliance, ApplianceCareAnalysisDraft } from '@/features/appliance-care/contracts';
 import type { UploadedManualInput } from '@/features/appliance-care/api-contracts';
-import { storeApplianceManualInside } from './appliance-manual-storage';
+import { removeUnreferencedApplianceManualInside, storeApplianceManualInside } from './appliance-manual-storage';
 import { applianceDisplayName } from '@/features/appliance-care/display-name';
 import { toApplianceCareChore, type ApprovedApplianceCareTask, type ApplianceCareProductIdentity } from '@/features/appliance-care/to-chore-definition';
 import { ApplianceTaskCycleConflict, applianceTaskCadenceKey, findApplianceTaskChore, planReviewedApplianceSave } from '@/features/appliance-care/persistence-policy';
@@ -106,9 +107,6 @@ const operationTails = new WeakMap<SQLiteDatabase, Promise<unknown>>();
 const plannerVersions = new WeakMap<SQLiteDatabase, number>();
 const snapshotVersions = new WeakMap<PlannerSnapshot, number>();
 const snapshotDataVersions = new WeakMap<PlannerSnapshot, number>();
-class PlannerInputsChangedError extends Error {
-  constructor() { super('別の処理で家事が更新されました。表示を読み直してください。'); }
-}
 async function plannerDataVersion(database: SQLiteDatabase): Promise<number> {
   const row = await database.getFirstAsync<{ data_version: number }>('PRAGMA data_version');
   if (!Number.isSafeInteger(row?.data_version) || row!.data_version < 1) throw new Error('保存データの更新状態を確認できません。');
@@ -373,6 +371,31 @@ interface HiddenWasteRow {
   occurrence_date: string;
 }
 
+const localWasteScheduleQuery = 'SELECT id, household_id, label, weekdays_json, recurrence, anchor_date, monthly_day FROM weekly_waste_schedules WHERE household_id = ? ORDER BY label';
+const localHiddenWasteQuery = `SELECT h.schedule_id, h.occurrence_date FROM hidden_waste_occurrences h
+  JOIN weekly_waste_schedules w ON w.id = h.schedule_id WHERE w.household_id = ?`;
+
+function wasteScheduleSettings(wasteRows: WasteRow[], hiddenRows: HiddenWasteRow[], today: LocalDate) {
+  const wasteSchedules = wasteRows.map((row): WeeklyWasteSchedule => ({
+    id: row.id, householdId: row.household_id, label: row.label, collectionWeekdays: parseJson<Weekday[]>(row.weekdays_json, []),
+    recurrence: row.recurrence, anchorDate: (row.anchor_date ?? undefined) as LocalDate | undefined, monthlyDay: row.monthly_day ?? undefined,
+  }));
+  const through = addDays(today, 35);
+  const dates = wasteSchedules.flatMap(schedule => generateWeeklyCollectionDates(schedule, today, through));
+  const hidden = new Set(hiddenRows.map(row => `${row.schedule_id}:${row.occurrence_date}`));
+  const { visible, hidden: hiddenDates } = splitWasteOccurrencesByVisibility(dates, hidden);
+  return { today, wasteSchedules, upcomingWasteDates: visible, hiddenWasteDates: hiddenDates, hiddenWasteOccurrenceKeys: [...hidden] };
+}
+
+async function readWasteScheduleSettingsImpl(database: SQLiteDatabase, referenceDate?: LocalDate): Promise<Pick<PlannerSnapshot, 'today' | 'wasteSchedules' | 'upcomingWasteDates' | 'hiddenWasteDates'>> {
+  if (sharedRepositoryAdapter(database)) throw new Error('個人のゴミ収集日を開いてください。');
+  const [schedules, hidden] = await Promise.all([
+    database.getAllAsync<WasteRow>(localWasteScheduleQuery, LOCAL_HOUSEHOLD_ID),
+    database.getAllAsync<HiddenWasteRow>(localHiddenWasteQuery, LOCAL_HOUSEHOLD_ID),
+  ]);
+  return wasteScheduleSettings(schedules, hidden, referenceDate ?? localDateFromDate(new Date()));
+}
+
 async function initializeLocalDatabaseImpl(database: SQLiteDatabase): Promise<void> {
   await migrateLocalDatabase(database);
   await ensureLocalHouseholdImpl(database);
@@ -510,10 +533,10 @@ async function loadPlannerSnapshotImpl(
     catch (error) { if (attempt >= 2 || error instanceof AdaptiveOwnerInputsChangedError || !isPlannerReadRace(error)) throw error; }
   }
 }
-async function loadPlannerSnapshotOnce(database: SQLiteDatabase, today: LocalDate, calendarNow: Date, timeZone: string): Promise<PlannerSnapshot> {
+async function loadPlannerSnapshotOnce(database: SQLiteDatabase, today: LocalDate, calendarNow: Date, timeZone: string, savedOnly = false): Promise<PlannerSnapshot> {
   const shared = sharedRepositoryAdapter(database);
   if (shared) return shared.readSnapshot(calendarNow);
-  await ensureLocalHouseholdImpl(database);
+  if (!savedOnly) await ensureLocalHouseholdImpl(database);
   const dataVersion = await plannerDataVersion(database);
   // The adopted adaptive-scheduling specification retains personal source history
   // for learning and exact undo. Presentation may use a shorter date range.
@@ -557,18 +580,13 @@ async function loadPlannerSnapshotOnce(database: SQLiteDatabase, today: LocalDat
     database.getAllAsync<ScheduleEntryRow>(
       'SELECT entry_json FROM chore_schedule_entries WHERE household_id = ?', LOCAL_HOUSEHOLD_ID,
     ),
-    database.getAllAsync<WasteRow>(
-      'SELECT id, household_id, label, weekdays_json, recurrence, anchor_date, monthly_day FROM weekly_waste_schedules WHERE household_id = ? ORDER BY label', LOCAL_HOUSEHOLD_ID,
-    ),
+    database.getAllAsync<WasteRow>(localWasteScheduleQuery, LOCAL_HOUSEHOLD_ID),
     database.getAllAsync<ApplianceRow>(
       `SELECT id, household_id, manufacturer, product_name, model_number, category, display_name,
        official_product_url, official_manual_url, analysis_json, created_at, updated_at
        FROM appliances WHERE household_id = ? ORDER BY display_name`, LOCAL_HOUSEHOLD_ID,
     ),
-    database.getAllAsync<HiddenWasteRow>(
-      `SELECT h.schedule_id, h.occurrence_date FROM hidden_waste_occurrences h
-       JOIN weekly_waste_schedules w ON w.id = h.schedule_id WHERE w.household_id = ?`, LOCAL_HOUSEHOLD_ID,
-    ),
+    database.getAllAsync<HiddenWasteRow>(localHiddenWasteQuery, LOCAL_HOUSEHOLD_ID),
   ]);
 
   const household: Household = {
@@ -610,24 +628,16 @@ async function loadPlannerSnapshotOnce(database: SQLiteDatabase, today: LocalDat
   const previousScheduleEntries = scheduleEntryRows
     .map((row) => parseJson<ChoreScheduleEntry | undefined>(row.entry_json, undefined))
     .filter((entry): entry is ChoreScheduleEntry => Boolean(entry?.id && entry.choreId));
-  const wasteSchedules = wasteRows.map((row): WeeklyWasteSchedule => ({
-    id: row.id,
-    householdId: row.household_id,
-    label: row.label,
-    collectionWeekdays: parseJson<Weekday[]>(row.weekdays_json, []),
-    recurrence: row.recurrence,
-    anchorDate: (row.anchor_date ?? undefined) as LocalDate | undefined,
-    monthlyDay: row.monthly_day ?? undefined,
-  }));
   const appliances = applianceRows.map(applianceFromRow);
 
-  let scheduleEntries: ChoreScheduleEntry[] = [];
+  const enabledChores = savedOnly ? new Set(chores.filter(chore => chore.enabled && !chore.archived).map(chore => chore.id)) : undefined;
+  let scheduleEntries = enabledChores ? previousScheduleEntries.filter(entry => enabledChores.has(entry.choreId)) : [];
   const personalCadences: Record<string, PersonalCadenceView> = {};
   const weatherOutcome: WeatherScheduleOutcome = settings.weatherLocation ? 'current' : 'disabled';
   const weatherAdjustmentCount = 0;
   // Availability is optional: corrupt/unavailable cache never prevents normal planning or completion.
-  const { google: googleAvailability, combined: externalAvailabilityByDate } = await plannerCalendarAvailability(database, today, calendarNow, timeZone);
-  if (settings.setupCompleted) {
+  const { google: googleAvailability, combined: externalAvailabilityByDate } = savedOnly ? {} : await plannerCalendarAvailability(database, today, calendarNow, timeZone);
+  if (settings.setupCompleted && !savedOnly) {
     // Repair records made by the old enable path, which left an unknown first date non-pending.
     const statesById = new Map(states.map((state) => [state.choreId, state]));
     const repairedStates: ChoreState[] = [];
@@ -714,11 +724,7 @@ async function loadPlannerSnapshotOnce(database: SQLiteDatabase, today: LocalDat
     }
   }
 
-  const generatedWasteDates = wasteSchedules.flatMap((schedule) =>
-    generateWeeklyCollectionDates(schedule, today, addDays(today, 35)),
-  );
-  const hiddenOccurrenceKeys = new Set(hiddenWasteRows.map((row) => `${row.schedule_id}:${row.occurrence_date}`));
-  const { visible: upcomingWasteDates, hidden: hiddenWasteDates } = splitWasteOccurrencesByVisibility(generatedWasteDates, hiddenOccurrenceKeys);
+  const { wasteSchedules, upcomingWasteDates, hiddenWasteDates, hiddenWasteOccurrenceKeys } = wasteScheduleSettings(wasteRows, hiddenWasteRows, today);
 
   const widgetGenerations = await database.getAllAsync<{ schedule_entry_id: string; generation: number }>('SELECT * FROM widget_completion_generations');
   const snapshot: PlannerSnapshot = {
@@ -737,7 +743,7 @@ async function loadPlannerSnapshotOnce(database: SQLiteDatabase, today: LocalDat
     wasteSchedules,
     upcomingWasteDates,
     hiddenWasteDates,
-    hiddenWasteOccurrenceKeys: [...hiddenOccurrenceKeys],
+    hiddenWasteOccurrenceKeys,
     weatherOutcome,
     weatherAdjustmentCount,
     externalAvailabilityByDate,
@@ -746,10 +752,11 @@ async function loadPlannerSnapshotOnce(database: SQLiteDatabase, today: LocalDat
   const fetchedAt = calendarState?.lastSuccessfulSyncAt ? Date.parse(calendarState.lastSuccessfulSyncAt) : NaN;
   snapshot.planningInputRevision = await readPlanningInputRevision(database);
   await assertPlannerDataVersion(database, dataVersion);
-  snapshotVersions.set(snapshot, plannerVersions.get(database) ?? 0); snapshotDataVersions.set(snapshot, dataVersion);
   const owner = await readAdaptiveOwnerInputs(database, calendarNow); owner?.assertCurrent();
   if (owner?.preferences) { snapshot.today = today; snapshot.timeZone = timeZone; }
   if (owner?.sharedPlanning) snapshot.personalSharedPlanning = owner.sharedPlanning;
+  if (savedOnly) return snapshot;
+  snapshotVersions.set(snapshot, plannerVersions.get(database) ?? 0); snapshotDataVersions.set(snapshot, dataVersion);
   cachedPlannerSnapshots.set(database, { snapshot, today, timeZone, owner, ownerReader: adaptiveOwnerReaderIdentity(database),
     savedAt: calendarNow.getTime(), expiresAt: googleAvailability
       ? Number.isFinite(fetchedAt) ? fetchedAt + CALENDAR_AVAILABILITY_MAX_AGE_MS : calendarNow.getTime()
@@ -1378,8 +1385,10 @@ async function saveReviewedApplianceCareImpl(
   await ensureLocalHouseholdImpl(database);
   const applianceId = product.applianceId ?? createId('appliance');
   return withAdaptiveOwnerTransaction(database, async () => {
-    const existing = await database.getFirstAsync<{ created_at: string; updated_at: string; manufacturer: string; product_name: string; model_number: string }>(
-      'SELECT created_at, updated_at, manufacturer, product_name, model_number FROM appliances WHERE id=? AND household_id=?', applianceId, LOCAL_HOUSEHOLD_ID);
+    const existing = await database.getFirstAsync<{ created_at: string; updated_at: string; manufacturer: string; product_name: string; model_number: string; manual_digest: string | null }>(
+      `SELECT created_at,updated_at,manufacturer,product_name,model_number,
+        CASE WHEN json_valid(analysis_json) THEN json_extract(analysis_json,'$.manualSource.sha256') END AS manual_digest
+        FROM appliances WHERE id=? AND household_id=?`, applianceId, LOCAL_HOUSEHOLD_ID);
     if (expectedUpdatedAt !== undefined && (existing?.updated_at ?? null) !== expectedUpdatedAt) {
       throw new ApplianceTaskCycleConflict('家電の情報が更新されました。保存済みの家電を読み直してください。');
     }
@@ -1402,6 +1411,9 @@ async function saveReviewedApplianceCareImpl(
       official_manual_url=excluded.official_manual_url, analysis_json=excluded.analysis_json, updated_at=excluded.updated_at`, appliance.id, appliance.householdId,
       appliance.manufacturer, appliance.productName, appliance.modelNumber ?? '', appliance.category ?? null, appliance.displayName,
       appliance.officialProductUrl ?? null, appliance.officialManualUrl, JSON.stringify(appliance.analysis), appliance.createdAt, appliance.updatedAt);
+    if (existing?.manual_digest && existing.manual_digest !== appliance.analysis.manualSource?.sha256) {
+      await removeUnreferencedApplianceManualInside(database, existing.manual_digest);
+    }
     for (const chore of plan.definitions) {
       await database.runAsync(`INSERT INTO chore_definitions (id, household_id, name, enabled, definition_json) VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET name=excluded.name, enabled=excluded.enabled, definition_json=excluded.definition_json`,
@@ -2878,6 +2890,13 @@ export const bindGoogleSyncAccount = serializeDatabaseOperation(bindGoogleSyncAc
 export const ensureLocalHousehold = serializePlannerOperation(ensureLocalHouseholdImpl);
 export const loadApplianceCareReviewContext = serializeDatabaseOperation(loadApplianceCareReviewContextImpl);
 export const loadPlannerSnapshot = retryOwnerRead(serializePlannerOperation(loadPlannerSnapshotImpl));
+/** Cold recovery reads the previously committed plan without recalculating or publishing it. */
+export const readSavedPlannerSnapshot = serializeDatabaseOperation(async (database: SQLiteDatabase, now: Date = new Date()) => {
+  if (sharedRepositoryAdapter(database)) return null;
+  const { today, timeZone } = await adaptiveOwnerClock(database, now, { today: localDateFromDate(now), timeZone: getDeviceTimeZone() });
+  const snapshot = await loadPlannerSnapshotOnce(database, today, now, timeZone, true);
+  return snapshot.settings.setupCompleted ? snapshot : null;
+});
 export const completeFirstSetup = serializePlannerOperation(completeFirstSetupImpl, 'completeFirstSetup');
 export const updatePlannerSettings = serializePlannerOperation(updatePlannerSettingsImpl, 'updatePlannerSettings');
 export const updateCalendarCountDisplay = serializePlannerOperation(updateCalendarCountDisplayImpl);
@@ -2919,6 +2938,7 @@ export const recordIncompleteChore = serializePlannerOperation(recordIncompleteC
 export const setChoreAssignments = serializePlannerOperation(setChoreAssignmentsImpl, 'setChoreAssignments');
 export const addHouseholdMember = serializePlannerOperation(addHouseholdMemberImpl, 'addHouseholdMember');
 export const replaceChoreDependencies = serializePlannerOperation(replaceChoreDependenciesImpl, 'replaceChoreDependencies');
+export const readWasteScheduleSettings = serializeDatabaseOperation(readWasteScheduleSettingsImpl);
 export const saveWeeklyWasteSchedule = serializePlannerOperation(saveWeeklyWasteScheduleImpl, 'saveWeeklyWasteSchedule');
 export const setWasteOccurrenceHidden = serializePlannerOperation(setWasteOccurrenceHiddenImpl, 'setWasteOccurrenceHidden');
 export const deleteWeeklyWasteSchedule = serializePlannerOperation(deleteWeeklyWasteScheduleImpl, 'deleteWeeklyWasteSchedule');

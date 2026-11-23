@@ -11,6 +11,7 @@ import { loadPublishedSharedReplica, loadSharedFacts, readSharingCheckpoint } fr
 import type { SharedReplica } from './replica';
 import type { AuthenticatedSharedOperation } from './crypto';
 import type { SharedCloudGroup } from './cloud-contract';
+import type { SignedWorkspaceCopy } from './v2/workspace-copy-source';
 type SnapshotTransform = (replica: SharedReplica, context: { group: SharedCloudGroup; archive: readonly VerifiedSharedRoster[]; facts: AuthenticatedSharedOperation[] }) => Promise<SharedReplica>;
 
 /** Membership changes always rotate forward keys and publish a signed snapshot atomically. */
@@ -19,6 +20,7 @@ export function createSharedGroupManager(deps: SharedSyncDependencies & {
   makeId: () => string; markLeft: () => Promise<void>;
   verifyMembership?: (current: SignedSharedRoster) => Promise<VerifiedSharedRoster[]>;
   withMaintenance?: <T>(work: () => Promise<T>) => Promise<T>;
+  workspaceCopyForSnapshot?: () => Promise<SignedWorkspaceCopy | undefined>;
 }) {
   let tail: Promise<unknown> = Promise.resolve();
   function serial<T>(work: () => Promise<T>): Promise<T> { const next = tail.then(work, work); tail = next.catch(() => undefined); return next; }
@@ -57,7 +59,7 @@ export function createSharedGroupManager(deps: SharedSyncDependencies & {
             (uid, device, version) => {
               const epoch = history.find((item) => item.body.keyVersion === version); if (!epoch) throw new Error('Missing historical membership');
               return sharedAuthorIdentity(epoch, uid, device, version);
-            }, history);
+            }, history, await deps.workspaceCopyForSnapshot?.());
           await deps.cloud.prepareSnapshot(snapshot, next, remaining);
         }
         remaining();
@@ -132,7 +134,8 @@ export function createSharedGroupManager(deps: SharedSyncDependencies & {
         remaining(); const published = await loadPublishedSharedReplica(deps.database, deps.groupId); const facts = await loadSharedFacts(deps.database, deps.groupId);
         remaining(); const snapshot = await createEncryptedSharedSnapshot(deps.crypto, published,
           facts, roster, deps.identity, key, `snapshot.${deps.makeId()}`, group.headSequence,
-          (uid, device, version) => sharedAuthorIdentity(archive.find((item) => item.body.keyVersion === version)!, uid, device, version), archive);
+          (uid, device, version) => sharedAuthorIdentity(archive.find((item) => item.body.keyVersion === version)!, uid, device, version), archive,
+          await deps.workspaceCopyForSnapshot?.());
         remaining(); await deps.cloud.prepareSnapshot(snapshot, roster, remaining);
         remaining(); await deps.cloud.publishSnapshot(snapshot.manifest, roster, remaining);
         await deps.sync({ force: true, budgetMs: remaining() }); return sharedRosterDigest(roster);

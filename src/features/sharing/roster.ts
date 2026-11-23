@@ -3,7 +3,7 @@ import { sharedContentDigest } from './content-digest.ts';
 import { assertJsonRecord, assertSharedIdentifier, canonicalJson, compareOperationIds, SHARED_SCHEDULER_VERSION } from './operations.ts';
 import { signSharedDocument, validateDevicePublicIdentity, verifySharedDocument } from './crypto.ts';
 import type { DevicePublicIdentity, DeviceSecretIdentity } from './crypto.ts';
-import { V2_SCHEDULER_VERSION, isSupportedV2Scheduler } from './v2/payload-schema.ts';
+import { V2_SCHEDULER_VERSION, WORKSPACE_COPY_SCHEDULER_VERSION, isSupportedV2Scheduler } from './v2/payload-schema.ts';
 
 export interface SharedDeviceMembership { identity: DevicePublicIdentity; joinedKeyVersion: number }
 export interface SharedGroupMember { userId: string; joinedKeyVersion: number; devices: SharedDeviceMembership[] }
@@ -96,9 +96,11 @@ function signRoster(body: SharedRosterBody, identity: DeviceSecretIdentity): Sig
 }
 
 export function createSharedRoster(groupId: string, ownerUserId: string, identity: DeviceSecretIdentity,
-  options: { schemaVersion: 1 | 2 } = { schemaVersion: 1 }): VerifiedSharedRoster {
+  options: { schemaVersion: 1 | 2; workspaceCopy?: boolean } = { schemaVersion: 1 }): VerifiedSharedRoster {
+  if (options.workspaceCopy && options.schemaVersion !== 2) throw new Error('Workspace copy needs a v2 roster');
   return signRoster({ schemaVersion: options.schemaVersion, groupId, revision: 1, keyVersion: 1, ownerUserId,
-    ownerDeviceId: identity.deviceId, schedulerVersion: options.schemaVersion === 2 ? V2_SCHEDULER_VERSION : SHARED_SCHEDULER_VERSION, previousDigest: null, closed: false,
+    ownerDeviceId: identity.deviceId, schedulerVersion: options.workspaceCopy ? WORKSPACE_COPY_SCHEDULER_VERSION
+      : options.schemaVersion === 2 ? V2_SCHEDULER_VERSION : SHARED_SCHEDULER_VERSION, previousDigest: null, closed: false,
     members: [{ userId: ownerUserId, joinedKeyVersion: 1, devices: [{ identity: validateDevicePublicIdentity(identity), joinedKeyVersion: 1 }] }] }, identity) as VerifiedSharedRoster;
 }
 
@@ -218,7 +220,7 @@ export function upgradeSharedRoster(previous: VerifiedSharedRoster, owner: Devic
 /** Only the owner can change this signed contract. Existing facts and keys stay in the archive. */
 export function upgradeSharedScheduler(previous: VerifiedSharedRoster, owner: DeviceSecretIdentity): VerifiedSharedRoster {
   if (previous.body.schemaVersion !== 2 || !isSupportedV2Scheduler(previous.body.schedulerVersion)) throw new Error('Unsupported scheduler upgrade');
-  if (previous.body.schedulerVersion === V2_SCHEDULER_VERSION) return previous;
+  if ([V2_SCHEDULER_VERSION, WORKSPACE_COPY_SCHEDULER_VERSION].includes(previous.body.schedulerVersion)) return previous;
   return updateRoster(previous, owner, body => { body.schedulerVersion = V2_SCHEDULER_VERSION; });
 }
 

@@ -141,16 +141,16 @@ for (const platform of ['ios', 'android']) test(`${platform} actual capacity con
   const ui = screenHarness('src/features/settings/personal-capacity-settings.tsx', { exportName: 'PersonalCapacitySettings', platform,
     effect: callback => effects.push(callback), props: { today: '2026-11-05', load: async () => source, onDraftChange() {} } });
   t.after(effects.shift()()); for (let i = 0; i < 8; i++) await ui.flush();
-  await ui.press('2026/11/05 平日'); for (let i = 0; i < 8; i++) await ui.flush();
+  await ui.press('2026/11/05 休日以外'); for (let i = 0; i < 8; i++) await ui.flush();
   assert.deepEqual(saved.dayOverrides, [], 'selecting a weekday never marks it as a holiday');
   const dateField = () => ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '2026-11-05の家事時間上限');
   dateField().props.onChangeText('35'); await ui.flush(); dateField().props.onBlur();
   for (let i = 0; i < 12; i++) await ui.flush();
   assert.deepEqual(saved.dayOverrides, [{ date: '2026-11-05', maximumMinutes: 35 }]);
   ui.nodes().find(node => node.props.accessibilityLabel === '2026-11-05を休日として扱う').props.onPress();
-  const field = ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '平日の家事時間上限'); assert.ok(field);
+  const field = ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '休日以外の家事時間上限'); assert.ok(field);
   field.props.onChangeText('60'); await ui.flush();
-  ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '平日の家事時間上限').props.onBlur();
+  ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '休日以外の家事時間上限').props.onBlur();
   for (let i = 0; i < 12; i++) await ui.flush();
   assert.equal(saved.dayTypes.workday.maximumMinutes, 60); assert.deepEqual(saved.dayTypes.holiday, {}); assert.deepEqual(saved.dayOverrides, [{ date: '2026-11-05', maximumMinutes: 35, holiday: true }]);
   assert.equal(ui.text().includes('保存する'), false); assert.equal(ui.text().includes('自動移動'), false);
@@ -162,7 +162,7 @@ test('collapsing a settings section retains incomplete capacity input instead of
     effect: callback => effects.push(callback), props: { today: '2026-11-05', load: async () => ({ initial: empty(), save: async () => saves++ }),
       onDraftChange() {}, children: content => open ? content : null } });
   t.after(effects.shift()()); for (let i = 0; i < 8; i++) await ui.flush();
-  await ui.change('平日の家事時間上限', '1a'); open = false; ui.render(); assert.equal(ui.text(), '');
-  open = true; ui.render(); assert.equal(ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '平日の家事時間上限').props.value, '1a');
+  await ui.change('休日以外の家事時間上限', '1a'); open = false; ui.render(); assert.equal(ui.text(), '');
+  open = true; ui.render(); assert.equal(ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '休日以外の家事時間上限').props.value, '1a');
   assert.match(ui.text(), /0以上/); assert.equal(saves, 0);
 });

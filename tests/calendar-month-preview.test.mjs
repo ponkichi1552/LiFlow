@@ -2,9 +2,10 @@ import './helpers/typescript-loader.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { calendarMonthContentHeight, calendarMonthExpandedTitles, calendarMonthPreviewLayout, calendarMonthTimedPreviews, calendarMonthUsedHeight,
-  MONTH_CELL_GAP, MONTH_EVENT_ROW_HEIGHT, MONTH_MAX_EVENT_ROWS, MONTH_MORE_HEIGHT } from '../src/features/calendar/month-density.ts';
+  MONTH_CELL_GAP, MONTH_EVENT_ROW_HEIGHT, MONTH_MAX_EVENT_ROWS, MONTH_MORE_HEIGHT, MONTH_WASTE_HEIGHT } from '../src/features/calendar/month-density.ts';
 import { calendarColorContrast, calendarEventAppearance, calendarMonthTitleColor } from '../src/features/calendar/event-appearance.ts';
 import { calendarMonthTitleText } from '../src/features/calendar/month-title-text.ts';
+import { screenHarness } from './helpers/screen-harness.mjs';
 
 test('month previews account for every hidden appointment without covering day labels or sacrificing appointments for extra title lines', () => {
   for (const base of [0, 96, 120, 170, 240]) for (const summary of [false, true]) for (const waste of [false, true]) for (const total of [0, 1, 2, 3, 4, 5, 9, 100]) {
@@ -65,6 +66,32 @@ test('a last fitting month appointment replaces plus one without taking room fro
     assert.ok(short.hidden > 0);
     assert.ok(calendarMonthUsedHeight(short.visible, summary, waste) + MONTH_MORE_HEIGHT + MONTH_CELL_GAP <= height - 1);
   }
+});
+
+test('a wrapped collection label reduces event rows in its own cell and keeps the existing week height', t => {
+  const day = '2026-11-25';
+  const events = ['家族の旅行', '昼休みの散歩', '夕食の相談'].map((title, i) => ({
+    id: String(i), title, startDate: day, startMinute: i * 60, allDay: false,
+  }));
+  const height = calendarMonthUsedHeight(events.length, true, true);
+  const props = { day, events, height, summary: true, wasteLabel: 'びん・缶', width: 390, fontScale: 1, dark: false,
+    appearances: new Map(), fallbackAppearance: calendarEventAppearance('#008878', false) };
+  const ui = screenHarness('src/features/calendar/month-events.tsx', { exportName: 'CalendarMonthEvents', props });
+  t.after(() => ui.unmount());
+  const report = measured => {
+    const metadata = ui.nodes().find(node => typeof node.props.onLayout === 'function');
+    assert.ok(metadata);
+    metadata.props.onLayout({ nativeEvent: { layout: { height: measured } } });
+    ui.render();
+  };
+  assert.match(ui.text(), /\+2/u, 'the initial estimate leaves space for wrapped metadata');
+  report(MONTH_WASTE_HEIGHT);
+  assert.match(ui.text(), /夕食の相談/u);
+  assert.doesNotMatch(ui.text(), /\+2/u);
+  report(MONTH_WASTE_HEIGHT * 2);
+  assert.match(ui.text(), /びん・缶.*家族の旅行.*\+2/u);
+  assert.doesNotMatch(ui.text(), /夕食の相談/u);
+  assert.equal(props.height, height);
 });
 
 test('month title previews wrap mixed Latin text without altering source names or splitting composed characters', () => {

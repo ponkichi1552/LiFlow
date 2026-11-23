@@ -5,7 +5,7 @@ import { initializeGoogleTaskReadCacheInside } from './google-task-read-cache.ts
 import { initializePlanningInputRevisionInside } from './planning-input-revision.ts';
 
 const INITIAL_SCHEMA_VERSION = 1;
-const CURRENT_SCHEMA_VERSION = 31;
+const CURRENT_SCHEMA_VERSION = 32;
 
 function assertReadableVersion(version: number) {
   if (!Number.isSafeInteger(version) || version < 0 || version > CURRENT_SCHEMA_VERSION) throw new Error('新しいバージョンで保存されたデータです。LiFlowを更新してください。');
@@ -502,6 +502,17 @@ async function migrateSchema(database: SQLiteDatabase): Promise<void> {
         PRIMARY KEY(scope,event_id,anchor_date));
     `);
     version = 31;
+  }
+  if (version < 32) {
+    // NULL is an old copy whose source has yet to be rechecked. An empty value means no uploaded PDF.
+    const copies = await database.getAllAsync<{ name: string }>('PRAGMA table_info(appliance_shared_copies)');
+    if (!copies.some(column => column.name === 'manual_digest')) {
+      await database.execAsync('ALTER TABLE appliance_shared_copies ADD COLUMN manual_digest TEXT');
+    }
+    const queued = await database.getAllAsync<{ name: string }>('PRAGMA table_info(appliance_analysis_work)');
+    if (queued.length && !queued.some(column => column.name === 'first_attempt_at')) {
+      await database.execAsync('ALTER TABLE appliance_analysis_work ADD COLUMN first_attempt_at INTEGER');
+    }
   }
 
   if (startingVersion < CURRENT_SCHEMA_VERSION) {

@@ -31,6 +31,19 @@ async function check(screen, label) {
   await screen.flush();
 }
 
+test('the same appliance work row opens the result after a pending fixture completes', async t => {
+  const { screen } = openPreview(t, 'ios', 'manual-pending');
+  const filename = 'サーキュレーターの取扱説明書.pdf';
+  await screen.press(`${filename}、結果待ち · 個人`);
+  assert.match(screen.text(), /解析中/u);
+  await screen.press('確認用データの解析を完了');
+  await screen.press(`${filename}、解析結果を確認 · 個人`);
+  assert.match(screen.text(), /解析結果/u);
+  assert.doesNotMatch(screen.text(), /型番の記載|周期の変更を保存/u);
+  await screen.press('保存した家電のお手入れ詳細を開く');
+  assert.match(screen.text(), /前面ガードを拭く/u);
+});
+
 for (const platform of ['ios', 'android']) {
   test(`${platform} appliance review opens scoped fixtures, long manuals and an empty legacy record`, async t => {
     const { screen, switchTo } = openPreview(t, platform, 'library');
@@ -50,8 +63,9 @@ for (const platform of ['ios', 'android']) {
     await screen.press('保管袋のラベルを確認するへ移動');
     assert.match(screen.text(), /保管する本体と袋の型番を照らし合わせる/u);
     switchTo('no-care');
-    assert.match(screen.text(), /お手入れ 0項目/u);
+    assert.match(screen.text(), /お手入れ項目はありません/u);
     assert.doesNotMatch(screen.text(), /説明書を開く/u);
+    assert.ok(!screen.nodes().some(node => node.props.accessibilityLabel === 'お手入れの見出しを移動'));
     await screen.press('この家電を再解析');
     await screen.press('取扱説明書PDFを選ぶ');
     await screen.press('見本_QA-KETTLE-0_取扱説明書.pdf');
@@ -74,6 +88,9 @@ for (const platform of ['ios', 'android']) {
     assert.equal(screen.button('確認した解析結果を共有する').props.disabled, true);
     await screen.press('水量表示を確認するへ移動');
     await check(screen, '「水量表示を確認する」を無効の共有家事として追加');
+    const reviewRow = screen.nodes().find(node => node.props.accessibilityLabel === 'メーカー・型番・手順・注意事項を確認した');
+    assert.equal(reviewRow.props.accessibilityRole, 'checkbox');
+    assert.ok(reviewRow.children.some(text => text.type === 'Text' && text.children.join('') === reviewRow.props.accessibilityLabel));
     await check(screen, 'メーカー・型番・手順・注意事項を確認した');
     await screen.press('確認した解析結果を共有する');
     await screen.press('家電の操作へ移動');
@@ -95,9 +112,9 @@ for (const platform of ['ios', 'android']) {
 
   test(`${platform} empty private appliance preview adds a sample, validates cycles and resets on reentry`, async t => {
     const { screen, switchTo } = openPreview(t, platform, 'empty');
-    assert.match(screen.text(), /未登録/u);
+    assert.match(screen.text(), /取扱説明書PDFから家電を追加できます/u);
     await screen.press('家電を追加');
-    assert.equal(screen.button('PDFを解析').props.disabled, true);
+    assert.doesNotMatch(screen.text(), /PDFを解析/u);
     await screen.press('取扱説明書PDFを選ぶ');
     await screen.press(goodPdf);
     await screen.press('PDFを解析');
@@ -110,9 +127,9 @@ for (const platform of ['ios', 'android']) {
     await screen.press('水量表示を確認するへ移動');
     assert.match(screen.text(), /定期予定なし/u);
     await screen.press('家電一覧へ戻る');
-    assert.match(screen.text(), /1台/u);
+    screen.button('加湿器、談話室の加湿器のお手入れを開く（個人）');
     switchTo('single');
     switchTo('empty');
-    assert.match(screen.text(), /未登録/u);
+    assert.match(screen.text(), /取扱説明書PDFから家電を追加できます/u);
   });
 }

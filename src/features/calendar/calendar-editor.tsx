@@ -43,7 +43,7 @@ export type CalendarChoreRegistrationProps = { date: EventDraft['startDate']; in
   onAudienceChange?(audience: 'personal' | 'group', input: CalendarChoreInput): void; onBack(audience?: 'personal' | 'group'): void; onCancel?(): void; onClose(): void;
   onSaved(date: EventDraft['startDate'], notice?: string): void; onBusyChange(busy: boolean): void; onInputChange?(hasInput: boolean): void };
 export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, onDuplicate, repeatReturnTo = 'personal', renderChoreRegistration, displayTimeZone, choreForm, onChooseChore, onChoreAudience, onClearChore, onChoreInputChange, hiddenForChore = false, onPreviewChore }: {
-  initial: CalendarEditorDraft; local: LocalCalendarBinding; chores?: readonly ExistingCalendarChore[]; onClose: () => void; onSaved: (date: EventDraft['startDate'], notice?: string) => void;
+  initial: CalendarEditorDraft; local: LocalCalendarBinding; chores?: readonly ExistingCalendarChore[]; onClose: () => void; onSaved: (date: EventDraft['startDate'], notice?: string, keepDateRange?: boolean) => void;
   repeatReturnTo?: 'personal' | 'group';
   onDuplicate?(draft: CalendarEditorDraft): void;
   renderChoreRegistration?(props: CalendarChoreRegistrationProps): ReactNode;
@@ -198,22 +198,26 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
     }
     return day;
   };
+  const notifyAppointmentSaved = (submitted: CalendarEditorDraft) => {
+    const date = savedDisplayDate(submitted);
+    onSaved(date, undefined, Boolean(initial.eventId) && date === savedDisplayDate(initial));
+  };
   const save = (resetExceptions = false) => void work(async () => {
     if (!local.database) throw new Error('予定の保存先を読み込んでください。');
     const d = latest.current;
     const draftCleanup = draftSession.cleanup();
-    if (local.saveEvent) { await local.saveEvent(d, resetExceptions, draftCleanup); onSaved(savedDisplayDate(d)); return; }
+    if (local.saveEvent) { await local.saveEvent(d, resetExceptions, draftCleanup); notifyAppointmentSaved(d); return; }
     if (d.audience === 'group') throw new Error('共有予定の保存先を確認してください。');
     if (d.scope === 'future') await saveCalendarFutureEvent(local.database, d, draftCleanup);
     else await saveCalendarEvent(local.database, { id: d.eventId ?? undefined, draftId: d.draftId, expectedRevision: d.revision, value: d.value,
       scope: d.scope, anchorDate: d.anchorDate ?? undefined, expectedExceptionRevision: d.exceptionRevision, resetExceptions, reminderMinutes: d.reminderMinutes, draftCleanup });
-    onSaved(savedDisplayDate(d)); void local.refresh();
+    notifyAppointmentSaved(d); void local.refresh();
   });
   const saveReminderOnly = () => void work(async () => {
     if (!local.database || !initial.eventId || reminderUnavailable) return;
     local.assertDraftAccess?.(latest.current);
     await saveCalendarReminder(local.database, { scope: reminderScope, eventId: initial.eventId, anchorDate: draft.scope === 'one' ? draft.anchorDate : null, minutes: reminderMinutes });
-    onSaved(savedDisplayDate(draft));
+    notifyAppointmentSaved(draft);
   });
   const saveReviewed = () => {
     save();
@@ -316,7 +320,7 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           }); }, onBusyChange: onChoreBusyChange }} /> : <>
         <CalendarSheetHeader title={readOnly ? '予定の詳細' : initial.eventId ? '予定を編集' : value.birthday ? '誕生日を追加' : '予定を追加'} busy={busy || choreForm?.busy}
           saveLabel={readOnly ? '予定の通知を保存' : undefined}
-          closeTitle={exitActions ? '戻る' : '閉じる'} closeExpanded={exitActions} onClose={() => { if (exitActions) setExitActions(false); else close(); }} onSave={choreForm ? choreForm.onSave : readOnly ? value.birthday ? undefined : saveReminderOnly : saveReviewed} saveDisabled={Boolean(categoryEdit || timeError || review) || (readOnly && reminderUnavailable) || (choreForm ? choreForm.disabled : !value.title.trim())} />
+          closeTitle={exitActions ? '戻る' : '閉じる'} closeLabel={exitActions ? '編集に戻る' : undefined} closeExpanded={exitActions} onClose={() => { if (exitActions) setExitActions(false); else close(); }} onSave={choreForm ? choreForm.onSave : readOnly ? value.birthday ? undefined : saveReminderOnly : saveReviewed} saveDisabled={Boolean(categoryEdit || timeError || review) || (readOnly && reminderUnavailable) || (choreForm ? choreForm.disabled : !value.title.trim())} />
         {exitActions ? <View style={styles.exitActions} accessibilityLabel="閉じるときの入力の扱い">
           <View style={{ flex: 1 }}><SettingsAction title="入力を破棄" intent="destructive" disabled={busy} onPress={discardAndClose} /></View>
           <View style={{ flex: 1 }}><SettingsAction title="下書き保存" placement="page" disabled={busy} onPress={saveDraftAndClose} /></View>
@@ -380,12 +384,12 @@ export function CalendarEditor({ initial, local, chores = [], onClose, onSaved, 
           {choreForm?.entry?.details ? <View style={styles.optionsGroup}><Pressable accessibilityRole="button" accessibilityLabel="家事の詳細設定" accessibilityState={{ expanded: detailsOpen }} onPress={() => { if (choreForm.entry?.onDetailsToggle) choreForm.entry.onDetailsToggle(); else setDetailsOpen(before => !before); }} style={styles.optionSelect}><Text style={[styles.value, { flex: 1 }]}>詳細設定</Text><Chevron direction={detailsOpen ? 'up' : 'down'} /></Pressable>{detailsOpen ? <View>{choreForm.entry.details}</View> : null}</View> : null}
           <View style={styles.scheduleContent}>
           <View style={styles.scheduleTop}><Text style={styles.scheduleTitle}>{value.birthday ? '誕生日' : '日時'}</Text>{!value.birthday ? <View style={styles.allDayControl}><Text style={styles.value}>終日</Text><SettingsCheckbox accessibilityLabel="終日" value={value.allDay} disabled={busy || readOnly} onValueChange={allDay => { titleDateTime.manual('allDay'); patch({ allDay }); }} /></View> : null}</View>
-          <View style={styles.dateRow}>{!value.birthday ? <Text style={[styles.dateLabel, labelWidths.date]}>開始</Text> : null}<CalendarField borderless hideLabel commitOnDone disabled={busy || readOnly} label={value.birthday ? '誕生日' : '開始日'} date={value.startDate} minute={value.startMinute} mode="date" onDate={date => {
+          <View style={styles.dateRow}>{!value.birthday ? <Text style={[styles.dateLabel, labelWidths.date]}>開始</Text> : null}<CalendarField borderless hideLabel commitOnDone="or-backdrop" disabled={busy || readOnly} label={value.birthday ? '誕生日' : '開始日'} date={value.startDate} minute={value.startMinute} mode="date" onDate={date => {
             titleDateTime.manual('startDate'); change(before => ({ ...before, value: moveCalendarStart(before.value, { startDate: date }) }));
-          }} />{!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel commitOnDone disabled={busy || readOnly} label="開始" date={value.startDate} minute={clocks?.start ?? value.startMinute} empty={Boolean(clocks && clocks.start === null)} mode="time" onMinute={startMinute => { titleDateTime.manual('startMinute'); if (clocks) clocks.onChange('start', startMinute); else change(before => ({ ...before, value: moveCalendarStart(before.value, { startMinute }) })); }} /></View> : null}</View>
+          }} />{!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel commitOnDone="or-backdrop" disabled={busy || readOnly} label="開始" date={value.startDate} minute={clocks?.start ?? value.startMinute} empty={Boolean(clocks && clocks.start === null)} mode="time" onMinute={startMinute => { titleDateTime.manual('startMinute'); if (clocks) clocks.onChange('start', startMinute); else change(before => ({ ...before, value: moveCalendarStart(before.value, { startMinute }) })); }} /></View> : null}</View>
           {!value.birthday ? <View style={styles.dateRow}><Text style={[styles.dateLabel, labelWidths.date]}>終了</Text>
-            <CalendarField borderless hideLabel commitOnDone disabled={busy || readOnly} label="終了日" date={value.endDate} minute={value.endMinute} mode="date" onDate={endDate => { titleDateTime.manual('endDate'); patch({ endDate }); }} />
-            {!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel commitOnDone disabled={busy || readOnly} label="終了" date={value.endDate} minute={clocks?.end ?? value.endMinute} empty={Boolean(clocks && clocks.end === null)} mode="time" onMinute={endMinute => { titleDateTime.manual('endMinute'); if (clocks) clocks.onChange('end', endMinute); else patch({ endMinute }); }} /></View> : null}
+            <CalendarField borderless hideLabel commitOnDone="or-backdrop" disabled={busy || readOnly} label="終了日" date={value.endDate} minute={value.endMinute} mode="date" onDate={endDate => { titleDateTime.manual('endDate'); patch({ endDate }); }} />
+            {!value.allDay ? <View style={styles.timeField}><CalendarField borderless hideLabel commitOnDone="or-backdrop" disabled={busy || readOnly} label="終了" date={value.endDate} minute={clocks?.end ?? value.endMinute} empty={Boolean(clocks && clocks.end === null)} mode="time" onMinute={endMinute => { titleDateTime.manual('endMinute'); if (clocks) clocks.onChange('end', endMinute); else patch({ endMinute }); }} /></View> : null}
           </View> : null}
           {timeError ? <Text accessibilityLiveRegion="polite" style={styles.error}>{timeError}</Text> : null}
           {value.timeZone !== displayTimeZone ? <Text style={[styles.caption, { textAlign: 'right' }]}>地域：{value.timeZone}</Text> : null}

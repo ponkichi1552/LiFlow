@@ -279,6 +279,11 @@ for (const platform of ['ios', 'android']) {
     ui.nodes().find(node => node.props.accessibilityLabel === '予定名').props.onChangeText('入力途中'); close.props.onPress(); await flush(ui);
     assert.equal(closed, 0); assert.equal((await store.readLocalCalendar(h.database)).drafts.length, 0);
     assert.ok(ui.button('入力を破棄')); assert.ok(ui.button('下書き保存'));
+    await ui.press('編集に戻る');
+    assert.equal(closed, 0);
+    assert.equal(ui.nodes().some(node => node.props.accessibilityLabel === '閉じるときの入力の扱い'), false);
+    assert.equal(ui.nodes().some(node => node.props.accessibilityLabel === '予定名'), true);
+    await ui.press('予定の編集を閉じる');
     ui.nodes().find(node => node.type === 'Modal').props.onRequestClose(); await ui.flush(); assert.ok(ui.button('下書き保存'));
     const save = ui.button('下書き保存'); save.props.onPress(); save.props.onPress(); await flush(ui);
     const saved = await store.readLocalCalendar(h.database); assert.equal(closed, 1); assert.equal(saved.drafts.length, 1); assert.equal(saved.draft.value.title, '入力途中'); assert.equal(saved.events.length, 0);

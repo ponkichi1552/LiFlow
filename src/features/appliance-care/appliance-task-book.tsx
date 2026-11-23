@@ -19,5 +19,5 @@ export function ApplianceTaskBook({ tasks, label, header, footer, onBack, render
   const groups = useMemo(() => [[label, chapters] as const], [label, chapters]);
   const renderChapter = useCallback((chapter: TaskChapter) => chapter.task ? renderTask(chapter.task, chapter.index) : null, [renderTask]);
   return <ChoreBook chores={chapters} chapterGroups={groups} title={title} header={header} footer={footer} onBack={onBack} renderChore={renderChapter}
-    showCategory={false} embedded={embedded} hasTabBar={hasTabBar} cardChapters itemLabel="お手入れ" backAccessibilityLabel={backAccessibilityLabel} backDisabled={backDisabled} renderBatchSize={1} bottomPadding={bottomPadding} />;
+    showCategory={false} showIndex={tasks.length > 1} embedded={embedded} hasTabBar={hasTabBar} cardChapters itemLabel="お手入れ" backAccessibilityLabel={backAccessibilityLabel} backDisabled={backDisabled} renderBatchSize={1} bottomPadding={bottomPadding} />;
 }

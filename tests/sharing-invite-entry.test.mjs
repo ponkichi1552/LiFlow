@@ -18,6 +18,7 @@ function entry(platform, link, overrides = {}) {
       '@/platform/sharing/auth': { isSharingAppleSignInAvailable: async () => false,
         signInSharingWithGoogle: async () => { calls.login++; if (state.login) return state.login(); state.uid = 'member'; return { uid: state.uid }; } },
       '@/platform/sharing/workspaces': { enableSharingSession: async () => {}, sharingSessionUser: async () => state.uid ? { uid: state.uid } : null,
+        isWorkspaceCopyInvitation: async () => false,
         sharingFailureMessage: () => '申請できませんでした。', requestSharingWorkspace: async url => {
           calls.request.push(url); if (state.request) return state.request(url); return { groupId: 'joined-group' };
         } },

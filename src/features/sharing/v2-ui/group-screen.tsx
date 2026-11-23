@@ -5,6 +5,9 @@ import type { HomeWeekScope } from '../../planner/home-presentation';
 import { startTransition, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ComponentProps } from 'react';
 import { useFocusEffect } from 'expo-router';
+import type { SQLiteDatabase } from 'expo-sqlite';
+import { isTransientPlannerRead, plannerReadRetryDelays } from '../../../platform/storage/planner-read-retry';
+import { AdaptiveOwnerInputsChangedError } from '../../../platform/storage/adaptive-owner-inputs';
 import { ActivityIndicator, AppState, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SafeAreaView } from '@/components/screen-safe-area';
@@ -44,7 +47,7 @@ import { V2ApplianceLibrary } from './appliance-library';
 import { V2ChoreBook, type PersonalGuideSource } from './chore-book';
 import type { CompletionFeedback } from './completion-feedback';
 import { HomeMotionList } from '../../../components/home-row-motion';
-import { HomeHeader, homeHeaderContainerStyle, HomeLinks, HomeProgress, HomeWeekSwitcher, HomeUpcomingDate, HomeExpiredHeading, LoadSortButton, CompletionToast } from '../../../components/home-ui';
+import { HomeHeader, homeHeaderContainerStyle, HomeLinks, HomeEmptyChores, HomeProgress, HomeWeekSwitcher, HomeUpcomingDate, HomeExpiredHeading, LoadSortButton, CompletionToast } from '../../../components/home-ui';
 import { finishStartupDisplay } from '../../../platform/diagnostics/startup-splash';
 import { useHomeDisplay } from '../../../hooks/use-home-display';
 import type { LocalCalendarBinding } from '../../calendar/use-local-calendar';
@@ -67,8 +70,10 @@ export interface V2GroupScreenProps {
   settingsSelection?: ChoreAudienceSelection;
   initialDisplay?: WorkspaceDisplayValue;
   lifecycleManaged?: boolean;
+  analysisDatabase?: SQLiteDatabase; analysisWorkId?: string;
   localCalendar?: LocalCalendarBinding; onCalendarNavigate?: PlannerCalendarProps['onNavigate'];
   purpose: 'development' | 'workspace'; workspaceName?: string; workspaceError?: string; onManage?: () => void;
+  onPersonalSetup?: () => void;
   subscribe?: (changed: () => void) => () => void;
   loadSession: () => Promise<V2GroupUiSession>; view: 'home' | 'configuration' | 'history' | 'round' | 'date' | 'requests' | 'assignment' | 'assignmentRequests' | 'calendar' | 'chores' | 'details' | 'advancedSettings' | 'addChore' | 'groupPolicy' | 'dateRights' | 'waste' | 'appliances' | 'appliance' | 'applianceReview' | 'guide'; choreId?: string; applianceId?: string;
   occurrenceId?: string; subjectId?: string; anchorDate?: string; targetDate?: string; calendarAdd?: boolean; onRound?: (occurrenceId: string, subjectId: string, anchorDate?: string) => void; onDate?: (occurrenceId: string, subjectId: string, targetDate?: LocalDate, anchorDate?: LocalDate) => void;
@@ -79,15 +84,21 @@ export interface V2GroupScreenProps {
   onGroupPolicy?: () => void; onNotifications?: () => void; onGoogleTasks?: () => void; onPersonalCopy?: () => void;
   onDateRights?: (choreId: string) => void;
   onWaste?: () => void;
-  onAppliances?: () => void; onAppliance?: (id: string) => void; onApplianceReview?: (id?: string) => void;
-  onPersonalAppliance?: (id: string) => void; onPersonalApplianceReview?: (id?: string) => void;
+  onAppliances?: () => void; onAppliance?: (id: string) => void; onApplianceReview?: (id?: string, workId?: string) => void;
+  onPersonalAppliance?: (id: string) => void; onPersonalApplianceReview?: (id?: string, workId?: string) => void;
+}
+
+export function workspaceViewHasBack(view: V2GroupScreenProps['view'], choreId?: string) {
+  return view === 'chores' || view === 'guide' ? Boolean(choreId) : view !== 'home' && view !== 'calendar' && view !== 'appliances';
 }
 
 export function readOptionsForView(view: V2GroupScreenProps['view'], anchorDate?: string, choreId?: string, applianceId?: string): Parameters<V2GroupUiSession['readModel']>[0] {
+  if (view === 'history') return { copiedHistory: true };
   if (view === 'appliances' || view === 'appliance' || view === 'applianceReview') return { management: true, appliances: true, applianceId };
   if (view === 'waste') return { management: true, waste: true };
   if (view === 'groupPolicy') return { management: true, groupPolicy: true };
   if (view === 'dateRights') return { management: true, permissionsChoreId: choreId };
+  if (view === 'assignment') return { focusDate: anchorDate, assignmentReview: true };
   if (view === 'details' || view === 'configuration' || view === 'advancedSettings') return { management: true, choreSettings: true };
   if (view === 'guide' || view === 'chores') return undefined;
   if (view === 'addChore') return anchorDate ? { focusDate: anchorDate } : { management: true };
@@ -95,7 +106,7 @@ export function readOptionsForView(view: V2GroupScreenProps['view'], anchorDate?
   return view === 'calendar' ? { calendarMonth: 'current', waste: true, wasteCalendarPolicy: true } : view === 'home' ? { waste: true } : undefined;
 }
 
-export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage, subscribe, loadSession, view, choreId, settingsSelection, applianceId, onBack, onConfiguration, onHistory, onRequests, occurrenceId, subjectId, onRound, onDate, onAssignment, onAssignmentRequests, onCalendar, anchorDate, targetDate, calendarAdd, onManageChores, onDetails, onAddChore, onChoreCreated, onGroupPolicy, onNotifications, onGoogleTasks, onPersonalCopy, onDateRights, onWaste, onAppliances, onAppliance, onApplianceReview, localCalendar, onCalendarNavigate, onGuide, personalGuide, guideSource, onPersonalAppliance, onPersonalApplianceReview, initialDisplay, lifecycleManaged = false, sharedCompletion, personalCompletion, invalidateCompletionDisplay }: V2GroupScreenProps) {
+export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage, onPersonalSetup, subscribe, loadSession, view, choreId, settingsSelection, applianceId, onBack, onConfiguration, onHistory, onRequests, occurrenceId, subjectId, onRound, onDate, onAssignment, onAssignmentRequests, onCalendar, anchorDate, targetDate, calendarAdd, onManageChores, onDetails, onAddChore, onChoreCreated, onGroupPolicy, onNotifications, onGoogleTasks, onPersonalCopy, onDateRights, onWaste, onAppliances, onAppliance, onApplianceReview, localCalendar, onCalendarNavigate, onGuide, personalGuide, guideSource, onPersonalAppliance, onPersonalApplianceReview, analysisDatabase, analysisWorkId, initialDisplay, lifecycleManaged = false, sharedCompletion, personalCompletion, invalidateCompletionDisplay }: V2GroupScreenProps) {
   const libraryState = useChoreLibraryState();
   const [session, setSession] = useState<V2GroupUiSession | null>(initialDisplay?.session ?? null); const [screenModel, setModel] = useState<Awaited<ReturnType<V2GroupUiSession['readModel']>> | null>(initialDisplay?.model ?? null);
   const composition = useMemo(() => {
@@ -138,6 +149,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   useEffect(() => { if (!lastUndo || busy && !lastUndo.queuedKey) return; const timer = setTimeout(() => setLastUndo(null), 6500); return () => clearTimeout(timer); }, [lastUndo, busy]);
   const alive = useRef(false); const generation = useRef(0); const running = useRef(false);
   const notificationTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const recovery = useRef<{ count: number; timer?: ReturnType<typeof setTimeout> }>({ count: 0 });
   const mutationRead = useRef(false); const refreshQueued = useRef(false);
   const readOptions = useRef(readOptionsForView(view, anchorDate, choreId, applianceId));
   const readBinding = useRef({ anchorDate, view, choreId, applianceId });
@@ -145,7 +157,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   const refreshPending = useRef<{ options: typeof readOptions.current; revision: number; work: Promise<boolean> } | undefined>(undefined);
   useLayoutEffect(() => { sessionLoader.current = loadSession; }, [loadSession]);
   const [calendarMonth, setCalendarMonth] = useState<LocalDate | null>(null); const [calendarDay, setCalendarDay] = useState<LocalDate | null>(null);
-  const refresh = useCallback(() => {
+  const refresh = useCallback(function readDisplay(retry = false): Promise<boolean> {
     clearTimeout(notificationTimer.current); notificationTimer.current = undefined;
     const options = readOptions.current;
     const pending = refreshPending.current;
@@ -153,15 +165,46 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     // Join that read so the saved gesture can acknowledge it, rather than
     // superseding itself and retaining a stale optimistic value indefinitely.
     if (pending && pending.options === options && pending.revision === generation.current) return pending.work;
+    clearTimeout(recovery.current.timer);
+    if (!retry) recovery.current.count = 0;
     const revision = ++generation.current;
+    const home = readBinding.current.view === 'home';
+    const recover = () => {
+      const delay = home ? plannerReadRetryDelays[recovery.current.count] : undefined;
+      if (delay === undefined) return false;
+      recovery.current.count++;
+      recovery.current.timer = setTimeout(() => {
+        if (!alive.current || generation.current !== revision || AppState.currentState === 'inactive' || AppState.currentState === 'background') return;
+        if (running.current) refreshQueued.current = true;
+        else void readDisplay(true);
+      }, delay);
+      return true;
+    };
     const work = (async () => { try {
       const preview = await sessionLoader.current(); const value = await preview.readModel(options);
       if (alive.current && generation.current === revision) {
-        setSession(preview); setModel(value); setError(null);
+        const privateRetry = home && value.privateOverlay?.status === 'unavailable' && value.privateOverlay.retryable;
+        const recovering = privateRetry && recover();
+        setSession(preview);
+        setModel(previous => {
+          if (!privateRetry) return value;
+          const saved = previous?.privateOverlay;
+          return previous?.plan.groupId === value.plan.groupId && previous.plan.range.asOfDate === value.plan.range.asOfDate
+            && saved?.status === 'ready' && saved.ownerUserId === value.viewerUserId
+            ? { ...value, privateOverlay: saved } : value;
+        });
+        setError(privateRetry && !recovering ? '最新の個人家事を表示できませんでした。' : null);
         setCompletionValues(values => values.size ? new Map() : values);
         return true;
       } return false;
-    } catch (cause) { if (alive.current && generation.current === revision) setError(cause instanceof Error ? cause.message : '共有データを読み込めませんでした。'); return false; } })();
+    } catch (cause) {
+      // Workspace reads already retry changing owner inputs. The input-change subscription starts the next read.
+      const retryable = !(cause instanceof AdaptiveOwnerInputsChangedError) && isTransientPlannerRead(cause);
+      if (alive.current && generation.current === revision && !(retryable && recover())) {
+        setError(home ? '最新の家事を表示できませんでした。' : cause instanceof Error ? cause.message : '共有データを読み込めませんでした。');
+      }
+      return false;
+    } })();
     const reading = { options, revision, work }; refreshPending.current = reading;
     void work.finally(() => { if (refreshPending.current === reading) refreshPending.current = undefined; });
     return work;
@@ -178,7 +221,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
       readBinding.current = { anchorDate, view, choreId, applianceId };
     }
     void refresh(); sharedCompletion?.queue.retryRead(); personalCompletion?.queue.retryRead();
-    return () => { alive.current = false; setLastUndo(null); feedbackEpoch.current++; setCompletionValues(new Map()); generation.current++; clearTimeout(notificationTimer.current); refreshQueued.current = false; };
+    return () => { alive.current = false; setLastUndo(null); feedbackEpoch.current++; setCompletionValues(new Map()); generation.current++; clearTimeout(notificationTimer.current); clearTimeout(recovery.current.timer); refreshQueued.current = false; };
   }, [refresh, anchorDate, view, choreId, applianceId, sharedCompletion, personalCompletion]));
   // Restoring a live provider may replace its subscription while this route is
   // still focused. Rebind observation without cancelling the pending user action.
@@ -217,7 +260,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
       mutationRead.current = true; loaded = await refresh();
       if (alive.current) {
         if (failed) setError(failure instanceof Error ? failure.message : '操作を完了できませんでした。');
-        else if (!loaded) setError('表示を更新できませんでした。画面を開き直して現在の状態を確認してください。');
+        else if (!loaded && view !== 'home') setError('表示を更新できませんでした。画面を開き直して現在の状態を確認してください。');
       }
     } finally {
       mutationRead.current = false; running.current = false; if (alive.current) setBusy(false);
@@ -253,7 +296,7 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   } };
   const run = async (work: () => Promise<unknown>) => { await perform(work); };
   const groupName = typeof screenModel?.plan.commonSettings.name === 'string' ? screenModel.plan.commonSettings.name : workspaceName ?? '共有グループ';
-  const actionError = error ?? sharedIntents.error ?? personalIntents.error;
+  const actionError = (screenModel && session ? error : null) ?? sharedIntents.error ?? personalIntents.error;
   const retryCompletion = sharedIntents.failed.size || personalIntents.failed.size ? <AppButton title="保存を再試行" variant="quiet" compact
     onPress={() => { sharedCompletion?.queue.retryFailed(); personalCompletion?.queue.retryFailed(); }} /> : null;
   const notice = purpose === 'development' || workspaceError || actionError ? <View style={styles.notice}>
@@ -267,8 +310,15 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     <View style={styles.page}>{error ? <><Text accessibilityRole="alert" style={styles.error}>{error}</Text>
       <AppButton title="読み込みを再試行" variant="quiet" onPress={() => void refresh()} /></> : <ActivityIndicator color={palette.accent} />}</View>
   </V2ScreenFrame>;
-  if (!screenModel || !session) return <V2ScreenFrame purpose={purpose} startupReady={Boolean(error)} style={styles.safe}>{notice}<ActivityIndicator color={palette.accent} />
-    <AppButton title="読み込みを再試行" variant="quiet" onPress={() => void refresh()} /></V2ScreenFrame>;
+  if (!screenModel || !session) {
+    const hasBack = workspaceViewHasBack(view, choreId);
+    return <V2ScreenFrame purpose={purpose} startupReady={Boolean(error)} style={styles.safe} edges={hasBack ? ['top'] : undefined}>
+      {hasBack ? <NavigationHeader><BackButton onPress={onBack} /></NavigationHeader> : null}
+      {notice}
+      {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : <ActivityIndicator color={palette.accent} />}
+      {view !== 'home' ? <AppButton title="読み込みを再試行" variant="quiet" onPress={() => void refresh()} /> : null}
+    </V2ScreenFrame>;
+  }
   // Strip local composition before passing the common model to shared forms and actions.
   const { personal, privateValue, model } = composition!;
   const privateOverlay = privateOverlayForViewer(privateValue, model.viewerUserId);
@@ -278,13 +328,13 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     <AppButton title="家電を再読込" disabled={busy} onPress={() => void refresh()} />
   </V2ScreenFrame>;
   if (view === 'appliances') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
-    <V2ApplianceLibrary model={model} personal={personalGuide?.snapshot.appliances} personalDatabase={personalGuide?.database} busy={busy}
+    <V2ApplianceLibrary model={model} personal={personalGuide?.snapshot.appliances} personalDatabase={analysisDatabase ?? personalGuide?.database} busy={busy}
       header={notice}
       onOpen={onAppliance} onReview={onApplianceReview} onPersonal={onPersonalAppliance} onPersonalReview={onPersonalApplianceReview} />
   </V2ScreenFrame>;
   if (view === 'appliance' || view === 'applianceReview') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
-    <V2ApplianceScreen key={`${view}:${applianceId ?? 'new'}`} model={model} mode={view} applianceId={applianceId} actions={controller.actions} busy={busy} perform={perform}
-      header={notice} personalDatabase={personalGuide?.database} onBack={onBack} onOpen={onAppliance} onReview={onApplianceReview} onConfiguration={onConfiguration} onDetails={onDetails} />
+    <V2ApplianceScreen key={JSON.stringify([view, applianceId, analysisWorkId])} model={model} mode={view} applianceId={applianceId} workId={analysisWorkId} returnsToLibrary={purpose === 'workspace'} actions={controller.actions} busy={busy} perform={perform}
+      header={notice} personalDatabase={analysisDatabase ?? personalGuide?.database} onBack={onBack} onOpen={onAppliance} onReview={onApplianceReview} onConfiguration={onConfiguration} onDetails={onDetails} />
   </V2ScreenFrame>;
   if (view === 'waste') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
     <V2WasteScreen model={model} actions={controller.actions} busy={busy} perform={perform} header={notice} onBack={onBack} />
@@ -327,8 +377,14 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
   if (view === 'history') return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
     <V2HistoryContent model={model} choreId={choreId} personal={personalGuide} actions={controller.actions} busy={busy} run={run} onBack={onBack} notice={notice} />
   </V2ScreenFrame>;
-  if (!personal) return <V2ScreenFrame purpose={purpose} style={styles.safe}>{notice}<Text style={styles.body}>本人の推奨日を読み込めませんでした。</Text>
-    <AppButton title="読み込みを再試行" variant="quiet" onPress={() => void refresh()} /></V2ScreenFrame>;
+  if (!personal) {
+    const hasBack = workspaceViewHasBack(view, choreId);
+    return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={hasBack ? ['top'] : undefined}>
+      {hasBack ? <NavigationHeader><BackButton onPress={onBack} /></NavigationHeader> : null}
+      {notice}<Text style={styles.body}>本人の推奨日を読み込めませんでした。</Text>
+      <AppButton title="読み込みを再試行" variant="quiet" onPress={() => void refresh()} />
+    </V2ScreenFrame>;
+  }
   if (view === 'calendar') {
     const month = calendarMonth ?? v2CalendarMonth(model.plan.range.asOfDate).month;
     const selectMonth = async (day: LocalDate, selectedDate?: LocalDate, forceRead = false) => {
@@ -397,8 +453,13 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
     </V2FormScrollView></V2ScreenFrame>;
   }
   if (!home) return null;
-  const { listRows, expiredCount, recommendations, total, done, summary } = home;
-  const card = (round: V2PlannedOccurrence, subject: V2SubjectPlan, showHomeSource?: boolean) => <V2RoundCard model={model} round={round} subject={subject} actions={controller.actions} busy={busy} run={run} feedback={feedback} home showHomeSource={showHomeSource}
+  const { listRows, expiredCount, onlyExpired, recommendations, total, done, summary, mixedSources } = home;
+  const needsPersonalSetup = privateOverlay?.status === 'ready' && !privateOverlay.setupCompleted;
+  const personalSetup = needsPersonalSetup && onPersonalSetup ? { title: '個人の家事を設定', onPress: onPersonalSetup } : undefined;
+  const sharedOnly = needsPersonalSetup || privateOverlay?.status === 'unavailable';
+  const hasEmptyToday = listRows.some(row => row.kind === 'emptyToday');
+  const sortButton = total > 1 || expiredCount > 1 ? <LoadSortButton order={display.order} onPress={display.toggle} /> : undefined;
+  const card = (round: V2PlannedOccurrence, subject: V2SubjectPlan, showHomeSource: boolean | undefined, overdue: boolean, homeDate?: LocalDate) => <V2RoundCard model={model} round={round} subject={subject} actions={controller.actions} busy={busy} run={run} feedback={feedback} home homeDate={homeDate} mixedSources={mixedSources} showHomeSource={showHomeSource} overdue={overdue}
     recommendation={recommendations.get(subject.id)}
     onOpen={() => onGuide ? onGuide(round.choreId, 'shared') : onRound ? onRound(round.id, subject.id) : onConfiguration(round.choreId)} />;
   return <V2ScreenFrame purpose={purpose} style={styles.safe} edges={['top']}>
@@ -408,26 +469,28 @@ export function V2GroupScreen({ purpose, workspaceName, workspaceError, onManage
         <HomeProgress summary={summary} total={total} done={done} />
         {workspaceError || actionError || display.error ? <Text accessibilityRole="alert" style={styles.error}>{actionError ?? workspaceError ?? display.error}</Text> : null}
         {purpose === 'workspace' ? retryCompletion : null}
-        <SectionHeading title="今日の家事" trailing={<LoadSortButton order={display.order} onPress={display.toggle} />} />
-        <V2PrivateTaskNotice overlay={privateOverlay} sharedTimeZone={model.plan.timeZone} />
-        {privateOverlay?.status === 'ready' && privateOverlay.today !== model.plan.range.asOfDate ? <Text style={styles.caption}>個人の今日：{privateOverlay.today} · 共有の今日：{model.plan.range.asOfDate}</Text> : null}
-        {model.waste?.rows.some(row => !row.deleted && row.needsReview) ? <Text style={styles.error}>確認が必要なゴミ収集日があります。共有のゴミ収集日で候補を確認してください。</Text> : null}
+        {total > 0 ? <SectionHeading title="今日の家事" trailing={sortButton} /> : null}
+        <V2PrivateTaskNotice home overlay={privateOverlay?.status === 'unavailable' && privateOverlay.retryable ? undefined : privateOverlay} sharedTimeZone={model.plan.timeZone} />
 </>}
       renderItem={({ item }) => {
-        if (item.kind === 'expiredHeading') return <HomeExpiredHeading count={expiredCount} expanded={expiredExpanded} onToggle={() => setExpiredExpanded(value => !value)} />;
+        if (item.kind === 'expiredHeading') return onlyExpired
+          ? <SectionHeading title="期限を過ぎた家事" trailing={sortButton} />
+          : <HomeExpiredHeading count={expiredCount} expanded={expiredExpanded} onToggle={() => setExpiredExpanded(value => !value)} />;
         if (item.kind === 'weeks') return <HomeWeekSwitcher scope={weekScope} onChange={setWeekScope} />;
-        if (item.kind === 'upcomingDate') return <HomeUpcomingDate date={item.date} />;
-        if (item.kind === 'emptyToday') return <Card><Text style={styles.body}>{privateOverlay?.status === 'unavailable' ? '今日の共有家事はありません。' : '今日の家事はありません。'}</Text></Card>;
-        if (item.kind === 'emptyWeek') return <Text style={[styles.caption, styles.emptyWeek]}>{weekScope === 'current' ? '今週の残りの' : '来週の'}{privateOverlay?.status === 'unavailable' ? '共有家事' : '家事'}はありません。</Text>;
+        if (item.kind === 'upcomingDate') return <HomeUpcomingDate date={item.date} today={model.plan.range.asOfDate} />;
+        if (item.kind === 'emptyToday') return <HomeEmptyChores message={sharedOnly ? '今日の共有家事はありません。' : '今日の家事はありません。'} action={personalSetup} />;
+        if (item.kind === 'emptyWeek') return <Text style={[styles.caption, styles.emptyWeek]}>{weekScope === 'current' ? '今週の残りの' : '来週の'}{sharedOnly ? '共有家事' : '家事'}はありません。</Text>;
         if (item.kind !== 'today' && item.kind !== 'upcoming' && item.kind !== 'expired') return null;
         const row = item.item;
         const showSource = item.kind === 'today' && item.showSource;
-        return row.source === 'waste' ? <V2WasteOccurrence entry={row.entry} home />
-          : row.source === 'personal' ? <V2PrivateTaskCard row={row.row} onOpen={onGuide ? () => onGuide(row.row.chore.id, 'personal') : undefined} source={session.privateTasks} busy={busy} run={run} feedback={feedback} home mixedSources
-            showHomeSource={showSource} /> : card(row.round, row.subject, showSource);
+        return row.source === 'waste' ? <V2WasteOccurrence entry={row.entry} inline />
+          : row.source === 'personal' ? <V2PrivateTaskCard row={row.row} onOpen={onGuide ? () => onGuide(row.row.chore.id, 'personal') : undefined} source={session.privateTasks} busy={busy} run={run} feedback={feedback} home mixedSources={mixedSources}
+            homeDate={item.kind === 'today' ? model.plan.range.asOfDate : undefined}
+            showHomeSource={showSource} overdue={item.kind === 'expired'} /> : card(row.round, row.subject, showSource, item.kind === 'expired', item.kind === 'upcoming' && item.item.source === 'shared' ? item.item.date : undefined);
       }}
       ListFooterComponent={<View style={styles.footer}>
         {purpose === 'development' ? notice : null}
+        {personalSetup && !hasEmptyToday ? <HomeEmptyChores action={personalSetup} /> : null}
         <HomeLinks onHistory={onHistory} onWaste={onWaste} />
         {purpose === 'development' ? <View style={{ gap: 8 }}>{onRequests ? <AppButton title="日時の変更申請" onPress={onRequests} /> : null}{onAssignmentRequests ? <AppButton title="担当の変更申請" onPress={onAssignmentRequests} /> : null}</View> : null}
         {purpose === 'development' ? <Card><SectionHeading title="設定を検査" />{model.configurations.map((entry) =>

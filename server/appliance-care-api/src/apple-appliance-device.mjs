@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { verifyAssertion, verifyAttestation } from 'node-app-attest';
 import { deviceProofRequired, deviceProofTemporary, deviceProofUnavailable } from './native-device-authorization.mjs';
 import { PublicApiError, usagePeriods } from './public-access.mjs';
+import iosStoreIdentity from './ios-store-identity.json' with { type: 'json' };
 
-const APP_ID = 'jp.jphacks.tkb2633';
 const standardBase64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u;
 const checkedBase64 = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && standardBase64.test(value);
 const documentId = keyId => createHash('sha256').update(keyId).digest('hex');
@@ -55,7 +55,7 @@ export function createAppleApplianceDevice({ firestore, teamIdentifier, deviceCh
   const root = firestore.collection('applianceApi').doc('v1');
   const collection = root.collection('appleAttestations');
   const enrollmentLock = root.collection('control').doc('appleEnrollment');
-  const identity = { teamIdentifier, bundleIdentifier: APP_ID };
+  const identity = { teamIdentifier, bundleIdentifier: iosStoreIdentity.bundleIdentifier };
   async function mark(ref, queryToken, updateToken, month, monthResetAt, newKey) {
     const lease = randomUUID();
     const alreadyMarked = await firestore.runTransaction(async transaction => {

@@ -1,13 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import type { LayoutChangeEvent } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { Chevron } from './chevron';
 import { Card, palette, typography } from '@/components/planner-ui';
 import { plannerColorsForScheme } from './planner-theme';
 
-const DURATION = 220;
+const DURATION = 140;
 
 /** Direct settings destinations share the collapsed section's layout and tap area. */
 export function SettingsNavigationLink({ title, disabled = false, onPress }: { title: string; disabled?: boolean; onPress: () => void }) {
@@ -35,18 +35,18 @@ export function AccordionSection({ title, summary, summaryError = false, expande
   const [retainContent, setRetainContent] = useState(expanded);
   if (expanded && !retainContent) setRetainContent(true);
   const bodyStyle = useAnimatedStyle(() => ({
-    height: withTiming(expanded ? height.value : 0, { duration: DURATION }),
+    height: withTiming(expanded ? height.value : 0, { duration: DURATION, reduceMotion: ReduceMotion.System }),
   }), [expanded]);
   const measureContent = (event: LayoutChangeEvent) => {
     height.value = event.nativeEvent.layout.height;
   };
 
   useEffect(() => {
-    if (expanded) return;
+    if (expanded || !retainContent || keepMounted) return;
     // Keep the body during collapse, then remove its controls from keyboard navigation too.
     const timeout = setTimeout(() => setRetainContent(false), DURATION);
     return () => clearTimeout(timeout);
-  }, [expanded]);
+  }, [expanded, keepMounted, retainContent]);
 
   return (
     <Card style={[styles.card, (plain || listRow) && styles.plain, listRow && [styles.listRow, { borderBottomColor: colors.border }]]}>
@@ -85,13 +85,11 @@ const styles = StyleSheet.create({
   listHeader: { minHeight: 54, paddingHorizontal: 15, paddingVertical: 11 },
   listTitle: { ...typography.body, fontWeight: '400' }, listContent: { paddingHorizontal: 15 },
   header: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  pressed: { opacity: 0.72 },
+  pressed: { backgroundColor: palette.accentSoft, borderRadius: 8 },
   title: { ...typography.section, flex: 1, color: palette.ink, fontWeight: '700' },
   titleWithSummary: { flex: 0, maxWidth: '75%' },
   summary: { ...typography.caption, color: palette.muted, flex: 1, minWidth: 0, textAlign: 'right' },
   summaryError: { color: palette.warning },
-  chevron: { color: palette.accent, fontSize: 23, fontWeight: '700', lineHeight: 28 },
-  chevronExpanded: { transform: [{ rotate: '180deg' }] },
   clip: { overflow: 'hidden', position: 'relative' },
   // Explicitly anchor the body. Yoga's automatic absolute position can move as the parent height changes.
   content: { position: 'absolute', top: 0, left: 0, right: 0, gap: 12, paddingTop: 8, paddingBottom: 10 },

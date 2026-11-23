@@ -10,6 +10,7 @@ import { loadNativeModule } from './helpers/native-module.mjs';
 import * as operations from '../src/features/sharing/operations.ts';
 import * as cloudContract from '../src/features/sharing/cloud-contract.ts';
 import * as networkDeadline from '../src/platform/sharing/network-deadline.ts';
+import * as workspaceCopyOrigin from '../src/features/sharing/v2/workspace-copy-origin.ts';
 
 test('cloud ACL metadata cannot substitute a pinned signed account, device or membership epoch', async () => {
   const owner = await createDeviceIdentity(crypto); const roster = createSharedRoster('group-test', 'owner', owner);
@@ -59,6 +60,7 @@ test('caught-up legacy shared pulls verify the live group without issuing an emp
     },
     '../../features/sharing/operations.ts': operations, '../../features/sharing/cloud-contract.ts': cloudContract, './network-deadline.ts': networkDeadline,
     '../../features/sharing/crypto.ts': { sharedDocumentDigest, signSharedDocument }, '../../features/sharing/roster.ts': { sharedRosterDigest },
+    '../../features/sharing/v2/workspace-copy-origin.ts': workspaceCopyOrigin,
     './firestore-management.ts': { createSharingManagement: () => ({}) }, './firestore-recovery.ts': { createSharingRecovery: () => ({}) },
     './firestore-retention.ts': { createSharingHistoryRetention: () => ({}) }, './firestore-account-devices.ts': { createSharingAccountDevices: () => ({}) },
     './v2-receipts.ts': {}, './firestore-delivery.ts': {}, '../../features/sharing/v2/recovery-lock.ts': {},

@@ -1,4 +1,5 @@
 import { createPlannerRefreshController } from '../planner/refresh-controller.ts';
+import { isTransientPlannerRead } from '../../platform/storage/planner-read-retry.ts';
 import type { SharedWorkspace } from '../../platform/sharing/workspace-types';
 import type { SharingSelection } from '../sharing/workspace-selection';
 import type { SharingWorkspaceRecord } from '../../platform/storage/sharing-registry';
@@ -29,7 +30,7 @@ export function createGroupChoreSettingsSource(selection: SharingSelection, open
     return { workspace, record };
   };
   const controller = createPlannerRefreshController<GroupChoreSettingsValue>({
-    discardSnapshotOnError: () => true,
+    discardSnapshotOnError: error => !isTransientPlannerRead(error),
     load: async () => {
       const { workspace, record } = await authorize();
       const value: GroupChoreSettingsValue = { workspace, record, protocol: 2, model: prepared ? await prepared.readModel() : await createV2SettingsSession(workspace).readModel({ management: true, ...(includeWaste ? { waste: true } : {}) }) };

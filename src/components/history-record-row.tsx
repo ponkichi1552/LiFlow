@@ -7,7 +7,7 @@ import { plannerColorsForScheme } from './planner-theme';
 
 /** The same compact record in personal and group history. Details never hide required actions. */
 export function HistoryRecordRow({ name, time, status, performer, attention = false, children, details }: {
-  name: string; time: string; status?: string; performer?: string; attention?: boolean;
+  name: string; time?: string; status?: string; performer?: string; attention?: boolean;
   children?: ReactNode; details?: ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -17,13 +17,13 @@ export function HistoryRecordRow({ name, time, status, performer, attention = fa
     {summary ? <Text style={[styles.status, attention && styles.attention]}>{summary}</Text> : null}</>;
   return <View style={[styles.record, { borderBottomColor: colors.border }]}>
     <View style={styles.row}>
-      <Text style={styles.time}>{time}</Text>
+      {time ? <Text style={styles.time}>{time}</Text> : null}
       {details ? <Pressable accessibilityRole="button" accessibilityLabel={`${name}の記録の詳細`} accessibilityHint={[status, performer].filter(Boolean).join('。')}
         accessibilityState={{ expanded }} onPress={() => setExpanded(value => !value)} style={styles.open}>
         <View style={styles.copy}>{copy}</View><Chevron direction={expanded ? 'up' : 'down'} />
       </Pressable> : <View style={styles.copy}>{copy}</View>}
     </View>
-    {children ? <View style={styles.support}>{children}</View> : null}
+    {children ? <View style={[styles.support, time && styles.supportIndented]}>{children}</View> : null}
     {expanded ? <View style={[styles.details, { backgroundColor: colors.elevated }]}>{details}</View> : null}
   </View>;
 }
@@ -40,7 +40,7 @@ const styles = StyleSheet.create({
   open: { flex: 1, minWidth: 0, flexDirection: 'row', gap: 10, alignItems: 'center', minHeight: 44 },
   copy: { flex: 1, minWidth: 0, gap: 2 }, name: { ...typography.body, color: palette.ink, fontWeight: '600' },
   status: { ...typography.caption, color: palette.muted }, attention: { color: palette.warning },
-  support: { paddingLeft: 56, gap: 8 },
+  support: { gap: 8 }, supportIndented: { paddingLeft: 56 },
   details: { borderRadius: 12, padding: 12, marginBottom: 8, gap: 6 },
   overview: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 4 },
   total: { ...typography.label, color: palette.ink, fontWeight: '600' },

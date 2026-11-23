@@ -1,11 +1,11 @@
 import { useEffect } from 'react';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import { AppButton, Card, Page, typography } from '../../../components/planner-ui';
+import { AppButton, BackButton, Card, Page, typography } from '../../../components/planner-ui';
 import { Text } from 'react-native';
 import { useWorkspace } from '../../../hooks/use-workspace';
 import { usePlannerData } from '../../../hooks/use-planner-data';
 import { V2GroupScreen } from './group-screen';
-import { readOptionsForView, type V2GroupScreenProps } from './group-screen';
+import { readOptionsForView, workspaceViewHasBack, type V2GroupScreenProps } from './group-screen';
 import { useWorkspaceDisplay } from './workspace-data';
 import { sharingFailureMessage } from '@/platform/sharing/workspaces';
 import { useLocalCalendar } from '../../calendar/use-local-calendar';
@@ -19,7 +19,7 @@ function CalendarWorkspaceScreen({ database, ...props }: V2GroupScreenProps & { 
 /** Only an explicitly selected, authenticated v2 workspace reaches these controls. */
 export function V2WorkspaceRoute({ view }: { view: V2GroupScreenProps['view'] }) {
   const context = useWorkspace(); const { database: personalDatabase, snapshot: personalSnapshot, refresh: refreshPersonal, readError: readPersonalError } = usePlannerData({ personal: true }); const router = useRouter();
-  const params = useLocalSearchParams<{ choreId?: string; occurrenceId?: string; subjectId?: string; anchorDate?: string; targetDate?: string; applianceId?: string; source?: string; productName?: string; returnTo?: string }>();
+  const params = useLocalSearchParams<{ groupId?: string; choreId?: string; occurrenceId?: string; subjectId?: string; anchorDate?: string; targetDate?: string; applianceId?: string; workId?: string; source?: string; productName?: string; returnTo?: string }>();
   const navigation = useNavigation() as { addListener(event: 'tabPress', callback: () => void): () => void };
   useEffect(() => {
     if (view !== 'chores' && view !== 'guide') return;
@@ -28,7 +28,15 @@ export function V2WorkspaceRoute({ view }: { view: V2GroupScreenProps['view'] })
   const active = context.active?.protocol === 2 ? context.active : null;
   const { loadSession, subscribe, peek, sharedCompletion, personalCompletion, invalidate } = useWorkspaceDisplay();
   const selected = active ?? context.startupDisplay?.record;
-  if (!context.ready || !selected || selected.userId !== context.userId) return <Page><Card><Text style={typography.body}>所属グループを確認してください。</Text>
+  const back = () => {
+    if (view === 'guide') {
+      router.setParams({ choreId: undefined, source: undefined, returnTo: undefined });
+      if (params.returnTo === 'home') router.navigate('/(tabs)');
+      else if (params.returnTo === 'calendar') router.navigate('/(tabs)/explore');
+    } else if (view !== 'home' && router.canGoBack()) router.back();
+    else router.replace('/sharing');
+  };
+  if (!context.ready || !selected || selected.userId !== context.userId || (params.groupId !== undefined && params.groupId !== selected.groupId)) return <Page header={workspaceViewHasBack(view, params.choreId) ? <BackButton onPress={back} /> : undefined}><Card><Text style={typography.body}>所属グループを確認してください。</Text>
     <AppButton title="共有グループへ" onPress={() => router.replace('/sharing')} /></Card></Page>;
   const text = (value: unknown) => typeof value === 'string' ? value : undefined;
   const focus = text(params.anchorDate); const anchorContext = focus ? { anchorDate: focus } : {};
@@ -38,17 +46,12 @@ export function V2WorkspaceRoute({ view }: { view: V2GroupScreenProps['view'] })
     onCalendarNavigate={tab => router.navigate(({ home: '/(tabs)', calendar: '/(tabs)/explore', chores: '/(tabs)/guide', appliances: '/(tabs)/manual' } as const)[tab])}
     workspaceName={record?.displayName} workspaceError={context.error ?? (record?.lastErrorCode ? sharingFailureMessage({ code: record.lastErrorCode }) : undefined)}
     anchorDate={focus} targetDate={text(params.targetDate)} calendarAdd={view === 'addChore' && params.returnTo === 'calendar'} choreId={text(params.choreId)} occurrenceId={text(params.occurrenceId)} subjectId={text(params.subjectId)} applianceId={text(params.applianceId)}
+    analysisDatabase={personalDatabase} analysisWorkId={text(params.workId)}
     personalGuide={personalSnapshot ? { snapshot: personalSnapshot, database: personalDatabase, refresh: refreshPersonal, readError: readPersonalError } : undefined} guideSource={text(params.source) === 'personal' ? 'personal' : 'shared'}
     onGuide={(choreId, source) => router.navigate({ pathname: '/(tabs)/guide', params: { choreId, source, returnTo: view === 'home' ? 'home' : view === 'calendar' ? 'calendar' : undefined } })}
     onManage={() => router.push({ pathname: '/sharing/group/[groupId]', params: { groupId: selected.groupId } })}
-    onBack={() => {
-      if (view === 'guide') {
-        router.setParams({ choreId: undefined, source: undefined, returnTo: undefined });
-        if (params.returnTo === 'home') router.navigate('/(tabs)');
-        else if (params.returnTo === 'calendar') router.navigate('/(tabs)/explore');
-      } else if (view !== 'home' && router.canGoBack()) router.back();
-      else router.replace('/sharing');
-    }}
+    onPersonalSetup={() => router.push({ pathname: '/settings', params: { section: 'personal-setup' } })}
+    onBack={back}
     onRound={(occurrenceId, subjectId, anchorDate) => router.push({ pathname: '/group-v2/round', params: { occurrenceId, subjectId, ...(anchorDate ? { anchorDate } : anchorContext) } })}
     onDate={(occurrenceId, subjectId, targetDate, anchorDate) => router.push({ pathname: '/group-v2/date', params: { occurrenceId, subjectId, ...anchorContext, ...(anchorDate ? { anchorDate } : {}), ...(targetDate ? { targetDate } : {}) } })}
     onAssignment={(occurrenceId, subjectId, day) => router.push({ pathname: '/group-v2/assignment', params: { occurrenceId, ...(subjectId ? { subjectId } : {}), ...(day ? { anchorDate: day } : anchorContext) } })}
@@ -63,9 +66,9 @@ export function V2WorkspaceRoute({ view }: { view: V2GroupScreenProps['view'] })
     onWaste={() => router.push('/group-v2/waste')}
     onAppliances={() => router.navigate('/(tabs)/manual')}
     onAppliance={(applianceId) => router.push({ pathname: '/group-v2/appliance', params: { applianceId } })}
-    onApplianceReview={applianceId => router.push({ pathname: '/manual/shared-review', params: applianceId ? { applianceId } : {} })}
+    onApplianceReview={(applianceId, workId) => router.push({ pathname: '/manual/shared-review', params: { ...(applianceId ? { applianceId } : {}), ...(workId ? { workId } : {}) } })}
     onPersonalAppliance={id => router.push({ pathname: '/manual/appliances/[id]', params: { id, returnTo: '/manual' } })}
-    onPersonalApplianceReview={applianceId => router.push({ pathname: '/manual/appliance-care', params: { applianceId, returnTo: '/manual' } })}
+    onPersonalApplianceReview={(applianceId, workId) => router.push({ pathname: '/manual/appliance-care', params: { applianceId, ...(workId ? { workId } : {}), returnTo: '/manual' } })}
     onDateRights={(choreId) => router.push({ pathname: '/group-v2/date-rights', params: { choreId } })}
     onCalendar={() => router.navigate('/(tabs)/explore')} onHistory={() => router.push('/group-v2/history')}
     onRequests={() => router.push('/group-v2/requests')} onAssignmentRequests={() => router.push('/group-v2/assignment-requests')} />;

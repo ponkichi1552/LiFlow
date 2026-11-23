@@ -34,7 +34,12 @@ async function setup() {
       mocks: { ...job.mocks,
         'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView', useSafeAreaInsets: () => ({ top: 0, right: 0, left: 0, bottom: bottomInset }) }, ...extraMocks } });
     let leave = focus(); mounts.push(() => { leave(); effects.forEach(cleanup => cleanup()); });
-    await settle(screen, () => screen.text().includes('対象の共有家電を表示できません') || screen.text().includes(view === 'appliances' ? '家電一覧' : view === 'appliance' ? 'お手入れ方法' : applianceId ? 'PDFを再解析' : 'PDFを解析'));
+    await settle(screen, () => {
+      const text = screen.text();
+      return text.includes('対象の共有家電を表示できません') || (view === 'applianceReview'
+        ? /取扱説明書PDFを選ぶ|PDFを変更|解析中/u.test(text)
+        : text.includes(view === 'appliances' ? '家電一覧' : 'お手入れ方法'));
+    });
     if (view === 'applianceReview' && !job.get('owner', groupId, applianceId) && screen.text().includes('取扱説明書PDFを選ぶ')) {
       await screen.press('取扱説明書PDFを選ぶ'); await screen.flush();
     }

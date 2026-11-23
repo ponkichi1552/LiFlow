@@ -154,6 +154,33 @@ test('an uncertain list insert or creation grant never opens a second POST on an
   }
 });
 
+test('a lost list creation reply is recovered from a unique Google list without a second POST', async () => {
+  const h = fixture();
+  const create = h.api.createTaskList;
+  try {
+    h.api.createTaskList = async (...args) => {
+      await create(...args);
+      throw new GoogleTasksApiError(503, 'lost_insert_response', null);
+    };
+    await assert.rejects(h.resolve(), error => error.code === 'lost_insert_response');
+    const reserved = await h.remote.cloud.read(h.identity);
+    assert.equal(reserved.phase, 'reserved');
+    const [created] = h.lists;
+    h.lists.push({ id: 'another-list', title: h.title });
+    await assert.rejects(h.resolve(), error => error.code === 'ambiguous_task_list');
+    assert.deepEqual(await h.remote.cloud.read(h.identity), reserved);
+    h.lists.pop();
+
+    assert.equal((await h.resolve()).id, created.id);
+    assert.equal((await h.resolve()).id, created.id);
+    const linked = await h.remote.cloud.read(h.identity);
+    assert.equal(linked.phase, 'linked');
+    assert.equal(linked.attemptId, reserved.attemptId);
+    assert.equal(linked.taskHash, sharedTaskIdHash(created.id));
+    assert.equal(h.calls.filter(call => call === 'create').length, 1);
+  } finally { h.close(); }
+});
+
 test('only definitive list insert rejection releases its exact grant for a fresh retry', async () => {
   const h = fixture();
   try {

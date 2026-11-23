@@ -65,10 +65,9 @@ function PersonalChoreSettings({ shared = false, expanded, setExpanded, onPendin
     <SettingsAction title="家事の設定を再読込" placement="page" onPress={() => void data.refresh()} />
   </> : <Text style={styles.hint}>設定を読み込んでいます。</Text>}</View>;
   return <View style={styles.body}>{shared ? <Text style={styles.hint}>共通の家事はグループ設定を優先</Text> : null}
-    {data.error ? <Text accessibilityRole="alert" style={styles.error}>{data.error}</Text> : null}
     <ChoreToggleList chores={data.snapshot.chores.filter(hasChoreScheduleSettings)} expanded={expanded} setExpanded={setExpanded} personalSelection onPendingChange={onPendingChange}
       save={async (ids, enabled) => { await setChoresEnabled(data.database, ids, enabled); await data.refresh(); return { refreshed: !data.readError() }; }}
-      retryRead={async () => { await data.refresh(); return !data.readError(); }}
+      retryRead={async () => { await data.refresh({ settingsOnly: true }); return !data.readError(); }}
       onOpen={id => router.push({ pathname: '/settings/chore/[id]', params: { id, source: 'personal' } })} />
     <SettingsAction title="家事を追加" accessibilityLabel="新しい個人家事を追加" placement="page" compact={false} onPress={() => router.push('/settings/add-chore')} />
     <ScheduleResetAction all onReset={async () => { onPendingChange?.(true); try { await resetAllChoreSchedules(data.database); await data.refresh(); if (data.readError()) throw new Error(data.readError()!); } finally { onPendingChange?.(false); } }} />

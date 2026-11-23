@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { loadNativeModule } from './helpers/native-module.mjs';
 import { AdaptiveOwnerInputsChangedError } from '../src/platform/storage/adaptive-owner-inputs.ts';
+import { isTransientPlannerRead } from '../src/platform/storage/planner-read-retry.ts';
 
 for (const [platform, cancelled, name] of [
   [
@@ -74,6 +75,7 @@ for (const [platform, name] of [
       '@/features/google-sync/background-task': { registerGoogleSyncBackgroundTask: async () => { calls.push('worker'); } },
       '@/features/google-sync/coordinator': { syncGoogleTasks: async () => { calls.push('sync'); } },
       '@/platform/storage/adaptive-owner-inputs': { AdaptiveOwnerInputsChangedError },
+      '@/platform/storage/planner-read-retry': { isTransientPlannerRead },
       '@/features/planner/refresh-controller': { createPlannerRefreshController: dependencies => {
         assert.equal(dependencies.retryLoadOnError(new AdaptiveOwnerInputsChangedError()), true);
         assert.equal(dependencies.retryLoadOnError(new Error('access denied')), false);

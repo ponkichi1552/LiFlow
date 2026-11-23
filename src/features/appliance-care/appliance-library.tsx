@@ -13,8 +13,8 @@ export interface ApplianceLibraryItem {
 }
 
 /** One add flow. A joined group receives the same saved appliance, not another paid analysis. */
-export function ApplianceLibrary({ items, joined = false, personalReady = true, busy = false, header, footer, onOpen, onAdd }: {
-  items: ApplianceLibraryItem[]; joined?: boolean; personalReady?: boolean; busy?: boolean; header?: ReactNode; footer?: ReactNode;
+export function ApplianceLibrary({ items, joined = false, personalReady = true, busy = false, hasAnalysis = false, header, footer, onOpen, onAdd }: {
+  items: ApplianceLibraryItem[]; joined?: boolean; personalReady?: boolean; busy?: boolean; hasAnalysis?: boolean; header?: ReactNode; footer?: ReactNode;
   onOpen: (source: ApplianceAudience, id: string) => void; onAdd: (source: ApplianceAudience) => void;
 }) {
   const styles = usePlannerBorderStyles(baseStyles);
@@ -25,11 +25,12 @@ export function ApplianceLibrary({ items, joined = false, personalReady = true, 
     <FlatList data={items} keyExtractor={item => `${item.source}:${item.id}`} initialNumToRender={10}
       contentContainerStyle={styles.list}
       ListHeaderComponent={<View style={styles.heading}><View style={styles.titleRow}><ScreenHeading title="家電一覧" />
-        {personalReady ? <Text style={styles.caption}>{items.length}台</Text> : null}</View>{header}
+        {personalReady && items.length > 1 ? <Text style={styles.caption}>{items.length}台</Text> : null}</View>{header}
         {!personalReady ? <Text accessibilityLiveRegion="polite" style={styles.caption}>個人の家電は未取得です。</Text> : null}
       </View>}
-      ListEmptyComponent={<View style={styles.empty}><Text style={styles.body}>{personalReady ? '家電は未登録です。' : '家電を読み込んでいます。'}</Text>
-        <Text style={styles.caption}>取扱説明書PDFから追加できます。</Text></View>}
+      ListEmptyComponent={personalReady && !hasAnalysis ? <View style={styles.empty}>
+        <Text style={styles.body}>取扱説明書PDFから家電を追加できます。</Text>
+      </View> : undefined}
       renderItem={({ item }) => {
         const primary = appliancePrimaryName(item, item.displayName);
         const savedLabel = applianceSecondaryLabel(primary, [item.displayName]);

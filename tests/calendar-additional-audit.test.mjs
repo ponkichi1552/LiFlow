@@ -74,6 +74,12 @@ test('calendar display metadata does not transfer complete Google event bodies i
   const row = (await readLocalCalendar(h.database)).events[0];
   assert.equal(row.blocksTime, false); assert.equal(row.readOnly, true); assert.ok(row.externalUrl);
   assert.ok(transferred < 750, `metadata transfer bytes: ${transferred}`);
+  h.connection.prepare("UPDATE calendar_google_links SET remote_json=json_set(remote_json,'$.htmlLink',?) WHERE event_id=?")
+    .run('https://www.google.com/search?q=calendar', id);
+  const updated = (await readLocalCalendar(h.database)).events[0];
+  assert.equal(updated.externalUrl, undefined);
+  assert.equal(updated.readOnly, true);
+  assert.equal(updated.title, row.title);
 });
 
 test('explicit calendar draft discard cannot delete newer input saved by another editor', async t => {

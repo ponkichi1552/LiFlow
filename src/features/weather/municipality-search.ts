@@ -15,6 +15,7 @@ export const MUNICIPALITY_DATA_VERSION = data.source.sha256;
 type RegionRow = [string, string, string, string, string, string, number, number, 'amami' | 'nonAmami' | null, string, [number, number, number, number]];
 const rows = data.regions as RegionRow[];
 const prefectures = data.prefectures as Record<string, string[]>;
+const maximumRegionLength = 120;
 const normalize = (value: string) => value.normalize('NFKC').toLowerCase().replace(/[\u30a1-\u30f6]/gu,
   character => String.fromCharCode(character.charCodeAt(0) - 0x60)).replace(/[\s・,.'’-]/gu, '');
 interface IndexedRegion { row: RegionRow; name: string; kana: string; search: string; label: string }
@@ -32,7 +33,7 @@ function candidate(row: RegionRow): WeatherRegionCandidate {
 /** Local, bounded search. No geocoder network request, device GPS or personal data. */
 export function searchJapaneseMunicipalities(value: string): WeatherRegionCandidate[] {
   const query = normalize(value.trim());
-  if (query.length < 2 || query.length > 120) return [];
+  if (query.length < 2 || query.length > maximumRegionLength) return [];
   const words = value.trim().split(/[\s,、]+/u).map(normalize).filter(Boolean);
   const rank = (row: IndexedRegion) => row.name === query || row.kana === query ? 0
     : row.name === `${query}市` || row.kana === `${query}し` ? 1
@@ -49,11 +50,13 @@ export function municipalityById(id: string | null | undefined): WeatherRegionCa
 export function municipalityWeatherLocation(value: WeatherRegionCandidate, region: string): WeatherLocation {
   const known = municipalityById(value.id);
   if (!known) throw new Error('地域を候補から選び直してください。');
-  return { municipalityId: known.id, region: region.trim(), displayName: known.label, latitude: known.latitude, longitude: known.longitude };
+  const query = region.trim();
+  const savedRegion = query.length >= 2 && query.length <= maximumRegionLength ? query : known.name;
+  return { municipalityId: known.id, region: savedRegion, displayName: known.label, latitude: known.latitude, longitude: known.longitude };
 }
 export function normalizeStoredWeatherLocation(location: WeatherLocation): WeatherLocation {
   const region = location.region.trim(); const displayName = location.displayName.trim();
-  if (region.length < 2 || region.length > 120 || displayName.length < 2 || displayName.length > 200
+  if (region.length < 2 || region.length > maximumRegionLength || displayName.length < 2 || displayName.length > 200
     || !Number.isFinite(location.latitude) || location.latitude < -90 || location.latitude > 90
     || !Number.isFinite(location.longitude) || location.longitude < -180 || location.longitude > 180) throw new Error('天気を調べる地域を候補から選んでください。');
   const known = resolveWeatherMunicipality(location);

@@ -1,3 +1,5 @@
+import { plannerReadRetryDelays } from '../../platform/storage/planner-read-retry.ts';
+
 export interface PlannerRefreshOptions {
   waitForWeather?: boolean;
   widgetCompletionIds?: readonly string[];
@@ -8,6 +10,7 @@ export interface PlannerViewState<Snapshot> {
   snapshot: Snapshot | null;
   loading: boolean;
   error: string | null;
+  retrying?: boolean;
 }
 
 /** One shared refresh queue per provider. Screens only subscribe to the resulting snapshot. */
@@ -18,6 +21,8 @@ export function createPlannerRefreshController<Snapshot>(dependencies: {
   discardSnapshotOnError?: (error: unknown) => boolean;
   /** Only a read whose captured inputs changed may be retried, once. Never retry mutations here. */
   retryLoadOnError?: (error: unknown) => boolean;
+  retryInBackground?: (error: unknown) => boolean;
+  readPrevious?: () => Promise<Snapshot | null>;
 }) {
   let state: PlannerViewState<Snapshot> = { snapshot: null, loading: true, error: null };
   const listeners = new Set<() => void>();
@@ -25,6 +30,8 @@ export function createPlannerRefreshController<Snapshot>(dependencies: {
   let requested: { ids: Set<string>; waitForWeather: boolean; force: boolean } | null = null;
   let running: Promise<void> | null = null;
   let lastCanPublishWidget: boolean | undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let retryCount = 0;
   let finishInitialRead!: () => void;
   const initialRead = new Promise<void>(resolve => { finishInitialRead = resolve; });
 
@@ -65,6 +72,7 @@ export function createPlannerRefreshController<Snapshot>(dependencies: {
           result = await dependencies.load([...request.ids], request.force);
         }
         if (current !== revision) continue;
+        retryCount = 0;
         publish(result.snapshot, result.canPublishWidget, current);
         if (current !== revision) continue;
         const weather = dependencies.weather(result.snapshot, () => current === revision).then((snapshot) => {
@@ -74,8 +82,22 @@ export function createPlannerRefreshController<Snapshot>(dependencies: {
         });
         if (request.waitForWeather) await weather;
       } catch (error) {
-        if (current === revision) update({ ...state, ...(dependencies.discardSnapshotOnError?.(error) ? { snapshot: null } : {}), loading: false,
-          error: error instanceof Error ? error.message : 'データを読み込めませんでした' });
+        if (current !== revision) continue;
+        const discard = dependencies.discardSnapshotOnError?.(error);
+        const delay = !discard && dependencies.retryInBackground?.(error) ? plannerReadRetryDelays[retryCount++] : undefined;
+        // The first cold failure can still leave a readable committed plan. A
+        // presentation fallback never publishes a widget or a notification.
+        const saved = delay !== undefined && retryCount === 1 && !state.snapshot
+          ? await dependencies.readPrevious?.().catch(() => null) : null;
+        if (current !== revision) continue;
+        if (delay !== undefined) retryTimer = setTimeout(() => {
+          retryTimer = undefined;
+          if (current !== revision) return;
+          requested = { ids: new Set(), waitForWeather: false, force: true };
+          void schedule();
+        }, delay);
+        update({ snapshot: discard ? null : state.snapshot ?? saved ?? null, loading: false,
+          error: error instanceof Error ? error.message : 'データを読み込めませんでした', ...(delay !== undefined ? { retrying: true } : {}) });
       }
     }
   };
@@ -92,6 +114,7 @@ export function createPlannerRefreshController<Snapshot>(dependencies: {
     waitForInitialRead: () => initialRead,
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     refresh(options: PlannerRefreshOptions = {}): Promise<void> {
+      clearTimeout(retryTimer); retryCount = 0;
       revision += 1;
       requested ??= { ids: new Set(), waitForWeather: false, force: false };
       for (const id of options.widgetCompletionIds ?? []) requested.ids.add(id);
@@ -100,6 +123,7 @@ export function createPlannerRefreshController<Snapshot>(dependencies: {
       return schedule();
     },
     invalidate() {
+      clearTimeout(retryTimer); retryCount = 0;
       revision += 1;
       // A deferred drain must not adopt the new revision for a request made
       // before backgrounding/unmounting and recreate obsolete native outputs.

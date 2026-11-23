@@ -10,6 +10,19 @@ const descendants = node => (node.children ?? []).flatMap(child => typeof child 
 const mirror = '洗面所の鏡を拭くの今回の日付を変更';
 const filter = 'リビングと寝室のエアコンのフィルターと吹き出し口を順番に掃除する';
 
+test('month and seven day calendars show collection icons beside wrap-capable names', t => {
+  for (const scenario of ['month', 'week']) {
+    const ui = make(scenario);
+    t.after(() => ui.unmount());
+    for (const [name, glyph] of [['燃えるごみ', 'flame'], ['古紙', 'doc.text'], ['陶磁器・ガラス', 'trash']]) {
+      const label = controls(ui, name).find(node => node.type === 'Text');
+      assert.ok(label && label.props.numberOfLines > 1, `${scenario}: ${name} can use a second line`);
+      const group = ui.nodes().find(node => node.children?.includes(label));
+      assert.ok(group?.children.some(node => node.type === 'SymbolView' && node.props.name.ios === glyph), `${scenario}: ${name} keeps its icon`);
+    }
+  }
+});
+
 for (const scenario of ['three', 'week']) test(`${scenario} review opens mixed-source chores and reschedules only the selected fixture occurrence`, async t => {
   const ui = make(scenario);
   t.after(() => ui.unmount());
@@ -22,7 +35,12 @@ for (const scenario of ['three', 'week']) test(`${scenario} review opens mixed-s
   assert.deepEqual(labels.map(node => node.children.join('')), [filter]);
   assert.equal(labels[0].props.numberOfLines, 1);
   assert.equal(labels[0].props.ellipsizeMode, 'tail');
-  assert.equal(contents.some(node => node.type === 'SymbolView' || node.type === 'Svg'), false);
+  assert.ok(contents.some(node => node.type === 'SymbolView' && node.props.name.ios === 'calendar'));
+  assert.equal(contents.some(node => node.type === 'Svg' || node.props.accessibilityRole === 'button'), false);
+  await ui.press('2026年11月25日の家事を開く');
+  const guide = ui.button('玄関の靴をそろえるの説明を開く');
+  assert.ok(descendants(guide).some(node => node.type === 'SymbolView' && node.props.name.ios === 'chevron.right'));
+  await ui.press('2026年11月25日の家事を閉じる');
   await ui.press(edit);
   await ui.press('2026/11/24を選択');
   await ui.press('今回の実施日を保存');
@@ -37,6 +55,35 @@ for (const scenario of ['three', 'week']) test(`${scenario} review opens mixed-s
   assert.equal(controls(fresh, edit).length, 1);
 });
 
+for (const platform of ['ios', 'android']) test(`${platform} the personal fixture uses the app date controls and applies only the saved sample change`, async t => {
+  let picker;
+  const ui = make('three', { platform, datePicker: value => { picker = value; } });
+  const timed = make('overlap', { platform });
+  t.after(() => { ui.unmount(); timed.unmount(); });
+  const changeDate = '洗濯物を畳んで明日の着替えをそろえるの今回の日付を変更';
+  await ui.press(changeDate);
+  assert.equal(ui.button('今回の実施日を保存').props.disabled, true);
+  const newDate = new Date('2026-11-26T00:00:00Z');
+  if (platform === 'ios') {
+    const wheel = ui.nodes().find(node => node.type === 'DateTimePicker');
+    assert.equal(wheel.props.display, 'spinner');
+    wheel.props.onValueChange({}, newDate);
+  } else {
+    await ui.press('今回の実施日を選択');
+    picker.onValueChange({}, newDate);
+  }
+  await ui.flush();
+  await ui.press('今回の実施日を保存');
+  assert.equal(controls(ui, changeDate).length, 0);
+
+  await timed.press('洗濯乾燥機のフィルターを確認するを編集');
+  assert.match(timed.text(), /日時を変更/u);
+  for (const field of ['開始日', '開始時刻', '終了日', '終了時刻']) timed.button(`${field}を選択`);
+  assert.match(timed.text(), /23:45/u);
+  assert.match(timed.text(), /00:05/u);
+  assert.equal(timed.button('今回の日時を保存').props.disabled, true);
+});
+
 test('calendar review searches fixture memos, inspects personal and shared events, and keeps device preferences isolated', async t => {
   const access = [];
   const ui = make('list', { platform: 'android', navigate: method => access.push(method),
@@ -46,12 +93,17 @@ test('calendar review searches fixture memos, inspects personal and shared event
   t.after(() => ui.unmount());
   assert.match(ui.text(), /勤労感謝の日/u);
   assert.match(ui.text(), /古紙/u);
-  ui.button('自分の誕生日を編集');
+  assert.ok(ui.nodes().some(node => node.props.accessibilityRole === 'header' && node.props.accessibilityLabel?.endsWith('自分の誕生日')));
+  assert.equal(controls(ui, '自分の誕生日を編集').length, 0);
   await ui.press('家族の旅行と帰省を編集');
   assert.match(ui.text(), /共有 · 家族の予定/u);
   assert.match(ui.text(), /11月22日.*11月25日.*終日/u);
   await ui.press('詳細を閉じる');
   await ui.press('予定を検索する');
+  await ui.change('予定を検索', '筆記具');
+  await ui.press('検索語を消去');
+  assert.equal(controls(ui, '予定を検索')[0].props.value, '');
+  assert.equal(controls(ui, '検索語を消去').length, 0);
   await ui.change('予定を検索', '筆記具');
   const result = ui.nodes().find(node => node.props.accessibilityLabel?.includes('写真展') && node.props.accessibilityLabel.endsWith('の検索結果を開く'));
   assert.ok(result);

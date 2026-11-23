@@ -18,6 +18,41 @@ async function setup(database) {
   });
   return { ...chore, enabled: true };
 }
+
+test('cold home recovery reads the committed plan without regenerating or writing it', async t => {
+  const h = createDatabase();
+  t.after(() => h.connection.close());
+  const chore = await setup(h.database);
+  const now = new Date('2026-10-24T12:00:00Z');
+  const canonical = await repository.loadPlannerSnapshot(h.database, localDateFromDate(now), now);
+  assert.ok(canonical.scheduleEntries.some(entry => entry.choreId === chore.id));
+  h.writes.length = 0;
+
+  const recovered = await repository.readSavedPlannerSnapshot({ ...h.database }, now);
+  const orderedEntries = snapshot => [...snapshot.scheduleEntries].sort((a, b) => a.id.localeCompare(b.id));
+  assert.ok(recovered);
+  assert.equal(recovered.today, canonical.today);
+  assert.deepEqual(orderedEntries(recovered), orderedEntries(canonical));
+  assert.deepEqual(h.writes, []);
+});
+
+test('cold home recovery distinguishes an empty saved plan from incomplete setup', async t => {
+  const h = createDatabase();
+  t.after(() => h.connection.close());
+  const now = new Date('2026-10-24T12:00:00Z');
+  await repository.initializeLocalDatabase(h.database);
+  assert.equal(await repository.readSavedPlannerSnapshot(h.database, now), null);
+  const chore = await setup(h.database);
+  await repository.setChoreEnabled(h.database, chore.id, false);
+  await repository.loadPlannerSnapshot(h.database, localDateFromDate(now), now);
+  h.writes.length = 0;
+  const saved = await repository.readSavedPlannerSnapshot({ ...h.database }, now);
+  assert.equal(saved.settings.setupCompleted, true);
+  assert.deepEqual(saved.scheduleEntries, []);
+  assert.deepEqual(saved.completions, []);
+  assert.deepEqual(h.writes, []);
+});
+
 async function dependencyInitials(t) {
   const h = createDatabase(); t.after(() => h.connection.close()); await repository.initializeLocalDatabase(h.database); await installFrozenSchedulerFixture(h.database);
   const first = await repository.loadPlannerSnapshot(h.database, '2026-11-04');

@@ -28,7 +28,7 @@ export function PersonalCapacitySettings({ load, today, restDays = [], limits, o
     <SettingsAction title="再読込" placement="page" onPress={() => setAttempt(value => value + 1)} /></View> : <Text style={typography.caption}>日別設定を読み込み中…</Text>);
 }
 
-const kinds: readonly { id: DayType; label: string }[] = [{ id: 'workday', label: '平日' }, { id: 'holiday', label: '休日' }];
+const kinds: readonly { id: DayType; label: string }[] = [{ id: 'workday', label: '休日以外' }, { id: 'holiday', label: '休日' }];
 function CapacityForm({ source, today, restDays, limits, onDraftChange, onBlocked, render }: {
   source: PersonalCapacitySource; today: LocalDate; restDays: readonly Weekday[]; limits?: ReactNode;
   onDraftChange(value: boolean): void; onBlocked?(): void; render(content: ReactNode): ReactNode;

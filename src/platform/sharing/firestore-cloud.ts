@@ -6,7 +6,7 @@ import { assertSharedCloudAccess, parseSharedCloudEvent, parseSharedCloudGroup, 
   SharingAccessError, SharingKeyVersionError, SharingSchedulerVersionError, SharingSnapshotRequiredError } from '../../features/sharing/cloud-contract.ts';
 import { sharedDocumentDigest, signSharedDocument } from '../../features/sharing/crypto.ts';
 import type { DeviceSecretIdentity, EncryptedSharedOperation, WrappedGroupKey } from '../../features/sharing/crypto.ts';
-import { sharedRosterDigest } from '../../features/sharing/roster.ts';
+import { sharedRosterDigest, validateSharedRoster } from '../../features/sharing/roster.ts';
 import type { VerifiedSharedRoster } from '../../features/sharing/roster.ts';
 import { createSharingManagement } from './firestore-management.ts';
 import { createSharingRecovery, parseFirestoreRecoveryLock } from './firestore-recovery.ts';
@@ -23,6 +23,7 @@ import type { SharedDeliveryArchive } from '../../features/sharing/delivery-arch
 import { SharedDeliveryPendingError } from '../../features/sharing/delivery-archive.ts';
 import { parseDeliveryPolicy } from '../../features/sharing/delivery-proof.ts';
 import { createDeliveryProofClient } from './delivery-proof-cloud.ts';
+import { validateWorkspaceCopyOrigin, type WorkspaceCopyOrigin } from '../../features/sharing/v2/workspace-copy-origin.ts';
 
 /** All reads use the server; Firestore's memory cache cannot acknowledge delivery. */
 export function createSharingCloud(firestore: Firestore, userId: string, currentUserId: () => string | null,
@@ -196,7 +197,21 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
         transaction.set(membershipRef, { groupId, invitationId: null, createdAt: serverTimestamp() });
       }); checkAccount();
     },
-    async createGroup(roster: VerifiedSharedRoster, wrapped: WrappedGroupKey): Promise<void> {
+    async readWorkspaceCopyOrigin(groupId: string): Promise<WorkspaceCopyOrigin | null> {
+      checkAccount();
+      const result = await getDocFromServer(doc(reference(groupId), 'workspaceCopy', 'origin')); checkAccount();
+      if (!result.exists()) return null;
+      const origin = validateWorkspaceCopyOrigin(result.data() as WorkspaceCopyOrigin, groupId);
+      if (!origin.userIds.includes(userId)) throw new SharingAccessError('元グループから引き継げるメンバーを確認してください。');
+      const saved = await getDocFromServer(doc(reference(origin.groupId), 'rosters', String(origin.revision))); checkAccount();
+      const original = saved.data()?.rosterJson;
+      if (typeof original !== 'string' || original.length > 60_000
+        || sharedRosterDigest(validateSharedRoster(JSON.parse(original))) !== origin.rosterDigest) {
+        throw new SharingAccessError('元グループの署名済み承認情報が一致しません。');
+      }
+      return origin;
+    },
+    async createGroup(roster: VerifiedSharedRoster, wrapped: WrappedGroupKey, copyOrigin?: WorkspaceCopyOrigin): Promise<void> {
       checkAccount();
       if (roster.body.ownerUserId !== userId || roster.body.revision !== 1 || wrapped.recipientUserId !== userId
         || wrapped.groupId !== roster.body.groupId || wrapped.keyVersion !== 1 || wrapped.recipientDeviceId !== roster.body.ownerDeviceId
@@ -204,6 +219,7 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
         throw new Error('Invalid initial group authority');
       }
       const ref = reference(roster.body.groupId); const batch = writeBatch(firestore);
+      if (copyOrigin) batch.set(doc(ref, 'workspaceCopy', 'origin'), validateWorkspaceCopyOrigin(copyOrigin, roster.body.groupId));
       batch.set(ref, { ...rosterCloudFields(roster), headSequence: 0, lastOperationId: null, snapshotId: null,
         snapshotThroughSequence: 0, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
       batch.set(doc(ref, 'rosters', '1'), { rosterJson: canonicalJson(roster), createdAt: serverTimestamp() });
@@ -219,6 +235,7 @@ export function createSharingCloud(firestore: Firestore, userId: string, current
           const original = await getDocFromServer(doc(ref, 'rosters', '1'));
           const key = await getDocFromServer(doc(ref, 'keyEnvelopes', `1_${wrapped.recipientDeviceId}`));
           if (original.data()?.rosterJson !== canonicalJson(roster) || key.data()?.wrappedKeyJson !== canonicalJson(wrapped)) throw error;
+          if (copyOrigin && canonicalJson((await getDocFromServer(doc(ref, 'workspaceCopy', 'origin'))).data() ?? null) !== canonicalJson(copyOrigin)) throw error;
         } catch { throw error; }
       }
       checkAccount();

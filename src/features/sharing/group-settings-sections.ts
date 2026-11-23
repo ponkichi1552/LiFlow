@@ -1,5 +1,5 @@
 export const groupSettingsTitles = {
-  chores: '家事ごとの設定', requests: '日時・担当変更の申請', members: 'メンバー・招待', sync: '同期・復旧',
+  chores: '家事ごとの設定', review: '要確認', requests: '日時・担当変更の申請', members: 'メンバー・招待', sync: '同期・復旧',
 } as const;
 export type GroupSettingsSection = keyof typeof groupSettingsTitles;
 export function groupSettingsSection(value: unknown): GroupSettingsSection | undefined {

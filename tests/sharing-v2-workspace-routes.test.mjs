@@ -69,6 +69,14 @@ async function activateChore(screen) {
   for (let i = 0; i < 15; i++) await screen.flush();
 }
 for (const platform of ['ios', 'android']) {
+  test(`${platform} a review link cannot open a different group after the workspace changes`, async () => {
+    const f = await fixture();
+    try {
+      const ui = await route(f, platform, 'waste', { groupId: 'an-older-group' }, '所属グループを確認してください。');
+      assert.equal(f.sessionInputs.length, 0);
+      ui.screen.button('共有グループへ');
+    } finally { f.dispose(); }
+  });
   test(`${platform} wider calendar and settings preparation waits for idle and a superseded preparation cannot restart it`, async () => {
     const f = await fixture();
     const waitForIdle = async () => { for (let i = 0; i < 75 && idleWork.size === 0; i++) { await new Promise(resolve => setTimeout(resolve, 20)); await ui.screen.flush(); }
@@ -156,8 +164,11 @@ for (const platform of ['ios', 'android']) {
       const own = await f.sessionInputs.at(-1).readPreferences(); assert.deepEqual(own.settings.restDays, [1]); assert.deepEqual(own.settings.loadLimits, f.preferences.loadLimits);
       assert.equal((await f.preview.readModel()).plan.planHash, before.plan.planHash); assert.deepEqual(await listSharingOutbox(f.database, f.context.active.groupId), outbox); ui.leave?.();
       f.preferences = { ...f.preferences, ownerUserId: 'foreign-owner' };
-      const denied = await route(f, platform, 'index', {}, '本人の予定設定を確認してください。');
-      assert.equal(denied.screen.text().includes('フローリングを掃除する'), false); assert.deepEqual(await listSharingOutbox(f.database, f.context.active.groupId), outbox); denied.leave?.();
+      const denied = await route(f, platform, 'index', {}, '最新の家事を表示できませんでした。');
+      assert.equal(denied.screen.nodes().filter(node => node.props.accessibilityRole === 'alert').length, 1);
+      assert.doesNotMatch(denied.screen.text(), /本人の予定設定を確認してください|フローリングを掃除する/u);
+      assert.deepEqual(await listSharingOutbox(f.database, f.context.active.groupId), outbox);
+      denied.leave?.();
     } finally { f.dispose(); }
   });
   test(`${platform} selected v2 workspace routes reuse authenticated forms and preserve historical round parameters`, async () => {
@@ -167,11 +178,16 @@ for (const platform of ['ios', 'android']) {
       const params = { occurrenceId: round.id, subjectId: subject.id, anchorDate: round.anchorDate };
       for (const [file, ready] of [['calendar', '共有カレンダー'], ['history', '実施履歴'], ['requests', '日時の変更申請'], ['assignment-requests', '担当の変更申請'],
         ['round', '共通の設定を開く'], ['date', '日時の指定'], ['assignment', '担当変更の適用範囲'], ['chores', '家事一覧'],
-        ['add-chore', '家事を追加'], ['details', '詳細設定'], ['chore-options', '詳細設定'], ['group-rules', 'グループの種類'], ['date-rights', '日時変更の権限'], ['waste', '未登録'], ['appliances', '家電一覧'], ['appliance', 'お手入れ方法'], ['appliance-review', 'PDFを解析']]) {
+        ['add-chore', '家事を追加'], ['details', '詳細設定'], ['chore-options', '詳細設定'], ['group-rules', 'グループの種類'], ['date-rights', '日時変更の権限'], ['waste', '未登録'], ['appliances', '家電一覧'], ['appliance', 'お手入れ方法'], ['appliance-review', '取扱説明書PDFを選ぶ']]) {
         const r = await route(f, platform, file, ['details', 'chore-options', 'date-rights'].includes(file) ? { choreId: round.choreId } : params, ready);
         try {
           assert.equal(f.sessionInputs.at(-1).groupId, f.context.active.groupId, 'routes retain the authenticated group without repeating its name on every page');
           assert.equal(r.screen.text().includes('クラウドへ送信しません'), false);
+          if (file === 'appliance-review') {
+            assert.doesNotMatch(r.screen.text(), /PDFを解析/u);
+            await r.screen.press('取扱説明書PDFを選ぶ'); await r.screen.flush();
+            assert.equal(r.screen.button('PDFを解析').props.disabled, false);
+          }
         } finally { r.leave?.(); }
       }
       const home = await route(f, platform, 'index');
@@ -302,12 +318,13 @@ for (const platform of ['ios', 'android']) {
       const before = await f.preview.readModel(); const outbox = await listSharingOutbox(f.database, f.preview.groupId);
       const initialAnchor = before.plan.occurrences[0]?.anchorDate;
       assert.ok(initialAnchor, 'seed a formal occurrence before advancing past midnight');
-      assert.ok(r.screen.text().includes('10月31日')); f.setNow('2026-10-31T15:01:00Z');
+      const hasDate = label => r.screen.nodes().some(node => node.props.accessibilityLabel === label);
+      assert.ok(hasDate('2026年10月31日土曜日')); f.setNow('2026-10-31T15:01:00Z');
       assert.ok(f.appStateListeners.size > 0);
       const reads = f.calendarReads;
       for (let n = 0; n < 50; n++) for (const callback of f.appStateListeners) callback('active');
-      for (let n = 0; n < 50 && !r.screen.text().includes('2026年11月1日'); n++) { await new Promise(resolve => setTimeout(resolve, 20)); await r.screen.flush(); }
-      assert.ok(r.screen.text().includes('2026年11月1日'), r.screen.text());
+      for (let n = 0; n < 50 && !hasDate('2026年11月1日日曜日'); n++) { await new Promise(resolve => setTimeout(resolve, 20)); await r.screen.flush(); }
+      assert.ok(hasDate('2026年11月1日日曜日'), r.screen.text());
       assert.equal(f.calendarReads, reads + 1, 'duplicate foreground signals share one refresh');
       assert.equal(r.navigation.length, 0); assert.deepEqual(await listSharingOutbox(f.database, f.preview.groupId), outbox);
       assert.equal((await f.preview.readModel()).plan.occurrences[0]?.anchorDate, initialAnchor); r.leave?.();

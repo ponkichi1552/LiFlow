@@ -29,16 +29,16 @@ for (const platform of ['ios', 'android']) {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const { ui, changeScenario } = openReview(t, 'search-history', platform);
     const settleSearch = async () => { t.mock.timers.tick(200); await ui.flush(); };
-    assert.match(ui.text(), /過去の予定を検索中/);
+    assert.match(ui.text(), /保存済みの予定を検索中/);
     await settleSearch();
-    assert.match(ui.text(), /保存履歴を検索できませんでした/);
+    assert.match(ui.text(), /一部の予定を検索できませんでした/);
     assert.doesNotMatch(ui.text(), /一致する予定はありません/);
     await ui.press('検索を再試行'); await settleSearch();
     ui.button('給湯器の点検の検索結果を開く');
 
     changeScenario('search-partial'); await settleSearch();
     ui.button('火災報知器の点検の検索結果を開く');
-    assert.match(ui.text(), /保存履歴を検索できませんでした/);
+    assert.match(ui.text(), /一部の予定を検索できませんでした/);
     assert.doesNotMatch(ui.text(), /給湯器/);
     await ui.press('検索を再試行'); await settleSearch();
     ui.button('火災報知器の点検の検索結果を開く');
@@ -46,11 +46,11 @@ for (const platform of ['ios', 'android']) {
     if (platform === 'ios') { ui.nodes().find(node => node.type === 'Modal').props.onDismiss(); await ui.flush(); }
     assert.match(ui.text(), /給湯器の点検/);
     await ui.press('最初の状態で検索を開く'); await settleSearch();
-    assert.match(ui.text(), /保存履歴を検索できませんでした/);
+    assert.match(ui.text(), /一部の予定を検索できませんでした/);
 
     changeScenario('search-empty');
     assert.match(ui.text(), /一致する予定はありません/);
-    assert.doesNotMatch(ui.text(), /保存履歴を検索できませんでした/);
+    assert.doesNotMatch(ui.text(), /一部の予定を検索できませんでした/);
     await ui.change('予定を検索', '給湯器');
     ui.button('給湯器の点検の検索結果を開く');
   });
@@ -89,9 +89,14 @@ for (const platform of ['ios', 'android']) {
   });
 
   test(`${platform} review startup hands both retry and the held loading state to the populated home fixture`, async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
     const { ui, changeScenario } = openReview(t, 'home-read', platform);
-    assert.match(ui.text(), /端末に保存した家事を読み込めませんでした/);
-    await ui.press('もう一度読み込む');
+    await ui.flush();
+    assert.match(ui.text(), /今日の家事を読み込んでいます/);
+    assert.doesNotMatch(ui.text(), /もう一度読み込む/);
+    t.mock.timers.tick(400); await ui.flush();
+    assert.match(ui.text(), /今日の家事を読み込んでいます/);
+    t.mock.timers.tick(1_200); await ui.flush();
     assert.match(ui.text(), /ひより荘（サンプル）/);
     changeScenario('home-loading');
     assert.match(ui.text(), /今日の家事を読み込んでいます/);

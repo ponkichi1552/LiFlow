@@ -30,7 +30,8 @@ export function selectDateTasks(
 }
 
 /** One immutable snapshot/optimistic revision owns this reusable lookup. */
-export function createDateTaskSelector(entries: readonly ChoreScheduleEntry[], completions: readonly ChoreCompletion[],
+export function createDateTaskSelector(entries: readonly ChoreScheduleEntry[] | ((date: LocalDate) => readonly ChoreScheduleEntry[]),
+  completions: readonly ChoreCompletion[],
   chores?: readonly (Pick<ChoreDefinition, 'id'> & Partial<Pick<ChoreDefinition, 'enabled' | 'archived'>>)[]) {
   const activeIds = chores ? new Set(chores.filter((chore) => chore.enabled !== false && !chore.archived).map((chore) => chore.id)) : undefined;
   const visibleCompletions = activeIds ? completions.filter((completion) => activeIds.has(completion.choreId)) : completions;
@@ -50,13 +51,24 @@ export function createDateTaskSelector(entries: readonly ChoreScheduleEntry[], c
     completion, ...completionPeriod(completion),
     recordedDate: completionWasRecordedBeforeWindow(completion) ? null : completionRecordedDate(completion),
   }));
+  const periodsByChore = new Map<string, typeof displayPeriods>();
+  if (typeof entries === 'function') {
+    for (const period of displayPeriods) {
+      const choreId = period.completion.choreId;
+      const periods = periodsByChore.get(choreId);
+      if (periods) periods.push(period); else periodsByChore.set(choreId, [period]);
+    }
+  }
   return (date: LocalDate, graceDays = 0, includeRetainedOverdue = false): DateTask[] => {
-  const relevantCompletions = displayPeriods.filter(period => date >= period.start && date <= period.end || period.recordedDate === date)
+  const dayEntries = typeof entries === 'function' ? entries(date) : entries;
+  const periods = typeof entries === 'function'
+    ? [...new Set(dayEntries.map(entry => entry.choreId))].flatMap(id => periodsByChore.get(id) ?? []) : displayPeriods;
+  const relevantCompletions = periods.filter(period => date >= period.start && date <= period.end || period.recordedDate === date)
     .map(period => period.completion);
   const byChore = new Map<string, DateTask>();
   const meaningKey = (choreId: string, work?: ChoreScheduleEntry['seasonalWork']) => work ? JSON.stringify([choreId, work]) : choreId;
 
-  for (const entry of entries) {
+  for (const entry of dayEntries) {
     if (activeIds && !activeIds.has(entry.choreId)) continue;
     const retained = includeRetainedOverdue && entry.status === 'overdue' && (entry.id.startsWith('personal-round.') || entry.id.startsWith('seasonal-round.'));
     if (entry.windowStart > date || !retained && date > (graceDays === 0 ? entry.windowEnd : addDays(entry.windowEnd, graceDays))) continue;

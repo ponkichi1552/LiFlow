@@ -1,5 +1,5 @@
 import type { ChoreCompletion, ChoreDefinition, ChoreScheduleEntry, HouseholdPlannerSettings } from '@/domain/chores/types';
-import { selectDateTasks } from '@/domain/scheduling/date-tasks';
+import { createDateTaskSelector } from '@/domain/scheduling/date-tasks';
 import { addDays, localDateFromDate } from '@/domain/scheduling/local-date';
 import type { LocalDate } from '@/domain/shared/types';
 import type { LocalNotificationGateway, LocalNotificationRequest } from '@/features/notifications/contracts';
@@ -31,27 +31,23 @@ export function createDailyHouseworkDigestRequests(
   const through = addDays(today, SCHEDULE_HORIZON_DAYS);
   const entriesByDate = new Map<LocalDate, ChoreScheduleEntry[]>();
   const choresById = new Map(snapshot.chores.map(chore => [chore.id, chore]));
-  const completionsByChore = new Map<string, ChoreCompletion[]>();
-  for (const completion of snapshot.completions) {
-    const bucket = completionsByChore.get(completion.choreId);
-    if (bucket) bucket.push(completion); else completionsByChore.set(completion.choreId, [completion]);
-  }
+  const reminderChoreIds = new Set<string>();
   // Only the three reminder boundaries matter. Long windows and old history do
   // not require a full planner scan for every future notification date.
   for (const entry of snapshot.scheduleEntries) for (const date of new Set([entry.windowStart, entry.windowEnd, addDays(entry.windowEnd, 1)])) {
     if (date < today || date > through) continue;
+    reminderChoreIds.add(entry.choreId);
     const bucket = entriesByDate.get(date);
     if (bucket) bucket.push(entry); else entriesByDate.set(date, [entry]);
   }
+  if (!entriesByDate.size) return requests;
+  const selectTasks = createDateTaskSelector(date => entriesByDate.get(date) ?? [], snapshot.completions,
+    snapshot.chores.filter(chore => reminderChoreIds.has(chore.id)));
 
   for (let offset = 0; offset <= SCHEDULE_HORIZON_DAYS; offset += 1) {
     const date = addDays(today, offset);
-    const entries = entriesByDate.get(date);
-    if (!entries?.length) continue;
-    const choreIds = [...new Set(entries.map(entry => entry.choreId))];
-    const completions = choreIds.flatMap(id => completionsByChore.get(id) ?? []);
-    const chores = choreIds.flatMap(id => choresById.get(id) ?? []);
-    const dueEntries = selectDateTasks(entries, completions, date, 1, chores)
+    if (!entriesByDate.has(date)) continue;
+    const dueEntries = selectTasks(date, 1)
       .filter((task) => !task.completed)
       .sort((left, right) => urgency(left.entry!.status) - urgency(right.entry!.status)
         || left.suggestedDate.localeCompare(right.suggestedDate));

@@ -18,6 +18,7 @@ import type { SignedV2RecoveryWitness } from './recovery-witness.ts';
 import type { V2RecoveryCloudRecord } from './recovery-cloud-contract.ts';
 import { MAX_V2_RECOVERY_SCAN_BYTES, MAX_V2_RECOVERY_SCAN_EVENTS, V2RecoveryLimitError, V2RecoveryStaleError } from './recovery-contract.ts';
 import type { RawV2RecoveryEvent, V2RecoveryDraft, V2RecoveryReview } from './recovery-contract.ts';
+import type { SignedWorkspaceCopy } from './workspace-copy-source.ts';
 
 type Analysis = Awaited<ReturnType<typeof analyzeV2Recovery>>;
 /** Recovery is a distinct, explicitly confirmed control operation. It never manufactures a business event. */
@@ -27,6 +28,7 @@ export function createV2OwnerRecovery(deps: Omit<SharedSyncDependencies, 'v2' | 
   withMaintenance: <T>(work: () => Promise<T>) => Promise<T>;
   sync: (options?: { force?: boolean; budgetMs?: number }) => Promise<unknown>;
   assertCurrentAccount: () => void; makeId: () => string;
+  workspaceCopyForSnapshot?: () => Promise<SignedWorkspaceCopy | undefined>;
 }) {
   const store = createV2RecoveryStore(deps.repository); const now = deps.now ?? Date.now;
   const guard = () => {
@@ -150,7 +152,8 @@ export function createV2OwnerRecovery(deps: Omit<SharedSyncDependencies, 'v2' | 
         recoveryWitnesses: [...(analysis.retainedBase.recoveryWitnesses ?? []), witness] });
       const facts = [...await loadSharedFacts(deps.database, deps.groupId), ...analysis.readyFacts]; guard();
       const snapshot = await createEncryptedSharedSnapshot(deps.crypto, replica, facts, next, deps.identity, proposed, snapshotId,
-        reviewed.throughSequence, (uid, device, version) => sharedAuthorIdentity(archive[version - 1], uid, device, version), archive);
+        reviewed.throughSequence, (uid, device, version) => sharedAuthorIdentity(archive[version - 1], uid, device, version), archive,
+        await deps.workspaceCopyForSnapshot?.());
       const encrypted = await sealV2RecoveryHeader(deps.crypto, { body: witness.body, signature: witness.signature }, proposed, deps.identity); guard();
       const record: V2RecoveryCloudRecord = { schemaVersion: 1, snapshotId, previousKeyVersion: metadata.roster.body.keyVersion,
         keyVersion: next.body.keyVersion, throughSequence: reviewed.throughSequence, lockId: id, reviewDigest: expectedDigest,

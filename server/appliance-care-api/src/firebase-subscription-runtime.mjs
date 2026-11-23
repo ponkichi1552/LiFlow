@@ -5,6 +5,7 @@ import { createAppleSubscriptionProvider, createGoogleSubscriptionProvider } fro
 import { createFirestoreSubscriptionStore } from './firestore-subscription-store.mjs';
 import { createSubscriptionService, createSubscriptionSigner } from './subscription-service.mjs';
 import { createSubscriptionHttp } from './subscription-http.mjs';
+import iosStoreIdentity from './ios-store-identity.json' with { type: 'json' };
 
 class BoundedAppleSubscriptionClient extends AppStoreServerAPIClient {
   makeFetchRequest(path, parameters, method, body, headers) {
@@ -17,7 +18,6 @@ class BoundedAppleSubscriptionClient extends AppStoreServerAPIClient {
 
 export function createFirebaseSubscriptionRuntime({ firestore, auth, env = process.env }) {
   const required = name => { const value = env[name]?.trim(); if (!value) throw new Error(`Subscription configuration is required: ${name}`); return value; };
-  const bundleId = 'jp.jphacks.tkb2633';
   const production = env.NODE_ENV?.trim().toLowerCase() === 'production';
   const signer = createSubscriptionSigner(readFileSync(required('LIFLOW_SUBSCRIPTION_SIGNING_KEY_FILE')));
   const tokenKey = readFileSync(required('LIFLOW_BILLING_TOKEN_KEY_FILE'));
@@ -25,6 +25,7 @@ export function createFirebaseSubscriptionRuntime({ firestore, auth, env = proce
   const providers = {};
   const appleProduct = env.LIFLOW_APPLE_SUBSCRIPTION_PRODUCT_ID?.trim();
   if (appleProduct) {
+    const bundleId = iosStoreIdentity.bundleIdentifier;
     const environment = required('LIFLOW_APPLE_STORE_ENVIRONMENT');
     if (![Environment.PRODUCTION, Environment.SANDBOX].includes(environment)) throw new Error('Invalid Apple subscription environment');
     if (production && environment !== Environment.PRODUCTION) throw new Error('Production requires App Store production purchase verification');
@@ -42,7 +43,7 @@ export function createFirebaseSubscriptionRuntime({ firestore, auth, env = proce
     const google = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/androidpublisher'] });
     const audience = required('LIFLOW_GOOGLE_PUBSUB_AUDIENCE'); const email = required('LIFLOW_GOOGLE_PUBSUB_SERVICE_ACCOUNT');
     const oidc = new OAuth2Client();
-    providers.google = createGoogleSubscriptionProvider({ request: async options => (await google.getClient()).request(options), packageName: bundleId, productId: googleProduct,
+    providers.google = createGoogleSubscriptionProvider({ request: async options => (await google.getClient()).request(options), packageName: 'jp.jphacks.tkb2633', productId: googleProduct,
       basePlanId: required('LIFLOW_GOOGLE_SUBSCRIPTION_BASE_PLAN_ID'), allowTestPurchases: env.LIFLOW_GOOGLE_ALLOW_TEST_PURCHASES === 'true',
       async verifyPushIdentity(header) {
         if (typeof header !== 'string' || !/^Bearer [A-Za-z0-9._-]{1,16384}$/u.test(header)) throw new Error('Invalid store notification identity');

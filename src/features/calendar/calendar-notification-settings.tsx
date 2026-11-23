@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Text, View, useColorScheme } from 'react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { SettingsCheckbox } from '../../components/settings-checkbox';
-import { SettingsAction, SettingsLabel } from '../../components/settings-controls';
+import { SettingsAction } from '../../components/settings-controls';
 import { typography } from '../../components/planner-ui';
 import { plannerColorsForScheme } from '../../components/planner-theme';
 import { expoLocalNotificationGateway } from '../../platform/notifications/expo-local-notification-gateway';
@@ -26,8 +26,8 @@ export function CalendarNotificationSettings({ database }: { database: SQLiteDat
     finally { pending.current = false; setBusy(false); }
   };
   return <View style={{ gap: 8, borderTopWidth: 1, borderColor: colors.border, paddingTop: 16, marginTop: 16 }}>
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}><View style={{ flex: 1, gap: 4 }}><SettingsLabel>カレンダー通知</SettingsLabel><Text style={{ ...typography.caption, color: colors.muted }}>通知するタイミングは予定ごとに選択。</Text></View>
-      <SettingsCheckbox accessibilityLabel="カレンダー通知を受け取る" value={settings.enabled} disabled={busy || loading || Boolean(readError)} onValueChange={value => void save(value)} /></View>
+    <SettingsCheckbox label="カレンダー通知" description="通知するタイミングは予定ごとに選択。"
+      accessibilityLabel="カレンダー通知を受け取る" value={settings.enabled} disabled={busy || loading || Boolean(readError)} onValueChange={value => void save(value)} />
     {error || readError ? <Text accessibilityRole="alert" style={{ ...typography.caption, color: colors.warning }}>{error ?? readError}</Text> : null}
     {readError ? <SettingsAction title="通知設定を再読み込み" placement="page" compact disabled={busy} onPress={retry} /> : null}
     {devicePermission === false && !error ? <Text accessibilityLiveRegion="polite" style={{ ...typography.caption, color: colors.warning }}>端末の通知がオフです。</Text> : null}

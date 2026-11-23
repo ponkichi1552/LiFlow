@@ -13,9 +13,10 @@ import type { LocalDate } from '../../../domain/shared/types';
 import { sameOccurrenceAfterCompletion } from '../../../domain/scheduling/date-task-reference';
 import { calendarChoreTimeLabel } from '../../calendar/chore-time-label';
 
-export function V2PrivateTaskNotice({ overlay, sharedTimeZone }: { overlay?: V2PrivateOverlayState; sharedTimeZone: string; date?: string }) {
+export function V2PrivateTaskNotice({ overlay, sharedTimeZone, home = false }: { overlay?: V2PrivateOverlayState; sharedTimeZone: string; date?: string; home?: boolean }) {
   if (!overlay) return null;
   if (overlay.status === 'unavailable') return <Text accessibilityRole="alert" style={styles.caption}>{overlay.message}</Text>;
+  if (home) return null;
   if (overlay.timeZone === sharedTimeZone && overlay.setupCompleted) return null;
   return <View style={{ gap: 4 }}>
     {overlay.timeZone !== sharedTimeZone ? <Text style={styles.caption}>個人家事：本人のみ · {overlay.timeZone}</Text> : null}
@@ -25,16 +26,17 @@ export function V2PrivateTaskNotice({ overlay, sharedTimeZone }: { overlay?: V2P
 }
 
 /** The shared actions object is deliberately absent. Only the captured personal source accepts this checkbox. */
-export function V2PrivateTaskCard({ row, source, busy, run, feedback, today = row.date, home = false, compact = false, narrowCalendar = false, mixedSources = false, showCalendarTime = false, timeZone = 'Asia/Tokyo', onOpen, showHomeSource }: { row: V2PrivateTaskRow; source?: V2PrivateTaskSource; busy: boolean; feedback?: CompletionFeedback; today?: LocalDate; home?: boolean; compact?: boolean; narrowCalendar?: boolean; mixedSources?: boolean; showCalendarTime?: boolean; timeZone?: string; showHomeSource?: boolean;
+export function V2PrivateTaskCard({ row, source, busy, run, feedback, today = row.date, home = false, homeDate, compact = false, narrowCalendar, mixedSources = false, showCalendarTime = false, timeZone = 'Asia/Tokyo', onOpen, showHomeSource, overdue = false }: { row: V2PrivateTaskRow; source?: V2PrivateTaskSource; busy: boolean; feedback?: CompletionFeedback; today?: LocalDate; home?: boolean; homeDate?: LocalDate; compact?: boolean; narrowCalendar?: 'three' | 'week'; mixedSources?: boolean; showCalendarTime?: boolean; timeZone?: string; showHomeSource?: boolean; overdue?: boolean;
   onOpen?: () => void; run: (work: () => Promise<unknown>) => Promise<void> }) {
   const [open, setOpen] = useState(false); const chore = row.chore;
   const completed = feedback?.values.get(row.key) ?? row.completed;
   const queueable = !row.provisional && feedback?.supports?.('personal') && feedback.request;
   return <View style={{ gap: 6 }}>
     <TaskCheckboxRow chore={{ ...chore, category: `本人のみ${chore.category ? ` · ${chore.category}` : ''}` }} completed={completed} source="personal" home={home} compact={compact} narrowCalendar={narrowCalendar} mixedSources={mixedSources} detailsExpanded={onOpen ? undefined : open} homeSourceLabel={showHomeSource ? '個人' : undefined}
+      detail={homeDate && row.date !== homeDate ? formatJapaneseDate(row.date, { year: row.date.slice(0, 4) !== homeDate.slice(0, 4) }) : undefined}
       calendarTimeLabel={showCalendarTime ? calendarChoreTimeLabel(row.calendarTime, timeZone) : undefined}
       provisional={row.provisional} contextLabel={row.calendarTimeIssue ? '時刻を確認' : row.provisional ? '次回の仮予定' : undefined}
-      seasonalWork={row.seasonalWork}
+      seasonalWork={row.seasonalWork} overdue={overdue}
       executionWindow={row.windowStart && row.windowEnd ? { start: row.windowStart, end: row.windowEnd } : undefined}
       urgent={isTaskUrgent({ completed, load: chore.load, recommendedDate: row.suggestedDate, windowStart: row.windowStart, windowEnd: row.windowEnd }, today)}
       onOpen={onOpen ?? (() => setOpen((value) => !value))}

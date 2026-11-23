@@ -32,7 +32,7 @@ export interface V2PrivateOverlay {
   calendarLongDates?: LocalDate[];
   calendarLongRows?: V2PrivateTaskRow[];
 }
-export type V2PrivateOverlayState = V2PrivateOverlay | { status: 'unavailable'; message: string };
+export type V2PrivateOverlayState = V2PrivateOverlay | { status: 'unavailable'; message: string; retryable?: boolean };
 export interface V2PrivateTaskSource {
   read(range: { from: LocalDate; through: LocalDate }, instant: Date, commonChores?: CommonCompletionSource['chores']): Promise<V2PrivateOverlay>;
   setCompleted(key: string, revision: string, completed: boolean): Promise<boolean>;

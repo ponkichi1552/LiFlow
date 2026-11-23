@@ -12,7 +12,6 @@ import { choreCadenceLabel, registeredChoreCycleDays } from '../../domain/chores
 import type { ApplianceCareReviewContext, ApplianceTaskCycleChange } from '@/platform/storage/repository';
 import { isRenderableApplianceAnalysis } from './analysis-validation';
 import { applianceDisplayName, appliancePrimaryName, applianceSecondaryLabel } from './display-name';
-import { applianceAnalysisDate } from './analysis-date';
 import { ApplianceTaskBook } from './appliance-task-book';
 import { manualModelPageLabel } from './manual-model-pages';
 import type { SQLiteDatabase } from 'expo-sqlite';
@@ -65,7 +64,6 @@ export function ApplianceDetailContent({ context, returnTo, error, database, onS
           return <MaintenanceTaskCard task={task} chore={chore} frequencyMode={frequencyMode} onCycleEdit={edit} />;
         }}
         footer={<View style={styles.listHeader}>
-          <Text style={styles.note}>最終解析：{applianceAnalysisDate(appliance.analysis.analyzedAt)}</Text>
           <AppButton title="この家電を再解析" onPress={reanalyze} variant="quiet" />
         </View>}
       />{editing && onSaveCycle ? <ApplianceCycleEditor taskName={editing.change.taskName} initialDays={editing.initialDays}

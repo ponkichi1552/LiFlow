@@ -6,7 +6,7 @@ import { initializeTestEnvironment, assertFails } from '@firebase/rules-unit-tes
 import { doc, getDocFromServer, setDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp, writeBatch } from 'firebase/firestore';
 import { createSharingCloud } from '../src/platform/sharing/firestore-cloud.ts';
 import { createDeviceIdentity, signSharedDocument, encryptSharedOperation, decryptAuthenticatedSharedOperation, signSharedOperation, wrapGroupKey } from '../src/features/sharing/crypto.ts';
-import { createSharedRoster, upgradeSharedRoster, sharedAuthorIdentity } from '../src/features/sharing/roster.ts';
+import { createSharedRoster, upgradeSharedRoster, sharedAuthorIdentity, sharedRosterDigest } from '../src/features/sharing/roster.ts';
 import { v2AuthorProofDigest, bindV2ServerReceipt } from '../src/features/sharing/v2/server-receipts.ts';
 import { sharingTestCrypto as crypto } from './helpers/sharing-crypto.mjs';
 import { buildSharedReplica } from '../src/features/sharing/replica.ts';
@@ -41,6 +41,9 @@ import { expectedSharedChoreCount, expectedSharedBootstrapFactCount } from './he
 import { projectCalendarEvents, calendarEventsInTimeZone } from '../src/domain/calendar/events.ts';
 import { projectSharedCalendarRecords } from '../src/features/calendar/shared-events.ts';
 import { privateFixture } from './helpers/sharing-v2-private-fixture.mjs';
+import { signWorkspaceCopy } from '../src/features/sharing/v2/workspace-copy-source.ts';
+import { workspaceCopyPin } from '../src/features/sharing/v2/workspace-copy-origin.ts';
+import { readSharingWorkspaceCopy, stageSharingWorkspaceCopy } from '../src/platform/storage/sharing-workspace-copy.ts';
 const { readPersonalChoreCopySource } = await import('../src/platform/storage/repository.ts');
 
 if (!process.env.FIRESTORE_EMULATOR_HOST) throw new Error('Run v2 cloud tests only against the local emulator.');
@@ -91,6 +94,113 @@ test('paid v2 groups create and commit encrypted receipts within Rules limits an
   const retried = await f.cloud.upload(next.envelope, { authorProofDigest: next.authorProofDigest });
   assert.equal(retried.serverReceipt.uploadSequence, 2);
   assert.equal((await f.cloud.pull(groupId, 0)).events.length, 2);
+});
+
+test('workspace copy moves the directory only after the current source cut is pinned and preserves the old roster and data', async () => {
+  const f = await fixture();
+  const first = await f.make(1);
+  await f.cloud.upload(first.envelope, { authorProofDigest: first.authorProofDigest });
+  const before = (await getDocFromServer(f.root)).data();
+  const destination = 'replacement-group-owner';
+  const roster = createSharedRoster(destination, 'owner', f.identity, { schemaVersion: 2, workspaceCopy: true });
+  const key = await crypto.randomBytes(32);
+  const wrapped = await wrapGroupKey(crypto, destination, 1, key, f.identity, f.identity, 'owner');
+  const origin = { groupId, revision: f.roster.body.revision, rosterDigest: sharedRosterDigest(f.roster), sequence: 1, userIds: ['owner'] };
+  await assert.rejects(f.cloud.createGroup(roster, wrapped));
+  await assert.rejects(f.cloud.createGroup(roster, wrapped, { ...origin, sequence: 2 }));
+  await assert.rejects(f.cloud.createGroup(roster, wrapped, { ...origin, userIds: ['owner', 'outsider'] }));
+  assert.equal(await f.cloud.readMembership(), groupId);
+  await f.cloud.createGroup(roster, wrapped, origin);
+  await f.cloud.createGroup(roster, wrapped, origin);
+  assert.equal(await f.cloud.readMembership(), destination);
+  assert.deepEqual(await f.cloud.readWorkspaceCopyOrigin(destination), origin);
+  assert.deepEqual((await getDocFromServer(f.root)).data(), before);
+  assert.equal((await f.cloud.pull(groupId, 0)).events[0].operationId, first.fact.operation.operationId);
+  await assertFails(updateDoc(doc(f.store, 'sharingGroups', destination, 'workspaceCopy', 'origin'), { sequence: 2 }));
+  const outside = createSharingCloud(environment.authenticatedContext('outsider').firestore(), 'outsider', () => 'outsider');
+  await assert.rejects(outside.readWorkspaceCopyOrigin(destination));
+});
+
+test('workspace copy relays authenticated history to a second approved account and applies settings on both devices', async t => {
+  const f = await fixture();
+  const memberId = 'member';
+  const phone = await createDeviceIdentity(crypto);
+  const memberStore = environment.authenticatedContext(memberId).firestore();
+  const memberCloud = createSharingCloud(memberStore, memberId, () => memberId);
+  const date = '2026-11-18';
+  let id = 0;
+  function makePort(scope, database, identity, cloud, keys, creationKind) {
+    let archive = scope.rosterArchive;
+    return { ...scope, database, identity, cloud, householdId: 'workspace-copy-cloud', crypto,
+      readRecord: async () => ({ ...scope, rosterArchive: archive }), saveArchive: async value => { archive = value; }, archive: () => archive,
+      get readKey() { return async version => keys.get(version)?.slice() ?? null; },
+      saveKey: async (version, value) => { keys.set(version, value.slice()); }, serialized: async work => work(), changed: () => {},
+      assertCurrentAccount: () => {}, assertWritable: () => {}, makeId: () => `workspace-copy-${++id}`, markLeft: async () => {}, creationKind };
+  }
+  async function database() { const value = createDatabase(); t.after(() => value.connection.close()); return value.database; }
+  function creation(groupId, userId, roster, copyOrigin) {
+    return { groupId, userId, status: 'creating', displayName: '引き継ぎ検査', anchor: roster, rosterArchive: [roster],
+      creation: { kind: 'family', ownerDisplayName: '利用者', timeZone: 'Asia/Tokyo', anchorDate: date }, ...(copyOrigin ? { copyOrigin } : {}) };
+  }
+  const originalDatabase = await database();
+  const original = await createV2WorkspaceSession(makePort(creation(groupId, 'owner', f.roster), originalDatabase, f.identity, f.cloud, new Map([[1,f.key]]), 'family'));
+  await original.repository.commit([
+    { operationId:'copy-floor', entityType:'chore', entityId:'copy-floor', operationType:'patch', payload:{name:'移行確認の家事', enabled:true} },
+    { operationId:'copy-floor-policy', entityType:'chorePolicy', entityId:'copy-floor', operationType:'patch', payload:{configuration:{
+      policy:chorePolicyFromPreset('common'), anchorDate:date, intervalDays:11, windowBeforeDays:0, windowAfterDays:1, ruleVersion:1}} },
+  ]);
+  await original.synchronizer.sync({ force: true, budgetMs: 60_000 });
+  const initialInvite = await original.manager.createInvitation();
+  const request = createSharedJoinRequest(initialInvite, memberId, phone, Date.now());
+  await memberCloud.submitJoinRequest(initialInvite.invitation, request);
+  await original.manager.approve(initialInvite.invitation, request);
+  const originalCloud = await f.cloud.readGroup(groupId);
+  const originalState = await original.repository.readState();
+  const origin = { groupId, revision: originalCloud.roster.body.revision, rosterDigest: sharedRosterDigest(originalCloud.roster), sequence: originalCloud.group.headSequence, userIds:[memberId,'owner'] };
+  const newId = 'replacement-group-member';
+  const source = { rosters: originalState.archive, facts: await loadSharedFacts(originalDatabase, groupId), receipts: [...originalState.receipts.values()] };
+  const signed = signWorkspaceCopy(workspaceCopyPin(origin), { groupId:newId, userIds:origin.userIds }, source, memberId, phone);
+  const root = createSharedRoster(newId, memberId, phone, { schemaVersion:2, workspaceCopy: true });
+  const firstKey = await crypto.randomBytes(32);
+  await memberCloud.createGroup(root, await wrapGroupKey(crypto, newId, 1, firstKey, phone, phone, memberId), origin);
+  assert.equal(await memberCloud.readMembership(), newId);
+  assert.equal(await f.cloud.readMembership(), groupId);
+  const newDatabase = await database();
+  await stageSharingWorkspaceCopy(newDatabase, newId, signed);
+  const ownerPort = makePort(creation(newId, memberId, root, origin), newDatabase, phone, memberCloud, new Map([[1,firstKey]]), 'family');
+  const newOwner = await createV2WorkspaceSession(ownerPort);
+  await newOwner.synchronizer.sync({ force:true, budgetMs:60_000 });
+  const newInvite = await newOwner.manager.createInvitation();
+  const outsiderId = 'outsider', outsider = await createDeviceIdentity(crypto);
+  const outsiderCloud = createSharingCloud(environment.authenticatedContext(outsiderId).firestore(), outsiderId, () => outsiderId);
+  await assert.rejects(outsiderCloud.submitJoinRequest(newInvite.invitation, createSharedJoinRequest(newInvite, outsiderId, outsider, Date.now())));
+  const joiningIdentity = await createDeviceIdentity(crypto);
+  const joinRequest = createSharedJoinRequest(newInvite, 'owner', joiningIdentity, Date.now());
+  assert.deepEqual(await f.cloud.readWorkspaceCopyOrigin(newId), origin);
+  await f.cloud.submitJoinRequest(newInvite.invitation, joinRequest);
+  await newOwner.manager.approve(newInvite.invitation, joinRequest);
+  assert.equal(await newOwner.completeWorkspaceCopy(), true);
+  assert.equal(await newOwner.completeWorkspaceCopy(), false);
+  await newOwner.synchronizer.sync({ force:true, budgetMs:60_000 });
+  const joinRecord = { groupId:newId, userId:'owner', status:'joining', displayName:'引き継ぎ検査', anchor:newInvite.invitation.body.pin,
+    copyOrigin:origin, join: { invitation:newInvite.invitation, request:joinRequest }, rosterArchive:[] };
+  const metadata = await f.cloud.readGroup(newId);
+  joinRecord.rosterArchive = await readCloudWorkspaceArchive(joinRecord, metadata.roster, f.cloud.readRoster);
+  const joinDatabase = await database();
+  const joinPort = makePort(joinRecord, joinDatabase, joiningIdentity, f.cloud, new Map());
+  const recipient = await createV2WorkspaceSession(joinPort);
+  const response = await recipient.synchronizer.sync({ force:true, budgetMs:60_000 });
+  assert.equal(response.complete, true);
+  const sourceBytes = (await readSharingWorkspaceCopy(joinDatabase, newId, { publishedOnly:true })).body.contentDigest;
+  assert.equal(sourceBytes, signed.body.contentDigest);
+  assert.equal((await readSharingWorkspaceCopy(newDatabase, newId, { publishedOnly:true })).body.contentDigest, sourceBytes);
+  const range = { from:date, through:date, asOfDate:date };
+  const reopened = await createV2WorkspaceSession(joinPort);
+  const model = await reopened.controller.readModel(range, { copiedHistory:true });
+  assert.equal(model.configurations.find(row=>row.choreId==='copy-floor').configuration.intervalDays, 11);
+  assert.equal(model.plan.chores.find(chore=>chore.id==='copy-floor').name, '移行確認の家事');
+  assert.deepEqual((await f.cloud.readGroup(groupId)).group, originalCloud.group);
+  assert.equal(await f.cloud.readMembership(), newId);
 });
 
 test('v2 workspace sessions restore real encrypted bootstrap and offline edits across approved user devices without private planner adapters', async () => {

@@ -43,7 +43,7 @@ for (const hasResults of [false, true]) test(`upgrading an existing v29 Tasks co
       .map(table => [table, h.connection.prepare(`SELECT * FROM ${table}`).all()]);
     if (!hasResults) await assert.rejects(h.journal.pending(h.scope), /no such table: private_google_task_create_results/);
     await migrateLocalDatabase(h.database);
-    assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 31);
+    assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 32);
     for (const [table, rows] of saved) assert.deepEqual(h.connection.prepare(`SELECT * FROM ${table}`).all(), rows);
     const pending = await h.journal.pending(h.scope);
     assert.deepEqual(pending, hasResults ? [{ intent, kind: 'created', taskId: 'already-created' }] : []);

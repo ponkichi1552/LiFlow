@@ -32,7 +32,7 @@ export async function startAnalysisWork(database: SQLiteDatabase, input: {
   owner: string; target: AnalysisTarget; request: ApplianceCareApiRequest; filename?: string; basis?: AnalysisWorkBasis;
 }) {
   if (await currentAnalysisOwner() !== input.owner) throw new Error('解析を開始するアカウントを確認してください。');
-  await deviceAnalysisWork(database).begin({ ...input, id: randomUUID(), baseUrl: applianceCareApiBaseUrl() });
+  return deviceAnalysisWork(database).begin({ ...input, id: randomUUID(), baseUrl: applianceCareApiBaseUrl() });
 }
 
 /** All entry points join the same local run. A status check does not create a second admission. */
@@ -49,11 +49,8 @@ export async function resumeAnalysisWork(database: SQLiteDatabase, owner: string
   // a foreground request that can outlive the headless connection's budget.
   if (existing && options.timeoutMs !== undefined) return true;
   const operation = existing ?? (async () => {
-    const recoveryOnly = Date.now() - entry.createdAt >= RESULT_RECOVERY_MS;
-    if (recoveryOnly && entry.attempts === 0) {
-      await store.finish(owner, entry.id, { status: 'error', code: 'JOB_NOT_FOUND', message: '解析結果の受け取り期限が過ぎました。PDFを解析し直してください。' });
-      return;
-    }
+    // Older installations stored only the queue timestamp. Keep their previous recovery boundary.
+    const recoveryOnly = entry.attempts > 0 && Date.now() - (entry.firstAttemptAt ?? entry.createdAt) >= RESULT_RECOVERY_MS;
     let base64: string | null;
     try { base64 = await readApplianceManual(database, entry.manualDigest); }
     catch (error) {

@@ -189,7 +189,7 @@ for (const platform of ['ios', 'android']) {
     await selectCalendarView(screen, '2日表示'); await screen.press('2026年11月7日の家事を開く');
     const list = screen.nodes().find(node => node.props.accessibilityLabel === '2026年11月7日の家事一覧'); assert.ok(list);
     list.props.onContentSizeChange(160, 250); await screen.flush();
-    const pane = screen.nodes().find(node => node.props.testID === 'calendar-fixed-chores'); const style = Object.assign({}, ...pane.props.style.flat(Infinity).filter(Boolean));
+    const pane = screen.nodes().find(node => node.props.testID === `calendar-chore-column:${day}`); const style = Object.assign({}, ...pane.props.style.flat(Infinity).filter(Boolean));
     assert.ok(style.height >= 250, 'a short measured list must fit rather than clipping its third card');
     screen.unmount();
   });

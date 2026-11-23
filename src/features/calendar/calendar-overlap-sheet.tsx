@@ -8,7 +8,7 @@ import { minuteLabel, type CalendarOccurrence } from './events';
 import { calendarDisplayedTitle } from './title-display';
 
 export function CalendarOverlapSheet({ day, events, onClose, onOpen, onShowDay }: {
-  day: LocalDate; events: readonly CalendarOccurrence[]; onClose(): void; onOpen(event: CalendarOccurrence): void; onShowDay(): void;
+  day: LocalDate; events: readonly CalendarOccurrence[]; onClose(): void; onOpen(event: CalendarOccurrence): void; onShowDay?(): void;
 }) {
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => { onClose(); return true; });
@@ -38,7 +38,7 @@ export function CalendarOverlapSheet({ day, events, onClose, onOpen, onShowDay }
           </Pressable>;
         }) : <Text accessibilityRole="alert" style={styles.empty}>予定が更新されました。</Text>}
       </ScrollView>
-      <View style={styles.footer}><AppButton title="この日を1日表示" variant="secondary" onPress={onShowDay} /></View>
+      {onShowDay ? <View style={styles.footer}><AppButton title="この日を1日表示" variant="secondary" onPress={onShowDay} /></View> : null}
     </View>
   </View>;
 }

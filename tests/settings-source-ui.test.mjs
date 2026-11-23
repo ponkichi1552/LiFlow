@@ -44,6 +44,26 @@ const definitions = h => h.connection.prepare("SELECT 1 FROM sqlite_master WHERE
   : h.connection.prepare('SELECT id,enabled,definition_json FROM chore_definitions ORDER BY id').all();
 const allNodes = tree => tree.flatMap(node => typeof node === 'string' ? [] : [node, ...allNodes(node.children ?? [])]);
 
+test('shared chore settings keep the last list during a temporary read failure and discard it if account access changes', async t => {
+  const f = await legacyFixture(); t.after(() => f.close());
+  const model = f.source.getSnapshot().snapshot.model;
+  let fail = false;
+  const source = createGroupChoreSettingsSource(f.scope, async () => f.workspace, { invalidate() {}, async readModel() {
+    if (fail) throw new Error('SQLITE_BUSY: database is locked');
+    return model;
+  } });
+  await source.refresh();
+  const saved = source.getSnapshot().snapshot;
+  assert.ok(saved);
+  fail = true;
+  await source.refresh();
+  assert.equal(source.getSnapshot().snapshot, saved);
+  assert.match(source.getSnapshot().error, /locked/);
+  f.account('other-account');
+  await source.refresh();
+  assert.equal(source.getSnapshot().snapshot, null);
+});
+
 test('group management settings never load the full personal planner or offer its personal audience', async () => {
   const f = await legacyFixture();
   try {
@@ -302,10 +322,11 @@ for (const platform of ['ios', 'android']) test(`${platform} early settings adds
   const metadata = { settings: snapshot.settings, chores: snapshot.chores };
   let saved = { schemaVersion: 1, ownerUserId: 'owner', revision: 1, timeZone: 'Pacific/Honolulu',
     restDays: [], loadLimits: { heavyDailyLimit: 2, normalDailyLimit: 2 }, allowedBands: [], dayOverrides: [] };
-  const store = { read: async () => saved, readLocalProjection: async () => null,
+  let focus, delayedRead = Promise.resolve(), reads = 0;
+  const store = { read: async () => { reads++; await delayedRead; return saved; }, readLocalProjection: async () => null,
     save: async (expected, value) => { assert.equal(expected, saved.revision); saved = { ...saved, ...value, revision: expected + 1 }; return saved; } };
   const screen = screenHarness('src/app/settings.tsx', { params: { section: 'rhythm' }, platform, database: h.database, snapshot: () => metadata,
-    effect: callback => effects.push(callback), effectDependencies: true, mocks: {
+    effect: callback => effects.push(callback), effectDependencies: true, focusEffect: callback => { focus ??= callback; }, mocks: {
       '@/contexts/workspace-context': { WorkspaceContext: { _currentValue: { userId: 'owner', active: null } } },
       '@/platform/sharing/workspaces': { sharingSessionUser: async () => ({ uid: 'owner' }), hasOtherGoogleWorkspaceConnections: async () => false },
       '@/features/google-sync/background-task': {},
@@ -315,9 +336,20 @@ for (const platform of ['ios', 'android']) test(`${platform} early settings adds
     } });
   const settle = async () => { for (let i = 0; i < 12; i++) { cleanups.push(...effects.splice(0).map(effect => effect())); await screen.flush(); } };
   await settle();
-  await screen.press('2026/11/04 平日'); await settle();
+  focus();
+  await screen.press('2026/11/04 休日以外'); await settle();
   const dateLimit = () => screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '2026-11-04の家事時間上限');
   assert.ok(dateLimit(), 'the selected day exposes its own settings');
+  let resumeRead;
+  delayedRead = new Promise(resolve => { resumeRead = resolve; });
+  const previousReads = reads;
+  try {
+    focus(); await settle();
+    assert.ok(reads > previousReads, 'refocus must actually check the saved rhythm');
+    assert.ok(dateLimit(), 'the open date stays visible during refocus');
+  } finally { resumeRead(); }
+  await settle();
+  assert.ok(dateLimit(), 'identical stored settings must not remount the date editor');
   dateLimit().props.onBlur(); await settle();
   assert.equal(saved.revision, 1, 'selecting a date leaves its settings unchanged');
   const holiday = screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '2026-11-04を休日として扱う');

@@ -24,4 +24,13 @@ for (const platform of ['ios', 'android']) test(`${platform} personal Home folds
   snapshot = { ...snapshot, scheduleEntries: entries.map(row => ({ ...row })) }; await screen.flush();
   assert.ok(labels().includes('期限切れを完了')); assert.equal(screen.button('期限を過ぎた家事（1件）を閉じる').props.accessibilityState.expanded, true);
   await screen.press('期限を過ぎた家事（1件）を閉じる'); assert.equal(labels().includes('期限切れを完了'), false);
+  snapshot = { ...snapshot, scheduleEntries: [entries[1]] }; await screen.flush();
+  assert.doesNotMatch(screen.text(), /今日の家事/u);
+  assert.match(screen.text(), /期限を過ぎた家事/u);
+  assert.ok(!screen.nodes().some(node => node.props.accessibilityLabel === '期限を過ぎた家事（1件）を開く'));
+  assert.ok(labels().includes('期限切れを完了'));
+
+  snapshot = { ...snapshot, scheduleEntries: entries }; await screen.flush();
+  assert.equal(screen.button('期限を過ぎた家事（1件）を開く').props.accessibilityState.expanded, false);
+  assert.ok(!labels().includes('期限切れを完了'));
 });

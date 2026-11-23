@@ -383,10 +383,14 @@ test('an appliance display failure after saving can retry the read without repea
   await screen.press('取扱説明書PDFを選ぶ'); await screen.press('PDFを解析');
   for (let n = 0; n < 20 && !screen.text().includes('保存済みです。表示を更新できませんでした。'); n++) await screen.flush();
   assert.match(screen.text(), /保存済みです。表示を更新できませんでした。/u);
+  const cycleInput = () => screen.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel?.endsWith('の周期'));
+  assert.equal(cycleInput()?.props.editable, false);
+  assert.doesNotMatch(screen.text(), /周期の変更を保存/u);
   assert.doesNotMatch(screen.text(), /解析結果を保存できませんでした/u);
   await screen.press('表示を再読込');
   for (let n = 0; n < 20 && screen.text().includes('表示を更新できませんでした'); n++) await screen.flush();
   assert.doesNotMatch(screen.text(), /表示を更新できませんでした/u);
+  assert.equal(cycleInput()?.props.editable, true);
   assert.deepEqual([requests, saves, reads], [1, 1, 3]);
 });
 
@@ -407,7 +411,8 @@ test('leaving a personal appliance during its committed save preserves the save 
     for (let n = 0; n < 30 && saves === 0; n++) await screen.flush(); assert.equal(saves, 1); assert.equal(requests, 1);
     job.setFocused(false); await screen.flush();
     assert.equal(job.get('owner').state, 'ready', 'leaving keeps the received result until the SQLite save finishes');
-    assert.equal(screen.button('解析しています…').props.accessibilityState.disabled, true);
+    assert.match(screen.text(), /解析結果を保存中/u);
+    assert.doesNotMatch(screen.text(), /PDFを解析/u);
     originalStart.props.onPress(); await screen.flush(); assert.equal(requests, 1); assert.equal(saves, 1);
     gate.resolve(); await done.promise;
     for (let n = 0; n < 30 && !screen.text().includes('解析結果を保存し'); n++) await screen.flush();

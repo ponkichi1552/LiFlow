@@ -219,6 +219,40 @@ test('a PDF received after unchanged appliance metadata is retained without dupl
   } finally { h.connection.close(); }
 });
 
+test('upgrading a legacy copy preserves the PDF used by shared detail until the shared appliance also replaces it', async t => {
+  const h = createDatabase();
+  t.after(() => h.connection.close());
+  await initializeLocalDatabase(h.database);
+  const original = uploadedResult();
+  const replacement = uploadedResult(syntheticPdf(2));
+  const sharedCopy = ({ result, manual }) => ({ appliance: {
+    id: 'shared-manual-copy', householdId: `shared:${groupId}`, ...result.product,
+    displayName: '共有の掃除機', officialManualUrl: result.officialSources.manualUrl, analysis: result.analysis,
+    createdAt: now().toISOString(), updatedAt: now().toISOString(),
+  }, manual: manual.base64 });
+  const retain = input => retainSharedApplianceCopies(h.database, groupId, [sharedCopy(input)], () => {});
+  await retain(original);
+  const [personal] = (await loadPlannerSnapshot(h.database)).appliances;
+  h.connection.exec('ALTER TABLE appliance_shared_copies DROP COLUMN manual_digest; PRAGMA user_version=31;');
+  await initializeLocalDatabase({ ...h.database });
+  assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 32);
+  assert.equal(h.connection.prepare('SELECT manual_digest FROM appliance_shared_copies').get().manual_digest, null);
+
+  await saveReviewedApplianceCare(h.database, { ...replacement.result.product, applianceId: personal.id, manualUrl: replacement.result.officialSources.manualUrl },
+    replacement.result.analysis, [], replacement.manual);
+  const previousDigest = original.result.analysis.manualSource.sha256;
+  const replacementDigest = replacement.result.analysis.manualSource.sha256;
+  assert.equal(await readApplianceManual(h.database, previousDigest), original.manual.base64);
+  assert.equal(await retain(original), false, 'tracking the same shared copy must not overwrite a newer personal analysis');
+  assert.equal(h.connection.prepare('SELECT manual_digest FROM appliance_shared_copies').get().manual_digest, previousDigest);
+  assert.equal((await loadPlannerSnapshot(h.database)).appliances[0].analysis.manualSource.sha256, replacementDigest);
+
+  assert.equal(await retain(replacement), true);
+  assert.equal(h.connection.prepare('SELECT manual_digest FROM appliance_shared_copies').get().manual_digest, replacementDigest);
+  assert.equal(await readApplianceManual(h.database, previousDigest), null);
+  assert.equal(await readApplianceManual(h.database, replacementDigest), replacement.manual.base64);
+});
+
 test('native appliance retention coalesces copies skips ordinary chore changes and rejects another account without opening private storage', async () => {
   const base = await fixture(); const owner = await base.device(); const personal = createDatabase();
   let opened = 0; let closed = 0; let notices = 0; let allowed = true;

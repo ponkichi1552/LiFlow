@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { FlatList, Keyboard, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { FormTextInput } from '../../components/form-text-input';
+import { SearchField } from '../../components/search-field';
 import { Card, SectionHeading, palette, typography } from '../../components/planner-ui';
 import { Chevron } from '../../components/chevron';
 import { groupChores } from '../../domain/chores/chore-groups';
@@ -14,8 +14,8 @@ import { normalizeSearchText, searchTerms } from '../../domain/search/normalized
 export const normalizeChoreName = normalizeSearchText;
 type Row = { kind: 'category'; id: string; name: string; count: number; expanded: boolean } | { kind: 'chore'; id: string; chore: ChoreDefinition }
   | { kind: 'trivia'; id: string; count: number };
-export function useChoreLibraryState() {
-  const [query, setQuery] = useState(''); const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+export function useChoreLibraryState(initialQuery = '') {
+  const [query, setQuery] = useState(initialQuery); const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   return { query, setQuery, expanded, setExpanded };
 }
 
@@ -55,8 +55,8 @@ export function ChoreLibrary({ chores, onOpen, header, footer, onTrivia, triviaC
   }, [expanded, groups, index, onTrivia, search, triviaCount]);
   return <View style={styles.safe} onLayout={finishStartupDisplay}>
     <View style={styles.header}>{header}
-      <FormTextInput accessibilityLabel="家事名を検索" value={query} onChangeText={setQuery} placeholder="家事名で検索" autoCapitalize="none" clearButtonMode="while-editing" returnKeyType="search" style={styles.search} />
-      {search ? <SectionHeading title="検索結果" trailing={<Text style={styles.caption}>{rows.length}件</Text>} /> : null}
+      <SearchField accessibilityLabel="家事名を検索" value={query} onChangeText={setQuery} placeholder="家事名で検索" />
+      {search && rows.length ? <SectionHeading title="検索結果" trailing={<Text style={styles.caption}>{rows.length}件</Text>} /> : null}
     </View>
     <FlatList key={search ? `search:${search}` : 'categories'} data={rows} keyExtractor={row => `${row.kind}:${row.id}`} initialNumToRender={10}
     keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
@@ -76,7 +76,7 @@ const baseStyles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 50, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
   choreRow: { paddingLeft: 16 }, choreName: { fontWeight: '400' }, openCategory: { backgroundColor: palette.elevated }, disabled: { opacity: .45 },
   pressed: { backgroundColor: palette.accentSoft }, name: { ...typography.control, fontWeight: '600', color: palette.ink, flex: 1 },
-  caption: { ...typography.caption, color: palette.muted }, search: { ...typography.body, color: palette.ink, borderColor: palette.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, minHeight: 48 },
+  caption: { ...typography.caption, color: palette.muted },
   empty: { ...typography.body, color: palette.muted, paddingVertical: 12 },
   footer: { padding: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border },
 });

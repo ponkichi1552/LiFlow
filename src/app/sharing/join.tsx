@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ActivityIndicator, Text, View } from 'react-native';
 import { AppButton, Page, palette, typography } from '@/components/planner-ui';
 import { parseSharedInvitation } from '@/features/sharing/invitations';
-import { requestSharingWorkspace, enableSharingSession, sharingFailureMessage, sharingSessionUser } from '@/platform/sharing/workspaces';
+import { requestSharingWorkspace, enableSharingSession, isWorkspaceCopyInvitation, sharingFailureMessage, sharingSessionUser } from '@/platform/sharing/workspaces';
 import { isSharingAppleSignInAvailable, signInSharingWithApple, signInSharingWithGoogle } from '@/platform/sharing/auth';
 import { useWorkspace } from '@/hooks/use-workspace';
 import { SettingsHeader } from '@/features/settings/settings-navigation';
@@ -32,6 +32,18 @@ export default function SharingJoinScreen() {
   const blockingGroup = workspace.ready && workspace.userId && group?.userId === workspace.userId
     && groupId && group.groupId !== groupId && ['active', 'creating', 'joining'].includes(group.status) ? group : null;
   const blocked = Boolean(blockingGroup);
+  const sourceId = blockingGroup?.status === 'active' ? blockingGroup.groupId : null;
+  const lookup = sourceId && groupId && workspace.userId ? JSON.stringify([workspace.userId, sourceId, groupId]) : null;
+  const [copy, setCopy] = useState<{ lookup: string; eligible: boolean } | null>(null);
+  const copyEligible = Boolean(lookup && copy?.lookup === lookup && copy.eligible);
+  useEffect(() => {
+    const owner = workspace.userId;
+    if (!lookup || !owner || !sourceId || !groupId) return;
+    let current = true;
+    void isWorkspaceCopyInvitation(owner, sourceId, groupId).then(eligible => { if (current) setCopy({ lookup, eligible }); },
+      () => { if (current) setCopy({ lookup, eligible: false }); });
+    return () => { current = false; };
+  }, [lookup, workspace.userId, sourceId, groupId]);
   const needsSignIn = Boolean(workspace.ready && !workspace.userId && groupId && !blocked);
   useEffect(() => {
     if (!needsSignIn) return;
@@ -39,7 +51,7 @@ export default function SharingJoinScreen() {
     void isSharingAppleSignInAvailable().then(available => { if (visible) setAppleAvailable(available); }).catch(() => {});
     return () => { visible = false; };
   }, [needsSignIn]);
-  const join = useCallback(async (link: string, method?: SignInMethod) => {
+  const join = useCallback(async (link: string, method?: SignInMethod, confirmCopy = false) => {
     if (!alive.current || inFlight.current || !context.current.ready) return;
     const initialOwner = context.current.userId;
     if (!initialOwner && !method) return;
@@ -66,8 +78,8 @@ export default function SharingJoinScreen() {
       if (!await current(owner)) return;
       const existing = context.current.group;
       if (existing && existing.userId === owner && ['active', 'creating', 'joining'].includes(existing.status)) {
-        if (existing.groupId !== destination) throw new Error('現在のグループから退出するか、参加申請を取り消してから参加してください。');
-        router.replace({ pathname: '/sharing/group/[groupId]', params: { groupId: existing.groupId } }); return;
+        if (existing.groupId === destination) { router.replace({ pathname: '/sharing/group/[groupId]', params: { groupId: existing.groupId } }); return; }
+        if (!confirmCopy || existing.status !== 'active') throw new Error('現在のグループから退出するか、参加申請を取り消してから参加してください。');
       }
       const group = await requestSharingWorkspace(link, owner);
       if (!await current(owner)) return;
@@ -83,7 +95,12 @@ export default function SharingJoinScreen() {
   }, [workspace.ready, workspace.userId, invitationURL, groupId, blocked, busy, join]);
   const message = failure?.url === invitationURL ? failure.message : null;
   return <Page header={<SettingsHeader title="グループに参加" onBack={() => router.canGoBack() ? router.back() : router.replace('/')} />}>
-    {blocked ? <Text style={typography.body}>参加できるグループは一つです。現在のグループから退出するか、申請を取り消してから参加してください。</Text>
+    {blocked ? copyEligible && invitationURL ? <>
+      {message ? <Text accessibilityRole="alert" style={[typography.body, { color: palette.warning }]}>{message}</Text> : null}
+      <Text style={typography.body}>元のグループを残して、新しいグループへ参加します。</Text>
+      <AppButton title="引き継ぎ先に参加" disabled={busy} onPress={() => void join(invitationURL, undefined, true)} />
+    </> : lookup && copy?.lookup !== lookup ? <ActivityIndicator accessibilityLabel="招待を確認中" color={palette.accent} />
+      : <Text style={typography.body}>参加できるグループは一つです。現在のグループから退出するか、申請を取り消してから参加してください。</Text>
       : !groupId ? <Text accessibilityRole="alert" style={typography.body}>招待リンクが無効、または期限が切れています。管理者から新しいリンクを受け取ってください。</Text>
       : !workspace.ready || busy ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}><ActivityIndicator color={palette.accent} />
         <Text style={typography.body}>{!workspace.ready ? 'ログイン状態を確認しています…' : '参加を申請しています…'}</Text></View>

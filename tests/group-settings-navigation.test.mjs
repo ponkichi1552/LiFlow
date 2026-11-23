@@ -57,7 +57,7 @@ for (const platform of ['ios', 'android']) {
       assert.match(screen.text(), /家事ごとの設定/u);
       assert.ok(!screen.text().includes('検査用グループ'), 'group identity remains in its editing destination instead of the settings heading');
       assert.equal(screen.button('メンバー・招待').props.accessibilityValue.text, '2人');
-      assert.match(screen.text(), /未送信：2件/u);
+      assert.equal(screen.button('同期・復旧').props.accessibilityValue.text, '未送信 2件');
       const nativeText = node => typeof node === 'string' ? node : (node.children ?? []).map(nativeText).join('');
       const buttons = screen.nodes().filter(node => node.props.accessibilityRole === 'button').map(node => node.props.accessibilityLabel ?? nativeText(node));
       const everydayFirst = ['家事ごとの設定', 'メンバー・招待', 'グループ名・ルール'];
@@ -65,7 +65,7 @@ for (const platform of ['ios', 'android']) {
       assert.ok(positions.every((position, index) => position >= 0 && (!index || position > positions[index - 1])), 'daily controls precede infrequent group identity setup');
       assert.ok(!/Google|通知|Widget|実施履歴|参加端末/u.test(screen.text()));
       assert.match(screen.text(), /日時・担当変更の申請/u); assert.match(screen.text(), /同期・復旧/u);
-      assert.equal(buttons.includes('日時・担当変更の申請'), false); assert.equal(buttons.includes('同期・復旧'), false);
+      assert.ok(buttons.includes('日時・担当変更の申請')); assert.ok(buttons.includes('同期・復旧'));
       await screen.press('グループ名・ルール');
       assert.deepEqual(ui.routes, [['push', '/group-v2/group-rules']]);
       assert.equal(ui.syncs(), 0); assert.equal(ui.refreshes(), 0, 'opening a destination does not start a data refresh');
@@ -74,13 +74,20 @@ for (const platform of ['ios', 'android']) {
       await ui.showSection('chores');
       assert.match(screen.text(), /settings-scope:group/u); assert.ok(!screen.text().includes('settings-scope:personal'));
       assert.equal(ui.routes.at(-1)[1].params.section, 'chores', 'collections are embedded rather than requiring another navigation');
+      await ui.showSection(undefined);
+      assert.doesNotMatch(screen.text(), /申請はありません|最終同期/u);
+      assert.ok(!screen.nodes().some(node => node.type === 'V2RecoveryPanel'));
+      await screen.press('日時・担当変更の申請');
+      assert.equal(ui.routes.at(-1)[1].params.section, 'requests');
       await ui.showSection('requests');
       assert.equal((screen.text().match(/申請はありません。/gu) ?? []).length, 2);
       await ui.showSection(undefined);
-      assert.match(screen.text(), /日時変更なし担当変更なし/u);
-      assert.match(screen.text(), /ほかの端末の同期後に反映/u);
-      assert.ok(screen.nodes().some(node => node.type === 'V2RecoveryPanel'));
       assert.ok(!screen.nodes().some(node => node.props.accessibilityState?.expanded !== undefined));
+      await screen.press('同期・復旧');
+      assert.equal(ui.routes.at(-1)[1].params.section, 'sync'); assert.equal(ui.syncs(), 0);
+      await ui.showSection('sync');
+      assert.match(screen.text(), /未送信：2件/u);
+      assert.ok(screen.nodes().some(node => node.type === 'V2RecoveryPanel'));
       await screen.press('今すぐ同期'); assert.equal(ui.syncs(), 1); assert.equal(ui.refreshes(), 1);
       assert.equal(ui.invitationReads(), 0, 'closed member settings do not fetch unrelated invitations during a manual sync');
     } finally { screen.unmount(); }
@@ -105,18 +112,22 @@ for (const platform of ['ios', 'android']) {
           await confirmation[2].find(choice => choice.text === '除名する').onPress(); await screen.flush();
           assert.deepEqual(ui.commands, [['remove', ['member']]]);
         }
-        await ui.showSection(undefined); await screen.press('グループから退出'); assert.equal(ui.commands.some(([command]) => command === 'leave'), false);
+        await ui.showSection(undefined);
+        assert.ok(!has('グループから退出'));
+        await ui.showSection('members'); await screen.press('グループから退出'); assert.equal(ui.commands.some(([command]) => command === 'leave'), false);
         assert.match(ui.alerts.at(-1)[1], /未送信の変更が2件/u);
       } finally { screen.unmount(); }
     }
   });
 
-  test(`${platform} group settings show load and held-change failures outside detail pages and allow a safe read retry`, async () => {
+  test(`${platform} group settings keep actionable failures reachable and allow a safe read retry`, async () => {
     const ui = await openGroup(platform, { recordFailures: 1, requestFailures: 1, lastErrorCode: 'sharing/test-failure', heldChanges: 3 }); const { screen } = ui;
     try {
       assert.match(screen.text(), /端末の設定を読み込めません/u);
       await screen.press('もう一度読み込む'); await screen.flush();
       assert.match(screen.text(), /家事ごとの設定/u); assert.ok(!screen.text().includes('端末の設定を読み込めません'));
+      assert.equal(screen.button('同期・復旧').props.accessibilityValue.text, '同期に失敗');
+      await ui.showSection('sync');
       assert.match(screen.text(), /共有の同期に失敗しました/u); assert.match(screen.text(), /確認待ちの変更が3件/u);
       assert.equal(ui.syncs(), 0); assert.deepEqual(ui.commands, []);
       assert.ok(screen.nodes().filter(node => node.props.accessibilityRole === 'alert').length >= 2);

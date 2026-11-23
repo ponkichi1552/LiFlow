@@ -21,6 +21,14 @@ service cloud.firestore {
     }
     function ownerOf(g) { return memberOf(g) && request.auth.uid == g.ownerUserId; }
     function membershipPath(userId) { return /databases/$(database)/documents/sharingUsers/$(userId)/memberships/current; }
+    function copyOriginPath(groupId) { return /databases/$(database)/documents/sharingGroups/$(groupId)/workspaceCopy/origin; }
+    function approvedCopyMember(groupId, userId) {
+      return !existsAfter(copyOriginPath(groupId)) || userId in getAfter(copyOriginPath(groupId)).data.userIds;
+    }
+    function movingToWorkspaceCopy(sourceId, targetId, userId) {
+      let origin = getAfter(copyOriginPath(targetId)).data;
+      return origin.groupId == sourceId && userId in origin.userIds && liveMember(sourceId, userId);
+    }
     function liveMember(groupId, userId) {
       let g = group(groupId);
       return userId in g.memberIds && !(userId in g.revokedUserIds) && !g.closed;
@@ -49,7 +57,7 @@ service cloud.firestore {
     }
     function singleAddedMembership(groupId, old, next) {
       let added = next.memberIds.removeAll(old.memberIds);
-      return added.size() == 0 || added.size() == 1 && membershipMatches(groupId, added[0]);
+      return added.size() == 0 || added.size() == 1 && membershipMatches(groupId, added[0]) && approvedCopyMember(groupId, added[0]);
     }
     function safeId(id) { return id is string && id.matches('^[A-Za-z0-9_.:@-]{1,200}$'); }
     function validRetention(data, through, keyVersion) {
@@ -147,6 +155,25 @@ service cloud.firestore {
     }
 
     match /sharingGroups/{groupId} {
+      match /workspaceCopy/origin {
+        function validCopyOrigin(origin) {
+          let source = group(origin.groupId);
+          return origin.keys().hasOnly(['groupId', 'revision', 'rosterDigest', 'sequence', 'userIds'])
+            && safeId(origin.groupId) && origin.groupId != groupId
+            && source.schemaVersion == 2 && memberOf(source) && !source.rotationRequired
+            && origin.revision is int && origin.revision == source.rosterRevision
+            && origin.sequence is int && origin.sequence > 0 && origin.sequence <= 4096 && origin.sequence == source.headSequence
+            && validProofDigest(origin.rosterDigest) && origin.userIds is list && origin.userIds.size() <= 16
+            && origin.userIds.toSet().size() == origin.userIds.size() && request.auth.uid in origin.userIds
+            && source.memberIds.toSet().hasAll(origin.userIds) && !source.revokedUserIds.hasAny(origin.userIds);
+        }
+        allow get: if signedIn() && (resource == null || memberOf(group(groupId))
+          || request.auth.uid in resource.data.userIds && memberOf(group(resource.data.groupId)));
+        allow create: if signedIn() && !exists(groupPath(groupId)) && afterGroup(groupId).schemaVersion == 2
+          && ownerOf(afterGroup(groupId)) && get(membershipPath(request.auth.uid)).data.groupId == request.resource.data.groupId
+          && validCopyOrigin(request.resource.data);
+        allow list, update, delete: if false;
+      }
       allow get: if memberOf(resource.data);
       allow list: if false;
       allow create: if signedIn() && safeId(groupId) && validRoot(request.resource.data)
@@ -515,7 +542,8 @@ service cloud.firestore {
       allow create: if signedIn() && validMembership(request.resource.data)
         && request.auth.uid == userId;
       allow update: if signedIn() && validMembership(request.resource.data)
-        && (request.auth.uid == userId && (resource.data.groupId == request.resource.data.groupId || !heldMembership(resource.data, userId))
+        && (request.auth.uid == userId && (resource.data.groupId == request.resource.data.groupId || !heldMembership(resource.data, userId)
+            || resource.data.invitationId == null && movingToWorkspaceCopy(resource.data.groupId, request.resource.data.groupId, userId))
           || resource.data.groupId == request.resource.data.groupId && ownerOf(group(resource.data.groupId)));
       allow delete: if signedIn() && !heldMembershipAfter(resource.data, userId)
         && (request.auth.uid == userId || ownerOf(group(resource.data.groupId)));
@@ -543,6 +571,7 @@ service cloud.firestore {
         allow read: if signedIn() && (request.auth.uid == userId || ownerOf(group(invitation().groupId)));
         allow create: if signedIn() && request.auth.uid == userId && invitation().status == 'open'
           && invitation().expiresAt > request.time && !group(invitation().groupId).rotationRequired
+          && approvedCopyMember(invitation().groupId, userId)
           && request.resource.data.keys().hasOnly(['userId', 'deviceId', 'requestJson', 'createdAt'])
           && getAfter(membershipPath(userId)).data.groupId == invitation().groupId
           && request.resource.data.userId == userId && safeId(request.resource.data.deviceId)

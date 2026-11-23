@@ -46,10 +46,23 @@ export function WasteTypeLabel({ label, compact = true, size = 16, style, textSt
   const scheme = useColorScheme();
   const color = wasteTypeColor(label, scheme === 'dark' ? 'dark' : 'light');
   return <View style={[styles.label, style]}><WasteTypeIcon label={label} size={size} color={color} />
-    <Text numberOfLines={compact ? 2 : undefined} style={[styles.text, { color }, textStyle]}>{compact ? calendarWasteLabel(label) : label}</Text>
+    <Text numberOfLines={compact ? 2 : undefined} accessibilityLabel={compact ? label : undefined} style={[styles.text, { color }, textStyle]}>{compact ? calendarWasteLabel(label) : label}</Text>
   </View>;
 }
+
+export function CalendarCollectionLabels({ labels, narrow = false, compact = true, size = narrow ? 10 : 14, textStyle }: {
+  labels: readonly string[]; narrow?: boolean; compact?: boolean; size?: number; textStyle?: StyleProp<TextStyle>;
+}) {
+  if (!labels.length) return null;
+  return <View style={[styles.calendarLabels, narrow && styles.columnLabels]}>{[...new Set(labels)].map(label =>
+    <WasteTypeLabel key={label} label={label} compact={compact} size={size} textStyle={textStyle ?? (narrow ? styles.narrowLabel : undefined)} />)}
+  </View>;
+}
+
 const styles = StyleSheet.create({
   label: { flexDirection: 'row', alignItems: 'center', gap: 3, maxWidth: '100%' },
   text: { ...typography.calendarLabel, flexShrink: 1, fontWeight: '500' },
+  calendarLabels: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center', columnGap: 4, rowGap: 1, maxWidth: '100%' },
+  columnLabels: { alignSelf: 'stretch' },
+  narrowLabel: { fontSize: 10, lineHeight: 14 },
 });
