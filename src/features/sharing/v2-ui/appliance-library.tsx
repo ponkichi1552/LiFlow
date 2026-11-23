@@ -13,8 +13,8 @@ import { useAnalysisWorkList } from '../../appliance-care/use-analysis-work';
 export function V2ApplianceLibrary({ model, personal, personalDatabase, busy, header, onOpen, onReview, onPersonal, onPersonalReview }: {
   model: V2GroupScreenModel; personal?: Appliance[]; busy: boolean; header?: ReactNode;
   personalDatabase?: SQLiteDatabase;
-  onOpen?: (id: string) => void; onReview?: (id?: string) => void;
-  onPersonal?: (id: string) => void; onPersonalReview?: (id?: string) => void;
+  onOpen?: (id: string) => void; onReview?: (id?: string, workId?: string) => void;
+  onPersonal?: (id: string) => void; onPersonalReview?: (id?: string, workId?: string) => void;
 }) {
   const [deletedOpen, setDeletedOpen] = useState(false);
   const rows = model.appliances?.rows ?? [];
@@ -27,8 +27,9 @@ export function V2ApplianceLibrary({ model, personal, personalDatabase, busy, he
     ...groupRows.map(row => ({ ...row, source: 'shared' as const })),
   ];
   const analysis = useAnalysisWorkList(personalDatabase, model.viewerUserId, model.plan.groupId);
-  return <ApplianceLibrary joined items={items} personalReady={Boolean(personal)} busy={busy}
-    header={<>{header}<AnalysisWorkRows items={analysis} onOpen={item => (item.groupId ? onReview : onPersonalReview)?.(item.applianceId)} /></>}
+  return <ApplianceLibrary joined items={items} personalReady={Boolean(personal)} busy={busy} hasAnalysis={analysis.items.length > 0 || Boolean(analysis.failed)}
+    header={<>{header}<AnalysisWorkRows items={analysis.items} showScope onRetry={analysis.failed ? analysis.retry : undefined}
+      onOpen={item => (item.groupId ? onReview : onPersonalReview)?.(item.applianceId, item.id)} /></>}
     onOpen={(source, id) => source === 'personal' ? onPersonal?.(id) : onOpen?.(id)}
     onAdd={() => onReview?.()}
     footer={rows.some(row => row.deleted) ? <AccordionSection title="削除した共有家電" expanded={deletedOpen} onToggle={() => setDeletedOpen(value => !value)}>

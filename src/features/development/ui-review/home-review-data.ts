@@ -3,7 +3,7 @@ import { createPersonalChoreDefinitions } from '../../../domain/chores/personal-
 import { DEFAULT_CALENDAR_COUNT_COLORS } from '../../../domain/calendar/count-colors.ts';
 import { addDays } from '../../../domain/scheduling/local-date.ts';
 import type { LocalDate } from '../../../domain/shared/types';
-import type { PlannerSnapshot } from '../../../platform/storage/repository';
+import type { PlannerSnapshot, SetupSubmission } from '../../../platform/storage/repository';
 import { commonChoreLinks } from '../../planner/common-chore-links.ts';
 import { projectV2PrivateTasks, type V2PrivateOverlayState } from '../../sharing/v2-ui/private-overlay.ts';
 import type { V2GroupScreenModel } from '../../sharing/v2/controller';
@@ -17,6 +17,7 @@ export const homeReviewScenarios = [
   { id: 'mixed', label: '個人・共有が混在する日' },
   { id: 'personal', label: '個人の家事と収集日' },
   { id: 'overdue', label: '期限間近・期限切れ' },
+  { id: 'expired-only', label: '期限を過ぎた家事だけの日' },
   { id: 'upcoming', label: '今週の残り・来週' },
   { id: 'completed', label: 'すべて完了した日' },
   { id: 'assignments', label: '担当者・日時指定' },
@@ -63,12 +64,14 @@ const mixed: Sample[] = [
 const samples: Record<Scenario, readonly Sample[]> = {
   mixed, personal: [{ recipe: 1 }, { recipe: 7, done: true }, { recipe: 27, seasonal: 'summerStorage' }, { recipe: 75, day: 2 }],
   overdue: [{ recipe: 2, shared: 'self', day: -1, window: [-3, 0] }, { recipe: 12, day: -2, window: [-3, 1] },
-    { recipe: 7 }, { recipe: 31, day: -6 }, { recipe: 11, shared: 'self', day: -3, window: [-4, -2] }],
+    { recipe: 7 }, { recipe: 31, day: -6 }, { recipe: 11, shared: 'self', day: -3 }],
+  'expired-only': [{ recipe: 31, day: -6 }, { recipe: 11, shared: 'self', day: -3, window: [-4, -2] }],
   upcoming: [{ recipe: 1, day: 1 }, { recipe: 24, shared: 'other', day: 2 }, { recipe: 7, day: 4 },
     { recipe: 1, day: 5 }, { recipe: 29, shared: 'each', day: 7, window: [6, 8] }, { recipe: 27, day: 10, seasonal: 'winterStorage' }],
   completed: [{ recipe: 7, done: true }, { recipe: 6, shared: 'self', done: true }, { recipe: 10, shared: 'other', done: true }],
   assignments: [{ recipe: 6, shared: 'open' }, { recipe: 64, shared: 'each' }, { recipe: 12, shared: 'pair', manual: 'fixed' },
-    { recipe: 2, shared: 'other', manual: 'deadline' }, { recipe: 4, shared: 'rotation', manual: 'day' }, { recipe: 65, shared: 'self', manual: 'foreign' }],
+    { recipe: 2, shared: 'other', manual: 'deadline' }, { recipe: 4, shared: 'rotation', manual: 'day' }, { recipe: 65, shared: 'self', manual: 'foreign' },
+    { recipe: 24, shared: 'self', day: 1, manual: 'fixed' }, { recipe: 29, shared: 'each', day: 5 }],
   conditions: [{ recipe: 34, shared: 'self' }, { recipe: 35, shared: 'self', afterRecipe: 34 },
     { recipe: 4, shared: 'self', manual: 'day', condition: 'cooldown' }, { recipe: 61, shared: 'self', condition: 'approval' },
     { recipe: 65, shared: 'self', condition: 'strict', manual: 'fixed', done: true }, { recipe: 62, shared: 'open', condition: 'claimConflict' },
@@ -90,6 +93,8 @@ const samples: Record<Scenario, readonly Sample[]> = {
 export interface HomeReviewEdits {
   completed: ReadonlyMap<string, boolean>;
   assignees: ReadonlyMap<string, readonly string[]>;
+  personalSetup?: SetupSubmission;
+  enabledChoreIds?: readonly string[];
 }
 const noEdits: HomeReviewEdits = { completed: new Map(), assignees: new Map() };
 
@@ -212,7 +217,18 @@ export function homeReviewData(id: string, edits: HomeReviewEdits = noEdits) {
   const differentZone = scenario === 'time-zones';
   const privateDate = differentZone ? addDays(homeReviewToday, -1) : homeReviewToday;
   const privateZone = differentZone ? 'America/Los_Angeles' : zone;
-  const snapshot = privateSnapshot(scenario !== 'empty-shared', privateDate, privateZone, rows, edits);
+  const setup = edits.personalSetup;
+  const snapshot = privateSnapshot(scenario !== 'empty-shared' || Boolean(setup), privateDate, privateZone, rows, edits);
+  if (scenario === 'empty-shared' || scenario === 'empty') {
+    const enabled = new Set(setup?.enabledChoreIds ?? edits.enabledChoreIds);
+    snapshot.chores = [...catalog.values()].map(chore => ({ ...chore, enabled: enabled.has(chore.id) }));
+  }
+  if (setup) {
+    snapshot.settings = { ...snapshot.settings, frequencyMode: setup.frequencyMode, restDays: setup.restDays, weatherLocation: setup.weatherLocation ?? undefined };
+    snapshot.wasteSchedules = (setup.wasteSchedules ?? []).map((schedule, index) => ({
+      ...schedule, id: schedule.id ?? `personal-setup-waste-${index}`, householdId: privateHousehold,
+    }));
+  }
   const model = sharedModel(rows, edits);
   if (scenario === 'overflow') model.plan.members = members.map(member => member.userId === 'review-minato'
     ? { ...member, displayName: 'みなと（ひより荘の共用スペース・備品管理担当）' } : member);

@@ -263,15 +263,28 @@ for (const platform of ['ios', 'android']) {
 }
 
 test('v2 preview discards a late read after navigation and a successful retry clears its previous loading error', async () => {
-  const f = await screenFixture('ios');
+  const f = await screenFixture('ios', 'requests');
   try {
-    let resolve; let focus; let attempts = 0;
+    let rejectLate; let focus; let attempts = 0;
     const props = { ...f.props, loadSession: async () => { if (++attempts === 1) throw new Error('Temporary read failure'); return f.preview; } };
     const screen = screenHarness(screenFile, { exportName: 'V2DevelopmentPreviewScreen', props, layoutEffect: callback => callback(), focusEffect: (callback) => { focus = callback; } });
-    const leave = focus(); for (let i = 0; i < 15 && !screen.text().includes('Temporary read failure'); i++) await screen.flush();
-    assert.ok(screen.text().includes('Temporary read failure')); await screen.press('読み込みを再試行'); assert.ok(!screen.text().includes('Temporary read failure'));
-    props.loadSession = () => new Promise((ready) => { resolve = ready; }); screen.render(); const leaveNext = focus(); leaveNext();
-    resolve(f.preview); await screen.flush(); assert.ok(!screen.text().includes('Temporary read failure')); leave();
+    const leave = focus();
+    for (let i = 0; i < 15 && !screen.text().includes('Temporary read failure'); i++) await screen.flush();
+    assert.match(screen.text(), /Temporary read failure/u);
+    await screen.press('読み込みを再試行');
+    for (let i = 0; i < 15 && !screen.text().includes('日時の変更申請'); i++) await screen.flush();
+    assert.match(screen.text(), /日時の変更申請/u);
+    assert.doesNotMatch(screen.text(), /Temporary read failure/u);
+    assert.equal(attempts, 2);
+
+    props.loadSession = () => new Promise((_, reject) => { rejectLate = reject; });
+    screen.render();
+    const leaveNext = focus();
+    leaveNext();
+    rejectLate(new Error('Late read after navigation'));
+    await screen.flush();
+    assert.doesNotMatch(screen.text(), /Late read after navigation/u);
+    leave();
   } finally { f.leave(); await f.preview.close(); }
 });
 

@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { createCalendarDisplayStore } from '../src/features/calendar/display-store.ts';
+import { scrollCalendarMonthWheel } from './helpers/calendar-ui.mjs';
 
 test('calendar picker commits the latest native selection once even before React repaints', async t => {
   await t.test('custom wheel callback is one navigation', () => {
@@ -17,6 +18,24 @@ test('calendar picker commits the latest native selection once even before React
     const screen = screenHarness('src/features/calendar/month-picker.tsx', { exportName: 'CalendarMonthPicker', props: { month: '2026-11-01', onSelect: value => saved.push(value), onClose() {} } });
     try { const commit = screen.button('2026年11月へ移動'); screen.button('2027年').props.onPress(); screen.button('12月').props.onPress(); commit.props.onPress(); assert.deepEqual(saved, ['2027-12-01']); }
     finally { screen.unmount(); }
+  });
+  for (const platform of ['ios', 'android']) await t.test(`${platform} scrolling both columns selects the centered values before the next render`, () => {
+    const saved = [];
+    const screen = screenHarness('src/features/calendar/month-picker.tsx', { exportName: 'CalendarMonthPicker', platform,
+      props: { month: '2026-11-01', onSelect: value => saved.push(value), onClose() {} } });
+    try {
+      assert.equal(screen.button('2026年').props.accessibilityState.selected, true);
+      assert.equal(screen.button('11月').props.accessibilityState.selected, true);
+      const commit = screen.button('2026年11月へ移動');
+      scrollCalendarMonthWheel(screen, 'year', 2199);
+      scrollCalendarMonthWheel(screen, 'month', 1);
+      assert.deepEqual(saved, []);
+      commit.props.onPress(); commit.props.onPress();
+      assert.deepEqual(saved, ['2199-01-01']);
+      screen.render();
+      assert.equal(screen.button('2199年').props.accessibilityState.selected, true);
+      assert.equal(screen.button('1月').props.accessibilityState.selected, true);
+    } finally { screen.unmount(); }
   });
 });
 

@@ -19,13 +19,14 @@ import type { SharedCalendarRecord } from '../v2/calendar-state';
 import { traceStartup } from '../../../platform/diagnostics/startup-timing.ts';
 import { capturedSharedRecommendations } from '../../planner/shared-adaptive-load.ts';
 import { AdaptiveOwnerInputsChangedError } from '../../../platform/storage/adaptive-owner-inputs.ts';
+import { isTransientPlannerRead } from '../../../platform/storage/planner-read-retry.ts';
 
 export interface V2GroupUiSession {
   controller: V2GroupController; groupId: string; userId: string;
   privateTasks?: V2PrivateTaskSource;
   readOwnCalendar?: PrivateCalendarRuntime['readOwnCalendar'];
   invalidate?: () => void;
-  readModel: (options?: { calendarMonth?: string; calendarRange?: { from: LocalDate; through: LocalDate }; focusDate?: string; detailChoreId?: string; choreSettings?: boolean; management?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; wasteCalendarPolicy?: boolean; appliances?: boolean; applianceId?: string; reminders?: boolean }) => Promise<V2GroupScreenModel & { personal?: V2PersonalPlan; privateOverlay?: V2PrivateOverlayState }>;
+  readModel: (options?: { calendarMonth?: string; calendarRange?: { from: LocalDate; through: LocalDate }; focusDate?: string; detailChoreId?: string; choreSettings?: boolean; management?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; wasteCalendarPolicy?: boolean; appliances?: boolean; applianceId?: string; reminders?: boolean; assignmentReview?: boolean; copiedHistory?: boolean }) => Promise<V2GroupScreenModel & { personal?: V2PersonalPlan; privateOverlay?: V2PrivateOverlayState }>;
 }
 
 /** The UI computes its range and personal suggestions from one authenticated group clock. */
@@ -84,7 +85,7 @@ export function createV2ScreenSession(input: { controller: V2GroupController; gr
         }
         return { from: addDays(focus ?? date, -14), through: addDays(focus ?? date, 14), asOfDate: date };
       }, { detailChoreId: options?.detailChoreId, choreSettings: options?.choreSettings, groupPolicy: options?.groupPolicy, permissionsChoreId: options?.permissionsChoreId,
-        waste: options?.waste, wasteCalendarPolicy: options?.wasteCalendarPolicy || Boolean(options?.calendarMonth), appliances: options?.appliances, applianceId: options?.applianceId, calendarLong: Boolean(options?.calendarMonth) }));
+        waste: options?.waste, wasteCalendarPolicy: options?.wasteCalendarPolicy || Boolean(options?.calendarMonth), appliances: options?.appliances, applianceId: options?.applianceId, calendarLong: Boolean(options?.calendarMonth), assignmentReview: options?.assignmentReview, copiedHistory: options?.copiedHistory }));
       if (model.viewerUserId !== input.userId || model.plan.groupId !== input.groupId) throw new Error('表示する共有アカウント・グループが変わりました。');
       planTimeZone = model.plan.timeZone;
       calendarRecords = model.calendar ?? [];
@@ -109,7 +110,7 @@ export function createV2ScreenSession(input: { controller: V2GroupController; gr
         // A changing owner capture is not a verified absence of personal rows.
         // Keep the current screen until its ordinary display retry can read a coherent model.
         if (cause instanceof AdaptiveOwnerInputsChangedError) throw cause;
-        privateOverlay = { status: 'unavailable', message: '個人家事を取得できませんでした。個人の状態を確認し、再読込してください。' };
+        privateOverlay = { status: 'unavailable', message: '個人家事を表示できませんでした。', retryable: isTransientPlannerRead(cause) };
       }
       const privateLoad = !input.sharedLoadFirst && privateOverlay?.status === 'ready' && privateOverlay.timeZone === model.plan.timeZone
         ? { ownerUserId: input.userId, days: privateOverlay.dailyLoad } : undefined;

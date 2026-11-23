@@ -245,6 +245,17 @@ for (const platform of ['ios', 'android']) test(`${platform} home list has a lea
     assert.ok(icons().some(node => node.props.name.ios === 'person.3.fill'));
     const stroke = allHosts(screen.render()).find(node => Array.isArray(node.props.style) && node.props.style.some(style => style?.borderRightWidth === 2));
     assert.equal(stroke.props.style.find(style => style?.borderColor).borderColor, plannerLightColors.accent);
+    Object.assign(props, { urgent: true, executionWindow: { start: '2026-12-28', end: '2026-12-30' } });
+    screen.render();
+    assert.match(screen.text(), /12\/28–12\/30/u);
+    assert.doesNotMatch(screen.text(), /期限間近/u);
+    assert.match(screen.button(`${h.personal.name}の説明を開く`).props.accessibilityHint, /期限間近/u);
+    props.executionWindow.start = '2026-12-30';
+    screen.render();
+    assert.match(screen.text(), /12月30日まで/u);
+    props.completed = true;
+    screen.render();
+    assert.doesNotMatch(screen.button(`${h.personal.name}の説明を開く`).props.accessibilityHint, /期限間近/u);
   } finally { h.connection.close(); }
 });
 

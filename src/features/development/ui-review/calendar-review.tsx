@@ -6,13 +6,14 @@ import { palette, typography } from '@/components/planner-ui';
 import { SafeAreaView } from '@/components/screen-safe-area';
 import { TaskCheckboxRow } from '@/components/task-checkbox-row';
 import { OWN_BIRTHDAY_EVENT_ID } from '@/domain/calendar/own-birthday';
-import { calendarChorePlacement } from '@/domain/chores/calendar-timing';
+import { calendarChorePlacement, choreCalendarTiming, type ChoreCalendarTiming } from '@/domain/chores/calendar-timing';
 import { builtInChoreCatalogEntry } from '@/domain/chores/catalog';
 import type { ChoreDefinition } from '@/domain/chores/types';
 import { addDays, formatJapaneseDate } from '@/domain/scheduling/local-date';
 import { orderTaskRows } from '@/domain/scheduling/task-row-order';
 import type { LocalDate } from '@/domain/shared/types';
 import { CalendarSheetHeader } from '../../calendar/calendar-sheet-header';
+import { ChoreDateFields } from '../../calendar/chore-date-fields';
 import { calendarChoreTimeLabel } from '../../calendar/chore-time-label';
 import { INITIAL_CATEGORIES, UNCATEGORIZED_CALENDAR_CATEGORY, minuteLabel, newEventDraft, recurrenceLabel, type CalendarEvent, type CalendarOccurrence, type EventDraft } from '../../calendar/events';
 import { PlannerCalendar } from '../../calendar/planner-calendar';
@@ -21,19 +22,27 @@ import { V2ChoreProcedures } from '../../sharing/v2-ui/chore-procedures';
 import { V2PrivateTaskNotice } from '../../sharing/v2-ui/private-task-card';
 import type { WeeklyWasteSchedule } from '../../waste/contracts';
 import { createCalendarReviewPreferences } from './calendar-preferences';
+import { CalendarEditReview } from './calendar-edit-review';
 
 export const calendarReviewScenarios = [
+  { id: 'day', label: '1日表示・重なる予定と長い予定名' },
+  { id: 'two', label: '2日表示・終日予定と家事' },
   { id: 'three', label: '3日表示の個人・共有家事' },
   { id: 'week', label: '7日表示の個人・共有家事' },
   { id: 'overlap', label: '深夜に重なる予定' },
   { id: 'month', label: '予定が重なる月' },
+  { id: 'month-boundary', label: '月の変わり目・年をまたぐ予定' },
+  { id: 'year', label: '年表示から月・日を開く' },
   { id: 'list', label: '長い予定・日をまたぐ予定' },
   { id: 'partial', label: '共有家事だけ取得した日' },
   { id: 'empty', label: '予定も家事もない日' },
+  { id: 'edit', label: '予定の追加・繰り返し編集・ドラッグ' },
+  { id: 'draft', label: '予定の下書きを開き直す' },
 ] as const;
 
 const today: LocalDate = '2026-11-23';
 const zone = 'Asia/Tokyo';
+const choreRowTransition = LinearTransition.duration(240);
 const day = (offset: number) => addDays(today, offset);
 const group = 'review-household';
 type Source = 'personal' | 'shared';
@@ -98,11 +107,13 @@ const wasteSchedules: WeeklyWasteSchedule[] = [
   { id: 'review-plastic', householdId: group, label: 'プラスチック', collectionWeekdays: [2] },
   { id: 'review-glass', householdId: group, label: 'びん・缶', collectionWeekdays: [3], recurrence: 'biweekly', anchorDate: day(2) },
   { id: 'review-paper', householdId: group, label: '古紙', collectionWeekdays: [], recurrence: 'monthly', monthlyDay: 23 },
+  { id: 'review-ceramics', householdId: group, label: '陶磁器・ガラス', collectionWeekdays: [], recurrence: 'monthly', monthlyDay: 27 },
 ];
+const monthHiddenWasteKeys = [`review-burnable:${today}`];
 
 type ReviewChore = {
   key: string; definition: ChoreDefinition; source: Source; date: LocalDate; completed: boolean; provisional: boolean;
-  windowDays: number; clocks?: readonly [number, number];
+  windowDays: number; clocks?: readonly [number, number]; endDayOffset?: number;
 };
 
 function choreRounds(source: Source, catalogId: string, offsets: readonly number[], options: {
@@ -131,17 +142,49 @@ function choreTime(row: ReviewChore) {
   if (!row.clocks) return undefined;
   const [startMinute, endMinute] = row.clocks;
   return calendarChorePlacement(row.key, row.date, {
-    allDay: false, startMinute, endMinute, endDayOffset: Number(endMinute <= startMinute), timeZone: zone,
+    allDay: false, startMinute, endMinute, endDayOffset: row.endDayOffset ?? Number(endMinute <= startMinute), timeZone: zone,
   }, true).slot ?? undefined;
+}
+function personalTimedChore(chore: ReviewChore | undefined): EventDraft | null {
+  if (chore?.source !== 'personal' || chore.completed || chore.provisional || !chore.clocks) return null;
+  const [startMinute, endMinute] = chore.clocks;
+  return { ...newEventDraft(chore.date, zone, false), startMinute, endMinute,
+    endDate: addDays(chore.date, chore.endDayOffset ?? Number(endMinute <= startMinute)) };
 }
 type Selection = { event: CalendarOccurrence } | { chore: ReviewChore };
 const sourceLabel = (source: Source) => source === 'shared' ? '共有' : '個人';
 
-function ReviewDetails({ selection, close, move }: { selection: Selection; close(): void; move(key: string, date: LocalDate): void }) {
+function ReviewDetails({ selection, close, move }: { selection: Selection; close(): void; move(key: string, date: LocalDate, timing?: ChoreCalendarTiming): void }) {
   const chore = 'chore' in selection ? selection.chore : undefined;
   const event = 'event' in selection ? selection.event : undefined;
   const [date, setDate] = useState(chore?.date ?? today);
+  const [originalTiming] = useState(() => personalTimedChore(chore));
+  const [timed, setTimed] = useState(originalTiming);
   const canMove = chore && !chore.completed && !chore.provisional;
+  if (canMove && chore.source === 'personal') {
+    const selected = timed?.startDate ?? date;
+    let timing: ChoreCalendarTiming | undefined;
+    let error: string | undefined;
+    if (timed) {
+      try { timing = choreCalendarTiming(timed); }
+      catch (cause) { error = cause instanceof Error ? cause.message : '開始・終了を確認してください。'; }
+    }
+    const changed = selected !== chore.date || Boolean(timed && originalTiming &&
+      (timed.startMinute !== originalTiming.startMinute || timed.endMinute !== originalTiming.endMinute || timed.endDate !== originalTiming.endDate));
+    return <Modal visible transparent animationType="fade" onRequestClose={close}>
+      <View style={styles.overlay}><SafeAreaView edges={['bottom']} style={styles.compactSheet} accessibilityViewIsModal>
+        <View style={styles.sheetHeader}><CalendarSheetHeader title={timed ? '日時を変更' : '実施日を変更'} closeLabel="詳細を閉じる" onClose={close}
+          saveLabel={timed ? '今回の日時を保存' : '今回の実施日を保存'} saveDisabled={!changed || Boolean(error)}
+          onSave={() => { if (changed && !error) move(chore.key, selected, timing); }} /></View>
+        <ScrollView style={styles.compactBody} contentContainerStyle={styles.compactContent}>
+          <Text accessibilityRole="header" style={styles.name}>{chore.definition.name}</Text>
+          <ChoreDateFields date={selected} timed={timed} displayTimeZone={zone} onDateChange={setDate}
+            onTimedChange={update => setTimed(before => before && update(before))} />
+          {error ? <Text accessibilityRole="alert" style={[styles.meta, { color: palette.warning }]}>{error}</Text> : null}
+        </ScrollView>
+      </SafeAreaView></View>
+    </Modal>;
+  }
   const timeLabel = chore && calendarChoreTimeLabel(choreTime({ ...chore, date }), zone);
   const missingTime = Boolean(chore?.clocks && !timeLabel);
   const dateLabel = (value: LocalDate) => formatJapaneseDate(value, { year: true, weekday: true });
@@ -170,13 +213,19 @@ function ReviewDetails({ selection, close, move }: { selection: Selection; close
   </Modal>;
 }
 
-type ScenarioId = typeof calendarReviewScenarios[number]['id'];
+type ScenarioId = Exclude<typeof calendarReviewScenarios[number]['id'], 'edit' | 'draft'>;
+
+const boundaryEvents = [
+  { ...newEventDraft('2026-12-30', zone, true), id: 'review-birthday', revision: 1, title: '友だちの誕生日' },
+  { ...newEventDraft('2026-12-31', zone), id: 'review-year-change', revision: 1, title: '年越しの帰省', allDay: true, endDate: '2027-01-03' as const },
+];
 
 function CalendarReviewSession({ scenario, onExit }: { scenario: ScenarioId; onExit?(): void }) {
   const empty = scenario === 'empty';
   const partial = scenario === 'partial';
   const overlapping = scenario === 'overlap';
-  const initialView = empty ? 'list' : partial || overlapping ? 'three' : scenario;
+  const boundary = scenario === 'month-boundary';
+  const initialView = empty ? 'list' : partial || overlapping ? 'three' : boundary ? 'month' : scenario;
   const [preferences] = useState(() => createCalendarReviewPreferences(initialView));
   useEffect(() => () => preferences.display.dispose(), [preferences]);
   const [chores, setChores] = useState(() => empty ? [] : partial
@@ -184,11 +233,11 @@ function CalendarReviewSession({ scenario, onExit }: { scenario: ScenarioId; onE
   const [selection, setSelection] = useState<Selection | null>(null);
   const local = useMemo<LocalCalendarBinding>(() => ({
     loading: false, error: null, refresh: async () => {},
-    snapshot: { categories, events: empty ? [] : [...personalEvents, ...sharedEvents, ...(overlapping ? shortOverlapEvents : [])], draft: null, exceptions: empty ? [] : [
+    snapshot: { categories, events: empty ? [] : boundary ? boundaryEvents : [...personalEvents, ...sharedEvents, ...(overlapping ? shortOverlapEvents : [])], draft: null, exceptions: empty || boundary ? [] : [
       { eventId: reading.id, anchorDate: today, revision: 1, override: { ...reading, startDate: today, endDate: today,
         title: '読書会・会場変更', location: '図書館 分館の閲覧室', startMinute: 15 * 60, endMinute: 16 * 60 } },
     ] },
-  }), [empty, overlapping]);
+  }), [boundary, empty, overlapping]);
   const rowsByDate = useMemo(() => {
     const rows = new Map<LocalDate, ReviewChore[]>();
     for (const row of orderTaskRows(chores, today, item => ({
@@ -205,9 +254,10 @@ function CalendarReviewSession({ scenario, onExit }: { scenario: ScenarioId; onE
     const time = choreTime(chore);
     return time ? [{ id: chore.key, name: chore.definition.name, ...time, onOpen: () => setSelection({ chore }) }] : [];
   }), [chores]);
-  const todayInScenario = empty ? day(1) : today;
+  const todayInScenario = empty || scenario === 'month' ? day(1) : today;
   return <View style={styles.calendar}>
-    <PlannerCalendar today={todayInScenario} timeZone={zone} local={local} extendedChoreDates={scheduledDates} wasteSchedules={empty ? undefined : wasteSchedules}
+    <PlannerCalendar today={todayInScenario} selectedDate={boundary ? '2026-12-31' : undefined} timeZone={zone} local={local} extendedChoreDates={scheduledDates} wasteSchedules={empty ? undefined : wasteSchedules}
+      hiddenWasteKeys={scenario === 'month' ? monthHiddenWasteKeys : undefined}
       preview={{ preferences, currentMinute: overlapping ? 0 : 10 * 60 + 15, initialExpandedDay: !overlapping && (initialView === 'three' || initialView === 'week') ? today : undefined,
         onInspectEvent: event => setSelection({ event }), onExit }} timedChores={timedChores} searchChoresIncomplete={partial}
       loadSearchChores={() => chores.map(chore => ({ key: chore.key, title: chore.definition.name, date: chore.date, source: chore.source, minute: chore.clocks?.[0] }))}
@@ -217,17 +267,20 @@ function CalendarReviewSession({ scenario, onExit }: { scenario: ScenarioId; onE
         return { loaded: true, partial: partial && date === today, total: rows.length, pending: pending.length,
           minutes: pending.reduce((value, row) => value + (row.definition.estimatedMinutes ?? 0), 0) };
       }}
-      renderChores={(date, view) => <Animated.FlatList testID="calendar-chore-list" data={rowsByDate.get(date) ?? []} scrollEnabled={false}
-        itemLayoutAnimation={LinearTransition.duration(240)} initialNumToRender={8} keyExtractor={row => row.key}
-        ListHeaderComponent={partial && date === today ? <V2PrivateTaskNotice sharedTimeZone={zone}
-          overlay={{ status: 'unavailable', message: 'この日の個人家事は未取得です。' }} /> : undefined}
-        renderItem={({ item }) => <TaskCheckboxRow chore={item.definition} source={item.source} compact narrowCalendar={view === 'three' || view === 'week'} mixedSources completed={item.completed} provisional={item.provisional}
-          executionWindow={{ start: addDays(date, -item.windowDays), end: addDays(date, item.windowDays) }}
-          calendarTimeLabel={view === 'list' ? calendarChoreTimeLabel(choreTime(item), zone) : undefined}
-          onOpen={() => setSelection({ chore: item })} onChangeDate={item.completed || item.provisional ? undefined : () => setSelection({ chore: item })} />} />}
+      renderChores={(date, view) => <View testID="calendar-chore-list">
+        {partial && date === today ? <V2PrivateTaskNotice sharedTimeZone={zone}
+          overlay={{ status: 'unavailable', message: 'この日の個人家事は未取得です。' }} /> : null}
+        {(rowsByDate.get(date) ?? []).map(item => <Animated.View key={item.key} layout={choreRowTransition}>
+          <TaskCheckboxRow chore={item.definition} source={item.source} compact narrowCalendar={view === 'three' || view === 'week' ? view : undefined} mixedSources completed={item.completed} provisional={item.provisional}
+            executionWindow={{ start: addDays(date, -item.windowDays), end: addDays(date, item.windowDays) }}
+            calendarTimeLabel={view === 'list' ? calendarChoreTimeLabel(choreTime(item), zone) : undefined}
+            onOpen={() => setSelection({ chore: item })} onChangeDate={item.completed || item.provisional ? undefined : () => setSelection({ chore: item })} />
+        </Animated.View>)}
+      </View>}
     />
-    {selection ? <ReviewDetails selection={selection} close={() => setSelection(null)} move={(key, date) => {
-      setChores(previous => previous.map(row => row.key === key ? { ...row, date, windowDays: 0 } : row));
+    {selection ? <ReviewDetails selection={selection} close={() => setSelection(null)} move={(key, date, timing) => {
+      setChores(previous => previous.map(row => row.key === key ? { ...row, date, windowDays: 0,
+        ...(timing ? { clocks: [timing.startMinute, timing.endMinute], endDayOffset: timing.endDayOffset } : {}) } : row));
       setSelection(null);
     }} /> : null}
   </View>;
@@ -235,11 +288,17 @@ function CalendarReviewSession({ scenario, onExit }: { scenario: ScenarioId; onE
 
 export function CalendarReview({ scenario, onExit }: { scenario: string; onExit?(): void }) {
   const id = calendarReviewScenarios.find(entry => entry.id === scenario)?.id ?? 'three';
+  if (id === 'edit' || id === 'draft') return <CalendarEditReview key={id} seedDraft={id === 'draft'} onExit={onExit} />;
   return <CalendarReviewSession key={id} scenario={id} onExit={onExit} />;
 }
 
 const styles = StyleSheet.create({
   calendar: { flex: 1, minHeight: 0 }, sheet: { flex: 1, backgroundColor: palette.surface },
+  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: palette.overlay },
+  compactSheet: { width: '100%', maxWidth: 640, maxHeight: '82%', alignSelf: 'center', backgroundColor: palette.surface,
+    borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' },
+  sheetHeader: { paddingTop: 8 }, compactBody: { flexGrow: 0 },
+  compactContent: { paddingHorizontal: 18, paddingVertical: 16, gap: 8 },
   content: { padding: 16, gap: 12 }, name: { ...typography.subheading, color: palette.ink, fontWeight: '600' },
   meta: { ...typography.caption, color: palette.muted }, body: { ...typography.body, color: palette.ink },
 });

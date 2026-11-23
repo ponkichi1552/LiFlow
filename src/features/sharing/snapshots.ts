@@ -7,7 +7,7 @@ import { MAX_SHARED_SNAPSHOT_CHUNK_BYTES, openSharedSnapshotChunk, sealSharedSna
 import type { AuthenticatedSharedOperation, DevicePublicIdentity, DeviceSecretIdentity, EncryptedSharedSnapshotChunk, SharingCryptoGateway } from './crypto.ts';
 import { sharedRosterDigest } from './roster.ts';
 import type { VerifiedSharedRoster } from './roster.ts';
-import { isSupportedV2Scheduler } from './v2/payload-schema.ts';
+import { isSupportedV2Scheduler, WORKSPACE_COPY_SCHEDULER_VERSION } from './v2/payload-schema.ts';
 import type { SignedLegacyMigrationWitness } from './v2/legacy-migration-witness.ts';
 import { validateLegacyMigrationWitness } from './v2/legacy-migration-witness.ts';
 import { validateV2RecoveryWitness } from './v2/recovery-witness.ts';
@@ -18,6 +18,7 @@ import type { V2ServerReceipt } from './v2/server-receipts';
 import type { V2RetentionBody } from './v2/history-retention-schema';
 import { parseLocalDate } from '../../domain/scheduling/local-date.ts';
 import type { LocalDate } from '../../domain/shared/types';
+import type { SignedWorkspaceCopy } from './v2/workspace-copy-source.ts';
 
 export type SharedAuthorResolver = (userId: string, deviceId: string, keyVersion: number) => DevicePublicIdentity;
 interface SharedSnapshotManifestBody {
@@ -32,15 +33,26 @@ interface SharedSnapshotManifestBody {
 }
 export interface SignedSharedSnapshotManifest { body: SharedSnapshotManifestBody; signature: string }
 export interface EncryptedSharedSnapshot { manifest: SignedSharedSnapshotManifest; chunks: EncryptedSharedSnapshotChunk[] }
-export interface VerifiedSharedSnapshot { base: SharedSnapshotBase; facts: AuthenticatedSharedOperation[]; snapshotId: string; throughSequence: number; keyVersion?: number }
+export interface VerifiedSharedSnapshot { base: SharedSnapshotBase; facts: AuthenticatedSharedOperation[]; snapshotId: string; throughSequence: number; keyVersion?: number; workspaceCopy?: SignedWorkspaceCopy }
 type SnapshotRecord = { kind: 'receipt'; value: SharedOperationReceipt } | { kind: 'fact'; value: AuthenticatedSharedOperation }
   | { kind: 'legacyMigrationWitness'; value: SignedLegacyMigrationWitness }
+  | { kind: 'workspaceCopyPart'; value: string }
   | { kind: 'recoveryWitness'; value: SignedV2RecoveryHeader }
   | { kind: 'recoveryPreservedFact'; value: V2RecoveryPreservedFact & { snapshotId: string } };
 type RetentionRecord = { kind: 'retentionProposal'; value: AuthenticatedSharedOperation }
   | { kind: 'retentionReceipt'; value: V2ServerReceipt } | { kind: 'retentionApproval'; value: AuthenticatedSharedOperation };
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
+const workspaceCopyPartLength = 32_000;
+const maxWorkspaceCopyParts = 256;
+
+function checkedWorkspaceCopy(copy: SignedWorkspaceCopy, roster: VerifiedSharedRoster) {
+  if (roster.body.schedulerVersion !== WORKSPACE_COPY_SCHEDULER_VERSION || copy.body.destination.groupId !== roster.body.groupId
+    || !Array.isArray(copy.body.destination.userIds) || roster.body.members.some(member => !copy.body.destination.userIds.includes(member.userId))) {
+    throw new Error('引き継ぎデータの共有範囲を確認してください。');
+  }
+  return copy;
+}
 
 function authenticate(fact: AuthenticatedSharedOperation, groupId: string, keyVersion: number, author: SharedAuthorResolver) {
   const op = fact.operation;
@@ -59,7 +71,8 @@ function snapshotSigner(roster: VerifiedSharedRoster, deviceId: string): DeviceP
 
 export async function createEncryptedSharedSnapshot(crypto: SharingCryptoGateway, replica: SharedReplica,
   availableFacts: readonly AuthenticatedSharedOperation[], roster: VerifiedSharedRoster, owner: DeviceSecretIdentity,
-  key: Uint8Array, snapshotId: string, throughSequence: number, author: SharedAuthorResolver, archive?: readonly VerifiedSharedRoster[]): Promise<EncryptedSharedSnapshot> {
+  key: Uint8Array, snapshotId: string, throughSequence: number, author: SharedAuthorResolver, archive?: readonly VerifiedSharedRoster[],
+  workspaceCopy?: SignedWorkspaceCopy): Promise<EncryptedSharedSnapshot> {
   assertSharedIdentifier(snapshotId);
   if (snapshotId.length > 150 || roster.body.groupId !== replica.groupId
     || roster.body.closed || !Number.isSafeInteger(throughSequence) || throughSequence < 0
@@ -84,6 +97,13 @@ export async function createEncryptedSharedSnapshot(crypto: SharingCryptoGateway
     ]), ...(base.retention ? [{ kind: 'retentionProposal' as const, value: base.retention.proposal },
       { kind: 'retentionReceipt' as const, value: base.retention.proposalReceipt },
       ...base.retention.approvals.map(value => ({ kind: 'retentionApproval' as const, value }))] : [])];
+  if (workspaceCopy) {
+    const encoded = canonicalJson(checkedWorkspaceCopy(workspaceCopy, roster));
+    if (encoded.length > workspaceCopyPartLength * maxWorkspaceCopyParts) throw new Error('引き継ぎデータが大きすぎます。');
+    for (let offset = 0; offset < encoded.length; offset += workspaceCopyPartLength) {
+      records.push({ kind: 'workspaceCopyPart', value: encoded.slice(offset, offset + workspaceCopyPartLength) });
+    }
+  }
   const chunks: EncryptedSharedSnapshotChunk[] = []; let page: (SnapshotRecord | RetentionRecord)[] = []; let bytes = 2;
   const flush = async () => {
     if (!page.length) return;
@@ -152,6 +172,7 @@ export async function openEncryptedSharedSnapshot(crypto: SharingCryptoGateway, 
   const owner = snapshotSigner(roster, body.ownerDeviceId);
   const operationIndex: SharedOperationReceipt[] = []; const facts: AuthenticatedSharedOperation[] = [];
   let legacyMigrationWitness: SignedLegacyMigrationWitness | undefined;
+  const workspaceCopyParts: string[] = [];
   const recoveryHeaders = new Map<string, SignedV2RecoveryHeader>();
   const heldRecoveryFacts = new Map<string, V2RecoveryPreservedFact[]>();
   let retentionProposal: AuthenticatedSharedOperation | undefined; let retentionReceipt: V2ServerReceipt | undefined; const retentionApprovals: AuthenticatedSharedOperation[] = [];
@@ -162,11 +183,16 @@ export async function openEncryptedSharedSnapshot(crypto: SharingCryptoGateway, 
     const records = JSON.parse(decoder.decode(plaintext)) as (SnapshotRecord | RetentionRecord)[];
     if (!Array.isArray(records) || records.length > 1000) throw new Error('Invalid snapshot page');
     for (const record of records) {
-      assertJsonRecord(record);
+      assertJsonRecord(record as unknown);
       if (Object.keys(record).sort().join(',') !== 'kind,value') throw new Error('Unknown snapshot record field');
       if (record.kind === 'receipt') operationIndex.push(record.value);
       else if (record.kind === 'fact') facts.push(authenticate(record.value, body.groupId, body.keyVersion, author));
       else if (record.kind === 'legacyMigrationWitness' && body.schemaVersion === 2 && legacyMigrationWitness === undefined) legacyMigrationWitness = validateLegacyMigrationWitness(record.value);
+      else if (record.kind === 'workspaceCopyPart' && body.schemaVersion === 2) {
+        if (typeof record.value !== 'string' || !record.value.length || record.value.length > workspaceCopyPartLength
+          || workspaceCopyParts.length >= maxWorkspaceCopyParts) throw new Error('引き継ぎデータの一部を確認できません。');
+        workspaceCopyParts.push(record.value);
+      }
       else if (record.kind === 'recoveryWitness' && body.schemaVersion === 2) {
         assertJsonRecord(record.value); assertJsonRecord(record.value.body);
         assertSharedIdentifier(record.value.body.snapshotId);
@@ -201,5 +227,6 @@ export async function openEncryptedSharedSnapshot(crypto: SharingCryptoGateway, 
   if (retention) { const checkpoint = assertV2RetentionBase({ ...base }, retention, archive!);
     if (checkpoint.cutoff !== body.retentionCutoff || checkpoint.throughSequence !== body.retentionThroughSequence
       || checkpoint.keyVersion !== body.retentionKeyVersion) throw new Error('Snapshot retention position differs from its collective certificate'); }
-  return { base, facts, snapshotId: body.snapshotId, throughSequence: body.throughSequence, keyVersion: body.keyVersion };
+  const workspaceCopy = workspaceCopyParts.length ? checkedWorkspaceCopy(JSON.parse(workspaceCopyParts.join('')) as SignedWorkspaceCopy, roster) : undefined;
+  return { base, facts, snapshotId: body.snapshotId, throughSequence: body.throughSequence, keyVersion: body.keyVersion, ...(workspaceCopy ? { workspaceCopy } : {}) };
 }

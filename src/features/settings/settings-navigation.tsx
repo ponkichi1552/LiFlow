@@ -53,8 +53,8 @@ export function SettingsNavigationScreen({ section }: { section?: 'chores' | 'ap
       <SettingsRow title={settingsTitles.rhythm} onPress={() => openSettingsCategory('rhythm')} />
       <SettingsRow title="ゴミ収集日" onPress={() => router.push(workspace?.active?.protocol === 2 ? '/group-v2/waste' : '/waste')} />
       <SettingsRow title="共有グループ" onPress={() => router.push(groupDestination)} />
-      <SettingsRow title={settingsTitles.account} onPress={() => openSettingsCategory('account')} />
-      <SettingsRow title={settingsTitles.general} onPress={() => openSettingsCategory('general')} />
+      <SettingsRow title={settingsTitles.account} summary="Google連携" onPress={() => openSettingsCategory('account')} />
+      <SettingsRow title={settingsTitles.general} summary="通知・天気" onPress={() => openSettingsCategory('general')} />
       {uiReviewEnabled ? <SettingsRow title="UI確認用データ" onPress={() => router.push('/development/ui-review')} /> : null}
     </SettingsList>
   </Page>;

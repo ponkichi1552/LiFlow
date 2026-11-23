@@ -46,12 +46,16 @@ export async function resolveSharedGoogleTaskList(request: GoogleTaskListResolut
   };
   const cloud = input.cloud();
   let lists = request.lists;
-  const candidate = () => {
-    const saved = lists.find(row => row.id === state.taskListId);
-    if (saved) return saved;
+  const matchingTitle = () => {
     const matching = lists.filter(row => row.title === title);
     if (matching.length > 1) throw new GoogleTasksApiError(409, 'ambiguous_task_list', null);
     return matching[0];
+  };
+  const candidate = () => lists.find(row => row.id === state.taskListId) ?? matchingTitle();
+  const assertCompatibleList = (selected: GoogleTaskList | undefined) => {
+    if (selected && state.taskListId && selected.id !== state.taskListId && lists.some(row => row.id === state.taskListId)) {
+      throw new GoogleTasksApiError(409, 'ambiguous_task_list', null);
+    }
   };
   const ready = (taskHash: string | null) => {
     const matches = lists.filter(row => sharedTaskIdHash(row.id) === taskHash);
@@ -59,9 +63,7 @@ export async function resolveSharedGoogleTaskList(request: GoogleTaskListResolut
     const selected = matches[0];
     // An old client may already have another list with private mappings. Do not
     // silently transfer or delete its tasks while resolving the new canonical ID.
-    if (selected && state.taskListId && selected.id !== state.taskListId && lists.some(row => row.id === state.taskListId)) {
-      throw new GoogleTasksApiError(409, 'ambiguous_task_list', null);
-    }
+    assertCompatibleList(selected);
     return selected;
   };
   let claim = await bounded(() => cloud.read(identity));
@@ -72,9 +74,18 @@ export async function resolveSharedGoogleTaskList(request: GoogleTaskListResolut
     await storage(async () => input.journal?.deleted(identity, known.taskId!));
     claim = await bounded(() => cloud.read(identity));
   }
-  if (claim?.phase === 'reserved' && known?.taskId && known.intent.attemptId === claim.attemptId) {
-    const selected = lists.find(row => row.id === known.taskId);
-    if (selected) { await bounded(() => cloud.linked(identity, selected.id, known.intent.attemptId)); return selected; }
+  if (claim?.phase === 'reserved') {
+    const attemptId = claim.attemptId;
+    const local = known?.intent.attemptId === attemptId ? known : undefined;
+    // The provider may have committed the list before its POST response was lost.
+    // Preserve a known exact ID, or recover the unique namespaced list without another POST.
+    const selected = local?.taskId ? lists.find(row => row.id === local.taskId) : matchingTitle();
+    if (selected) {
+      assertCompatibleList(selected);
+      if (local && !local.taskId) await storage(async () => input.journal?.linked(identity, selected.id, local.intent));
+      await bounded(() => cloud.linked(identity, selected.id, attemptId));
+      return selected;
+    }
   }
   if (claim?.phase === 'linked') {
     const selected = ready(claim.taskHash); if (selected) return selected;

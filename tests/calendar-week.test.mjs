@@ -146,9 +146,10 @@ for (const platform of ['ios', 'android']) test(`${platform} time grids show the
     let midnight = displayedHour * 24;
     if (mode !== '7日表示') {
       const hour = find(ui, 'calendar-hour-24');
-      const rule = style(hour.children.find(node => node.type === 'View'));
+      const rule = style(find(ui, `calendar-midnight-rule:${day}`));
       assert.equal(rule.position, 'absolute', 'the line follows the hour coordinate, independent of the text height');
-      midnight = style(hour).top + rule.top;
+      assert.equal(style(hour).top, rule.top);
+      midnight = rule.top;
       assert.match(ui.text(), /24:00/u);
     }
     assert.equal(card.top + card.height - midnight, displayedHour / 2, 'only the first half hour appears past midnight');
@@ -235,7 +236,8 @@ for (const platform of ['ios', 'android']) test(`${platform} three and seven day
   const checkColumn = (open, closed) => {
     const column = find(ui, `calendar-chore-column:${open}`);
     assert.ok(descendants(column).includes(`${name} ${open}`));
-    assert.equal(descendants(find(ui, `calendar-chore-column:${closed}`)).includes(`${name} ${closed}`), false);
+    const closedColumn = ui.nodes().find(node => node.props.testID === `calendar-chore-column:${closed}`);
+    assert.ok(!closedColumn || !descendants(closedColumn).includes(`${name} ${closed}`));
   };
   for (const [mode, timeline] of [['3日表示', 'calendar-timeline'], ['7日表示', 'calendar-week-time-scroll']]) {
     await selectCalendarView(ui, mode);
@@ -249,24 +251,60 @@ for (const platform of ['ios', 'android']) test(`${platform} three and seven day
     assert.ok(ui.text().includes(`${name} ${next}`));
     assert.equal(ui.button(label(day, 'を閉じる')).props.accessibilityState.expanded, true);
     const list = date => ui.nodes().find(node => node.props.accessibilityLabel === label(date, '一覧'));
-    list(day).props.onContentSizeChange(105, 390);
+    list(day).props.onContentSizeChange(105, 4 * 44);
+    await ui.flush();
+    assert.equal(list(day).props.showsVerticalScrollIndicator, false, 'four rows fit when the day still has room for the timeline');
+    list(day).props.onContentSizeChange(105, 660);
     list(next).props.onContentSizeChange(105, 44);
     await ui.flush();
-    assert.equal(ui.nodes().some(node => node.props.accessibilityLabel === label(next, '一覧の続きを表示')), false);
-    const offsets = [];
-    list(day).props.ref.current = { scrollTo: options => offsets.push(options.y) };
-    await ui.press(label(day, '一覧の続きを表示'));
-    assert.ok(offsets.at(-1) > 0);
-    list(day).props.onScroll({ nativeEvent: { contentOffset: { y: 390 }, contentSize: { height: 390 }, layoutMeasurement: { height: 100 } } });
-    await ui.flush();
-    await ui.press(label(day, '一覧の先頭に戻る'));
-    assert.equal(offsets.at(-1), 0);
+    assert.equal(list(day).props.scrollEnabled, true);
+    assert.equal(list(day).props.showsVerticalScrollIndicator, true);
+    assert.equal(list(next).props.showsVerticalScrollIndicator, false);
+    assert.equal(ui.nodes().some(node => node.props.accessibilityLabel?.startsWith(label(day, '一覧の'))), false);
     await ui.press(label(next, 'を閉じる'));
     checkColumn(day, next);
     await ui.press(label(day, 'を閉じる'));
     assert.equal(ui.nodes().some(node => node.props.testID === 'calendar-fixed-chores'), false);
   }
 });
+for (const platform of ['ios', 'android']) test(`${platform} one and two day timelines recover readable names beside a long appointment`, async t => {
+  const rows = [
+    event({ id: 'continuing', title: '前夜からの作業', startDate: addDays(day, -1), startMinute: 19 * 60, endDate: addDays(day, 1), endMinute: 7 * 60 }),
+    event({ id: 'exhibition', title: 'まちの写真展', startMinute: 600, endMinute: 675 }),
+    event({ id: 'meeting', title: 'オンライン編集会議', startMinute: 620, endMinute: 665 }),
+    event({ id: 'visit', title: '台所の設備点検', startMinute: 635, endMinute: 690 }),
+    event({ id: 'lunch', title: '昼休みの散歩', startMinute: 730, endMinute: 750 }),
+    event({ id: 'reading', title: '読書会・会場変更', startMinute: 900, endMinute: 960 }),
+  ];
+  const opened = [];
+  const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform,
+    layoutEffect: effect => effect(), props: { today: day, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
+      local: binding({ snapshot: { events: rows, exceptions: [], drafts: [], categories: [] }, prepareDraft: draft => { opened.push(draft); return draft; } }) } });
+  t.after(() => ui.unmount());
+  const frame = node => Object.assign({}, ...node.props.style.flat(Infinity).filter(Boolean));
+  for (const [mode, columns] of [['1日表示', 1], ['2日表示', 2]]) {
+    await selectCalendarView(ui, mode);
+    const clock = find(ui, 'calendar-now-clock');
+    assert.match(clock.props.accessibilityLabel, /^現在 /u);
+    const rail = find(ui, `calendar-duration-continuing:${rows[0].startDate}`);
+    assert.equal(frame(rail).top, 0);
+    const hourHeight = frame(find(ui, 'calendar-hour-11')).top - frame(find(ui, 'calendar-hour-10')).top;
+    assert.ok(Math.abs(frame(rail).height - hourHeight * 24.5) < 1e-6);
+    for (const item of rows.slice(1)) {
+      const card = find(ui, `calendar-movable-${item.id}:${day}`);
+      const nodes = ui.nodes();
+      assert.ok(nodes.indexOf(find(ui, 'calendar-now-rule')) < nodes.indexOf(card), 'current time does not paint over names');
+      assert.ok(frame(card).width > (390 - 44) / columns / 2);
+      await ui.press(`${item.title}を編集`);
+      assert.equal(opened.at(-1).eventId, item.id);
+      await ui.press('閉じる');
+    }
+    rail.props.onPress(); await ui.flush();
+    assert.equal(opened.at(-1).eventId, 'continuing');
+    await ui.press('閉じる');
+  }
+});
+
 for (const platform of ['ios', 'android']) test(`${platform} short overlaps after midnight only narrow their own labels`, async t => {
   const windows = [[0, 400], [0, 420], [0, 5], [65, 110], [75, 100]];
   const rows = windows.map(([start, end], index) => event({
@@ -380,7 +418,76 @@ for (const platform of ['ios', 'android']) test(`${platform} the selected holida
   assert.match(ui.text(), /勤労感謝の日/u);
 });
 
-for (const platform of ['ios', 'android']) test(`${platform} multi-day all-day labels start in the first chore-free column of their own span`, async t => {
+for (const platform of ['ios', 'android']) test(`${platform} tapping the last visible day selects it without moving the three day range or its timeline`, async t => {
+  const start = '2026-11-23', last = '2026-11-25';
+  const selected = [], drafts = [];
+  const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, layoutEffect: effect => effect(),
+    props: { today: start, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
+      onSelectDate: date => selected.push(date), local: binding({ prepareDraft: draft => { drafts.push(draft); return draft; } }) } });
+  t.after(() => ui.unmount());
+  await selectCalendarView(ui, '3日表示');
+  const headers = () => ui.nodes().flatMap(node => node.props.testID?.startsWith('calendar-time-heading-')
+    ? [node.props.testID.slice('calendar-time-heading-'.length)] : []);
+  const timeline = find(ui, 'calendar-timeline').props.ref;
+  assert.deepEqual(headers(), [start, '2026-11-24', last]);
+  await ui.press('2026年11月25日（水）を表示');
+  assert.deepEqual(headers(), [start, '2026-11-24', last]);
+  assert.equal(find(ui, 'calendar-timeline').props.ref, timeline);
+  assert.equal(ui.button('2026年11月25日（水）を表示').props.accessibilityValue.text, '選択日');
+  await ui.press('予定を追加');
+  assert.equal(drafts.at(-1).value.startDate, last);
+  await ui.press('閉じる');
+  const gesture = ui.nodes().find(node => node.type === 'NativeGestureDetector').props.gesture;
+  gesture.onActivate({ x: 200, translationX: 0, numberOfPointers: 1 });
+  gesture.onDeactivate({ translationX: -90, translationY: 0, canceled: false });
+  await ui.flush();
+  assert.deepEqual(headers(), ['2026-11-24', last, '2026-11-26']);
+  assert.deepEqual(selected, [last, '2026-11-26']);
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} the two day timeline keeps its range when selecting an already visible day across months`, async t => {
+  const first = '2026-11-30', second = '2026-12-01';
+  const firstLabel = '2026年11月30日（月）を表示';
+  const secondLabel = '2026年12月1日（火）を表示';
+  const selections = [];
+  const props = { today: first, selectedDate: first, timeZone: 'Asia/Tokyo', local: binding(), dayInfo: () => ({ loaded: true, total: 0 }), renderChores: () => null,
+    onSelectDate: date => { selections.push(date); props.selectedDate = date; } };
+  const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform,
+    effect: effect => effect(), layoutEffect: effect => effect(), effectDependencies: true, props });
+  t.after(() => ui.unmount());
+  await selectCalendarView(ui, '2日表示');
+  const offsets = [];
+  const ref = find(ui, 'calendar-timeline').props.ref;
+  ref.current = { scrollToOffset: value => offsets.push(value.offset) };
+  find(ui, 'calendar-timeline').props.onLayout({ nativeEvent: { layout: { height: 350 } } });
+  find(ui, 'calendar-timeline-days').props.onLayout({ nativeEvent: { layout: { height: 12 } } });
+  find(ui, 'calendar-timeline').props.onContentSizeChange();
+  await ui.flush();
+  assert.equal(offsets.length, 1);
+  const previousOffsets = [...offsets];
+  const checkRange = () => {
+    find(ui, `calendar-time-heading-${first}`);
+    find(ui, `calendar-time-heading-${second}`);
+    assert.deepEqual(offsets, previousOffsets);
+  };
+  await ui.press(secondLabel);
+  checkRange();
+  assert.equal(ui.button(secondLabel).props.accessibilityValue.text, '選択日');
+  assert.deepEqual(selections, [second]);
+  props.selectedDate = first;
+  ui.render();
+  await ui.flush();
+  checkRange();
+  assert.match(ui.button(firstLabel).props.accessibilityValue.text, /選択日/u);
+  props.selectedDate = second;
+  ui.render();
+  await ui.flush();
+  checkRange();
+  assert.equal(ui.button(secondLabel).props.accessibilityValue.text, '選択日');
+  assert.deepEqual(selections, [second]);
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} compact multi-day all-day labels stay anchored when chores open below them`, async t => {
   const middle = addDays(day, 1), right = addDays(day, 2);
   const rows = [event({ id: 'spanning', title: '家族の旅行', allDay: true, endDate: right }),
     event({ id: 'one', title: '文化祭', allDay: true, startDate: middle, endDate: middle })];
@@ -389,8 +496,8 @@ for (const platform of ['ios', 'android']) test(`${platform} multi-day all-day l
     layoutEffect: effect => effect(), props: { today: day, timeZone: 'Asia/Tokyo', local,
       dayInfo: () => ({ loaded: true, total: 1 }), renderChores: date => `${date}の家事` } });
   t.after(() => ui.unmount());
-  const style = node => Object.assign({}, ...node.props.style.flat(Infinity).filter(Boolean));
-  const titleStart = title => parseFloat(style(ui.button(`${title}を編集`).children.find(node => node.props.pointerEvents === 'none')).left);
+  const style = node => Object.assign({}, ...[typeof node.props.style === 'function' ? node.props.style({ pressed: false }) : node.props.style].flat(Infinity).filter(Boolean));
+  const titleStart = title => ui.button(`${title}を編集`).children.find(node => node.children.some(child => child?.type === 'Text')).props.style.left;
   const openOrClose = (date, open) => ui.press(`${formatJapaneseDate(date, { year: true })}の家事を${open ? '開く' : '閉じる'}`);
   for (const mode of ['3日表示', '7日表示']) {
     await selectCalendarView(ui, mode);
@@ -398,22 +505,151 @@ for (const platform of ['ios', 'android']) test(`${platform} multi-day all-day l
     const original = bar();
     const leftStart = titleStart('家族の旅行');
     const singleStart = titleStart(rows[1].title);
-    await openOrClose(middle, true);
-    assert.equal(titleStart('家族の旅行'), leftStart);
-    assert.equal(titleStart(rows[1].title), singleStart);
-    await openOrClose(day, true);
-    const rightStart = titleStart('家族の旅行');
-    assert.ok(rightStart > leftStart);
-    await openOrClose(middle, false);
-    const middleStart = titleStart('家族の旅行');
-    assert.ok(leftStart < middleStart && middleStart < rightStart);
-    await openOrClose(middle, true);
-    await openOrClose(right, true);
-    assert.equal(titleStart('家族の旅行'), leftStart, 'with every day open, the label still fits inside its own band');
-    assert.equal(titleStart(rows[1].title), singleStart);
-    assert.equal(bar().left, original.left);
-    assert.equal(bar().width, original.width);
+    for (const date of [middle, day, right]) {
+      await openOrClose(date, true);
+      assert.equal(titleStart('家族の旅行'), leftStart);
+      assert.equal(titleStart(rows[1].title), singleStart);
+      assert.equal(bar().left, original.left);
+      assert.equal(bar().width, original.width);
+    }
     for (const date of [day, middle, right]) await openOrClose(date, false);
+  }
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} weekly all-day rows align across dates and each chore list expands independently`, async t => {
+  const middle = addDays(day, 1), right = addDays(day, 2), empty = addDays(day, 3), adjacent = addDays(day, -1);
+  const dates = [adjacent, day, middle, right, empty];
+  const rows = [
+    event({ id: 'trip', title: '家族の旅行', allDay: true, endDate: right }),
+    event({ id: 'festival', title: '文化祭', allDay: true, startDate: middle, endDate: middle }),
+    event({ id: 'holiday', title: '休暇', allDay: true, startDate: adjacent, endDate: adjacent }),
+    event({ id: 'night', title: '深夜便', startDate: empty, endDate: empty, startMinute: 5, endMinute: 20 }),
+  ];
+  const opened = [];
+  let scrollY = 0;
+  const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform,
+    layoutEffect: effect => effect(), nativeScrollOffset: () => scrollY, props: {
+      today: day, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, total: 9 }), renderChores: date => `${date}の家事`,
+      local: binding({ snapshot: { events: rows, exceptions: [], categories: [], drafts: [] },
+        prepareDraft: draft => { opened.push(draft); return draft; } }),
+    } });
+  t.after(() => ui.unmount());
+  await selectCalendarView(ui, '7日表示');
+  const style = node => Object.assign({}, ...[typeof node.props.style === 'function' ? node.props.style({ pressed: false }) : node.props.style].flat(Infinity).filter(Boolean));
+  const insets = () => dates.map(date => style(find(ui, `calendar-week-time:${date}`)).transform[0].translateY);
+  const band = () => ui.button('家族の旅行を編集');
+  const titleStart = () => band().children.find(node => node.children.some(child => child?.type === 'Text')).props.style.left;
+  const bar = style(band()), title = titleStart();
+  const before = insets();
+  assert.ok(before[0] > 0);
+  assert.deepEqual(before, dates.map(() => before[0]), 'dates with zero, one, or multiple all-day events share the same clock origin');
+  const label = date => `${formatJapaneseDate(date, { year: true })}の家事`;
+  const allDayBand = find(ui, 'calendar-fixed-all-day');
+  assert.equal(before[4], style(allDayBand).height + style(ui.button(`${label(empty)}を開く`)).minHeight);
+  await ui.press(`${label(day)}を開く`);
+  const body = () => find(ui, `calendar-chore-column:${day}`);
+  assert.equal(style(body()).top, before[1], 'the all-day band stays above the opened chores');
+  assert.equal(insets()[1], before[1] + style(body()).height);
+  assert.ok(insets()[1] > before[1]);
+  assert.deepEqual([insets()[0], ...insets().slice(2)], [before[0], ...before.slice(2)]);
+  assert.equal(style(band()).left, bar.left);
+  assert.equal(style(band()).width, bar.width);
+  assert.equal(titleStart(), title);
+
+  await ui.press(`${label(empty)}を開く`);
+  const emptyChores = find(ui, `calendar-chore-column:${empty}`);
+  assert.equal(style(emptyChores).top, before[4], 'a day without all-day events shares the all-day band before its own chores toggle');
+  assert.equal(insets()[4], before[4] + style(emptyChores).height);
+  await ui.press(`${label(empty)}を閉じる`);
+  await ui.press('深夜便を編集');
+  assert.equal(opened.at(-1).value.startMinute, 5);
+  await ui.press('閉じる');
+  await ui.press('家族の旅行を編集');
+  assert.equal(opened.at(-1).eventId, 'trip');
+  await ui.press('閉じる');
+  scrollY = 300;
+  ui.render();
+  assert.deepEqual(insets(), dates.map(() => 0), 'clock rows align once scrolled past the opening hours');
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} a weekly timed drag respects local panels near midnight`, async t => {
+  const source = addDays(day, 1);
+  const rows = [event({ id: 'night', title: '深夜の連絡', startDate: source, endDate: source, startMinute: 7, endMinute: 30 })];
+  const writes = [];
+  const local = binding({ snapshot: { events: rows, exceptions: [], categories: [], drafts: [] },
+    saveEvent: async draft => { writes.push(draft); } });
+  const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform,
+    layoutEffect: effect => effect(), props: { today: day, timeZone: 'Asia/Tokyo', local,
+      dayInfo: date => ({ loaded: true, total: date === day ? 4 : 0 }), renderChores: date => `${date}の家事` } });
+  t.after(() => ui.unmount());
+  await selectCalendarView(ui, '7日表示');
+  find(ui, 'calendar-week').props.onLayout({ nativeEvent: { layout: { width: 350 } } });
+  const label = `${formatJapaneseDate(day, { year: true })}の家事`;
+  await ui.press(`${label}を開く`);
+  ui.nodes().find(node => node.props.accessibilityLabel === `${label}一覧`).props.onContentSizeChange(50, 176);
+  await ui.flush();
+  const surface = () => find(ui, `calendar-movable-night:${source}`);
+  const timeColumn = find(ui, `calendar-week-time:${day}`);
+  const hourHeight = timeColumn.children[1].props.style.at(-1).top;
+  const begin = async () => {
+    const press = ui.button('深夜の連絡を編集').props;
+    const touch = { nativeEvent: { pageX: 210, pageY: 10 } };
+    press.onPressIn(touch);
+    press.onLongPress(touch);
+    await ui.flush();
+    surface().props.onPanResponderGrant();
+  };
+  const gesture = { dx: 0, dy: 0, numberActiveTouches: 1 };
+  const point = dy => ({ nativeEvent: { pageX: 160, pageY: 10 + dy } });
+  await begin();
+  surface().props.onPanResponderRelease(point(0), gesture);
+  await ui.flush();
+  assert.equal(writes.length, 0, 'a drop on the chores panel must never round into a hidden midnight slot');
+  await begin();
+  const panelHeight = Object.assign({}, ...timeColumn.props.style.flat(Infinity).filter(Boolean)).transform[0].translateY;
+  const move = point(panelHeight + hourHeight / 6);
+  surface().props.onPanResponderMove(move, gesture);
+  await ui.flush();
+  assert.match(ui.text(), /11\/11 00:17/u);
+  surface().props.onPanResponderRelease(move, gesture);
+  await ui.flush();
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].value.startDate, day);
+  assert.equal(writes[0].value.startMinute, 17);
+});
+
+for (const platform of ['ios', 'android']) test(`${platform} all-day panels align while a full chore list stays in its own day column in two and three day mode`, async t => {
+  const next = addDays(day, 1);
+  const allDay = event({ id: 'first-day-all-day', allDay: true, title: '初日の終日予定' });
+  const rows = Array.from({ length: 9 }, (_, index) => `検査用の家事 ${index + 1}`);
+  let y = 0;
+  const ui = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform,
+    layoutEffect: effect => effect(), nativeScrollOffset: () => y, props: {
+      today: day, timeZone: 'Asia/Tokyo', dayInfo: date => ({ loaded: true, total: date === day ? rows.length : 0 }),
+      renderChores: () => rows, local: binding({ snapshot: { events: [allDay], exceptions: [], categories: [], drafts: [] } }),
+    } });
+  t.after(() => ui.unmount());
+  const style = node => Object.assign({}, ...[node.props.style].flat(Infinity).filter(Boolean));
+  const offset = date => style(find(ui, `calendar-detail-time:${date}`)).transform[0].translateY;
+  const label = `${formatJapaneseDate(day, { year: true })}の家事`;
+  for (const mode of ['2日表示', '3日表示']) {
+    y = 0; await selectCalendarView(ui, mode);
+    const bandHeight = style(find(ui, 'calendar-fixed-all-day')).height;
+    const withOwnToggle = offset(day);
+    assert.ok(bandHeight > 0);
+    assert.equal(offset(next), bandHeight);
+    assert.equal(style(find(ui, 'calendar-timeline-days')).height ?? 0, 0, 'the shared all-day band must not add a second copy of its height to the scroll content');
+    await ui.press(`${label}を開く`);
+    const list = ui.nodes().find(node => node.props.accessibilityLabel === `${label}一覧`);
+    list.props.onContentSizeChange(120, 396);
+    await ui.flush();
+    assert.equal(style(find(ui, `calendar-chore-column:${day}`)).height, 396, 'space available for a full chore list must be used');
+    assert.equal(offset(day), withOwnToggle + 396);
+    assert.equal(offset(next), bandHeight);
+    assert.match(ui.text(), /検査用の家事 9/u);
+    y = 120; ui.render();
+    assert.equal(offset(day), offset(next), 'the two clock grids align after scrolling below the opening hours');
+    await ui.press(`${label}を閉じる`);
   }
 });
 

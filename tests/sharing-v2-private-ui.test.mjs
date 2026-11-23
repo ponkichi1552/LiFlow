@@ -13,6 +13,7 @@ import { createV2ScreenSession } from '../src/features/sharing/v2-ui/screen-sess
 import { createV2PrivateTaskSource } from '../src/features/sharing/v2-ui/private-overlay.ts';
 import { createWorkspaceDisplayStore } from '../src/features/sharing/v2-ui/workspace-display-store.ts';
 import { listSharingOutbox } from '../src/platform/storage/sharing-ledger.ts';
+import { plannerReadRetryDelays } from '../src/platform/storage/planner-read-retry.ts';
 const repository = await import('../src/platform/storage/repository.ts');
 const { bindAdaptiveOwnerReader, AdaptiveOwnerInputsChangedError } = await import('../src/platform/storage/adaptive-owner-inputs.ts');
 
@@ -35,6 +36,65 @@ function checkbox(screen, name, completed = false) {
   const node = screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === `${name}を${completed ? '未完了に戻す' : '完了'}`);
   assert.ok(node, `personal checkbox: ${name}, completed ${completed}`); return node;
 }
+
+test('shared home keeps the committed personal list during a temporary read failure and refreshes it automatically', async t => {
+  const f = await setup({ liveClock: true });
+  const previous = await f.session.readModel();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let focus;
+  let reads = 0;
+  const session = { ...f.session, async readModel() {
+    reads++;
+    if (reads === 1) return { ...previous, privateOverlay: { status: 'unavailable', retryable: true } };
+    return await f.session.readModel();
+  } };
+  const screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen',
+    props: { purpose: 'workspace', view: 'home', lifecycleManaged: true, initialDisplay: { session, model: previous },
+      loadSession: async () => session, onBack() {}, onConfiguration() {}, onHistory() {} },
+    focusEffect: fn => { focus = fn; } });
+  let leave;
+  try {
+    leave = focus();
+    await screen.flush();
+    assert.equal(reads, 1);
+    assert.ok(checkbox(screen, f.personal.chore.name));
+    assert.doesNotMatch(screen.text(), /最新の個人家事を表示できません/u);
+
+    t.mock.timers.tick(plannerReadRetryDelays[0]);
+    await screen.flush();
+    assert.equal(reads, 2);
+    assert.ok(checkbox(screen, f.personal.chore.name));
+  } finally { leave?.(); screen.unmount(); f.close(); }
+});
+
+test('cold shared home distinguishes unavailable personal chores from a confirmed empty day', async t => {
+  const f = await setup({ liveClock: true });
+  const latest = await f.session.readModel();
+  const model = { ...latest, plan: { ...latest.plan, occurrences: [] }, waste: undefined };
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let focus;
+  let reads = 0;
+  const session = { ...f.session, async readModel() {
+    reads++;
+    return reads === 1 ? { ...model, privateOverlay: { status: 'unavailable', retryable: true, message: '一時的な読取失敗' } } : model;
+  } };
+  const screen = screenHarness('src/features/sharing/v2-ui/group-screen.tsx', { exportName: 'V2GroupScreen',
+    props: { purpose: 'workspace', view: 'home', lifecycleManaged: true, loadSession: async () => session,
+      onBack() {}, onConfiguration() {}, onHistory() {} }, focusEffect: fn => { focus = fn; } });
+  let leave;
+  try {
+    leave = focus();
+    await screen.flush();
+    assert.equal(reads, 1);
+    assert.match(screen.text(), /今日の共有家事はありません/u);
+    assert.doesNotMatch(screen.text(), /今日の家事はありません|一時的な読取失敗/u);
+
+    t.mock.timers.tick(plannerReadRetryDelays[0]);
+    await screen.flush();
+    assert.equal(reads, 2);
+    assert.ok(checkbox(screen, f.personal.chore.name));
+  } finally { leave?.(); screen.unmount(); f.close(); }
+});
 
 for (const platform of ['ios', 'android']) {
   const recoveryName = platform === 'ios'
@@ -264,7 +324,7 @@ for (const platform of ['ios', 'android']) test(`${platform} shared workspace co
         }) },
         '@/platform/sharing/workspaces': { subscribeSharingChanges: () => () => {}, sharingFailureMessage: () => '同期を確認してください。' },
       } });
-    leave = focus(); await ready(screen, '本人の予定設定が更新されました');
+    leave = focus(); await ready(screen, '最新の家事を表示できませんでした。');
     assert.equal(overlayCalls, 3, 'the composite budget owns the three fresh passes');
     assert.equal(ownerReads, 3, 'a private repository must not multiply those passes into nine');
     assert.equal(f.personal.connection.prepare("SELECT COUNT(*) AS n FROM chore_completions WHERE schedule_entry_id LIKE 'shared-home:%'").get().n, 0);

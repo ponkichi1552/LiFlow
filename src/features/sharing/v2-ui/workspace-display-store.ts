@@ -49,6 +49,7 @@ export function createWorkspaceDisplayStore(initialLoad?: () => Promise<V2GroupU
   const notify = () => { for (const listener of listeners) listener(); };
   const fresh = (value: WorkspaceDisplayValue & { generation: number }) => value.generation === generation
     && sharedLocalDate(now(), value.model.plan.timeZone) === value.model.plan.range.asOfDate
+    && !(value.model.privateOverlay?.status === 'unavailable' && value.model.privateOverlay.retryable)
     && (value.model.privateOverlay?.status !== 'ready' || sharedLocalDate(now(), value.model.privateOverlay.timeZone) === value.model.privateOverlay.today);
   const covering = (options: Options) => [...values.values()].reverse().find(value => fresh(value) && coversDisplay(value, options));
   const assertSource = (source: V2GroupUiSession) => {

@@ -213,7 +213,7 @@ for (const platform of ['ios', 'android']) {
       const before = JSON.stringify(f.props.model);
       f.props.feedback = { values: new Map([[key, true]]), run: async () => {} }; f.props.busy = true; f.screen.render();
       assert.ok(f.screen.nodes().some(node => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事0件'));
-      assert.equal(f.screen.button('床を掃除するの説明を開く').props.accessibilityValue?.text, '完了済み');
+      assert.match(f.screen.button('床を掃除するの説明を開く').props.accessibilityValue?.text, /^完了済み(?:、|$)/u);
       assert.ok(!f.screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'));
       assert.equal(f.screen.text().includes('共有予定を読み込んでいます…'), false);
       assert.equal(JSON.stringify(f.props.model), before);
@@ -229,11 +229,12 @@ for (const platform of ['ios', 'android']) {
   test(`${platform} calendar mutations keep the visible cards and known counts without exposing completion actions`, async () => {
     const f = await setup(platform);
     try {
-      const list = f.screen.nodes().find((node) => node.props.testID === 'calendar-chore-list');
-      assert.ok(list.props.itemLayoutAnimation, 'the virtualized cells must animate their reordered positions');
-      const before = list.props.data.map((entry) => entry.key);
-      assert.ok(before.length > 0); f.props.busy = true; f.screen.render();
-      assert.deepEqual(f.screen.nodes().find((node) => node.props.testID === 'calendar-chore-list').props.data.map((entry) => entry.key), before);
+      const actions = () => f.screen.nodes().filter(node => node.props.accessibilityRole === 'button'
+        && /の(?:説明を開く|今回の日付を変更)$/u.test(node.props.accessibilityLabel ?? '')).map(node => node.props.accessibilityLabel);
+      const before = actions();
+      assert.ok(before.includes('床を掃除するの説明を開く'));
+      f.props.busy = true; f.screen.render();
+      assert.deepEqual(actions(), before);
       assert.ok(f.screen.nodes().some((node) => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事1件'));
       assert.ok(!f.screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'));
       assert.equal(f.props.model.plan.history.length, 0);
@@ -255,7 +256,7 @@ for (const platform of ['ios', 'android']) {
       } finally { home.unmount(); }
       assert.ok(f.screen.nodes().some((node) => node.props.accessibilityLabel === '2026年10月27日、確認できる未完了の共有家事0件'));
       assert.ok(!f.screen.nodes().some(node => node.props.accessibilityRole === 'checkbox'));
-      assert.equal(f.screen.button('床を掃除するの説明を開く').props.accessibilityValue?.text, '完了済み');
+      assert.match(f.screen.button('床を掃除するの説明を開く').props.accessibilityValue?.text, /^完了済み(?:、|$)/u);
       assert.notEqual(f.props.model.plan.sourceHash, before); assert.equal(f.props.model.plan.history.length, 1);
     } finally { f.close(); }
   });

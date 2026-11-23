@@ -6,7 +6,8 @@ import { readFileSync } from 'node:fs';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { screenHarness } from './helpers/screen-harness.mjs';
 import { createIntegration, now as googleNow } from './helpers/google-sync-integration.mjs';
-import { localDateFromDate, addDays, daysBetween } from '../src/domain/scheduling/local-date.ts';
+import { localDateFromDate, addDays, daysBetween, formatJapaneseDate } from '../src/domain/scheduling/local-date.ts';
+import { homeUpcomingRange } from '../src/features/planner/home-presentation.ts';
 import { optimizeLaundryScheduleForWeather } from '../src/features/weather/optimize-laundry-schedule.ts';
 import { LaundryWeatherAdjustmentPolicy, applyLaundryWeatherAdjustments, isSuitableLaundryDay } from '../src/features/weather/laundry-policy.ts';
 import { recommendedChoreCounts, selectDateTasks } from '../src/domain/scheduling/date-tasks.ts';
@@ -257,17 +258,31 @@ test('completing and undoing a weather-shifted future occurrence only changes th
   } finally { h.connection.close(); }
 });
 
-test('weather adjustment agrees between SQLite, home notice, calendar marker and selected card', async () => {
+test('weather adjustment agrees between SQLite, home schedule, calendar marker and selected card', async () => {
   const h = await fixture();
   try {
-    const first = h.snapshot.scheduleEntries[0];
-    const adjusted = await repository.applyWeatherToPlannerSnapshot(h.database, h.snapshot, () => true, shiftFirst);
-    const moved = adjusted.scheduleEntries.find((entry) => entry.id === first.id);
+    // Choose an upcoming occurrence. An open window already belongs on today's Home list.
+    const planned = h.snapshot.scheduleEntries.find(entry => entry.windowStart > today && entry.suggestedDate < entry.windowEnd);
+    assert.ok(planned);
+    const movedDate = addDays(planned.suggestedDate, 1);
+    const adjusted = await repository.applyWeatherToPlannerSnapshot(h.database, h.snapshot, () => true, input => ({
+      schedule: input.schedule.map(entry => entry.id === planned.id ? { ...entry, suggestedDate: movedDate } : entry),
+      outcome: 'adjusted',
+      adjustmentCount: 1,
+    }));
+    const moved = adjusted.scheduleEntries.find(entry => entry.id === planned.id);
+    assert.equal(moved.suggestedDate, movedDate);
+    const chore = adjusted.chores.find(item => item.id === moved.choreId);
     const home = screenHarness('src/app/(tabs)/index.tsx', { database: h.database, snapshot: () => adjusted });
-    assert.ok(home.text().includes('天気に合わせて洗濯予定を調整しました'));
+    if (moved.suggestedDate > homeUpcomingRange(today, 'current').through) await home.press('来週');
+    const formatted = formatJapaneseDate(moved.suggestedDate, { weekday: true });
+    const dayLabel = moved.suggestedDate.slice(0, 7) === today.slice(0, 7) ? formatted.replace(/^\d+月/u, '') : formatted;
+    assert.ok(home.text().includes(`${dayLabel}のおすすめ`));
+    home.button(`${chore.name}の説明を開く`);
+    assert.doesNotMatch(home.text(), /天気に合わせて洗濯予定を調整しました/u);
+
     const calendar = screenHarness('src/app/(tabs)/explore.tsx', { database: h.database, snapshot: () => adjusted });
     await openCalendarDay(calendar, moved.suggestedDate);
-    const chore = adjusted.chores.find((item) => item.id === moved.choreId);
     assert.ok(calendar.nodes().some((node) => node.props.accessibilityLabel === `${chore.name}の今回の日付を変更`));
     assert.equal(calendar.nodes().some(node => node.props.accessibilityRole === 'checkbox'), false);
     const row = h.connection.prepare('SELECT suggested_date FROM chore_schedule_entries WHERE id = ?').get(moved.id);

@@ -6,7 +6,7 @@ import { AppState } from 'react-native';
 
 import { millisecondsUntilNextLocalDay } from '@/domain/scheduling/local-date';
 import type { PlannerSnapshot } from '@/platform/storage/repository';
-import { applyWeatherToPlannerSnapshot, loadGoogleSyncState, loadPlannerSnapshot, LOCAL_HOUSEHOLD_ID, refreshCachedApplianceLibrary } from '@/platform/storage/repository';
+import { applyWeatherToPlannerSnapshot, loadGoogleSyncState, loadPlannerSnapshot, LOCAL_HOUSEHOLD_ID, readSavedPlannerSnapshot, refreshCachedApplianceLibrary } from '@/platform/storage/repository';
 import { subscribeApplianceLibraryChanges } from '@/features/appliance-care/library-changes';
 import { refreshPlannerFromWidget } from '@/platform/widgets/refresh-planner-from-widget';
 import { publishTodayWidgetSnapshot } from '@/features/widgets/publish-today-widget-snapshot';
@@ -23,6 +23,7 @@ import { subscribeSharingChanges } from '@/platform/sharing/workspaces';
 import { PlannerIssuesContext } from '@/contexts/planner-issues-context';
 import { waitForInitialFrame } from '@/features/planner/initial-display-gate';
 import { AdaptiveOwnerInputsChangedError } from '@/platform/storage/adaptive-owner-inputs';
+import { isTransientPlannerRead } from '@/platform/storage/planner-read-retry';
 import { WorkspaceContext } from '@/contexts/workspace-context';
 
 type PlannerController = ReturnType<typeof createPlannerRefreshController<PlannerSnapshot>>;
@@ -51,6 +52,14 @@ export function PlannerDataProvider({ children, databaseOverride }: { children: 
   const shared = sharedRepositoryAdapter(database);
   const controller = useMemo(() => createPlannerRefreshController<PlannerSnapshot>({
     retryLoadOnError: (error) => error instanceof AdaptiveOwnerInputsChangedError,
+    retryInBackground: isTransientPlannerRead,
+    readPrevious: shared ? undefined : async () => {
+      const { assertSubscriptionAccess } = await import('@/platform/subscription/runtime');
+      await assertSubscriptionAccess();
+      const saved = await readSavedPlannerSnapshot(database);
+      await assertSubscriptionAccess();
+      return saved;
+    },
     discardSnapshotOnError: (error) => Boolean(shared && error && typeof error === 'object' && 'code' in error
       && ['sharing/scheduler-version-mismatch', 'sharing/access-denied'].includes(String(error.code))),
     load: (ids, force) => shared ? loadPlannerSnapshot(database).then((snapshot) => ({ snapshot, canPublishWidget: false }))

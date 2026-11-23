@@ -19,7 +19,7 @@ import { V2RoundCard } from './round-card';
 import { privateOverlayForViewer, privateOverlayCalendarRows } from './private-overlay';
 import type { V2PrivateOverlayState, V2PrivateTaskSource } from './private-overlay';
 import { V2PrivateTaskCard, V2PrivateTaskNotice } from './private-task-card';
-import { V2WasteOccurrence } from './waste-occurrence';
+import { CalendarCollectionLabels } from '../../../components/waste-type-icon';
 import { createV2WasteCalendarProjector } from '../v2/calendar-waste-policy.ts';
 import type { V2WasteOccurrence as V2WasteEntry } from '../v2/waste-state';
 import { PlannerCalendar } from '../../calendar/planner-calendar';
@@ -29,6 +29,8 @@ import { calendarChoreDisplayThrough } from '../../calendar/chore-display-range'
 import { timedCalendarChoreSearchTarget } from '../../calendar/timed-chores';
 import { V2CalendarChoreRegistration } from './calendar-chore-registration';
 import type { V2DateFormProps } from './date-form';
+
+const choreRowTransition = LinearTransition.duration(240);
 
 export function V2Calendar({ model, personal, privateOverlay: privateValue, privateSource, selectedDate, busy, actions, run, onMonth, onReloadMonth = onMonth, onSelectDate, onRound, onDate, header, feedback, local: personalLocal, onNavigate, perform, workspaceName, onGuide, readOwnCalendar }: {
   perform?: (work: () => Promise<unknown>) => Promise<V2MutationOutcome>; onGuide?: (choreId: string, source: 'shared' | 'personal') => void; feedback?: CompletionFeedback; local?: LocalCalendarBinding; onNavigate?: PlannerCalendarProps['onNavigate']; workspaceName?: string;
@@ -173,21 +175,29 @@ export function V2Calendar({ model, personal, privateOverlay: privateValue, priv
     dayInfo={dayInfo}
     existingChores={existingChores.map(({ round, ...chore }) => ({ ...chore,
       onOpen: () => onGuide ? onGuide(round.choreId, 'shared') : onRound(round.id, chore.id, round.anchorDate) }))}
-    renderWaste={date => <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>{wasteLoaded(date) ? wasteForDate(date).filter(entry => entry.hidden !== true).map(entry => <V2WasteOccurrence key={entry.key} entry={entry} inline />) : null}</View>}
-    renderChores={(date, view) => <Animated.FlatList testID="calendar-chore-list" data={entriesFor(date)} scrollEnabled={false} itemLayoutAnimation={LinearTransition.duration(240)} keyExtractor={entry => entry.key} initialNumToRender={8}
-      ListHeaderComponent={<View style={{ gap: 6 }}>
-        <V2PrivateTaskNotice overlay={privateOverlay} sharedTimeZone={model.plan.timeZone} date={date} />
-        {date <= choreThrough && privateValue && !privateReady(date) && privateOverlay?.status !== 'unavailable' ? <Text style={caption}>この月の個人家事は未取得です。</Text> : null}
-        {!loaded(date) ? <Text style={caption}>{busy ? '共有予定を読み込んでいます…' : 'この月の共有予定を取得できていません。'}</Text> : null}
-        {!loaded(date) || date <= choreThrough && privateValue && !privateReady(date) ?
-          <AppButton title="この月を再読込" variant="quiet" compact disabled={busy} onPress={() => onReloadMonth(v2CalendarMonth(date).month)} /> : null}
-        {model.waste?.rows.some(row => !row.deleted && row.needsReview) ? <Text style={caption}>確認が必要な収集ルールは共有のゴミ収集日で確認できます。</Text> : null}
-      </View>}
-      ListEmptyComponent={loaded(date) && !busy ? <Card><Text style={caption}>この日の共有家事はありません。</Text></Card> : undefined}
-      renderItem={({ item }) => item.source === 'personal' ? <V2PrivateTaskCard compact narrowCalendar={view === 'three' || view === 'week'} row={item.row} today={privateOverlay?.status === 'ready' ? privateOverlay.today : undefined} source={privateSource} busy={busy} run={run} feedback={feedback} mixedSources showCalendarTime={view === 'list'} timeZone={privateOverlay?.status === 'ready' ? privateOverlay.timeZone : model.plan.timeZone}
-        onOpen={onGuide ? () => onGuide(item.row.chore.id, 'personal') : undefined} />
-        : <V2RoundCard compact narrowCalendar={view === 'three' || view === 'week'} model={model} round={item.entry.round} subject={item.entry.subject} recommendation={item.entry.recommendation} actions={actions} busy={busy} run={run} feedback={feedback} showCalendarTime={view === 'list'}
-          onDate={onDate ? () => onDate(item.entry.round.id, item.entry.subject.id, date, item.entry.round.anchorDate) : undefined}
-          onOpen={() => onGuide ? onGuide(item.entry.round.choreId, 'shared') : onRound(item.entry.round.id, item.entry.subject.id, item.entry.round.anchorDate)} />} />}
+    renderWaste={(date, view) => wasteLoaded(date) ? <CalendarCollectionLabels narrow={view === 'week'} compact={view !== 'day' && view !== 'list'}
+      labels={wasteForDate(date).filter(entry => entry.hidden !== true).map(entry => entry.occurrence.label)} /> : null}
+    renderChores={(date, view) => {
+      const entries = entriesFor(date);
+      const mixedSources = entries.some(item => item.source === 'personal') && entries.some(item => item.source === 'shared');
+      const narrowCalendar = view === 'three' || view === 'week' ? view : undefined;
+      return <View testID="calendar-chore-list">
+        <View style={{ gap: 6 }}>
+          <V2PrivateTaskNotice overlay={privateOverlay} sharedTimeZone={model.plan.timeZone} date={date} />
+          {date <= choreThrough && privateValue && !privateReady(date) && privateOverlay?.status !== 'unavailable' ? <Text style={caption}>この月の個人家事は未取得です。</Text> : null}
+          {!loaded(date) ? <Text style={caption}>{busy ? '共有予定を読み込んでいます…' : 'この月の共有予定を取得できていません。'}</Text> : null}
+          {!loaded(date) || date <= choreThrough && privateValue && !privateReady(date) ?
+            <AppButton title="この月を再読込" variant="quiet" compact disabled={busy} onPress={() => onReloadMonth(v2CalendarMonth(date).month)} /> : null}
+        </View>
+        {!entries.length && loaded(date) && !busy ? <Card><Text style={caption}>この日の共有家事はありません。</Text></Card> : null}
+        {entries.map(item => <Animated.View key={item.key} layout={choreRowTransition}>
+          {item.source === 'personal' ? <V2PrivateTaskCard compact narrowCalendar={narrowCalendar} row={item.row} today={privateOverlay?.status === 'ready' ? privateOverlay.today : undefined} source={privateSource} busy={busy} run={run} feedback={feedback} mixedSources={mixedSources} showCalendarTime={view === 'list'} timeZone={privateOverlay?.status === 'ready' ? privateOverlay.timeZone : model.plan.timeZone}
+            onOpen={onGuide ? () => onGuide(item.row.chore.id, 'personal') : undefined} />
+            : <V2RoundCard compact narrowCalendar={narrowCalendar} model={model} round={item.entry.round} subject={item.entry.subject} recommendation={item.entry.recommendation} actions={actions} busy={busy} run={run} feedback={feedback} mixedSources={mixedSources} showCalendarTime={view === 'list'}
+              onDate={onDate ? () => onDate(item.entry.round.id, item.entry.subject.id, date, item.entry.round.anchorDate) : undefined}
+              onOpen={() => onGuide ? onGuide(item.entry.round.choreId, 'shared') : onRound(item.entry.round.id, item.entry.subject.id, item.entry.round.anchorDate)} />}
+        </Animated.View>)}
+      </View>;
+    }}
   />;
 }

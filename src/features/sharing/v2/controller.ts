@@ -22,9 +22,11 @@ import { buildV2WasteCalendarPolicy } from './calendar-waste-policy.ts';
 import type { V2WasteCalendarPolicy } from './calendar-waste-policy';
 import { buildV2ApplianceModel } from './appliance-state.ts';
 import type { LegacyCompletionRecord } from './legacy-history.ts';
+import type { CopiedCompletionRecord } from './workspace-copy-plan.ts';
 import { traceStartup, traceStartupSync } from '../../../platform/diagnostics/startup-timing.ts';
 import { nextLongCalendarRounds } from './next-calendar-rounds.ts';
 import { v2ConfigurationTimeline } from './configuration-timeline.ts';
+import { commonFrames } from './common-frames.ts';
 type V2ModelRange = { from: LocalDate; through: LocalDate; asOfDate: LocalDate };
 
 /** Injected transport keeps the screen independent of production, Emulator, and offline test workspaces. */
@@ -43,7 +45,7 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
       if (typeof timeZone !== 'string') throw new Error('グループの地域を確認してください。');
       return { groupId: repository.scope.groupId, viewerUserId: repository.scope.userId, timeZone, records: readSharedCalendar(state.assessment.view, at) };
     }),
-    async readModel(inputRange: V2ModelRange | ((context: { timeZone: string }) => V2ModelRange), readOptions: { detailChoreId?: string; choreSettings?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; wasteCalendarPolicy?: boolean; appliances?: boolean; applianceId?: string; calendarLong?: boolean } = {}) {
+    async readModel(inputRange: V2ModelRange | ((context: { timeZone: string }) => V2ModelRange), readOptions: { detailChoreId?: string; choreSettings?: boolean; groupPolicy?: boolean; permissionsChoreId?: string; waste?: boolean; wasteCalendarPolicy?: boolean; appliances?: boolean; applianceId?: string; calendarLong?: boolean; assignmentReview?: boolean; copiedHistory?: boolean } = {}) {
       const state = await traceStartup('display.repository', () => repository.readState());
       const at = v2ReadPoint(state.assessment.view, state.archive.at(-1)!);
       let range: V2ModelRange;
@@ -109,13 +111,28 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
         calendarLong = isolatedProjectionValue(longCalendarCache.rounds);
       }
       const manualStorageSupported = supportsRetainedManuals(state.archive.at(-1)!.body.schedulerVersion);
-      return { manualStorageSupported, calendar: readSharedCalendar(state.assessment.view, at), calendarSupported: supportsSharedCalendar(state.archive.at(-1)!.body.schedulerVersion), plan, configurations, choreDetails, ...(calendarLong ? { calendarLong } : {}), ...(readOptions.choreSettings ? { choreDateRights } : {}), ...(groupPolicy ? { groupPolicy } : {}), ...(groupSettings ? { groupSettings } : {}), ...(dateRights ? { dateRights } : {}), ...(waste ? { waste } : {}), ...(appliances ? { appliances } : {}), viewerUserId: repository.scope.userId, adminUserId: state.archive.at(-1)!.body.ownerUserId,
+      const adminUserId = state.archive.at(-1)!.body.ownerUserId;
+      const assignmentRules = state.assessment.view.assignmentsAt(at)?.facts ?? [];
+      const timelines = new Map<string, ReturnType<typeof v2ConfigurationTimeline>>();
+      const orphanedAssignments = readOptions.assignmentReview && repository.scope.userId === adminUserId ? assignmentRules.filter(({ payload }) => {
+        if (payload.scope !== 'once') return false;
+        let timeline = timelines.get(payload.choreId);
+        if (!timeline) {
+          timeline = v2ConfigurationTimeline(state.assessment.view, payload.choreId, at);
+          timelines.set(payload.choreId, timeline);
+        }
+        const date = payload.fromAnchorDate as LocalDate;
+        const slice = timeline.find(slice => slice.from <= date && (!slice.through || date <= slice.through));
+        return Boolean(slice && (!slice.configuration || slice.configuration.active === false
+          || !commonFrames(plan.groupId, payload.choreId, slice.configuration, date, date).some(frame => frame.id === payload.fromOccurrenceId)));
+      }) : undefined;
+      return { manualStorageSupported, calendar: readSharedCalendar(state.assessment.view, at), calendarSupported: supportsSharedCalendar(state.archive.at(-1)!.body.schedulerVersion), plan, configurations, choreDetails, ...(calendarLong ? { calendarLong } : {}), ...(readOptions.choreSettings ? { choreDateRights } : {}), ...(groupPolicy ? { groupPolicy } : {}), ...(groupSettings ? { groupSettings } : {}), ...(dateRights ? { dateRights } : {}), ...(waste ? { waste } : {}), ...(appliances ? { appliances } : {}), viewerUserId: repository.scope.userId, adminUserId,
         ...(recoveryHistory.length ? { recoverySummary: { heldChanges: recoveryHistory.reduce((sum, witness) => sum
           + witness.body.entries.filter(entry => entry.classification === 'blockedCausality').length, 0), recoveries: recoveryHistory.length } } : {}),
         requests: state.assessment.requestStates, requestReviews: reviews.date, assignmentReviews: reviews.assignment,
         dateRules: observedDateRules(state.assessment.view, at, state.assessment.approvedRules),
         dateRuleSources: observedDateRules(state.assessment.view, at, state.assessment.approvedRules, true),
-        assignmentRequests: state.assessment.assignmentRequests, assignmentRules: state.assessment.view.assignmentsAt(at)?.facts ?? [], pendingChanges: state.assessment.pendingOutboxIds.length,
+        assignmentRequests: state.assessment.assignmentRequests, assignmentRules, ...(orphanedAssignments ? { orphanedAssignments } : {}), pendingChanges: state.assessment.pendingOutboxIds.length,
         receiptPending: state.assessment.provisionalOperationIds.length, quarantinedChanges: state.assessment.rejected.length + state.replica.pendingOperationIds.length };
     },
   };
@@ -123,4 +140,5 @@ export function createV2GroupController(repository: ReturnType<typeof createV2Ev
 export type V2GroupController = ReturnType<typeof createV2GroupController>;
 export type V2GroupScreenModel = Awaited<ReturnType<V2GroupController['readModel']>> & {
   legacyHistory?: LegacyCompletionRecord[];
+  copiedHistory?: CopiedCompletionRecord[];
 };

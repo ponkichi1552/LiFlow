@@ -73,8 +73,12 @@ for (const [platform, firstName, waitingName, noLocalName] of names) {
     assert.equal(modal(ui), undefined); assert.deepEqual(saved.reads.filter(key => key === CALENDAR_HELP_SEEN_KEY), []);
     const list = ui.nodes().find(node => node.props.testID === 'calendar-weeks'); const before = structuredClone(f.local.snapshot);
     await f.focus(); assert.ok(modal(ui)); assert.throws(() => ui.button('予定を追加'), /missing button/);
+    assert.match(ui.text(), /予定・家事を追加/u);
+    modal(ui).props.onShow();
+    await ui.press('カレンダーの案内を次へ');
     assert.match(ui.text(), /長押しして移動/u); assert.match(ui.text(), /個別に変更した回はそのまま/u);
-    modal(ui).props.onShow(); await close(ui, platform);
+    await ui.press('カレンダーの案内を前へ'); assert.match(ui.text(), /予定・家事を追加/u);
+    await close(ui, platform);
     assert.equal(ui.nodes().find(node => node.props.testID === 'calendar-weeks').props.ref, list.props.ref);
     assert.equal(f.view(), 'month'); const reads = f.reads();
     await ui.press('カレンダーのヘルプを開く'); modal(ui).props.onShow(); await close(ui, platform, 'native');
@@ -89,12 +93,12 @@ for (const [platform, firstName, waitingName, noLocalName] of names) {
 
   test(waitingName, async t => {
     const saved = storage(), f = calendar(platform, saved); t.after(() => f.close()); const ui = f.ui;
-    await ui.press('カレンダーの表示を選択'); await f.focus(); assert.equal(ui.text().includes('予定は、長押しして移動'), false);
+    await ui.press('カレンダーの表示を選択'); await f.focus(); assert.doesNotMatch(ui.text(), /カレンダーの使い方/u);
     assert.deepEqual(saved.writes, []); await ui.press('2日表示'); await f.focus(); assert.ok(modal(ui));
     modal(ui).props.onShow(); await close(ui, platform); assert.equal(f.view(), 'two');
     assert.ok(ui.nodes().some(node => node.props.accessibilityLabel?.startsWith('2026年11月16日')));
     await ui.press('予定を検索する'); assert.ok(ui.nodes().some(node => node.props.accessibilityLabel === '予定の検索を閉じる'));
-    assert.equal(ui.text().includes('予定は、長押しして移動'), false);
+    assert.doesNotMatch(ui.text(), /カレンダーの使い方/u);
   });
 
   test(noLocalName, async t => {

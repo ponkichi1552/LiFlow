@@ -14,3 +14,10 @@ export const plannerDarkColors = colorsFor('dark');
 export function plannerColorsForScheme(scheme?: string | null): PlannerColors {
   return scheme === 'dark' ? plannerDarkColors : plannerLightColors;
 }
+
+const lightPressColors = { primary: '#0D638B', tinted: '#EDF3FC', warning: '#F8EBE9' } as const;
+const darkPressColors = { primary: '#44B7D1', tinted: '#254B59', warning: '#4C3038' } as const;
+
+export function plannerPressColorsForScheme(scheme?: string | null) {
+  return scheme === 'dark' ? darkPressColors : lightPressColors;
+}

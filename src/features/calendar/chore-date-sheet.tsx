@@ -1,13 +1,12 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { typography } from '../../components/planner-ui';
-import { SettingsAction, SettingsPanel } from '../../components/settings-controls';
+import { SettingsAction } from '../../components/settings-controls';
 import { plannerColorsForScheme } from '../../components/planner-theme';
-import { CalendarField } from './calendar-field';
 import { CalendarSheetHeader } from './calendar-sheet-header';
-import { addDays, formatJapaneseDate, parseLocalDate } from '../../domain/scheduling/local-date';
+import { ChoreDateFields } from './chore-date-fields';
+import { addDays, formatJapaneseDate } from '../../domain/scheduling/local-date';
 import { choreCalendarTiming, type ChoreCalendarTiming } from '../../domain/chores/calendar-timing';
 import { minuteLabel, newEventDraft, type EventDraft } from './events';
 import { moveCalendarStart } from './event-editing';
@@ -91,23 +90,8 @@ function ChoreDateEditor({ params }: { params: { choreId: string; entryId: strin
       <Text accessibilityRole="header" style={[styles.name, { color: colors.ink }]}>{captured?.definition.name ?? data.snapshot?.chores.find(row => row.id === params.choreId)?.name ?? '家事'}</Text>
       {readState === 'loading' ? <Text accessibilityLiveRegion="polite" style={[styles.message, { color: colors.muted }]}>家事を読み込み中…</Text> : null}
       {readState === 'ready' && reviewDate && captured?.date ? <Text accessibilityLiveRegion="polite" style={[styles.message, { color: colors.muted }]}>現在の実施日 {formatJapaneseDate(captured.date)}{captured.calendarTiming && !captured.calendarTiming.allDay ? ` ${minuteLabel(captured.calendarTiming.startMinute)}〜${minuteLabel(captured.calendarTiming.endMinute)}` : ''}</Text> : null}
-      {timed ? <SettingsPanel>
-        <View style={styles.dateFields}>
-        <View style={styles.dateRow}><Text style={[typography.body, { color: colors.ink }]}>開始</Text>
-          <CalendarField borderless hideLabel commitOnDone label="開始日" date={timed.startDate} minute={0} mode="date" disabled={fieldDisabled} onDate={startDate => setTimed(before => before && moveCalendarStart(before, { startDate }))} />
-          <View style={styles.timeField}><CalendarField borderless hideLabel commitOnDone label="開始時刻" date={timed.startDate} minute={timed.startMinute} mode="time" disabled={fieldDisabled} onMinute={startMinute => setTimed(before => before && moveCalendarStart(before, { startMinute }))} /></View>
-        </View>
-        <View style={styles.dateRow}><Text style={[typography.body, { color: colors.ink }]}>終了</Text>
-          <CalendarField borderless hideLabel commitOnDone label="終了日" date={timed.endDate} minute={0} mode="date" disabled={fieldDisabled} onDate={endDate => setTimed(before => before && { ...before, endDate })} />
-          <View style={styles.timeField}><CalendarField borderless hideLabel commitOnDone label="終了時刻" date={timed.endDate} minute={timed.endMinute} mode="time" disabled={fieldDisabled} onMinute={endMinute => setTimed(before => before && { ...before, endMinute })} /></View>
-        </View>
-        </View>
-        {timed.timeZone !== displayTimeZone ? <Text style={[styles.message, { color: colors.muted }]}>地域：{timed.timeZone}</Text> : null}
-      </SettingsPanel> : selected ? Platform.OS === 'ios' ? <DateTimePicker accessibilityLabel="今回の実施日" value={parseLocalDate(selected)} mode="date" display="spinner" locale="ja-JP" timeZoneName="UTC"
-        themeVariant={scheme === 'dark' ? 'dark' : 'light'} textColor={colors.ink} accentColor={colors.accent} disabled={fieldDisabled} style={styles.picker}
-        onValueChange={(_event, value) => { if (!fieldDisabled && value && Number.isFinite(value.getTime())) setDate(value.toISOString().slice(0, 10) as LocalDate); }} />
-        : <CalendarField label="今回の実施日" date={selected} minute={0} mode="date" disabled={fieldDisabled} onDate={setDate} />
-        : null}
+      <ChoreDateFields date={selected} timed={timed} displayTimeZone={displayTimeZone} disabled={fieldDisabled} onDateChange={setDate}
+        onTimedChange={update => setTimed(before => before && update(before))} />
       {validation || error || data.error ? <Text accessibilityRole="alert" style={[styles.message, { color: colors.warning }]}>{validation ?? error ?? data.error}</Text> : null}
       {error && readState !== 'loading' ? <SettingsAction placement="page" title="現在の家事を再読込" disabled={busy} onPress={reload} /> : null}
     </ScrollView>
@@ -115,6 +99,5 @@ function ChoreDateEditor({ params }: { params: { choreId: string; entryId: strin
 }
 const styles = StyleSheet.create({
   header: { paddingTop: 20 }, body: { flexGrow: 0 }, content: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 16, gap: 8 },
-  name: { ...typography.subheading, fontWeight: '600' }, picker: { alignSelf: 'center', maxWidth: '100%', height: 200 }, message: { ...typography.caption },
-  dateFields: { gap: 8 }, dateRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, timeField: { width: 100, flexShrink: 0 },
+  name: { ...typography.subheading, fontWeight: '600' }, message: { ...typography.caption },
 });

@@ -9,6 +9,7 @@ import { matchesUploadedManual } from '../src/features/appliance-care/manual-sou
 import { normalizeV2ReviewedAppliance } from '../src/features/sharing/v2/appliance-state.ts';
 import { createPublicAnalysisDependencies } from '../server/appliance-care-api/src/public-analysis.mjs';
 import { loadNativeModule } from './helpers/native-module.mjs';
+import { screenHarness } from './helpers/screen-harness.mjs';
 
 test('manual upload rejects URLs paths missing consent forged hashes oversized malformed and password-like documents before paid analysis', async () => {
   for (const input of [null, { url: 'https://attacker.invalid/manual.pdf' }, { path: '/etc/passwd' },
@@ -138,6 +139,32 @@ for (const platform of ['ios', 'android']) test(`${platform} manual selection re
   bytes = syntheticPdf();
   assert.ok(await api.pickApplianceManual());
   assert.deepEqual(events, ['close', 'read'], 'older app builds keep server-side page validation and never remove the source');
+});
+
+test('the PDF selection screen keeps retry available and only displays app-defined rejection details', async t => {
+  let picks = 0;
+  const input = '取扱説明書PDFを選ぶ';
+  const screen = screenHarness('src/features/appliance-care/manual-upload-input.tsx', { exportName: 'ManualUploadInput',
+    props: { onChange() { assert.fail('No document was accepted'); } }, mocks: {
+      'expo-document-picker': { getDocumentAsync: async () => {
+        picks++;
+        if (picks === 1) throw new Error('Native read failed: file:///private/diagnosis.pdf');
+        if (picks === 2) return { canceled: false, assets: [{ uri: 'file:///cache/large.pdf' }] };
+        return { canceled: true };
+      } },
+      'expo-file-system': { Paths: { cache: { uri: 'file:///cache' } }, File: class {
+        uri = 'file:///cache/large.pdf'; size = MAX_MANUAL_BYTES + 1; exists = true; delete() {}
+      } },
+    } });
+  t.after(() => screen.unmount());
+  await screen.press(input);
+  assert.match(screen.text(), /PDFを読み込めませんでした。もう一度選んでください。/u);
+  assert.doesNotMatch(screen.text(), /file:\/\/\/private/u);
+  await screen.press(input);
+  assert.match(screen.text(), /PDFは6MiB以内で選んでください。/u);
+  await screen.press(input);
+  assert.doesNotMatch(screen.text(), /以内で選んでください。/u);
+  assert.equal(picks, 3);
 });
 
 test('only an internal OpenAI no-result classification returns a non-consuming analysis error', async () => {

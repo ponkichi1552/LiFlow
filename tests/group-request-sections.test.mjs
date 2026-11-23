@@ -2,8 +2,32 @@ import './helpers/typescript-loader.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { screenHarness } from './helpers/screen-harness.mjs';
+import { homeReviewData } from '../src/features/development/ui-review/home-review-data.ts';
 
-function requests(platform, { reader, compact = false } = {}) {
+test('only the group administrator can open assignment reviews and approve a pending substitution', async t => {
+  const { model } = homeReviewData('conditions');
+  const routes = [], approvals = [];
+  const props = { model, busy: false, run: async work => { await work(); }, actions: {
+    approveSubstitution: async (...args) => { approvals.push(args); },
+  } };
+  const screen = screenHarness('src/features/sharing/group-admin-review.tsx', { exportName: 'GroupAdminReview', props,
+    navigate: (...args) => routes.push(args) });
+  t.after(() => screen.unmount());
+  assert.equal(screen.text(), '');
+  props.model = { ...model, viewerUserId: model.adminUserId };
+  screen.render();
+  const pending = model.plan.history.find(record => record.acceptance === 'pending');
+  await screen.press('代行の実施を承認');
+  assert.deepEqual(approvals, [[pending.operationId, 'approve']]);
+  const round = model.plan.occurrences.find(item => item.claimState === 'provisional');
+  const name = model.plan.chores.find(chore => chore.id === round.choreId).name;
+  await screen.press(name);
+  assert.deepEqual(routes, [['push', { pathname: '/group-v2/assignment', params: {
+    groupId: model.plan.groupId, occurrenceId: round.id, subjectId: round.subjects[0].id, anchorDate: round.anchorDate,
+  } }]]);
+});
+
+function requests(platform, { reader } = {}) {
   let owner = 'owner', reads = 0, changed, stops = 0;
   const routes = [];
   const model = { viewerUserId: 'owner', adminUserId: 'owner', plan: { groupId: 'house', initialized: true, occurrences: [], members: [], chores: [] },
@@ -13,7 +37,7 @@ function requests(platform, { reader, compact = false } = {}) {
   } } } };
   const screen = screenHarness('src/features/sharing/group-request-sections.tsx', { platform, exportName: 'GroupRequestSections',
     effectDependencies: true, focusDependencies: true, effect: callback => callback(), layoutEffect: callback => callback(),
-    props: { workspace, busy: false, compact, run: async work => { await work(); return true; } }, navigate: (...args) => routes.push(args), mocks: {
+    props: { workspace, busy: false, run: async work => { await work(); return true; } }, navigate: (...args) => routes.push(args), mocks: {
       '@/hooks/use-workspace': { useWorkspace: () => ({ userId: owner }) },
       '@/features/sharing/v2-ui/workspace-data': { useOptionalWorkspaceDisplay: () => null },
       '@/platform/sharing/workspaces': { subscribeSharingChanges: callback => { changed = callback; return () => { stops++; }; } },
@@ -22,13 +46,13 @@ function requests(platform, { reader, compact = false } = {}) {
 }
 
 for (const platform of ['ios', 'android']) {
-  test(`${platform} short request summaries appear inline without navigation and never present unread requests as empty`, async () => {
+  test(`${platform} group requests never present unread requests as empty`, async () => {
     let finish; const pending = new Promise(resolve => { finish = resolve; });
-    const ui = requests(platform, { compact: true, reader: async model => { await pending; return model; } });
+    const ui = requests(platform, { reader: async model => { await pending; return model; } });
     try {
-      assert.equal(ui.screen.text().includes('なし'), false); assert.equal(ui.reads(), 0);
+      assert.equal(ui.screen.text().includes('申請はありません。'), false); assert.equal(ui.reads(), 0);
       await Promise.resolve(); await Promise.resolve(); finish(); await ui.screen.flush();
-      assert.match(ui.screen.text(), /日時変更なし担当変更なし/u); assert.deepEqual(ui.routes, []);
+      assert.equal((ui.screen.text().match(/申請はありません。/gu) ?? []).length, 2); assert.deepEqual(ui.routes, []);
       assert.ok(!ui.screen.nodes().some(row => row.props.accessibilityState?.expanded !== undefined));
     } finally { finish(); ui.screen.unmount(); }
   });

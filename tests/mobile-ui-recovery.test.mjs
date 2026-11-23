@@ -111,7 +111,9 @@ for (const platform of ['ios', 'android']) {
       const completing = binding.toggle(task('pending-heavy')); await screen.flush();
       const after = names(); assert.equal(after.length, 6); assert.ok(after.indexOf('pending-heavy') > after.indexOf('pending-light'));
       assert.equal(after[0], 'pending-normal');
-      assert.equal(rows().find(row => row.props.accessibilityLabel.startsWith('pending-heavyの')).props.accessibilityValue.text, '完了済み');
+      const shortDate = date => `${Number(date.slice(5, 7))}/${Number(date.slice(8))}`;
+      assert.equal(rows().find(row => row.props.accessibilityLabel.startsWith('pending-heavyの')).props.accessibilityValue.text,
+        `完了済み、${shortDate(today)}–${shortDate(addDays(today, 2))}`);
       held.resolve(); await completing; await screen.flush();
     } finally { held.resolve(); h.connection.close(); }
   });

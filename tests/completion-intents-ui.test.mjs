@@ -80,11 +80,16 @@ for (const platform of ['ios', 'android']) {
       assert.ok(undo?.props.onPress); undo.props.onPress(); screen.render();
       const placement = () => screen.nodes().find(node => node.type === 'FlatList').props.data
         .filter(row => row.item?.source === 'shared' && row.item.round.choreId === 'floor').map(row => row.kind);
+      const assertExpiredRowsVisible = () => {
+        assert.match(screen.text(), /期限を過ぎた家事/u);
+        assert.doesNotMatch(screen.text(), /今日の家事/u);
+        assert.equal(screen.nodes().filter(row => row.props.accessibilityRole === 'checkbox').length, 2);
+      };
       assert.deepEqual(placement(), ['expired'], 'optimistic Undo must never detour through Today');
-      assert.equal(screen.button('期限を過ぎた家事（2件）を閉じる').props.accessibilityState.expanded, true);
+      assertExpiredRowsVisible();
       runtime.release(); await runtime.queue.settled(); await screen.flush();
       assert.deepEqual(placement(), ['expired']);
-      assert.equal(screen.button('期限を過ぎた家事（2件）を閉じる').props.accessibilityState.expanded, true);
+      assertExpiredRowsVisible();
       assert.equal((await session.readModel()).plan.history.find(row => row.choreId === 'floor').active, false);
     } finally { runtime?.release(); await runtime?.queue.settled(); screen?.unmount(); d.connection.close(); }
   });

@@ -21,10 +21,10 @@ export function CalendarHelp({ onClose, onShow, measureTargets, view = 'month' }
   const close = () => { setVisible(false); if (Platform.OS !== 'ios') finish(); };
   const movableView = view === 'month' || view === 'day' || view === 'two' || view === 'three' || view === 'week';
   const steps = [
+    { target: targets.add, title: '予定・家事を追加', body: '右上の＋から登録。予定名に「明日18時に食事」などと入れると、日時も入力できます。', detail: '1日・2日・3日・7日は、空き時間の長押しでも予定を追加できます。' },
     { target: movableView ? targets.event ?? targets.calendar : targets.mode, title: '予定は、長押しして移動',
       body: !movableView ? '月・1日・2日・3日・7日表示で、予定を長押ししたまま移動できます。' : !targets.event ? '追加した予定を長押ししたまま動かすと、日時を変更できます。' : view === 'month' ? '予定を長押ししたまま別の日へ。時刻は変わりません。上下端では自動でスクロールします。' : '予定を長押ししたまま動かすと、日付・時刻を変更できます。',
       detail: '繰り返しは範囲を選択。個別に変更した回はそのまま。移動後は「元に戻す」で戻せます。' },
-    { target: targets.add, title: '予定・家事を追加', body: '右上の＋から登録。予定名に「明日18時に食事」などと入れると、日時も入力できます。', detail: '1日・2日・3日・7日は、空き時間の長押しでも予定を追加できます。' },
     { target: targets.mode, title: '表示・詳しさを切り替える', body: '1日・2日・3日・7日・リストを選べます。月表示では「すっきり・標準・詳しく」もここで選択。', detail: '7日は1週間を表示。1日・2日・3日は左右で日付を変更。月・年は上下にスクロール。' },
     { target: targets.search, title: '予定・家事を探す', body: '虫眼鏡から検索し、結果を押すとその日付へ移動します。', detail: '隣の？から、この案内をいつでも開けます。' },
   ];

@@ -73,8 +73,9 @@ for (const platform of ['ios', 'android']) for (const workspaceName of [undefine
   props.birthdayDate = date; events.splice(0, 1, birthday('someone-else')); screen.render(); assert.doesNotMatch(screen.text(), /お誕生日/);
 });
 
-for (const platform of ['ios', 'android']) test(`${platform} birthday month marker preserves appointment slots and detail birthday editing`, async t => {
-  const events = [birthday(), ...Array.from({ length: 3 }, (_, i) => ({ ...newEventDraft(date, 'Asia/Tokyo'), id: `event-${i}`, title: `予約${i + 1}`, revision: 1 }))];
+for (const platform of ['ios', 'android']) test(`${platform} own birthday stays a date marker and other birthdays keep their calendar edit action`, async t => {
+  const events = [birthday(), { ...birthday('family-birthday'), title: '家族の誕生日' },
+    ...Array.from({ length: 3 }, (_, i) => ({ ...newEventDraft(date, 'Asia/Tokyo'), id: `event-${i}`, title: `予約${i + 1}`, revision: 1 }))];
   const original = structuredClone(events); let writes = 0;
   const screen = screenHarness('src/features/calendar/planner-calendar.tsx', { exportName: 'PlannerCalendar', platform, props: {
     today: date, timeZone: 'Asia/Tokyo', dayInfo: () => ({ loaded: true, total: 0, pending: 0 }), renderChores: () => null,
@@ -83,12 +84,18 @@ for (const platform of ['ios', 'android']) test(`${platform} birthday month mark
   const day = screen.nodes().find(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel?.endsWith('自分の誕生日'));
   assert.ok(day);
   const cell = screen.nodes().find(node => node.children?.includes(day));
-  assert.ok(cell); assert.doesNotMatch(content(cell), /誕生日/);
+  assert.ok(cell); assert.doesNotMatch(content(cell), /自分の誕生日/);
   assert.ok(descendants(cell).some(node => node.type === 'Text' && content(node) === '14'));
   assert.match(content(cell), /予約1/); assert.match(content(cell), /予約2/); assert.match(content(cell), /予約3/);
   assert.equal(day.props.accessibilityState.selected, true);
-  for (const mode of ['1日表示', '2日表示', 'リスト表示']) {
-    await selectCalendarView(screen, mode); screen.button('誕生日を編集');
+  for (const mode of ['1日表示', '2日表示', '3日表示', '7日表示', 'リスト表示']) {
+    await selectCalendarView(screen, mode);
+    assert.equal(screen.nodes().some(node => node.props.accessibilityRole === 'button' && node.props.accessibilityLabel === '誕生日を編集'), false, mode);
+    screen.button('家族の誕生日を編集');
+    if (mode === 'リスト表示') assert.ok(screen.nodes().some(node => node.props.accessibilityRole === 'header'
+      && node.props.accessibilityLabel?.endsWith('自分の誕生日') && descendants(node).some(child => child.type === 'Text' && content(child) === '14')));
+    else assert.ok(screen.nodes().some(node => node.props.accessibilityRole === 'button'
+      && node.props.accessibilityLabel?.endsWith('自分の誕生日') && descendants(node).some(child => child.type === 'Text' && content(child) === '14')), mode);
   }
   assert.equal(writes, 0); assert.deepEqual(events, original);
 });

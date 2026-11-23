@@ -16,7 +16,8 @@ test('an invitation blocked by the signed-in user’s current group opens that g
       '@/hooks/use-workspace': { useWorkspace: () => ({ ready: true, userId: 'member',
         group: { userId: 'member', groupId: 'current-group', status: 'active' } }) },
       '@/platform/sharing/auth': {},
-      '@/platform/sharing/workspaces': { requestSharingWorkspace: async () => assert.fail('A blocked invitation must not be sent') },
+      '@/platform/sharing/workspaces': { isWorkspaceCopyInvitation: async () => false,
+        requestSharingWorkspace: async () => assert.fail('A blocked invitation must not be sent') },
     } });
   t.after(() => screen.unmount());
   await screen.press('現在のグループを開く');

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import type { ChoreDefinition } from '../../domain/chores/types';
@@ -7,9 +7,9 @@ import { choreFamilies, presentedChoreRecipe } from '../../domain/chores/chore-p
 import { personalChoreRecipe, planPersonalCatalogToggles } from '../../domain/chores/personal-catalog';
 import { Chevron } from '../../components/chevron';
 import { palette, typography } from '../../components/planner-ui';
-import { SettingsAction } from '../../components/settings-controls';
 import { plannerColorsForScheme } from '../../components/planner-theme';
 import { SettingsCheckbox } from '../../components/settings-checkbox';
+import { retryPlannerDisplayRead } from '../../platform/storage/planner-read-retry';
 
 type ToggleChore = Pick<ChoreDefinition, 'id' | 'name' | 'category' | 'archived' | 'enabled'>
   & Partial<Pick<ChoreDefinition, 'personalRecipeId' | 'applianceId' | 'applianceCareSource'>>;
@@ -25,27 +25,43 @@ export function ChoreToggleList({ chores, expanded, setExpanded, save, onOpen, r
   const [splitExpansion, setSplitExpansion] = useState(new Map<string, boolean>());
   const running = useRef(false); const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
   const [values, setValues] = useState(new Map<string, boolean>());
+  const [recovering, setRecovering] = useState(false);
+  const read = useRef(retryRead);
+  useEffect(() => { read.current = retryRead; }, [retryRead]);
+  useEffect(() => {
+    if (!recovering) return;
+    return retryPlannerDisplayRead(() => read.current?.() ?? Promise.resolve(false), recovered => {
+      if (recovered) setValues(new Map());
+      else setError('最新の家事設定を表示できませんでした。');
+      setRecovering(false);
+    });
+  }, [recovering]);
+  const isEnabled = (chore: ToggleChore) => values.get(chore.id) ?? chore.enabled;
   const toggle = async (rows: ToggleChore[], enabled: boolean) => {
-    if (running.current || values.size) return;
-    const selected = new Set(chores.filter(chore => chore.enabled).map(chore => chore.id));
-    const changed = new Map(rows.map(row => [row.id, enabled]));
+    if (running.current || recovering) return;
+    const selected = new Set(chores.filter(isEnabled).map(chore => chore.id));
+    const changed = new Map(values);
+    for (const row of rows) changed.set(row.id, enabled);
     try {
       if (personalSelection) {
         for (const row of rows) if (!personalChoreRecipe(row.id)) { if (enabled) selected.add(row.id); else selected.delete(row.id); }
         const next = new Set(planPersonalCatalogToggles([...selected], rows.map(row => row.id), enabled));
-        for (const chore of chores) if (next.has(chore.id) !== chore.enabled) changed.set(chore.id, next.has(chore.id));
+        for (const chore of chores) if (next.has(chore.id) !== isEnabled(chore)) changed.set(chore.id, next.has(chore.id));
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : '設定を確認してください。'); return; }
     running.current = true; onPendingChange?.(true); setBusy(true); setError(null); setValues(changed);
-    let retain = false;
     try {
       const result = await save(rows.map(row => row.id), enabled);
-      if (result?.refreshed === false) { retain = true; setError('保存済みですが、表示を更新できませんでした。再読込してください。'); }
+      if (result?.refreshed !== false) setValues(new Map());
+      else if (retryRead) setRecovering(true);
+      else setError('最新の家事設定を表示できませんでした。');
+    } catch (cause) {
+      setValues(values);
+      setError(cause instanceof Error ? cause.message : '設定を保存できませんでした。');
+    } finally {
+      running.current = false; setBusy(false); onPendingChange?.(false);
     }
-    catch (cause) { setError(cause instanceof Error ? cause.message : '設定を保存できませんでした。'); }
-    finally { running.current = false; setBusy(false); if (!retain) setValues(new Map()); onPendingChange?.(retain); }
   };
-  const isEnabled = (chore: ToggleChore) => values.get(chore.id) ?? chore.enabled;
   const renderRow = (chore: ToggleChore, nested = false) => {
     const unshared = pendingGroupAddition?.(chore.id) === true;
     return <View key={chore.id} style={[styles.row, { borderTopColor: colors.border }]}>
@@ -53,16 +69,13 @@ export function ChoreToggleList({ chores, expanded, setExpanded, save, onOpen, r
       <Text style={[styles.name, nested && styles.nestedName]}>{chore.name}</Text>
       {unshared ? <Text style={styles.countLabel}>個人のみ</Text> : null}
     </Pressable>
-    <SettingsCheckbox accessibilityLabel={`${chore.name}を${unshared ? 'グループに追加' : '有効にする'}`} value={isEnabled(chore)} disabled={readOnly || busy || values.size > 0}
+    <SettingsCheckbox accessibilityLabel={`${chore.name}を${unshared ? 'グループに追加' : '有効にする'}`} value={isEnabled(chore)} disabled={readOnly} pending={busy || recovering}
       onValueChange={value => void toggle([chore], value)} />
     <Pressable accessibilityRole="button" accessibilityLabel={`${chore.name}の設定を開く`} accessibilityHint={unshared ? '個人の設定を開きます' : undefined} onPress={() => onOpen(chore.id)} style={styles.arrowTarget}><Chevron color={colors.accent} /></Pressable>
   </View>;
   };
   return <View>{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    {values.size && error && retryRead ? <SettingsAction title="家事の設定を再読込" placement="page" disabled={busy} onPress={() => {
-      if (running.current) return; running.current = true; onPendingChange?.(true); setBusy(true);
-      void retryRead().then(ok => { if (ok) { setValues(new Map()); setError(null); onPendingChange?.(false); } }).catch(() => undefined).finally(() => { running.current = false; setBusy(false); });
-    }} /> : null}{groups.map(({ category, rows, families }) => {
+    {groups.map(({ category, rows, families }) => {
     const open = expanded.has(category); const enabledCount = rows.filter(isEnabled).length;
     const toggleCategory = () => setExpanded(current => { const next = new Set(current); if (open) next.delete(category); else next.add(category); return next; });
     return <View key={category} style={[styles.group, { borderTopColor: colors.border }]}>

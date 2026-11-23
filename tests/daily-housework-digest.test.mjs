@@ -1,6 +1,7 @@
 import './helpers/typescript-loader.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { addDays } from '../src/domain/scheduling/local-date.ts';
 
 const { createDailyHouseworkDigestRequests, syncDailyHouseworkDigest } = await import('../src/features/notifications/daily-housework-digest.ts');
 
@@ -139,4 +140,22 @@ test('digest indexing leaves reminders identical while old schedule rows are not
     chores: [...old.map(row => ({ id: row.choreId, name: row.id })), ...snapshot().chores],
     completions: old.map(row => ({ id: `done-${row.id}`, choreId: row.choreId, completedAt: '2020-01-01T00:00:00Z', outcome: 'completed', scheduleEntryId: row.id })) }), now);
   assert.deepEqual(actual, expected); assert.ok(reads < 5000, 'the 31-day digest must not walk every historic schedule entry for each date');
+});
+
+test('the daily reminder window indexes old completed occurrences once', () => {
+  let timeReads = 0;
+  const entries = Array.from({ length: 31 }, (_, offset) => {
+    const date = addDays('2026-10-24', offset);
+    return { ...entry, id: `daily-${offset}`, cycleBaseDate: date, suggestedDate: date, windowStart: date, windowEnd: date };
+  });
+  const old = Array.from({ length: 400 }, (_, index) => ({
+    id: `old-${index}`, choreId: entry.choreId, outcome: 'completed', scheduleEntryId: `old-entry-${index}`,
+    get completedAt() { timeReads++; return '2020-01-01T09:00:00.000Z'; },
+  }));
+  const recent = { id: 'today', choreId: entry.choreId, outcome: 'completed', scheduleEntryId: entries[0].id,
+    scheduledDate: entries[0].suggestedDate, completedLocalDate: entries[0].suggestedDate, completedAt: now.toISOString() };
+  const expected = createDailyHouseworkDigestRequests(snapshot({ scheduleEntries: entries, completions: [recent] }), now);
+  const actual = createDailyHouseworkDigestRequests(snapshot({ scheduleEntries: entries, completions: [...old, recent] }), now);
+  assert.deepEqual(actual, expected);
+  assert.ok(timeReads <= 2 * old.length, `history timestamps were read ${timeReads} times`);
 });

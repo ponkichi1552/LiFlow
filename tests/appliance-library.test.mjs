@@ -66,3 +66,27 @@ for (const platform of ['ios', 'android']) {
     assert.equal(reads, 2);
   });
 }
+
+test('returning to the personal appliance tab can retry a failing analysis read and open the exact PDF work', async t => {
+  const routes = [];
+  const ready = { id: 'pdf-work-id', applianceId: 'saved-appliance', filename: 'manual.pdf', state: 'ready' };
+  let failed = true, items = [];
+  const screen = screenHarness('src/app/(tabs)/manual/index.tsx', {
+    snapshot: () => ({ appliances: [] }), navigate: (...args) => routes.push(args),
+    mocks: {
+      '@/components/workspace-tab': { WorkspaceTab: ({ children }) => children },
+      '@/hooks/use-workspace': { useWorkspace: () => ({ userId: 'owner' }) },
+      '@/features/appliance-care/use-analysis-work': {
+        useAnalysisWorkList: () => ({ items, failed, retry() { failed = false; items = [ready]; } }),
+      },
+    },
+  });
+  t.after(() => screen.unmount());
+  assert.doesNotMatch(screen.text(), /取扱説明書PDFから家電を追加できます/u);
+  await screen.press('解析状況を読み込めませんでした。再読み込み');
+  failed = true; await screen.flush();
+  await screen.press('manual.pdf、解析結果を確認');
+  assert.deepEqual(routes, [['push', { pathname: '/manual/appliance-care', params: {
+    applianceId: 'saved-appliance', returnTo: '/manual', workId: 'pdf-work-id',
+  } }]]);
+});

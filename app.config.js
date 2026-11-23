@@ -1,13 +1,40 @@
+const iosStoreIdentity = require('./server/appliance-care-api/src/ios-store-identity.json');
+
+function updateWidgetSigningConfig(extra, widget) {
+  const { eas } = extra;
+  const build = eas?.build;
+  const experimental = build?.experimental;
+  const ios = experimental?.ios;
+  if (!ios?.appExtensions) return extra;
+  const appExtensions = ios.appExtensions.map(extension => extension.targetName !== 'ExpoWidgetsTarget' ? extension : {
+    ...extension,
+    bundleIdentifier: widget.bundleIdentifier,
+    entitlements: {
+      ...extension.entitlements,
+      'com.apple.security.application-groups': [widget.groupIdentifier],
+    },
+  });
+  return {
+    ...extra,
+    eas: { ...eas, build: { ...build, experimental: { ...experimental, ios: { ...ios, appExtensions } } } },
+  };
+}
+
 module.exports = ({ config }) => {
   const storeDistribution = process.env.EAS_BUILD_PROFILE === 'production' || process.env.LIFLOW_DISTRIBUTION === 'store';
   if (storeDistribution) {
+    const buildPlatform = process.env.EAS_BUILD_PLATFORM;
+    const needsAppleStore = buildPlatform !== 'android';
+    const needsGoogleStore = buildPlatform !== 'ios';
     if (process.env.EXPO_PUBLIC_LIFLOW_SUBSCRIPTIONS !== 'required') throw new Error('Store builds require verified LiFlow subscriptions.');
     if (process.env.EXPO_PUBLIC_APPLIANCE_NATIVE_PROOF !== 'required') throw new Error('Store builds require appliance app attestation.');
-    if (process.env.EAS_BUILD_PLATFORM !== 'ios' && !/^[0-9]{6,20}$/.test(process.env.EXPO_PUBLIC_APPLIANCE_PLAY_PROJECT_NUMBER ?? '')) {
+    if (needsGoogleStore && !/^[0-9]{6,20}$/.test(process.env.EXPO_PUBLIC_APPLIANCE_PLAY_PROJECT_NUMBER ?? '')) {
       throw new Error('Android builds require the Play Integrity project number.');
     }
-    for (const field of ['EXPO_PUBLIC_APPLE_SUBSCRIPTION_PRODUCT_ID', 'EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_PRODUCT_ID',
-      'EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_BASE_PLAN_ID', 'EXPO_PUBLIC_SUBSCRIPTION_PUBLIC_KEY',
+    for (const field of [
+      ...(needsAppleStore ? ['EXPO_PUBLIC_APPLE_SUBSCRIPTION_PRODUCT_ID'] : []),
+      ...(needsGoogleStore ? ['EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_PRODUCT_ID', 'EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_BASE_PLAN_ID'] : []),
+      'EXPO_PUBLIC_SUBSCRIPTION_PUBLIC_KEY',
       'EXPO_PUBLIC_APPLIANCE_CARE_API_URL', 'EXPO_PUBLIC_APPLIANCE_CARE_UPLOAD_KEY', 'EXPO_PUBLIC_LIFLOW_TERMS_URL', 'EXPO_PUBLIC_LIFLOW_PRIVACY_URL',
       'EXPO_PUBLIC_FIREBASE_API_KEY', 'EXPO_PUBLIC_FIREBASE_PROJECT_ID', 'EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN', 'EXPO_PUBLIC_FIREBASE_APP_ID',
       'EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID', 'EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID']) {
@@ -41,6 +68,16 @@ module.exports = ({ config }) => {
     const name = typeof plugin === 'string' ? plugin : plugin[0];
     return name !== 'react-native-nitro-google-signin' && name !== 'expo-apple-authentication' && name !== 'expo-iap';
   });
+  let extra = config.extra;
+  if (storeDistribution) {
+    const widget = {
+      bundleIdentifier: `${iosStoreIdentity.bundleIdentifier}.ExpoWidgetsTarget`,
+      groupIdentifier: `group.${iosStoreIdentity.bundleIdentifier}`,
+    };
+    const widgetIndex = plugins.findIndex(plugin => Array.isArray(plugin) && plugin[0] === 'expo-widgets');
+    if (widgetIndex >= 0) plugins[widgetIndex] = ['expo-widgets', { ...plugins[widgetIndex][1], ...widget }];
+    if (extra) extra = updateWidgetSigningConfig(extra, widget);
+  }
 
   if (hasNativeGoogleConfiguration) {
     plugins.push(['react-native-nitro-google-signin', { iosUrlScheme }]);
@@ -74,6 +111,7 @@ module.exports = ({ config }) => {
     ...config,
     ios: {
       ...config.ios,
+      ...(storeDistribution ? iosStoreIdentity : {}),
       ...(appleTeamId ? { appleTeamId } : {}),
       ...(applianceAttest ? { entitlements: { ...config.ios?.entitlements,
         'com.apple.developer.devicecheck.appattest-environment': 'production' } } : {}),
@@ -81,7 +119,7 @@ module.exports = ({ config }) => {
     },
     plugins,
     extra: {
-      ...config.extra,
+      ...extra,
       googleSyncOAuth: {
         webClientId,
         iosClientId,

@@ -12,6 +12,23 @@ export async function scrollCalendarToDate(screen, date) {
 export async function selectCalendarView(screen, label) {
   await screen.press('カレンダーの表示を選択'); await screen.press(label);
 }
+export function scrollCalendarMonthWheel(screen, unit, value) {
+  const list = screen.nodes().find(node => node.props.testID === `calendar-${unit}-wheel`);
+  assert.ok(list);
+  const index = list.props.data.indexOf(value);
+  assert.ok(index > 0, `missing ${unit} ${value}`);
+  const event = { nativeEvent: { contentOffset: { x: 0, y: list.props.getItemLayout(list.props.data, index - 1).offset } } };
+  list.props.onScrollBeginDrag(event);
+  list.props.onScroll(event);
+  list.props.onMomentumScrollEnd(event);
+}
+export async function jumpCalendarMonth(screen, year, month) {
+  await screen.press('表示する年と月を選択');
+  scrollCalendarMonthWheel(screen, 'year', year);
+  scrollCalendarMonthWheel(screen, 'month', month);
+  await screen.flush();
+  await screen.press(`${year}年${month}月へ移動`);
+}
 export async function openCalendarDay(screen, date, { chores = true } = {}) {
   await scrollCalendarToDate(screen, date);
   const label = formatJapaneseDate(date, { year: true });

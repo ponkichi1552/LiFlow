@@ -115,19 +115,23 @@ export function calendarSlotDraft(day: LocalDate, minute: number, timeZone: stri
     value: moveCalendarStart(newAppointmentValue(day, timeZone), { startMinute }) };
 }
 
+export type CalendarDragColumn = { inset: number; minimum: number };
+
 export function calendarDragTarget(start: { day: LocalDate; minute: number }, days: readonly LocalDate[], columnWidth: number,
-  hourHeight: number, dx: number, dy: number) {
+  hourHeight: number, dx: number, dy: number, columns?: readonly CalendarDragColumn[]) {
   if (![columnWidth, hourHeight, dx, dy].every(Number.isFinite) || columnWidth <= 0 || hourHeight <= 0) return null;
   const index = days.indexOf(start.day); if (index < 0) return null;
-  const rawDelta = dy / hourHeight * 60;
+  const targetIndex = Math.max(0, Math.min(days.length - 1, index + Math.round(dx / columnWidth)));
+  const targetColumn = columns?.[targetIndex];
+  const rawDelta = (dy + (columns?.[index]?.inset ?? 0) - (targetColumn?.inset ?? 0)) / hourHeight * 60;
   const minuteDelta = Math.sign(rawDelta) * Math.round(Math.abs(rawDelta) / 5) * 5;
   const movedMinute = start.minute + minuteDelta;
   const minute = minuteDelta === 0 || minuteDelta > 0 && start.minute > 1435
     ? start.minute : Math.max(0, Math.min(1435, movedMinute));
-  return { day: days[Math.max(0, Math.min(days.length - 1, index + Math.round(dx / columnWidth)))],
-    // Snap the gesture delta, not the saved clock. A no-op drag and a day-only
-    // move must preserve imported clocks such as 09:02 exactly.
-    minute };
+  if (targetColumn && Math.min(start.minute + rawDelta, minute) / 60 * hourHeight < targetColumn.minimum) return null;
+  // Snap the gesture delta, not the saved clock. A no-op drag and a day-only
+  // move must preserve imported clocks such as 09:02 exactly.
+  return { day: days[targetIndex], minute };
 }
 
 /** Convert the displayed drop point back to the source zone before preserving its real duration. */

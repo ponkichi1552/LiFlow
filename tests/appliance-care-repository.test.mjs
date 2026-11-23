@@ -3,6 +3,8 @@ import { createDatabase } from './helpers/sqlite.mjs';
 import './helpers/typescript-loader.mjs';
 import test from 'node:test';
 import { ApplianceTaskCycleConflict, applianceTaskCadenceKey } from '../src/features/appliance-care/persistence-policy.ts';
+import { syntheticManual, syntheticPdf } from './helpers/synthetic-pdf.mjs';
+import { withUploadedManual } from './helpers/sharing-v2-appliance.mjs';
 
 const repository = await import('../src/platform/storage/repository.ts');
 const { createPlannerRefreshController } = await import('../src/features/planner/refresh-controller.ts');
@@ -41,6 +43,30 @@ function product(productName, modelNumber) {
     manualUrl: `https://www.dyson.co.jp/support/journey/${modelNumber}`,
   };
 }
+
+test('reanalysis keeps a shared PDF until the last saved appliance replaces it', async t => {
+  const { database, connection } = createDatabase();
+  t.after(() => connection.close());
+  await repository.initializeLocalDatabase(database);
+  const original = syntheticManual();
+  const replacement = { ...original, base64: syntheticPdf(2).toString('base64') };
+  const save = (id, manual) => {
+    const identity = product(id, id);
+    const analyzed = analysis(id, [task('外側を拭く', undefined, identity.manualUrl, 'ほこりを取る')], '2026-10-24T01:00:00.000Z');
+    const draft = withUploadedManual({ analysis: analyzed }, manual);
+    return repository.saveReviewedApplianceCare(database, { ...identity, applianceId: id, manualUrl: draft.officialSources.manualUrl },
+      draft.analysis, draft.analysis.tasks.map(item => ({ task: item })), manual);
+  };
+  const count = () => connection.prepare('SELECT count(*) AS n FROM appliance_manual_documents').get().n;
+  await save('appliance-a', original);
+  await save('appliance-b', original);
+  assert.equal(count(), 1);
+  await save('appliance-a', replacement);
+  assert.equal(count(), 2);
+  await save('appliance-b', replacement);
+  assert.equal(count(), 1);
+  assert.equal(connection.prepare('SELECT content_base64 FROM appliance_manual_documents').get().content_base64, replacement.base64);
+});
 
 test('setting and changing a single saved appliance cycle preserves the analysis and other chore settings', async t => {
   const { database, connection } = createDatabase(); t.after(() => connection.close());

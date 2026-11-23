@@ -13,10 +13,10 @@ import { analysisDeliveryJson } from '../server/appliance-care-api/src/analysis-
 import { createDatabase } from './helpers/sqlite.mjs';
 import { loadNativeModule } from './helpers/native-module.mjs';
 import * as manualDocument from '../src/features/appliance-care/manual-document.ts';
-import { syntheticManual } from './helpers/synthetic-pdf.mjs';
+import { syntheticManual, syntheticPdf } from './helpers/synthetic-pdf.mjs';
 import { applianceResult, withUploadedManual } from './helpers/sharing-v2-appliance.mjs';
 import * as workPolicy from '../src/features/appliance-care/analysis-work.ts';
-import { storeApplianceManualInside } from '../src/platform/storage/appliance-manual-storage.ts';
+import { removeUnreferencedApplianceManualInside, storeApplianceManualInside } from '../src/platform/storage/appliance-manual-storage.ts';
 
 const principal = uid => ({ uid, anonymous: false, deviceId: publicKey(uid), installationId: 'synthetic-installation-001' });
 const input = uid => ({ principal: principal(uid), requestKey: 'synthetic-result', idempotencyKey: 'synthetic-delivery-attempt' });
@@ -26,7 +26,7 @@ const workStoragePorts = {
   './isolated-transaction.ts': { withIsolatedSqliteTransaction: async (database, work) => {
     let value; await database.withTransactionAsync(async () => { value = await work(database); }); return value;
   } },
-  './appliance-manual-storage.ts': { storeApplianceManualInside },
+  './appliance-manual-storage.ts': { removeUnreferencedApplianceManualInside, storeApplianceManualInside },
   '../../features/appliance-care/analysis-work.ts': workPolicy,
   '../../features/appliance-care/manual-document.ts': manualDocument,
 };
@@ -39,6 +39,8 @@ test('pending analysis result, PDF and receipt survive cold reopen without shari
   let file = createDatabase(path);
   t.after(async () => { file.connection.close(); await rm(folder, { recursive: true, force: true }); });
   file.connection.exec('CREATE TABLE appliance_manual_documents (sha256 TEXT PRIMARY KEY, byte_length INTEGER, content_base64 TEXT)');
+  file.connection.exec('CREATE TABLE appliances (id TEXT PRIMARY KEY, analysis_json TEXT NOT NULL)');
+  file.connection.exec('CREATE TABLE appliance_shared_copies (manual_digest TEXT)');
   const owner = 'owner'; const groupId = 'group'; const applianceId = 'retained';
   const target = { groupId, applianceId }; const id = 'one-paid-attempt'; const baseUrl = 'https://synthetic.invalid';
   const basis = { selection: { groupId, applianceId, revision: 'original' }, resolveOperationIds: ['previous'] };
@@ -46,8 +48,8 @@ test('pending analysis result, PDF and receipt survive cold reopen without shari
   const input = { owner, id, target, baseUrl, filename: 'manual.pdf', request: { identifyFromManual: true, forceReanalysis: true, manual }, basis };
   let work = storage.deviceAnalysisWork(file.database);
   assert.equal(await work.next(owner, baseUrl), null);
-  await work.begin(input);
-  await work.begin({ ...input, id: 'duplicate-tap' });
+  assert.equal(await work.begin(input), id);
+  assert.equal(await work.begin({ ...input, id: 'duplicate-tap' }), id);
   const sameWork = await work.next(owner, baseUrl);
   assert.equal(sameWork.id, id);
   assert.deepEqual(sameWork.basis, basis);
@@ -82,7 +84,9 @@ test('pending analysis result, PDF and receipt survive cold reopen without shari
   assert.equal(file.connection.prepare('SELECT content_base64 FROM appliance_manual_documents').get().content_base64, manual.base64);
   file.connection.close(); file = createDatabase(path);
   work = storage.deviceAnalysisWork(file.database); inbox = deviceAnalysisDeliveries(file.database);
-  const ready = await work.read(owner, target);
+  const ready = await work.read(owner, target, id);
+  assert.equal(await work.read(owner, target, 'duplicate-tap'), null);
+  assert.equal(await work.read(owner, { groupId: 'other', applianceId }, id), null);
   assert.deepEqual(ready.result, result);
   assert.deepEqual(ready.basis, basis);
   assert.equal(ready.state, 'ready');
@@ -95,6 +99,47 @@ test('pending analysis result, PDF and receipt survive cold reopen without shari
   assert.deepEqual((await work.read(owner, target)).result, result);
   await work.remove(owner, id);
   assert.equal(await work.read(owner, target), null);
+  const replacement = 'another-paid-attempt';
+  assert.equal(await work.begin({ ...input, id: replacement }), replacement);
+  assert.equal(await work.read(owner, target, id), null);
+  assert.equal((await work.read(owner, target, replacement)).id, replacement);
+});
+
+test('discarded and replaced analysis PDFs are removed only after their last local reference', async t => {
+  const { connection, database } = createDatabase();
+  t.after(() => connection.close());
+  connection.exec(`CREATE TABLE appliance_manual_documents (sha256 TEXT PRIMARY KEY, byte_length INTEGER, content_base64 TEXT);
+    CREATE TABLE appliances (id TEXT PRIMARY KEY, analysis_json TEXT NOT NULL);
+    CREATE TABLE appliance_shared_copies (manual_digest TEXT);`);
+  const { deviceAnalysisWork } = loadNativeModule('src/platform/storage/analysis-work.ts', workStoragePorts);
+  const work = deviceAnalysisWork(database);
+  const owner = 'analysis-owner'; const other = 'other-owner'; const baseUrl = 'https://example.invalid';
+  const target = {};
+  const oldManual = syntheticManual();
+  const newManual = { ...oldManual, base64: syntheticPdf(2).toString('base64') };
+  const begin = (account, id, manual) => work.begin({ owner: account, id, target, baseUrl, request: { identifyFromManual: true, manual } });
+  const count = () => connection.prepare('SELECT count(*) AS n FROM appliance_manual_documents').get().n;
+
+  await begin(owner, 'old', oldManual);
+  await work.remove(owner, 'old');
+  assert.equal((await work.read(owner, target)).state, 'pending');
+  await work.finish(owner, 'old', output);
+  await begin(owner, 'new', newManual);
+  assert.equal(count(), 1, 'replacement releases an unreferenced old document');
+  const { manualDigest } = await work.read(owner, target);
+  await begin(other, 'second', newManual);
+  await work.finish(owner, 'new', output);
+  await work.remove(owner, 'new');
+  assert.equal(count(), 1, 'another account still has a pending analysis of the same PDF');
+
+  connection.prepare('INSERT INTO appliances VALUES (?,?)').run('saved-appliance', JSON.stringify({ manualSource: { sha256: manualDigest } }));
+  await work.finish(other, 'second', output);
+  await work.remove(other, 'second');
+  assert.equal(count(), 1, 'the saved appliance still needs its PDF');
+  await begin(owner, 'discarded', oldManual);
+  await work.finish(owner, 'discarded', output);
+  await work.remove(owner, 'discarded');
+  assert.equal(count(), 1, 'discard releases the PDF with neither an appliance nor an analysis row');
 });
 
 async function analysisResumeFixture(t, analyze) {
@@ -152,6 +197,43 @@ test('a transient stored PDF read failure preserves the attempted analysis and r
   assert.deepEqual(call[0].manual, h.manual);
   assert.deepEqual(call[6], { owner: h.owner, id: h.id, manualDigest: pending.manualDigest, resuming: true });
   assert.deepEqual((await h.work.read(h.owner, h.target)).result, result);
+});
+
+test('an old local PDF still gets its first analysis while attempted work uses recovery only', async t => {
+  t.mock.timers.enable({ apis: ['Date'] });
+  const result = withUploadedManual(applianceResult(), syntheticManual());
+  let attempts = 0;
+  const h = await analysisResumeFixture(t, async () => ++attempts === 1
+    ? { status: 'error', code: 'TEMPORARY_NETWORK_ERROR', message: '試験用の通信中断' } : result);
+  const age = id => h.connection.prepare('UPDATE appliance_analysis_work SET created_at=? WHERE id=?').run(Date.now() - 25 * 60 * 60_000, id);
+  age(h.id);
+  const scheduled = await h.resume();
+  const first = h.transport.mock.calls[0].arguments[6];
+  assert.equal(first.id, h.id);
+  assert.equal(first.resuming, false);
+  assert.equal(first.recoveryOnly, undefined);
+  const attemptedAt = (await h.work.read(h.owner, h.target)).firstAttemptAt;
+  assert.equal(attemptedAt, Date.now());
+  t.mock.timers.tick(scheduled.retryAt - Date.now());
+  assert.equal(await h.resume(), false);
+  const retry = h.transport.mock.calls[1].arguments[6];
+  assert.equal(retry.id, h.id);
+  assert.equal(retry.resuming, true);
+  assert.equal(retry.recoveryOnly, undefined, 'age is measured from the first possible upload, even if enqueued much earlier');
+  assert.equal((await h.work.read(h.owner, h.target)).firstAttemptAt, attemptedAt);
+  assert.equal((await h.work.read(h.owner, h.target)).state, 'ready');
+  const attempted = 'attempted';
+  const baseUrl = 'https://analysis.example.invalid';
+  await h.work.begin({ owner: h.owner, id: attempted, baseUrl, target: h.target, request: { identifyFromManual: true, manual: h.manual } });
+  await h.work.markAttempt(h.owner, attempted);
+  age(attempted);
+  h.connection.prepare('UPDATE appliance_analysis_work SET first_attempt_at=NULL WHERE id=?').run(attempted);
+  assert.equal(await h.resume(), false);
+  assert.equal(h.transport.mock.callCount(), 3);
+  const restored = h.transport.mock.calls[2].arguments[6];
+  assert.equal(restored.id, attempted);
+  assert.equal(restored.resuming, true);
+  assert.equal(restored.recoveryOnly, true);
 });
 
 for (const failure of ['missing', 'corrupt']) test(`a ${failure} stored PDF ends the pending analysis without a network request`, async t => {

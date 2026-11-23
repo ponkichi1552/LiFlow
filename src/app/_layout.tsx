@@ -5,10 +5,12 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { prepareStartupDisplay } from '@/platform/diagnostics/startup-splash';
 import { SQLiteProvider } from 'expo-sqlite';
-import { useCallback, useEffect } from 'react';
-import { useColorScheme } from 'react-native';
+import { useCallback, useEffect, useState, type PropsWithChildren } from 'react';
+import { AppState, useColorScheme } from 'react-native';
 
 import { initializeLocalDatabase } from '@/platform/storage/repository';
+import { isTransientPlannerRead, plannerReadRetryDelays } from '@/platform/storage/planner-read-retry';
+import { PlannerLoadState } from '@/components/planner-load-state';
 import { syncGoogleTasksAfterLocalCompletion } from '@/features/google-sync/coordinator';
 import { PlannerDataProvider, usePlannerData } from '@/hooks/use-planner-data';
 import { addWidgetUserInteractionListener } from '../platform/widgets/widget-interaction-listener';
@@ -27,10 +29,51 @@ import { prepareSavedStartupDisplay } from '@/platform/sharing/startup-display';
 import { SubscriptionBoundary } from '@/features/subscription/subscription-boundary';
 import { initializeAppAppearance } from '@/hooks/use-app-appearance';
 
-const initialize = (database: Parameters<typeof initializeLocalDatabase>[0]) => traceStartup('database.initialize', () => initializeLocalDatabase(database));
 prepareStartupDisplay(SplashScreen);
 prepareSavedStartupDisplay();
 initializeAppAppearance();
+
+function PersonalPlannerDatabase({ children }: PropsWithChildren) {
+  const [opening, setOpening] = useState({ key: 0, retries: 0, error: null as Error | null, pending: true });
+  const key = opening.key;
+  const initialize = useCallback(async (database: Parameters<typeof initializeLocalDatabase>[0]) => {
+    try {
+      await traceStartup('database.initialize', () => initializeLocalDatabase(database));
+    } catch (cause) {
+      // Expo owns the connection after onInit succeeds. Close a failed initialization before reopening.
+      await database.closeAsync().catch(() => undefined);
+      throw cause;
+    }
+    setOpening(current => current.key === key && current.pending && current.error ? { ...current, error: null } : current);
+  }, [key]);
+  const onError = useCallback((error: Error) => {
+    // SQLiteProvider calls onError while rendering; notify its parent after that render.
+    queueMicrotask(() => setOpening(current => current.key === key && current.pending ? { ...current, pending: false, error } : current));
+  }, [key]);
+  const recoverable = isTransientPlannerRead(opening.error);
+  const delay = recoverable ? plannerReadRetryDelays[opening.retries] : undefined;
+  useEffect(() => {
+    if (opening.pending || !recoverable) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const reopen = (foreground: boolean) => setOpening(current => current === opening
+      ? { ...current, key: current.key + 1, retries: foreground ? 0 : current.retries + 1, pending: true } : current);
+    const arm = () => {
+      clearTimeout(timer);
+      if (delay !== undefined && AppState.currentState !== 'background' && AppState.currentState !== 'inactive') timer = setTimeout(() => reopen(false), delay);
+    };
+    const subscription = AppState.addEventListener('change', state => {
+      clearTimeout(timer);
+      if (state === 'active') reopen(true);
+    });
+    arm();
+    return () => { clearTimeout(timer); subscription.remove(); };
+  }, [opening, delay, recoverable]);
+  return <>
+    <SQLiteProvider key={key} databaseName="housework.db" onInit={initialize} onError={onError}>{children}</SQLiteProvider>
+    {opening.error ? <PlannerLoadState title="今日の家事" message="家事を読み込んでいます。" startupReady
+      error={opening.pending || delay !== undefined ? null : '端末に保存した家事を表示できませんでした。'} /> : null}
+  </>;
+}
 
 function WidgetInteractionBridge() {
   const { database, refresh } = usePlannerData();
@@ -67,7 +110,7 @@ export default function RootLayout() {
     text: colors.ink, border: colors.border, primary: colors.accent, notification: colors.warning } };
   return (
     <SubscriptionBoundary><WorkspaceProvider>
-      <SQLiteProvider databaseName="housework.db" onInit={initialize}>
+      <PersonalPlannerDatabase>
         <ActiveWorkspaceScope>
           <PlannerDataProvider>
             <LocalCalendarProvider>
@@ -87,7 +130,7 @@ export default function RootLayout() {
             </LocalCalendarProvider>
           </PlannerDataProvider>
         </ActiveWorkspaceScope>
-      </SQLiteProvider>
+      </PersonalPlannerDatabase>
     </WorkspaceProvider></SubscriptionBoundary>
   );
 }

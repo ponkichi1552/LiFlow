@@ -234,7 +234,7 @@ function DateEditor(props: Props) {
     {!props.renderCalendarForm ? <Text style={styles.caption}>既存の1回だけを変更します。</Text> : null}
     {!props.renderCalendarForm ? <SettingsPanel><View style={{ paddingVertical: 10, gap: 10 }}>
       <Text style={styles.caption}>現在：{v2TargetLabel(displayed.target, displayed.originalTimeZone)}</Text>
-      <CalendarField label="変更後の実施日" borderless commitOnDone date={fields.day as LocalDate} mode="date" minute={0} disabled={disabled} onDate={date => field('day', date)} />
+      <CalendarField label="変更後の実施日" borderless commitOnDone="or-backdrop" date={fields.day as LocalDate} mode="date" minute={0} disabled={disabled} onDate={date => field('day', date)} />
     </View></SettingsPanel> : null}
     {shortcutStartIssue === 'ambiguous' ? <V2TimeDisambiguation label="開始時刻の区別" day={fields.day} clock={fields.clock} timeZone={displayed.timeZone}
       value={fields.clockChoice} disabled={disabled} onChange={value => field('clockChoice', value)} /> : null}

@@ -10,5 +10,5 @@ export function HolidayCalendar({ today, restDays, days, selectedDate, onSelect 
   const overrides = useMemo(() => new Map(days.map(day => [day.date, day.holiday])), [days]);
   const isHoliday = (date: LocalDate) => overrides.get(date) ?? restDays.includes(weekdayOf(date));
   return <CalendarDayPicker today={today} label="日別設定のカレンダー" selected={date => date === selectedDate} marked={isHoliday}
-    describe={date => `${date.replaceAll('-', '/')} ${isHoliday(date) ? '休日' : '平日'}`} onSelect={onSelect} />;
+    describe={date => `${date.replaceAll('-', '/')} ${isHoliday(date) ? '休日' : '休日以外'}`} onSelect={onSelect} />;
 }

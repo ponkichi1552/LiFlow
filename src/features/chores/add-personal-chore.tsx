@@ -10,12 +10,20 @@ import { addPersonalChore } from '../../platform/storage/repository';
 import { customChoreInput } from '../../domain/chores/custom-chore';
 import { ChoreAddHeader, CustomChoreFields } from './custom-chore-fields';
 import { initialCustomChoreOptions, CustomChoreOptionsFields, CustomChoreStepsField, parsedCustomChoreOptions } from './custom-chore-options';
+import { useChoreDraftExit } from './use-chore-draft-exit';
+
+const initialDraft = { name: '', interval: '', ...initialCustomChoreOptions };
 
 export function AddPersonalChoreScreen() {
   const data = usePersonalSettingsData();
-  const [draft, setDraft] = useState({ name: '', interval: '', ...initialCustomChoreOptions }); const input = useRef(draft);
+  const [draft, setDraft] = useState(initialDraft); const input = useRef(draft);
   const pending = useRef(false); const alive = useRef(true); const created = useRef<string | null>(null);
   const [busy, setBusy] = useState(false); const [savedId, setSavedId] = useState<string | null>(null); const [error, setError] = useState<string | null>(null);
+  const dirty = !savedId && draft !== initialDraft && Object.keys(initialDraft).some(key => {
+    const field = key as keyof typeof initialDraft;
+    return draft[field] !== initialDraft[field];
+  });
+  const allowSavedExit = useChoreDraftExit(dirty, busy, pending);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const edit = (patch: Partial<typeof draft>) => { if (pending.current || created.current) return; input.current = { ...input.current, ...patch }; setDraft(input.current); setError(null); };
   const open = (id: string) => router.replace({ pathname: '/settings/chore/[id]', params: { id, source: 'personal' } });
@@ -28,7 +36,7 @@ export function AddPersonalChoreScreen() {
         if (alive.current) setSavedId(chore.id);
       }
       await data.refresh(); if (data.readError()) throw new Error('端末に追加済みです。もう一度開いてください。');
-      if (alive.current) open(created.current);
+      if (alive.current) { allowSavedExit(); open(created.current); }
     } catch (cause) { if (alive.current) setError(created.current ? '端末に追加済みです。もう一度開いてください。' : cause instanceof Error ? cause.message : '追加できませんでした。'); }
     finally { pending.current = false; if (alive.current) setBusy(false); }
   };

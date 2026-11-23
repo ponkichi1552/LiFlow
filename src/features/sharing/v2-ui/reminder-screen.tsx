@@ -1,4 +1,4 @@
-import { SettingsAction, SettingsLabel } from '../../../components/settings-controls';
+import { SettingsAction } from '../../../components/settings-controls';
 import { SettingsSwitch as Switch } from '@/components/settings-switch';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
@@ -68,10 +68,12 @@ function ReminderEditor({ runtime, saved, onBack, notice, embedded }: { runtime:
       <AppButton title="通知設定の保存を再試行" disabled={busy} onPress={() => { void store.flush(); }} /></Card> : null}
 
     <Container style={{ gap: 10 }}>{!embedded ? <SectionHeading title="共有家事のお知らせ" /> : null}
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>{embedded ? <SettingsLabel>共有家事の通知</SettingsLabel> : <Text style={typography.label}>通知を受け取る</Text>}
-        {embedded ? <SettingsCheckbox accessibilityLabel="このグループの通知を受け取る" value={state.raw.enabled} disabled={busy} onValueChange={value => { void toggle(value); }} />
-          : <Switch accessibilityLabel="このグループの通知を受け取る" value={state.raw.enabled} disabled={busy} onValueChange={value => { void toggle(value); }} />}</View>
-      <Text style={typography.caption}>{embedded ? '担当・未担当の家事を通知。この端末だけの設定です。' : '本人担当と担当未確定の共通家事を通知します。ほかの人だけの担当は催促しません。'}</Text>
+      {embedded ? <SettingsCheckbox label="共有家事の通知" description="担当・未担当の家事を通知。この端末だけの設定です。"
+        accessibilityLabel="このグループの通知を受け取る" value={state.raw.enabled} disabled={busy} onValueChange={value => void toggle(value)} />
+        : <><View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <Text style={typography.label}>通知を受け取る</Text>
+          <Switch accessibilityLabel="このグループの通知を受け取る" value={state.raw.enabled} disabled={busy} onValueChange={value => void toggle(value)} />
+        </View><Text style={typography.caption}>本人担当と担当未確定の共通家事を通知します。ほかの人だけの担当は催促しません。</Text></>}
       {!embedded ? <Text style={typography.caption}>時刻未設定の家事は日ごとの負荷だけを確認し、上限以上で通知します。</Text> : null}
       {state.raw.enabled ? <>
         <CalendarField label="共有家事の通知時刻" mode="time" date={localDateFromDate(new Date())} minute={Number(state.raw.hour) * 60 + Number(state.raw.minute)}

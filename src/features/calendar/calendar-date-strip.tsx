@@ -6,25 +6,29 @@ import { weekStart } from './layout';
 import { usePlannerBorderStyles } from '../../components/use-planner-border-styles';
 import { japanesePublicHoliday } from './holiday-label';
 import { plannerColorsForScheme } from '../../components/planner-theme';
+import { BirthdayCalendarDate } from '../../components/birthday-cake';
 
 /** The date selector and timeline headings describe the same selected interval. */
-export function CalendarDateStrip({ date, today, days, onSelect }: {
-  date: LocalDate; today: LocalDate; days: 1 | 2 | 3; onSelect(date: LocalDate): void;
+export function CalendarDateStrip({ date, rangeStart = date, today, days, isOwnBirthday, onSelect }: {
+  date: LocalDate; rangeStart?: LocalDate; today: LocalDate; days: 1 | 2 | 3;
+  isOwnBirthday?(date: LocalDate): boolean; onSelect(date: LocalDate): void;
 }) {
   const styles = usePlannerBorderStyles(baseStyles);
   const colors = plannerColorsForScheme(useColorScheme());
   // Keep the complete selected interval visible when it crosses Saturday.
-  const first = addDays(weekStart(date), Math.max(0, parseLocalDate(date).getUTCDay() + days - 7));
-  const last = addDays(date, days - 1);
+  const first = addDays(weekStart(rangeStart), Math.max(0, parseLocalDate(rangeStart).getUTCDay() + days - 7));
+  const last = addDays(rangeStart, days - 1);
   return <View style={styles.week}>{Array.from({ length: 7 }, (_, index) => {
-    const day = addDays(first, index); const selected = date <= day && day <= last; const holiday = japanesePublicHoliday(day);
+    const day = addDays(first, index); const selected = rangeStart <= day && day <= last; const holiday = japanesePublicHoliday(day);
     const current = day === today; const focused = day === date;
-    const status = [current ? '今日' : '', focused ? '選択日' : selected ? `表示中の${daysBetween(date, day) + 1}日目` : ''].filter(Boolean).join('、');
-    return <Pressable key={day} accessibilityRole="button" accessibilityLabel={`${formatJapaneseDate(day, { year: true, weekday: true })}を表示${holiday ? `、祝日：${holiday}` : ''}`}
+    const birthday = isOwnBirthday?.(day);
+    const status = [current ? '今日' : '', focused ? '選択日' : selected ? `表示中の${daysBetween(rangeStart, day) + 1}日目` : ''].filter(Boolean).join('、');
+    return <Pressable key={day} accessibilityRole="button" accessibilityLabel={`${formatJapaneseDate(day, { year: true, weekday: true })}を表示${holiday ? `、祝日：${holiday}` : ''}${birthday ? '、自分の誕生日' : ''}`}
       accessibilityState={{ selected }} accessibilityValue={status ? { text: status } : undefined} onPress={() => onSelect(day)} style={({ pressed }) => [styles.cell, pressed && { opacity: .65 }]}>
       <Text style={styles.weekday}>{['日', '月', '火', '水', '木', '金', '土'][parseLocalDate(day).getUTCDay()]}</Text>
-      <View style={[styles.number, selected && styles.range, selected && day === date && styles.rangeStart, selected && day === last && styles.rangeEnd]}>
-        <Text style={[styles.date, holiday && { color: palette.warning }, current && { color: colors.calendarToday }, focused && styles.selectedDate]}>{Number(day.slice(-2))}</Text>
+      <View style={[styles.number, selected && styles.range, selected && day === rangeStart && styles.rangeStart, selected && day === last && styles.rangeEnd]}>
+        {birthday ? <BirthdayCalendarDate day={Number(day.slice(-2))} today={current} selected={focused} />
+          : <Text style={[styles.date, holiday && { color: palette.warning }, current && { color: colors.calendarToday }, focused && styles.selectedDate]}>{Number(day.slice(-2))}</Text>}
       </View>
     </Pressable>;
   })}</View>;

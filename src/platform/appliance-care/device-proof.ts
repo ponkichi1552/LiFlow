@@ -11,7 +11,9 @@ const proofCodes = ['DEVICE_VERIFICATION_REQUIRED', 'DEVICE_VERIFICATION_UNAVAIL
 const unavailable = () => Object.assign(new Error('正規アプリと端末を確認できませんでした。'), { code: 'DEVICE_VERIFICATION_UNAVAILABLE' });
 const temporary = () => Object.assign(new Error('端末の確認に時間がかかっています。少し待ってお試しください。'), { code: 'DEVICE_VERIFICATION_TEMPORARY' });
 let queue = Promise.resolve<unknown>(undefined);
-let cached: { scope: string; grant: string; validBefore: number } | undefined;
+const maxCachedGrants = 8;
+let cachedScope: string | undefined;
+const cachedGrants = new Map<string | undefined, { grant: string; validBefore: number }>();
 let playProviderUntil = 0;
 let pendingAttestation: { scope: string; keyId: string; challenge: string; queryToken: string; updateToken: string; expires: number; proof?: string } | undefined;
 
@@ -144,12 +146,26 @@ async function androidGrant(baseUrl: string, authorization: string, admissionId?
 export function applianceDeviceGrant(baseUrl: string, owner: string, authorization: string, admissionId?: string): Promise<string> {
   const scope = JSON.stringify([baseUrl, owner]);
   const obtain = async () => {
-    if (!admissionId && cached?.scope === scope && cached.validBefore > performance.now()) return cached.grant;
+    if (cachedScope !== scope) {
+      cachedGrants.clear();
+      cachedScope = scope;
+    }
+    const startedAt = performance.now();
+    const cached = cachedGrants.get(admissionId);
+    if (cached && cached.validBefore > startedAt) return cached.grant;
+    cachedGrants.delete(admissionId);
     if (Platform.OS !== 'ios' && Platform.OS !== 'android') throw unavailable();
     const { grant, ttlMs } = await (Platform.OS === 'ios' ? appleGrant(baseUrl, authorization, admissionId, scope) : androidGrant(baseUrl, authorization, admissionId));
     if (typeof grant !== 'string' || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/u.test(grant) || grant.length > 2048
       || !Number.isSafeInteger(ttlMs) || ttlMs <= 0 || ttlMs > 12 * 60_000) throw unavailable();
-    if (!admissionId) cached = { scope, grant, validBefore: performance.now() + Math.max(0, ttlMs - 15_000) };
+    // Start the local lifetime before obtaining proof so transport delays cannot extend it.
+    const validBefore = startedAt + ttlMs - 15_000;
+    const now = performance.now();
+    if (validBefore > now) {
+      for (const [id, entry] of cachedGrants) if (entry.validBefore <= now) cachedGrants.delete(id);
+      if (cachedGrants.size >= maxCachedGrants) cachedGrants.delete(cachedGrants.keys().next().value);
+      cachedGrants.set(admissionId, { grant, validBefore });
+    }
     return grant;
   };
   // App Attest assertions of one key must be verified in the same order as they were made.

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, Text, View, useColorScheme } from 'react-native';
-import { FormTextInput } from '../../components/form-text-input';
+import { SearchField } from '../../components/search-field';
 import { Chevron } from '../../components/chevron';
 import { typography } from '../../components/planner-ui';
 import { plannerColorsForScheme } from '../../components/planner-theme';
@@ -17,6 +17,7 @@ import { calendarEventAppearance } from './event-appearance';
 import { SettingsAction } from '../../components/settings-controls';
 import type { LocalDate } from '../../domain/shared/types';
 import { useCalendarTitleDisplay } from './use-title-display';
+import { CalendarTextAction } from './calendar-sheet-header';
 import { calendarTitleDisplay } from './title-display';
 import { searchTerms } from '../../domain/search/normalized-search';
 
@@ -86,7 +87,10 @@ export function CalendarSearchContent({ local, chores = [], choresIncomplete, fo
           afterId = page.nextAfterId;
         } while (live && afterId);
         if (live) setHistoryState({ key: historyKey, events: [...events.values()], exceptions: [...exceptions.values()], loading: false });
-      } catch { if (live) setHistoryState({ key: historyKey, events: [...events.values()], exceptions: [...exceptions.values()], loading: false, error: true }); }
+      } catch {
+        if (live) setHistoryState({ key: historyKey, events: [...events.values()], exceptions: [...exceptions.values()],
+          loading: false, error: true });
+      }
     };
     const timer = setTimeout(() => { void run(); }, 160);
     return () => { live = false; clearTimeout(timer); };
@@ -109,14 +113,17 @@ export function CalendarSearchContent({ local, chores = [], choresIncomplete, fo
     <View style={{ flex: Platform.OS === 'android' ? 0 : 1, ...(Platform.OS === 'android' ? { height: '92%' as const, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: 'hidden' as const } : {}), backgroundColor: colors.surface, gap: 10 }}>
     <View style={{ width: 34, height: 4, borderRadius: 2, backgroundColor: colors.inputBorder, alignSelf: 'center', marginTop: 8 }} />
     <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, minHeight: 52, borderBottomWidth: 1, borderColor: colors.border }}>
-      <Pressable accessibilityRole="button" accessibilityLabel="予定の検索を閉じる" onPress={close} style={{ width: 64, minHeight: 44, justifyContent: 'center' }}><Text style={{ ...typography.body, color: colors.accent }}>閉じる</Text></Pressable>
+      <CalendarTextAction title="閉じる" label="予定の検索を閉じる" onPress={close} />
       <Text style={{ ...typography.body, flex: 1, textAlign: 'center', fontWeight: '700', color: colors.ink }}>予定を検索</Text><View style={{ width: 64 }} />
     </View>
-    <FormTextInput accessibilityLabel="予定を検索" placeholder="予定名・家事名・場所・メモで検索" value={query} onChangeText={value => { setQuery(value); setVisibleCount(60); setSelectionError(null); }} autoFocus={!initialQuery} autoCorrect={false} returnKeyType="search"
-      style={{ ...typography.body, marginHorizontal: 12, paddingHorizontal: 12, minHeight: 46, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 10, color: colors.ink, backgroundColor: colors.surface }} />
-    {history.loading ? <Text accessibilityLiveRegion="polite" style={{ ...typography.caption, color: colors.muted, paddingHorizontal: 14 }}>過去の予定を検索中</Text> : null}
+    <SearchField accessibilityLabel="予定を検索" placeholder="予定名・家事名・場所・メモで検索" value={query}
+      onChangeText={value => { setQuery(value); setVisibleCount(60); setSelectionError(null); }}
+      autoFocus={!initialQuery} style={{ marginHorizontal: 12 }} />
+    {history.loading ? <Text accessibilityLiveRegion="polite" style={{ ...typography.caption, color: colors.muted, paddingHorizontal: 14 }}>保存済みの予定を検索中</Text> : null}
     {history.error ? <View style={{ paddingHorizontal: 14 }}>
-      <Text accessibilityRole="alert" style={{ ...typography.caption, color: colors.warning }}>保存履歴を検索できませんでした</Text>
+      <Text accessibilityRole="alert" style={{ ...typography.caption, color: colors.warning }}>
+        一部の予定を検索できませんでした。
+      </Text>
       <SettingsAction title="検索を再試行" onPress={() => setHistoryAttempt(attempt => attempt + 1)} />
     </View> : null}
     {choresIncomplete ? <Text style={{ ...typography.caption, color: colors.muted, paddingHorizontal: 14 }}>家事は取得済みの期間から検索します</Text> : null}

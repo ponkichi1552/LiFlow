@@ -12,10 +12,15 @@ type Target = Awaited<ReturnType<V2GroupController['actions']['readAssignmentTar
 type Validity = 'once' | 'fromThis' | 'fromNext';
 type Props = { model: V2GroupScreenModel; round: V2PlannedOccurrence; actions: V2GroupController['actions']; busy: boolean;
   run: (work: () => Promise<unknown>) => Promise<void> };
+const orphanedIds = (model: V2GroupScreenModel, choreId: string) => {
+  const references = new Set(model.plan.issues.filter(issue => issue.choreId === choreId && issue.kind === 'oneOffAssignmentMappingNeedsReview').flatMap(issue => issue.operationIds));
+  return [...new Set([...model.orphanedAssignments?.filter(fact => fact.payload.choreId === choreId).map(fact => fact.operationId) ?? [],
+    ...model.assignmentRules.filter(fact => fact.payload.choreId === choreId && references.has(fact.sourceRequestId ?? fact.operationId)).map(fact => fact.operationId)])].sort();
+};
 const sourceRevision = (model: V2GroupScreenModel, round: V2PlannedOccurrence) => canonicalJson({
   configurations: model.configurations.find((entry) => entry.choreId === round.choreId)?.candidates.map((entry) => entry.operationId).sort() ?? [],
   assignments: round.assignmentOperationIds, conflicts: round.assignmentConflictIds, claims: round.claimOperationIds,
-  mapping: model.plan.issues.filter((issue) => issue.choreId === round.choreId && issue.kind === 'oneOffAssignmentMappingNeedsReview').flatMap((issue) => issue.operationIds).sort(),
+  mapping: orphanedIds(model, round.choreId),
   members: model.plan.members.filter((member) => member.active).map((member) => member.userId).sort(),
   admin: model.adminUserId, zone: model.plan.timeZone,
 });
@@ -62,7 +67,7 @@ function AssignmentEditor({ model, round, actions, busy, run }: Props) {
       catch (cause) { if (alive.current) setError(cause instanceof Error ? cause.message : '対象の家事回を確認できません。'); }
     }); } finally { inFlight.current = false; if (alive.current) setLoading(false); }
   };
-  const orphanIds = [...new Set(model.plan.issues.filter((issue) => issue.choreId === round.choreId && issue.kind === 'oneOffAssignmentMappingNeedsReview').flatMap((issue) => issue.operationIds))];
+  const orphanIds = orphanedIds(model, round.choreId);
   const mappingIds = [...new Set([...(target?.mappingReviewIds ?? []), ...draft.mappingIds])];
   const mapping = mappingIds.map((id) => model.assignmentRules.find((fact) => fact.operationId === id));
   const needsReview = Boolean(target?.conflictIds.length || target && target.claimantUserIds.length > 1 || mappingIds.length);

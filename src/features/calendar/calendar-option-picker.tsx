@@ -4,6 +4,8 @@ import { Host, Picker } from '@expo/ui';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { palette, typography } from '../../components/planner-ui';
 import { usePlannerBorderStyles } from '../../components/use-planner-border-styles';
+import { plannerPressColorsForScheme } from '../../components/planner-theme';
+import { CalendarTextAction } from './calendar-sheet-header';
 
 /** Native wheel on iOS; a directly selectable list on Android. */
 export function CalendarOptionPicker({ title, value, options, onSelect, onClose, onCustom }: {
@@ -12,6 +14,7 @@ export function CalendarOptionPicker({ title, value, options, onSelect, onClose,
 }) {
   const styles = usePlannerBorderStyles(baseStyles);
   const [selected, setSelected] = useState(value); const [initialValue] = useState(value); const scheme = useColorScheme(); const insets = useSafeAreaInsets();
+  const pressColors = plannerPressColorsForScheme(scheme);
   const latest = useRef(value); const closed = useRef(false);
   const close = () => { if (closed.current) return false; closed.current = true; onClose(); return true; };
   const choose = (next: string) => {
@@ -23,11 +26,15 @@ export function CalendarOptionPicker({ title, value, options, onSelect, onClose,
   return <Modal transparent animationType="fade" onRequestClose={() => { close(); }}><View style={styles.overlay}>
     <Pressable accessibilityRole="button" accessibilityLabel={`${title}の選択を閉じる`} onPress={close} style={StyleSheet.absoluteFill} />
     <View style={[styles.panel, { paddingBottom: Math.max(12, insets.bottom) }]}>
-      <View style={styles.header}><View style={styles.done} /><Text style={styles.title}>{title}</Text><Pressable accessibilityRole="button" accessibilityLabel={`${title}の選択を完了`} onPress={() => { if (close() && latest.current === 'custom') onCustom?.(); }} style={styles.done}><Text style={styles.action}>{selected === 'custom' && onCustom ? '次へ' : '完了'}</Text></Pressable></View>
+      <View style={styles.header}><View style={styles.actionSlot} /><Text style={styles.title}>{title}</Text>
+        <CalendarTextAction title={selected === 'custom' && onCustom ? '次へ' : '完了'} label={`${title}の選択を完了`}
+          onPress={() => { if (close() && latest.current === 'custom') onCustom?.(); }} /></View>
       {Platform.OS === 'ios' ? <Host colorScheme={scheme === 'dark' ? 'dark' : 'light'} seedColor={palette.accent} style={styles.wheel}>
         {/* Feeding intermediate JS events back into SwiftUI interrupts its wheel motion. */}
         <Picker testID="calendar-option-wheel" appearance="wheel" selectedValue={initialValue} onValueChange={choose}>{options.map(option => <Picker.Item key={option.value} value={option.value} label={option.label} />)}</Picker>
-      </Host> : <ScrollView style={styles.list}>{options.map(option => <Pressable key={option.value} accessibilityRole="button" accessibilityLabel={option.label} accessibilityState={{ selected: selected === option.value }} onPress={() => choose(option.value)} style={[styles.option, selected === option.value && styles.selected]}>
+      </Host> : <ScrollView style={styles.list}>{options.map(option => <Pressable key={option.value} accessibilityRole="button" accessibilityLabel={option.label} accessibilityState={{ selected: selected === option.value }} onPress={() => choose(option.value)} style={({ pressed }) => [
+        styles.option, selected === option.value && styles.selected, pressed && { backgroundColor: pressColors.tinted },
+      ]}>
         <Text style={styles.optionText}>{option.label}</Text>{selected === option.value ? <Text style={styles.action}>✓</Text> : null}</Pressable>)}</ScrollView>}
     </View>
   </View></Modal>;
@@ -35,6 +42,6 @@ export function CalendarOptionPicker({ title, value, options, onSelect, onClose,
 const baseStyles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: palette.overlay }, panel: { backgroundColor: palette.elevated, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden', maxHeight: '75%' },
   header: { minHeight: 48, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border }, title: { ...typography.body, color: palette.ink, fontWeight: '700', flex: 1, textAlign: 'center' },
-  done: { minHeight: 44, width: 56, alignItems: 'flex-end', justifyContent: 'center' }, action: { ...typography.body, color: palette.accent }, wheel: { height: 216, width: '100%' }, list: { maxHeight: 380 },
+  actionSlot: { width: 64 }, action: { ...typography.body, color: palette.accent }, wheel: { height: 216, width: '100%' }, list: { maxHeight: 380 },
   option: { minHeight: 48, paddingHorizontal: 18, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: palette.border }, optionText: { ...typography.body, color: palette.ink, flex: 1 }, selected: { backgroundColor: palette.accentSoft },
 });

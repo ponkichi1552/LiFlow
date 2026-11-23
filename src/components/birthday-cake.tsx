@@ -24,13 +24,16 @@ export function BirthdayCalendarDate({ day, today, selected }: { day: number; to
       <Rect x={3} y={9} width={34} height={5} rx={1.5} fill={palette.calendarToday} />
       <Path d="M20 9V14" stroke={palette.warningSoft} strokeWidth={2} />
     </Svg>
-    <Text style={[styles.number, today && styles.today, selected && styles.selected]}>{day}</Text>
+    <View style={styles.numberBox}>
+      <Text numberOfLines={1} adjustsFontSizeToFit maxFontSizeMultiplier={1.1} style={[styles.number, selected && styles.selected, today && styles.today]}>{day}</Text>
+    </View>
   </View>;
 }
 
 const styles = StyleSheet.create({
   date: { width: 36, height: 28, alignItems: 'center' },
-  number: { ...typography.calendarDate, fontSize: 16, lineHeight: 20, position: 'absolute', top: 9, color: palette.calendarToday, fontWeight: '600', textAlign: 'center' },
+  numberBox: { position: 'absolute', top: 10, bottom: 0, left: 5, right: 5, justifyContent: 'center' },
+  number: { ...typography.calendarDate, fontSize: 16, lineHeight: 18, includeFontPadding: false, color: palette.calendarToday, fontWeight: '600', textAlign: 'center' },
   today: { color: palette.surface, fontWeight: '800' },
-  selected: { fontWeight: '800' },
+  selected: { color: palette.accent, fontWeight: '800' },
 });

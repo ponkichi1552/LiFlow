@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { ScrollView, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { PlannerLoadState } from '../../../components/planner-load-state';
 import { plannerColorsForScheme } from '../../../components/planner-theme';
@@ -15,16 +15,22 @@ import type { V2GoogleControl } from '../../../platform/storage/sharing-v2-googl
 import { NotificationPermissionRecovery } from '../../notifications/notification-permission-recovery';
 import { V2GoogleTasksScreen, type V2GoogleTaskUiRuntime } from '../../sharing/v2-ui/google-tasks-screen';
 import { HomeReview } from './home-review';
+import { createPlannerRefreshController } from '../../planner/refresh-controller';
+import { isTransientPlannerRead } from '../../../platform/storage/planner-read-retry';
 
 export const failureReviewScenarios = [
-  { id: 'home-read', label: 'ホームの読み込み失敗', screenTitle: 'ホーム' },
+  { id: 'home-read', label: 'ホームの読み込みから自動で復旧', screenTitle: 'ホーム' },
   { id: 'home-loading', label: 'ホームの読み込み中', screenTitle: 'ホーム' },
-  { id: 'search-history', label: '予定検索で履歴を取得できない', screenTitle: '予定の検索' },
+  { id: 'search-history', label: '予定検索の追加読み込みに失敗', screenTitle: '予定の検索' },
   { id: 'search-partial', label: '予定検索で一部だけ取得', screenTitle: '予定の検索' },
   { id: 'search-empty', label: '予定検索の一致が0件', screenTitle: '予定の検索' },
   { id: 'notification-denied', label: '端末で通知を拒否', screenTitle: '通知設定' },
+  { id: 'notification-off', label: '通知は許可済み・アプリ側はオフ', screenTitle: '通知設定' },
+  { id: 'notification-on', label: 'カレンダー通知がオン', screenTitle: '通知設定' },
   { id: 'sync-read', label: 'Google連携の読み込み失敗', screenTitle: 'Google連携' },
   { id: 'sync-auth', label: 'Googleの再認証が必要', screenTitle: 'Google連携' },
+  { id: 'sync-unlinked', label: 'Google Tasksを未接続', screenTitle: 'Google連携' },
+  { id: 'sync-paused', label: 'Google Tasksを一時停止', screenTitle: 'Google連携' },
 ] as const;
 
 type Scenario = typeof failureReviewScenarios[number]['id'];
@@ -42,8 +48,14 @@ export function FailureReview({ scenario, onExit }: { scenario: string; onExit?(
       return <SearchReview key={scenario} scenario={scenario} onExit={onExit} />;
     case 'notification-denied':
       return <PermissionReview />;
+    case 'notification-off':
+      return <PermissionReview key={scenario} initiallyAllowed initiallyEnabled={false} />;
+    case 'notification-on':
+      return <PermissionReview key={scenario} initiallyAllowed />;
     case 'sync-read':
     case 'sync-auth':
+    case 'sync-unlinked':
+    case 'sync-paused':
       return <SyncReview key={scenario} scenario={scenario} />;
     default:
       return null;
@@ -52,10 +64,25 @@ export function FailureReview({ scenario, onExit }: { scenario: string; onExit?(
 
 function HomeLoadReview({ loading }: { loading: boolean }) {
   const [loaded, setLoaded] = useState(false);
-  if (loaded) return <HomeReview scenario="mixed" />;
+  const [reader] = useState(() => {
+    let attempts = 0;
+    return createPlannerRefreshController({
+      load: async () => {
+        if (++attempts < 3) throw new Error('SQLITE_BUSY: database is locked');
+        return { snapshot: true, canPublishWidget: false };
+      },
+      retryInBackground: isTransientPlannerRead, weather: async () => null, publish() {},
+    });
+  });
+  const read = useSyncExternalStore(reader.subscribe, reader.getSnapshot, reader.getSnapshot);
+  useEffect(() => {
+    if (loading) return;
+    void reader.refresh();
+    return () => reader.invalidate();
+  }, [loading, reader]);
+  if (loaded || read.snapshot) return <HomeReview scenario="mixed" />;
   return <View style={styles.page}>
-    <PlannerLoadState title="今日の家事" message="今日の家事を読み込んでいます。"
-      error={loading ? null : '端末に保存した家事を読み込めませんでした。'} retry={async () => setLoaded(true)} />
+    <PlannerLoadState title="今日の家事" message="今日の家事を読み込んでいます。" error={null} />
     {loading ? <View style={styles.footer}><SettingsAction placement="page" title="テストデータの読み込みを完了" onPress={() => setLoaded(true)} /></View> : null}
   </View>;
 }
@@ -77,7 +104,7 @@ function createSearchBinding(scenario: SearchScenario): LocalCalendarBinding {
       if (scenario === 'search-partial' && !cursor) return { events: [storedEvents[0]], exceptions: [], nextAfterId: storedEvents[0].id };
       if (!failed) {
         failed = true;
-        throw new Error('保存履歴を読み込めませんでした。');
+        throw new Error('保存済みの予定を読み込めませんでした。');
       }
       return { events: [storedEvents[1]], exceptions: [] };
     },
@@ -101,10 +128,10 @@ function SearchReview({ scenario, onExit }: { scenario: SearchScenario; onExit?(
   </View>;
 }
 
-function PermissionReview() {
+function PermissionReview({ initiallyAllowed = false, initiallyEnabled = true }: { initiallyAllowed?: boolean; initiallyEnabled?: boolean }) {
   const colors = plannerColorsForScheme(useColorScheme());
-  const [allowed, setAllowed] = useState(false);
-  const [enabled, setEnabled] = useState(true);
+  const [allowed, setAllowed] = useState(initiallyAllowed);
+  const [enabled, setEnabled] = useState(initiallyEnabled);
   const [enablePending, setEnablePending] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   function returnFromSettings(granted: boolean) {
@@ -138,10 +165,11 @@ function createSyncRuntime(scenario: SyncScenario): V2GoogleTaskUiRuntime {
   const now = '2026-11-20T00:00:00Z';
   let readFailure = scenario === 'sync-read';
   let needsAuth = scenario === 'sync-auth';
-  let state: NonNullable<V2GoogleControl['state']> = { householdId: 'review-group', accountSubject: subject, enabled: true,
+  let state: NonNullable<V2GoogleControl['state']> = { householdId: 'review-group', accountSubject: subject, enabled: !['sync-paused', 'sync-unlinked'].includes(scenario),
     status: needsAuth ? 'authRequired' : 'idle', retryCount: 0, lastSuccessfulSyncAt: lastSync, updatedAt: lastSync };
+  let unlinked = scenario === 'sync-unlinked';
   let revision = 1;
-  const control = (): V2GoogleControl => ({ state, label, revision });
+  const control = (): V2GoogleControl => unlinked ? { state: null, label: null, revision } : { state, label, revision };
   return {
     async readControl() {
       if (readFailure) { readFailure = false; throw new Error('共有家事の接続状態を読み込めませんでした。'); }
@@ -149,7 +177,7 @@ function createSyncRuntime(scenario: SyncScenario): V2GoogleTaskUiRuntime {
     },
     async reviewConnection() { return { subject, label, connectionRevision: revision }; },
     async connect() {
-      needsAuth = false; revision++;
+      needsAuth = false; unlinked = false; revision++;
       state = { ...state, enabled: true, disconnected: false, status: 'idle', updatedAt: now };
       return control();
     },

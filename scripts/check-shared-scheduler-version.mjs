@@ -31,11 +31,13 @@ const draft58Implementations = [
   { storage: 3, verifier: 2, calendarProjection: 3, calendarRegistration: 2, digest: '9ba7ff1ae0c70767d81fe57c7538fafafdf05d77ba15cb25e01cd3368256aa5b' },
   // Only compact local delivery rows covered by an authenticated snapshot and its key generation.
   { storage: 4, verifier: 2, calendarProjection: 3, calendarRegistration: 2, digest: 'cd40035ca010371d6177e6b16f28f15d793f45905d2f3aae8922c53a771f1c68' },
+  // A copied workspace explicitly uses draft 59. Draft 58 continues to open the same wire records and plans.
+  { storage: 4, verifier: 2, calendarProjection: 3, calendarRegistration: 2, workspaceCopy: 1, digest: '820a51abdc12636b0d9caabd30c645250a1e22013864a01b460fda0c6a911d01' },
 ];
-const draft58ImplementationIndex = manifest => draft58Implementations.findIndex(({ storage, verifier, calendarProjection, calendarRegistration = 1, digest }) =>
+const draft58ImplementationIndex = manifest => draft58Implementations.findIndex(({ storage, verifier, calendarProjection, calendarRegistration = 1, workspaceCopy = 0, digest }) =>
   manifest.sourceSha256 === digest && (manifest.receiveStorageRevision ?? 1) === storage
   && (manifest.signatureVerificationRevision ?? 1) === verifier && (manifest.calendarProjectionRevision ?? 1) === calendarProjection
-  && (manifest.calendarRegistrationRevision ?? 1) === calendarRegistration);
+  && (manifest.calendarRegistrationRevision ?? 1) === calendarRegistration && (manifest.workspaceCopyRevision ?? 0) === workspaceCopy);
 export function sharedSchedulerSourceDigest(files, read = (file) => readFileSync(resolve(root, file))) {
   const digest = createHash('sha256');
   for (const file of files) {

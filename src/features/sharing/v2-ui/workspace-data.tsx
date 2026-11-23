@@ -181,6 +181,7 @@ export function WorkspaceDisplayProvider({ children }: { children: ReactNode }) 
             // Persist only a verified result, encrypted separately from the live
             // database. A cache never supplies authority or a writable session.
             const persist = async (model: typeof value.model) => {
+              if (model.privateOverlay?.status === 'unavailable' && model.privateOverlay.retryable) return;
               const record = await active.record();
               if (!stopped && revision === preparation && AppState.currentState === 'active') await startupDisplayCache.write(record, model);
             };

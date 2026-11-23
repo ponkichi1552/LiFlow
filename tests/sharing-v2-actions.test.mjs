@@ -24,6 +24,26 @@ test('v2 actions record completion and targeted undo atomically and make repeate
     assert.equal((await listSharingOutbox(d.database, groupId)).length, 6);
   } finally { d.connection.close(); }
 });
+test('v2 completion records the actual order when the task planned second is finished first', async () => {
+  const f = await fixture();
+  const d = await f.device();
+  try {
+    const initial = seeds();
+    await d.repository.commit([
+      ...initial,
+      draft('prepare', 'chore', 'prepare', { name: '先に予定した作業', enabled: true }),
+      draft('prepare-policy', 'chorePolicy', 'prepare', initial[3].payload),
+      draft('order', 'dependency', 'order', { predecessorChoreId: 'prepare', successorChoreId: 'floor', policyData: { required: true } }),
+    ]);
+    const a = actions(d);
+    const before = await a.readPlan(range);
+    assert.equal(before.occurrences.find(row => row.choreId === ref.choreId && row.anchorDate === ref.anchorDate).subjects[0].dependencyAwaitingCompletion, true);
+    assert.equal((await a.complete(ref)).length, 1);
+    assert.equal((await a.complete({ ...ref, choreId: 'prepare' })).length, 1);
+    const after = await a.readPlan(range);
+    assert.deepEqual(after.history.filter(row => row.active && row.acceptance === 'accepted').map(row => row.choreId).sort(), ['floor', 'prepare']);
+  } finally { d.connection.close(); }
+});
 test('v2 actions keep bootstrap separate, require explicit activation and protect administrator settings from members', async () => {
   const f = await fixture(); const owner = await f.device(); const member = await f.device('member', f.member);
   try {

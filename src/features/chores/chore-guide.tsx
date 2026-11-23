@@ -11,12 +11,13 @@ export function ChoreGuide({ chore, mode, procedureAction, cadenceLabel }: { cho
   const sections = chore.procedureSections?.map(section => ({ ...section, steps: section.steps.filter(line => line.trim()) })).filter(section => section.steps.length) ?? [];
   const tools = chore.tools.filter(line => line.trim()); const cautions = chore.cautions.filter(line => line.trim());
   const hasSteps = sections.length > 0 || instructions.length > 0;
+  const description = chore.description?.trim();
   return (
     <>
       <ScreenHeading title={chore.name} />
       <ChoreMeta chore={chore} mode={mode} cadenceLabel={cadenceLabel} />
       {chore.schedulingNotes?.trim() ? <Text style={styles.notes}>{chore.schedulingNotes}</Text> : null}
-      {chore.description?.trim() ? <Text style={styles.body}>{chore.description}</Text> : null}
+      {description && description !== chore.name.trim() ? <Text style={styles.body}>{description}</Text> : null}
       {hasSteps ? <Card>
         <SectionHeading title="家事の手順" trailing={scheduleAction} />
         {sections.length ? sections.map((section) => (

@@ -92,3 +92,44 @@ for(const platform of ['ios','android']){
   assert.equal(state.assessment.view.ofType('chorePolicy').filter(op=>op.entityId===created[0]).length,1);
  });
 }
+
+for (const platform of ['ios', 'android']) {
+  for (const audience of ['personal', 'shared']) {
+    test(`${platform} ${audience} chore addition only asks to discard a changed draft`, async t => {
+      const shared = audience === 'shared';
+      const field = shared ? '追加する手順（1行に1手順）' : '追加する家事の手順';
+      const route = shared ? 'src/features/sharing/v2-ui/add-chore.tsx' : 'src/features/chores/add-personal-chore.tsx';
+      let guard;
+      let repeated = 0;
+      const alerts = [];
+      const screen = screenHarness(route, {
+        platform, exportName: shared ? 'V2AddChore' : 'AddPersonalChoreScreen',
+        personalData: () => ({}),
+        props: { actions: {}, busy: false, onBack() {}, onCreated() {} },
+        preventRemove: (active, callback) => { guard = active ? callback : undefined; },
+        alert: (title, _message, buttons) => alerts.push({ title, buttons }),
+      });
+      t.after(() => screen.unmount());
+      assert.equal(guard, undefined);
+
+      await screen.change(field, '道具を用意する');
+      assert.equal(typeof guard, 'function');
+      const leave = () => guard({ repeat: () => { repeated++; } });
+      leave(); leave();
+      assert.equal(alerts.length, 1);
+      assert.equal(alerts[0].title, '家事の入力を破棄しますか？');
+      alerts[0].buttons.find(button => button.style === 'cancel').onPress();
+      assert.equal(repeated, 0);
+      assert.equal(screen.nodes().find(node => node.props.accessibilityLabel === field && node.type === 'TextInput').props.value, '道具を用意する');
+
+      await screen.change(field, '');
+      assert.equal(guard, undefined);
+      await screen.change(field, '片付ける');
+      leave();
+      alerts[1].buttons.find(button => button.style === 'destructive').onPress();
+      await screen.flush();
+      assert.equal(repeated, 1);
+      assert.equal(guard, undefined);
+    });
+  }
+}

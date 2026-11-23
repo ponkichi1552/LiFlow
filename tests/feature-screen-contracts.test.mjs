@@ -6,6 +6,7 @@ import { screenHarness } from './helpers/screen-harness.mjs';
 import { applianceAnalysisScreenWork } from './helpers/appliance-analysis-work.mjs';
 import { scrollCalendarToDate, openCalendarDay } from './helpers/calendar-ui.mjs';
 import { createDatabase } from './helpers/sqlite.mjs';
+import { plannerReadRetryDelays } from '../src/platform/storage/planner-read-retry.ts';
 import { localDateFromDate, formatJapaneseDate } from '../src/domain/scheduling/local-date.ts';
 
 const repository = await import('../src/platform/storage/repository.ts');
@@ -24,22 +25,29 @@ async function reachWasteStep(screen) {
   assert.ok(screen.text().includes('ゴミ収集日'), 'optional waste settings remain reachable before setup ends');
 }
 
-test('committed first-run setup retries only display loading after a refresh failure and cannot replay old choices', async () => {
+test('committed first-run setup retries only display loading after a refresh failure and cannot replay old choices', async t => {
   const h = await initialContext(); let reads = 0; let fail = true;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const screen = screenHarness('src/features/onboarding/first-run-setup.tsx', { exportName: 'FirstRunSetup', database: h.database,
+    effectDependencies: true, effect: effect => effect(),
+    props: { snapshot: h.snapshot, onComplete: async () => { reads++; if (fail) throw new Error('view read failed'); } } });
   try {
-    const screen = screenHarness('src/features/onboarding/first-run-setup.tsx', { exportName: 'FirstRunSetup', database: h.database,
-      props: { snapshot: h.snapshot, onComplete: async () => { reads++; if (fail) throw new Error('view read failed'); } } });
     await reachWasteStep(screen); await screen.press('設定を続ける'); await screen.press('設定して始める'); await screen.flush();
     assert.equal(h.connection.prepare('SELECT setup_completed FROM household_settings').get().setup_completed, 1);
-    assert.ok(screen.text().includes('初期設定は保存済み'));
+    assert.match(screen.text(), /家事を読み込んでいます/u);
+    assert.doesNotMatch(screen.text(), /再読込/u);
     assert.equal(screen.nodes().some(node => node.props.title === '設定して始める'), false);
+    assert.equal(reads, 1);
     const before = h.connection.prepare('SELECT * FROM chore_state ORDER BY chore_id').all();
-    fail = false; await screen.press('表示を再読込'); await screen.flush(); assert.equal(reads, 2);
+    fail = false;
+    t.mock.timers.tick(plannerReadRetryDelays[0]);
+    await screen.flush();
+    assert.equal(reads, 2);
     assert.deepEqual(h.connection.prepare('SELECT * FROM chore_state ORDER BY chore_id').all(), before);
     await repository.completeFirstSetup(h.database, { frequencyMode: 'relaxed', restDays: [7], enabledChoreIds: [], previousDates: {}, weatherLocation: null });
     assert.equal(h.connection.prepare('SELECT frequency_mode FROM household_settings').get().frequency_mode, 'balanced');
     assert.deepEqual(h.connection.prepare('SELECT * FROM chore_state ORDER BY chore_id').all(), before);
-  } finally { h.connection.close(); }
+  } finally { screen.unmount(); h.connection.close(); }
 });
 
 test('feature screen contract: onboarding can register weekly, biweekly and monthly waste then reach home', async () => {
@@ -191,8 +199,13 @@ test('feature screen contract: verified appliance analysis auto-saves maker inte
       officialSources: { manualUrl: 'https://www.dyson.co.jp/support' },
       analysis: { manufacturer: 'Dyson', model: 'SV20', analyzedAt: new Date().toISOString(), requiresUserReview: true, tasks } };
     let sent;
+    const updatedAnalysisTime = new Date(Date.parse(verified.analysis.analyzedAt) + 1000).toISOString();
     const screen = screenHarness('src/app/(tabs)/manual/appliance-care.tsx', { database: h.database, effectDependencies: true, effect: callback => callback(),
-      mocks: applianceAnalysisScreenWork(async request => { sent = request; return withUploadedManual(verified, request.manual); }).mocks,
+      mocks: applianceAnalysisScreenWork(async request => {
+        sent = request;
+        const basis = request.forceReanalysis ? { ...verified, analysis: { ...verified.analysis, analyzedAt: updatedAnalysisTime } } : verified;
+        return withUploadedManual(basis, request.manual);
+      }).mocks,
     });
     await screen.press('取扱説明書PDFを選ぶ'); await screen.flush();
     await screen.press('PDFを解析');
@@ -204,6 +217,8 @@ test('feature screen contract: verified appliance analysis auto-saves maker inte
     assert.equal(care.length, 1); assert.equal(care[0].manufacturerRecommendedIntervalDays, 30); assert.equal(care[0].enabled, true);
     assert.ok(saved.scheduleEntries.some((entry) => entry.choreId === care[0].id), 'maker intervals must reach the actual Scheduler');
     screen.button('保存した家電のお手入れ詳細を開く');
+    assert.match(screen.text(), /解析結果/u);
+    assert.ok(screen.text().indexOf('お手入れ項目・周期の変更') < screen.text().indexOf('PDFを変更'));
     assert.equal(saved.appliances[0].category, 'vacuum_cleaner');
     assert.deepEqual(saved.appliances[0].analysis.modelPages, [1]);
     assert.ok(screen.text().includes('型番の記載　PDF 1ページ'));
@@ -223,6 +238,15 @@ test('feature screen contract: verified appliance analysis auto-saves maker inte
     await screen.change('汚れを拭くの周期', '7'); await screen.press('周期の変更を保存');
     noMaker = (await repository.loadPlannerSnapshot(h.database, today)).chores.find((chore) => chore.id === noMaker.id);
     assert.equal(noMaker.enabled, true, 'setting a previously missing interval must make the task schedulable');
+    await screen.press('PDFを変更'); await screen.flush();
+    assert.doesNotMatch(screen.text(), /この解析は見つかりませんでした/u);
+    await screen.press('PDFを再解析');
+    for (let n = 0; n < 12 && !screen.text().includes('解析結果を保存しました'); n++) await screen.flush();
+    assert.equal(sent.forceReanalysis, true);
+    const replaced = (await repository.loadPlannerSnapshot(h.database, today)).appliances;
+    assert.equal(replaced.length, 1);
+    assert.equal(replaced[0].id, saved.appliances[0].id);
+    assert.equal(replaced[0].analysis.analyzedAt, updatedAnalysisTime);
   } finally { h.connection.close(); }
 });
 

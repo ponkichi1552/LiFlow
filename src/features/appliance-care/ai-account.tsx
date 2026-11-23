@@ -8,7 +8,10 @@ import { isSharingAppleSignInAvailable, observeSharingUser, signInSharingWithApp
 import type { ApplianceCareUsage } from './api-contracts';
 
 /** Identity only: signing in here never creates or joins a sharing workspace. */
-export function ApplianceAiAccount({ disabled, onReady, usageOverride }: { disabled?: boolean; onReady?: (ready: boolean) => void; usageOverride?: ApplianceCareUsage }) {
+export function ApplianceAiAccount({ disabled, visible = true, onReady, usageOverride }: {
+  disabled?: boolean; visible?: boolean; onReady?: (ready: boolean) => void; usageOverride?: ApplianceCareUsage;
+}) {
+  const configured = isSharingConfigured() && Boolean(process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL?.trim());
   const [name, setName] = useState<string | null>(null); const [apple, setApple] = useState(false);
   const [usage, setUsage] = useState<ApplianceCareUsage | null>(null);
   const resetsAt = usage?.resetsAt;
@@ -18,7 +21,7 @@ export function ApplianceAiAccount({ disabled, onReady, usageOverride }: { disab
   const [retry, setRetry] = useState(0); const [checking, setChecking] = useState(false);
   useEffect(() => {
     onReady?.(false);
-    if (!isSharingConfigured()) return;
+    if (!configured) return;
     void isSharingAppleSignInAvailable().then(setApple).catch(() => undefined);
     let generation = 0;
     const stop = observeSharingUser(user => {
@@ -33,7 +36,7 @@ export function ApplianceAiAccount({ disabled, onReady, usageOverride }: { disab
         .finally(() => { if (current === generation) setChecking(false); });
     });
     return () => { generation++; stop(); };
-  }, [onReady, retry]);
+  }, [configured, onReady, retry]);
   useEffect(() => {
     if (!resetsAt) return;
     const subscription = AppState.addEventListener('change', state => {
@@ -49,11 +52,13 @@ export function ApplianceAiAccount({ disabled, onReady, usageOverride }: { disab
     catch { setError('ログインを完了できませんでした。通信状態とアカウントを確認してください。'); }
     finally { setBusy(false); }
   };
+  if (!configured) return <Text style={[typography.caption, { color: palette.muted }]}>家電AIは準備中です。</Text>;
+  if (!visible) return null;
   return <View style={{ gap: 8 }}>
     {!name ? <Text style={[typography.caption, { color: palette.muted }]}>解析にはログインが必要です。</Text> : null}
     {checking && !error ? <Text accessibilityLiveRegion="polite" style={[typography.caption, { color: palette.muted }]}>家電AIの利用を確認中…</Text> : null}
     {remaining !== null ? <Text style={[typography.caption, { color: palette.muted }]}>今月あと{remaining}回（月5回）</Text> : null}
-    {!name ? <><AppButton title="Googleでログイン" variant="secondary" disabled={disabled || busy || !isSharingConfigured()} onPress={() => void login('google')} />
+    {!name ? <><AppButton title="Googleでログイン" variant="secondary" disabled={disabled || busy} onPress={() => void login('google')} />
       {apple ? <AppButton title="Appleでログイン" variant="secondary" disabled={disabled || busy} onPress={() => void login('apple')} /> : null}</> : null}
     {error ? <Text accessibilityRole="alert" style={[typography.caption, { color: palette.warning }]}>{error}</Text> : null}
     {error && name ? <SettingsAction title={checking ? '接続を確認しています…' : '接続を再確認'} placement="page" disabled={disabled || busy || checking}

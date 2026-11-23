@@ -7,6 +7,7 @@ import { orderDateTasks } from '../src/domain/scheduling/date-tasks.ts';
 import { createTaskMutations } from '../src/features/planner/task-mutations.ts';
 import { createChoreSettingsDocument } from '../src/features/settings/chore-settings-editor.ts';
 import { privateOverlayPendingCounts } from '../src/features/sharing/v2-ui/private-overlay.ts';
+import { plannerReadRetryDelays } from '../src/platform/storage/planner-read-retry.ts';
 import { createDatabase } from './helpers/sqlite.mjs';
 import { screenHarness } from './helpers/screen-harness.mjs';
 const repository = await import('../src/platform/storage/repository.ts');
@@ -43,12 +44,12 @@ test('home and calendar share all nine priority tiers and stable ties across com
   assert.equal(orderDateTasks([rows.find(row => row.id === 'pending-heavy'), overdue], today, [...chores, { id: 'old', load: 'light' }])[0].id, 'old');
 });
 
-for (const platform of ['ios', 'android']) test(`${platform} home progress hides percent until the first completion without hiding the chore count`, () => {
+for (const platform of ['ios', 'android']) test(`${platform} home progress keeps the chore count without a redundant percentage label`, () => {
   const props = { total: 4, done: 0, summary: homeSummary(4, 0) };
   const screen = screenHarness('src/components/home-ui.tsx', { exportName: 'HomeProgress', platform, props });
   assert.match(screen.text(), /4件中0件が完了しました/u); assert.equal(screen.text().includes('%'), false);
   props.done = 1; props.summary = homeSummary(4, 1); screen.render();
-  assert.match(screen.text(), /4件中1件が完了しました/u); assert.match(screen.text(), /25%/u);
+  assert.match(screen.text(), /4件中1件が完了しました/u); assert.equal(screen.text().includes('%'), false);
   props.done = 0; props.summary = homeSummary(4, 0); screen.render();
   assert.equal(screen.text().includes('%'), false);
 });
@@ -149,21 +150,34 @@ test('connected settings retain invalid drafts and failed saves after virtual ro
   } finally { h.connection.close(); }
 });
 
-test('individual chore switches reject double taps roll back failed writes and retain saved values across a failed reread', async () => {
+test('individual chore switches reject double taps roll back failed writes and retain saved values across a failed reread', async t => {
   const h = createDatabase();
   try {
     await repository.initializeLocalDatabase(h.database); const rows = (await repository.loadPlannerSnapshot(h.database, today)).chores.filter(row => !row.archived).slice(0, 2).map(row => ({ ...row, id: `probe-${row.id}`, personalRecipeId: undefined, enabled: false, category: '検査' }));
-    const held = deferred(); let writes = 0; let phase = 'reject'; let expanded = new Set(['検査']);
-    const props = { chores: rows, expanded, setExpanded: fn => { expanded = fn(expanded); props.expanded = expanded; }, onOpen: () => {}, retryRead: async () => { props.chores = rows.map(row => ({ ...row, enabled: true })); return true; },
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const held = deferred(); let writes = 0; let reads = 0; let phase = 'reject'; let expanded = new Set(['検査']);
+    const props = { chores: rows, expanded, setExpanded: fn => { expanded = fn(expanded); props.expanded = expanded; }, onOpen: () => {}, retryRead: async () => {
+      if (++reads === 1) return false;
+      props.chores = rows.map((row, index) => ({ ...row, enabled: index === 0 })); return true;
+    },
       save: async () => { writes++; if (phase === 'reject') { await held.promise; throw new Error('保存失敗'); } return { refreshed: false }; } };
-    const screen = screenHarness('src/features/settings/chore-toggle-list.tsx', { exportName: 'ChoreToggleList', props });
+    const screen = screenHarness('src/features/settings/chore-toggle-list.tsx', { exportName: 'ChoreToggleList', props, effect: effect => effect(), effectDependencies: true });
+    t.after(() => screen.unmount());
     await screen.press('検査の家事を閉じる'); await screen.flush(); assert.equal(expanded.has('検査'), false);
     await screen.press('検査の家事を開く'); await screen.flush(); assert.equal(expanded.has('検査'), true);
     const toggle = () => screen.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === `${rows[0].name}を有効にする`);
+    const idleCheck = () => screen.nodes().find(node => node.props.accessibilityRole === 'checkbox'
+      && node.props.accessibilityLabel === `${rows[1].name}を有効にする`).children.find(node => node.props?.pointerEvents === 'none').props.style;
+    const idleAppearance = structuredClone(idleCheck());
     toggle().props.onPress(); toggle().props.onPress(); await screen.flush(); assert.equal(writes, 1); assert.equal(toggle().props.accessibilityState.checked, true);
+    assert.deepEqual(idleCheck(), idleAppearance, 'the other checkbox keeps the same appearance while saving');
     held.resolve(); await screen.flush(); assert.equal(toggle().props.accessibilityState.checked, false); assert.ok(screen.text().includes('保存失敗'));
-    phase = 'readFailure'; toggle().props.onPress(); await screen.flush(); assert.equal(toggle().props.accessibilityState.checked, true); assert.equal(toggle().props.disabled, true); assert.match(screen.text(), /保存済み/u);
-    await screen.press('家事の設定を再読込'); await screen.flush(); assert.equal(writes, 2); assert.equal(toggle().props.accessibilityState.checked, true); assert.equal(toggle().props.disabled, false);
+    phase = 'readFailure'; toggle().props.onPress(); await screen.flush(); assert.equal(toggle().props.accessibilityState.checked, true); assert.equal(toggle().props.disabled, true);
+    assert.doesNotMatch(screen.text(), /再読込|表示を更新できません/u);
+    t.mock.timers.tick(plannerReadRetryDelays[0]); await screen.flush();
+    assert.equal(reads, 1); assert.equal(toggle().props.accessibilityState.checked, true);
+    t.mock.timers.tick(plannerReadRetryDelays[1]); await screen.flush();
+    assert.equal(reads, 2); assert.equal(writes, 2); assert.equal(toggle().props.accessibilityState.checked, true); assert.equal(toggle().props.disabled, false);
   } finally { h.connection.close(); }
 });
 

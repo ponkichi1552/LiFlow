@@ -18,7 +18,7 @@ import { v2InitialTargetFields, v2TargetFromEditedForm, v2TargetLabel } from './
 import { V2DateConfirmation } from './date-confirmation';
 import type { V2DateConfirmationKind } from './date-confirmation';
 
-type Props = { model: V2GroupScreenModel; actions: V2GroupController['actions']; busy: boolean; header?: ReactElement; embedded?: boolean;
+type Props = { model: V2GroupScreenModel; actions: Pick<V2GroupController['actions'], 'decide'>; busy: boolean; header?: ReactElement; embedded?: boolean;
   run: (work: () => Promise<unknown>) => Promise<void>; readOwnCalendar?: (target: DateTarget) => Promise<CalendarConflict> };
 const labels: Record<V2DateRequestState['kind'], string> = {
   pendingDelivery: '端末に保存済み · 申請の送信待ち', awaiting: '必要な回答を待っています', counteroffered: '代替日時が提案されています',

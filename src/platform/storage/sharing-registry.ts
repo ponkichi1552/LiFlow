@@ -6,6 +6,7 @@ import type { WrappedGroupKey } from '../../features/sharing/crypto.ts';
 import type { SharedInvitationPin, SharedJoinRequest, SignedSharedInvitation } from '../../features/sharing/invitations.ts';
 import { parseLocalDate } from '../../domain/scheduling/local-date.ts';
 import type { LocalDate } from '../../domain/shared/types';
+import { validateWorkspaceCopyOrigin, type WorkspaceCopyOrigin } from '../../features/sharing/v2/workspace-copy-origin.ts';
 
 export type SharingWorkspaceStatus = 'creating' | 'joining' | 'active' | 'left' | 'removed';
 export interface SharingWorkspaceRecord {
@@ -24,6 +25,7 @@ export interface SharingWorkspaceRecord {
   /** Separate database generation; upgrading the protocol never changes an approved device identity. */
   v2Migration?: { databaseGeneration: string; sourceSnapshotDigest: string; witnessDigest: string };
   historyRetention?: { cutoff: LocalDate; throughSequence: number; digest: string };
+  copyOrigin?: WorkspaceCopyOrigin;
   creation?: { timeZone: string; anchorDate: string; ownerDisplayName: string; wrappedKey: WrappedGroupKey; kind?: 'family' | 'roommates' };
   join?: { invitation: SignedSharedInvitation; request: SharedJoinRequest };
 }
@@ -40,6 +42,7 @@ function serial<T>(database: SQLiteDatabase, operation: () => Promise<T>): Promi
 }
 function validate(record: SharingWorkspaceRecord, verifyAnchor = true): SharingWorkspaceRecord {
   assertSharedIdentifier(record.userId); assertSharedIdentifier(record.groupId);
+  if (record.copyOrigin && !validateWorkspaceCopyOrigin(record.copyOrigin, record.groupId).userIds.includes(record.userId)) throw new Error('Invalid copied workspace member');
   if (record.localGeneration) assertSharedIdentifier(record.localGeneration);
   if (record.v2Migration) {
     assertSharedIdentifier(record.v2Migration.databaseGeneration);
@@ -208,7 +211,7 @@ export function readSharingDisplayEnvelope(database: SQLiteDatabase, userId: str
 }
 
 export function saveSharingWorkspace(database: SQLiteDatabase, input: SharingWorkspaceRecord,
-  options?: { endedInvitation?: SharingWorkspaceRecord; assertCurrent(): void }): Promise<void> {
+  options?: { endedInvitation?: SharingWorkspaceRecord; moveFromCopySource?: boolean; assertCurrent(): void }): Promise<void> {
   const record = validate(input);
   return serial(database, async () => {
     await database.withTransactionAsync(async () => {
@@ -225,12 +228,18 @@ export function saveSharingWorkspace(database: SQLiteDatabase, input: SharingWor
         if (released.changes !== 1) throw new Error('所属状態が更新されています。再読込してください。');
         options?.assertCurrent();
       }
+      if (options?.moveFromCopySource) {
+        const origin = record.copyOrigin;
+        if (!origin || !['creating', 'joining'].includes(record.status)) throw new Error('引き継ぎ先を確認してください。');
+        await database.runAsync('UPDATE sharing_current_workspace SET group_id=? WHERE user_id=? AND group_id=?', record.groupId, record.userId, origin.groupId);
+      }
       await claimCurrentWorkspace(database, record);
       options?.assertCurrent();
       await database.runAsync('INSERT OR IGNORE INTO sharing_workspaces (user_id, group_id, record_json) VALUES (?, ?, ?)', record.userId, record.groupId, canonicalJson(record));
       const row = await database.getFirstAsync<{ record_json: string }>('SELECT record_json FROM sharing_workspaces WHERE user_id = ? AND group_id = ?', record.userId, record.groupId);
       const stored = row ? decodeSavedWorkspace(database, row.record_json) : null;
       if (!stored || anchorDigest(stored.anchor) !== anchorDigest(record.anchor)
+        || options?.moveFromCopySource && canonicalJson(stored.copyOrigin ?? null) !== canonicalJson(record.copyOrigin ?? null)
         || ended && (stored.status !== 'active' || stored.localGeneration !== record.localGeneration)) throw new Error('A cloud response cannot replace a locally trusted group pin');
       options?.assertCurrent();
     });
@@ -249,6 +258,7 @@ export function updateSharingWorkspace(database: SQLiteDatabase, userId: string,
       const next = validate(change(old));
       if (next.userId !== userId || next.groupId !== groupId || anchorDigest(next.anchor) !== previousPin) throw new Error('Workspace identity or pin cannot change');
       if (previousMigration !== 'null' && next.localGeneration === previousGeneration && canonicalJson(next.v2Migration ?? null) !== previousMigration) throw new Error('Verified migration pin cannot change');
+      if (old.copyOrigin && canonicalJson(old.copyOrigin) !== canonicalJson(next.copyOrigin ?? null)) throw new Error('Verified workspace copy origin cannot change');
       if (old.historyRetention && (!next.historyRetention || next.historyRetention.cutoff < old.historyRetention.cutoff
         || next.historyRetention.throughSequence < old.historyRetention.throughSequence)) throw new Error('Saved history-retention boundary cannot move backwards');
       if (['left', 'removed'].includes(previousStatus) && next.status === 'active') throw new Error('Explicitly request group approval before rejoining');
@@ -270,7 +280,13 @@ export function updateSharingWorkspace(database: SQLiteDatabase, userId: string,
         if (membershipChanged) await claimCurrentWorkspace(database, next);
         assertCurrent?.();
         await write();
-        if (membershipChanged && changed && departed(next)) await database.runAsync('UPDATE sharing_current_workspace SET group_id = NULL WHERE user_id = ? AND group_id = ?', userId, groupId);
+        if (membershipChanged && changed && departed(next)) {
+          const source = next.copyOrigin && previousStatus !== 'active'
+            ? await database.getFirstAsync<{ group_id: string }>(`SELECT group_id FROM sharing_workspaces WHERE user_id=? AND group_id=?
+              AND json_extract(record_json,'$.status')='active'`, userId, next.copyOrigin.groupId) : null;
+          if (source) await database.runAsync('UPDATE sharing_current_workspace SET group_id=? WHERE user_id=? AND group_id=?', source.group_id, userId, groupId);
+          else await database.runAsync('UPDATE sharing_current_workspace SET group_id = NULL WHERE user_id = ? AND group_id = ?', userId, groupId);
+        }
         assertCurrent?.();
       });
       if (changed) return next;

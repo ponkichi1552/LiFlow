@@ -1,7 +1,7 @@
 import type { ComponentProps, PropsWithChildren, ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
 import { typography } from './planner-typography';
-import { plannerColorsForScheme } from './planner-theme';
+import { plannerColorsForScheme, plannerPressColorsForScheme } from './planner-theme';
 import { AppButton } from './planner-ui';
 
 /** Choose the action's meaning and its surrounding surface; colors stay in the shared theme. */
@@ -42,7 +42,9 @@ export function SettingsGroup({ title, children, plain = false, action, compact 
 export function SettingsSegments<T extends string>({ options, value, onValueChange, wide = false, compact = false, fullWidth = false, fitContent = false, disabled = false, tone = 'accent' }: {
   options: readonly { id: T; label: string; disabled?: boolean }[]; value: T; onValueChange(value: T): void; wide?: boolean; compact?: boolean; fullWidth?: boolean; fitContent?: boolean; disabled?: boolean; tone?: 'accent' | 'quiet';
 }) {
-  const colors = plannerColorsForScheme(useColorScheme());
+  const scheme = useColorScheme();
+  const colors = plannerColorsForScheme(scheme);
+  const pressColors = plannerPressColorsForScheme(scheme);
   const borderColor = disabled || tone === 'quiet' ? colors.inputBorder : colors.accent;
   return <View style={[styles.segments, wide && { width: 224, maxWidth: '100%' }, compact && { width: 116, flexShrink: 0 }, fullWidth && { width: '100%', maxWidth: '100%' }, fitContent && { width: 'auto', maxWidth: '100%', flexShrink: 0 }, { borderColor, backgroundColor: colors.surface }]}>
     {options.map((option, index) => {
@@ -51,7 +53,8 @@ export function SettingsSegments<T extends string>({ options, value, onValueChan
       return <Pressable key={option.id} accessibilityRole="button" accessibilityState={{ selected, disabled: unavailable }} disabled={unavailable}
         onPress={() => { if (!unavailable) onValueChange(option.id); }} style={({ pressed }) => [styles.segment, fitContent && { flex: 0 },
           index > 0 && { borderLeftWidth: 1, borderLeftColor: borderColor },
-          selected && { backgroundColor: unavailable ? colors.elevated : colors.accentSoft }, pressed && !unavailable && { opacity: 0.7 }]}>
+          selected && { backgroundColor: unavailable ? colors.elevated : colors.accentSoft },
+          pressed && !unavailable && { backgroundColor: selected ? pressColors.tinted : colors.accentSoft }]}>
         <Text style={[styles.segmentLabel, { color: unavailable ? colors.disabled : selected || tone === 'accent' ? colors.accent : colors.ink }, selected && { fontWeight: '700' }]}>{option.label}</Text>
       </Pressable>;
     })}

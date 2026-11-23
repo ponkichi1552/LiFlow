@@ -12,6 +12,7 @@ import { ChoreGuide } from '@/features/chores/chore-guide';
 import { groupChores } from '@/domain/chores/chore-groups';
 import { AppButton, ScreenHeading, palette, typography } from '@/components/planner-ui';
 import { PlannerLoadState } from '@/components/planner-load-state';
+import { SettingsHeader } from '@/components/settings-header';
 import { usePlannerData } from '@/hooks/use-planner-data';
 import { TriviaLibrary, useTriviaLibraryState } from '@/features/chores/trivia-library';
 import { WorkspaceContext } from '@/contexts/workspace-context';
@@ -57,7 +58,9 @@ function PersonalChoreGuideScreen() {
   ), [chores]);
 
   if (loading || !snapshot) {
-    return <PlannerLoadState title="家事の説明" message="家事を読み込んでいます。" error={error} retry={refresh} />;
+    const header = selectedChoreId ? <SettingsHeader title="家事の説明" onBack={returnFromDetail} />
+      : isTriviaCollectionOpen ? <SettingsHeader title="豆知識" onBack={returnFromTrivia} backAccessibilityLabel="家事一覧に戻る" /> : undefined;
+    return <PlannerLoadState header={header} title={header ? undefined : '家事の説明'} message="家事を読み込んでいます。" error={error} retry={refresh} />;
   }
 
   const trivia = <SafeAreaView style={styles.safeArea} edges={['top']}>

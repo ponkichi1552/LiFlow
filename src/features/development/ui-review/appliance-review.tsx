@@ -1,19 +1,20 @@
 import { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { NumberInputField } from '@/components/number-input-field';
-import { AppButton, BackButton, Card, NavigationHeader, palette, typography } from '@/components/planner-ui';
+import { AppButton, BackButton, NavigationHeader, palette, typography } from '@/components/planner-ui';
 import { SettingsCheckbox } from '@/components/settings-checkbox';
-import { SettingsAction, SettingsGroup } from '@/components/settings-controls';
+import { SettingsGroup } from '@/components/settings-controls';
 import { SettingsHeader } from '@/components/settings-header';
 import { MaintenanceTaskCard } from '@/features/appliance-care/appliance-detail-content';
 import { ApplianceCycleEditor } from '@/features/appliance-care/appliance-cycle-editor';
 import { ApplianceLibrary, type ApplianceLibraryItem } from '@/features/appliance-care/appliance-library';
 import { ApplianceTaskBook } from '@/features/appliance-care/appliance-task-book';
-import { applianceAnalysisDate } from '@/features/appliance-care/analysis-date';
+import { AnalysisWorkRows } from '@/features/appliance-care/analysis-work-rows';
+import type { AnalysisWorkSummary } from '@/features/appliance-care/analysis-work';
 import { automaticApplianceTasks, defaultApplianceCycles } from '@/features/appliance-care/auto-save-policy';
 import type { ApplianceCareAnalysisDraft, ApplianceCareTaskDraft } from '@/features/appliance-care/contracts';
 import { applianceDisplayName, appliancePrimaryName, applianceSecondaryLabel } from '@/features/appliance-care/display-name';
-import { ManualUploadInput } from '@/features/appliance-care/manual-upload-input';
+import { ManualAnalysisControls } from '@/features/appliance-care/manual-analysis-form';
 import { toApplianceCareChore } from '@/features/appliance-care/to-chore-definition';
 import { registeredChoreCycleDays } from '@/domain/chores/cycle-policy';
 
@@ -95,12 +96,20 @@ export const applianceReviewScenarios = [
   { id: 'no-care', label: 'お手入れ0項目・説明書なし' },
   { id: 'review', label: '共有するお手入れを選ぶ' },
   { id: 'personal-review', label: '個人のお手入れ周期を編集' },
+  { id: 'manual-add', label: '家電を追加・説明書PDFを選ぶ' },
   { id: 'manual-error', label: '説明書PDFを読み取れない' },
+  { id: 'manual-pending', label: '解析受付後・家電一覧で結果を待つ' },
+  { id: 'manual-result', label: '解析結果を受領・型番なし' },
+  { id: 'manual-job-failed', label: '受付済みの解析に失敗' },
+  { id: 'manual-status-error', label: '解析状況を読み込めない' },
 ] as const;
 
 type Panel = { view: 'library' } | { view: 'detail' | 'review'; appliance: SampleAppliance }
-  | { view: 'manual'; appliance: SampleAppliance; failed?: boolean; reanalysis?: boolean };
+  | { view: 'manual'; appliance: SampleAppliance; failed?: boolean; reanalysis?: boolean }
+  | { view: 'analysis-waiting'; appliance: SampleAppliance };
 const library: Panel = { view: 'library' };
+const missingModel = { ...fan, id: 'qa-unknown-model', modelNumber: null, analysis: { ...fan.analysis, model: null } };
+const pendingWork: AnalysisWorkSummary = { id: 'qa-work', filename: 'サーキュレーターの取扱説明書.pdf', state: 'pending' };
 function startingPanels(scenario: string): Panel[] {
   switch (scenario) {
     case 'single': return [library, { view: 'detail', appliance: fan }];
@@ -108,6 +117,7 @@ function startingPanels(scenario: string): Panel[] {
     case 'no-care': return [library, { view: 'detail', appliance: kettle }];
     case 'review': return [library, { view: 'review', appliance: humidifier }];
     case 'personal-review': return [library, { view: 'review', appliance: { ...humidifier, source: 'personal' } }];
+    case 'manual-add': return [library, { view: 'manual', appliance: { ...humidifier, source: 'personal' } }];
     case 'manual-error': return [library, { view: 'manual', appliance: humidifier, failed: true }];
     default: return [library];
   }
@@ -120,6 +130,13 @@ export function ApplianceReview({ scenario, onExit }: { scenario: string; onExit
 function ApplianceSession({ scenario, onExit }: { scenario: string; onExit?(): void }) {
   const [initialPanels] = useState(() => startingPanels(scenario));
   const [panels, setPanels] = useState(initialPanels);
+  const [work, setWork] = useState<AnalysisWorkSummary | null>(() => {
+    if (scenario === 'manual-pending') return pendingWork;
+    if (scenario === 'manual-result') return { ...pendingWork, state: 'ready' };
+    if (scenario === 'manual-job-failed') return { ...pendingWork, state: 'failed' };
+    return null;
+  });
+  const [statusError, setStatusError] = useState(scenario === 'manual-status-error');
   const [items, setItems] = useState<SampleAppliance[]>(() => {
     if (scenario === 'empty') return [];
     if (scenario === 'dense-library') return dense;
@@ -139,15 +156,37 @@ function ApplianceSession({ scenario, onExit }: { scenario: string; onExit?(): v
     const matches = (other: SampleAppliance) => other.id === item.id && other.source === item.source;
     return current.some(matches) ? current.map(other => matches(other) ? item : other) : [...current, item];
   });
+  const openWork = (item: AnalysisWorkSummary) => {
+    if (item.state === 'pending') open({ view: 'analysis-waiting', appliance: missingModel });
+    else if (item.state === 'failed') open({ view: 'manual', appliance: missingModel, failed: true });
+    else {
+      const saved = items.find(value => value.id === missingModel.id) ?? missingModel;
+      remember(saved);
+      open({ view: 'review', appliance: saved });
+    }
+  };
   if (panel.view === 'library') return <View style={styles.root}>
     {onExit ? <NavigationHeader><BackButton accessibilityLabel="UI確認用データ一覧へ戻る" onPress={onExit} /></NavigationHeader> : null}
-    <ApplianceLibrary items={items} personalReady={scenario !== 'partial'}
+    <ApplianceLibrary items={items} personalReady={scenario !== 'partial'} hasAnalysis={Boolean(work) || statusError}
+    header={<AnalysisWorkRows items={work ? [work] : []} showScope={items.some(item => item.source === 'shared')}
+      onRetry={statusError ? () => { setStatusError(false); setWork(pendingWork); } : undefined}
+      onOpen={openWork} />}
     joined={scenario !== 'empty' && scenario !== 'personal-review'}
     onOpen={(source, id) => {
       const item = items.find(row => row.source === source && row.id === id);
       if (item) open({ view: item.needsReview ? 'review' : 'detail', appliance: item });
     }} onAdd={source => open({ view: 'manual',
       appliance: items.find(row => row.source === source && row.id === humidifier.id) ?? { ...humidifier, source } })} />
+  </View>;
+  if (panel.view === 'analysis-waiting') return <View style={styles.root}>
+    <NavigationHeader><SettingsHeader title="家電を追加" onBack={back} backAccessibilityLabel="家電一覧へ戻る" /></NavigationHeader>
+    <ScrollView contentContainerStyle={styles.form}>
+      <ManualAnalysisControls hasManual canAnalyze={false} disabled filename={work?.filename} phase="analyzing" onManual={() => {}} onAnalyze={() => {}} />
+      <AppButton title="確認用データの解析を完了" variant="quiet" onPress={() => {
+        setWork(current => current ? { ...current, state: 'ready' } : current);
+        setPanels([library]);
+      }} />
+    </ScrollView>
   </View>;
   const appliance = panel.view === 'detail'
     ? items.find(row => row.source === panel.appliance.source && row.id === panel.appliance.id) ?? panel.appliance
@@ -156,19 +195,23 @@ function ApplianceSession({ scenario, onExit }: { scenario: string; onExit?(): v
     onAnalyzed={() => {
       const result = appliance.analysis.tasks.length ? appliance : { ...appliance, analysis: { ...appliance.analysis,
         tasks: [task('水位窓を確認する', ['水位窓の目盛りが読めるか確かめる。'], { recommendedConditions: ['給水前'] })] } };
+      if (work?.id && appliance.id === missingModel.id) {
+        setWork({ ...work, state: 'ready' }); setPanels([library]); return;
+      }
       if (result.source === 'personal') remember(result);
       setPanels(current => [...current.slice(0, -1), { view: 'review', appliance: result }]);
     }} />;
   return <SampleBook key={`${panel.view}:${appliance.source}:${appliance.id}`} appliance={appliance} reviewing={panel.view === 'review'} onBack={back} backLabel={backLabel}
+    onOpenSaved={panel.view === 'review' && appliance.id === missingModel.id ? () => open({ view: 'detail', appliance }) : undefined}
     onReanalyze={() => open({ view: 'manual', appliance, reanalysis: true })}
-    onSave={updated => { remember(updated); setPanels([library, { view: 'detail', appliance: updated }]); }} />;
+    onSave={updated => { remember(updated); if (updated.id === missingModel.id) setWork(null); setPanels([library, { view: 'detail', appliance: updated }]); }} />;
 }
 
 const unreadableName = '見本_文字が読み取れない説明書.pdf';
 function SampleManual({ appliance, failed = false, reanalysis = false, onBack, backLabel, onAnalyzed }: {
   appliance: SampleAppliance; failed?: boolean; reanalysis?: boolean; onBack(): void; backLabel?: string; onAnalyzed(): void;
 }) {
-  const readableName = `見本_${appliance.modelNumber}_取扱説明書.pdf`;
+  const readableName = appliance.modelNumber ? `見本_${appliance.modelNumber}_取扱説明書.pdf` : '見本_型番の記載がない取扱説明書.pdf';
   const [filename, setFilename] = useState<string | undefined>(failed ? unreadableName : undefined);
   const [choosing, setChoosing] = useState(false);
   const [invalid, setInvalid] = useState(failed);
@@ -180,32 +223,30 @@ function SampleManual({ appliance, failed = false, reanalysis = false, onBack, b
   return <View style={styles.root}>
     <NavigationHeader><SettingsHeader title={reanalysis ? 'PDFを再解析' : '家電を追加'} onBack={onBack} backAccessibilityLabel={backLabel} /></NavigationHeader>
     <ScrollView contentContainerStyle={styles.form}>
-      <SettingsGroup title="取扱説明書">
-        <ManualUploadInput filename={filename} needsReplacement={invalid} onPickingChange={starting => {
+      <ManualAnalysisControls hasManual={Boolean(filename)} filename={filename} disabled={false} canAnalyze picking={choosing}
+        invalidManual={invalid ? '文字を読み取れませんでした。別の取扱説明書PDFを選んでください。' : undefined}
+        shared={appliance.source === 'shared'} reanalysis={reanalysis} onAnalyze={analyze} onPickingChange={starting => {
           if (starting) setChoosing(value => !value);
           return false; // Intercept before the system file picker opens.
-        }} onChange={() => undefined} />
-        {choosing ? <SettingsGroup plain compact title="サンプルPDF">{[readableName, unreadableName].map(name =>
-          <AppButton key={name} title={name} variant="surface" onPress={() => {
-            setFilename(name); setChoosing(false); setInvalid(false);
-          }} />)}</SettingsGroup> : null}
-      </SettingsGroup>
-      {!invalid ? <SettingsAction intent="primary" placement="page" compact={false} title={reanalysis ? 'PDFを再解析' : 'PDFを解析'}
-        disabled={!filename || choosing} onPress={analyze} /> : null}
-      {invalid ? <Card><Text accessibilityRole="header" style={styles.title}>説明書PDFを確認してください</Text>
-        <Text accessibilityRole="alert" style={styles.body}>文字を読み取れませんでした。別の取扱説明書PDFを選んでください。</Text></Card> : null}
+        }} onManual={() => undefined} />
+      {choosing ? <SettingsGroup plain compact title="サンプルPDF">{[readableName, unreadableName].map(name =>
+        <AppButton key={name} title={name} variant="surface" onPress={() => {
+          setFilename(name); setChoosing(false); setInvalid(false);
+        }} />)}</SettingsGroup> : null}
     </ScrollView>
   </View>;
 }
 
-function SampleBook({ appliance, reviewing, onBack, backLabel, onReanalyze, onSave }: {
-  appliance: SampleAppliance; reviewing: boolean; onBack(): void; backLabel?: string; onReanalyze(): void; onSave(value: SampleAppliance): void;
+function SampleBook({ appliance, reviewing, onBack, backLabel, onOpenSaved, onReanalyze, onSave }: {
+  appliance: SampleAppliance; reviewing: boolean; onBack(): void; backLabel?: string; onOpenSaved?(): void; onReanalyze(): void; onSave(value: SampleAppliance): void;
 }) {
   const { analysis } = appliance;
   const shared = appliance.source === 'shared';
   const [chosen, setChosen] = useState<string[]>([]);
   const [confirmed, setConfirmed] = useState(false);
-  const [cycles, setCycles] = useState(() => appliance.cycles ?? defaultApplianceCycles(analysis));
+  const initialCycles = useMemo(() => appliance.cycles ?? defaultApplianceCycles(analysis), [appliance.cycles, analysis]);
+  const [cycles, setCycles] = useState(initialCycles);
+  const cycleChanged = analysis.tasks.some((_, index) => (cycles[index] ?? '').trim() !== (initialCycles[index] ?? '').trim());
   const [error, setError] = useState<string>();
   const [editingCycle, setEditingCycle] = useState<number>();
   const chores = useMemo(() => shared ? [] : automaticApplianceTasks(analysis, appliance.cycles ?? defaultApplianceCycles(analysis))
@@ -223,25 +264,26 @@ function SampleBook({ appliance, reviewing, onBack, backLabel, onReanalyze, onSa
     }
   };
   return <><ApplianceTaskBook embedded tasks={analysis.tasks} label={name}
-    title={reviewing ? shared ? '家電を追加' : '周期の設定' : 'お手入れ方法'} onBack={onBack} backAccessibilityLabel={backLabel ?? (reviewing ? '戻る' : '家電一覧へ戻る')}
+    title={reviewing ? shared || appliance.id === missingModel.id ? '解析結果' : '周期の設定' : 'お手入れ方法'} onBack={onBack} backAccessibilityLabel={backLabel ?? (reviewing ? '戻る' : '家電一覧へ戻る')}
     header={<View style={styles.block}><Text accessibilityRole="header" style={styles.title}>{name}</Text>
-      {subtitle ? <Text style={styles.note}>{subtitle}</Text> : null}<Text style={styles.note}>お手入れ {analysis.tasks.length}項目</Text></View>}
+      {subtitle ? <Text style={styles.note}>{subtitle}</Text> : null}
+      {onOpenSaved ? <AppButton title="お手入れ詳細を開く" accessibilityLabel="保存した家電のお手入れ詳細を開く" variant="quiet" onPress={onOpenSaved} /> : null}
+      <Text style={styles.note}>{analysis.tasks.length ? `お手入れ ${analysis.tasks.length}項目` : 'お手入れ項目はありません。'}</Text>
+      {reviewing && shared && analysis.tasks.length ? <Text style={styles.note}>選んだ項目は無効の共有家事として追加されます。</Text> : null}
+    </View>}
     renderTask={(item, index) => <MaintenanceTaskCard task={item} chore={chores[index]}
       onCycleEdit={!shared && !reviewing ? () => setEditingCycle(index) : undefined} schedule={
-      reviewing && shared ? <View style={styles.row}><Text style={styles.rowLabel}>無効の共有家事として追加</Text>
-        <SettingsCheckbox value={chosen.includes(item.name)} accessibilityLabel={`「${item.name}」を無効の共有家事として追加`}
-          onValueChange={value => setChosen(before => value ? [...before, item.name] : before.filter(name => name !== item.name))} /></View>
+      reviewing && shared ? <SettingsCheckbox label="共有家事に追加" value={chosen.includes(item.name)} accessibilityLabel={`「${item.name}」を無効の共有家事として追加`}
+        onValueChange={value => setChosen(before => value ? [...before, item.name] : before.filter(name => name !== item.name))} />
       : reviewing ? <View style={styles.row}><Text style={styles.rowLabel}>周期</Text>
         <NumberInputField value={cycles[index] ?? ''} placeholder="任意" accessibilityLabel={`${item.name}の周期`}
           onChangeText={value => { setCycles(before => ({ ...before, [index]: value })); setError(undefined); }} /></View>
       : shared ? null : undefined
     } />}
     footer={<View style={styles.block}>
-      <Text style={styles.note}>最終解析：{applianceAnalysisDate(analysis.analyzedAt)}</Text>
-      {reviewing && shared ? <View style={styles.row}><Text style={styles.rowLabel}>メーカー・型番・手順・注意事項を確認した</Text>
-        <SettingsCheckbox value={confirmed} onValueChange={setConfirmed} accessibilityLabel="メーカー・型番・手順・注意事項を確認した" /></View> : null}
+      {reviewing && shared ? <SettingsCheckbox label="メーカー・型番・手順・注意事項を確認した" value={confirmed} onValueChange={setConfirmed} /> : null}
       {error ? <Text accessibilityRole="alert" style={styles.warning}>{error}</Text> : null}
-      {reviewing ? <AppButton title={shared ? '確認した解析結果を共有する' : '周期の変更を保存'} disabled={shared && !confirmed} onPress={save} />
+      {reviewing ? !onOpenSaved || cycleChanged ? <AppButton title={shared ? '確認した解析結果を共有する' : '周期の変更を保存'} disabled={shared && !confirmed} onPress={save} /> : null
         : <AppButton variant="quiet" title={shared ? 'この共有家電を再解析' : 'この家電を再解析'} onPress={onReanalyze} />}
       {!reviewing && appliance.sharedTasks?.length ? <SettingsGroup title="登録した共有家事">
         {appliance.sharedTasks.map(name => <Text key={name} style={styles.body}>{name}</Text>)}</SettingsGroup> : null}

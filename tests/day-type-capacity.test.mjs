@@ -109,19 +109,19 @@ for (const platform of ['ios', 'android']) test(`${platform} rhythm calendar and
     effect: callback => effects.push(callback), datePicker: value => { androidPicker = value; }, props: { today: '2026-11-05', restDays: [7],
       load: async () => ({ initial: saved, save: async (value, expected) => { assert.deepEqual(expected, saved); saved = value; writes++; } }), onDraftChange() {} } });
   t.after(effects.shift()()); const settle = async () => { for (let i = 0; i < 10; i++) await ui.flush(); }; await settle();
-  assert.equal(writes, 0); await ui.press('2026/11/05 平日');
+  assert.equal(writes, 0); await ui.press('2026/11/05 休日以外');
   const holiday = ui.nodes().find(node => node.props.accessibilityRole === 'checkbox' && node.props.accessibilityLabel === '2026-11-05を休日として扱う');
   assert.ok(holiday);
   holiday.props.onPress();
-  await ui.change('平日の家事時間上限', '30'); ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '平日の家事時間上限').props.onBlur(); await settle();
+  await ui.change('休日以外の家事時間上限', '30'); ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '休日以外の家事時間上限').props.onBlur(); await settle();
   assert.equal(saved.dayOverrides[0].holiday, true); assert.equal(saved.dayTypes.workday.maximumMinutes, 30);
   const pick = async (label, hour) => {
     await ui.press(`${label}を選択`); const picker = platform === 'android' ? androidPicker : ui.nodes().find(node => node.type === 'DateTimePicker').props;
     picker.onValueChange({}, new Date(`2026-11-05T${String(hour).padStart(2, '0')}:00:00Z`)); await settle();
     if (platform === 'ios') await ui.press(`${label}の選択を完了`);
   };
-  const before = writes; await pick('平日の開始時刻', 22); assert.equal(writes, before); assert.match(ui.text(), /開始より後/);
-  await pick('平日の終了時刻', 23); ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '平日の家事時間上限').props.onBlur(); await settle();
+  const before = writes; await pick('休日以外の開始時刻', 22); assert.equal(writes, before); assert.match(ui.text(), /開始より後/);
+  await pick('休日以外の終了時刻', 23); ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '休日以外の家事時間上限').props.onBlur(); await settle();
   assert.deepEqual(saved.dayTypes.workday.allowedBands, [{ startMinute: 1320, endMinute: 1380 }]);
 });
 
@@ -130,9 +130,9 @@ test('ios confirming an untouched time wheel commits its displayed value and kee
   const ui = screenHarness('src/features/settings/personal-capacity-settings.tsx', { exportName: 'PersonalCapacitySettings', platform: 'ios',
     effect: callback => effects.push(callback), props: { today: '2026-11-05', load: async () => ({ initial: saved, save: async value => { saved = value; } }), onDraftChange() {} } });
   t.after(effects.shift()()); const settle = async () => { for (let i = 0; i < 8; i++) await ui.flush(); }; await settle();
-  await ui.press('平日の開始時刻を選択'); await ui.press('平日の開始時刻の選択を完了');
-  await ui.press('平日の終了時刻を選択'); await ui.press('平日の終了時刻の選択を完了');
-  ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '平日の家事時間上限').props.onBlur(); await settle();
+  await ui.press('休日以外の開始時刻を選択'); await ui.press('休日以外の開始時刻の選択を完了');
+  await ui.press('休日以外の終了時刻を選択'); await ui.press('休日以外の終了時刻の選択を完了');
+  ui.nodes().find(node => node.type === 'TextInput' && node.props.accessibilityLabel === '休日以外の家事時間上限').props.onBlur(); await settle();
   assert.deepEqual(saved.dayTypes.workday.allowedBands, [{ startMinute: 1140, endMinute: 1260 }]);
 });
 

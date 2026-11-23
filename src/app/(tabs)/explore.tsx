@@ -7,14 +7,12 @@ import Animated, { LinearTransition } from 'react-native-reanimated';
 import { AppButton, palette, typography } from '@/components/planner-ui';
 import { PlannerLoadState } from '@/components/planner-load-state';
 import { TaskCheckboxRow } from '@/components/task-checkbox-row';
-import { WasteTypeLabel } from '@/components/waste-type-icon';
 import { CompletionToast } from '@/components/home-ui';
 import type { DateTask } from '@/domain/scheduling/date-tasks';
 import { localDateFromDate } from '@/domain/scheduling/local-date';
 import type { LocalDate } from '@/domain/shared/types';
 import { usePlannerData } from '@/hooks/use-planner-data';
 import { useTaskCompletion } from '@/hooks/use-task-completion';
-import { generateWasteCollectionDates } from '@/features/waste/weekly-scheduler';
 import { PlannerCalendar } from '@/features/calendar/planner-calendar';
 import type { CalendarView } from '@/features/calendar/display-store';
 import { useLocalCalendar } from '@/features/calendar/use-local-calendar';
@@ -43,7 +41,7 @@ function PersonalCalendarScreen() {
   const nextEntries = useMemo(() => new Set(longPreviews.filter(row => !row.provisional).map(row => row.entry.id)), [longPreviews]);
   const tasksFor = snapshot ? personalCalendarTasks(snapshot, today, completion.project) : () => [] as DateTask[];
   if (!snapshot) return <PlannerLoadState title="カレンダー" message="予定を読み込んでいます。" error={error} retry={refresh} />;
-  const chores = new Map(snapshot.chores.map(chore => [chore.id, chore])); const hidden = new Set(snapshot.hiddenWasteOccurrenceKeys);
+  const chores = new Map(snapshot.chores.map(chore => [chore.id, chore]));
   const displayThrough = calendarChoreDisplayThrough(today);
   const rowsFor = (date: LocalDate) => tasksFor(date).filter(task => date > displayThrough
     ? Boolean(task.entry && nextEntries.has(task.entry.id))
@@ -54,7 +52,7 @@ function PersonalCalendarScreen() {
   const open = (choreId: string) => router.navigate({ pathname: '/(tabs)/guide', params: { choreId, returnTo: 'calendar' } });
   const renderTask = (task: DateTask, date: LocalDate, view: CalendarView) => {
     const chore = chores.get(task.choreId); if (!chore) return null;
-    return <Animated.View key={`${dateTaskKey(task)}:${date}`} layout={LinearTransition.duration(240)}><TaskCheckboxRow compact narrowCalendar={view === 'three' || view === 'week'} calendarTimeLabel={view === 'list' ? calendarChoreTimeLabel(task.entry?.calendarTime, snapshot.timeZone ?? 'Asia/Tokyo') : undefined} contextLabel={task.entry?.calendarTimeIssue ? '時刻を確認' : undefined} chore={chore} completed={task.completed} source={choreSource} seasonalWork={task.entry?.seasonalWork ?? task.completion?.seasonalWork} executionWindow={task.entry ? { start: task.entry.windowStart, end: task.entry.windowEnd } : task.completion?.scheduledWindowStart && task.completion?.scheduledWindowEnd ? { start: task.completion.scheduledWindowStart, end: task.completion.scheduledWindowEnd } : undefined}
+    return <Animated.View key={`${dateTaskKey(task)}:${date}`} layout={LinearTransition.duration(240)}><TaskCheckboxRow compact narrowCalendar={view === 'three' || view === 'week' ? view : undefined} calendarTimeLabel={view === 'list' ? calendarChoreTimeLabel(task.entry?.calendarTime, snapshot.timeZone ?? 'Asia/Tokyo') : undefined} contextLabel={task.entry?.calendarTimeIssue ? '時刻を確認' : undefined} chore={chore} completed={task.completed} source={choreSource} seasonalWork={task.entry?.seasonalWork ?? task.completion?.seasonalWork} executionWindow={task.entry ? { start: task.entry.windowStart, end: task.entry.windowEnd } : task.completion?.scheduledWindowStart && task.completion?.scheduledWindowEnd ? { start: task.completion.scheduledWindowStart, end: task.completion.scheduledWindowEnd } : undefined}
       onOpen={() => open(chore.id)} onChangeDate={choreSource === 'personal' && !task.completed && task.entry ? () => router.navigate({ pathname: '/calendar-chore-date', params: { choreId: chore.id, entryId: task.entry!.id } }) : undefined} onToggle={completion.canToggle(task) ? () => void completion.toggle(task) : undefined} /></Animated.View>;
   };
   const timeZone = snapshot.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -73,19 +71,15 @@ function PersonalCalendarScreen() {
         minutes: rowsFor(date).filter(task => !task.completed).reduce((sum, task) => sum + (chores.get(task.choreId)?.estimatedMinutes ?? 0), 0) + tentativeFor(date).reduce((sum, row) => sum + (row.chore.estimatedMinutes ?? 0), 0) })}
       existingChores={snapshot.chores.filter(chore => chore.enabled && !chore.archived).map(chore => ({ id: chore.id, name: chore.name, minutes: chore.estimatedMinutes, onOpen: () => open(chore.id) }))}
       notice={error || completion.error ? <View style={styles.notice}><Text accessibilityRole="alert" style={styles.error}>{completion.error ?? error}</Text><AppButton title={completion.recoveryLabel ?? '表示を再読込'} variant="quiet" compact disabled={completion.pending.size > 0 || completion.reading} onPress={() => void completion.retryRead()} /></View> : null}
-      renderWaste={date => <View style={styles.waste}>{snapshot.wasteSchedules.flatMap(schedule => generateWasteCollectionDates(schedule, date, date))
-        .filter(item => !hidden.has(`${item.scheduleId}:${item.date}`)).map(item => {
-        const key = `${item.scheduleId}:${item.date}`; return <WasteTypeLabel key={key} label={item.label} size={14} compact={false} />;
-      })}</View>}
       renderChores={(date, view) => {
         const tasks = rowsFor(date); const previews = tentativeFor(date);
-        return <View style={styles.tasks}>{tasks.map(task => renderTask(task, date, view))}{previews.map(row => <TaskCheckboxRow key={row.entry.id} compact narrowCalendar={view === 'three' || view === 'week'} provisional chore={row.chore} contextLabel="次回の仮予定" onOpen={() => open(row.chore.id)} executionWindow={{ start: row.entry.windowStart, end: row.entry.windowEnd }} />)}
+        return <View style={styles.tasks}>{tasks.map(task => renderTask(task, date, view))}{previews.map(row => <TaskCheckboxRow key={row.entry.id} compact narrowCalendar={view === 'three' || view === 'week' ? view : undefined} provisional chore={row.chore} contextLabel="次回の仮予定" onOpen={() => open(row.chore.id)} executionWindow={{ start: row.entry.windowStart, end: row.entry.windowEnd }} />)}
           {!tasks.length && !previews.length ? <Text style={styles.caption}>この日の家事はありません。</Text> : null}</View>;
       }} />
     {completion.undoAvailable ? <View style={styles.toast}><CompletionToast onUndo={() => void completion.undoLast()} /></View> : null}
   </SafeAreaView>;
 }
 const styles = StyleSheet.create({ safe: { flex: 1, backgroundColor: palette.background }, notice: { padding: 10, gap: 6 }, error: { ...typography.caption, color: palette.warning },
-  caption: { ...typography.caption, color: palette.muted }, tasks: { gap: 0 }, waste: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+  caption: { ...typography.caption, color: palette.muted }, tasks: { gap: 0 },
   toast: { position: 'absolute', bottom: 8, left: 0, right: 0 },
 });

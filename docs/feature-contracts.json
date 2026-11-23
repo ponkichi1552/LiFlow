@@ -1,5 +1,32 @@
 [
   {
+    "feature": "sharing-workspace-copy-preserves-source-and-author-signed-history",
+    "tests": [
+      {
+        "file": "tests/sharing-workspace-copy.test.mjs",
+        "name": "workspace copy preserves original authors, schedule settings, calendar exceptions and the completion/undo pair"
+      },
+      {
+        "file": "tests/sharing-workspace-copy.test.mjs",
+        "name": "workspace copy checks the source pin, every original signature and exact destination"
+      },
+      {
+        "file": "tests/sharing-workspace-copy.test.mjs",
+        "name": "the encrypted snapshot preserves the signed origin only for approved recipients"
+      }
+    ],
+    "cloudTests": [
+      {
+        "file": "tests/sharing-v2-cloud.integration.mjs",
+        "name": "workspace copy moves the directory only after the current source cut is pinned and preserves the old roster and data"
+      },
+      {
+        "file": "tests/sharing-v2-cloud.integration.mjs",
+        "name": "workspace copy relays authenticated history to a second approved account and applies settings on both devices"
+      }
+    ]
+  },
+  {
     "feature": "calendar-title-multiple-dates-periods-and-approximation-20261116",
     "tests": [
       {
@@ -472,6 +499,18 @@
       {
         "file": "tests/calendar-week.test.mjs",
         "name": "${platform} three and seven day calendars keep opened chores in their day column outside the timeline"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "${platform} weekly all-day rows align across dates and each chore list expands independently"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "${platform} a weekly timed drag respects local panels near midnight"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "${platform} all-day panels align while a full chore list stays in its own day column in two and three day mode"
       },
       {
         "file": "tests/calendar-week.test.mjs",
@@ -1425,7 +1464,7 @@
       },
       {
         "file": "tests/birthday-celebration.test.mjs",
-        "name": "${platform} birthday month marker preserves appointment slots and detail birthday editing"
+        "name": "${platform} own birthday stays a date marker and other birthdays keep their calendar edit action"
       }
     ],
     "manualReview": "docs/audits/2026-11-14-birthday-preview.md"
@@ -1440,6 +1479,14 @@
       {
         "file": "tests/ui-review-onboarding.test.mjs",
         "name": "first run saves time preferences atomically and never replays them after setup was committed"
+      },
+      {
+        "file": "tests/ui-review-onboarding.test.mjs",
+        "name": "first run opens home automatically after a temporary post-save read failure without saving twice"
+      },
+      {
+        "file": "tests/ui-review-onboarding.test.mjs",
+        "name": "the shared home setup route saves in the personal database and returns to the existing home"
       },
       {
         "file": "tests/ui-review-affordances.test.mjs",
@@ -1861,6 +1908,10 @@
       {
         "file": "tests/waste-search-and-storage.test.mjs",
         "name": "waste creation, edit, one-time hiding, restore and deletion"
+      },
+      {
+        "file": "tests/waste-search-and-storage.test.mjs",
+        "name": "personal waste settings open from SQLite when the full planner is unavailable"
       }
     ]
   },
@@ -1912,6 +1963,10 @@
       {
         "file": "tests/appliance-care-repository.test.mjs",
         "name": "setting and changing a single saved appliance cycle preserves the analysis and other chore settings"
+      },
+      {
+        "file": "tests/appliance-care-repository.test.mjs",
+        "name": "reanalysis keeps a shared PDF until the last saved appliance replaces it"
       },
       {
         "file": "tests/mobile-ui-audit.test.mjs",
@@ -2034,6 +2089,10 @@
       {
         "file": "tests/waste-calendar-appearance.test.mjs",
         "name": "the real calendar distinguishes hidden weekly and active monthly collections on one date"
+      },
+      {
+        "file": "tests/ui-review-calendar-fixtures.test.mjs",
+        "name": "month and seven day calendars show collection icons beside wrap-capable names"
       }
     ],
     "manualReview": "docs/testing-strategy.md"
@@ -3234,6 +3293,26 @@
         "name": "a superseding refresh or invalidation cancels owner-read recovery and never publishes the obsolete attempt"
       },
       {
+        "file": "tests/planner-refresh-controller.test.mjs",
+        "name": "temporary local read failures retain the last home and recover without replaying a widget action"
+      },
+      {
+        "file": "tests/planner-refresh-controller.test.mjs",
+        "name": "cold home uses the committed fallback while retrying a transient read without publishing it"
+      },
+      {
+        "file": "tests/planner-refresh-controller.test.mjs",
+        "name": "automatic planner recovery stops on departure and bounds retries while storage remains unavailable"
+      },
+      {
+        "file": "tests/planner-repository.test.mjs",
+        "name": "cold home recovery reads the committed plan without regenerating or writing it"
+      },
+      {
+        "file": "tests/planner-repository.test.mjs",
+        "name": "cold home recovery distinguishes an empty saved plan from incomplete setup"
+      },
+      {
         "file": "tests/widget-durable-input.test.mjs",
         "name": "retrying an owner-input read after a committed native widget action does not repeat its completion or Google revision"
       },
@@ -4131,6 +4210,10 @@
       {
         "file": "tests/sharing-v2-actions.test.mjs",
         "name": "v2 actions record completion and targeted undo atomically and make repeated checkbox taps idempotent"
+      },
+      {
+        "file": "tests/sharing-v2-actions.test.mjs",
+        "name": "v2 completion records the actual order when the task planned second is finished first"
       },
       {
         "file": "tests/sharing-v2-actions.test.mjs",
@@ -5310,6 +5393,14 @@
       {
         "file": "tests/sharing-v2-private-overlay.test.mjs",
         "name": "private overlay rejects other users and shared snapshots and never shifts a civil date into the group timezone"
+      },
+      {
+        "file": "tests/sharing-v2-private-ui.test.mjs",
+        "name": "shared home keeps the committed personal list during a temporary read failure and refreshes it automatically"
+      },
+      {
+        "file": "tests/sharing-v2-private-ui.test.mjs",
+        "name": "cold shared home distinguishes unavailable personal chores from a confirmed empty day"
       }
     ]
   },
@@ -6010,6 +6101,14 @@
       {
         "file": "tests/analysis-delivery.test.mjs",
         "name": "pending analysis result, PDF and receipt survive cold reopen without sharing or a second upload"
+      },
+      {
+        "file": "tests/analysis-delivery.test.mjs",
+        "name": "discarded and replaced analysis PDFs are removed only after their last local reference"
+      },
+      {
+        "file": "tests/analysis-delivery.test.mjs",
+        "name": "an old local PDF still gets its first analysis while attempted work uses recovery only"
       },
       {
         "file": "tests/analysis-delivery.test.mjs",
@@ -8259,7 +8358,7 @@
     "tests": [
       {
         "file": "tests/post-phase6-mobile-ui.test.mjs",
-        "name": "${platform} home progress hides percent until the first completion without hiding the chore count"
+        "name": "${platform} home progress keeps the chore count without a redundant percentage label"
       }
     ]
   },
@@ -8381,6 +8480,10 @@
       {
         "file": "tests/post-phase6-mobile-ui.test.mjs",
         "name": "individual chore switches reject double taps roll back failed writes and retain saved values across a failed reread"
+      },
+      {
+        "file": "tests/settings-source-ui.test.mjs",
+        "name": "shared chore settings keep the last list during a temporary read failure and discard it if account access changes"
       },
       {
         "file": "tests/sharing-planning.test.mjs",
@@ -9330,6 +9433,10 @@
       },
       {
         "file": "tests/appliance-native-device-proof.test.mjs",
+        "name": "analysis polling reuses an unexpired device grant only for its exact account endpoint and admission"
+      },
+      {
+        "file": "tests/appliance-native-device-proof.test.mjs",
         "name": "Android requires Play-signed app, evaluated Device Recall and a fresh exclusive enrollment before issuing a device grant"
       },
       {
@@ -9702,11 +9809,11 @@
       },
       {
         "file": "tests/calendar-fixed-heading.test.mjs",
-        "name": "${platform} measured all-day content shares bounded space with expanded chores and ignores stale content measurements"
+        "name": "${platform} all-day content shares bounded space with expanded chores and updates when events change"
       },
       {
         "file": "tests/calendar-fixed-heading.test.mjs",
-        "name": "${platform} all-day measurements retain only active content and ignore callbacks from retired content"
+        "name": "${platform} replaced all-day content cannot keep earlier rows or alter the current date pane"
       },
       {
         "file": "tests/calendar-fixed-heading.test.mjs",
@@ -9850,7 +9957,7 @@
     "tests": [
       {
         "file": "tests/calendar-month-boundary.test.mjs",
-        "name": "continuous month boundaries split the week without duplicating dates and put the month heading in day one weekday column"
+        "name": "continuous month boundaries split the week without duplicating dates and keep day one in its weekday column"
       }
     ]
   },
@@ -10214,6 +10321,14 @@
     "tests": [
       {
         "file": "tests/group-request-sections.test.mjs",
+        "name": "only the group administrator can open assignment reviews and approve a pending substitution"
+      },
+      {
+        "file": "tests/sharing-v2-workspace-routes.test.mjs",
+        "name": "${platform} a review link cannot open a different group after the workspace changes"
+      },
+      {
+        "file": "tests/group-request-sections.test.mjs",
         "name": "group request page shares one local read and displays both request types without nested scroll lists"
       },
       {
@@ -10238,11 +10353,11 @@
       },
       {
         "file": "tests/group-settings-navigation.test.mjs",
-        "name": "${platform} group settings show load and held-change failures outside detail pages and allow a safe read retry"
+        "name": "${platform} group settings keep actionable failures reachable and allow a safe read retry"
       },
       {
         "file": "tests/group-request-sections.test.mjs",
-        "name": "${platform} short request summaries appear inline without navigation and never present unread requests as empty"
+        "name": "${platform} group requests never present unread requests as empty"
       }
     ]
   },
@@ -10368,6 +10483,10 @@
       {
         "file": "tests/appliance-shared-manual-retention.test.mjs",
         "name": "a PDF received after unchanged appliance metadata is retained without duplicating the product or private chores"
+      },
+      {
+        "file": "tests/appliance-shared-manual-retention.test.mjs",
+        "name": "upgrading a legacy copy preserves the PDF used by shared detail until the shared appliance also replaces it"
       },
       {
         "file": "tests/appliance-shared-manual-retention.test.mjs",
@@ -10949,6 +11068,10 @@
       },
       {
         "file": "tests/subscription-purchase-recovery.test.mjs",
+        "name": "Google Play management uses the verified purchase SKU and falls back to subscriptions when metadata is missing"
+      },
+      {
+        "file": "tests/subscription-purchase-recovery.test.mjs",
         "name": "${platform} a failed purchase from a previous login cannot clear the current accounts in-flight action"
       },
       {
@@ -11483,6 +11606,10 @@
       {
         "file": "tests/daily-housework-digest.test.mjs",
         "name": "digest indexing leaves reminders identical while old schedule rows are not rescanned for every future date"
+      },
+      {
+        "file": "tests/daily-housework-digest.test.mjs",
+        "name": "the daily reminder window indexes old completed occurrences once"
       },
       {
         "file": "tests/background-sync-audit.test.mjs",
@@ -12723,6 +12850,10 @@
       },
       {
         "file": "tests/shared-google-task-list.test.mjs",
+        "name": "a lost list creation reply is recovered from a unique Google list without a second POST"
+      },
+      {
+        "file": "tests/shared-google-task-list.test.mjs",
         "name": "only definitive list insert rejection releases its exact grant for a fresh retry"
       },
       {
@@ -13748,6 +13879,10 @@
       },
       {
         "file": "tests/calendar-additional-audit.test.mjs",
+        "name": "Google event links accept Calendar destinations and reject unrelated URLs"
+      },
+      {
+        "file": "tests/calendar-additional-audit.test.mjs",
         "name": "explicit calendar draft discard cannot delete newer input saved by another editor"
       }
     ]
@@ -13809,6 +13944,10 @@
       {
         "file": "tests/home-additional-audit.test.mjs",
         "name": "upcoming exact completion matching is linear while preserving first-match and legacy precedence"
+      },
+      {
+        "file": "tests/home-additional-audit.test.mjs",
+        "name": "upcoming keeps orphan completions and frozen dates after skipping unrelated history in the index"
       }
     ]
   },
@@ -15859,6 +15998,10 @@
       {
         "file": "tests/settings-departure.test.mjs",
         "name": "personal chore departure discards invalid numbers and preserves already saved values"
+      },
+      {
+        "file": "tests/settings-departure.test.mjs",
+        "name": "settings Back preserves history and direct destinations work during loading or failure"
       }
     ],
     "manualReview": "docs/audits/2026-11-09-settings-design-unification.md"
@@ -16698,6 +16841,14 @@
         "name": "${platform} fixture claims, completion, overdue undo and weekly switches stay within one home review session"
       },
       {
+        "file": "tests/ui-review-home-data.test.mjs",
+        "name": "shared home review can complete personal setup and returns to the same shared home"
+      },
+      {
+        "file": "tests/ui-review-home-data.test.mjs",
+        "name": "home review shows weekly assignments and only the dates that differ from the home date"
+      },
+      {
         "file": "tests/ui-review-calendar-fixtures.test.mjs",
         "name": "calendar review searches fixture memos, inspects personal and shared events, and keeps device preferences isolated"
       },
@@ -16732,7 +16883,7 @@
       },
       {
         "file": "tests/calendar-week.test.mjs",
-        "name": "${platform} multi-day all-day labels start in the first chore-free column of their own span"
+        "name": "${platform} compact multi-day all-day labels stay anchored when chores open below them"
       },
       {
         "file": "tests/calendar-week.test.mjs",
@@ -16741,6 +16892,10 @@
       {
         "file": "tests/calendar-week.test.mjs",
         "name": "${platform} the selected holiday uses the same date color as any selected day"
+      },
+      {
+        "file": "tests/calendar-week.test.mjs",
+        "name": "${platform} the two day timeline keeps its range when selecting an already visible day across months"
       },
       {
         "file": "tests/calendar-week.test.mjs",
@@ -16773,6 +16928,10 @@
       {
         "file": "tests/calendar-everyday-usability.test.mjs",
         "name": "${platform} a read-only event can retry loading reminders and save only its own notification"
+      },
+      {
+        "file": "tests/calendar-everyday-usability.test.mjs",
+        "name": "${platform} a read-only Google event falls back safely and shows when the browser cannot open"
       },
       {
         "file": "tests/calendar-everyday-usability.test.mjs",

@@ -1,9 +1,10 @@
 import { v2MemberLabels } from './member-labels';
 import { createV2RoundVisibility } from './round-visibility';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppButton, palette, typography } from '@/components/planner-ui';
 import { TaskCheckboxRow } from '@/components/task-checkbox-row';
 import { formatJapaneseDate } from '@/domain/scheduling/local-date';
+import type { LocalDate } from '@/domain/shared/types';
 import type { V2GroupController, V2GroupScreenModel } from '../v2/controller';
 import type { V2PlannedOccurrence, V2SubjectPlan } from '../v2/common-plan';
 import type { V2RoundReference } from '../v2/actions';
@@ -14,14 +15,14 @@ import type { CompletionFeedback } from './completion-feedback';
 import { v2BacklogTarget } from './backlog-target';
 import { calendarChoreTimeLabel } from '../../calendar/chore-time-label';
 
-export function V2RoundCard({ model, round: displayedRound, subject: displayedSubject, actions, busy, run, onOpen, onDate, onAssignment, onPast, onAssignmentRequest, showActions = false, recommendation: displayedRecommendation, feedback, home = false, compact = false, narrowCalendar = false, showCalendarTime = false, showHomeSource = false }: {
+export function V2RoundCard({ model, round: displayedRound, subject: displayedSubject, actions, busy, run, onOpen, onDate, onAssignment, onPast, onAssignmentRequest, showActions = false, recommendation: displayedRecommendation, feedback, home = false, homeDate = model.plan.range.asOfDate, compact = false, narrowCalendar, mixedSources = false, showCalendarTime = false, showHomeSource = false, overdue = false }: {
   model: V2GroupScreenModel; round: V2PlannedOccurrence; subject: V2SubjectPlan;
   actions: Pick<V2GroupController['actions'], 'complete' | 'undoMany' | 'claim' | 'releaseClaim' | 'requestAssignment'>; busy: boolean;
   run: (work: () => Promise<unknown>) => Promise<void>; onOpen: () => void; onDate?: () => void; onAssignment?: () => void;
   onPast?: () => void; onAssignmentRequest?: () => void; showActions?: boolean;
   recommendation?: V2Recommendation;
   feedback?: CompletionFeedback;
-  home?: boolean; compact?: boolean; narrowCalendar?: boolean; showCalendarTime?: boolean; showHomeSource?: boolean;
+  home?: boolean; homeDate?: LocalDate; compact?: boolean; narrowCalendar?: 'three' | 'week'; mixedSources?: boolean; showCalendarTime?: boolean; showHomeSource?: boolean; overdue?: boolean;
 }) {
   const { round, subject } = showActions ? { round: displayedRound, subject: displayedSubject } : v2BacklogTarget(model.plan.occurrences, displayedRound, displayedSubject, model.plan.range.asOfDate);
   const recommendation = subject.id === displayedSubject.id ? displayedRecommendation : undefined;
@@ -36,7 +37,8 @@ export function V2RoundCard({ model, round: displayedRound, subject: displayedSu
   const partialUndo = undo.length < subject.completionOperationIds.length || retainedUndoIds.length < (subject.retainedCompletion?.recorderUserIds.length ?? 0);
   const ref: V2RoundReference = { choreId: round.choreId, anchorDate: round.anchorDate, ruleVersion: round.ruleVersion, subjectUserId: subject.subjectUserId,
     expectedConfigurationIds: model.configurations.find((entry) => entry.choreId === round.choreId)?.candidates.map((entry) => entry.operationId), expectedTimeZone: model.plan.timeZone };
-  const canComplete = owns && round.activeInPeriod && !subject.pendingCompletionIds.length && !subject.dependencyBlocked && !subject.dependencyAwaitingCompletion && !round.assignmentConflictIds.length;
+  // Dependencies guide scheduling. Completion records work the member already did.
+  const canComplete = owns && round.activeInPeriod && !subject.pendingCompletionIds.length && !round.assignmentConflictIds.length;
   const key = `shared:${subject.id}`;
   const work = subject.completed ? undo.length || retainedUndo ? () => actions.undoMany(undo, retainedUndo) : undefined
     : canComplete ? async () => {
@@ -63,27 +65,23 @@ export function V2RoundCard({ model, round: displayedRound, subject: displayedSu
   const assignmentPending = model.assignmentRequests.some((request) => !request.cancelled && request.proposal.occurrenceId === round.id && request.proposal.requesterUserId === viewer
     && ['pendingDelivery', 'awaiting'].includes(request.kind));
   const canClaim = round.configuration.policy.completion === 'one' && !round.assigneeIds.length && !subject.completed && !round.assignmentConflictIds.length;
-  const needsAttention = round.claimState === 'provisional' || round.assignmentConflictIds.length > 0
-    || formal.kind === 'conflict' || formal.kind === 'review' || subject.requestReviewIds.length > 0
-    || subject.dependencyAwaitingCompletion || showStatus && (subject.cooldownSuppressed
-      || subject.pendingCompletionIds.length > 0 || subject.strictInstructionUnfulfilled);
-  const showManualDate = formal.kind === 'manual' && !home;
-  const showSourceRegion = formal.kind === 'manual' && formal.timeZone !== model.plan.timeZone;
-  const footer = showActions || needsAttention || showManualDate || showSourceRegion ?
+  const cooldown = showStatus && subject.cooldownSuppressed ? subject.minimumNextExecutionDay : null;
+  const showCooldown = !home && cooldown;
+  const showManualDate = formal.kind === 'manual' && !home && !cooldown;
+  const showSourceRegion = !home && formal.kind === 'manual' && formal.timeZone !== model.plan.timeZone;
+  const homeTarget = home && formal.kind === 'manual' && !cooldown
+    ? v2TargetLabel(formal.target, model.plan.timeZone, { referenceDate: homeDate }) : undefined;
+  const homeDetail = homeTarget !== undefined && formal.kind === 'manual' && formal.mode === 'deadline'
+    ? `${homeTarget || '今日'}まで` : homeTarget;
+  const footer = showActions || showCooldown || showManualDate || showSourceRegion ?
     <View style={styles.details}>
       {showActions || showManualDate ? <Text style={styles.date}>{formal.kind === 'manual' ? `${formal.mode === 'fixed' ? '固定日時' : formal.mode === 'deadline' ? '期限' : '実施日'}：${v2TargetLabel(formal.target, formal.timeZone)}`
         : `${recommendation ? '推奨日' : '基準日'}：${formatJapaneseDate(recommendation?.date ?? subject.suggestedDate, { weekday: true })}`}</Text> : null}
       {showSourceRegion && formal.kind === 'manual' ? <Text style={styles.caption}>指定時の地域：{formal.timeZone}。カレンダーの時刻付き予定は現在の地域で表示します。</Text> : null}
       {showActions && (!displayCompleted || recordedWindow) ? <Text style={styles.caption}>{displayCompleted ? '実施時点の期間' : '実施できる期間'}：
         {formatJapaneseDate(displayCompleted && recordedWindow ? recordedWindow.windowStart : subject.executionWindowStart)}〜{formatJapaneseDate(displayCompleted && recordedWindow ? recordedWindow.windowEnd : subject.executionWindowEnd)}</Text> : null}
-      {round.claimState === 'provisional' ? <Text style={styles.notice}>引き受けが重なっています。暫定担当のまま実施でき、管理者が正式な担当を決めます。</Text> : null}
-      {round.assignmentConflictIds.length ? <Text style={styles.notice}>{round.assignmentMappingReviewIds.length
-        ? '周期の変更に合わせて、以前の担当指定をどう適用するか確認してください。' : '担当が競合しています。管理者による確認が必要です。'}</Text> : null}
-      {formal.kind === 'conflict' || formal.kind === 'review' || subject.requestReviewIds.length ? <Text style={styles.notice}>日時の確認が必要です。実施した記録は保持されます。</Text> : null}
-      {subject.dependencyAwaitingCompletion ? <Text style={styles.notice}>先に必要な家事の完了を待っています。</Text> : null}
-      {showStatus && subject.cooldownSuppressed ? <Text style={styles.caption}>最近実施済み · {subject.minimumNextExecutionDay ? formatJapaneseDate(subject.minimumNextExecutionDay) : ''}以降に再実施できます。</Text> : null}
-      {showStatus && subject.pendingCompletionIds.length ? <Text style={styles.notice}>実施記録の確認・承認待ち</Text> : null}
-      {showStatus && subject.strictInstructionUnfulfilled ? <Text style={styles.notice}>実施済み · 指定日時の条件は未達成です。</Text> : null}
+      {showCooldown ? <Text style={styles.caption}>再実施の目安は{formatJapaneseDate(showCooldown)}以降</Text> : null}
+      {showActions && showStatus && subject.pendingCompletionIds.length ? <Text style={styles.caption}>代行を記録済み</Text> : null}
       {showActions && showStatus && subject.completed && relatedWork.some(record => record.active) ? <Text style={styles.caption}>実施者：{[...new Set(relatedWork.filter((record) => record.active).map((record) => nameOf(record.performerUserId)))].join('・')}</Text> : null}
       {showActions && showStatus && subject.completed && partialUndo ? <Text style={styles.caption}>ほかの人が登録した完了は、その登録者か管理者が取り消せます。</Text> : null}
       <View style={styles.buttons}>
@@ -98,12 +96,16 @@ export function V2RoundCard({ model, round: displayedRound, subject: displayedSu
               expectedAssignmentIds: round.assignmentOperationIds, expectedConflictIds: round.assignmentConflictIds }); }))} /> : null}
       </View>
     </View> : undefined;
-  return <TaskCheckboxRow chore={{ ...chore, householdId: '', category }} completed={displayCompleted} home={home} compact={compact} narrowCalendar={narrowCalendar} detail={home ? [category, formal.kind === 'manual' ? v2TargetLabel(formal.target, formal.timeZone) : ''].filter(Boolean).join(' · ') : undefined}
-      homeSourceLabel={showHomeSource ? '共有' : undefined}
+  return <TaskCheckboxRow chore={{ ...chore, householdId: '', category }} completed={displayCompleted} home={home} compact={compact} narrowCalendar={narrowCalendar} mixedSources={mixedSources}
+      detail={homeDetail}
+      homeSourceLabel={showHomeSource ? '共有' : undefined} overdue={overdue && formal.kind !== 'manual'}
       calendarTimeLabel={showCalendarTime && formal.kind === 'manual' && formal.mode === 'fixed' && formal.target.precision === 'interval'
         ? calendarChoreTimeLabel({ start: Date.parse(formal.target.start), end: Date.parse(formal.target.end) }, model.plan.timeZone) : undefined}
-      sourceIcon={subject.subjectUserId === null ? 'person' : 'group'} footer={footer}
-      action={canClaim ? <View style={styles.claim}><AppButton title="担う" compact variant="quiet" disabled={busy} onPress={() => run(() => actions.claim(ref))} /></View> : undefined}
+      footer={footer}
+      action={canClaim ? <Pressable accessibilityRole="button" accessibilityLabel="担う" accessibilityHint="この家事を引き受けます"
+        disabled={busy} onPress={() => run(() => actions.claim(ref))} style={styles.claimTarget}>
+        {({ pressed }) => <View style={[styles.claim, pressed && styles.claimPressed, busy && styles.claimDisabled]}><Text style={styles.claimText}>担う</Text></View>}
+      </Pressable> : undefined}
       source={formal.kind === 'manual' ? 'instructed' : 'shared'}
       executionWindow={{ start: recordedWindow?.windowStart ?? subject.executionWindowStart, end: recordedWindow?.windowEnd ?? subject.executionWindowEnd }}
       urgent={isTaskUrgent({ completed: displayCompleted, load: chore.load, recommendedDate, windowStart: subject.executionWindowStart, windowEnd: subject.executionWindowEnd }, model.plan.range.asOfDate)}
@@ -111,8 +113,11 @@ export function V2RoundCard({ model, round: displayedRound, subject: displayedSu
       onChangeDate={compact && !displayCompleted ? onDate : undefined} />;
 }
 const styles = StyleSheet.create({
-  claim: { borderWidth: 1, borderColor: palette.border, borderRadius: 10, minWidth: 48 },
+  claimTarget: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  claim: { borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, borderRadius: 7, paddingHorizontal: 6, paddingVertical: 3 },
+  claimText: { ...typography.caption, color: palette.accent, fontWeight: '600' },
+  claimPressed: { backgroundColor: palette.accentSoft }, claimDisabled: { opacity: .5 },
   details: { gap: 5 },
   date: { ...typography.label, color: palette.ink, fontWeight: '600' }, caption: { ...typography.caption, color: palette.muted },
-  notice: { ...typography.caption, color: palette.warning }, buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 });

@@ -5,7 +5,7 @@ import { applianceManufacturerIdentity } from '../../features/appliance-care/off
 import { sharedDocumentDigest } from '../../features/sharing/crypto.ts';
 import { withPlannerDatabaseOperation } from './repository.ts';
 import { withIsolatedSqliteTransaction } from './isolated-transaction.ts';
-import { storeApplianceManualInside } from './appliance-manual-storage.ts';
+import { removeUnreferencedApplianceManualInside, storeApplianceManualInside } from './appliance-manual-storage.ts';
 const verifiedDocuments = new WeakMap<SQLiteDatabase, { values: Map<string, { content: string; revision: string | null }>; characters: number }>();
 const MAX_VERIFIED_DOCUMENT_CHARACTERS = 12 * 1024 * 1024;
 export class InvalidStoredManualError extends Error {}
@@ -52,7 +52,7 @@ export function retainSharedApplianceCopies(database: SQLiteDatabase, groupId: s
     if (await transaction.getFirstAsync("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sharing_workspace_metadata'")) throw new Error('家電の個人保存先を確認してください。');
     const rows = await transaction.getAllAsync<{ id: string; manufacturer: string; product_name: string; model_number: string; manual_digest: string | null; display_name: string; created_at: string }>(
       `SELECT id, manufacturer, product_name, model_number,
-       CASE WHEN model_number='' AND json_valid(analysis_json) THEN json_extract(analysis_json, '$.manualSource.sha256') END AS manual_digest,
+       CASE WHEN json_valid(analysis_json) THEN json_extract(analysis_json, '$.manualSource.sha256') END AS manual_digest,
        display_name, created_at FROM appliances WHERE household_id=?`, 'local-household');
     const byIdentity = new Map<string, typeof rows>();
     for (const row of rows) {
@@ -61,13 +61,15 @@ export function retainSharedApplianceCopies(database: SQLiteDatabase, groupId: s
       matches.push(row); byIdentity.set(key, matches);
     }
     const byId = new Map(rows.map(row => [row.id, row]));
-    const savedCopies = new Map<string, { shared_id: string; source_digest: string; personal_id: string }>();
+    const savedCopies = new Map<string, { shared_id: string; source_digest: string; personal_id: string; manual_digest: string | null }>();
+    const currentManuals = new Map(rows.map(row => [row.id, row.manual_digest]));
+    const replacedManuals = new Set<string>();
     const existingManuals = new Set<string>();
     const ids = [...new Set(copies.map(copy => copy.appliance.id))];
     const digests = [...new Set(copies.flatMap(copy => copy.manual && copy.appliance.analysis.manualSource?.sha256 ? [copy.appliance.analysis.manualSource.sha256] : []))];
     for (let offset = 0; offset < ids.length; offset += 300) {
       const page = ids.slice(offset, offset + 300);
-      for (const row of await transaction.getAllAsync<{ shared_id: string; source_digest: string; personal_id: string }>(`SELECT shared_id,source_digest,personal_id FROM appliance_shared_copies WHERE group_id=? AND shared_id IN (${page.map(() => '?').join(',')})`, groupId, ...page)) savedCopies.set(row.shared_id, row);
+      for (const row of await transaction.getAllAsync<{ shared_id: string; source_digest: string; personal_id: string; manual_digest: string | null }>(`SELECT shared_id,source_digest,personal_id,manual_digest FROM appliance_shared_copies WHERE group_id=? AND shared_id IN (${page.map(() => '?').join(',')})`, groupId, ...page)) savedCopies.set(row.shared_id, row);
     }
     for (let offset = 0; offset < digests.length; offset += 300) {
       const page = digests.slice(offset, offset + 300);
@@ -83,7 +85,12 @@ export function retainSharedApplianceCopies(database: SQLiteDatabase, groupId: s
       if (manualDigest && manual && !existingManuals.has(manualDigest)) {
         await storeApplianceManualInside(transaction, manual, manualDigest); existingManuals.add(manualDigest); changed = true;
       }
-      if (savedCopy?.source_digest === digest) continue;
+      if (savedCopy?.source_digest === digest) {
+        if (savedCopy.manual_digest === null) {
+          await transaction.runAsync('UPDATE appliance_shared_copies SET manual_digest=? WHERE group_id=? AND shared_id=?', manualDigest ?? '', groupId, appliance.id);
+        }
+        continue;
+      }
       changed = true;
       const product = identity(appliance.manufacturer, appliance.modelNumber, appliance.productName, manualDigest);
       const key = JSON.stringify(product);
@@ -99,9 +106,16 @@ export function retainSharedApplianceCopies(database: SQLiteDatabase, groupId: s
         official_manual_url=excluded.official_manual_url, analysis_json=excluded.analysis_json, updated_at=excluded.updated_at`,
       id, 'local-household', appliance.manufacturer, appliance.productName, appliance.modelNumber ?? '', appliance.category ?? null, prior?.display_name ?? appliance.displayName,
       appliance.officialProductUrl ?? null, appliance.officialManualUrl, JSON.stringify(appliance.analysis), prior?.created_at ?? appliance.createdAt, appliance.updatedAt);
-      await transaction.runAsync('INSERT INTO appliance_shared_copies (group_id, shared_id, personal_id, source_digest) VALUES (?, ?, ?, ?) ON CONFLICT(group_id, shared_id) DO UPDATE SET personal_id=excluded.personal_id, source_digest=excluded.source_digest', groupId, appliance.id, id, digest);
-      savedCopies.set(appliance.id, { shared_id: appliance.id, personal_id: id, source_digest: digest });
+      await transaction.runAsync(`INSERT INTO appliance_shared_copies (group_id,shared_id,personal_id,source_digest,manual_digest) VALUES (?,?,?,?,?)
+        ON CONFLICT(group_id,shared_id) DO UPDATE SET personal_id=excluded.personal_id, source_digest=excluded.source_digest, manual_digest=excluded.manual_digest`,
+        groupId, appliance.id, id, digest, manualDigest ?? '');
+      for (const previous of [currentManuals.get(id), savedCopy?.manual_digest]) {
+        if (previous && previous !== manualDigest) replacedManuals.add(previous);
+      }
+      currentManuals.set(id, manualDigest ?? null);
+      savedCopies.set(appliance.id, { shared_id: appliance.id, personal_id: id, source_digest: digest, manual_digest: manualDigest ?? '' });
     }
+    for (const digest of replacedManuals) await removeUnreferencedApplianceManualInside(transaction, digest);
     await assertAccess();
     return changed;
   }));

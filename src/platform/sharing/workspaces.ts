@@ -42,6 +42,8 @@ import { createV2HistoryRetentionRuntime } from '../../features/sharing/v2/histo
 import { validateV2RetentionBody } from '../../features/sharing/v2/history-retention-schema.ts';
 import type { VerifiedSharedSnapshot } from '../../features/sharing/snapshots';
 import { removeRetainedLegacyArchive } from '../storage/retention-archives.ts';
+import type { WorkspaceCopyOrigin } from '../../features/sharing/v2/workspace-copy-origin.ts';
+import type { SignedWorkspaceCopy } from '../../features/sharing/v2/workspace-copy-source.ts';
 
 export type { SharingSelection } from '../../features/sharing/workspace-selection.ts';
 export type { SharedWorkspace } from './workspace-types.ts';
@@ -352,6 +354,7 @@ function workspaceRegistryAccess(context: WorkspaceOpenContext) {
     const current = await readRecord(); if (current.status !== 'joining' || !current.join) throw new Error('参加申請が見つかりません。');
     if (!await context.cloud.cancelOwnJoinRequest(current.join.invitation, current.join.request)) throw new Error('参加は承認済みです。同期してからメンバー・端末の管理で解除してください。');
     await update((prior) => ({ ...prior, status: 'left', lastErrorCode: null }));
+    if (current.copyOrigin) await context.cloud.bindMembership(current.copyOrigin.groupId);
   };
   return { assertAccount, assertWritable, readRecord, update, saveArchive, cancelJoinRequest, record: () => record, archive: () => archive, retire: () => { retired = true; } };
 }
@@ -458,6 +461,7 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
         if (!databaseGeneration) throw new V2WorkspaceMigrationRequiredError();
         await access.update(prior => ({ ...prior, v2Migration: { databaseGeneration, ...pin } }));
       },
+      pinCopyOrigin: async origin => { await access.update(prior => ({ ...prior, copyOrigin: origin })); },
       verifyMigrationHistory: async snapshot => {
         const legacy = await openSharingDatabase(userId, groupId, context.record.localGeneration);
         try {
@@ -571,13 +575,15 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
           const current = await access.readRecord(); access.assertWritable();
           if (current.status === 'creating') {
             if (!current.creation) throw new Error('作成途中の共有グループを復旧できません。');
-            try { await cloud.createGroup(access.archive()!.at(-1)!, current.creation.wrappedKey); }
+            try { await cloud.createGroup(access.archive()!.at(-1)!, current.creation.wrappedKey, current.copyOrigin); }
             catch (error) {
               if ((error as { code?: string }).code === 'permission-denied') {
                 const membership = await cloud.readMembership().catch(() => null);
                 if (membership && membership !== groupId) {
                   await access.update(prior => ({ ...prior, status: 'removed', lastErrorCode: 'sharing/membership-exists' }));
-                  throw new SharingAccessError('別の端末でグループへの参加・作成が確定しています。この端末の未送信内容は保存しました。');
+                  throw new SharingAccessError(current.copyOrigin && membership === current.copyOrigin.groupId
+                    ? '元グループの共有状態が変わりました。同期して引き継ぎをやり直してください。'
+                    : '別の端末でグループへの参加・作成が確定しています。この端末の未送信内容は保存しました。');
                 }
               }
               throw error;
@@ -632,6 +638,7 @@ async function buildV2Workspace(context: WorkspaceOpenContext): Promise<V2Shared
                 operationType: 'patch', payload: { userId, displayName: user.displayName?.trim() || 'メンバー' } }];
             });
             if (created.length) result = await session.synchronizer.sync({ ...remainingOptions(), force: true });
+            if (current.copyOrigin && await session.completeWorkspaceCopy()) result = await session.synchronizer.sync({ ...remainingOptions(), force: true });
             const state = await session.repository.readState(); const at = v2ReadPoint(state.assessment.view, state.archive.at(-1)!);
             let name: unknown; try { name = state.assessment.view.field('settings', 'settings', 'name', at)?.value; } catch { /* Preserve a conflict for explicit review. */ }
             await access.update((prior) => ({ ...prior, status: 'active', displayName: typeof name === 'string' ? name : prior.displayName,
@@ -699,29 +706,93 @@ export async function createV2SharingWorkspace(name: string, kind: 'family' | 'r
   if (workspace.protocol !== 2) throw new SharingSchedulerVersionError(); return workspace;
 }
 
-async function createWorkspaceIntent(name: string, timeZone: string, options: { kind: 'family' | 'roommates'; userId: string }): Promise<SharedWorkspace> {
+const runningWorkspaceCopies = new Map<string, Promise<V2SharedWorkspace>>();
+
+export function copyV2SharingWorkspace(source: V2SharedWorkspace, name: string): Promise<V2SharedWorkspace> {
+  const key = keyForScope(source);
+  const prior = runningWorkspaceCopies.get(key); if (prior) return prior;
+  const work = (async () => {
+    const current = await currentSharingWorkspace(source.userId);
+    if (current?.groupId !== source.groupId || current.status !== 'active') throw new SharingAccessError('引き継ぎ元の共有グループを開いてください。');
+    if (current.copyOrigin || current.v2Migration) throw new Error('別のグループから引き継いだデータは元のグループから引き継いでください。');
+    const sync = await source.sync({ force: true, budgetMs: 120_000 });
+    if (!sync.complete || sync.pending || sync.waitingForApproval) throw new Error('共有データの同期が完了してから引き継いでください。');
+    const position = await source.checkpoint();
+    const remote = await source.cloud.readGroup(source.groupId);
+    const state = await source.session.repository.readState();
+    const roster = state.archive.at(-1)!;
+    if (position.pendingCount || position.sequence !== remote.group.headSequence || sharedRosterDigest(roster) !== sharedRosterDigest(remote.roster)
+      || remote.group.rotationRequired || state.assessment.pendingOutboxIds.length) throw new Error('元グループの最新データを同期してください。');
+    const [{ validateWorkspaceCopyOrigin, workspaceCopyPin }, { signWorkspaceCopy }, { planWorkspaceCopy }] = await Promise.all([
+      import('../../features/sharing/v2/workspace-copy-origin'), import('../../features/sharing/v2/workspace-copy-source'), import('../../features/sharing/v2/workspace-copy-plan'),
+    ]);
+    const groupId = `group.${randomUUID()}`;
+    const origin = validateWorkspaceCopyOrigin({ groupId: source.groupId, revision: roster.body.revision, sequence: position.sequence,
+      rosterDigest: sharedRosterDigest(roster), userIds: roster.body.members.map(member => member.userId).sort() }, groupId);
+    const data = { rosters: state.archive, facts: await loadSharedFacts(source.database, source.groupId), receipts: [...state.receipts.values()] };
+    const destination = { groupId, userIds: origin.userIds };
+    const copy = signWorkspaceCopy(workspaceCopyPin(origin), destination, data, source.userId, source.identity);
+    const plan = planWorkspaceCopy(copy, workspaceCopyPin(origin), destination, source.userId, name.trim());
+    await source.drain();
+    const latest = await source.checkpoint();
+    if (latest.sequence !== origin.sequence || latest.pendingCount) throw new Error('元グループの共有データが更新されました。');
+    const workspace = await createWorkspaceIntent(name, String(plan.settings.timeZone), { kind: plan.policy.kind, userId: source.userId,
+      copy: { groupId, origin, signed: copy } });
+    if (workspace.protocol !== 2) throw new SharingSchedulerVersionError();
+    await workspace.sync({ force: true, budgetMs: 120_000 });
+    await saveSharingSelection(workspace);
+    return workspace;
+  })();
+  runningWorkspaceCopies.set(key, work);
+  void work.finally(() => { if (runningWorkspaceCopies.get(key) === work) runningWorkspaceCopies.delete(key); }).catch(() => undefined);
+  return work;
+}
+
+async function createWorkspaceIntent(name: string, timeZone: string, options: { kind: 'family' | 'roommates'; userId: string;
+  copy?: { groupId: string; origin: WorkspaceCopyOrigin; signed: SignedWorkspaceCopy } }): Promise<SharedWorkspace> {
   const trimmed = name.trim(); if (!trimmed || trimmed.length > 100) throw new Error('グループ名は1〜100文字で入力してください。');
   if (!isSharedTimeZone(timeZone)) throw new Error('共有するタイムゾーンを確認してください。');
   const user = await requireUser(options.userId);
   const userId = user.uid;
   const assertCurrent = () => assertSharingIntentOwner(userId);
-  if (await currentSharingWorkspace(userId) || await createSharingCloud(getSharingServices().firestore, userId, () => getSharingServices().auth.currentUser?.uid ?? null).readMembership()) throw new Error('現在のグループから退出するか、参加申請を取り消してから作成してください。');
-  const groupId = `group.${randomUUID()}`; const registry = await sharingRegistryDatabase();
+  const current = await currentSharingWorkspace(userId);
+  const cloud = createSharingCloud(getSharingServices().firestore, userId, () => getSharingServices().auth.currentUser?.uid ?? null);
+  const remote = !current || options.copy ? await cloud.readMembership() : null;
+  if (options.copy ? current?.groupId !== options.copy.origin.groupId || remote !== options.copy.origin.groupId : current || remote) {
+    throw new Error('現在のグループから退出するか、参加申請を取り消してから作成してください。');
+  }
+  const groupId = options.copy?.groupId ?? `group.${randomUUID()}`; const registry = await sharingRegistryDatabase();
   assertCurrent();
-  const identity = await loadOrCreateSharingDeviceIdentity(userId); const roster = createSharedRoster(groupId, userId, identity, { schemaVersion: 2 }); const key = await nativeSharingCrypto.randomBytes(32);
+  const identity = await loadOrCreateSharingDeviceIdentity(userId); const roster = createSharedRoster(groupId, userId, identity, { schemaVersion: 2, workspaceCopy: Boolean(options.copy) }); const key = await nativeSharingCrypto.randomBytes(32);
   const now = new Date();
   try {
     const wrappedKey = await wrapGroupKey(nativeSharingCrypto, groupId, 1, key, identity, identity, userId);
     assertCurrent();
     await saveSharingGroupKey(userId, groupId, 1, key);
     const creation = { wrappedKey, timeZone, anchorDate: sharedLocalDate(now, timeZone), ownerDisplayName: user.displayName?.trim() || '自分', kind: options.kind };
+    if (options.copy) {
+      const { stageSharingWorkspaceCopy } = await import('../storage/sharing-workspace-copy');
+      const database = await openSharingV2Database(userId, groupId);
+      try { await stageSharingWorkspaceCopy(database, groupId, options.copy.signed); }
+      finally { await database.closeAsync(); }
+    }
     await saveSharingWorkspace(registry, { userId, groupId, displayName: trimmed, status: 'creating', anchor: roster, rosterArchive: [roster],
-      createdAt: now.toISOString(), lastSuccessfulSyncAt: null, lastErrorCode: null, creation }, { assertCurrent });
+      createdAt: now.toISOString(), lastSuccessfulSyncAt: null, lastErrorCode: null, creation,
+      ...(options.copy ? { copyOrigin: options.copy.origin } : {}) }, { assertCurrent, moveFromCopySource: Boolean(options.copy) });
     const workspace = await openSharedWorkspace({ userId, groupId });
     assertCurrent(); await enableSharingSession(); assertCurrent(); changed({ userId, groupId });
     void import('../../features/google-sync/background-task').then((module) => module.registerGoogleSyncBackgroundTask()).catch(() => undefined);
-    void workspace.sync().catch(() => undefined); return workspace;
+    if (!options.copy) void workspace.sync().catch(() => undefined);
+    return workspace;
   } finally { key.fill(0); }
+}
+
+export async function isWorkspaceCopyInvitation(expectedUserId: string, sourceId: string, groupId: string) {
+  const user = await requireUser(expectedUserId);
+  const services = getSharingServices();
+  const cloud = createSharingCloud(services.firestore, user.uid, () => services.auth.currentUser?.uid ?? null);
+  const origin = await cloud.readWorkspaceCopyOrigin(groupId);
+  return origin?.groupId === sourceId && origin.userIds.includes(user.uid);
 }
 
 export async function requestSharingWorkspace(linkText: string, expectedUserId: string): Promise<SharedWorkspace> {
@@ -729,8 +800,11 @@ export async function requestSharingWorkspace(linkText: string, expectedUserId: 
   const assertCurrent = () => assertSharingIntentOwner(userId);
   const groupId = link.invitation.body.groupId;
   const current = await currentSharingWorkspace(userId);
-  const remote = await createSharingCloud(getSharingServices().firestore, userId, () => getSharingServices().auth.currentUser?.uid ?? null).readMembership();
-  if (current && current.groupId !== groupId || remote && remote !== groupId) throw new Error('現在のグループから退出するか、参加申請を取り消してから参加してください。');
+  const cloud = createSharingCloud(getSharingServices().firestore, userId, () => getSharingServices().auth.currentUser?.uid ?? null);
+  const remote = await cloud.readMembership();
+  const other = (current && current.groupId !== groupId ? current.groupId : null) ?? (remote && remote !== groupId ? remote : null);
+  const origin = other ? await cloud.readWorkspaceCopyOrigin(groupId) : null;
+  if (other && (!origin || origin.groupId !== other || remote !== other && remote !== groupId)) throw new Error('現在のグループから退出するか、参加申請を取り消してから参加してください。');
   const registry = await sharingRegistryDatabase(); const old = await readSharingWorkspace(registry, userId, groupId);
   const rejoining = old && ['left', 'removed'].includes(old.status);
   const generation = rejoining ? randomUUID() : old?.localGeneration;
@@ -738,6 +812,7 @@ export async function requestSharingWorkspace(linkText: string, expectedUserId: 
   const identity = await loadOrCreateSharingDeviceIdentity(userId, generation);
   assertCurrent();
   const request = createSharedJoinRequest(link, userId, identity, Date.now());
+  if (old && origin && current?.groupId !== groupId) throw new Error('この引き継ぎ先への以前の参加情報を確認してください。');
   if (old) {
     const pin = 'body' in old.anchor ? sharedRosterDigest(old.anchor) : old.anchor.digest;
     // A new invitation may pin a later verified epoch, but cannot replace a previously trusted chain silently.
@@ -752,7 +827,8 @@ export async function requestSharingWorkspace(linkText: string, expectedUserId: 
     }, assertCurrent);
     if (rejoining) workspacePromises.delete(keyForScope({ userId, groupId }));
   } else await saveSharingWorkspace(registry, { userId, groupId, displayName: '参加を申請したグループ', status: 'joining', anchor: link.invitation.body.pin, rosterArchive: [],
-    createdAt: new Date().toISOString(), lastSuccessfulSyncAt: null, lastErrorCode: null, join: { invitation: link.invitation, request } }, { assertCurrent });
+    createdAt: new Date().toISOString(), lastSuccessfulSyncAt: null, lastErrorCode: null, join: { invitation: link.invitation, request },
+    ...(origin ? { copyOrigin: origin } : {}) }, { assertCurrent, moveFromCopySource: Boolean(origin) });
   const workspace = await openSharedWorkspace({ userId, groupId }); assertCurrent(); await enableSharingSession(); assertCurrent(); changed({ userId, groupId });
   void import('../../features/google-sync/background-task').then((module) => module.registerGoogleSyncBackgroundTask()).catch(() => undefined);
   await workspace.sync({ force: true }); return workspace;

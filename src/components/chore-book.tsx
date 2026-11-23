@@ -29,7 +29,7 @@ function ChoreCell({ children, style, onLayout, onFocusCapture }: Pick<ViewProps
 
 /** A continuous, virtualized document. The header and category rail never scroll away. */
 export function ChoreBook<T extends PresentedChore & { id: string; name: string } = ChoreDefinition>({ chores, selectedId, renderChore, onBack, header, title, titleAccessory, hasTabBar = false, banner, collapseSplits = false, beforeCollapse,
-  chapterGroups, showCategory = true, embedded = false, cardChapters = false, itemLabel = '家事', backAccessibilityLabel, backDisabled = false, renderBatchSize = 2, footer, bottomPadding }: {
+  chapterGroups, showCategory = true, showIndex = true, embedded = false, cardChapters = false, itemLabel = '家事', backAccessibilityLabel, backDisabled = false, renderBatchSize = 2, footer, bottomPadding }: {
   chores: readonly T[]; selectedId?: string; title: string; header?: ReactNode;
   titleAccessory?: ReactNode | ((chore: T | undefined) => ReactNode);
   renderChore(chore: T, options?: { hideHeading: boolean }): ReactNode; onBack(): void;
@@ -39,7 +39,7 @@ export function ChoreBook<T extends PresentedChore & { id: string; name: string 
   beforeCollapse?(chore: T): Promise<boolean>;
   /** Non-chore documents provide their reviewed order instead of catalog grouping. */
   chapterGroups?: readonly (readonly [string, readonly T[]])[];
-  showCategory?: boolean; embedded?: boolean; cardChapters?: boolean; itemLabel?: string; backAccessibilityLabel?: string; backDisabled?: boolean; renderBatchSize?: number;
+  showCategory?: boolean; showIndex?: boolean; embedded?: boolean; cardChapters?: boolean; itemLabel?: string; backAccessibilityLabel?: string; backDisabled?: boolean; renderBatchSize?: number;
   footer?: ReactNode;
   bottomPadding?: number;
 }) {
@@ -169,7 +169,7 @@ export function ChoreBook<T extends PresentedChore & { id: string; name: string 
       <FlatList ref={list} key={listEpoch} data={missingStart ? [] : ordered.slice(start)} keyExtractor={chore => chore.id} initialNumToRender={renderBatchSize} maxToRenderPerBatch={renderBatchSize} windowSize={5}
         CellRendererComponent={ChoreCell} maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         removeClippedSubviews={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}
-        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'} contentContainerStyle={[styles.content, collapseSplits && styles.settingsContent, { paddingTop: hasCategory ? categoryInset : 8, paddingBottom: documentBottomPadding }]} ListHeaderComponent={header ? <>{header}</> : undefined}
+        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'} contentContainerStyle={[styles.content, !showIndex && styles.withoutIndex, collapseSplits && styles.settingsContent, { paddingTop: hasCategory ? categoryInset : 8, paddingBottom: documentBottomPadding }]} ListHeaderComponent={header ? <>{header}</> : undefined}
         ListFooterComponent={footer ? <>{footer}</> : undefined}
         onViewableItemsChanged={visible} viewabilityConfig={{ itemVisiblePercentThreshold: 0 }}
         onTouchStart={event => { touch.current = { y: event.nativeEvent.pageY, nearStart: offset.current < 4, active: true }; browsing.current = true; prepended.current = false; backwards.current = false; restoringFrom.current = null; }}
@@ -221,7 +221,7 @@ export function ChoreBook<T extends PresentedChore & { id: string; name: string 
             {!split || expanded ? renderChore(item, { hideHeading: split }) : null}
           </View>;
         }} />
-  ), [listEpoch, missingStart, ordered, start, collapseSplits, hasCategory, categoryInset, documentBottomPadding, header, visible,
+  ), [listEpoch, missingStart, ordered, start, collapseSplits, hasCategory, showIndex, categoryInset, documentBottomPadding, header, visible,
     prependEarlier, position, publishPosition, beginScroll, endScroll, splitIds, expandedSplits, colors.border, renderChore, toggleSplit, measureChapter, renderBatchSize, itemLabel, cardChapters, footer]);
   const document = <>
     {banner}
@@ -239,7 +239,7 @@ export function ChoreBook<T extends PresentedChore & { id: string; name: string 
         }}><Text accessibilityRole="header" numberOfLines={1} style={styles.category}>{visibleCategory}</Text></View>
       </View></View> : null}
       {chapterList}
-      <ChoreCategoryRail groups={railGroups} category={visibleCategory} selectedId={visibleId} onSelect={jump} onScrubChange={onScrubChange} itemLabel={itemLabel} />
+      {showIndex ? <ChoreCategoryRail groups={railGroups} category={visibleCategory} selectedId={visibleId} onSelect={jump} onScrubChange={onScrubChange} itemLabel={itemLabel} /> : null}
       <ChoreScrollIndicator progress={indicatorProgress} fraction={indicatorFraction} opacity={indicatorOpacity} />
     </Animated.View>
   </>;
@@ -254,6 +254,7 @@ const styles = StyleSheet.create({
   categoryOverlay: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 2, alignItems: 'center' },
   categoryLane: { width: '100%', maxWidth: 820, paddingLeft: 13, paddingRight: 42, alignItems: 'flex-start' },
   content: { paddingLeft: 16, paddingRight: 42, paddingTop: 32, paddingBottom: 20, gap: chapterGap, maxWidth: 820, width: '100%', alignSelf: 'center' },
+  withoutIndex: { paddingRight: 16 },
   chapter: { gap: 12, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: palette.border },
   cardChapter: { paddingBottom: 0, borderBottomWidth: 0 },
   settingsContent: { gap: 0 }, settingsChapter: { paddingTop: 0, paddingBottom: 30, borderBottomWidth: 0 }, splitChapter: { paddingTop: 0, paddingBottom: 0, borderBottomWidth: 1 },

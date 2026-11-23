@@ -53,9 +53,16 @@ for (const platform of ['ios', 'android']) {
       await d.repository.commit(seeds()); const controller = ctrl(d);
       await controller.actions.changeDate(ref, { mode: 'day', target: { precision: 'date', date: '2026-10-28' }, options: { strict: true } });
       await controller.actions.complete(ref);
-      const { screen } = await card(d, platform, { showActions: false });
-      assert.ok(screen.text().includes('指定日時の条件は未達成')); assert.equal(screen.nodes().find((node) => node.props.accessibilityRole === 'checkbox').props.accessibilityState.checked, true);
+      const { screen, props } = await card(d, platform, { showActions: false });
+      assert.doesNotMatch(screen.text(), /指定日時の条件は未達成/u);
+      assert.equal(screen.nodes().find(node => node.props.accessibilityRole === 'checkbox').props.accessibilityState.checked, true);
       assert.throws(() => screen.button('日時を変更'), /missing button/); assert.throws(() => screen.button('以前の実施を記録'), /missing button/);
+
+      const record = props.model.plan.history.find(record => record.choreId === ref.choreId && record.active);
+      assert.equal(record?.strictInstructionFulfilled, false);
+      const history = screenHarness('src/features/sharing/v2-ui/completion-history-card.tsx', { exportName: 'V2CompletionHistoryCard', platform,
+        props: { model: props.model, record, actions: controller.actions, busy: false, run: props.run } });
+      assert.match(history.text(), /実施した事実は保存されています。指定日時の条件は未達成です。/u);
     } finally { d.connection.close(); }
   });
 }

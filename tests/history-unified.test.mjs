@@ -29,6 +29,21 @@ test('cancelled personal records stay stored but leave the history list and its 
   assert.deepEqual(data.snapshot.completions, [undone]); screen.unmount();
 });
 
+test('personal history can be reloaded after a read error while keeping already loaded entries visible', async t => {
+  const attempts = [];
+  const data = { snapshot: null, loading: false, error: '履歴を読み込めませんでした', refresh: async options => { attempts.push(options); } };
+  const screen = screenHarness('src/features/planner/history-content.tsx', { exportName: 'PlannerHistoryContent', props: { data } });
+  t.after(() => screen.unmount());
+  assert.ok(screen.button('戻る'));
+  await screen.press('もう一度読み込む');
+  data.snapshot = personalSource([row('saved-work')]).snapshot;
+  screen.render();
+  assert.match(screen.text(), /saved-work/u);
+  await screen.press('もう一度読み込む');
+  assert.match(screen.text(), /saved-work/u);
+  assert.deepEqual(attempts, [{ force: true }, { force: true }]);
+});
+
 for (const platform of ['ios', 'android']) test(`${platform} unified history shows own private work beside authorized group work and never reveals a hidden completion through its learning mirror`, async () => {
   const f = await fixture(); const d = await f.device();
   try {

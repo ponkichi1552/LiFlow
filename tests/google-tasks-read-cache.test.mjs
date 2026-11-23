@@ -251,7 +251,7 @@ test('schema26 adds resumable Google read caches without changing schema25 setti
     assert.ok(before.history.length);
     h.connection.exec('DROP TABLE private_google_task_read_control; DROP TABLE private_google_task_read_items; DROP TABLE private_google_task_read_staging; PRAGMA user_version=25;');
     await migrateLocalDatabase(h.database); await migrateLocalDatabase(h.database);
-    assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 31);
+    assert.equal(h.connection.prepare('PRAGMA user_version').get().user_version, 32);
     assert.deepEqual(await repository.listGoogleTaskLinks(h.database), before.links);
     assert.deepEqual(h.history(), before.history);
     assert.deepEqual(h.connection.prepare('SELECT * FROM chore_definitions ORDER BY id').all(), before.settings);

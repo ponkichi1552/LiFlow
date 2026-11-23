@@ -12,7 +12,7 @@ import { PlannerIssuesContext } from '../contexts/planner-issues-context';
 import { palette } from './planner-colors';
 import { Chevron } from './chevron';
 import { finishStartupDisplay } from '../platform/diagnostics/startup-splash';
-import { plannerColorsForScheme } from './planner-theme';
+import { plannerColorsForScheme, plannerPressColorsForScheme } from './planner-theme';
 
 export { typography } from './planner-typography';
 export { palette } from './planner-colors';
@@ -88,7 +88,7 @@ export function BackButton({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [styles.backButton, pressed && !disabled && styles.buttonPressed]}>
+      style={({ pressed }) => [styles.backButton, pressed && !disabled && { backgroundColor: colors.accentSoft }]}>
       <Chevron direction="left" color={disabled ? colors.disabled : colors.accent} />
       <Text style={[styles.backText, { color: disabled ? colors.disabled : colors.accent }]}>戻る</Text>
     </Pressable>
@@ -115,11 +115,15 @@ export function AppButton({
   compact?: boolean;
   accessibilityLabel?: string;
 }) {
-  const colors = plannerColorsForScheme(useColorScheme());
+  const scheme = useColorScheme();
+  const colors = plannerColorsForScheme(scheme);
+  const pressColors = plannerPressColorsForScheme(scheme);
   const textOnly = variant === 'quiet' || variant === 'dangerText';
   const destructive = variant === 'danger' || variant === 'dangerText';
   const textColor = disabled ? colors.disabled : destructive ? colors.warning
     : variant === 'primary' ? colors.accentInk : variant === 'neutral' ? colors.ink : colors.accent;
+  const pressedBackground = variant === 'primary' ? pressColors.primary : variant === 'danger' ? pressColors.warning
+    : destructive ? colors.warningSoft : textOnly || variant === 'neutral' ? colors.accentSoft : pressColors.tinted;
   return (
     <Pressable
       accessibilityRole="button"
@@ -134,7 +138,7 @@ export function AppButton({
         (variant === 'secondary' || variant === 'outline' || variant === 'surface') && { borderColor: colors.accent, backgroundColor: colors.accentSoft },
         variant === 'neutral' && { borderColor: colors.inputBorder, backgroundColor: colors.surface },
         disabled && { backgroundColor: textOnly ? 'transparent' : colors.surface, borderColor: colors.border, ...(!textOnly ? { borderWidth: 1 } : {}) },
-        pressed && !disabled && styles.buttonPressed,
+        pressed && !disabled && { backgroundColor: pressedBackground },
       ]}>
       {title === '‹' || title === '›' ? <Chevron direction={title === '‹' ? 'left' : 'right'} color={textColor} />
         : <Text style={[styles.buttonText, compact && styles.buttonTextCompact, styles[`buttonText_${variant}`], { color: textColor }]}>{title}</Text>}
@@ -153,7 +157,8 @@ export function ChoiceChip({
   onPress: () => void;
   disabled?: boolean;
 }) {
-  const colors = plannerColorsForScheme(useColorScheme());
+  const scheme = useColorScheme();
+  const colors = plannerColorsForScheme(scheme);
   return (
     <Pressable
       accessibilityRole="button"
@@ -161,7 +166,8 @@ export function ChoiceChip({
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [styles.chip, { borderColor: disabled ? colors.inputBorder : colors.accent,
-        backgroundColor: selected ? disabled ? colors.elevated : colors.accentSoft : colors.surface }, pressed && !disabled && styles.buttonPressed]}>
+        backgroundColor: selected ? disabled ? colors.elevated : colors.accentSoft : colors.surface },
+        pressed && !disabled && { backgroundColor: selected ? plannerPressColorsForScheme(scheme).tinted : colors.accentSoft }]}>
       <Text style={[styles.chipText, { color: disabled ? colors.disabled : colors.accent }, selected && { fontWeight: '700' }]}>{label}</Text>
     </Pressable>
   );
@@ -206,7 +212,7 @@ const styles = StyleSheet.create({
   sectionHeading: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', columnGap: 12, rowGap: 4, marginTop: 2 },
   sectionTitle: { ...typography.section, color: palette.ink, fontWeight: '700', flexShrink: 1 },
   subsectionTitle: { ...typography.control },
-  backButton: { alignSelf: 'flex-start', minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingRight: 16, gap: 6 },
+  backButton: { alignSelf: 'flex-start', minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingRight: 16, gap: 6, borderRadius: 10 },
   backIcon: { width: 20, height: 24, alignItems: 'center', justifyContent: 'center' },
   backChevron: { width: 11, height: 11, borderLeftWidth: 2.5, borderBottomWidth: 2.5, borderColor: palette.accent, transform: [{ rotate: '45deg' }] },
   backText: { ...navigationActionText, color: palette.accent },
@@ -220,7 +226,6 @@ const styles = StyleSheet.create({
   button_quiet: { backgroundColor: 'transparent' },
   button_danger: { backgroundColor: palette.warningSoft },
   button_dangerText: { backgroundColor: 'transparent' },
-  buttonPressed: { opacity: 0.75 },
   buttonText: { ...typography.control, fontWeight: '700', textAlign: 'center' },
   buttonTextCompact: { ...typography.label },
   buttonText_primary: { color: palette.accentInk },

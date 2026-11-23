@@ -165,9 +165,26 @@ test('public store builds reject missing billing setup and keep the native Googl
       'b'.repeat(64), 'fake-api-key', 'fake-project', 'fake-project.firebaseapp.com', 'firebase-app-id', 'web.apps.googleusercontent.com', 'ios.apps.googleusercontent.com', 'required',
       '100000000', 'android'];
     fields.forEach((key, i) => { process.env[key] = values[i]; });
-    const config = configure({ config: {} }); const plugin = config.plugins.find(item => Array.isArray(item) && item[0] === 'expo-iap');
+    const base = require('../app.json').expo;
+    const config = configure({ config: base }); const plugin = config.plugins.find(item => Array.isArray(item) && item[0] === 'expo-iap');
     assert.equal(plugin[1].android.store, 'play');
+    assert.equal(config.android.package, base.android.package);
+    assert.equal(config.ios.bundleIdentifier, 'b166a1b2cdc2f.v1ed948b4df18');
+    const widget = config.plugins.find(item => Array.isArray(item) && item[0] === 'expo-widgets')[1];
+    const extension = config.extra.eas.build.experimental.ios.appExtensions.find(item => item.targetName === 'ExpoWidgetsTarget');
+    assert.equal(widget.bundleIdentifier, `${config.ios.bundleIdentifier}.ExpoWidgetsTarget`);
+    assert.equal(widget.groupIdentifier, `group.${config.ios.bundleIdentifier}`);
+    assert.equal(extension.bundleIdentifier, widget.bundleIdentifier);
+    assert.deepEqual(extension.entitlements['com.apple.security.application-groups'], [widget.groupIdentifier]);
     assert.equal(config.ios.entitlements['com.apple.developer.devicecheck.appattest-environment'], 'production');
+    process.env.EAS_BUILD_PLATFORM = 'ios';
+    delete process.env.EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_PRODUCT_ID;
+    delete process.env.EXPO_PUBLIC_GOOGLE_SUBSCRIPTION_BASE_PLAN_ID;
+    delete process.env.EXPO_PUBLIC_APPLIANCE_PLAY_PROJECT_NUMBER;
+    assert.equal(configure({ config: base }).ios.bundleIdentifier, config.ios.bundleIdentifier);
+    delete process.env.EXPO_PUBLIC_APPLE_SUBSCRIPTION_PRODUCT_ID;
+    assert.throws(() => configure({ config: base }), /EXPO_PUBLIC_APPLE_SUBSCRIPTION_PRODUCT_ID/);
+    process.env.EXPO_PUBLIC_APPLE_SUBSCRIPTION_PRODUCT_ID = 'monthly';
     process.env.EXPO_PUBLIC_APPLIANCE_CARE_API_URL = 'http://localhost'; assert.throws(() => configure({ config: {} }), /HTTPS/);
   } finally { fields.forEach((key, i) => { if (old[i] === undefined) delete process.env[key]; else process.env[key] = old[i]; }); }
 });

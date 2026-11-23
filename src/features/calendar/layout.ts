@@ -95,6 +95,7 @@ type TimelineHead = { top: number; entries: TimelineEntry[] };
 export type TimelineLabel = { minutes: number; lines: 1 | 2; clock: boolean };
 type CompactTimelineOptions = {
   minimumLabel: number; gap: number;
+  mergeCrowdedHeads?: boolean;
   railBottom(item: TimelineEntry): number;
   label(item: TimelineEntry, available: number): TimelineLabel;
 };
@@ -123,7 +124,7 @@ export function compactTimelineLayout(group: readonly TimelineEntry[], before: n
       runs.push(heads);
     }
     const last = heads.at(-1), thirdBack = heads.at(-3);
-    if (last && thirdBack && thirdBack.top + minimumLabel + gap > entry.top) last.entries.push(entry);
+    if (options.mergeCrowdedHeads !== false && last && thirdBack && thirdBack.top + minimumLabel + gap > entry.top) last.entries.push(entry);
     else heads.push({ top: last ? Math.max(entry.top, last.top + minimumLabel + gap) : entry.top, entries: [entry] });
   }
 
